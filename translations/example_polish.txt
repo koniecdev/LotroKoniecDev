@@ -1,0 +1,23 @@
+# LOTRO Polish Translations
+# Format: file_id||gossip_id||content||args_order||args_id||approved
+#
+# Linie zaczynajace sie od # sa ignorowane
+# Puste linie sa ignorowane
+#
+# PRZYKLADY:
+#
+# Prosty tekst bez argumentow:
+# 620756992||1001||Witaj w Srodziemiu!||NULL||NULL||1
+#
+# Tekst z jednym argumentem (np. imie gracza):
+# 620756992||1002||Witaj, <--DO_NOT_TOUCH!-->!||1||1||1
+#
+# Tekst z wieloma argumentami:
+# 620756992||1003||Masz <--DO_NOT_TOUCH!--> zlota i <--DO_NOT_TOUCH!--> srebra.||1-2||1-2||1
+#
+# Tekst z zamieniona kolejnoscia argumentow:
+# Oryginal: "Level {0}: {1}" -> "Poziom {1}: {0}"
+# 620756992||1004||Poziom <--DO_NOT_TOUCH!-->: <--DO_NOT_TOUCH!-->||2-1||1-2||1
+
+# === TUTAJ WSTAW SWOJE TLUMACZENIA ===
+

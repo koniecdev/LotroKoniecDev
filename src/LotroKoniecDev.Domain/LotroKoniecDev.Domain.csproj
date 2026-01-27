@@ -1,0 +1,7 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="..\LotroKoniecDev.Primitives\LotroKoniecDev.Primitives.csproj" />
+  </ItemGroup>
+
+</Project>

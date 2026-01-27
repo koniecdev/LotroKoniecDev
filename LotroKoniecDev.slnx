@@ -1,2 +1,13 @@
 <Solution>
+  <Folder Name="/src/">
+    <Project Path="src/LotroKoniecDev.Primitives/LotroKoniecDev.Primitives.csproj" />
+    <Project Path="src/LotroKoniecDev.Domain/LotroKoniecDev.Domain.csproj" />
+    <Project Path="src/LotroKoniecDev.Application/LotroKoniecDev.Application.csproj" />
+    <Project Path="src/LotroKoniecDev.Infrastructure/LotroKoniecDev.Infrastructure.csproj" />
+    <Project Path="src/LotroKoniecDev/LotroKoniecDev.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/LotroKoniecDev.Tests.Unit/LotroKoniecDev.Tests.Unit.csproj" />
+    <Project Path="tests/LotroKoniecDev.Tests.Integration/LotroKoniecDev.Tests.Integration.csproj" />
+  </Folder>
 </Solution>

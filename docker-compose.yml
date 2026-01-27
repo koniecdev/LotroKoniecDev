@@ -1,0 +1,8 @@
+services:
+  lua:
+    build: .
+    volumes:
+      - ./src/plugin:/app
+    working_dir: /app
+    stdin_open: true
+    tty: true

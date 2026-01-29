@@ -20,4 +20,6 @@
 # 620756992||1004||Poziom <--DO_NOT_TOUCH!-->: <--DO_NOT_TOUCH!-->||2-1||1-2||1
 
 # === TUTAJ WSTAW SWOJE TLUMACZENIA ===
+620871150||218649169||'Szlak!!!!, <--DO_NOT_TOUCH!-->! Red flowers leading a trail through the snow...do you think these are the footprints of blood?\n\n  \qBlood-red footsteps\n  Upon snow coloured black,\n  Where the Dour King walks\n  to take back his throne\n  and finish what was begun.\q\n\n'We have black snow and the body of the Dour King has been moved, leaving the fell flowers as footprints. Something evil is at work here, and I am sure something evil was at work when he sought our relics for immortality.\n\n'We must follow him again. My brother is scouting for signs as well -- seek him as you search.'||1||1||1
+
 

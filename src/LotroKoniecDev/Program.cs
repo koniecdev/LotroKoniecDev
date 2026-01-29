@@ -12,10 +12,8 @@ namespace LotroKoniecDev;
 /// </summary>
 internal static class Program
 {
-    private static readonly string ProjectDir = Path.GetFullPath(
-        Path.Combine(AppContext.BaseDirectory, "..", "..", ".."));
-
-    private static readonly string DataDir = Path.Combine(ProjectDir, "data");
+    private static readonly string DataDir = Path.GetFullPath("data");
+    private const string TranslationsDir = "translations";
 
     private static int Main(string[] args)
     {
@@ -96,7 +94,7 @@ internal static class Program
             return ExitCodes.InvalidArguments;
         }
 
-        string translationsPath = args[1];
+        string translationsPath = ResolveTranslationsPath(args[1]);
         string datPath = args.Length > 2
             ? args[2]
             : Path.Combine(DataDir, "client_local_English.dat");
@@ -209,6 +207,18 @@ internal static class Program
         }
     }
 
+    private static string ResolveTranslationsPath(string input)
+    {
+        if (input.Contains(Path.DirectorySeparatorChar) ||
+            input.Contains(Path.AltDirectorySeparatorChar) ||
+            input.EndsWith(".txt", StringComparison.OrdinalIgnoreCase))
+        {
+            return input;
+        }
+
+        return Path.Combine(TranslationsDir, input + ".txt");
+    }
+
     private static int HandleUnknownCommand()
     {
         PrintUsage();
@@ -231,11 +241,12 @@ internal static class Program
         Console.WriteLine("    LotroKoniecDev export   <- uses data/client_local_English.dat");
         Console.WriteLine();
         Console.WriteLine("  PATCH (inject translations):");
-        Console.WriteLine("    LotroKoniecDev patch <translations.txt> [dat_file]");
+        Console.WriteLine("    LotroKoniecDev patch <name> [dat_file]");
+        Console.WriteLine("    Name resolves to translations/<name>.txt");
         Console.WriteLine();
         Console.WriteLine("Examples:");
         Console.WriteLine("  LotroKoniecDev export");
-        Console.WriteLine("  LotroKoniecDev patch data/polish.txt");
+        Console.WriteLine("  LotroKoniecDev patch example_polish");
     }
 
     private static void WriteInfo(string message) =>

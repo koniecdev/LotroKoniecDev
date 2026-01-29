@@ -14,6 +14,9 @@ public static class InfrastructureDependencyInjection
     public static IServiceCollection AddInfrastructureServices(this IServiceCollection services)
     {
         services.AddScoped<IDatFileHandler, DatFileHandler>();
+        services.AddSingleton<IDatFileLocator, DatFileLocator>();
+        services.AddSingleton<IGameProcessDetector, GameProcessDetector>();
+        services.AddSingleton<IWriteAccessChecker, WriteAccessChecker>();
 
         return services;
     }

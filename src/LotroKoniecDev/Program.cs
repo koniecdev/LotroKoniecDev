@@ -1,15 +1,11 @@
 using LotroKoniecDev.Application.Abstractions;
 using LotroKoniecDev.Application.Extensions;
-using LotroKoniecDev.Domain.Core.Errors;
 using LotroKoniecDev.Domain.Core.Monads;
 using LotroKoniecDev.Infrastructure;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace LotroKoniecDev;
 
-/// <summary>
-/// LOTRO Polish Patcher - CLI application for translating LOTRO game files.
-/// </summary>
 internal static class Program
 {
     private static readonly string DataDir = Path.GetFullPath("data");
@@ -27,7 +23,6 @@ internal static class Program
 
         string command = args[0].ToLowerInvariant();
 
-        // Setup DI container
         var services = new ServiceCollection();
         services.AddApplicationServices();
         services.AddInfrastructureServices();
@@ -44,9 +39,12 @@ internal static class Program
 
     private static int RunExport(string[] args, IServiceProvider serviceProvider)
     {
-        string datPath = args.Length > 1
-            ? args[1]
-            : Path.Combine(DataDir, "client_local_English.dat");
+        string? datPath = ResolveDatPath(
+            args.Length > 1 ? args[1] : null,
+            serviceProvider);
+
+        if (datPath is null)
+            return ExitCodes.FileNotFound;
 
         string outputPath = args.Length > 2
             ? args[2]
@@ -79,9 +77,6 @@ internal static class Program
         WriteSuccess("=== EXPORT COMPLETE ===");
         WriteInfo($"Exported {summary.TotalFragments:N0} texts from {summary.TotalTextFiles:N0} files");
         WriteInfo($"Output: {summary.OutputPath}");
-        Console.WriteLine();
-        WriteInfo("Next step: Translate the texts and run:");
-        WriteInfo($"  dotnet run -- patch {summary.OutputPath} <path_to_dat>");
 
         return ExitCodes.Success;
     }
@@ -95,9 +90,13 @@ internal static class Program
         }
 
         string translationsPath = ResolveTranslationsPath(args[1]);
-        string datPath = args.Length > 2
-            ? args[2]
-            : Path.Combine(DataDir, "client_local_English.dat");
+
+        string? datPath = ResolveDatPath(
+            args.Length > 2 ? args[2] : null,
+            serviceProvider);
+
+        if (datPath is null)
+            return ExitCodes.FileNotFound;
 
         if (!File.Exists(translationsPath))
         {
@@ -111,7 +110,9 @@ internal static class Program
             return ExitCodes.FileNotFound;
         }
 
-        // Create backup
+        if (!RunPreflightChecks(datPath, serviceProvider))
+            return ExitCodes.OperationFailed;
+
         Result backupResult = CreateBackup(datPath);
         if (backupResult.IsFailure)
         {
@@ -138,7 +139,6 @@ internal static class Program
 
         PatchSummary summary = result.Value;
 
-        // Print warnings
         foreach (string warning in summary.Warnings.Take(10))
         {
             WriteWarning(warning);
@@ -159,6 +159,88 @@ internal static class Program
         }
 
         return ExitCodes.Success;
+    }
+
+    private static string? ResolveDatPath(string? explicitPath, IServiceProvider serviceProvider)
+    {
+        if (!string.IsNullOrWhiteSpace(explicitPath))
+            return explicitPath;
+
+        var locator = serviceProvider.GetRequiredService<IDatFileLocator>();
+
+        Result<IReadOnlyList<DatFileLocation>> result = locator.LocateAll(WriteInfo);
+
+        if (result.IsFailure)
+        {
+            WriteError(result.Error.Message);
+            return null;
+        }
+
+        IReadOnlyList<DatFileLocation> locations = result.Value;
+
+        if (locations.Count == 1)
+        {
+            DatFileLocation location = locations[0];
+            WriteInfo($"Found LOTRO: {location.DisplayName}");
+            WriteInfo($"  {location.Path}");
+            return location.Path;
+        }
+
+        return PromptUserChoice(locations);
+    }
+
+    private static string? PromptUserChoice(IReadOnlyList<DatFileLocation> locations)
+    {
+        Console.WriteLine();
+        WriteInfo("Multiple LOTRO installations found:");
+        Console.WriteLine();
+
+        for (int i = 0; i < locations.Count; i++)
+        {
+            Console.WriteLine($"  [{i + 1}] {locations[i].DisplayName}");
+            Console.WriteLine($"      {locations[i].Path}");
+        }
+
+        Console.WriteLine();
+        Console.Write($"Choose installation (1-{locations.Count}): ");
+
+        string? input = Console.ReadLine();
+
+        if (int.TryParse(input, out int choice) &&
+            choice >= 1 && choice <= locations.Count)
+        {
+            return locations[choice - 1].Path;
+        }
+
+        WriteError("Invalid choice.");
+        return null;
+    }
+
+    private static bool RunPreflightChecks(string datPath, IServiceProvider serviceProvider)
+    {
+        var detector = serviceProvider.GetRequiredService<IGameProcessDetector>();
+        if (detector.IsLotroRunning())
+        {
+            WriteWarning("LOTRO client is running. Close the game before patching.");
+            Console.Write("Continue anyway? (y/N): ");
+            string? answer = Console.ReadLine();
+            if (!string.Equals(answer, "y", StringComparison.OrdinalIgnoreCase))
+                return false;
+        }
+
+        string? directory = Path.GetDirectoryName(datPath);
+        if (directory is not null)
+        {
+            var accessChecker = serviceProvider.GetRequiredService<IWriteAccessChecker>();
+            if (!accessChecker.CanWriteTo(directory))
+            {
+                WriteError($"No write access to: {directory}");
+                WriteError("Run this application as Administrator.");
+                return false;
+            }
+        }
+
+        return true;
     }
 
     private static Result CreateBackup(string datPath)
@@ -182,7 +264,7 @@ internal static class Program
         catch (Exception ex)
         {
             return Result.Failure(
-                DomainErrors.Backup.CannotCreate(backupPath, ex.Message));
+                Domain.Core.Errors.DomainErrors.Backup.CannotCreate(backupPath, ex.Message));
         }
     }
 
@@ -228,7 +310,6 @@ internal static class Program
     private static void PrintBanner()
     {
         Console.WriteLine("=== LOTRO Polish Patcher ===");
-        Console.WriteLine($"Data directory: {DataDir}");
         Console.WriteLine();
     }
 
@@ -236,17 +317,19 @@ internal static class Program
     {
         Console.WriteLine("Usage:");
         Console.WriteLine();
-        Console.WriteLine("  EXPORT texts from game (defaults to data/ folder):");
+        Console.WriteLine("  EXPORT texts from game:");
         Console.WriteLine("    LotroKoniecDev export [dat_file] [output.txt]");
-        Console.WriteLine("    LotroKoniecDev export   <- uses data/client_local_English.dat");
         Console.WriteLine();
         Console.WriteLine("  PATCH (inject translations):");
         Console.WriteLine("    LotroKoniecDev patch <name> [dat_file]");
         Console.WriteLine("    Name resolves to translations/<name>.txt");
         Console.WriteLine();
+        Console.WriteLine("If no DAT file is specified, LOTRO installation is detected automatically.");
+        Console.WriteLine();
         Console.WriteLine("Examples:");
-        Console.WriteLine("  LotroKoniecDev export");
         Console.WriteLine("  LotroKoniecDev patch example_polish");
+        Console.WriteLine("  LotroKoniecDev patch example_polish C:\\path\\to\\client_local_English.dat");
+        Console.WriteLine("  LotroKoniecDev export");
     }
 
     private static void WriteInfo(string message) =>
@@ -279,9 +362,6 @@ internal static class Program
     }
 }
 
-/// <summary>
-/// Standard exit codes for the application.
-/// </summary>
 internal static class ExitCodes
 {
     public const int Success = 0;

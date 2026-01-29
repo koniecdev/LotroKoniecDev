@@ -69,4 +69,19 @@ public static class DomainErrors
         public static Error CannotRestore(string path, string message) =>
             Error.IoError("Backup.CannotRestore", $"Cannot restore from backup '{path}': {message}");
     }
+
+    public static class DatFileLocation
+    {
+        public static Error NoneFound =>
+            Error.NotFound("DatFileLocation.NoneFound",
+                "No LOTRO installation found. Provide the DAT file path manually.");
+
+        public static Error GameRunning =>
+            Error.Failure("DatFileLocation.GameRunning",
+                "LOTRO client is running. Close the game before patching.");
+
+        public static Error NoWriteAccess(string path) =>
+            Error.IoError("DatFileLocation.NoWriteAccess",
+                $"No write access to '{path}'. Run as Administrator.");
+    }
 }

@@ -1,0 +1,26 @@
+# LOTRO Polish Translations
+# Format: file_id||gossip_id||content||args_order||args_id||approved
+#
+# Linie zaczynajace sie od # sa ignorowane
+# Puste linie sa ignorowane
+#
+# PRZYKLADY:
+#
+# Prosty tekst bez argumentow:
+# 620756992||1001||Witaj w Srodziemiu!||NULL||NULL||1
+#
+# Tekst z jednym argumentem (np. imie gracza):
+# 620756992||1002||Witaj, <--DO_NOT_TOUCH!-->!||1||1||1
+#
+# Tekst z wieloma argumentami:
+# 620756992||1003||Masz <--DO_NOT_TOUCH!--> zlota i <--DO_NOT_TOUCH!--> srebra.||1-2||1-2||1
+#
+# Tekst z zamieniona kolejnoscia argumentow:
+# Oryginal: "Level {0}: {1}" -> "Poziom {1}: {0}"
+# 620756992||1004||Poziom <--DO_NOT_TOUCH!-->: <--DO_NOT_TOUCH!-->||2-1||1-2||1
+
+# === TUTAJ WSTAW SWOJE TLUMACZENIA ===
+
+620871150||218649169||'Mamy trop, <--DO_NOT_TOUCH!-->! Szlak czerwonych kwiatów prowadzący przez śnieg...myślisz, że to ślady krwi?\n\n  \qKrwisto-czerwone ślady\n  Na czarnym śniegu,\n  Tam gdzie ponury król kroczy\n  by odzyskać swój tron\n  i dokończyć to, co zaczął.\q\n\n'Mamy czarny śnieg a ciało króla Dourhandów zostało przeniesione, pozostawiając za sobą te przeklęte kwiaty. Coś złego się tu dzieje, i jestem pewien, że coś złego działało, gdy on szukał naszych reliktów potrzebnych mu do nieśmiertelności.\n\n'Musimy znowu za nim ruszyć. Mój brat już jest na zwiadach w poszukiwaniu znaków -- dołącz do niego w poszukiwaniach.'||1||1||1
+  
+

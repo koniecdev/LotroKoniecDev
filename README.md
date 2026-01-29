@@ -6,28 +6,28 @@ Narzedzie do wstrzykiwania polskich tlumaczen do plikow DAT gry Lord of the Ring
 
 - Windows (x86/x64)
 - [.NET 10 Runtime x86](https://dotnet.microsoft.com/download/dotnet/10.0) (sam runtime, nie SDK)
-- Plik `client_local_English.dat` z instalacji LOTRO
+- Zainstalowane LOTRO
 
 ## Szybki start
 
 ### Dla deweloperow (z kodem zrodlowym)
 
 1. Zainstaluj [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0)
-2. Skopiuj `client_local_English.dat` z katalogu gry do `data/`
-3. Umiesc plik tlumaczen w `translations/` (np. `translations/polish.txt`)
-4. Odpal:
+2. Umiesc plik tlumaczen w `translations/` (np. `translations/polish.txt`)
+3. Odpal:
 
 ```
 patch.bat polish
 ```
 
+Patcher automatycznie znajdzie instalacje LOTRO i spatchuje plik DAT.
+
 ### Dla uzytkownikow (samo exe)
 
 1. Zainstaluj [.NET 10 Runtime x86](https://dotnet.microsoft.com/download/dotnet/10.0)
-2. Pobierz cala zawartosc katalogu `bin/Debug/net10.0/` (exe + wszystkie DLL)
-3. Umiesc `client_local_English.dat` w katalogu `data/` obok exe
-4. Umiesc plik tlumaczen w katalogu `translations/`
-5. Odpal z konsoli:
+2. Pobierz cala zawartosc katalogu `bin/Debug/net10.0-windows/` (exe + wszystkie DLL)
+3. Umiesc plik tlumaczen w katalogu `translations/`
+4. Odpal z konsoli:
 
 ```
 LotroKoniecDev.exe patch polish
@@ -45,17 +45,34 @@ patch.bat <nazwa>
 
 ```
 patch.bat example_polish    ->  translations/example_polish.txt
-patch.bat polish             ->  translations/polish.txt
+patch.bat polish            ->  translations/polish.txt
 ```
 
-Mozna tez podac pelna sciezke:
+Mozna tez podac pelna sciezke do tlumaczenia i/lub do pliku DAT:
 
 ```
-patch.bat translations/polish.txt
+patch.bat polish C:\sciezka\do\client_local_English.dat
 patch.bat C:\moje_tlumaczenia\quest1.txt
 ```
 
-Przed patchowaniem automatycznie tworzy backup pliku DAT (`client_local_English.dat.backup`).
+### Auto-discovery instalacji LOTRO
+
+Jesli nie podasz sciezki do pliku DAT, patcher automatycznie szuka instalacji LOTRO:
+
+1. Domyslna sciezka SSG: `C:\Program Files (x86)\StandingStoneGames\The Lord of the Rings Online\`
+2. Steam: `C:\Program Files (x86)\Steam\steamapps\common\The Lord of the Rings Online\`
+3. Rejestr Windows (klucze StandingStoneGames / Turbine)
+4. Full scan dyskow (jesli nic nie znaleziono wyzej)
+5. Lokalne `data/client_local_English.dat` (fallback)
+
+Jesli znajdzie wiele instalacji (np. Live + Bullroarer), zapyta ktora wybrac.
+
+### Pre-flight checks
+
+Przed patchowaniem automatycznie:
+- Sprawdza czy LOTRO jest uruchomione (plik DAT moze byc zablokowany)
+- Sprawdza uprawnienia do zapisu (Program Files wymaga admina)
+- Tworzy backup pliku DAT (`.backup`)
 
 ### Eksport tekstow z gry
 
@@ -63,7 +80,20 @@ Przed patchowaniem automatycznie tworzy backup pliku DAT (`client_local_English.
 export.bat
 ```
 
-Eksportuje wszystkie teksty z `data/client_local_English.dat` do `data/exported.txt`. Przydatne jako baza do tlumaczenia.
+Eksportuje wszystkie teksty z pliku DAT do `data/exported.txt`. Przydatne jako baza do tlumaczenia.
+
+### Uruchamianie LOTRO po patchowaniu
+
+```
+lotro.bat
+```
+
+Launcher LOTRO moze nadpisac spatchowany plik DAT przy aktualizacji. Skrypt `lotro.bat`:
+1. Ustawia plik DAT na read-only (chroni tlumaczenia przed nadpisaniem)
+2. Uruchamia launcher LOTRO
+3. Po zamknieciu gry przywraca zapis do pliku DAT
+
+Mozna podac sciezke do instalacji: `lotro.bat "D:\Games\LOTRO"`
 
 ## Format pliku tlumaczen
 
@@ -101,28 +131,19 @@ Zasady:
 
 ```
 LotroKoniecDev/
-  data/                         # Pliki DAT gry
-    client_local_English.dat    # <- skopiuj z katalogu LOTRO
-    exported.txt                # <- generowany przez export
   translations/                 # Pliki tlumaczen
     example_polish.txt          # Przyklad
+  data/                         # Lokalna kopia DAT (fallback)
   src/
     LotroKoniecDev/             # CLI (punkt wejscia)
     LotroKoniecDev.Application/ # Logika biznesowa
     LotroKoniecDev.Domain/      # Model domenowy
     LotroKoniecDev.Infrastructure/ # Obsluga plikow DAT (natywne DLL)
-  patch.bat                     # Skrot: buduj + patchuj
-  export.bat                    # Skrot: buduj + eksportuj
-```
-
-## Gdzie znalezc client_local_English.dat
-
-Domyslna sciezka instalacji LOTRO:
-
-```
-C:\Program Files (x86)\StandingStoneGames\The Lord of the Rings Online\client_local_English.dat
+  patch.bat                     # Buduj + patchuj
+  export.bat                    # Buduj + eksportuj
+  lotro.bat                     # Uruchom LOTRO z ochrona DAT
 ```
 
 ## Przywracanie oryginalu
 
-Jesli cos poszlo nie tak, backup jest w `data/client_local_English.dat.backup`. Wystarczy skopiowac go z powrotem na `client_local_English.dat`.
+Backup pliku DAT jest tworzony automatycznie z rozszerzeniem `.backup` obok oryginalu. Aby przywrocic oryginal, skopiuj backup z powrotem na `client_local_English.dat`.

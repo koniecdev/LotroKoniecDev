@@ -87,12 +87,17 @@ public sealed class DatFileLocator : IDatFileLocator
             try
             {
                 using RegistryKey? key = Registry.LocalMachine.OpenSubKey(keyPath);
-                if (key is null) continue;
+                if (key is null)
+                {
+                    continue;
+                }
 
                 foreach (string valueName in RegistryValueNames)
                 {
                     if (key.GetValue(valueName) is not string installPath)
+                    {
                         continue;
+                    }
 
                     string datPath = Path.Combine(installPath, DatFileName);
                     TryAddIfExists(locations, datPath, DatFileSource.Registry,

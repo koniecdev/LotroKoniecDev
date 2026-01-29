@@ -1,6 +1,7 @@
 using LotroKoniecDev.Application.Abstractions;
 using LotroKoniecDev.Application.Features.Export;
 using LotroKoniecDev.Application.Features.Patch;
+using LotroKoniecDev.Application.Features.UpdateCheck;
 using LotroKoniecDev.Application.Parsers;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -19,6 +20,7 @@ public static class ApplicationDependencyInjection
         services.AddSingleton<ITranslationParser, TranslationFileParser>();
         services.AddScoped<IExporter, Exporter>();
         services.AddScoped<IPatcher, Patcher>();
+        services.AddSingleton<IGameUpdateChecker, GameUpdateChecker>();
 
         return services;
     }

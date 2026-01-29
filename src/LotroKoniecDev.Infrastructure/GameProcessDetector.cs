@@ -27,7 +27,10 @@ public sealed class GameProcessDetector : IGameProcessDetector
                     process.Dispose();
                 }
 
-                if (found) return true;
+                if (found)
+                {
+                    return true;
+                }
             }
 
             return false;

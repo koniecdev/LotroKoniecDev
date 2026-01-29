@@ -17,6 +17,15 @@ public static class InfrastructureDependencyInjection
         services.AddSingleton<IDatFileLocator, DatFileLocator>();
         services.AddSingleton<IGameProcessDetector, GameProcessDetector>();
         services.AddSingleton<IWriteAccessChecker, WriteAccessChecker>();
+        services.AddSingleton<HttpClient>(_ =>
+        {
+            var client = new HttpClient();
+            client.DefaultRequestHeaders.UserAgent.ParseAdd("LotroKoniecDev/1.0");
+            client.Timeout = TimeSpan.FromSeconds(10);
+            return client;
+        });
+        services.AddSingleton<IForumPageFetcher, ForumPageFetcher>();
+        services.AddSingleton<IVersionFileStore, VersionFileStore>();
 
         return services;
     }

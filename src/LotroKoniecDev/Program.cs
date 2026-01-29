@@ -9,9 +9,10 @@ namespace LotroKoniecDev;
 internal static class Program
 {
     private static readonly string DataDir = Path.GetFullPath("data");
+    private static readonly string VersionFilePath = Path.Combine(DataDir, "last_known_game_version.txt");
     private const string TranslationsDir = "translations";
 
-    private static int Main(string[] args)
+    private static async Task<int> Main(string[] args)
     {
         PrintBanner();
 
@@ -32,7 +33,7 @@ internal static class Program
         return command switch
         {
             "export" => RunExport(args, serviceProvider),
-            "patch" => RunPatch(args, serviceProvider),
+            "patch" => await RunPatchAsync(args, serviceProvider),
             _ => HandleUnknownCommand()
         };
     }
@@ -44,7 +45,9 @@ internal static class Program
             serviceProvider);
 
         if (datPath is null)
+        {
             return ExitCodes.FileNotFound;
+        }
 
         string outputPath = args.Length > 2
             ? args[2]
@@ -81,7 +84,7 @@ internal static class Program
         return ExitCodes.Success;
     }
 
-    private static int RunPatch(string[] args, IServiceProvider serviceProvider)
+    private static async Task<int> RunPatchAsync(string[] args, IServiceProvider serviceProvider)
     {
         if (args.Length < 2)
         {
@@ -96,7 +99,9 @@ internal static class Program
             serviceProvider);
 
         if (datPath is null)
+        {
             return ExitCodes.FileNotFound;
+        }
 
         if (!File.Exists(translationsPath))
         {
@@ -110,8 +115,11 @@ internal static class Program
             return ExitCodes.FileNotFound;
         }
 
-        if (!RunPreflightChecks(datPath, serviceProvider))
+        if (!await CheckForGameUpdateAsync(serviceProvider)
+            || !RunPreflightChecks(datPath, serviceProvider))
+        {
             return ExitCodes.OperationFailed;
+        }
 
         Result backupResult = CreateBackup(datPath);
         if (backupResult.IsFailure)
@@ -161,10 +169,56 @@ internal static class Program
         return ExitCodes.Success;
     }
 
+    private static async Task<bool> CheckForGameUpdateAsync(IServiceProvider serviceProvider)
+    {
+        var checker = serviceProvider.GetRequiredService<IGameUpdateChecker>();
+
+        Result<GameUpdateCheckResult> result = await checker.CheckForUpdateAsync(VersionFilePath);
+
+        if (result.IsFailure)
+        {
+            WriteWarning($"Could not check for game updates: {result.Error.Message}");
+            return true;
+        }
+
+        GameUpdateCheckResult check = result.Value;
+
+        if (!check.UpdateDetected)
+        {
+            return true;
+        }
+
+        Console.WriteLine();
+
+        if (check.PreviousVersion is null)
+        {
+            WriteInfo($"Game version detected: {check.CurrentVersion}");
+            WriteInfo("Version saved. Future runs will detect game updates.");
+            return true;
+        }
+
+        Console.ForegroundColor = ConsoleColor.Yellow;
+        Console.WriteLine("WARNING: LOTRO game update detected!");
+        Console.ResetColor();
+        Console.WriteLine($"  Previous version: {check.PreviousVersion}");
+        Console.WriteLine($"  Current version:  {check.CurrentVersion}");
+        Console.WriteLine();
+        Console.WriteLine("  The game files have been updated. You should:");
+        Console.WriteLine("  1. Run the LOTRO launcher to update game files");
+        Console.WriteLine("  2. Then re-run this patcher to re-apply translations");
+        Console.WriteLine();
+        Console.Write("Continue with patching anyway? (y/N): ");
+
+        string? answer = Console.ReadLine();
+        return string.Equals(answer, "y", StringComparison.OrdinalIgnoreCase);
+    }
+
     private static string? ResolveDatPath(string? explicitPath, IServiceProvider serviceProvider)
     {
         if (!string.IsNullOrWhiteSpace(explicitPath))
+        {
             return explicitPath;
+        }
 
         var locator = serviceProvider.GetRequiredService<IDatFileLocator>();
 
@@ -178,15 +232,15 @@ internal static class Program
 
         IReadOnlyList<DatFileLocation> locations = result.Value;
 
-        if (locations.Count == 1)
+        if (locations.Count != 1)
         {
-            DatFileLocation location = locations[0];
-            WriteInfo($"Found LOTRO: {location.DisplayName}");
-            WriteInfo($"  {location.Path}");
-            return location.Path;
+            return PromptUserChoice(locations);
         }
 
-        return PromptUserChoice(locations);
+        DatFileLocation location = locations[0];
+        WriteInfo($"Found LOTRO: {location.DisplayName}");
+        WriteInfo($"  {location.Path}");
+        return location.Path;
     }
 
     private static string? PromptUserChoice(IReadOnlyList<DatFileLocation> locations)
@@ -225,22 +279,27 @@ internal static class Program
             Console.Write("Continue anyway? (y/N): ");
             string? answer = Console.ReadLine();
             if (!string.Equals(answer, "y", StringComparison.OrdinalIgnoreCase))
-                return false;
-        }
-
-        string? directory = Path.GetDirectoryName(datPath);
-        if (directory is not null)
-        {
-            var accessChecker = serviceProvider.GetRequiredService<IWriteAccessChecker>();
-            if (!accessChecker.CanWriteTo(directory))
             {
-                WriteError($"No write access to: {directory}");
-                WriteError("Run this application as Administrator.");
                 return false;
             }
         }
 
-        return true;
+        string? directory = Path.GetDirectoryName(datPath);
+        if (directory is null)
+        {
+            return true;
+        }
+
+        var accessChecker = serviceProvider.GetRequiredService<IWriteAccessChecker>();
+        if (accessChecker.CanWriteTo(directory))
+        {
+            return true;
+        }
+
+        WriteError($"No write access to: {directory}");
+        WriteError("Run this application as Administrator.");
+        return false;
+
     }
 
     private static Result CreateBackup(string datPath)
@@ -277,11 +336,13 @@ internal static class Program
 
         try
         {
-            if (File.Exists(backupPath))
+            if (!File.Exists(backupPath))
             {
-                File.Copy(backupPath, datPath, overwrite: true);
-                WriteInfo("Restored from backup.");
+                return;
             }
+
+            File.Copy(backupPath, datPath, overwrite: true);
+            WriteInfo("Restored from backup.");
         }
         catch (Exception ex)
         {
@@ -291,14 +352,11 @@ internal static class Program
 
     private static string ResolveTranslationsPath(string input)
     {
-        if (input.Contains(Path.DirectorySeparatorChar) ||
-            input.Contains(Path.AltDirectorySeparatorChar) ||
-            input.EndsWith(".txt", StringComparison.OrdinalIgnoreCase))
-        {
-            return input;
-        }
-
-        return Path.Combine(TranslationsDir, input + ".txt");
+        return input.Contains(Path.DirectorySeparatorChar) ||
+               input.Contains(Path.AltDirectorySeparatorChar) ||
+               input.EndsWith(".txt", StringComparison.OrdinalIgnoreCase)
+            ? input
+            : Path.Combine(TranslationsDir, input + ".txt");
     }
 
     private static int HandleUnknownCommand()
@@ -357,9 +415,7 @@ internal static class Program
     }
 
     private static void WriteProgress(string message)
-    {
-        Console.Write($"\r{message}".PadRight(60));
-    }
+        => Console.Write($"\r{message}".PadRight(60));
 }
 
 internal static class ExitCodes

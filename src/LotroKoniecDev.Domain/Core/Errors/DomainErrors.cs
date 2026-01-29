@@ -84,4 +84,19 @@ public static class DomainErrors
             Error.IoError("DatFileLocation.NoWriteAccess",
                 $"No write access to '{path}'. Run as Administrator.");
     }
+
+    public static class GameUpdateCheck
+    {
+        public static Error NetworkError(string message) =>
+            Error.IoError("GameUpdateCheck.NetworkError",
+                $"Could not check for game updates: {message}");
+
+        public static Error VersionNotFoundInPage =>
+            Error.Failure("GameUpdateCheck.VersionNotFound",
+                "Could not find version information on the LOTRO release notes page.");
+
+        public static Error VersionFileError(string path, string message) =>
+            Error.IoError("GameUpdateCheck.VersionFileError",
+                $"Error accessing version file '{path}': {message}");
+    }
 }

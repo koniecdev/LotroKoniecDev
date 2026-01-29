@@ -8,10 +8,14 @@ public abstract class ValueObject : IEquatable<ValueObject>
     public static bool operator ==(ValueObject? a, ValueObject? b)
     {
         if (a is null && b is null)
+        {
             return true;
+        }
 
         if (a is null || b is null)
+        {
             return false;
+        }
 
         return a.Equals(b);
     }

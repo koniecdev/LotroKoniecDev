@@ -20,4 +20,12 @@
 # 620756992||1004||Poziom <--DO_NOT_TOUCH!-->: <--DO_NOT_TOUCH!-->||2-1||1-2||1
 
 # === TUTAJ WSTAW SWOJE TLUMACZENIA ===
+#620871150||218649169||'A trail, <--DO_NOT_TOUCH!-->! Red flowers leading a trail through the snow...do you think these are the footprints of blood?\n\n  \qBlood-red footsteps\n  Upon snow coloured black,\n  Where the Dour King walks\n  to take back his throne\n  and finish what was begun.\q\n\n'We have black snow and the body of the Dour King has been moved, leaving the fell flowers as footprints. Something evil is at work here, and I am sure something evil was at work when he sought our relics for immortality.\n\n'We must follow him again. My brother is scouting for signs as well -- seek him as you search.'||1||1||1
+
+#620871150||218649169||'Mamy trop, <--DO_NOT_TOUCH!-->! Szlak czerwonych kwiatów prowadzący przez śnieg...myślisz, że to ślady krwi?\n\n  \qKrwisto-czerwone ślady\n  Na czarnym śniegu,\n  Tam gdzie ponury król kroczy\n  by odzyskać swój tron\n  i dokończyć to, co zaczął.\q\n\n'Mamy czarny śnieg a ciało króla Dourhandów zostało przeniesione, pozostawiając za sobą te przeklęte kwiaty. Coś złego się tu dzieje, i jestem pewien, że coś złego działało, gdy on szukał naszych reliktów potrzebnych mu do nieśmiertelności.\n\n'Musimy znowu za nim ruszyć. Mój brat już jest na zwiadach w poszukiwaniu znaków -- dołącz do niego w poszukiwaniach.'||1||1||1
+
+#
+# Linie zaczynajace sie od # sa ignorowane
+# Puste linie sa ignorowane
+#
 

@@ -11,7 +11,7 @@ public class ResultExtensionsTests
     public void OnSuccess_WhenSuccess_ShouldExecuteAction()
     {
         // Arrange
-        var result = Result.Success(42);
+        Result<int> result = Result.Success(42);
         int capturedValue = 0;
 
         // Act
@@ -25,7 +25,7 @@ public class ResultExtensionsTests
     public void OnSuccess_WhenFailure_ShouldNotExecuteAction()
     {
         // Arrange
-        var result = Result.Failure<int>(new Error("TEST", "Error"));
+        Result<int> result = Result.Failure<int>(new Error("TEST", "Error"));
         bool actionCalled = false;
 
         // Act
@@ -39,8 +39,8 @@ public class ResultExtensionsTests
     public void OnFailure_WhenFailure_ShouldExecuteAction()
     {
         // Arrange
-        var error = new Error("TEST", "Error message");
-        var result = Result.Failure<int>(error);
+        Error error = new Error("TEST", "Error message");
+        Result<int> result = Result.Failure<int>(error);
         Error? capturedError = null;
 
         // Act
@@ -54,7 +54,7 @@ public class ResultExtensionsTests
     public void OnFailure_WhenSuccess_ShouldNotExecuteAction()
     {
         // Arrange
-        var result = Result.Success(42);
+        Result<int> result = Result.Success(42);
         bool actionCalled = false;
 
         // Act
@@ -68,10 +68,10 @@ public class ResultExtensionsTests
     public void Map_WhenSuccess_ShouldTransformValue()
     {
         // Arrange
-        var result = Result.Success(10);
+        Result<int> result = Result.Success(10);
 
         // Act
-        var mapped = result.Map(x => x * 2);
+        Result<int> mapped = result.Map(x => x * 2);
 
         // Assert
         mapped.IsSuccess.Should().BeTrue();
@@ -82,11 +82,11 @@ public class ResultExtensionsTests
     public void Map_WhenFailure_ShouldPropagateError()
     {
         // Arrange
-        var error = new Error("TEST", "Error");
-        var result = Result.Failure<int>(error);
+        Error error = new Error("TEST", "Error");
+        Result<int> result = Result.Failure<int>(error);
 
         // Act
-        var mapped = result.Map(x => x * 2);
+        Result<int> mapped = result.Map(x => x * 2);
 
         // Assert
         mapped.IsFailure.Should().BeTrue();
@@ -97,10 +97,10 @@ public class ResultExtensionsTests
     public void Bind_WhenSuccess_ShouldChainOperations()
     {
         // Arrange
-        var result = Result.Success(10);
+        Result<int> result = Result.Success(10);
 
         // Act
-        var bound = result.Bind(x => Result.Success(x.ToString()));
+        Result<string> bound = result.Bind(x => Result.Success(x.ToString()));
 
         // Assert
         bound.IsSuccess.Should().BeTrue();
@@ -111,11 +111,11 @@ public class ResultExtensionsTests
     public void Bind_WhenFirstFailure_ShouldPropagateError()
     {
         // Arrange
-        var error = new Error("TEST", "First error");
-        var result = Result.Failure<int>(error);
+        Error error = new Error("TEST", "First error");
+        Result<int> result = Result.Failure<int>(error);
 
         // Act
-        var bound = result.Bind(x => Result.Success(x.ToString()));
+        Result<string> bound = result.Bind(x => Result.Success(x.ToString()));
 
         // Assert
         bound.IsFailure.Should().BeTrue();
@@ -126,11 +126,11 @@ public class ResultExtensionsTests
     public void Bind_WhenSecondFailure_ShouldReturnSecondError()
     {
         // Arrange
-        var result = Result.Success(10);
-        var error = new Error("TEST", "Second error");
+        Result<int> result = Result.Success(10);
+        Error error = new Error("TEST", "Second error");
 
         // Act
-        var bound = result.Bind(_ => Result.Failure<string>(error));
+        Result<string> bound = result.Bind(_ => Result.Failure<string>(error));
 
         // Assert
         bound.IsFailure.Should().BeTrue();
@@ -141,7 +141,7 @@ public class ResultExtensionsTests
     public void GetValueOrDefault_WhenSuccess_ShouldReturnValue()
     {
         // Arrange
-        var result = Result.Success(42);
+        Result<int> result = Result.Success(42);
 
         // Act
         int value = result.GetValueOrDefault(0);
@@ -154,7 +154,7 @@ public class ResultExtensionsTests
     public void GetValueOrDefault_WhenFailure_ShouldReturnDefault()
     {
         // Arrange
-        var result = Result.Failure<int>(new Error("TEST", "Error"));
+        Result<int> result = Result.Failure<int>(new Error("TEST", "Error"));
 
         // Act
         int value = result.GetValueOrDefault(99);
@@ -167,7 +167,7 @@ public class ResultExtensionsTests
     public void Match_WhenSuccess_ShouldCallOnSuccess()
     {
         // Arrange
-        var result = Result.Success(10);
+        Result<int> result = Result.Success(10);
 
         // Act
         string matched = result.Match(
@@ -182,7 +182,7 @@ public class ResultExtensionsTests
     public void Match_WhenFailure_ShouldCallOnFailure()
     {
         // Arrange
-        var result = Result.Failure<int>(new Error("TEST", "Error message"));
+        Result<int> result = Result.Failure<int>(new Error("TEST", "Error message"));
 
         // Act
         string matched = result.Match(
@@ -198,10 +198,10 @@ public class ResultExtensionsTests
     {
         // Arrange
         string? value = "test";
-        var error = new Error("TEST", "Value is null");
+        Error error = new Error("TEST", "Value is null");
 
         // Act
-        var result = value.ToResult(error);
+        Result<string> result = value.ToResult(error);
 
         // Assert
         result.IsSuccess.Should().BeTrue();
@@ -213,10 +213,10 @@ public class ResultExtensionsTests
     {
         // Arrange
         string? value = null;
-        var error = new Error("TEST", "Value is null");
+        Error error = new Error("TEST", "Value is null");
 
         // Act
-        var result = value.ToResult(error);
+        Result<string> result = value.ToResult(error);
 
         // Assert
         result.IsFailure.Should().BeTrue();
@@ -227,7 +227,7 @@ public class ResultExtensionsTests
     public void Combine_AllSuccess_ShouldReturnAllValues()
     {
         // Arrange
-        var results = new[]
+        Result<int>[] results = new[]
         {
             Result.Success(1),
             Result.Success(2),
@@ -235,7 +235,7 @@ public class ResultExtensionsTests
         };
 
         // Act
-        var combined = results.Combine();
+        Result<IReadOnlyList<int>> combined = results.Combine();
 
         // Assert
         combined.IsSuccess.Should().BeTrue();
@@ -246,8 +246,8 @@ public class ResultExtensionsTests
     public void Combine_OneFailure_ShouldReturnFailure()
     {
         // Arrange
-        var error = new Error("TEST", "Error in second");
-        var results = new[]
+        Error error = new Error("TEST", "Error in second");
+        Result<int>[] results = new[]
         {
             Result.Success(1),
             Result.Failure<int>(error),
@@ -255,7 +255,7 @@ public class ResultExtensionsTests
         };
 
         // Act
-        var combined = results.Combine();
+        Result<IReadOnlyList<int>> combined = results.Combine();
 
         // Assert
         combined.IsFailure.Should().BeTrue();
@@ -266,10 +266,10 @@ public class ResultExtensionsTests
     public void Combine_EmptyList_ShouldReturnEmptySuccess()
     {
         // Arrange
-        var results = Array.Empty<Result<int>>();
+        Result<int>[] results = Array.Empty<Result<int>>();
 
         // Act
-        var combined = results.Combine();
+        Result<IReadOnlyList<int>> combined = results.Combine();
 
         // Assert
         combined.IsSuccess.Should().BeTrue();

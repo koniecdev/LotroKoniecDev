@@ -1,4 +1,6 @@
 using LotroKoniecDev.Application.Parsers;
+using LotroKoniecDev.Domain.Core.Monads;
+using LotroKoniecDev.Domain.Models;
 
 namespace LotroKoniecDev.Tests.Unit.Tests.Parsers;
 
@@ -26,7 +28,7 @@ public sealed class TranslationFileParserTests : IDisposable
     public void ParseFile_NullPath_ShouldThrowArgumentException()
     {
         // Act
-        var action = () => _parser.ParseFile(null!);
+        Func<Result<IReadOnlyList<Translation>>> action = () => _parser.ParseFile(null!);
 
         // Assert
         action.Should().Throw<ArgumentException>();
@@ -36,7 +38,7 @@ public sealed class TranslationFileParserTests : IDisposable
     public void ParseFile_EmptyPath_ShouldThrowArgumentException()
     {
         // Act
-        var action = () => _parser.ParseFile("   ");
+        Func<Result<IReadOnlyList<Translation>>> action = () => _parser.ParseFile("   ");
 
         // Assert
         action.Should().Throw<ArgumentException>();
@@ -46,10 +48,10 @@ public sealed class TranslationFileParserTests : IDisposable
     public void ParseFile_NonExistentFile_ShouldReturnFailure()
     {
         // Arrange
-        var nonExistentPath = Path.Combine(_tempDirectory, "nonexistent.txt");
+        string nonExistentPath = Path.Combine(_tempDirectory, "nonexistent.txt");
 
         // Act
-        var result = _parser.ParseFile(nonExistentPath);
+        Result<IReadOnlyList<Translation>> result = _parser.ParseFile(nonExistentPath);
 
         // Assert
         result.IsFailure.Should().BeTrue();
@@ -60,11 +62,11 @@ public sealed class TranslationFileParserTests : IDisposable
     public void ParseFile_EmptyFile_ShouldReturnEmptyList()
     {
         // Arrange
-        var filePath = Path.Combine(_tempDirectory, "empty.txt");
+        string filePath = Path.Combine(_tempDirectory, "empty.txt");
         File.WriteAllText(filePath, "");
 
         // Act
-        var result = _parser.ParseFile(filePath);
+        Result<IReadOnlyList<Translation>> result = _parser.ParseFile(filePath);
 
         // Assert
         result.IsSuccess.Should().BeTrue();
@@ -75,17 +77,17 @@ public sealed class TranslationFileParserTests : IDisposable
     public void ParseFile_WithComments_ShouldSkipCommentLines()
     {
         // Arrange
-        var filePath = Path.Combine(_tempDirectory, "comments.txt");
-        var content = """
-            # This is a comment
-            100||200||Test content||NULL||NULL||1
-            # Another comment
-              # Comment with leading spaces
-            """;
+        string filePath = Path.Combine(_tempDirectory, "comments.txt");
+        string content = """
+                         # This is a comment
+                         100||200||Test content||NULL||NULL||1
+                         # Another comment
+                           # Comment with leading spaces
+                         """;
         File.WriteAllText(filePath, content);
 
         // Act
-        var result = _parser.ParseFile(filePath);
+        Result<IReadOnlyList<Translation>> result = _parser.ParseFile(filePath);
 
         // Assert
         result.IsSuccess.Should().BeTrue();
@@ -96,12 +98,12 @@ public sealed class TranslationFileParserTests : IDisposable
     public void ParseFile_ValidLine_ShouldParseCorrectly()
     {
         // Arrange
-        var filePath = Path.Combine(_tempDirectory, "valid.txt");
-        var content = "12345||67890||Hello World||NULL||NULL||1";
+        string filePath = Path.Combine(_tempDirectory, "valid.txt");
+        string content = "12345||67890||Hello World||NULL||NULL||1";
         File.WriteAllText(filePath, content);
 
         // Act
-        var result = _parser.ParseFile(filePath);
+        Result<IReadOnlyList<Translation>> result = _parser.ParseFile(filePath);
 
         // Assert
         result.IsSuccess.Should().BeTrue();
@@ -117,12 +119,12 @@ public sealed class TranslationFileParserTests : IDisposable
     public void ParseFile_WithArgsOrder_ShouldParseArgsCorrectly()
     {
         // Arrange
-        var filePath = Path.Combine(_tempDirectory, "args.txt");
-        var content = "100||200||Content||1-2-3||4-5-6||1";
+        string filePath = Path.Combine(_tempDirectory, "args.txt");
+        string content = "100||200||Content||1-2-3||4-5-6||1";
         File.WriteAllText(filePath, content);
 
         // Act
-        var result = _parser.ParseFile(filePath);
+        Result<IReadOnlyList<Translation>> result = _parser.ParseFile(filePath);
 
         // Assert
         result.IsSuccess.Should().BeTrue();
@@ -134,12 +136,12 @@ public sealed class TranslationFileParserTests : IDisposable
     public void ParseFile_WithEscapedNewlines_ShouldUnescapeCorrectly()
     {
         // Arrange
-        var filePath = Path.Combine(_tempDirectory, "escaped.txt");
-        var content = @"100||200||Line1\nLine2\rLine3||NULL||NULL||1";
+        string filePath = Path.Combine(_tempDirectory, "escaped.txt");
+        string content = @"100||200||Line1\nLine2\rLine3||NULL||NULL||1";
         File.WriteAllText(filePath, content);
 
         // Act
-        var result = _parser.ParseFile(filePath);
+        Result<IReadOnlyList<Translation>> result = _parser.ParseFile(filePath);
 
         // Assert
         result.IsSuccess.Should().BeTrue();
@@ -150,16 +152,16 @@ public sealed class TranslationFileParserTests : IDisposable
     public void ParseFile_MultipleLines_ShouldSortByFileIdAndGossipId()
     {
         // Arrange
-        var filePath = Path.Combine(_tempDirectory, "multiple.txt");
-        var content = """
-            200||300||Third||NULL||NULL||1
-            100||200||First||NULL||NULL||1
-            100||300||Second||NULL||NULL||1
-            """;
+        string filePath = Path.Combine(_tempDirectory, "multiple.txt");
+        string content = """
+                         200||300||Third||NULL||NULL||1
+                         100||200||First||NULL||NULL||1
+                         100||300||Second||NULL||NULL||1
+                         """;
         File.WriteAllText(filePath, content);
 
         // Act
-        var result = _parser.ParseFile(filePath);
+        Result<IReadOnlyList<Translation>> result = _parser.ParseFile(filePath);
 
         // Assert
         result.IsSuccess.Should().BeTrue();
@@ -176,7 +178,7 @@ public sealed class TranslationFileParserTests : IDisposable
     public void ParseLine_EmptyLine_ShouldReturnFailure()
     {
         // Act
-        var result = _parser.ParseLine("");
+        Result<Translation> result = _parser.ParseLine("");
 
         // Assert
         result.IsFailure.Should().BeTrue();
@@ -187,7 +189,7 @@ public sealed class TranslationFileParserTests : IDisposable
     public void ParseLine_InsufficientFields_ShouldReturnFailure()
     {
         // Act
-        var result = _parser.ParseLine("100||200||Content");
+        Result<Translation> result = _parser.ParseLine("100||200||Content");
 
         // Assert
         result.IsFailure.Should().BeTrue();
@@ -198,7 +200,7 @@ public sealed class TranslationFileParserTests : IDisposable
     public void ParseLine_InvalidFileId_ShouldReturnFailure()
     {
         // Act
-        var result = _parser.ParseLine("not_a_number||200||Content||NULL||NULL||1");
+        Result<Translation> result = _parser.ParseLine("not_a_number||200||Content||NULL||NULL||1");
 
         // Assert
         result.IsFailure.Should().BeTrue();
@@ -209,7 +211,7 @@ public sealed class TranslationFileParserTests : IDisposable
     public void ParseLine_InvalidGossipId_ShouldReturnFailure()
     {
         // Act
-        var result = _parser.ParseLine("100||not_a_number||Content||NULL||NULL||1");
+        Result<Translation> result = _parser.ParseLine("100||not_a_number||Content||NULL||NULL||1");
 
         // Assert
         result.IsFailure.Should().BeTrue();
@@ -220,7 +222,7 @@ public sealed class TranslationFileParserTests : IDisposable
     public void ParseLine_ValidLine_ShouldReturnSuccess()
     {
         // Act
-        var result = _parser.ParseLine("100||200||Test content||NULL||NULL||1");
+        Result<Translation> result = _parser.ParseLine("100||200||Test content||NULL||NULL||1");
 
         // Assert
         result.IsSuccess.Should().BeTrue();
@@ -233,16 +235,16 @@ public sealed class TranslationFileParserTests : IDisposable
     public void ParseFile_WithInvalidLines_ShouldSkipAndContinue()
     {
         // Arrange
-        var filePath = Path.Combine(_tempDirectory, "mixed.txt");
-        var content = """
-            100||200||Valid line||NULL||NULL||1
-            invalid||line||missing||fields
-            300||400||Another valid||NULL||NULL||1
-            """;
+        string filePath = Path.Combine(_tempDirectory, "mixed.txt");
+        string content = """
+                         100||200||Valid line||NULL||NULL||1
+                         invalid||line||missing||fields
+                         300||400||Another valid||NULL||NULL||1
+                         """;
         File.WriteAllText(filePath, content);
 
         // Act
-        var result = _parser.ParseFile(filePath);
+        Result<IReadOnlyList<Translation>> result = _parser.ParseFile(filePath);
 
         // Assert
         result.IsSuccess.Should().BeTrue();

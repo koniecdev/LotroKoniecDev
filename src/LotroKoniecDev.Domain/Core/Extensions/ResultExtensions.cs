@@ -91,7 +91,7 @@ public static class ResultExtensions
     /// </summary>
     public static Result<IReadOnlyList<T>> Combine<T>(this IEnumerable<Result<T>> results)
     {
-        var values = new List<T>();
+        List<T> values = new List<T>();
 
         foreach (Result<T> result in results)
         {

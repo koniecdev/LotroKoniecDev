@@ -1,5 +1,6 @@
 using System.Text;
 using LotroKoniecDev.Application.Abstractions;
+using LotroKoniecDev.Application.Extensions;
 using LotroKoniecDev.Domain.Core.Errors;
 using LotroKoniecDev.Domain.Core.Monads;
 using LotroKoniecDev.Domain.Models;
@@ -59,14 +60,14 @@ public sealed class Exporter : IExporter
 
         try
         {
-            using var writer = new StreamWriter(outputPath, false, Encoding.UTF8);
+            using StreamWriter writer = new StreamWriter(outputPath, false, Encoding.UTF8);
 
             WriteHeader(writer);
 
             int processedFiles = 0;
             int totalFragments = 0;
 
-            foreach (var (fileId, (size, _)) in fileSizes)
+            foreach ((int fileId, (int size, int _)) in fileSizes)
             {
                 if (!SubFile.IsTextFile(fileId))
                 {
@@ -102,33 +103,23 @@ public sealed class Exporter : IExporter
 
     private Result<int> ExportSubfile(int handle, int fileId, int size, StreamWriter writer)
     {
-        Result<byte[]> dataResult = _datFileHandler.GetSubfileData(handle, fileId, size);
+        Result<SubFile> loadResult = _datFileHandler.LoadSubFile(handle, fileId, size);
 
-        if (dataResult.IsFailure)
+        if (loadResult.IsFailure)
         {
-            return Result.Failure<int>(dataResult.Error);
+            return Result.Failure<int>(loadResult.Error);
         }
 
-        try
+        SubFile subFile = loadResult.Value;
+        int fragmentCount = 0;
+
+        foreach ((ulong fragmentId, Fragment fragment) in subFile.Fragments)
         {
-            var subFile = new SubFile();
-            subFile.Parse(dataResult.Value);
-
-            int fragmentCount = 0;
-
-            foreach (var (fragmentId, fragment) in subFile.Fragments)
-            {
-                WriteFragment(writer, fileId, fragmentId, fragment);
-                fragmentCount++;
-            }
-
-            return Result.Success(fragmentCount);
+            WriteFragment(writer, fileId, fragmentId, fragment);
+            fragmentCount++;
         }
-        catch (Exception ex)
-        {
-            return Result.Failure<int>(
-                DomainErrors.SubFile.ParseError(fileId, ex.Message));
-        }
+
+        return Result.Success(fragmentCount);
     }
 
     private static void WriteHeader(StreamWriter writer)
@@ -161,7 +152,7 @@ public sealed class Exporter : IExporter
 
         if (fragment.HasArguments)
         {
-            var order = Enumerable
+            IEnumerable<string> order = Enumerable
                 .Range(1, fragment.ArgRefs.Count)
                 .Select(i => i.ToString());
 

@@ -10,7 +10,7 @@ public sealed class ResultTests
     public void Success_ShouldCreateSuccessfulResult()
     {
         // Act
-        var result = Result.Success();
+        Result result = Result.Success();
 
         // Assert
         result.IsSuccess.Should().BeTrue();
@@ -22,10 +22,10 @@ public sealed class ResultTests
     public void Failure_ShouldCreateFailedResult()
     {
         // Arrange
-        var error = new Error("Test.Error", "Test error message");
+        Error error = new Error("Test.Error", "Test error message");
 
         // Act
-        var result = Result.Failure(error);
+        Result result = Result.Failure(error);
 
         // Assert
         result.IsSuccess.Should().BeFalse();
@@ -40,7 +40,7 @@ public sealed class ResultTests
         const string value = "test value";
 
         // Act
-        var result = Result.Success(value);
+        Result<string> result = Result.Success(value);
 
         // Assert
         result.IsSuccess.Should().BeTrue();
@@ -51,10 +51,10 @@ public sealed class ResultTests
     public void FailureWithValue_ShouldCreateFailedResultWithError()
     {
         // Arrange
-        var error = new Error("Test.Error", "Test error message");
+        Error error = new Error("Test.Error", "Test error message");
 
         // Act
-        var result = Result.Failure<string>(error);
+        Result<string> result = Result.Failure<string>(error);
 
         // Assert
         result.IsSuccess.Should().BeFalse();
@@ -65,11 +65,11 @@ public sealed class ResultTests
     public void Value_WhenAccessingOnFailure_ShouldThrowInvalidOperationException()
     {
         // Arrange
-        var error = new Error("Test.Error", "Test error message");
-        var result = Result.Failure<string>(error);
+        Error error = new Error("Test.Error", "Test error message");
+        Result<string> result = Result.Failure<string>(error);
 
         // Act
-        var action = () => result.Value;
+        Func<string> action = () => result.Value;
 
         // Assert
         action.Should().Throw<InvalidOperationException>()
@@ -94,10 +94,10 @@ public sealed class ResultTests
     public void Constructor_WithSuccessAndError_ShouldThrowInvalidOperationException()
     {
         // Arrange
-        var error = new Error("Test.Error", "Test error message");
+        Error error = new Error("Test.Error", "Test error message");
 
         // Act & Assert - This tests internal validation through static factories
-        var action = () => Result.Failure(Error.None);
+        Func<Result> action = () => Result.Failure(Error.None);
         action.Should().Throw<InvalidOperationException>();
     }
 
@@ -106,7 +106,7 @@ public sealed class ResultTests
     {
         // Act & Assert - Failure with Error.None should throw
         // We can't directly test this, but the static factory handles it
-        var action = () => Result.Failure(Error.None);
+        Func<Result> action = () => Result.Failure(Error.None);
         action.Should().Throw<InvalidOperationException>();
     }
 }

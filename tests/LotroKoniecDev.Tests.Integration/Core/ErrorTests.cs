@@ -9,7 +9,7 @@ public class ErrorTests
     public void Error_ShouldStoreCodeAndMessage()
     {
         // Arrange & Act
-        var error = new Error("TEST.CODE", "Test message", ErrorType.Validation);
+        Error error = new Error("TEST.CODE", "Test message", ErrorType.Validation);
 
         // Assert
         error.Code.Should().Be("TEST.CODE");
@@ -21,7 +21,7 @@ public class ErrorTests
     public void Error_ToString_ShouldFormatCorrectly()
     {
         // Arrange
-        var error = new Error("TEST.CODE", "Test message", ErrorType.NotFound);
+        Error error = new Error("TEST.CODE", "Test message", ErrorType.NotFound);
 
         // Act
         string result = error.ToString();
@@ -34,7 +34,7 @@ public class ErrorTests
     public void Error_Validation_ShouldCreateValidationError()
     {
         // Act
-        var error = Error.Validation("VAL.CODE", "Validation message");
+        Error error = Error.Validation("VAL.CODE", "Validation message");
 
         // Assert
         error.Type.Should().Be(ErrorType.Validation);
@@ -46,7 +46,7 @@ public class ErrorTests
     public void Error_NotFound_ShouldCreateNotFoundError()
     {
         // Act
-        var error = Error.NotFound("NF.CODE", "Not found message");
+        Error error = Error.NotFound("NF.CODE", "Not found message");
 
         // Assert
         error.Type.Should().Be(ErrorType.NotFound);
@@ -56,7 +56,7 @@ public class ErrorTests
     public void Error_IoError_ShouldCreateIoError()
     {
         // Act
-        var error = Error.IoError("IO.CODE", "IO error message");
+        Error error = Error.IoError("IO.CODE", "IO error message");
 
         // Assert
         error.Type.Should().Be(ErrorType.IoError);
@@ -66,9 +66,9 @@ public class ErrorTests
     public void Error_Equality_ShouldBeBasedOnValues()
     {
         // Arrange
-        var error1 = new Error("CODE", "Message", ErrorType.Failure);
-        var error2 = new Error("CODE", "Message", ErrorType.Failure);
-        var error3 = new Error("DIFFERENT", "Message", ErrorType.Failure);
+        Error error1 = new Error("CODE", "Message", ErrorType.Failure);
+        Error error2 = new Error("CODE", "Message", ErrorType.Failure);
+        Error error3 = new Error("DIFFERENT", "Message", ErrorType.Failure);
 
         // Assert
         error1.Should().Be(error2);
@@ -81,8 +81,8 @@ public class ErrorTests
     public void Error_GetHashCode_ShouldBeSameForEqualErrors()
     {
         // Arrange
-        var error1 = new Error("CODE", "Message", ErrorType.Failure);
-        var error2 = new Error("CODE", "Message", ErrorType.Failure);
+        Error error1 = new Error("CODE", "Message", ErrorType.Failure);
+        Error error2 = new Error("CODE", "Message", ErrorType.Failure);
 
         // Assert
         error1.GetHashCode().Should().Be(error2.GetHashCode());

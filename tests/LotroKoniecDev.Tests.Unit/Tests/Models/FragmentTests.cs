@@ -9,7 +9,7 @@ public sealed class FragmentTests
     public void HasArguments_WithArgRefs_ShouldReturnTrue()
     {
         // Arrange
-        var fragment = new Fragment();
+        Fragment fragment = new Fragment();
         fragment.ArgRefs.Add([0x01, 0x00, 0x00, 0x00]);
 
         // Assert
@@ -20,7 +20,7 @@ public sealed class FragmentTests
     public void HasArguments_WithoutArgRefs_ShouldReturnFalse()
     {
         // Arrange
-        var fragment = new Fragment();
+        Fragment fragment = new Fragment();
 
         // Assert
         fragment.HasArguments.Should().BeFalse();
@@ -30,11 +30,11 @@ public sealed class FragmentTests
     public void GetFullText_SinglePiece_ShouldReturnPieceText()
     {
         // Arrange
-        var fragment = new Fragment();
+        Fragment fragment = new Fragment();
         fragment.Pieces.Add("Hello World");
 
         // Act
-        var result = fragment.GetFullText();
+        string result = fragment.GetFullText();
 
         // Assert
         result.Should().Be("Hello World");
@@ -44,11 +44,11 @@ public sealed class FragmentTests
     public void GetFullText_MultiplePieces_ShouldJoinWithEmptySeparator()
     {
         // Arrange
-        var fragment = new Fragment();
+        Fragment fragment = new Fragment();
         fragment.Pieces.AddRange(["Hello", " ", "World"]);
 
         // Act
-        var result = fragment.GetFullText();
+        string result = fragment.GetFullText();
 
         // Assert
         result.Should().Be("Hello World");
@@ -58,11 +58,11 @@ public sealed class FragmentTests
     public void GetFullText_WithCustomSeparator_ShouldJoinWithSeparator()
     {
         // Arrange
-        var fragment = new Fragment();
+        Fragment fragment = new Fragment();
         fragment.Pieces.AddRange(["Line1", "Line2", "Line3"]);
 
         // Act
-        var result = fragment.GetFullText("\n");
+        string result = fragment.GetFullText("\n");
 
         // Assert
         result.Should().Be("Line1\nLine2\nLine3");
@@ -72,10 +72,10 @@ public sealed class FragmentTests
     public void Parse_NullReader_ShouldThrowArgumentNullException()
     {
         // Arrange
-        var fragment = new Fragment();
+        Fragment fragment = new Fragment();
 
         // Act
-        var action = () => fragment.Parse(null!);
+        Action action = () => fragment.Parse(null!);
 
         // Assert
         action.Should().Throw<ArgumentNullException>();
@@ -85,9 +85,9 @@ public sealed class FragmentTests
     public void Parse_ValidData_ShouldParseFragmentId()
     {
         // Arrange
-        var fragment = new Fragment();
-        using var stream = new MemoryStream();
-        using var writer = new BinaryWriter(stream);
+        Fragment fragment = new Fragment();
+        using MemoryStream stream = new MemoryStream();
+        using BinaryWriter writer = new BinaryWriter(stream);
 
         writer.Write((ulong)123456789);
         writer.Write(0); // Num pieces
@@ -95,7 +95,7 @@ public sealed class FragmentTests
         writer.Write((byte)0); // Num arg string groups
 
         stream.Position = 0;
-        using var reader = new BinaryReader(stream);
+        using BinaryReader reader = new BinaryReader(stream);
 
         // Act
         fragment.Parse(reader);
@@ -108,9 +108,9 @@ public sealed class FragmentTests
     public void Parse_WithPieces_ShouldParsePiecesCorrectly()
     {
         // Arrange
-        var fragment = new Fragment();
-        using var stream = new MemoryStream();
-        using var writer = new BinaryWriter(stream);
+        Fragment fragment = new Fragment();
+        using MemoryStream stream = new MemoryStream();
+        using BinaryWriter writer = new BinaryWriter(stream);
 
         writer.Write((ulong)100);
         writer.Write(2); // Num pieces = 2
@@ -122,7 +122,7 @@ public sealed class FragmentTests
         writer.Write((byte)0); // Num arg string groups
 
         stream.Position = 0;
-        using var reader = new BinaryReader(stream);
+        using BinaryReader reader = new BinaryReader(stream);
 
         // Act
         fragment.Parse(reader);
@@ -137,9 +137,9 @@ public sealed class FragmentTests
     public void Parse_WithArgRefs_ShouldParseArgRefsCorrectly()
     {
         // Arrange
-        var fragment = new Fragment();
-        using var stream = new MemoryStream();
-        using var writer = new BinaryWriter(stream);
+        Fragment fragment = new Fragment();
+        using MemoryStream stream = new MemoryStream();
+        using BinaryWriter writer = new BinaryWriter(stream);
 
         writer.Write((ulong)100);
         writer.Write(0); // Num pieces
@@ -149,7 +149,7 @@ public sealed class FragmentTests
         writer.Write((byte)0); // Num arg string groups
 
         stream.Position = 0;
-        using var reader = new BinaryReader(stream);
+        using BinaryReader reader = new BinaryReader(stream);
 
         // Act
         fragment.Parse(reader);
@@ -164,10 +164,10 @@ public sealed class FragmentTests
     public void Write_NullWriter_ShouldThrowArgumentNullException()
     {
         // Arrange
-        var fragment = new Fragment();
+        Fragment fragment = new Fragment();
 
         // Act
-        var action = () => fragment.Write(null!);
+        Action action = () => fragment.Write(null!);
 
         // Assert
         action.Should().Throw<ArgumentNullException>();
@@ -177,8 +177,8 @@ public sealed class FragmentTests
     public void ParseAndWrite_RoundTrip_ShouldPreserveData()
     {
         // Arrange
-        using var originalStream = new MemoryStream();
-        using var originalWriter = new BinaryWriter(originalStream);
+        using MemoryStream originalStream = new MemoryStream();
+        using BinaryWriter originalWriter = new BinaryWriter(originalStream);
 
         originalWriter.Write((ulong)98765);
         originalWriter.Write(2); // Num pieces
@@ -190,25 +190,25 @@ public sealed class FragmentTests
         originalWriter.Write(new byte[] { 0xAA, 0xBB, 0xCC, 0xDD });
         originalWriter.Write((byte)0); // Num arg string groups
 
-        var originalData = originalStream.ToArray();
+        byte[] originalData = originalStream.ToArray();
 
         // Parse
-        var fragment = new Fragment();
-        using var parseStream = new MemoryStream(originalData);
-        using var parseReader = new BinaryReader(parseStream);
+        Fragment fragment = new Fragment();
+        using MemoryStream parseStream = new MemoryStream(originalData);
+        using BinaryReader parseReader = new BinaryReader(parseStream);
         fragment.Parse(parseReader);
 
         // Write
-        using var writeStream = new MemoryStream();
-        using var writeWriter = new BinaryWriter(writeStream);
+        using MemoryStream writeStream = new MemoryStream();
+        using BinaryWriter writeWriter = new BinaryWriter(writeStream);
         fragment.Write(writeWriter);
 
-        var writtenData = writeStream.ToArray();
+        byte[] writtenData = writeStream.ToArray();
 
         // Assert - Re-parse and compare
-        var reparsedFragment = new Fragment();
-        using var reparseStream = new MemoryStream(writtenData);
-        using var reparseReader = new BinaryReader(reparseStream);
+        Fragment reparsedFragment = new Fragment();
+        using MemoryStream reparseStream = new MemoryStream(writtenData);
+        using BinaryReader reparseReader = new BinaryReader(reparseStream);
         reparsedFragment.Parse(reparseReader);
 
         reparsedFragment.FragmentId.Should().Be(98765UL);

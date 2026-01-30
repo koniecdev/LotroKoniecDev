@@ -4,7 +4,7 @@ using LotroKoniecDev.Domain.Core.Monads;
 using LotroKoniecDev.Primitives.Enums;
 using Microsoft.Win32;
 
-namespace LotroKoniecDev.Infrastructure;
+namespace LotroKoniecDev.Infrastructure.DatFile;
 
 public sealed class DatFileLocator : IDatFileLocator
 {
@@ -41,7 +41,7 @@ public sealed class DatFileLocator : IDatFileLocator
 
     public Result<IReadOnlyList<DatFileLocation>> LocateAll(Action<string>? progress = null)
     {
-        var locations = new List<DatFileLocation>();
+        List<DatFileLocation> locations = new List<DatFileLocation>();
 
         TryAddIfExists(locations, SsgPath, DatFileSource.StandingStoneGames,
             "Standing Stone Games (default)");
@@ -87,12 +87,17 @@ public sealed class DatFileLocator : IDatFileLocator
             try
             {
                 using RegistryKey? key = Registry.LocalMachine.OpenSubKey(keyPath);
-                if (key is null) continue;
+                if (key is null)
+                {
+                    continue;
+                }
 
                 foreach (string valueName in RegistryValueNames)
                 {
                     if (key.GetValue(valueName) is not string installPath)
+                    {
                         continue;
+                    }
 
                     string datPath = Path.Combine(installPath, DatFileName);
                     TryAddIfExists(locations, datPath, DatFileSource.Registry,
@@ -110,7 +115,7 @@ public sealed class DatFileLocator : IDatFileLocator
         List<DatFileLocation> locations,
         Action<string>? progress)
     {
-        var drives = DriveInfo.GetDrives()
+        IEnumerable<DriveInfo> drives = DriveInfo.GetDrives()
             .Where(d => d.DriveType == DriveType.Fixed && d.IsReady);
 
         foreach (DriveInfo drive in drives)

@@ -9,8 +9,8 @@ public class FragmentTests
     public void Parse_SimpleFragment_ShouldDeserializeCorrectly()
     {
         // Arrange
-        using var stream = new MemoryStream();
-        using var writer = new BinaryWriter(stream);
+        using MemoryStream stream = new MemoryStream();
+        using BinaryWriter writer = new BinaryWriter(stream);
 
         // Write fragment ID (ulong)
         writer.Write((ulong)12345);
@@ -29,10 +29,10 @@ public class FragmentTests
         writer.Write((byte)0); // numArgStringGroups
 
         stream.Position = 0;
-        using var reader = new BinaryReader(stream);
+        using BinaryReader reader = new BinaryReader(stream);
 
         // Act
-        var fragment = new Fragment();
+        Fragment fragment = new Fragment();
         fragment.Parse(reader);
 
         // Assert
@@ -49,8 +49,8 @@ public class FragmentTests
     public void Parse_FragmentWithArgRefs_ShouldDeserializeCorrectly()
     {
         // Arrange
-        using var stream = new MemoryStream();
-        using var writer = new BinaryWriter(stream);
+        using MemoryStream stream = new MemoryStream();
+        using BinaryWriter writer = new BinaryWriter(stream);
 
         writer.Write((ulong)999);
         writer.Write(1); // numPieces
@@ -62,10 +62,10 @@ public class FragmentTests
         writer.Write((byte)0); // numArgStringGroups
 
         stream.Position = 0;
-        using var reader = new BinaryReader(stream);
+        using BinaryReader reader = new BinaryReader(stream);
 
         // Act
-        var fragment = new Fragment();
+        Fragment fragment = new Fragment();
         fragment.Parse(reader);
 
         // Assert
@@ -77,22 +77,22 @@ public class FragmentTests
     public void Write_Fragment_ShouldSerializeCorrectly()
     {
         // Arrange
-        var fragment = new Fragment
+        Fragment fragment = new Fragment
         {
             Pieces = ["Hello", "World"]
         };
 
-        using var stream = new MemoryStream();
-        using var writer = new BinaryWriter(stream);
+        using MemoryStream stream = new MemoryStream();
+        using BinaryWriter writer = new BinaryWriter(stream);
 
         // Act
         fragment.Write(writer);
 
         // Assert - verify can be read back
         stream.Position = 0;
-        using var reader = new BinaryReader(stream);
+        using BinaryReader reader = new BinaryReader(stream);
 
-        var parsedFragment = new Fragment();
+        Fragment parsedFragment = new Fragment();
         parsedFragment.Parse(reader);
 
         parsedFragment.Pieces.Should().BeEquivalentTo(fragment.Pieces);
@@ -102,7 +102,7 @@ public class FragmentTests
     public void GetFullText_WithSeparator_ShouldJoinPieces()
     {
         // Arrange
-        var fragment = new Fragment
+        Fragment fragment = new Fragment
         {
             Pieces = ["Hello", "World", "!"]
         };
@@ -118,7 +118,7 @@ public class FragmentTests
     public void Parse_NullReader_ShouldThrow()
     {
         // Arrange
-        var fragment = new Fragment();
+        Fragment fragment = new Fragment();
 
         // Act & Assert
         Action act = () => fragment.Parse(null!);
@@ -129,7 +129,7 @@ public class FragmentTests
     public void Write_NullWriter_ShouldThrow()
     {
         // Arrange
-        var fragment = new Fragment();
+        Fragment fragment = new Fragment();
 
         // Act & Assert
         Action act = () => fragment.Write(null!);
@@ -140,20 +140,20 @@ public class FragmentTests
     public void RoundTrip_ComplexFragment_ShouldPreserveData()
     {
         // Arrange
-        var original = new Fragment
+        Fragment original = new Fragment
         {
             Pieces = ["Part1", "Part2", "Part3"]
         };
 
-        using var stream = new MemoryStream();
-        using var writer = new BinaryWriter(stream);
+        using MemoryStream stream = new MemoryStream();
+        using BinaryWriter writer = new BinaryWriter(stream);
 
         // Act
         original.Write(writer);
         stream.Position = 0;
 
-        using var reader = new BinaryReader(stream);
-        var restored = new Fragment();
+        using BinaryReader reader = new BinaryReader(stream);
+        Fragment restored = new Fragment();
         restored.Parse(reader);
 
         // Assert

@@ -26,8 +26,8 @@ public sealed class ValueObjectTests
     public void Equals_SameValues_ShouldReturnTrue()
     {
         // Arrange
-        var obj1 = new TestValueObject("test", 42);
-        var obj2 = new TestValueObject("test", 42);
+        TestValueObject obj1 = new TestValueObject("test", 42);
+        TestValueObject obj2 = new TestValueObject("test", 42);
 
         // Act & Assert
         obj1.Equals(obj2).Should().BeTrue();
@@ -37,8 +37,8 @@ public sealed class ValueObjectTests
     public void Equals_DifferentValues_ShouldReturnFalse()
     {
         // Arrange
-        var obj1 = new TestValueObject("test", 42);
-        var obj2 = new TestValueObject("test", 43);
+        TestValueObject obj1 = new TestValueObject("test", 42);
+        TestValueObject obj2 = new TestValueObject("test", 43);
 
         // Act & Assert
         obj1.Equals(obj2).Should().BeFalse();
@@ -48,7 +48,7 @@ public sealed class ValueObjectTests
     public void Equals_WithNull_ShouldReturnFalse()
     {
         // Arrange
-        var obj = new TestValueObject("test", 42);
+        TestValueObject? obj = new TestValueObject("test", 42);
 
         // Act & Assert
         obj.Equals(null).Should().BeFalse();
@@ -58,7 +58,7 @@ public sealed class ValueObjectTests
     public void EqualsObject_SameValues_ShouldReturnTrue()
     {
         // Arrange
-        var obj1 = new TestValueObject("test", 42);
+        TestValueObject obj1 = new TestValueObject("test", 42);
         object obj2 = new TestValueObject("test", 42);
 
         // Act & Assert
@@ -69,7 +69,7 @@ public sealed class ValueObjectTests
     public void EqualsObject_DifferentType_ShouldReturnFalse()
     {
         // Arrange
-        var obj1 = new TestValueObject("test", 42);
+        TestValueObject obj1 = new TestValueObject("test", 42);
         object obj2 = "not a value object";
 
         // Act & Assert
@@ -80,8 +80,8 @@ public sealed class ValueObjectTests
     public void EqualityOperator_SameValues_ShouldReturnTrue()
     {
         // Arrange
-        var obj1 = new TestValueObject("test", 42);
-        var obj2 = new TestValueObject("test", 42);
+        TestValueObject obj1 = new TestValueObject("test", 42);
+        TestValueObject obj2 = new TestValueObject("test", 42);
 
         // Act & Assert
         (obj1 == obj2).Should().BeTrue();
@@ -91,8 +91,8 @@ public sealed class ValueObjectTests
     public void EqualityOperator_DifferentValues_ShouldReturnFalse()
     {
         // Arrange
-        var obj1 = new TestValueObject("test", 42);
-        var obj2 = new TestValueObject("test", 43);
+        TestValueObject obj1 = new TestValueObject("test", 42);
+        TestValueObject obj2 = new TestValueObject("test", 43);
 
         // Act & Assert
         (obj1 == obj2).Should().BeFalse();
@@ -102,8 +102,8 @@ public sealed class ValueObjectTests
     public void InequalityOperator_DifferentValues_ShouldReturnTrue()
     {
         // Arrange
-        var obj1 = new TestValueObject("test", 42);
-        var obj2 = new TestValueObject("test", 43);
+        TestValueObject obj1 = new TestValueObject("test", 42);
+        TestValueObject obj2 = new TestValueObject("test", 43);
 
         // Act & Assert
         (obj1 != obj2).Should().BeTrue();
@@ -124,7 +124,7 @@ public sealed class ValueObjectTests
     public void EqualityOperator_OneNull_ShouldReturnFalse()
     {
         // Arrange
-        var obj1 = new TestValueObject("test", 42);
+        TestValueObject obj1 = new TestValueObject("test", 42);
         TestValueObject? obj2 = null;
 
         // Act & Assert
@@ -136,8 +136,8 @@ public sealed class ValueObjectTests
     public void GetHashCode_SameValues_ShouldReturnSameHashCode()
     {
         // Arrange
-        var obj1 = new TestValueObject("test", 42);
-        var obj2 = new TestValueObject("test", 42);
+        TestValueObject obj1 = new TestValueObject("test", 42);
+        TestValueObject obj2 = new TestValueObject("test", 42);
 
         // Act & Assert
         obj1.GetHashCode().Should().Be(obj2.GetHashCode());
@@ -147,8 +147,8 @@ public sealed class ValueObjectTests
     public void GetHashCode_DifferentValues_ShouldReturnDifferentHashCode()
     {
         // Arrange
-        var obj1 = new TestValueObject("test", 42);
-        var obj2 = new TestValueObject("test", 43);
+        TestValueObject obj1 = new TestValueObject("test", 42);
+        TestValueObject obj2 = new TestValueObject("test", 43);
 
         // Act & Assert
         obj1.GetHashCode().Should().NotBe(obj2.GetHashCode());

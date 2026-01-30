@@ -1,7 +1,7 @@
 using System.Diagnostics;
 using LotroKoniecDev.Application.Abstractions;
 
-namespace LotroKoniecDev.Infrastructure;
+namespace LotroKoniecDev.Infrastructure.Diagnostics;
 
 public sealed class GameProcessDetector : IGameProcessDetector
 {
@@ -27,7 +27,10 @@ public sealed class GameProcessDetector : IGameProcessDetector
                     process.Dispose();
                 }
 
-                if (found) return true;
+                if (found)
+                {
+                    return true;
+                }
             }
 
             return false;

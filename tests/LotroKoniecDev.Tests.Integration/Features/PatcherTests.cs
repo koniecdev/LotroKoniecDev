@@ -40,7 +40,7 @@ public class PatcherTests : IDisposable
         string translationsPath = CreateTempFile("translations.txt");
         string datPath = CreateTempFile("test.dat");
 
-        var translations = new List<Translation>
+        List<Translation> translations = new List<Translation>
         {
             new() { FileId = 0x25000001, GossipId = 1, Content = "Translated" }
         };
@@ -59,7 +59,7 @@ public class PatcherTests : IDisposable
             .Returns(Result.Success());
 
         // Act
-        var result = _patcher.ApplyTranslations(translationsPath, datPath);
+        Result<PatchSummary> result = _patcher.ApplyTranslations(translationsPath, datPath);
 
         // Assert
         result.IsSuccess.Should().BeTrue();
@@ -82,7 +82,7 @@ public class PatcherTests : IDisposable
             .Returns(Result.Success<IReadOnlyList<Translation>>(new List<Translation>()));
 
         // Act
-        var result = _patcher.ApplyTranslations(translationsPath, datPath);
+        Result<PatchSummary> result = _patcher.ApplyTranslations(translationsPath, datPath);
 
         // Assert
         result.IsFailure.Should().BeTrue();
@@ -96,7 +96,7 @@ public class PatcherTests : IDisposable
         string translationsPath = CreateTempFile("translations.txt");
         string datPath = CreateTempFile("test.dat");
 
-        var error = new Error(
+        Error error = new Error(
             "Translation.FileNotFound",
             "File not found",
             ErrorType.NotFound);
@@ -104,7 +104,7 @@ public class PatcherTests : IDisposable
         _mockParser.ParseFile(translationsPath).Returns(Result.Failure<IReadOnlyList<Translation>>(error));
 
         // Act
-        var result = _patcher.ApplyTranslations(translationsPath, datPath);
+        Result<PatchSummary> result = _patcher.ApplyTranslations(translationsPath, datPath);
 
         // Assert
         result.IsFailure.Should().BeTrue();
@@ -117,7 +117,7 @@ public class PatcherTests : IDisposable
         string translationsPath = CreateTempFile("translations.txt");
         string datPath = CreateTempFile("test.dat");
 
-        var translations = new List<Translation>
+        List<Translation> translations = new List<Translation>
         {
             new() { FileId = 0x25000001, GossipId = 1, Content = "Test" }
         };
@@ -125,7 +125,7 @@ public class PatcherTests : IDisposable
         _mockParser.ParseFile(translationsPath)
             .Returns(Result.Success<IReadOnlyList<Translation>>(translations));
 
-        var error = new Error(
+        Error error = new Error(
             "DatFile.CannotOpen",
             "Cannot open",
             ErrorType.IoError);
@@ -133,7 +133,7 @@ public class PatcherTests : IDisposable
         _mockHandler.Open(datPath).Returns(Result.Failure<int>(error));
 
         // Act
-        var result = _patcher.ApplyTranslations(translationsPath, datPath);
+        Result<PatchSummary> result = _patcher.ApplyTranslations(translationsPath, datPath);
 
         // Assert
         result.IsFailure.Should().BeTrue();
@@ -147,7 +147,7 @@ public class PatcherTests : IDisposable
         string translationsPath = CreateTempFile("translations.txt");
         string datPath = CreateTempFile("test.dat");
 
-        var translations = new List<Translation>
+        List<Translation> translations = new List<Translation>
         {
             new() { FileId = 0x25000001, GossipId = 1, Content = "Test" }
         };
@@ -158,7 +158,7 @@ public class PatcherTests : IDisposable
         _mockHandler.GetAllSubfileSizes(0).Returns(new Dictionary<int, (int, int)>()); // Empty
 
         // Act
-        var result = _patcher.ApplyTranslations(translationsPath, datPath);
+        Result<PatchSummary> result = _patcher.ApplyTranslations(translationsPath, datPath);
 
         // Assert
         result.IsSuccess.Should().BeTrue();
@@ -173,7 +173,7 @@ public class PatcherTests : IDisposable
         string translationsPath = CreateTempFile("translations.txt");
         string datPath = CreateTempFile("test.dat");
 
-        var translations = new List<Translation>
+        List<Translation> translations = new List<Translation>
         {
             new() { FileId = 0x10000001, GossipId = 1, Content = "Test" } // Non-text file
         };
@@ -187,7 +187,7 @@ public class PatcherTests : IDisposable
         });
 
         // Act
-        var result = _patcher.ApplyTranslations(translationsPath, datPath);
+        Result<PatchSummary> result = _patcher.ApplyTranslations(translationsPath, datPath);
 
         // Assert
         result.IsSuccess.Should().BeTrue();
@@ -202,7 +202,7 @@ public class PatcherTests : IDisposable
         string translationsPath = CreateTempFile("translations.txt");
         string datPath = CreateTempFile("test.dat");
 
-        var translations = new List<Translation>
+        List<Translation> translations = new List<Translation>
         {
             new() { FileId = 0x25000001, GossipId = 999, Content = "Test" } // Fragment doesn't exist
         };
@@ -219,7 +219,7 @@ public class PatcherTests : IDisposable
             .Returns(Result.Success(CreateTextSubFileData(0x25000001, fragmentId: 1))); // Fragment ID 1, not 999
 
         // Act
-        var result = _patcher.ApplyTranslations(translationsPath, datPath);
+        Result<PatchSummary> result = _patcher.ApplyTranslations(translationsPath, datPath);
 
         // Assert
         result.IsSuccess.Should().BeTrue();
@@ -235,7 +235,7 @@ public class PatcherTests : IDisposable
         string datPath = CreateTempFile("test.dat");
 
         // Same file ID, multiple fragments - should only load file once
-        var translations = new List<Translation>
+        List<Translation> translations = new List<Translation>
         {
             new() { FileId = 0x25000001, GossipId = 1, Content = "Trans1" },
             new() { FileId = 0x25000001, GossipId = 2, Content = "Trans2" },
@@ -256,7 +256,7 @@ public class PatcherTests : IDisposable
             .Returns(Result.Success());
 
         // Act
-        var result = _patcher.ApplyTranslations(translationsPath, datPath);
+        Result<PatchSummary> result = _patcher.ApplyTranslations(translationsPath, datPath);
 
         // Assert
         result.IsSuccess.Should().BeTrue();
@@ -293,8 +293,8 @@ public class PatcherTests : IDisposable
 
     private static byte[] CreateTextSubFileData(int fileId, ulong fragmentId = 1, int fragmentCount = 1)
     {
-        using var stream = new MemoryStream();
-        using var writer = new BinaryWriter(stream);
+        using MemoryStream stream = new MemoryStream();
+        using BinaryWriter writer = new BinaryWriter(stream);
 
         writer.Write(fileId);
         writer.Write(new byte[4]); // Unknown1

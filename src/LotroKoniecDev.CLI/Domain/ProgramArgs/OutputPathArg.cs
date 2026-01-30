@@ -1,0 +1,47 @@
+﻿
+using LotroKoniecDev.Domain.Core.BuildingBlocks;
+using LotroKoniecDev.Domain.Core.Monads;
+using LotroKoniecDev.Primitives.Enums;
+
+namespace LotroKoniecDev.CLI.Domain.ProgramArgs;
+
+public sealed class OutputPathArg : ValueObject
+{
+    public const int MaxLength = 150;
+    public string Value { get; }
+
+    public static Result<OutputPathArg> Create(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return Result.Failure<OutputPathArg>(
+                new Error("OutputPathArg.NullOrWhitespace", 
+                    "value cannot be null or whitespace", ErrorType.Validation));
+        }
+
+        value = value.Trim();
+
+        if (value.Length > MaxLength)
+        {
+            return Result.Failure<OutputPathArg>(
+                new Error("OutputPathArg.MaxLengthExceeded", 
+                    $"value length cannot be greater than {MaxLength}", ErrorType.Validation));
+        }
+
+        OutputPathArg instance = new(value);
+        return Result.Success(instance);
+    }
+
+    private OutputPathArg(string value)
+    {
+        Value = value;
+    }
+
+    public override string ToString() => Value;
+
+    protected override IEnumerable<object> GetAtomicValues()
+    {
+        yield return Value;
+    }
+}
+

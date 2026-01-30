@@ -1,6 +1,7 @@
 <Solution>
   <Folder Name="/src/">
     <Project Path="src/LotroKoniecDev.Primitives/LotroKoniecDev.Primitives.csproj" />
+    <Project Path="src/LotroKoniecDev.CLI/LotroKoniecDev.CLI.csproj" />
     <Project Path="src/LotroKoniecDev.Domain/LotroKoniecDev.Domain.csproj" />
     <Project Path="src/LotroKoniecDev.Application/LotroKoniecDev.Application.csproj" />
     <Project Path="src/LotroKoniecDev.Infrastructure/LotroKoniecDev.Infrastructure.csproj" />

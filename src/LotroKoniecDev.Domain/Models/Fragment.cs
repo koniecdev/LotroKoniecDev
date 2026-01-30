@@ -82,7 +82,7 @@ public sealed class Fragment
 
         for (int i = 0; i < numArgStringGroups; i++)
         {
-            var group = new List<string>();
+            List<string> group = new List<string>();
             int numStrings = reader.ReadInt32();
 
             for (int j = 0; j < numStrings; j++)

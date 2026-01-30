@@ -1,5 +1,7 @@
 using LotroKoniecDev.Primitives.Enums;
 using LotroKoniecDev.Application.Parsers;
+using LotroKoniecDev.Domain.Core.Monads;
+using LotroKoniecDev.Domain.Models;
 
 namespace LotroKoniecDev.Tests.Integration.Parsers;
 
@@ -34,7 +36,7 @@ public class TranslationFileParserTests : IDisposable
         );
 
         // Act
-        var result = _parser.ParseFile(filePath);
+        Result<IReadOnlyList<Translation>> result = _parser.ParseFile(filePath);
 
         // Assert
         result.IsSuccess.Should().BeTrue();
@@ -53,7 +55,7 @@ public class TranslationFileParserTests : IDisposable
         );
 
         // Act
-        var result = _parser.ParseFile(filePath);
+        Result<IReadOnlyList<Translation>> result = _parser.ParseFile(filePath);
 
         // Assert
         result.IsSuccess.Should().BeTrue();
@@ -72,7 +74,7 @@ public class TranslationFileParserTests : IDisposable
         );
 
         // Act
-        var result = _parser.ParseFile(filePath);
+        Result<IReadOnlyList<Translation>> result = _parser.ParseFile(filePath);
 
         // Assert
         result.IsSuccess.Should().BeTrue();
@@ -86,7 +88,7 @@ public class TranslationFileParserTests : IDisposable
         string nonExistentPath = Path.Combine(_tempDir, "non_existent.txt");
 
         // Act
-        var result = _parser.ParseFile(nonExistentPath);
+        Result<IReadOnlyList<Translation>> result = _parser.ParseFile(nonExistentPath);
 
         // Assert
         result.IsFailure.Should().BeTrue();
@@ -104,11 +106,11 @@ public class TranslationFileParserTests : IDisposable
         );
 
         // Act
-        var result = _parser.ParseFile(filePath);
+        Result<IReadOnlyList<Translation>> result = _parser.ParseFile(filePath);
 
         // Assert
         result.IsSuccess.Should().BeTrue();
-        var translations = result.Value.ToList();
+        List<Translation> translations = result.Value.ToList();
         translations[0].FileId.Should().Be(100);
         translations[0].GossipId.Should().Be(100);
         translations[1].FileId.Should().Be(100);
@@ -123,7 +125,7 @@ public class TranslationFileParserTests : IDisposable
         const string line = "12345||67890||Hello World||1-2-3||1-2-3||1";
 
         // Act
-        var result = _parser.ParseLine(line);
+        Result<Translation> result = _parser.ParseLine(line);
 
         // Assert
         result.IsSuccess.Should().BeTrue();
@@ -141,7 +143,7 @@ public class TranslationFileParserTests : IDisposable
         const string line = "100||200||Test||NULL||NULL||1";
 
         // Act
-        var result = _parser.ParseLine(line);
+        Result<Translation> result = _parser.ParseLine(line);
 
         // Assert
         result.IsSuccess.Should().BeTrue();
@@ -156,7 +158,7 @@ public class TranslationFileParserTests : IDisposable
         const string line = @"100||200||Line1\r\nLine2||NULL||NULL||1";
 
         // Act
-        var result = _parser.ParseLine(line);
+        Result<Translation> result = _parser.ParseLine(line);
 
         // Assert
         result.IsSuccess.Should().BeTrue();
@@ -170,7 +172,7 @@ public class TranslationFileParserTests : IDisposable
         const string line = "100||200||Content";
 
         // Act
-        var result = _parser.ParseLine(line);
+        Result<Translation> result = _parser.ParseLine(line);
 
         // Assert
         result.IsFailure.Should().BeTrue();
@@ -181,7 +183,7 @@ public class TranslationFileParserTests : IDisposable
     public void ParseLine_EmptyLine_ShouldReturnFailure()
     {
         // Act
-        var result = _parser.ParseLine("");
+        Result<Translation> result = _parser.ParseLine("");
 
         // Assert
         result.IsFailure.Should().BeTrue();
@@ -194,7 +196,7 @@ public class TranslationFileParserTests : IDisposable
         const string line = "not_a_number||200||Content||NULL||NULL||1";
 
         // Act
-        var result = _parser.ParseLine(line);
+        Result<Translation> result = _parser.ParseLine(line);
 
         // Assert
         result.IsFailure.Should().BeTrue();

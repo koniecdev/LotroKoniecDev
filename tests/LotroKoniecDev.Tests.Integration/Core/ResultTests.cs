@@ -10,7 +10,7 @@ public class ResultTests
     public void Success_ShouldCreateSuccessfulResult()
     {
         // Act
-        var result = Result.Success();
+        Result result = Result.Success();
 
         // Assert
         result.IsSuccess.Should().BeTrue();
@@ -25,7 +25,7 @@ public class ResultTests
         const string expectedValue = "test value";
 
         // Act
-        var result = Result.Success(expectedValue);
+        Result<string> result = Result.Success(expectedValue);
 
         // Assert
         result.IsSuccess.Should().BeTrue();
@@ -36,10 +36,10 @@ public class ResultTests
     public void Failure_ShouldCreateFailedResult()
     {
         // Arrange
-        var error = new Error("TEST.ERROR", "Test error message", ErrorType.Failure);
+        Error error = new Error("TEST.ERROR", "Test error message", ErrorType.Failure);
 
         // Act
-        var result = Result.Failure(error);
+        Result result = Result.Failure(error);
 
         // Assert
         result.IsSuccess.Should().BeFalse();
@@ -51,10 +51,10 @@ public class ResultTests
     public void Failure_WithGenericType_ShouldCreateFailedResult()
     {
         // Arrange
-        var error = new Error("TEST.ERROR", "Test error message");
+        Error error = new Error("TEST.ERROR", "Test error message");
 
         // Act
-        var result = Result.Failure<string>(error);
+        Result<string> result = Result.Failure<string>(error);
 
         // Assert
         result.IsSuccess.Should().BeFalse();
@@ -66,8 +66,8 @@ public class ResultTests
     public void Value_OnFailure_ShouldThrowException()
     {
         // Arrange
-        var error = new Error("TEST.ERROR", "Test error message");
-        var result = Result.Failure<string>(error);
+        Error error = new Error("TEST.ERROR", "Test error message");
+        Result<string> result = Result.Failure<string>(error);
 
         // Act & Assert
         Action act = () => _ = result.Value;
@@ -93,8 +93,8 @@ public class ResultTests
     public void ErrorNone_ShouldBeSameInstance()
     {
         // Act
-        var error1 = Error.None;
-        var error2 = Error.None;
+        Error error1 = Error.None;
+        Error error2 = Error.None;
 
         // Assert
         ReferenceEquals(error1, error2).Should().BeTrue();

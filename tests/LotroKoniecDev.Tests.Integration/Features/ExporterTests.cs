@@ -46,7 +46,7 @@ public class ExporterTests : IDisposable
             .Returns(Result.Success(CreateTextSubFileData(0x25000001, "Test text")));
 
         // Act
-        var result = _exporter.ExportAllTexts(datPath, outputPath);
+        Result<ExportSummary> result = _exporter.ExportAllTexts(datPath, outputPath);
 
         // Assert
         result.IsSuccess.Should().BeTrue();
@@ -63,7 +63,7 @@ public class ExporterTests : IDisposable
         string datPath = CreateTempFile("test.dat");
         string outputPath = Path.Combine(_tempDir, "output.txt");
 
-        var error = new Error(
+        Error error = new Error(
             "DatFile.CannotOpen",
             "Cannot open",
             ErrorType.IoError);
@@ -71,7 +71,7 @@ public class ExporterTests : IDisposable
         _mockHandler.Open(datPath).Returns(Result.Failure<int>(error));
 
         // Act
-        var result = _exporter.ExportAllTexts(datPath, outputPath);
+        Result<ExportSummary> result = _exporter.ExportAllTexts(datPath, outputPath);
 
         // Assert
         result.IsFailure.Should().BeTrue();
@@ -114,7 +114,7 @@ public class ExporterTests : IDisposable
             .Returns(Result.Success(CreateTextSubFileData(0x25000002, "Text2")));
 
         // Act
-        var result = _exporter.ExportAllTexts(datPath, outputPath);
+        Result<ExportSummary> result = _exporter.ExportAllTexts(datPath, outputPath);
 
         // Assert
         result.IsSuccess.Should().BeTrue();
@@ -130,10 +130,10 @@ public class ExporterTests : IDisposable
         // Arrange
         string datPath = CreateTempFile("test.dat");
         string outputPath = Path.Combine(_tempDir, "output.txt");
-        var progressReports = new List<(int Processed, int Total)>();
+        List<(int Processed, int Total)> progressReports = new List<(int Processed, int Total)>();
 
         // Create 600 files to trigger progress (interval is 500)
-        var fileSizes = Enumerable.Range(1, 600)
+        Dictionary<int, (int, int)> fileSizes = Enumerable.Range(1, 600)
             .ToDictionary(
                 i => 0x25000000 + i,
                 i => (100, 1));
@@ -144,7 +144,7 @@ public class ExporterTests : IDisposable
             .Returns(x => Result.Success(CreateTextSubFileData((int)x[1], "Test")));
 
         // Act
-        var result = _exporter.ExportAllTexts(datPath, outputPath,
+        Result<ExportSummary> result = _exporter.ExportAllTexts(datPath, outputPath,
             (processed, total) => progressReports.Add((processed, total)));
 
         // Assert
@@ -171,8 +171,8 @@ public class ExporterTests : IDisposable
 
     private static byte[] CreateTextSubFileData(int fileId, string text)
     {
-        using var stream = new MemoryStream();
-        using var writer = new BinaryWriter(stream);
+        using MemoryStream stream = new MemoryStream();
+        using BinaryWriter writer = new BinaryWriter(stream);
 
         writer.Write(fileId);
         writer.Write(new byte[4]); // Unknown1

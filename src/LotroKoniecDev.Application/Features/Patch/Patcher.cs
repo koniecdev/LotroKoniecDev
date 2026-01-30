@@ -1,4 +1,5 @@
 using LotroKoniecDev.Application.Abstractions;
+using LotroKoniecDev.Application.Extensions;
 using LotroKoniecDev.Domain.Core.Errors;
 using LotroKoniecDev.Domain.Core.Monads;
 using LotroKoniecDev.Domain.Models;
@@ -72,7 +73,7 @@ public sealed class Patcher : IPatcher
     {
         Dictionary<int, (int Size, int Iteration)> fileSizes = _datFileHandler.GetAllSubfileSizes(handle);
 
-        var warnings = new List<string>();
+        List<string> warnings = new List<string>();
         int appliedCount = 0;
         int skippedCount = 0;
 
@@ -106,7 +107,8 @@ public sealed class Patcher : IPatcher
                 }
 
                 // Load new subfile
-                Result<SubFile> loadResult = LoadSubFile(handle, translation.FileId, fileSizes[translation.FileId]);
+                (int size, int _) = fileSizes[translation.FileId];
+                Result<SubFile> loadResult = _datFileHandler.LoadSubFile(handle, translation.FileId, size, loadVersion: true);
 
                 if (loadResult.IsFailure)
                 {
@@ -153,35 +155,6 @@ public sealed class Patcher : IPatcher
             appliedCount,
             skippedCount,
             warnings));
-    }
-
-    private Result<SubFile> LoadSubFile(
-        int handle,
-        int fileId,
-        (int Size, int Iteration) fileInfo)
-    {
-        Result<byte[]> dataResult = _datFileHandler.GetSubfileData(handle, fileId, fileInfo.Size);
-
-        if (dataResult.IsFailure)
-        {
-            return Result.Failure<SubFile>(dataResult.Error);
-        }
-
-        try
-        {
-            var subFile = new SubFile
-            {
-                Version = _datFileHandler.GetSubfileVersion(handle, fileId)
-            };
-
-            subFile.Parse(dataResult.Value);
-            return Result.Success(subFile);
-        }
-        catch (Exception ex)
-        {
-            return Result.Failure<SubFile>(
-                DomainErrors.SubFile.ParseError(fileId, ex.Message));
-        }
     }
 
     private void SaveSubFile(

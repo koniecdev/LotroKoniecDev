@@ -1,7 +1,7 @@
 using System.Diagnostics;
 using LotroKoniecDev.Application.Abstractions;
 
-namespace LotroKoniecDev.Infrastructure;
+namespace LotroKoniecDev.Infrastructure.Diagnostics;
 
 public sealed class GameProcessDetector : IGameProcessDetector
 {

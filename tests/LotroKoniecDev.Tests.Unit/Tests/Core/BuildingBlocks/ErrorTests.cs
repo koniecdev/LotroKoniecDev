@@ -9,7 +9,7 @@ public sealed class ErrorTests
     public void Constructor_ShouldSetPropertiesCorrectly()
     {
         // Act
-        var error = new Error("Test.Code", "Test message", ErrorType.Validation);
+        Error error = new Error("Test.Code", "Test message", ErrorType.Validation);
 
         // Assert
         error.Code.Should().Be("Test.Code");
@@ -21,7 +21,7 @@ public sealed class ErrorTests
     public void Constructor_WithDefaultType_ShouldUseFailure()
     {
         // Act
-        var error = new Error("Test.Code", "Test message");
+        Error error = new Error("Test.Code", "Test message");
 
         // Assert
         error.Type.Should().Be(ErrorType.Failure);
@@ -39,10 +39,10 @@ public sealed class ErrorTests
     public void ToString_ShouldReturnFormattedString()
     {
         // Arrange
-        var error = new Error("Test.Code", "Test message", ErrorType.Validation);
+        Error error = new Error("Test.Code", "Test message", ErrorType.Validation);
 
         // Act
-        var result = error.ToString();
+        string result = error.ToString();
 
         // Assert
         result.Should().Be("[Validation] Test.Code: Test message");
@@ -52,7 +52,7 @@ public sealed class ErrorTests
     public void Validation_FactoryMethod_ShouldCreateValidationError()
     {
         // Act
-        var error = Error.Validation("Val.Code", "Validation message");
+        Error error = Error.Validation("Val.Code", "Validation message");
 
         // Assert
         error.Code.Should().Be("Val.Code");
@@ -64,7 +64,7 @@ public sealed class ErrorTests
     public void NotFound_FactoryMethod_ShouldCreateNotFoundError()
     {
         // Act
-        var error = Error.NotFound("NotFound.Code", "Not found message");
+        Error error = Error.NotFound("NotFound.Code", "Not found message");
 
         // Assert
         error.Code.Should().Be("NotFound.Code");
@@ -76,7 +76,7 @@ public sealed class ErrorTests
     public void Failure_FactoryMethod_ShouldCreateFailureError()
     {
         // Act
-        var error = Error.Failure("Fail.Code", "Failure message");
+        Error error = Error.Failure("Fail.Code", "Failure message");
 
         // Assert
         error.Code.Should().Be("Fail.Code");
@@ -88,7 +88,7 @@ public sealed class ErrorTests
     public void IoError_FactoryMethod_ShouldCreateIoError()
     {
         // Act
-        var error = Error.IoError("IO.Code", "IO error message");
+        Error error = Error.IoError("IO.Code", "IO error message");
 
         // Assert
         error.Code.Should().Be("IO.Code");
@@ -100,8 +100,8 @@ public sealed class ErrorTests
     public void Equality_SameValues_ShouldBeEqual()
     {
         // Arrange
-        var error1 = new Error("Test.Code", "Test message", ErrorType.Failure);
-        var error2 = new Error("Test.Code", "Test message", ErrorType.Failure);
+        Error error1 = new Error("Test.Code", "Test message", ErrorType.Failure);
+        Error error2 = new Error("Test.Code", "Test message", ErrorType.Failure);
 
         // Assert
         error1.Should().Be(error2);
@@ -112,8 +112,8 @@ public sealed class ErrorTests
     public void Equality_DifferentValues_ShouldNotBeEqual()
     {
         // Arrange
-        var error1 = new Error("Test.Code1", "Test message", ErrorType.Failure);
-        var error2 = new Error("Test.Code2", "Test message", ErrorType.Failure);
+        Error error1 = new Error("Test.Code1", "Test message", ErrorType.Failure);
+        Error error2 = new Error("Test.Code2", "Test message", ErrorType.Failure);
 
         // Assert
         error1.Should().NotBe(error2);

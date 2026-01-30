@@ -50,7 +50,7 @@ public class SubFileTests
         byte[] data = CreateTextSubFileData(TextFileId, 1);
 
         // Act
-        var subFile = new SubFile();
+        SubFile subFile = new SubFile();
         subFile.Parse(data);
 
         // Assert
@@ -64,8 +64,8 @@ public class SubFileTests
     public void Parse_NonTextFile_ShouldNotParseFragments()
     {
         // Arrange
-        using var stream = new MemoryStream();
-        using var writer = new BinaryWriter(stream);
+        using MemoryStream stream = new MemoryStream();
+        using BinaryWriter writer = new BinaryWriter(stream);
 
         writer.Write(NonTextFileId);
         writer.Write(new byte[100]); // Some data
@@ -73,7 +73,7 @@ public class SubFileTests
         byte[] data = stream.ToArray();
 
         // Act
-        var subFile = new SubFile();
+        SubFile subFile = new SubFile();
         subFile.Parse(data);
 
         // Assert
@@ -87,11 +87,11 @@ public class SubFileTests
     {
         // Arrange
         byte[] data = CreateTextSubFileData(TextFileId, 1, fragmentId: 12345);
-        var subFile = new SubFile();
+        SubFile subFile = new SubFile();
         subFile.Parse(data);
 
         // Act
-        bool found = subFile.TryGetFragment(12345, out var fragment);
+        bool found = subFile.TryGetFragment(12345, out Fragment? fragment);
 
         // Assert
         found.Should().BeTrue();
@@ -104,11 +104,11 @@ public class SubFileTests
     {
         // Arrange
         byte[] data = CreateTextSubFileData(TextFileId, 1, fragmentId: 12345);
-        var subFile = new SubFile();
+        SubFile subFile = new SubFile();
         subFile.Parse(data);
 
         // Act
-        bool found = subFile.TryGetFragment(99999, out var fragment);
+        bool found = subFile.TryGetFragment(99999, out Fragment? fragment);
 
         // Assert
         found.Should().BeFalse();
@@ -120,14 +120,14 @@ public class SubFileTests
     {
         // Arrange
         byte[] originalData = CreateTextSubFileData(TextFileId, 2);
-        var subFile = new SubFile();
+        SubFile subFile = new SubFile();
         subFile.Parse(originalData);
 
         // Act
         byte[] serialized = subFile.Serialize();
 
         // Parse again to verify
-        var restored = new SubFile();
+        SubFile restored = new SubFile();
         restored.Parse(serialized);
 
         // Assert
@@ -139,7 +139,7 @@ public class SubFileTests
     public void Parse_NullData_ShouldThrow()
     {
         // Arrange
-        var subFile = new SubFile();
+        SubFile subFile = new SubFile();
 
         // Act & Assert
         Action act = () => subFile.Parse(null!);
@@ -150,7 +150,7 @@ public class SubFileTests
     public void Version_ShouldBeSettable()
     {
         // Arrange
-        var subFile = new SubFile { Version = 42 };
+        SubFile subFile = new SubFile { Version = 42 };
 
         // Assert
         subFile.Version.Should().Be(42);
@@ -158,8 +158,8 @@ public class SubFileTests
 
     private static byte[] CreateTextSubFileData(int fileId, int fragmentCount, ulong fragmentId = 1)
     {
-        using var stream = new MemoryStream();
-        using var writer = new BinaryWriter(stream);
+        using MemoryStream stream = new MemoryStream();
+        using BinaryWriter writer = new BinaryWriter(stream);
 
         writer.Write(fileId);
         writer.Write(new byte[4]); // Unknown1

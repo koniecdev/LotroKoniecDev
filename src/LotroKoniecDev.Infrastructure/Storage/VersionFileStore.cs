@@ -2,7 +2,7 @@ using LotroKoniecDev.Application.Abstractions;
 using LotroKoniecDev.Domain.Core.Errors;
 using LotroKoniecDev.Domain.Core.Monads;
 
-namespace LotroKoniecDev.Infrastructure;
+namespace LotroKoniecDev.Infrastructure.Storage;
 
 /// <summary>
 /// Reads and writes game version to a local text file.

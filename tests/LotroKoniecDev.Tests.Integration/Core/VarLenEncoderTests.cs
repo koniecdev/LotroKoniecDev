@@ -11,8 +11,8 @@ public class VarLenEncoderTests
     public void Write_SingleByteValues_ShouldWriteOneByte(int value)
     {
         // Arrange
-        using var stream = new MemoryStream();
-        using var writer = new BinaryWriter(stream);
+        using MemoryStream stream = new MemoryStream();
+        using BinaryWriter writer = new BinaryWriter(stream);
 
         // Act
         VarLenEncoder.Write(writer, value);
@@ -30,8 +30,8 @@ public class VarLenEncoderTests
     public void Write_TwoByteValues_ShouldWriteTwoBytes(int value)
     {
         // Arrange
-        using var stream = new MemoryStream();
-        using var writer = new BinaryWriter(stream);
+        using MemoryStream stream = new MemoryStream();
+        using BinaryWriter writer = new BinaryWriter(stream);
 
         // Act
         VarLenEncoder.Write(writer, value);
@@ -51,15 +51,15 @@ public class VarLenEncoderTests
     public void ReadWrite_RoundTrip_ShouldPreserveValue(int originalValue)
     {
         // Arrange
-        using var stream = new MemoryStream();
-        using var writer = new BinaryWriter(stream);
+        using MemoryStream stream = new MemoryStream();
+        using BinaryWriter writer = new BinaryWriter(stream);
 
         // Act - Write
         VarLenEncoder.Write(writer, originalValue);
 
         // Reset stream for reading
         stream.Position = 0;
-        using var reader = new BinaryReader(stream);
+        using BinaryReader reader = new BinaryReader(stream);
 
         // Act - Read
         int readValue = VarLenEncoder.Read(reader);
@@ -72,8 +72,8 @@ public class VarLenEncoderTests
     public void Write_NegativeValue_ShouldThrow()
     {
         // Arrange
-        using var stream = new MemoryStream();
-        using var writer = new BinaryWriter(stream);
+        using MemoryStream stream = new MemoryStream();
+        using BinaryWriter writer = new BinaryWriter(stream);
 
         // Act & Assert
         Action act = () => VarLenEncoder.Write(writer, -1);
@@ -84,8 +84,8 @@ public class VarLenEncoderTests
     public void Write_ValueTooLarge_ShouldThrow()
     {
         // Arrange
-        using var stream = new MemoryStream();
-        using var writer = new BinaryWriter(stream);
+        using MemoryStream stream = new MemoryStream();
+        using BinaryWriter writer = new BinaryWriter(stream);
 
         // Act & Assert
         Action act = () => VarLenEncoder.Write(writer, 32768);

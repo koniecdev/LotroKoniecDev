@@ -1,4 +1,8 @@
 using LotroKoniecDev.Application.Abstractions;
+using LotroKoniecDev.Infrastructure.DatFile;
+using LotroKoniecDev.Infrastructure.Diagnostics;
+using LotroKoniecDev.Infrastructure.Network;
+using LotroKoniecDev.Infrastructure.Storage;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace LotroKoniecDev.Infrastructure;
@@ -19,7 +23,7 @@ public static class InfrastructureDependencyInjection
         services.AddSingleton<IWriteAccessChecker, WriteAccessChecker>();
         services.AddSingleton<HttpClient>(_ =>
         {
-            var client = new HttpClient();
+            HttpClient client = new HttpClient();
             client.DefaultRequestHeaders.UserAgent.ParseAdd("LotroKoniecDev/1.0");
             client.Timeout = TimeSpan.FromSeconds(10);
             return client;

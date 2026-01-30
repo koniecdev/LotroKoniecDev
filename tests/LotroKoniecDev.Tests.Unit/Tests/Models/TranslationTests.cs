@@ -8,7 +8,7 @@ public sealed class TranslationTests
     public void HasArguments_WithArgsOrder_ShouldReturnTrue()
     {
         // Arrange
-        var translation = new Translation
+        Translation translation = new Translation
         {
             FileId = 1,
             GossipId = 100,
@@ -25,7 +25,7 @@ public sealed class TranslationTests
     public void HasArguments_WithNullArgsOrder_ShouldReturnFalse()
     {
         // Arrange
-        var translation = new Translation
+        Translation translation = new Translation
         {
             FileId = 1,
             GossipId = 100,
@@ -42,7 +42,7 @@ public sealed class TranslationTests
     public void HasArguments_WithEmptyArgsOrder_ShouldReturnFalse()
     {
         // Arrange
-        var translation = new Translation
+        Translation translation = new Translation
         {
             FileId = 1,
             GossipId = 100,
@@ -59,7 +59,7 @@ public sealed class TranslationTests
     public void FragmentId_ShouldReturnGossipIdAsUlong()
     {
         // Arrange
-        var translation = new Translation
+        Translation translation = new Translation
         {
             FileId = 1,
             GossipId = 12345,
@@ -74,7 +74,7 @@ public sealed class TranslationTests
     public void GetPieces_WithoutSeparator_ShouldReturnSinglePiece()
     {
         // Arrange
-        var translation = new Translation
+        Translation translation = new Translation
         {
             FileId = 1,
             GossipId = 100,
@@ -82,7 +82,7 @@ public sealed class TranslationTests
         };
 
         // Act
-        var pieces = translation.GetPieces();
+        string[] pieces = translation.GetPieces();
 
         // Assert
         pieces.Should().HaveCount(1);
@@ -93,7 +93,7 @@ public sealed class TranslationTests
     public void GetPieces_WithSeparator_ShouldSplitContent()
     {
         // Arrange
-        var translation = new Translation
+        Translation translation = new Translation
         {
             FileId = 1,
             GossipId = 100,
@@ -101,7 +101,7 @@ public sealed class TranslationTests
         };
 
         // Act
-        var pieces = translation.GetPieces();
+        string[] pieces = translation.GetPieces();
 
         // Assert
         pieces.Should().HaveCount(3);
@@ -114,7 +114,7 @@ public sealed class TranslationTests
     public void GetPieces_WithEmptyParts_ShouldPreserveEmptyStrings()
     {
         // Arrange
-        var translation = new Translation
+        Translation translation = new Translation
         {
             FileId = 1,
             GossipId = 100,
@@ -122,7 +122,7 @@ public sealed class TranslationTests
         };
 
         // Act
-        var pieces = translation.GetPieces();
+        string[] pieces = translation.GetPieces();
 
         // Assert
         pieces.Should().HaveCount(3);
@@ -135,7 +135,7 @@ public sealed class TranslationTests
     public void GetUnescapedContent_ShouldUnescapeNewlines()
     {
         // Arrange
-        var translation = new Translation
+        Translation translation = new Translation
         {
             FileId = 1,
             GossipId = 100,
@@ -143,7 +143,7 @@ public sealed class TranslationTests
         };
 
         // Act
-        var unescaped = translation.GetUnescapedContent();
+        string unescaped = translation.GetUnescapedContent();
 
         // Assert
         unescaped.Should().Be("Line1\nLine2\rLine3");
@@ -153,7 +153,7 @@ public sealed class TranslationTests
     public void GetUnescapedContent_WithoutEscapes_ShouldReturnSameContent()
     {
         // Arrange
-        var translation = new Translation
+        Translation translation = new Translation
         {
             FileId = 1,
             GossipId = 100,
@@ -161,7 +161,7 @@ public sealed class TranslationTests
         };
 
         // Act
-        var unescaped = translation.GetUnescapedContent();
+        string unescaped = translation.GetUnescapedContent();
 
         // Assert
         unescaped.Should().Be("Normal content without escapes");
@@ -171,7 +171,7 @@ public sealed class TranslationTests
     public void ToString_ShouldReturnFormattedString()
     {
         // Arrange
-        var translation = new Translation
+        Translation translation = new Translation
         {
             FileId = 12345,
             GossipId = 67890,
@@ -179,7 +179,7 @@ public sealed class TranslationTests
         };
 
         // Act
-        var result = translation.ToString();
+        string result = translation.ToString();
 
         // Assert
         result.Should().Be("Translation[File=12345, Gossip=67890, Length=17]");

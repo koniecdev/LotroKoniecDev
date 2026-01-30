@@ -3,7 +3,7 @@ using LotroKoniecDev.Application.Abstractions;
 using LotroKoniecDev.Domain.Core.Errors;
 using LotroKoniecDev.Domain.Core.Monads;
 
-namespace LotroKoniecDev.Infrastructure;
+namespace LotroKoniecDev.Infrastructure.DatFile;
 
 /// <summary>
 /// Provides managed access to LOTRO DAT files through the native datexport.dll library.
@@ -25,8 +25,8 @@ public sealed class DatFileHandler : IDatFileHandler
         }
 
         const int requestedHandle = 0;
-        var datIdStamp = new byte[64];
-        var firstIterGuid = new byte[64];
+        byte[] datIdStamp = new byte[64];
+        byte[] firstIterGuid = new byte[64];
 
         try
         {
@@ -77,13 +77,13 @@ public sealed class DatFileHandler : IDatFileHandler
             return new Dictionary<int, (int, int)>();
         }
 
-        var fileIds = new int[count];
-        var sizes = new int[count];
-        var iterations = new int[count];
+        int[] fileIds = new int[count];
+        int[] sizes = new int[count];
+        int[] iterations = new int[count];
 
         DatExportNative.GetSubfileSizes(handle, fileIds, sizes, iterations, 0, count);
 
-        var result = new Dictionary<int, (int, int)>(count);
+        Dictionary<int, (int, int)> result = new Dictionary<int, (int, int)>(count);
 
         for (int i = 0; i < count; i++)
         {
@@ -119,7 +119,7 @@ public sealed class DatFileHandler : IDatFileHandler
             buffer = Marshal.AllocHGlobal(size);
             DatExportNative.GetSubfileData(handle, fileId, buffer, 0, out _);
 
-            var data = new byte[size];
+            byte[] data = new byte[size];
             Marshal.Copy(buffer, data, 0, size);
 
             return Result.Success(data);

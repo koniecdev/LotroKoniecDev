@@ -8,7 +8,7 @@ public class TranslationTests
     public void GetPieces_SimpleSeparator_ShouldSplitCorrectly()
     {
         // Arrange
-        var translation = new Translation
+        Translation translation = new Translation
         {
             FileId = 1,
             GossipId = 100,
@@ -29,7 +29,7 @@ public class TranslationTests
     public void GetPieces_NoSeparator_ShouldReturnSinglePiece()
     {
         // Arrange
-        var translation = new Translation
+        Translation translation = new Translation
         {
             Content = "Simple text without separator"
         };
@@ -46,7 +46,7 @@ public class TranslationTests
     public void GetUnescapedContent_WithEscapeSequences_ShouldUnescape()
     {
         // Arrange
-        var translation = new Translation
+        Translation translation = new Translation
         {
             Content = "Line1\\r\\nLine2\\r\\nLine3"
         };
@@ -62,7 +62,7 @@ public class TranslationTests
     public void HasArguments_WithArgsOrder_ShouldReturnTrue()
     {
         // Arrange
-        var translation = new Translation
+        Translation translation = new Translation
         {
             ArgsOrder = [0, 1, 2]
         };
@@ -75,7 +75,7 @@ public class TranslationTests
     public void HasArguments_WithNullArgsOrder_ShouldReturnFalse()
     {
         // Arrange
-        var translation = new Translation
+        Translation translation = new Translation
         {
             ArgsOrder = null
         };
@@ -88,7 +88,7 @@ public class TranslationTests
     public void HasArguments_WithEmptyArgsOrder_ShouldReturnFalse()
     {
         // Arrange
-        var translation = new Translation
+        Translation translation = new Translation
         {
             ArgsOrder = []
         };
@@ -101,7 +101,7 @@ public class TranslationTests
     public void FragmentId_ShouldConvertFromGossipId()
     {
         // Arrange
-        var translation = new Translation
+        Translation translation = new Translation
         {
             GossipId = 12345
         };
@@ -114,7 +114,7 @@ public class TranslationTests
     public void ToString_ShouldReturnDescriptiveString()
     {
         // Arrange
-        var translation = new Translation
+        Translation translation = new Translation
         {
             FileId = 100,
             GossipId = 200,

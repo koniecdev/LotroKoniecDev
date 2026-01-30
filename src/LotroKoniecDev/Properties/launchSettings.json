@@ -1,0 +1,24 @@
+{
+  "profiles": {
+    "patch polish": {
+      "commandName": "Project",
+      "commandLineArgs": "patch polish",
+      "workingDirectory": "C:\\Users\\halin\\RiderProjects\\LotroKoniecDev"
+    },
+    "patch example_polish": {
+      "commandName": "Project",
+      "commandLineArgs": "patch example_polish",
+      "workingDirectory": "C:\\Users\\halin\\RiderProjects\\LotroKoniecDev"
+    },
+    "export": {
+      "commandName": "Project",
+      "commandLineArgs": "export",
+      "workingDirectory": "C:\\Users\\halin\\RiderProjects\\LotroKoniecDev"
+    },
+    "no args": {
+      "commandName": "Project",
+      "commandLineArgs": "",
+      "workingDirectory": "C:\\Users\\halin\\RiderProjects\\LotroKoniecDev"
+    }
+  }
+}

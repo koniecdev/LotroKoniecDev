@@ -19,7 +19,7 @@ public sealed class SubFile
     /// Determines if a file ID represents a text file.
     /// Text files have 0x25 as the high byte.
     /// </summary>
-    public static bool IsTextFile(int fileId) => (fileId >> 24) == DatFileConstants.TextFileMarker;
+    public static bool IsTextFile(int fileId) => fileId >> 24 == DatFileConstants.TextFileMarker;
 
     /// <summary>
     /// Indicates whether this subfile contains text data.

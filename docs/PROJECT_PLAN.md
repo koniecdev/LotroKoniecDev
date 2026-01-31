@@ -1,159 +1,181 @@
 # LOTRO Polish Patcher - Project Plan
 
-> From MVP to Product. Plan rozpisany jak PM — milestones, epics, issues, zależności.
+> Od MVP do produktu. 5 milestones, 57 issues, pełna architektura.
 
-## Current State (MVP - Done)
+## Stan obecny (MVP)
 
-- CLI export/patch działa
-- Tłumaczenia w grze śmigają
+- CLI export/patch działa, tłumaczenia w grze śmigają
 - Launcher z update checking
 - ~550 test assertions (unit + integration)
 - Clean Architecture (5 warstw), Result monad, P/Invoke
+- Brak MediatR — komendy to statyczne klasy
+- Tłumaczenia w pliku pipe-delimited — edycja karkołomna
+- Pola `approved` i `args_order` w formacie pliku, ale parser/patcher je ignorują (dead code)
 
-## Target State
-
-```
-                    ┌──────────────┐
-                    │  Web App UI  │  (Blazor/React - translation editor)
-                    │  net10.0     │
-                    └──────┬───────┘
-                           │ HTTP
-   ┌───────────────────────┼───────────────────────────────┐
-   │                       │                               │
-   │  ┌────────────────────▼──┐       ┌────────────────┐   │
-   │  │   Web API             │       │  CLI (dotnet)  │   │
-   │  │   ASP.NET Core        │       │  net10.0-win   │   │
-   │  │   net10.0             │       │  x86           │   │
-   │  └────────────┬──────────┘       └───────┬────────┘   │
-   │               │                          │            │
-   │  ┌────────────▼──────────────────────────▼────────┐   │
-   │  │         IMediator (MediatR)                    │   │
-   │  │      Commands / Queries / Handlers             │   │
-   │  ├────────────────────────────────────────────────┤   │
-   │  │     LotroKoniecDev.Application  [net10.0]      │   │
-   │  │   Features: Export, Patch, CRUD                │   │
-   │  │   Behaviors: Logging, Validation               │   │
-   │  ├────────────────────────────────────────────────┤   │
-   │  │       LotroKoniecDev.Domain     [net10.0]      │   │
-   │  │   Models, Result<T>, Errors, VOs               │   │
-   │  ├───────────────────┬────────────────────────────┤   │
-   │  │  Infrastructure   │  Infrastructure            │   │
-   │  │  .Persistence     │  .DatFile                  │   │
-   │  │  [net10.0]        │  [net10.0-windows, x86]    │   │
-   │  │  EF Core, SQLite  │  P/Invoke, datexport.dll   │   │
-   │  │  (Web API + CLI)  │  (CLI only)                │   │
-   │  └───────────────────┴────────────────────────────┘   │
-   └───────────────────────────────────────────────────────┘
-```
-
-**CRITICAL: TFM Split Required**
-
-Current `Directory.Build.props` sets `net10.0-windows` + `x86` globally.
-This MUST be changed before M2/M3:
-- Domain, Application, Primitives → `net10.0` (no Windows APIs used)
-- Infrastructure.Persistence → `net10.0` (EF Core, cross-platform)
-- Infrastructure.DatFile → `net10.0-windows` + x86 (P/Invoke to datexport.dll)
-- CLI → `net10.0-windows` + x86
-- WebApi → `net10.0`
-- WebApp (Blazor WASM) → `net10.0`
-
-### Workflow (docelowy)
+## Architektura docelowa
 
 ```
-1. CLI export → DAT → exported.txt (angielskie teksty)
-2. Web App import → exported.txt → baza danych (English reference)
+                ┌──────────────┐
+                │  Web App UI  │  Blazor WASM / React
+                │  net10.0     │  translation editor
+                └──────┬───────┘
+                       │ HTTP
+ ┌─────────────────────┼───────────────────────────────┐
+ │                     │                               │
+ │  ┌──────────────────▼──┐       ┌────────────────┐   │
+ │  │   Web API           │       │  CLI           │   │
+ │  │   ASP.NET Core      │       │  net10.0-win   │   │
+ │  │   net10.0           │       │  x86           │   │
+ │  └──────────┬──────────┘       └───────┬────────┘   │
+ │             │                          │            │
+ │  ┌──────────▼──────────────────────────▼────────┐   │
+ │  │         IMediator (MediatR)                  │   │
+ │  │      Commands / Queries / Handlers           │   │
+ │  ├──────────────────────────────────────────────┤   │
+ │  │     LotroKoniecDev.Application  [net10.0]    │   │
+ │  │   Handlers: Export, Patch, Translation CRUD  │   │
+ │  │   Behaviors: Logging, Validation             │   │
+ │  ├──────────────────────────────────────────────┤   │
+ │  │       LotroKoniecDev.Domain     [net10.0]    │   │
+ │  │   Models, Result<T>, Errors, VOs             │   │
+ │  ├───────────────────┬──────────────────────────┤   │
+ │  │  Infrastructure   │  Infrastructure          │   │
+ │  │  .Persistence     │  .DatFile                │   │
+ │  │  [net10.0]        │  [net10.0-windows, x86]  │   │
+ │  │  EF Core, SQLite  │  P/Invoke, datexport.dll │   │
+ │  │  (Web API + CLI)  │  (CLI only)              │   │
+ │  └───────────────────┴──────────────────────────┘   │
+ └─────────────────────────────────────────────────────┘
+```
+
+### TFM — per project, nie globalny
+
+Obecny `Directory.Build.props` ustawia `net10.0-windows` + `x86` globalnie.
+Web API i Blazor WASM tego nie zbudują. Wymagany split:
+
+| Projekt | TFM | Platform |
+|---------|-----|----------|
+| Primitives, Domain, Application | `net10.0` | AnyCPU |
+| Infrastructure.Persistence | `net10.0` | AnyCPU |
+| Infrastructure.DatFile | `net10.0-windows` | x86 |
+| CLI | `net10.0-windows` | x86 |
+| WebApi | `net10.0` | AnyCPU |
+| WebApp (Blazor WASM) | `net10.0` | AnyCPU |
+
+Infrastructure musi się rozszczepić na dwa projekty — .DatFile (P/Invoke,
+native DLLs, referowany tylko z CLI) i .Persistence (EF Core, referowany
+z CLI i Web API). Inaczej TFM mismatch blokuje kompilację.
+
+### Workflow
+
+```
+1. CLI export  →  DAT → exported.txt (angielskie teksty)
+2. Web App import  →  exported.txt → baza danych (English reference)
 3. Tłumacz pracuje w Web App (CRUD, full-text search EN/PL, side-by-side editor)
-4. GET /api/translations/export → polish.txt (lub CLI sync)
-5. CLI patch → polish.txt → DAT
-6. Odpal grę — tłumaczenia w grze
+4. GET /api/translations/export  →  polish.txt
+5. CLI patch  →  polish.txt → DAT
+6. Odpal grę
 ```
 
-Lub BAT one-liner: `export.bat && patch.bat && run.bat`
+BAT one-liner: `sync.bat && patch.bat && run.bat`
 
 ---
 
-## Milestones
+## M1: MediatR Clean Architecture Refactor
 
-### M1: MediatR Clean Architecture Refactor
+**Cel:** CLI staje się cienkim dispatcherem — `IMediator.Send()`. Identycznie
+jak Web API potem. Fundament pod resztę.
 
-**Cel:** Refaktor CLI na CQRS z MediatR. Warstwa prezentacji (CLI) staje się cienkim
-dispatcherem — identycznie jak Web API potem. Fundament pod resztę.
+**Decyzje:**
+- Handlers **zastępują** istniejące serwisy (Exporter, Patcher). Handler IS use case.
+  `IExporter`, `IPatcher` interfejsy + klasy → usunięte.
+- Progress reporting via `IProgress<T>` injected DI, nie `Action<int,int>` callback.
+  CLI rejestruje `ConsoleProgress`, Web API → `NoOpProgress` albo WebSocket.
+- PreflightCheckQuery zwraca `PreflightReport` (dane) — zero `Console.ReadLine()`.
+  CLI sam decyduje o promptach na podstawie raportu.
 
-**Key design decisions (M1):**
-- Handlers REPLACE existing service classes (Exporter, Patcher) — not wrap them.
-  `IExporter`, `IPatcher` interfaces are deleted. Handlers ARE the use cases.
-- PreflightCheckQuery returns `PreflightReport` data — NO Console.ReadLine()
-  inside handler. CLI reads report and handles user interaction itself.
-- Progress reporting via `IProgress<T>` injected via DI, not `Action<int,int>`
-  callbacks in request objects.
-
-**Architektura po M1:**
+**Struktura po M1:**
 ```
-CLI Program.cs
-  └─ IMediator.Send(new ExportTextsQuery { ... })
-  └─ IMediator.Send(new ApplyPatchCommand { ... })
-
 Application/
   Features/
     Export/
       ExportTextsQuery.cs              : IRequest<Result<ExportSummary>>
-      ExportTextsQueryHandler.cs       : IRequestHandler<...>  (replaces Exporter)
+      ExportTextsQueryHandler.cs       : IRequestHandler  (zastępuje Exporter)
     Patch/
       ApplyPatchCommand.cs             : IRequest<Result<PatchSummary>>
-      ApplyPatchCommandHandler.cs      : IRequestHandler<...>  (replaces Patcher)
+      ApplyPatchCommandHandler.cs      : IRequestHandler  (zastępuje Patcher)
       PreflightCheckQuery.cs           : IRequest<Result<PreflightReport>>
-      PreflightCheckQueryHandler.cs    : IRequestHandler<...>  (returns data, no UI)
+      PreflightCheckQueryHandler.cs    : IRequestHandler  (dane, zero UI)
   Behaviors/
-    LoggingPipelineBehavior.cs         : IPipelineBehavior<,>
-    ValidationPipelineBehavior.cs      : IPipelineBehavior<,>
+    LoggingPipelineBehavior.cs         : IPipelineBehavior
+    ValidationPipelineBehavior.cs      : IPipelineBehavior
 
-DELETED after M1:
-  - IExporter interface + Exporter class
-  - IPatcher interface + Patcher class
-  - PreflightChecker static class
-  - ExportCommand / PatchCommand static classes
+Usunięte:
+  IExporter, IPatcher, Exporter, Patcher,
+  PreflightChecker, ExportCommand, PatchCommand (static classes)
 ```
 
-### M2: Translation Database Layer
+**Issues:**
 
-**Cel:** Flat file → SQLite. Umożliwia CRUD, search, metadane, historię edycji.
+| #  | Issue | Priority | Depends On |
+|----|-------|----------|------------|
+| 1  | Restructure TFMs: split Infrastructure, per-project TFM/Platform | **CRITICAL** | — |
+| 2  | Add MediatR NuGet packages to solution | High | — |
+| 3  | Design progress reporting pattern (`IProgress<T>` via DI) | High | — |
+| 4  | Create ExportTextsQuery + Handler (zastępuje Exporter) | High | #2, #3 |
+| 5  | Create ApplyPatchCommand + Handler (zastępuje Patcher) | High | #2, #3 |
+| 6  | Create PreflightCheckQuery + Handler (zwraca dane, zero Console I/O) | Medium | #2 |
+| 7  | Add LoggingPipelineBehavior | Medium | #2 |
+| 8  | Add ValidationPipelineBehavior | Medium | #2 |
+| 9  | Refactor CLI Program.cs to use IMediator dispatch | High | #4, #5 |
+| 10 | Delete IExporter, IPatcher, Exporter, Patcher, static Commands | High | #9 |
+| 11 | Update DI registration (AddMediatR, Behaviors) | High | #2 |
+| 12 | Fix args reordering: wire ArgsOrder/ArgsId in patch pipeline (or remove dead code) | Medium | — |
+| 13 | Implement approved field: add to model, parser reads 6th field, patcher filters | Medium | — |
+| 14 | Update unit tests for MediatR handlers | High | #4, #5 |
+| 15 | Update integration tests for MediatR pipeline | Medium | #14 |
 
-**NOTE:** Domain model `Translation` (init-only DTO for DAT pipeline) is DIFFERENT
-from DB entity `TranslationEntity`. Two separate models, mapped in repositories.
+---
+
+## M2: Translation Database Layer
+
+**Cel:** Flat file → SQLite. CRUD, search, historia edycji. Koniec z ręczną
+edycją pipe-separated plików.
+
+**Dwa modele "Translation":**
+- `Domain.Models.Translation` — init-only DTO dla DAT pipeline (FileId, GossipId, Content, ArgsOrder as `int[]?`)
+- `Infrastructure.Persistence.Entities.TranslationEntity` — DB entity (Id, timestamps, Notes, ArgsOrder as string)
+- Mapping w repository
 
 **Schema:**
 ```sql
--- Angielskie teksty z export DAT (reference)
 CREATE TABLE ExportedTexts (
     Id              INTEGER PRIMARY KEY AUTOINCREMENT,
     FileId          INTEGER NOT NULL,
     GossipId        INTEGER NOT NULL,
     EnglishContent  TEXT NOT NULL,
-    Tag             TEXT,           -- manually assigned by translator (nullable)
+    Tag             TEXT,           -- ręczne tagowanie przez tłumacza (nullable)
     ImportedAt      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(FileId, GossipId)
 );
--- NOTE: No QuestTitle column. Export data has no quest metadata.
--- Full-text search on EnglishContent is the primary discovery mechanism.
--- Tag is optional manual categorization by translators.
+-- Brak QuestTitle — export z DAT nie zawiera metadanych o questach.
+-- Odkrywanie tekstów via full-text search na EnglishContent.
 
--- Polskie tłumaczenia (CRUD)
 CREATE TABLE Translations (
     Id              INTEGER PRIMARY KEY AUTOINCREMENT,
     FileId          INTEGER NOT NULL,
     GossipId        INTEGER NOT NULL,
     PolishContent   TEXT NOT NULL,
-    ArgsOrder       TEXT,           -- "1-2-3" format, NULL if default
-    ArgsId          TEXT,           -- "1-2" format, NULL if default
+    ArgsOrder       TEXT,           -- "1-2-3" format, NULL = default
+    ArgsId          TEXT,           -- "1-2" format, NULL = default
     IsApproved      INTEGER NOT NULL DEFAULT 0,
     CreatedAt       DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     UpdatedAt       DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    Notes           TEXT,           -- translator comments
+    Notes           TEXT,
     UNIQUE(FileId, GossipId),
     FOREIGN KEY (FileId, GossipId) REFERENCES ExportedTexts(FileId, GossipId)
 );
 
--- Historia zmian (audit trail)
 CREATE TABLE TranslationHistory (
     Id              INTEGER PRIMARY KEY AUTOINCREMENT,
     TranslationId   INTEGER NOT NULL,
@@ -164,417 +186,157 @@ CREATE TABLE TranslationHistory (
 );
 ```
 
-### M3: Web API
+**Issues:**
 
-**Cel:** ASP.NET Core Web API — drugi presentation layer obok CLI. Oba korzystają
-z tego samego Application layer via MediatR.
+| #  | Issue | Priority | Depends On |
+|----|-------|----------|------------|
+| 16 | Add EF Core + SQLite NuGet packages | High | #1 (TFM split) |
+| 17 | Design database schema + TranslationEntity vs Translation DTO mapping | High | — |
+| 18 | Create AppDbContext + entity configurations (Infrastructure.Persistence) | High | #16, #17 |
+| 19 | Create ITranslationRepository abstraction (Application layer) | High | M1 |
+| 20 | Create IExportedTextRepository abstraction (Application layer) | High | M1 |
+| 21 | Implement repositories in Infrastructure.Persistence | High | #18, #19, #20 |
+| 22 | Create EF migrations infrastructure | Medium | #18 |
+| 23 | Create ImportExportedTextsCommand + Handler (exported.txt → DB) | High | #20, #21 |
+| 24 | Create Translation CRUD Commands/Queries (MediatR) | High | #19, #21 |
+| 25 | Create ExportTranslationsQuery + Handler (DB → polish.txt format) | High | #19, #21 |
+| 26 | Data migration: polish.txt → DB (one-time, mark all approved=1) | Medium | #21, #24 |
+| 27 | Exported text parser (parse export.txt format, group by FileId) | High | #23 |
+| 28 | Handle `\|\|` separator in translation content (escape/unescape) | Medium | #24 |
+| 29 | Unit tests for repositories and handlers | High | #21, #24 |
+
+---
+
+## M3: Web API
+
+**Cel:** ASP.NET Core Web API (`net10.0`, cross-platform) — drugi presentation layer
+obok CLI. Oba dispatachują przez ten sam `IMediator` do tych samych handlerów.
+
+Web API robi tylko operacje bazodanowe — nie dotyka plików DAT.
 
 **Endpoints:**
 ```
-POST   /api/import/exported-texts       Import exported.txt → DB
-POST   /api/import/translations         Import polish.txt → DB (migracja)
+POST   /api/import/exported-texts       Upload exported.txt → DB
+POST   /api/import/translations         Upload polish.txt → DB (migracja)
 
 GET    /api/translations                List (paginated, filterable)
-GET    /api/translations/{id}           Single translation
+GET    /api/translations/{id}           Single
 POST   /api/translations                Create
 PUT    /api/translations/{id}           Update
 DELETE /api/translations/{id}           Delete
 PATCH  /api/translations/{id}/approve   Toggle approval
 
-GET    /api/translations/search?q=      Full-text search (EN/PL content, FileId groups)
+GET    /api/translations/search?q=      Full-text search EN/PL
 GET    /api/translations/stats          Progress dashboard data
 
-GET    /api/export/polish.txt           Download polish.txt (approved translations)
-GET    /api/exported-texts              List English texts (reference)
+GET    /api/export/polish.txt           Download (approved translations)
+GET    /api/exported-texts              List English texts
 GET    /api/exported-texts/search?q=    Search English texts
 ```
 
-### M4: Translation Web App (Frontend)
-
-**Cel:** User-friendly UI do tłumaczeń. Koniec z ręczną edycją pipe-separated plików.
-
-**Widoki:**
-1. **Translation List** — tabela z search/filter/sort, pagination
-2. **Translation Editor** — side-by-side EN/PL, syntax highlighting `<--DO_NOT_TOUCH!-->`,
-   args order editor, approve checkbox, notes field
-3. **File Browser** — group by FileId, full-text search EN/PL, list all fragments in file
-   (NOTE: no quest title metadata available — search is by content, not quest names)
-4. **Dashboard** — progress (translated/total), approved/pending, last edits
-5. **Import/Export** — upload exported.txt, download polish.txt
-
-**Tech decision:** Blazor WASM (trzymamy C# stack) lub React (lepszy ecosystem UI).
-Rekomendacja: **Blazor WASM** — jednolity stack, shared models z Domain, bez osobnego
-build pipeline. Alternatywnie React + Vite jeśli preferujesz.
-
-### M5: Workflow Automation
-
-**Cel:** BAT files, CLI ↔ API integration, end-to-end flow.
-
-**BAT files:**
-```bat
-:: export.bat — Export English texts from DAT
-LotroKoniecDev.exe export
-
-:: import.bat — Import exported texts to web app DB
-curl -X POST http://localhost:5000/api/import/exported-texts -F "file=@data/exported.txt"
-
-:: patch.bat — Download translations & patch DAT
-curl -o translations/polish.txt http://localhost:5000/api/export/polish.txt
-LotroKoniecDev.exe patch polish
-
-:: run.bat — Launch LOTRO
-start "" "C:\Program Files\LOTRO\LotroLauncher.exe"
-
-:: full-workflow.bat — Everything in one go
-call export.bat && call import.bat && call patch.bat && call run.bat
-```
-
----
-
-## Issues Breakdown
-
-### M1: MediatR Clean Architecture Refactor
-
-| #  | Issue | Priority | Depends On |
-|----|-------|----------|------------|
-| 1  | Restructure TFMs: split Infrastructure, remove global net10.0-windows | **CRITICAL** | — |
-| 2  | Add MediatR NuGet packages to solution | High | — |
-| 3  | Design progress reporting pattern (IProgress\<T> via DI) | High | — |
-| 4  | Create ExportTextsQuery + Handler (replaces Exporter) | High | #2, #3 |
-| 5  | Create ApplyPatchCommand + Handler (replaces Patcher) | High | #2, #3 |
-| 6  | Create PreflightCheckQuery + Handler (returns data, no Console I/O) | Medium | #2 |
-| 7  | Add LoggingPipelineBehavior | Medium | #2 |
-| 8  | Add ValidationPipelineBehavior | Medium | #2 |
-| 9  | Refactor CLI Program.cs to use IMediator dispatch | High | #4, #5 |
-| 10 | Delete IExporter, IPatcher, Exporter, Patcher, static Commands | High | #9 |
-| 11 | Update DI registration (AddMediatR, Behaviors) | High | #2 |
-| 12 | Fix or remove dead code: args reordering (Patcher ignores ArgsOrder) | Medium | — |
-| 13 | Implement approved field: add to Translation model, parser, filtering | Medium | — |
-| 14 | Update unit tests for MediatR handlers | High | #4, #5 |
-| 15 | Update integration tests for MediatR pipeline | Medium | #14 |
-
-### M2: Translation Database Layer
-
-| #  | Issue | Priority | Depends On |
-|----|-------|----------|------------|
-| 16 | Add EF Core + SQLite NuGet packages | High | #1 (TFM split) |
-| 17 | Design database schema + define TranslationEntity vs Translation DTO | High | — |
-| 18 | Create AppDbContext + entity configurations (in Infrastructure.Persistence) | High | #16, #17 |
-| 19 | Create ITranslationRepository abstraction (Application layer) | High | M1 |
-| 20 | Create IExportedTextRepository abstraction (Application layer) | High | M1 |
-| 21 | Implement repositories in Infrastructure.Persistence | High | #18, #19, #20 |
-| 22 | Create EF migrations infrastructure | Medium | #18 |
-| 23 | Create ImportExportedTextsCommand + Handler | High | #20, #21 |
-| 24 | Create CRUD Commands/Queries for Translations | High | #19, #21 |
-| 25 | Create ExportTranslationsQuery + Handler (DB → polish.txt format) | High | #19, #21 |
-| 26 | Create data migration tool: polish.txt → DB (one-time, set approved=1) | Medium | #21, #24 |
-| 27 | Add exported text parser (parse export.txt format, group by FileId) | High | #23 |
-| 28 | Handle \|\| separator in translation content (escape/unescape) | Medium | #24 |
-| 29 | Unit tests for repositories and handlers | High | #21, #24 |
-
-### M3: Web API
+**Issues:**
 
 | #  | Issue | Priority | Depends On |
 |----|-------|----------|------------|
 | 30 | Create LotroKoniecDev.WebApi project (net10.0, cross-platform) | High | #1, M2 |
-| 31 | Configure DI, middleware, CORS in WebApi | High | #30 |
-| 32 | Create TranslationsController (CRUD endpoints) | High | #30, #24 |
-| 33 | Create ImportController (exported-texts, translations import) | High | #30, #23 |
-| 34 | Create ExportController (GET polish.txt download) | High | #30, #25 |
-| 35 | Create SearchController (full-text search EN/PL texts) | Medium | #30 |
-| 36 | Add pagination, filtering, sorting to list endpoints | Medium | #32 |
-| 37 | Add Swagger/OpenAPI documentation | Low | #30 |
-| 38 | Add StatsController (progress dashboard data) | Medium | #30 |
+| 31 | Configure DI, middleware, CORS | High | #30 |
+| 32 | TranslationsController (CRUD) | High | #30, #24 |
+| 33 | ImportController (upload exported-texts, translations) | High | #30, #23 |
+| 34 | ExportController (GET polish.txt download) | High | #30, #25 |
+| 35 | SearchController (full-text search EN/PL) | Medium | #30 |
+| 36 | Pagination, filtering, sorting on list endpoints | Medium | #32 |
+| 37 | Swagger/OpenAPI documentation | Low | #30 |
+| 38 | StatsController (progress dashboard data) | Medium | #30 |
 | 39 | Integration tests for API endpoints | High | #32, #33, #34 |
-| 40 | Add error handling middleware (Result → HTTP status mapping) | Medium | #30 |
+| 40 | Error handling middleware (Result → HTTP status mapping) | Medium | #30 |
 
-### M4: Translation Web App (Frontend)
+---
+
+## M4: Translation Web App (Frontend)
+
+**Cel:** User-friendly UI. Koniec z pipe-separated plikami.
+
+**Tech:** Blazor WASM (jeden stack C#, shared Domain models) lub React + Vite
+(lepszy ecosystem UI). Decyzja na starcie M4.
+
+**Widoki:**
+
+1. **Translation List** — tabela, search/filter/sort, pagination, status coloring
+2. **Translation Editor** — side-by-side EN/PL, `<--DO_NOT_TOUCH!-->` jako kolorowe
+   tagi, args order editor, approve, notes, Ctrl+S / Ctrl+Enter
+3. **File Browser** — group by FileId, full-text search. Brak metadanych questowych
+   w exporcie — szukanie po treści, nie po tytule questa.
+4. **Dashboard** — progress bars (translated/total, approved/pending), recent edits
+5. **Import/Export** — upload exported.txt, download polish.txt
+
+**Issues:**
 
 | #  | Issue | Priority | Depends On |
 |----|-------|----------|------------|
 | 41 | Create frontend project (Blazor WASM or React, net10.0) | High | M3 |
-| 42 | Create API client / HTTP service layer | High | #41 |
-| 43 | Create Translation List view (table + search + filter + sort) | High | #42 |
-| 44 | Create Translation Editor (side-by-side EN/PL, args editor) | High | #42 |
-| 45 | Create File Browser (group by FileId, full-text search, NOT quest title) | Medium | #42, #35 |
-| 46 | Create Dashboard view (progress stats, recent edits) | Medium | #42, #38 |
-| 47 | Create Import/Export page (upload/download files) | Medium | #42 |
-| 48 | Add syntax highlighting for `<--DO_NOT_TOUCH!-->` + validate \|\| in input | Medium | #44 |
-| 49 | Add keyboard shortcuts for efficient translation workflow | Low | #44 |
-| 50 | Add bulk operations (approve/reject multiple) | Low | #43 |
-| 51 | Responsive design / mobile support | Low | #43 |
+| 42 | API client / HTTP service layer | High | #41 |
+| 43 | Translation List view | High | #42 |
+| 44 | Translation Editor (side-by-side EN/PL) | High | #42 |
+| 45 | File Browser (group by FileId, full-text search) | Medium | #42, #35 |
+| 46 | Dashboard (progress stats, recent edits) | Medium | #42, #38 |
+| 47 | Import/Export page | Medium | #42 |
+| 48 | Syntax highlighting `<--DO_NOT_TOUCH!-->` + walidacja `\|\|` w input | Medium | #44 |
+| 49 | Keyboard shortcuts (Ctrl+S, Ctrl+Enter, Alt+arrows) | Low | #44 |
+| 50 | Bulk operations (approve/reject multiple) | Low | #43 |
+| 51 | Responsive design / mobile | Low | #43 |
 
-### M5: Workflow Automation
+---
+
+## M5: Workflow Automation
+
+**Cel:** BAT files, CLI ↔ API sync, end-to-end flow jednym kliknięciem.
+
+```bat
+scripts/
+  export.bat          CLI export (DAT → exported.txt)
+  import.bat          Upload exported.txt do API
+  sync.bat            Download polish.txt z API
+  patch.bat           CLI patch (polish.txt → DAT)
+  run.bat             Odpal LOTRO
+  full-workflow.bat   sync → patch → run
+  dev-start.bat       Start Web API + otwórz przeglądarkę
+```
+
+**Issues:**
 
 | #  | Issue | Priority | Depends On |
 |----|-------|----------|------------|
-| 52 | Add CLI command: `sync` (fetch polish.txt from API) | Medium | M3 |
-| 53 | Create BAT files: export, import, patch, run, full-workflow | Medium | #52 |
-| 54 | Add CLI command: `import` (push exported.txt to API) | Medium | M3 |
-| 55 | Update README with new workflow documentation | Low | M4 |
-| 56 | Docker Compose for Web API + DB ONLY (CLI stays native Windows) | Low | M3 |
-| 57 | Create setup/first-run script (DB migration, initial import) | Medium | M2 |
+| 52 | CLI command: `sync` (fetch polish.txt from API) | Medium | M3 |
+| 53 | BAT files: export, import, sync, patch, run, full-workflow | Medium | #52 |
+| 54 | CLI command: `import` (push exported.txt to API) | Medium | M3 |
+| 55 | Update README with workflow documentation | Low | M4 |
+| 56 | Docker Compose for Web API + DB only (CLI stays native Windows) | Low | M3 |
+| 57 | Setup/first-run script (DB migration, initial import) | Medium | M2 |
 
 ---
 
-## Recommended Execution Order
+## Execution Order
 
 ```
-Sprint 1 (M1):  Issues #1-#15  — TFM split + MediatR refactor + dead code cleanup
-Sprint 2 (M2):  Issues #16-#29 — Database layer
-Sprint 3 (M3):  Issues #30-#40 — Web API
-Sprint 4 (M4):  Issues #41-#51 — Frontend
-Sprint 5 (M5):  Issues #52-#57 — Automation & polish
+Sprint 1 (M1):  #1-#15   TFM split + MediatR refactor + dead code cleanup
+Sprint 2 (M2):  #16-#29  Database layer
+Sprint 3 (M3):  #30-#40  Web API
+Sprint 4 (M4):  #41-#51  Frontend
+Sprint 5 (M5):  #52-#57  Automation
 ```
 
-**FIRST THING in Sprint 1:** Issue #1 (TFM restructuring). Everything else blocked by it.
+Issue #1 (TFM restructuring) jest FIRST THING — blokuje M2/M3/M4.
 
-Each milestone is independently deployable. After M1 the CLI still works identically.
-After M2+M3 you can already use API for translations without frontend (Postman/curl).
-M4 adds the UI. M5 ties everything together.
+Każdy milestone jest niezależnie deployowalny. Po M1 CLI działa identycznie.
+Po M2+M3 można korzystać z API bez frontendu (Postman/curl). M4 dodaje UI.
+M5 spina wszystko w jedno.
 
-**Total: 57 issues** (was 52, added 5 from self-review)
+**57 issues total.**
 
-## Known Pre-existing Issues Found During Review
+## Decyzje do podjęcia
 
-1. **Args reordering never applied** — `Patcher` sets `fragment.Pieces` but never calls
-   `SubFile.Serialize(argsOrder, argsId, fragmentId)`. `SubFile.ReorderArguments()` exists
-   but is dead code. Issue #12 tracks this.
-2. **`approved` field is dead** — Exporter writes `||1`, Parser ignores 6th field,
-   `Translation` model has no `IsApproved`. Issue #13 tracks this.
-3. **`||` in content breaks parser** — `TranslationFileParser` splits by `||` without
-   escaping. A translation containing literal `||` produces wrong field count. Issue #28.
-
-## Risk Notes
-
-- **SQLite vs PostgreSQL**: SQLite is simplest for single-user local use. If multi-user
-  or remote deployment needed → PostgreSQL. Decision at M2 start.
-- **Blazor WASM vs React**: Blazor keeps C# stack unified and can share Domain models
-  (since Domain will target `net10.0`). React has better ecosystem for complex UIs.
-  Decision at issue #41.
-- **Docker**: Only for Web API + DB. CLI requires Windows x86 + native DLLs.
-  `full-workflow.bat` runs on host, not in container.
-
-## Self-Review
-
-Brutalna analiza planu na bazie rzeczywistego kodu. Linia po linii sprawdzone
-co plan zakłada vs co kod faktycznie robi. Wszystkie znalezione problemy
-zostały naprawione w planie powyżej.
-
----
-
-### KRYTYCZNE — Plan był błędny lub niekompletny
-
-#### 1. `net10.0-windows` + `x86` — Web API i Blazor nie zbudują się
-
-**Problem:** `Directory.Build.props` ustawia globalnie:
-```xml
-<TargetFramework>net10.0-windows</TargetFramework>
-<PlatformTarget>x86</PlatformTarget>
-```
-
-To dziedziczą **WSZYSTKIE** projekty w solution. Plan zakłada że Web API
-(M3) będzie cross-platform `net10.0`, a Blazor WASM (M4) wymaga `net10.0`
-obligatoryjnie — nie może być `-windows`.
-
-**Ale jest gorzej.** Infrastructure project jest referencją i dla CLI i
-(w planie) dla Web API. Infrastructure ma `AllowUnsafeBlocks=true` i native
-DLLs (datexport.dll, msvcp71.dll, zlib1T.dll). Jeśli Infrastructure to
-`net10.0-windows` + x86, to Web API jako `net10.0` **nie może go referencjonować**
-— TFM mismatch.
-
-**Co trzeba zrobić:**
-
-1. Wyciągnąć TFM/PlatformTarget z `Directory.Build.props` — ustawiać per-project
-2. Rozszczepić Infrastructure na dwa projekty:
-   - `LotroKoniecDev.Infrastructure.DatFile` — `net10.0-windows`, x86, P/Invoke,
-     native DLLs. Referencja tylko z CLI.
-   - `LotroKoniecDev.Infrastructure.Persistence` — `net10.0`, EF Core, SQLite,
-     repozytoria. Referencja z CLI i Web API.
-3. Domain, Application, Primitives → `net10.0` (bez `-windows`). Nie używają
-   żadnych Windows API, więc to safe.
-4. CLI → `net10.0-windows` + x86 (potrzebuje datexport.dll)
-5. WebApi → `net10.0` (cross-platform)
-6. Blazor WASM → `net10.0` (browser runtime)
-
-**To nie jest "risk note" — to wymagany refaktoring PRZED M2/M3.**
-→ Dodane jako issue #1 (CRITICAL).
-
-**Referencja w kodzie:** `Directory.Build.props:3-4`,
-`LotroKoniecDev.Infrastructure.csproj:16-35` (native DLLs).
-
----
-
-#### 2. Quest Browser oparty na fantazji — brak danych o questach w exporcie
-
-**Problem:** Oryginalny plan mówił: "Create Quest Browser view (search by quest
-title)", zakładał `QuestTitle TEXT` w schemacie DB i "Extract quest titles
-from content heuristics".
-
-Ale co jest w exporcie? `Exporter.cs:164`:
-```csharp
-writer.WriteLine($"{fileId}||{fragmentId}||{text}||{argsOrder}||{argsId}||1");
-```
-
-To jest surowy tekst z fragmentu DAT. Nie ma:
-- Nazwy questa
-- Kategorii (quest/item/NPC/UI)
-- Powiązania FileId → quest name
-- Żadnych metadanych oprócz FileId + GossipId + tekst
-
-FileId to bitmaskowany ID (high byte = 0x25 dla tekstu). GossipId to
-fragment wewnątrz subfile. Wiele GossipIds w jednym FileId może należeć
-do jednego questa, ale też do wielu.
-
-**Heurystyka "extract quest title from content"** — nie zadziała. Treść to
-np. `'Mamy trop, <--DO_NOT_TOUCH!-->! Szlak czerwonych kwiatów...'` — to jest
-dialog NPC, nie tytuł questa.
-
-**Co faktycznie da się zrobić:**
-- **Szukanie po treści** — pełen tekst, angielski i polski. To działa i jest
-  przydatne. Użytkownik pamięta fragment tekstu questa, wpisuje, znajduje.
-- **Grupowanie po FileId** — wszystkie fragmenty z tego samego FileId.
-  Nie daje nazwy questa, ale daje "wszystkie teksty z tego samego pliku".
-- **Ręczne tagowanie** — tłumacz sam oznacza wpisy jako "Quest: Goblin Slayer".
-- **Zewnętrzne dane** — scraping LOTRO wiki, API lotro-wiki.com, ale to zupełnie
-  inny scope.
-
-→ Usunięte `QuestTitle` ze schematu. Dodane `Tag` (nullable, ręczne).
-Issue #45 → "File Browser (group by FileId, full-text search)".
-
----
-
-#### 3. `Action<int, int>? progress` — nie pasuje do MediatR
-
-**Problem:** Oba interfejsy (`IExporter`, `IPatcher`) przyjmują callback:
-```csharp
-Result<ExportSummary> ExportAllTexts(string datFilePath, string outputPath,
-    Action<int, int>? progress = null);
-```
-
-MediatR handler dostaje request i zwraca response. Nie ma mechanizmu progress
-callback.
-
-**Opcje:**
-a) `IProgress<T>` pattern — handler dostaje `IProgress<OperationProgress>` via DI.
-   CLI rejestruje `ConsoleProgress`, Web API rejestruje `NoOpProgress` albo WebSocket.
-b) Callback w request obiekcie — brzydkie, wiąże request z prezentacją.
-c) Pominąć progress w handlerze — handler nie raportuje postępu.
-d) MediatR `INotification` — handler publishuje `ProgressNotification`.
-
-**Rekomendacja:** (a) — `IProgress<T>` w DI. Czyste, testowalne, per-platform.
-
-→ Dodane jako issue #3.
-
----
-
-#### 4. Args reordering — NIE DZIAŁA w obecnym Patcherze
-
-**Problem:** `Patcher` ustawia `fragment.Pieces` ale NIGDY nie reorderuje argumentów.
-
-`Patcher.SaveSubFile()`:
-```csharp
-byte[] data = subFile.Serialize();
-```
-
-Wywołuje `Serialize()` BEZ parametrów reorderingu. `SubFile.Serialize()` ma
-opcjonalne parametry `argsOrder`, `argsId`, `targetFragmentId` — ale Patcher
-ich nie przekazuje.
-
-`SubFile.ReorderArguments()` istnieje w kodzie, ale nigdy nie jest wywoływany.
-
-**Efekt:** Pole `args_order` w pliku tłumaczeń jest:
-- Parsowane przez `TranslationFileParser` → `Translation.ArgsOrder`
-- Ignorowane przez `Patcher` — nigdy nie użyte
-- Eksportowane przez `Exporter` → zawsze "1-2-3" (default order)
-
-**Karkołomny żart:**
-- Format pliku ma 6 pól
-- Parser czyta 5 (ignoruje `approved`)
-- Patcher używa 2 (FileId, Content z GossipId). ArgsOrder i ArgsId → dead code.
-
-→ Dodane jako issue #12.
-
----
-
-### WAŻNE — Plan był niejasny lub mylący
-
-#### 5. Pole `approved` — dead code w parserze
-
-**Stan faktyczny:**
-- `Exporter.cs:164` — zawsze pisze `||1` na końcu linii
-- `TranslationFileParser.cs:69-87` — czyta `parts[0..4]`, ignoruje `parts[5]`
-- `Translation.cs` — nie ma property `IsApproved`
-- `MinimumFieldCount = 5` — szóste pole opcjonalne
-
-→ Dodane jako issue #13: dodać `IsApproved` do modelu, parsera, filtrowania.
-Migracja: istniejące tłumaczenia → approved=1.
-
-#### 6. IExporter / IPatcher — co z nimi po MediatR?
-
-Oryginalny plan był niezdecydowany ("Optionally keep...").
-
-**Ścieżka A: Handlers zastępują serwisy (rekomendacja)**
-- `ExportTextsQueryHandler` zawiera logikę z `Exporter.ExportAllTexts()`
-- `IExporter`, `IPatcher` → usunięte
-- Testy mockują `IDatFileHandler`, `ITranslationParser`
-
-**Ścieżka B: Handlers delegują do serwisów**
-- Handler jest zbędną warstwą. MediatR dispatch żeby wywołać jedną metodę?
-
-→ Plan teraz jasno mówi: Ścieżka A. Handler IS use case. Issue #10 kasuje interfejsy.
-
-#### 7. Dwa modele "Translation" — Domain DTO vs DB Entity
-
-`Translation.cs` to `init`-only class. DB entity ma `Id`, `CreatedAt`, `Notes`,
-`ArgsOrder` jako string (nie `int[]?`).
-
-→ Plan teraz jasno mówi: dwa oddzielne modele + mapping w repository.
-
-#### 8. PreflightChecker — `Console.ReadLine()` w środku logiki
-
-Obecny kod: `Check → Prompt → Decision` (w jednej metodzie).
-Po MediatR: `Handler → Report (dane)` + `CLI → odczyt raportu → prompt`.
-
-→ Issue #6 explicite mówi: returns data, no Console I/O.
-
----
-
-### MNIEJSZE ALE WARTE UWAGI
-
-#### 9. Docker — tylko Web API, NIE CLI
-
-CLI jest Windows x86 z native DLLs — nie odpali się w Linux containerze.
-
-→ Issue #56: "Docker Compose for Web API + DB ONLY".
-
-#### 10. `PatchSummary` — mutable `List<string>` w record
-
-```csharp
-public sealed record PatchSummary(..., List<string> Warnings);  // ← mutable
-```
-
-MediatR responses powinny być immutable. Przy refaktoringu → `IReadOnlyList<string>`.
-
-#### 11. HttpClient jako Singleton — DNS problem
-
-Anti-pattern w `InfrastructureDependencyInjection.cs`. Web API użyje
-`IHttpClientFactory`. CLI singleton OK dla krótkotrwałej app.
-
-#### 12. `DatFileHandler` — Scoped + IDisposable
-
-MediatR rejestruje handlery jako Transient (domyślnie). Scoped `DatFileHandler`
-jest OK bo handler żyje w scope. Nie ma problemu — ale warto zweryfikować.
-
-#### 13. ExportCommand sync vs PatchCommand async
-
-MediatR 12.x wymaga `Task<TResponse>` nawet dla sync handlerów.
-Handler zwraca `Task.FromResult()` jeśli jest sync.
-
-#### 14. `||` separator w treści tłumaczeń
-
-Parser splituje po `||` bez escapowania. Tłumaczenie zawierające `||`
-łamie parser. W praktyce LOTRO teksty nie mają `||`, ale web editor pozwoli
-użytkownikowi je wpisać.
-
-→ Issue #28: escape/unescape `||` w content. Issue #48: walidacja w UI.
+| Kiedy | Decyzja | Opcje | Rekomendacja |
+|-------|---------|-------|-------------|
+| Start M2 | SQLite vs PostgreSQL | SQLite (local), Postgres (multi-user) | SQLite |
+| Start M4 | Blazor WASM vs React | Blazor (C# stack), React (ecosystem) | Blazor |
+| Issue #12 | Args reordering | Fix (wire do Patcher) vs remove dead code | Fix |

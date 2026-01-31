@@ -357,5 +357,224 @@ M4 adds the UI. M5 ties everything together.
 
 ## Self-Review
 
-See [PLAN_SELF_REVIEW.md](./PLAN_SELF_REVIEW.md) for full analysis of 4 critical issues,
-4 important clarifications, and 6 minor findings that were corrected in this plan.
+Brutalna analiza planu na bazie rzeczywistego kodu. Linia po linii sprawdzone
+co plan zakłada vs co kod faktycznie robi. Wszystkie znalezione problemy
+zostały naprawione w planie powyżej.
+
+---
+
+### KRYTYCZNE — Plan był błędny lub niekompletny
+
+#### 1. `net10.0-windows` + `x86` — Web API i Blazor nie zbudują się
+
+**Problem:** `Directory.Build.props` ustawia globalnie:
+```xml
+<TargetFramework>net10.0-windows</TargetFramework>
+<PlatformTarget>x86</PlatformTarget>
+```
+
+To dziedziczą **WSZYSTKIE** projekty w solution. Plan zakłada że Web API
+(M3) będzie cross-platform `net10.0`, a Blazor WASM (M4) wymaga `net10.0`
+obligatoryjnie — nie może być `-windows`.
+
+**Ale jest gorzej.** Infrastructure project jest referencją i dla CLI i
+(w planie) dla Web API. Infrastructure ma `AllowUnsafeBlocks=true` i native
+DLLs (datexport.dll, msvcp71.dll, zlib1T.dll). Jeśli Infrastructure to
+`net10.0-windows` + x86, to Web API jako `net10.0` **nie może go referencjonować**
+— TFM mismatch.
+
+**Co trzeba zrobić:**
+
+1. Wyciągnąć TFM/PlatformTarget z `Directory.Build.props` — ustawiać per-project
+2. Rozszczepić Infrastructure na dwa projekty:
+   - `LotroKoniecDev.Infrastructure.DatFile` — `net10.0-windows`, x86, P/Invoke,
+     native DLLs. Referencja tylko z CLI.
+   - `LotroKoniecDev.Infrastructure.Persistence` — `net10.0`, EF Core, SQLite,
+     repozytoria. Referencja z CLI i Web API.
+3. Domain, Application, Primitives → `net10.0` (bez `-windows`). Nie używają
+   żadnych Windows API, więc to safe.
+4. CLI → `net10.0-windows` + x86 (potrzebuje datexport.dll)
+5. WebApi → `net10.0` (cross-platform)
+6. Blazor WASM → `net10.0` (browser runtime)
+
+**To nie jest "risk note" — to wymagany refaktoring PRZED M2/M3.**
+→ Dodane jako issue #1 (CRITICAL).
+
+**Referencja w kodzie:** `Directory.Build.props:3-4`,
+`LotroKoniecDev.Infrastructure.csproj:16-35` (native DLLs).
+
+---
+
+#### 2. Quest Browser oparty na fantazji — brak danych o questach w exporcie
+
+**Problem:** Oryginalny plan mówił: "Create Quest Browser view (search by quest
+title)", zakładał `QuestTitle TEXT` w schemacie DB i "Extract quest titles
+from content heuristics".
+
+Ale co jest w exporcie? `Exporter.cs:164`:
+```csharp
+writer.WriteLine($"{fileId}||{fragmentId}||{text}||{argsOrder}||{argsId}||1");
+```
+
+To jest surowy tekst z fragmentu DAT. Nie ma:
+- Nazwy questa
+- Kategorii (quest/item/NPC/UI)
+- Powiązania FileId → quest name
+- Żadnych metadanych oprócz FileId + GossipId + tekst
+
+FileId to bitmaskowany ID (high byte = 0x25 dla tekstu). GossipId to
+fragment wewnątrz subfile. Wiele GossipIds w jednym FileId może należeć
+do jednego questa, ale też do wielu.
+
+**Heurystyka "extract quest title from content"** — nie zadziała. Treść to
+np. `'Mamy trop, <--DO_NOT_TOUCH!-->! Szlak czerwonych kwiatów...'` — to jest
+dialog NPC, nie tytuł questa.
+
+**Co faktycznie da się zrobić:**
+- **Szukanie po treści** — pełen tekst, angielski i polski. To działa i jest
+  przydatne. Użytkownik pamięta fragment tekstu questa, wpisuje, znajduje.
+- **Grupowanie po FileId** — wszystkie fragmenty z tego samego FileId.
+  Nie daje nazwy questa, ale daje "wszystkie teksty z tego samego pliku".
+- **Ręczne tagowanie** — tłumacz sam oznacza wpisy jako "Quest: Goblin Slayer".
+- **Zewnętrzne dane** — scraping LOTRO wiki, API lotro-wiki.com, ale to zupełnie
+  inny scope.
+
+→ Usunięte `QuestTitle` ze schematu. Dodane `Tag` (nullable, ręczne).
+Issue #45 → "File Browser (group by FileId, full-text search)".
+
+---
+
+#### 3. `Action<int, int>? progress` — nie pasuje do MediatR
+
+**Problem:** Oba interfejsy (`IExporter`, `IPatcher`) przyjmują callback:
+```csharp
+Result<ExportSummary> ExportAllTexts(string datFilePath, string outputPath,
+    Action<int, int>? progress = null);
+```
+
+MediatR handler dostaje request i zwraca response. Nie ma mechanizmu progress
+callback.
+
+**Opcje:**
+a) `IProgress<T>` pattern — handler dostaje `IProgress<OperationProgress>` via DI.
+   CLI rejestruje `ConsoleProgress`, Web API rejestruje `NoOpProgress` albo WebSocket.
+b) Callback w request obiekcie — brzydkie, wiąże request z prezentacją.
+c) Pominąć progress w handlerze — handler nie raportuje postępu.
+d) MediatR `INotification` — handler publishuje `ProgressNotification`.
+
+**Rekomendacja:** (a) — `IProgress<T>` w DI. Czyste, testowalne, per-platform.
+
+→ Dodane jako issue #3.
+
+---
+
+#### 4. Args reordering — NIE DZIAŁA w obecnym Patcherze
+
+**Problem:** `Patcher` ustawia `fragment.Pieces` ale NIGDY nie reorderuje argumentów.
+
+`Patcher.SaveSubFile()`:
+```csharp
+byte[] data = subFile.Serialize();
+```
+
+Wywołuje `Serialize()` BEZ parametrów reorderingu. `SubFile.Serialize()` ma
+opcjonalne parametry `argsOrder`, `argsId`, `targetFragmentId` — ale Patcher
+ich nie przekazuje.
+
+`SubFile.ReorderArguments()` istnieje w kodzie, ale nigdy nie jest wywoływany.
+
+**Efekt:** Pole `args_order` w pliku tłumaczeń jest:
+- Parsowane przez `TranslationFileParser` → `Translation.ArgsOrder`
+- Ignorowane przez `Patcher` — nigdy nie użyte
+- Eksportowane przez `Exporter` → zawsze "1-2-3" (default order)
+
+**Karkołomny żart:**
+- Format pliku ma 6 pól
+- Parser czyta 5 (ignoruje `approved`)
+- Patcher używa 2 (FileId, Content z GossipId). ArgsOrder i ArgsId → dead code.
+
+→ Dodane jako issue #12.
+
+---
+
+### WAŻNE — Plan był niejasny lub mylący
+
+#### 5. Pole `approved` — dead code w parserze
+
+**Stan faktyczny:**
+- `Exporter.cs:164` — zawsze pisze `||1` na końcu linii
+- `TranslationFileParser.cs:69-87` — czyta `parts[0..4]`, ignoruje `parts[5]`
+- `Translation.cs` — nie ma property `IsApproved`
+- `MinimumFieldCount = 5` — szóste pole opcjonalne
+
+→ Dodane jako issue #13: dodać `IsApproved` do modelu, parsera, filtrowania.
+Migracja: istniejące tłumaczenia → approved=1.
+
+#### 6. IExporter / IPatcher — co z nimi po MediatR?
+
+Oryginalny plan był niezdecydowany ("Optionally keep...").
+
+**Ścieżka A: Handlers zastępują serwisy (rekomendacja)**
+- `ExportTextsQueryHandler` zawiera logikę z `Exporter.ExportAllTexts()`
+- `IExporter`, `IPatcher` → usunięte
+- Testy mockują `IDatFileHandler`, `ITranslationParser`
+
+**Ścieżka B: Handlers delegują do serwisów**
+- Handler jest zbędną warstwą. MediatR dispatch żeby wywołać jedną metodę?
+
+→ Plan teraz jasno mówi: Ścieżka A. Handler IS use case. Issue #10 kasuje interfejsy.
+
+#### 7. Dwa modele "Translation" — Domain DTO vs DB Entity
+
+`Translation.cs` to `init`-only class. DB entity ma `Id`, `CreatedAt`, `Notes`,
+`ArgsOrder` jako string (nie `int[]?`).
+
+→ Plan teraz jasno mówi: dwa oddzielne modele + mapping w repository.
+
+#### 8. PreflightChecker — `Console.ReadLine()` w środku logiki
+
+Obecny kod: `Check → Prompt → Decision` (w jednej metodzie).
+Po MediatR: `Handler → Report (dane)` + `CLI → odczyt raportu → prompt`.
+
+→ Issue #6 explicite mówi: returns data, no Console I/O.
+
+---
+
+### MNIEJSZE ALE WARTE UWAGI
+
+#### 9. Docker — tylko Web API, NIE CLI
+
+CLI jest Windows x86 z native DLLs — nie odpali się w Linux containerze.
+
+→ Issue #56: "Docker Compose for Web API + DB ONLY".
+
+#### 10. `PatchSummary` — mutable `List<string>` w record
+
+```csharp
+public sealed record PatchSummary(..., List<string> Warnings);  // ← mutable
+```
+
+MediatR responses powinny być immutable. Przy refaktoringu → `IReadOnlyList<string>`.
+
+#### 11. HttpClient jako Singleton — DNS problem
+
+Anti-pattern w `InfrastructureDependencyInjection.cs`. Web API użyje
+`IHttpClientFactory`. CLI singleton OK dla krótkotrwałej app.
+
+#### 12. `DatFileHandler` — Scoped + IDisposable
+
+MediatR rejestruje handlery jako Transient (domyślnie). Scoped `DatFileHandler`
+jest OK bo handler żyje w scope. Nie ma problemu — ale warto zweryfikować.
+
+#### 13. ExportCommand sync vs PatchCommand async
+
+MediatR 12.x wymaga `Task<TResponse>` nawet dla sync handlerów.
+Handler zwraca `Task.FromResult()` jeśli jest sync.
+
+#### 14. `||` separator w treści tłumaczeń
+
+Parser splituje po `||` bez escapowania. Tłumaczenie zawierające `||`
+łamie parser. W praktyce LOTRO teksty nie mają `||`, ale web editor pozwoli
+użytkownikowi je wpisać.
+
+→ Issue #28: escape/unescape `||` w content. Issue #48: walidacja w UI.

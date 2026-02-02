@@ -1,6 +1,6 @@
 # LOTRO Polish Patcher - Project Plan
 
-> Od MVP do produktu. 5 milestones, 57 issues, pełna architektura.
+> Od MVP do platformy tłumaczeń. 6 milestones, 74 issues.
 
 ## Stan obecny (MVP)
 
@@ -11,88 +11,98 @@
 - Brak MediatR — komendy to statyczne klasy
 - Tłumaczenia w pliku pipe-delimited — edycja karkołomna
 - Pola `approved` i `args_order` w formacie pliku, ale parser/patcher je ignorują (dead code)
+- Single-user — każdy robi swoje tłumaczenia osobno
 
 ## Architektura docelowa
 
 ```
-                ┌──────────────┐
-                │  Web App UI  │  Blazor WASM / React
-                │  net10.0     │  translation editor
-                └──────┬───────┘
-                       │ HTTP
- ┌─────────────────────┼───────────────────────────────┐
- │                     │                               │
- │  ┌──────────────────▼──┐       ┌────────────────┐   │
- │  │   Web API           │       │  CLI           │   │
- │  │   ASP.NET Core      │       │  net10.0-win   │   │
- │  │   net10.0           │       │  x86           │   │
- │  └──────────┬──────────┘       └───────┬────────┘   │
- │             │                          │            │
- │  ┌──────────▼──────────────────────────▼────────┐   │
- │  │         IMediator (MediatR)                  │   │
- │  │      Commands / Queries / Handlers           │   │
- │  ├──────────────────────────────────────────────┤   │
- │  │     LotroKoniecDev.Application  [net10.0]    │   │
- │  │   Handlers: Export, Patch, Translation CRUD  │   │
- │  │   Behaviors: Logging, Validation             │   │
- │  ├──────────────────────────────────────────────┤   │
- │  │       LotroKoniecDev.Domain     [net10.0]    │   │
- │  │   Models, Result<T>, Errors, VOs             │   │
- │  ├───────────────────┬──────────────────────────┤   │
- │  │  Infrastructure   │  Infrastructure          │   │
- │  │  .Persistence     │  .DatFile                │   │
- │  │  [net10.0]        │  [net10.0-windows, x86]  │   │
- │  │  EF Core, SQLite  │  P/Invoke, datexport.dll │   │
- │  │  (Web API + CLI)  │  (CLI only)              │   │
- │  └───────────────────┴──────────────────────────┘   │
- └─────────────────────────────────────────────────────┘
+              ┌──────────────┐
+              │  Web App UI  │  Blazor WASM / React
+              │  net10.0     │  translation editor
+              └──────┬───────┘
+                     │ HTTP + JWT
+ ┌───────────────────┼─────────────────────────────────────┐
+ │                   │                                     │
+ │  ┌────────────────▼──┐  ┌──────────────┐  ┌─────────┐  │
+ │  │   Web API         │  │  Auth Server │  │  CLI    │  │
+ │  │   ASP.NET Core    │  │  OpenIddict  │  │  win/x86│  │
+ │  │   net10.0         │  │  net10.0     │  │         │  │
+ │  └────────┬──────────┘  └──────────────┘  └────┬────┘  │
+ │           │                                    │       │
+ │  ┌────────▼────────────────────────────────────▼───┐   │
+ │  │         IMediator (MediatR)                     │   │
+ │  │      Commands / Queries / Handlers              │   │
+ │  ├─────────────────────────────────────────────────┤   │
+ │  │     LotroKoniecDev.Application  [net10.0]       │   │
+ │  │   Handlers: Export, Patch, Translation CRUD     │   │
+ │  │   Behaviors: Logging, Validation                │   │
+ │  ├─────────────────────────────────────────────────┤   │
+ │  │       LotroKoniecDev.Domain     [net10.0]       │   │
+ │  │   Models, Result<T>, Errors, VOs                │   │
+ │  ├──────────────────┬──────────────────────────────┤   │
+ │  │  Infrastructure  │  Infrastructure              │   │
+ │  │  .Persistence    │  .DatFile                    │   │
+ │  │  [net10.0]       │  [net10.0-windows, x86]      │   │
+ │  │  EF Core, SQLite │  P/Invoke, datexport.dll     │   │
+ │  │  (API + CLI)     │  (CLI only)                  │   │
+ │  └──────────────────┴──────────────────────────────┘   │
+ └─────────────────────────────────────────────────────────┘
 ```
 
-### TFM — per project, nie globalny
+### Projekty w solution
 
-Obecny `Directory.Build.props` ustawia `net10.0-windows` + `x86` globalnie.
-Web API i Blazor WASM tego nie zbudują. Wymagany split:
+| Projekt | TFM | Platform | Opis |
+|---------|-----|----------|------|
+| Primitives | `net10.0` | AnyCPU | Stałe, enumy |
+| Domain | `net10.0` | AnyCPU | Modele, Result, Errors |
+| Application | `net10.0` | AnyCPU | MediatR handlers, abstrakcje |
+| Infrastructure.Persistence | `net10.0` | AnyCPU | EF Core, SQLite, repozytoria |
+| Infrastructure.DatFile | `net10.0-windows` | x86 | P/Invoke, datexport.dll |
+| CLI | `net10.0-windows` | x86 | Presentation: CLI |
+| WebApi | `net10.0` | AnyCPU | Presentation: REST API |
+| Auth | `net10.0` | AnyCPU | OpenIddict auth server |
+| WebApp | `net10.0` | AnyCPU | Presentation: Blazor/React |
 
-| Projekt | TFM | Platform |
-|---------|-----|----------|
-| Primitives, Domain, Application | `net10.0` | AnyCPU |
-| Infrastructure.Persistence | `net10.0` | AnyCPU |
-| Infrastructure.DatFile | `net10.0-windows` | x86 |
-| CLI | `net10.0-windows` | x86 |
-| WebApi | `net10.0` | AnyCPU |
-| WebApp (Blazor WASM) | `net10.0` | AnyCPU |
+Obecny `Directory.Build.props` wymusza `net10.0-windows` + `x86` globalnie — trzeba
+przejść na per-project. Infrastructure trzeba rozszczepić na .DatFile i .Persistence,
+inaczej TFM mismatch blokuje Web API.
 
-Infrastructure musi się rozszczepić na dwa projekty — .DatFile (P/Invoke,
-native DLLs, referowany tylko z CLI) i .Persistence (EF Core, referowany
-z CLI i Web API). Inaczej TFM mismatch blokuje kompilację.
+### Model tłumaczeń
+
+Community-driven. Jeden centralny zestaw tłumaczeń per język. Każdy contribuuje,
+admin per język zatwierdza.
+
+- Multi-language schema od dnia 1. Aktywny development: Polish. Inne języki
+  otwierane gdy pojawi się community.
+- Prosty approval model: każdy z kontem edytuje/submituje, admin zatwierdza.
+  Pełny review workflow (reviewer rola, states machine) → later.
+- Glossary per język — spójna terminologia (np. "hobbit" → "niziołek" wszędzie).
+- Export endpoint dostępny publicznie bez auth — CLI pobiera bez logowania.
 
 ### Workflow
 
 ```
 1. CLI export  →  DAT → exported.txt (angielskie teksty)
 2. Web App import  →  exported.txt → baza danych (English reference)
-3. Tłumacz pracuje w Web App (CRUD, full-text search EN/PL, side-by-side editor)
-4. GET /api/translations/export  →  polish.txt
-5. CLI patch  →  polish.txt → DAT
-6. Odpal grę
+3. Tłumacz loguje się (OpenIddict), edytuje w Web App (side-by-side EN/PL)
+4. Admin zatwierdza tłumaczenia
+5. GET /api/export/{lang}.txt  →  polish.txt (public, no auth)
+6. CLI patch  →  polish.txt → DAT
+7. Odpal grę
 ```
 
-BAT one-liner: `sync.bat && patch.bat && run.bat`
+BAT: `sync.bat && patch.bat && run.bat`
 
 ---
 
 ## M1: MediatR Clean Architecture Refactor
 
-**Cel:** CLI staje się cienkim dispatcherem — `IMediator.Send()`. Identycznie
-jak Web API potem. Fundament pod resztę.
+**Cel:** CLI jako cienki dispatcher — `IMediator.Send()`. Fundament pod resztę.
 
 **Decyzje:**
-- Handlers **zastępują** istniejące serwisy (Exporter, Patcher). Handler IS use case.
-  `IExporter`, `IPatcher` interfejsy + klasy → usunięte.
-- Progress reporting via `IProgress<T>` injected DI, nie `Action<int,int>` callback.
-  CLI rejestruje `ConsoleProgress`, Web API → `NoOpProgress` albo WebSocket.
+- Handlers **zastępują** serwisy (Exporter, Patcher). `IExporter`/`IPatcher` → usunięte.
+- Progress via `IProgress<T>` w DI — nie `Action<int,int>` callback.
 - PreflightCheckQuery zwraca `PreflightReport` (dane) — zero `Console.ReadLine()`.
-  CLI sam decyduje o promptach na podstawie raportu.
 
 **Struktura po M1:**
 ```
@@ -115,65 +125,70 @@ Usunięte:
   PreflightChecker, ExportCommand, PatchCommand (static classes)
 ```
 
-**Issues:**
-
 | #  | Issue | Priority | Depends On |
 |----|-------|----------|------------|
 | 1  | Restructure TFMs: split Infrastructure, per-project TFM/Platform | **CRITICAL** | — |
-| 2  | Add MediatR NuGet packages to solution | High | — |
-| 3  | Design progress reporting pattern (`IProgress<T>` via DI) | High | — |
-| 4  | Create ExportTextsQuery + Handler (zastępuje Exporter) | High | #2, #3 |
-| 5  | Create ApplyPatchCommand + Handler (zastępuje Patcher) | High | #2, #3 |
-| 6  | Create PreflightCheckQuery + Handler (zwraca dane, zero Console I/O) | Medium | #2 |
-| 7  | Add LoggingPipelineBehavior | Medium | #2 |
-| 8  | Add ValidationPipelineBehavior | Medium | #2 |
-| 9  | Refactor CLI Program.cs to use IMediator dispatch | High | #4, #5 |
+| 2  | Add MediatR NuGet packages | High | — |
+| 3  | Design `IProgress<T>` pattern for handlers | High | — |
+| 4  | ExportTextsQuery + Handler (zastępuje Exporter) | High | #2, #3 |
+| 5  | ApplyPatchCommand + Handler (zastępuje Patcher) | High | #2, #3 |
+| 6  | PreflightCheckQuery + Handler (dane, zero Console I/O) | Medium | #2 |
+| 7  | LoggingPipelineBehavior | Medium | #2 |
+| 8  | ValidationPipelineBehavior | Medium | #2 |
+| 9  | Refactor CLI Program.cs → IMediator dispatch | High | #4, #5 |
 | 10 | Delete IExporter, IPatcher, Exporter, Patcher, static Commands | High | #9 |
-| 11 | Update DI registration (AddMediatR, Behaviors) | High | #2 |
-| 12 | Fix args reordering: wire ArgsOrder/ArgsId in patch pipeline (or remove dead code) | Medium | — |
-| 13 | Implement approved field: add to model, parser reads 6th field, patcher filters | Medium | — |
-| 14 | Update unit tests for MediatR handlers | High | #4, #5 |
-| 15 | Update integration tests for MediatR pipeline | Medium | #14 |
+| 11 | Update DI registration (AddMediatR, behaviors) | High | #2 |
+| 12 | Fix args reordering: wire ArgsOrder/ArgsId in patch pipeline (or remove) | Medium | — |
+| 13 | Implement approved field: model, parser reads 6th field, patcher filters | Medium | — |
+| 14 | Unit tests for MediatR handlers | High | #4, #5 |
+| 15 | Integration tests for MediatR pipeline | Medium | #14 |
 
 ---
 
-## M2: Translation Database Layer
+## M2: Database Layer (multi-language)
 
-**Cel:** Flat file → SQLite. CRUD, search, historia edycji. Koniec z ręczną
-edycją pipe-separated plików.
+**Cel:** Flat file → SQLite. Multi-language schema. CRUD, search, historia edycji,
+glossary. Koniec z pipe-separated plikami.
 
 **Dwa modele "Translation":**
-- `Domain.Models.Translation` — init-only DTO dla DAT pipeline (FileId, GossipId, Content, ArgsOrder as `int[]?`)
-- `Infrastructure.Persistence.Entities.TranslationEntity` — DB entity (Id, timestamps, Notes, ArgsOrder as string)
+- `Domain.Models.Translation` — init-only DTO dla DAT pipeline (FileId, GossipId, Content, `int[]?` ArgsOrder)
+- `Persistence.Entities.TranslationEntity` — DB entity (Id, LanguageCode, timestamps, `string` ArgsOrder)
 - Mapping w repository
 
 **Schema:**
 ```sql
+CREATE TABLE Languages (
+    Code            TEXT PRIMARY KEY,    -- 'pl', 'de', 'fr'
+    Name            TEXT NOT NULL,       -- 'Polish'
+    IsActive        INTEGER NOT NULL DEFAULT 0
+);
+
 CREATE TABLE ExportedTexts (
     Id              INTEGER PRIMARY KEY AUTOINCREMENT,
     FileId          INTEGER NOT NULL,
     GossipId        INTEGER NOT NULL,
     EnglishContent  TEXT NOT NULL,
-    Tag             TEXT,           -- ręczne tagowanie przez tłumacza (nullable)
+    Tag             TEXT,                -- ręczne tagowanie (nullable)
     ImportedAt      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(FileId, GossipId)
 );
--- Brak QuestTitle — export z DAT nie zawiera metadanych o questach.
--- Odkrywanie tekstów via full-text search na EnglishContent.
 
 CREATE TABLE Translations (
     Id              INTEGER PRIMARY KEY AUTOINCREMENT,
     FileId          INTEGER NOT NULL,
     GossipId        INTEGER NOT NULL,
-    PolishContent   TEXT NOT NULL,
-    ArgsOrder       TEXT,           -- "1-2-3" format, NULL = default
-    ArgsId          TEXT,           -- "1-2" format, NULL = default
+    LanguageCode    TEXT NOT NULL,
+    Content         TEXT NOT NULL,
+    ArgsOrder       TEXT,                -- "1-2-3", NULL = default
+    ArgsId          TEXT,                -- "1-2", NULL = default
     IsApproved      INTEGER NOT NULL DEFAULT 0,
+    SubmittedById   INTEGER,             -- FK → Users (nullable pre-auth)
+    ApprovedById    INTEGER,             -- FK → Users
+    Notes           TEXT,
     CreatedAt       DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     UpdatedAt       DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    Notes           TEXT,
-    UNIQUE(FileId, GossipId),
-    FOREIGN KEY (FileId, GossipId) REFERENCES ExportedTexts(FileId, GossipId)
+    UNIQUE(FileId, GossipId, LanguageCode),
+    FOREIGN KEY (LanguageCode) REFERENCES Languages(Code)
 );
 
 CREATE TABLE TranslationHistory (
@@ -181,137 +196,222 @@ CREATE TABLE TranslationHistory (
     TranslationId   INTEGER NOT NULL,
     OldContent      TEXT,
     NewContent      TEXT NOT NULL,
+    ChangedById     INTEGER,             -- FK → Users
     ChangedAt       DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (TranslationId) REFERENCES Translations(Id)
 );
+
+CREATE TABLE Glossary (
+    Id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    LanguageCode    TEXT NOT NULL,
+    EnglishTerm     TEXT NOT NULL,        -- 'hobbit', 'Shire'
+    TranslatedTerm  TEXT NOT NULL,        -- 'niziołek', 'Shire'
+    Context         TEXT,                 -- 'race name', 'location'
+    UNIQUE(LanguageCode, EnglishTerm),
+    FOREIGN KEY (LanguageCode) REFERENCES Languages(Code)
+);
 ```
 
-**Issues:**
+User tables (`Users`, `UserRoles`) tworzone w M3 (Auth). FK z Translations → Users
+dodane jako nullable teraz, enforced po M3.
 
 | #  | Issue | Priority | Depends On |
 |----|-------|----------|------------|
-| 16 | Add EF Core + SQLite NuGet packages | High | #1 (TFM split) |
-| 17 | Design database schema + TranslationEntity vs Translation DTO mapping | High | — |
-| 18 | Create AppDbContext + entity configurations (Infrastructure.Persistence) | High | #16, #17 |
-| 19 | Create ITranslationRepository abstraction (Application layer) | High | M1 |
-| 20 | Create IExportedTextRepository abstraction (Application layer) | High | M1 |
-| 21 | Implement repositories in Infrastructure.Persistence | High | #18, #19, #20 |
-| 22 | Create EF migrations infrastructure | Medium | #18 |
-| 23 | Create ImportExportedTextsCommand + Handler (exported.txt → DB) | High | #20, #21 |
-| 24 | Create Translation CRUD Commands/Queries (MediatR) | High | #19, #21 |
-| 25 | Create ExportTranslationsQuery + Handler (DB → polish.txt format) | High | #19, #21 |
-| 26 | Data migration: polish.txt → DB (one-time, mark all approved=1) | Medium | #21, #24 |
-| 27 | Exported text parser (parse export.txt format, group by FileId) | High | #23 |
-| 28 | Handle `\|\|` separator in translation content (escape/unescape) | Medium | #24 |
-| 29 | Unit tests for repositories and handlers | High | #21, #24 |
+| 16 | Add EF Core + SQLite NuGet packages | High | #1 |
+| 17 | Schema design + TranslationEntity vs Translation DTO mapping | High | — |
+| 18 | AppDbContext + entity configurations (Infrastructure.Persistence) | High | #16, #17 |
+| 19 | ITranslationRepository abstraction (Application) | High | M1 |
+| 20 | IExportedTextRepository abstraction (Application) | High | M1 |
+| 21 | IGlossaryRepository abstraction (Application) | High | M1 |
+| 22 | Implement repositories (Infrastructure.Persistence) | High | #18-#21 |
+| 23 | EF migrations infrastructure | Medium | #18 |
+| 24 | ImportExportedTextsCommand + Handler (exported.txt → DB) | High | #20, #22 |
+| 25 | Translation CRUD Commands/Queries (MediatR, language-aware) | High | #19, #22 |
+| 26 | ExportTranslationsQuery + Handler (DB → {lang}.txt, approved only) | High | #19, #22 |
+| 27 | Glossary CRUD Commands/Queries | Medium | #21, #22 |
+| 28 | Data migration: polish.txt → DB (one-time, approved=1, lang='pl') | Medium | #22, #25 |
+| 29 | Exported text parser (parse export.txt, group by FileId) | High | #24 |
+| 30 | Handle `\|\|` separator in content (escape/unescape) | Medium | #25 |
+| 31 | Unit tests for repositories and handlers | High | #22, #25 |
 
 ---
 
-## M3: Web API
+## M3: Auth (OpenIddict)
 
-**Cel:** ASP.NET Core Web API (`net10.0`, cross-platform) — drugi presentation layer
-obok CLI. Oba dispatachują przez ten sam `IMediator` do tych samych handlerów.
+**Cel:** Osobny projekt — OpenIddict authorization server. User registration,
+login, JWT tokens. Prosty role model: translator / admin per language.
 
-Web API robi tylko operacje bazodanowe — nie dotyka plików DAT.
+**LotroKoniecDev.Auth** (`net10.0`):
+- OpenIddict jako authorization server
+- Registration / login (email + password, lub OAuth providers later)
+- Wydaje JWT access tokens
+- User management API (admin)
+
+**Role model:**
+- `translator` — może tworzyć/edytować tłumaczenia (domyślna po rejestracji)
+- `admin` — może zatwierdzać, zarządzać glossary, zarządzać użytkownikami
+- Role per język — admin polskiego ≠ admin niemieckiego
+
+**Schema (w tym samym DB co reszta):**
+```sql
+CREATE TABLE Users (
+    Id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    Email           TEXT NOT NULL UNIQUE,
+    DisplayName     TEXT NOT NULL,
+    PasswordHash    TEXT NOT NULL,
+    IsActive        INTEGER NOT NULL DEFAULT 1,
+    CreatedAt       DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE UserLanguageRoles (
+    UserId          INTEGER NOT NULL,
+    LanguageCode    TEXT NOT NULL,
+    Role            TEXT NOT NULL,        -- 'translator', 'admin'
+    PRIMARY KEY (UserId, LanguageCode),
+    FOREIGN KEY (UserId) REFERENCES Users(Id),
+    FOREIGN KEY (LanguageCode) REFERENCES Languages(Code)
+);
+
+-- OpenIddict own tables (auto-created by OpenIddict EF Core):
+-- OpenIddictApplications, OpenIddictAuthorizations,
+-- OpenIddictScopes, OpenIddictTokens
+```
+
+**Web API integration:**
+- JWT bearer auth middleware
+- `[Authorize]` na write endpoints
+- Export endpoint (`GET /api/export/{lang}.txt`) → public, no auth
+- Role checks: `[Authorize(Policy = "LanguageAdmin")]` na approve/glossary
+
+| #  | Issue | Priority | Depends On |
+|----|-------|----------|------------|
+| 32 | Create LotroKoniecDev.Auth project (OpenIddict, net10.0) | High | #1 |
+| 33 | OpenIddict server configuration (JWT, flows, scopes) | High | #32 |
+| 34 | User registration + login endpoints | High | #33 |
+| 35 | Users + UserLanguageRoles tables + EF config | High | #32, #18 |
+| 36 | JWT token issuance (access + refresh) | High | #33 |
+| 37 | Add JWT bearer auth to Web API | High | #36 |
+| 38 | Role-based authorization policies (translator, admin per lang) | High | #37, #35 |
+| 39 | Wire nullable User FKs in Translations/History (enforce after auth) | Medium | #35, #22 |
+| 40 | User management: admin can list users, assign roles | Medium | #38 |
+| 41 | Seed initial admin user (setup script) | Medium | #35 |
+| 42 | Unit tests for auth + authorization | High | #38 |
+
+---
+
+## M4: Web API
+
+**Cel:** REST API — drugi presentation layer obok CLI. Auth-aware. Language-aware.
+Export endpoint public.
 
 **Endpoints:**
 ```
-POST   /api/import/exported-texts       Upload exported.txt → DB
-POST   /api/import/translations         Upload polish.txt → DB (migracja)
+-- Public (no auth)
+GET    /api/export/{lang}.txt           Download approved translations
+GET    /api/languages                   List active languages
+GET    /api/glossary/{lang}             Language glossary
 
-GET    /api/translations                List (paginated, filterable)
+-- Authenticated (translator+)
+GET    /api/translations                List (paginated, filterable, by language)
 GET    /api/translations/{id}           Single
-POST   /api/translations                Create
-PUT    /api/translations/{id}           Update
+POST   /api/translations                Create (sets SubmittedById from JWT)
+PUT    /api/translations/{id}           Update (own or admin)
+GET    /api/translations/search?q=&lang= Full-text search EN + target language
+GET    /api/translations/stats?lang=    Progress per language
+
+-- Authenticated (admin)
+PATCH  /api/translations/{id}/approve   Toggle approval (sets ApprovedById)
 DELETE /api/translations/{id}           Delete
-PATCH  /api/translations/{id}/approve   Toggle approval
+POST   /api/glossary/{lang}             Add glossary term
+PUT    /api/glossary/{lang}/{id}        Update term
+DELETE /api/glossary/{lang}/{id}        Delete term
 
-GET    /api/translations/search?q=      Full-text search EN/PL
-GET    /api/translations/stats          Progress dashboard data
-
-GET    /api/export/polish.txt           Download (approved translations)
+-- Authenticated (admin)
+POST   /api/import/exported-texts       Upload exported.txt → DB
+POST   /api/import/translations         Upload legacy {lang}.txt → DB
 GET    /api/exported-texts              List English texts
 GET    /api/exported-texts/search?q=    Search English texts
 ```
 
-**Issues:**
-
 | #  | Issue | Priority | Depends On |
 |----|-------|----------|------------|
-| 30 | Create LotroKoniecDev.WebApi project (net10.0, cross-platform) | High | #1, M2 |
-| 31 | Configure DI, middleware, CORS | High | #30 |
-| 32 | TranslationsController (CRUD) | High | #30, #24 |
-| 33 | ImportController (upload exported-texts, translations) | High | #30, #23 |
-| 34 | ExportController (GET polish.txt download) | High | #30, #25 |
-| 35 | SearchController (full-text search EN/PL) | Medium | #30 |
-| 36 | Pagination, filtering, sorting on list endpoints | Medium | #32 |
-| 37 | Swagger/OpenAPI documentation | Low | #30 |
-| 38 | StatsController (progress dashboard data) | Medium | #30 |
-| 39 | Integration tests for API endpoints | High | #32, #33, #34 |
-| 40 | Error handling middleware (Result → HTTP status mapping) | Medium | #30 |
+| 43 | Create LotroKoniecDev.WebApi project (net10.0) | High | #1, M2, M3 |
+| 44 | DI, middleware, CORS, auth integration | High | #43 |
+| 45 | TranslationsController (CRUD, language-aware, auth) | High | #43, #25 |
+| 46 | ExportController (GET /{lang}.txt, public) | High | #43, #26 |
+| 47 | ImportController (upload exported-texts, translations) | High | #43, #24 |
+| 48 | SearchController (full-text search EN + target lang) | Medium | #43 |
+| 49 | GlossaryController (CRUD, admin-only) | Medium | #43, #27 |
+| 50 | StatsController (progress per language) | Medium | #43 |
+| 51 | Pagination, filtering, sorting on list endpoints | Medium | #45 |
+| 52 | Error handling middleware (Result → HTTP status) | Medium | #43 |
+| 53 | Swagger/OpenAPI documentation | Low | #43 |
+| 54 | Integration tests for API endpoints | High | #45, #46, #47 |
 
 ---
 
-## M4: Translation Web App (Frontend)
+## M5: Web App (Frontend)
 
-**Cel:** User-friendly UI. Koniec z pipe-separated plikami.
+**Cel:** UI do tłumaczeń. Login, side-by-side editor, glossary, dashboard.
 
-**Tech:** Blazor WASM (jeden stack C#, shared Domain models) lub React + Vite
-(lepszy ecosystem UI). Decyzja na starcie M4.
+**Tech:** Blazor WASM (C# stack, shared Domain models) lub React + Vite.
+Decyzja na starcie M5.
 
 **Widoki:**
-
-1. **Translation List** — tabela, search/filter/sort, pagination, status coloring
-2. **Translation Editor** — side-by-side EN/PL, `<--DO_NOT_TOUCH!-->` jako kolorowe
-   tagi, args order editor, approve, notes, Ctrl+S / Ctrl+Enter
-3. **File Browser** — group by FileId, full-text search. Brak metadanych questowych
-   w exporcie — szukanie po treści, nie po tytule questa.
-4. **Dashboard** — progress bars (translated/total, approved/pending), recent edits
-5. **Import/Export** — upload exported.txt, download polish.txt
-
-**Issues:**
+1. **Login / Register** — OpenIddict login flow
+2. **Translation List** — tabela, search/filter/sort/lang, pagination, status coloring
+3. **Translation Editor** — side-by-side EN/PL, placeholders jako kolorowe tagi,
+   glossary hints (podświetl termin jeśli nie zgadza się z glossary), approve toggle (admin)
+4. **File Browser** — group by FileId, full-text search po treści
+5. **Glossary Editor** — CRUD terminów per język (admin)
+6. **Dashboard** — progress bars per język, recent edits, top contributors
+7. **Import/Export** — upload exported.txt, download {lang}.txt
+8. **Admin Panel** — user management, role assignment
 
 | #  | Issue | Priority | Depends On |
 |----|-------|----------|------------|
-| 41 | Create frontend project (Blazor WASM or React, net10.0) | High | M3 |
-| 42 | API client / HTTP service layer | High | #41 |
-| 43 | Translation List view | High | #42 |
-| 44 | Translation Editor (side-by-side EN/PL) | High | #42 |
-| 45 | File Browser (group by FileId, full-text search) | Medium | #42, #35 |
-| 46 | Dashboard (progress stats, recent edits) | Medium | #42, #38 |
-| 47 | Import/Export page | Medium | #42 |
-| 48 | Syntax highlighting `<--DO_NOT_TOUCH!-->` + walidacja `\|\|` w input | Medium | #44 |
-| 49 | Keyboard shortcuts (Ctrl+S, Ctrl+Enter, Alt+arrows) | Low | #44 |
-| 50 | Bulk operations (approve/reject multiple) | Low | #43 |
-| 51 | Responsive design / mobile | Low | #43 |
+| 55 | Create frontend project (Blazor WASM or React, net10.0) | High | M4 |
+| 56 | Auth integration (login, token storage, refresh) | High | #55 |
+| 57 | API client / HTTP service layer (auth headers) | High | #55, #56 |
+| 58 | Translation List view | High | #57 |
+| 59 | Translation Editor (side-by-side EN/PL, glossary hints) | High | #57 |
+| 60 | File Browser (group by FileId, full-text search) | Medium | #57, #48 |
+| 61 | Glossary Editor (admin) | Medium | #57, #49 |
+| 62 | Dashboard (progress per lang, recent edits) | Medium | #57, #50 |
+| 63 | Import/Export page | Medium | #57 |
+| 64 | Syntax highlighting `<--DO_NOT_TOUCH!-->` + walidacja `\|\|` | Medium | #59 |
+| 65 | Keyboard shortcuts (Ctrl+S, Ctrl+Enter, Alt+arrows) | Low | #59 |
+| 66 | Bulk operations (approve/reject multiple, admin) | Low | #58 |
+| 67 | Admin Panel (users, roles per lang) | Medium | #57, #40 |
+| 68 | Responsive design / mobile | Low | #58 |
 
 ---
 
-## M5: Workflow Automation
+## M6: Workflow Automation
 
-**Cel:** BAT files, CLI ↔ API sync, end-to-end flow jednym kliknięciem.
+**Cel:** BAT files, CLI ↔ API sync, one-click workflow.
+
+Export endpoint jest public — CLI pobiera bez logowania.
 
 ```bat
 scripts/
   export.bat          CLI export (DAT → exported.txt)
-  import.bat          Upload exported.txt do API
-  sync.bat            Download polish.txt z API
-  patch.bat           CLI patch (polish.txt → DAT)
+  import.bat          Upload exported.txt do API (wymaga auth token)
+  sync.bat            Download {lang}.txt z API (public)
+  patch.bat           CLI patch ({lang}.txt → DAT)
   run.bat             Odpal LOTRO
   full-workflow.bat   sync → patch → run
-  dev-start.bat       Start Web API + otwórz przeglądarkę
+  dev-start.bat       Start Auth + API + otwórz przeglądarkę
 ```
-
-**Issues:**
 
 | #  | Issue | Priority | Depends On |
 |----|-------|----------|------------|
-| 52 | CLI command: `sync` (fetch polish.txt from API) | Medium | M3 |
-| 53 | BAT files: export, import, sync, patch, run, full-workflow | Medium | #52 |
-| 54 | CLI command: `import` (push exported.txt to API) | Medium | M3 |
-| 55 | Update README with workflow documentation | Low | M4 |
-| 56 | Docker Compose for Web API + DB only (CLI stays native Windows) | Low | M3 |
-| 57 | Setup/first-run script (DB migration, initial import) | Medium | M2 |
+| 69 | CLI command: `sync` (fetch {lang}.txt from API, public) | Medium | M4 |
+| 70 | CLI command: `import` (push exported.txt to API, auth required) | Medium | M4 |
+| 71 | BAT files: export, import, sync, patch, run, full-workflow | Medium | #69 |
+| 72 | Update README with workflow documentation | Low | M5 |
+| 73 | Docker Compose: Auth + API + DB (CLI stays native Windows) | Low | M4 |
+| 74 | Setup/first-run script (DB migration, seed admin, seed Polish lang) | Medium | M3 |
 
 ---
 
@@ -319,24 +419,36 @@ scripts/
 
 ```
 Sprint 1 (M1):  #1-#15   TFM split + MediatR refactor + dead code cleanup
-Sprint 2 (M2):  #16-#29  Database layer
-Sprint 3 (M3):  #30-#40  Web API
-Sprint 4 (M4):  #41-#51  Frontend
-Sprint 5 (M5):  #52-#57  Automation
+Sprint 2 (M2):  #16-#31  Database layer (multi-lang, glossary)
+Sprint 3 (M3):  #32-#42  Auth (OpenIddict, users, roles)
+Sprint 4 (M4):  #43-#54  Web API (auth-aware, language-aware)
+Sprint 5 (M5):  #55-#68  Frontend
+Sprint 6 (M6):  #69-#74  Automation
 ```
 
-Issue #1 (TFM restructuring) jest FIRST THING — blokuje M2/M3/M4.
+Issue #1 (TFM split) blokuje M2+. Zaczynaj od niego.
 
-Każdy milestone jest niezależnie deployowalny. Po M1 CLI działa identycznie.
-Po M2+M3 można korzystać z API bez frontendu (Postman/curl). M4 dodaje UI.
-M5 spina wszystko w jedno.
+Każdy milestone deployowalny osobno:
+- Po M1 → CLI działa identycznie
+- Po M2 → baza gotowa, testy przechodzą
+- Po M3 → auth server działa standalone
+- Po M4 → API testowalne z Postman/Swagger
+- Po M5 → UI gotowe, platforma działa
+- Po M6 → one-click workflow
 
-**57 issues total.**
+**74 issues total.**
 
 ## Decyzje do podjęcia
 
-| Kiedy | Decyzja | Opcje | Rekomendacja |
-|-------|---------|-------|-------------|
-| Start M2 | SQLite vs PostgreSQL | SQLite (local), Postgres (multi-user) | SQLite |
-| Start M4 | Blazor WASM vs React | Blazor (C# stack), React (ecosystem) | Blazor |
-| Issue #12 | Args reordering | Fix (wire do Patcher) vs remove dead code | Fix |
+| Kiedy | Decyzja | Rekomendacja |
+|-------|---------|-------------|
+| Start M2 | SQLite vs PostgreSQL | SQLite (single-user local, przenośne) |
+| Start M5 | Blazor WASM vs React | Blazor (C# stack) |
+| Issue #12 | Args reordering fix vs remove | Fix |
+
+## Scope: later (nie w tym planie)
+
+- AI review pipeline (LLM sprawdza placeholders, grammar, terminologię)
+- Full review workflow (reviewer rola, states: submitted → in_review → approved)
+- OAuth providers (GitHub, Discord) — na razie email+password via OpenIddict
+- Notifications (email/Discord webhook na nowe submissions)

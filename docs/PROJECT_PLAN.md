@@ -17,7 +17,7 @@
 
 ```
               ┌──────────────┐
-              │  Web App UI  │  Blazor WASM / React
+              │  Web App UI  │  Blazor SSR
               │  net10.0     │  translation editor
               └──────┬───────┘
                      │ HTTP + JWT
@@ -43,7 +43,7 @@
  │  │  Infrastructure  │  Infrastructure              │   │
  │  │  .Persistence    │  .DatFile                    │   │
  │  │  [net10.0]       │  [net10.0-windows, x86]      │   │
- │  │  EF Core, SQLite │  P/Invoke, datexport.dll     │   │
+ │  │  EF Core, MSSQL  │  P/Invoke, datexport.dll     │   │
  │  │  (API + CLI)     │  (CLI only)                  │   │
  │  └──────────────────┴──────────────────────────────┘   │
  └─────────────────────────────────────────────────────────┘
@@ -56,12 +56,12 @@
 | Primitives | `net10.0` | AnyCPU | Stałe, enumy |
 | Domain | `net10.0` | AnyCPU | Modele, Result, Errors |
 | Application | `net10.0` | AnyCPU | MediatR handlers, abstrakcje |
-| Infrastructure.Persistence | `net10.0` | AnyCPU | EF Core, SQLite, repozytoria |
+| Infrastructure.Persistence | `net10.0` | AnyCPU | EF Core, MSSQL, repozytoria |
 | Infrastructure.DatFile | `net10.0-windows` | x86 | P/Invoke, datexport.dll |
 | CLI | `net10.0-windows` | x86 | Presentation: CLI |
 | WebApi | `net10.0` | AnyCPU | Presentation: REST API |
 | Auth | `net10.0` | AnyCPU | OpenIddict auth server |
-| WebApp | `net10.0` | AnyCPU | Presentation: Blazor/React |
+| WebApp | `net10.0` | AnyCPU | Presentation: Blazor SSR |
 
 Obecny `Directory.Build.props` wymusza `net10.0-windows` + `x86` globalnie — trzeba
 przejść na per-project. Infrastructure trzeba rozszczepić na .DatFile i .Persistence,
@@ -147,68 +147,68 @@ Usunięte:
 
 ## M2: Database Layer (multi-language)
 
-**Cel:** Flat file → SQLite. Multi-language schema. CRUD, search, historia edycji,
-glossary. Koniec z pipe-separated plikami.
+**Cel:** Flat file → MSSQL (code-first EF Core). Multi-language schema. CRUD, search,
+historia edycji, glossary. Koniec z pipe-separated plikami.
 
 **Dwa modele "Translation":**
 - `Domain.Models.Translation` — init-only DTO dla DAT pipeline (FileId, GossipId, Content, `int[]?` ArgsOrder)
 - `Persistence.Entities.TranslationEntity` — DB entity (Id, LanguageCode, timestamps, `string` ArgsOrder)
 - Mapping w repository
 
-**Schema:**
+**Schema (code-first EF Core → MSSQL, poniżej logiczny odpowiednik SQL):**
 ```sql
 CREATE TABLE Languages (
-    Code            TEXT PRIMARY KEY,    -- 'pl', 'de', 'fr'
-    Name            TEXT NOT NULL,       -- 'Polish'
-    IsActive        INTEGER NOT NULL DEFAULT 0
+    Code            NVARCHAR(10) PRIMARY KEY,     -- 'pl', 'de', 'fr'
+    Name            NVARCHAR(100) NOT NULL,        -- 'Polish'
+    IsActive        BIT NOT NULL DEFAULT 0
 );
 
 CREATE TABLE ExportedTexts (
-    Id              INTEGER PRIMARY KEY AUTOINCREMENT,
-    FileId          INTEGER NOT NULL,
-    GossipId        INTEGER NOT NULL,
-    EnglishContent  TEXT NOT NULL,
-    Tag             TEXT,                -- ręczne tagowanie (nullable)
-    ImportedAt      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE(FileId, GossipId)
+    Id              INT IDENTITY(1,1) PRIMARY KEY,
+    FileId          INT NOT NULL,
+    GossipId        INT NOT NULL,
+    EnglishContent  NVARCHAR(MAX) NOT NULL,
+    Tag             NVARCHAR(200),                 -- ręczne tagowanie (nullable)
+    ImportedAt      DATETIME2 NOT NULL DEFAULT GETUTCDATE(),
+    CONSTRAINT UQ_ExportedTexts UNIQUE (FileId, GossipId)
 );
 
 CREATE TABLE Translations (
-    Id              INTEGER PRIMARY KEY AUTOINCREMENT,
-    FileId          INTEGER NOT NULL,
-    GossipId        INTEGER NOT NULL,
-    LanguageCode    TEXT NOT NULL,
-    Content         TEXT NOT NULL,
-    ArgsOrder       TEXT,                -- "1-2-3", NULL = default
-    ArgsId          TEXT,                -- "1-2", NULL = default
-    IsApproved      INTEGER NOT NULL DEFAULT 0,
-    SubmittedById   INTEGER,             -- FK → Users (nullable pre-auth)
-    ApprovedById    INTEGER,             -- FK → Users
-    Notes           TEXT,
-    CreatedAt       DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    UpdatedAt       DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE(FileId, GossipId, LanguageCode),
-    FOREIGN KEY (LanguageCode) REFERENCES Languages(Code)
+    Id              INT IDENTITY(1,1) PRIMARY KEY,
+    FileId          INT NOT NULL,
+    GossipId        INT NOT NULL,
+    LanguageCode    NVARCHAR(10) NOT NULL,
+    Content         NVARCHAR(MAX) NOT NULL,
+    ArgsOrder       NVARCHAR(50),                  -- "1-2-3", NULL = default
+    ArgsId          NVARCHAR(50),                  -- "1-2", NULL = default
+    IsApproved      BIT NOT NULL DEFAULT 0,
+    SubmittedById   INT,                           -- FK → Users (nullable pre-auth)
+    ApprovedById    INT,                           -- FK → Users
+    Notes           NVARCHAR(MAX),
+    CreatedAt       DATETIME2 NOT NULL DEFAULT GETUTCDATE(),
+    UpdatedAt       DATETIME2 NOT NULL DEFAULT GETUTCDATE(),
+    CONSTRAINT UQ_Translations UNIQUE (FileId, GossipId, LanguageCode),
+    CONSTRAINT FK_Translations_Language FOREIGN KEY (LanguageCode) REFERENCES Languages(Code)
 );
 
 CREATE TABLE TranslationHistory (
-    Id              INTEGER PRIMARY KEY AUTOINCREMENT,
-    TranslationId   INTEGER NOT NULL,
-    OldContent      TEXT,
-    NewContent      TEXT NOT NULL,
-    ChangedById     INTEGER,             -- FK → Users
-    ChangedAt       DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (TranslationId) REFERENCES Translations(Id)
+    Id              INT IDENTITY(1,1) PRIMARY KEY,
+    TranslationId   INT NOT NULL,
+    OldContent      NVARCHAR(MAX),
+    NewContent      NVARCHAR(MAX) NOT NULL,
+    ChangedById     INT,                           -- FK → Users
+    ChangedAt       DATETIME2 NOT NULL DEFAULT GETUTCDATE(),
+    CONSTRAINT FK_History_Translation FOREIGN KEY (TranslationId) REFERENCES Translations(Id)
 );
 
 CREATE TABLE Glossary (
-    Id              INTEGER PRIMARY KEY AUTOINCREMENT,
-    LanguageCode    TEXT NOT NULL,
-    EnglishTerm     TEXT NOT NULL,        -- 'hobbit', 'Shire'
-    TranslatedTerm  TEXT NOT NULL,        -- 'niziołek', 'Shire'
-    Context         TEXT,                 -- 'race name', 'location'
-    UNIQUE(LanguageCode, EnglishTerm),
-    FOREIGN KEY (LanguageCode) REFERENCES Languages(Code)
+    Id              INT IDENTITY(1,1) PRIMARY KEY,
+    LanguageCode    NVARCHAR(10) NOT NULL,
+    EnglishTerm     NVARCHAR(500) NOT NULL,        -- 'hobbit', 'Shire'
+    TranslatedTerm  NVARCHAR(500) NOT NULL,        -- 'niziołek', 'Shire'
+    Context         NVARCHAR(500),                 -- 'race name', 'location'
+    CONSTRAINT UQ_Glossary UNIQUE (LanguageCode, EnglishTerm),
+    CONSTRAINT FK_Glossary_Language FOREIGN KEY (LanguageCode) REFERENCES Languages(Code)
 );
 ```
 
@@ -217,7 +217,7 @@ dodane jako nullable teraz, enforced po M3.
 
 | #  | Issue | Priority | Depends On |
 |----|-------|----------|------------|
-| 16 | Add EF Core + SQLite NuGet packages | High | #1 |
+| 16 | Add EF Core + SQL Server NuGet packages | High | #1 |
 | 17 | Schema design + TranslationEntity vs Translation DTO mapping | High | — |
 | 18 | AppDbContext + entity configurations (Infrastructure.Persistence) | High | #16, #17 |
 | 19 | ITranslationRepository abstraction (Application) | High | M1 |
@@ -238,11 +238,12 @@ dodane jako nullable teraz, enforced po M3.
 
 ## M3: Auth (OpenIddict)
 
-**Cel:** Osobny projekt — OpenIddict authorization server. User registration,
-login, JWT tokens. Prosty role model: translator / admin per language.
+**Cel:** Osobny projekt — OpenIddict authorization server. Portowany z istniejącego
+projektu i dostosowany. Prosty role model: translator / admin per language.
 
 **LotroKoniecDev.Auth** (`net10.0`):
-- OpenIddict jako authorization server
+- OpenIddict portowany z istniejącego projektu (konfiguracja, flows, token issuance)
+- Dostosowanie: UserLanguageRoles, language-scoped policies
 - Registration / login (email + password, lub OAuth providers later)
 - Wydaje JWT access tokens
 - User management API (admin)
@@ -252,24 +253,24 @@ login, JWT tokens. Prosty role model: translator / admin per language.
 - `admin` — może zatwierdzać, zarządzać glossary, zarządzać użytkownikami
 - Role per język — admin polskiego ≠ admin niemieckiego
 
-**Schema (w tym samym DB co reszta):**
+**Schema (w tym samym DB co reszta, code-first EF Core → MSSQL):**
 ```sql
 CREATE TABLE Users (
-    Id              INTEGER PRIMARY KEY AUTOINCREMENT,
-    Email           TEXT NOT NULL UNIQUE,
-    DisplayName     TEXT NOT NULL,
-    PasswordHash    TEXT NOT NULL,
-    IsActive        INTEGER NOT NULL DEFAULT 1,
-    CreatedAt       DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+    Id              INT IDENTITY(1,1) PRIMARY KEY,
+    Email           NVARCHAR(256) NOT NULL UNIQUE,
+    DisplayName     NVARCHAR(100) NOT NULL,
+    PasswordHash    NVARCHAR(MAX) NOT NULL,
+    IsActive        BIT NOT NULL DEFAULT 1,
+    CreatedAt       DATETIME2 NOT NULL DEFAULT GETUTCDATE()
 );
 
 CREATE TABLE UserLanguageRoles (
-    UserId          INTEGER NOT NULL,
-    LanguageCode    TEXT NOT NULL,
-    Role            TEXT NOT NULL,        -- 'translator', 'admin'
-    PRIMARY KEY (UserId, LanguageCode),
-    FOREIGN KEY (UserId) REFERENCES Users(Id),
-    FOREIGN KEY (LanguageCode) REFERENCES Languages(Code)
+    UserId          INT NOT NULL,
+    LanguageCode    NVARCHAR(10) NOT NULL,
+    Role            NVARCHAR(50) NOT NULL,           -- 'translator', 'admin'
+    CONSTRAINT PK_UserLanguageRoles PRIMARY KEY (UserId, LanguageCode),
+    CONSTRAINT FK_ULR_User FOREIGN KEY (UserId) REFERENCES Users(Id),
+    CONSTRAINT FK_ULR_Language FOREIGN KEY (LanguageCode) REFERENCES Languages(Code)
 );
 
 -- OpenIddict own tables (auto-created by OpenIddict EF Core):
@@ -285,9 +286,9 @@ CREATE TABLE UserLanguageRoles (
 
 | #  | Issue | Priority | Depends On |
 |----|-------|----------|------------|
-| 32 | Create LotroKoniecDev.Auth project (OpenIddict, net10.0) | High | #1 |
-| 33 | OpenIddict server configuration (JWT, flows, scopes) | High | #32 |
-| 34 | User registration + login endpoints | High | #33 |
+| 32 | Port OpenIddict auth server from existing project, create LotroKoniecDev.Auth | High | #1 |
+| 33 | Dostosuj OpenIddict config (JWT, flows, scopes) do tego projektu | High | #32 |
+| 34 | Dostosuj registration + login endpoints | High | #33 |
 | 35 | Users + UserLanguageRoles tables + EF config | High | #32, #18 |
 | 36 | JWT token issuance (access + refresh) | High | #33 |
 | 37 | Add JWT bearer auth to Web API | High | #36 |
@@ -354,8 +355,8 @@ GET    /api/exported-texts/search?q=    Search English texts
 
 **Cel:** UI do tłumaczeń. Login, side-by-side editor, glossary, dashboard.
 
-**Tech:** Blazor WASM (C# stack, shared Domain models) lub React + Vite.
-Decyzja na starcie M5.
+**Tech:** Blazor SSR (Server-Side Rendering). C# stack, shared Domain models,
+server-side rendering z interactive components gdzie potrzeba (SignalR).
 
 **Widoki:**
 1. **Login / Register** — OpenIddict login flow
@@ -370,7 +371,7 @@ Decyzja na starcie M5.
 
 | #  | Issue | Priority | Depends On |
 |----|-------|----------|------------|
-| 55 | Create frontend project (Blazor WASM or React, net10.0) | High | M4 |
+| 55 | Create Blazor SSR project (net10.0) | High | M4 |
 | 56 | Auth integration (login, token storage, refresh) | High | #55 |
 | 57 | API client / HTTP service layer (auth headers) | High | #55, #56 |
 | 58 | Translation List view | High | #57 |
@@ -410,7 +411,7 @@ scripts/
 | 70 | CLI command: `import` (push exported.txt to API, auth required) | Medium | M4 |
 | 71 | BAT files: export, import, sync, patch, run, full-workflow | Medium | #69 |
 | 72 | Update README with workflow documentation | Low | M5 |
-| 73 | Docker Compose: Auth + API + DB (CLI stays native Windows) | Low | M4 |
+| 73 | Docker Compose: Auth + API + MSSQL (CLI stays native Windows) | Low | M4 |
 | 74 | Setup/first-run script (DB migration, seed admin, seed Polish lang) | Medium | M3 |
 
 ---
@@ -438,13 +439,14 @@ Każdy milestone deployowalny osobno:
 
 **74 issues total.**
 
-## Decyzje do podjęcia
+## Podjęte decyzje
 
-| Kiedy | Decyzja | Rekomendacja |
-|-------|---------|-------------|
-| Start M2 | SQLite vs PostgreSQL | SQLite (single-user local, przenośne) |
-| Start M5 | Blazor WASM vs React | Blazor (C# stack) |
-| Issue #12 | Args reordering fix vs remove | Fix |
+| Decyzja | Wybór |
+|---------|-------|
+| Baza danych | **MSSQL** (code-first EF Core) |
+| Frontend | **Blazor SSR** |
+| Auth | **OpenIddict** (portowany z istniejącego projektu) |
+| Args reordering (#12) | Fix (do ustalenia przy implementacji) |
 
 ## Scope: later (nie w tym planie)
 

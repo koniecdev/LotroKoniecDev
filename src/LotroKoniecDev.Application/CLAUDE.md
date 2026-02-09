@@ -28,8 +28,14 @@ Extensions/
 
 ```csharp
 services.AddApplicationServices();
-// Registers: ITranslationParser(Singleton), IExporter(Scoped), IPatcher(Scoped)
+// Registers: ITranslationParser(Singleton), IExporter(Scoped), IPatcher(Scoped), IGameUpdateChecker(Singleton)
 ```
+
+## Game Update Detection
+
+`GameUpdateChecker` scrapes LOTRO forum for release notes, compares with stored version.
+**Known bug**: Saves forum version immediately on detection (line 56-58), not after user actually updates.
+Needs DAT vnum confirmation before saving. See `IDatVersionReader` (planned M1 #14).
 
 ## Translation File Format
 

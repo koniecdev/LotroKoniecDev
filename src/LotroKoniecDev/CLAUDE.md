@@ -4,13 +4,18 @@ Console application. Depends on Application and Infrastructure layers.
 
 ## Key File
 
-`Program.cs` (~370 lines) - Entire CLI logic in a single static class.
+`Program.cs` (~80 lines) - Thin dispatcher routing commands to DI-resolved services.
 
 ## Commands
 
 ```
 LotroKoniecDev export [dat_file] [output.txt]    Export all texts from DAT
 LotroKoniecDev patch <name> [dat_file]            Patch DAT with translations
+```
+
+**Planned (M1):**
+```
+LotroKoniecDev launch [lotro_path]               Protect DAT + launch game + unprotect
 ```
 
 `<name>` resolves to `translations/<name>.txt` unless it contains path separators or `.txt` extension.

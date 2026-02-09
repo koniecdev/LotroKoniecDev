@@ -5,18 +5,35 @@ Platform-specific implementations. Depends on Application (implements its abstra
 ## Structure
 
 ```
-DatExportNative.cs              P/Invoke declarations for datexport.dll (8 DLL imports)
-DatFileHandler.cs               IDatFileHandler impl. Thread-safe (lock), IntPtr marshaling, IDisposable
-DatFileLocator.cs               IDatFileLocator impl. Multi-stage LOTRO detection:
-                                  1. Standing Stone Games default path
-                                  2. Steam path
-                                  3. Windows Registry (3 keys)
-                                  4. Full disk scan on fixed drives
-                                  5. Local fallback (data/client_local_English.dat)
-GameProcessDetector.cs          IGameProcessDetector impl. Checks: lotroclient, lotroclient64, LotroLauncher, TurbineLauncher
-WriteAccessChecker.cs           IWriteAccessChecker impl. Creates temp file to verify write access
+DatFile/
+  DatExportNative.cs              P/Invoke declarations for datexport.dll (8 DLL imports)
+  DatFileHandler.cs               IDatFileHandler impl. Thread-safe (lock), IntPtr marshaling, IDisposable
+Discovery/
+  DatFileLocator.cs               IDatFileLocator impl. Multi-stage LOTRO detection:
+                                    1. Standing Stone Games default path
+                                    2. Steam path
+                                    3. Windows Registry (3 keys)
+                                    4. Full disk scan on fixed drives
+                                    5. Local fallback (data/client_local_English.dat)
+Diagnostics/
+  GameProcessDetector.cs          IGameProcessDetector impl. Checks: lotroclient, lotroclient64, LotroLauncher, TurbineLauncher
+  WriteAccessChecker.cs           IWriteAccessChecker impl. Creates temp file to verify write access
+Network/
+  ForumPageFetcher.cs             IForumPageFetcher impl. Scrapes LOTRO release notes forum
+Storage/
+  VersionFileStore.cs             IVersionFileStore impl. Reads/writes game version to text file
 InfrastructureDependencyInjection.cs  AddInfrastructureServices()
 ```
+
+## Known Issues
+
+- `DatFileHandler.Open()` discards `vnumDatFile` and `vnumGameData` from `OpenDatFileEx2()` (line 39: `out _`). These contain DAT version info needed for game update confirmation. Must be exposed via `IDatVersionReader`.
+
+## Planned Additions (M1)
+
+- `IDatVersionReader` impl — read vnumDatFile/vnumGameData without full handler lifecycle
+- `IDatFileProtector` impl — `attrib +R/-R` on DAT file (currently in lotro.bat)
+- `IGameLauncher` impl — `Process.Start("TurbineLauncher.exe")` with wait
 
 ## DI Registration
 

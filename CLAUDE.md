@@ -1,125 +1,138 @@
-# LOTRO Polish Patcher - Project Context
+# LOTRO Polish Patcher
 
-## What is this?
-
-CLI tool for injecting Polish translations into LOTRO (Lord of the Rings Online) game DAT files. Exports text from DAT files and patches them with translations.
-
-## Tech Stack
-
-- **Language:** C# 13, .NET 10.0 (`net10.0-windows`, x86)
-- **DI:** Microsoft.Extensions.DependencyInjection
-- **Testing:** xUnit 2.9.3 + FluentAssertions 8.0.0 + NSubstitute 5.3.0
-- **Native interop:** datexport.dll (C++ library for DAT file I/O via P/Invoke)
-- **Solution format:** Modern `.slnx`
+CLI tool for injecting Polish translations into LOTRO (Lord of the Rings Online) game DAT files.
+Exports text from DAT files, patches them with translations.
+Part of a larger platform: CLI + Web App (Blazor SSR) + Desktop App (WPF).
 
 ## Build & Run
 
 ```bash
-# Build
-dotnet build src/LotroKoniecDev
-
-# Run tests
-dotnet test
-
-# Run specific test project
+dotnet build src/LotroKoniecDev             # Build CLI
+dotnet test                                  # All tests (~550 assertions)
 dotnet test tests/LotroKoniecDev.Tests.Unit
 dotnet test tests/LotroKoniecDev.Tests.Integration
 
-# Run the tool
-dotnet run --project src/LotroKoniecDev -- patch polish
 dotnet run --project src/LotroKoniecDev -- export
+dotnet run --project src/LotroKoniecDev -- patch polish
 ```
 
-Build output: `src/LotroKoniecDev/bin/Debug/net10.0-windows/LotroKoniecDev.exe`
+Output: `src/LotroKoniecDev/bin/Debug/net10.0-windows/LotroKoniecDev.exe`
+
+## Tech Stack
+
+- C# 13, .NET 10.0, modern `.slnx` solution
+- DI: Microsoft.Extensions.DependencyInjection
+- Testing: xUnit 2.9.3 + FluentAssertions 8.0.0 + NSubstitute 5.3.0
+- Native interop: datexport.dll (Turbine C++ library for DAT I/O via P/Invoke)
+- DB (planned): PostgreSQL + EF Core + Npgsql
+- Web (planned): Blazor SSR
+- Desktop (planned): WPF
 
 ## Architecture
 
-Clean Architecture with 5 layers (dependency flows downward):
+Clean Architecture, 5 layers (dependency flows downward):
 
 ```
-LotroKoniecDev (CLI / Presentation)
-    -> LotroKoniecDev.Application (orchestration, abstractions)
-        -> LotroKoniecDev.Domain (models, Result monad, errors)
-    -> LotroKoniecDev.Infrastructure (DAT file I/O, system checks)
-        -> LotroKoniecDev.Application (implements abstractions)
-            -> LotroKoniecDev.Domain
-LotroKoniecDev.Primitives (shared constants/enums, no dependencies)
+CLI (Presentation, net10.0-windows x86)
+  -> Application (orchestration, abstractions, net10.0 AnyCPU)
+    -> Domain (models, Result monad, errors, net10.0 AnyCPU)
+  -> Infrastructure.DatFile (P/Invoke, net10.0-windows x86)
+    -> Application
+  -> Infrastructure.Persistence (EF Core, PostgreSQL — planned, net10.0 AnyCPU)
+    -> Application
+Primitives (constants, enums, net10.0 AnyCPU, zero dependencies)
 ```
+
+Target: 3 presentation layers sharing MediatR handlers (zero duplication):
+- **CLI** — power users, CI/CD (`export`, `patch`, `launch`)
+- **Blazor SSR Web App** — translation platform for translators
+- **WPF Desktop App** (`LotroPoPolsku.exe`) — one-click patch+play for gamers
 
 ## Project Structure
 
 ```
 src/
-  LotroKoniecDev/              CLI entry point (Program.cs)
-  LotroKoniecDev.Application/  Business logic, interfaces, parsers
-  LotroKoniecDev.Domain/       Core models, Result monad, errors, utilities
-  LotroKoniecDev.Infrastructure/ DAT file P/Invoke, LOTRO discovery, system checks
-  LotroKoniecDev.Primitives/   Constants (TextFileMarker=0x25), enums (DatFileSource, ErrorType)
+  LotroKoniecDev/                 CLI entry point (Program.cs, ~80 lines)
+    Commands/                     ExportCommand, PatchCommand, PreflightChecker, BackupManager
+    ConsoleWriter.cs              Colored output (Info/Success/Warning/Error/Progress)
+    DatPathResolver.cs            Auto-detect or prompt for LOTRO install path
+    ExitCodes.cs                  0=Success, 1=InvalidArgs, 2=FileNotFound, 3=OperationFailed
+  LotroKoniecDev.Application/
+    Abstractions/                 IDatFileHandler, IDatFileLocator, IExporter, IPatcher, etc.
+    Features/Export/              Exporter (exports text fragments from DAT)
+    Features/Patch/               Patcher (batch-applies translations to DAT)
+    Features/UpdateCheck/         GameUpdateChecker (forum scraping + version file)
+    Parsers/                      TranslationFileParser (|| delimited format)
+    Extensions/                   DI registration, DatFileHandler helpers
+  LotroKoniecDev.Domain/
+    Core/BuildingBlocks/          Error (sealed), ValueObject (abstract)
+    Core/Monads/                  Result, Result<T>, Maybe<T>
+    Core/Extensions/              ResultExtensions (Map, Bind, OnSuccess, OnFailure, Match)
+    Core/Utilities/               VarLenEncoder (1-2 byte variable-length int encoding)
+    Core/Errors/                  DomainErrors — static factories per domain area
+    Models/                       Fragment, SubFile, Translation
+  LotroKoniecDev.Infrastructure/
+    DatFile/                      DatExportNative (P/Invoke), DatFileHandler (thread-safe)
+    Discovery/                    DatFileLocator (SSG, Steam, Registry, disk scan, local fallback)
+    Diagnostics/                  GameProcessDetector, WriteAccessChecker
+    Network/                      ForumPageFetcher
+    Storage/                      VersionFileStore
+  LotroKoniecDev.Primitives/
+    Constants/                    TextFileMarker=0x25, PieceSeparator="<--DO_NOT_TOUCH!-->"
+    Enums/                        DatFileSource, ErrorType
 tests/
-  LotroKoniecDev.Tests.Unit/        Unit tests (~300 assertions)
-  LotroKoniecDev.Tests.Integration/ Integration tests (~250 assertions)
-translations/                  Translation input files (polish.txt, example_polish.txt)
-data/                          Fallback DAT file location (gitignored)
+  LotroKoniecDev.Tests.Unit/     ~300 assertions (Result, Fragment, SubFile, Parser, VarLen, Error)
+  LotroKoniecDev.Tests.Integration/ ~250 assertions (full DI stack, Exporter, Patcher workflows)
+translations/                    polish.txt, example_polish.txt
+data/                            Fallback DAT location (gitignored)
+docs/
+  PROJECT_PLAN.md                Full roadmap with milestones, step-by-step execution guide
+  RUSSIAN_PROJECT_RESEARCH.md    Research on translate.lotros.ru (reference project)
 ```
 
 ## Key Patterns
 
 ### Result Monad (Railway-Oriented Programming)
-All operations return `Result` or `Result<T>` instead of throwing exceptions. Use `IsSuccess`/`IsFailure`, `Value`, `Error`. Extensions: `Map()`, `Bind()`, `OnSuccess()`, `OnFailure()`, `Match()`.
-
+All operations return `Result` or `Result<T>`, never throw for domain errors.
 ```csharp
 Result<PatchSummary> result = patcher.ApplyTranslations(...);
-if (result.IsFailure) { /* handle result.Error */ }
-PatchSummary summary = result.Value;
+result.Match(
+    onSuccess: summary => /* ... */,
+    onFailure: error => /* ... */);
 ```
+Extensions: `Map()`, `Bind()`, `OnSuccess()`, `OnFailure()`, `Match()`, `Combine()`.
 
 ### Error Handling
-Centralized in `DomainErrors` static class with categories: `DatFile`, `SubFile`, `Fragment`, `Translation`, `Export`, `Backup`, `DatFileLocation`. Each returns typed `Error` instances via factory methods.
+`DomainErrors` static class with categories: `DatFile`, `SubFile`, `Fragment`, `Translation`, `Export`, `Backup`, `DatFileLocation`, `GameUpdateCheck`. Each returns typed `Error(Code, Message, Type)`.
 
 ### DI Registration
-- `services.AddApplicationServices()` - Parser (Singleton), Exporter/Patcher (Scoped)
-- `services.AddInfrastructureServices()` - DatFileHandler (Scoped), Locator/Detector/Checker (Singleton)
+```csharp
+services.AddApplicationServices();       // Parser(Singleton), Exporter/Patcher(Scoped), UpdateChecker(Singleton)
+services.AddInfrastructureServices();     // DatFileHandler(Scoped), Locator/Detector/Checker(Singleton)
+```
 
-### Native Interop
-`DatExportNative` class wraps datexport.dll via `[DllImport]`. `DatFileHandler` manages IntPtr handles, Marshal memory, and IDisposable cleanup with thread-safe locking.
+### Native Interop (datexport.dll)
+`DatExportNative` — `[LibraryImport]` with `CallConvCdecl`. Key functions:
+- `OpenDatFileEx2(handle, path, flags, out vnumDatFile, out vnumGameData, ...)` → handle
+- `GetNumSubfiles`, `GetSubfileSizes`, `GetSubfileData`, `PutSubfileData`, `Flush`, `CloseDatFile`
 
-## CLI Commands
+`DatFileHandler` — thread-safe (`lock`), `Marshal.AllocHGlobal`/`FreeHGlobal`, tracks handles in `HashSet<int>`.
 
-- `export [dat_file] [output.txt]` - Export all texts from DAT to file
-- `patch <name> [dat_file]` - Apply translations (name resolves to `translations/<name>.txt`)
-- Auto-detects LOTRO installation if no DAT path given
-- Exit codes: 0=Success, 1=InvalidArgs, 2=FileNotFound, 3=OperationFailed
+**Known bug:** `DatFileHandler.Open()` discards `vnumDatFile`/`vnumGameData` (`out _`). Needs `IDatVersionReader` (M1 #13).
 
-**Planned (M1):** `launch` command — protects DAT with `attrib +R`, starts TurbineLauncher, restores after close. Currently implemented as `lotro.bat`.
+## DAT Binary Format
 
-## BAT Workflow (current)
+```
+SubFile (text, FileId high byte = 0x25):
+  FileId (4B) | Unknown1 (4B) | Unknown2 (1B) | FragCount (VarLen)
+  Fragment[]:
+    FragmentId (8B ulong = GossipId) | PieceCount (int)
+    Piece[]: VarLen length + UTF-16LE bytes
+    ArgRefCount (int) | ArgRef[]: 4B each
+    ArgStringGroupCount (byte) | Group[]: Count(int) + VarLen UTF-16LE strings
 
-- `export.bat` - builds + runs export
-- `patch.bat <name>` - builds + runs patch (requests admin)
-- `lotro.bat [path]` - protects DAT (attrib +R), launches game, restores (attrib -R)
-
-## Game Update Detection
-
-Two-source model:
-1. **Forum checker** (proactive): scrapes lotro.com release notes, regex `Update\s+(\d+(?:\.\d+)*)\s+Release\s+Notes`
-2. **DAT vnum** (confirmation): `OpenDatFileEx2()` returns `vnumDatFile`/`vnumGameData` — currently discarded in `DatFileHandler.Open()`, needs exposing
-
-**Known bug**: `GameUpdateChecker` saves forum version immediately on detection (not after user actually updates game). DAT vnum needed to confirm update was installed.
-
-## DAT File Protection
-
-`lotro.bat` uses `attrib +R` on `client_local_English.dat` — OS-level read-only that prevents the official LOTRO launcher from overwriting translations. Stronger than the Russian project's `-disablePatch` flag approach. Intentionally also blocks game updates (forces explicit update workflow).
-
-## Code Style
-
-Enforced via `.editorconfig`:
-- File-scoped namespaces (`namespace Foo;`)
-- `var` when type is apparent, explicit types for built-in types
-- Private fields: `_camelCase`
-- Types/members: `PascalCase`
-- Interfaces: `IPrefix`
-- Braces on new lines (Allman style)
-- Expression-bodied members when single line
+VarLen: 0-127 = 1 byte; 128-32767 = 2 bytes (high bit flag)
+```
 
 ## Translation File Format
 
@@ -127,57 +140,125 @@ Enforced via `.editorconfig`:
 # Comments start with #
 file_id||gossip_id||translated_text||args_order||args_id||approved
 620756992||1001||Witaj w Srodziemiu!||NULL||NULL||1
+620756992||1002||Tekst z <--DO_NOT_TOUCH!--> argumentem||1||1||1
 ```
 
-Separator in text content: `<--DO_NOT_TOUCH!-->` (marks argument placeholders).
+- `<--DO_NOT_TOUCH!-->` = argument placeholder
+- `args_order`: `NULL` or `1-2-3` (1-indexed in file, 0-indexed internally)
+- `\r`, `\n` in content are unescaped by parser
+- Results sorted by FileId then GossipId for sequential DAT I/O
 
-## Key Abstractions (interfaces in Application/Abstractions/)
+## CLI Commands
 
-- `IDatFileHandler` - Open/Read/Write/Flush/Close DAT files
-- `IDatFileLocator` - Auto-detect LOTRO installations
-- `IExporter` - Export texts from DAT
-- `IPatcher` - Apply translations to DAT
-- `ITranslationParser` - Parse translation files
-- `IGameProcessDetector` - Check if LOTRO is running
-- `IWriteAccessChecker` - Verify write permissions
-- `IGameUpdateChecker` - Check for game updates via forum scraping
-- `IForumPageFetcher` - Fetch LOTRO release notes page
-- `IVersionFileStore` - Read/write last known game version to file
+```
+LotroKoniecDev export [dat_file] [output.txt]    # Export texts from DAT
+LotroKoniecDev patch <name> [dat_file]            # Patch DAT (<name> -> translations/<name>.txt)
+```
 
-**Planned abstractions (M1):**
-- `IDatVersionReader` - Read vnumDatFile/vnumGameData from DAT (confirm actual update)
-- `IDatFileProtector` - attrib +R/-R on DAT file
-- `IGameLauncher` - Start TurbineLauncher.exe with flags
+Planned (M1): `launch` — attrib +R -> TurbineLauncher -> attrib -R.
 
-## Global Build Config
+Auto-detects LOTRO: SSG default -> Steam -> Registry -> disk scan -> local fallback.
+Pre-flight: checks game running, write access, creates `.backup`.
 
-`Directory.Build.props` applies to all projects: .NET 10.0, x86, nullable refs, latest C# lang, code style enforcement.
-`Directory.Packages.props` centralizes NuGet versions.
+## LOTRO Companion Integration (planned M2)
 
-**Known issue**: `Directory.Build.props` forces `net10.0-windows` + `x86` globally. Must be changed to per-project for Web App (AnyCPU) to work. This is issue #1 and blocks M2+M3.
+https://github.com/LotroCompanion/lotro-data — XML data for quests, deeds, NPCs, items, etc.
+Uses format `key:{file_id}:{gossip_id}` — IDs match 1:1 with our DAT export.
 
-## Native Interop Details
+Provides **context** for each translatable string:
+- Quest name, description, bestower text, objectives, dialogs
+- Deed name/description, NPC dialogs, skill names, titles, items
 
-`OpenDatFileEx2()` returns version info via out params that are currently discarded:
-- `out int vnumDatFile` - DAT file format version
-- `out int vnumGameData` - game data version (changes on game updates)
+This goes into `TextContexts` table so translators see context instead of raw IDs.
 
-These should be exposed via `IDatVersionReader` for game update confirmation.
+## Database Schema (planned M2)
 
-## Target Architecture (post M4)
+PostgreSQL (Docker). Two data sources:
+1. DAT export -> `ExportedTexts` (actual English text)
+2. LOTRO Companion XML -> `TextContexts` (what each string IS)
 
-Three presentation layers, zero code duplication:
-- **CLI** (`export`, `patch`, `launch`) — power users, CI/CD, automation
-- **Blazor SSR Web App** — translation platform for translators (glossary, review, side-by-side EN/PL)
-- **WPF Desktop App** (`LotroPoPolsku.exe`) — end-user GUI for gamers (patch + play one click)
+```sql
+Languages (Code PK, Name, IsActive)
+ExportedTexts (Id, FileId, GossipId, EnglishContent, ImportedAt)
+TextContexts (Id, FileId, GossipId, ContextType, ParentName, ParentCategory, ParentLevel, NpcName, Region, SourceFile, ImportedAt)
+Translations (Id, FileId, GossipId, LanguageCode FK, Content, ArgsOrder, ArgsId, IsApproved, Notes, CreatedAt, UpdatedAt)
+TranslationHistory (TranslationId, OldContent, NewContent, ChangedAt)
+GlossaryTerms (Id, EnglishTerm, PolishTerm, Notes, Category, CreatedAt)
+DatVersions (Id, VnumDatFile, VnumGameData, ForumVersion, DetectedAt)
+```
 
-All three share the same MediatR handlers via `IMediator.Send()`.
+Two `Translation` models:
+- `Domain.Models.Translation` — init-only DTO for DAT pipeline (no DB deps)
+- `Persistence.Entities.TranslationEntity` — EF Core entity (timestamps, LanguageCode)
 
-## Reference: Russian LOTRO Translation Project
+## Game Update Detection
 
-Our project shares DNA with translate.lotros.ru (same datexport.dll, same 0x25 marker, same format).
-See `docs/PROJECT_PLAN.md` for detailed comparison. Key differences:
-- We use `attrib +R` (OS-level protection) vs their `-disablePatch` flag
-- We detect updates proactively (forum) vs their reactive NinjaMark
-- We have Clean Architecture vs their monolith
-- We have 3 presentation layers (CLI + Web + WPF) vs their 2 (launcher + web)
+Two-source model:
+1. **Forum checker** (proactive): scrapes lotro.com release notes, regex `Update\s+(\d+(?:\.\d+)*)\s+Release\s+Notes`
+2. **DAT vnum** (confirmation): `OpenDatFileEx2()` -> `vnumGameData` (currently discarded — M1 #13-14)
+
+**Known bug:** `GameUpdateChecker` saves forum version immediately (should wait for DAT vnum confirmation).
+
+## DAT File Protection
+
+`attrib +R` on `client_local_English.dat` — OS-level read-only, launcher cannot bypass.
+Stronger than Russian project's `-disablePatch` flag. Intentionally blocks game updates too (forces explicit update workflow). Currently in `lotro.bat`, moving to C# in M1.
+
+## Code Style (.editorconfig)
+
+- File-scoped namespaces, Allman braces
+- `var` when type apparent, explicit for built-in types
+- `_camelCase` fields, `PascalCase` types/members, `IPrefix` interfaces
+- Expression-bodied members when single line
+- FluentAssertions only (no raw `Assert.*`)
+- Test naming: `MethodName_Scenario_ExpectedResult`
+
+## Build Config
+
+- `Directory.Build.props`: global settings (nullable, latest C#, code style enforcement)
+- `Directory.Packages.props`: centralized NuGet versions
+- **Known issue (#1):** `Directory.Build.props` forces `net10.0-windows` + `x86` globally. Must split to per-project TFMs for Web App (AnyCPU). Blocks M2+M3.
+
+## Key Interfaces (Application/Abstractions/)
+
+| Interface | Purpose | Lifetime |
+|-----------|---------|----------|
+| `IDatFileHandler` | Open/Read/Write/Flush/Close DAT files | Scoped |
+| `IDatFileLocator` | Auto-detect LOTRO installations | Singleton |
+| `IExporter` | Export texts from DAT | Scoped |
+| `IPatcher` | Apply translations to DAT | Scoped |
+| `ITranslationParser` | Parse translation files | Singleton |
+| `IGameProcessDetector` | Check if LOTRO is running | Singleton |
+| `IWriteAccessChecker` | Verify write permissions | Singleton |
+| `IGameUpdateChecker` | Forum scraping for updates | Singleton |
+| `IForumPageFetcher` | HTTP GET release notes | Singleton |
+| `IVersionFileStore` | Read/write version to file | Singleton |
+
+Planned (M1): `IDatVersionReader`, `IDatFileProtector`, `IGameLauncher`
+
+## Reference: Russian Project (translate.lotros.ru)
+
+Our project shares DNA: same datexport.dll, same 0x25 marker, same `||` format, same `<--DO_NOT_TOUCH!-->`.
+See `docs/RUSSIAN_PROJECT_RESEARCH.md` for full analysis.
+
+Key differences:
+- We use `attrib +R` (OS-level) vs their `-disablePatch` flag
+- We have Clean Architecture + Result monad + ~550 tests vs their monolith + no tests
+- We have proactive update detection (forum+vnum) vs their reactive (file change tracking)
+- They patch 7 types (text/font/image/sound/texture/loadscreen/video), we patch text only
+- They built their own C++ DAT library (LotroDat), we use datexport.dll
+- Polish diacritics work natively in LOTRO (no FontRestorator needed, unlike Cyrillic)
+
+## Roadmap
+
+See `docs/PROJECT_PLAN.md` for full plan with step-by-step execution guide.
+
+```
+M1: #1-#21   CLI cleanup (TFM split, MediatR, launch command, update fix) — 4 phases
+M2: #22-#43  Database (PostgreSQL, EF Core, LOTRO Companion import, glossary) — 4 phases
+M3: #44-#62  Web App (Blazor SSR, translation UI with context)
+M4: #63-#75  Desktop App (WPF, LotroPoPolsku.exe, one-click patch+play)
+M5: #76-#83  Community & Auth (OpenIddict, roles, review workflow)
+```
+
+Critical path: #1 (TFM split) blocks M2+M3. M2 can run in parallel with M1 Faza C/D after #1.

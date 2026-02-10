@@ -470,8 +470,8 @@ Ale rosyjskie podejscie DZIALA (bo jest prostsze), a nasze ma known bug
 7. **Linux/Steam Deck support** — rozszerzyli baze uzytkownikow.
 
 8. **Font Restorator** — osobne narzedzie do podmiany czcionek. LOTRO nie obsluguje
-   natywnie Cyrylicy ani polskich znakow (ą, ę, ó, ź, ż, ć, ś, ł, ń).
-   BEDZIEMY MUSIELI TO ROZWIAZAC DLA POLSKIEGO!
+   natywnie Cyrylicy. Dla polskich diakrytykow NIE jest potrzebny — Latin Extended
+   dziala natywnie.
 
 ### 9.2 Co zrobili zle (z czego mozemy sie nauczyc)
 
@@ -500,17 +500,18 @@ Ale rosyjskie podejscie DZIALA (bo jest prostsze), a nasze ma known bug
 
 ### 9.3 Kluczowe wnioski dla naszego projektu
 
-#### PILNE: Problem czcionek polskich!
+#### Czcionki polskie — NIE jest blokerem
 
-LOTRO nie obsluguje natywnie polskich diakrytykow (ą, ę, ó, ź, ż, ć, ś, ł, ń).
-Rosjanie musieli stworzyc Font Restorator aby dodac Cyrylike.
-MY BEDZIEMY MUSIELI ZROBIC TO SAMO DLA POLSKICH ZNAKOW.
+Rosjanie musieli stworzyc Font Restorator aby dodac Cyrylike (alfabet rosyjski
+nie jest obslugiwany natywnie przez LOTRO). Poczatkowo wydawalo sie ze polskie
+diakrytyki (ą, ę, ó, ź, ż, ć, ś, ł, ń) beda mialy ten sam problem.
 
-To jest **nieujete w PROJECT_PLAN.md** i jest **krytycznym blokerem**!
-Bez polskich czcionek tlumaczenie bedzie wyswietlane z "?" zamiast polskich liter.
+**Weryfikacja:** Polskie znaki wyswietlaja sie w grze poprawnie bez modyfikacji czcionek.
+LOTRO obsluguje Latin Extended natywnie (w tym polskie diakrytyki).
+Problem FontRestorator dotyczy wylacznie Cyrylicy i innych nie-lacinskich alfabetow.
 
-Rozwiazanie: Dodac do M1 lub M2 zadanie "Font patch dla polskich diakrytykow"
-z abstrakacja `IFontPatcher` lub rozszerzeniem typow patchy.
+**Wniosek:** Nie potrzebujemy odpowiednika FontRestorator. To upraszcza nasz pipeline
+— wystarczy patchowac tylko tekst, bez modyfikacji czcionek.
 
 #### API design (M3)
 
@@ -579,13 +580,10 @@ ICH PRZEWAGI (mature product):
   ✗ Dzialajaca web platforma z API
   ✗ Mikro-aktualizacje (dzienne pobieranie najnowszych tlumaczen)
 
-KRYTYCZNY WNIOSEK:
-  Problem czcionek polskich jest NIEUJETY w naszym planie!
-  Rosjanie musieli stworzyc osobne narzedzie (FontRestorator)
-  aby wyswietlac Cyrylike. My BEDZIEMY MUSIELI zrobic to samo
-  dla polskich diakrytykow (ą, ę, ó, ź, ż, ć, ś, ł, ń).
-
-  BEZ TEGO TLUMACZENIE NIE BEDZIE DZIALAC W GRZE!
+WAZNY WNIOSEK:
+  Rosjanie musieli stworzyc FontRestorator dla Cyrylicy.
+  Polskie diakrytyki (Latin Extended) dzialaja natywnie w LOTRO.
+  Nie potrzebujemy odpowiednika FontRestorator — upraszcza to nasz pipeline.
 ```
 
 ---

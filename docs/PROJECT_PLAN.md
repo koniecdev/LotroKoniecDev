@@ -27,32 +27,39 @@ Nasz jest architektonicznie lepszy (Clean Architecture, Result monad, testy, sha
 ## Pelny workflow (cel koncowy)
 
 ```
-SETUP (jednorazowy):
+SETUP (jednorazowy, tlumacz/dev):
   1. CLI export             DAT -> exported.txt (aktualne angielskie teksty)
   2. Web import tekstow     exported.txt -> baza (POST /api/v1/db-update)
   3. Web import kontekstu   LOTRO Companion XML -> baza (quests, deeds, NPCs, ...)
                             Tlumacz widzi: "Dialog Elladana, quest 'X', Shire, lvl 7"
   4. Web app                tlumacze side-by-side EN/PL z kontekstem, review, approve
   5. Web export             baza -> polish.txt (GET /api/v1/translations/export)
-  6. CLI patch              polish.txt -> DAT
+  6. CLI patch              polish.txt -> DAT (testowanie tlumaczen lokalnie)
 
-CODZIENNA GRA (bez update gry):
-  7. CLI launch             attrib +R -> TurbineLauncher.exe -> attrib -R
+CODZIENNA GRA — GRACZ (LotroPoPolsku.exe):
+  7. Gracz pobiera          LotroPoPolsku.exe (jednorazowo)
+  8. Klika "Patchuj"        exe pobiera polish.txt z web API, patchuje DAT
+  9. Klika "Graj"           exe: attrib +R -> TurbineLauncher.exe -> attrib -R
                             DAT chroniony, tlumaczenia przetrwaja
 
-UPDATE GRY:
-  8. Forum checker          wykrywa nowy post "Update XX.X Release Notes"
-  9. DAT vnum check         potwierdza ze user faktycznie zainstalowal update
-  10. CLI odmawia           launch zablokowany dopoki wersje sie nie zgadza
-  11. User odpala           oficjalny launcher NORMALNIE (attrib -R, DAT writable)
-  12. CLI export + patch    ponowny eksport, re-import do bazy, re-patch
-  13. Powrot do             kroku 7
+CODZIENNA GRA — POWER USER (CLI):
+  10. CLI patch polish      patchuje DAT z lokalnego pliku
+  11. CLI launch            attrib +R -> TurbineLauncher.exe -> attrib -R
 
-PIPELINE CLI -> WEB (kto co uruchamia):
-  - Export/patch: uruchamiany LOKALNIE na PC z zainstalowanym LOTRO (datexport.dll = x86 Windows)
-  - Web app: uruchamiana LOKALNIE (localhost:5000) lub na serwerze (docker-compose)
-  - Transfer: exported.txt uploadowany recznie przez web UI (drag & drop) lub API endpoint
-  - Cel: CLI nigdy nie potrzebuje bazy, web nigdy nie potrzebuje datexport.dll
+UPDATE GRY:
+  12. Forum checker         wykrywa nowy post "Update XX.X Release Notes"
+  13. DAT vnum check        potwierdza ze user faktycznie zainstalowal update
+  14. Exe/CLI odmawia       launch zablokowany dopoki wersje sie nie zgadza
+  15. User odpala           oficjalny launcher NORMALNIE (attrib -R, DAT writable)
+  16. Re-patch              ponowne nalozenie tlumaczen (exe lub CLI)
+  17. Powrot do             kroku 9 lub 11
+
+PIPELINE — KTO CO URUCHAMIA:
+  - CLI export/patch:       LOKALNIE na PC z LOTRO (datexport.dll = x86 Windows)
+  - Web app:                LOKALNIE (localhost:5000) lub serwer (docker-compose)
+  - LotroPoPolsku.exe:      LOKALNIE na PC gracza (pobiera polish.txt z web API, patchuje DAT)
+  - Transfer:               exported.txt uploadowany przez web UI lub API
+  - Cel:                    CLI/exe nigdy nie potrzebuja bazy, web nigdy nie potrzebuje datexport.dll
 ```
 
 ## Architektura

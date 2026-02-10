@@ -79,7 +79,7 @@ Kazda warstwa prezentacji (CLI, Web, WPF) uzywa tych samych handlerow.
 | Primitives | `net10.0` | AnyCPU | Stale, enumy |
 | Domain | `net10.0` | AnyCPU | Modele, Result, Errors |
 | Application | `net10.0` | AnyCPU | MediatR handlers, abstrakcje |
-| Infrastructure.Persistence | `net10.0` | AnyCPU | EF Core, MSSQL, repozytoria |
+| Infrastructure.Persistence | `net10.0` | AnyCPU | EF Core, PostgreSQL, repozytoria |
 | Infrastructure.DatFile | `net10.0-windows` | x86 | P/Invoke, datexport.dll |
 | CLI | `net10.0-windows` | x86 | Presentation: CLI (power users, automatyzacja) |
 | WebApp | `net10.0` | AnyCPU | Presentation: Blazor SSR (tlumacze) |
@@ -91,13 +91,35 @@ inaczej TFM mismatch blokuje Web App.
 
 ## Baza danych
 
-MSSQL przez Docker lub LocalDB. Multi-language schema od dnia 1 (aktywnie: Polish).
+PostgreSQL przez Docker. Multi-language schema od dnia 1 (aktywnie: Polish).
+
+### Zrodla danych
+
+Dwa niezalezne zrodla:
+1. **DAT export** (CLI `export`) — aktualne angielskie teksty z gry (file_id, gossip_id, content)
+2. **LOTRO Companion** (https://github.com/LotroCompanion/lotro-data) — kontekst/metadane:
+   quests.xml, deeds.xml, NPCs.xml, titles.xml, skills.xml itd.
+
+LOTRO Companion uzywa formatu `key:{file_id}:{gossip_id}` — ID zgadzaja sie 1:1 z naszym exportem.
+Dzieki temu tlumacz widzi kontekst: "Dialog Elladana w quecie 'The Bird and Baby' (Shire, lvl 7)"
+zamiast golego `620871150||218649169||tekst`.
+
+### Schema
 
 ```sql
 Languages (Code PK, Name, IsActive)
 
-ExportedTexts (Id, FileId, GossipId, EnglishContent, Tag, ImportedAt)
+-- Aktualne teksty z gry (zrodlo: DAT export)
+ExportedTexts (Id, FileId, GossipId, EnglishContent, ImportedAt)
   UNIQUE (FileId, GossipId)
+
+-- Kontekst z LOTRO Companion (zrodlo: quests.xml, deeds.xml, NPCs.xml itd.)
+TextContexts (Id, FileId, GossipId, ContextType, ParentName, ParentCategory,
+              ParentLevel, NpcName, Region, SourceFile, ImportedAt)
+  UNIQUE (FileId, GossipId, ContextType)
+  -- ContextType: QuestName, QuestDescription, QuestBestowerText, QuestObjective,
+  --              QuestDialog, DeedName, DeedDescription, NpcDialog, SkillName,
+  --              TitleName, ItemName, ...
 
 Translations (Id, FileId, GossipId, LanguageCode FK, Content, ArgsOrder, ArgsId,
               IsApproved, Notes, CreatedAt, UpdatedAt)
@@ -190,19 +212,19 @@ uzywa dwoch zrodel (forum + DAT vnum). Launch chroniony attrib +R.
 
 ## M2: Baza danych
 
-MSSQL + EF Core. Import/export przez handlery. Multi-language schema.
-Glossary od dnia 1.
+PostgreSQL (Docker) + EF Core. Import/export przez handlery. Multi-language schema.
+Glossary od dnia 1. Import kontekstu z LOTRO Companion.
 
 | # | Co zrobic | Priority | Depends On |
 |---|-----------|----------|------------|
-| 22 | Dodac EF Core + SQL Server NuGet | High | #1 |
+| 22 | Dodac EF Core + Npgsql (PostgreSQL) NuGet | High | #1 |
 | 23 | Zaprojektowac entities (TranslationEntity vs Domain.Translation) | High | — |
-| 24 | AppDbContext + konfiguracja | High | #22, #23 |
+| 24 | AppDbContext + konfiguracja PostgreSQL | High | #22, #23 |
 | 25 | ITranslationRepository | High | M1 |
 | 26 | IExportedTextRepository | High | M1 |
 | 27 | Implementacja repozytoriow | High | #24-#26 |
 | 28 | Migracje EF + auto-migrate w ustawieniach dev | Medium | #24 |
-| 29 | ImportExportedTextsCommand + Handler | High | #26, #27 |
+| 29 | ImportExportedTextsCommand + Handler (DAT export -> DB) | High | #26, #27 |
 | 30 | Translation CRUD (Commands/Queries, language-aware) | High | #25, #27 |
 | 31 | ExportTranslationsQuery + Handler (DB -> polish.txt) | High | #25, #27 |
 | 32 | Migracja istniejacego polish.txt do bazy | Medium | #27, #30 |
@@ -212,39 +234,44 @@ Glossary od dnia 1.
 | 36 | **GlossaryTerms entity + repository** | Medium | #24 |
 | 37 | **Glossary CRUD handler** | Medium | #36 |
 | 38 | **DatVersions entity** — przechowywanie historii wersji DAT/forum | Medium | #24 |
-| 39 | Testy | High | #27, #30 |
+| 39 | **TextContexts entity + repository** | High | #24 |
+| 40 | **LOTRO Companion XML parser** — parsowanie quests.xml, deeds.xml, NPCs.xml itd. | High | — |
+| 41 | **ImportContextCommand + Handler** (Companion XML -> TextContexts) | High | #39, #40 |
+| 42 | **docker-compose: PostgreSQL** | Medium | #24 |
+| 43 | Testy | High | #27, #30, #41 |
 
-**Po M2:** Baza dziala, moge importowac/exportowac przez handlery. Glossary gotowy.
+**Po M2:** Baza dziala, importy z DAT + Companion, kontekst przy kazdym stringu. Glossary gotowy.
 
 ---
 
 ## M3: Aplikacja webowa
 
 Blazor SSR. Lista, edytor, glossary, import, export. Bez auth — single-user na start.
+Tlumacz widzi kontekst z LOTRO Companion (nazwa questa, NPC, region, level).
 
 | # | Co zrobic | Priority | Depends On |
 |---|-----------|----------|------------|
-| 40 | Stworzyc projekt Blazor SSR | High | #1 |
-| 41 | Layout i nawigacja (Bootstrap) | High | #40 |
-| 42 | DI: MediatR, EF Core, DbContext | High | #40 |
-| 43 | Lista tlumaczen (tabela, szukaj, filtruj, sortuj, paginacja) | High | #42 |
-| 44 | Edytor tlumaczen (side-by-side EN/PL) | High | #42 |
-| 45 | Podswietlanie `<--DO_NOT_TOUCH!-->` i walidacja placeholderow | Medium | #44 |
-| 46 | Przegladarka plikow (grupuj po FileId, szukaj) | Medium | #42 |
-| 47 | Dashboard (postep, ostatnie edycje, statystyki) | Medium | #42 |
-| 48 | Import (upload exported.txt) / API endpoint POST /api/v1/db-update | Medium | #42 |
-| 49 | Export (pobierz polish.txt) / API endpoint GET /api/v1/translations/export | Medium | #42 |
-| 50 | **Glossary UI** — przegladanie, dodawanie, szukanie terminow | Medium | #42 |
-| 51 | **Style guide page** — zasady tlumaczenia, konwencje Tolkienowskie | Low | #40 |
-| 52 | Obsluga bledow (Result -> komunikaty) | Medium | #40 |
-| 53 | Keyboard shortcuts (Ctrl+S save, Ctrl+Enter save+next, Ctrl+Shift+Enter approve+next) | Medium | #44 |
-| 54 | Bulk operations — zaznacz wiele, zatwierdz/odrzuc batch | Medium | #43 |
-| 55 | Responsive design (tablet, mobile) | Low | #41 |
-| 56 | Docker (docker-compose: Web App + MSSQL) | Low | #40 |
-| 57 | Auto-migrate + seed przy starcie | Medium | #28 |
-| 58 | Testy | High | #43, #44 |
+| 44 | Stworzyc projekt Blazor SSR | High | #1 |
+| 45 | Layout i nawigacja (Bootstrap) | High | #44 |
+| 46 | DI: MediatR, EF Core, DbContext | High | #44 |
+| 47 | Lista tlumaczen (tabela, szukaj, filtruj, sortuj, paginacja) | High | #46 |
+| 48 | Edytor tlumaczen (side-by-side EN/PL + kontekst z Companion) | High | #46 |
+| 49 | Podswietlanie `<--DO_NOT_TOUCH!-->` i walidacja placeholderow | Medium | #48 |
+| 50 | Przegladarka questow/deedow (grupuj po quest, NPC, region) | Medium | #46 |
+| 51 | Dashboard (postep, ostatnie edycje, statystyki) | Medium | #46 |
+| 52 | Import (upload exported.txt) / API endpoint POST /api/v1/db-update | Medium | #46 |
+| 53 | Export (pobierz polish.txt) / API endpoint GET /api/v1/translations/export | Medium | #46 |
+| 54 | **Glossary UI** — przegladanie, dodawanie, szukanie terminow | Medium | #46 |
+| 55 | **Style guide page** — zasady tlumaczenia, konwencje Tolkienowskie | Low | #44 |
+| 56 | Obsluga bledow (Result -> komunikaty) | Medium | #44 |
+| 57 | Keyboard shortcuts (Ctrl+S save, Ctrl+Enter save+next, Ctrl+Shift+Enter approve+next) | Medium | #48 |
+| 58 | Bulk operations — zaznacz wiele, zatwierdz/odrzuc batch | Medium | #47 |
+| 59 | Responsive design (tablet, mobile) | Low | #45 |
+| 60 | Docker (docker-compose: Web App + PostgreSQL) | Low | #44, #42 |
+| 61 | Auto-migrate + seed przy starcie | Medium | #28 |
+| 62 | Testy | High | #47, #48 |
 
-**Po M3:** Tlumacze w przegladarce. Glossary, style guide, review workflow.
+**Po M3:** Tlumacze w przegladarce z kontekstem. Glossary, style guide, review workflow.
 
 ---
 
@@ -266,19 +293,19 @@ Uzywa tych samych MediatR handlerow co CLI i Web — zero duplikacji.
 
 | # | Co zrobic | Priority | Depends On |
 |---|-----------|----------|------------|
-| 59 | Stworzyc projekt WPF (`net10.0-windows`, x86) | High | M1 |
-| 60 | Ikona pierscienia (asset) + splash screen | Medium | #59 |
-| 61 | Glowne okno: status tlumaczen, wersja gry, wersja patcha | High | #59 |
-| 62 | Przycisk "Patchuj" -> `IMediator.Send(new ApplyPatchCommand(...))` | High | #59, M1 |
-| 63 | Przycisk "Graj" -> `IMediator.Send(new LaunchGameCommand(...))` | High | #59, M1 |
-| 64 | Progress bar + status (IProgress<T>) | High | #59 |
-| 65 | Auto-detekcja LOTRO (IDatFileLocator) — zero konfiguracji | High | #59 |
-| 66 | Game update alert — banner "Zaktualizuj gre!" z instrukcja | High | #59, M1#15 |
-| 67 | Ustawienia: sciezka LOTRO, jezyk, auto-patch on launch | Medium | #59 |
-| 68 | Minimalizacja do tray (opcjonalne) | Low | #59 |
-| 69 | Auto-update apki (sprawdz GitHub releases, pobierz nowa wersje) | Medium | #59 |
-| 70 | Installer (MSIX lub Inno Setup) z ikonka i skrotem na pulpicie | Medium | #59 |
-| 71 | Testy | High | #62, #63 |
+| 63 | Stworzyc projekt WPF (`net10.0-windows`, x86) | High | M1 |
+| 64 | Ikona pierscienia (asset) + splash screen | Medium | #63 |
+| 65 | Glowne okno: status tlumaczen, wersja gry, wersja patcha | High | #63 |
+| 66 | Przycisk "Patchuj" -> `IMediator.Send(new ApplyPatchCommand(...))` | High | #63, M1 |
+| 67 | Przycisk "Graj" -> `IMediator.Send(new LaunchGameCommand(...))` | High | #63, M1 |
+| 68 | Progress bar + status (IProgress<T>) | High | #63 |
+| 69 | Auto-detekcja LOTRO (IDatFileLocator) — zero konfiguracji | High | #63 |
+| 70 | Game update alert — banner "Zaktualizuj gre!" z instrukcja | High | #63, M1#15 |
+| 71 | Ustawienia: sciezka LOTRO, jezyk, auto-patch on launch | Medium | #63 |
+| 72 | Minimalizacja do tray (opcjonalne) | Low | #63 |
+| 73 | Auto-update apki (sprawdz GitHub releases, pobierz nowa wersje) | Medium | #63 |
+| 74 | Installer (MSIX lub Inno Setup) z ikonka i skrotem na pulpicie | Medium | #63 |
+| 75 | Testy | High | #66, #67 |
 
 **Po M4:** Gracz pobiera `LotroPoPolsku.exe`, klika "Graj" — gotowe.
 
@@ -290,14 +317,14 @@ Gdy pojawi sie community — dodac auth i multi-user.
 
 | # | Co zrobic | Priority |
 |---|-----------|----------|
-| 72 | Auth (OpenIddict) — Users, JWT, role | When needed |
-| 73 | UserLanguageRoles — role per jezyk (translator/reviewer/admin) | When needed |
-| 74 | SubmittedById, ApprovedById w Translations | When needed |
-| 75 | Review workflow — submit -> review -> approve/reject | When needed |
-| 76 | TranslationHistory z ChangedBy | When needed |
-| 77 | AI review — LLM sprawdza placeholders, grammar, terminologie | When needed |
-| 78 | Powiadomienia — Discord webhook | When needed |
-| 79 | Public REST API — remote access do platformy | When needed |
+| 76 | Auth (OpenIddict) — Users, JWT, role | When needed |
+| 77 | UserLanguageRoles — role per jezyk (translator/reviewer/admin) | When needed |
+| 78 | SubmittedById, ApprovedById w Translations | When needed |
+| 79 | Review workflow — submit -> review -> approve/reject | When needed |
+| 80 | TranslationHistory z ChangedBy | When needed |
+| 81 | AI review — LLM sprawdza placeholders, grammar, terminologie | When needed |
+| 82 | Powiadomienia — Discord webhook | When needed |
+| 83 | Public REST API — remote access do platformy | When needed |
 
 ---
 
@@ -305,13 +332,13 @@ Gdy pojawi sie community — dodac auth i multi-user.
 
 ```
 M1: #1-#21    Porzadki CLI + Launch + Update Fix
-M2: #22-#39   Baza danych + Glossary
-M3: #40-#58   Aplikacja webowa (dla tlumaczow)
-M4: #59-#71   Desktop app LotroPoPolsku.exe (dla graczy)
-M5: #72-#79   Community & Auth (pozniej)
+M2: #22-#43   Baza danych + Glossary + LOTRO Companion import
+M3: #44-#62   Aplikacja webowa (dla tlumaczow, z kontekstem)
+M4: #63-#75   Desktop app LotroPoPolsku.exe (dla graczy)
+M5: #76-#83   Community & Auth (pozniej)
 ```
 
-**71 issues do M4.** Po M4 mamy pelna platforme: tlumacze pracuja w webie, gracze odpalaja .exe.
+**75 issues do M4.** Po M4 mamy pelna platforme: tlumacze pracuja w webie z kontekstem, gracze odpalaja .exe.
 
 Issue #1 (TFM split) blokuje M2+M3+M4. Zaczynaj od niego.
 
@@ -325,7 +352,8 @@ Kazdy milestone deployowalny osobno:
 
 | Decyzja | Wybor | Uzasadnienie |
 |---------|-------|-------------|
-| Baza danych | **MSSQL** (code-first EF Core) | Silny tooling, LocalDB dla dev |
+| Baza danych | **PostgreSQL** (code-first EF Core + Npgsql) | Darmowy bez limitow, Docker, lepszy hosting |
+| Kontekst tlumaczen | **LOTRO Companion** (lotro-data XML) | ID zgadzaja sie 1:1 z naszym DAT export |
 | Web frontend | **Blazor SSR** | Ten sam C#, shared models |
 | Desktop app | **WPF** (LotroPoPolsku.exe) | Natywny Windows, ikonka, end-user friendly |
 | Architektura | MediatR handlers CLI + Web + WPF | Zero duplikacji — 3 UI, 1 backend |

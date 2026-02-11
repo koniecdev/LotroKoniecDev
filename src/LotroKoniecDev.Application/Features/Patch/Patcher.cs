@@ -1,5 +1,6 @@
 using LotroKoniecDev.Application.Abstractions;
 using LotroKoniecDev.Application.Extensions;
+using LotroKoniecDev.Application.Progress;
 using LotroKoniecDev.Domain.Core.Errors;
 using LotroKoniecDev.Domain.Core.Monads;
 using LotroKoniecDev.Domain.Models;
@@ -15,17 +16,21 @@ public sealed class Patcher : IPatcher
 
     private readonly IDatFileHandler _datFileHandler;
     private readonly ITranslationParser _translationParser;
+    private readonly IProgress<OperationProgress> _progress;
 
-    public Patcher(IDatFileHandler datFileHandler, ITranslationParser translationParser)
+    public Patcher(
+        IDatFileHandler datFileHandler,
+        ITranslationParser translationParser,
+        IProgress<OperationProgress> progress)
     {
         _datFileHandler = datFileHandler ?? throw new ArgumentNullException(nameof(datFileHandler));
         _translationParser = translationParser ?? throw new ArgumentNullException(nameof(translationParser));
+        _progress = progress ?? throw new ArgumentNullException(nameof(progress));
     }
 
     public Result<PatchSummary> ApplyTranslations(
         string translationsPath,
-        string datFilePath,
-        Action<int, int>? progress = null)
+        string datFilePath)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(translationsPath);
         ArgumentException.ThrowIfNullOrWhiteSpace(datFilePath);
@@ -57,7 +62,7 @@ public sealed class Patcher : IPatcher
 
         try
         {
-            return ProcessPatching(handle, translations, progress);
+            return ProcessPatching(handle, translations);
         }
         finally
         {
@@ -68,8 +73,7 @@ public sealed class Patcher : IPatcher
 
     private Result<PatchSummary> ProcessPatching(
         int handle,
-        IReadOnlyList<Translation> translations,
-        Action<int, int>? progress)
+        IReadOnlyList<Translation> translations)
     {
         Dictionary<int, (int Size, int Iteration)> fileSizes = _datFileHandler.GetAllSubfileSizes(handle);
 
@@ -133,7 +137,12 @@ public sealed class Patcher : IPatcher
 
                     if (appliedCount % ProgressReportInterval == 0)
                     {
-                        progress?.Invoke(appliedCount, translations.Count);
+                        _progress.Report(new OperationProgress
+                        {
+                            OperationName = "Patch",
+                            Current = appliedCount,
+                            Total = translations.Count
+                        });
                     }
                 }
                 else

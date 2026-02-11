@@ -1,4 +1,5 @@
 using LotroKoniecDev.Application.Extensions;
+using LotroKoniecDev.Application.Progress;
 using LotroKoniecDev.Commands;
 using LotroKoniecDev.Infrastructure;
 using LotroKoniecDev.ValueObjects;
@@ -26,6 +27,7 @@ internal static class Program
         ServiceCollection services = new();
         services.AddApplicationServices();
         services.AddInfrastructureServices();
+        services.AddScoped<IProgress<OperationProgress>, ConsoleProgressReporter>();
 
         await using ServiceProvider serviceProvider = services.BuildServiceProvider();
 

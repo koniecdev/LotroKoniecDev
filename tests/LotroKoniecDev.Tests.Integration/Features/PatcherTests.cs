@@ -1,5 +1,6 @@
 using System.Text;
 using LotroKoniecDev.Application.Abstractions;
+using LotroKoniecDev.Application.Progress;
 using LotroKoniecDev.Primitives.Enums;
 using LotroKoniecDev.Domain.Core.Monads;
 using LotroKoniecDev.Domain.Core.BuildingBlocks;
@@ -13,6 +14,7 @@ public class PatcherTests : IDisposable
     private readonly string _tempDir;
     private readonly IDatFileHandler _mockHandler;
     private readonly ITranslationParser _mockParser;
+    private readonly IProgress<OperationProgress> _mockProgress;
     private readonly Patcher _patcher;
 
     public PatcherTests()
@@ -22,7 +24,8 @@ public class PatcherTests : IDisposable
 
         _mockHandler = Substitute.For<IDatFileHandler>();
         _mockParser = Substitute.For<ITranslationParser>();
-        _patcher = new Patcher(_mockHandler, _mockParser);
+        _mockProgress = Substitute.For<IProgress<OperationProgress>>();
+        _patcher = new Patcher(_mockHandler, _mockParser, _mockProgress);
     }
 
     public void Dispose()
@@ -272,7 +275,7 @@ public class PatcherTests : IDisposable
     public void Constructor_NullHandler_ShouldThrow()
     {
         // Act & Assert
-        Action act = () => new Patcher(null!, _mockParser);
+        Action act = () => new Patcher(null!, _mockParser, _mockProgress);
         act.Should().Throw<ArgumentNullException>();
     }
 
@@ -280,7 +283,15 @@ public class PatcherTests : IDisposable
     public void Constructor_NullParser_ShouldThrow()
     {
         // Act & Assert
-        Action act = () => new Patcher(_mockHandler, null!);
+        Action act = () => new Patcher(_mockHandler, null!, _mockProgress);
+        act.Should().Throw<ArgumentNullException>();
+    }
+
+    [Fact]
+    public void Constructor_NullProgress_ShouldThrow()
+    {
+        // Act & Assert
+        Action act = () => new Patcher(_mockHandler, _mockParser, null!);
         act.Should().Throw<ArgumentNullException>();
     }
 

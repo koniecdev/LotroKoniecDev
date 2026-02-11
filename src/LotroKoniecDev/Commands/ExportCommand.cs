@@ -35,8 +35,7 @@ internal static class ExportCommand
 
         Result<ExportSummary> result = exporter.ExportAllTexts(
             datPath,
-            outputPath,
-            (processed, total) => WriteProgress($"Processing {processed}/{total} files..."));
+            outputPath);
 
         if (result.IsFailure)
         {

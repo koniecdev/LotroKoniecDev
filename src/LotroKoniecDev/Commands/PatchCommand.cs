@@ -60,8 +60,7 @@ internal static class PatchCommand
 
         Result<PatchSummary> result = patcher.ApplyTranslations(
             translationsPath,
-            datPath,
-            (applied, total) => WriteProgress($"Patching... {applied}/{total}"));
+            datPath);
 
         if (result.IsFailure)
         {

@@ -12,12 +12,10 @@ public interface IExporter
     /// </summary>
     /// <param name="datFilePath">Path to the source DAT file.</param>
     /// <param name="outputPath">Path where the exported texts will be saved.</param>
-    /// <param name="progress">Optional progress callback (processedFiles, totalFiles).</param>
     /// <returns>Result containing the export summary or an error.</returns>
     Result<ExportSummary> ExportAllTexts(
         string datFilePath,
-        string outputPath,
-        Action<int, int>? progress = null);
+        string outputPath);
 }
 
 /// <summary>

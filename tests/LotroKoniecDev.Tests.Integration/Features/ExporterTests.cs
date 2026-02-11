@@ -1,5 +1,6 @@
 using System.Text;
 using LotroKoniecDev.Application.Abstractions;
+using LotroKoniecDev.Application.Progress;
 using LotroKoniecDev.Primitives.Enums;
 using LotroKoniecDev.Domain.Core.Monads;
 using LotroKoniecDev.Domain.Core.BuildingBlocks;
@@ -11,6 +12,7 @@ public class ExporterTests : IDisposable
 {
     private readonly string _tempDir;
     private readonly IDatFileHandler _mockHandler;
+    private readonly IProgress<OperationProgress> _mockProgress;
     private readonly Exporter _exporter;
 
     public ExporterTests()
@@ -19,7 +21,8 @@ public class ExporterTests : IDisposable
         Directory.CreateDirectory(_tempDir);
 
         _mockHandler = Substitute.For<IDatFileHandler>();
-        _exporter = new Exporter(_mockHandler);
+        _mockProgress = Substitute.For<IProgress<OperationProgress>>();
+        _exporter = new Exporter(_mockHandler, _mockProgress);
     }
 
     public void Dispose()
@@ -125,12 +128,18 @@ public class ExporterTests : IDisposable
     }
 
     [Fact]
-    public void ExportAllTexts_WithProgressCallback_ShouldReportProgress()
+    public void ExportAllTexts_WithManyFiles_ShouldReportProgress()
     {
         // Arrange
         string datPath = CreateTempFile("test.dat");
         string outputPath = Path.Combine(_tempDir, "output.txt");
-        List<(int Processed, int Total)> progressReports = new List<(int Processed, int Total)>();
+        List<OperationProgress> progressReports = new List<OperationProgress>();
+
+        IProgress<OperationProgress> capturingProgress = Substitute.For<IProgress<OperationProgress>>();
+        capturingProgress.When(p => p.Report(Arg.Any<OperationProgress>()))
+            .Do(x => progressReports.Add(x.Arg<OperationProgress>()));
+
+        Exporter exporter = new Exporter(_mockHandler, capturingProgress);
 
         // Create 600 files to trigger progress (interval is 500)
         Dictionary<int, (int, int)> fileSizes = Enumerable.Range(1, 600)
@@ -144,21 +153,29 @@ public class ExporterTests : IDisposable
             .Returns(x => Result.Success(CreateTextSubFileData((int)x[1], "Test")));
 
         // Act
-        Result<ExportSummary> result = _exporter.ExportAllTexts(datPath, outputPath,
-            (processed, total) => progressReports.Add((processed, total)));
+        Result<ExportSummary> result = exporter.ExportAllTexts(datPath, outputPath);
 
         // Assert
         result.IsSuccess.Should().BeTrue();
         progressReports.Should().NotBeEmpty();
-        progressReports[0].Processed.Should().Be(500);
+        progressReports[0].Current.Should().Be(500);
         progressReports[0].Total.Should().Be(600);
+        progressReports[0].OperationName.Should().Be("Export");
     }
 
     [Fact]
     public void Constructor_NullHandler_ShouldThrow()
     {
         // Act & Assert
-        Action act = () => new Exporter(null!);
+        Action act = () => new Exporter(null!, _mockProgress);
+        act.Should().Throw<ArgumentNullException>();
+    }
+
+    [Fact]
+    public void Constructor_NullProgress_ShouldThrow()
+    {
+        // Act & Assert
+        Action act = () => new Exporter(_mockHandler, null!);
         act.Should().Throw<ArgumentNullException>();
     }
 

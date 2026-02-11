@@ -204,7 +204,7 @@ M1 jest duzy — 3 odrebne tematy. Wykonuj w fazach, kazda faza zamknieta (testy
 |---|-----------|----------|------------|
 | 1 | Rozdzielic TFM — per-project zamiast globalnego net10.0-windows/x86 | **CRITICAL** | — |
 | 2 | Dodac MediatR + AddMediatR do DI | High | — |
-| 3 | Zaprojektowac IProgress<T> dla handlerow | High | — |
+| 3 | ~~IProgress<T> — OperationProgress record + ConsoleProgressReporter + DI~~ DONE | High | — |
 
 **Checkpoint A:** Build przechodzi, testy przechodza, TFM per-project. MediatR zarejestrowany ale jeszcze nie uzywany.
 
@@ -530,10 +530,58 @@ Kolejnosc wykonania z checkpointami. Kazdy krok konczy sie dzialajacym buildem +
           - Jeszcze nie uzywany — tylko rejestracja
           CHECKPOINT: build ok, MediatR wstrzykniety
 
-  [ ] #3  Zaprojektuj IProgress<T>
-          - Typ postpu (np. OperationProgress record)
-          - CLI: ConsoleProgressReporter : IProgress<OperationProgress>
-          - Pozniej Web/WPF podepna swoje implementacje
+  [x] #3  IProgress<T> — ustandaryzowane raportowanie postepu operacji
+
+          CO TO JEST:
+          Dlugotrawle operacje (Export, Patch) musza informowac uzytkownika
+          o postepie. Dotychczas robily to przez callback `Action<int, int>`
+          przekazywany jako parametr metody — co wiazalo je z jednym sposobem
+          wyswietlania i nie dzialalo z DI.
+
+          `IProgress<T>` to standardowy interfejs .NET (System namespace).
+          Ma jedna metode: `void Report(T value)`. Typ `T` decyduje co
+          raportujemy — u nas to `OperationProgress`.
+
+          PO CO:
+          - Kazda warstwa prezentacji (CLI, Web, WPF) podpina SWOJA implementacje
+          - Serwisy (Exporter, Patcher, przyszle MediatR handlery) raportuja
+            postep przez `_progress.Report(...)` — nie wiedza KTO i JAK go wyswietla
+          - DI wstrzykuje odpowiednia implementacje automatycznie
+          - Koniec z `Action<int, int>` w sygnaturach metod
+
+          JAK DZIALA:
+          1. OperationProgress (Application/Progress/) — record z danymi postepu:
+             - OperationName: "Export" | "Patch" (co robimy)
+             - Current/Total: ile zrobione / ile do zrobienia
+             - StatusMessage: opcjonalny detail ("Processing file 620756992...")
+             - Percentage: wyliczana wlasciwosc (Current/Total * 100)
+
+          2. ConsoleProgressReporter (CLI) — implementacja IProgress<OperationProgress>:
+             - Nadpisuje linie w konsoli (\r) — efekt progress bara
+             - Formatuje: "Export... 500/2,000 (25%)"
+
+          3. DI rejestracja (Program.cs, warstwa prezentacji):
+             services.AddScoped<IProgress<OperationProgress>, ConsoleProgressReporter>();
+             - Scoped — nowa instancja per scope (jak Exporter/Patcher)
+             - Web: SignalR push do przegladarki
+             - WPF: binding do ProgressBar.Value
+
+          4. Serwis dostaje IProgress<T> przez konstruktor (nie metode!):
+             public Exporter(IDatFileHandler handler, IProgress<OperationProgress> progress)
+             - Uzywa: _progress.Report(new OperationProgress { ... })
+             - Interfejs IExporter/IPatcher — BEZ parametru progress
+
+          PLIKI:
+          - Application/Progress/OperationProgress.cs     — record
+          - CLI/ConsoleProgressReporter.cs                 — CLI impl
+          - CLI/Program.cs                                 — DI rejestracja
+          - Application/Abstractions/IExporter.cs          — usuniety Action<int,int>
+          - Application/Abstractions/IPatcher.cs           — usuniety Action<int,int>
+          - Application/Features/Export/Exporter.cs        — constructor injection
+          - Application/Features/Patch/Patcher.cs          — constructor injection
+          - Tests: ExporterTests, PatcherTests             — NSubstitute mock
+          - Tests: OperationProgressTests                  — unit testy
+          CHECKPOINT: build ok, testy ok
 
 === M1 FAZA B: MediatR handlers ===
 

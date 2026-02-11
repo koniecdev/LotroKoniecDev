@@ -1,6 +1,7 @@
 using System.Text;
 using LotroKoniecDev.Application.Abstractions;
 using LotroKoniecDev.Application.Extensions;
+using LotroKoniecDev.Application.Progress;
 using LotroKoniecDev.Domain.Core.Errors;
 using LotroKoniecDev.Domain.Core.Monads;
 using LotroKoniecDev.Domain.Models;
@@ -16,16 +17,17 @@ public sealed class Exporter : IExporter
     private const int ProgressReportInterval = 500;
 
     private readonly IDatFileHandler _datFileHandler;
+    private readonly IProgress<OperationProgress> _progress;
 
-    public Exporter(IDatFileHandler datFileHandler)
+    public Exporter(IDatFileHandler datFileHandler, IProgress<OperationProgress> progress)
     {
         _datFileHandler = datFileHandler ?? throw new ArgumentNullException(nameof(datFileHandler));
+        _progress = progress ?? throw new ArgumentNullException(nameof(progress));
     }
 
     public Result<ExportSummary> ExportAllTexts(
         string datFilePath,
-        string outputPath,
-        Action<int, int>? progress = null)
+        string outputPath)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(datFilePath);
         ArgumentException.ThrowIfNullOrWhiteSpace(outputPath);
@@ -41,7 +43,7 @@ public sealed class Exporter : IExporter
 
         try
         {
-            return ProcessExport(handle, outputPath, progress);
+            return ProcessExport(handle, outputPath);
         }
         finally
         {
@@ -51,8 +53,7 @@ public sealed class Exporter : IExporter
 
     private Result<ExportSummary> ProcessExport(
         int handle,
-        string outputPath,
-        Action<int, int>? progress)
+        string outputPath)
     {
         Dictionary<int, (int Size, int Iteration)> fileSizes = _datFileHandler.GetAllSubfileSizes(handle);
 
@@ -85,7 +86,12 @@ public sealed class Exporter : IExporter
 
                 if (processedFiles % ProgressReportInterval == 0)
                 {
-                    progress?.Invoke(processedFiles, totalTextFiles);
+                    _progress.Report(new OperationProgress
+                    {
+                        OperationName = "Export",
+                        Current = processedFiles,
+                        Total = totalTextFiles
+                    });
                 }
             }
 

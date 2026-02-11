@@ -36,9 +36,9 @@ Clean Architecture, 5 layers (dependency flows downward):
 CLI (Presentation, net10.0-windows x86)
   -> Application (orchestration, abstractions, net10.0 AnyCPU)
     -> Domain (models, Result monad, errors, net10.0 AnyCPU)
-  -> Infrastructure.DatFile (P/Invoke, net10.0-windows x86)
-    -> Application
-  -> Infrastructure.Persistence (EF Core, PostgreSQL — planned, net10.0 AnyCPU)
+  -> Infrastructure (current: single LotroKoniecDev.Infrastructure project)
+      - DatFile (P/Invoke, net10.0-windows x86, existing)
+      - Persistence (EF Core, PostgreSQL — planned, net10.0 AnyCPU)
     -> Application
 Primitives (constants, enums, net10.0 AnyCPU, zero dependencies)
 ```

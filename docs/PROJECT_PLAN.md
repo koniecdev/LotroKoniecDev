@@ -368,7 +368,7 @@ Uzywa tych samych MediatR handlerow co CLI i Web — zero duplikacji.
 | 67 | Przycisk "Graj" -> `IMediator.Send(new LaunchGameCommand(...))` | High | #63, M1 |
 | 68 | Progress bar + status (IProgress<T>) | High | #63 |
 | 69 | Auto-detekcja LOTRO (IDatFileLocator) — zero konfiguracji | High | #63 |
-| 70 | Game update alert — banner "Zaktualizuj gre!" z instrukcja | High | #63, M1#15 |
+| 70 | Game update alert — banner "Zaktualizuj gre!" z instrukcja | High | #63, M1#14 |
 | 71 | Ustawienia: sciezka LOTRO, jezyk, auto-patch on launch | Medium | #63 |
 | 72 | Minimalizacja do tray (opcjonalne) | Low | #63 |
 | 73 | Auto-update apki (sprawdz GitHub releases, pobierz nowa wersje) | Medium | #63 |

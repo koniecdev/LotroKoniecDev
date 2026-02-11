@@ -376,7 +376,7 @@ Rosyjski -disablePatch polega na wewnetrznej flagi programu ktora moze zniknac.
 ### Rosyjskie podejscie: reaktywne
 
 ```
-1. Legacy sledzni zmiany w client_local_English.dat
+1. Legacy sledzi zmiany w client_local_English.dat
 2. Jesli plik zostal zmodyfikowany przez inny program -> wykrycie
 3. Propozycja re-pobrania oryginalnego DAT + re-patchowania
 4. Brak proaktywnego sprawdzania forum / wersji gry

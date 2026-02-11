@@ -27,24 +27,39 @@ Nasz jest architektonicznie lepszy (Clean Architecture, Result monad, testy, sha
 ## Pelny workflow (cel koncowy)
 
 ```
-SETUP:
-  1. CLI export        DAT -> exported.txt (angielskie teksty)
-  2. Web import        exported.txt -> baza danych (POST /api/v1/db-update)
-  3. Web app           tlumacze side-by-side EN/PL, review, approve
-  4. Web export        baza -> polish.txt (GET /api/v1/translations/export)
-  5. CLI patch         polish.txt -> DAT
+SETUP (jednorazowy, tlumacz/dev):
+  1. CLI export             DAT -> exported.txt (aktualne angielskie teksty)
+  2. Web import tekstow     exported.txt -> baza (POST /api/v1/db-update)
+  3. Web import kontekstu   LOTRO Companion XML -> baza (quests, deeds, NPCs, ...)
+                            Tlumacz widzi: "Dialog Elladana, quest 'X', Shire, lvl 7"
+  4. Web app                tlumacze side-by-side EN/PL z kontekstem, review, approve
+  5. Web export             baza -> polish.txt (GET /api/v1/translations/export)
+  6. CLI patch              polish.txt -> DAT (testowanie tlumaczen lokalnie)
 
-CODZIENNA GRA (bez update gry):
-  6. CLI launch        attrib +R -> TurbineLauncher.exe -> attrib -R
-                       DAT chroniony, tlumaczenia przetrwaja
+CODZIENNA GRA — GRACZ (LotroPoPolsku.exe):
+  7. Gracz pobiera          LotroPoPolsku.exe (jednorazowo)
+  8. Klika "Patchuj"        exe pobiera polish.txt z web API, patchuje DAT
+  9. Klika "Graj"           exe: attrib +R -> TurbineLauncher.exe -> attrib -R
+                            DAT chroniony, tlumaczenia przetrwaja
+
+CODZIENNA GRA — POWER USER (CLI):
+  10. CLI patch polish      patchuje DAT z lokalnego pliku
+  11. CLI launch            attrib +R -> TurbineLauncher.exe -> attrib -R
 
 UPDATE GRY:
-  7. Forum checker     wykrywa nowy post "Update XX.X Release Notes"
-  8. DAT vnum check    potwierdza ze user faktycznie zainstalowal update
-  9. CLI odmawia       launch zablokowany dopoki wersje sie nie zgadza
-  10. User odpala      oficjalny launcher NORMALNIE (attrib -R, DAT writable)
-  11. CLI patch        ponowne nalozenie tlumaczen
-  12. Powrot do        kroku 6
+  12. Forum checker         wykrywa nowy post "Update XX.X Release Notes"
+  13. DAT vnum check        potwierdza ze user faktycznie zainstalowal update
+  14. Exe/CLI odmawia       launch zablokowany dopoki wersje sie nie zgadza
+  15. User odpala           oficjalny launcher NORMALNIE (attrib -R, DAT writable)
+  16. Re-patch              ponowne nalozenie tlumaczen (exe lub CLI)
+  17. Powrot do             kroku 9 lub 11
+
+PIPELINE — KTO CO URUCHAMIA:
+  - CLI export/patch:       LOKALNIE na PC z LOTRO (datexport.dll = x86 Windows)
+  - Web app:                LOKALNIE (localhost:5000) lub serwer (docker-compose)
+  - LotroPoPolsku.exe:      LOKALNIE na PC gracza (pobiera polish.txt z web API, patchuje DAT)
+  - Transfer:               exported.txt uploadowany przez web UI lub API
+  - Cel:                    CLI/exe nigdy nie potrzebuja bazy, web nigdy nie potrzebuje datexport.dll
 ```
 
 ## Architektura
@@ -79,7 +94,7 @@ Kazda warstwa prezentacji (CLI, Web, WPF) uzywa tych samych handlerow.
 | Primitives | `net10.0` | AnyCPU | Stale, enumy |
 | Domain | `net10.0` | AnyCPU | Modele, Result, Errors |
 | Application | `net10.0` | AnyCPU | MediatR handlers, abstrakcje |
-| Infrastructure.Persistence | `net10.0` | AnyCPU | EF Core, MSSQL, repozytoria |
+| Infrastructure.Persistence | `net10.0` | AnyCPU | EF Core, PostgreSQL, repozytoria |
 | Infrastructure.DatFile | `net10.0-windows` | x86 | P/Invoke, datexport.dll |
 | CLI | `net10.0-windows` | x86 | Presentation: CLI (power users, automatyzacja) |
 | WebApp | `net10.0` | AnyCPU | Presentation: Blazor SSR (tlumacze) |
@@ -91,13 +106,35 @@ inaczej TFM mismatch blokuje Web App.
 
 ## Baza danych
 
-MSSQL przez Docker lub LocalDB. Multi-language schema od dnia 1 (aktywnie: Polish).
+PostgreSQL przez Docker. Multi-language schema od dnia 1 (aktywnie: Polish).
+
+### Zrodla danych
+
+Dwa niezalezne zrodla:
+1. **DAT export** (CLI `export`) — aktualne angielskie teksty z gry (file_id, gossip_id, content)
+2. **LOTRO Companion** (https://github.com/LotroCompanion/lotro-data) — kontekst/metadane:
+   quests.xml, deeds.xml, NPCs.xml, titles.xml, skills.xml itd.
+
+LOTRO Companion uzywa formatu `key:{file_id}:{gossip_id}` — ID zgadzaja sie 1:1 z naszym exportem.
+Dzieki temu tlumacz widzi kontekst: "Dialog Elladana w quecie 'The Bird and Baby' (Shire, lvl 7)"
+zamiast golego `620871150||218649169||tekst`.
+
+### Schema
 
 ```sql
 Languages (Code PK, Name, IsActive)
 
-ExportedTexts (Id, FileId, GossipId, EnglishContent, Tag, ImportedAt)
+-- Aktualne teksty z gry (zrodlo: DAT export)
+ExportedTexts (Id, FileId, GossipId, EnglishContent, ImportedAt)
   UNIQUE (FileId, GossipId)
+
+-- Kontekst z LOTRO Companion (zrodlo: quests.xml, deeds.xml, NPCs.xml itd.)
+TextContexts (Id, FileId, GossipId, ContextType, ParentName, ParentCategory,
+              ParentLevel, NpcName, Region, SourceFile, ImportedAt)
+  UNIQUE (FileId, GossipId, ContextType)
+  -- ContextType: QuestName, QuestDescription, QuestBestowerText, QuestObjective,
+  --              QuestDialog, DeedName, DeedDescription, NpcDialog, SkillName,
+  --              TitleName, ItemName, ...
 
 Translations (Id, FileId, GossipId, LanguageCode FK, Content, ArgsOrder, ArgsId,
               IsApproved, Notes, CreatedAt, UpdatedAt)
@@ -159,29 +196,56 @@ Usuniete:
   PreflightChecker, ExportCommand, PatchCommand (static classes)
 ```
 
+M1 jest duzy — 3 odrebne tematy. Wykonuj w fazach, kazda faza zamknieta (testy przechodza):
+
+### Faza A: TFM split + MediatR setup (fundament)
+
 | # | Co zrobic | Priority | Depends On |
 |---|-----------|----------|------------|
 | 1 | Rozdzielic TFM — per-project zamiast globalnego net10.0-windows/x86 | **CRITICAL** | — |
-| 2 | Dodac MediatR | High | — |
+| 2 | Dodac MediatR + AddMediatR do DI | High | — |
 | 3 | Zaprojektowac IProgress<T> dla handlerow | High | — |
-| 4 | ExportTextsQuery + Handler (zastepuje Exporter) | High | #2, #3 |
-| 5 | ApplyPatchCommand + Handler (zastepuje Patcher) | High | #2, #3 |
+
+**Checkpoint A:** Build przechodzi, testy przechodza, TFM per-project. MediatR zarejestrowany ale jeszcze nie uzywany.
+
+### Faza B: MediatR handlers (zastepuja serwisy)
+
+Strategia migracji: nowe handlery obok starych serwisow -> CLI przechodzi na handlery -> stare serwisy usuwane. Testy przechodza na KAZDYM etapie.
+
+| # | Co zrobic | Priority | Depends On |
+|---|-----------|----------|------------|
+| 4 | ExportTextsQuery + Handler (nowy, obok starego Exporter) | High | #2, #3 |
+| 5 | ApplyPatchCommand + Handler (nowy, obok starego Patcher) | High | #2, #3 |
 | 6 | PreflightCheckQuery + Handler (dane, zero Console I/O) | Medium | #2 |
 | 7 | LoggingPipelineBehavior | Medium | #2 |
 | 8 | ValidationPipelineBehavior | Medium | #2 |
 | 9 | Refaktor CLI Program.cs na IMediator.Send() | High | #4, #5 |
 | 10 | Usunac stare serwisy (IExporter, IPatcher, statyczne komendy) | High | #9 |
-| 11 | Zaktualizowac DI (AddMediatR, behaviors) | High | #2 |
-| 12 | Ogarnac ArgsOrder/ArgsId (podlaczyc albo usunac) | Medium | — |
-| 13 | Ogarnac pole approved w uzyciu | Medium | — |
-| 14 | **IDatVersionReader** — eksponowac vnumDatFile/vnumGameData z OpenDatFileEx2 | High | — |
-| 15 | **Naprawic GameUpdateChecker** — nie zapisuj wersji forum od razu; potwierdz vnum z DAT | **CRITICAL** | #14 |
-| 16 | **LaunchGameCommand** — przeniesienie lotro.bat do C# (attrib +R, Process.Start, attrib -R) | High | #2, #14, #15 |
-| 17 | **IDatFileProtector** — attrib +R/-R abstrakcja | High | — |
-| 18 | **IGameLauncher** — Process.Start TurbineLauncher, auto-detect sciezki | High | — |
-| 19 | **Orchestracja launch**: forum check -> jesli update: zablokuj i poinformuj; jesli ok: protect+launch | High | #15, #16, #17, #18 |
-| 20 | Testy jednostkowe dla handlerow | High | #4, #5 |
-| 21 | Testy integracyjne | Medium | #20 |
+| 11 | Testy jednostkowe dla handlerow | High | #4, #5 |
+| 12 | Testy integracyjne | High | #11 |
+
+**Checkpoint B:** CLI uzywa MediatR. Stare serwisy usuniete. Wszystkie testy przechodza.
+
+### Faza C: Launch command + update fix
+
+| # | Co zrobic | Priority | Depends On |
+|---|-----------|----------|------------|
+| 13 | **IDatVersionReader** — eksponowac vnumDatFile/vnumGameData z OpenDatFileEx2 | High | — |
+| 14 | **Naprawic GameUpdateChecker** — nie zapisuj wersji forum od razu; potwierdz vnum z DAT | **CRITICAL** | #13 |
+| 15 | **IDatFileProtector** — attrib +R/-R abstrakcja + impl | High | — |
+| 16 | **IGameLauncher** — Process.Start TurbineLauncher, auto-detect sciezki | High | — |
+| 17 | **LaunchGameCommand + Handler** — przeniesienie lotro.bat do C# | High | #2, #13, #14, #15, #16 |
+| 18 | **Orchestracja launch**: forum check -> update? blokuj : protect+launch | High | #14, #17 |
+| 19 | Testy dla launch + update detection | High | #17, #18 |
+
+**Checkpoint C:** CLI: `export`, `patch`, `launch`. Update detection 2-warstwowa. Testy ok.
+
+### Faza D: Cleanup (opcjonalna, moze isc rownolegle z M2)
+
+| # | Co zrobic | Priority | Depends On |
+|---|-----------|----------|------------|
+| 20 | ArgsOrder/ArgsId — podlaczyc w Patcher (teraz ignorowane). Zostawic w uzyciu, potrzebne do reorderingu argumentow w tlumaczeniach. | Medium | — |
+| 21 | Pole `approved` — zostawic w formacie pliku, ignorowac w CLI. Bedzie uzywane dopiero w M2 (DB: IsApproved). | Low | — |
 
 **Po M1:** CLI dziala z komendami: `export`, `patch`, `launch`. Game update detection
 uzywa dwoch zrodel (forum + DAT vnum). Launch chroniony attrib +R.
@@ -190,61 +254,92 @@ uzywa dwoch zrodel (forum + DAT vnum). Launch chroniony attrib +R.
 
 ## M2: Baza danych
 
-MSSQL + EF Core. Import/export przez handlery. Multi-language schema.
-Glossary od dnia 1.
+PostgreSQL (Docker) + EF Core. Import/export przez handlery. Multi-language schema.
+Glossary od dnia 1. Import kontekstu z LOTRO Companion.
+
+M2 wymaga tylko TFM split (#1) z M1. Nie wymaga MediatR — repozytoria to czysty EF Core.
+Moze byc robiony rownolegle z M1 Faza C/D.
+
+### Faza A: PostgreSQL + EF Core setup
 
 | # | Co zrobic | Priority | Depends On |
 |---|-----------|----------|------------|
-| 22 | Dodac EF Core + SQL Server NuGet | High | #1 |
-| 23 | Zaprojektowac entities (TranslationEntity vs Domain.Translation) | High | — |
-| 24 | AppDbContext + konfiguracja | High | #22, #23 |
-| 25 | ITranslationRepository | High | M1 |
-| 26 | IExportedTextRepository | High | M1 |
-| 27 | Implementacja repozytoriow | High | #24-#26 |
-| 28 | Migracje EF + auto-migrate w ustawieniach dev | Medium | #24 |
-| 29 | ImportExportedTextsCommand + Handler | High | #26, #27 |
-| 30 | Translation CRUD (Commands/Queries, language-aware) | High | #25, #27 |
-| 31 | ExportTranslationsQuery + Handler (DB -> polish.txt) | High | #25, #27 |
-| 32 | Migracja istniejacego polish.txt do bazy | Medium | #27, #30 |
-| 33 | Parser exported.txt | High | #29 |
-| 34 | Obsluga separatora \|\| w tresci | Medium | #30 |
-| 35 | Seed jezyka polskiego | Medium | #24 |
-| 36 | **GlossaryTerms entity + repository** | Medium | #24 |
-| 37 | **Glossary CRUD handler** | Medium | #36 |
-| 38 | **DatVersions entity** — przechowywanie historii wersji DAT/forum | Medium | #24 |
-| 39 | Testy | High | #27, #30 |
+| 22 | **docker-compose: PostgreSQL** (bez tego baza nie ruszy) | **CRITICAL** | — |
+| 23 | Dodac EF Core + Npgsql NuGet do Infrastructure.Persistence | High | #1 |
+| 24 | Zaprojektowac entities (TranslationEntity vs Domain.Translation) | High | — |
+| 25 | AppDbContext + konfiguracja PostgreSQL | High | #22, #23, #24 |
+| 26 | Migracje EF + auto-migrate w dev | High | #25 |
+| 27 | Seed jezyka polskiego | Medium | #25 |
 
-**Po M2:** Baza dziala, moge importowac/exportowac przez handlery. Glossary gotowy.
+**Checkpoint A:** `docker-compose up` startuje PostgreSQL, migracje tworza schema, seed dziala.
+
+### Faza B: Repozytoria + import z DAT export
+
+| # | Co zrobic | Priority | Depends On |
+|---|-----------|----------|------------|
+| 28 | IExportedTextRepository + impl | High | #25 |
+| 29 | ITranslationRepository + impl | High | #25 |
+| 30 | Parser exported.txt (reuse istniejacego TranslationFileParser lub nowy) | High | — |
+| 31 | ImportExportedTextsCommand + Handler (exported.txt -> DB) | High | #28, #30 |
+| 32 | Translation CRUD (Commands/Queries, language-aware) | High | #29 |
+| 33 | ExportTranslationsQuery + Handler (DB -> polish.txt) | High | #29 |
+| 34 | Migracja istniejacego polish.txt do bazy | Medium | #29, #32 |
+| 35 | Obsluga separatora \|\| w tresci (escaping) | Medium | #32 |
+
+**Checkpoint B:** Moge zaimportowac exported.txt i polish.txt do bazy, wyexportowac polish.txt z bazy.
+
+### Faza C: LOTRO Companion kontekst + glossary
+
+| # | Co zrobic | Priority | Depends On |
+|---|-----------|----------|------------|
+| 36 | TextContexts entity + repository | High | #25 |
+| 37 | **LOTRO Companion XML parser** — parsowanie quests.xml, deeds.xml, NPCs.xml itd. | High | — |
+| 38 | **ImportContextCommand + Handler** (Companion XML -> TextContexts) | High | #36, #37 |
+| 39 | GlossaryTerms entity + repository | Medium | #25 |
+| 40 | Glossary CRUD handler | Medium | #39 |
+| 41 | DatVersions entity — przechowywanie historii wersji DAT/forum | Medium | #25 |
+
+**Checkpoint C:** Companion XML zaimportowany, kazdy (FileId, GossipId) ma kontekst. Glossary ready.
+
+### Faza D: Testy
+
+| # | Co zrobic | Priority | Depends On |
+|---|-----------|----------|------------|
+| 42 | Testy unit (repozytoria, parsery, handlery) | High | #31, #32, #38 |
+| 43 | Testy integracyjne (pelen pipeline: import -> CRUD -> export) | High | #42 |
+
+**Po M2:** Baza dziala, importy z DAT + Companion, kontekst przy kazdym stringu. Glossary gotowy.
 
 ---
 
 ## M3: Aplikacja webowa
 
 Blazor SSR. Lista, edytor, glossary, import, export. Bez auth — single-user na start.
+Tlumacz widzi kontekst z LOTRO Companion (nazwa questa, NPC, region, level).
 
 | # | Co zrobic | Priority | Depends On |
 |---|-----------|----------|------------|
-| 40 | Stworzyc projekt Blazor SSR | High | #1 |
-| 41 | Layout i nawigacja (Bootstrap) | High | #40 |
-| 42 | DI: MediatR, EF Core, DbContext | High | #40 |
-| 43 | Lista tlumaczen (tabela, szukaj, filtruj, sortuj, paginacja) | High | #42 |
-| 44 | Edytor tlumaczen (side-by-side EN/PL) | High | #42 |
-| 45 | Podswietlanie `<--DO_NOT_TOUCH!-->` i walidacja placeholderow | Medium | #44 |
-| 46 | Przegladarka plikow (grupuj po FileId, szukaj) | Medium | #42 |
-| 47 | Dashboard (postep, ostatnie edycje, statystyki) | Medium | #42 |
-| 48 | Import (upload exported.txt) / API endpoint POST /api/v1/db-update | Medium | #42 |
-| 49 | Export (pobierz polish.txt) / API endpoint GET /api/v1/translations/export | Medium | #42 |
-| 50 | **Glossary UI** — przegladanie, dodawanie, szukanie terminow | Medium | #42 |
-| 51 | **Style guide page** — zasady tlumaczenia, konwencje Tolkienowskie | Low | #40 |
-| 52 | Obsluga bledow (Result -> komunikaty) | Medium | #40 |
-| 53 | Keyboard shortcuts (Ctrl+S save, Ctrl+Enter save+next, Ctrl+Shift+Enter approve+next) | Medium | #44 |
-| 54 | Bulk operations — zaznacz wiele, zatwierdz/odrzuc batch | Medium | #43 |
-| 55 | Responsive design (tablet, mobile) | Low | #41 |
-| 56 | Docker (docker-compose: Web App + MSSQL) | Low | #40 |
-| 57 | Auto-migrate + seed przy starcie | Medium | #28 |
-| 58 | Testy | High | #43, #44 |
+| 44 | Stworzyc projekt Blazor SSR | High | #1 |
+| 45 | Layout i nawigacja (Bootstrap) | High | #44 |
+| 46 | DI: MediatR, EF Core, DbContext | High | #44 |
+| 47 | Lista tlumaczen (tabela, szukaj, filtruj, sortuj, paginacja) | High | #46 |
+| 48 | Edytor tlumaczen (side-by-side EN/PL + kontekst z Companion) | High | #46 |
+| 49 | Podswietlanie `<--DO_NOT_TOUCH!-->` i walidacja placeholderow | Medium | #48 |
+| 50 | Przegladarka questow/deedow (grupuj po quest, NPC, region) | Medium | #46, M2#36 |
+| 51 | Dashboard (postep, ostatnie edycje, statystyki) | Medium | #46 |
+| 52 | Import (upload exported.txt) / API endpoint POST /api/v1/db-update | Medium | #46 |
+| 53 | Export (pobierz polish.txt) / API endpoint GET /api/v1/translations/export | Medium | #46 |
+| 54 | **Glossary UI** — przegladanie, dodawanie, szukanie terminow | Medium | #46 |
+| 55 | **Style guide page** — zasady tlumaczenia, konwencje Tolkienowskie | Low | #44 |
+| 56 | Obsluga bledow (Result -> komunikaty) | Medium | #44 |
+| 57 | Keyboard shortcuts (Ctrl+S save, Ctrl+Enter save+next, Ctrl+Shift+Enter approve+next) | Medium | #48 |
+| 58 | Bulk operations — zaznacz wiele, zatwierdz/odrzuc batch | Medium | #47 |
+| 59 | Responsive design (tablet, mobile) | Low | #45 |
+| 60 | Docker (docker-compose: Web App + PostgreSQL) | Low | #44, #42 |
+| 61 | Auto-migrate + seed przy starcie | Medium | #28 |
+| 62 | Testy | High | #47, #48 |
 
-**Po M3:** Tlumacze w przegladarce. Glossary, style guide, review workflow.
+**Po M3:** Tlumacze w przegladarce z kontekstem. Glossary, style guide, review workflow.
 
 ---
 
@@ -266,19 +361,19 @@ Uzywa tych samych MediatR handlerow co CLI i Web — zero duplikacji.
 
 | # | Co zrobic | Priority | Depends On |
 |---|-----------|----------|------------|
-| 59 | Stworzyc projekt WPF (`net10.0-windows`, x86) | High | M1 |
-| 60 | Ikona pierscienia (asset) + splash screen | Medium | #59 |
-| 61 | Glowne okno: status tlumaczen, wersja gry, wersja patcha | High | #59 |
-| 62 | Przycisk "Patchuj" -> `IMediator.Send(new ApplyPatchCommand(...))` | High | #59, M1 |
-| 63 | Przycisk "Graj" -> `IMediator.Send(new LaunchGameCommand(...))` | High | #59, M1 |
-| 64 | Progress bar + status (IProgress<T>) | High | #59 |
-| 65 | Auto-detekcja LOTRO (IDatFileLocator) — zero konfiguracji | High | #59 |
-| 66 | Game update alert — banner "Zaktualizuj gre!" z instrukcja | High | #59, M1#15 |
-| 67 | Ustawienia: sciezka LOTRO, jezyk, auto-patch on launch | Medium | #59 |
-| 68 | Minimalizacja do tray (opcjonalne) | Low | #59 |
-| 69 | Auto-update apki (sprawdz GitHub releases, pobierz nowa wersje) | Medium | #59 |
-| 70 | Installer (MSIX lub Inno Setup) z ikonka i skrotem na pulpicie | Medium | #59 |
-| 71 | Testy | High | #62, #63 |
+| 63 | Stworzyc projekt WPF (`net10.0-windows`, x86) | High | M1 |
+| 64 | Ikona pierscienia (asset) + splash screen | Medium | #63 |
+| 65 | Glowne okno: status tlumaczen, wersja gry, wersja patcha | High | #63 |
+| 66 | Przycisk "Patchuj" -> `IMediator.Send(new ApplyPatchCommand(...))` | High | #63, M1 |
+| 67 | Przycisk "Graj" -> `IMediator.Send(new LaunchGameCommand(...))` | High | #63, M1 |
+| 68 | Progress bar + status (IProgress<T>) | High | #63 |
+| 69 | Auto-detekcja LOTRO (IDatFileLocator) — zero konfiguracji | High | #63 |
+| 70 | Game update alert — banner "Zaktualizuj gre!" z instrukcja | High | #63, M1#14 |
+| 71 | Ustawienia: sciezka LOTRO, jezyk, auto-patch on launch | Medium | #63 |
+| 72 | Minimalizacja do tray (opcjonalne) | Low | #63 |
+| 73 | Auto-update apki (sprawdz GitHub releases, pobierz nowa wersje) | Medium | #63 |
+| 74 | Installer (MSIX lub Inno Setup) z ikonka i skrotem na pulpicie | Medium | #63 |
+| 75 | Testy | High | #66, #67 |
 
 **Po M4:** Gracz pobiera `LotroPoPolsku.exe`, klika "Graj" — gotowe.
 
@@ -290,14 +385,14 @@ Gdy pojawi sie community — dodac auth i multi-user.
 
 | # | Co zrobic | Priority |
 |---|-----------|----------|
-| 72 | Auth (OpenIddict) — Users, JWT, role | When needed |
-| 73 | UserLanguageRoles — role per jezyk (translator/reviewer/admin) | When needed |
-| 74 | SubmittedById, ApprovedById w Translations | When needed |
-| 75 | Review workflow — submit -> review -> approve/reject | When needed |
-| 76 | TranslationHistory z ChangedBy | When needed |
-| 77 | AI review — LLM sprawdza placeholders, grammar, terminologie | When needed |
-| 78 | Powiadomienia — Discord webhook | When needed |
-| 79 | Public REST API — remote access do platformy | When needed |
+| 76 | Auth (OpenIddict) — Users, JWT, role | When needed |
+| 77 | UserLanguageRoles — role per jezyk (translator/reviewer/admin) | When needed |
+| 78 | SubmittedById, ApprovedById w Translations | When needed |
+| 79 | Review workflow — submit -> review -> approve/reject | When needed |
+| 80 | TranslationHistory z ChangedBy | When needed |
+| 81 | AI review — LLM sprawdza placeholders, grammar, terminologie | When needed |
+| 82 | Powiadomienia — Discord webhook | When needed |
+| 83 | Public REST API — remote access do platformy | When needed |
 
 ---
 
@@ -305,13 +400,13 @@ Gdy pojawi sie community — dodac auth i multi-user.
 
 ```
 M1: #1-#21    Porzadki CLI + Launch + Update Fix
-M2: #22-#39   Baza danych + Glossary
-M3: #40-#58   Aplikacja webowa (dla tlumaczow)
-M4: #59-#71   Desktop app LotroPoPolsku.exe (dla graczy)
-M5: #72-#79   Community & Auth (pozniej)
+M2: #22-#43   Baza danych + Glossary + LOTRO Companion import
+M3: #44-#62   Aplikacja webowa (dla tlumaczow, z kontekstem)
+M4: #63-#75   Desktop app LotroPoPolsku.exe (dla graczy)
+M5: #76-#83   Community & Auth (pozniej)
 ```
 
-**71 issues do M4.** Po M4 mamy pelna platforme: tlumacze pracuja w webie, gracze odpalaja .exe.
+**75 issues do M4.** Po M4 mamy pelna platforme: tlumacze pracuja w webie z kontekstem, gracze odpalaja .exe.
 
 Issue #1 (TFM split) blokuje M2+M3+M4. Zaczynaj od niego.
 
@@ -325,7 +420,8 @@ Kazdy milestone deployowalny osobno:
 
 | Decyzja | Wybor | Uzasadnienie |
 |---------|-------|-------------|
-| Baza danych | **MSSQL** (code-first EF Core) | Silny tooling, LocalDB dla dev |
+| Baza danych | **PostgreSQL** (code-first EF Core + Npgsql) | Darmowy bez limitow, Docker, lepszy hosting |
+| Kontekst tlumaczen | **LOTRO Companion** (lotro-data XML) | ID zgadzaja sie 1:1 z naszym DAT export |
 | Web frontend | **Blazor SSR** | Ten sam C#, shared models |
 | Desktop app | **WPF** (LotroPoPolsku.exe) | Natywny Windows, ikonka, end-user friendly |
 | Architektura | MediatR handlers CLI + Web + WPF | Zero duplikacji — 3 UI, 1 backend |
@@ -409,4 +505,138 @@ NASZ DOCELOWY STACK (po M4):
   Web App (Blazor SSR)       — platforma tlumaczen, glossary, review
   Desktop (WPF)              — LotroPoPolsku.exe, "pobierz i kliknij Graj"
   Wszystko uzywa tych samych MediatR handlerow — zero duplikacji
+```
+
+---
+
+## Krok po kroku — co robic i kiedy
+
+Kolejnosc wykonania z checkpointami. Kazdy krok konczy sie dzialajacym buildem + testami.
+
+```
+=== M1 FAZA A: Fundament (blokuje wszystko) ===
+
+  [ ] #1  Rozdziel TFM per-project
+          - Directory.Build.props: usun net10.0-windows i x86
+          - Kazdy .csproj definiuje wlasny TFM
+          - Infrastructure.DatFile + CLI: net10.0-windows, x86
+          - Reszta: net10.0, AnyCPU
+          - Zweryfikuj: dotnet build, dotnet test — przechodzi
+          CHECKPOINT: build + testy ok
+
+  [ ] #2  Dodaj MediatR
+          - NuGet: MediatR + MediatR.Extensions.Microsoft.DependencyInjection
+          - services.AddMediatR(cfg => cfg.RegisterServicesFromAssembly(...))
+          - Jeszcze nie uzywany — tylko rejestracja
+          CHECKPOINT: build ok, MediatR wstrzykniety
+
+  [ ] #3  Zaprojektuj IProgress<T>
+          - Typ postpu (np. OperationProgress record)
+          - CLI: ConsoleProgressReporter : IProgress<OperationProgress>
+          - Pozniej Web/WPF podepna swoje implementacje
+
+=== M1 FAZA B: MediatR handlers ===
+
+  [ ] #4  ExportTextsQuery + Handler
+          - Nowy handler OBOK istniejacego Exporter
+          - Handler wywoluje te same metody co Exporter
+          - Unit testy
+
+  [ ] #5  ApplyPatchCommand + Handler
+          - Nowy handler OBOK istniejacego Patcher
+          - Unit testy
+
+  [ ] #6-8 PreflightCheckQuery, LoggingBehavior, ValidationBehavior
+
+  [ ] #9  Refaktor Program.cs
+          - export -> IMediator.Send(new ExportTextsQuery(...))
+          - patch -> IMediator.Send(new ApplyPatchCommand(...))
+          - Zweryfikuj: CLI dziala identycznie
+
+  [ ] #10 Usun stare serwisy
+          - IExporter, IPatcher, Exporter, Patcher, ExportCommand, PatchCommand
+          - Popraw testy ktore ich uzywaly
+
+  [ ] #11-12 Testy
+          CHECKPOINT: CLI na MediatR, stare serwisy usuniete, testy ok
+
+=== M1 FAZA C: Launch + Update Fix ===
+
+  [ ] #13 IDatVersionReader — eksponuj vnum z OpenDatFileEx2
+  [ ] #14 Napraw GameUpdateChecker — nie zapisuj wersji od razu
+  [ ] #15 IDatFileProtector — attrib +R/-R
+  [ ] #16 IGameLauncher — Process.Start
+  [ ] #17 LaunchGameCommand + Handler
+  [ ] #18 Orchestracja launch (forum check -> protect -> launch)
+  [ ] #19 Testy
+          CHECKPOINT: `lotro patch polish`, `lotro launch` — dzialaja
+
+=== M1 FAZA D: Cleanup (opcjonalne, moze czekac) ===
+
+  [ ] #20 ArgsOrder/ArgsId — zostawic, dzialaja w patcherze
+  [ ] #21 approved — zostawic w formacie, ignorowac w CLI
+
+====================================================================
+
+=== M2 FAZA A: PostgreSQL setup ===
+    (moze startowac po #1, rownolegle z M1 Faza C)
+
+  [ ] #22 docker-compose.yml z PostgreSQL
+          - docker-compose up -> baza dziala na localhost:5432
+  [ ] #23 EF Core + Npgsql NuGet w Infrastructure.Persistence
+  [ ] #24 Zaprojektuj entities
+  [ ] #25 AppDbContext
+  [ ] #26 Migracje + auto-migrate
+  [ ] #27 Seed Polish
+          CHECKPOINT: docker-compose up, migracje ok, seed ok
+
+=== M2 FAZA B: Import + CRUD ===
+
+  [ ] #28 IExportedTextRepository
+  [ ] #29 ITranslationRepository
+  [ ] #30 Parser exported.txt
+  [ ] #31 ImportExportedTextsCommand (exported.txt -> DB)
+          - Uruchom CLI export -> exported.txt
+          - Uruchom import -> baza pena angielskich tekstow
+  [ ] #32 Translation CRUD
+  [ ] #33 ExportTranslationsQuery (DB -> polish.txt)
+  [ ] #34 Migracja polish.txt do bazy
+  [ ] #35 Escaping separatora || w tresci
+          CHECKPOINT: roundtrip: export DAT -> import DB -> CRUD -> export polish.txt -> patch DAT
+
+=== M2 FAZA C: Companion + Glossary ===
+
+  [ ] #36 TextContexts entity
+  [ ] #37 LOTRO Companion XML parser
+          - git clone LotroCompanion/lotro-data
+          - Parsuj quests.xml (574k linii), deeds.xml, NPCs.xml
+          - Wyciagnij key:{file_id}:{gossip_id} + kontekst
+  [ ] #38 ImportContextCommand
+  [ ] #39 GlossaryTerms entity + CRUD
+  [ ] #40 Glossary handler
+  [ ] #41 DatVersions entity
+          CHECKPOINT: kazdy string w DB ma kontekst z Companion
+
+=== M2 FAZA D: Testy ===
+
+  [ ] #42-43 Unit + integration testy
+          CHECKPOINT: pelen pipeline przetestowany
+
+====================================================================
+
+=== M3: Web App ===
+    (wymaga: M1 Faza B + M2)
+
+  [ ] #44 Blazor SSR projekt (net10.0, AnyCPU)
+  [ ] #45-46 Layout, DI
+  [ ] #47 Lista tlumaczen (z kontekstem z TextContexts!)
+  [ ] #48 Edytor side-by-side EN/PL
+  [ ] #49-62 Reszta UI features
+          CHECKPOINT: localhost:5000 — tlumaczysz w przegladarce
+
+=== M4: Desktop App ===
+    (wymaga: M1)
+
+  [ ] #63-75 WPF, LotroPoPolsku.exe
+          CHECKPOINT: gracz pobiera exe, klika "Graj"
 ```

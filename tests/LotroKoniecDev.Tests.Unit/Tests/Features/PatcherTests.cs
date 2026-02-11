@@ -1,14 +1,14 @@
-using System.Text;
 using LotroKoniecDev.Application.Abstractions;
 using LotroKoniecDev.Primitives.Enums;
 using LotroKoniecDev.Domain.Core.Monads;
 using LotroKoniecDev.Domain.Core.BuildingBlocks;
 using LotroKoniecDev.Application.Features.Patch;
 using LotroKoniecDev.Domain.Models;
+using LotroKoniecDev.Tests.Unit.Shared;
 
-namespace LotroKoniecDev.Tests.Integration.Features;
+namespace LotroKoniecDev.Tests.Unit.Tests.Features;
 
-public class PatcherTests : IDisposable
+public sealed class PatcherTests : IDisposable
 {
     private readonly string _tempDir;
     private readonly IDatFileHandler _mockHandler;
@@ -40,10 +40,10 @@ public class PatcherTests : IDisposable
         string translationsPath = CreateTempFile("translations.txt");
         string datPath = CreateTempFile("test.dat");
 
-        List<Translation> translations = new List<Translation>
-        {
+        List<Translation> translations =
+        [
             new() { FileId = 0x25000001, GossipId = 1, Content = "Translated" }
-        };
+        ];
 
         _mockParser.ParseFile(translationsPath)
             .Returns(Result.Success<IReadOnlyList<Translation>>(translations));
@@ -54,7 +54,7 @@ public class PatcherTests : IDisposable
         });
         _mockHandler.GetSubfileVersion(0, 0x25000001).Returns(1);
         _mockHandler.GetSubfileData(0, 0x25000001, 100)
-            .Returns(Result.Success(CreateTextSubFileData(0x25000001, fragmentId: 1)));
+            .Returns(Result.Success(TestDataFactory.CreateTextSubFileData(0x25000001, 1, 1)));
         _mockHandler.PutSubfileData(0, 0x25000001, Arg.Any<byte[]>(), 1, 1)
             .Returns(Result.Success());
 
@@ -96,11 +96,7 @@ public class PatcherTests : IDisposable
         string translationsPath = CreateTempFile("translations.txt");
         string datPath = CreateTempFile("test.dat");
 
-        Error error = new Error(
-            "Translation.FileNotFound",
-            "File not found",
-            ErrorType.NotFound);
-
+        Error error = new Error("Translation.FileNotFound", "File not found", ErrorType.NotFound);
         _mockParser.ParseFile(translationsPath).Returns(Result.Failure<IReadOnlyList<Translation>>(error));
 
         // Act
@@ -117,19 +113,15 @@ public class PatcherTests : IDisposable
         string translationsPath = CreateTempFile("translations.txt");
         string datPath = CreateTempFile("test.dat");
 
-        List<Translation> translations = new List<Translation>
-        {
+        List<Translation> translations =
+        [
             new() { FileId = 0x25000001, GossipId = 1, Content = "Test" }
-        };
+        ];
 
         _mockParser.ParseFile(translationsPath)
             .Returns(Result.Success<IReadOnlyList<Translation>>(translations));
 
-        Error error = new Error(
-            "DatFile.CannotOpen",
-            "Cannot open",
-            ErrorType.IoError);
-
+        Error error = new Error("DatFile.CannotOpen", "Cannot open", ErrorType.IoError);
         _mockHandler.Open(datPath).Returns(Result.Failure<int>(error));
 
         // Act
@@ -147,15 +139,15 @@ public class PatcherTests : IDisposable
         string translationsPath = CreateTempFile("translations.txt");
         string datPath = CreateTempFile("test.dat");
 
-        List<Translation> translations = new List<Translation>
-        {
+        List<Translation> translations =
+        [
             new() { FileId = 0x25000001, GossipId = 1, Content = "Test" }
-        };
+        ];
 
         _mockParser.ParseFile(translationsPath)
             .Returns(Result.Success<IReadOnlyList<Translation>>(translations));
         _mockHandler.Open(datPath).Returns(Result.Success(0));
-        _mockHandler.GetAllSubfileSizes(0).Returns(new Dictionary<int, (int, int)>()); // Empty
+        _mockHandler.GetAllSubfileSizes(0).Returns(new Dictionary<int, (int, int)>());
 
         // Act
         Result<PatchSummary> result = _patcher.ApplyTranslations(translationsPath, datPath);
@@ -173,10 +165,10 @@ public class PatcherTests : IDisposable
         string translationsPath = CreateTempFile("translations.txt");
         string datPath = CreateTempFile("test.dat");
 
-        List<Translation> translations = new List<Translation>
-        {
-            new() { FileId = 0x10000001, GossipId = 1, Content = "Test" } // Non-text file
-        };
+        List<Translation> translations =
+        [
+            new() { FileId = 0x10000001, GossipId = 1, Content = "Test" }
+        ];
 
         _mockParser.ParseFile(translationsPath)
             .Returns(Result.Success<IReadOnlyList<Translation>>(translations));
@@ -202,10 +194,10 @@ public class PatcherTests : IDisposable
         string translationsPath = CreateTempFile("translations.txt");
         string datPath = CreateTempFile("test.dat");
 
-        List<Translation> translations = new List<Translation>
-        {
-            new() { FileId = 0x25000001, GossipId = 999, Content = "Test" } // Fragment doesn't exist
-        };
+        List<Translation> translations =
+        [
+            new() { FileId = 0x25000001, GossipId = 999, Content = "Test" }
+        ];
 
         _mockParser.ParseFile(translationsPath)
             .Returns(Result.Success<IReadOnlyList<Translation>>(translations));
@@ -216,7 +208,7 @@ public class PatcherTests : IDisposable
         });
         _mockHandler.GetSubfileVersion(0, 0x25000001).Returns(1);
         _mockHandler.GetSubfileData(0, 0x25000001, 100)
-            .Returns(Result.Success(CreateTextSubFileData(0x25000001, fragmentId: 1))); // Fragment ID 1, not 999
+            .Returns(Result.Success(TestDataFactory.CreateTextSubFileData(0x25000001, 1, 1)));
 
         // Act
         Result<PatchSummary> result = _patcher.ApplyTranslations(translationsPath, datPath);
@@ -234,13 +226,12 @@ public class PatcherTests : IDisposable
         string translationsPath = CreateTempFile("translations.txt");
         string datPath = CreateTempFile("test.dat");
 
-        // Same file ID, multiple fragments - should only load file once
-        List<Translation> translations = new List<Translation>
-        {
+        List<Translation> translations =
+        [
             new() { FileId = 0x25000001, GossipId = 1, Content = "Trans1" },
             new() { FileId = 0x25000001, GossipId = 2, Content = "Trans2" },
             new() { FileId = 0x25000001, GossipId = 3, Content = "Trans3" }
-        };
+        ];
 
         _mockParser.ParseFile(translationsPath)
             .Returns(Result.Success<IReadOnlyList<Translation>>(translations));
@@ -251,7 +242,7 @@ public class PatcherTests : IDisposable
         });
         _mockHandler.GetSubfileVersion(0, 0x25000001).Returns(1);
         _mockHandler.GetSubfileData(0, 0x25000001, 100)
-            .Returns(Result.Success(CreateTextSubFileData(0x25000001, fragmentId: 1, fragmentCount: 3)));
+            .Returns(Result.Success(TestDataFactory.CreateTextSubFileData(0x25000001, 1, 3)));
         _mockHandler.PutSubfileData(0, 0x25000001, Arg.Any<byte[]>(), 1, 1)
             .Returns(Result.Success());
 
@@ -261,10 +252,7 @@ public class PatcherTests : IDisposable
         // Assert
         result.IsSuccess.Should().BeTrue();
         result.Value.AppliedTranslations.Should().Be(3);
-
-        // Should only load the subfile once
         _mockHandler.Received(1).GetSubfileData(0, 0x25000001, 100);
-        // Should only save the subfile once
         _mockHandler.Received(1).PutSubfileData(0, 0x25000001, Arg.Any<byte[]>(), 1, 1);
     }
 
@@ -289,28 +277,5 @@ public class PatcherTests : IDisposable
         string path = Path.Combine(_tempDir, name);
         File.WriteAllText(path, "dummy");
         return path;
-    }
-
-    private static byte[] CreateTextSubFileData(int fileId, ulong fragmentId = 1, int fragmentCount = 1)
-    {
-        using MemoryStream stream = new MemoryStream();
-        using BinaryWriter writer = new BinaryWriter(stream);
-
-        writer.Write(fileId);
-        writer.Write(new byte[4]); // Unknown1
-        writer.Write((byte)0); // Unknown2
-        writer.Write((byte)fragmentCount); // numFragments (varlen)
-
-        for (int i = 0; i < fragmentCount; i++)
-        {
-            writer.Write(fragmentId + (ulong)i); // fragmentId
-            writer.Write(1); // numPieces
-            writer.Write((byte)4); // piece length (varlen)
-            writer.Write(Encoding.Unicode.GetBytes("Test"));
-            writer.Write(0); // numArgRefs
-            writer.Write((byte)0); // numArgStringGroups
-        }
-
-        return stream.ToArray();
     }
 }

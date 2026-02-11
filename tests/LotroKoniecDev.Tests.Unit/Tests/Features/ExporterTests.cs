@@ -1,13 +1,13 @@
-using System.Text;
 using LotroKoniecDev.Application.Abstractions;
 using LotroKoniecDev.Primitives.Enums;
 using LotroKoniecDev.Domain.Core.Monads;
 using LotroKoniecDev.Domain.Core.BuildingBlocks;
 using LotroKoniecDev.Application.Features.Export;
+using LotroKoniecDev.Tests.Unit.Shared;
 
-namespace LotroKoniecDev.Tests.Integration.Features;
+namespace LotroKoniecDev.Tests.Unit.Tests.Features;
 
-public class ExporterTests : IDisposable
+public sealed class ExporterTests : IDisposable
 {
     private readonly string _tempDir;
     private readonly IDatFileHandler _mockHandler;
@@ -40,10 +40,10 @@ public class ExporterTests : IDisposable
         _mockHandler.Open(datPath).Returns(Result.Success(0));
         _mockHandler.GetAllSubfileSizes(0).Returns(new Dictionary<int, (int, int)>
         {
-            { 0x25000001, (100, 1) } // Text file
+            { 0x25000001, (100, 1) }
         });
         _mockHandler.GetSubfileData(0, 0x25000001, 100)
-            .Returns(Result.Success(CreateTextSubFileData(0x25000001, "Test text")));
+            .Returns(Result.Success(TestDataFactory.CreateTextSubFileData(0x25000001, "Test text")));
 
         // Act
         Result<ExportSummary> result = _exporter.ExportAllTexts(datPath, outputPath);
@@ -63,11 +63,7 @@ public class ExporterTests : IDisposable
         string datPath = CreateTempFile("test.dat");
         string outputPath = Path.Combine(_tempDir, "output.txt");
 
-        Error error = new Error(
-            "DatFile.CannotOpen",
-            "Cannot open",
-            ErrorType.IoError);
-
+        Error error = new Error("DatFile.CannotOpen", "Cannot open", ErrorType.IoError);
         _mockHandler.Open(datPath).Returns(Result.Failure<int>(error));
 
         // Act
@@ -104,14 +100,14 @@ public class ExporterTests : IDisposable
         _mockHandler.Open(datPath).Returns(Result.Success(0));
         _mockHandler.GetAllSubfileSizes(0).Returns(new Dictionary<int, (int, int)>
         {
-            { 0x25000001, (100, 1) }, // Text file
-            { 0x10000001, (200, 1) }, // Non-text file
-            { 0x25000002, (100, 1) }  // Another text file
+            { 0x25000001, (100, 1) },
+            { 0x10000001, (200, 1) },
+            { 0x25000002, (100, 1) }
         });
         _mockHandler.GetSubfileData(Arg.Any<int>(), 0x25000001, 100)
-            .Returns(Result.Success(CreateTextSubFileData(0x25000001, "Text1")));
+            .Returns(Result.Success(TestDataFactory.CreateTextSubFileData(0x25000001, "Text1")));
         _mockHandler.GetSubfileData(Arg.Any<int>(), 0x25000002, 100)
-            .Returns(Result.Success(CreateTextSubFileData(0x25000002, "Text2")));
+            .Returns(Result.Success(TestDataFactory.CreateTextSubFileData(0x25000002, "Text2")));
 
         // Act
         Result<ExportSummary> result = _exporter.ExportAllTexts(datPath, outputPath);
@@ -119,8 +115,6 @@ public class ExporterTests : IDisposable
         // Assert
         result.IsSuccess.Should().BeTrue();
         result.Value.TotalTextFiles.Should().Be(2);
-
-        // Non-text file should not be read - verify by checking received calls count
         _mockHandler.Received(2).GetSubfileData(Arg.Any<int>(), Arg.Any<int>(), Arg.Any<int>());
     }
 
@@ -132,7 +126,6 @@ public class ExporterTests : IDisposable
         string outputPath = Path.Combine(_tempDir, "output.txt");
         List<(int Processed, int Total)> progressReports = new List<(int Processed, int Total)>();
 
-        // Create 600 files to trigger progress (interval is 500)
         Dictionary<int, (int, int)> fileSizes = Enumerable.Range(1, 600)
             .ToDictionary(
                 i => 0x25000000 + i,
@@ -141,7 +134,7 @@ public class ExporterTests : IDisposable
         _mockHandler.Open(datPath).Returns(Result.Success(0));
         _mockHandler.GetAllSubfileSizes(Arg.Any<int>()).Returns(fileSizes);
         _mockHandler.GetSubfileData(Arg.Any<int>(), Arg.Any<int>(), Arg.Any<int>())
-            .Returns(x => Result.Success(CreateTextSubFileData((int)x[1], "Test")));
+            .Returns(x => Result.Success(TestDataFactory.CreateTextSubFileData((int)x[1], "Test")));
 
         // Act
         Result<ExportSummary> result = _exporter.ExportAllTexts(datPath, outputPath,
@@ -167,26 +160,5 @@ public class ExporterTests : IDisposable
         string path = Path.Combine(_tempDir, name);
         File.WriteAllText(path, "dummy");
         return path;
-    }
-
-    private static byte[] CreateTextSubFileData(int fileId, string text)
-    {
-        using MemoryStream stream = new MemoryStream();
-        using BinaryWriter writer = new BinaryWriter(stream);
-
-        writer.Write(fileId);
-        writer.Write(new byte[4]); // Unknown1
-        writer.Write((byte)0); // Unknown2
-        writer.Write((byte)1); // numFragments (varlen)
-
-        // Fragment
-        writer.Write((ulong)1); // fragmentId
-        writer.Write(1); // numPieces
-        writer.Write((byte)text.Length); // piece length (varlen)
-        writer.Write(Encoding.Unicode.GetBytes(text));
-        writer.Write(0); // numArgRefs
-        writer.Write((byte)0); // numArgStringGroups
-
-        return stream.ToArray();
     }
 }

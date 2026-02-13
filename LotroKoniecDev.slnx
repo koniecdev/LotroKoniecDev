@@ -1,4 +1,9 @@
 <Solution>
+  <Folder Name="/docs/">
+    <File Path="docs/PROJECT_PLAN.md" />
+    <File Path="docs/RUSSIAN_PROJECT_RESEARCH.md" />
+    <File Path="docs/TICKETS.md" />
+  </Folder>
   <Folder Name="/src/">
     <Project Path="src/LotroKoniecDev.Primitives/LotroKoniecDev.Primitives.csproj" />
     <Project Path="src/LotroKoniecDev.Domain/LotroKoniecDev.Domain.csproj" />

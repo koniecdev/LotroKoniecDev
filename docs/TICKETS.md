@@ -1,0 +1,1122 @@
+# LOTRO Polish Patcher — Backlog
+
+> Przepisane po audycie PM. Oryginalne 74 tickety skonsolidowane do 41.
+> Poprawione: falszywe zaleznosci, brakujace feature'y, overengineering, priorytetyzacja.
+> Numeracja `M{milestone}-{numer}`. Testy wliczone w feature ticket (nie osobne).
+>
+> **Pre-M1 cleanup (zrobione):**
+> - Mock-based ExporterTests/PatcherTests przeniesione z Integration do Unit
+> - 8 zduplikowanych plikow testowych usuniete z Integration
+> - `TestDataFactory` (shared binary SubFile builder) w `Tests.Unit/Shared/`
+> - 16 unit testow GameUpdateChecker dodane (mock fetcher + store)
+> - Integration project pusty — zarezerwowany na prawdziwe testy (DAT, DB)
+
+---
+
+## Legenda
+
+| Label | Znaczenie |
+|-------|-----------|
+| `critical` | Blokuje inne tickety / milestone |
+| `high` | Core feature milestonu |
+| `medium` | Wazne ale nie blokujace |
+| `low` | Nice-to-have, moze czekac |
+| `bug` | Znany blad do naprawy |
+| `refactor` | Poprawa jakosci bez zmiany zachowania |
+| `infra` | Build, CI, Docker, konfiguracja |
+| `feature` | Nowa funkcjonalnosc |
+
+---
+
+# M1: Porzadki CLI (MediatR + Launch + Update Fix)
+
+## Faza A: MediatR setup
+
+### M1-01: Dodaj MediatR do solution + OperationProgress
+**Labels:** `high` `infra`
+**Blokuje:** M1-02, M1-03, M1-04
+**Zalezy od:** —
+
+**UWAGA:** Ten ticket NIE wymaga TFM split (M1-06). MediatR dziala na `net10.0-windows` x86 bez problemow.
+
+**Do zrobienia:**
+1. Dodaj NuGet do `Directory.Packages.props`:
+   - `MediatR` (najnowsza wersja — od v12 DI registration jest wbudowane, NIE potrzeba osobnego pakietu `MediatR.Extensions.Microsoft.DependencyInjection`)
+2. Dodaj `PackageReference` w `Application.csproj`.
+3. W `ApplicationDependencyInjection.AddApplicationServices()` dodaj:
+   ```csharp
+   services.AddMediatR(cfg => cfg.RegisterServicesFromAssembly(typeof(ApplicationDependencyInjection).Assembly));
+   ```
+4. Stworz `OperationProgress` record w Application:
+   ```csharp
+   public sealed record OperationProgress(int Current, int Total, string? Message = null);
+   ```
+5. Stworz `ConsoleProgressReporter : IProgress<OperationProgress>` w CLI.
+6. W `Program.cs` CLI — resolve `IMediator` po budowie kontenera (jeszcze nie uzywany).
+
+**Acceptance criteria:**
+- [ ] `dotnet build` przechodzi
+- [ ] MediatR jest zarejestrowany w DI
+- [ ] `OperationProgress` istnieje w Application
+- [ ] `ConsoleProgressReporter` istnieje w CLI
+- [ ] Testy przechodza bez zmian (brak breaking changes)
+
+---
+
+## Faza B: MediatR handlers
+
+### M1-02: ExportTextsQuery + Handler + testy
+**Labels:** `high` `feature`
+**Zalezy od:** M1-01
+**Blokuje:** M1-05
+
+**Do zrobienia:**
+1. **Przenies `ExportSummary` record** z `IExporter.cs` (linia 26-29) do osobnego pliku `Application/Features/Export/ExportSummary.cs`. Przy kasowaniu IExporter w M1-05 stracilibysmy ten typ.
+2. Stworz `Application/Features/Export/ExportTextsQuery.cs`:
+   ```csharp
+   public sealed record ExportTextsQuery(
+       string DatFilePath,
+       string OutputPath,
+       IProgress<OperationProgress>? Progress = null
+   ) : IRequest<Result<ExportSummary>>;
+   ```
+3. Stworz `ExportTextsQueryHandler : IRequestHandler<ExportTextsQuery, Result<ExportSummary>>`.
+4. Handler uzywa `IDatFileHandler` (ten sam DI co Exporter).
+5. Logika IDENTYCZNA z obecnym `Exporter.ExportAllTexts()` — kopiuj, nie wymyslaj.
+6. Zaktualizuj istniejace `Tests.Unit/Tests/Features/ExporterTests.cs` (7 testow, uzywa `TestDataFactory`) — zmien na testowanie handlera zamiast klasy Exporter. Zachowaj scenariusze: happy path, DAT open fail, null args, non-text skip, progress callback.
+
+**Acceptance criteria:**
+- [ ] `ExportSummary` w osobnym pliku (NIE wewnatrz IExporter.cs)
+- [ ] Handler zarejestrowany w MediatR (auto-discovery)
+- [ ] `IMediator.Send(new ExportTextsQuery(...))` zwraca `Result<ExportSummary>`
+- [ ] Istniejace ExporterTests zaktualizowane na handler (nie nowe testy od zera)
+- [ ] Stary `Exporter` NADAL istnieje i dziala (jeszcze nie usuwamy)
+
+---
+
+### M1-03: ApplyPatchCommand + Handler + testy
+**Labels:** `high` `feature`
+**Zalezy od:** M1-01
+**Blokuje:** M1-05
+
+**Do zrobienia:**
+1. **Przenies `PatchSummary` record** z `IPatcher.cs` (linia 26-30) do osobnego pliku `Application/Features/Patch/PatchSummary.cs`.
+2. Stworz `Application/Features/Patch/ApplyPatchCommand.cs`:
+   ```csharp
+   public sealed record ApplyPatchCommand(
+       string TranslationsPath,
+       string DatFilePath,
+       IProgress<OperationProgress>? Progress = null
+   ) : IRequest<Result<PatchSummary>>;
+   ```
+3. Stworz `ApplyPatchCommandHandler`.
+4. Logika IDENTYCZNA z `Patcher.ApplyTranslations()`.
+5. Zaktualizuj istniejace `Tests.Unit/Tests/Features/PatcherTests.cs` (11 testow, uzywa `TestDataFactory`) — zmien na testowanie handlera. Zachowaj scenariusze: happy path, no translations, parse error, DAT open fail, file not in DAT, non-text file, fragment not found, batch optimization.
+
+**Acceptance criteria:**
+- [ ] `PatchSummary` w osobnym pliku
+- [ ] Handler dziala identycznie jak Patcher
+- [ ] Istniejace PatcherTests zaktualizowane na handler
+- [ ] Stary `Patcher` nadal istnieje
+
+---
+
+### M1-04: PreflightCheckQuery + Handler + testy
+**Labels:** `medium` `feature`
+**Zalezy od:** M1-01
+**Blokuje:** M1-05
+
+**Stan obecny:**
+`PreflightChecker` (CLI) miesza logike biznesowa z `Console.ReadLine()` i `Console.Write()`.
+
+**Do zrobienia:**
+1. Stworz `PreflightCheckQuery : IRequest<Result<PreflightReport>>`.
+2. `PreflightReport` record: `bool IsGameRunning`, `bool HasWriteAccess`, `GameUpdateCheckResult? UpdateCheck`.
+3. Handler TYLKO zbiera dane — zero Console I/O.
+4. CLI czyta `PreflightReport` i decyduje co wyswietlic / o co zapytac usera.
+5. Unit testy z mockami.
+
+**Acceptance criteria:**
+- [ ] Handler nie ma zadnych zaleznosci od Console/UI
+- [ ] `PreflightReport` zawiera wszystkie dane potrzebne do decyzji
+- [ ] CLI nadal pyta usera "Continue anyway?" na podstawie raportu
+- [ ] Min. 3 unit testy
+
+---
+
+### M1-05: Refaktor Program.cs na IMediator + usun stare serwisy
+**Labels:** `high` `refactor`
+**Zalezy od:** M1-02, M1-03, M1-04
+
+**Do zrobienia — DWA KROKI (w jednym uzyciu):**
+
+**Krok 1: Przejscie CLI na IMediator**
+1. `export` -> `IMediator.Send(new ExportTextsQuery(...))`.
+2. `patch` -> `IMediator.Send(new PreflightCheckQuery(...))`, potem `IMediator.Send(new ApplyPatchCommand(...))`.
+3. **BackupManager zostaje jako CLI utility** — backup/restore to operacja plikowa specyficzna dla CLI flow. Program.cs wywoluje BackupManager.Create() miedzy preflight a patch.
+4. Zachowaj `DatPathResolver`, `BackupManager`, `ConsoleWriter` — to CLI-specific.
+5. `ConsoleProgressReporter` jako IProgress<T>.
+
+**Krok 2: Usun martwy kod**
+1. `IExporter` interface + `Exporter` class — `ExportSummary` juz przeniesiony w M1-02
+2. `IPatcher` interface + `Patcher` class — `PatchSummary` juz przeniesiony w M1-03
+3. `ExportCommand` static class
+4. `PatchCommand` static class
+5. `PreflightChecker` static class
+6. Popraw DI registracje (usun stare `AddScoped<IExporter>`, `AddScoped<IPatcher>`).
+7. ExporterTests i PatcherTests juz przetestowane na handlerach (M1-02, M1-03) — usun tylko stare importy/referencje do IExporter/IPatcher jesli zostaly.
+
+**NIE usuwaj:**
+- `BackupManager`, `DatPathResolver`, `ConsoleWriter`
+- `ExportSummary`, `PatchSummary` — juz w Features/
+- `TranslationFileParser`, `ITranslationParser` — nadal uzywane przez handlery
+
+**Acceptance criteria:**
+- [ ] CLI dziala IDENTYCZNIE jak przed refaktorem (te same komendy, te same outputy)
+- [ ] `dotnet run -- export` i `dotnet run -- patch polish` dzialaja
+- [ ] Zero referencji do IExporter, IPatcher, ExportCommand, PatchCommand, PreflightChecker
+- [ ] DI nie rejestruje starych serwisow
+- [ ] Build + testy ok
+
+---
+
+## Faza C: Launch + Update Fix
+
+### M1-06: Rozdziel TFM per-project
+**Labels:** `critical` `infra`
+**Blokuje:** M2-01, M3-01
+
+**UWAGA:** Ten ticket blokuje TYLKO M2 i M3 (projekty AnyCPU). NIE blokuje M1-01..M1-05 ani M1-07..M1-10. MediatR, handlery i refaktor CLI dzialaja na `net10.0-windows` x86.
+
+**Stan obecny:**
+`Directory.Build.props` wymusza `net10.0-windows` + `x86` na WSZYSTKIE projekty.
+
+**Do zrobienia:**
+1. W `Directory.Build.props` zostaw TYLKO ustawienia wspolne (Nullable, LangVersion, AnalysisLevel, EnforceCodeStyleInBuild, ImplicitUsings). Usun `TargetFramework` i `PlatformTarget`.
+2. W kazdym `.csproj` dodaj wlasciwy TFM:
+
+| Projekt | TFM | Platform |
+|---------|-----|----------|
+| Primitives | `net10.0` | AnyCPU |
+| Domain | `net10.0` | AnyCPU |
+| Application | `net10.0` | AnyCPU |
+| Infrastructure | `net10.0-windows` | x86 (datexport.dll) |
+| CLI | `net10.0-windows` | x86 |
+| Tests.Unit | `net10.0` | AnyCPU |
+| Tests.Integration | `net10.0-windows` | x86 (referencja Infrastructure) |
+
+3. Upewnij sie ze Infrastructure.csproj zachowa `AllowUnsafeBlocks`, kopie DLL-ek natywnych.
+4. **Zaktualizuj NuGet**: `Microsoft.Extensions.DependencyInjection` z 9.0.0 na 10.0.x w `Directory.Packages.props` (powinien pasowac do TFM).
+
+**Acceptance criteria:**
+- [ ] `dotnet build` przechodzi
+- [ ] `dotnet test` — wszystkie testy przechodza
+- [ ] `Directory.Build.props` nie ma TFM ani PlatformTarget
+- [ ] Primitives, Domain, Application = `net10.0` AnyCPU
+- [ ] Infrastructure, CLI = `net10.0-windows` x86
+- [ ] NuGet versions aligned z .NET 10
+
+---
+
+### M1-07: Launch infrastructure — IDatVersionReader + IDatFileProtector + IGameLauncher
+**Labels:** `high` `feature`
+**Zalezy od:** —
+**Blokuje:** M1-08
+
+**UWAGA:** Ten ticket nie ma zadnych zaleznosci — mozna go robic rownolegle z M1-01..M1-05.
+
+**Do zrobienia — TRZY male abstrakcje + implementacje:**
+
+**1. IDatVersionReader** (Application/Abstractions):
+```csharp
+public interface IDatVersionReader
+{
+    Result<DatVersionInfo> ReadVersion(string datFilePath);
+}
+public sealed record DatVersionInfo(int VnumDatFile, int VnumGameData);
+```
+Implementacja w Infrastructure — otwiera DAT (`OpenDatFileEx2` z `OpenFlagsReadWrite=130`), czyta vnum z out parametrow, NATYCHMIAST zamyka. Wywolanie PRZED normalnym Open() — atomowe open/read/close, nie koliduje z pozniejszym handlerem.
+
+**UWAGA:** NIE zakladaj read-only mode (flags=2) — datexport.dll to zamkniety Turbine binary, nie wiadomo czy jest obslugiwany.
+
+**2. IDatFileProtector** (Application/Abstractions):
+```csharp
+public interface IDatFileProtector
+{
+    Result Protect(string datFilePath);
+    Result Unprotect(string datFilePath);
+    bool IsProtected(string datFilePath);
+}
+```
+Implementacja: `File.SetAttributes()` z `FileAttributes.ReadOnly`. NIE uzywaj `attrib.exe` (Process.Start).
+
+**3. IGameLauncher** (Application/Abstractions):
+```csharp
+public interface IGameLauncher
+{
+    Result<int> Launch(string lotroPath, bool waitForExit = true);
+}
+```
+Implementacja: Auto-detect `TurbineLauncher.exe` wzgledem sciezki DAT. `Process.Start()` z `WaitForExit()`. NIE dodawaj flag `-disablePatch`.
+
+**Testy** (w `Tests.Unit/Tests/Features/` lub `Tests.Unit/Tests/Infrastructure/`):
+- IDatVersionReader: unit test z mock IDatFileHandler. Uzyj `TestDataFactory` z `Shared/` do tworzenia binary test data.
+- IDatFileProtector: unit testy z temp plikami (Protect/Unprotect/IsProtected)
+- IGameLauncher: unit test z mock (nie startuje prawdziwego procesu)
+
+**Acceptance criteria:**
+- [ ] Trzy interfejsy w Application/Abstractions
+- [ ] Trzy implementacje w Infrastructure
+- [ ] DI registration
+- [ ] Min. 6 unit testow (2 per abstrakcja)
+- [ ] Build + testy ok
+
+---
+
+### M1-08: Napraw GameUpdateChecker + LaunchGameCommand + CLI `launch`
+**Labels:** `critical` `feature` `bug`
+**Zalezy od:** M1-05 (CLI na MediatR), M1-07 (launch infrastructure)
+
+**UWAGA SEKWENCJI:** Ten ticket zmienia zachowanie `GameUpdateChecker` — po zmianie `CheckForUpdateAsync()` NIE zapisuje wersji. Stary `PreflightChecker` polegal na auto-save. Dlatego M1-05 (refaktor CLI na MediatR) MUSI byc zrobiony PRZED tym ticketem.
+
+**Do zrobienia — TRZY czesci:**
+
+**Czesc 1: Napraw GameUpdateChecker (bug)**
+
+Stan obecny (GameUpdateChecker.cs:56-58):
+```csharp
+if (updateDetected)
+{
+    Result saveResult = _versionFileStore.SaveVersion(versionFilePath, currentVersion);
+```
+Problem: zapisuje wersje z forum OD RAZU, zanim user zainstalowal update.
+
+Fix:
+1. `CheckForUpdateAsync()` NIE zapisuje wersji — tylko raportuje.
+2. Dodaj nowa metode `ConfirmUpdateInstalled()` ktora:
+   - Czyta vnum z DAT (via `IDatVersionReader`)
+   - Porownuje z poprzednim vnum
+   - Jesli vnum sie zmienil -> zapisuje nowa wersje forum
+3. Zmien `GameUpdateCheckResult` zeby zawieralo `DatVersionInfo`.
+4. Zaktualizuj istniejace 16 testow w `Tests.Unit/Tests/Features/GameUpdateCheckerTests.cs` — testy aktualnie testuja stare zachowanie (auto-save). Po zmianie: testy "save on detect" -> failure, nowe testy dla `ConfirmUpdateInstalled()`.
+
+**Czesc 2: LaunchGameCommand + Handler**
+
+Stworz `LaunchGameCommand : IRequest<Result<LaunchReport>>`.
+Handler orchestruje:
+```
+1. CheckForUpdate (forum)
+2. Jesli update wykryty -> ReadVersion (DAT vnum) -> porownaj
+3. Jesli wersje sie nie zgadzaja -> zwroc blad "zaktualizuj gre"
+4. Protect DAT (attrib +R)
+5. Launch gre
+6. Czekaj na zamkniecie
+7. Unprotect DAT (attrib -R)
+```
+`LaunchReport` record z detalami (wersja, czas gry, etc.)
+
+**Czesc 3: CLI wiring**
+
+1. Dodaj `"launch"` do switch w `Program.cs`.
+2. Resolve sciezka LOTRO (DatPathResolver).
+3. `IMediator.Send(new LaunchGameCommand(...))`.
+4. Zaktualizuj `PrintUsage()`.
+
+**Testy:**
+- `GameUpdateCheckerTests` (istniejace 16 testow — zaktualizuj): wykrycie update -> brak zapisu; nowe testy dla `ConfirmUpdateInstalled()` z vnum
+- `LaunchGameCommandHandlerTests` (nowe):
+  - Happy path: brak update, launch ok
+  - Update detected + stary vnum -> blokada
+  - Update detected + nowy vnum -> launch ok
+  - Protect fail -> error
+  - Launch fail -> unprotect + error
+  - DAT juz protected -> idempotent
+
+**Acceptance criteria:**
+- [ ] `CheckForUpdateAsync()` nigdy nie zapisuje wersji
+- [ ] Wersja zapisywana tylko po potwierdzeniu przez vnum z DAT
+- [ ] `dotnet run -- launch` startuje gre z ochrona DAT
+- [ ] Update detection blokuje launch jesli wersje nie pasuja
+- [ ] DAT chroniony PRZED i odchroniony PO grze
+- [ ] `PrintUsage()` wyswietla komende launch
+- [ ] Min. 10 test cases
+
+---
+
+## Faza D: Cleanup
+
+### M1-09: Pipeline behaviors (LoggingBehavior + ValidationBehavior)
+**Labels:** `low` `feature`
+**Zalezy od:** M1-01
+
+**UWAGA:** Nice-to-have. MediatR dziala bez pipeline behaviors. Zrob gdy masz czas.
+
+**Do zrobienia:**
+1. `LoggingPipelineBehavior<TRequest, TResponse> : IPipelineBehavior` — loguj request name, elapsed ms, success/failure. Uzyj `ILogger` (dodaj `Microsoft.Extensions.Logging` jesli brak).
+2. `ValidationPipelineBehavior<TRequest, TResponse> : IPipelineBehavior` — waliduj request PRZED handlerem. Jesli `TResponse` jest `Result<T>`, zwroc `Result.Failure` dla nieprawidlowych requestow.
+3. Przykladowy walidator dla `ApplyPatchCommand` (sprawdz czy sciezki nie puste).
+4. Zarejestruj w DI jako open generics.
+5. Unit testy: logging verify, validation reject.
+6. Integration test: pelny pipeline request -> validation -> logging -> handler -> response.
+
+**Acceptance criteria:**
+- [ ] Kazdy `IMediator.Send()` jest automatycznie logowany
+- [ ] Nieprawidlowe requesty zwracaja `Result.Failure` ZANIM handler sie wykona
+- [ ] Min. 4 unit testy
+
+---
+
+### M1-10: ArgsOrder w patcherze + pole approved w modelu
+**Labels:** `medium` `feature` `bug`
+**Zalezy od:** M1-03
+
+**Stan obecny — DVA problemy:**
+
+**Problem 1: ArgsOrder NIE jest uzywany w patcherze.**
+`Patcher.cs:131` robi TYLKO:
+```csharp
+fragment.Pieces = translation.GetPieces().ToList();
+```
+ArgsOrder jest parsowane przez `TranslationFileParser` i przechowywane w `Translation`, ale Patcher NIGDY go nie uzywa. ArgRefs w Fragment nie sa reorderowane. To jest brakujaca funkcjonalnosc, nie bug do weryfikacji.
+
+**Problem 2: Pole `approved` NIE jest parsowane.**
+`TranslationFileParser.ParseLine()` czyta `parts[0]` do `parts[4]`. Format ma 6 pol: `file_id||gossip_id||content||args_order||args_id||approved`. Pole `approved` (index 5) jest calkowicie ignorowane. Model `Translation` nie ma `IsApproved`.
+
+**Do zrobienia:**
+1. **ArgsOrder**: Dodaj logike reorderingu ArgRefs w handlerze (lub osobnej metodzie na Fragment):
+   ```
+   Jesli ArgsOrder = [2, 0, 1] (0-indexed, po konwersji z pliku)
+   to ArgRefs powinny byc przelozone w tej kolejnosci
+   ```
+2. **Approved**: Dodaj `bool IsApproved` do `Translation` model. Zmien parser aby czytal `parts[5]` (jesli istnieje). CLI ignoruje wartosc (patchuje wszystko), ale wartosc jest zachowana dla M2 (DB).
+3. Testy z przykladem: "arg2 arg0 arg1" z ArgsOrder=[2,0,1].
+
+**Acceptance criteria:**
+- [ ] ArgsOrder reorderuje ArgRefs w fragment
+- [ ] `Translation.IsApproved` istnieje i jest parsowane z pliku
+- [ ] CLI patchuje niezaleznie od `approved` (zachowanie bez zmian)
+- [ ] Testy: ArgsOrder reorder + approved parsing
+- [ ] Brak regression w istniejacych testach
+
+---
+
+# M2: Baza danych
+
+## Faza A: PostgreSQL + EF Core
+
+### M2-01: Docker + Infrastructure.Persistence + EF Core setup
+**Labels:** `critical` `infra`
+**Zalezy od:** M1-06 (TFM split — Persistence musi byc AnyCPU)
+
+**Do zrobienia — TRZY czesci w jednym tickecie:**
+
+**Czesc 1: docker-compose.yml**
+```yaml
+services:
+  db:
+    image: postgres:17
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_DB: lotro_translations
+      POSTGRES_USER: lotro
+      POSTGRES_PASSWORD: lotro_dev
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+volumes:
+  pgdata:
+```
+Dodaj `.env.example` z credentialami.
+
+**Czesc 2: Nowy projekt Infrastructure.Persistence**
+
+Stworz `LotroKoniecDev.Infrastructure.Persistence` (`net10.0`, AnyCPU):
+- EF Core + Npgsql
+- AppDbContext
+- Reference: Application
+
+**UPROSZCZENIE vs oryginalne tickety:** Tylko DWA projekty Infrastructure (nie trzy):
+- `LotroKoniecDev.Infrastructure` — zostaje jak jest (x86, datexport.dll + caly reszta)
+- `LotroKoniecDev.Infrastructure.Persistence` — nowy (AnyCPU, EF Core)
+
+Nie ma potrzeby rozbijania na .Common — ForumPageFetcher, VersionFileStore itp. zostaja w obecnym Infrastructure. WebApp NIE potrzebuje ForumPageFetcher (update checking to feature CLI/WPF).
+
+**Referencje po zmianie:**
+- CLI -> Infrastructure + Infrastructure.Persistence
+- WebApp -> Infrastructure.Persistence (BEZ Infrastructure)
+- WPF -> Infrastructure + Infrastructure.Persistence
+
+**Czesc 3: EF Core NuGet**
+
+Dodaj do `Directory.Packages.props`:
+- `Microsoft.EntityFrameworkCore`
+- `Npgsql.EntityFrameworkCore.PostgreSQL`
+- `Microsoft.EntityFrameworkCore.Design` (tools)
+
+Stworz `AppDbContext` w Infrastructure.Persistence. Connection string z env variable lub `appsettings.json`.
+
+Zaktualizuj .slnx, DI registration (`AddPersistenceServices(connectionString)`).
+
+**Acceptance criteria:**
+- [ ] `docker-compose up -d` startuje PostgreSQL na localhost:5432
+- [ ] `AppDbContext` kompiluje sie
+- [ ] Connection string konfigurowalny
+- [ ] `dotnet ef` tool dziala z projektem Persistence
+- [ ] Build przechodzi, testy przechodza
+- [ ] Dwa projekty Infrastructure: obecny (x86) + .Persistence (AnyCPU)
+
+---
+
+### M2-02: Entities + migracje + seed
+**Labels:** `high` `feature`
+**Zalezy od:** M2-01
+
+**Do zrobienia:**
+
+**Czesc 1: Entities** w `Infrastructure.Persistence/Entities/`:
+
+1. **LanguageEntity**: Code (PK, `pl`/`en`), Name, IsActive
+2. **ExportedTextEntity**: Id, FileId, GossipId (`long`/bigint), EnglishContent, ImportedAt. UNIQUE(FileId, GossipId).
+3. **TranslationEntity**: Id, FileId, GossipId (`long`/bigint), LanguageCode (FK), Content, ArgsOrder (string), ArgsId, IsApproved, Notes, CreatedAt, UpdatedAt. UNIQUE(FileId, GossipId, LanguageCode).
+4. **TranslationHistoryEntity**: Id, TranslationId (FK), OldContent, NewContent, ChangedAt.
+5. **GlossaryTermEntity**: Id, EnglishTerm, PolishTerm, Notes, Category, CreatedAt. UNIQUE(EnglishTerm, Category).
+6. **TextContextEntity**: Id, FileId, GossipId (`long`/bigint), ContextType, ParentName, ParentCategory, ParentLevel, NpcName, Region, SourceFile, ImportedAt. UNIQUE(FileId, GossipId, ContextType).
+7. **DatVersionEntity**: Id, VnumDatFile, VnumGameData, ForumVersion, DetectedAt.
+
+**WAZNE — GossipId typ `long` (bigint):**
+W Domain `Translation.GossipId` jest `int`, ale `Fragment.FragmentId` jest `ulong` (8 bajtow). Konwersja `(ulong)GossipId` w `Translation.FragmentId` moze tracic dane. W DB entities uzyj `long` (bigint w PostgreSQL).
+
+**Dwa modele Translation:**
+- `Domain.Models.Translation` — init-only DTO dla DAT pipeline (brak DB deps)
+- `Persistence.Entities.TranslationEntity` — EF entity (timestamps, FK)
+- Mapping w repository
+
+**Czesc 2: EF konfiguracja**
+- Fluent API z unique constraints
+- Indexes na (FileId, GossipId) gdzie potrzebne
+
+**Czesc 3: Migracja + seed**
+1. `dotnet ef migrations add InitialCreate`
+2. Auto-migrate w dev: `if (env.IsDevelopment()) await dbContext.Database.MigrateAsync();`
+3. Seed `pl` i `en` do Languages (uzyj `HasData()`)
+
+**Acceptance criteria:**
+- [ ] Wszystkie entities stworzone z GossipId jako `long`
+- [ ] `docker-compose up` + app start -> schema stworzona
+- [ ] Po migracji: Languages ma `pl` i `en`
+- [ ] Seed jest idempotentny
+- [ ] Build przechodzi
+
+---
+
+## Faza B: Repozytoria + Import
+
+### M2-03: ExportedText repository + batch import handler
+**Labels:** `high` `feature`
+**Zalezy od:** M2-02
+
+**Do zrobienia:**
+
+**Czesc 1: IExportedTextRepository** (Application/Abstractions):
+```csharp
+public interface IExportedTextRepository
+{
+    Task<Result> UpsertBatchAsync(IEnumerable<ExportedText> texts);
+    Task<Result<ExportedText?>> GetByIdsAsync(int fileId, long gossipId);
+    Task<Result<int>> GetCountAsync();
+}
+```
+Domain DTO: `ExportedText` record (FileId, GossipId, EnglishContent).
+Implementacja w Persistence z EF Core. Upsert = INSERT ON CONFLICT UPDATE.
+
+**Czesc 2: ImportExportedTextsCommand + Handler**
+```csharp
+public sealed record ImportExportedTextsCommand(string FilePath) : IRequest<Result<ImportSummary>>;
+public sealed record ImportSummary(int Imported, int Updated, int Skipped);
+```
+
+Handler:
+- Parsuj `exported.txt` uzywajac `TranslationFileParser` (format identyczny)
+- **UWAGA SEMANTYCZNA:** Parser zwraca `List<Translation>` gdzie `Content` = angielski tekst zrodlowy. Mapping: `Translation.Content` -> `ExportedTextEntity.EnglishContent`. ArgsOrder/ArgsId/Approved ignorowane przy imporcie exported texts.
+- Batch upsert do `ExportedTexts`
+
+**Testy:**
+- Batch upsert 100k+ rekordow w < 30s
+- Duplicate (FileId, GossipId) -> update content
+- Integration test z prawdziwa baza (TestContainers preferowane)
+
+**Acceptance criteria:**
+- [ ] Batch upsert dziala wydajnie
+- [ ] Drugi import tego samego pliku -> updates, nie duplikaty
+- [ ] Mapping Translation -> ExportedText jest jawny i przetestowany
+- [ ] Min. 3 testy
+
+---
+
+### M2-04: Translation repository + CRUD handlers
+**Labels:** `high` `feature`
+**Zalezy od:** M2-02
+
+**Do zrobienia:**
+
+**Czesc 1: ITranslationRepository** (Application/Abstractions):
+```csharp
+public interface ITranslationRepository
+{
+    Task<Result> UpsertAsync(TranslationDto dto);
+    Task<Result<TranslationDto?>> GetAsync(int fileId, long gossipId, string languageCode);
+    Task<Result<IReadOnlyList<TranslationDto>>> GetAllForLanguageAsync(string languageCode);
+    Task<Result<int>> GetCountAsync(string languageCode);
+    Task<Result<int>> GetApprovedCountAsync(string languageCode);
+}
+```
+`TranslationDto` = Application-level DTO. Auto-history: przy upsert z innym content -> dodaj `TranslationHistoryEntity`.
+
+**Czesc 2: CRUD Commands/Queries**
+1. `CreateTranslationCommand(FileId, GossipId, LanguageCode, Content, ArgsOrder?, Notes?)`
+2. `UpdateTranslationCommand(Id, Content, ArgsOrder?, Notes?)`
+3. `ApproveTranslationCommand(Id)`
+4. `GetTranslationQuery(FileId, GossipId, LanguageCode)`
+5. `ListTranslationsQuery(LanguageCode, Page, PageSize, Filter?)`
+
+**Acceptance criteria:**
+- [ ] Full CRUD + approve
+- [ ] Paginacja dziala
+- [ ] Filter po content / FileId
+- [ ] Historia zmian przy kazdym upsert z innym content
+- [ ] UNIQUE constraint (FileId, GossipId, LanguageCode) enforced
+- [ ] Min. 5 testow
+
+---
+
+### M2-05: Export translations DB -> polish.txt
+**Labels:** `high` `feature`
+**Zalezy od:** M2-04
+
+**Do zrobienia:**
+1. `ExportTranslationsQuery(LanguageCode, OnlyApproved?)`:
+   - Pobierz wszystkie tlumaczenia z DB
+   - Sformatuj do `file_id||gossip_id||content||args_order||args_id||approved`
+   - Posortuj po FileId, GossipId
+   - Zapisz do pliku
+2. Output kompatybilny z istniejacym `TranslationFileParser`.
+
+**Acceptance criteria:**
+- [ ] Wyeksportowany plik jest identyczny formatowo z recznym `polish.txt`
+- [ ] Roundtrip: import -> export -> parse -> patch -> dziala
+- [ ] Test: porownanie export z oryginalem
+
+---
+
+### M2-06: Migracja istniejacego polish.txt do bazy
+**Labels:** `medium` `feature`
+**Zalezy od:** M2-04
+
+**Do zrobienia:**
+1. Stworz komende `import-translations` w CLI:
+   - Parsuj `translations/polish.txt`
+   - Dla kazdej linii: `ITranslationRepository.UpsertAsync()` z `LanguageCode = "pl"`
+2. Ustaw `IsApproved = true` dla wszystkich (juz przetlumaczone i przetestowane).
+
+**Acceptance criteria:**
+- [ ] Wszystkie linie z `polish.txt` sa w bazie
+- [ ] `IsApproved = true`
+- [ ] Duplikat import -> update, nie blad
+
+---
+
+### M2-07: Defensywne parsowanie separatora || w tresci
+**Labels:** `medium` `bug`
+**Zalezy od:** — (brak zaleznosci, mozna robic w dowolnym momencie)
+
+**Stan obecny:**
+`TranslationFileParser.ParseLine()` (linia 69): `line.Split([FieldSeparator], StringSplitOptions.None)`.
+Format ma 6 pol: `file_id||gossip_id||content||args_order||args_id||approved`.
+Jesli `content` zawiera `||` — parser widzi 7+ pol i bierze zly indeks dla args_order.
+
+**Do zrobienia:**
+Strategia: parsuj od lewej i prawej, srodek = content.
+1. Split na `||`
+2. Pierwsze 2 elementy = file_id, gossip_id
+3. Ostatnie 3 elementy = args_order, args_id, approved
+4. Wszystko pomiedzy = content (sklejone z powrotem `||`)
+5. Przetestuj roundtrip: parse -> export -> parse -> identyczny wynik.
+
+**Acceptance criteria:**
+- [ ] Tresc z `||` jest poprawnie parsowana
+- [ ] Roundtrip test: content z `||` -> export -> parse -> identyczny
+- [ ] Istniejace testy TranslationFileParser nadal przechodza
+
+---
+
+## Faza C: LOTRO Companion + Glossary
+
+### M2-08: LOTRO Companion XML parser + TextContexts import
+**Labels:** `high` `feature`
+**Zalezy od:** M2-02
+
+**Kontekst:**
+https://github.com/LotroCompanion/lotro-data zawiera XML z metadanymi:
+- `quests.xml` (~574k linii) — questy z dialogami
+- `deeds.xml` — deedy
+- `NPCs.xml` — NPC
+Format kluczowy: `key:{file_id}:{gossip_id}` — ID zgadzaja sie 1:1 z naszym exportem.
+
+**Do zrobienia:**
+
+**Czesc 1: ITextContextRepository** (Application/Abstractions):
+```csharp
+public interface ITextContextRepository
+{
+    Task<Result> UpsertBatchAsync(IEnumerable<TextContext> contexts);
+    Task<Result<IReadOnlyList<TextContext>>> GetByIdsAsync(int fileId, long gossipId);
+}
+```
+
+**Czesc 2: XML parsery**
+- `QuestXmlParser`, `DeedXmlParser` — parsuj quests.xml, deeds.xml
+- Wyciagnij: `key:{file_id}:{gossip_id}`, nazwa questa/deeda, region, level, NPC
+- Uzyj `XmlReader` (streaming) — pliki sa DUZE
+
+**Czesc 3: ImportContextCommand + Handler**
+- `ImportContextCommand(string XmlDirectoryPath)` — skanuj katalog, parsuj, batch upsert
+- Progress reporting
+
+**Acceptance criteria:**
+- [ ] Parsowanie quests.xml -> lista TextContext z poprawnymi FileId/GossipId
+- [ ] Streaming (nie laduj calego XML do pamieci)
+- [ ] Jeden (FileId, GossipId) moze miec wiele kontekstow (rozne ContextType)
+- [ ] Duplikat import -> update
+- [ ] Min. 3 unit testy z malym XML sample
+
+---
+
+### M2-09: Glossary + DatVersions
+**Labels:** `medium` `feature`
+**Zalezy od:** M2-02
+
+**Do zrobienia:**
+
+**Czesc 1: Glossary**
+1. `IGlossaryRepository` w Application.
+2. CRUD: `CreateTerm`, `UpdateTerm`, `DeleteTerm`, `SearchTerms(query)`, `ListTerms(category?)`.
+3. Kategorie: ProperNouns, Locations, Items, Skills, UI, General.
+4. Seed z ~20 podstawowych terminow Tolkienowskich (Moria, Shire = Hrabstwo, etc.)
+
+**Czesc 2: DatVersions**
+1. Entity + prosta metoda `RecordVersion(vnumDatFile, vnumGameData, forumVersion)`.
+2. Query: `GetLatestVersion()`, `GetHistory(count)`.
+
+**Acceptance criteria:**
+- [ ] Glossary CRUD dziala
+- [ ] Search po EN/PL terminie
+- [ ] UNIQUE(EnglishTerm, Category)
+- [ ] DatVersions rejestruje historie
+- [ ] Min. 4 testy
+
+---
+
+### M2-10: Testy integracyjne — pelen pipeline M2
+**Labels:** `high` `test`
+**Zalezy od:** M2-03..M2-09
+
+**UWAGA:** Projekt `Tests.Integration` jest przygotowany (pusty, z referencja do Infrastructure). Tutaj trafiaja prawdziwe testy integracyjne z baza danych (TestContainers + PostgreSQL).
+
+**Do zrobienia:**
+1. Dodaj TestContainers + PostgreSQL NuGet do `Tests.Integration.csproj` (wzor: TheKittySaver).
+2. `AppFactory` / `IAsyncLifetime` fixture z prawdziwa baza w Dockerze.
+3. Test: CLI export -> import to DB -> translate in DB -> export from DB -> CLI patch.
+4. Test: import exported.txt + import Companion XML -> context jest widoczny.
+5. Test: glossary CRUD.
+
+**Acceptance criteria:**
+- [ ] Pelen roundtrip przechodzi
+- [ ] Kontekst z Companion jest polaczony z ExportedTexts
+- [ ] TestContainers z prawdziwa baza PostgreSQL (nie in-memory)
+
+---
+
+# M3: Aplikacja webowa (Blazor SSR)
+
+### M3-01: Projekt Blazor SSR + DI + layout
+**Labels:** `high` `infra`
+**Zalezy od:** M1-06 (TFM split), M2-01 (Persistence)
+
+**Do zrobienia:**
+1. `dotnet new blazor -n LotroKoniecDev.WebApp --interactivity Server`
+2. TFM: `net10.0`, AnyCPU.
+3. Reference: Application, Infrastructure.Persistence (NIE Infrastructure — to x86).
+4. Dodaj do .slnx.
+5. DI: MediatR, EF Core, DbContext — `AddApplicationServices()`, `AddPersistenceServices(connectionString)`.
+6. Auto-migrate w Development.
+7. Health check na PostgreSQL (`/health`).
+8. Bootstrap layout (sidebar + main content).
+9. Nawigacja: Translations, Quests, Glossary, Import/Export, Dashboard.
+10. Polish UI text.
+
+**Acceptance criteria:**
+- [ ] `dotnet run --project src/LotroKoniecDev.WebApp` startuje na localhost:5000
+- [ ] Layout z nawigacja widoczny
+- [ ] Brak referencji do Infrastructure/DatFile/P/Invoke
+- [ ] MediatR resolve'uje handlery
+- [ ] DbContext injected
+- [ ] Health check `/health` zwraca 200
+
+---
+
+### M3-02: Lista tlumaczen (tabela, filtruj, paginacja)
+**Labels:** `high` `feature`
+**Zalezy od:** M3-01
+
+**Do zrobienia:**
+1. Strona `/translations` — tabela z kolumnami: FileId, GossipId, English, Polish, Status, Context.
+2. Filtrowanie: po tekscie, po statusie (approved/not), po ContextType.
+3. Paginacja (25/50/100 per page).
+4. Sortowanie po kolumnach.
+5. Context z TextContexts (jesli dostepny): nazwa questa, NPC, region.
+
+**Acceptance criteria:**
+- [ ] Tabela wyswietla tlumaczenia z bazy
+- [ ] Filtrowanie po tekscie dziala
+- [ ] Paginacja dziala
+- [ ] Kontekst widoczny (jezeli zaimportowany)
+
+---
+
+### M3-03: Edytor tlumaczen (side-by-side EN/PL + kontekst + placeholdery)
+**Labels:** `high` `feature`
+**Zalezy od:** M3-02
+
+**Do zrobienia:**
+1. Strona `/translations/{id}/edit` lub modal.
+2. Lewy panel: angielski tekst (read-only).
+3. Prawy panel: polski tekst (edytowalny textarea).
+4. Panel kontekstu: quest name, NPC, region, level (z TextContexts).
+5. Podswietlenie `<--DO_NOT_TOUCH!-->` na czerwono (CSS/regex highlight).
+6. Walidacja przy save: liczba placeholderow w PL == liczba w EN. Ostrzezenie jesli niezgodnosc.
+7. Save -> `IMediator.Send(new UpdateTranslationCommand(...))`.
+
+**Acceptance criteria:**
+- [ ] Side-by-side widok
+- [ ] Edycja i zapis dziala
+- [ ] Placeholdery podswietlone
+- [ ] Walidacja placeholderow: rozna liczba -> warning
+- [ ] Kontekst widoczny
+
+---
+
+### M3-04: Dashboard — statystyki
+**Labels:** `medium` `feature`
+**Zalezy od:** M3-01
+
+**Do zrobienia:**
+1. Strona `/dashboard`:
+   - Total strings, translated, approved, untranslated
+   - Progress bar (%)
+   - Ostatnie edycje (10 newest)
+   - Stats per ContextType (quests: 40%, deeds: 20%, etc.)
+2. Uzyj MediatR queries.
+
+**Acceptance criteria:**
+- [ ] Statystyki sa poprawne
+- [ ] Progress bar widoczny
+
+---
+
+### M3-05: Import/Export API endpoints
+**Labels:** `medium` `feature`
+**Zalezy od:** M3-01, M2-03, M2-05
+
+**Do zrobienia:**
+1. `POST /api/v1/db-update` — upload `exported.txt`, import do bazy via handler.
+2. `GET /api/v1/translations/export?lang=pl` — download `polish.txt` via handler.
+3. Minimal API endpoints w WebApp.
+4. Walidacja pliku (rozmiar, format).
+
+**Acceptance criteria:**
+- [ ] Upload exported.txt przez API -> import do DB
+- [ ] Download polish.txt -> kompatybilny z CLI patch
+- [ ] Error handling (zly format, pusty plik)
+
+---
+
+### M3-06: Quest browser + Glossary UI
+**Labels:** `medium` `feature`
+**Zalezy od:** M3-01, M2-08 (kontekst), M2-09 (glossary)
+
+**Do zrobienia:**
+1. Strona `/quests` — lista questow z TextContexts.
+2. Kliknij quest -> lista stringow nalezacych do tego questa.
+3. Grupowanie po region, level, NPC.
+4. Strona `/glossary` — lista terminow, dodawanie/edycja, szukanie, kategorie.
+
+**Acceptance criteria:**
+- [ ] Questy widoczne z pogrupowanymi stringami
+- [ ] Nawigacja quest -> stringi -> edycja
+- [ ] Glossary CRUD w UI
+- [ ] Szukanie po EN/PL
+
+---
+
+### M3-07: UX — keyboard shortcuts + bulk operations
+**Labels:** `low` `feature`
+**Zalezy od:** M3-03
+
+**Do zrobienia:**
+1. `Ctrl+S` — save, `Ctrl+Enter` — save + next, `Ctrl+Shift+Enter` — approve + next.
+2. JS interop dla keyboard events.
+3. Checkbox na kazdym wierszu tabeli, "Approve selected" button.
+4. Batch MediatR command w jednej transakcji.
+
+**Acceptance criteria:**
+- [ ] Skroty dzialaja w edytorze
+- [ ] Bulk approve 50 stringow -> wszystkie approved
+
+---
+
+### M3-08: Docker + style guide + testy
+**Labels:** `medium` `infra` `test`
+**Zalezy od:** M3-02, M3-03
+
+**Do zrobienia:**
+1. `Dockerfile` dla WebApp. Dodaj do `docker-compose.yml`.
+2. Statyczna strona `/style-guide` z zasadami tlumaczenia (markdown -> HTML).
+3. API endpoint tests (WebApplicationFactory).
+4. Component tests (bUnit) dla kluczowych komponentow.
+
+**Acceptance criteria:**
+- [ ] `docker-compose up` startuje WebApp + PostgreSQL
+- [ ] Style guide dostepny
+- [ ] Kluczowe flows przetestowane
+
+---
+
+# M4: Desktop App (LotroPoPolsku.exe)
+
+### M4-01: Projekt WPF + DI + glowne okno
+**Labels:** `high` `infra`
+**Zalezy od:** M1-03 (ApplyPatchCommand), M1-08 (LaunchGameCommand)
+
+**Do zrobienia:**
+1. `dotnet new wpf -n LotroKoniecDev.DesktopApp`
+2. TFM: `net10.0-windows`, x86.
+3. Reference: Application, Infrastructure (DatFile).
+4. DI: MediatR, ten sam co CLI.
+5. Dodaj do .slnx.
+6. Ikona aplikacji (pierscien/tolkienowski motyw) — .ico.
+7. Splash screen przy starcie.
+8. Glowne okno layout:
+   ```
+   ┌────────────────────────────────┐
+   │  LOTRO po Polsku    [_][X]    │
+   ├────────────────────────────────┤
+   │  Status: Gotowe do gry        │
+   │  Wersja gry: 42.1             │
+   │  Wersja patcha: 2024-01-15    │
+   │                                │
+   │  [ Patchuj ]    [ Graj ]      │
+   │                                │
+   │  ████████░░░░░░░ 60%          │
+   └────────────────────────────────┘
+   ```
+9. MVVM ViewModel binding.
+
+**Acceptance criteria:**
+- [ ] Projekt kompiluje sie
+- [ ] Okno WPF sie otwiera z layoutem
+- [ ] DI dziala
+- [ ] Ikona widoczna
+
+---
+
+### M4-02: Przyciski Patchuj + Graj
+**Labels:** `high` `feature`
+**Zalezy od:** M4-01
+
+**Do zrobienia:**
+
+**Przycisk "Patchuj":**
+1. Click -> wczytaj `polish.txt` z LOKALNEGO PLIKU (sciezka w ustawieniach).
+2. `IMediator.Send(new ApplyPatchCommand(filePath, datPath))`.
+3. Progress bar + status text.
+4. Disable przycisk podczas patchowania.
+
+**UWAGA:** Wersja MVP uzywa LOKALNEGO pliku (jak CLI). Pobieranie z web API to enhancement na pozniej (po M3-05).
+
+**Przycisk "Graj":**
+1. Click -> `IMediator.Send(new LaunchGameCommand(...))`.
+2. Protect DAT -> launch -> wait -> unprotect.
+3. Status: "Gra uruchomiona..." -> "Gotowe".
+
+**Acceptance criteria:**
+- [ ] Patchowanie z lokalnego pliku dziala
+- [ ] Launch gry z ochrona DAT
+- [ ] Progress bar animowany
+- [ ] Status updating
+
+---
+
+### M4-03: Auto-detekcja LOTRO + ustawienia
+**Labels:** `high` `feature`
+**Zalezy od:** M4-01
+
+**Do zrobienia:**
+1. Uzyj `IDatFileLocator` (juz istnieje) do auto-detect LOTRO path.
+2. Jesli nie znalezione: dialog "Wybierz folder LOTRO".
+3. Okno/panel ustawien:
+   - Sciezka LOTRO (browse dialog)
+   - Sciezka do polish.txt (browse dialog)
+   - Jezyk tlumaczenia (dropdown, default: Polish)
+   - Auto-patch on launch (checkbox)
+   - URL serwera tlumaczen (default: pusty — dopiero po M3)
+4. Zapis do `%AppData%/LotroPoPolsku/config.json`.
+
+**Acceptance criteria:**
+- [ ] Przy pierwszym starcie: auto-detect lub dialog
+- [ ] Ustawienia edytowalne i persystowane
+- [ ] Zmiana sciezki -> walidacja (czy istnieje DAT)
+
+---
+
+### M4-04: Game update alert
+**Labels:** `high` `feature`
+**Zalezy od:** M4-01, M1-08
+
+**Do zrobienia:**
+1. Banner na gorze okna: "Wykryto aktualizacje gry! Zaktualizuj gre przed patchowaniem."
+2. Przycisk "Graj" zablokowany dopoki wersje nie pasuja.
+3. Instrukcja: "Uruchom oficjalny launcher, zaktualizuj, wroc tutaj."
+
+**Acceptance criteria:**
+- [ ] Banner widoczny przy mismatch wersji
+- [ ] Przycisk "Graj" disabled
+- [ ] Po aktualizacji: banner znika
+
+---
+
+### M4-05: Auto-update apki + installer
+**Labels:** `medium` `feature` `infra`
+**Zalezy od:** M4-01
+
+**Do zrobienia:**
+1. Sprawdz GitHub Releases API przy starcie.
+2. Jesli nowa wersja -> dialog "Dostepna aktualizacja X.Y. Zaktualizowac?"
+3. Pobranie + zastapienie exe.
+4. Installer (MSIX lub Inno Setup): ikona na pulpicie, Start Menu entry, uninstaller.
+
+**Acceptance criteria:**
+- [ ] Detekcja nowej wersji na GitHub
+- [ ] Download + replace dziala
+- [ ] Installer tworzy skrot na pulpicie
+- [ ] Deinstalacja czysta
+
+---
+
+### M4-06: Testy WPF
+**Labels:** `high` `test`
+**Zalezy od:** M4-02
+
+**Do zrobienia:**
+1. ViewModel unit testy (NSubstitute dla IMediator).
+2. Test: Patchuj flow (mock patch).
+3. Test: Launch flow.
+
+**Acceptance criteria:**
+- [ ] ViewModele przetestowane
+- [ ] Kluczowe flows pokryte
+
+---
+
+# M5: Community & Auth (pozniej)
+
+### M5-01: Auth (OpenIddict) — Users + JWT + role
+**Labels:** `low` `feature` — when needed
+
+### M5-02: UserLanguageRoles — role per jezyk
+**Labels:** `low` `feature` — when needed
+
+### M5-03: Review workflow — submit -> review -> approve/reject
+**Labels:** `low` `feature` — when needed
+
+### M5-04: TranslationHistory z ChangedBy
+**Labels:** `low` `feature` — when needed
+
+### M5-05: AI review — LLM sprawdza placeholders, grammar, terminologie
+**Labels:** `low` `feature` — when needed
+
+### M5-06: Powiadomienia — Discord webhook
+**Labels:** `low` `feature` — when needed
+
+### M5-07: Public REST API
+**Labels:** `low` `feature` — when needed
+
+---
+
+# Podsumowanie
+
+## Statystyki
+
+| Milestone | Tickety | Critical | High | Medium | Low |
+|-----------|---------|----------|------|--------|-----|
+| M1 | 10 | 2 | 5 | 2 | 1 |
+| M2 | 10 | 1 | 6 | 3 | 0 |
+| M3 | 8 | 0 | 3 | 4 | 1 |
+| M4 | 6 | 0 | 5 | 1 | 0 |
+| M5 | 7 | 0 | 0 | 0 | 7 |
+| **Total** | **41** | **3** | **19** | **10** | **9** |
+
+## Poprawiony critical path
+
+```
+=== ROWNOLEGLE SCIEZKI (od startu!) ===
+
+Track A: MediatR + CLI refaktor (BEZ CZEKANIA na TFM split)
+  M1-01 (MediatR setup)
+    ├── M1-02 (ExportTextsQuery)  ─┐
+    ├── M1-03 (ApplyPatchCommand) ─┼── M1-05 (refaktor CLI + usun stare)
+    └── M1-04 (PreflightCheckQuery)┘
+
+Track B: Launch infrastructure (BRAK ZALEZNOSCI — start od razu)
+  M1-07 (IDatVersionReader + IDatFileProtector + IGameLauncher)
+    └── M1-05 (Track A) + M1-07 ──→ M1-08 (fix GameUpdateChecker + LaunchGameCommand)
+
+Track C: TFM split (blokuje TYLKO M2/M3)
+  M1-06 (TFM per-project)
+    ├── M2-01 (Docker + Persistence) ──→ M2-02..M2-10
+    └── M3-01 (Blazor SSR)
+
+Track D: Niezalezne (dowolna kolejnosc)
+  M1-09 (pipeline behaviors — low priority)
+  M1-10 (ArgsOrder + approved — medium)
+  M2-07 (parser || fix — brak zaleznosci)
+```
+
+## Stan testow (po pre-M1 cleanup)
+
+```
+Tests.Unit (156 testow):
+  Shared/TestDataFactory.cs          Binary SubFile builder (wspoldzielony)
+  Tests/Core/                        Error, ValueObject, Result, VarLenEncoder
+  Tests/Extensions/                  ResultExtensions (Map, Bind, Match, Combine)
+  Tests/Features/                    ExporterTests, PatcherTests, GameUpdateCheckerTests
+  Tests/Models/                      Fragment, SubFile, Translation
+  Tests/Parsers/                     TranslationFileParser
+
+Tests.Integration (0 testow — zarezerwowany na M2-10):
+  Czeka na TestContainers + PostgreSQL
+```
+
+## Kluczowe poprawki vs oryginal
+
+| Problem w oryginale | Poprawka |
+|---------------------|----------|
+| M1-01 (TFM) blokuje WSZYSTKO w M1 | TFM blokuje TYLKO M2/M3. MediatR idzie od razu |
+| 74 tickety | Skonsolidowane do 41 |
+| 7 osobnych ticket testowych | Testy wliczone w feature tickety |
+| M1-17 + M1-18 duplikaty | Scalone w jeden M1-08 |
+| M1-21 "zweryfikuj approved" | Poprawione: "DODAJ parsowanie approved" (nie jest parsowane!) |
+| M1-20 "zweryfikuj ArgsOrder" | Poprawione: "DODAJ ArgsOrder do patchera" (nie jest uzywany!) |
+| M2-02 trzy projekty Infrastructure | Uproszczone do dwoch (obecny + Persistence) |
+| M4-04 zalezy od M3-08 (web API) | Usunieto: WPF uzywa lokalnych plikow MVP |
+| Brak ticketu na NuGet versions | Wliczone w M1-06 (TFM split) |
+| M1-07 i M1-08 osobne tickety | Scalone w jeden M1-09 (low priority) |

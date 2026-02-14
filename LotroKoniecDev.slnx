@@ -1,4 +1,21 @@
 <Solution>
+  <Folder Name="/docs/">
+    <File Path="docs/PROJECT_PLAN.md" />
+    <File Path="docs/RUSSIAN_PROJECT_RESEARCH.md" />
+    <File Path="docs/TICKETS.md" />
+  </Folder>
+  <Folder Name="/items/">
+    <File Path=".editorconfig" />
+    <File Path=".gitignore" />
+    <File Path="CLAUDE.md" />
+    <File Path="Directory.Build.props" />
+    <File Path="Directory.Packages.props" />
+    <File Path="export.bat" />
+    <File Path="lotro.bat" />
+    <File Path="LotroKoniecDev.sln.DotSettings.user" />
+    <File Path="patch.bat" />
+    <File Path="README.md" />
+  </Folder>
   <Folder Name="/src/">
     <Project Path="src/LotroKoniecDev.Primitives/LotroKoniecDev.Primitives.csproj" />
     <Project Path="src/LotroKoniecDev.Domain/LotroKoniecDev.Domain.csproj" />

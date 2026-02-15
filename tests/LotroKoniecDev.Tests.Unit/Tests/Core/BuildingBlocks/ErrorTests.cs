@@ -48,53 +48,27 @@ public sealed class ErrorTests
         result.ShouldBe("[Validation] Test.Code: Test message");
     }
 
-    [Fact]
-    public void Validation_FactoryMethod_ShouldCreateValidationError()
+    [Theory]
+    [MemberData(nameof(FactoryMethodTestCases))]
+    public void FactoryMethod_ShouldCreateErrorWithCorrectType(
+        Func<string, string, Error> factory, ErrorType expectedType)
     {
         // Act
-        Error error = Error.Validation("Val.Code", "Validation message");
+        Error error = factory("Test.Code", "Test message");
 
         // Assert
-        error.Code.ShouldBe("Val.Code");
-        error.Message.ShouldBe("Validation message");
-        error.Type.ShouldBe(ErrorType.Validation);
+        error.Code.ShouldBe("Test.Code");
+        error.Message.ShouldBe("Test message");
+        error.Type.ShouldBe(expectedType);
     }
 
-    [Fact]
-    public void NotFound_FactoryMethod_ShouldCreateNotFoundError()
+    public static TheoryData<Func<string, string, Error>, ErrorType> FactoryMethodTestCases => new()
     {
-        // Act
-        Error error = Error.NotFound("NotFound.Code", "Not found message");
-
-        // Assert
-        error.Code.ShouldBe("NotFound.Code");
-        error.Message.ShouldBe("Not found message");
-        error.Type.ShouldBe(ErrorType.NotFound);
-    }
-
-    [Fact]
-    public void Failure_FactoryMethod_ShouldCreateFailureError()
-    {
-        // Act
-        Error error = Error.Failure("Fail.Code", "Failure message");
-
-        // Assert
-        error.Code.ShouldBe("Fail.Code");
-        error.Message.ShouldBe("Failure message");
-        error.Type.ShouldBe(ErrorType.Failure);
-    }
-
-    [Fact]
-    public void IoError_FactoryMethod_ShouldCreateIoError()
-    {
-        // Act
-        Error error = Error.IoError("IO.Code", "IO error message");
-
-        // Assert
-        error.Code.ShouldBe("IO.Code");
-        error.Message.ShouldBe("IO error message");
-        error.Type.ShouldBe(ErrorType.IoError);
-    }
+        { Error.Validation, ErrorType.Validation },
+        { Error.NotFound, ErrorType.NotFound },
+        { Error.Failure, ErrorType.Failure },
+        { Error.IoError, ErrorType.IoError },
+    };
 
     [Fact]
     public void Equality_SameValues_ShouldBeEqual()

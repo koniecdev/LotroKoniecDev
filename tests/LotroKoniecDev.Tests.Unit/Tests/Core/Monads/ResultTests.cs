@@ -91,15 +91,7 @@ public sealed class ResultTests
     }
 
     [Fact]
-    public void Constructor_WithSuccessAndError_ShouldThrowInvalidOperationException()
-    {
-        // Act & Assert
-        Func<Result> action = () => Result.Failure(Error.None);
-        action.ShouldThrow<InvalidOperationException>();
-    }
-
-    [Fact]
-    public void Constructor_WithFailureAndNoError_ShouldThrowInvalidOperationException()
+    public void Failure_WithErrorNone_ShouldThrowInvalidOperationException()
     {
         // Act & Assert
         Func<Result> action = () => Result.Failure(Error.None);

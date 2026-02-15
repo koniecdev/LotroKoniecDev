@@ -17,6 +17,11 @@ public static class ApplicationDependencyInjection
     /// </summary>
     public static IServiceCollection AddApplicationServices(this IServiceCollection services)
     {
+        services.AddMediator(options =>
+        {
+            options.ServiceLifetime = ServiceLifetime.Scoped;
+        });
+        
         services.AddSingleton<ITranslationParser, TranslationFileParser>();
         services.AddScoped<IExporter, Exporter>();
         services.AddScoped<IPatcher, Patcher>();

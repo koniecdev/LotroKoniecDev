@@ -22,15 +22,15 @@ public sealed class ResultExtensionsTests
         });
 
         // Assert
-        wasExecuted.Should().BeTrue();
-        capturedValue.Should().Be("test");
+        wasExecuted.ShouldBeTrue();
+        capturedValue.ShouldBe("test");
     }
 
     [Fact]
     public void OnSuccess_WhenFailure_ShouldNotExecuteAction()
     {
         // Arrange
-        Error error = new Error("Test.Error", "Test message");
+        Error error = new("Test.Error", "Test message");
         Result<string> result = Result.Failure<string>(error);
         bool wasExecuted = false;
 
@@ -38,7 +38,7 @@ public sealed class ResultExtensionsTests
         result.OnSuccess(_ => wasExecuted = true);
 
         // Assert
-        wasExecuted.Should().BeFalse();
+        wasExecuted.ShouldBeFalse();
     }
 
     [Fact]
@@ -51,14 +51,14 @@ public sealed class ResultExtensionsTests
         Result<string> returned = result.OnSuccess(_ => { });
 
         // Assert
-        returned.Should().BeSameAs(result);
+        returned.ShouldBeSameAs(result);
     }
 
     [Fact]
     public void OnFailure_WhenFailure_ShouldExecuteAction()
     {
         // Arrange
-        Error error = new Error("Test.Error", "Test message");
+        Error error = new("Test.Error", "Test message");
         Result<string> result = Result.Failure<string>(error);
         bool wasExecuted = false;
         Error? capturedError = null;
@@ -71,8 +71,8 @@ public sealed class ResultExtensionsTests
         });
 
         // Assert
-        wasExecuted.Should().BeTrue();
-        capturedError.Should().Be(error);
+        wasExecuted.ShouldBeTrue();
+        capturedError.ShouldBe(error);
     }
 
     [Fact]
@@ -86,7 +86,7 @@ public sealed class ResultExtensionsTests
         result.OnFailure(_ => wasExecuted = true);
 
         // Assert
-        wasExecuted.Should().BeFalse();
+        wasExecuted.ShouldBeFalse();
     }
 
     [Fact]
@@ -99,23 +99,23 @@ public sealed class ResultExtensionsTests
         Result<int> mapped = result.Map(v => v * 2);
 
         // Assert
-        mapped.IsSuccess.Should().BeTrue();
-        mapped.Value.Should().Be(10);
+        mapped.IsSuccess.ShouldBeTrue();
+        mapped.Value.ShouldBe(10);
     }
 
     [Fact]
     public void Map_WhenFailure_ShouldPreserveError()
     {
         // Arrange
-        Error error = new Error("Test.Error", "Test message");
+        Error error = new("Test.Error", "Test message");
         Result<int> result = Result.Failure<int>(error);
 
         // Act
         Result<int> mapped = result.Map(v => v * 2);
 
         // Assert
-        mapped.IsFailure.Should().BeTrue();
-        mapped.Error.Should().Be(error);
+        mapped.IsFailure.ShouldBeTrue();
+        mapped.Error.ShouldBe(error);
     }
 
     [Fact]
@@ -128,8 +128,8 @@ public sealed class ResultExtensionsTests
         Result<string> bound = result.Bind(v => Result.Success(v.ToString()));
 
         // Assert
-        bound.IsSuccess.Should().BeTrue();
-        bound.Value.Should().Be("5");
+        bound.IsSuccess.ShouldBeTrue();
+        bound.Value.ShouldBe("5");
     }
 
     [Fact]
@@ -137,21 +137,21 @@ public sealed class ResultExtensionsTests
     {
         // Arrange
         Result<int> result = Result.Success(5);
-        Error error = new Error("Test.Error", "Test message");
+        Error error = new("Test.Error", "Test message");
 
         // Act
         Result<string> bound = result.Bind<int, string>(_ => Result.Failure<string>(error));
 
         // Assert
-        bound.IsFailure.Should().BeTrue();
-        bound.Error.Should().Be(error);
+        bound.IsFailure.ShouldBeTrue();
+        bound.Error.ShouldBe(error);
     }
 
     [Fact]
     public void Bind_WhenFailure_ShouldNotExecuteBinder()
     {
         // Arrange
-        Error error = new Error("Test.Error", "Test message");
+        Error error = new("Test.Error", "Test message");
         Result<int> result = Result.Failure<int>(error);
         bool wasExecuted = false;
 
@@ -163,9 +163,9 @@ public sealed class ResultExtensionsTests
         });
 
         // Assert
-        wasExecuted.Should().BeFalse();
-        bound.IsFailure.Should().BeTrue();
-        bound.Error.Should().Be(error);
+        wasExecuted.ShouldBeFalse();
+        bound.IsFailure.ShouldBeTrue();
+        bound.Error.ShouldBe(error);
     }
 
     [Fact]
@@ -178,21 +178,21 @@ public sealed class ResultExtensionsTests
         string value = result.GetValueOrDefault("default");
 
         // Assert
-        value.Should().Be("test");
+        value.ShouldBe("test");
     }
 
     [Fact]
     public void GetValueOrDefault_WhenFailure_ShouldReturnDefault()
     {
         // Arrange
-        Error error = new Error("Test.Error", "Test message");
+        Error error = new("Test.Error", "Test message");
         Result<string> result = Result.Failure<string>(error);
 
         // Act
         string value = result.GetValueOrDefault("default");
 
         // Assert
-        value.Should().Be("default");
+        value.ShouldBe("default");
     }
 
     [Fact]
@@ -207,14 +207,14 @@ public sealed class ResultExtensionsTests
             onFailure: e => $"Failure: {e.Code}");
 
         // Assert
-        matched.Should().Be("Success: 5");
+        matched.ShouldBe("Success: 5");
     }
 
     [Fact]
     public void Match_WhenFailure_ShouldExecuteOnFailure()
     {
         // Arrange
-        Error error = new Error("Test.Error", "Test message");
+        Error error = new("Test.Error", "Test message");
         Result<int> result = Result.Failure<int>(error);
 
         // Act
@@ -223,7 +223,7 @@ public sealed class ResultExtensionsTests
             onFailure: e => $"Failure: {e.Code}");
 
         // Assert
-        matched.Should().Be("Failure: Test.Error");
+        matched.ShouldBe("Failure: Test.Error");
     }
 
     [Fact]
@@ -231,14 +231,14 @@ public sealed class ResultExtensionsTests
     {
         // Arrange
         string value = "test";
-        Error error = new Error("Test.Error", "Test message");
+        Error error = new("Test.Error", "Test message");
 
         // Act
         Result<string> result = value.ToResult(error);
 
         // Assert
-        result.IsSuccess.Should().BeTrue();
-        result.Value.Should().Be("test");
+        result.IsSuccess.ShouldBeTrue();
+        result.Value.ShouldBe("test");
     }
 
     [Fact]
@@ -246,14 +246,14 @@ public sealed class ResultExtensionsTests
     {
         // Arrange
         string? value = null;
-        Error error = new Error("Test.Error", "Test message");
+        Error error = new("Test.Error", "Test message");
 
         // Act
         Result<string> result = value.ToResult(error);
 
         // Assert
-        result.IsFailure.Should().BeTrue();
-        result.Error.Should().Be(error);
+        result.IsFailure.ShouldBeTrue();
+        result.Error.ShouldBe(error);
     }
 
     [Fact]
@@ -271,15 +271,15 @@ public sealed class ResultExtensionsTests
         Result<IReadOnlyList<int>> combined = results.Combine();
 
         // Assert
-        combined.IsSuccess.Should().BeTrue();
-        combined.Value.Should().BeEquivalentTo(new[] { 1, 2, 3 });
+        combined.IsSuccess.ShouldBeTrue();
+        combined.Value.ShouldBe(new[] { 1, 2, 3 });
     }
 
     [Fact]
     public void Combine_WithFailure_ShouldReturnFirstFailure()
     {
         // Arrange
-        Error error = new Error("Test.Error", "Test message");
+        Error error = new("Test.Error", "Test message");
         Result<int>[] results = new[]
         {
             Result.Success(1),
@@ -291,8 +291,8 @@ public sealed class ResultExtensionsTests
         Result<IReadOnlyList<int>> combined = results.Combine();
 
         // Assert
-        combined.IsFailure.Should().BeTrue();
-        combined.Error.Should().Be(error);
+        combined.IsFailure.ShouldBeTrue();
+        combined.Error.ShouldBe(error);
     }
 
     [Fact]
@@ -305,7 +305,7 @@ public sealed class ResultExtensionsTests
         Result<IReadOnlyList<int>> combined = results.Combine();
 
         // Assert
-        combined.IsSuccess.Should().BeTrue();
-        combined.Value.Should().BeEmpty();
+        combined.IsSuccess.ShouldBeTrue();
+        combined.Value.ShouldBeEmpty();
     }
 }

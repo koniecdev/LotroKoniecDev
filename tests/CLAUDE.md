@@ -12,7 +12,7 @@ dotnet test --filter "FullyQualifiedName~Fragment"    # Filter by name
 ## Framework & Libraries
 
 - **xUnit 2.9.3** - Test framework (Fact, Theory, InlineData attributes)
-- **FluentAssertions 8.0.0** - `.Should().BeTrue()`, `.Should().HaveCount()`, etc.
+- **Shouldly 4.3.0** - `.ShouldBe()`, `.ShouldBeTrue()`, `.ShouldContain()`, etc.
 - **NSubstitute 5.3.0** - Mocking: `Substitute.For<IInterface>()`
 - **coverlet.collector 6.0.4** - Code coverage
 
@@ -53,6 +53,6 @@ Currently empty — will be populated in M2 (PostgreSQL + EF Core) and when real
 
 - Test class naming: `{ClassUnderTest}Tests`
 - Method naming: `MethodName_Scenario_ExpectedResult`
-- One assertion concept per test (may have multiple `.Should()` calls)
-- FluentAssertions style only, no raw `Assert.*`
+- One assertion concept per test (may have multiple Shouldly calls)
+- Shouldly style only, no raw `Assert.*`
 - Shared test data builders go in `Shared/` directory

@@ -36,10 +36,10 @@ public sealed class GameUpdateCheckerTests
         Result<GameUpdateCheckResult> result = await _checker.CheckForUpdateAsync(VersionFilePath);
 
         // Assert
-        result.IsSuccess.Should().BeTrue();
-        result.Value.UpdateDetected.Should().BeTrue();
-        result.Value.CurrentVersion.Should().Be("40.2");
-        result.Value.PreviousVersion.Should().Be("40.1");
+        result.IsSuccess.ShouldBeTrue();
+        result.Value.UpdateDetected.ShouldBeTrue();
+        result.Value.CurrentVersion.ShouldBe("40.2");
+        result.Value.PreviousVersion.ShouldBe("40.1");
 
         _mockStore.Received(1).SaveVersion(VersionFilePath, "40.2");
     }
@@ -57,10 +57,10 @@ public sealed class GameUpdateCheckerTests
         Result<GameUpdateCheckResult> result = await _checker.CheckForUpdateAsync(VersionFilePath);
 
         // Assert
-        result.IsSuccess.Should().BeTrue();
-        result.Value.UpdateDetected.Should().BeFalse();
-        result.Value.CurrentVersion.Should().Be("40.1");
-        result.Value.PreviousVersion.Should().Be("40.1");
+        result.IsSuccess.ShouldBeTrue();
+        result.Value.UpdateDetected.ShouldBeFalse();
+        result.Value.CurrentVersion.ShouldBe("40.1");
+        result.Value.PreviousVersion.ShouldBe("40.1");
     }
 
     [Fact]
@@ -94,17 +94,17 @@ public sealed class GameUpdateCheckerTests
         Result<GameUpdateCheckResult> result = await _checker.CheckForUpdateAsync(VersionFilePath);
 
         // Assert
-        result.IsSuccess.Should().BeTrue();
-        result.Value.UpdateDetected.Should().BeTrue();
-        result.Value.CurrentVersion.Should().Be("40.1");
-        result.Value.PreviousVersion.Should().BeNull();
+        result.IsSuccess.ShouldBeTrue();
+        result.Value.UpdateDetected.ShouldBeTrue();
+        result.Value.CurrentVersion.ShouldBe("40.1");
+        result.Value.PreviousVersion.ShouldBeNull();
     }
 
     [Fact]
     public async Task CheckForUpdateAsync_NetworkError_ShouldReturnFailure()
     {
         // Arrange
-        Error networkError = new Error("GameUpdateCheck.NetworkError", "Connection refused", ErrorType.IoError);
+        Error networkError = new("GameUpdateCheck.NetworkError", "Connection refused", ErrorType.IoError);
         _mockFetcher.FetchReleaseNotesPageAsync()
             .Returns(Result.Failure<string>(networkError));
 
@@ -112,8 +112,8 @@ public sealed class GameUpdateCheckerTests
         Result<GameUpdateCheckResult> result = await _checker.CheckForUpdateAsync(VersionFilePath);
 
         // Assert
-        result.IsFailure.Should().BeTrue();
-        result.Error.Code.Should().Be("GameUpdateCheck.NetworkError");
+        result.IsFailure.ShouldBeTrue();
+        result.Error.Code.ShouldBe("GameUpdateCheck.NetworkError");
     }
 
     [Fact]
@@ -128,8 +128,8 @@ public sealed class GameUpdateCheckerTests
         Result<GameUpdateCheckResult> result = await _checker.CheckForUpdateAsync(VersionFilePath);
 
         // Assert
-        result.IsFailure.Should().BeTrue();
-        result.Error.Code.Should().Be("GameUpdateCheck.Failed");
+        result.IsFailure.ShouldBeTrue();
+        result.Error.Code.ShouldBe("GameUpdateCheck.Failed");
     }
 
     [Fact]
@@ -139,7 +139,7 @@ public sealed class GameUpdateCheckerTests
         _mockFetcher.FetchReleaseNotesPageAsync()
             .Returns(Result.Success(ForumPageWithVersion("40.1")));
 
-        Error readError = new Error("GameUpdateCheck.VersionFileError", "Access denied", ErrorType.IoError);
+        Error readError = new("GameUpdateCheck.VersionFileError", "Access denied", ErrorType.IoError);
         _mockStore.ReadLastKnownVersion(VersionFilePath)
             .Returns(Result.Failure<string?>(readError));
 
@@ -147,8 +147,8 @@ public sealed class GameUpdateCheckerTests
         Result<GameUpdateCheckResult> result = await _checker.CheckForUpdateAsync(VersionFilePath);
 
         // Assert
-        result.IsFailure.Should().BeTrue();
-        result.Error.Code.Should().Be("GameUpdateCheck.VersionFileError");
+        result.IsFailure.ShouldBeTrue();
+        result.Error.Code.ShouldBe("GameUpdateCheck.VersionFileError");
     }
 
     [Fact]
@@ -160,7 +160,7 @@ public sealed class GameUpdateCheckerTests
         _mockStore.ReadLastKnownVersion(VersionFilePath)
             .Returns(Result.Success<string?>("40.1"));
 
-        Error saveError = new Error("GameUpdateCheck.VersionFileError", "Disk full", ErrorType.IoError);
+        Error saveError = new("GameUpdateCheck.VersionFileError", "Disk full", ErrorType.IoError);
         _mockStore.SaveVersion(VersionFilePath, "40.2")
             .Returns(Result.Failure(saveError));
 
@@ -168,8 +168,8 @@ public sealed class GameUpdateCheckerTests
         Result<GameUpdateCheckResult> result = await _checker.CheckForUpdateAsync(VersionFilePath);
 
         // Assert
-        result.IsFailure.Should().BeTrue();
-        result.Error.Code.Should().Be("GameUpdateCheck.VersionFileError");
+        result.IsFailure.ShouldBeTrue();
+        result.Error.Code.ShouldBe("GameUpdateCheck.VersionFileError");
     }
 
     [Fact]
@@ -179,7 +179,7 @@ public sealed class GameUpdateCheckerTests
         Func<Task> act = () => _checker.CheckForUpdateAsync(null!);
 
         // Assert
-        await act.Should().ThrowAsync<ArgumentException>();
+        await act.ShouldThrowAsync<ArgumentException>();
     }
 
     [Fact]
@@ -189,7 +189,7 @@ public sealed class GameUpdateCheckerTests
         Func<Task> act = () => _checker.CheckForUpdateAsync("");
 
         // Assert
-        await act.Should().ThrowAsync<ArgumentException>();
+        await act.ShouldThrowAsync<ArgumentException>();
     }
 
     [Fact]
@@ -213,8 +213,8 @@ public sealed class GameUpdateCheckerTests
         Result<GameUpdateCheckResult> result = await _checker.CheckForUpdateAsync(VersionFilePath);
 
         // Assert
-        result.IsSuccess.Should().BeTrue();
-        result.Value.CurrentVersion.Should().Be("40.2");
+        result.IsSuccess.ShouldBeTrue();
+        result.Value.CurrentVersion.ShouldBe("40.2");
     }
 
     [Fact]
@@ -232,8 +232,8 @@ public sealed class GameUpdateCheckerTests
         Result<GameUpdateCheckResult> result = await _checker.CheckForUpdateAsync(VersionFilePath);
 
         // Assert
-        result.IsSuccess.Should().BeTrue();
-        result.Value.CurrentVersion.Should().Be("40.1");
+        result.IsSuccess.ShouldBeTrue();
+        result.Value.CurrentVersion.ShouldBe("40.1");
     }
 
     [Fact]
@@ -251,8 +251,8 @@ public sealed class GameUpdateCheckerTests
         Result<GameUpdateCheckResult> result = await _checker.CheckForUpdateAsync(VersionFilePath);
 
         // Assert
-        result.IsSuccess.Should().BeTrue();
-        result.Value.CurrentVersion.Should().Be("40.2.1");
+        result.IsSuccess.ShouldBeTrue();
+        result.Value.CurrentVersion.ShouldBe("40.2.1");
     }
 
     [Fact]
@@ -260,7 +260,7 @@ public sealed class GameUpdateCheckerTests
     {
         // Act & Assert
         Action act = () => new GameUpdateChecker(null!, _mockStore);
-        act.Should().Throw<ArgumentNullException>();
+        act.ShouldThrow<ArgumentNullException>();
     }
 
     [Fact]
@@ -268,7 +268,7 @@ public sealed class GameUpdateCheckerTests
     {
         // Act & Assert
         Action act = () => new GameUpdateChecker(_mockFetcher, null!);
-        act.Should().Throw<ArgumentNullException>();
+        act.ShouldThrow<ArgumentNullException>();
     }
 
     private static string ForumPageWithVersion(string version) =>

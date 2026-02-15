@@ -17,44 +17,44 @@ public sealed class SubFileTests
         bool result = SubFile.IsTextFile(fileId);
 
         // Assert
-        result.Should().Be(expected);
+        result.ShouldBe(expected);
     }
 
     [Fact]
     public void Parse_NonTextFile_ShouldOnlyReadFileId()
     {
         // Arrange
-        SubFile subFile = new SubFile();
+        SubFile subFile = new();
         byte[] data = BitConverter.GetBytes(0x24000001); // Non-text file
 
         // Act
         subFile.Parse(data);
 
         // Assert
-        subFile.IsText.Should().BeFalse();
-        subFile.FragmentCount.Should().Be(0);
+        subFile.IsText.ShouldBeFalse();
+        subFile.FragmentCount.ShouldBe(0);
     }
 
     [Fact]
     public void Parse_NullData_ShouldThrowArgumentNullException()
     {
         // Arrange
-        SubFile subFile = new SubFile();
+        SubFile subFile = new();
 
         // Act
         Action action = () => subFile.Parse(null!);
 
         // Assert
-        action.Should().Throw<ArgumentNullException>();
+        action.ShouldThrow<ArgumentNullException>();
     }
 
     [Fact]
     public void Parse_TextFileWithNoFragments_ShouldParseCorrectly()
     {
         // Arrange
-        SubFile subFile = new SubFile();
-        using MemoryStream stream = new MemoryStream();
-        using BinaryWriter writer = new BinaryWriter(stream);
+        SubFile subFile = new();
+        using MemoryStream stream = new();
+        using BinaryWriter writer = new(stream);
 
         writer.Write(0x25000001); // File ID (text file)
         writer.Write(new byte[4]); // Unknown1
@@ -67,17 +67,17 @@ public sealed class SubFileTests
         subFile.Parse(data);
 
         // Assert
-        subFile.IsText.Should().BeTrue();
-        subFile.FragmentCount.Should().Be(0);
+        subFile.IsText.ShouldBeTrue();
+        subFile.FragmentCount.ShouldBe(0);
     }
 
     [Fact]
     public void Parse_TextFileWithFragment_ShouldParseFragments()
     {
         // Arrange
-        SubFile subFile = new SubFile();
-        using MemoryStream stream = new MemoryStream();
-        using BinaryWriter writer = new BinaryWriter(stream);
+        SubFile subFile = new();
+        using MemoryStream stream = new();
+        using BinaryWriter writer = new(stream);
 
         writer.Write(0x25000001); // File ID (text file)
         writer.Write(new byte[4]); // Unknown1
@@ -98,19 +98,19 @@ public sealed class SubFileTests
         subFile.Parse(data);
 
         // Assert
-        subFile.IsText.Should().BeTrue();
-        subFile.FragmentCount.Should().Be(1);
-        subFile.Fragments.Should().ContainKey(12345UL);
-        subFile.Fragments[12345UL].GetFullText().Should().Be("Test");
+        subFile.IsText.ShouldBeTrue();
+        subFile.FragmentCount.ShouldBe(1);
+        subFile.Fragments.ShouldContainKey(12345UL);
+        subFile.Fragments[12345UL].GetFullText().ShouldBe("Test");
     }
 
     [Fact]
     public void TryGetFragment_ExistingFragment_ShouldReturnTrue()
     {
         // Arrange
-        SubFile subFile = new SubFile();
-        using MemoryStream stream = new MemoryStream();
-        using BinaryWriter writer = new BinaryWriter(stream);
+        SubFile subFile = new();
+        using MemoryStream stream = new();
+        using BinaryWriter writer = new(stream);
 
         writer.Write(0x25000001);
         writer.Write(new byte[4]);
@@ -129,18 +129,18 @@ public sealed class SubFileTests
         bool found = subFile.TryGetFragment(99999, out Fragment? fragment);
 
         // Assert
-        found.Should().BeTrue();
-        fragment.Should().NotBeNull();
-        fragment!.FragmentId.Should().Be(99999UL);
+        found.ShouldBeTrue();
+        fragment.ShouldNotBeNull();
+        fragment!.FragmentId.ShouldBe(99999UL);
     }
 
     [Fact]
     public void TryGetFragment_NonExistingFragment_ShouldReturnFalse()
     {
         // Arrange
-        SubFile subFile = new SubFile();
-        using MemoryStream stream = new MemoryStream();
-        using BinaryWriter writer = new BinaryWriter(stream);
+        SubFile subFile = new();
+        using MemoryStream stream = new();
+        using BinaryWriter writer = new(stream);
 
         writer.Write(0x25000001);
         writer.Write(new byte[4]);
@@ -153,17 +153,17 @@ public sealed class SubFileTests
         bool found = subFile.TryGetFragment(12345, out Fragment? fragment);
 
         // Assert
-        found.Should().BeFalse();
-        fragment.Should().BeNull();
+        found.ShouldBeFalse();
+        fragment.ShouldBeNull();
     }
 
     [Fact]
     public void Serialize_ShouldProduceValidBinaryData()
     {
         // Arrange
-        SubFile subFile = new SubFile();
-        using MemoryStream stream = new MemoryStream();
-        using BinaryWriter writer = new BinaryWriter(stream);
+        SubFile subFile = new();
+        using MemoryStream stream = new();
+        using BinaryWriter writer = new(stream);
 
         writer.Write(0x25000001);
         writer.Write(new byte[4]);
@@ -183,11 +183,11 @@ public sealed class SubFileTests
         byte[] serialized = subFile.Serialize();
 
         // Assert
-        serialized.Should().NotBeEmpty();
+        serialized.ShouldNotBeEmpty();
         // Re-parse to verify
-        SubFile reparsedSubFile = new SubFile();
+        SubFile reparsedSubFile = new();
         reparsedSubFile.Parse(serialized);
-        reparsedSubFile.FragmentCount.Should().Be(1);
-        reparsedSubFile.Fragments[12345UL].GetFullText().Should().Be("Test");
+        reparsedSubFile.FragmentCount.ShouldBe(1);
+        reparsedSubFile.Fragments[12345UL].GetFullText().ShouldBe("Test");
     }
 }

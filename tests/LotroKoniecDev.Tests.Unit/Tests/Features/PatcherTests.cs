@@ -62,10 +62,10 @@ public sealed class PatcherTests : IDisposable
         Result<PatchSummary> result = _patcher.ApplyTranslations(translationsPath, datPath);
 
         // Assert
-        result.IsSuccess.Should().BeTrue();
-        result.Value.AppliedTranslations.Should().Be(1);
-        result.Value.TotalTranslations.Should().Be(1);
-        result.Value.SkippedTranslations.Should().Be(0);
+        result.IsSuccess.ShouldBeTrue();
+        result.Value.AppliedTranslations.ShouldBe(1);
+        result.Value.TotalTranslations.ShouldBe(1);
+        result.Value.SkippedTranslations.ShouldBe(0);
 
         _mockHandler.Received(1).Flush(0);
         _mockHandler.Received(1).Close(0);
@@ -85,8 +85,8 @@ public sealed class PatcherTests : IDisposable
         Result<PatchSummary> result = _patcher.ApplyTranslations(translationsPath, datPath);
 
         // Assert
-        result.IsFailure.Should().BeTrue();
-        result.Error.Code.Should().Be("Translation.NoTranslations");
+        result.IsFailure.ShouldBeTrue();
+        result.Error.Code.ShouldBe("Translation.NoTranslations");
     }
 
     [Fact]
@@ -96,14 +96,14 @@ public sealed class PatcherTests : IDisposable
         string translationsPath = CreateTempFile("translations.txt");
         string datPath = CreateTempFile("test.dat");
 
-        Error error = new Error("Translation.FileNotFound", "File not found", ErrorType.NotFound);
+        Error error = new("Translation.FileNotFound", "File not found", ErrorType.NotFound);
         _mockParser.ParseFile(translationsPath).Returns(Result.Failure<IReadOnlyList<Translation>>(error));
 
         // Act
         Result<PatchSummary> result = _patcher.ApplyTranslations(translationsPath, datPath);
 
         // Assert
-        result.IsFailure.Should().BeTrue();
+        result.IsFailure.ShouldBeTrue();
     }
 
     [Fact]
@@ -121,15 +121,15 @@ public sealed class PatcherTests : IDisposable
         _mockParser.ParseFile(translationsPath)
             .Returns(Result.Success<IReadOnlyList<Translation>>(translations));
 
-        Error error = new Error("DatFile.CannotOpen", "Cannot open", ErrorType.IoError);
+        Error error = new("DatFile.CannotOpen", "Cannot open", ErrorType.IoError);
         _mockHandler.Open(datPath).Returns(Result.Failure<int>(error));
 
         // Act
         Result<PatchSummary> result = _patcher.ApplyTranslations(translationsPath, datPath);
 
         // Assert
-        result.IsFailure.Should().BeTrue();
-        result.Error.Code.Should().Be("DatFile.CannotOpen");
+        result.IsFailure.ShouldBeTrue();
+        result.Error.Code.ShouldBe("DatFile.CannotOpen");
     }
 
     [Fact]
@@ -153,9 +153,9 @@ public sealed class PatcherTests : IDisposable
         Result<PatchSummary> result = _patcher.ApplyTranslations(translationsPath, datPath);
 
         // Assert
-        result.IsSuccess.Should().BeTrue();
-        result.Value.SkippedTranslations.Should().Be(1);
-        result.Value.Warnings.Should().Contain(w => w.Contains("not found"));
+        result.IsSuccess.ShouldBeTrue();
+        result.Value.SkippedTranslations.ShouldBe(1);
+        result.Value.Warnings.ShouldContain(w => w.Contains("not found"));
     }
 
     [Fact]
@@ -182,9 +182,9 @@ public sealed class PatcherTests : IDisposable
         Result<PatchSummary> result = _patcher.ApplyTranslations(translationsPath, datPath);
 
         // Assert
-        result.IsSuccess.Should().BeTrue();
-        result.Value.SkippedTranslations.Should().Be(1);
-        result.Value.Warnings.Should().Contain(w => w.Contains("not a text file"));
+        result.IsSuccess.ShouldBeTrue();
+        result.Value.SkippedTranslations.ShouldBe(1);
+        result.Value.Warnings.ShouldContain(w => w.Contains("not a text file"));
     }
 
     [Fact]
@@ -214,9 +214,9 @@ public sealed class PatcherTests : IDisposable
         Result<PatchSummary> result = _patcher.ApplyTranslations(translationsPath, datPath);
 
         // Assert
-        result.IsSuccess.Should().BeTrue();
-        result.Value.SkippedTranslations.Should().Be(1);
-        result.Value.Warnings.Should().Contain(w => w.Contains("Fragment 999 not found"));
+        result.IsSuccess.ShouldBeTrue();
+        result.Value.SkippedTranslations.ShouldBe(1);
+        result.Value.Warnings.ShouldContain(w => w.Contains("Fragment 999 not found"));
     }
 
     [Fact]
@@ -250,8 +250,8 @@ public sealed class PatcherTests : IDisposable
         Result<PatchSummary> result = _patcher.ApplyTranslations(translationsPath, datPath);
 
         // Assert
-        result.IsSuccess.Should().BeTrue();
-        result.Value.AppliedTranslations.Should().Be(3);
+        result.IsSuccess.ShouldBeTrue();
+        result.Value.AppliedTranslations.ShouldBe(3);
         _mockHandler.Received(1).GetSubfileData(0, 0x25000001, 100);
         _mockHandler.Received(1).PutSubfileData(0, 0x25000001, Arg.Any<byte[]>(), 1, 1);
     }
@@ -261,7 +261,7 @@ public sealed class PatcherTests : IDisposable
     {
         // Act & Assert
         Action act = () => new Patcher(null!, _mockParser);
-        act.Should().Throw<ArgumentNullException>();
+        act.ShouldThrow<ArgumentNullException>();
     }
 
     [Fact]
@@ -269,7 +269,7 @@ public sealed class PatcherTests : IDisposable
     {
         // Act & Assert
         Action act = () => new Patcher(_mockHandler, null!);
-        act.Should().Throw<ArgumentNullException>();
+        act.ShouldThrow<ArgumentNullException>();
     }
 
     private string CreateTempFile(string name)
@@ -278,4 +278,5 @@ public sealed class PatcherTests : IDisposable
         File.WriteAllText(path, "dummy");
         return path;
     }
+
 }

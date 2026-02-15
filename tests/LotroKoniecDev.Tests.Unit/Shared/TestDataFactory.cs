@@ -11,8 +11,8 @@ internal static class TestDataFactory
     /// </summary>
     internal static byte[] CreateTextSubFileData(int fileId, string text)
     {
-        using MemoryStream stream = new MemoryStream();
-        using BinaryWriter writer = new BinaryWriter(stream);
+        using MemoryStream stream = new();
+        using BinaryWriter writer = new(stream);
 
         writer.Write(fileId);
         writer.Write(new byte[4]); // Unknown1
@@ -36,8 +36,8 @@ internal static class TestDataFactory
     /// </summary>
     internal static byte[] CreateTextSubFileData(int fileId, ulong fragmentId, int fragmentCount)
     {
-        using MemoryStream stream = new MemoryStream();
-        using BinaryWriter writer = new BinaryWriter(stream);
+        using MemoryStream stream = new();
+        using BinaryWriter writer = new(stream);
 
         writer.Write(fileId);
         writer.Write(new byte[4]); // Unknown1

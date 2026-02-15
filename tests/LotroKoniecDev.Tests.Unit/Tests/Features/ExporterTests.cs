@@ -49,9 +49,9 @@ public sealed class ExporterTests : IDisposable
         Result<ExportSummary> result = _exporter.ExportAllTexts(datPath, outputPath);
 
         // Assert
-        result.IsSuccess.Should().BeTrue();
-        result.Value.TotalTextFiles.Should().Be(1);
-        result.Value.OutputPath.Should().Be(outputPath);
+        result.IsSuccess.ShouldBeTrue();
+        result.Value.TotalTextFiles.ShouldBe(1);
+        result.Value.OutputPath.ShouldBe(outputPath);
 
         _mockHandler.Received(1).Close(0);
     }
@@ -63,15 +63,15 @@ public sealed class ExporterTests : IDisposable
         string datPath = CreateTempFile("test.dat");
         string outputPath = Path.Combine(_tempDir, "output.txt");
 
-        Error error = new Error("DatFile.CannotOpen", "Cannot open", ErrorType.IoError);
+        Error error = new("DatFile.CannotOpen", "Cannot open", ErrorType.IoError);
         _mockHandler.Open(datPath).Returns(Result.Failure<int>(error));
 
         // Act
         Result<ExportSummary> result = _exporter.ExportAllTexts(datPath, outputPath);
 
         // Assert
-        result.IsFailure.Should().BeTrue();
-        result.Error.Code.Should().Be("DatFile.CannotOpen");
+        result.IsFailure.ShouldBeTrue();
+        result.Error.Code.ShouldBe("DatFile.CannotOpen");
     }
 
     [Fact]
@@ -79,7 +79,7 @@ public sealed class ExporterTests : IDisposable
     {
         // Act & Assert
         Action act = () => _exporter.ExportAllTexts(null!, "output.txt");
-        act.Should().Throw<ArgumentException>();
+        act.ShouldThrow<ArgumentException>();
     }
 
     [Fact]
@@ -87,7 +87,7 @@ public sealed class ExporterTests : IDisposable
     {
         // Act & Assert
         Action act = () => _exporter.ExportAllTexts("input.dat", null!);
-        act.Should().Throw<ArgumentException>();
+        act.ShouldThrow<ArgumentException>();
     }
 
     [Fact]
@@ -113,8 +113,8 @@ public sealed class ExporterTests : IDisposable
         Result<ExportSummary> result = _exporter.ExportAllTexts(datPath, outputPath);
 
         // Assert
-        result.IsSuccess.Should().BeTrue();
-        result.Value.TotalTextFiles.Should().Be(2);
+        result.IsSuccess.ShouldBeTrue();
+        result.Value.TotalTextFiles.ShouldBe(2);
         _mockHandler.Received(2).GetSubfileData(Arg.Any<int>(), Arg.Any<int>(), Arg.Any<int>());
     }
 
@@ -124,7 +124,7 @@ public sealed class ExporterTests : IDisposable
         // Arrange
         string datPath = CreateTempFile("test.dat");
         string outputPath = Path.Combine(_tempDir, "output.txt");
-        List<(int Processed, int Total)> progressReports = new List<(int Processed, int Total)>();
+        List<(int Processed, int Total)> progressReports = new();
 
         Dictionary<int, (int, int)> fileSizes = Enumerable.Range(1, 600)
             .ToDictionary(
@@ -141,10 +141,10 @@ public sealed class ExporterTests : IDisposable
             (processed, total) => progressReports.Add((processed, total)));
 
         // Assert
-        result.IsSuccess.Should().BeTrue();
-        progressReports.Should().NotBeEmpty();
-        progressReports[0].Processed.Should().Be(500);
-        progressReports[0].Total.Should().Be(600);
+        result.IsSuccess.ShouldBeTrue();
+        progressReports.ShouldNotBeEmpty();
+        progressReports[0].Processed.ShouldBe(500);
+        progressReports[0].Total.ShouldBe(600);
     }
 
     [Fact]
@@ -152,7 +152,7 @@ public sealed class ExporterTests : IDisposable
     {
         // Act & Assert
         Action act = () => new Exporter(null!);
-        act.Should().Throw<ArgumentNullException>();
+        act.ShouldThrow<ArgumentNullException>();
     }
 
     private string CreateTempFile(string name)

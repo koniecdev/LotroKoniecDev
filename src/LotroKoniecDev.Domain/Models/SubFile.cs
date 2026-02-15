@@ -39,8 +39,8 @@ public sealed class SubFile
     {
         ArgumentNullException.ThrowIfNull(data);
 
-        using MemoryStream stream = new MemoryStream(data);
-        using BinaryReader reader = new BinaryReader(stream);
+        using MemoryStream stream = new(data);
+        using BinaryReader reader = new(stream);
 
         FileId = reader.ReadInt32();
 
@@ -57,7 +57,7 @@ public sealed class SubFile
 
         for (int i = 0; i < numFragments; i++)
         {
-            Fragment fragment = new Fragment();
+            Fragment fragment = new();
             fragment.Parse(reader);
             Fragments[fragment.FragmentId] = fragment;
         }
@@ -72,8 +72,8 @@ public sealed class SubFile
     /// <returns>The serialized binary data.</returns>
     public byte[] Serialize(int[]? argsOrder = null, int[]? argsId = null, ulong? targetFragmentId = null)
     {
-        using MemoryStream stream = new MemoryStream();
-        using BinaryWriter writer = new BinaryWriter(stream);
+        using MemoryStream stream = new();
+        using BinaryWriter writer = new(stream);
 
         writer.Write(FileId);
         writer.Write(Unknown1);

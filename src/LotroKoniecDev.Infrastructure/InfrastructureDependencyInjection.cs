@@ -23,7 +23,7 @@ public static class InfrastructureDependencyInjection
         services.AddSingleton<IWriteAccessChecker, WriteAccessChecker>();
         services.AddSingleton<HttpClient>(_ =>
         {
-            HttpClient client = new HttpClient();
+            HttpClient client = new();
             client.DefaultRequestHeaders.UserAgent.ParseAdd("LotroKoniecDev/1.0");
             client.Timeout = TimeSpan.FromSeconds(10);
             return client;

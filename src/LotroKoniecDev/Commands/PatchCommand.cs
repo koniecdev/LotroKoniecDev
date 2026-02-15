@@ -1,4 +1,5 @@
 using LotroKoniecDev.Application.Abstractions;
+using LotroKoniecDev.Application.Features.Patch;
 using LotroKoniecDev.Domain.Core.Monads;
 using LotroKoniecDev.ValueObjects;
 using Microsoft.Extensions.DependencyInjection;
@@ -58,7 +59,7 @@ internal static class PatchCommand
         using IServiceScope scope = serviceProvider.CreateScope();
         IPatcher patcher = scope.ServiceProvider.GetRequiredService<IPatcher>();
 
-        Result<PatchSummary> result = patcher.ApplyTranslations(
+        Result<PatchSummaryResponse> result = patcher.ApplyTranslations(
             translationsPath,
             datPath,
             (applied, total) => WriteProgress($"Patching... {applied}/{total}"));
@@ -70,25 +71,25 @@ internal static class PatchCommand
             return ExitCodes.OperationFailed;
         }
 
-        PatchSummary summary = result.Value;
+        PatchSummaryResponse summaryResponse = result.Value;
 
-        foreach (string warning in summary.Warnings.Take(10))
+        foreach (string warning in summaryResponse.Warnings.Take(10))
         {
             WriteWarning(warning);
         }
 
-        if (summary.Warnings.Count > 10)
+        if (summaryResponse.Warnings.Count > 10)
         {
-            WriteWarning($"... and {summary.Warnings.Count - 10} more warnings");
+            WriteWarning($"... and {summaryResponse.Warnings.Count - 10} more warnings");
         }
 
         Console.WriteLine();
         WriteSuccess("=== PATCH COMPLETE ===");
-        WriteInfo($"Applied {summary.AppliedTranslations:N0} of {summary.TotalTranslations:N0} translations");
+        WriteInfo($"Applied {summaryResponse.AppliedTranslations:N0} of {summaryResponse.TotalTranslations:N0} translations");
 
-        if (summary.SkippedTranslations > 0)
+        if (summaryResponse.SkippedTranslations > 0)
         {
-            WriteWarning($"Skipped: {summary.SkippedTranslations:N0}");
+            WriteWarning($"Skipped: {summaryResponse.SkippedTranslations:N0}");
         }
 
         return ExitCodes.Success;

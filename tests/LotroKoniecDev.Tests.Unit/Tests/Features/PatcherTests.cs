@@ -59,7 +59,7 @@ public sealed class PatcherTests : IDisposable
             .Returns(Result.Success());
 
         // Act
-        Result<PatchSummary> result = _patcher.ApplyTranslations(translationsPath, datPath);
+        Result<PatchSummaryResponse> result = _patcher.ApplyTranslations(translationsPath, datPath);
 
         // Assert
         result.IsSuccess.ShouldBeTrue();
@@ -82,7 +82,7 @@ public sealed class PatcherTests : IDisposable
             .Returns(Result.Success<IReadOnlyList<Translation>>(new List<Translation>()));
 
         // Act
-        Result<PatchSummary> result = _patcher.ApplyTranslations(translationsPath, datPath);
+        Result<PatchSummaryResponse> result = _patcher.ApplyTranslations(translationsPath, datPath);
 
         // Assert
         result.IsFailure.ShouldBeTrue();
@@ -100,7 +100,7 @@ public sealed class PatcherTests : IDisposable
         _mockParser.ParseFile(translationsPath).Returns(Result.Failure<IReadOnlyList<Translation>>(error));
 
         // Act
-        Result<PatchSummary> result = _patcher.ApplyTranslations(translationsPath, datPath);
+        Result<PatchSummaryResponse> result = _patcher.ApplyTranslations(translationsPath, datPath);
 
         // Assert
         result.IsFailure.ShouldBeTrue();
@@ -125,7 +125,7 @@ public sealed class PatcherTests : IDisposable
         _mockHandler.Open(datPath).Returns(Result.Failure<int>(error));
 
         // Act
-        Result<PatchSummary> result = _patcher.ApplyTranslations(translationsPath, datPath);
+        Result<PatchSummaryResponse> result = _patcher.ApplyTranslations(translationsPath, datPath);
 
         // Assert
         result.IsFailure.ShouldBeTrue();
@@ -150,7 +150,7 @@ public sealed class PatcherTests : IDisposable
         _mockHandler.GetAllSubfileSizes(0).Returns(new Dictionary<int, (int, int)>());
 
         // Act
-        Result<PatchSummary> result = _patcher.ApplyTranslations(translationsPath, datPath);
+        Result<PatchSummaryResponse> result = _patcher.ApplyTranslations(translationsPath, datPath);
 
         // Assert
         result.IsSuccess.ShouldBeTrue();
@@ -179,7 +179,7 @@ public sealed class PatcherTests : IDisposable
         });
 
         // Act
-        Result<PatchSummary> result = _patcher.ApplyTranslations(translationsPath, datPath);
+        Result<PatchSummaryResponse> result = _patcher.ApplyTranslations(translationsPath, datPath);
 
         // Assert
         result.IsSuccess.ShouldBeTrue();
@@ -211,7 +211,7 @@ public sealed class PatcherTests : IDisposable
             .Returns(Result.Success(TestDataFactory.CreateTextSubFileData(0x25000001, 1, 1)));
 
         // Act
-        Result<PatchSummary> result = _patcher.ApplyTranslations(translationsPath, datPath);
+        Result<PatchSummaryResponse> result = _patcher.ApplyTranslations(translationsPath, datPath);
 
         // Assert
         result.IsSuccess.ShouldBeTrue();
@@ -247,7 +247,7 @@ public sealed class PatcherTests : IDisposable
             .Returns(Result.Success());
 
         // Act
-        Result<PatchSummary> result = _patcher.ApplyTranslations(translationsPath, datPath);
+        Result<PatchSummaryResponse> result = _patcher.ApplyTranslations(translationsPath, datPath);
 
         // Assert
         result.IsSuccess.ShouldBeTrue();
@@ -287,7 +287,7 @@ public sealed class PatcherTests : IDisposable
             .Returns(Result.Success());
 
         // Act
-        Result<PatchSummary> result = _patcher.ApplyTranslations(translationsPath, datPath);
+        Result<PatchSummaryResponse> result = _patcher.ApplyTranslations(translationsPath, datPath);
 
         // Assert — verify the binary written back contains 2 pieces
         result.IsSuccess.ShouldBeTrue();
@@ -324,7 +324,7 @@ public sealed class PatcherTests : IDisposable
             .Returns(Result.Failure<byte[]>(readError));
 
         // Act
-        Result<PatchSummary> result = _patcher.ApplyTranslations(translationsPath, datPath);
+        Result<PatchSummaryResponse> result = _patcher.ApplyTranslations(translationsPath, datPath);
 
         // Assert
         result.IsSuccess.ShouldBeTrue();

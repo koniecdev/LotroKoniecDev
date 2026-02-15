@@ -1,9 +1,9 @@
-﻿namespace LotroKoniecDev.Application.Abstractions;
+﻿namespace LotroKoniecDev.Application.Features.Patch;
 
 /// <summary>
 /// Contains summary information about a patch operation.
 /// </summary>
-public sealed record PatchSummary(
+public sealed record PatchSummaryResponse(
     int TotalTranslations,
     int AppliedTranslations,
     int SkippedTranslations,

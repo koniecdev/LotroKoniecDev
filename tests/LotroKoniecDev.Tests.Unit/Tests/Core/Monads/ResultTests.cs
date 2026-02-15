@@ -72,7 +72,7 @@ public sealed class ResultTests
         Action action = () => { _ = result.Value; };
 
         // Assert
-        var ex = action.ShouldThrow<InvalidOperationException>();
+        InvalidOperationException ex = action.ShouldThrow<InvalidOperationException>();
         ex.Message.ShouldContain("failure result");
     }
 

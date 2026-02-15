@@ -60,44 +60,42 @@ public sealed class ExportTextsQueryHandler : IQueryHandler<ExportTextsQuery, Re
                 }            
                 
                 Result<SubFile> loadResult = _datFileHandler.LoadSubFile(handle, fileId, size);
-                if (loadResult.IsFailure)
+                if (loadResult.IsSuccess)
                 {
-                    processedFiles++;
-                    continue;
-                }
+                    SubFile subFile = loadResult.Value;
+                    int fragmentCount = 0;
 
-                SubFile subFile = loadResult.Value;
-                int fragmentCount = 0;
-
-                foreach ((ulong fragmentId, Fragment fragment) in subFile.Fragments)
-                {
-                    string text = string.Join(DatFileConstants.PieceSeparator, fragment.Pieces);
-                    
-                    // Escape newlines for single-line storage
-                    text = text.Replace("\r", "\\r").Replace("\n", "\\n");
-                    
-                    // Generate default args_order and args_id if fragment has arguments
-                    string argsOrder = "NULL";
-                    string argsId = "NULL";
-
-                    if (fragment.HasArguments)
+                    foreach ((ulong fragmentId, Fragment fragment) in subFile.Fragments)
                     {
-                        IEnumerable<string> order = Enumerable
-                            .Range(1, fragment.ArgRefs.Count)
-                            .Select(x => x.ToString());
-                        
-                        argsOrder = string.Join("-", order);
-                        argsId = argsOrder; // Default: same order
+                        string text = string.Join(DatFileConstants.PieceSeparator, fragment.Pieces);
+
+                        // Escape newlines for single-line storage
+                        text = text.Replace("\r", "\\r").Replace("\n", "\\n");
+
+                        // Generate default args_order and args_id if fragment has arguments
+                        string argsOrder = "NULL";
+                        string argsId = "NULL";
+
+                        if (fragment.HasArguments)
+                        {
+                            IEnumerable<string> order = Enumerable
+                                .Range(1, fragment.ArgRefs.Count)
+                                .Select(x => x.ToString());
+
+                            argsOrder = string.Join("-", order);
+                            argsId = argsOrder; // Default: same order
+                        }
+
+                        await writer.WriteLineAsync($"{fileId}||{fragmentId}||{text}||{argsOrder}||{argsId}||1");
+
+                        fragmentCount++;
                     }
-                    
-                    await writer.WriteLineAsync($"{fileId}||{fragmentId}||{text}||{argsOrder}||{argsId}||1");
-                    
-                    fragmentCount++;
+
+                    totalFragments += fragmentCount;
                 }
-                
-                totalFragments += fragmentCount;
+
                 processedFiles++;
-                
+
                 if (query.Progress is not null && processedFiles % ProgressReportInterval == 0)
                 {
                     query.Progress.Report(new OperationProgress(processedFiles, totalTextFiles));

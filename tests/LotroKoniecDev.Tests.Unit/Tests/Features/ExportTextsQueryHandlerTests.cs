@@ -6,6 +6,7 @@ using LotroKoniecDev.Domain.Core.BuildingBlocks;
 using LotroKoniecDev.Domain.Core.Monads;
 using LotroKoniecDev.Primitives.Enums;
 using LotroKoniecDev.Tests.Unit.Shared;
+using NSubstitute.ExceptionExtensions;
 
 namespace LotroKoniecDev.Tests.Unit.Tests.Features;
 
@@ -141,7 +142,6 @@ public sealed class ExportTextsQueryHandlerTests : IDisposable
     {
         // Arrange
         string outputPath = Path.Combine(_tempDir, "output.txt");
-        List<OperationProgress> progressReports = [];
 
         Dictionary<int, (int, int)> fileSizes = Enumerable.Range(1, 600)
             .ToDictionary(
@@ -153,7 +153,7 @@ public sealed class ExportTextsQueryHandlerTests : IDisposable
         _mockHandler.GetSubfileData(Arg.Any<int>(), Arg.Any<int>(), Arg.Any<int>())
             .Returns(x => Result.Success(TestDataFactory.CreateTextSubFileData((int)x[1], "Test")));
 
-        Progress<OperationProgress> progress = new(p => progressReports.Add(p));
+        IProgress<OperationProgress> progress = Substitute.For<IProgress<OperationProgress>>();
         ExportTextsQuery query = new("test.dat", outputPath, progress);
 
         // Act
@@ -161,9 +161,7 @@ public sealed class ExportTextsQueryHandlerTests : IDisposable
 
         // Assert
         result.IsSuccess.ShouldBeTrue();
-        progressReports.ShouldNotBeEmpty();
-        progressReports[0].Current.ShouldBe(500);
-        progressReports[0].Total.ShouldBe(600);
+        progress.Received(1).Report(Arg.Is<OperationProgress>(p => p.Current == 500 && p.Total == 600));
     }
 
     [Fact]
@@ -192,28 +190,26 @@ public sealed class ExportTextsQueryHandlerTests : IDisposable
         // Assert — should succeed with partial results, not fail entirely
         result.IsSuccess.ShouldBeTrue();
         result.Value.TotalTextFiles.ShouldBe(2);
+        result.Value.TotalFragments.ShouldBe(1);
     }
 
     [Fact]
-    public async Task Handle_DatFileAlwaysClosed_EvenOnException()
+    public async Task Handle_ExceptionDuringExport_ShouldStillCloseDatFile()
     {
         // Arrange
         string outputPath = Path.Combine(_tempDir, "output.txt");
 
         _mockHandler.Open("test.dat").Returns(Result.Success(42));
-        _mockHandler.GetAllSubfileSizes(42).Returns(new Dictionary<int, (int, int)>
-        {
-            { 0x25000001, (100, 1) }
-        });
-        _mockHandler.GetSubfileData(42, 0x25000001, 100)
-            .Returns(Result.Success(TestDataFactory.CreateTextSubFileData(0x25000001, "Test")));
+        _mockHandler.GetAllSubfileSizes(42)
+            .Throws(new InvalidOperationException("Simulated failure"));
 
         ExportTextsQuery query = new("test.dat", outputPath);
 
         // Act
-        await _sut.Handle(query, CancellationToken.None);
+        Result<ExportSummary> result = await _sut.Handle(query, CancellationToken.None);
 
         // Assert
+        result.IsFailure.ShouldBeTrue();
         _mockHandler.Received(1).Close(42);
     }
 

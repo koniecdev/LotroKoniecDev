@@ -257,6 +257,81 @@ public sealed class PatcherTests : IDisposable
     }
 
     [Fact]
+    public void ApplyTranslations_WithSeparator_ShouldSplitIntoPieces()
+    {
+        // Arrange — translation with <--DO_NOT_TOUCH!--> placeholder
+        string translationsPath = CreateTempFile("translations.txt");
+        string datPath = CreateTempFile("test.dat");
+
+        List<Translation> translations =
+        [
+            new()
+            {
+                FileId = 0x25000001,
+                GossipId = 1,
+                Content = "Witaj<--DO_NOT_TOUCH!-->w Srodziemiu"
+            }
+        ];
+
+        _mockParser.ParseFile(translationsPath)
+            .Returns(Result.Success<IReadOnlyList<Translation>>(translations));
+        _mockHandler.Open(datPath).Returns(Result.Success(0));
+        _mockHandler.GetAllSubfileSizes(0).Returns(new Dictionary<int, (int, int)>
+        {
+            { 0x25000001, (100, 1) }
+        });
+        _mockHandler.GetSubfileVersion(0, 0x25000001).Returns(1);
+        _mockHandler.GetSubfileData(0, 0x25000001, 100)
+            .Returns(Result.Success(TestDataFactory.CreateTextSubFileData(0x25000001, 1, 1)));
+        _mockHandler.PutSubfileData(0, 0x25000001, Arg.Any<byte[]>(), 1, 1)
+            .Returns(Result.Success());
+
+        // Act
+        Result<PatchSummary> result = _patcher.ApplyTranslations(translationsPath, datPath);
+
+        // Assert — verify the binary written back contains 2 pieces
+        result.IsSuccess.ShouldBeTrue();
+        result.Value.AppliedTranslations.ShouldBe(1);
+
+        _mockHandler.Received(1).PutSubfileData(0, 0x25000001,
+            Arg.Is<byte[]>(data => VerifyPatchedPieces(data, "Witaj", "w Srodziemiu")),
+            1, 1);
+    }
+
+    [Fact]
+    public void ApplyTranslations_LoadSubFileFails_ShouldSkipWithWarning()
+    {
+        // Arrange
+        string translationsPath = CreateTempFile("translations.txt");
+        string datPath = CreateTempFile("test.dat");
+
+        List<Translation> translations =
+        [
+            new() { FileId = 0x25000001, GossipId = 1, Content = "Test" }
+        ];
+
+        _mockParser.ParseFile(translationsPath)
+            .Returns(Result.Success<IReadOnlyList<Translation>>(translations));
+        _mockHandler.Open(datPath).Returns(Result.Success(0));
+        _mockHandler.GetAllSubfileSizes(0).Returns(new Dictionary<int, (int, int)>
+        {
+            { 0x25000001, (100, 1) }
+        });
+        _mockHandler.GetSubfileVersion(0, 0x25000001).Returns(1);
+
+        Error readError = new("SubFile.ParseError", "Corrupted data", Primitives.Enums.ErrorType.IoError);
+        _mockHandler.GetSubfileData(0, 0x25000001, 100)
+            .Returns(Result.Failure<byte[]>(readError));
+
+        // Act
+        Result<PatchSummary> result = _patcher.ApplyTranslations(translationsPath, datPath);
+
+        // Assert
+        result.IsSuccess.ShouldBeTrue();
+        result.Value.SkippedTranslations.ShouldBe(1);
+    }
+
+    [Fact]
     public void Constructor_NullHandler_ShouldThrow()
     {
         // Act & Assert
@@ -279,4 +354,14 @@ public sealed class PatcherTests : IDisposable
         return path;
     }
 
+    /// <summary>
+    /// Re-parses serialized SubFile data and checks that the fragment's pieces match expected values.
+    /// </summary>
+    private static bool VerifyPatchedPieces(byte[] data, params string[] expectedPieces)
+    {
+        SubFile subFile = new();
+        subFile.Parse(data);
+        Fragment fragment = subFile.Fragments.Values.First();
+        return fragment.Pieces.SequenceEqual(expectedPieces);
+    }
 }

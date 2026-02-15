@@ -148,6 +148,34 @@ public sealed class ExporterTests : IDisposable
     }
 
     [Fact]
+    public void ExportAllTexts_GetSubfileDataFails_ShouldContinueWithOtherFiles()
+    {
+        // Arrange — 2 text files, first one fails to load
+        string datPath = CreateTempFile("test.dat");
+        string outputPath = Path.Combine(_tempDir, "output.txt");
+
+        Error loadError = new("SubFile.ParseError", "Corrupted", ErrorType.IoError);
+
+        _mockHandler.Open(datPath).Returns(Result.Success(0));
+        _mockHandler.GetAllSubfileSizes(0).Returns(new Dictionary<int, (int, int)>
+        {
+            { 0x25000001, (100, 1) },
+            { 0x25000002, (100, 1) }
+        });
+        _mockHandler.GetSubfileData(0, 0x25000001, 100)
+            .Returns(Result.Failure<byte[]>(loadError));
+        _mockHandler.GetSubfileData(0, 0x25000002, 100)
+            .Returns(Result.Success(TestDataFactory.CreateTextSubFileData(0x25000002, "Working text")));
+
+        // Act
+        Result<ExportSummary> result = _exporter.ExportAllTexts(datPath, outputPath);
+
+        // Assert — should succeed with partial results, not fail entirely
+        result.IsSuccess.ShouldBeTrue();
+        result.Value.TotalTextFiles.ShouldBe(2);
+    }
+
+    [Fact]
     public void Constructor_NullHandler_ShouldThrow()
     {
         // Act & Assert

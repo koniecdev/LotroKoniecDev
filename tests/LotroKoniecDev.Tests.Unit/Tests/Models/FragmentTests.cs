@@ -216,4 +216,89 @@ public sealed class FragmentTests
         reparsedFragment.ArgRefs.Count.ShouldBe(1);
     }
 
+    [Fact]
+    public void Parse_WithArgStrings_ShouldParseArgStringGroups()
+    {
+        // Arrange — fragment with 1 piece, 0 arg refs, 2 arg string groups
+        Fragment fragment = new();
+        using MemoryStream stream = new();
+        using BinaryWriter writer = new(stream);
+
+        writer.Write((ulong)42);
+        writer.Write(1); // 1 piece
+        writer.Write((byte)3);
+        writer.Write(Encoding.Unicode.GetBytes("Hey"));
+        writer.Write(0); // 0 arg refs
+        writer.Write((byte)2); // 2 arg string groups
+
+        // Group 1: 2 strings
+        writer.Write(2);
+        writer.Write((byte)3);
+        writer.Write(Encoding.Unicode.GetBytes("Foo"));
+        writer.Write((byte)3);
+        writer.Write(Encoding.Unicode.GetBytes("Bar"));
+
+        // Group 2: 1 string
+        writer.Write(1);
+        writer.Write((byte)3);
+        writer.Write(Encoding.Unicode.GetBytes("Baz"));
+
+        stream.Position = 0;
+        using BinaryReader reader = new(stream);
+
+        // Act
+        fragment.Parse(reader);
+
+        // Assert
+        fragment.ArgStrings.Count.ShouldBe(2);
+        fragment.ArgStrings[0].ShouldBe(new[] { "Foo", "Bar" });
+        fragment.ArgStrings[1].ShouldBe(new[] { "Baz" });
+    }
+
+    [Fact]
+    public void ParseAndWrite_RoundTrip_WithArgStrings_ShouldPreserveData()
+    {
+        // Arrange — build binary with pieces + arg refs + arg string groups
+        using MemoryStream originalStream = new();
+        using BinaryWriter originalWriter = new(originalStream);
+
+        originalWriter.Write((ulong)555);
+        originalWriter.Write(1); // 1 piece
+        originalWriter.Write((byte)4);
+        originalWriter.Write(Encoding.Unicode.GetBytes("Text"));
+        originalWriter.Write(1); // 1 arg ref
+        originalWriter.Write(new byte[] { 0x01, 0x00, 0x00, 0x00 });
+        originalWriter.Write((byte)1); // 1 arg string group
+        originalWriter.Write(2); // group has 2 strings
+        originalWriter.Write((byte)5);
+        originalWriter.Write(Encoding.Unicode.GetBytes("Alpha"));
+        originalWriter.Write((byte)4);
+        originalWriter.Write(Encoding.Unicode.GetBytes("Beta"));
+
+        byte[] originalData = originalStream.ToArray();
+
+        // Parse
+        Fragment parsed = new();
+        using MemoryStream parseStream = new(originalData);
+        using BinaryReader parseReader = new(parseStream);
+        parsed.Parse(parseReader);
+
+        // Write back
+        using MemoryStream writeStream = new();
+        using BinaryWriter writeWriter = new(writeStream);
+        parsed.Write(writeWriter);
+
+        // Re-parse and verify
+        Fragment reparsed = new();
+        using MemoryStream reparseStream = new(writeStream.ToArray());
+        using BinaryReader reparseReader = new(reparseStream);
+        reparsed.Parse(reparseReader);
+
+        // Assert
+        reparsed.FragmentId.ShouldBe(555UL);
+        reparsed.Pieces.ShouldBe(new[] { "Text" });
+        reparsed.ArgRefs.Count.ShouldBe(1);
+        reparsed.ArgStrings.Count.ShouldBe(1);
+        reparsed.ArgStrings[0].ShouldBe(new[] { "Alpha", "Beta" });
+    }
 }

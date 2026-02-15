@@ -10,7 +10,7 @@ namespace LotroKoniecDev.Infrastructure.DatFile;
 /// </summary>
 public sealed class DatFileHandler : IDatFileHandler
 {
-    private readonly object _lock = new();
+    private readonly Lock _lock = new();
     private readonly HashSet<int> _openHandles = [];
     private bool _disposed;
 
@@ -74,7 +74,7 @@ public sealed class DatFileHandler : IDatFileHandler
 
         if (count <= 0)
         {
-            return new Dictionary<int, (int, int)>();
+            return [];
         }
 
         int[] fileIds = new int[count];
@@ -83,7 +83,7 @@ public sealed class DatFileHandler : IDatFileHandler
 
         DatExportNative.GetSubfileSizes(handle, fileIds, sizes, iterations, 0, count);
 
-        Dictionary<int, (int, int)> result = new Dictionary<int, (int, int)>(count);
+        Dictionary<int, (int, int)> result = new(count);
 
         for (int i = 0; i < count; i++)
         {
@@ -216,16 +216,18 @@ public sealed class DatFileHandler : IDatFileHandler
             shouldClose = _openHandles.Remove(handle);
         }
 
-        if (shouldClose)
+        if (!shouldClose)
         {
-            try
-            {
-                DatExportNative.CloseDatFile(handle);
-            }
-            catch
-            {
-                // Ignore errors during close
-            }
+            return;
+        }
+
+        try
+        {
+            DatExportNative.CloseDatFile(handle);
+        }
+        catch
+        {
+            // Ignore errors during close
         }
     }
 

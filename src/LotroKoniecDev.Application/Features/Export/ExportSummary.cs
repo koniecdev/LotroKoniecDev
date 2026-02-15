@@ -1,0 +1,9 @@
+﻿namespace LotroKoniecDev.Application.Features.Export;
+
+/// <summary>
+/// Contains summary information about an export operation.
+/// </summary>
+public sealed record ExportSummary(
+    int TotalTextFiles,
+    int TotalFragments,
+    string OutputPath);

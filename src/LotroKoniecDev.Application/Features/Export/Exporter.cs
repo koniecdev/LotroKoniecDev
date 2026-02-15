@@ -19,7 +19,8 @@ public sealed class Exporter : IExporter
 
     public Exporter(IDatFileHandler datFileHandler)
     {
-        _datFileHandler = datFileHandler ?? throw new ArgumentNullException(nameof(datFileHandler));
+        ArgumentNullException.ThrowIfNull(datFileHandler);
+        _datFileHandler = datFileHandler;
     }
 
     public Result<ExportSummary> ExportAllTexts(
@@ -60,7 +61,7 @@ public sealed class Exporter : IExporter
 
         try
         {
-            using StreamWriter writer = new StreamWriter(outputPath, false, Encoding.UTF8);
+            using StreamWriter writer = new(outputPath, false, Encoding.UTF8);
 
             WriteHeader(writer);
 

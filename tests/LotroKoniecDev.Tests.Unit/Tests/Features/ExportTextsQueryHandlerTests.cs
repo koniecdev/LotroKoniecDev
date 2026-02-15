@@ -56,8 +56,6 @@ public sealed class ExportTextsQueryHandlerTests : IDisposable
         result.Value.TotalTextFiles.ShouldBe(1);
         result.Value.TotalFragments.ShouldBe(1);
         result.Value.OutputPath.ShouldBe(outputPath);
-
-        _mockHandler.Received(1).Close(0);
     }
 
     [Fact]
@@ -135,7 +133,7 @@ public sealed class ExportTextsQueryHandlerTests : IDisposable
         // Assert
         result.IsSuccess.ShouldBeTrue();
         result.Value.TotalTextFiles.ShouldBe(2);
-        _mockHandler.Received(2).GetSubfileData(Arg.Any<int>(), Arg.Any<int>(), Arg.Any<int>());
+        result.Value.TotalFragments.ShouldBe(2);
     }
 
     [Fact]

@@ -2,6 +2,7 @@ using LotroKoniecDev.Application.Extensions;
 using LotroKoniecDev.Commands;
 using LotroKoniecDev.Infrastructure;
 using LotroKoniecDev.ValueObjects;
+using Mediator;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace LotroKoniecDev;
@@ -28,7 +29,9 @@ internal static class Program
         services.AddInfrastructureServices();
 
         await using ServiceProvider serviceProvider = services.BuildServiceProvider();
-
+        
+        ISender sender = serviceProvider.GetRequiredService<ISender>();
+        
         return command switch
         {
             //export can be parameterless, but it can have the dat file name, and the output file name specified.

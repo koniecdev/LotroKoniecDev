@@ -46,7 +46,7 @@ public sealed class ExporterTests : IDisposable
             .Returns(Result.Success(TestDataFactory.CreateTextSubFileData(0x25000001, "Test text")));
 
         // Act
-        Result<ExportSummary> result = _exporter.ExportAllTexts(datPath, outputPath);
+        Result<ExportSummaryResponse> result = _exporter.ExportAllTexts(datPath, outputPath);
 
         // Assert
         result.IsSuccess.ShouldBeTrue();
@@ -67,7 +67,7 @@ public sealed class ExporterTests : IDisposable
         _mockHandler.Open(datPath).Returns(Result.Failure<int>(error));
 
         // Act
-        Result<ExportSummary> result = _exporter.ExportAllTexts(datPath, outputPath);
+        Result<ExportSummaryResponse> result = _exporter.ExportAllTexts(datPath, outputPath);
 
         // Assert
         result.IsFailure.ShouldBeTrue();
@@ -110,7 +110,7 @@ public sealed class ExporterTests : IDisposable
             .Returns(Result.Success(TestDataFactory.CreateTextSubFileData(0x25000002, "Text2")));
 
         // Act
-        Result<ExportSummary> result = _exporter.ExportAllTexts(datPath, outputPath);
+        Result<ExportSummaryResponse> result = _exporter.ExportAllTexts(datPath, outputPath);
 
         // Assert
         result.IsSuccess.ShouldBeTrue();
@@ -137,7 +137,7 @@ public sealed class ExporterTests : IDisposable
             .Returns(x => Result.Success(TestDataFactory.CreateTextSubFileData((int)x[1], "Test")));
 
         // Act
-        Result<ExportSummary> result = _exporter.ExportAllTexts(datPath, outputPath,
+        Result<ExportSummaryResponse> result = _exporter.ExportAllTexts(datPath, outputPath,
             (processed, total) => progressReports.Add((processed, total)));
 
         // Assert
@@ -168,7 +168,7 @@ public sealed class ExporterTests : IDisposable
             .Returns(Result.Success(TestDataFactory.CreateTextSubFileData(0x25000002, "Working text")));
 
         // Act
-        Result<ExportSummary> result = _exporter.ExportAllTexts(datPath, outputPath);
+        Result<ExportSummaryResponse> result = _exporter.ExportAllTexts(datPath, outputPath);
 
         // Assert — should succeed with partial results, not fail entirely
         result.IsSuccess.ShouldBeTrue();

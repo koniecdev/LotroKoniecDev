@@ -1,3 +1,4 @@
+using LotroKoniecDev.Application.Features.Export;
 using LotroKoniecDev.Domain.Core.Monads;
 
 namespace LotroKoniecDev.Application.Abstractions;
@@ -19,11 +20,3 @@ public interface IExporter
         string outputPath,
         Action<int, int>? progress = null);
 }
-
-/// <summary>
-/// Contains summary information about an export operation.
-/// </summary>
-public sealed record ExportSummary(
-    int TotalTextFiles,
-    int TotalFragments,
-    string OutputPath);

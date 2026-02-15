@@ -79,7 +79,7 @@ If the SUT internally writes to a file (e.g., `StreamWriter`), the test can prov
 Red flags to catch:
 - `File.ReadAllLines` / `File.Exists` / `File.ReadAllText` in assertions → NOT a unit test
 - `HttpClient` without mock → NOT a unit test
-- `DbContext` without in-memory provider → NOT a unit test
+- `DbContext` (be aware that inmemorydb internal ef core package is prohibited as well) → NOT a unit test
 - Test creates real service instances instead of mocks → likely NOT a unit test
 - Test name says "Integration" but lives in `Tests.Unit` → WRONG project
 - `.Received()` on a call whose effect is already proven by asserting on the return value → BRITTLE, remove it

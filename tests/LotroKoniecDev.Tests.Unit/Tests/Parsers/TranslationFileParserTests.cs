@@ -31,7 +31,7 @@ public sealed class TranslationFileParserTests : IDisposable
         Func<Result<IReadOnlyList<Translation>>> action = () => _parser.ParseFile(null!);
 
         // Assert
-        action.Should().Throw<ArgumentException>();
+        action.ShouldThrow<ArgumentException>();
     }
 
     [Fact]
@@ -41,7 +41,7 @@ public sealed class TranslationFileParserTests : IDisposable
         Func<Result<IReadOnlyList<Translation>>> action = () => _parser.ParseFile("   ");
 
         // Assert
-        action.Should().Throw<ArgumentException>();
+        action.ShouldThrow<ArgumentException>();
     }
 
     [Fact]
@@ -54,8 +54,8 @@ public sealed class TranslationFileParserTests : IDisposable
         Result<IReadOnlyList<Translation>> result = _parser.ParseFile(nonExistentPath);
 
         // Assert
-        result.IsFailure.Should().BeTrue();
-        result.Error.Code.Should().Be("Translation.FileNotFound");
+        result.IsFailure.ShouldBeTrue();
+        result.Error.Code.ShouldBe("Translation.FileNotFound");
     }
 
     [Fact]
@@ -69,8 +69,8 @@ public sealed class TranslationFileParserTests : IDisposable
         Result<IReadOnlyList<Translation>> result = _parser.ParseFile(filePath);
 
         // Assert
-        result.IsSuccess.Should().BeTrue();
-        result.Value.Should().BeEmpty();
+        result.IsSuccess.ShouldBeTrue();
+        result.Value.ShouldBeEmpty();
     }
 
     [Fact]
@@ -90,8 +90,8 @@ public sealed class TranslationFileParserTests : IDisposable
         Result<IReadOnlyList<Translation>> result = _parser.ParseFile(filePath);
 
         // Assert
-        result.IsSuccess.Should().BeTrue();
-        result.Value.Should().HaveCount(1);
+        result.IsSuccess.ShouldBeTrue();
+        result.Value.Count.ShouldBe(1);
     }
 
     [Fact]
@@ -106,13 +106,13 @@ public sealed class TranslationFileParserTests : IDisposable
         Result<IReadOnlyList<Translation>> result = _parser.ParseFile(filePath);
 
         // Assert
-        result.IsSuccess.Should().BeTrue();
-        result.Value.Should().HaveCount(1);
-        result.Value[0].FileId.Should().Be(12345);
-        result.Value[0].GossipId.Should().Be(67890);
-        result.Value[0].Content.Should().Be("Hello World");
-        result.Value[0].ArgsOrder.Should().BeNull();
-        result.Value[0].ArgsId.Should().BeNull();
+        result.IsSuccess.ShouldBeTrue();
+        result.Value.Count.ShouldBe(1);
+        result.Value[0].FileId.ShouldBe(12345);
+        result.Value[0].GossipId.ShouldBe(67890);
+        result.Value[0].Content.ShouldBe("Hello World");
+        result.Value[0].ArgsOrder.ShouldBeNull();
+        result.Value[0].ArgsId.ShouldBeNull();
     }
 
     [Fact]
@@ -127,9 +127,9 @@ public sealed class TranslationFileParserTests : IDisposable
         Result<IReadOnlyList<Translation>> result = _parser.ParseFile(filePath);
 
         // Assert
-        result.IsSuccess.Should().BeTrue();
-        result.Value[0].ArgsOrder.Should().BeEquivalentTo([0, 1, 2]); // 1-indexed to 0-indexed
-        result.Value[0].ArgsId.Should().BeEquivalentTo([3, 4, 5]);
+        result.IsSuccess.ShouldBeTrue();
+        result.Value[0].ArgsOrder.ShouldBe(new[] { 0, 1, 2 }); // 1-indexed to 0-indexed
+        result.Value[0].ArgsId.ShouldBe(new[] { 3, 4, 5 });
     }
 
     [Fact]
@@ -144,8 +144,8 @@ public sealed class TranslationFileParserTests : IDisposable
         Result<IReadOnlyList<Translation>> result = _parser.ParseFile(filePath);
 
         // Assert
-        result.IsSuccess.Should().BeTrue();
-        result.Value[0].Content.Should().Be("Line1\nLine2\rLine3");
+        result.IsSuccess.ShouldBeTrue();
+        result.Value[0].Content.ShouldBe("Line1\nLine2\rLine3");
     }
 
     [Fact]
@@ -164,14 +164,14 @@ public sealed class TranslationFileParserTests : IDisposable
         Result<IReadOnlyList<Translation>> result = _parser.ParseFile(filePath);
 
         // Assert
-        result.IsSuccess.Should().BeTrue();
-        result.Value.Should().HaveCount(3);
-        result.Value[0].FileId.Should().Be(100);
-        result.Value[0].GossipId.Should().Be(200);
-        result.Value[1].FileId.Should().Be(100);
-        result.Value[1].GossipId.Should().Be(300);
-        result.Value[2].FileId.Should().Be(200);
-        result.Value[2].GossipId.Should().Be(300);
+        result.IsSuccess.ShouldBeTrue();
+        result.Value.Count.ShouldBe(3);
+        result.Value[0].FileId.ShouldBe(100);
+        result.Value[0].GossipId.ShouldBe(200);
+        result.Value[1].FileId.ShouldBe(100);
+        result.Value[1].GossipId.ShouldBe(300);
+        result.Value[2].FileId.ShouldBe(200);
+        result.Value[2].GossipId.ShouldBe(300);
     }
 
     [Fact]
@@ -181,8 +181,8 @@ public sealed class TranslationFileParserTests : IDisposable
         Result<Translation> result = _parser.ParseLine("");
 
         // Assert
-        result.IsFailure.Should().BeTrue();
-        result.Error.Code.Should().Be("Translation.InvalidFormat");
+        result.IsFailure.ShouldBeTrue();
+        result.Error.Code.ShouldBe("Translation.InvalidFormat");
     }
 
     [Fact]
@@ -192,8 +192,8 @@ public sealed class TranslationFileParserTests : IDisposable
         Result<Translation> result = _parser.ParseLine("100||200||Content");
 
         // Assert
-        result.IsFailure.Should().BeTrue();
-        result.Error.Code.Should().Be("Translation.InvalidFormat");
+        result.IsFailure.ShouldBeTrue();
+        result.Error.Code.ShouldBe("Translation.InvalidFormat");
     }
 
     [Fact]
@@ -203,8 +203,8 @@ public sealed class TranslationFileParserTests : IDisposable
         Result<Translation> result = _parser.ParseLine("not_a_number||200||Content||NULL||NULL||1");
 
         // Assert
-        result.IsFailure.Should().BeTrue();
-        result.Error.Code.Should().Be("Translation.ParseError");
+        result.IsFailure.ShouldBeTrue();
+        result.Error.Code.ShouldBe("Translation.ParseError");
     }
 
     [Fact]
@@ -214,8 +214,8 @@ public sealed class TranslationFileParserTests : IDisposable
         Result<Translation> result = _parser.ParseLine("100||not_a_number||Content||NULL||NULL||1");
 
         // Assert
-        result.IsFailure.Should().BeTrue();
-        result.Error.Code.Should().Be("Translation.ParseError");
+        result.IsFailure.ShouldBeTrue();
+        result.Error.Code.ShouldBe("Translation.ParseError");
     }
 
     [Fact]
@@ -225,10 +225,10 @@ public sealed class TranslationFileParserTests : IDisposable
         Result<Translation> result = _parser.ParseLine("100||200||Test content||NULL||NULL||1");
 
         // Assert
-        result.IsSuccess.Should().BeTrue();
-        result.Value.FileId.Should().Be(100);
-        result.Value.GossipId.Should().Be(200);
-        result.Value.Content.Should().Be("Test content");
+        result.IsSuccess.ShouldBeTrue();
+        result.Value.FileId.ShouldBe(100);
+        result.Value.GossipId.ShouldBe(200);
+        result.Value.Content.ShouldBe("Test content");
     }
 
     [Fact]
@@ -247,7 +247,7 @@ public sealed class TranslationFileParserTests : IDisposable
         Result<IReadOnlyList<Translation>> result = _parser.ParseFile(filePath);
 
         // Assert
-        result.IsSuccess.Should().BeTrue();
-        result.Value.Should().HaveCount(2);
+        result.IsSuccess.ShouldBeTrue();
+        result.Value.Count.ShouldBe(2);
     }
 }

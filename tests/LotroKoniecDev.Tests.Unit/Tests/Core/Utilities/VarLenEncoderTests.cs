@@ -11,14 +11,14 @@ public sealed class VarLenEncoderTests
     public void Read_SingleByteValue_ShouldReturnCorrectValue(int value)
     {
         // Arrange
-        using MemoryStream stream = new MemoryStream([(byte)value]);
-        using BinaryReader reader = new BinaryReader(stream);
+        using MemoryStream stream = new([(byte)value]);
+        using BinaryReader reader = new(stream);
 
         // Act
         int result = VarLenEncoder.Read(reader);
 
         // Assert
-        result.Should().Be(value);
+        result.ShouldBe(value);
     }
 
     [Theory]
@@ -30,24 +30,24 @@ public sealed class VarLenEncoderTests
         // Arrange
         byte highByte = (byte)((value >> 8) | 0x80);
         byte lowByte = (byte)(value & 0xFF);
-        using MemoryStream stream = new MemoryStream([highByte, lowByte]);
-        using BinaryReader reader = new BinaryReader(stream);
+        using MemoryStream stream = new([highByte, lowByte]);
+        using BinaryReader reader = new(stream);
 
         // Act
         int result = VarLenEncoder.Read(reader);
 
         // Assert
-        result.Should().Be(value);
+        result.ShouldBe(value);
     }
 
     [Fact]
     public void Read_NullReader_ShouldThrowArgumentNullException()
     {
         // Act
-        Func<int> action = () => VarLenEncoder.Read(null!);
+        Action action = () => VarLenEncoder.Read(null!);
 
         // Assert
-        action.Should().Throw<ArgumentNullException>();
+        action.ShouldThrow<ArgumentNullException>();
     }
 
     [Theory]
@@ -57,15 +57,15 @@ public sealed class VarLenEncoderTests
     public void Write_SingleByteValue_ShouldWriteOneByte(int value)
     {
         // Arrange
-        using MemoryStream stream = new MemoryStream();
-        using BinaryWriter writer = new BinaryWriter(stream);
+        using MemoryStream stream = new();
+        using BinaryWriter writer = new(stream);
 
         // Act
         VarLenEncoder.Write(writer, value);
 
         // Assert
-        stream.ToArray().Should().HaveCount(1);
-        stream.ToArray()[0].Should().Be((byte)value);
+        stream.ToArray().Length.ShouldBe(1);
+        stream.ToArray()[0].ShouldBe((byte)value);
     }
 
     [Theory]
@@ -75,17 +75,17 @@ public sealed class VarLenEncoderTests
     public void Write_TwoByteValue_ShouldWriteTwoBytes(int value)
     {
         // Arrange
-        using MemoryStream stream = new MemoryStream();
-        using BinaryWriter writer = new BinaryWriter(stream);
+        using MemoryStream stream = new();
+        using BinaryWriter writer = new(stream);
 
         // Act
         VarLenEncoder.Write(writer, value);
 
         // Assert
         byte[] bytes = stream.ToArray();
-        bytes.Should().HaveCount(2);
-        bytes[0].Should().Be((byte)((value >> 8) | 0x80));
-        bytes[1].Should().Be((byte)(value & 0xFF));
+        bytes.Length.ShouldBe(2);
+        bytes[0].ShouldBe((byte)((value >> 8) | 0x80));
+        bytes[1].ShouldBe((byte)(value & 0xFF));
     }
 
     [Fact]
@@ -95,35 +95,35 @@ public sealed class VarLenEncoderTests
         Action action = () => VarLenEncoder.Write(null!, 42);
 
         // Assert
-        action.Should().Throw<ArgumentNullException>();
+        action.ShouldThrow<ArgumentNullException>();
     }
 
     [Fact]
     public void Write_NegativeValue_ShouldThrowArgumentOutOfRangeException()
     {
         // Arrange
-        using MemoryStream stream = new MemoryStream();
-        using BinaryWriter writer = new BinaryWriter(stream);
+        using MemoryStream stream = new();
+        using BinaryWriter writer = new(stream);
 
         // Act
         Action action = () => VarLenEncoder.Write(writer, -1);
 
         // Assert
-        action.Should().Throw<ArgumentOutOfRangeException>();
+        action.ShouldThrow<ArgumentOutOfRangeException>();
     }
 
     [Fact]
     public void Write_ValueExceedsMaximum_ShouldThrowArgumentOutOfRangeException()
     {
         // Arrange
-        using MemoryStream stream = new MemoryStream();
-        using BinaryWriter writer = new BinaryWriter(stream);
+        using MemoryStream stream = new();
+        using BinaryWriter writer = new(stream);
 
         // Act
         Action action = () => VarLenEncoder.Write(writer, 32768);
 
         // Assert
-        action.Should().Throw<ArgumentOutOfRangeException>();
+        action.ShouldThrow<ArgumentOutOfRangeException>();
     }
 
     [Theory]
@@ -137,17 +137,17 @@ public sealed class VarLenEncoderTests
         int result = VarLenEncoder.GetEncodedLength(value);
 
         // Assert
-        result.Should().Be(expectedLength);
+        result.ShouldBe(expectedLength);
     }
 
     [Fact]
     public void GetEncodedLength_NegativeValue_ShouldThrowArgumentOutOfRangeException()
     {
         // Act
-        Func<int> action = () => VarLenEncoder.GetEncodedLength(-1);
+        Action action = () => VarLenEncoder.GetEncodedLength(-1);
 
         // Assert
-        action.Should().Throw<ArgumentOutOfRangeException>();
+        action.ShouldThrow<ArgumentOutOfRangeException>();
     }
 
     [Theory]
@@ -160,17 +160,17 @@ public sealed class VarLenEncoderTests
     public void ReadWrite_RoundTrip_ShouldPreserveValue(int value)
     {
         // Arrange
-        using MemoryStream writeStream = new MemoryStream();
-        using BinaryWriter writer = new BinaryWriter(writeStream);
+        using MemoryStream writeStream = new();
+        using BinaryWriter writer = new(writeStream);
         VarLenEncoder.Write(writer, value);
 
-        using MemoryStream readStream = new MemoryStream(writeStream.ToArray());
-        using BinaryReader reader = new BinaryReader(readStream);
+        using MemoryStream readStream = new(writeStream.ToArray());
+        using BinaryReader reader = new(readStream);
 
         // Act
         int result = VarLenEncoder.Read(reader);
 
         // Assert
-        result.Should().Be(value);
+        result.ShouldBe(value);
     }
 }

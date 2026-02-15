@@ -1,7 +1,10 @@
 <Project Sdk="Microsoft.NET.Sdk">
-
-  <ItemGroup>
-    <ProjectReference Include="..\LotroKoniecDev.Primitives\LotroKoniecDev.Primitives.csproj" />
-  </ItemGroup>
-
+    <PropertyGroup>
+        <TargetFramework>net10.0</TargetFramework>
+        <PlatformTarget>AnyCPU</PlatformTarget>
+    </PropertyGroup>
+    
+    <ItemGroup>
+        <ProjectReference Include="..\LotroKoniecDev.Primitives\LotroKoniecDev.Primitives.csproj"/>
+    </ItemGroup>
 </Project>

@@ -1,34 +1,39 @@
 <Project Sdk="Microsoft.NET.Sdk">
+    <PropertyGroup>
+        <TargetFramework>net10.0</TargetFramework>
+        <PlatformTarget>AnyCPU</PlatformTarget>
+    </PropertyGroup>
+    
+    <PropertyGroup>
+        <IsPackable>false</IsPackable>
+        <RootNamespace>LotroKoniecDev.Tests.Unit</RootNamespace>
+    </PropertyGroup>
 
-  <PropertyGroup>
-    <IsPackable>false</IsPackable>
-    <RootNamespace>LotroKoniecDev.Tests.Unit</RootNamespace>
-  </PropertyGroup>
+    <ItemGroup>
+        <PackageReference Include="coverlet.collector">
+            <PrivateAssets>all</PrivateAssets>
+            <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+        </PackageReference>
+        <PackageReference Include="Microsoft.NET.Test.Sdk"/>
+        <PackageReference Include="NSubstitute"/>
+        <PackageReference Include="Shouldly" />
+        <PackageReference Include="xunit"/>
+        <PackageReference Include="xunit.runner.visualstudio">
+            <PrivateAssets>all</PrivateAssets>
+            <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+        </PackageReference>
+    </ItemGroup>
 
-  <ItemGroup>
-    <PackageReference Include="coverlet.collector">
-      <PrivateAssets>all</PrivateAssets>
-      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
-    </PackageReference>
-    <PackageReference Include="FluentAssertions" />
-    <PackageReference Include="Microsoft.NET.Test.Sdk" />
-    <PackageReference Include="NSubstitute" />
-    <PackageReference Include="xunit" />
-    <PackageReference Include="xunit.runner.visualstudio">
-      <PrivateAssets>all</PrivateAssets>
-      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
-    </PackageReference>
-  </ItemGroup>
+    <ItemGroup>
+        <Using Include="Xunit"/>
+        <Using Include="Shouldly"/>
+        <Using Include="NSubstitute"/>
+    </ItemGroup>
 
-  <ItemGroup>
-    <Using Include="Xunit"/>
-    <Using Include="FluentAssertions"/>
-  </ItemGroup>
-
-  <ItemGroup>
-    <ProjectReference Include="..\..\src\LotroKoniecDev.Primitives\LotroKoniecDev.Primitives.csproj" />
-    <ProjectReference Include="..\..\src\LotroKoniecDev.Domain\LotroKoniecDev.Domain.csproj" />
-    <ProjectReference Include="..\..\src\LotroKoniecDev.Application\LotroKoniecDev.Application.csproj" />
-  </ItemGroup>
+    <ItemGroup>
+        <ProjectReference Include="..\..\src\LotroKoniecDev.Primitives\LotroKoniecDev.Primitives.csproj"/>
+        <ProjectReference Include="..\..\src\LotroKoniecDev.Domain\LotroKoniecDev.Domain.csproj"/>
+        <ProjectReference Include="..\..\src\LotroKoniecDev.Application\LotroKoniecDev.Application.csproj"/>
+    </ItemGroup>
 
 </Project>

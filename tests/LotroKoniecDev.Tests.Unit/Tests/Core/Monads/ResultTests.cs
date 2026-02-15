@@ -13,24 +13,24 @@ public sealed class ResultTests
         Result result = Result.Success();
 
         // Assert
-        result.IsSuccess.Should().BeTrue();
-        result.IsFailure.Should().BeFalse();
-        result.Error.Should().Be(Error.None);
+        result.IsSuccess.ShouldBeTrue();
+        result.IsFailure.ShouldBeFalse();
+        result.Error.ShouldBe(Error.None);
     }
 
     [Fact]
     public void Failure_ShouldCreateFailedResult()
     {
         // Arrange
-        Error error = new Error("Test.Error", "Test error message");
+        Error error = new("Test.Error", "Test error message");
 
         // Act
         Result result = Result.Failure(error);
 
         // Assert
-        result.IsSuccess.Should().BeFalse();
-        result.IsFailure.Should().BeTrue();
-        result.Error.Should().Be(error);
+        result.IsSuccess.ShouldBeFalse();
+        result.IsFailure.ShouldBeTrue();
+        result.Error.ShouldBe(error);
     }
 
     [Fact]
@@ -43,37 +43,37 @@ public sealed class ResultTests
         Result<string> result = Result.Success(value);
 
         // Assert
-        result.IsSuccess.Should().BeTrue();
-        result.Value.Should().Be(value);
+        result.IsSuccess.ShouldBeTrue();
+        result.Value.ShouldBe(value);
     }
 
     [Fact]
     public void FailureWithValue_ShouldCreateFailedResultWithError()
     {
         // Arrange
-        Error error = new Error("Test.Error", "Test error message");
+        Error error = new("Test.Error", "Test error message");
 
         // Act
         Result<string> result = Result.Failure<string>(error);
 
         // Assert
-        result.IsSuccess.Should().BeFalse();
-        result.Error.Should().Be(error);
+        result.IsSuccess.ShouldBeFalse();
+        result.Error.ShouldBe(error);
     }
 
     [Fact]
     public void Value_WhenAccessingOnFailure_ShouldThrowInvalidOperationException()
     {
         // Arrange
-        Error error = new Error("Test.Error", "Test error message");
+        Error error = new("Test.Error", "Test error message");
         Result<string> result = Result.Failure<string>(error);
 
         // Act
-        Func<string> action = () => result.Value;
+        Action action = () => { _ = result.Value; };
 
         // Assert
-        action.Should().Throw<InvalidOperationException>()
-            .WithMessage("Cannot access the value of a failure result.");
+        var ex = action.ShouldThrow<InvalidOperationException>();
+        ex.Message.ShouldContain("failure result");
     }
 
     [Fact]
@@ -86,27 +86,15 @@ public sealed class ResultTests
         Result<int> result = value;
 
         // Assert
-        result.IsSuccess.Should().BeTrue();
-        result.Value.Should().Be(42);
+        result.IsSuccess.ShouldBeTrue();
+        result.Value.ShouldBe(42);
     }
 
     [Fact]
-    public void Constructor_WithSuccessAndError_ShouldThrowInvalidOperationException()
+    public void Failure_WithErrorNone_ShouldThrowInvalidOperationException()
     {
-        // Arrange
-        Error error = new Error("Test.Error", "Test error message");
-
-        // Act & Assert - This tests internal validation through static factories
+        // Act & Assert
         Func<Result> action = () => Result.Failure(Error.None);
-        action.Should().Throw<InvalidOperationException>();
-    }
-
-    [Fact]
-    public void Constructor_WithFailureAndNoError_ShouldThrowInvalidOperationException()
-    {
-        // Act & Assert - Failure with Error.None should throw
-        // We can't directly test this, but the static factory handles it
-        Func<Result> action = () => Result.Failure(Error.None);
-        action.Should().Throw<InvalidOperationException>();
+        action.ShouldThrow<InvalidOperationException>();
     }
 }

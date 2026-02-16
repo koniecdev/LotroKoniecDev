@@ -736,37 +736,147 @@ public interface ITextContextRepository
 
 ---
 
-# M3: Aplikacja webowa (Blazor SSR)
+## Faza D: Przygotowanie do M3
 
-### M3-01: Projekt Blazor SSR + DI + layout
+### M2-11: Rozdziel Application na Core + DatFile + Persistence
+**Labels:** `high` `refactor`
+**Zalezy od:** M2-04 (pierwsze handlery DB-owe istnieja)
+**Blokuje:** M3-01 (Web referencuje tylko Application.Core + Application.Persistence)
+
+**Kontekst:**
+Obecne Application zawiera handlery dla dwoch roznych concerns:
+- DAT-owe (ExportTextsQuery, ApplyPatchCommand, LaunchGameCommand) — uzywane przez CLI + WPF
+- DB-owe (Translation CRUD, Import/Export) — uzywane przez Web
+
+Web App nie potrzebuje `IDatFileHandler`, a CLI/WPF nie potrzebuja `ITranslationRepository`.
+Jeden Application = naruszenie ISP + bledne wiring wykrywane w runtime zamiast compile-time.
+Split daje symetrie z Infrastructure (Infrastructure + Infrastructure.Persistence).
+
+**Do zrobienia:**
+
+**1. Application.Core** (`net10.0`, AnyCPU):
+- `ITranslationParser`, `TranslationFileParser`
+- `OperationProgress`, `IOperationStatusReporter`
+- Pipeline behaviors (Logging, Validation) — jesli istnieja po M1-09
+- Shared abstractions i extensions
+- Reference: Domain, Primitives
+
+**2. Application.DatFile** (`net10.0`, AnyCPU):
+- `ExportTextsQuery` + Handler
+- `ApplyPatchCommand` + Handler
+- `LaunchGameCommand` + Handler
+- `IDatFileHandler`, `IDatFileLocator`, `IDatPathResolver`, `IDatVersionReader`, `IDatFileProtector`, `IGameLauncher`
+- `IGameProcessDetector`, `IWriteAccessChecker`
+- Reference: Application.Core
+
+**3. Application.Persistence** (`net10.0`, AnyCPU):
+- Translation CRUD handlers (z M2-04)
+- `ImportExportedTextsCommand` + Handler (z M2-03)
+- `ExportTranslationsQuery` + Handler (z M2-05)
+- `ITranslationRepository`, `IExportedTextRepository`, `ITextContextRepository`, `IGlossaryRepository`
+- Reference: Application.Core
+
+**Referencje po zmianie:**
+
+| Host | References |
+|------|-----------|
+| CLI | Application.Core + Application.DatFile |
+| WPF | Application.Core + Application.DatFile |
+| Web | Application.Core + Application.Persistence |
+| Tests.Unit | Application.Core + Application.DatFile (+ .Persistence gdy DB testy) |
+
+**Zaktualizuj:**
+- .slnx — trzy projekty zamiast jednego
+- DI registration per host (`AddDatFileApplicationServices()`, `AddPersistenceApplicationServices()`)
+- Istniejace test references
+- CLAUDE.md (architektura, project structure)
+
+**Acceptance criteria:**
+- [ ] Trzy projekty Application: Core, DatFile, Persistence
+- [ ] Web App NIE referencuje Application.DatFile
+- [ ] CLI/WPF NIE referencuje Application.Persistence
+- [ ] Bledne wiring = compile error, nie runtime error
+- [ ] Build + testy ok
+- [ ] Istniejace testy przechodza bez zmian
+
+---
+
+# M3: API + Aplikacja webowa (Blazor SSR)
+
+**Architektura:** Trzy osobne hosty — API (centralny backend), Blazor SSR (UI dla tlumaczen), AuthServer (M5).
+Blazor NIE laczy sie z baza bezposrednio — wszystko przez API via `IApiClient` (typed HttpClient).
+
+## Faza A: Backend API
+
+### M3-01: Projekt API — Minimal API + Translation endpoints
 **Labels:** `high` `infra`
-**Zalezy od:** M1-06 (TFM split), M2-01 (Persistence)
+**Zalezy od:** M1-06 (TFM split), M2-01 (Persistence), M2-11 (Application split)
+**Blokuje:** M3-02, M3-05
+
+**Kontekst:**
+API to centralny backend dla WSZYSTKICH konsumentow: Blazor WebApp, CLI (download polish.txt), WPF (download polish.txt), przyszli klienci zewnetrzni.
+
+**Do zrobienia:**
+1. `dotnet new webapi -n LotroKoniecDev.Api --use-minimal-apis`
+2. TFM: `net10.0`, AnyCPU.
+3. Reference: Application.Core, Application.Persistence, Infrastructure.Persistence.
+4. Dodaj do .slnx.
+5. DI: MediatR + EF Core — `AddCoreApplicationServices()`, `AddPersistenceApplicationServices()`, `AddPersistenceServices(connectionString)`.
+6. Health check (`/health`).
+7. Swagger/OpenAPI (`/swagger`).
+8. Translation CRUD endpoints (deleguja do MediatR handlers z M2-04):
+   - `GET /api/v1/translations?lang=pl&page=1&pageSize=25&filter=...`
+   - `GET /api/v1/translations/{id}`
+   - `POST /api/v1/translations`
+   - `PUT /api/v1/translations/{id}`
+   - `POST /api/v1/translations/{id}/approve`
+9. CORS policy dla Blazor WebApp origin.
+10. Auto-migrate w Development.
+
+**Acceptance criteria:**
+- [ ] `dotnet run --project src/LotroKoniecDev.Api` startuje na localhost:5100
+- [ ] Swagger UI widoczny na /swagger
+- [ ] CRUD endpoints odpowiadaja JSON
+- [ ] Health check zwraca 200
+- [ ] Brak referencji do Application.DatFile, Infrastructure (x86)
+- [ ] CORS umozliwia wywolania z WebApp
+
+---
+
+## Faza B: Blazor SSR
+
+### M3-02: Projekt Blazor SSR + DI + layout
+**Labels:** `high` `infra`
+**Zalezy od:** M3-01 (API musi istniec)
+**Blokuje:** M3-03, M3-04, M3-06, M3-07, M3-08
 
 **Do zrobienia:**
 1. `dotnet new blazor -n LotroKoniecDev.WebApp --interactivity Server`
 2. TFM: `net10.0`, AnyCPU.
-3. Reference: Application, Infrastructure.Persistence (NIE Infrastructure — to x86).
+3. Reference: Application.Core (TYLKO dla DTO/kontraktow — response records). BEZ Application.Persistence, BEZ Infrastructure.
 4. Dodaj do .slnx.
-5. DI: MediatR, EF Core, DbContext — `AddApplicationServices()`, `AddPersistenceServices(connectionString)`.
-6. Auto-migrate w Development.
-7. Health check na PostgreSQL (`/health`).
-8. Bootstrap layout (sidebar + main content).
-9. Nawigacja: Translations, Quests, Glossary, Import/Export, Dashboard.
-10. Polish UI text.
+5. `IApiClient` interface + implementacja — typed HttpClient wrapper do komunikacji z API.
+6. DI: `builder.Services.AddHttpClient<IApiClient, ApiClient>(...)`.
+7. Bootstrap layout (sidebar + main content).
+8. Nawigacja: Translations, Quests, Glossary, Import/Export, Dashboard.
+9. Polish UI text.
+10. Konfiguracja URL API w `appsettings.json` (`ApiBaseUrl`).
 
 **Acceptance criteria:**
 - [ ] `dotnet run --project src/LotroKoniecDev.WebApp` startuje na localhost:5000
 - [ ] Layout z nawigacja widoczny
-- [ ] Brak referencji do Infrastructure/DatFile/P/Invoke
-- [ ] MediatR resolve'uje handlery
-- [ ] DbContext injected
-- [ ] Health check `/health` zwraca 200
+- [ ] Brak referencji do Application.Persistence, Application.DatFile, Infrastructure
+- [ ] `IApiClient` zarejestrowany w DI
+- [ ] Wywolanie health check API z WebApp dziala
 
 ---
 
-### M3-02: Lista tlumaczen (tabela, filtruj, paginacja)
+## Faza C: Funkcjonalnosci
+
+### M3-03: Lista tlumaczen (tabela, filtruj, paginacja)
 **Labels:** `high` `feature`
-**Zalezy od:** M3-01
+**Zalezy od:** M3-02
+**Blokuje:** M3-04
 
 **Do zrobienia:**
 1. Strona `/translations` — tabela z kolumnami: FileId, GossipId, English, Polish, Status, Context.
@@ -774,48 +884,71 @@ public interface ITextContextRepository
 3. Paginacja (25/50/100 per page).
 4. Sortowanie po kolumnach.
 5. Context z TextContexts (jesli dostepny): nazwa questa, NPC, region.
+6. Wszystkie dane przez `IApiClient` → `GET /api/v1/translations?...`.
 
 **Acceptance criteria:**
-- [ ] Tabela wyswietla tlumaczenia z bazy
+- [ ] Tabela wyswietla tlumaczenia z API
 - [ ] Filtrowanie po tekscie dziala
 - [ ] Paginacja dziala
 - [ ] Kontekst widoczny (jezeli zaimportowany)
 
 ---
 
-### M3-03: Edytor tlumaczen (side-by-side EN/PL + kontekst + placeholdery)
+### M3-04: Edytor tlumaczen (side-by-side EN/PL + kontekst + placeholdery)
 **Labels:** `high` `feature`
-**Zalezy od:** M3-02
+**Zalezy od:** M3-03
 
 **Do zrobienia:**
 1. Strona `/translations/{id}/edit` lub modal.
 2. Lewy panel: angielski tekst (read-only).
 3. Prawy panel: polski tekst (edytowalny textarea).
-4. Panel kontekstu: quest name, NPC, region, level (z TextContexts).
+4. Panel kontekstu: quest name, NPC, region, level (z TextContexts via API).
 5. Podswietlenie `<--DO_NOT_TOUCH!-->` na czerwono (CSS/regex highlight).
 6. Walidacja przy save: liczba placeholderow w PL == liczba w EN. Ostrzezenie jesli niezgodnosc.
-7. Save -> `IMediator.Send(new UpdateTranslationCommand(...))`.
+7. Save → `IApiClient` → `PUT /api/v1/translations/{id}`.
 
 **Acceptance criteria:**
 - [ ] Side-by-side widok
-- [ ] Edycja i zapis dziala
+- [ ] Edycja i zapis przez API dziala
 - [ ] Placeholdery podswietlone
 - [ ] Walidacja placeholderow: rozna liczba -> warning
 - [ ] Kontekst widoczny
 
 ---
 
-### M3-04: Dashboard — statystyki
+### M3-05: API — Import/Export endpoints
 **Labels:** `medium` `feature`
-**Zalezy od:** M3-01
+**Zalezy od:** M3-01, M2-03, M2-05
 
 **Do zrobienia:**
-1. Strona `/dashboard`:
-   - Total strings, translated, approved, untranslated
+1. `POST /api/v1/import/exported-texts` — upload `exported.txt`, import do bazy via MediatR handler (M2-03).
+2. `GET /api/v1/translations/export?lang=pl&onlyApproved=false` — download `polish.txt` via handler (M2-05).
+3. Endpointy w projekcie Api.
+4. Walidacja pliku (rozmiar, format).
+5. Streaming response dla duzych eksportow.
+6. Uzywane przez: Blazor (upload/download UI), CLI (download polish.txt), WPF (download polish.txt).
+
+**Acceptance criteria:**
+- [ ] Upload exported.txt przez API → import do DB
+- [ ] Download polish.txt → kompatybilny z CLI patch
+- [ ] Error handling (zly format, pusty plik)
+- [ ] Streaming dla duzych plikow
+
+---
+
+### M3-06: Dashboard — statystyki
+**Labels:** `medium` `feature`
+**Zalezy od:** M3-02
+
+**Do zrobienia:**
+1. API endpoints w projekcie Api:
+   - `GET /api/v1/stats` — total, translated, approved, untranslated, per ContextType
+   - `GET /api/v1/translations/recent?count=10`
+2. Strona `/dashboard` w WebApp:
    - Progress bar (%)
-   - Ostatnie edycje (10 newest)
+   - Ostatnie edycje
    - Stats per ContextType (quests: 40%, deeds: 20%, etc.)
-2. Uzyj MediatR queries.
+3. Dane przez `IApiClient`.
 
 **Acceptance criteria:**
 - [ ] Statystyki sa poprawne
@@ -823,32 +956,19 @@ public interface ITextContextRepository
 
 ---
 
-### M3-05: Import/Export API endpoints
+### M3-07: Quest browser + Glossary UI
 **Labels:** `medium` `feature`
-**Zalezy od:** M3-01, M2-03, M2-05
+**Zalezy od:** M3-02, M2-08 (kontekst), M2-09 (glossary)
 
 **Do zrobienia:**
-1. `POST /api/v1/db-update` — upload `exported.txt`, import do bazy via handler.
-2. `GET /api/v1/translations/export?lang=pl` — download `polish.txt` via handler.
-3. Minimal API endpoints w WebApp.
-4. Walidacja pliku (rozmiar, format).
-
-**Acceptance criteria:**
-- [ ] Upload exported.txt przez API -> import do DB
-- [ ] Download polish.txt -> kompatybilny z CLI patch
-- [ ] Error handling (zly format, pusty plik)
-
----
-
-### M3-06: Quest browser + Glossary UI
-**Labels:** `medium` `feature`
-**Zalezy od:** M3-01, M2-08 (kontekst), M2-09 (glossary)
-
-**Do zrobienia:**
-1. Strona `/quests` — lista questow z TextContexts.
-2. Kliknij quest -> lista stringow nalezacych do tego questa.
-3. Grupowanie po region, level, NPC.
-4. Strona `/glossary` — lista terminow, dodawanie/edycja, szukanie, kategorie.
+1. API endpoints w projekcie Api:
+   - `GET /api/v1/quests?region=...&level=...`
+   - `GET /api/v1/quests/{id}/strings`
+   - `GET /api/v1/glossary?search=...&category=...`
+   - `POST/PUT/DELETE /api/v1/glossary`
+2. Strona `/quests` w WebApp — lista questow, klik -> stringi, grupowanie po region/level/NPC.
+3. Strona `/glossary` w WebApp — lista terminow, dodawanie/edycja, szukanie, kategorie.
+4. Dane przez `IApiClient`.
 
 **Acceptance criteria:**
 - [ ] Questy widoczne z pogrupowanymi stringami
@@ -858,15 +978,15 @@ public interface ITextContextRepository
 
 ---
 
-### M3-07: UX — keyboard shortcuts + bulk operations
+### M3-08: UX — keyboard shortcuts + bulk operations
 **Labels:** `low` `feature`
-**Zalezy od:** M3-03
+**Zalezy od:** M3-04
 
 **Do zrobienia:**
 1. `Ctrl+S` — save, `Ctrl+Enter` — save + next, `Ctrl+Shift+Enter` — approve + next.
 2. JS interop dla keyboard events.
 3. Checkbox na kazdym wierszu tabeli, "Approve selected" button.
-4. Batch MediatR command w jednej transakcji.
+4. Bulk approve → `POST /api/v1/translations/bulk-approve` (endpoint w Api).
 
 **Acceptance criteria:**
 - [ ] Skroty dzialaja w edytorze
@@ -874,18 +994,22 @@ public interface ITextContextRepository
 
 ---
 
-### M3-08: Docker + style guide + testy
+## Faza D: DevOps
+
+### M3-09: Docker + style guide + testy
 **Labels:** `medium` `infra` `test`
-**Zalezy od:** M3-02, M3-03
+**Zalezy od:** M3-03, M3-04
 
 **Do zrobienia:**
-1. `Dockerfile` dla WebApp. Dodaj do `docker-compose.yml`.
-2. Statyczna strona `/style-guide` z zasadami tlumaczenia (markdown -> HTML).
-3. API endpoint tests (WebApplicationFactory).
-4. Component tests (bUnit) dla kluczowych komponentow.
+1. `Dockerfile` dla Api. `Dockerfile` dla WebApp. Dodaj do `docker-compose.yml`.
+2. `docker-compose up` uruchamia: PostgreSQL + Api + WebApp (3 serwisy).
+3. Statyczna strona `/style-guide` w WebApp z zasadami tlumaczenia (markdown -> HTML).
+4. API endpoint tests (WebApplicationFactory).
+5. Blazor component tests (bUnit) dla kluczowych komponentow.
 
 **Acceptance criteria:**
-- [ ] `docker-compose up` startuje WebApp + PostgreSQL
+- [ ] `docker-compose up` startuje PostgreSQL + Api + WebApp
+- [ ] Api dostepny na :5100, WebApp na :5000
 - [ ] Style guide dostepny
 - [ ] Kluczowe flows przetestowane
 
@@ -900,7 +1024,7 @@ public interface ITextContextRepository
 **Do zrobienia:**
 1. `dotnet new wpf -n LotroKoniecDev.DesktopApp`
 2. TFM: `net10.0-windows`, x86.
-3. Reference: Application, Infrastructure (DatFile).
+3. Reference: Application.Core, Application.DatFile, Infrastructure.
 4. DI: MediatR, ten sam co CLI.
 5. Dodaj do .slnx.
 6. Ikona aplikacji (pierscien/tolkienowski motyw) — .ico.
@@ -941,7 +1065,7 @@ public interface ITextContextRepository
 3. Progress bar + status text.
 4. Disable przycisk podczas patchowania.
 
-**UWAGA:** Wersja MVP uzywa LOKALNEGO pliku (jak CLI). Pobieranie z web API to enhancement na pozniej (po M3-05).
+**UWAGA:** Wersja MVP uzywa LOKALNEGO pliku (jak CLI). Pobieranie z API (`GET /api/v1/translations/export`) to enhancement na pozniej (po M3-05).
 
 **Przycisk "Graj":**
 1. Click -> `IMediator.Send(new LaunchGameCommand(...))`.
@@ -968,7 +1092,7 @@ public interface ITextContextRepository
    - Sciezka do polish.txt (browse dialog)
    - Jezyk tlumaczenia (dropdown, default: Polish)
    - Auto-patch on launch (checkbox)
-   - URL serwera tlumaczen (default: pusty — dopiero po M3)
+   - URL API (default: pusty — dopiero po M3-05)
 4. Zapis do `%AppData%/LotroPoPolsku/config.json`.
 
 **Acceptance criteria:**
@@ -1027,28 +1151,152 @@ public interface ITextContextRepository
 
 ---
 
-# M5: Community & Auth (pozniej)
+# M5: Auth & Community
 
-### M5-01: Auth (OpenIddict) — Users + JWT + role
-**Labels:** `low` `feature` — when needed
+**Architektura:** Osobny host `LotroKoniecDev.AuthServer` (OpenIddict).
+Wydaje JWT tokeny, zarzadza uzytkownikami i rolami. API waliduje tokeny, Blazor loguje przez redirect.
 
-### M5-02: UserLanguageRoles — role per jezyk
-**Labels:** `low` `feature` — when needed
+## Faza A: Auth Server
 
-### M5-03: Review workflow — submit -> review -> approve/reject
-**Labels:** `low` `feature` — when needed
+### M5-01: OpenIddict Auth Server project
+**Labels:** `high` `infra`
+**Zalezy od:** M2-01 (Persistence — user/identity tables w shared DbContext)
+**Blokuje:** M5-02, M5-03
 
-### M5-04: TranslationHistory z ChangedBy
-**Labels:** `low` `feature` — when needed
+**Do zrobienia:**
+1. `dotnet new web -n LotroKoniecDev.AuthServer`
+2. TFM: `net10.0`, AnyCPU.
+3. NuGet: `OpenIddict` (server components), `Microsoft.AspNetCore.Identity.EntityFrameworkCore`.
+4. Reference: Infrastructure.Persistence (shared AppDbContext rozszerzony o Identity tables).
+5. Entities: `ApplicationUser : IdentityUser`, `ApplicationRole : IdentityRole`.
+6. Migracja: Identity tables + OpenIddict tables (clients, tokens, scopes).
+7. OpenIddict konfiguracja:
+   - Authorization code flow + PKCE (dla Blazor WebApp)
+   - Client credentials flow (dla CLI/WPF)
+   - Token endpoint (`/connect/token`)
+   - Authorization endpoint (`/connect/authorize`)
+   - Userinfo endpoint (`/connect/userinfo`)
+8. Seed: admin user + client registrations (WebApp, Api, CLI, WPF).
+9. Login/Register/Logout Razor Pages (minimalne UI).
+10. Dockerfile + wpis w docker-compose.
 
-### M5-05: AI review — LLM sprawdza placeholders, grammar, terminologie
-**Labels:** `low` `feature` — when needed
+**Acceptance criteria:**
+- [ ] Auth Server startuje na localhost:5200
+- [ ] Token endpoint zwraca JWT
+- [ ] Login page dziala
+- [ ] Seed tworzy admin user + 4 client registrations
+- [ ] `docker-compose up` startuje PostgreSQL + Api + WebApp + AuthServer
 
-### M5-06: Powiadomienia — Discord webhook
-**Labels:** `low` `feature` — when needed
+---
 
-### M5-07: Public REST API
-**Labels:** `low` `feature` — when needed
+## Faza B: Integracja auth
+
+### M5-02: API auth integration (JWT + [Authorize])
+**Labels:** `high` `feature`
+**Zalezy od:** M5-01, M3-01
+**Blokuje:** M5-04, M5-05
+
+**Do zrobienia:**
+1. Dodaj OpenIddict validation do Api projektu.
+2. JWT Bearer authentication z Auth Server jako issuer.
+3. `[Authorize]` / `.RequireAuthorization()` na endpointach wymagajacych autentykacji.
+4. Polityki autoryzacji: `Translator`, `Reviewer`, `Admin`.
+5. Anonimowy dostep do: `/health`, `/swagger`, `GET /api/v1/translations/export` (CLI/WPF bez logowania).
+6. Wymagana autentykacja: CRUD, import, approve, bulk operations.
+
+**Acceptance criteria:**
+- [ ] Nieautoryzowane requesty do chronionych endpointow → 401
+- [ ] Poprawny JWT → dostep
+- [ ] Role-based access dziala (Translator moze edytowac, Reviewer moze approve)
+- [ ] Export endpoint publiczny (CLI/WPF pobieraja bez logowania)
+- [ ] Swagger pokazuje wymagania auth
+
+---
+
+### M5-03: Blazor auth integration (login, session)
+**Labels:** `high` `feature`
+**Zalezy od:** M5-01, M3-02
+
+**Do zrobienia:**
+1. OpenIddict client w WebApp (authorization code flow + PKCE).
+2. Login button w navbar → redirect do Auth Server → callback → cookie session.
+3. `IApiClient` dodaje JWT Bearer token do requestow.
+4. `[Authorize]` na stronach wymagajacych logowania (edycja, approve).
+5. Strony read-only (lista, dashboard) dostepne bez logowania.
+6. User info w navbar (nazwa uzytkownika, rola).
+7. Logout → clear session + redirect do Auth Server logout.
+
+**Acceptance criteria:**
+- [ ] Login flow: WebApp → AuthServer → callback → zalogowany
+- [ ] Session persystowana (cookie)
+- [ ] Chronione strony wymagaja logowania
+- [ ] IApiClient wysyla token
+- [ ] User info widoczny w navbar
+- [ ] Logout dziala
+
+---
+
+## Faza C: Role i workflow
+
+### M5-04: UserLanguageRoles — role per jezyk
+**Labels:** `low` `feature`
+**Zalezy od:** M5-02
+
+**Do zrobienia:**
+1. Entity `UserLanguageRole`: UserId, LanguageCode, Role (Translator/Reviewer).
+2. Admin UI: przypisywanie rol per jezyk.
+3. API endpoint: `GET/POST /api/v1/admin/roles`.
+4. Autoryzacja: edycja tlumaczenia PL wymaga roli Translator dla PL.
+
+---
+
+### M5-05: Review workflow — submit → review → approve/reject
+**Labels:** `low` `feature`
+**Zalezy od:** M5-02
+
+**Do zrobienia:**
+1. Status flow: Draft → Submitted → Approved/Rejected.
+2. Translator submituje, Reviewer zatwierdza lub odrzuca z komentarzem.
+3. API endpoints: `POST /api/v1/translations/{id}/submit`, `POST /api/v1/translations/{id}/review`.
+4. UI: lista do review, approve/reject buttons.
+
+---
+
+### M5-06: TranslationHistory z ChangedBy
+**Labels:** `low` `feature`
+**Zalezy od:** M5-02
+
+**Do zrobienia:**
+1. `TranslationHistory.ChangedByUserId` — FK do ApplicationUser.
+2. Automatyczne wypelnianie z JWT claim.
+3. UI: historia zmian z nazwa uzytkownika.
+
+---
+
+## Faza D: Extras
+
+### M5-07: AI review — LLM sprawdza placeholders, grammar, terminologie
+**Labels:** `low` `feature`
+**Zalezy od:** M5-05
+
+---
+
+### M5-08: Powiadomienia — Discord webhook
+**Labels:** `low` `feature`
+**Zalezy od:** M5-05
+
+---
+
+### M5-09: Public REST API — dokumentacja + versioning
+**Labels:** `low` `feature`
+**Zalezy od:** M5-02
+
+**Do zrobienia:**
+1. API versioning (`/api/v1/`, `/api/v2/`).
+2. OpenAPI spec generowana automatycznie.
+3. Rate limiting dla publicznych endpointow.
+4. API key authentication dla external clients.
+5. Dokumentacja endpointow.
 
 ---
 
@@ -1059,11 +1307,11 @@ public interface ITextContextRepository
 | Milestone | Tickety | Critical | High | Medium | Low |
 |-----------|---------|----------|------|--------|-----|
 | M1 | 10 | 2 | 5 | 2 | 1 |
-| M2 | 10 | 1 | 6 | 3 | 0 |
-| M3 | 8 | 0 | 3 | 4 | 1 |
+| M2 | 11 | 1 | 7 | 3 | 0 |
+| M3 | 9 | 0 | 4 | 4 | 1 |
 | M4 | 6 | 0 | 5 | 1 | 0 |
-| M5 | 7 | 0 | 0 | 0 | 7 |
-| **Total** | **41** | **3** | **19** | **10** | **9** |
+| M5 | 9 | 0 | 3 | 0 | 6 |
+| **Total** | **45** | **3** | **24** | **10** | **8** |
 
 ## Poprawiony critical path
 
@@ -1080,15 +1328,22 @@ Track B: Launch infrastructure (BRAK ZALEZNOSCI — start od razu)
   M1-07 (IDatVersionReader + IDatFileProtector + IGameLauncher)
     └── M1-05 (Track A) + M1-07 ──→ M1-08 (fix GameUpdateChecker + LaunchGameCommand)
 
-Track C: TFM split (blokuje TYLKO M2/M3)
+Track C: TFM split → M2 → M3 (API + Blazor)
   M1-06 (TFM per-project)
     ├── M2-01 (Docker + Persistence) ──→ M2-02..M2-10
-    └── M3-01 (Blazor SSR)
+    │                                      └── M2-04 ──→ M2-11 (split Application) ──┐
+    └── M3-01 (API) ←─────────────────────────────────────────────────────────────────┘
+          └── M3-02 (Blazor SSR) ──→ M3-03..M3-08
 
 Track D: Niezalezne (dowolna kolejnosc)
   M1-09 (pipeline behaviors — low priority)
   M1-10 (ArgsOrder + approved — medium)
   M2-07 (parser || fix — brak zaleznosci)
+
+Track E: Auth (po M2 + M3)
+  M5-01 (Auth Server) ← M2-01
+    ├── M5-02 (API auth) ← M3-01 ──→ M5-04, M5-05
+    └── M5-03 (Blazor auth) ← M3-02
 ```
 
 ## Stan testow (po pre-M1 cleanup)
@@ -1111,7 +1366,7 @@ Tests.Integration (0 testow — zarezerwowany na M2-10):
 | Problem w oryginale | Poprawka |
 |---------------------|----------|
 | M1-01 (TFM) blokuje WSZYSTKO w M1 | TFM blokuje TYLKO M2/M3. MediatR idzie od razu |
-| 74 tickety | Skonsolidowane do 41 |
+| 74 tickety | Skonsolidowane do 45 |
 | 7 osobnych ticket testowych | Testy wliczone w feature tickety |
 | M1-17 + M1-18 duplikaty | Scalone w jeden M1-08 |
 | M1-21 "zweryfikuj approved" | Poprawione: "DODAJ parsowanie approved" (nie jest parsowane!) |

@@ -1,9 +1,8 @@
 ﻿using System.Text;
 using FluentValidation;
 using FluentValidation.Results;
-using LotroKoniecDev.Application.Abstractions;
+using LotroKoniecDev.Application.Abstractions.DatFilesServices;
 using LotroKoniecDev.Application.Extensions;
-using LotroKoniecDev.Domain.Core.BuildingBlocks;
 using LotroKoniecDev.Domain.Core.Errors;
 using LotroKoniecDev.Domain.Core.Monads;
 using LotroKoniecDev.Domain.Models;
@@ -12,7 +11,7 @@ using Mediator;
 
 namespace LotroKoniecDev.Application.Features.Export;
 
-public sealed class ExportTextsQueryHandler : IQueryHandler<ExportTextsQuery, Result<ExportSummaryResponse>>
+internal sealed class ExportTextsQueryHandler : IQueryHandler<ExportTextsQuery, Result<ExportSummaryResponse>>
 {
     private const int ProgressReportInterval = 500;
     private readonly IDatFileHandler _datFileHandler;

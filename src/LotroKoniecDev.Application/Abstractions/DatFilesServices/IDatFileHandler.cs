@@ -1,6 +1,6 @@
 using LotroKoniecDev.Domain.Core.Monads;
 
-namespace LotroKoniecDev.Application.Abstractions;
+namespace LotroKoniecDev.Application.Abstractions.DatFilesServices;
 
 /// <summary>
 /// Provides an abstraction for DAT file operations.

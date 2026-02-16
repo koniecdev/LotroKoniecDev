@@ -1,5 +1,4 @@
 using LotroKoniecDev.Domain.Core.BuildingBlocks;
-using LotroKoniecDev.Primitives.Enums;
 using LotroKoniecDev.Domain.Core.Monads;
 
 namespace LotroKoniecDev.Tests.Unit.Tests.Core.Monads;

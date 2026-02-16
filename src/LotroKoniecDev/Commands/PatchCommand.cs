@@ -1,4 +1,5 @@
 using LotroKoniecDev.Application.Abstractions;
+using LotroKoniecDev.Application.Abstractions.DatFilesServices;
 using LotroKoniecDev.Application.Features.Patch;
 using LotroKoniecDev.Domain.Core.Monads;
 using LotroKoniecDev.ValueObjects;
@@ -19,11 +20,10 @@ internal static class PatchCommand
         IServiceProvider serviceProvider,
         string versionFilePath)
     {
+        IDatPathResolver datPathResolver = serviceProvider.GetRequiredService<IDatPathResolver>();
         string translationsPath = ResolveTranslationsPath(translationPathArg.Path);
 
-        string? datPath = DatPathResolver.Resolve(
-            datPathArg?.Path,
-            serviceProvider);
+        string? datPath = datPathResolver.Resolve(datPathArg?.Path);
 
         if (datPath is null)
         {
@@ -41,13 +41,15 @@ internal static class PatchCommand
             WriteError($"DAT file not found: {datPath}");
             return ExitCodes.FileNotFound;
         }
-
-        if (!await PreflightChecker.RunAllAsync(datPath, serviceProvider, versionFilePath))
+        
+        IPreflightChecker preflightChecker = serviceProvider.GetRequiredService<IPreflightChecker>();
+        if (!await preflightChecker.RunAllAsync(datPath, versionFilePath))
         {
             return ExitCodes.OperationFailed;
         }
-
-        Result backupResult = BackupManager.Create(datPath);
+        
+        IBackupManager backupManager = serviceProvider.GetRequiredService<IBackupManager>();
+        Result backupResult = backupManager.Create(datPath);
         if (backupResult.IsFailure)
         {
             WriteError(backupResult.Error.Message);
@@ -67,7 +69,7 @@ internal static class PatchCommand
         if (result.IsFailure)
         {
             WriteError(result.Error.Message);
-            BackupManager.Restore(datPath);
+            backupManager.Restore(datPath);
             return ExitCodes.OperationFailed;
         }
 

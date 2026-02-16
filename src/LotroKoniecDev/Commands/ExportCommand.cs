@@ -1,4 +1,5 @@
 using LotroKoniecDev.Application.Abstractions;
+using LotroKoniecDev.Application.Abstractions.DatFilesServices;
 using LotroKoniecDev.Application.Features.Export;
 using LotroKoniecDev.Domain.Core.Monads;
 using Microsoft.Extensions.DependencyInjection;
@@ -10,9 +11,8 @@ internal static class ExportCommand
 {
     public static int Run(string[] args, IServiceProvider serviceProvider, string dataDir)
     {
-        string? datPath = DatPathResolver.Resolve(
-            args.Length > 1 ? args[1] : null,
-            serviceProvider);
+        IDatPathResolver datPathResolver = serviceProvider.GetRequiredService<IDatPathResolver>();
+        string? datPath = datPathResolver.Resolve(args.Length > 1 ? args[1] : null);
 
         if (datPath is null)
         {

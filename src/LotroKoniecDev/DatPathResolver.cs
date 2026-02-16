@@ -1,24 +1,27 @@
-using LotroKoniecDev.Application.Abstractions;
-using LotroKoniecDev.Application.Abstractions.DatFileServices;
+using LotroKoniecDev.Application.Abstractions.DatFilesServices;
 using LotroKoniecDev.Domain.Core.Monads;
 using LotroKoniecDev.Domain.Models;
-using Microsoft.Extensions.DependencyInjection;
 using static LotroKoniecDev.ConsoleWriter;
 
 namespace LotroKoniecDev;
 
 internal sealed class DatPathResolver : IDatPathResolver
 {
-    public async Task<string?> Resolve(string? explicitPath, IServiceProvider serviceProvider)
+    private readonly IDatFileLocator _datFileLocator;
+
+    public DatPathResolver(IDatFileLocator datFileLocator)
+    {
+        _datFileLocator = datFileLocator;
+    }
+    
+    public string? Resolve(string? explicitPath)
     {
         if (!string.IsNullOrWhiteSpace(explicitPath))
         {
             return explicitPath;
         }
-
-        IDatFileLocator locator = serviceProvider.GetRequiredService<IDatFileLocator>();
-
-        Result<IReadOnlyList<DatFileLocation>> result = locator.LocateAll(WriteInfo);
+        
+        Result<IReadOnlyList<DatFileLocation>> result = _datFileLocator.LocateAll(WriteInfo);
 
         if (result.IsFailure)
         {
@@ -39,7 +42,7 @@ internal sealed class DatPathResolver : IDatPathResolver
         return location.Path;
     }
 
-    private async Task<string?> PromptUserChoice(IReadOnlyList<DatFileLocation> locations)
+    private static string? PromptUserChoice(IReadOnlyList<DatFileLocation> locations)
     {
         Console.WriteLine();
         WriteInfo("Multiple LOTRO installations found:");

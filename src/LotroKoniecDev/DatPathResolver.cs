@@ -1,22 +1,27 @@
-using LotroKoniecDev.Application.Abstractions;
+using LotroKoniecDev.Application.Abstractions.DatFilesServices;
 using LotroKoniecDev.Domain.Core.Monads;
-using Microsoft.Extensions.DependencyInjection;
+using LotroKoniecDev.Domain.Models;
 using static LotroKoniecDev.ConsoleWriter;
 
 namespace LotroKoniecDev;
 
-internal static class DatPathResolver
+internal sealed class DatPathResolver : IDatPathResolver
 {
-    public static string? Resolve(string? explicitPath, IServiceProvider serviceProvider)
+    private readonly IDatFileLocator _datFileLocator;
+
+    public DatPathResolver(IDatFileLocator datFileLocator)
+    {
+        _datFileLocator = datFileLocator;
+    }
+    
+    public string? Resolve(string? explicitPath)
     {
         if (!string.IsNullOrWhiteSpace(explicitPath))
         {
             return explicitPath;
         }
-
-        IDatFileLocator locator = serviceProvider.GetRequiredService<IDatFileLocator>();
-
-        Result<IReadOnlyList<DatFileLocation>> result = locator.LocateAll(WriteInfo);
+        
+        Result<IReadOnlyList<DatFileLocation>> result = _datFileLocator.LocateAll(WriteInfo);
 
         if (result.IsFailure)
         {

@@ -1,5 +1,6 @@
 using System.Text;
 using LotroKoniecDev.Application.Abstractions;
+using LotroKoniecDev.Application.Abstractions.DatFilesServices;
 using LotroKoniecDev.Application.Extensions;
 using LotroKoniecDev.Domain.Core.Errors;
 using LotroKoniecDev.Domain.Core.Monads;
@@ -23,7 +24,7 @@ public sealed class Exporter : IExporter
         _datFileHandler = datFileHandler;
     }
 
-    public Result<ExportSummary> ExportAllTexts(
+    public Result<ExportSummaryResponse> ExportAllTexts(
         string datFilePath,
         string outputPath,
         Action<int, int>? progress = null)
@@ -35,7 +36,7 @@ public sealed class Exporter : IExporter
         Result<int> openResult = _datFileHandler.Open(datFilePath);
         if (openResult.IsFailure)
         {
-            return Result.Failure<ExportSummary>(openResult.Error);
+            return Result.Failure<ExportSummaryResponse>(openResult.Error);
         }
 
         int handle = openResult.Value;
@@ -50,7 +51,7 @@ public sealed class Exporter : IExporter
         }
     }
 
-    private Result<ExportSummary> ProcessExport(
+    private Result<ExportSummaryResponse> ProcessExport(
         int handle,
         string outputPath,
         Action<int, int>? progress)
@@ -90,14 +91,14 @@ public sealed class Exporter : IExporter
                 }
             }
 
-            return Result.Success(new ExportSummary(
+            return Result.Success(new ExportSummaryResponse(
                 processedFiles,
                 totalFragments,
                 outputPath));
         }
         catch (Exception ex)
         {
-            return Result.Failure<ExportSummary>(
+            return Result.Failure<ExportSummaryResponse>(
                 DomainErrors.Export.CannotCreateOutputFile(outputPath, ex.Message));
         }
     }

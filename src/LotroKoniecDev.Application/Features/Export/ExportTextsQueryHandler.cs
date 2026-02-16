@@ -1,9 +1,8 @@
 ﻿using System.Text;
 using FluentValidation;
 using FluentValidation.Results;
-using LotroKoniecDev.Application.Abstractions;
+using LotroKoniecDev.Application.Abstractions.DatFilesServices;
 using LotroKoniecDev.Application.Extensions;
-using LotroKoniecDev.Domain.Core.BuildingBlocks;
 using LotroKoniecDev.Domain.Core.Errors;
 using LotroKoniecDev.Domain.Core.Monads;
 using LotroKoniecDev.Domain.Models;
@@ -12,7 +11,7 @@ using Mediator;
 
 namespace LotroKoniecDev.Application.Features.Export;
 
-public sealed class ExportTextsQueryHandler : IQueryHandler<ExportTextsQuery, Result<ExportSummary>>
+internal sealed class ExportTextsQueryHandler : IQueryHandler<ExportTextsQuery, Result<ExportSummaryResponse>>
 {
     private const int ProgressReportInterval = 500;
     private readonly IDatFileHandler _datFileHandler;
@@ -22,7 +21,7 @@ public sealed class ExportTextsQueryHandler : IQueryHandler<ExportTextsQuery, Re
         _datFileHandler = datFileHandler;
     }
     
-    public async ValueTask<Result<ExportSummary>> Handle(ExportTextsQuery query, CancellationToken cancellationToken)
+    public async ValueTask<Result<ExportSummaryResponse>> Handle(ExportTextsQuery query, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(query);
         
@@ -36,7 +35,7 @@ public sealed class ExportTextsQueryHandler : IQueryHandler<ExportTextsQuery, Re
         Result<int> openResult = _datFileHandler.Open(query.DatFilePath);
         if (openResult.IsFailure)
         {
-            return Result.Failure<ExportSummary>(openResult.Error);
+            return Result.Failure<ExportSummaryResponse>(openResult.Error);
         }
         
         int handle = openResult.Value;
@@ -102,14 +101,14 @@ public sealed class ExportTextsQueryHandler : IQueryHandler<ExportTextsQuery, Re
                 }
             }
             
-            return Result.Success(new ExportSummary(
+            return Result.Success(new ExportSummaryResponse(
                 processedFiles,
                 totalFragments,
                 query.OutputPath));
         }
         catch (Exception ex)
         {
-            return Result.Failure<ExportSummary>(
+            return Result.Failure<ExportSummaryResponse>(
                 DomainErrors.Export.CannotCreateOutputFile(query.OutputPath, ex.Message));
         }
         finally

@@ -1,4 +1,5 @@
 using LotroKoniecDev.Application.Abstractions;
+using LotroKoniecDev.Application.Abstractions.DatFilesServices;
 using LotroKoniecDev.Application.Features.Export;
 using LotroKoniecDev.Domain.Core.Monads;
 using Microsoft.Extensions.DependencyInjection;
@@ -10,9 +11,8 @@ internal static class ExportCommand
 {
     public static int Run(string[] args, IServiceProvider serviceProvider, string dataDir)
     {
-        string? datPath = DatPathResolver.Resolve(
-            args.Length > 1 ? args[1] : null,
-            serviceProvider);
+        IDatPathResolver datPathResolver = serviceProvider.GetRequiredService<IDatPathResolver>();
+        string? datPath = datPathResolver.Resolve(args.Length > 1 ? args[1] : null);
 
         if (datPath is null)
         {
@@ -34,7 +34,7 @@ internal static class ExportCommand
         using IServiceScope scope = serviceProvider.CreateScope();
         IExporter exporter = scope.ServiceProvider.GetRequiredService<IExporter>();
 
-        Result<ExportSummary> result = exporter.ExportAllTexts(
+        Result<ExportSummaryResponse> result = exporter.ExportAllTexts(
             datPath,
             outputPath,
             (processed, total) => WriteProgress($"Processing {processed}/{total} files..."));
@@ -45,11 +45,11 @@ internal static class ExportCommand
             return ExitCodes.OperationFailed;
         }
 
-        ExportSummary summary = result.Value;
+        ExportSummaryResponse summaryResponse = result.Value;
         Console.WriteLine();
         WriteSuccess("=== EXPORT COMPLETE ===");
-        WriteInfo($"Exported {summary.TotalFragments:N0} texts from {summary.TotalTextFiles:N0} files");
-        WriteInfo($"Output: {summary.OutputPath}");
+        WriteInfo($"Exported {summaryResponse.TotalFragments:N0} texts from {summaryResponse.TotalTextFiles:N0} files");
+        WriteInfo($"Output: {summaryResponse.OutputPath}");
 
         return ExitCodes.Success;
     }

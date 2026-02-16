@@ -5,24 +5,33 @@ using static LotroKoniecDev.ConsoleWriter;
 
 namespace LotroKoniecDev.Commands;
 
-internal static class PreflightChecker
+internal sealed class PreflightChecker : IPreflightChecker
 {
-    public static async Task<bool> RunAllAsync(
+    private readonly IGameUpdateChecker _gameUpdateChecker;
+    private readonly IGameProcessDetector _gameProcessDetector;
+    private readonly IWriteAccessChecker _writeAccessChecker;
+
+    public PreflightChecker(
+        IGameUpdateChecker gameUpdateChecker,
+        IGameProcessDetector gameProcessDetector,
+        IWriteAccessChecker writeAccessChecker)
+    {
+        _gameUpdateChecker = gameUpdateChecker;
+        _gameProcessDetector = gameProcessDetector;
+        _writeAccessChecker = writeAccessChecker;
+    }
+    
+    public async Task<bool> RunAllAsync(
         string datPath,
-        IServiceProvider serviceProvider,
         string versionFilePath)
     {
-        return await CheckForGameUpdateAsync(serviceProvider, versionFilePath)
-               && CheckPrerequisites(datPath, serviceProvider);
+        return await CheckForGameUpdateAsync(versionFilePath)
+               && CheckPrerequisites(datPath);
     }
 
-    private static async Task<bool> CheckForGameUpdateAsync(
-        IServiceProvider serviceProvider,
-        string versionFilePath)
+    private async Task<bool> CheckForGameUpdateAsync(string versionFilePath)
     {
-        IGameUpdateChecker checker = serviceProvider.GetRequiredService<IGameUpdateChecker>();
-
-        Result<GameUpdateCheckResult> result = await checker.CheckForUpdateAsync(versionFilePath);
+        Result<GameUpdateCheckResult> result = await _gameUpdateChecker.CheckForUpdateAsync(versionFilePath);
 
         if (result.IsFailure)
         {
@@ -62,10 +71,9 @@ internal static class PreflightChecker
         return string.Equals(answer, "y", StringComparison.OrdinalIgnoreCase);
     }
 
-    private static bool CheckPrerequisites(string datPath, IServiceProvider serviceProvider)
+    private bool CheckPrerequisites(string datPath)
     {
-        IGameProcessDetector detector = serviceProvider.GetRequiredService<IGameProcessDetector>();
-        if (detector.IsLotroRunning())
+        if (_gameProcessDetector.IsLotroRunning())
         {
             WriteWarning("LOTRO client is running. Close the game before patching.");
             Console.Write("Continue anyway? (y/N): ");
@@ -82,8 +90,7 @@ internal static class PreflightChecker
             return true;
         }
 
-        IWriteAccessChecker accessChecker = serviceProvider.GetRequiredService<IWriteAccessChecker>();
-        if (accessChecker.CanWriteTo(directory))
+        if (_writeAccessChecker.CanWriteTo(directory))
         {
             return true;
         }

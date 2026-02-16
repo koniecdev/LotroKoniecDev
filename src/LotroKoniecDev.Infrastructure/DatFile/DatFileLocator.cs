@@ -1,6 +1,7 @@
-using LotroKoniecDev.Application.Abstractions;
+using LotroKoniecDev.Application.Abstractions.DatFilesServices;
 using LotroKoniecDev.Domain.Core.Errors;
 using LotroKoniecDev.Domain.Core.Monads;
+using LotroKoniecDev.Domain.Models;
 using LotroKoniecDev.Primitives.Enums;
 using Microsoft.Win32;
 
@@ -41,7 +42,7 @@ public sealed class DatFileLocator : IDatFileLocator
 
     public Result<IReadOnlyList<DatFileLocation>> LocateAll(Action<string>? progress = null)
     {
-        List<DatFileLocation> locations = new List<DatFileLocation>();
+        List<DatFileLocation> locations = [];
 
         TryAddIfExists(locations, SsgPath, DatFileSource.StandingStoneGames,
             "Standing Stone Games (default)");

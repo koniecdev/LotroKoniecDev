@@ -1,6 +1,6 @@
 using FluentValidation;
 using LotroKoniecDev.Application;
-using LotroKoniecDev.Application.Abstractions;
+using LotroKoniecDev.Application.Abstractions.DatFilesServices;
 using LotroKoniecDev.Application.Features.Export;
 using LotroKoniecDev.Domain.Core.BuildingBlocks;
 using LotroKoniecDev.Domain.Core.Monads;
@@ -50,7 +50,7 @@ public sealed class ExportTextsQueryHandlerTests : IDisposable
         ExportTextsQuery query = new("test.dat", outputPath);
 
         // Act
-        Result<ExportSummary> result = await _sut.Handle(query, CancellationToken.None);
+        Result<ExportSummaryResponse> result = await _sut.Handle(query, CancellationToken.None);
 
         // Assert
         result.IsSuccess.ShouldBeTrue();
@@ -70,7 +70,7 @@ public sealed class ExportTextsQueryHandlerTests : IDisposable
         ExportTextsQuery query = new("test.dat", outputPath);
 
         // Act
-        Result<ExportSummary> result = await _sut.Handle(query, CancellationToken.None);
+        Result<ExportSummaryResponse> result = await _sut.Handle(query, CancellationToken.None);
 
         // Assert
         result.IsFailure.ShouldBeTrue();
@@ -129,7 +129,7 @@ public sealed class ExportTextsQueryHandlerTests : IDisposable
         ExportTextsQuery query = new("test.dat", outputPath);
 
         // Act
-        Result<ExportSummary> result = await _sut.Handle(query, CancellationToken.None);
+        Result<ExportSummaryResponse> result = await _sut.Handle(query, CancellationToken.None);
 
         // Assert
         result.IsSuccess.ShouldBeTrue();
@@ -157,7 +157,7 @@ public sealed class ExportTextsQueryHandlerTests : IDisposable
         ExportTextsQuery query = new("test.dat", outputPath, progress);
 
         // Act
-        Result<ExportSummary> result = await _sut.Handle(query, CancellationToken.None);
+        Result<ExportSummaryResponse> result = await _sut.Handle(query, CancellationToken.None);
 
         // Assert
         result.IsSuccess.ShouldBeTrue();
@@ -185,7 +185,7 @@ public sealed class ExportTextsQueryHandlerTests : IDisposable
         ExportTextsQuery query = new("test.dat", outputPath);
 
         // Act
-        Result<ExportSummary> result = await _sut.Handle(query, CancellationToken.None);
+        Result<ExportSummaryResponse> result = await _sut.Handle(query, CancellationToken.None);
 
         // Assert — should succeed with partial results, not fail entirely
         result.IsSuccess.ShouldBeTrue();
@@ -206,7 +206,7 @@ public sealed class ExportTextsQueryHandlerTests : IDisposable
         ExportTextsQuery query = new("test.dat", outputPath);
 
         // Act
-        Result<ExportSummary> result = await _sut.Handle(query, CancellationToken.None);
+        Result<ExportSummaryResponse> result = await _sut.Handle(query, CancellationToken.None);
 
         // Assert
         result.IsFailure.ShouldBeTrue();

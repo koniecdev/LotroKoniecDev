@@ -1,4 +1,6 @@
 using LotroKoniecDev.Application.Abstractions;
+using LotroKoniecDev.Application.Abstractions.DatFilesServices;
+using LotroKoniecDev.Application.Features.Patch;
 using LotroKoniecDev.Domain.Core.Monads;
 using LotroKoniecDev.ValueObjects;
 using Microsoft.Extensions.DependencyInjection;
@@ -18,11 +20,10 @@ internal static class PatchCommand
         IServiceProvider serviceProvider,
         string versionFilePath)
     {
+        IDatPathResolver datPathResolver = serviceProvider.GetRequiredService<IDatPathResolver>();
         string translationsPath = ResolveTranslationsPath(translationPathArg.Path);
 
-        string? datPath = DatPathResolver.Resolve(
-            datPathArg?.Path,
-            serviceProvider);
+        string? datPath = datPathResolver.Resolve(datPathArg?.Path);
 
         if (datPath is null)
         {
@@ -40,13 +41,15 @@ internal static class PatchCommand
             WriteError($"DAT file not found: {datPath}");
             return ExitCodes.FileNotFound;
         }
-
-        if (!await PreflightChecker.RunAllAsync(datPath, serviceProvider, versionFilePath))
+        
+        IPreflightChecker preflightChecker = serviceProvider.GetRequiredService<IPreflightChecker>();
+        if (!await preflightChecker.RunAllAsync(datPath, versionFilePath))
         {
             return ExitCodes.OperationFailed;
         }
-
-        Result backupResult = BackupManager.Create(datPath);
+        
+        IBackupManager backupManager = serviceProvider.GetRequiredService<IBackupManager>();
+        Result backupResult = backupManager.Create(datPath);
         if (backupResult.IsFailure)
         {
             WriteError(backupResult.Error.Message);
@@ -58,7 +61,7 @@ internal static class PatchCommand
         using IServiceScope scope = serviceProvider.CreateScope();
         IPatcher patcher = scope.ServiceProvider.GetRequiredService<IPatcher>();
 
-        Result<PatchSummary> result = patcher.ApplyTranslations(
+        Result<PatchSummaryResponse> result = patcher.ApplyTranslations(
             translationsPath,
             datPath,
             (applied, total) => WriteProgress($"Patching... {applied}/{total}"));
@@ -66,29 +69,29 @@ internal static class PatchCommand
         if (result.IsFailure)
         {
             WriteError(result.Error.Message);
-            BackupManager.Restore(datPath);
+            backupManager.Restore(datPath);
             return ExitCodes.OperationFailed;
         }
 
-        PatchSummary summary = result.Value;
+        PatchSummaryResponse summaryResponse = result.Value;
 
-        foreach (string warning in summary.Warnings.Take(10))
+        foreach (string warning in summaryResponse.Warnings.Take(10))
         {
             WriteWarning(warning);
         }
 
-        if (summary.Warnings.Count > 10)
+        if (summaryResponse.Warnings.Count > 10)
         {
-            WriteWarning($"... and {summary.Warnings.Count - 10} more warnings");
+            WriteWarning($"... and {summaryResponse.Warnings.Count - 10} more warnings");
         }
 
         Console.WriteLine();
         WriteSuccess("=== PATCH COMPLETE ===");
-        WriteInfo($"Applied {summary.AppliedTranslations:N0} of {summary.TotalTranslations:N0} translations");
+        WriteInfo($"Applied {summaryResponse.AppliedTranslations:N0} of {summaryResponse.TotalTranslations:N0} translations");
 
-        if (summary.SkippedTranslations > 0)
+        if (summaryResponse.SkippedTranslations > 0)
         {
-            WriteWarning($"Skipped: {summary.SkippedTranslations:N0}");
+            WriteWarning($"Skipped: {summaryResponse.SkippedTranslations:N0}");
         }
 
         return ExitCodes.Success;

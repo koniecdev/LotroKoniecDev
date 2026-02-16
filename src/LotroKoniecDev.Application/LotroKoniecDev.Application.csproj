@@ -14,7 +14,10 @@
             <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
         </PackageReference>
     </ItemGroup>
-
+    <ItemGroup>
+        <InternalsVisibleTo Include="LotroKoniecDev.Tests.Integration" />
+        <InternalsVisibleTo Include="LotroKoniecDev.Tests.Unit" />
+    </ItemGroup>
     <ItemGroup>
         <ProjectReference Include="..\LotroKoniecDev.Domain\LotroKoniecDev.Domain.csproj"/>
     </ItemGroup>

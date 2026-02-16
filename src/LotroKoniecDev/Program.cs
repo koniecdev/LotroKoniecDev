@@ -27,6 +27,7 @@ internal static class Program
         ServiceCollection services = new();
         services.AddApplicationServices();
         services.AddInfrastructureServices();
+        services.AddCliServices();
 
         await using ServiceProvider serviceProvider = services.BuildServiceProvider();
         

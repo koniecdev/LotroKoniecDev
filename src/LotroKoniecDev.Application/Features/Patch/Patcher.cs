@@ -1,4 +1,5 @@
 using LotroKoniecDev.Application.Abstractions;
+using LotroKoniecDev.Application.Abstractions.DatFilesServices;
 using LotroKoniecDev.Application.Extensions;
 using LotroKoniecDev.Domain.Core.Errors;
 using LotroKoniecDev.Domain.Core.Monads;
@@ -22,7 +23,7 @@ public sealed class Patcher : IPatcher
         _translationParser = translationParser ?? throw new ArgumentNullException(nameof(translationParser));
     }
 
-    public Result<PatchSummary> ApplyTranslations(
+    public Result<PatchSummaryResponse> ApplyTranslations(
         string translationsPath,
         string datFilePath,
         Action<int, int>? progress = null)
@@ -35,14 +36,14 @@ public sealed class Patcher : IPatcher
 
         if (parseResult.IsFailure)
         {
-            return Result.Failure<PatchSummary>(parseResult.Error);
+            return Result.Failure<PatchSummaryResponse>(parseResult.Error);
         }
 
         IReadOnlyList<Translation> translations = parseResult.Value;
 
         if (translations.Count == 0)
         {
-            return Result.Failure<PatchSummary>(DomainErrors.Translation.NoTranslations);
+            return Result.Failure<PatchSummaryResponse>(DomainErrors.Translation.NoTranslations);
         }
 
         // Open DAT file
@@ -50,7 +51,7 @@ public sealed class Patcher : IPatcher
 
         if (openResult.IsFailure)
         {
-            return Result.Failure<PatchSummary>(openResult.Error);
+            return Result.Failure<PatchSummaryResponse>(openResult.Error);
         }
 
         int handle = openResult.Value;
@@ -66,7 +67,7 @@ public sealed class Patcher : IPatcher
         }
     }
 
-    private Result<PatchSummary> ProcessPatching(
+    private Result<PatchSummaryResponse> ProcessPatching(
         int handle,
         IReadOnlyList<Translation> translations,
         Action<int, int>? progress)
@@ -150,7 +151,7 @@ public sealed class Patcher : IPatcher
             SaveSubFile(handle, currentFileId, currentSubFile, fileSizes[currentFileId]);
         }
 
-        return Result.Success(new PatchSummary(
+        return Result.Success(new PatchSummaryResponse(
             translations.Count,
             appliedCount,
             skippedCount,

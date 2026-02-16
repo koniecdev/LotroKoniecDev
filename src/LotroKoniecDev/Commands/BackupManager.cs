@@ -1,12 +1,13 @@
+using LotroKoniecDev.Application.Abstractions;
 using LotroKoniecDev.Domain.Core.Errors;
 using LotroKoniecDev.Domain.Core.Monads;
 using static LotroKoniecDev.ConsoleWriter;
 
 namespace LotroKoniecDev.Commands;
 
-internal static class BackupManager
+internal sealed class BackupManager : IBackupManager
 {
-    public static Result Create(string datPath)
+    public Result Create(string datPath)
     {
         string backupPath = datPath + ".backup";
 
@@ -31,7 +32,7 @@ internal static class BackupManager
         }
     }
 
-    public static void Restore(string datPath)
+    public void Restore(string datPath)
     {
         string backupPath = datPath + ".backup";
 

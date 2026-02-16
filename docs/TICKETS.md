@@ -68,10 +68,10 @@
 ### M1-02: ExportTextsQuery + Handler + testy
 **Labels:** `high` `feature`
 **Zalezy od:** M1-01
-**Blokuje:** M1-05
+**Blokuje:** M1-05a
 
 **Do zrobienia:**
-1. **Przenies `ExportSummary` record** z `IExporter.cs` (linia 26-29) do osobnego pliku `Application/Features/Export/ExportSummary.cs`. Przy kasowaniu IExporter w M1-05 stracilibysmy ten typ.
+1. **Przenies `ExportSummary` record** z `IExporter.cs` (linia 26-29) do osobnego pliku `Application/Features/Export/ExportSummary.cs`. Przy kasowaniu IExporter w M1-05a stracilibysmy ten typ.
 2. Stworz `Application/Features/Export/ExportTextsQuery.cs`:
    ```csharp
    public sealed record ExportTextsQuery(
@@ -97,7 +97,7 @@
 ### M1-03: ApplyPatchCommand + Handler + testy
 **Labels:** `high` `feature`
 **Zalezy od:** M1-01
-**Blokuje:** M1-05
+**Blokuje:** M1-05b
 
 **Do zrobienia:**
 1. **Przenies `PatchSummary` record** z `IPatcher.cs` (linia 26-30) do osobnego pliku `Application/Features/Patch/PatchSummary.cs`.
@@ -124,7 +124,7 @@
 ### M1-04: PreflightCheckQuery + Handler + testy
 **Labels:** `medium` `feature`
 **Zalezy od:** M1-01
-**Blokuje:** M1-05
+**Blokuje:** M1-05b
 
 **Stan obecny:**
 `PreflightChecker` (CLI) miesza logike biznesowa z `Console.ReadLine()` i `Console.Write()`.
@@ -144,37 +144,66 @@
 
 ---
 
-### M1-05: Refaktor Program.cs na IMediator + usun stare serwisy
+### M1-05a: Wire export na IMediator + usun stare export serwisy
 **Labels:** `high` `refactor`
-**Zalezy od:** M1-02, M1-03, M1-04
+**Zalezy od:** M1-02
+**Blokuje:** M1-05b
 
-**Do zrobienia — DWA KROKI (w jednym uzyciu):**
+**Prostsza z dwoch podmian — ustala wzorzec dla M1-05b.**
 
-**Krok 1: Przejscie CLI na IMediator**
-1. `export` -> `IMediator.Send(new ExportTextsQuery(...))`.
-2. `patch` -> `IMediator.Send(new PreflightCheckQuery(...))`, potem `IMediator.Send(new ApplyPatchCommand(...))`.
-3. **BackupManager zostaje jako CLI utility** — backup/restore to operacja plikowa specyficzna dla CLI flow. Program.cs wywoluje BackupManager.Create() miedzy preflight a patch.
-4. Zachowaj `DatPathResolver`, `BackupManager`, `ConsoleWriter` — to CLI-specific.
-5. `ConsoleProgressReporter` jako IProgress<T>.
+**Do zrobienia:**
+1. W `Program.cs`: `"export"` -> resolve datPath via `DatPathResolver`, potem `IMediator.Send(new ExportTextsQuery(datPath, outputPath, progress))`.
+2. CLI czyta `Result<ExportSummaryResponse>`, drukuje summary (WriteSuccess/WriteError).
+3. Usun `ExportCommand.cs` (static class w Commands/).
+4. Usun `IExporter` interface + `Exporter` class — `ExportSummaryResponse` juz przeniesiony w M1-02.
+5. Usun DI registration `AddScoped<IExporter, Exporter>`.
+6. Zachowaj `DatPathResolver`, `ConsoleWriter`, `ConsoleProgressReporter` — to CLI-specific.
 
-**Krok 2: Usun martwy kod**
-1. `IExporter` interface + `Exporter` class — `ExportSummary` juz przeniesiony w M1-02
-2. `IPatcher` interface + `Patcher` class — `PatchSummary` juz przeniesiony w M1-03
-3. `ExportCommand` static class
-4. `PatchCommand` static class
-5. `PreflightChecker` static class
-6. Popraw DI registracje (usun stare `AddScoped<IExporter>`, `AddScoped<IPatcher>`).
-7. ExporterTests i PatcherTests juz przetestowane na handlerach (M1-02, M1-03) — usun tylko stare importy/referencje do IExporter/IPatcher jesli zostaly.
+**Acceptance criteria:**
+- [ ] `dotnet run -- export` dziala IDENTYCZNIE jak przed refaktorem
+- [ ] Zero referencji do IExporter, Exporter, ExportCommand
+- [ ] DI nie rejestruje IExporter
+- [ ] Build + testy ok
+
+---
+
+### M1-05b: Wire patch na IMediator + usun stare patch/preflight serwisy
+**Labels:** `high` `refactor`
+**Zalezy od:** M1-03, M1-04, M1-05a
+**Blokuje:** M1-08
+
+**Bardziej zlozona podmiana — patch flow ma preflight + backup + restore on failure.**
+
+**Do zrobienia:**
+1. W `Program.cs`: `"patch"` flow:
+   ```
+   1. DatPathResolver.Resolve(args)
+   2. IMediator.Send(new PreflightCheckQuery(datPath, versionPath))
+   3. CLI czyta PreflightReport i SAMO decyduje:
+      - IsGameRunning? → Console.ReadLine("Continue? y/N")
+      - !HasWriteAccess? → WriteError, return
+      - UpdateDetected? → Console.ReadLine("Continue? y/N")
+   4. BackupManager.Create(datPath)
+   5. IMediator.Send(new ApplyPatchCommand(translationsPath, datPath, progress))
+   6. if failure → BackupManager.Restore(datPath)
+   7. CLI drukuje summary
+   ```
+2. **BackupManager zostaje jako CLI utility** — backup/restore to operacja plikowa specyficzna dla CLI flow. Program.ps wywoluje BackupManager.Create() miedzy preflight a patch.
+3. Usun `PatchCommand.cs` (static class w Commands/).
+4. Usun `PreflightChecker.cs` (CLI implementacja w Commands/).
+5. Usun `IPreflightChecker` interface w Application/Abstractions — handler ja zastepuje.
+6. Usun `IPatcher` interface + `Patcher` class — `PatchSummaryResponse` juz przeniesiony w M1-03.
+7. Usun DI registrations: `AddScoped<IPatcher, Patcher>`, `AddSingleton<IPreflightChecker, PreflightChecker>`.
 
 **NIE usuwaj:**
-- `BackupManager`, `DatPathResolver`, `ConsoleWriter`
-- `ExportSummary`, `PatchSummary` — juz w Features/
+- `BackupManager`, `DatPathResolver`, `ConsoleWriter` — CLI-specific, nadal uzywane
+- `ExportSummaryResponse`, `PatchSummaryResponse` — juz w Features/
 - `TranslationFileParser`, `ITranslationParser` — nadal uzywane przez handlery
 
 **Acceptance criteria:**
-- [ ] CLI dziala IDENTYCZNIE jak przed refaktorem (te same komendy, te same outputy)
-- [ ] `dotnet run -- export` i `dotnet run -- patch polish` dzialaja
-- [ ] Zero referencji do IExporter, IPatcher, ExportCommand, PatchCommand, PreflightChecker
+- [ ] `dotnet run -- patch polish` dziala IDENTYCZNIE jak przed refaktorem
+- [ ] CLI pyta "Continue anyway?" na podstawie PreflightReport (nie handler)
+- [ ] Zero referencji do IPatcher, Patcher, PatchCommand, PreflightChecker, IPreflightChecker
 - [ ] DI nie rejestruje starych serwisow
 - [ ] Build + testy ok
 
@@ -186,7 +215,7 @@
 **Labels:** `critical` `infra`
 **Blokuje:** M2-01, M3-01
 
-**UWAGA:** Ten ticket blokuje TYLKO M2 i M3 (projekty AnyCPU). NIE blokuje M1-01..M1-05 ani M1-07..M1-10. MediatR, handlery i refaktor CLI dzialaja na `net10.0-windows` x86.
+**UWAGA:** Ten ticket blokuje TYLKO M2 i M3 (projekty AnyCPU). NIE blokuje M1-01..M1-05b ani M1-07..M1-10. MediatR, handlery i refaktor CLI dzialaja na `net10.0-windows` x86.
 
 **Stan obecny:**
 `Directory.Build.props` wymusza `net10.0-windows` + `x86` na WSZYSTKIE projekty.
@@ -223,7 +252,7 @@
 **Zalezy od:** —
 **Blokuje:** M1-08
 
-**UWAGA:** Ten ticket nie ma zadnych zaleznosci — mozna go robic rownolegle z M1-01..M1-05.
+**UWAGA:** Ten ticket nie ma zadnych zaleznosci — mozna go robic rownolegle z M1-01..M1-05b.
 
 **Do zrobienia — TRZY male abstrakcje + implementacje:**
 
@@ -275,9 +304,9 @@ Implementacja: Auto-detect `TurbineLauncher.exe` wzgledem sciezki DAT. `Process.
 
 ### M1-08: Napraw GameUpdateChecker + LaunchGameCommand + CLI `launch`
 **Labels:** `critical` `feature` `bug`
-**Zalezy od:** M1-05 (CLI na MediatR), M1-07 (launch infrastructure)
+**Zalezy od:** M1-05b (CLI patch na MediatR), M1-07 (launch infrastructure)
 
-**UWAGA SEKWENCJI:** Ten ticket zmienia zachowanie `GameUpdateChecker` — po zmianie `CheckForUpdateAsync()` NIE zapisuje wersji. Stary `PreflightChecker` polegal na auto-save. Dlatego M1-05 (refaktor CLI na MediatR) MUSI byc zrobiony PRZED tym ticketem.
+**UWAGA SEKWENCJI:** Ten ticket zmienia zachowanie `GameUpdateChecker` — po zmianie `CheckForUpdateAsync()` NIE zapisuje wersji. Stary `PreflightChecker` polegal na auto-save. Dlatego M1-05b (refaktor patch na MediatR) MUSI byc zrobiony PRZED tym ticketem.
 
 **Do zrobienia — TRZY czesci:**
 
@@ -1306,12 +1335,12 @@ Wydaje JWT tokeny, zarzadza uzytkownikami i rolami. API waliduje tokeny, Blazor 
 
 | Milestone | Tickety | Critical | High | Medium | Low |
 |-----------|---------|----------|------|--------|-----|
-| M1 | 10 | 2 | 5 | 2 | 1 |
+| M1 | 11 | 2 | 6 | 2 | 1 |
 | M2 | 11 | 1 | 7 | 3 | 0 |
 | M3 | 9 | 0 | 4 | 4 | 1 |
 | M4 | 6 | 0 | 5 | 1 | 0 |
 | M5 | 9 | 0 | 3 | 0 | 6 |
-| **Total** | **45** | **3** | **24** | **10** | **8** |
+| **Total** | **46** | **3** | **25** | **10** | **8** |
 
 ## Poprawiony critical path
 
@@ -1320,13 +1349,14 @@ Wydaje JWT tokeny, zarzadza uzytkownikami i rolami. API waliduje tokeny, Blazor 
 
 Track A: MediatR + CLI refaktor (BEZ CZEKANIA na TFM split)
   M1-01 (MediatR setup)
-    ├── M1-02 (ExportTextsQuery)  ─┐
-    ├── M1-03 (ApplyPatchCommand) ─┼── M1-05 (refaktor CLI + usun stare)
-    └── M1-04 (PreflightCheckQuery)┘
+    ├── M1-02 (ExportTextsQuery) ──→ M1-05a (wire export + usun IExporter)
+    ├── M1-03 (ApplyPatchCommand) ─┐
+    └── M1-04 (PreflightCheckQuery)┼→ M1-05b (wire patch + usun IPatcher/PreflightChecker)
+                          M1-05a ──┘
 
 Track B: Launch infrastructure (BRAK ZALEZNOSCI — start od razu)
   M1-07 (IDatVersionReader + IDatFileProtector + IGameLauncher)
-    └── M1-05 (Track A) + M1-07 ──→ M1-08 (fix GameUpdateChecker + LaunchGameCommand)
+    └── M1-05b (Track A) + M1-07 ──→ M1-08 (fix GameUpdateChecker + LaunchGameCommand)
 
 Track C: TFM split → M2 → M3 (API + Blazor)
   M1-06 (TFM per-project)

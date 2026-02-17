@@ -25,13 +25,13 @@ internal sealed class PreflightChecker : IPreflightChecker
         string datPath,
         string versionFilePath)
     {
-        return await CheckForGameUpdateAsync(versionFilePath)
-               && CheckPrerequisites(datPath);
+        return await CanProceedAfterUpdateCheckAsync(versionFilePath)
+               && PassesPrerequisiteChecks(datPath);
     }
 
-    private async Task<bool> CheckForGameUpdateAsync(string versionFilePath)
+    private async Task<bool> CanProceedAfterUpdateCheckAsync(string versionFilePath)
     {
-        Result<GameUpdateCheckResult> result = await _gameUpdateChecker.CheckForUpdateAsync(versionFilePath);
+        Result<GameUpdateCheckSummary> result = await _gameUpdateChecker.CheckForUpdateAsync(versionFilePath);
 
         if (result.IsFailure)
         {
@@ -39,7 +39,7 @@ internal sealed class PreflightChecker : IPreflightChecker
             return true;
         }
 
-        GameUpdateCheckResult check = result.Value;
+        GameUpdateCheckSummary check = result.Value;
 
         if (!check.UpdateDetected)
         {
@@ -71,7 +71,7 @@ internal sealed class PreflightChecker : IPreflightChecker
         return string.Equals(answer, "y", StringComparison.OrdinalIgnoreCase);
     }
 
-    private bool CheckPrerequisites(string datPath)
+    private bool PassesPrerequisiteChecks(string datPath)
     {
         if (_gameProcessDetector.IsLotroRunning())
         {
@@ -87,7 +87,7 @@ internal sealed class PreflightChecker : IPreflightChecker
         string? directory = Path.GetDirectoryName(datPath);
         if (directory is null)
         {
-            return true;
+            return true; //this should be an error
         }
 
         if (_writeAccessChecker.CanWriteTo(directory))

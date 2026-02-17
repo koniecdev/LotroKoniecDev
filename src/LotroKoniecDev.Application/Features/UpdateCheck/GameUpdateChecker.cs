@@ -19,7 +19,7 @@ public sealed partial class GameUpdateChecker : IGameUpdateChecker
         _versionFileStore = versionFileStore ?? throw new ArgumentNullException(nameof(versionFileStore));
     }
 
-    public async Task<Result<GameUpdateCheckResult>> CheckForUpdateAsync(string versionFilePath)
+    public async Task<Result<GameUpdateCheckSummary>> CheckForUpdateAsync(string versionFilePath)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(versionFilePath);
 
@@ -28,7 +28,7 @@ public sealed partial class GameUpdateChecker : IGameUpdateChecker
 
         if (fetchResult.IsFailure)
         {
-            return Result.Failure<GameUpdateCheckResult>(fetchResult.Error);
+            return Result.Failure<GameUpdateCheckSummary>(fetchResult.Error);
         }
 
         // 2. Parse the latest version from the HTML
@@ -36,7 +36,7 @@ public sealed partial class GameUpdateChecker : IGameUpdateChecker
 
         if (currentVersion is null)
         {
-            return Result.Failure<GameUpdateCheckResult>(DomainErrors.GameUpdateCheck.VersionNotFoundInPage);
+            return Result.Failure<GameUpdateCheckSummary>(DomainErrors.GameUpdateCheck.VersionNotFoundInPage);
         }
 
         // 3. Read the previously stored version
@@ -44,7 +44,7 @@ public sealed partial class GameUpdateChecker : IGameUpdateChecker
 
         if (readResult.IsFailure)
         {
-            return Result.Failure<GameUpdateCheckResult>(readResult.Error);
+            return Result.Failure<GameUpdateCheckSummary>(readResult.Error);
         }
 
         string? previousVersion = readResult.Value;
@@ -59,11 +59,11 @@ public sealed partial class GameUpdateChecker : IGameUpdateChecker
 
             if (saveResult.IsFailure)
             {
-                return Result.Failure<GameUpdateCheckResult>(saveResult.Error);
+                return Result.Failure<GameUpdateCheckSummary>(saveResult.Error);
             }
         }
 
-        return Result.Success(new GameUpdateCheckResult(updateDetected, currentVersion, previousVersion));
+        return Result.Success(new GameUpdateCheckSummary(updateDetected, currentVersion, previousVersion));
     }
 
     /// <summary>

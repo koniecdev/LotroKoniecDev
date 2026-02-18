@@ -1,9 +1,9 @@
 using LotroKoniecDev.Application.Abstractions.DatFilesServices;
 using LotroKoniecDev.Domain.Core.Monads;
 using LotroKoniecDev.Domain.Models;
-using static LotroKoniecDev.ConsoleWriter;
+using static LotroKoniecDev.Cli.ConsoleWriter;
 
-namespace LotroKoniecDev;
+namespace LotroKoniecDev.Cli;
 
 internal sealed class DatPathResolver : IDatPathResolver
 {

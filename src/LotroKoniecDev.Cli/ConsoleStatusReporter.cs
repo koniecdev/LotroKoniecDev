@@ -1,7 +1,7 @@
 using LotroKoniecDev.Application;
-using static LotroKoniecDev.ConsoleWriter;
+using static LotroKoniecDev.Cli.ConsoleWriter;
 
-namespace LotroKoniecDev;
+namespace LotroKoniecDev.Cli;
 
 internal sealed class ConsoleStatusReporter : IOperationStatusReporter
 {

@@ -21,7 +21,7 @@
     <Project Path="src/LotroKoniecDev.Domain/LotroKoniecDev.Domain.csproj" />
     <Project Path="src/LotroKoniecDev.Application/LotroKoniecDev.Application.csproj" />
     <Project Path="src/LotroKoniecDev.Infrastructure/LotroKoniecDev.Infrastructure.csproj" />
-    <Project Path="src/LotroKoniecDev/LotroKoniecDev.csproj" />
+    <Project Path="src/LotroKoniecDev.Cli/LotroKoniecDev.Cli.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/LotroKoniecDev.Tests.Unit/LotroKoniecDev.Tests.Unit.csproj" />

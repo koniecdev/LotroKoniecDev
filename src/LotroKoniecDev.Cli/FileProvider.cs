@@ -1,6 +1,6 @@
 using LotroKoniecDev.Application.Abstractions;
 
-namespace LotroKoniecDev;
+namespace LotroKoniecDev.Cli;
 
 internal sealed class FileProvider : IFileProvider
 {

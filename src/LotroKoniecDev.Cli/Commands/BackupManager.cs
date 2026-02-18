@@ -1,9 +1,9 @@
 using LotroKoniecDev.Application.Abstractions;
 using LotroKoniecDev.Domain.Core.Errors;
 using LotroKoniecDev.Domain.Core.Monads;
-using static LotroKoniecDev.ConsoleWriter;
+using static LotroKoniecDev.Cli.ConsoleWriter;
 
-namespace LotroKoniecDev.Commands;
+namespace LotroKoniecDev.Cli.Commands;
 
 internal sealed class BackupManager : IBackupManager
 {

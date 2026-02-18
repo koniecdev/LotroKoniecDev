@@ -1,4 +1,4 @@
-namespace LotroKoniecDev;
+namespace LotroKoniecDev.Cli;
 
 internal static class ConsoleWriter
 {

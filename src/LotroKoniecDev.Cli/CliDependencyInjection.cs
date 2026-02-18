@@ -1,10 +1,10 @@
 ﻿using LotroKoniecDev.Application;
 using LotroKoniecDev.Application.Abstractions;
 using LotroKoniecDev.Application.Abstractions.DatFilesServices;
-using LotroKoniecDev.Commands;
+using LotroKoniecDev.Cli.Commands;
 using Microsoft.Extensions.DependencyInjection;
 
-namespace LotroKoniecDev;
+namespace LotroKoniecDev.Cli;
 
 public static class CliDependencyInjection
 {

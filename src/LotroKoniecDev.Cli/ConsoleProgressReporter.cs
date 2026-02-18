@@ -1,6 +1,6 @@
 ﻿using LotroKoniecDev.Application;
 
-namespace LotroKoniecDev;
+namespace LotroKoniecDev.Cli;
 
 public sealed class ConsoleProgressReporter : IProgress<OperationProgress>
 {

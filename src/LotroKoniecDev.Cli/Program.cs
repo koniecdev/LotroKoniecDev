@@ -1,11 +1,11 @@
 using LotroKoniecDev.Application.Extensions;
-using LotroKoniecDev.Commands;
+using LotroKoniecDev.Cli.Commands;
+using LotroKoniecDev.Cli.ValueObjects;
 using LotroKoniecDev.Infrastructure;
-using LotroKoniecDev.ValueObjects;
 using Mediator;
 using Microsoft.Extensions.DependencyInjection;
 
-namespace LotroKoniecDev;
+namespace LotroKoniecDev.Cli;
 
 internal static class Program
 {

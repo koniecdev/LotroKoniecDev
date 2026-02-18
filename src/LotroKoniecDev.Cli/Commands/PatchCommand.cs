@@ -2,11 +2,11 @@ using LotroKoniecDev.Application.Abstractions;
 using LotroKoniecDev.Application.Abstractions.DatFilesServices;
 using LotroKoniecDev.Application.Features.Patch;
 using LotroKoniecDev.Domain.Core.Monads;
-using LotroKoniecDev.ValueObjects;
+using LotroKoniecDev.Cli.ValueObjects;
 using Microsoft.Extensions.DependencyInjection;
-using static LotroKoniecDev.ConsoleWriter;
+using static LotroKoniecDev.Cli.ConsoleWriter;
 
-namespace LotroKoniecDev.Commands;
+namespace LotroKoniecDev.Cli.Commands;
 
 internal static class PatchCommand
 {

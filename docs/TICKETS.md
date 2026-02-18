@@ -68,10 +68,10 @@
 ### M1-02: ExportTextsQuery + Handler + testy
 **Labels:** `high` `feature`
 **Zalezy od:** M1-01
-**Blokuje:** M1-05
+**Blokuje:** M1-05a
 
 **Do zrobienia:**
-1. **Przenies `ExportSummary` record** z `IExporter.cs` (linia 26-29) do osobnego pliku `Application/Features/Export/ExportSummary.cs`. Przy kasowaniu IExporter w M1-05 stracilibysmy ten typ.
+1. **Przenies `ExportSummary` record** z `IExporter.cs` (linia 26-29) do osobnego pliku `Application/Features/Export/ExportSummary.cs`. Przy kasowaniu IExporter w M1-05a stracilibysmy ten typ.
 2. Stworz `Application/Features/Export/ExportTextsQuery.cs`:
    ```csharp
    public sealed record ExportTextsQuery(
@@ -97,7 +97,7 @@
 ### M1-03: ApplyPatchCommand + Handler + testy
 **Labels:** `high` `feature`
 **Zalezy od:** M1-01
-**Blokuje:** M1-05
+**Blokuje:** M1-05b
 
 **Do zrobienia:**
 1. **Przenies `PatchSummary` record** z `IPatcher.cs` (linia 26-30) do osobnego pliku `Application/Features/Patch/PatchSummary.cs`.
@@ -124,7 +124,7 @@
 ### M1-04: PreflightCheckQuery + Handler + testy
 **Labels:** `medium` `feature`
 **Zalezy od:** M1-01
-**Blokuje:** M1-05
+**Blokuje:** M1-05b
 
 **Stan obecny:**
 `PreflightChecker` (CLI) miesza logike biznesowa z `Console.ReadLine()` i `Console.Write()`.
@@ -144,37 +144,66 @@
 
 ---
 
-### M1-05: Refaktor Program.cs na IMediator + usun stare serwisy
+### M1-05a: Wire export na IMediator + usun stare export serwisy
 **Labels:** `high` `refactor`
-**Zalezy od:** M1-02, M1-03, M1-04
+**Zalezy od:** M1-02
+**Blokuje:** M1-05b
 
-**Do zrobienia — DWA KROKI (w jednym uzyciu):**
+**Prostsza z dwoch podmian — ustala wzorzec dla M1-05b.**
 
-**Krok 1: Przejscie CLI na IMediator**
-1. `export` -> `IMediator.Send(new ExportTextsQuery(...))`.
-2. `patch` -> `IMediator.Send(new PreflightCheckQuery(...))`, potem `IMediator.Send(new ApplyPatchCommand(...))`.
-3. **BackupManager zostaje jako CLI utility** — backup/restore to operacja plikowa specyficzna dla CLI flow. Program.cs wywoluje BackupManager.Create() miedzy preflight a patch.
-4. Zachowaj `DatPathResolver`, `BackupManager`, `ConsoleWriter` — to CLI-specific.
-5. `ConsoleProgressReporter` jako IProgress<T>.
+**Do zrobienia:**
+1. W `Program.cs`: `"export"` -> resolve datPath via `DatPathResolver`, potem `IMediator.Send(new ExportTextsQuery(datPath, outputPath, progress))`.
+2. CLI czyta `Result<ExportSummaryResponse>`, drukuje summary (WriteSuccess/WriteError).
+3. Usun `ExportCommand.cs` (static class w Commands/).
+4. Usun `IExporter` interface + `Exporter` class — `ExportSummaryResponse` juz przeniesiony w M1-02.
+5. Usun DI registration `AddScoped<IExporter, Exporter>`.
+6. Zachowaj `DatPathResolver`, `ConsoleWriter`, `ConsoleProgressReporter` — to CLI-specific.
 
-**Krok 2: Usun martwy kod**
-1. `IExporter` interface + `Exporter` class — `ExportSummary` juz przeniesiony w M1-02
-2. `IPatcher` interface + `Patcher` class — `PatchSummary` juz przeniesiony w M1-03
-3. `ExportCommand` static class
-4. `PatchCommand` static class
-5. `PreflightChecker` static class
-6. Popraw DI registracje (usun stare `AddScoped<IExporter>`, `AddScoped<IPatcher>`).
-7. ExporterTests i PatcherTests juz przetestowane na handlerach (M1-02, M1-03) — usun tylko stare importy/referencje do IExporter/IPatcher jesli zostaly.
+**Acceptance criteria:**
+- [ ] `dotnet run -- export` dziala IDENTYCZNIE jak przed refaktorem
+- [ ] Zero referencji do IExporter, Exporter, ExportCommand
+- [ ] DI nie rejestruje IExporter
+- [ ] Build + testy ok
+
+---
+
+### M1-05b: Wire patch na IMediator + usun stare patch/preflight serwisy
+**Labels:** `high` `refactor`
+**Zalezy od:** M1-03, M1-04, M1-05a
+**Blokuje:** M1-08
+
+**Bardziej zlozona podmiana — patch flow ma preflight + backup + restore on failure.**
+
+**Do zrobienia:**
+1. W `Program.cs`: `"patch"` flow:
+   ```
+   1. DatPathResolver.Resolve(args)
+   2. IMediator.Send(new PreflightCheckQuery(datPath, versionPath))
+   3. CLI czyta PreflightReport i SAMO decyduje:
+      - IsGameRunning? → Console.ReadLine("Continue? y/N")
+      - !HasWriteAccess? → WriteError, return
+      - UpdateDetected? → Console.ReadLine("Continue? y/N")
+   4. BackupManager.Create(datPath)
+   5. IMediator.Send(new ApplyPatchCommand(translationsPath, datPath, progress))
+   6. if failure → BackupManager.Restore(datPath)
+   7. CLI drukuje summary
+   ```
+2. **BackupManager zostaje jako CLI utility** — backup/restore to operacja plikowa specyficzna dla CLI flow. Program.ps wywoluje BackupManager.Create() miedzy preflight a patch.
+3. Usun `PatchCommand.cs` (static class w Commands/).
+4. Usun `PreflightChecker.cs` (CLI implementacja w Commands/).
+5. Usun `IPreflightChecker` interface w Application/Abstractions — handler ja zastepuje.
+6. Usun `IPatcher` interface + `Patcher` class — `PatchSummaryResponse` juz przeniesiony w M1-03.
+7. Usun DI registrations: `AddScoped<IPatcher, Patcher>`, `AddSingleton<IPreflightChecker, PreflightChecker>`.
 
 **NIE usuwaj:**
-- `BackupManager`, `DatPathResolver`, `ConsoleWriter`
-- `ExportSummary`, `PatchSummary` — juz w Features/
+- `BackupManager`, `DatPathResolver`, `ConsoleWriter` — CLI-specific, nadal uzywane
+- `ExportSummaryResponse`, `PatchSummaryResponse` — juz w Features/
 - `TranslationFileParser`, `ITranslationParser` — nadal uzywane przez handlery
 
 **Acceptance criteria:**
-- [ ] CLI dziala IDENTYCZNIE jak przed refaktorem (te same komendy, te same outputy)
-- [ ] `dotnet run -- export` i `dotnet run -- patch polish` dzialaja
-- [ ] Zero referencji do IExporter, IPatcher, ExportCommand, PatchCommand, PreflightChecker
+- [ ] `dotnet run -- patch polish` dziala IDENTYCZNIE jak przed refaktorem
+- [ ] CLI pyta "Continue anyway?" na podstawie PreflightReport (nie handler)
+- [ ] Zero referencji do IPatcher, Patcher, PatchCommand, PreflightChecker, IPreflightChecker
 - [ ] DI nie rejestruje starych serwisow
 - [ ] Build + testy ok
 
@@ -186,7 +215,7 @@
 **Labels:** `critical` `infra`
 **Blokuje:** M2-01, M3-01
 
-**UWAGA:** Ten ticket blokuje TYLKO M2 i M3 (projekty AnyCPU). NIE blokuje M1-01..M1-05 ani M1-07..M1-10. MediatR, handlery i refaktor CLI dzialaja na `net10.0-windows` x86.
+**UWAGA:** Ten ticket blokuje TYLKO M2 i M3 (projekty AnyCPU). NIE blokuje M1-01..M1-05b ani M1-07..M1-10. MediatR, handlery i refaktor CLI dzialaja na `net10.0-windows` x86.
 
 **Stan obecny:**
 `Directory.Build.props` wymusza `net10.0-windows` + `x86` na WSZYSTKIE projekty.
@@ -223,7 +252,7 @@
 **Zalezy od:** —
 **Blokuje:** M1-08
 
-**UWAGA:** Ten ticket nie ma zadnych zaleznosci — mozna go robic rownolegle z M1-01..M1-05.
+**UWAGA:** Ten ticket nie ma zadnych zaleznosci — mozna go robic rownolegle z M1-01..M1-05b.
 
 **Do zrobienia — TRZY male abstrakcje + implementacje:**
 
@@ -275,9 +304,9 @@ Implementacja: Auto-detect `TurbineLauncher.exe` wzgledem sciezki DAT. `Process.
 
 ### M1-08: Napraw GameUpdateChecker + LaunchGameCommand + CLI `launch`
 **Labels:** `critical` `feature` `bug`
-**Zalezy od:** M1-05 (CLI na MediatR), M1-07 (launch infrastructure)
+**Zalezy od:** M1-05b (CLI patch na MediatR), M1-07 (launch infrastructure)
 
-**UWAGA SEKWENCJI:** Ten ticket zmienia zachowanie `GameUpdateChecker` — po zmianie `CheckForUpdateAsync()` NIE zapisuje wersji. Stary `PreflightChecker` polegal na auto-save. Dlatego M1-05 (refaktor CLI na MediatR) MUSI byc zrobiony PRZED tym ticketem.
+**UWAGA SEKWENCJI:** Ten ticket zmienia zachowanie `GameUpdateChecker` — po zmianie `CheckForUpdateAsync()` NIE zapisuje wersji. Stary `PreflightChecker` polegal na auto-save. Dlatego M1-05b (refaktor patch na MediatR) MUSI byc zrobiony PRZED tym ticketem.
 
 **Do zrobienia — TRZY czesci:**
 
@@ -344,6 +373,90 @@ Handler orchestruje:
 ---
 
 ## Faza D: Cleanup
+
+### M1-11: E2E test infrastructure + export E2E
+**Labels:** `high` `test` `infra`
+**Zalezy od:** —
+**Blokuje:** M1-12
+**Rekomendacja:** Zrob PRZED M1-05 — safety net na refaktor.
+
+**Kontekst:**
+Obecne unit testy mockuja IDatFileHandler — nigdy nie dotykaja prawdziwego pliku DAT ani datexport.dll. Potrzeba prawdziwych testow E2E ktore odpalaja skompilowany exe przez `Process.Start` — identycznie jak uzytkownik w terminalu. Zero pomijanych warstw.
+
+**Do zrobienia:**
+
+**Czesc 1: Folder testdata/**
+- Stworz `tests/LotroKoniecDev.Tests.Integration/testdata/`
+- Dodaj do `.gitignore`: `tests/LotroKoniecDev.Tests.Integration/testdata/*.dat`
+- Stworz `testdata/README.md` (committowany) z instrukcja: skopiuj `client_local_English.dat` tu
+- Inny dev chce odpalic testy? Kopiuje swoj DAT do testdata/ i jazda.
+
+**Czesc 2: Tests.Integration.csproj**
+- Projekt NIE potrzebuje referencji do Infrastructure (nie laduje DLL — odpala exe jako proces)
+- Zachowaj referencje do Application (TranslationFileParser do walidacji eksportu)
+- TFM moze zostac `net10.0` AnyCPU (test runner nie laduje x86 DLL)
+
+**Czesc 3: E2ETestFixture**
+- xUnit Collection Fixture (`[CollectionDefinition("E2E")]`) + `IAsyncLifetime`
+- Waliduje ze `testdata/client_local_English.dat` istnieje — jesli nie, SKIP wszystkie testy
+- Lokalizuje zbudowany `LotroKoniecDev.exe` (sciezka wzgledem test output dir)
+- Helper `RunCliAsync(string args)` — `Process.Start` z redirected stdout/stderr, zwraca (exitCode, stdout, stderr)
+- Helper `CreateTempDatCopy()` — kopiuje DAT do temp dir (dla testow patch)
+- Helper `CreateTempDir()` — temp directory na output pliki
+- Cleanup: usuwa temp directories
+- Sciezki do `translations/polish.txt` (wzgledne od solution root)
+
+**Czesc 4: ExportE2ETests**
+- `[Collection("E2E")]` — testy seryjnie
+- `Export_RealDatFile_ExitCodeZero` — `LotroKoniecDev.exe export <datPath> <tempOutput>`, sprawdz exit code 0
+- `Export_RealDatFile_ProducesValidFile` — plik istnieje, niepusty, header present
+- `Export_RealDatFile_OutputMatchesExpectedFormat` — linie w formacie `file_id||gossip_id||text||args_order||args_id||approved`, FileIds z high byte 0x25
+- `Export_RealDatFile_AllLinesParseableByTranslationFileParser` — eksportuj, potem parsuj real TranslationFileParser — zero bledow
+- `Export_RealDatFile_ProducesThousandsOfFragments` — rozsadna liczba (>1000) fragmentow
+
+**Acceptance criteria:**
+- [ ] `dotnet test tests/LotroKoniecDev.Tests.Integration` odpala testy z prawdziwym DAT
+- [ ] Bez pliku DAT w testdata/ — testy SKIP (nie FAIL)
+- [ ] Testy odpalaja prawdziwy skompilowany exe przez Process.Start
+- [ ] Export produkuje prawidlowy, parsowalny plik
+- [ ] Min. 5 testow
+- [ ] Istniejace unit testy nadal przechodza
+
+---
+
+### M1-12: Patch E2E + roundtrip (pelny pipeline)
+**Labels:** `high` `test`
+**Zalezy od:** M1-11
+**Rekomendacja:** Zrob PRZED M1-05 — pelny safety net na refaktor.
+
+**Do zrobienia:**
+
+**Czesc 1: PatchE2ETests**
+- `Patch_RealDatWithPolishTxt_ExitCodeZero` — kopiuj DAT do temp, `LotroKoniecDev.exe patch polish <tempDat>`, sprawdz exit code 0
+- `Patch_RealDatWithPolishTxt_StdoutContainsApplied` — stdout zawiera informacje o zastosowanych tlumaczeniach
+
+**Czesc 2: RoundtripE2ETests — pelny cykl dowodzacy ze patch zadziala**
+- `Roundtrip_ExportPatchExport_PatchedTextsArePolish`:
+  1. `export <originalDat> <before.txt>`
+  2. Kopiuj DAT do temp
+  3. `patch polish <tempDat>`
+  4. `export <tempDat> <after.txt>`
+  5. Parsuj oba pliki (TranslationFileParser)
+  6. Znajdz gossip IDs z `polish.txt` w obu plikach
+  7. `before.txt`: gossipId 218649169 = angielski tekst
+  8. `after.txt`:  gossipId 218649169 = polski tekst z `polish.txt`
+- `Roundtrip_ExportPatchExport_UnpatchedTextsUnchanged`:
+  1. Ten sam roundtrip
+  2. Gossip IDs ktore NIE sa w `polish.txt` — identyczne miedzy before i after
+
+**Acceptance criteria:**
+- [ ] Patch przez exe na prawdziwym DAT przechodzi bez bledow
+- [ ] Roundtrip dowodzi ze patchowane teksty sa po polsku
+- [ ] Roundtrip dowodzi ze niepatchowane teksty sa nienaruszone
+- [ ] Min. 4 testy
+- [ ] Testy na kopii DAT (oryginal nienaruszony)
+
+---
 
 ### M1-09: Pipeline behaviors (LoggingBehavior + ValidationBehavior)
 **Labels:** `low` `feature`
@@ -1306,12 +1419,12 @@ Wydaje JWT tokeny, zarzadza uzytkownikami i rolami. API waliduje tokeny, Blazor 
 
 | Milestone | Tickety | Critical | High | Medium | Low |
 |-----------|---------|----------|------|--------|-----|
-| M1 | 10 | 2 | 5 | 2 | 1 |
+| M1 | 13 | 2 | 8 | 2 | 1 |
 | M2 | 11 | 1 | 7 | 3 | 0 |
 | M3 | 9 | 0 | 4 | 4 | 1 |
 | M4 | 6 | 0 | 5 | 1 | 0 |
 | M5 | 9 | 0 | 3 | 0 | 6 |
-| **Total** | **45** | **3** | **24** | **10** | **8** |
+| **Total** | **48** | **3** | **27** | **10** | **8** |
 
 ## Poprawiony critical path
 
@@ -1320,13 +1433,14 @@ Wydaje JWT tokeny, zarzadza uzytkownikami i rolami. API waliduje tokeny, Blazor 
 
 Track A: MediatR + CLI refaktor (BEZ CZEKANIA na TFM split)
   M1-01 (MediatR setup)
-    ├── M1-02 (ExportTextsQuery)  ─┐
-    ├── M1-03 (ApplyPatchCommand) ─┼── M1-05 (refaktor CLI + usun stare)
-    └── M1-04 (PreflightCheckQuery)┘
+    ├── M1-02 (ExportTextsQuery) ──→ M1-05a (wire export + usun IExporter)
+    ├── M1-03 (ApplyPatchCommand) ─┐
+    └── M1-04 (PreflightCheckQuery)┼→ M1-05b (wire patch + usun IPatcher/PreflightChecker)
+                          M1-05a ──┘
 
 Track B: Launch infrastructure (BRAK ZALEZNOSCI — start od razu)
   M1-07 (IDatVersionReader + IDatFileProtector + IGameLauncher)
-    └── M1-05 (Track A) + M1-07 ──→ M1-08 (fix GameUpdateChecker + LaunchGameCommand)
+    └── M1-05b (Track A) + M1-07 ──→ M1-08 (fix GameUpdateChecker + LaunchGameCommand)
 
 Track C: TFM split → M2 → M3 (API + Blazor)
   M1-06 (TFM per-project)
@@ -1335,12 +1449,15 @@ Track C: TFM split → M2 → M3 (API + Blazor)
     └── M3-01 (API) ←─────────────────────────────────────────────────────────────────┘
           └── M3-02 (Blazor SSR) ──→ M3-03..M3-08
 
-Track D: Niezalezne (dowolna kolejnosc)
+Track D: Testy integracyjne (PRZED M1-05!)
+  M1-11 (integration test infra + DatFileHandler) ──→ M1-12 (Exporter + Patcher pipeline)
+
+Track E: Niezalezne (dowolna kolejnosc)
   M1-09 (pipeline behaviors — low priority)
   M1-10 (ArgsOrder + approved — medium)
   M2-07 (parser || fix — brak zaleznosci)
 
-Track E: Auth (po M2 + M3)
+Track F: Auth (po M2 + M3)
   M5-01 (Auth Server) ← M2-01
     ├── M5-02 (API auth) ← M3-01 ──→ M5-04, M5-05
     └── M5-03 (Blazor auth) ← M3-02
@@ -1357,8 +1474,10 @@ Tests.Unit (156 testow):
   Tests/Models/                      Fragment, SubFile, Translation
   Tests/Parsers/                     TranslationFileParser
 
-Tests.Integration (0 testow — zarezerwowany na M2-10):
-  Czeka na TestContainers + PostgreSQL
+Tests.Integration (0 testow — M1-11/M1-12 + M2-10):
+  M1-11: DatFileHandler z prawdziwym DAT + datexport.dll
+  M1-12: Exporter/Patcher pelny pipeline z prawdziwym DAT
+  M2-10: TestContainers + PostgreSQL
 ```
 
 ## Kluczowe poprawki vs oryginal

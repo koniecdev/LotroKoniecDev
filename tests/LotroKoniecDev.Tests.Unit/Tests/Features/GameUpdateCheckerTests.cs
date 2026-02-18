@@ -33,7 +33,7 @@ public sealed class GameUpdateCheckerTests
             .Returns(Result.Success());
 
         // Act
-        Result<GameUpdateCheckResult> result = await _checker.CheckForUpdateAsync(VersionFilePath);
+        Result<GameUpdateCheckSummary> result = await _checker.CheckForUpdateAsync(VersionFilePath);
 
         // Assert
         result.IsSuccess.ShouldBeTrue();
@@ -54,7 +54,7 @@ public sealed class GameUpdateCheckerTests
             .Returns(Result.Success<string?>("40.1"));
 
         // Act
-        Result<GameUpdateCheckResult> result = await _checker.CheckForUpdateAsync(VersionFilePath);
+        Result<GameUpdateCheckSummary> result = await _checker.CheckForUpdateAsync(VersionFilePath);
 
         // Assert
         result.IsSuccess.ShouldBeTrue();
@@ -91,7 +91,7 @@ public sealed class GameUpdateCheckerTests
             .Returns(Result.Success());
 
         // Act
-        Result<GameUpdateCheckResult> result = await _checker.CheckForUpdateAsync(VersionFilePath);
+        Result<GameUpdateCheckSummary> result = await _checker.CheckForUpdateAsync(VersionFilePath);
 
         // Assert
         result.IsSuccess.ShouldBeTrue();
@@ -109,7 +109,7 @@ public sealed class GameUpdateCheckerTests
             .Returns(Result.Failure<string>(networkError));
 
         // Act
-        Result<GameUpdateCheckResult> result = await _checker.CheckForUpdateAsync(VersionFilePath);
+        Result<GameUpdateCheckSummary> result = await _checker.CheckForUpdateAsync(VersionFilePath);
 
         // Assert
         result.IsFailure.ShouldBeTrue();
@@ -125,7 +125,7 @@ public sealed class GameUpdateCheckerTests
         _mockStore.ReadLastKnownVersion(Arg.Any<string>()).Returns(Result.Success<string?>("40.1"));
 
         // Act
-        Result<GameUpdateCheckResult> result = await _checker.CheckForUpdateAsync(VersionFilePath);
+        Result<GameUpdateCheckSummary> result = await _checker.CheckForUpdateAsync(VersionFilePath);
 
         // Assert
         result.IsFailure.ShouldBeTrue();
@@ -144,7 +144,7 @@ public sealed class GameUpdateCheckerTests
             .Returns(Result.Failure<string?>(readError));
 
         // Act
-        Result<GameUpdateCheckResult> result = await _checker.CheckForUpdateAsync(VersionFilePath);
+        Result<GameUpdateCheckSummary> result = await _checker.CheckForUpdateAsync(VersionFilePath);
 
         // Assert
         result.IsFailure.ShouldBeTrue();
@@ -165,7 +165,7 @@ public sealed class GameUpdateCheckerTests
             .Returns(Result.Failure(saveError));
 
         // Act
-        Result<GameUpdateCheckResult> result = await _checker.CheckForUpdateAsync(VersionFilePath);
+        Result<GameUpdateCheckSummary> result = await _checker.CheckForUpdateAsync(VersionFilePath);
 
         // Assert
         result.IsFailure.ShouldBeTrue();
@@ -210,7 +210,7 @@ public sealed class GameUpdateCheckerTests
             .Returns(Result.Success());
 
         // Act
-        Result<GameUpdateCheckResult> result = await _checker.CheckForUpdateAsync(VersionFilePath);
+        Result<GameUpdateCheckSummary> result = await _checker.CheckForUpdateAsync(VersionFilePath);
 
         // Assert
         result.IsSuccess.ShouldBeTrue();
@@ -229,7 +229,7 @@ public sealed class GameUpdateCheckerTests
             .Returns(Result.Success());
 
         // Act
-        Result<GameUpdateCheckResult> result = await _checker.CheckForUpdateAsync(VersionFilePath);
+        Result<GameUpdateCheckSummary> result = await _checker.CheckForUpdateAsync(VersionFilePath);
 
         // Assert
         result.IsSuccess.ShouldBeTrue();
@@ -248,7 +248,7 @@ public sealed class GameUpdateCheckerTests
             .Returns(Result.Success());
 
         // Act
-        Result<GameUpdateCheckResult> result = await _checker.CheckForUpdateAsync(VersionFilePath);
+        Result<GameUpdateCheckSummary> result = await _checker.CheckForUpdateAsync(VersionFilePath);
 
         // Assert
         result.IsSuccess.ShouldBeTrue();

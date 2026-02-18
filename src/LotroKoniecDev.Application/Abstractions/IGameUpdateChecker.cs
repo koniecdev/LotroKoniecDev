@@ -7,7 +7,7 @@ namespace LotroKoniecDev.Application.Abstractions;
 /// </summary>
 public interface IGameUpdateChecker
 {
-    Task<Result<GameUpdateCheckResult>> CheckForUpdateAsync(string versionFilePath);
+    Task<Result<GameUpdateCheckSummary>> CheckForUpdateAsync(string versionFilePath);
 }
 
 /// <summary>
@@ -16,7 +16,7 @@ public interface IGameUpdateChecker
 /// <param name="UpdateDetected">True if a new game version was found compared to the stored version.</param>
 /// <param name="CurrentVersion">The latest version string found on the LOTRO forums.</param>
 /// <param name="PreviousVersion">The previously stored version string, or null if no version was stored.</param>
-public sealed record GameUpdateCheckResult(
+public sealed record GameUpdateCheckSummary(
     bool UpdateDetected,
     string CurrentVersion,
     string? PreviousVersion);

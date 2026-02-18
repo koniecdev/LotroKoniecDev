@@ -35,6 +35,10 @@ public static partial class DomainErrors
         public static Error VersionNotFoundInPage =>
             OperationFailed("GameUpdateCheck",
                 "Could not find version information on the LOTRO release notes page.");
+        
+        public static Error GameUpdateRequired =>
+            OperationFailed("GameUpdateCheck",
+                "Game update is required");
 
         public static Error VersionFileError(string path, string message) =>
             IoError("GameUpdateCheck", "VersionFileError", $"'{path}': {message}");

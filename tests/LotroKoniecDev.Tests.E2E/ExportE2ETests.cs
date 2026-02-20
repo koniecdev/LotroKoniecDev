@@ -37,8 +37,7 @@ public sealed class ExportE2ETests
         string outputPath = Path.Combine(_fixture.CreateTempDir(), "export.txt");
         
         //Act
-        CliResult result = await _fixture.RunCliAsync(
-            $"export \"{_fixture.DatFilePath}\" \"{outputPath}\"");
+        CliResult result = await _fixture.RunCliAsync($"export \"{_fixture.DatFilePath}\" \"{outputPath}\"");
 
         //Assert
         result.ExitCode.ShouldBe(0, $"stderr: {result.Stderr}");
@@ -62,8 +61,7 @@ public sealed class ExportE2ETests
         string outputPath = Path.Combine(_fixture.CreateTempDir(), "export.txt");
 
         //Act
-        await _fixture.RunCliAsync(
-            $"export \"{_fixture.DatFilePath}\" \"{outputPath}\"");
+        await _fixture.RunCliAsync($"export \"{_fixture.DatFilePath}\" \"{outputPath}\"");
 
         //Assert
         File.Exists(outputPath).ShouldBeTrue("Export file should exist");
@@ -162,8 +160,7 @@ public sealed class ExportE2ETests
         string outputPath = Path.Combine(_fixture.CreateTempDir(), "export.txt");
 
         //Act
-        await _fixture.RunCliAsync(
-            $"export \"{_fixture.DatFilePath}\" \"{outputPath}\"");
+        await _fixture.RunCliAsync($"export \"{_fixture.DatFilePath}\" \"{outputPath}\"");
 
         //Assert
         int lineCount = File.ReadLines(outputPath)

@@ -31,6 +31,19 @@ public sealed class E2ETestFixture : IAsyncLifetime
         CliExePath = FindCliExe();
         TranslationsPolishPath = FindTranslationsFile("polish.txt");
         IsDatFileAvailable = true;
+        
+        // Clean up orphaned temp dirs from previous crashed runs
+        foreach (string dir in Directory.GetDirectories(Path.GetTempPath(), "lotro_e2e_*"))
+        {
+            try
+            {
+                Directory.Delete(dir, true);
+            }
+            catch
+            {
+                // ignored
+            }
+        }
 
         return Task.CompletedTask;
     }

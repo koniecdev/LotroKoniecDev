@@ -3,7 +3,7 @@ using LotroKoniecDev.Domain.Core.Monads;
 using LotroKoniecDev.Domain.Models;
 using LotroKoniecDev.Primitives.Constants;
 
-namespace LotroKoniecDev.Tests.E2E;
+namespace LotroKoniecDev.Tests.E2E.Tests;
 
 /// <summary>
 /// Contains end-to-end tests related to the export functionality for processing DAT files.

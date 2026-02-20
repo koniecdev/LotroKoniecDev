@@ -480,6 +480,7 @@ $RECYCLE.BIN/
 
 # Data files (duze pliki .dat i eksporty)
 data/
+*.dat
 
 # Backupy
 *.backup

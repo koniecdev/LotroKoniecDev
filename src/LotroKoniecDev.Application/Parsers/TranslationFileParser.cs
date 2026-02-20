@@ -27,8 +27,8 @@ public sealed class TranslationFileParser : ITranslationParser
                 DomainErrors.Translation.FileNotFound(filePath));
         }
 
-        List<Translation> translations = new List<Translation>();
-        List<string> warnings = new List<string>();
+        List<Translation> translations = [];
+        List<string> warnings = [];
 
         foreach (string line in File.ReadLines(filePath))
         {
@@ -77,7 +77,7 @@ public sealed class TranslationFileParser : ITranslationParser
 
         try
         {
-            Translation translation = new Translation
+            Translation translation = new()
             {
                 FileId = int.Parse(parts[0]),
                 GossipId = int.Parse(parts[1]),

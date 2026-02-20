@@ -74,7 +74,7 @@ public sealed class Patcher : IPatcher
     {
         Dictionary<int, (int Size, int Iteration)> fileSizes = _datFileHandler.GetAllSubfileSizes(handle);
 
-        List<string> warnings = new List<string>();
+        List<string> warnings = [];
         int appliedCount = 0;
         int skippedCount = 0;
 

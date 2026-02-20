@@ -1,0 +1,1 @@
+﻿Copy and paste your local lotro installation client_local_English.dat in the same folder as this file.

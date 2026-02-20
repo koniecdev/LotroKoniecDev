@@ -3,10 +3,9 @@
         <TargetFramework>net10.0</TargetFramework>
         <PlatformTarget>AnyCPU</PlatformTarget>
     </PropertyGroup>
-    
+
     <PropertyGroup>
         <IsPackable>false</IsPackable>
-        <RootNamespace>LotroKoniecDev.Tests.Integration</RootNamespace>
     </PropertyGroup>
 
     <ItemGroup>
@@ -15,8 +14,8 @@
           <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
         </PackageReference>
         <PackageReference Include="Microsoft.NET.Test.Sdk"/>
-        <PackageReference Include="NSubstitute"/>
         <PackageReference Include="Shouldly" />
+        <PackageReference Include="Xunit.SkippableFact" />
         <PackageReference Include="xunit"/>
         <PackageReference Include="xunit.runner.visualstudio">
           <PrivateAssets>all</PrivateAssets>
@@ -25,8 +24,6 @@
     </ItemGroup>
 
     <ItemGroup>
-        <ProjectReference Include="..\..\src\LotroKoniecDev.Primitives\LotroKoniecDev.Primitives.csproj"/>
-        <ProjectReference Include="..\..\src\LotroKoniecDev.Domain\LotroKoniecDev.Domain.csproj"/>
         <ProjectReference Include="..\..\src\LotroKoniecDev.Application\LotroKoniecDev.Application.csproj"/>
     </ItemGroup>
 

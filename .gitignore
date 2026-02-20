@@ -126,9 +126,6 @@ ipch/
 *.vspx
 *.sap
 
-# Visual Studio Trace Files
-*.e2e
-
 # TFS 2012 Local Workspace
 $tf/
 
@@ -483,6 +480,7 @@ $RECYCLE.BIN/
 
 # Data files (duze pliki .dat i eksporty)
 data/
+*.dat
 
 # Backupy
 *.backup

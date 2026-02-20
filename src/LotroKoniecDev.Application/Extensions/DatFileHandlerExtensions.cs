@@ -23,7 +23,7 @@ public static class DatFileHandlerExtensions
 
         try
         {
-            SubFile subFile = new SubFile();
+            SubFile subFile = new();
 
             if (loadVersion)
             {

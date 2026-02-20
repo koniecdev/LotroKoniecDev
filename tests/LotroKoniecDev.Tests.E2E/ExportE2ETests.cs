@@ -166,8 +166,9 @@ public sealed class ExportE2ETests
         int lineCount = File.ReadLines(outputPath)
             .Count(l => !string.IsNullOrWhiteSpace(l) && !l.TrimStart().StartsWith('#'));
 
-        const int expectedLines = 750000;
-        lineCount.ShouldBeGreaterThan(expectedLines,
-            $"Real DAT export should produce way more than {expectedLines} of text fragments");
+        const int minimalExpectedLines = 750000;
+        lineCount.ShouldBeGreaterThan(
+            minimalExpectedLines,
+            $"Real DAT export should produce way more than {minimalExpectedLines} of text fragments");
     }
 }

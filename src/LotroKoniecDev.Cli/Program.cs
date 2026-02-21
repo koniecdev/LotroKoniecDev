@@ -2,8 +2,8 @@ using LotroKoniecDev.Application.Extensions;
 using LotroKoniecDev.Cli.Commands;
 using LotroKoniecDev.Cli.ValueObjects;
 using LotroKoniecDev.Infrastructure;
-using Mediator;
 using Microsoft.Extensions.DependencyInjection;
+using static LotroKoniecDev.Cli.ConsoleWriter;
 
 namespace LotroKoniecDev.Cli;
 
@@ -24,30 +24,30 @@ internal static class Program
         
         string command = args[0].ToLowerInvariant();
 
+        if (command == "patch" && args.Length < 2)
+        {
+            WriteError("Missing required argument: translation name");
+            PrintUsage();
+            return ExitCodes.InvalidArguments;
+        }
+
         ServiceCollection services = new();
         services.AddApplicationServices();
         services.AddInfrastructureServices();
         services.AddCliServices();
 
         await using ServiceProvider serviceProvider = services.BuildServiceProvider();
-        
-        ISender sender = serviceProvider.GetRequiredService<ISender>();
-        
+
         return command switch
         {
-            //export can be parameterless, but it can have the dat file name, and the output file name specified.
-            //most likely the problem: you cant provide output file name without dat file name
             "export" => ExportCommand.Run(args, serviceProvider, DataDir),
-            
-            //patch command requires the name of the translation file to apply, and optionally the dat file name
-            //if no dat file is specified, it will try to find it automatically
-            //the name of the translation is resolved to translations/<name>.txt
+
             "patch" => await PatchCommand.RunAsync(
                 translationPathArg: new TranslationPath(args[1]),
                 datPathArg: args.Length > 2 ? new DatPath(args[2]) : null,
                 serviceProvider: serviceProvider,
                 versionFilePath: VersionFilePath),
-            
+
             _ => HandleUnknownCommand()
         };
     }

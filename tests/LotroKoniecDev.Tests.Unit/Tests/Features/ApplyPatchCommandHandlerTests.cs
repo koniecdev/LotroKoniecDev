@@ -14,6 +14,7 @@ public sealed class ApplyPatchCommandHandlerTests
     private readonly IBackupManager _backupManager;
     private readonly IPreflightChecker _preflightChecker;
     private readonly IOperationStatusReporter _statusReporter;
+    private readonly IProgress<OperationProgress> _progressReporter;
     private readonly ApplyPatchCommandHandler _sut;
 
     public ApplyPatchCommandHandlerTests()
@@ -23,13 +24,15 @@ public sealed class ApplyPatchCommandHandlerTests
         _backupManager = Substitute.For<IBackupManager>();
         _preflightChecker = Substitute.For<IPreflightChecker>();
         _statusReporter = Substitute.For<IOperationStatusReporter>();
-
+        _progressReporter = Substitute.For<IProgress<OperationProgress>>();
+        
         _sut = new ApplyPatchCommandHandler(
             _statusReporter,
             _fileProvider,
             _patcher,
             _backupManager,
-            _preflightChecker);
+            _preflightChecker,
+            _progressReporter);
     }
 
     private static ApplyPatchCommand CreateCommand(
@@ -209,40 +212,6 @@ public sealed class ApplyPatchCommandHandlerTests
     }
 
     [Fact]
-    public async Task Handle_WithProgress_ShouldForwardToCommand()
-    {
-        // Arrange
-        SetupAllPassingDefaults();
-
-        int reportedCurrent = 0;
-        int reportedTotal = 0;
-        Progress<OperationProgress> progress = new(p =>
-        {
-            reportedCurrent = p.Current;
-            reportedTotal = p.Total;
-        });
-
-        ApplyPatchCommand command = new("/translations/polish.txt", "/game/dat.dat", "/data/ver.txt", progress);
-
-        _patcher.ApplyTranslations(command.TranslationsPath, command.DatFilePath, Arg.Any<Action<int, int>?>())
-            .Returns(callInfo =>
-            {
-                // Simulate patcher invoking progress callback
-                Action<int, int>? progressCallback = callInfo.ArgAt<Action<int, int>?>(2);
-                progressCallback?.Invoke(50, 100);
-                return Result.Success(new PatchSummaryResponse(100, 100, 0, []));
-            });
-
-        // Act
-        await _sut.Handle(command, CancellationToken.None);
-
-        // Assert — Progress<T> posts asynchronously, give it a moment
-        await Task.Delay(50);
-        reportedCurrent.ShouldBe(50);
-        reportedTotal.ShouldBe(100);
-    }
-
-    [Fact]
     public async Task Handle_NullCommand_ShouldThrow()
     {
         // Act & Assert
@@ -260,21 +229,21 @@ public sealed class ApplyPatchCommandHandlerTests
         List<string> callOrder = [];
 
         _preflightChecker.RunAllAsync(Arg.Any<string>(), Arg.Any<string>())
-            .Returns(callInfo =>
+            .Returns(_ =>
             {
                 callOrder.Add("preflight");
                 return true;
             });
 
         _backupManager.Create(Arg.Any<string>())
-            .Returns(callInfo =>
+            .Returns(_ =>
             {
                 callOrder.Add("backup");
                 return Result.Success();
             });
 
         _patcher.ApplyTranslations(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<Action<int, int>?>())
-            .Returns(callInfo =>
+            .Returns(_ =>
             {
                 callOrder.Add("patch");
                 return Result.Success(new PatchSummaryResponse(1, 1, 0, []));

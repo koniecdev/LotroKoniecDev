@@ -12,19 +12,22 @@ internal sealed class ApplyPatchCommandHandler : ICommandHandler<ApplyPatchComma
     private readonly IPatcher _patcher;
     private readonly IBackupManager _backupManager;
     private readonly IPreflightChecker _preflightChecker;
+    private readonly IProgress<OperationProgress> _progressReporter;
 
     public ApplyPatchCommandHandler(
         IOperationStatusReporter operationStatusReporter,
         IFileProvider fileProvider,
         IPatcher patcher,
         IBackupManager backupManager,
-        IPreflightChecker preflightChecker)
+        IPreflightChecker preflightChecker,
+        IProgress<OperationProgress> progressReporter)
     {
         _operationStatusReporter = operationStatusReporter;
         _fileProvider = fileProvider;
         _patcher = patcher;
         _backupManager = backupManager;
         _preflightChecker = preflightChecker;
+        _progressReporter = progressReporter;
     }
 
     public async ValueTask<Result<PatchSummaryResponse>> Handle(ApplyPatchCommand command, CancellationToken cancellationToken)
@@ -60,7 +63,7 @@ internal sealed class ApplyPatchCommandHandler : ICommandHandler<ApplyPatchComma
         Result<PatchSummaryResponse> patchResult = _patcher.ApplyTranslations(
             translationsPath: command.TranslationsPath,
             datFilePath: command.DatFilePath,
-            progress: (applied, total) => command.Progress?.Report(new OperationProgress(applied, total)));
+            progress: (applied, total) => _progressReporter.Report(new OperationProgress(applied, total)));
 
         if (patchResult.IsFailure)
         {

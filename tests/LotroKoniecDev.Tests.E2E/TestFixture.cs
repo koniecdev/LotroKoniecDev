@@ -92,7 +92,6 @@ public sealed class E2ETestFixture : IAsyncLifetime
             Arguments = args,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
-            RedirectStandardInput = true,
             UseShellExecute = false,
             CreateNoWindow = true
         };
@@ -103,10 +102,6 @@ public sealed class E2ETestFixture : IAsyncLifetime
         process.StartInfo.Environment.Remove("DOTNET_ROOT");
 
         process.Start();
-
-        // Close stdin immediately so any Console.ReadLine() in the CLI
-        // (e.g., PreflightChecker prompts) returns null instead of blocking.
-        process.StandardInput.Close();
 
         Task<string> stdoutTask = process.StandardOutput.ReadToEndAsync();
         Task<string> stderrTask = process.StandardError.ReadToEndAsync();

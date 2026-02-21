@@ -26,7 +26,7 @@ internal static class Program
             PrintUsage();
             return ExitCodes.InvalidArguments;
         }
-        
+
         string command = args[0].ToLowerInvariant();
 
         if (command is "patch" && args.Length < 2)
@@ -45,53 +45,57 @@ internal static class Program
 
         ISender sender = serviceProvider.GetRequiredService<ISender>();
 
-        IProgress<OperationProgress> progressRepoter = 
+        IProgress<OperationProgress> progressRepoter =
             serviceProvider.GetRequiredService<IProgress<OperationProgress>>();
-        
+
         IOperationStatusReporter reporter = serviceProvider.GetRequiredService<IOperationStatusReporter>();
 
         switch (command)
         {
             case "export":
-                IDatPathResolver datPathResolver = serviceProvider.GetRequiredService<IDatPathResolver>();
-                string? datPath = datPathResolver.Resolve(args.Length > 1 ? args[1] : null);
+                {
+                    IDatPathResolver datPathResolver = serviceProvider.GetRequiredService<IDatPathResolver>();
+                    string? datPath = datPathResolver.Resolve(args.Length > 1 ? args[1] : null);
 
-                if (datPath is null)
-                {
-                    return ExitCodes.FileNotFound;
-                }
-        
-                if (!File.Exists(datPath))
-                {
-                    WriteError($"DAT file not found: {datPath}");
-                    return ExitCodes.FileNotFound;
-                }
+                    if (datPath is null)
+                    {
+                        return ExitCodes.FileNotFound;
+                    }
 
-                string outputPath = args.Length > 2
-                    ? args[2]
-                    : Path.Combine(DataDir, "exported.txt");
-            
-                ExportTextsQuery query = new(
-                    DatFilePath: datPath,
-                    OutputPath: outputPath,
-                    Progress: progressRepoter);
-            
-                Result<ExportSummaryResponse> result = await sender.Send(query);
-                if (!result.IsSuccess)
-                {
-                    reporter.Report(result.Error.ToString());
-                    return ExitCodes.OperationFailed;
+                    if (!File.Exists(datPath))
+                    {
+                        WriteError($"DAT file not found: {datPath}");
+                        return ExitCodes.FileNotFound;
+                    }
+
+                    string outputPath = args.Length > 2
+                        ? args[2]
+                        : Path.Combine(DataDir, "exported.txt");
+
+                    ExportTextsQuery query = new(
+                        DatFilePath: datPath,
+                        OutputPath: outputPath,
+                        Progress: progressRepoter);
+
+                    Result<ExportSummaryResponse> result = await sender.Send(query);
+                    if (!result.IsSuccess)
+                    {
+                        reporter.Report(result.Error.ToString());
+                        return ExitCodes.OperationFailed;
+                    }
+
+                    reporter.Report(result.Value.ToString());
+                    return ExitCodes.Success;
                 }
-                reporter.Report(result.Value.ToString());
-                return ExitCodes.Success;
-            
             case "patch":
-                return await PatchCommand.RunAsync(
-                    translationPathArg: new TranslationPath(args[1]),
-                    datPathArg: args.Length > 2 ? new DatPath(args[2]) : null,
-                    serviceProvider: serviceProvider,
-                    versionFilePath: VersionFilePath);
-            
+                {
+                    int result = await PatchCommand.RunAsync(
+                        translationPathArg: new TranslationPath(args[1]),
+                        datPathArg: args.Length > 2 ? new DatPath(args[2]) : null,
+                        serviceProvider: serviceProvider,
+                        versionFilePath: VersionFilePath);
+                    return result;
+                }
             default:
                 return HandleUnknownCommand();
         }
@@ -115,7 +119,7 @@ internal static class Program
         Console.WriteLine(@"  LotroKoniecDev patch example_polish C:\path\to\client_local_English.dat");
         Console.WriteLine("  LotroKoniecDev export");
     }
-    
+
     private static int HandleUnknownCommand()
     {
         PrintUsage();

@@ -29,7 +29,7 @@ internal static class Program
         
         string command = args[0].ToLowerInvariant();
 
-        if (command == "patch" && args.Length < 2)
+        if (command is "patch" && args.Length < 2)
         {
             WriteError("Missing required argument: translation name");
             PrintUsage();

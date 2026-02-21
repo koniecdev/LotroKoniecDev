@@ -83,4 +83,49 @@ public sealed class ErrorPathE2ETests
 
         result.ExitCode.ShouldBe(3, $"Export to non-existent directory should fail. stdout: {result.Stdout}");
     }
+
+    [SkippableFact]
+    public async Task Patch_ShouldFail_WhenTranslationFileHasOnlyGarbage()
+    {
+        Skip.If(!_fixture.IsDatFileAvailable, "DAT file not found in TestData/");
+
+        //Arrange — create a translation file with only unparseable lines
+        string garbagePath = Path.Combine(_fixture.CreateTempDir(), "garbage.txt");
+        await File.WriteAllTextAsync(garbagePath, """
+            not a valid line at all
+            also garbage
+            missing||fields
+            """);
+        string tempDatPath = _fixture.CreateTempDatCopy();
+
+        //Act
+        CliResult result = await _fixture.RunCliAsync(
+            $"patch \"{garbagePath}\" \"{tempDatPath}\"");
+
+        //Assert — parser returns empty list → Patcher returns NoTranslations → exit code 3
+        result.ExitCode.ShouldBe(3, $"Patch with garbage translations should fail. stdout: {result.Stdout}");
+    }
+
+    [SkippableFact]
+    public async Task Patch_ShouldFail_WhenTranslationFileHasOnlyComments()
+    {
+        Skip.If(!_fixture.IsDatFileAvailable, "DAT file not found in TestData/");
+
+        //Arrange — create a translation file with only comments and blanks
+        string commentsPath = Path.Combine(_fixture.CreateTempDir(), "comments_only.txt");
+        await File.WriteAllTextAsync(commentsPath, """
+            # This is a comment
+            # Another comment
+
+            # Yet another
+            """);
+        string tempDatPath = _fixture.CreateTempDatCopy();
+
+        //Act
+        CliResult result = await _fixture.RunCliAsync(
+            $"patch \"{commentsPath}\" \"{tempDatPath}\"");
+
+        //Assert — all lines skipped → empty translations → exit code 3
+        result.ExitCode.ShouldBe(3, $"Patch with comment-only file should fail. stdout: {result.Stdout}");
+    }
 }

@@ -83,7 +83,7 @@ public sealed class E2ETestFixture : IAsyncLifetime
         return Task.CompletedTask;
     }
 
-    public async Task<CliResult> RunCliAsync(string args, int timeoutSeconds = 120)
+    public async Task<CliResult> RunCliAsync(string args, int timeoutSeconds = 120, string? workingDirectory = null)
     {
         using Process process = new();
         process.StartInfo = new ProcessStartInfo
@@ -92,9 +92,15 @@ public sealed class E2ETestFixture : IAsyncLifetime
             Arguments = args,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
+            RedirectStandardInput = true,
             UseShellExecute = false,
             CreateNoWindow = true
         };
+
+        if (workingDirectory is not null)
+        {
+            process.StartInfo.WorkingDirectory = workingDirectory;
+        }
 
         // The x64 test runner sets DOTNET_ROOT to the x64 path. The x86 CLI exe
         // inherits this and tries to load x64 hostfxr.dll, which fails.
@@ -102,6 +108,10 @@ public sealed class E2ETestFixture : IAsyncLifetime
         process.StartInfo.Environment.Remove("DOTNET_ROOT");
 
         process.Start();
+
+        // Close stdin immediately so any Console.ReadLine() prompts
+        // (DatPathResolver, PreflightChecker) return null instead of hanging.
+        process.StandardInput.Close();
 
         Task<string> stdoutTask = process.StandardOutput.ReadToEndAsync();
         Task<string> stderrTask = process.StandardError.ReadToEndAsync();

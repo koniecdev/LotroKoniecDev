@@ -18,16 +18,16 @@ internal static class ExportCommand
         {
             return ExitCodes.FileNotFound;
         }
-
-        string outputPath = args.Length > 2
-            ? args[2]
-            : Path.Combine(dataDir, "exported.txt");
-
+        
         if (!File.Exists(datPath))
         {
             WriteError($"DAT file not found: {datPath}");
             return ExitCodes.FileNotFound;
         }
+
+        string outputPath = args.Length > 2
+            ? args[2]
+            : Path.Combine(dataDir, "exported.txt");
 
         WriteInfo($"Opening: {datPath}");
 

@@ -126,7 +126,7 @@ public sealed class RoundtripE2ETests
 
     private static Dictionary<string, string> BuildLineIndex(string filePath)
     {
-        var index = new Dictionary<string, string>();
+        Dictionary<string, string> index = new();
         foreach (string line in File.ReadLines(filePath))
         {
             if (string.IsNullOrWhiteSpace(line) || line.TrimStart().StartsWith('#'))
@@ -135,10 +135,16 @@ public sealed class RoundtripE2ETests
             }
 
             int firstSep = line.IndexOf("||", StringComparison.Ordinal);
-            if (firstSep < 0) continue;
+            if (firstSep < 0)
+            {
+                continue;
+            }
 
             int secondSep = line.IndexOf("||", firstSep + 2, StringComparison.Ordinal);
-            if (secondSep < 0) continue;
+            if (secondSep < 0)
+            {
+                continue;
+            }
 
             string key = line[..(secondSep + 2)];
             index.TryAdd(key, line);

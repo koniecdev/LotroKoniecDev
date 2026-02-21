@@ -56,24 +56,12 @@ internal static class Program
                 {
                     IDatPathResolver datPathResolver = serviceProvider.GetRequiredService<IDatPathResolver>();
                     string? datPath = datPathResolver.Resolve(args.Length > 1 ? args[1] : null);
-
-                    if (datPath is null)
-                    {
-                        return ExitCodes.FileNotFound;
-                    }
-
-                    if (!File.Exists(datPath))
-                    {
-                        WriteError($"DAT file not found: {datPath}");
-                        return ExitCodes.FileNotFound;
-                    }
-
                     string outputPath = args.Length > 2
                         ? args[2]
                         : Path.Combine(DataDir, "exported.txt");
 
                     ExportTextsQuery query = new(
-                        DatFilePath: datPath,
+                        DatFilePath: datPath ?? string.Empty,
                         OutputPath: outputPath,
                         Progress: progressRepoter);
 

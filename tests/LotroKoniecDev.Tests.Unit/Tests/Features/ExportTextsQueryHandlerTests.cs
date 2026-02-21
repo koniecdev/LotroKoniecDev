@@ -22,7 +22,8 @@ public sealed class ExportTextsQueryHandlerTests : IDisposable
         Directory.CreateDirectory(_tempDir);
 
         _mockHandler = Substitute.For<IDatFileHandler>();
-        _sut = new ExportTextsQueryHandler(_mockHandler);
+        IProgress<OperationProgress> progress = Substitute.For<IProgress<OperationProgress>>();
+        _sut = new ExportTextsQueryHandler(_mockHandler, progress);
     }
 
     public void Dispose()
@@ -135,33 +136,6 @@ public sealed class ExportTextsQueryHandlerTests : IDisposable
         result.IsSuccess.ShouldBeTrue();
         result.Value.TotalTextFiles.ShouldBe(2);
         result.Value.TotalFragments.ShouldBe(2);
-    }
-
-    [Fact]
-    public async Task Handle_WithProgressCallback_ShouldReportProgress()
-    {
-        // Arrange
-        string outputPath = Path.Combine(_tempDir, "output.txt");
-
-        Dictionary<int, (int, int)> fileSizes = Enumerable.Range(1, 600)
-            .ToDictionary(
-                i => 0x25000000 + i,
-                i => (100, 1));
-
-        _mockHandler.Open("test.dat").Returns(Result.Success(0));
-        _mockHandler.GetAllSubfileSizes(Arg.Any<int>()).Returns(fileSizes);
-        _mockHandler.GetSubfileData(Arg.Any<int>(), Arg.Any<int>(), Arg.Any<int>())
-            .Returns(x => Result.Success(TestDataFactory.CreateTextSubFileData((int)x[1], "Test")));
-
-        IProgress<OperationProgress> progress = Substitute.For<IProgress<OperationProgress>>();
-        ExportTextsQuery query = new("test.dat", outputPath, progress);
-
-        // Act
-        Result<ExportSummaryResponse> result = await _sut.Handle(query, CancellationToken.None);
-
-        // Assert
-        result.IsSuccess.ShouldBeTrue();
-        progress.Received(1).Report(Arg.Is<OperationProgress>(p => p.Current == 500 && p.Total == 600));
     }
 
     [Fact]

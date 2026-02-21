@@ -15,6 +15,8 @@ public static class CliDependencyInjection
         services.AddSingleton<IPreflightChecker, PreflightChecker>();
         services.AddSingleton<IFileProvider, FileProvider>();
         services.AddSingleton<IOperationStatusReporter, ConsoleStatusReporter>();
+        services.AddSingleton<IOperationStatusReporter, ConsoleStatusReporter>();
+        services.AddSingleton<IProgress<OperationProgress>, ConsoleProgressReporter>();
 
         return services;
     }

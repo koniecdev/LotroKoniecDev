@@ -46,9 +46,6 @@ internal static class Program
 
         ISender sender = serviceProvider.GetRequiredService<ISender>();
 
-        IProgress<OperationProgress> progressRepoter =
-            serviceProvider.GetRequiredService<IProgress<OperationProgress>>();
-
         IOperationStatusReporter reporter = serviceProvider.GetRequiredService<IOperationStatusReporter>();
 
         switch (command)
@@ -66,7 +63,7 @@ internal static class Program
                         OutputPath: outputPath);
 
                     Result<ExportSummaryResponse> result = await sender.Send(query);
-                    if (!result.IsSuccess)
+                    if (result.IsFailure)
                     {
                         reporter.Report(result.Error.ToString());
                         return ExitCodes.OperationFailed;
@@ -77,18 +74,27 @@ internal static class Program
                 }
             case "patch":
                 {
-                    int result = await PatchCommand.RunAsync(
-                        translationPathArg: new TranslationPath(args[1]),
-                        datPathArg: args.Length > 2 ? new DatPath(args[2]) : null,
-                        serviceProvider: serviceProvider,
-                        versionFilePath: VersionFilePath);
-                    return result;
+                    // int result = await PatchCommand.RunAsync(
+                    //     translationPathArg: new TranslationPath(args[1]),
+                    //     datPathArg: args.Length > 2 ? new DatPath(args[2]) : null,
+                    //     serviceProvider: serviceProvider,
+                    //     versionFilePath: VersionFilePath);
+                    // return result;
                     
-                    // ApplyPatchCommand applyPatchCommand = new(
-                    //     TranslationsPath: args[1],
-                    //     DatFilePath: args.Length > 2 ? args[2] : string.Empty,
-                    //     VersionFilePath: VersionFilePath);
-                    // return await applyPatchCommand.RunAsync(serviceProvider);
+                    ApplyPatchCommand applyPatchCommand = new(
+                        TranslationsPath: args.Length > 1 ? args[1] : string.Empty,
+                        DatFilePath: args.Length > 2 ? args[2] : string.Empty,
+                        VersionFilePath: VersionFilePath);
+                    
+                    Result<PatchSummaryResponse> result = await sender.Send(applyPatchCommand);
+                    if (result.IsFailure)
+                    {
+                        reporter.Report(result.Error.ToString());
+                        return ExitCodes.OperationFailed;
+                    }
+                    
+                    reporter.Report(result.Value.ToString());
+                    return ExitCodes.Success;
                 }
             default:
                 return HandleUnknownCommand();

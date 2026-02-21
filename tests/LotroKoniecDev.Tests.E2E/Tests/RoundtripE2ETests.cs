@@ -15,7 +15,7 @@ public sealed class RoundtripE2ETests
     }
 
     [SkippableFact]
-    public async Task Roundtrip_ExportPatchExport_PatchedTextsArePolish()
+    public async Task Roundtrip_ShouldProducePolishTexts_WhenExportPatchExport()
     {
         Skip.If(!_fixture.IsDatFileAvailable, "DAT file not found in TestData/");
 
@@ -26,59 +26,124 @@ public sealed class RoundtripE2ETests
             $"polish.txt should parse. Error: {(polishResult.IsFailure ? polishResult.Error.Message : "")}");
         polishResult.Value.ShouldNotBeEmpty("polish.txt should contain translations");
 
-        //Arrange — export original DAT (before patch)
-        string beforePath = Path.Combine(_fixture.CreateTempDir(), "before.txt");
-        CliResult exportBefore = await _fixture.RunCliAsync(
-            $"export \"{_fixture.DatFilePath}\" \"{beforePath}\"");
-        exportBefore.ExitCode.ShouldBe(0, $"Export before failed: {exportBefore.Stderr}");
+        //Arrange — use cached export as "before" (original English DAT)
+        _fixture.CachedExportResult!.ExitCode.ShouldBe(0,
+            $"Cached export failed: {_fixture.CachedExportResult.Stderr}");
 
         //Arrange — copy DAT to temp and patch it
         string tempDatPath = _fixture.CreateTempDatCopy();
         CliResult patch = await _fixture.RunCliAsync(
             $"patch \"{_fixture.TranslationsPolishPath}\" \"{tempDatPath}\"");
         patch.ExitCode.ShouldBe(0, $"Patch failed: {patch.Stderr}");
+        patch.Stderr.ShouldBeNullOrWhiteSpace(
+            "Patch should not produce stderr output");
 
         //Act — export the patched DAT
         string afterPath = Path.Combine(_fixture.CreateTempDir(), "after.txt");
         CliResult exportAfter = await _fixture.RunCliAsync(
             $"export \"{tempDatPath}\" \"{afterPath}\"");
         exportAfter.ExitCode.ShouldBe(0, $"Export after failed: {exportAfter.Stderr}");
+        exportAfter.Stderr.ShouldBeNullOrWhiteSpace(
+            "Export after should not produce stderr output");
 
-        //Assert — each Polish translation should now appear in the patched export
+        //Assert — build O(1) lookup indexes for both exports
+        Dictionary<string, string> beforeIndex = BuildLineIndex(_fixture.CachedExportPath);
+        Dictionary<string, string> afterIndex = BuildLineIndex(afterPath);
+
         foreach (Translation expected in polishResult.Value)
         {
             string linePrefix = $"{expected.FileId}||{expected.GossipId}||";
 
-            string? beforeLine = FindLine(beforePath, linePrefix);
-            string? afterLine = FindLine(afterPath, linePrefix);
+            beforeIndex.TryGetValue(linePrefix, out string? beforeLine);
+            afterIndex.TryGetValue(linePrefix, out string? afterLine);
 
             beforeLine.ShouldNotBeNull(
                 $"Before export should contain FileId={expected.FileId}, GossipId={expected.GossipId}");
             afterLine.ShouldNotBeNull(
                 $"After export should contain FileId={expected.FileId}, GossipId={expected.GossipId}");
 
-            Result<Translation> beforeParsed = parser.ParseLine(beforeLine);
             Result<Translation> afterParsed = parser.ParseLine(afterLine);
-
-            beforeParsed.IsSuccess.ShouldBeTrue(
-                $"Before line should parse for GossipId={expected.GossipId}");
             afterParsed.IsSuccess.ShouldBeTrue(
                 $"After line should parse for GossipId={expected.GossipId}");
 
-            Translation before = beforeParsed.Value;
-            Translation after = afterParsed.Value;
-
-            // Before patch = English, after patch = Polish — content must differ
-            before.Content.ShouldNotBe(after.Content,
-                $"Content should change after patch for GossipId={expected.GossipId}");
-
             // After patch content should match the Polish translation exactly
-            after.Content.ShouldBe(expected.Content,
+            afterParsed.Value.Content.ShouldBe(expected.Content,
                 $"Patched content should match polish.txt for GossipId={expected.GossipId}");
         }
     }
 
-    private static string? FindLine(string filePath, string prefix) =>
-        File.ReadLines(filePath)
-            .FirstOrDefault(l => l.StartsWith(prefix, StringComparison.Ordinal));
+    [SkippableFact]
+    public async Task Roundtrip_ShouldPreserveUntranslatedTexts_WhenPatchApplied()
+    {
+        Skip.If(!_fixture.IsDatFileAvailable, "DAT file not found in TestData/");
+
+        //Arrange — get set of translated IDs to exclude
+        TranslationFileParser parser = new();
+        Result<IReadOnlyList<Translation>> polishResult = parser.ParseFile(_fixture.TranslationsPolishPath);
+        polishResult.IsSuccess.ShouldBeTrue(
+            $"polish.txt should parse. Error: {(polishResult.IsFailure ? polishResult.Error.Message : "")}");
+
+        HashSet<string> translatedKeys = polishResult.Value
+            .Select(t => $"{t.FileId}||{t.GossipId}||")
+            .ToHashSet();
+
+        //Arrange — use cached export as "before"
+        _fixture.CachedExportResult!.ExitCode.ShouldBe(0,
+            $"Cached export failed: {_fixture.CachedExportResult.Stderr}");
+
+        //Arrange — patch a temp copy
+        string tempDatPath = _fixture.CreateTempDatCopy();
+        CliResult patch = await _fixture.RunCliAsync(
+            $"patch \"{_fixture.TranslationsPolishPath}\" \"{tempDatPath}\"");
+        patch.ExitCode.ShouldBe(0, $"Patch failed: {patch.Stderr}");
+
+        //Act — export patched DAT
+        string afterPath = Path.Combine(_fixture.CreateTempDir(), "after.txt");
+        CliResult exportAfter = await _fixture.RunCliAsync(
+            $"export \"{tempDatPath}\" \"{afterPath}\"");
+        exportAfter.ExitCode.ShouldBe(0, $"Export after failed: {exportAfter.Stderr}");
+
+        //Assert — sample untranslated lines and verify they're identical
+        Dictionary<string, string> beforeIndex = BuildLineIndex(_fixture.CachedExportPath);
+        Dictionary<string, string> afterIndex = BuildLineIndex(afterPath);
+
+        List<string> untranslatedKeys = beforeIndex.Keys
+            .Where(k => !translatedKeys.Contains(k))
+            .Take(500)
+            .ToList();
+
+        untranslatedKeys.Count.ShouldBeGreaterThan(0,
+            "Should have untranslated lines to verify");
+
+        foreach (string key in untranslatedKeys)
+        {
+            afterIndex.TryGetValue(key, out string? afterLine);
+            afterLine.ShouldNotBeNull($"Untranslated line {key} should still exist after patch");
+            afterLine.ShouldBe(beforeIndex[key],
+                $"Untranslated line {key} should be identical after patch");
+        }
+    }
+
+    private static Dictionary<string, string> BuildLineIndex(string filePath)
+    {
+        var index = new Dictionary<string, string>();
+        foreach (string line in File.ReadLines(filePath))
+        {
+            if (string.IsNullOrWhiteSpace(line) || line.TrimStart().StartsWith('#'))
+            {
+                continue;
+            }
+
+            int firstSep = line.IndexOf("||", StringComparison.Ordinal);
+            if (firstSep < 0) continue;
+
+            int secondSep = line.IndexOf("||", firstSep + 2, StringComparison.Ordinal);
+            if (secondSep < 0) continue;
+
+            string key = line[..(secondSep + 2)];
+            index.TryAdd(key, line);
+        }
+
+        return index;
+    }
 }

@@ -7,22 +7,22 @@ Part of a larger platform: CLI + Web App (Blazor SSR) + Desktop App (WPF).
 ## Build & Run
 
 ```bash
-dotnet build src/LotroKoniecDev             # Build CLI
+dotnet build src/LotroKoniecDev.Cli          # Build CLI
 dotnet test                                  # All tests (~550 assertions)
 dotnet test tests/LotroKoniecDev.Tests.Unit
 dotnet test tests/LotroKoniecDev.Tests.Integration
 
-dotnet run --project src/LotroKoniecDev -- export
-dotnet run --project src/LotroKoniecDev -- patch polish
+dotnet run --project src/LotroKoniecDev.Cli -- export
+dotnet run --project src/LotroKoniecDev.Cli -- patch polish
 ```
 
-Output: `src/LotroKoniecDev/bin/Debug/net10.0-windows/LotroKoniecDev.exe`
+Output: `src/LotroKoniecDev.Cli/bin/Debug/net10.0-windows/LotroKoniecDev.Cli.exe`
 
 ## Tech Stack
 
 - C# 13, .NET 10.0, modern `.slnx` solution
 - DI: Microsoft.Extensions.DependencyInjection
-- Testing: xUnit 2.9.3 + FluentAssertions 8.0.0 + NSubstitute 5.3.0
+- Testing: xUnit 2.9.3 + Shouldly 4.3.0 + NSubstitute 5.3.0
 - Native interop: datexport.dll (Turbine C++ library for DAT I/O via P/Invoke)
 - DB (planned): PostgreSQL + EF Core + Npgsql
 - Web (planned): Blazor SSR
@@ -52,7 +52,7 @@ Target: 3 presentation layers sharing MediatR handlers (zero duplication):
 
 ```
 src/
-  LotroKoniecDev/                 CLI entry point (Program.cs, ~80 lines)
+  LotroKoniecDev.Cli/             CLI entry point (Program.cs, ~80 lines)
     Commands/                     ExportCommand, PatchCommand, PreflightChecker, BackupManager
     ConsoleWriter.cs              Colored output (Info/Success/Warning/Error/Progress)
     DatPathResolver.cs            Auto-detect or prompt for LOTRO install path
@@ -210,8 +210,9 @@ Stronger than Russian project's `-disablePatch` flag. Intentionally blocks game 
 - `var` when type apparent, explicit for built-in types
 - `_camelCase` fields, `PascalCase` types/members, `IPrefix` interfaces
 - Expression-bodied members when single line
-- FluentAssertions only (no raw `Assert.*`)
-- Test naming: `MethodName_Scenario_ExpectedResult`
+- Shouldly only (no raw `Assert.*`)
+- Assertions should be directly in test method body. We don't want any extractions to private methods.
+- Test naming: `MethodName_ShouldX_WhenY`
 
 ## Build Config
 

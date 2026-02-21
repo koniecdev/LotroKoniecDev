@@ -2,6 +2,7 @@ using LotroKoniecDev.Application.Abstractions;
 using LotroKoniecDev.Application.Abstractions.DatFilesServices;
 using LotroKoniecDev.Application.Features.Patch;
 using LotroKoniecDev.Domain.Core.Monads;
+using LotroKoniecDev.Domain.Models;
 using LotroKoniecDev.Cli.ValueObjects;
 using Microsoft.Extensions.DependencyInjection;
 using static LotroKoniecDev.Cli.ConsoleWriter;
@@ -41,13 +42,31 @@ internal static class PatchCommand
             WriteError($"DAT file not found: {datPath}");
             return ExitCodes.FileNotFound;
         }
-        
+
+        // Early validation: parse translations before expensive/interactive preflight checks.
+        // This prevents blocking on Console.ReadLine() prompts for invalid input files.
+        WriteInfo($"Loading translations from: {translationsPath}");
+        ITranslationParser parser = serviceProvider.GetRequiredService<ITranslationParser>();
+        Result<IReadOnlyList<Translation>> parseResult = parser.ParseFile(translationsPath);
+
+        if (parseResult.IsFailure)
+        {
+            WriteError(parseResult.Error.Message);
+            return ExitCodes.OperationFailed;
+        }
+
+        if (parseResult.Value.Count == 0)
+        {
+            WriteError("No valid translations found in file.");
+            return ExitCodes.OperationFailed;
+        }
+
         IPreflightChecker preflightChecker = serviceProvider.GetRequiredService<IPreflightChecker>();
         if (!await preflightChecker.RunAllAsync(datPath, versionFilePath))
         {
             return ExitCodes.OperationFailed;
         }
-        
+
         IBackupManager backupManager = serviceProvider.GetRequiredService<IBackupManager>();
         Result backupResult = backupManager.Create(datPath);
         if (backupResult.IsFailure)
@@ -55,8 +74,6 @@ internal static class PatchCommand
             WriteError(backupResult.Error.Message);
             return ExitCodes.OperationFailed;
         }
-
-        WriteInfo($"Loading translations from: {translationsPath}");
 
         using IServiceScope scope = serviceProvider.CreateScope();
         IPatcher patcher = scope.ServiceProvider.GetRequiredService<IPatcher>();

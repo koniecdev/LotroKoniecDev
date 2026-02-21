@@ -16,8 +16,10 @@ public sealed class E2ETestFixture : IAsyncLifetime
     public string CliExePath { get; private set; } = string.Empty;
     public string TranslationsPolishPath { get; private set; } = string.Empty;
     public bool IsDatFileAvailable { get; private set; }
+    public string CachedExportPath { get; private set; } = string.Empty;
+    public CliResult? CachedExportResult { get; private set; }
 
-    public Task InitializeAsync()
+    public async Task InitializeAsync()
     {
         string testDataDir = FindTestDataDirectory();
         DatFilePath = Path.Combine(testDataDir, DatFileName);
@@ -25,14 +27,40 @@ public sealed class E2ETestFixture : IAsyncLifetime
         if (!File.Exists(DatFilePath))
         {
             IsDatFileAvailable = false;
-            return Task.CompletedTask;
+            return;
         }
 
         CliExePath = FindCliExe();
         TranslationsPolishPath = FindTranslationsFile("polish.txt");
         IsDatFileAvailable = true;
 
-        return Task.CompletedTask;
+        // Clean up orphaned temp dirs from previous crashed runs (older than 1h)
+        foreach (string dir in Directory.GetDirectories(Path.GetTempPath(), "lotro_e2e_*"))
+        {
+            try
+            {
+                if (Directory.GetCreationTimeUtc(dir) < DateTime.UtcNow.AddHours(-1))
+                {
+                    Directory.Delete(dir, true);
+                }
+            }
+            catch
+            {
+                // ignored
+            }
+        }
+
+        // Pre-export once for all tests to share
+        string exportDir = CreateTempDir();
+        CachedExportPath = Path.Combine(exportDir, "export.txt");
+        CachedExportResult = await RunCliAsync($"export \"{DatFilePath}\" \"{CachedExportPath}\"");
+
+        if (CachedExportResult.ExitCode != 0)
+        {
+            throw new InvalidOperationException(
+                $"Cached export failed with exit code {CachedExportResult.ExitCode}. " +
+                $"stderr: {CachedExportResult.Stderr}");
+        }
     }
 
     public Task DisposeAsync()
@@ -137,15 +165,23 @@ public sealed class E2ETestFixture : IAsyncLifetime
     private static string FindCliExe()
     {
         string solutionRoot = FindSolutionRoot();
-        string cliOutputDir = Path.Combine(
-            solutionRoot, "src", CliProjectName, "bin", "Debug", "net10.0-windows");
+        string cliBinDir = Path.Combine(solutionRoot, "src", CliProjectName, "bin");
 
-        string exePath = Path.Combine(cliOutputDir, $"{CliProjectName}.exe");
-
-        if (!File.Exists(exePath))
+        if (!Directory.Exists(cliBinDir))
         {
             throw new InvalidOperationException(
-                $"CLI exe not found at {exePath}. Build the CLI first: dotnet build src/{CliProjectName}");
+                $"CLI bin directory not found at {cliBinDir}. Build the CLI first: dotnet build src/{CliProjectName}");
+        }
+
+        string exeName = $"{CliProjectName}.exe";
+        string? exePath = Directory.GetFiles(cliBinDir, exeName, SearchOption.AllDirectories)
+            .OrderByDescending(File.GetLastWriteTimeUtc)
+            .FirstOrDefault();
+
+        if (exePath is null)
+        {
+            throw new InvalidOperationException(
+                $"CLI exe '{exeName}' not found under {cliBinDir}. Build the CLI first: dotnet build src/{CliProjectName}");
         }
 
         return exePath;

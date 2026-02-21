@@ -4,9 +4,10 @@ using LotroKoniecDev.Application.Extensions;
 using LotroKoniecDev.Application.Features.Export;
 using LotroKoniecDev.Application.Features.Patch;
 using LotroKoniecDev.Cli.Commands;
-using LotroKoniecDev.Cli.ValueObjects;
+using LotroKoniecDev.Domain.Core.BuildingBlocks;
 using LotroKoniecDev.Domain.Core.Monads;
 using LotroKoniecDev.Infrastructure;
+using LotroKoniecDev.Primitives.Enums;
 using Mediator;
 using Microsoft.Extensions.DependencyInjection;
 using static LotroKoniecDev.Cli.ConsoleWriter;
@@ -54,19 +55,25 @@ internal static class Program
                 {
                     IDatPathResolver datPathResolver = serviceProvider.GetRequiredService<IDatPathResolver>();
                     string? datPath = datPathResolver.Resolve(args.Length > 1 ? args[1] : null);
+
+                    if (datPath is null)
+                    {
+                        return ExitCodes.FileNotFound;
+                    }
+
                     string outputPath = args.Length > 2
                         ? args[2]
                         : Path.Combine(DataDir, "exported.txt");
 
                     ExportTextsQuery query = new(
-                        DatFilePath: datPath ?? string.Empty,
+                        DatFilePath: datPath,
                         OutputPath: outputPath);
 
                     Result<ExportSummaryResponse> result = await sender.Send(query);
                     if (result.IsFailure)
                     {
                         reporter.Report(result.Error.ToString());
-                        return ExitCodes.OperationFailed;
+                        return MapErrorToExitCode(result.Error);
                     }
 
                     reporter.Report(result.Value.ToString());
@@ -74,13 +81,6 @@ internal static class Program
                 }
             case "patch":
                 {
-                    // int result = await PatchCommand.RunAsync(
-                    //     translationPathArg: new TranslationPath(args[1]),
-                    //     datPathArg: args.Length > 2 ? new DatPath(args[2]) : null,
-                    //     serviceProvider: serviceProvider,
-                    //     versionFilePath: VersionFilePath);
-                    // return result;
-                    
                     ApplyPatchCommand applyPatchCommand = new(
                         TranslationsPath: args.Length > 1 ? args[1] : string.Empty,
                         DatFilePath: args.Length > 2 ? args[2] : string.Empty,
@@ -90,7 +90,7 @@ internal static class Program
                     if (result.IsFailure)
                     {
                         reporter.Report(result.Error.ToString());
-                        return ExitCodes.OperationFailed;
+                        return MapErrorToExitCode(result.Error);
                     }
                     
                     reporter.Report(result.Value.ToString());
@@ -119,6 +119,11 @@ internal static class Program
         Console.WriteLine(@"  LotroKoniecDev patch example_polish C:\path\to\client_local_English.dat");
         Console.WriteLine("  LotroKoniecDev export");
     }
+
+    private static int MapErrorToExitCode(Error error) =>
+        error.Type == ErrorType.NotFound
+            ? ExitCodes.FileNotFound
+            : ExitCodes.OperationFailed;
 
     private static int HandleUnknownCommand()
     {

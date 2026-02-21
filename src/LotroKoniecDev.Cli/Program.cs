@@ -2,6 +2,7 @@ using LotroKoniecDev.Application;
 using LotroKoniecDev.Application.Abstractions.DatFilesServices;
 using LotroKoniecDev.Application.Extensions;
 using LotroKoniecDev.Application.Features.Export;
+using LotroKoniecDev.Application.Features.Patch;
 using LotroKoniecDev.Cli.Commands;
 using LotroKoniecDev.Cli.ValueObjects;
 using LotroKoniecDev.Domain.Core.Monads;
@@ -62,8 +63,7 @@ internal static class Program
 
                     ExportTextsQuery query = new(
                         DatFilePath: datPath ?? string.Empty,
-                        OutputPath: outputPath,
-                        Progress: progressRepoter);
+                        OutputPath: outputPath);
 
                     Result<ExportSummaryResponse> result = await sender.Send(query);
                     if (!result.IsSuccess)
@@ -83,6 +83,12 @@ internal static class Program
                         serviceProvider: serviceProvider,
                         versionFilePath: VersionFilePath);
                     return result;
+                    
+                    // ApplyPatchCommand applyPatchCommand = new(
+                    //     TranslationsPath: args[1],
+                    //     DatFilePath: args.Length > 2 ? args[2] : string.Empty,
+                    //     VersionFilePath: VersionFilePath);
+                    // return await applyPatchCommand.RunAsync(serviceProvider);
                 }
             default:
                 return HandleUnknownCommand();

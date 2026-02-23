@@ -31,17 +31,18 @@ internal static class PatchCommand
             return ExitCodes.FileNotFound;
         }
 
+        if (!File.Exists(datPath))
+        {
+            WriteError($"DAT file not found: {datPath}");
+            return ExitCodes.FileNotFound;
+        }
+        
         if (!File.Exists(translationsPath))
         {
             WriteError($"Translation file not found: {translationsPath}");
             return ExitCodes.FileNotFound;
         }
 
-        if (!File.Exists(datPath))
-        {
-            WriteError($"DAT file not found: {datPath}");
-            return ExitCodes.FileNotFound;
-        }
 
         // Early validation: parse translations before expensive/interactive preflight checks.
         // This prevents blocking on Console.ReadLine() prompts for invalid input files.

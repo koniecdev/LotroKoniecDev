@@ -3,7 +3,6 @@ using LotroKoniecDev.Application.Abstractions.DatFilesServices;
 using LotroKoniecDev.Application.Extensions;
 using LotroKoniecDev.Application.Features.Export;
 using LotroKoniecDev.Application.Features.Patch;
-using LotroKoniecDev.Cli.Commands;
 using LotroKoniecDev.Domain.Core.BuildingBlocks;
 using LotroKoniecDev.Domain.Core.Monads;
 using LotroKoniecDev.Infrastructure;
@@ -17,6 +16,7 @@ namespace LotroKoniecDev.Cli;
 internal static class Program
 {
     private static readonly string DataDir = Path.GetFullPath("data");
+    private const string TranslationsDir = "translations";
     private static readonly string VersionFilePath = Path.Combine(DataDir, "last_known_game_version.txt");
 
     private static async Task<int> Main(string[] args)
@@ -55,7 +55,6 @@ internal static class Program
                 {
                     IDatPathResolver datPathResolver = serviceProvider.GetRequiredService<IDatPathResolver>();
                     string? datPath = datPathResolver.Resolve(args.Length > 1 ? args[1] : null);
-
                     if (datPath is null)
                     {
                         return ExitCodes.FileNotFound;
@@ -79,11 +78,36 @@ internal static class Program
                     reporter.Report(result.Value.ToString());
                     return ExitCodes.Success;
                 }
+            
             case "patch":
                 {
+                    string? translationArgument = args.Length > 1 ? args[1] : null;
+                    if (translationArgument is null)
+                    {
+                        return ExitCodes.FileNotFound;
+                    }
+                    string translationsPath = ResolveTranslationsPath(translationArgument);
+                    if (!File.Exists(translationsPath))
+                    {
+                        WriteError($"Translation file not found: {translationsPath}");
+                        return ExitCodes.FileNotFound;
+                    }
+                    
+                    IDatPathResolver datPathResolver = serviceProvider.GetRequiredService<IDatPathResolver>();
+                    string? datPath = datPathResolver.Resolve(args.Length > 2 ? args[2] : null);
+                    if (datPath is null)
+                    {
+                        return ExitCodes.FileNotFound;
+                    }
+                    if (!File.Exists(datPath))
+                    {
+                        WriteError($"DAT file not found: {datPath}");
+                        return ExitCodes.FileNotFound;
+                    }
+                    
                     ApplyPatchCommand applyPatchCommand = new(
-                        TranslationsPath: args.Length > 1 ? args[1] : string.Empty,
-                        DatFilePath: args.Length > 2 ? args[2] : string.Empty,
+                        TranslationsPath: translationsPath,
+                        DatFilePath: datPath,
                         VersionFilePath: VersionFilePath);
                     
                     Result<PatchSummaryResponse> result = await sender.Send(applyPatchCommand);
@@ -101,6 +125,15 @@ internal static class Program
         }
     }
 
+    private static string ResolveTranslationsPath(string input)
+    {
+        return input.Contains(Path.DirectorySeparatorChar) ||
+               input.Contains(Path.AltDirectorySeparatorChar) ||
+               input.EndsWith(".txt", StringComparison.OrdinalIgnoreCase)
+            ? input
+            : Path.Combine(TranslationsDir, input + ".txt");
+    }
+    
     private static void PrintUsage()
     {
         Console.WriteLine("Usage:");

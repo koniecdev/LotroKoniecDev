@@ -110,7 +110,6 @@ public sealed class E2ETestFixture : IAsyncLifetime
         process.Start();
 
         // Close stdin immediately so any Console.ReadLine() prompts
-        // (DatPathResolver, PreflightChecker) return null instead of hanging.
         process.StandardInput.Close();
 
         Task<string> stdoutTask = process.StandardOutput.ReadToEndAsync();

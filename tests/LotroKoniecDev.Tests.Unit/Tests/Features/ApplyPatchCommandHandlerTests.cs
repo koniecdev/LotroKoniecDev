@@ -276,6 +276,45 @@ public sealed class ApplyPatchCommandHandlerTests
     }
 
     [Fact]
+    public async Task Handle_PutSubfileDataFails_ShouldAddWarningAndContinue()
+    {
+        // Arrange
+        SetupAllPassingDefaults();
+
+        _datFileHandler.GetAllSubfileSizes(DatHandle).Returns(new Dictionary<int, (int, int)>
+        {
+            { TextFileId, (100, 1) },
+            { TextFileId2, (100, 2) }
+        });
+        _datFileHandler.GetSubfileData(DatHandle, TextFileId, 100)
+            .Returns(Result.Success(TestDataFactory.CreateTextSubFileData(TextFileId, FragmentId1, 1)));
+        _datFileHandler.GetSubfileData(DatHandle, TextFileId2, 100)
+            .Returns(Result.Success(TestDataFactory.CreateTextSubFileData(TextFileId2, FragmentId1, 1)));
+        _datFileHandler.GetSubfileVersion(DatHandle, TextFileId).Returns(1);
+        _datFileHandler.GetSubfileVersion(DatHandle, TextFileId2).Returns(2);
+
+        Error putError = new("DatFile.WriteError", "Disk full", ErrorType.IoError);
+        _datFileHandler.PutSubfileData(DatHandle, TextFileId, Arg.Any<byte[]>(), Arg.Any<int>(), 1)
+            .Returns(Result.Failure(putError));
+        _datFileHandler.PutSubfileData(DatHandle, TextFileId2, Arg.Any<byte[]>(), Arg.Any<int>(), 2)
+            .Returns(Result.Success());
+
+        Translation t1 = CreateTranslation(fileId: TextFileId);
+        Translation t2 = CreateTranslation(fileId: TextFileId2);
+        SetupTranslations(t1, t2);
+
+        ApplyPatchCommand command = CreateCommand();
+
+        // Act
+        Result<PatchSummaryResponse> result = await _sut.Handle(command, CancellationToken.None);
+
+        // Assert
+        result.IsSuccess.ShouldBeTrue();
+        result.Value.AppliedTranslations.ShouldBe(2);
+        result.Value.Warnings.ShouldContain(w => w.Contains("Disk full"));
+    }
+
+    [Fact]
     public async Task Handle_MultipleTranslationsSameFile_ShouldSaveOnce()
     {
         // Arrange

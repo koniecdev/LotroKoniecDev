@@ -513,6 +513,65 @@ ArgsOrder jest parsowane przez `TranslationFileParser` i przechowywane w `Transl
 
 ---
 
+### M1-13: Gitleaks pre-commit hook + CI + .gitignore hardening
+**Labels:** `medium` `infra`
+**Zalezy od:** —
+**Blokuje:** —
+**Rekomendacja:** Zrob PRZED M3/M5 (API + Auth w publicznym repo). Im wczesniej tym lepiej.
+
+**Kontekst:**
+API + AuthServer (M3, M5) beda w publicznym repo. Sekrety (connection strings, signing keys, client secrets) nie moga trafic do historii gita. GitGuardian/GitHub secret scanning wykrywaja po fakcie — ktos mogl zobaczyc secret zanim zostal usuniety. Potrzeba prewencji PRZED commitem.
+
+**Do zrobienia:**
+
+**Czesc 1: Pre-commit hook (gitleaks)**
+1. Dodaj `.pre-commit-config.yaml` do repo root:
+   ```yaml
+   repos:
+     - repo: https://github.com/gitleaks/gitleaks
+       rev: v8.21.2
+       hooks:
+         - id: gitleaks
+   ```
+2. Dodaj `.gitleaks.toml` z custom rules jesli potrzeba (np. allowlist dla test data, false positives).
+3. Zaktualizuj README/CONTRIBUTING z instrukcja: `pip install pre-commit && pre-commit install`.
+
+**Czesc 2: CI safety net (GitHub Actions)**
+1. Dodaj `.github/workflows/gitleaks.yml`:
+   ```yaml
+   name: gitleaks
+   on: [pull_request, push]
+   jobs:
+     scan:
+       runs-on: ubuntu-latest
+       steps:
+         - uses: actions/checkout@v4
+           with:
+             fetch-depth: 0
+         - uses: gitleaks/gitleaks-action@v2
+           env:
+             GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+   ```
+2. Odpalany na kazdym PR i push do main — PR z secretem nie przejdzie.
+
+**Czesc 3: .gitignore hardening**
+1. Upewnij sie ze `.gitignore` zawiera:
+   - `*.env`, `.env.*`, `!.env.example`
+   - `appsettings.*.local.json`
+   - `**/secrets.json`
+2. Dodaj `.env.example` z placeholder values (committowany).
+3. W README: instrukcja uzycia `dotnet user-secrets` dla dev environment.
+
+**Acceptance criteria:**
+- [ ] `git commit` z secretem w staged files -> commit zablokowany (pre-commit hook)
+- [ ] PR z secretem -> CI fails (GitHub Actions)
+- [ ] `.gitignore` pokrywa typowe pliki z sekretami
+- [ ] `.env.example` istnieje z placeholderami
+- [ ] Dokumentacja setup dla nowych devow (pre-commit install)
+- [ ] False positives w testach nie blokuja commita (allowlist w `.gitleaks.toml`)
+
+---
+
 # M2: Baza danych
 
 ## Faza A: PostgreSQL + EF Core
@@ -1419,12 +1478,12 @@ Wydaje JWT tokeny, zarzadza uzytkownikami i rolami. API waliduje tokeny, Blazor 
 
 | Milestone | Tickety | Critical | High | Medium | Low |
 |-----------|---------|----------|------|--------|-----|
-| M1 | 13 | 2 | 8 | 2 | 1 |
+| M1 | 14 | 2 | 8 | 3 | 1 |
 | M2 | 11 | 1 | 7 | 3 | 0 |
 | M3 | 9 | 0 | 4 | 4 | 1 |
 | M4 | 6 | 0 | 5 | 1 | 0 |
 | M5 | 9 | 0 | 3 | 0 | 6 |
-| **Total** | **48** | **3** | **27** | **10** | **8** |
+| **Total** | **49** | **3** | **27** | **11** | **8** |
 
 ## Poprawiony critical path
 
@@ -1455,6 +1514,7 @@ Track D: Testy integracyjne (PRZED M1-05!)
 Track E: Niezalezne (dowolna kolejnosc)
   M1-09 (pipeline behaviors — low priority)
   M1-10 (ArgsOrder + approved — medium)
+  M1-13 (gitleaks + CI + .gitignore — PRZED M3/M5!)
   M2-07 (parser || fix — brak zaleznosci)
 
 Track F: Auth (po M2 + M3)

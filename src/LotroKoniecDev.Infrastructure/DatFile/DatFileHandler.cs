@@ -1,5 +1,6 @@
 using System.Runtime.InteropServices;
 using LotroKoniecDev.Application.Abstractions.DatFilesServices;
+using LotroKoniecDev.Application.Features.DatVersionReading;
 using LotroKoniecDev.Domain.Core.Errors;
 using LotroKoniecDev.Domain.Core.Monads;
 
@@ -8,20 +9,28 @@ namespace LotroKoniecDev.Infrastructure.DatFile;
 /// <summary>
 /// Provides managed access to LOTRO DAT files through the native datexport.dll library.
 /// </summary>
-public sealed class DatFileHandler : IDatFileHandler
+public sealed class DatFileHandler : IDatFileHandler, IDatVersionReader
 {
     private readonly Lock _lock = new();
     private readonly HashSet<int> _openHandles = [];
     private bool _disposed;
 
-    public Result<int> Open(string path)
+    /// <summary>
+    /// Opens a LOTRO DAT file given its file path and returns a handle to the open file.
+    /// </summary>
+    /// <param name="datFilePath">The file path to the DAT file to be opened. It must not be null, empty, or whitespace.</param>
+    /// <returns>
+    /// A <see cref="Result{TValue}"/> containing the handle to the opened DAT file if the operation is successful;
+    /// otherwise, a failure result with an error message describing why the file could not be opened.
+    /// </returns>
+    public Result<int> Open(string datFilePath)
     {
         ThrowIfDisposed();
-        ArgumentException.ThrowIfNullOrWhiteSpace(path);
+        ArgumentException.ThrowIfNullOrWhiteSpace(datFilePath);
 
-        if (!File.Exists(path))
+        if (!File.Exists(datFilePath))
         {
-            return Result.Failure<int>(DomainErrors.DatFile.NotFound(path));
+            return Result.Failure<int>(DomainErrors.DatFile.NotFound(datFilePath));
         }
 
         const int requestedHandle = 0;
@@ -32,7 +41,7 @@ public sealed class DatFileHandler : IDatFileHandler
         {
             int result = DatExportNative.OpenDatFileEx2(
                 requestedHandle,
-                path,
+                datFilePath,
                 DatExportNative.OpenFlagsReadWrite,
                 out _,
                 out _,
@@ -44,7 +53,7 @@ public sealed class DatFileHandler : IDatFileHandler
 
             if (result != requestedHandle)
             {
-                return Result.Failure<int>(DomainErrors.DatFile.CannotOpen(path));
+                return Result.Failure<int>(DomainErrors.DatFile.CannotOpen(datFilePath));
             }
 
             lock (_lock)
@@ -57,14 +66,62 @@ public sealed class DatFileHandler : IDatFileHandler
         catch (DllNotFoundException)
         {
             return Result.Failure<int>(DomainErrors.DatFile.CannotOpen(
-                $"{path}: datexport.dll not found. Ensure the DLL is in the application directory."));
+                $"{datFilePath}: datexport.dll not found. Ensure the DLL is in the application directory."));
         }
         catch (Exception ex)
         {
-            return Result.Failure<int>(DomainErrors.DatFile.CannotOpen($"{path}: {ex.Message}"));
+            return Result.Failure<int>(DomainErrors.DatFile.CannotOpen($"{datFilePath}: {ex.Message}"));
         }
     }
 
+    public Result<DatVersionInfo> ReadVersion(string datFilePath)
+    {
+        ThrowIfDisposed();
+        ArgumentException.ThrowIfNullOrWhiteSpace(datFilePath);
+
+        if (!File.Exists(datFilePath))
+        {
+            return Result.Failure<DatVersionInfo>(DomainErrors.DatFile.NotFound(datFilePath));
+        }
+        
+        const int requestedHandle = 0;
+        byte[] datIdStamp = new byte[64];
+        byte[] firstIterGuid = new byte[64];
+
+        try
+        {
+            int result = DatExportNative.OpenDatFileEx2(
+                requestedHandle,
+                datFilePath,
+                DatExportNative.OpenFlagsReadWrite,
+                out _,
+                out _,
+                out int vnumDatFile,
+                out int vnumGameData,
+                out _,
+                datIdStamp,
+                firstIterGuid);
+
+            if (result != requestedHandle)
+            {
+                return Result.Failure<DatVersionInfo>(DomainErrors.DatFile.CannotOpen(datFilePath));
+            }
+
+            Close(result);
+
+            return Result.Success(new DatVersionInfo(vnumDatFile, vnumGameData));
+        }
+        catch (DllNotFoundException)
+        {
+            return Result.Failure<DatVersionInfo>(DomainErrors.DatFile.CannotOpen(
+                $"{datFilePath}: datexport.dll not found. Ensure the DLL is in the application directory."));
+        }
+        catch (Exception ex)
+        {
+            return Result.Failure<DatVersionInfo>(DomainErrors.DatFile.CannotOpen($"{datFilePath}: {ex.Message}"));
+        }
+    }
+    
     public Dictionary<int, (int Size, int Iteration)> GetAllSubfileSizes(int handle)
     {
         ThrowIfDisposed();
@@ -143,7 +200,24 @@ public sealed class DatFileHandler : IDatFileHandler
         }
     }
 
-    public Result PutSubfileData(int handle, int fileId, byte[] data, int version, int iteration)
+    /// <summary>
+    /// Writes a subfile to a LOTRO DAT file, specifying its data, version, and iteration information.
+    /// </summary>
+    /// <param name="handle">The handle to the open DAT file where the subfile data will be written. Must be a valid handle.</param>
+    /// <param name="fileId">The identifier of the subfile to write. Must correspond to a valid subfile entry in the DAT file.</param>
+    /// <param name="data">The byte array containing the data to be written to the subfile. Must not be null or empty.</param>
+    /// <param name="version">The version of the subfile being written. Typically used for managing multiple subfile revisions.</param>
+    /// <param name="iteration">The iteration value of the subfile, used to track updates or changes.</param>
+    /// <returns>
+    /// A <see cref="Result"/> indicating success if the subfile was written successfully;
+    /// otherwise, a failure result containing an error message with details about the failure.
+    /// </returns>
+    public Result PutSubfileData(
+        int handle,
+        int fileId,
+        byte[] data,
+        int version,
+        int iteration)
     {
         ThrowIfDisposed();
         ValidateHandle(handle);
@@ -161,7 +235,7 @@ public sealed class DatFileHandler : IDatFileHandler
         {
             buffer = Marshal.AllocHGlobal(data.Length);
             Marshal.Copy(data, 0, buffer, data.Length);
-
+            //todo: not used results.
             DatExportNative.PurgeSubfileData(handle, fileId);
             int result = DatExportNative.PutSubfileData(
                 handle,

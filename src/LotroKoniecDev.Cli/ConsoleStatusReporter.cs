@@ -1,4 +1,3 @@
-using LotroKoniecDev.Application;
 using static LotroKoniecDev.Cli.ConsoleWriter;
 
 namespace LotroKoniecDev.Cli;

@@ -10,27 +10,15 @@ namespace LotroKoniecDev.Application.Features.Patch;
 
 internal sealed class ApplyPatchCommandHandler : ICommandHandler<ApplyPatchCommand, Result<PatchSummaryResponse>>
 {
-    private readonly IOperationStatusReporter _operationStatusReporter;
-    private readonly IFileProvider _fileProvider;
-    private readonly IBackupManager _backupManager;
-    private readonly IPreflightChecker _preflightChecker;
     private readonly IDatFileHandler _datFileHandler;
     private readonly ITranslationParser _translationParser;
     private readonly IProgress<OperationProgress> _progress;
 
     public ApplyPatchCommandHandler(
-        IOperationStatusReporter operationStatusReporter,
-        IFileProvider fileProvider,
-        IBackupManager backupManager,
-        IPreflightChecker preflightChecker, 
         IDatFileHandler datFileHandler,
         ITranslationParser translationParser,
         IProgress<OperationProgress> progress)
     {
-        _operationStatusReporter = operationStatusReporter;
-        _fileProvider = fileProvider;
-        _backupManager = backupManager;
-        _preflightChecker = preflightChecker;
         _datFileHandler = datFileHandler;
         _translationParser = translationParser;
         _progress = progress;
@@ -39,33 +27,7 @@ internal sealed class ApplyPatchCommandHandler : ICommandHandler<ApplyPatchComma
     public async ValueTask<Result<PatchSummaryResponse>> Handle(ApplyPatchCommand command, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(command);
-
-        if (!_fileProvider.Exists(command.TranslationsPath))
-        {
-            return Result.Failure<PatchSummaryResponse>(
-                DomainErrors.Translation.FileNotFound(command.TranslationsPath));
-        }
-
-        if (!_fileProvider.Exists(command.DatFilePath))
-        {
-            return Result.Failure<PatchSummaryResponse>(
-                DomainErrors.DatFile.NotFound(command.DatFilePath));
-        }
-
-        if (!await _preflightChecker.RunAllAsync(command.DatFilePath, command.VersionFilePath))
-        {
-            return Result.Failure<PatchSummaryResponse>(
-                DomainErrors.DatFileLocation.GameRunning);
-        }
-
-        Result backupResult = _backupManager.Create(command.DatFilePath);
-        if (backupResult.IsFailure)
-        {
-            return Result.Failure<PatchSummaryResponse>(backupResult.Error);
-        }
-
-        _operationStatusReporter.Report($"Loading translations from: {command.TranslationsPath}");
-
+        
         Result<IReadOnlyList<Translation>> translationParseResult =
             _translationParser.ParseFile(command.TranslationsPath);
 
@@ -200,16 +162,6 @@ internal sealed class ApplyPatchCommandHandler : ICommandHandler<ApplyPatchComma
                 appliedCount,
                 skippedCount,
                 warnings);
-
-            foreach (string warning in summary.Warnings)
-            {
-                _operationStatusReporter.Report(warning);
-            }
-
-            if (summary.SkippedTranslations > 0)
-            {
-                _operationStatusReporter.Report($"Skipped {summary.SkippedTranslations} translations");
-            }
 
             return Result.Success(summary);
         }

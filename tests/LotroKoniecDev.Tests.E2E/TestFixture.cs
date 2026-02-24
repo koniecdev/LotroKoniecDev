@@ -29,7 +29,7 @@ public sealed class E2ETestFixture : IAsyncLifetime
             IsDatFileAvailable = false;
             return;
         }
-
+        await BuildCliProjectAsync();
         CliExePath = FindCliExe();
         TranslationsPolishPath = FindTranslationsFile("polish.txt");
         IsDatFileAvailable = true;
@@ -83,7 +83,7 @@ public sealed class E2ETestFixture : IAsyncLifetime
         return Task.CompletedTask;
     }
 
-    public async Task<CliResult> RunCliAsync(string args, int timeoutSeconds = 120)
+    public async Task<CliResult> RunCliAsync(string args, int timeoutSeconds = 120, string? workingDirectory = null)
     {
         using Process process = new();
         process.StartInfo = new ProcessStartInfo
@@ -92,9 +92,15 @@ public sealed class E2ETestFixture : IAsyncLifetime
             Arguments = args,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
+            RedirectStandardInput = true,
             UseShellExecute = false,
             CreateNoWindow = true
         };
+
+        if (workingDirectory is not null)
+        {
+            process.StartInfo.WorkingDirectory = workingDirectory;
+        }
 
         // The x64 test runner sets DOTNET_ROOT to the x64 path. The x86 CLI exe
         // inherits this and tries to load x64 hostfxr.dll, which fails.
@@ -102,6 +108,9 @@ public sealed class E2ETestFixture : IAsyncLifetime
         process.StartInfo.Environment.Remove("DOTNET_ROOT");
 
         process.Start();
+
+        // Close stdin immediately so any Console.ReadLine() prompts
+        process.StandardInput.Close();
 
         Task<string> stdoutTask = process.StandardOutput.ReadToEndAsync();
         Task<string> stderrTask = process.StandardError.ReadToEndAsync();
@@ -141,6 +150,38 @@ public sealed class E2ETestFixture : IAsyncLifetime
         return tempDir;
     }
 
+    private static async Task BuildCliProjectAsync()
+    {
+        string solutionRoot = FindSolutionRoot();
+        string cliProjectPath = Path.Combine(solutionRoot, "src", CliProjectName);
+
+        using Process process = new();
+        process.StartInfo = new ProcessStartInfo
+        {
+            FileName = "dotnet",
+            Arguments = $"build \"{cliProjectPath}\" --no-restore -v q",
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+            CreateNoWindow = true
+        };
+
+        process.Start();
+
+        Task<string> stdoutTask = process.StandardOutput.ReadToEndAsync();
+        Task<string> stderrTask = process.StandardError.ReadToEndAsync();
+
+        await process.WaitForExitAsync();
+
+        if (process.ExitCode != 0)
+        {
+            string stdout = await stdoutTask;
+            string stderr = await stderrTask;
+            throw new InvalidOperationException(
+                $"CLI build failed (exit code {process.ExitCode}).\nstdout: {stdout}\nstderr: {stderr}");
+        }
+    }
+
     private static string FindTestDataDirectory()
     {
         string assemblyDir = AppContext.BaseDirectory;
@@ -174,15 +215,11 @@ public sealed class E2ETestFixture : IAsyncLifetime
         }
 
         string exeName = $"{CliProjectName}.exe";
-        string? exePath = Directory.GetFiles(cliBinDir, exeName, SearchOption.AllDirectories)
+        string exePath = Directory.GetFiles(cliBinDir, exeName, SearchOption.AllDirectories)
             .OrderByDescending(File.GetLastWriteTimeUtc)
-            .FirstOrDefault();
-
-        if (exePath is null)
-        {
-            throw new InvalidOperationException(
+            .FirstOrDefault() 
+            ?? throw new InvalidOperationException(
                 $"CLI exe '{exeName}' not found under {cliBinDir}. Build the CLI first: dotnet build src/{CliProjectName}");
-        }
 
         return exePath;
     }

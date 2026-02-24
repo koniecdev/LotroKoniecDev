@@ -27,14 +27,14 @@ public sealed class RoundtripE2ETests
         polishResult.Value.ShouldNotBeEmpty("polish.txt should contain translations");
 
         //Arrange — use cached export as "before" (original English DAT)
-        _fixture.CachedExportResult!.ExitCode.ShouldBe(0,
+        _fixture.CachedExportResult!.ExitCode.ShouldBe((int)CliExitCode.Success,
             $"Cached export failed: {_fixture.CachedExportResult.Stderr}");
 
         //Arrange — copy DAT to temp and patch it
         string tempDatPath = _fixture.CreateTempDatCopy();
         CliResult patch = await _fixture.RunCliAsync(
             $"patch \"{_fixture.TranslationsPolishPath}\" \"{tempDatPath}\"");
-        patch.ExitCode.ShouldBe(0, $"Patch failed: {patch.Stderr}");
+        patch.ExitCode.ShouldBe((int)CliExitCode.Success, $"Patch failed: {patch.Stderr}");
         patch.Stderr.ShouldBeNullOrWhiteSpace(
             "Patch should not produce stderr output");
 
@@ -42,7 +42,7 @@ public sealed class RoundtripE2ETests
         string afterPath = Path.Combine(_fixture.CreateTempDir(), "after.txt");
         CliResult exportAfter = await _fixture.RunCliAsync(
             $"export \"{tempDatPath}\" \"{afterPath}\"");
-        exportAfter.ExitCode.ShouldBe(0, $"Export after failed: {exportAfter.Stderr}");
+        exportAfter.ExitCode.ShouldBe((int)CliExitCode.Success, $"Export after failed: {exportAfter.Stderr}");
         exportAfter.Stderr.ShouldBeNullOrWhiteSpace(
             "Export after should not produce stderr output");
 
@@ -88,20 +88,20 @@ public sealed class RoundtripE2ETests
             .ToHashSet();
 
         //Arrange — use cached export as "before"
-        _fixture.CachedExportResult!.ExitCode.ShouldBe(0,
+        _fixture.CachedExportResult!.ExitCode.ShouldBe((int)CliExitCode.Success,
             $"Cached export failed: {_fixture.CachedExportResult.Stderr}");
 
         //Arrange — patch a temp copy
         string tempDatPath = _fixture.CreateTempDatCopy();
         CliResult patch = await _fixture.RunCliAsync(
             $"patch \"{_fixture.TranslationsPolishPath}\" \"{tempDatPath}\"");
-        patch.ExitCode.ShouldBe(0, $"Patch failed: {patch.Stderr}");
+        patch.ExitCode.ShouldBe((int)CliExitCode.Success, $"Patch failed: {patch.Stderr}");
 
         //Act — export patched DAT
         string afterPath = Path.Combine(_fixture.CreateTempDir(), "after.txt");
         CliResult exportAfter = await _fixture.RunCliAsync(
             $"export \"{tempDatPath}\" \"{afterPath}\"");
-        exportAfter.ExitCode.ShouldBe(0, $"Export after failed: {exportAfter.Stderr}");
+        exportAfter.ExitCode.ShouldBe((int)CliExitCode.Success, $"Export after failed: {exportAfter.Stderr}");
 
         //Assert — sample untranslated lines and verify they're identical
         Dictionary<string, string> beforeIndex = BuildLineIndex(_fixture.CachedExportPath);

@@ -20,7 +20,7 @@ public sealed class ExportE2ETests
     {
         Skip.If(!_fixture.IsDatFileAvailable, "DAT file not found in TestData/");
 
-        _fixture.CachedExportResult!.ExitCode.ShouldBe(0,
+        _fixture.CachedExportResult!.ExitCode.ShouldBe((int)CliExitCode.Success,
             $"stderr: {_fixture.CachedExportResult.Stderr}");
         _fixture.CachedExportResult.Stderr.ShouldBeNullOrWhiteSpace(
             "Successful operation should not produce stderr output");

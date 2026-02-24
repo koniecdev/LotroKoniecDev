@@ -5,5 +5,4 @@ namespace LotroKoniecDev.Application.Features.Export;
 
 public sealed record ExportTextsQuery(
     string DatFilePath,
-    string OutputPath,
-    IProgress<OperationProgress>? Progress = null) : IQuery<Result<ExportSummaryResponse>>;
+    string OutputPath) : IQuery<Result<ExportSummaryResponse>>;

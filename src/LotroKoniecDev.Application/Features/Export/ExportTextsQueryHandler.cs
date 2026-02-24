@@ -15,10 +15,14 @@ internal sealed class ExportTextsQueryHandler : IQueryHandler<ExportTextsQuery, 
 {
     private const int ProgressReportInterval = 500;
     private readonly IDatFileHandler _datFileHandler;
+    private readonly IProgress<OperationProgress> _progressReporter;
 
-    public ExportTextsQueryHandler(IDatFileHandler datFileHandler)
+    public ExportTextsQueryHandler(
+        IDatFileHandler datFileHandler,
+        IProgress<OperationProgress> progressReporter)
     {
         _datFileHandler = datFileHandler;
+        _progressReporter = progressReporter;
     }
     
     public async ValueTask<Result<ExportSummaryResponse>> Handle(ExportTextsQuery query, CancellationToken cancellationToken)
@@ -95,9 +99,9 @@ internal sealed class ExportTextsQueryHandler : IQueryHandler<ExportTextsQuery, 
 
                 processedFiles++;
 
-                if (query.Progress is not null && processedFiles % ProgressReportInterval == 0)
+                if (processedFiles % ProgressReportInterval == 0)
                 {
-                    query.Progress.Report(new OperationProgress(processedFiles, totalTextFiles));
+                    _progressReporter.Report(new OperationProgress(processedFiles, totalTextFiles));
                 }
             }
             

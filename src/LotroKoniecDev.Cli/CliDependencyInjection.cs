@@ -1,5 +1,4 @@
 ﻿using LotroKoniecDev.Application;
-using LotroKoniecDev.Application.Abstractions;
 using LotroKoniecDev.Application.Abstractions.DatFilesServices;
 using LotroKoniecDev.Cli.Commands;
 using Microsoft.Extensions.DependencyInjection;
@@ -12,7 +11,6 @@ public static class CliDependencyInjection
     {
         services.AddSingleton<IDatPathResolver, DatPathResolver>();
         services.AddSingleton<IBackupManager, BackupManager>();
-        services.AddSingleton<IPreflightChecker, PreflightChecker>();
         services.AddSingleton<IFileProvider, FileProvider>();
         services.AddSingleton<IOperationStatusReporter, ConsoleStatusReporter>();
         services.AddSingleton<IProgress<OperationProgress>, ConsoleProgressReporter>();

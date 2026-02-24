@@ -12,13 +12,8 @@ namespace LotroKoniecDev.Tests.Unit.Tests.Features;
 
 public sealed class ApplyPatchCommandHandlerTests
 {
-    private readonly IFileProvider _fileProvider;
-    private readonly IBackupManager _backupManager;
-    private readonly IPreflightChecker _preflightChecker;
-    private readonly IOperationStatusReporter _statusReporter;
     private readonly IDatFileHandler _datFileHandler;
     private readonly ITranslationParser _translationParser;
-    private readonly IProgress<OperationProgress> _progress;
     private readonly ApplyPatchCommandHandler _sut;
 
     private const int DatHandle = 42;
@@ -29,35 +24,25 @@ public sealed class ApplyPatchCommandHandlerTests
 
     public ApplyPatchCommandHandlerTests()
     {
-        _fileProvider = Substitute.For<IFileProvider>();
-        _backupManager = Substitute.For<IBackupManager>();
-        _preflightChecker = Substitute.For<IPreflightChecker>();
-        _statusReporter = Substitute.For<IOperationStatusReporter>();
         _datFileHandler = Substitute.For<IDatFileHandler>();
         _translationParser = Substitute.For<ITranslationParser>();
-        _progress = Substitute.For<IProgress<OperationProgress>>();
+        IProgress<OperationProgress> progress = Substitute.For<IProgress<OperationProgress>>();
 
         _sut = new ApplyPatchCommandHandler(
-            _statusReporter,
-            _fileProvider,
-            _backupManager,
-            _preflightChecker,
             _datFileHandler,
             _translationParser,
-            _progress);
+            progress);
     }
 
     private static ApplyPatchCommand CreateCommand(
         string translationsPath = "/translations/polish.txt",
-        string datFilePath = "/game/client_local_English.dat",
-        string versionFilePath = "/data/version.txt") =>
-        new(translationsPath, datFilePath, versionFilePath);
+        string datFilePath = "/game/client_local_English.dat")
+    {
+        return new ApplyPatchCommand(translationsPath, datFilePath);
+    }
 
     private void SetupAllPassingDefaults()
     {
-        _fileProvider.Exists(Arg.Any<string>()).Returns(true);
-        _preflightChecker.RunAllAsync(Arg.Any<string>(), Arg.Any<string>()).Returns(true);
-        _backupManager.Create(Arg.Any<string>()).Returns(Result.Success());
         _datFileHandler.Open(Arg.Any<string>()).Returns(Result.Success(DatHandle));
         _datFileHandler.GetAllSubfileSizes(DatHandle).Returns(new Dictionary<int, (int, int)>
         {
@@ -109,74 +94,7 @@ public sealed class ApplyPatchCommandHandlerTests
         result.Value.AppliedTranslations.ShouldBe(1);
         result.Value.SkippedTranslations.ShouldBe(0);
     }
-
-    [Fact]
-    public async Task Handle_TranslationFileNotFound_ShouldReturnFailure()
-    {
-        // Arrange
-        _fileProvider.Exists(Arg.Is<string>(p => p.Contains("polish"))).Returns(false);
-        ApplyPatchCommand command = CreateCommand();
-
-        // Act
-        Result<PatchSummaryResponse> result = await _sut.Handle(command, CancellationToken.None);
-
-        // Assert
-        result.IsFailure.ShouldBeTrue();
-        result.Error.Code.ShouldBe("Translation.FileNotFound");
-    }
-
-    [Fact]
-    public async Task Handle_DatFileNotFound_ShouldReturnFailure()
-    {
-        // Arrange
-        _fileProvider.Exists(Arg.Is<string>(p => p.Contains("polish"))).Returns(true);
-        _fileProvider.Exists(Arg.Is<string>(p => p.Contains("client_local"))).Returns(false);
-        ApplyPatchCommand command = CreateCommand();
-
-        // Act
-        Result<PatchSummaryResponse> result = await _sut.Handle(command, CancellationToken.None);
-
-        // Assert
-        result.IsFailure.ShouldBeTrue();
-        result.Error.Code.ShouldBe("DatFile.NotFound");
-    }
-
-    [Fact]
-    public async Task Handle_PreflightFails_ShouldReturnFailure()
-    {
-        // Arrange
-        _fileProvider.Exists(Arg.Any<string>()).Returns(true);
-        _preflightChecker.RunAllAsync(Arg.Any<string>(), Arg.Any<string>()).Returns(false);
-        ApplyPatchCommand command = CreateCommand();
-
-        // Act
-        Result<PatchSummaryResponse> result = await _sut.Handle(command, CancellationToken.None);
-
-        // Assert
-        result.IsFailure.ShouldBeTrue();
-        _backupManager.DidNotReceive().Create(Arg.Any<string>());
-    }
-
-    [Fact]
-    public async Task Handle_BackupFails_ShouldReturnFailure()
-    {
-        // Arrange
-        _fileProvider.Exists(Arg.Any<string>()).Returns(true);
-        _preflightChecker.RunAllAsync(Arg.Any<string>(), Arg.Any<string>()).Returns(true);
-
-        Error backupError = new("Backup.CannotCreate", "Disk full", ErrorType.IoError);
-        _backupManager.Create(Arg.Any<string>()).Returns(Result.Failure(backupError));
-
-        ApplyPatchCommand command = CreateCommand();
-
-        // Act
-        Result<PatchSummaryResponse> result = await _sut.Handle(command, CancellationToken.None);
-
-        // Assert
-        result.IsFailure.ShouldBeTrue();
-        result.Error.Code.ShouldBe("Backup.CannotCreate");
-    }
-
+    
     [Fact]
     public async Task Handle_TranslationParseFails_ShouldReturnFailure()
     {
@@ -358,6 +276,45 @@ public sealed class ApplyPatchCommandHandlerTests
     }
 
     [Fact]
+    public async Task Handle_PutSubfileDataFails_ShouldAddWarningAndContinue()
+    {
+        // Arrange
+        SetupAllPassingDefaults();
+
+        _datFileHandler.GetAllSubfileSizes(DatHandle).Returns(new Dictionary<int, (int, int)>
+        {
+            { TextFileId, (100, 1) },
+            { TextFileId2, (100, 2) }
+        });
+        _datFileHandler.GetSubfileData(DatHandle, TextFileId, 100)
+            .Returns(Result.Success(TestDataFactory.CreateTextSubFileData(TextFileId, FragmentId1, 1)));
+        _datFileHandler.GetSubfileData(DatHandle, TextFileId2, 100)
+            .Returns(Result.Success(TestDataFactory.CreateTextSubFileData(TextFileId2, FragmentId1, 1)));
+        _datFileHandler.GetSubfileVersion(DatHandle, TextFileId).Returns(1);
+        _datFileHandler.GetSubfileVersion(DatHandle, TextFileId2).Returns(2);
+
+        Error putError = new("DatFile.WriteError", "Disk full", ErrorType.IoError);
+        _datFileHandler.PutSubfileData(DatHandle, TextFileId, Arg.Any<byte[]>(), Arg.Any<int>(), 1)
+            .Returns(Result.Failure(putError));
+        _datFileHandler.PutSubfileData(DatHandle, TextFileId2, Arg.Any<byte[]>(), Arg.Any<int>(), 2)
+            .Returns(Result.Success());
+
+        Translation t1 = CreateTranslation(fileId: TextFileId);
+        Translation t2 = CreateTranslation(fileId: TextFileId2);
+        SetupTranslations(t1, t2);
+
+        ApplyPatchCommand command = CreateCommand();
+
+        // Act
+        Result<PatchSummaryResponse> result = await _sut.Handle(command, CancellationToken.None);
+
+        // Assert
+        result.IsSuccess.ShouldBeTrue();
+        result.Value.AppliedTranslations.ShouldBe(2);
+        result.Value.Warnings.ShouldContain(w => w.Contains("Disk full"));
+    }
+
+    [Fact]
     public async Task Handle_MultipleTranslationsSameFile_ShouldSaveOnce()
     {
         // Arrange
@@ -418,46 +375,7 @@ public sealed class ApplyPatchCommandHandlerTests
         _datFileHandler.Received(1).PutSubfileData(
             DatHandle, TextFileId2, Arg.Any<byte[]>(), Arg.Any<int>(), 2);
     }
-
-    [Fact]
-    public async Task Handle_WithWarnings_ShouldReportThem()
-    {
-        // Arrange
-        SetupAllPassingDefaults();
-
-        const ulong missingFragment1 = 9990;
-        const ulong missingFragment2 = 9991;
-        Translation t1 = CreateTranslation(gossipId: (int)missingFragment1);
-        Translation t2 = CreateTranslation(gossipId: (int)missingFragment2);
-        SetupTranslations(t1, t2);
-
-        ApplyPatchCommand command = CreateCommand();
-
-        // Act
-        await _sut.Handle(command, CancellationToken.None);
-
-        // Assert
-        _statusReporter.Received(1).Report(Arg.Is<string>(s => s.Contains("Fragment 9990")));
-        _statusReporter.Received(1).Report(Arg.Is<string>(s => s.Contains("Fragment 9991")));
-        _statusReporter.Received(1).Report(Arg.Is<string>(s => s.Contains("Skipped 2")));
-    }
-
-    [Fact]
-    public async Task Handle_NoSkipped_ShouldNotReportSkipped()
-    {
-        // Arrange
-        SetupAllPassingDefaults();
-        SetupTranslations(CreateTranslation());
-
-        ApplyPatchCommand command = CreateCommand();
-
-        // Act
-        await _sut.Handle(command, CancellationToken.None);
-
-        // Assert
-        _statusReporter.DidNotReceive().Report(Arg.Is<string>(s => s.Contains("Skipped")));
-    }
-
+    
     [Fact]
     public async Task Handle_NullCommand_ShouldThrow()
     {
@@ -467,27 +385,13 @@ public sealed class ApplyPatchCommandHandlerTests
     }
 
     [Fact]
-    public async Task Handle_ExecutionOrder_ShouldBePreflightThenBackupThenParseThenPatch()
+    public async Task Handle_ExecutionOrder_ShouldBeParseThenPatch()
     {
         // Arrange
         SetupAllPassingDefaults();
         ApplyPatchCommand command = CreateCommand();
 
         List<string> callOrder = [];
-
-        _preflightChecker.RunAllAsync(Arg.Any<string>(), Arg.Any<string>())
-            .Returns(_ =>
-            {
-                callOrder.Add("preflight");
-                return true;
-            });
-
-        _backupManager.Create(Arg.Any<string>())
-            .Returns(_ =>
-            {
-                callOrder.Add("backup");
-                return Result.Success();
-            });
 
         _translationParser.ParseFile(Arg.Any<string>())
             .Returns(_ =>
@@ -507,6 +411,6 @@ public sealed class ApplyPatchCommandHandlerTests
         await _sut.Handle(command, CancellationToken.None);
 
         // Assert
-        callOrder.ShouldBe(["preflight", "backup", "parse", "open_dat"]);
+        callOrder.ShouldBe(["parse", "open_dat"]);
     }
 }

@@ -1,4 +1,5 @@
 using LotroKoniecDev.Application.Abstractions;
+using LotroKoniecDev.Application.Behaviors;
 using LotroKoniecDev.Application.Features.UpdateCheck;
 using LotroKoniecDev.Application.Parsers;
 using Microsoft.Extensions.DependencyInjection;
@@ -18,6 +19,11 @@ public static class ApplicationDependencyInjection
         services.AddMediator(options =>
         {
             options.ServiceLifetime = ServiceLifetime.Scoped;
+            options.PipelineBehaviors =
+            [
+                typeof(RequestLoggingPipelineBehavior<,>),
+                typeof(ValidationPipelineBehavior<,>)
+            ];
         });
         
         services.AddSingleton<ITranslationParser, TranslationFileParser>();

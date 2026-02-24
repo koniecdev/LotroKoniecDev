@@ -1,6 +1,4 @@
 using LotroKoniecDev.Application.Abstractions;
-using LotroKoniecDev.Application.Features.Export;
-using LotroKoniecDev.Application.Features.Patch;
 using LotroKoniecDev.Application.Features.UpdateCheck;
 using LotroKoniecDev.Application.Parsers;
 using Microsoft.Extensions.DependencyInjection;

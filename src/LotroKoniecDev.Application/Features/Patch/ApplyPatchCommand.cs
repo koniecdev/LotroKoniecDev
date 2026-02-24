@@ -6,5 +6,4 @@ namespace LotroKoniecDev.Application.Features.Patch;
 public sealed record ApplyPatchCommand(
     string TranslationsPath,
     string DatFilePath,
-    string VersionFilePath,
-    IProgress<OperationProgress>? Progress = null) : ICommand<Result<PatchSummaryResponse>>;
+    string VersionFilePath) : ICommand<Result<PatchSummaryResponse>>;

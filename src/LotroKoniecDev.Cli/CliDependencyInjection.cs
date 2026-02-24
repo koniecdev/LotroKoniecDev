@@ -12,7 +12,6 @@ public static class CliDependencyInjection
     {
         services.AddSingleton<IDatPathResolver, DatPathResolver>();
         services.AddSingleton<IBackupManager, BackupManager>();
-        services.AddSingleton<IPreflightChecker, PreflightChecker>();
         services.AddSingleton<IFileProvider, FileProvider>();
         services.AddSingleton<IOperationStatusReporter, ConsoleStatusReporter>();
         services.AddSingleton<IProgress<OperationProgress>, ConsoleProgressReporter>();

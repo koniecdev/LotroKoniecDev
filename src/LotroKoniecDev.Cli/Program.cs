@@ -1,8 +1,10 @@
 using LotroKoniecDev.Application;
+using LotroKoniecDev.Application.Abstractions;
 using LotroKoniecDev.Application.Abstractions.DatFilesServices;
 using LotroKoniecDev.Application.Extensions;
 using LotroKoniecDev.Application.Features.Export;
 using LotroKoniecDev.Application.Features.Patch;
+using LotroKoniecDev.Application.Features.PreflightCheck;
 using LotroKoniecDev.Domain.Core.BuildingBlocks;
 using LotroKoniecDev.Domain.Core.Monads;
 using LotroKoniecDev.Infrastructure;
@@ -81,44 +83,86 @@ internal static class Program
             
             case "patch":
                 {
+                    
                     string? translationArgument = args.Length > 1 ? args[1] : null;
                     if (translationArgument is null)
                     {
                         return ExitCodes.FileNotFound;
                     }
+                    
+                    IFileProvider fileProvider = serviceProvider.GetRequiredService<IFileProvider>();
+                    
+                    
                     string translationsPath = ResolveTranslationsPath(translationArgument);
-                    if (!File.Exists(translationsPath))
+                    if (!fileProvider.Exists(translationsPath))
                     {
-                        WriteError($"Translation file not found: {translationsPath}");
+                        reporter.Report($"Translation file not found: {translationsPath}");
                         return ExitCodes.FileNotFound;
                     }
+                    
+                    reporter.Report($"Loading translations from: {translationArgument}");
                     
                     IDatPathResolver datPathResolver = serviceProvider.GetRequiredService<IDatPathResolver>();
-                    string? datPath = datPathResolver.Resolve(args.Length > 2 ? args[2] : null);
-                    if (datPath is null)
+                    string? datFilePath = datPathResolver.Resolve(args.Length > 2 ? args[2] : null);
+                    if (datFilePath is null)
                     {
                         return ExitCodes.FileNotFound;
                     }
-                    if (!File.Exists(datPath))
+                    if (!fileProvider.Exists(datFilePath))
                     {
-                        WriteError($"DAT file not found: {datPath}");
+                        reporter.Report($"DAT file not found: {datFilePath}");
                         return ExitCodes.FileNotFound;
                     }
                     
-                    ApplyPatchCommand applyPatchCommand = new(
-                        TranslationsPath: translationsPath,
-                        DatFilePath: datPath,
-                        VersionFilePath: VersionFilePath);
-                    
-                    Result<PatchSummaryResponse> result = await sender.Send(applyPatchCommand);
-                    if (result.IsFailure)
+                    PreflightCheckQuery preflightCheckQuery = new(datFilePath, VersionFilePath);
+                    Result<PreflightReportResponse> preflightCheckResponse = await sender.Send(preflightCheckQuery);
+                    if(preflightCheckResponse.IsFailure)
                     {
-                        reporter.Report(result.Error.ToString());
-                        return MapErrorToExitCode(result.Error);
+                        reporter.Report(preflightCheckResponse.Error.ToString());
+                        return MapErrorToExitCode(preflightCheckResponse.Error);
                     }
+
+                    IBackupManager backupManager = serviceProvider.GetRequiredService<IBackupManager>();
                     
-                    reporter.Report(result.Value.ToString());
-                    return ExitCodes.Success;
+                    Result backupResult = backupManager.Create(datFilePath);
+                    if (backupResult.IsFailure)
+                    {
+                        reporter.Report(backupResult.Error.ToString());
+                        return MapErrorToExitCode(backupResult.Error);
+                    }
+
+                    try
+                    {
+                        ApplyPatchCommand applyPatchCommand = new(
+                            TranslationsPath: translationsPath,
+                            DatFilePath: datFilePath);
+                        
+                        Result<PatchSummaryResponse> result = await sender.Send(applyPatchCommand);
+                        if (result.IsFailure)
+                        {
+                            reporter.Report(result.Error.ToString());
+                            return MapErrorToExitCode(result.Error);
+                        }
+                        
+                        foreach (string warning in result.Value.Warnings)
+                        {
+                            reporter.Report(warning);
+                        }
+
+                        if (result.Value.SkippedTranslations > 0)
+                        {
+                            reporter.Report($"Skipped {result.Value.SkippedTranslations} translations");
+                        }
+                        
+                        reporter.Report(result.Value.ToString());
+                        return ExitCodes.Success;
+                    }
+                    catch(Exception ex)
+                    {
+                        backupManager.Restore(datFilePath);
+                        reporter.Report(ex.ToString());
+                        return ExitCodes.OperationFailed;
+                    }
                 }
             default:
                 return HandleUnknownCommand();

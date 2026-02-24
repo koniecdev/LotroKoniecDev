@@ -23,8 +23,6 @@ public static class ApplicationDependencyInjection
         });
         
         services.AddSingleton<ITranslationParser, TranslationFileParser>();
-        services.AddScoped<IExporter, Exporter>();
-        services.AddScoped<IPatcher, Patcher>();
         services.AddSingleton<IGameUpdateChecker, GameUpdateChecker>();
 
         return services;

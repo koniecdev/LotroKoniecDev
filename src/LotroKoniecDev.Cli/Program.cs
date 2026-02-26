@@ -74,16 +74,23 @@ internal static class Program
                     ExportTextsQuery query = new(
                         DatFilePath: datPath,
                         OutputPath: outputPath);
-
-                    Result<ExportSummaryResponse> result = await sender.Send(query);
-                    if (result.IsFailure)
+                    try
                     {
-                        reporter.Report(result.Error.ToString());
-                        return MapErrorToExitCode(result.Error);
+                        Result<ExportSummaryResponse> result = await sender.Send(query);
+                        if (result.IsFailure)
+                        {
+                            reporter.Report(result.Error.ToString());
+                            return MapErrorToExitCode(result.Error);
+                        }
+                        
+                        reporter.Report(result.Value.ToString());
+                        return ExitCodes.Success;
                     }
-
-                    reporter.Report(result.Value.ToString());
-                    return ExitCodes.Success;
+                    catch(Exception ex)
+                    {
+                        reporter.Report(ex.ToString());
+                        return ExitCodes.OperationFailed;
+                    }
                 }
             
             case "patch":

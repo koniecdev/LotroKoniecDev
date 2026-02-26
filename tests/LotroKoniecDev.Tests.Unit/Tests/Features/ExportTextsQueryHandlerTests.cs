@@ -79,29 +79,6 @@ public sealed class ExportTextsQueryHandlerTests : IDisposable
     }
 
     [Fact]
-    public async Task Handle_EmptyDatFilePath_ShouldThrowValidationException()
-    {
-        // Arrange
-        string outputPath = Path.Combine(_tempDir, "output.txt");
-        ExportTextsQuery query = new("", outputPath);
-
-        // Act & Assert
-        await Should.ThrowAsync<ValidationException>(() =>
-            _sut.Handle(query, CancellationToken.None).AsTask());
-    }
-
-    [Fact]
-    public async Task Handle_EmptyOutputPath_ShouldThrowValidationException()
-    {
-        // Arrange
-        ExportTextsQuery query = new("test.dat", "");
-
-        // Act & Assert
-        await Should.ThrowAsync<ValidationException>(() =>
-            _sut.Handle(query, CancellationToken.None).AsTask());
-    }
-
-    [Fact]
     public async Task Handle_NullQuery_ShouldThrowArgumentNullException()
     {
         // Act & Assert

@@ -29,13 +29,6 @@ internal sealed class ExportTextsQueryHandler : IQueryHandler<ExportTextsQuery, 
     {
         ArgumentNullException.ThrowIfNull(query);
         
-        ExportTextsQueryValidator validator = new();
-        ValidationResult validationResult = validator.Validate(query);
-        if (!validationResult.IsValid)
-        {
-            throw new ValidationException(validationResult.Errors);
-        }
-
         Result<int> openResult = _datFileHandler.Open(query.DatFilePath);
         if (openResult.IsFailure)
         {

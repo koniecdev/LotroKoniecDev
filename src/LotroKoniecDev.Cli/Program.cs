@@ -1,3 +1,4 @@
+using FluentValidation;
 using LotroKoniecDev.Application.Abstractions.DatFilesServices;
 using LotroKoniecDev.Application.Extensions;
 using LotroKoniecDev.Application.Features.Export;
@@ -9,6 +10,7 @@ using LotroKoniecDev.Infrastructure;
 using LotroKoniecDev.Primitives.Enums;
 using Mediator;
 using Microsoft.Extensions.DependencyInjection;
+using Serilog;
 using static LotroKoniecDev.Cli.ConsoleWriter;
 
 namespace LotroKoniecDev.Cli;
@@ -38,7 +40,12 @@ internal static class Program
             return ExitCodes.InvalidArguments;
         }
 
+        Log.Logger = new LoggerConfiguration()
+            .WriteTo.Console()
+            .CreateLogger();
+
         ServiceCollection services = new();
+        services.AddLogging(builder => builder.AddSerilog());
         services.AddApplicationServices();
         services.AddInfrastructureServices();
         services.AddCliServices();
@@ -67,16 +74,23 @@ internal static class Program
                     ExportTextsQuery query = new(
                         DatFilePath: datPath,
                         OutputPath: outputPath);
-
-                    Result<ExportSummaryResponse> result = await sender.Send(query);
-                    if (result.IsFailure)
+                    try
                     {
-                        reporter.Report(result.Error.ToString());
-                        return MapErrorToExitCode(result.Error);
+                        Result<ExportSummaryResponse> result = await sender.Send(query);
+                        if (result.IsFailure)
+                        {
+                            reporter.Report(result.Error.ToString());
+                            return MapErrorToExitCode(result.Error);
+                        }
+                        
+                        reporter.Report(result.Value.ToString());
+                        return ExitCodes.Success;
                     }
-
-                    reporter.Report(result.Value.ToString());
-                    return ExitCodes.Success;
+                    catch(Exception ex)
+                    {
+                        reporter.Report(ex.ToString());
+                        return ExitCodes.OperationFailed;
+                    }
                 }
             
             case "patch":

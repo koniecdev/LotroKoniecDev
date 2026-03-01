@@ -1,8 +1,8 @@
 using System.Runtime.InteropServices;
 using LotroKoniecDev.Application.Abstractions.DatFilesServices;
-using LotroKoniecDev.Application.Features.DatVersionReading;
 using LotroKoniecDev.Domain.Core.Errors;
 using LotroKoniecDev.Domain.Core.Monads;
+using LotroKoniecDev.Domain.Models;
 
 namespace LotroKoniecDev.Infrastructure.DatFile;
 
@@ -11,9 +11,15 @@ namespace LotroKoniecDev.Infrastructure.DatFile;
 /// </summary>
 public sealed class DatFileHandler : IDatFileHandler, IDatVersionReader
 {
+    private readonly IDatFileProtector _protector;
     private readonly Lock _lock = new();
     private readonly HashSet<int> _openHandles = [];
     private bool _disposed;
+
+    public DatFileHandler(IDatFileProtector protector)
+    {
+        _protector = protector;
+    }
 
     /// <summary>
     /// Opens a LOTRO DAT file given its file path and returns a handle to the open file.
@@ -83,10 +89,25 @@ public sealed class DatFileHandler : IDatFileHandler, IDatVersionReader
         {
             return Result.Failure<DatVersionInfo>(DomainErrors.DatFile.NotFound(datFilePath));
         }
-        
-        const int requestedHandle = 0;
+
+        const int requestedHandle = 1;
         byte[] datIdStamp = new byte[64];
         byte[] firstIterGuid = new byte[64];
+
+        Result<bool> wasProtected = _protector.IsProtected(datFilePath);
+        if (wasProtected.IsFailure)
+        {
+            return Result.Failure<DatVersionInfo>(wasProtected.Error);
+        }
+
+        if (wasProtected.Value)
+        {
+            Result unprotectResult = _protector.Unprotect(datFilePath);
+            if (unprotectResult.IsFailure)
+            {
+                return Result.Failure<DatVersionInfo>(unprotectResult.Error);
+            }
+        }
 
         try
         {
@@ -107,7 +128,7 @@ public sealed class DatFileHandler : IDatFileHandler, IDatVersionReader
                 return Result.Failure<DatVersionInfo>(DomainErrors.DatFile.CannotOpen(datFilePath));
             }
 
-            Close(result);
+            DatExportNative.CloseDatFile(result);
 
             return Result.Success(new DatVersionInfo(vnumDatFile, vnumGameData));
         }
@@ -119,6 +140,13 @@ public sealed class DatFileHandler : IDatFileHandler, IDatVersionReader
         catch (Exception ex)
         {
             return Result.Failure<DatVersionInfo>(DomainErrors.DatFile.CannotOpen($"{datFilePath}: {ex.Message}"));
+        }
+        finally
+        {
+            if (wasProtected.Value)
+            {
+                _protector.Protect(datFilePath);
+            }
         }
     }
     
@@ -235,8 +263,12 @@ public sealed class DatFileHandler : IDatFileHandler, IDatVersionReader
         {
             buffer = Marshal.AllocHGlobal(data.Length);
             Marshal.Copy(data, 0, buffer, data.Length);
-            //todo: not used results.
-            DatExportNative.PurgeSubfileData(handle, fileId);
+            int purgeResult = DatExportNative.PurgeSubfileData(handle, fileId);
+            if (purgeResult < 0)
+            {
+                return Result.Failure(
+                    DomainErrors.DatFile.WriteError(fileId, $"PurgeSubfileData failed with code {purgeResult}"));
+            }
             int result = DatExportNative.PutSubfileData(
                 handle,
                 fileId,
@@ -246,8 +278,11 @@ public sealed class DatFileHandler : IDatFileHandler, IDatVersionReader
                 version,
                 iteration,
                 0);
-
-            // Check if write was successful (non-zero typically indicates success)
+            if (result == 0)
+            {
+                return Result.Failure(
+                    DomainErrors.DatFile.WriteError(fileId, $"PutSubfileData failed with code {result}"));
+            }
             return Result.Success();
         }
         catch (OutOfMemoryException)

@@ -1,7 +1,7 @@
 using LotroKoniecDev.Domain.Core.Monads;
 using LotroKoniecDev.Infrastructure.GameLaunching;
 
-namespace LotroKoniecDev.Tests.Unit.Tests.Infrastructure;
+namespace LotroKoniecDev.Tests.Infrastructure.Tests;
 
 public sealed class GameLauncherTests
 {
@@ -14,7 +14,7 @@ public sealed class GameLauncherTests
         string fakePath = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString(), "client_local_English.dat");
 
         // Act
-        Result<int> result = _sut.Launch(fakePath);
+        Result result = _sut.Launch(fakePath);
 
         // Assert
         result.IsFailure.ShouldBeTrue();
@@ -52,7 +52,7 @@ public sealed class GameLauncherTests
             File.WriteAllText(fakeDatFile, "fake");
 
             // Act
-            Result<int> result = _sut.Launch(fakeDatFile);
+            Result result = _sut.Launch(fakeDatFile);
 
             // Assert — should fail because TurbineLauncher.exe doesn't exist in tempDir
             result.IsFailure.ShouldBeTrue();
@@ -75,7 +75,7 @@ public sealed class GameLauncherTests
         try
         {
             // Act
-            Result<int> result = _sut.Launch(tempDir);
+            Result result = _sut.Launch(tempDir);
 
             // Assert — should fail because TurbineLauncher.exe doesn't exist
             result.IsFailure.ShouldBeTrue();
@@ -85,5 +85,25 @@ public sealed class GameLauncherTests
         {
             Directory.Delete(tempDir, recursive: true);
         }
+    }
+
+    [Fact]
+    public void LaunchAndWaitForExit_ShouldReturnFailure_WhenLauncherNotFound()
+    {
+        // Arrange
+        string fakePath = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString(), "client_local_English.dat");
+
+        // Act
+        Result<int> result = _sut.LaunchAndWaitForExit(fakePath);
+
+        // Assert
+        result.IsFailure.ShouldBeTrue();
+        result.Error.Code.ShouldBe("GameLaunch.NotFound");
+    }
+
+    [Fact]
+    public void LaunchAndWaitForExit_ShouldThrow_WhenPathIsNull()
+    {
+        Should.Throw<ArgumentException>(() => _sut.LaunchAndWaitForExit(null!));
     }
 }

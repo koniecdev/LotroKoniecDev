@@ -1,7 +1,5 @@
 using LotroKoniecDev.Application.Abstractions;
 using LotroKoniecDev.Application.Abstractions.DatFilesServices;
-using LotroKoniecDev.Application.Features.DatVersionReading;
-using LotroKoniecDev.Application.Features.GameLaunching;
 using LotroKoniecDev.Infrastructure.DatFile;
 using LotroKoniecDev.Infrastructure.Diagnostics;
 using LotroKoniecDev.Infrastructure.GameLaunching;
@@ -21,8 +19,9 @@ public static class InfrastructureDependencyInjection
     /// </summary>
     public static IServiceCollection AddInfrastructureServices(this IServiceCollection services)
     {
-        services.AddScoped<IDatFileHandler, DatFileHandler>();
-        services.AddScoped<IDatVersionReader, DatFileHandler>();
+        services.AddScoped<DatFileHandler>();
+        services.AddScoped<IDatFileHandler>(sp => sp.GetRequiredService<DatFileHandler>());
+        services.AddScoped<IDatVersionReader>(sp => sp.GetRequiredService<DatFileHandler>());
         services.AddSingleton<IDatFileProtector, DatFileProtector>();
         services.AddSingleton<IGameLauncher, GameLauncher>();
         services.AddSingleton<IDatFileLocator, DatFileLocator>();

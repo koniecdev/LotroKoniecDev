@@ -34,6 +34,8 @@ public static partial class DomainErrors
 
         public static Error UnprotectFailed(string path, string message) =>
             IoError("DatFileProtection", "UnprotectFailed", $"'{path}': {message}");
+        public static Error IsProtectedFailed(string path, string message) =>
+            IoError("DatFileProtection", "IsProtectedFailed", $"'{path}': {message}");
     }
 
     public static class GameLaunch

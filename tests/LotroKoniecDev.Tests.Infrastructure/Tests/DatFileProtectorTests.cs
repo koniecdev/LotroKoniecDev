@@ -1,7 +1,7 @@
 using LotroKoniecDev.Domain.Core.Monads;
 using LotroKoniecDev.Infrastructure.DatFile;
 
-namespace LotroKoniecDev.Tests.Unit.Tests.Infrastructure;
+namespace LotroKoniecDev.Tests.Infrastructure.Tests;
 
 public sealed class DatFileProtectorTests : IDisposable
 {
@@ -53,15 +53,37 @@ public sealed class DatFileProtectorTests : IDisposable
         // Arrange
         File.SetAttributes(_tempFile, File.GetAttributes(_tempFile) | FileAttributes.ReadOnly);
 
-        // Act & Assert
-        _sut.IsProtected(_tempFile).ShouldBeTrue();
+        // Act
+        Result<bool> result = _sut.IsProtected(_tempFile);
+
+        // Assert
+        result.IsSuccess.ShouldBeTrue();
+        result.Value.ShouldBeTrue();
     }
 
     [Fact]
     public void IsProtected_ShouldReturnFalse_WhenFileIsNotReadOnly()
     {
-        // Act & Assert
-        _sut.IsProtected(_tempFile).ShouldBeFalse();
+        // Act
+        Result<bool> result = _sut.IsProtected(_tempFile);
+
+        // Assert
+        result.IsSuccess.ShouldBeTrue();
+        result.Value.ShouldBeFalse();
+    }
+
+    [Fact]
+    public void IsProtected_ShouldReturnFailure_WhenFileDoesNotExist()
+    {
+        // Arrange
+        string nonExistentPath = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
+
+        // Act
+        Result<bool> result = _sut.IsProtected(nonExistentPath);
+
+        // Assert
+        result.IsFailure.ShouldBeTrue();
+        result.Error.Code.ShouldBe("DatFileProtection.IsProtectedFailed");
     }
 
     [Fact]

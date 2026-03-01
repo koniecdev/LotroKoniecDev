@@ -1,5 +1,5 @@
 using System.Diagnostics;
-using LotroKoniecDev.Application.Features.GameLaunching;
+using LotroKoniecDev.Application.Abstractions;
 using LotroKoniecDev.Domain.Core.Errors;
 using LotroKoniecDev.Domain.Core.Monads;
 
@@ -9,7 +9,32 @@ public sealed class GameLauncher : IGameLauncher
 {
     private const string LauncherExecutable = "TurbineLauncher.exe";
 
-    public Result<int> Launch(string lotroPath, bool waitForExit = true)
+    public Result Launch(string lotroPath)
+    {
+        Result<Process> startResult = StartLauncherProcess(lotroPath);
+        if (startResult.IsFailure)
+        {
+            return Result.Failure(startResult.Error);
+        }
+
+        startResult.Value.Dispose();
+        return Result.Success();
+    }
+
+    public Result<int> LaunchAndWaitForExit(string lotroPath)
+    {
+        Result<Process> startResult = StartLauncherProcess(lotroPath);
+        if (startResult.IsFailure)
+        {
+            return Result.Failure<int>(startResult.Error);
+        }
+
+        using Process process = startResult.Value;
+        process.WaitForExit();
+        return Result.Success(process.ExitCode);
+    }
+
+    private Result<Process> StartLauncherProcess(string lotroPath)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(lotroPath);
 
@@ -17,45 +42,43 @@ public sealed class GameLauncher : IGameLauncher
 
         if (!File.Exists(launcherPath))
         {
-            return Result.Failure<int>(DomainErrors.GameLaunch.LauncherNotFound(launcherPath));
+            return Result.Failure<Process>(DomainErrors.GameLaunch.LauncherNotFound(launcherPath));
         }
 
         try
         {
-            using Process? process = Process.Start(new ProcessStartInfo
+            Process? process = Process.Start(new ProcessStartInfo
             {
                 FileName = launcherPath,
-                WorkingDirectory = Path.GetDirectoryName(launcherPath),
+                WorkingDirectory = Path.GetDirectoryName(launcherPath) ?? string.Empty,
                 UseShellExecute = false
             });
 
             if (process is null)
             {
-                return Result.Failure<int>(DomainErrors.GameLaunch.LaunchFailed(
+                return Result.Failure<Process>(DomainErrors.GameLaunch.LaunchFailed(
                     "Process.Start returned null — the launcher could not be started."));
             }
 
-            if (!waitForExit)
-            {
-                return Result.Success(0);
-            }
-
-            process.WaitForExit();
-            return Result.Success(process.ExitCode);
+            return Result.Success(process);
         }
         catch (Exception ex)
         {
-            return Result.Failure<int>(DomainErrors.GameLaunch.LaunchFailed(ex.Message));
+            return Result.Failure<Process>(DomainErrors.GameLaunch.LaunchFailed(ex.Message));
         }
     }
 
     private static string ResolveLauncherPath(string lotroPath)
     {
-        if (File.Exists(lotroPath) 
-            && Path.GetFileName(lotroPath).Equals("client_local_English.dat", StringComparison.OrdinalIgnoreCase))
+        if (Directory.Exists(lotroPath))
         {
-            string? datDirectory = Path.GetDirectoryName(lotroPath);
-            return Path.Combine(datDirectory ?? string.Empty, LauncherExecutable);
+            return Path.Combine(lotroPath, LauncherExecutable);
+        }
+
+        if (File.Exists(lotroPath))
+        {
+            string dirPath = Path.GetDirectoryName(lotroPath) ?? string.Empty;
+            return Path.Combine(dirPath, LauncherExecutable);
         }
 
         return Path.Combine(lotroPath, LauncherExecutable);

@@ -38,11 +38,19 @@ public sealed class DatFileProtector : IDatFileProtector
         }
     }
 
-    public bool IsProtected(string datFilePath)
+    public Result<bool> IsProtected(string datFilePath)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(datFilePath);
 
-        FileAttributes attributes = File.GetAttributes(datFilePath);
-        return (attributes & FileAttributes.ReadOnly) != 0;
+        try
+        {
+            FileAttributes attributes = File.GetAttributes(datFilePath);
+            bool result = (attributes & FileAttributes.ReadOnly) != 0;
+            return Result.Success(result);
+        }
+        catch (Exception ex)
+        {
+            return Result.Failure<bool>(DomainErrors.DatFileProtection.IsProtectedFailed(datFilePath, ex.Message));
+        }
     }
 }

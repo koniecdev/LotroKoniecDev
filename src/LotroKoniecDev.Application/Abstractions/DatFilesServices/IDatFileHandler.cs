@@ -10,9 +10,9 @@ public interface IDatFileHandler : IDisposable
     /// <summary>
     /// Opens a DAT file and returns the file handle.
     /// </summary>
-    /// <param name="path">Path to the DAT file.</param>
+    /// <param name="datFilePath">Path to the DAT file.</param>
     /// <returns>Result containing the file handle or an error.</returns>
-    Result<int> Open(string path);
+    Result<int> Open(string datFilePath);
 
     /// <summary>
     /// Gets sizes and iterations of all subfiles in the DAT archive.

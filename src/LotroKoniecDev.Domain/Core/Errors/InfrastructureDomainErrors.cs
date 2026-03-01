@@ -27,6 +27,26 @@ public static partial class DomainErrors
             IoError("DatFileLocation", "NoWriteAccess", $"'{path}'. Run as Administrator.");
     }
 
+    public static class DatFileProtection
+    {
+        public static Error ProtectFailed(string path, string message) =>
+            IoError("DatFileProtection", "ProtectFailed", $"'{path}': {message}");
+
+        public static Error UnprotectFailed(string path, string message) =>
+            IoError("DatFileProtection", "UnprotectFailed", $"'{path}': {message}");
+        public static Error IsProtectedFailed(string path, string message) =>
+            IoError("DatFileProtection", "IsProtectedFailed", $"'{path}': {message}");
+    }
+
+    public static class GameLaunch
+    {
+        public static Error LauncherNotFound(string path) =>
+            NotFound("GameLaunch", $"TurbineLauncher.exe at '{path}'");
+
+        public static Error LaunchFailed(string message) =>
+            OperationFailed("GameLaunch", message);
+    }
+
     public static class GameUpdateCheck
     {
         public static Error NetworkError(string message) =>

@@ -30,24 +30,26 @@ public sealed class VersionFileStore : IVersionFileStore
         }
     }
 
-    public Result SaveVersion(string filePath, string version)
+    public Result SaveVersion(string versionFilePath, string forumGameVersion)
     {
+        ArgumentException.ThrowIfNullOrWhiteSpace(versionFilePath);
+        ArgumentException.ThrowIfNullOrWhiteSpace(forumGameVersion);
         try
         {
-            string? directory = Path.GetDirectoryName(filePath);
+            string? directory = Path.GetDirectoryName(versionFilePath);
 
             if (directory is not null && !Directory.Exists(directory))
             {
                 Directory.CreateDirectory(directory);
             }
 
-            File.WriteAllText(filePath, version);
+            File.WriteAllText(versionFilePath, forumGameVersion);
             return Result.Success();
         }
         catch (Exception ex)
         {
             return Result.Failure(
-                DomainErrors.GameUpdateCheck.VersionFileError(filePath, ex.Message));
+                DomainErrors.GameUpdateCheck.VersionFileError(versionFilePath, ex.Message));
         }
     }
 }

@@ -13,5 +13,5 @@ public interface IVersionFileStore
     /// <summary>
     /// Saves the game version string to the specified file.
     /// </summary>
-    Result SaveVersion(string filePath, string version);
+    Result SaveVersion(string versionFilePath, string forumGameVersion);
 }

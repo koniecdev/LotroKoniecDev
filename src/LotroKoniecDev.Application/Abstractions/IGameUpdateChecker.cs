@@ -1,3 +1,5 @@
+using LotroKoniecDev.Domain.Models;
+
 namespace LotroKoniecDev.Application.Abstractions;
 
 /// <summary>
@@ -5,6 +7,11 @@ namespace LotroKoniecDev.Application.Abstractions;
 /// </summary>
 public interface IGameUpdateChecker
 {
+    public Result ConfirmUpdateInstalled(
+        string datFilePath,
+        string versionFilePath,
+        string forumVersion,
+        DatVersionInfo previousDatVersion);
     Task<Result<GameUpdateCheckSummary>> CheckForUpdateAsync(string versionFilePath);
 }
 

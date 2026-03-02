@@ -9,22 +9,24 @@ namespace LotroKoniecDev.Infrastructure.Storage;
 /// </summary>
 public sealed class VersionFileStore : IVersionFileStore
 {
-    public Result<string?> ReadLastKnownVersion(string filePath)
+    public Result<string> ReadLastKnownVersion(string versionFilePath)
     {
         try
         {
-            if (!File.Exists(filePath))
+            if (!File.Exists(versionFilePath))
             {
-                return Result.Success<string?>(null);
+                return Result.Failure<string>(DomainErrors.GameUpdateCheck.ProgramIsLaunchedUpForTheFirstTime);
             }
 
-            string content = File.ReadAllText(filePath).Trim();
-            return Result.Success<string?>(string.IsNullOrWhiteSpace(content) ? null : content);
+            string content = File.ReadAllText(versionFilePath).Trim();
+            return string.IsNullOrWhiteSpace(content) 
+                ? Result.Failure<string>(
+                    DomainErrors.GameUpdateCheck.VersionFileError(versionFilePath, "Version File is empty")) 
+                : Result.Success(content);
         }
         catch (Exception ex)
         {
-            return Result.Failure<string?>(
-                DomainErrors.GameUpdateCheck.VersionFileError(filePath, ex.Message));
+            return Result.Failure<string>(DomainErrors.GameUpdateCheck.VersionFileError(versionFilePath, ex.Message));
         }
     }
 

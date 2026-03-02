@@ -59,6 +59,10 @@ public static partial class DomainErrors
         public static Error GameUpdateRequired =>
             OperationFailed("GameUpdateCheck",
                 "Game update is required");
+        
+        public static Error ProgramIsLaunchedUpForTheFirstTime =>
+            OperationFailed("PatcherIsLaunchedUpForTheFirstTime",
+                "Its first time patcher is launched up, so we should enforce update.");
 
         public static Error VersionFileError(string path, string message) =>
             IoError("GameUpdateCheck", "VersionFileError", $"'{path}': {message}");

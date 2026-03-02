@@ -3,6 +3,7 @@ using LotroKoniecDev.Application.Features.UpdateCheck;
 using LotroKoniecDev.Domain.Core.BuildingBlocks;
 using LotroKoniecDev.Domain.Core.Monads;
 using LotroKoniecDev.Primitives.Enums;
+using GameUpdateChecker = LotroKoniecDev.Application.Features.UpdateChecking.GameUpdateChecker;
 
 namespace LotroKoniecDev.Tests.Unit.Tests.Features;
 

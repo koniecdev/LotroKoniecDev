@@ -1,4 +1,4 @@
-﻿namespace LotroKoniecDev.Application.Features.Patch;
+﻿namespace LotroKoniecDev.Application.Features.Patching;
 
 /// <summary>
 /// Contains summary information about a patch operation.

@@ -2,11 +2,10 @@ using LotroKoniecDev.Application.Abstractions;
 using LotroKoniecDev.Application.Abstractions.DatFilesServices;
 using LotroKoniecDev.Application.Extensions;
 using LotroKoniecDev.Domain.Core.Errors;
-using LotroKoniecDev.Domain.Core.Monads;
 using LotroKoniecDev.Domain.Models;
 using Mediator;
 
-namespace LotroKoniecDev.Application.Features.Patch;
+namespace LotroKoniecDev.Application.Features.Patching;
 
 internal sealed class ApplyPatchCommandHandler : ICommandHandler<ApplyPatchCommand, Result<PatchSummaryResponse>>
 {

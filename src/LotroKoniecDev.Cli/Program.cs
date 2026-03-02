@@ -1,9 +1,9 @@
 using FluentValidation;
 using LotroKoniecDev.Application.Abstractions.DatFilesServices;
 using LotroKoniecDev.Application.Extensions;
-using LotroKoniecDev.Application.Features.Export;
-using LotroKoniecDev.Application.Features.Patch;
-using LotroKoniecDev.Application.Features.PreflightCheck;
+using LotroKoniecDev.Application.Features.Exporting;
+using LotroKoniecDev.Application.Features.Patching;
+using LotroKoniecDev.Application.Features.PreflightChecking;
 using LotroKoniecDev.Domain.Core.BuildingBlocks;
 using LotroKoniecDev.Domain.Core.Monads;
 using LotroKoniecDev.Infrastructure;

@@ -1,7 +1,6 @@
-﻿using LotroKoniecDev.Domain.Core.Monads;
-using Mediator;
+﻿using Mediator;
 
-namespace LotroKoniecDev.Application.Features.Export;
+namespace LotroKoniecDev.Application.Features.Exporting;
 
 public sealed record ExportTextsQuery(
     string DatFilePath,

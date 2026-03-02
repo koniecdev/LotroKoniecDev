@@ -1,6 +1,6 @@
 ﻿using FluentValidation;
 
-namespace LotroKoniecDev.Application.Features.PreflightCheck;
+namespace LotroKoniecDev.Application.Features.PreflightChecking;
 
 public sealed class PreflightCheckQueryValidator : AbstractValidator<PreflightCheckQuery>
 {

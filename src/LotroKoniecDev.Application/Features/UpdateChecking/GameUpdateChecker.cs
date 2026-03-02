@@ -1,9 +1,8 @@
 using System.Text.RegularExpressions;
 using LotroKoniecDev.Application.Abstractions;
 using LotroKoniecDev.Domain.Core.Errors;
-using LotroKoniecDev.Domain.Core.Monads;
 
-namespace LotroKoniecDev.Application.Features.UpdateCheck;
+namespace LotroKoniecDev.Application.Features.UpdateChecking;
 
 /// <summary>
 /// Checks for LOTRO game updates by scraping the release notes forum.

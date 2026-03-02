@@ -1,8 +1,8 @@
 using LotroKoniecDev.Application.Abstractions;
+using LotroKoniecDev.Application.Features.UpdateChecking;
 using LotroKoniecDev.Domain.Core.BuildingBlocks;
 using LotroKoniecDev.Domain.Core.Monads;
 using LotroKoniecDev.Primitives.Enums;
-using GameUpdateChecker = LotroKoniecDev.Application.Features.UpdateChecking.GameUpdateChecker;
 
 namespace LotroKoniecDev.Tests.Unit.Tests.Features;
 

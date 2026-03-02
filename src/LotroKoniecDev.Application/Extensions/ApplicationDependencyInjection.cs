@@ -1,6 +1,5 @@
 using LotroKoniecDev.Application.Abstractions;
 using LotroKoniecDev.Application.Behaviors;
-using LotroKoniecDev.Application.Features.UpdateCheck;
 using LotroKoniecDev.Application.Parsers;
 using Microsoft.Extensions.DependencyInjection;
 using GameUpdateChecker = LotroKoniecDev.Application.Features.UpdateChecking.GameUpdateChecker;

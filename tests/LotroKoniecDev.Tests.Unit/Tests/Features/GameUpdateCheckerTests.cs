@@ -1,5 +1,4 @@
 using LotroKoniecDev.Application.Abstractions;
-using LotroKoniecDev.Application.Features.UpdateCheck;
 using LotroKoniecDev.Domain.Core.BuildingBlocks;
 using LotroKoniecDev.Domain.Core.Monads;
 using LotroKoniecDev.Primitives.Enums;

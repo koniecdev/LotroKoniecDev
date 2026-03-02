@@ -7,7 +7,7 @@ namespace LotroKoniecDev.Infrastructure.Storage;
 /// <summary>
 /// Reads and writes game version to a local text file.
 /// </summary>
-public sealed class VersionFileStore : IVersionFileStore
+public sealed class GameVersionFileStore : IGameVersionFileStore
 {
     public Result<string> ReadLastKnownVersion(string versionFilePath)
     {

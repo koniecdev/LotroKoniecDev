@@ -3,7 +3,7 @@ namespace LotroKoniecDev.Application.Abstractions;
 /// <summary>
 /// Reads and writes the locally stored game version.
 /// </summary>
-public interface IVersionFileStore
+public interface IGameVersionFileStore
 {
     /// <summary>
     /// Reads the last known game version. Returns null if the file does not exist (first run).

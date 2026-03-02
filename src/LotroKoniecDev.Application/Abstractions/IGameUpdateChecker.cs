@@ -10,7 +10,7 @@ public interface IGameUpdateChecker
     public Result ConfirmUpdateInstalled(
         string datFilePath,
         string versionFilePath,
-        string forumVersion,
+        string forumGameVersion,
         DatVersionInfo previousDatVersion);
     Task<Result<GameUpdateCheckSummary>> CheckForUpdateAsync(string versionFilePath);
 }

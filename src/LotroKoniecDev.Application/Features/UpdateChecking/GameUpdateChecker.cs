@@ -13,22 +13,22 @@ public sealed partial class GameUpdateChecker : IGameUpdateChecker
 {
     private readonly IForumPageFetcher _forumPageFetcher;
     private readonly IDatVersionReader _datVersionReader;
-    private readonly IVersionFileStore _versionFileStore;
+    private readonly IGameVersionFileStore _gameVersionFileStore;
 
     public GameUpdateChecker(
         IForumPageFetcher forumPageFetcher,
         IDatVersionReader datVersionReader,
-        IVersionFileStore versionFileStore)
+        IGameVersionFileStore gameVersionFileStore)
     {
         _forumPageFetcher = forumPageFetcher;
         _datVersionReader = datVersionReader;
-        _versionFileStore = versionFileStore;
+        _gameVersionFileStore = gameVersionFileStore;
     }
 
     public Result ConfirmUpdateInstalled(
         string datFilePath,
         string versionFilePath,
-        string forumVersion,
+        string forumGameVersion,
         DatVersionInfo previousDatVersion)
     {
         Result<DatVersionInfo> currentDatVersionResult = _datVersionReader.ReadVersion(datFilePath);
@@ -36,41 +36,23 @@ public sealed partial class GameUpdateChecker : IGameUpdateChecker
         {
             return Result.Failure(currentDatVersionResult.Error);
         }
-
-        return previousDatVersion == currentDatVersionResult.Value 
-            ? Result.Failure(DomainErrors.GameUpdateCheck.GameUpdateRequired) 
-            : Result.Success();
-
-        //musimy alertować usera, odpalaj gre, aktualizuj, i albo zamknij
-        //launcher lotro, albo szukamy procesu gry, i mu ją terminujemy razem z launcherem,
-        //wtedy resume tutaj.
-        //resume tutaj - czyli re-read vnum, jak sie zmienily, to znaczy ze faktycznie
-        //user odaplil gre, czyli jest aktualna.
-        //jezeli zamknal lotro launcher przed update to znaczy ze zamknal za wczesnie
-        //launcher. 
-        //jak sie rozni vnum, zapisujemy wersje z forum jako aktualna
-        //jezeli sie nie rozni, to mowimy mu halo, coś tu nie gra, odpal ten launcher
-        //mozna przemyslec na przyszlosc czy dac opcje continue anyway i zapisac po prostu najnwosza wersje
-        //risky ale co najwyzej raz odpali lotro, zesra sie ze nie dziala mu tluamczneie,
-        //wejdzie ponownie i zadziala najpewniej.
         
-        //powyzsze realizuje 
-        // public async Task<Result<GameUpdateCheckSummary>> CheckForUpdateAsync(string versionFilePath)
-        // {
-        //     ArgumentException.ThrowIfNullOrWhiteSpace(versionFilePath);
-        //
-        //     Result<string> locallySavedLastKnownVersionResult = _versionFileStore.ReadLastKnownVersion(versionFilePath); <--
+        DatVersionInfo currentDatVersion = currentDatVersionResult.Value;
+
+        if (previousDatVersion == currentDatVersion)
+        {
+            return Result.Failure(DomainErrors.GameUpdateCheck.GameUpdateRequired);
+        }
         
-        //handler musi to wywołać, z pattern matchingowac failure na DomainErrors.GameUpdateCheck.ProgramIsLaunchedUpForTheFirstTime,
-        //i dopiero wtedy ten caly powyzszy flow.
-        //generalnie - handler do scraftowania teraz
+        Result saveGameVersionResult = _gameVersionFileStore.SaveVersion(versionFilePath, forumGameVersion);
+        return saveGameVersionResult;
     }
     
     public async Task<Result<GameUpdateCheckSummary>> CheckForUpdateAsync(string versionFilePath)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(versionFilePath);
 
-        Result<string> locallySavedLastKnownVersionResult = _versionFileStore.ReadLastKnownVersion(versionFilePath);
+        Result<string> locallySavedLastKnownVersionResult = _gameVersionFileStore.ReadLastKnownVersion(versionFilePath);
         if (locallySavedLastKnownVersionResult.IsFailure)
         {
             return Result.Failure<GameUpdateCheckSummary>(locallySavedLastKnownVersionResult.Error);

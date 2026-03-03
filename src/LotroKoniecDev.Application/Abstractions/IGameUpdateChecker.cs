@@ -12,16 +12,20 @@ public interface IGameUpdateChecker
         string versionFilePath,
         string forumGameVersion,
         DatVersionInfo previousDatVersion);
-    Task<Result<GameUpdateCheckSummary>> CheckForUpdateAsync(string versionFilePath);
+    Task<Result<GameUpdateCheckSummary>> CheckForUpdateAsync(string gameVersionFilePath);
 }
 
 /// <summary>
 /// Contains the result of a game update check.
 /// </summary>
 /// <param name="UpdateDetected">True if a new game version was found compared to the stored version.</param>
-/// <param name="CurrentVersion">The latest version string found on the LOTRO forums.</param>
-/// <param name="PreviousVersion">The previously stored version string, or null if no version was stored.</param>
+/// <param name="ForumVersion">The latest version string found on the LOTRO forums, or null if forum fetch failed.</param>
+/// <param name="StoredVersion">The previously stored version string, or null if no version was stored (first run).</param>
 public sealed record GameUpdateCheckSummary(
     bool UpdateDetected,
-    string CurrentVersion,
-    string? PreviousVersion);
+    string? ForumVersion,
+    string? StoredVersion)
+{
+    public bool IsFirstLaunch => StoredVersion is null;
+    public bool ForumCheckSucceeded => ForumVersion is not null;
+}

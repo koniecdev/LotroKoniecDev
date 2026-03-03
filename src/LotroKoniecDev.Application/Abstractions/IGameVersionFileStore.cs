@@ -8,7 +8,7 @@ public interface IGameVersionFileStore
     /// <summary>
     /// Reads the last known game version. Returns null if the file does not exist (first run).
     /// </summary>
-    Result<string> ReadLastKnownVersion(string versionFilePath);
+    Result<string?> ReadLastKnownVersion(string versionFilePath);
 
     /// <summary>
     /// Saves the game version string to the specified file.

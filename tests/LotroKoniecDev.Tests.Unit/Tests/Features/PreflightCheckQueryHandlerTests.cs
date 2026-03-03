@@ -105,8 +105,8 @@ public sealed class PreflightCheckQueryHandlerTests
         result.IsSuccess.ShouldBeTrue();
         result.Value.GameUpdateCheckResult!.IsSuccess.ShouldBeTrue();
         result.Value.GameUpdateCheckResult!.Value.UpdateDetected.ShouldBeTrue();
-        result.Value.GameUpdateCheckResult!.Value.CurrentVersion.ShouldBe("40.2");
-        result.Value.GameUpdateCheckResult!.Value.PreviousVersion.ShouldBe("40.1");
+        result.Value.GameUpdateCheckResult!.Value.ForumVersion.ShouldBe("40.2");
+        result.Value.GameUpdateCheckResult!.Value.StoredVersion.ShouldBe("40.1");
     }
 
     [Fact]

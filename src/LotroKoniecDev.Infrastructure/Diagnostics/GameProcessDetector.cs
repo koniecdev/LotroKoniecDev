@@ -50,10 +50,18 @@ public sealed class GameProcessDetector : IGameProcessDetector
                 {
                     using (process)
                     {
-                        if (!process.HasExited)
+                        try
                         {
-                            process.Kill();
-                            process.WaitForExit(5000);
+                            if (!process.HasExited)
+                            {
+                                process.Kill();
+                                process.WaitForExit(5000);
+                            }
+                        }
+                        catch (InvalidOperationException)
+                        {
+                            // Process exited between HasExited check and Kill() — that's fine,
+                            // our goal (process gone) is achieved.
                         }
                     }
                 }

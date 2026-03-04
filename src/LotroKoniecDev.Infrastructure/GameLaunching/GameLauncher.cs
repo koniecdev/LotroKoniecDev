@@ -9,9 +9,9 @@ public sealed class GameLauncher : IGameLauncher
 {
     private const string LauncherExecutable = "TurbineLauncher.exe";
 
-    public async Task<Result<int>> LaunchAndWaitForExitAsync(string lotroPath, CancellationToken cancellationToken = default)
+    public async Task<Result<int>> LaunchAndWaitForExitAsync(string datFilePath, CancellationToken cancellationToken = default)
     {
-        Result<Process> startResult = StartLauncherProcess(lotroPath);
+        Result<Process> startResult = StartLauncherProcess(datFilePath);
         if (startResult.IsFailure)
         {
             return Result.Failure<int>(startResult.Error);
@@ -23,11 +23,11 @@ public sealed class GameLauncher : IGameLauncher
         return Result.Success(process.ExitCode);
     }
 
-    private static Result<Process> StartLauncherProcess(string lotroPath)
+    private static Result<Process> StartLauncherProcess(string datFilePath)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(lotroPath);
+        ArgumentException.ThrowIfNullOrWhiteSpace(datFilePath);
 
-        string launcherPath = ResolveLauncherPath(lotroPath);
+        string launcherPath = ResolveLauncherPath(datFilePath);
 
         if (!File.Exists(launcherPath))
         {
@@ -59,19 +59,19 @@ public sealed class GameLauncher : IGameLauncher
         }
     }
 
-    private static string ResolveLauncherPath(string lotroPath)
+    private static string ResolveLauncherPath(string datFilePath)
     {
-        if (Directory.Exists(lotroPath))
+        if (Directory.Exists(datFilePath))
         {
-            return Path.Combine(lotroPath, LauncherExecutable);
+            return Path.Combine(datFilePath, LauncherExecutable);
         }
 
-        if (File.Exists(lotroPath))
+        if (File.Exists(datFilePath))
         {
-            string dirPath = Path.GetDirectoryName(lotroPath) ?? string.Empty;
+            string dirPath = Path.GetDirectoryName(datFilePath) ?? string.Empty;
             return Path.Combine(dirPath, LauncherExecutable);
         }
 
-        return Path.Combine(lotroPath, LauncherExecutable);
+        return Path.Combine(datFilePath, LauncherExecutable);
     }
 }

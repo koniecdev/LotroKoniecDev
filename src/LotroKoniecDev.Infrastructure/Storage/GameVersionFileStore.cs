@@ -19,10 +19,7 @@ public sealed class GameVersionFileStore : IGameVersionFileStore
             }
 
             string content = File.ReadAllText(versionFilePath).Trim();
-            return string.IsNullOrWhiteSpace(content) 
-                ? Result.Failure<string?>(
-                    DomainErrors.GameUpdateCheck.VersionFileError(versionFilePath, "Version File is empty")) 
-                : Result.Success<string?>(content);
+            return Result.Success<string?>(string.IsNullOrWhiteSpace(content) ? null : content);
         }
         catch (Exception ex)
         {

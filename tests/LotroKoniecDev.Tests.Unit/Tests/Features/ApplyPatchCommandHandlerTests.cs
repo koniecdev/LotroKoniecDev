@@ -28,10 +28,8 @@ public sealed class ApplyPatchCommandHandlerTests
         _translationParser = Substitute.For<ITranslationParser>();
         IProgress<OperationProgress> progress = Substitute.For<IProgress<OperationProgress>>();
 
-        _sut = new ApplyPatchCommandHandler(
-            _datFileHandler,
-            _translationParser,
-            progress);
+        IPatchingService patchingService = new PatchingService(_datFileHandler, _translationParser);
+        _sut = new ApplyPatchCommandHandler(patchingService, progress);
     }
 
     private static ApplyPatchCommand CreateCommand(

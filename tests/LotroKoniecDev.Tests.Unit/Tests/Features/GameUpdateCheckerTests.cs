@@ -1,5 +1,4 @@
 using LotroKoniecDev.Application.Abstractions;
-using LotroKoniecDev.Application.Abstractions.DatFilesServices;
 using LotroKoniecDev.Application.Features.UpdateChecking;
 using LotroKoniecDev.Domain.Core.BuildingBlocks;
 using LotroKoniecDev.Domain.Core.Errors;
@@ -13,10 +12,8 @@ namespace LotroKoniecDev.Tests.Unit.Tests.Features;
 public sealed class GameUpdateCheckerTests
 {
     private const string VersionFilePath = @"C:\temp\version.txt";
-    private const string DatFilePath = @"C:\LOTRO\client_local_English.dat";
 
     private readonly IForumPageFetcher _mockFetcher;
-    private readonly IDatVersionReader _mockDatVersionReader;
     private readonly IGameVersionFileStore _mockStore;
     private readonly ILogger<GameUpdateChecker> _mockLogger;
     private readonly GameUpdateChecker _checker;
@@ -24,10 +21,9 @@ public sealed class GameUpdateCheckerTests
     public GameUpdateCheckerTests()
     {
         _mockFetcher = Substitute.For<IForumPageFetcher>();
-        _mockDatVersionReader = Substitute.For<IDatVersionReader>();
         _mockStore = Substitute.For<IGameVersionFileStore>();
         _mockLogger = Substitute.For<ILogger<GameUpdateChecker>>();
-        _checker = new GameUpdateChecker(_mockFetcher, _mockDatVersionReader, _mockStore, _mockLogger);
+        _checker = new GameUpdateChecker(_mockFetcher, _mockStore, _mockLogger);
     }
 
     // ───────────────────────────── CheckForUpdateAsync — normal flow ─────────────────────────────
@@ -307,20 +303,33 @@ public sealed class GameUpdateCheckerTests
     // ───────────────────────────── ConfirmUpdateInstalled ─────────────────────────────
 
     [Fact]
+    public void ConfirmUpdateInstalled_ShouldSaveAndSucceed_WhenFirstRun()
+    {
+        // Arrange
+        _mockStore.SaveVersion(VersionFilePath, "40.2")
+            .Returns(Result.Success());
+        DatVersionInfo previousVersion = new(100, 200);
+        DatVersionInfo currentVersion = new(100, 201);
+
+        // Act
+        Result result = _checker.ConfirmUpdateInstalled(VersionFilePath, "40.2", isFirstRun: true, previousVersion, currentVersion);
+
+        // Assert — first run trusts forum version, saves immediately, no vnum check
+        result.IsSuccess.ShouldBeTrue();
+        _mockStore.Received(1).SaveVersion(VersionFilePath, "40.2");
+    }
+
+    [Fact]
     public void ConfirmUpdateInstalled_ShouldSaveForumVersion_WhenDatVersionChanged()
     {
         // Arrange
         DatVersionInfo previousVersion = new(100, 200);
         DatVersionInfo currentVersion = new(100, 201);
-        _mockStore.ReadLastKnownVersion(VersionFilePath)
-            .Returns(Result.Success<string?>("40.1"));
-        _mockDatVersionReader.ReadVersion(DatFilePath)
-            .Returns(Result.Success(currentVersion));
         _mockStore.SaveVersion(VersionFilePath, "40.2")
             .Returns(Result.Success());
 
         // Act
-        Result result = _checker.ConfirmUpdateInstalled(DatFilePath, VersionFilePath, "40.2", previousVersion);
+        Result result = _checker.ConfirmUpdateInstalled(VersionFilePath, "40.2", isFirstRun: false, previousVersion, currentVersion);
 
         // Assert
         result.IsSuccess.ShouldBeTrue();
@@ -328,41 +337,19 @@ public sealed class GameUpdateCheckerTests
     }
 
     [Fact]
-    public void ConfirmUpdateInstalled_ShouldReturnFailure_WhenDatVersionUnchanged()
+    public void ConfirmUpdateInstalled_ShouldSaveAndSucceed_WhenDatVersionUnchanged()
     {
-        // Arrange
+        // Arrange — vnum unchanged (game may already be updated, or user skipped update)
         DatVersionInfo sameVersion = new(100, 200);
-        _mockStore.ReadLastKnownVersion(VersionFilePath)
-            .Returns(Result.Success<string?>("40.1"));
-        _mockDatVersionReader.ReadVersion(DatFilePath)
-            .Returns(Result.Success(sameVersion));
+        _mockStore.SaveVersion(VersionFilePath, "40.2")
+            .Returns(Result.Success());
 
         // Act
-        Result result = _checker.ConfirmUpdateInstalled(DatFilePath, VersionFilePath, "40.2", sameVersion);
+        Result result = _checker.ConfirmUpdateInstalled(VersionFilePath, "40.2", isFirstRun: false, sameVersion, sameVersion);
 
-        // Assert
-        result.IsFailure.ShouldBeTrue();
-        result.Error.ShouldBe(DomainErrors.GameUpdateCheck.GameUpdateRequired);
-        _mockStore.DidNotReceive().SaveVersion(Arg.Any<string>(), Arg.Any<string>());
-    }
-
-    [Fact]
-    public void ConfirmUpdateInstalled_ShouldReturnFailure_WhenReadVersionFails()
-    {
-        // Arrange
-        DatVersionInfo previousVersion = new(100, 200);
-        _mockStore.ReadLastKnownVersion(VersionFilePath)
-            .Returns(Result.Success<string?>("40.1"));
-        Error readError = new("DatFile.ReadFailed", "Cannot open DAT", ErrorType.IoError);
-        _mockDatVersionReader.ReadVersion(DatFilePath)
-            .Returns(Result.Failure<DatVersionInfo>(readError));
-
-        // Act
-        Result result = _checker.ConfirmUpdateInstalled(DatFilePath, VersionFilePath, "40.2", previousVersion);
-
-        // Assert
-        result.IsFailure.ShouldBeTrue();
-        result.Error.Code.ShouldBe("DatFile.ReadFailed");
+        // Assert — saves version and continues (graceful: re-patch will fix translations)
+        result.IsSuccess.ShouldBeTrue();
+        _mockStore.Received(1).SaveVersion(VersionFilePath, "40.2");
     }
 
     [Fact]
@@ -371,16 +358,12 @@ public sealed class GameUpdateCheckerTests
         // Arrange
         DatVersionInfo previousVersion = new(100, 200);
         DatVersionInfo currentVersion = new(100, 201);
-        _mockStore.ReadLastKnownVersion(VersionFilePath)
-            .Returns(Result.Success<string?>("40.1"));
-        _mockDatVersionReader.ReadVersion(DatFilePath)
-            .Returns(Result.Success(currentVersion));
         Error saveError = new("GameUpdateCheck.VersionFileError", "Disk full", ErrorType.IoError);
         _mockStore.SaveVersion(VersionFilePath, "40.2")
             .Returns(Result.Failure(saveError));
 
         // Act
-        Result result = _checker.ConfirmUpdateInstalled(DatFilePath, VersionFilePath, "40.2", previousVersion);
+        Result result = _checker.ConfirmUpdateInstalled(VersionFilePath, "40.2", isFirstRun: false, previousVersion, currentVersion);
 
         // Assert
         result.IsFailure.ShouldBeTrue();
@@ -393,15 +376,7 @@ public sealed class GameUpdateCheckerTests
     public void Constructor_ShouldThrow_WhenNullFetcher()
     {
         // Act & Assert
-        Action act = () => new GameUpdateChecker(null!, _mockDatVersionReader, _mockStore, _mockLogger);
-        act.ShouldThrow<ArgumentNullException>();
-    }
-
-    [Fact]
-    public void Constructor_ShouldThrow_WhenNullDatVersionReader()
-    {
-        // Act & Assert
-        Action act = () => new GameUpdateChecker(_mockFetcher, null!, _mockStore, _mockLogger);
+        Action act = () => new GameUpdateChecker(null!, _mockStore, _mockLogger);
         act.ShouldThrow<ArgumentNullException>();
     }
 
@@ -409,7 +384,7 @@ public sealed class GameUpdateCheckerTests
     public void Constructor_ShouldThrow_WhenNullStore()
     {
         // Act & Assert
-        Action act = () => new GameUpdateChecker(_mockFetcher, _mockDatVersionReader, null!, _mockLogger);
+        Action act = () => new GameUpdateChecker(_mockFetcher, null!, _mockLogger);
         act.ShouldThrow<ArgumentNullException>();
     }
 
@@ -417,7 +392,7 @@ public sealed class GameUpdateCheckerTests
     public void Constructor_ShouldThrow_WhenNullLogger()
     {
         // Act & Assert
-        Action act = () => new GameUpdateChecker(_mockFetcher, _mockDatVersionReader, _mockStore, null!);
+        Action act = () => new GameUpdateChecker(_mockFetcher, _mockStore, null!);
         act.ShouldThrow<ArgumentNullException>();
     }
 

@@ -1,6 +1,7 @@
 using LotroKoniecDev.Application.Abstractions.DatFilesServices;
 using LotroKoniecDev.Application.Extensions;
 using LotroKoniecDev.Application.Features.Exporting;
+using LotroKoniecDev.Application.Features.GameLaunching;
 using LotroKoniecDev.Application.Features.Patching;
 using LotroKoniecDev.Application.Features.PreflightChecking;
 using LotroKoniecDev.Domain.Core.BuildingBlocks;
@@ -32,7 +33,7 @@ internal static class Program
 
         string command = args[0].ToLowerInvariant();
 
-        if (command is "patch" && args.Length < 2)
+        if (command is "patch" or "launch" && args.Length < 2)
         {
             WriteError("Missing required argument: translation name");
             PrintUsage();
@@ -94,38 +95,13 @@ internal static class Program
             
             case "patch":
                 {
-                    
-                    string? translationArgument = args.Length > 1 ? args[1] : null;
-                    if (translationArgument is null)
+                    (string TranslationsPath, string DatFilePath)? paths = ResolveCommandPaths(args, serviceProvider, reporter);
+                    if (paths is null)
                     {
                         return ExitCodes.FileNotFound;
                     }
-                    
-                    IFileProvider fileProvider = serviceProvider.GetRequiredService<IFileProvider>();
-                    
-                    
-                    string translationsPath = ResolveTranslationsPath(translationArgument);
-                    if (!fileProvider.Exists(translationsPath))
-                    {
-                        reporter.Report($"Translation file not found: {translationsPath}");
-                        return ExitCodes.FileNotFound;
-                    }
-                    
-                    reporter.Report($"Loading translations from: {translationArgument}");
-                    
-                    IDatPathResolver datPathResolver = serviceProvider.GetRequiredService<IDatPathResolver>();
-                    string? datFilePath = datPathResolver.Resolve(args.Length > 2 ? args[2] : null);
-                    if (datFilePath is null)
-                    {
-                        return ExitCodes.FileNotFound;
-                    }
-                    if (!fileProvider.Exists(datFilePath))
-                    {
-                        reporter.Report($"DAT file not found: {datFilePath}");
-                        return ExitCodes.FileNotFound;
-                    }
-                    
-                    PreflightCheckQuery preflightCheckQuery = new(datFilePath, VersionFilePath);
+
+                    PreflightCheckQuery preflightCheckQuery = new(paths.Value.DatFilePath, VersionFilePath);
                     Result<PreflightReportResponse> preflightCheckResponse = await sender.Send(preflightCheckQuery);
                     if(preflightCheckResponse.IsFailure)
                     {
@@ -134,8 +110,8 @@ internal static class Program
                     }
 
                     IBackupManager backupManager = serviceProvider.GetRequiredService<IBackupManager>();
-                    
-                    Result backupResult = backupManager.Create(datFilePath);
+
+                    Result backupResult = backupManager.Create(paths.Value.DatFilePath);
                     if (backupResult.IsFailure)
                     {
                         reporter.Report(backupResult.Error.ToString());
@@ -145,16 +121,16 @@ internal static class Program
                     try
                     {
                         ApplyPatchCommand applyPatchCommand = new(
-                            TranslationsPath: translationsPath,
-                            DatFilePath: datFilePath);
-                        
+                            TranslationsPath: paths.Value.TranslationsPath,
+                            DatFilePath: paths.Value.DatFilePath);
+
                         Result<PatchSummaryResponse> result = await sender.Send(applyPatchCommand);
                         if (result.IsFailure)
                         {
                             reporter.Report(result.Error.ToString());
                             return MapErrorToExitCode(result.Error);
                         }
-                        
+
                         foreach (string warning in result.Value.Warnings)
                         {
                             reporter.Report(warning);
@@ -164,13 +140,45 @@ internal static class Program
                         {
                             reporter.Report($"Skipped {result.Value.SkippedTranslations} translations");
                         }
-                        
+
                         reporter.Report(result.Value.ToString());
                         return ExitCodes.Success;
                     }
                     catch(Exception ex)
                     {
-                        backupManager.Restore(datFilePath);
+                        backupManager.Restore(paths.Value.DatFilePath);
+                        reporter.Report(ex.ToString());
+                        return ExitCodes.OperationFailed;
+                    }
+                }
+
+            case "launch":
+                {
+                    (string TranslationsPath, string DatFilePath)? paths = ResolveCommandPaths(args, serviceProvider, reporter);
+                    if (paths is null)
+                    {
+                        return ExitCodes.FileNotFound;
+                    }
+
+                    try
+                    {
+                        GameLaunchingCommand gameLaunchingCommand = new(
+                            DatFilePath: paths.Value.DatFilePath,
+                            GameVersionFilePath: VersionFilePath,
+                            TranslationFilePath: paths.Value.TranslationsPath);
+
+                        Result<GameLaunchingResponse> result = await sender.Send(gameLaunchingCommand);
+                        if (result.IsFailure)
+                        {
+                            reporter.Report(result.Error.ToString());
+                            return MapErrorToExitCode(result.Error);
+                        }
+
+                        reporter.Report(result.Value.ToString());
+                        return ExitCodes.Success;
+                    }
+                    catch (Exception ex)
+                    {
                         reporter.Report(ex.ToString());
                         return ExitCodes.OperationFailed;
                     }
@@ -178,6 +186,37 @@ internal static class Program
             default:
                 return HandleUnknownCommand();
         }
+    }
+
+    private static (string TranslationsPath, string DatFilePath)? ResolveCommandPaths(
+        string[] args,
+        ServiceProvider serviceProvider,
+        IOperationStatusReporter reporter)
+    {
+        IFileProvider fileProvider = serviceProvider.GetRequiredService<IFileProvider>();
+
+        string translationsPath = ResolveTranslationsPath(args[1]);
+        if (!fileProvider.Exists(translationsPath))
+        {
+            reporter.Report($"Translation file not found: {translationsPath}");
+            return null;
+        }
+
+        reporter.Report($"Loading translations from: {args[1]}");
+
+        IDatPathResolver datPathResolver = serviceProvider.GetRequiredService<IDatPathResolver>();
+        string? datFilePath = datPathResolver.Resolve(args.Length > 2 ? args[2] : null);
+        if (datFilePath is null)
+        {
+            return null;
+        }
+        if (!fileProvider.Exists(datFilePath))
+        {
+            reporter.Report($"DAT file not found: {datFilePath}");
+            return null;
+        }
+
+        return (translationsPath, datFilePath);
     }
 
     private static string ResolveTranslationsPath(string input)
@@ -200,11 +239,16 @@ internal static class Program
         Console.WriteLine("    LotroKoniecDev patch <name> [dat_file]");
         Console.WriteLine("    Name resolves to translations/<name>.txt");
         Console.WriteLine();
+        Console.WriteLine("  LAUNCH (patch + protect + play):");
+        Console.WriteLine("    LotroKoniecDev launch <name> [dat_file]");
+        Console.WriteLine("    Checks for updates, protects DAT, launches game, unprotects after exit");
+        Console.WriteLine();
         Console.WriteLine("If no DAT file is specified, LOTRO installation is detected automatically.");
         Console.WriteLine();
         Console.WriteLine("Examples:");
         Console.WriteLine("  LotroKoniecDev patch example_polish");
         Console.WriteLine(@"  LotroKoniecDev patch example_polish C:\path\to\client_local_English.dat");
+        Console.WriteLine("  LotroKoniecDev launch example_polish");
         Console.WriteLine("  LotroKoniecDev export");
     }
 

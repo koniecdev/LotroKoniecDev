@@ -7,11 +7,12 @@ namespace LotroKoniecDev.Application.Abstractions;
 /// </summary>
 public interface IGameUpdateChecker
 {
-    public Result ConfirmUpdateInstalled(
-        string datFilePath,
+    Result ConfirmUpdateInstalled(
         string versionFilePath,
         string forumGameVersion,
-        DatVersionInfo previousDatVersion);
+        bool isFirstRun,
+        DatVersionInfo previousDatVersion,
+        DatVersionInfo currentDatVersion);
     Task<Result<GameUpdateCheckSummary>> CheckForUpdateAsync(string gameVersionFilePath);
 }
 

@@ -1,6 +1,5 @@
 using System.Text.RegularExpressions;
 using LotroKoniecDev.Application.Abstractions;
-using LotroKoniecDev.Application.Abstractions.DatFilesServices;
 using LotroKoniecDev.Domain.Core.Errors;
 using LotroKoniecDev.Domain.Models;
 using Microsoft.Extensions.Logging;
@@ -13,57 +12,49 @@ namespace LotroKoniecDev.Application.Features.UpdateChecking;
 public sealed partial class GameUpdateChecker : IGameUpdateChecker
 {
     private readonly IForumPageFetcher _forumPageFetcher;
-    private readonly IDatVersionReader _datVersionReader;
     private readonly IGameVersionFileStore _gameVersionFileStore;
     private readonly ILogger<GameUpdateChecker> _logger;
 
     public GameUpdateChecker(
         IForumPageFetcher forumPageFetcher,
-        IDatVersionReader datVersionReader,
         IGameVersionFileStore gameVersionFileStore,
         ILogger<GameUpdateChecker> logger)
     {
+        ArgumentNullException.ThrowIfNull(forumPageFetcher);
+        ArgumentNullException.ThrowIfNull(gameVersionFileStore);
+        ArgumentNullException.ThrowIfNull(logger);
+
         _forumPageFetcher = forumPageFetcher;
-        _datVersionReader = datVersionReader;
         _gameVersionFileStore = gameVersionFileStore;
         _logger = logger;
     }
 
     public Result ConfirmUpdateInstalled(
-        string datFilePath,
         string versionFilePath,
         string forumGameVersion,
-        DatVersionInfo previousDatVersion)
+        bool isFirstRun,
+        DatVersionInfo previousDatVersion,
+        DatVersionInfo currentDatVersion)
     {
-        Result<string?> storedVersion = _gameVersionFileStore.ReadLastKnownVersion(versionFilePath);
-        if (storedVersion.IsFailure)
-        {
-            return Result.Failure(storedVersion.Error);
-        }
-
-        bool isFirstRun = storedVersion.Value is null;
-
-        // First run — brak baseline'u, nie da się porównać vnum.
-        // Gracz właśnie odpalił LOTRO launcher, ufamy że gra jest aktualna.
         if (isFirstRun)
         {
+            // First run — brak baseline'u, nie da się porównać vnum.
+            // Gracz właśnie odpalił LOTRO launcher, ufamy że gra jest aktualna.
             return _gameVersionFileStore.SaveVersion(versionFilePath, forumGameVersion);
         }
 
-        // Kolejne uruchomienia — weryfikujemy że vnum się zmienił (czyli update zainstalowany)
-        Result<DatVersionInfo> currentDatVersionResult = _datVersionReader.ReadVersion(datFilePath);
-        if (currentDatVersionResult.IsFailure)
+        if (previousDatVersion == currentDatVersion)
         {
-            return Result.Failure(currentDatVersionResult.Error);
+            // Vnum się nie zmienił — gracz mógł zamknąć launcher bez aktualizacji,
+            // albo gra została zaktualizowana wcześniej (np. przez zwykły launcher).
+            // Zapisujemy wersję forum i kontynuujemy — re-patch i tak zaaplikuje tłumaczenia.
+            _logger.LogWarning(
+                "DAT version unchanged after update flow (vnum={Vnum}). " +
+                "Game may already be up to date. Saving forum version {ForumVersion} and continuing",
+                currentDatVersion.VnumGameData, forumGameVersion);
         }
 
-        if (previousDatVersion == currentDatVersionResult.Value)
-        {
-            return Result.Failure(DomainErrors.GameUpdateCheck.GameUpdateRequired);
-        }
-        
-        Result saveGameVersionResult = _gameVersionFileStore.SaveVersion(versionFilePath, forumGameVersion);
-        return saveGameVersionResult;
+        return _gameVersionFileStore.SaveVersion(versionFilePath, forumGameVersion);
     }
     
     public async Task<Result<GameUpdateCheckSummary>> CheckForUpdateAsync(string gameVersionFilePath)

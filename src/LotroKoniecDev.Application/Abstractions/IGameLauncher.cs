@@ -2,6 +2,5 @@ namespace LotroKoniecDev.Application.Abstractions;
 
 public interface IGameLauncher
 {
-    Result Launch(string lotroPath);
-    Result<int> LaunchAndWaitForExit(string lotroPath);
+    Task<Result<int>> LaunchAndWaitForExitAsync(string lotroPath, CancellationToken cancellationToken = default);
 }

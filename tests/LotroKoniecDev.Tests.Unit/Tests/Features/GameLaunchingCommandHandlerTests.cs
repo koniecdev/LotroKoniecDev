@@ -18,12 +18,18 @@ public sealed class GameLaunchingCommandHandlerTests
     private const string TranslationFilePath = @"C:\translations\polish.txt";
     private const int GameExitCode = 0;
     private const string ForumVersion = "40.2";
-    private const string StoredVersion = "40.1";
 
-    private static readonly DatVersionInfo PreviousVnum = new(100, 200);
+    private static readonly DatVersionInfo CurrentVnum = new(100, 200);
     private static readonly DatVersionInfo UpdatedVnum = new(100, 201);
+    // Stored with same forum version + same vnum → no update, normal launch
+    private static readonly StoredVersionInfo StoredCurrent = new(ForumVersion, 100, 200);
+    // Stored with old forum version + same vnum → forum says update, vnum unchanged → forced launcher
+    private static readonly StoredVersionInfo StoredOldForum = new("40.1", 100, 200);
+    // Stored with old forum version + old vnum → vnum changed → re-patch without forced launcher
+    private static readonly StoredVersionInfo StoredOldVnum = new("40.1", 100, 199);
 
     private readonly IGameUpdateChecker _updateChecker;
+    private readonly IGameVersionFileStore _versionStore;
     private readonly IDatVersionReader _datVersionReader;
     private readonly IDatFileProtector _protector;
     private readonly IGameLauncher _launcher;
@@ -34,6 +40,7 @@ public sealed class GameLaunchingCommandHandlerTests
     public GameLaunchingCommandHandlerTests()
     {
         _updateChecker = Substitute.For<IGameUpdateChecker>();
+        _versionStore = Substitute.For<IGameVersionFileStore>();
         _datVersionReader = Substitute.For<IDatVersionReader>();
         _protector = Substitute.For<IDatFileProtector>();
         _launcher = Substitute.For<IGameLauncher>();
@@ -42,6 +49,7 @@ public sealed class GameLaunchingCommandHandlerTests
 
         _sut = new GameLaunchingCommandHandler(
             _updateChecker,
+            _versionStore,
             _datVersionReader,
             _protector,
             _launcher,
@@ -56,35 +64,53 @@ public sealed class GameLaunchingCommandHandlerTests
     private void SetupNoUpdate()
     {
         _updateChecker.CheckForUpdateAsync(VersionFilePath)
-            .Returns(Result.Success(new GameUpdateCheckSummary(false, ForumVersion, StoredVersion)));
+            .Returns(Result.Success(new GameUpdateCheckSummary(ForumVersion, StoredCurrent)));
+        _datVersionReader.ReadVersion(DatFilePath).Returns(Result.Success(CurrentVnum));
         _protector.Protect(DatFilePath).Returns(Result.Success());
         _protector.Unprotect(DatFilePath).Returns(Result.Success());
         _launcher.LaunchAndWaitForExitAsync(DatFilePath, Arg.Any<CancellationToken>())
             .Returns(Result.Success(GameExitCode));
     }
 
-    private void SetupUpdateDetected()
+    private void SetupVnumChanged()
     {
+        // Forum says same version, but DAT vnum changed (game updated outside patcher)
         _updateChecker.CheckForUpdateAsync(VersionFilePath)
-            .Returns(Result.Success(new GameUpdateCheckSummary(true, ForumVersion, StoredVersion)));
-        _datVersionReader.ReadVersion(DatFilePath).Returns(Result.Success(PreviousVnum), Result.Success(UpdatedVnum));
+            .Returns(Result.Success(new GameUpdateCheckSummary(ForumVersion, StoredOldVnum)));
+        _datVersionReader.ReadVersion(DatFilePath).Returns(Result.Success(CurrentVnum));
+        _versionStore.SaveVersion(VersionFilePath, ForumVersion, CurrentVnum.VnumDatFile, CurrentVnum.VnumGameData)
+            .Returns(Result.Success());
+        _patchingService.ApplyTranslations(TranslationFilePath, DatFilePath, null)
+            .Returns(Result.Success(new PatchSummaryResponse(100, 95, 5, [])));
         _protector.Protect(DatFilePath).Returns(Result.Success());
         _protector.Unprotect(DatFilePath).Returns(Result.Success());
         _launcher.LaunchAndWaitForExitAsync(DatFilePath, Arg.Any<CancellationToken>())
             .Returns(Result.Success(GameExitCode));
-        // Launcher appears (Phase 1 breaks immediately) then disappears (Phase 2 skips)
+    }
+
+    private void SetupForumUpdateVnumUnchanged()
+    {
+        // Forum says new version, vnum unchanged — forced launcher flow
+        _updateChecker.CheckForUpdateAsync(VersionFilePath)
+            .Returns(Result.Success(new GameUpdateCheckSummary(ForumVersion, StoredOldForum)));
+        // First ReadVersion call in Handle, second in HandleUpdatePath after launcher
+        _datVersionReader.ReadVersion(DatFilePath).Returns(Result.Success(CurrentVnum), Result.Success(UpdatedVnum));
+        _protector.Protect(DatFilePath).Returns(Result.Success());
+        _protector.Unprotect(DatFilePath).Returns(Result.Success());
+        _launcher.LaunchAndWaitForExitAsync(DatFilePath, Arg.Any<CancellationToken>())
+            .Returns(Result.Success(GameExitCode));
         _processDetector.IsLotroLauncherRunning().Returns(true, false);
         _processDetector.IsGameClientRunning().Returns(false);
-        _updateChecker.ConfirmUpdateInstalled(VersionFilePath, ForumVersion, false, PreviousVnum, UpdatedVnum)
+        _versionStore.SaveVersion(VersionFilePath, ForumVersion, UpdatedVnum.VnumDatFile, UpdatedVnum.VnumGameData)
             .Returns(Result.Success());
         _patchingService.ApplyTranslations(TranslationFilePath, DatFilePath, null)
             .Returns(Result.Success(new PatchSummaryResponse(100, 95, 5, [])));
     }
 
-    // ───────────────────────────── Normal launch (no update) ─────────────────────────────
+    // ───────────────────────────── Normal launch (no update, no vnum change) ─────────────────────────────
 
     [Fact]
-    public async Task Handle_NoUpdate_ShouldProtectLaunchUnprotect()
+    public async Task Handle_NoUpdate_NoVnumChange_ShouldProtectLaunchUnprotect()
     {
         // Arrange
         SetupNoUpdate();
@@ -101,53 +127,29 @@ public sealed class GameLaunchingCommandHandlerTests
         _protector.Received(1).Protect(DatFilePath);
         await _launcher.Received(1).LaunchAndWaitForExitAsync(DatFilePath, Arg.Any<CancellationToken>());
         _protector.Received(1).Unprotect(DatFilePath);
+
+        // No re-patching or version saving in normal flow
+        _patchingService.DidNotReceive().ApplyTranslations(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<IProgress<LotroKoniecDev.Application.OperationProgress>?>());
+        _versionStore.DidNotReceive().SaveVersion(Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<int>(), Arg.Any<int>());
     }
 
-    // ───────────────────────────── Update detected — full orchestration ─────────────────────────────
+    // ───────────────────────────── First run — baseline, re-patch, no forced launcher ─────────────────────────────
 
     [Fact]
-    public async Task Handle_UpdateDetected_ShouldOrchestrateFull()
+    public async Task Handle_FirstRun_ShouldSaveBaselineAndRepatchWithoutForcedLauncher()
     {
-        // Arrange
-        SetupUpdateDetected();
-
-        // Act
-        Result<GameLaunchingResponse> result = await _sut.Handle(CreateCommand(), CancellationToken.None);
-
-        // Assert
-        result.IsSuccess.ShouldBeTrue();
-        result.Value.UpdateWasDetected.ShouldBeTrue();
-        result.Value.ForumVersion.ShouldBe(ForumVersion);
-        result.Value.GameExitCode.ShouldBe(GameExitCode);
-
-        // Verify full orchestration:
-        // snapshot(before) → unprotect → launch(update) → snapshot(after) → confirm → re-patch → protect(best-effort) → protect → launch(game) → unprotect(finally)
-        _datVersionReader.Received(2).ReadVersion(DatFilePath); // before + after
-        _protector.Received(2).Unprotect(DatFilePath); // step 2 (for update via best-effort re-protect) + finally (after game)
-        await _launcher.Received(2).LaunchAndWaitForExitAsync(DatFilePath, Arg.Any<CancellationToken>()); // once for update, once for game
-        _updateChecker.Received(1).ConfirmUpdateInstalled(VersionFilePath, ForumVersion, false, PreviousVnum, UpdatedVnum);
-        _patchingService.Received(1).ApplyTranslations(TranslationFilePath, DatFilePath, null);
-        _protector.Received(2).Protect(DatFilePath); // best-effort after update try/finally + before game launch
-    }
-
-    // ───────────────────────────── Update detected — first run ─────────────────────────────
-
-    [Fact]
-    public async Task Handle_UpdateDetected_FirstRun_ShouldSucceed()
-    {
-        // Arrange — first run: StoredVersion is null
+        // Arrange — first run: StoredInfo is null
         _updateChecker.CheckForUpdateAsync(VersionFilePath)
-            .Returns(Result.Success(new GameUpdateCheckSummary(true, ForumVersion, null)));
-        _datVersionReader.ReadVersion(DatFilePath).Returns(Result.Success(PreviousVnum), Result.Success(UpdatedVnum));
+            .Returns(Result.Success(new GameUpdateCheckSummary(ForumVersion, null)));
+        _datVersionReader.ReadVersion(DatFilePath).Returns(Result.Success(CurrentVnum));
+        _versionStore.SaveVersion(VersionFilePath, ForumVersion, CurrentVnum.VnumDatFile, CurrentVnum.VnumGameData)
+            .Returns(Result.Success());
+        _patchingService.ApplyTranslations(TranslationFilePath, DatFilePath, null)
+            .Returns(Result.Success(new PatchSummaryResponse(100, 95, 5, [])));
         _protector.Protect(DatFilePath).Returns(Result.Success());
         _protector.Unprotect(DatFilePath).Returns(Result.Success());
         _launcher.LaunchAndWaitForExitAsync(DatFilePath, Arg.Any<CancellationToken>())
             .Returns(Result.Success(GameExitCode));
-        _processDetector.IsLotroLauncherRunning().Returns(true, false);
-        _updateChecker.ConfirmUpdateInstalled(VersionFilePath, ForumVersion, true, PreviousVnum, UpdatedVnum)
-            .Returns(Result.Success());
-        _patchingService.ApplyTranslations(TranslationFilePath, DatFilePath, null)
-            .Returns(Result.Success(new PatchSummaryResponse(100, 95, 5, [])));
 
         // Act
         Result<GameLaunchingResponse> result = await _sut.Handle(CreateCommand(), CancellationToken.None);
@@ -155,46 +157,123 @@ public sealed class GameLaunchingCommandHandlerTests
         // Assert
         result.IsSuccess.ShouldBeTrue();
         result.Value.UpdateWasDetected.ShouldBeTrue();
+
+        // Should save baseline, re-patch, and launch ONCE (no forced launcher)
+        _versionStore.Received(1).SaveVersion(VersionFilePath, ForumVersion, CurrentVnum.VnumDatFile, CurrentVnum.VnumGameData);
+        _patchingService.Received(1).ApplyTranslations(TranslationFilePath, DatFilePath, null);
+        await _launcher.Received(1).LaunchAndWaitForExitAsync(DatFilePath, Arg.Any<CancellationToken>());
     }
 
-    // ───────────────────────────── Update detected — confirm fails ─────────────────────────────
+    // ───────────────────────────── Vnum changed (game updated outside patcher) ─────────────────────────────
 
     [Fact]
-    public async Task Handle_UpdateDetected_ConfirmFails_ShouldReturnFailure_DatReprotected()
+    public async Task Handle_VnumChanged_ShouldRepatchAndLaunchWithoutForcedLauncher()
     {
         // Arrange
-        SetupUpdateDetected();
-        Error saveError = new("GameUpdateCheck.VersionFileError", "Disk full", ErrorType.IoError);
-        _updateChecker.ConfirmUpdateInstalled(VersionFilePath, ForumVersion, false, PreviousVnum, UpdatedVnum)
-            .Returns(Result.Failure(saveError));
+        SetupVnumChanged();
 
         // Act
         Result<GameLaunchingResponse> result = await _sut.Handle(CreateCommand(), CancellationToken.None);
 
         // Assert
-        result.IsFailure.ShouldBeTrue();
-        result.Error.Code.ShouldBe("GameUpdateCheck.VersionFileError");
+        result.IsSuccess.ShouldBeTrue();
+        result.Value.UpdateWasDetected.ShouldBeTrue();
 
-        // DAT must be re-protected after failure (via try/finally)
-        _protector.Received().Protect(DatFilePath);
+        // Should save new vnum, re-patch, and launch ONCE (no forced launcher)
+        _versionStore.Received(1).SaveVersion(VersionFilePath, ForumVersion, CurrentVnum.VnumDatFile, CurrentVnum.VnumGameData);
+        _patchingService.Received(1).ApplyTranslations(TranslationFilePath, DatFilePath, null);
+        await _launcher.Received(1).LaunchAndWaitForExitAsync(DatFilePath, Arg.Any<CancellationToken>());
     }
 
-    // ───────────────────────────── Game client detected during update ─────────────────────────────
+    // ───────────────────────────── Vnum changed + forum new version — still no forced launcher ─────────────────────────────
 
     [Fact]
-    public async Task Handle_UpdateDetected_GameClientDetected_ShouldKillAndContinue()
+    public async Task Handle_VnumChanged_ForumNewVersion_ShouldRepatchWithoutForcedLauncher()
+    {
+        // Arrange — game already updated AND forum sees new version
+        _updateChecker.CheckForUpdateAsync(VersionFilePath)
+            .Returns(Result.Success(new GameUpdateCheckSummary(ForumVersion, StoredOldVnum)));
+        _datVersionReader.ReadVersion(DatFilePath).Returns(Result.Success(CurrentVnum));
+        _versionStore.SaveVersion(VersionFilePath, ForumVersion, CurrentVnum.VnumDatFile, CurrentVnum.VnumGameData)
+            .Returns(Result.Success());
+        _patchingService.ApplyTranslations(TranslationFilePath, DatFilePath, null)
+            .Returns(Result.Success(new PatchSummaryResponse(100, 95, 5, [])));
+        _protector.Protect(DatFilePath).Returns(Result.Success());
+        _protector.Unprotect(DatFilePath).Returns(Result.Success());
+        _launcher.LaunchAndWaitForExitAsync(DatFilePath, Arg.Any<CancellationToken>())
+            .Returns(Result.Success(GameExitCode));
+
+        // Act
+        Result<GameLaunchingResponse> result = await _sut.Handle(CreateCommand(), CancellationToken.None);
+
+        // Assert — vnum change takes priority, no forced launcher
+        result.IsSuccess.ShouldBeTrue();
+        await _launcher.Received(1).LaunchAndWaitForExitAsync(DatFilePath, Arg.Any<CancellationToken>());
+        _patchingService.Received(1).ApplyTranslations(TranslationFilePath, DatFilePath, null);
+    }
+
+    // ───────────────────────────── Forum new version + vnum unchanged — forced launcher (only case) ─────────────────────────────
+
+    [Fact]
+    public async Task Handle_ForumNewVersion_VnumUnchanged_ShouldForceLauncherFlow()
     {
         // Arrange
-        SetupUpdateDetected();
+        SetupForumUpdateVnumUnchanged();
 
-        // Simulate: launcher is running, then game client appears, kill succeeds, launcher stops
+        // Act
+        Result<GameLaunchingResponse> result = await _sut.Handle(CreateCommand(), CancellationToken.None);
+
+        // Assert
+        result.IsSuccess.ShouldBeTrue();
+        result.Value.UpdateWasDetected.ShouldBeTrue();
+
+        // Forced launcher flow: ReadVersion(before) + ReadVersion(after) + unprotect(update) + launcher(update) + save + re-patch + protect(best-effort) + protect(game) + launcher(game) + unprotect(game)
+        _datVersionReader.Received(2).ReadVersion(DatFilePath);
+        await _launcher.Received(2).LaunchAndWaitForExitAsync(DatFilePath, Arg.Any<CancellationToken>());
+        _versionStore.Received(1).SaveVersion(VersionFilePath, ForumVersion, UpdatedVnum.VnumDatFile, UpdatedVnum.VnumGameData);
+        _patchingService.Received(1).ApplyTranslations(TranslationFilePath, DatFilePath, null);
+    }
+
+    // ───────────────────────────── Game client detected after wait — Phase 3 safety net ─────────────────────────────
+
+    [Fact]
+    public async Task Handle_ForumUpdate_GameClientDetectedAfterWait_ShouldKillAndContinue()
+    {
+        // Arrange
+        SetupForumUpdateVnumUnchanged();
+
+        // Phase 1: no launcher reappears (timeout)
+        // Phase 2: skipped (launcher not running)
+        _processDetector.IsLotroLauncherRunning().Returns(false);
+        // Phase 3: game client is running → kill it
+        _processDetector.IsGameClientRunning().Returns(true, false);
+        _processDetector.KillLotroProcesses().Returns(Result.Success());
+
+        // Act
+        Result<GameLaunchingResponse> result = await _sut.Handle(CreateCommand(), CancellationToken.None);
+
+        // Assert
+        result.IsSuccess.ShouldBeTrue();
+        _processDetector.Received(1).KillLotroProcesses();
+    }
+
+    // ───────────────────────────── Game client detected during Phase 2 — existing behavior ─────────────────────────────
+
+    [Fact]
+    public async Task Handle_ForumUpdate_GameClientDuringPhase2_ShouldKillAndContinue()
+    {
+        // Arrange
+        SetupForumUpdateVnumUnchanged();
+
+        // Phase 1: launcher reappears
+        // Phase 2: launcher running, game client detected → kill
         int launcherCallCount = 0;
         _processDetector.IsLotroLauncherRunning().Returns(_ =>
         {
             launcherCallCount++;
-            return launcherCallCount <= 2; // running for first 2 checks, then stops
+            return launcherCallCount <= 2;
         });
-        _processDetector.IsGameClientRunning().Returns(true);
+        _processDetector.IsGameClientRunning().Returns(true, false);
         _processDetector.KillLotroProcesses().Returns(Result.Success());
 
         // Act
@@ -211,8 +290,7 @@ public sealed class GameLaunchingCommandHandlerTests
     public async Task Handle_ProtectFails_ShouldReturnFailure_LaunchNotCalled()
     {
         // Arrange
-        _updateChecker.CheckForUpdateAsync(VersionFilePath)
-            .Returns(Result.Success(new GameUpdateCheckSummary(false, ForumVersion, StoredVersion)));
+        SetupNoUpdate();
         Error protectError = new("DatFileProtection.ProtectFailed", "Access denied", ErrorType.IoError);
         _protector.Protect(DatFilePath).Returns(Result.Failure(protectError));
 
@@ -231,10 +309,7 @@ public sealed class GameLaunchingCommandHandlerTests
     public async Task Handle_LaunchFails_ShouldReturnFailure_UnprotectStillCalled()
     {
         // Arrange
-        _updateChecker.CheckForUpdateAsync(VersionFilePath)
-            .Returns(Result.Success(new GameUpdateCheckSummary(false, ForumVersion, StoredVersion)));
-        _protector.Protect(DatFilePath).Returns(Result.Success());
-        _protector.Unprotect(DatFilePath).Returns(Result.Success());
+        SetupNoUpdate();
         Error launchError = new("GameLaunch.LaunchFailed", "Process.Start returned null", ErrorType.Failure);
         _launcher.LaunchAndWaitForExitAsync(DatFilePath, Arg.Any<CancellationToken>())
             .Returns(Result.Failure<int>(launchError));
@@ -245,8 +320,6 @@ public sealed class GameLaunchingCommandHandlerTests
         // Assert
         result.IsFailure.ShouldBeTrue();
         result.Error.Code.ShouldBe("GameLaunch.LaunchFailed");
-
-        // Unprotect must still be called (try/finally)
         _protector.Received(1).Unprotect(DatFilePath);
     }
 
@@ -255,9 +328,10 @@ public sealed class GameLaunchingCommandHandlerTests
     [Fact]
     public async Task Handle_ForumCheckFails_ShouldLaunchNormally()
     {
-        // Arrange — forum fails → CheckForUpdateAsync returns UpdateDetected=false
+        // Arrange — forum fails → no ForumVersion, stored info exists, vnum same
         _updateChecker.CheckForUpdateAsync(VersionFilePath)
-            .Returns(Result.Success(new GameUpdateCheckSummary(false, null, StoredVersion)));
+            .Returns(Result.Success(new GameUpdateCheckSummary(null, StoredCurrent)));
+        _datVersionReader.ReadVersion(DatFilePath).Returns(Result.Success(CurrentVnum));
         _protector.Protect(DatFilePath).Returns(Result.Success());
         _protector.Unprotect(DatFilePath).Returns(Result.Success());
         _launcher.LaunchAndWaitForExitAsync(DatFilePath, Arg.Any<CancellationToken>())
@@ -266,20 +340,39 @@ public sealed class GameLaunchingCommandHandlerTests
         // Act
         Result<GameLaunchingResponse> result = await _sut.Handle(CreateCommand(), CancellationToken.None);
 
-        // Assert — still launches, no update path taken
+        // Assert — still launches normally, no update path
         result.IsSuccess.ShouldBeTrue();
         result.Value.UpdateWasDetected.ShouldBeFalse();
         result.Value.ForumVersion.ShouldBeNull();
-        _datVersionReader.DidNotReceive().ReadVersion(Arg.Any<string>());
+    }
+
+    // ───────────────────────────── Forced update — confirm (save) fails ─────────────────────────────
+
+    [Fact]
+    public async Task Handle_ForumUpdate_SaveFails_ShouldReturnFailure_DatReprotected()
+    {
+        // Arrange
+        SetupForumUpdateVnumUnchanged();
+        Error saveError = new("GameUpdateCheck.VersionFileError", "Disk full", ErrorType.IoError);
+        _versionStore.SaveVersion(VersionFilePath, ForumVersion, UpdatedVnum.VnumDatFile, UpdatedVnum.VnumGameData)
+            .Returns(Result.Failure(saveError));
+
+        // Act
+        Result<GameLaunchingResponse> result = await _sut.Handle(CreateCommand(), CancellationToken.None);
+
+        // Assert
+        result.IsFailure.ShouldBeTrue();
+        result.Error.Code.ShouldBe("GameUpdateCheck.VersionFileError");
+        _protector.Received().Protect(DatFilePath);
     }
 
     // ───────────────────────────── Re-patch fails after update — DAT re-protected ─────────────────────────────
 
     [Fact]
-    public async Task Handle_RepatchFails_ShouldReturnFailure_DatReprotected()
+    public async Task Handle_ForumUpdate_RepatchFails_ShouldReturnFailure_DatReprotected()
     {
         // Arrange
-        SetupUpdateDetected();
+        SetupForumUpdateVnumUnchanged();
         Error patchError = new("Translation.ParseError", "Bad format", ErrorType.Validation);
         _patchingService.ApplyTranslations(TranslationFilePath, DatFilePath, null)
             .Returns(Result.Failure<PatchSummaryResponse>(patchError));
@@ -290,20 +383,16 @@ public sealed class GameLaunchingCommandHandlerTests
         // Assert
         result.IsFailure.ShouldBeTrue();
         result.Error.Code.ShouldContain("GameLaunch");
-
-        // DAT must be re-protected after re-patch failure (via try/finally)
         _protector.Received().Protect(DatFilePath);
     }
 
     // ───────────────────────────── Kill fails during update — error propagated, DAT re-protected ─────────────────────────────
 
     [Fact]
-    public async Task Handle_UpdateDetected_KillFails_ShouldReturnFailure_DatReprotected()
+    public async Task Handle_ForumUpdate_KillFails_ShouldReturnFailure_DatReprotected()
     {
         // Arrange
-        SetupUpdateDetected();
-
-        // Simulate: launcher running, game client detected, kill fails
+        SetupForumUpdateVnumUnchanged();
         _processDetector.IsLotroLauncherRunning().Returns(true, true, false);
         _processDetector.IsGameClientRunning().Returns(true);
         Error killError = new("GameLaunch.KillFailed", "Access denied", ErrorType.Failure);
@@ -315,8 +404,6 @@ public sealed class GameLaunchingCommandHandlerTests
         // Assert
         result.IsFailure.ShouldBeTrue();
         result.Error.Code.ShouldBe("GameLaunch.KillFailed");
-
-        // DAT must be re-protected after kill failure (via try/finally)
         _protector.Received().Protect(DatFilePath);
     }
 
@@ -371,17 +458,18 @@ public sealed class GameLaunchingCommandHandlerTests
     // ───────────────────────────── Cancellation during update monitoring ─────────────────────────────
 
     [Fact]
-    public async Task Handle_UpdateDetected_Cancelled_ShouldReturnFailure_DatReprotected()
+    public async Task Handle_ForumUpdate_Cancelled_ShouldReturnFailure_DatReprotected()
     {
         // Arrange
         _updateChecker.CheckForUpdateAsync(VersionFilePath)
-            .Returns(Result.Success(new GameUpdateCheckSummary(true, ForumVersion, StoredVersion)));
-        _datVersionReader.ReadVersion(DatFilePath).Returns(Result.Success(PreviousVnum));
+            .Returns(Result.Success(new GameUpdateCheckSummary(ForumVersion, StoredOldForum)));
+        _datVersionReader.ReadVersion(DatFilePath).Returns(Result.Success(CurrentVnum));
         _protector.Protect(DatFilePath).Returns(Result.Success());
         _protector.Unprotect(DatFilePath).Returns(Result.Success());
         _launcher.LaunchAndWaitForExitAsync(DatFilePath, Arg.Any<CancellationToken>())
             .Returns(Result.Success(GameExitCode));
         _processDetector.IsLotroLauncherRunning().Returns(false);
+        _processDetector.IsGameClientRunning().Returns(false);
 
         using CancellationTokenSource cts = new();
         cts.Cancel();
@@ -392,20 +480,18 @@ public sealed class GameLaunchingCommandHandlerTests
         // Assert
         result.IsFailure.ShouldBeTrue();
         result.Error.Code.ShouldContain("GameLaunch");
-
-        // DAT must be re-protected after cancellation (via try/finally)
         _protector.Received().Protect(DatFilePath);
     }
 
-    // ───────────────────────────── Update detected — unprotect fails ─────────────────────────────
+    // ───────────────────────────── Forced update — unprotect fails ─────────────────────────────
 
     [Fact]
-    public async Task Handle_UpdateDetected_UnprotectFails_ShouldReturnFailure()
+    public async Task Handle_ForumUpdate_UnprotectFails_ShouldReturnFailure()
     {
         // Arrange
         _updateChecker.CheckForUpdateAsync(VersionFilePath)
-            .Returns(Result.Success(new GameUpdateCheckSummary(true, ForumVersion, StoredVersion)));
-        _datVersionReader.ReadVersion(DatFilePath).Returns(Result.Success(PreviousVnum));
+            .Returns(Result.Success(new GameUpdateCheckSummary(ForumVersion, StoredOldForum)));
+        _datVersionReader.ReadVersion(DatFilePath).Returns(Result.Success(CurrentVnum));
         Error unprotectError = new("DatFileProtection.UnprotectFailed", "Access denied", ErrorType.IoError);
         _protector.Unprotect(DatFilePath).Returns(Result.Failure(unprotectError));
 
@@ -418,14 +504,14 @@ public sealed class GameLaunchingCommandHandlerTests
         await _launcher.DidNotReceive().LaunchAndWaitForExitAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
     }
 
-    // ───────────────────────────── Update detected — DAT version read fails ─────────────────────────────
+    // ───────────────────────────── DAT version read fails ─────────────────────────────
 
     [Fact]
-    public async Task Handle_UpdateDetected_DatVersionReadFails_ShouldReturnFailure()
+    public async Task Handle_DatVersionReadFails_ShouldReturnFailure()
     {
         // Arrange
         _updateChecker.CheckForUpdateAsync(VersionFilePath)
-            .Returns(Result.Success(new GameUpdateCheckSummary(true, ForumVersion, StoredVersion)));
+            .Returns(Result.Success(new GameUpdateCheckSummary(ForumVersion, StoredOldForum)));
         Error readError = new("DatFile.ReadFailed", "Cannot open DAT", ErrorType.IoError);
         _datVersionReader.ReadVersion(DatFilePath).Returns(Result.Failure<DatVersionInfo>(readError));
 
@@ -436,5 +522,35 @@ public sealed class GameLaunchingCommandHandlerTests
         result.IsFailure.ShouldBeTrue();
         result.Error.Code.ShouldBe("DatFile.ReadFailed");
         await _launcher.DidNotReceive().LaunchAndWaitForExitAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
+    }
+
+    // ───────────────────────────── Legacy stored version (no vnums) — treated as vnum change ─────────────────────────────
+
+    [Fact]
+    public async Task Handle_LegacyStoredVersion_ShouldEnterForcedLauncherFlow()
+    {
+        // Arrange — legacy version.txt had no vnums (null VnumGameData)
+        // ForumVersionChanged is true (40.1 → 40.2), vnumChanged is false (null stored vnum) → forced launcher
+        StoredVersionInfo legacyStored = new("40.1", null, null);
+        _updateChecker.CheckForUpdateAsync(VersionFilePath)
+            .Returns(Result.Success(new GameUpdateCheckSummary(ForumVersion, legacyStored)));
+        _datVersionReader.ReadVersion(DatFilePath).Returns(Result.Success(CurrentVnum), Result.Success(UpdatedVnum));
+        _protector.Protect(DatFilePath).Returns(Result.Success());
+        _protector.Unprotect(DatFilePath).Returns(Result.Success());
+        _launcher.LaunchAndWaitForExitAsync(DatFilePath, Arg.Any<CancellationToken>())
+            .Returns(Result.Success(GameExitCode));
+        _processDetector.IsLotroLauncherRunning().Returns(true, false);
+        _processDetector.IsGameClientRunning().Returns(false);
+        _versionStore.SaveVersion(VersionFilePath, ForumVersion, UpdatedVnum.VnumDatFile, UpdatedVnum.VnumGameData)
+            .Returns(Result.Success());
+        _patchingService.ApplyTranslations(TranslationFilePath, DatFilePath, null)
+            .Returns(Result.Success(new PatchSummaryResponse(100, 95, 5, [])));
+
+        // Act
+        Result<GameLaunchingResponse> result = await _sut.Handle(CreateCommand(), CancellationToken.None);
+
+        // Assert — enters forced launcher flow, launches twice (update + game)
+        result.IsSuccess.ShouldBeTrue();
+        await _launcher.Received(2).LaunchAndWaitForExitAsync(DatFilePath, Arg.Any<CancellationToken>());
     }
 }

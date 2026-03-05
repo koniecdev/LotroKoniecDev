@@ -1,3 +1,4 @@
+using LotroKoniecDev.Application.Abstractions;
 using LotroKoniecDev.Application.Abstractions.DatFilesServices;
 using LotroKoniecDev.Application.Extensions;
 using LotroKoniecDev.Application.Features.Exporting;
@@ -6,6 +7,7 @@ using LotroKoniecDev.Application.Features.Patching;
 using LotroKoniecDev.Application.Features.PreflightChecking;
 using LotroKoniecDev.Domain.Core.BuildingBlocks;
 using LotroKoniecDev.Domain.Core.Monads;
+using LotroKoniecDev.Domain.Models;
 using LotroKoniecDev.Infrastructure;
 using LotroKoniecDev.Primitives.Enums;
 using Mediator;
@@ -142,6 +144,10 @@ internal static class Program
                         }
 
                         reporter.Report(result.Value.ToString());
+
+                        // Save version baseline after successful patch so next `launch` doesn't falsely detect an update
+                        await SaveVersionBaselineAsync(serviceProvider, paths.Value.DatFilePath);
+
                         return ExitCodes.Success;
                     }
                     catch(Exception ex)
@@ -186,6 +192,24 @@ internal static class Program
             default:
                 return HandleUnknownCommand();
         }
+    }
+
+    private static async Task SaveVersionBaselineAsync(ServiceProvider serviceProvider, string datFilePath)
+    {
+        IDatVersionReader datVersionReader = serviceProvider.GetRequiredService<IDatVersionReader>();
+        IGameUpdateChecker updateChecker = serviceProvider.GetRequiredService<IGameUpdateChecker>();
+        IGameVersionFileStore versionStore = serviceProvider.GetRequiredService<IGameVersionFileStore>();
+
+        Result<DatVersionInfo> vnumResult = datVersionReader.ReadVersion(datFilePath);
+        if (vnumResult.IsFailure)
+        {
+            return;
+        }
+
+        Result<GameUpdateCheckSummary> checkResult = await updateChecker.CheckForUpdateAsync(VersionFilePath);
+        string? forumVersion = checkResult.IsSuccess ? checkResult.Value.ForumVersion : null;
+
+        versionStore.SaveVersion(VersionFilePath, forumVersion, vnumResult.Value.VnumDatFile, vnumResult.Value.VnumGameData);
     }
 
     private static (string TranslationsPath, string DatFilePath)? ResolveCommandPaths(

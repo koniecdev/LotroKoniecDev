@@ -3,30 +3,27 @@ using LotroKoniecDev.Domain.Models;
 namespace LotroKoniecDev.Application.Abstractions;
 
 /// <summary>
-/// Checks if LOTRO has released a game update by comparing the forum version with a locally stored version.
+/// Checks if LOTRO has released a game update by scraping the forum and reading the stored version.
+/// Reports only — never saves. The handler decides what to do based on the summary + DAT vnums.
 /// </summary>
 public interface IGameUpdateChecker
 {
-    Result ConfirmUpdateInstalled(
-        string versionFilePath,
-        string forumGameVersion,
-        bool isFirstRun,
-        DatVersionInfo previousDatVersion,
-        DatVersionInfo currentDatVersion);
     Task<Result<GameUpdateCheckSummary>> CheckForUpdateAsync(string gameVersionFilePath);
 }
 
 /// <summary>
-/// Contains the result of a game update check.
+/// Contains the result of a game update check: forum version + stored version info.
+/// Does NOT contain an update decision — the handler compares DAT vnums to decide.
 /// </summary>
-/// <param name="UpdateDetected">True if a new game version was found compared to the stored version.</param>
-/// <param name="ForumVersion">The latest version string found on the LOTRO forums, or null if forum fetch failed.</param>
-/// <param name="StoredVersion">The previously stored version string, or null if no version was stored (first run).</param>
 public sealed record GameUpdateCheckSummary(
-    bool UpdateDetected,
     string? ForumVersion,
-    string? StoredVersion)
+    StoredVersionInfo? StoredInfo)
 {
-    public bool IsFirstLaunch => StoredVersion is null;
+    public bool IsFirstLaunch => StoredInfo is null;
     public bool ForumCheckSucceeded => ForumVersion is not null;
+
+    public bool ForumVersionChanged =>
+        StoredInfo is not null
+        && ForumVersion is not null
+        && !string.Equals(ForumVersion, StoredInfo.ForumVersion, StringComparison.OrdinalIgnoreCase);
 }

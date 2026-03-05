@@ -2,6 +2,7 @@ using LotroKoniecDev.Application.Abstractions;
 using LotroKoniecDev.Application.Features.PreflightChecking;
 using LotroKoniecDev.Domain.Core.BuildingBlocks;
 using LotroKoniecDev.Domain.Core.Monads;
+using LotroKoniecDev.Domain.Models;
 using LotroKoniecDev.Primitives.Enums;
 
 namespace LotroKoniecDev.Tests.Unit.Tests.Features;
@@ -10,6 +11,8 @@ public sealed class PreflightCheckQueryHandlerTests
 {
     private const string DatFilePath = @"C:\game\client_local_English.dat";
     private const string VersionFilePath = @"C:\data\version.txt";
+
+    private static readonly StoredVersionInfo StoredInfo = new("40.1", 100, 200);
 
     private readonly IGameUpdateChecker _mockUpdateChecker;
     private readonly IGameProcessDetector _mockProcessDetector;
@@ -40,7 +43,7 @@ public sealed class PreflightCheckQueryHandlerTests
         _mockProcessDetector.IsLotroRunning().Returns(false);
         _mockWriteAccessChecker.CanWriteTo(@"C:\game").Returns(true);
         _mockUpdateChecker.CheckForUpdateAsync(VersionFilePath)
-            .Returns(Result.Success(new GameUpdateCheckSummary(false, "40.1", "40.1")));
+            .Returns(Result.Success(new GameUpdateCheckSummary("40.1", StoredInfo)));
 
         PreflightCheckQuery query = CreateQuery();
 
@@ -52,7 +55,7 @@ public sealed class PreflightCheckQueryHandlerTests
         result.Value.IsGameRunning.ShouldBeFalse();
         result.Value.HasWriteAccess.ShouldBeTrue();
         result.Value.GameUpdateCheckResult!.IsSuccess.ShouldBeTrue();
-        result.Value.GameUpdateCheckResult!.Value.UpdateDetected.ShouldBeFalse();
+        result.Value.GameUpdateCheckResult!.Value.ForumVersionChanged.ShouldBeFalse();
     }
 
     [Fact]
@@ -62,7 +65,7 @@ public sealed class PreflightCheckQueryHandlerTests
         _mockProcessDetector.IsLotroRunning().Returns(true);
         _mockWriteAccessChecker.CanWriteTo(Arg.Any<string>()).Returns(true);
         _mockUpdateChecker.CheckForUpdateAsync(Arg.Any<string>())
-            .Returns(Result.Success(new GameUpdateCheckSummary(false, "40.1", "40.1")));
+            .Returns(Result.Success(new GameUpdateCheckSummary("40.1", StoredInfo)));
 
         // Act
         Result<PreflightReportResponse> result = await _sut.Handle(CreateQuery(), CancellationToken.None);
@@ -79,7 +82,7 @@ public sealed class PreflightCheckQueryHandlerTests
         _mockProcessDetector.IsLotroRunning().Returns(false);
         _mockWriteAccessChecker.CanWriteTo(@"C:\game").Returns(false);
         _mockUpdateChecker.CheckForUpdateAsync(Arg.Any<string>())
-            .Returns(Result.Success(new GameUpdateCheckSummary(false, "40.1", "40.1")));
+            .Returns(Result.Success(new GameUpdateCheckSummary("40.1", StoredInfo)));
 
         // Act
         Result<PreflightReportResponse> result = await _sut.Handle(CreateQuery(), CancellationToken.None);
@@ -90,13 +93,13 @@ public sealed class PreflightCheckQueryHandlerTests
     }
 
     [Fact]
-    public async Task Handle_UpdateDetected_ShouldReportUpdateInResult()
+    public async Task Handle_ForumVersionChanged_ShouldReportInResult()
     {
         // Arrange
         _mockProcessDetector.IsLotroRunning().Returns(false);
         _mockWriteAccessChecker.CanWriteTo(Arg.Any<string>()).Returns(true);
         _mockUpdateChecker.CheckForUpdateAsync(VersionFilePath)
-            .Returns(Result.Success(new GameUpdateCheckSummary(true, "40.2", "40.1")));
+            .Returns(Result.Success(new GameUpdateCheckSummary("40.2", StoredInfo)));
 
         // Act
         Result<PreflightReportResponse> result = await _sut.Handle(CreateQuery(), CancellationToken.None);
@@ -104,9 +107,9 @@ public sealed class PreflightCheckQueryHandlerTests
         // Assert
         result.IsSuccess.ShouldBeTrue();
         result.Value.GameUpdateCheckResult!.IsSuccess.ShouldBeTrue();
-        result.Value.GameUpdateCheckResult!.Value.UpdateDetected.ShouldBeTrue();
+        result.Value.GameUpdateCheckResult!.Value.ForumVersionChanged.ShouldBeTrue();
         result.Value.GameUpdateCheckResult!.Value.ForumVersion.ShouldBe("40.2");
-        result.Value.GameUpdateCheckResult!.Value.StoredVersion.ShouldBe("40.1");
+        result.Value.GameUpdateCheckResult!.Value.StoredInfo!.ForumVersion.ShouldBe("40.1");
     }
 
     [Fact]
@@ -136,7 +139,7 @@ public sealed class PreflightCheckQueryHandlerTests
         _mockProcessDetector.IsLotroRunning().Returns(false);
         _mockWriteAccessChecker.CanWriteTo("").Returns(false);
         _mockUpdateChecker.CheckForUpdateAsync(Arg.Any<string>())
-            .Returns(Result.Success(new GameUpdateCheckSummary(false, "40.1", "40.1")));
+            .Returns(Result.Success(new GameUpdateCheckSummary("40.1", StoredInfo)));
 
         PreflightCheckQuery query = new("file.dat", VersionFilePath);
 
@@ -155,7 +158,7 @@ public sealed class PreflightCheckQueryHandlerTests
         _mockProcessDetector.IsLotroRunning().Returns(false);
         _mockWriteAccessChecker.CanWriteTo(Arg.Any<string>()).Returns(true);
         _mockUpdateChecker.CheckForUpdateAsync(Arg.Any<string>())
-            .Returns(Result.Success(new GameUpdateCheckSummary(false, "40.1", "40.1")));
+            .Returns(Result.Success(new GameUpdateCheckSummary("40.1", StoredInfo)));
 
         string customVersionPath = @"C:\custom\version.txt";
         PreflightCheckQuery query = new(DatFilePath, customVersionPath);
@@ -174,7 +177,7 @@ public sealed class PreflightCheckQueryHandlerTests
         _mockProcessDetector.IsLotroRunning().Returns(false);
         _mockWriteAccessChecker.CanWriteTo(Arg.Any<string>()).Returns(true);
         _mockUpdateChecker.CheckForUpdateAsync(Arg.Any<string>())
-            .Returns(Result.Success(new GameUpdateCheckSummary(false, "40.1", "40.1")));
+            .Returns(Result.Success(new GameUpdateCheckSummary("40.1", StoredInfo)));
 
         PreflightCheckQuery query = new(@"D:\lotro\data\client_local_English.dat", VersionFilePath);
 

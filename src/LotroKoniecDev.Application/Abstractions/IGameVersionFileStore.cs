@@ -1,17 +1,20 @@
+using LotroKoniecDev.Domain.Models;
+
 namespace LotroKoniecDev.Application.Abstractions;
 
 /// <summary>
-/// Reads and writes the locally stored game version.
+/// Reads and writes the locally stored game version (forum version + DAT vnums).
 /// </summary>
 public interface IGameVersionFileStore
 {
     /// <summary>
-    /// Reads the last known game version. Returns null if the file does not exist (first run).
+    /// Reads the stored version info. Returns null if the file does not exist (first run).
     /// </summary>
-    Result<string?> ReadLastKnownVersion(string versionFilePath);
+    Result<StoredVersionInfo?> ReadStoredVersion(string versionFilePath);
 
     /// <summary>
-    /// Saves the game version string to the specified file.
+    /// Saves the forum version and DAT vnums to the version file.
+    /// Format: forumVersion|vnumDatFile|vnumGameData
     /// </summary>
-    Result SaveVersion(string versionFilePath, string forumGameVersion);
+    Result SaveVersion(string versionFilePath, string? forumVersion, int vnumDatFile, int vnumGameData);
 }

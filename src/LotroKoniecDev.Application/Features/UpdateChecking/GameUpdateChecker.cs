@@ -1,6 +1,5 @@
 using System.Text.RegularExpressions;
 using LotroKoniecDev.Application.Abstractions;
-using LotroKoniecDev.Domain.Core.Errors;
 using LotroKoniecDev.Domain.Models;
 using Microsoft.Extensions.Logging;
 
@@ -8,6 +7,7 @@ namespace LotroKoniecDev.Application.Features.UpdateChecking;
 
 /// <summary>
 /// Checks for LOTRO game updates by scraping the release notes forum.
+/// Reports only — never saves version data.
 /// </summary>
 public sealed partial class GameUpdateChecker : IGameUpdateChecker
 {
@@ -29,67 +29,34 @@ public sealed partial class GameUpdateChecker : IGameUpdateChecker
         _logger = logger;
     }
 
-    public Result ConfirmUpdateInstalled(
-        string versionFilePath,
-        string forumGameVersion,
-        bool isFirstRun,
-        DatVersionInfo previousDatVersion,
-        DatVersionInfo currentDatVersion)
-    {
-        if (isFirstRun)
-        {
-            // First run — brak baseline'u, nie da się porównać vnum.
-            // Gracz właśnie odpalił LOTRO launcher, ufamy że gra jest aktualna.
-            return _gameVersionFileStore.SaveVersion(versionFilePath, forumGameVersion);
-        }
-
-        if (previousDatVersion == currentDatVersion)
-        {
-            // Vnum się nie zmienił — gracz mógł zamknąć launcher bez aktualizacji,
-            // albo gra została zaktualizowana wcześniej (np. przez zwykły launcher).
-            // Zapisujemy wersję forum i kontynuujemy — re-patch i tak zaaplikuje tłumaczenia.
-            _logger.LogWarning(
-                "DAT version unchanged after update flow (vnum={Vnum}). " +
-                "Game may already be up to date. Saving forum version {ForumVersion} and continuing",
-                currentDatVersion.VnumGameData, forumGameVersion);
-        }
-
-        return _gameVersionFileStore.SaveVersion(versionFilePath, forumGameVersion);
-    }
-    
     public async Task<Result<GameUpdateCheckSummary>> CheckForUpdateAsync(string gameVersionFilePath)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(gameVersionFilePath);
 
-        Result<string?> storedVersionResult =
-            _gameVersionFileStore.ReadLastKnownVersion(gameVersionFilePath);
-        if (storedVersionResult.IsFailure)
+        Result<StoredVersionInfo?> storedResult =
+            _gameVersionFileStore.ReadStoredVersion(gameVersionFilePath);
+        if (storedResult.IsFailure)
         {
-            return Result.Failure<GameUpdateCheckSummary>(storedVersionResult.Error);
+            return Result.Failure<GameUpdateCheckSummary>(storedResult.Error);
         }
 
-        string? storedVersion = storedVersionResult.Value;
+        StoredVersionInfo? storedInfo = storedResult.Value;
 
         Result<string> fetchResult = await _forumPageFetcher.FetchReleaseNotesPageAsync();
         if (fetchResult.IsFailure)
         {
             _logger.LogWarning("Forum fetch failed: {Error}", fetchResult.Error.Message);
-            return Result.Success(new GameUpdateCheckSummary(false, null, storedVersion));
+            return Result.Success(new GameUpdateCheckSummary(null, storedInfo));
         }
 
         string? forumVersion = ParseLatestVersion(fetchResult.Value);
         if (forumVersion is null)
         {
             _logger.LogWarning("Could not parse version from forum page");
-            return Result.Success(new GameUpdateCheckSummary(false, null, storedVersion));
+            return Result.Success(new GameUpdateCheckSummary(null, storedInfo));
         }
 
-        bool updateDetected = storedVersion is null || !string.Equals(
-            forumVersion,
-            storedVersion,
-            StringComparison.OrdinalIgnoreCase);
-
-        return Result.Success(new GameUpdateCheckSummary(updateDetected, forumVersion, storedVersion));
+        return Result.Success(new GameUpdateCheckSummary(forumVersion, storedInfo));
     }
 
     /// <summary>

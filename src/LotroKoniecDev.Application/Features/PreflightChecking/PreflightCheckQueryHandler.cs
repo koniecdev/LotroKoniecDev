@@ -1,8 +1,7 @@
 ﻿using LotroKoniecDev.Application.Abstractions;
-using LotroKoniecDev.Domain.Core.Monads;
 using Mediator;
 
-namespace LotroKoniecDev.Application.Features.PreflightCheck;
+namespace LotroKoniecDev.Application.Features.PreflightChecking;
 
 internal sealed class PreflightCheckQueryHandler : IQueryHandler<PreflightCheckQuery, Result<PreflightReportResponse>>
 {

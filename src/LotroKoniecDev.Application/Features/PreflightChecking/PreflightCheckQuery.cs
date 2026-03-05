@@ -1,7 +1,6 @@
-﻿using LotroKoniecDev.Domain.Core.Monads;
-using Mediator;
+﻿using Mediator;
 
-namespace LotroKoniecDev.Application.Features.PreflightCheck;
+namespace LotroKoniecDev.Application.Features.PreflightChecking;
 
 public sealed record PreflightCheckQuery(
     string DatFilePath,

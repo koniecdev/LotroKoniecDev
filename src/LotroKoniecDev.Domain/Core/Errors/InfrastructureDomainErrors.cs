@@ -40,11 +40,20 @@ public static partial class DomainErrors
 
     public static class GameLaunch
     {
+        public static Error GameAlreadyRunning =>
+            OperationFailed("GameLaunch", "LOTRO is already running. Close the game before launching.");
+
         public static Error LauncherNotFound(string path) =>
-            NotFound("GameLaunch", $"TurbineLauncher.exe at '{path}'");
+            NotFound("GameLaunch", $"LotroLauncher.exe at '{path}'");
 
         public static Error LaunchFailed(string message) =>
             OperationFailed("GameLaunch", message);
+
+        public static Error KillFailed(string message) =>
+            OperationFailed("GameLaunch", $"Failed to kill LOTRO processes: {message}");
+
+        public static Error RepatchFailed(string message) =>
+            OperationFailed("GameLaunch", $"Re-patching translations after update failed: {message}");
     }
 
     public static class GameUpdateCheck

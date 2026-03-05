@@ -1,8 +1,10 @@
 using LotroKoniecDev.Application.Abstractions;
-using LotroKoniecDev.Application.Features.UpdateCheck;
+using LotroKoniecDev.Application.Features.UpdateChecking;
 using LotroKoniecDev.Domain.Core.BuildingBlocks;
 using LotroKoniecDev.Domain.Core.Monads;
+using LotroKoniecDev.Domain.Models;
 using LotroKoniecDev.Primitives.Enums;
+using Microsoft.Extensions.Logging;
 
 namespace LotroKoniecDev.Tests.Unit.Tests.Features;
 
@@ -11,99 +13,116 @@ public sealed class GameUpdateCheckerTests
     private const string VersionFilePath = @"C:\temp\version.txt";
 
     private readonly IForumPageFetcher _mockFetcher;
-    private readonly IVersionFileStore _mockStore;
+    private readonly IGameVersionFileStore _mockStore;
+    private readonly ILogger<GameUpdateChecker> _mockLogger;
     private readonly GameUpdateChecker _checker;
+
+    private static readonly StoredVersionInfo StoredInfo401 = new("40.1", 100, 200);
 
     public GameUpdateCheckerTests()
     {
         _mockFetcher = Substitute.For<IForumPageFetcher>();
-        _mockStore = Substitute.For<IVersionFileStore>();
-        _checker = new GameUpdateChecker(_mockFetcher, _mockStore);
+        _mockStore = Substitute.For<IGameVersionFileStore>();
+        _mockLogger = Substitute.For<ILogger<GameUpdateChecker>>();
+        _checker = new GameUpdateChecker(_mockFetcher, _mockStore, _mockLogger);
     }
 
+    // ───────────────────────────── CheckForUpdateAsync — normal flow ─────────────────────────────
+
     [Fact]
-    public async Task CheckForUpdateAsync_NewVersionDetected_ShouldReturnUpdateDetected()
+    public async Task CheckForUpdateAsync_ShouldReturnForumVersionChanged_WhenNewVersionDetected()
     {
         // Arrange
         _mockFetcher.FetchReleaseNotesPageAsync()
             .Returns(Result.Success(ForumPageWithVersion("40.2")));
-        _mockStore.ReadLastKnownVersion(VersionFilePath)
-            .Returns(Result.Success<string?>("40.1"));
-        _mockStore.SaveVersion(VersionFilePath, "40.2")
-            .Returns(Result.Success());
+        _mockStore.ReadStoredVersion(VersionFilePath)
+            .Returns(Result.Success<StoredVersionInfo?>(StoredInfo401));
 
         // Act
         Result<GameUpdateCheckSummary> result = await _checker.CheckForUpdateAsync(VersionFilePath);
 
         // Assert
         result.IsSuccess.ShouldBeTrue();
-        result.Value.UpdateDetected.ShouldBeTrue();
-        result.Value.CurrentVersion.ShouldBe("40.2");
-        result.Value.PreviousVersion.ShouldBe("40.1");
-
-        _mockStore.Received(1).SaveVersion(VersionFilePath, "40.2");
+        result.Value.ForumVersionChanged.ShouldBeTrue();
+        result.Value.ForumVersion.ShouldBe("40.2");
+        result.Value.StoredInfo.ShouldBe(StoredInfo401);
     }
 
     [Fact]
-    public async Task CheckForUpdateAsync_SameVersion_ShouldReturnNoUpdate()
+    public async Task CheckForUpdateAsync_ShouldNotSaveVersion_WhenNewVersionDetected()
+    {
+        // Arrange
+        _mockFetcher.FetchReleaseNotesPageAsync()
+            .Returns(Result.Success(ForumPageWithVersion("40.2")));
+        _mockStore.ReadStoredVersion(VersionFilePath)
+            .Returns(Result.Success<StoredVersionInfo?>(StoredInfo401));
+
+        // Act
+        await _checker.CheckForUpdateAsync(VersionFilePath);
+
+        // Assert — CheckForUpdateAsync only reports, never saves
+        _mockStore.DidNotReceive().SaveVersion(Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<int>(), Arg.Any<int>());
+    }
+
+    [Fact]
+    public async Task CheckForUpdateAsync_ShouldReturnNoForumChange_WhenSameVersion()
     {
         // Arrange
         _mockFetcher.FetchReleaseNotesPageAsync()
             .Returns(Result.Success(ForumPageWithVersion("40.1")));
-        _mockStore.ReadLastKnownVersion(VersionFilePath)
-            .Returns(Result.Success<string?>("40.1"));
+        _mockStore.ReadStoredVersion(VersionFilePath)
+            .Returns(Result.Success<StoredVersionInfo?>(StoredInfo401));
 
         // Act
         Result<GameUpdateCheckSummary> result = await _checker.CheckForUpdateAsync(VersionFilePath);
 
         // Assert
         result.IsSuccess.ShouldBeTrue();
-        result.Value.UpdateDetected.ShouldBeFalse();
-        result.Value.CurrentVersion.ShouldBe("40.1");
-        result.Value.PreviousVersion.ShouldBe("40.1");
+        result.Value.ForumVersionChanged.ShouldBeFalse();
+        result.Value.ForumVersion.ShouldBe("40.1");
+        result.Value.StoredInfo.ShouldBe(StoredInfo401);
     }
 
     [Fact]
-    public async Task CheckForUpdateAsync_SameVersion_ShouldNotSaveVersion()
+    public async Task CheckForUpdateAsync_ShouldNotSaveVersion_WhenSameVersion()
     {
         // Arrange
         _mockFetcher.FetchReleaseNotesPageAsync()
             .Returns(Result.Success(ForumPageWithVersion("40.1")));
-        _mockStore.ReadLastKnownVersion(VersionFilePath)
-            .Returns(Result.Success<string?>("40.1"));
+        _mockStore.ReadStoredVersion(VersionFilePath)
+            .Returns(Result.Success<StoredVersionInfo?>(StoredInfo401));
 
         // Act
         await _checker.CheckForUpdateAsync(VersionFilePath);
 
         // Assert
-        _mockStore.DidNotReceive().SaveVersion(Arg.Any<string>(), Arg.Any<string>());
+        _mockStore.DidNotReceive().SaveVersion(Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<int>(), Arg.Any<int>());
     }
 
     [Fact]
-    public async Task CheckForUpdateAsync_FirstRun_ShouldReturnUpdateDetected()
+    public async Task CheckForUpdateAsync_ShouldReturnFailure_WhenVersionFileReadError()
     {
         // Arrange
-        _mockFetcher.FetchReleaseNotesPageAsync()
-            .Returns(Result.Success(ForumPageWithVersion("40.1")));
-        _mockStore.ReadLastKnownVersion(VersionFilePath)
-            .Returns(Result.Success<string?>(null));
-        _mockStore.SaveVersion(VersionFilePath, "40.1")
-            .Returns(Result.Success());
+        Error readError = new("GameUpdateCheck.VersionFileError", "Access denied", ErrorType.IoError);
+        _mockStore.ReadStoredVersion(VersionFilePath)
+            .Returns(Result.Failure<StoredVersionInfo?>(readError));
 
         // Act
         Result<GameUpdateCheckSummary> result = await _checker.CheckForUpdateAsync(VersionFilePath);
 
         // Assert
-        result.IsSuccess.ShouldBeTrue();
-        result.Value.UpdateDetected.ShouldBeTrue();
-        result.Value.CurrentVersion.ShouldBe("40.1");
-        result.Value.PreviousVersion.ShouldBeNull();
+        result.IsFailure.ShouldBeTrue();
+        result.Error.Code.ShouldBe("GameUpdateCheck.VersionFileError");
     }
 
+    // ───────────────────────────── CheckForUpdateAsync — graceful degradation ─────────────────────────────
+
     [Fact]
-    public async Task CheckForUpdateAsync_NetworkError_ShouldReturnFailure()
+    public async Task CheckForUpdateAsync_ShouldReturnNoForumVersion_WhenForumFetchFails()
     {
         // Arrange
+        _mockStore.ReadStoredVersion(VersionFilePath)
+            .Returns(Result.Success<StoredVersionInfo?>(StoredInfo401));
         Error networkError = new("GameUpdateCheck.NetworkError", "Connection refused", ErrorType.IoError);
         _mockFetcher.FetchReleaseNotesPageAsync()
             .Returns(Result.Failure<string>(networkError));
@@ -111,69 +130,96 @@ public sealed class GameUpdateCheckerTests
         // Act
         Result<GameUpdateCheckSummary> result = await _checker.CheckForUpdateAsync(VersionFilePath);
 
-        // Assert
-        result.IsFailure.ShouldBeTrue();
-        result.Error.Code.ShouldBe("GameUpdateCheck.NetworkError");
+        // Assert — forum fail is graceful, never blocks gaming
+        result.IsSuccess.ShouldBeTrue();
+        result.Value.ForumVersion.ShouldBeNull();
+        result.Value.StoredInfo.ShouldBe(StoredInfo401);
+        result.Value.ForumCheckSucceeded.ShouldBeFalse();
+        result.Value.ForumVersionChanged.ShouldBeFalse();
     }
 
     [Fact]
-    public async Task CheckForUpdateAsync_VersionNotFoundInPage_ShouldReturnFailure()
+    public async Task CheckForUpdateAsync_ShouldReturnNoForumVersion_WhenVersionNotFoundInPage()
     {
         // Arrange
         _mockFetcher.FetchReleaseNotesPageAsync()
             .Returns(Result.Success("<html><body>No version here</body></html>"));
-        _mockStore.ReadLastKnownVersion(Arg.Any<string>()).Returns(Result.Success<string?>("40.1"));
+        _mockStore.ReadStoredVersion(VersionFilePath)
+            .Returns(Result.Success<StoredVersionInfo?>(StoredInfo401));
 
         // Act
         Result<GameUpdateCheckSummary> result = await _checker.CheckForUpdateAsync(VersionFilePath);
 
-        // Assert
-        result.IsFailure.ShouldBeTrue();
-        result.Error.Code.ShouldBe("GameUpdateCheck.Failed");
+        // Assert — page format change is graceful, never blocks gaming
+        result.IsSuccess.ShouldBeTrue();
+        result.Value.ForumVersion.ShouldBeNull();
+        result.Value.StoredInfo.ShouldBe(StoredInfo401);
     }
 
-    [Fact]
-    public async Task CheckForUpdateAsync_VersionFileReadError_ShouldReturnFailure()
-    {
-        // Arrange
-        _mockFetcher.FetchReleaseNotesPageAsync()
-            .Returns(Result.Success(ForumPageWithVersion("40.1")));
-
-        Error readError = new("GameUpdateCheck.VersionFileError", "Access denied", ErrorType.IoError);
-        _mockStore.ReadLastKnownVersion(VersionFilePath)
-            .Returns(Result.Failure<string?>(readError));
-
-        // Act
-        Result<GameUpdateCheckSummary> result = await _checker.CheckForUpdateAsync(VersionFilePath);
-
-        // Assert
-        result.IsFailure.ShouldBeTrue();
-        result.Error.Code.ShouldBe("GameUpdateCheck.VersionFileError");
-    }
+    // ───────────────────────────── CheckForUpdateAsync — first run ─────────────────────────────
 
     [Fact]
-    public async Task CheckForUpdateAsync_VersionFileSaveError_ShouldReturnFailure()
+    public async Task CheckForUpdateAsync_ShouldReturnFirstLaunch_WhenNoStoredVersion()
     {
-        // Arrange
+        // Arrange — no version.txt yet, forum works
+        _mockStore.ReadStoredVersion(VersionFilePath)
+            .Returns(Result.Success<StoredVersionInfo?>(null));
         _mockFetcher.FetchReleaseNotesPageAsync()
             .Returns(Result.Success(ForumPageWithVersion("40.2")));
-        _mockStore.ReadLastKnownVersion(VersionFilePath)
-            .Returns(Result.Success<string?>("40.1"));
 
-        Error saveError = new("GameUpdateCheck.VersionFileError", "Disk full", ErrorType.IoError);
-        _mockStore.SaveVersion(VersionFilePath, "40.2")
-            .Returns(Result.Failure(saveError));
+        // Act
+        Result<GameUpdateCheckSummary> result = await _checker.CheckForUpdateAsync(VersionFilePath);
+
+        // Assert — first run, handler will establish baseline
+        result.IsSuccess.ShouldBeTrue();
+        result.Value.ForumVersion.ShouldBe("40.2");
+        result.Value.StoredInfo.ShouldBeNull();
+        result.Value.IsFirstLaunch.ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task CheckForUpdateAsync_ShouldReturnFirstLaunchNoForum_WhenFirstRunAndForumFails()
+    {
+        // Arrange — no version.txt, AND forum unreachable
+        _mockStore.ReadStoredVersion(VersionFilePath)
+            .Returns(Result.Success<StoredVersionInfo?>(null));
+        Error networkError = new("GameUpdateCheck.NetworkError", "Connection refused", ErrorType.IoError);
+        _mockFetcher.FetchReleaseNotesPageAsync()
+            .Returns(Result.Failure<string>(networkError));
+
+        // Act
+        Result<GameUpdateCheckSummary> result = await _checker.CheckForUpdateAsync(VersionFilePath);
+
+        // Assert — zero info, graceful: just let the user play
+        result.IsSuccess.ShouldBeTrue();
+        result.Value.ForumVersion.ShouldBeNull();
+        result.Value.StoredInfo.ShouldBeNull();
+        result.Value.IsFirstLaunch.ShouldBeTrue();
+        result.Value.ForumCheckSucceeded.ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task CheckForUpdateAsync_ShouldReturnFirstLaunchNoForum_WhenFirstRunAndVersionNotFoundInPage()
+    {
+        // Arrange — no version.txt, forum reachable but page format changed
+        _mockStore.ReadStoredVersion(VersionFilePath)
+            .Returns(Result.Success<StoredVersionInfo?>(null));
+        _mockFetcher.FetchReleaseNotesPageAsync()
+            .Returns(Result.Success("<html><body>No version here</body></html>"));
 
         // Act
         Result<GameUpdateCheckSummary> result = await _checker.CheckForUpdateAsync(VersionFilePath);
 
         // Assert
-        result.IsFailure.ShouldBeTrue();
-        result.Error.Code.ShouldBe("GameUpdateCheck.VersionFileError");
+        result.IsSuccess.ShouldBeTrue();
+        result.Value.ForumVersion.ShouldBeNull();
+        result.Value.StoredInfo.ShouldBeNull();
     }
 
+    // ───────────────────────────── CheckForUpdateAsync — input validation ─────────────────────────────
+
     [Fact]
-    public async Task CheckForUpdateAsync_NullPath_ShouldThrow()
+    public async Task CheckForUpdateAsync_ShouldThrow_WhenNullPath()
     {
         // Act
         Func<Task> act = () => _checker.CheckForUpdateAsync(null!);
@@ -183,7 +229,7 @@ public sealed class GameUpdateCheckerTests
     }
 
     [Fact]
-    public async Task CheckForUpdateAsync_EmptyPath_ShouldThrow()
+    public async Task CheckForUpdateAsync_ShouldThrow_WhenEmptyPath()
     {
         // Act
         Func<Task> act = () => _checker.CheckForUpdateAsync("");
@@ -192,8 +238,10 @@ public sealed class GameUpdateCheckerTests
         await act.ShouldThrowAsync<ArgumentException>();
     }
 
+    // ───────────────────────────── CheckForUpdateAsync — parsing ─────────────────────────────
+
     [Fact]
-    public async Task CheckForUpdateAsync_MultipleVersionsInHtml_ShouldPickFirst()
+    public async Task CheckForUpdateAsync_ShouldPickFirstVersion_WhenMultipleVersionsInHtml()
     {
         // Arrange — forum lists newest first, checker should pick "40.2"
         string html = """
@@ -204,70 +252,74 @@ public sealed class GameUpdateCheckerTests
 
         _mockFetcher.FetchReleaseNotesPageAsync()
             .Returns(Result.Success(html));
-        _mockStore.ReadLastKnownVersion(VersionFilePath)
-            .Returns(Result.Success<string?>("40.1"));
-        _mockStore.SaveVersion(VersionFilePath, "40.2")
-            .Returns(Result.Success());
+        _mockStore.ReadStoredVersion(VersionFilePath)
+            .Returns(Result.Success<StoredVersionInfo?>(StoredInfo401));
 
         // Act
         Result<GameUpdateCheckSummary> result = await _checker.CheckForUpdateAsync(VersionFilePath);
 
         // Assert
         result.IsSuccess.ShouldBeTrue();
-        result.Value.CurrentVersion.ShouldBe("40.2");
+        result.Value.ForumVersion.ShouldBe("40.2");
     }
 
     [Fact]
-    public async Task CheckForUpdateAsync_CaseInsensitiveHtml_ShouldMatch()
+    public async Task CheckForUpdateAsync_ShouldMatch_WhenCaseInsensitiveHtml()
     {
         // Arrange
         _mockFetcher.FetchReleaseNotesPageAsync()
-            .Returns(Result.Success("<a>UPDATE 40.1 RELEASE NOTES</a>"));
-        _mockStore.ReadLastKnownVersion(VersionFilePath)
-            .Returns(Result.Success<string?>(null));
-        _mockStore.SaveVersion(VersionFilePath, "40.1")
-            .Returns(Result.Success());
+            .Returns(Result.Success("<a>UPDATE 40.2 RELEASE NOTES</a>"));
+        _mockStore.ReadStoredVersion(VersionFilePath)
+            .Returns(Result.Success<StoredVersionInfo?>(StoredInfo401));
 
         // Act
         Result<GameUpdateCheckSummary> result = await _checker.CheckForUpdateAsync(VersionFilePath);
 
         // Assert
         result.IsSuccess.ShouldBeTrue();
-        result.Value.CurrentVersion.ShouldBe("40.1");
+        result.Value.ForumVersion.ShouldBe("40.2");
     }
 
     [Fact]
-    public async Task CheckForUpdateAsync_DottedVersion_ShouldParseCorrectly()
+    public async Task CheckForUpdateAsync_ShouldParseCorrectly_WhenDottedVersion()
     {
         // Arrange
         _mockFetcher.FetchReleaseNotesPageAsync()
             .Returns(Result.Success(ForumPageWithVersion("40.2.1")));
-        _mockStore.ReadLastKnownVersion(VersionFilePath)
-            .Returns(Result.Success<string?>(null));
-        _mockStore.SaveVersion(VersionFilePath, "40.2.1")
-            .Returns(Result.Success());
+        _mockStore.ReadStoredVersion(VersionFilePath)
+            .Returns(Result.Success<StoredVersionInfo?>(StoredInfo401));
 
         // Act
         Result<GameUpdateCheckSummary> result = await _checker.CheckForUpdateAsync(VersionFilePath);
 
         // Assert
         result.IsSuccess.ShouldBeTrue();
-        result.Value.CurrentVersion.ShouldBe("40.2.1");
+        result.Value.ForumVersion.ShouldBe("40.2.1");
     }
 
+    // ───────────────────────────── Constructor ─────────────────────────────
+
     [Fact]
-    public void Constructor_NullFetcher_ShouldThrow()
+    public void Constructor_ShouldThrow_WhenNullFetcher()
     {
         // Act & Assert
-        Action act = () => new GameUpdateChecker(null!, _mockStore);
+        Action act = () => new GameUpdateChecker(null!, _mockStore, _mockLogger);
         act.ShouldThrow<ArgumentNullException>();
     }
 
     [Fact]
-    public void Constructor_NullStore_ShouldThrow()
+    public void Constructor_ShouldThrow_WhenNullStore()
     {
         // Act & Assert
-        Action act = () => new GameUpdateChecker(_mockFetcher, null!);
+        Action act = () => new GameUpdateChecker(_mockFetcher, null!, _mockLogger);
+        act.ShouldThrow<ArgumentNullException>();
+    }
+
+    [Fact]
+    public void Constructor_ShouldThrow_WhenNullLogger()
+    {
+        // Act & Assert
+        Action act = () => new GameUpdateChecker(_mockFetcher, _mockStore, null!);
         act.ShouldThrow<ArgumentNullException>();
     }
 

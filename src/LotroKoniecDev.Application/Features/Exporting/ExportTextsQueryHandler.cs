@@ -1,15 +1,12 @@
 ﻿using System.Text;
-using FluentValidation;
-using FluentValidation.Results;
 using LotroKoniecDev.Application.Abstractions.DatFilesServices;
 using LotroKoniecDev.Application.Extensions;
 using LotroKoniecDev.Domain.Core.Errors;
-using LotroKoniecDev.Domain.Core.Monads;
 using LotroKoniecDev.Domain.Models;
 using LotroKoniecDev.Primitives.Constants;
 using Mediator;
 
-namespace LotroKoniecDev.Application.Features.Export;
+namespace LotroKoniecDev.Application.Features.Exporting;
 
 internal sealed class ExportTextsQueryHandler : IQueryHandler<ExportTextsQuery, Result<ExportSummaryResponse>>
 {

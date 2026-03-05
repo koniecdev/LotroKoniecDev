@@ -1,7 +1,6 @@
 ﻿using LotroKoniecDev.Application.Abstractions;
-using LotroKoniecDev.Domain.Core.Monads;
 
-namespace LotroKoniecDev.Application.Features.PreflightCheck;
+namespace LotroKoniecDev.Application.Features.PreflightChecking;
 
 public sealed record PreflightReportResponse(
     bool IsGameRunning,

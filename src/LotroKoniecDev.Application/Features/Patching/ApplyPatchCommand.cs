@@ -1,7 +1,6 @@
-﻿using LotroKoniecDev.Domain.Core.Monads;
-using Mediator;
+﻿using Mediator;
 
-namespace LotroKoniecDev.Application.Features.Patch;
+namespace LotroKoniecDev.Application.Features.Patching;
 
 public sealed record ApplyPatchCommand(
     string TranslationsPath,

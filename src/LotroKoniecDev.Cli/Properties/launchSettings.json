@@ -5,6 +5,11 @@
       "commandLineArgs": "patch polish",
       "workingDirectory": "C:\\Users\\halin\\RiderProjects\\LotroKoniecDev"
     },
+    "launch polish": {
+      "commandName": "Project",
+      "commandLineArgs": "launch polish",
+      "workingDirectory": "C:\\Users\\halin\\RiderProjects\\LotroKoniecDev"
+    },
     "patch example_polish": {
       "commandName": "Project",
       "commandLineArgs": "patch example_polish",

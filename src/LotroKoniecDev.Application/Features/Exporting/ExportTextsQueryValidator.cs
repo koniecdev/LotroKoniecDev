@@ -1,6 +1,6 @@
 ﻿using FluentValidation;
 
-namespace LotroKoniecDev.Application.Features.Export;
+namespace LotroKoniecDev.Application.Features.Exporting;
 
 public sealed class ExportTextsQueryValidator : AbstractValidator<ExportTextsQuery>
 {

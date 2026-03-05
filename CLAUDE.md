@@ -155,7 +155,7 @@ LotroKoniecDev export [dat_file] [output.txt]    # Export texts from DAT
 LotroKoniecDev patch <name> [dat_file]            # Patch DAT (<name> -> translations/<name>.txt)
 ```
 
-Planned (M1): `launch` — attrib +R -> TurbineLauncher -> attrib -R.
+Planned (M1): `launch` — attrib +R -> LotroLauncher -> attrib -R.
 
 Auto-detects LOTRO: SSG default -> Steam -> Registry -> disk scan -> local fallback.
 Pre-flight: checks game running, write access, creates `.backup`.

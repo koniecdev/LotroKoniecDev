@@ -6,6 +6,10 @@
     
     <PropertyGroup>
         <OutputType>Exe</OutputType>
+        <SelfContained>true</SelfContained>
+        <RuntimeIdentifier>win-x86</RuntimeIdentifier>
+        <PublishSingleFile>true</PublishSingleFile>
+        <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
     </PropertyGroup>
 
     <ItemGroup>

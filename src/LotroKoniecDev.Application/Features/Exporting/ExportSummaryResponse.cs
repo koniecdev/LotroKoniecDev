@@ -1,4 +1,4 @@
-﻿namespace LotroKoniecDev.Application.Features.Export;
+﻿namespace LotroKoniecDev.Application.Features.Exporting;
 
 /// <summary>
 /// Contains summary information about an export operation.

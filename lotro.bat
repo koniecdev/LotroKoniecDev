@@ -29,7 +29,7 @@ attrib +R "!LOTRO_PATH!\!DAT_FILE!"
 
 set "LAUNCHER="
 if exist "!LOTRO_PATH!\LotroLauncher.exe" set "LAUNCHER=!LOTRO_PATH!\LotroLauncher.exe"
-if not defined LAUNCHER if exist "!LOTRO_PATH!\TurbineLauncher.exe" set "LAUNCHER=!LOTRO_PATH!\TurbineLauncher.exe"
+if not defined LAUNCHER if exist "!LOTRO_PATH!\LotroLauncher.exe" set "LAUNCHER=!LOTRO_PATH!\LotroLauncher.exe"
 
 if not defined LAUNCHER (
     echo ERROR: No launcher found in !LOTRO_PATH!

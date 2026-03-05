@@ -114,7 +114,7 @@ internal sealed class GameLaunchingCommandHandler : ICommandHandler<GameLaunchin
             if (vnumAfterResult.IsFailure)
             {
                 return Result.Failure<GameLaunchingResponse>(vnumAfterResult.Error);
-            }
+            }//todo: launched game will PREVENT reading becauselotro files are LOCKED
 
             // 6. Confirm update and save forum version
             Result confirmResult = _gameUpdateChecker.ConfirmUpdateInstalled(

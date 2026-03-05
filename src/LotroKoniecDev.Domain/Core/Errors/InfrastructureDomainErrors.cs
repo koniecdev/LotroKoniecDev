@@ -44,7 +44,7 @@ public static partial class DomainErrors
             OperationFailed("GameLaunch", "LOTRO is already running. Close the game before launching.");
 
         public static Error LauncherNotFound(string path) =>
-            NotFound("GameLaunch", $"TurbineLauncher.exe at '{path}'");
+            NotFound("GameLaunch", $"LotroLauncher.exe at '{path}'");
 
         public static Error LaunchFailed(string message) =>
             OperationFailed("GameLaunch", message);

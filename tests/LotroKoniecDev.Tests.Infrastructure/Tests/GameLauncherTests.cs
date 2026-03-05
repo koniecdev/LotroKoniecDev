@@ -57,7 +57,7 @@ public sealed class GameLauncherTests
             // Act
             Result<int> result = await _sut.LaunchAndWaitForExitAsync(fakeDatFile);
 
-            // Assert — should fail because TurbineLauncher.exe doesn't exist in tempDir
+            // Assert — should fail because LotroLauncher.exe doesn't exist in tempDir
             result.IsFailure.ShouldBeTrue();
             result.Error.Code.ShouldBe("GameLaunch.NotFound");
             result.Error.Message.ShouldContain(tempDir);
@@ -80,7 +80,7 @@ public sealed class GameLauncherTests
             // Act
             Result<int> result = await _sut.LaunchAndWaitForExitAsync(tempDir);
 
-            // Assert — should fail because TurbineLauncher.exe doesn't exist
+            // Assert — should fail because LotroLauncher.exe doesn't exist
             result.IsFailure.ShouldBeTrue();
             result.Error.Code.ShouldBe("GameLaunch.NotFound");
         }

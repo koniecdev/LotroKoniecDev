@@ -7,7 +7,7 @@ namespace LotroKoniecDev.Infrastructure.GameLaunching;
 
 public sealed class GameLauncher : IGameLauncher
 {
-    private const string LauncherExecutable = "TurbineLauncher.exe";
+    private const string LauncherExecutable = "LotroLauncher.exe";
 
     public async Task<Result<int>> LaunchAndWaitForExitAsync(string datFilePath, CancellationToken cancellationToken = default)
     {

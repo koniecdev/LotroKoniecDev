@@ -17,7 +17,7 @@ public sealed class GameProcessDetector : IGameProcessDetector
     private static readonly string[] LauncherProcessNames =
     [
         "LotroLauncher",
-        "TurbineLauncher"
+        "LotroLauncher"
     ];
 
     private static readonly string[] AllLotroProcessNames =

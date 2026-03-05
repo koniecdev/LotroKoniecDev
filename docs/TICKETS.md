@@ -286,7 +286,7 @@ public interface IGameLauncher
     Result<int> Launch(string lotroPath, bool waitForExit = true);
 }
 ```
-Implementacja: Auto-detect `TurbineLauncher.exe` wzgledem sciezki DAT. `Process.Start()` z `WaitForExit()`. NIE dodawaj flag `-disablePatch`.
+Implementacja: Auto-detect `LotroLauncher.exe` wzgledem sciezki DAT. `Process.Start()` z `WaitForExit()`. NIE dodawaj flag `-disablePatch`.
 
 **Testy** (w `Tests.Unit/Tests/Features/` lub `Tests.Unit/Tests/Infrastructure/`):
 - IDatVersionReader: unit test z mock IDatFileHandler. Uzyj `TestDataFactory` z `Shared/` do tworzenia binary test data.
@@ -394,7 +394,7 @@ public sealed record GameLaunchingCommand(
     string TranslationFilePath) : ICommand<Result<GameLaunchingResponse>>;
 ```
 
-Sciezka do TurbineLauncher.exe: derivowac z DatFilePath (sa w tym samym katalogu).
+Sciezka do LotroLauncher.exe: derivowac z DatFilePath (sa w tym samym katalogu).
 
 **Czesc 3: CLI wiring**
 

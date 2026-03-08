@@ -1,6 +1,6 @@
 ﻿using FluentValidation;
 
-namespace LotroKoniecDev.Application.Features.Patch;
+namespace LotroKoniecDev.Application.Features.Patching;
 
 public sealed class ApplyPatchCommandValidator : AbstractValidator<ApplyPatchCommand>
 {

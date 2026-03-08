@@ -8,13 +8,13 @@ public sealed class GameLauncherTests
     private readonly GameLauncher _sut = new();
 
     [Fact]
-    public void Launch_ShouldReturnFailure_WhenLauncherNotFound()
+    public async Task LaunchAndWaitForExitAsync_ShouldReturnFailure_WhenLauncherNotFound()
     {
         // Arrange
         string fakePath = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString(), "client_local_English.dat");
 
         // Act
-        Result result = _sut.Launch(fakePath);
+        Result<int> result = await _sut.LaunchAndWaitForExitAsync(fakePath);
 
         // Assert
         result.IsFailure.ShouldBeTrue();
@@ -22,25 +22,28 @@ public sealed class GameLauncherTests
     }
 
     [Fact]
-    public void Launch_ShouldThrow_WhenPathIsNull()
+    public async Task LaunchAndWaitForExitAsync_ShouldThrow_WhenPathIsNull()
     {
-        Should.Throw<ArgumentException>(() => _sut.Launch(null!));
+        await Should.ThrowAsync<ArgumentException>(
+            () => _sut.LaunchAndWaitForExitAsync(null!));
     }
 
     [Fact]
-    public void Launch_ShouldThrow_WhenPathIsEmpty()
+    public async Task LaunchAndWaitForExitAsync_ShouldThrow_WhenPathIsEmpty()
     {
-        Should.Throw<ArgumentException>(() => _sut.Launch(""));
+        await Should.ThrowAsync<ArgumentException>(
+            () => _sut.LaunchAndWaitForExitAsync(""));
     }
 
     [Fact]
-    public void Launch_ShouldThrow_WhenPathIsWhitespace()
+    public async Task LaunchAndWaitForExitAsync_ShouldThrow_WhenPathIsWhitespace()
     {
-        Should.Throw<ArgumentException>(() => _sut.Launch("   "));
+        await Should.ThrowAsync<ArgumentException>(
+            () => _sut.LaunchAndWaitForExitAsync("   "));
     }
 
     [Fact]
-    public void Launch_ShouldLookForLauncherInDatFileDirectory()
+    public async Task LaunchAndWaitForExitAsync_ShouldLookForLauncherInDatFileDirectory()
     {
         // Arrange — create a temp directory with a fake DAT file but no launcher
         string tempDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
@@ -52,9 +55,9 @@ public sealed class GameLauncherTests
             File.WriteAllText(fakeDatFile, "fake");
 
             // Act
-            Result result = _sut.Launch(fakeDatFile);
+            Result<int> result = await _sut.LaunchAndWaitForExitAsync(fakeDatFile);
 
-            // Assert — should fail because TurbineLauncher.exe doesn't exist in tempDir
+            // Assert — should fail because LotroLauncher.exe doesn't exist in tempDir
             result.IsFailure.ShouldBeTrue();
             result.Error.Code.ShouldBe("GameLaunch.NotFound");
             result.Error.Message.ShouldContain(tempDir);
@@ -66,7 +69,7 @@ public sealed class GameLauncherTests
     }
 
     [Fact]
-    public void Launch_ShouldAcceptDirectoryPath()
+    public async Task LaunchAndWaitForExitAsync_ShouldAcceptDirectoryPath()
     {
         // Arrange — pass a directory path (not a DAT file path)
         string tempDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
@@ -75,9 +78,9 @@ public sealed class GameLauncherTests
         try
         {
             // Act
-            Result result = _sut.Launch(tempDir);
+            Result<int> result = await _sut.LaunchAndWaitForExitAsync(tempDir);
 
-            // Assert — should fail because TurbineLauncher.exe doesn't exist
+            // Assert — should fail because LotroLauncher.exe doesn't exist
             result.IsFailure.ShouldBeTrue();
             result.Error.Code.ShouldBe("GameLaunch.NotFound");
         }
@@ -85,25 +88,5 @@ public sealed class GameLauncherTests
         {
             Directory.Delete(tempDir, recursive: true);
         }
-    }
-
-    [Fact]
-    public void LaunchAndWaitForExit_ShouldReturnFailure_WhenLauncherNotFound()
-    {
-        // Arrange
-        string fakePath = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString(), "client_local_English.dat");
-
-        // Act
-        Result<int> result = _sut.LaunchAndWaitForExit(fakePath);
-
-        // Assert
-        result.IsFailure.ShouldBeTrue();
-        result.Error.Code.ShouldBe("GameLaunch.NotFound");
-    }
-
-    [Fact]
-    public void LaunchAndWaitForExit_ShouldThrow_WhenPathIsNull()
-    {
-        Should.Throw<ArgumentException>(() => _sut.LaunchAndWaitForExit(null!));
     }
 }

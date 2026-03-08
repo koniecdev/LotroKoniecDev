@@ -1,6 +1,4 @@
-﻿using LotroKoniecDev.Domain.Core.Monads;
-
-namespace LotroKoniecDev.Application.Abstractions.DatFilesServices;
+﻿namespace LotroKoniecDev.Application.Abstractions.DatFilesServices;
 
 public interface IDatFileProtector
 {

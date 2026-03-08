@@ -7,38 +7,27 @@ namespace LotroKoniecDev.Infrastructure.GameLaunching;
 
 public sealed class GameLauncher : IGameLauncher
 {
-    private const string LauncherExecutable = "TurbineLauncher.exe";
+    private const string LauncherExecutable = "LotroLauncher.exe";
 
-    public Result Launch(string lotroPath)
+    public async Task<Result<int>> LaunchAndWaitForExitAsync(string datFilePath, CancellationToken cancellationToken = default)
     {
-        Result<Process> startResult = StartLauncherProcess(lotroPath);
-        if (startResult.IsFailure)
-        {
-            return Result.Failure(startResult.Error);
-        }
-
-        startResult.Value.Dispose();
-        return Result.Success();
-    }
-
-    public Result<int> LaunchAndWaitForExit(string lotroPath)
-    {
-        Result<Process> startResult = StartLauncherProcess(lotroPath);
+        Result<Process> startResult = StartLauncherProcess(datFilePath);
         if (startResult.IsFailure)
         {
             return Result.Failure<int>(startResult.Error);
         }
 
         using Process process = startResult.Value;
-        process.WaitForExit();
+        await process.WaitForExitAsync(cancellationToken);
+
         return Result.Success(process.ExitCode);
     }
 
-    private Result<Process> StartLauncherProcess(string lotroPath)
+    private static Result<Process> StartLauncherProcess(string datFilePath)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(lotroPath);
+        ArgumentException.ThrowIfNullOrWhiteSpace(datFilePath);
 
-        string launcherPath = ResolveLauncherPath(lotroPath);
+        string launcherPath = ResolveLauncherPath(datFilePath);
 
         if (!File.Exists(launcherPath))
         {
@@ -51,7 +40,9 @@ public sealed class GameLauncher : IGameLauncher
             {
                 FileName = launcherPath,
                 WorkingDirectory = Path.GetDirectoryName(launcherPath) ?? string.Empty,
-                UseShellExecute = false
+                // UseShellExecute = true allows the launcher to trigger UAC elevation
+                // prompts when it needs admin rights for game updates.
+                UseShellExecute = true
             });
 
             if (process is null)
@@ -68,19 +59,19 @@ public sealed class GameLauncher : IGameLauncher
         }
     }
 
-    private static string ResolveLauncherPath(string lotroPath)
+    private static string ResolveLauncherPath(string datFilePath)
     {
-        if (Directory.Exists(lotroPath))
+        if (Directory.Exists(datFilePath))
         {
-            return Path.Combine(lotroPath, LauncherExecutable);
+            return Path.Combine(datFilePath, LauncherExecutable);
         }
 
-        if (File.Exists(lotroPath))
+        if (File.Exists(datFilePath))
         {
-            string dirPath = Path.GetDirectoryName(lotroPath) ?? string.Empty;
+            string dirPath = Path.GetDirectoryName(datFilePath) ?? string.Empty;
             return Path.Combine(dirPath, LauncherExecutable);
         }
 
-        return Path.Combine(lotroPath, LauncherExecutable);
+        return Path.Combine(datFilePath, LauncherExecutable);
     }
 }

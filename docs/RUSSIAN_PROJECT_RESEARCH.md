@@ -127,7 +127,7 @@ ForceSaveLogin=False
 
 **Launch gry z Python patchera:**
 ```python
-execstr = '"' + dat_path[:-24] + 'TurbineLauncher.exe" -nosplash -disablePatch -skiprawdownload'
+execstr = '"' + dat_path[:-24] + 'LotroLauncher.exe" -nosplash -disablePatch -skiprawdownload'
 win32api.WinExec(execstr)
 ```
 
@@ -331,7 +331,7 @@ UPDATE GRY:
 ### Rosyjskie podejscie: -disablePatch
 
 ```
-TurbineLauncher.exe -nosplash -disablePatch -skiprawdownload
+LotroLauncher.exe -nosplash -disablePatch -skiprawdownload
 
 Plusy:
   + Proste — jedna flaga
@@ -349,7 +349,7 @@ Minusy:
 
 ```
 attrib +R "client_local_English.dat"
-start /wait "" "TurbineLauncher.exe"
+start /wait "" "LotroLauncher.exe"
 attrib -R "client_local_English.dat"
 
 Plusy:

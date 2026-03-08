@@ -39,12 +39,12 @@ SETUP (jednorazowy, tlumacz/dev):
 CODZIENNA GRA — GRACZ (LotroPoPolsku.exe):
   7. Gracz pobiera          LotroPoPolsku.exe (jednorazowo)
   8. Klika "Patchuj"        exe pobiera polish.txt z web API, patchuje DAT
-  9. Klika "Graj"           exe: attrib +R -> TurbineLauncher.exe -> attrib -R
+  9. Klika "Graj"           exe: attrib +R -> LotroLauncher.exe -> attrib -R
                             DAT chroniony, tlumaczenia przetrwaja
 
 CODZIENNA GRA — POWER USER (CLI):
   10. CLI patch polish      patchuje DAT z lokalnego pliku
-  11. CLI launch            attrib +R -> TurbineLauncher.exe -> attrib -R
+  11. CLI launch            attrib +R -> LotroLauncher.exe -> attrib -R
 
 UPDATE GRY:
   12. Forum checker         wykrywa nowy post "Update XX.X Release Notes"
@@ -188,7 +188,7 @@ Application/
 
 Abstractions (nowe):
   IDatVersionReader.cs               Czyta vnumDatFile/vnumGameData z DAT
-  IGameLauncher.cs                   Odpala TurbineLauncher z flagami
+  IGameLauncher.cs                   Odpala LotroLauncher z flagami
   IDatFileProtector.cs               attrib +R/-R na DAT
 
 Usuniete:
@@ -233,7 +233,7 @@ Strategia migracji: nowe handlery obok starych serwisow -> CLI przechodzi na han
 | 13 | **IDatVersionReader** — eksponowac vnumDatFile/vnumGameData z OpenDatFileEx2 | High | — |
 | 14 | **Naprawic GameUpdateChecker** — nie zapisuj wersji forum od razu; potwierdz vnum z DAT | **CRITICAL** | #13 |
 | 15 | **IDatFileProtector** — attrib +R/-R abstrakcja + impl | High | — |
-| 16 | **IGameLauncher** — Process.Start TurbineLauncher, auto-detect sciezki | High | — |
+| 16 | **IGameLauncher** — Process.Start LotroLauncher, auto-detect sciezki | High | — |
 | 17 | **LaunchGameCommand + Handler** — przeniesienie lotro.bat do C# | High | #2, #13, #14, #15, #16 |
 | 18 | **Orchestracja launch**: forum check -> update? blokuj : protect+launch | High | #14, #17 |
 | 19 | Testy dla launch + update detection | High | #17, #18 |

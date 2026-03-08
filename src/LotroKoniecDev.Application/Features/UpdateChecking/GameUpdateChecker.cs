@@ -1,76 +1,69 @@
 using System.Text.RegularExpressions;
 using LotroKoniecDev.Application.Abstractions;
-using LotroKoniecDev.Domain.Core.Errors;
-using LotroKoniecDev.Domain.Core.Monads;
+using LotroKoniecDev.Domain.Models;
+using Microsoft.Extensions.Logging;
 
-namespace LotroKoniecDev.Application.Features.UpdateCheck;
+namespace LotroKoniecDev.Application.Features.UpdateChecking;
 
 /// <summary>
 /// Checks for LOTRO game updates by scraping the release notes forum.
+/// Reports only — never saves version data.
 /// </summary>
 public sealed partial class GameUpdateChecker : IGameUpdateChecker
 {
     private readonly IForumPageFetcher _forumPageFetcher;
-    private readonly IVersionFileStore _versionFileStore;
+    private readonly IGameVersionFileStore _gameVersionFileStore;
+    private readonly ILogger<GameUpdateChecker> _logger;
 
-    public GameUpdateChecker(IForumPageFetcher forumPageFetcher, IVersionFileStore versionFileStore)
+    public GameUpdateChecker(
+        IForumPageFetcher forumPageFetcher,
+        IGameVersionFileStore gameVersionFileStore,
+        ILogger<GameUpdateChecker> logger)
     {
-        _forumPageFetcher = forumPageFetcher ?? throw new ArgumentNullException(nameof(forumPageFetcher));
-        _versionFileStore = versionFileStore ?? throw new ArgumentNullException(nameof(versionFileStore));
+        ArgumentNullException.ThrowIfNull(forumPageFetcher);
+        ArgumentNullException.ThrowIfNull(gameVersionFileStore);
+        ArgumentNullException.ThrowIfNull(logger);
+
+        _forumPageFetcher = forumPageFetcher;
+        _gameVersionFileStore = gameVersionFileStore;
+        _logger = logger;
     }
 
-    public async Task<Result<GameUpdateCheckSummary>> CheckForUpdateAsync(string versionFilePath)
+    public async Task<Result<GameUpdateCheckSummary>> CheckForUpdateAsync(string gameVersionFilePath)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(versionFilePath);
+        ArgumentException.ThrowIfNullOrWhiteSpace(gameVersionFilePath);
 
-        // 1. Fetch the forum page
+        Result<StoredVersionInfo?> storedResult =
+            _gameVersionFileStore.ReadStoredVersion(gameVersionFilePath);
+        if (storedResult.IsFailure)
+        {
+            return Result.Failure<GameUpdateCheckSummary>(storedResult.Error);
+        }
+
+        StoredVersionInfo? storedInfo = storedResult.Value;
+
         Result<string> fetchResult = await _forumPageFetcher.FetchReleaseNotesPageAsync();
-
         if (fetchResult.IsFailure)
         {
-            return Result.Failure<GameUpdateCheckSummary>(fetchResult.Error);
+            _logger.LogWarning("Forum fetch failed: {Error}", fetchResult.Error.Message);
+            return Result.Success(new GameUpdateCheckSummary(null, storedInfo));
         }
 
-        // 2. Parse the latest version from the HTML
-        string? currentVersion = ParseLatestVersion(fetchResult.Value);
-
-        if (currentVersion is null)
+        string? forumVersion = ParseLatestVersion(fetchResult.Value);
+        if (forumVersion is null)
         {
-            return Result.Failure<GameUpdateCheckSummary>(DomainErrors.GameUpdateCheck.VersionNotFoundInPage);
+            _logger.LogWarning("Could not parse version from forum page");
+            return Result.Success(new GameUpdateCheckSummary(null, storedInfo));
         }
 
-        // 3. Read the previously stored version
-        Result<string?> readResult = _versionFileStore.ReadLastKnownVersion(versionFilePath);
-
-        if (readResult.IsFailure)
-        {
-            return Result.Failure<GameUpdateCheckSummary>(readResult.Error);
-        }
-
-        string? previousVersion = readResult.Value;
-
-        // 4. Compare
-        bool updateDetected = !string.Equals(currentVersion, previousVersion, StringComparison.OrdinalIgnoreCase);
-
-        // 5. Save if changed
-        if (updateDetected)
-        {
-            Result saveResult = _versionFileStore.SaveVersion(versionFilePath, currentVersion);
-
-            if (saveResult.IsFailure)
-            {
-                return Result.Failure<GameUpdateCheckSummary>(saveResult.Error);
-            }
-        }
-
-        return Result.Success(new GameUpdateCheckSummary(updateDetected, currentVersion, previousVersion));
+        return Result.Success(new GameUpdateCheckSummary(forumVersion, storedInfo));
     }
 
     /// <summary>
     /// Extracts the latest game version number from forum page HTML.
     /// The first match is the latest because the forum lists threads in reverse chronological order.
     /// </summary>
-    internal static string? ParseLatestVersion(string htmlContent)
+    private static string? ParseLatestVersion(string htmlContent)
     {
         Match match = VersionRegex().Match(htmlContent);
         return match.Success ? match.Groups[1].Value : null;

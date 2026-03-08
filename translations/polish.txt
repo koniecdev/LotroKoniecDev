@@ -22,5 +22,9 @@
 # === TUTAJ WSTAW SWOJE TLUMACZENIA ===
 
 620871150||218649169||'Mamy trop, <--DO_NOT_TOUCH!-->! Szlak czerwonych kwiatów prowadzący przez śnieg...myślisz, że to ślady krwi?\n\n  \qKrwisto-czerwone ślady\n  Na czarnym śniegu,\n  Tam gdzie ponury król kroczy\n  by odzyskać swój tron\n  i dokończyć to, co zaczął.\q\n\n'Mamy czarny śnieg a ciało króla Dourhandów zostało przeniesione, pozostawiając za sobą te przeklęte kwiaty. Coś złego się tu dzieje, i jestem pewien, że coś złego działało, gdy on szukał naszych reliktów potrzebnych mu do nieśmiertelności.\n\n'Musimy znowu za nim ruszyć. Mój brat już jest na zwiadach w poszukiwaniu znaków -- dołącz do niego w poszukiwaniach.'||1||1||1
-  
-
+620759036||218649169||'PL - We cannot allow the Dourhands to resurrect their king with such foul sorcery, <--DO_NOT_TOUCH!-->. They have poisoned the mountains and soiled the lands of Thorin. Gormr's fall to corruption is unforgiveable!\n\n'Come, let us journey to the tomb. The sons of Elrond are waiting. We will make a great stand against the Dourhands, and they will think twice before falling to greed again!'\n\n<rgb=#FF0000>WARNING: This is a solo quest, and cannot be completed in a Fellowship.</rgb>||1||1||1
+620757435||225138404||Wejdź do Śródziemia||NULL||NULL||1
+620757027||9795381||Kliknij tutaj aby wybrać swój tytuł||NULL||NULL||1
+620861331||228870261||Ekwipunek||NULL||NULL||1
+620757027||29271026||Podstawowe statystyki||NULL||NULL||1
+620757027||103943794||Pokaż wszystkie||NULL||NULL||1

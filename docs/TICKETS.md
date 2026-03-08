@@ -286,7 +286,7 @@ public interface IGameLauncher
     Result<int> Launch(string lotroPath, bool waitForExit = true);
 }
 ```
-Implementacja: Auto-detect `TurbineLauncher.exe` wzgledem sciezki DAT. `Process.Start()` z `WaitForExit()`. NIE dodawaj flag `-disablePatch`.
+Implementacja: Auto-detect `LotroLauncher.exe` wzgledem sciezki DAT. `Process.Start()` z `WaitForExit()`. NIE dodawaj flag `-disablePatch`.
 
 **Testy** (w `Tests.Unit/Tests/Features/` lub `Tests.Unit/Tests/Infrastructure/`):
 - IDatVersionReader: unit test z mock IDatFileHandler. Uzyj `TestDataFactory` z `Shared/` do tworzenia binary test data.
@@ -331,44 +331,105 @@ Fix:
 
 **Czesc 2: LaunchGameCommand + Handler**
 
-Stworz `LaunchGameCommand : IRequest<Result<LaunchReport>>`.
-Handler orchestruje:
+Stworz `LaunchGameCommand : ICommand<Result<GameLaunchingResponse>>`.
+
+**KONTEKST DLACZEGO TAKI FLOW:**
+LOTRO launcher ZAWSZE nadpisuje DAT (hashe nie pasuja po naszych tlumaczeniach) — dlatego chronimy attrib +R.
+Ale na prawdziwy major update user MUSI dostac nowy angielski DAT — inaczej gra crashuje (brakujace teksty nowego regionu).
+Dlatego handler ORKIESTRUJE update automatycznie — nie mowi "idz zaktualizuj sam" jak rosyjski projekt.
+
+**Pipeline handlera — DWA SCIEZKI:**
+
+Gdy NIE ma updatu (normalny launch):
 ```
-1. CheckForUpdate (forum)
-2. Jesli update wykryty -> ReadVersion (DAT vnum) -> porownaj
-3. Jesli wersje sie nie zgadzaja -> zwroc blad "zaktualizuj gre"
-4. Protect DAT (attrib +R)
-5. Launch gre
-6. Czekaj na zamkniecie
-7. Unprotect DAT (attrib -R)
+1. CheckForUpdateAsync → updateDetected = false
+   - Forum fail → graceful (updateDetected = false, nie blokuj grania)
+2. Protect (attrib +R)
+3. Launch LOTRO (waitForExit)
+4. Unprotect (attrib -R) ← ZAWSZE, try/finally
+5. Return GameLaunchingResponse
 ```
-`LaunchReport` record z detalami (wersja, czas gry, etc.)
+
+Gdy update wykryty:
+```
+1. CheckForUpdateAsync → updateDetected = true, forumVersion
+   - Forum fail → graceful (updateDetected = false, nie blokuj grania)
+2. ReadVersion(datFilePath) → previousVnum (snapshot PRZED update)
+3. Unprotect DAT (attrib -R) ← zeby launcher MOGL nadpisac
+4. Launch LOTRO launcher
+5. Monitoruj:
+   a. User zamknal launcher → sprawdz vnum
+   b. User odpalil gre (lotroclient.exe detected) → kill gre + launcher
+6. ConfirmUpdateInstalled:
+   - First run (brak version.txt) → zapisz forumVersion, success
+   - Nth run → vnum zmieniony? → zapisz, else → failure "nie zaktualizowalesc"
+7. Re-patch tlumaczenia na swiezy DAT (via IMediator → ApplyPatchCommand)
+8. Protect (attrib +R)
+9. Launch LOTRO (waitForExit) ← normalna gra z tlumaczeniami
+10. Unprotect (attrib -R) ← ZAWSZE, try/finally
+11. Return GameLaunchingResponse
+```
+
+**Zaleznosci handlera (konstruktor):**
+- `IGameUpdateChecker` — CheckForUpdateAsync + ConfirmUpdateInstalled
+- `IDatVersionReader` — odczyt vnum z DAT
+- `IDatFileProtector` — attrib +R/-R
+- `IGameLauncher` — uruchomienie gry (WYMAGA ROZSZERZENIA — patrz nizej)
+- `IGameProcessDetector` — wykrycie lotroclient.exe (interfejs juz istnieje)
+- `IMediator` — do wyslania ApplyPatchCommand (re-patch po update)
+
+**Rozszerzenie IGameLauncher (#19 zamkniete, zmiany w ramach tego ticketu):**
+Obecny interfejs za prosty. Potrzebne:
+```csharp
+Result<GameLaunchResult> LaunchAndMonitor(string lotroPath);
+// Wewnetrznie: start launcher → poll lotroclient.exe → if detected: kill both
+```
+
+**Rozszerzenie GameLaunchingCommand:**
+Dodaj `TranslationFilePath` (potrzebne do re-patcha po update):
+```csharp
+public sealed record GameLaunchingCommand(
+    string DatFilePath,
+    string GameVersionFilePath,
+    string TranslationFilePath) : ICommand<Result<GameLaunchingResponse>>;
+```
+
+Sciezka do LotroLauncher.exe: derivowac z DatFilePath (sa w tym samym katalogu).
 
 **Czesc 3: CLI wiring**
 
 1. Dodaj `"launch"` do switch w `Program.cs`.
 2. Resolve sciezka LOTRO (DatPathResolver).
-3. `IMediator.Send(new LaunchGameCommand(...))`.
+3. `IMediator.Send(new GameLaunchingCommand(...))`.
 4. Zaktualizuj `PrintUsage()`.
 
 **Testy:**
 - `GameUpdateCheckerTests` (istniejace 16 testow — zaktualizuj): wykrycie update -> brak zapisu; nowe testy dla `ConfirmUpdateInstalled()` z vnum
+- `ConfirmUpdateInstalled_FirstRun_ShouldSaveAndSucceed` (nowy)
+- `ConfirmUpdateInstalled_NthRun_VnumChanged_ShouldSaveAndSucceed` (nowy)
+- `ConfirmUpdateInstalled_NthRun_VnumSame_ShouldReturnFailure` (nowy)
 - `LaunchGameCommandHandlerTests` (nowe):
-  - Happy path: brak update, launch ok
-  - Update detected + stary vnum -> blokada
-  - Update detected + nowy vnum -> launch ok
-  - Protect fail -> error
-  - Launch fail -> unprotect + error
-  - DAT juz protected -> idempotent
+  - Happy path: brak update, launch OK → GameLaunchingResponse z PlayTime
+  - Update detected → orkiestracja: unprotect → launch → confirm → re-patch → protect → launch
+  - Update detected + first run → ConfirmUpdateInstalled success (brak baseline)
+  - Update detected + vnum unchanged → Failure "nie zaktualizowalesc"
+  - Update detected + game process detected → kill game + launcher, kontynuuj
+  - Protect fail → Failure, Launch NIE wywolany
+  - Launch fail → Failure, ale Unprotect WYWOLANY (sprzatanie!)
+  - Forum check fail → graceful, launch kontynuuje (brak netu != brak gry)
+  - Re-patch fail po update → Failure (nie odpalaj gry bez tlumaczen)
 
 **Acceptance criteria:**
 - [ ] `CheckForUpdateAsync()` nigdy nie zapisuje wersji
 - [ ] Wersja zapisywana tylko po potwierdzeniu przez vnum z DAT
+- [ ] `ConfirmUpdateInstalled` przy first run → success (brak baseline)
 - [ ] `dotnet run -- launch` startuje gre z ochrona DAT
-- [ ] Update detection blokuje launch jesli wersje nie pasuja
-- [ ] DAT chroniony PRZED i odchroniony PO grze
+- [ ] Update wykryty → handler orkiestruje: unprotect → launch → confirm → re-patch → protect → launch
+- [ ] Game process detected podczas update → kill + kontynuuj
+- [ ] DAT chroniony PRZED i odchroniony PO grze (try/finally)
+- [ ] Forum fail → graceful fallback (nie blokuj grania)
 - [ ] `PrintUsage()` wyswietla komende launch
-- [ ] Min. 10 test cases
+- [ ] Min. 12 test cases
 
 ---
 

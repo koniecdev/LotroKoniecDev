@@ -16,7 +16,7 @@ Discovery/
                                     4. Full disk scan on fixed drives
                                     5. Local fallback (data/client_local_English.dat)
 Diagnostics/
-  GameProcessDetector.cs          IGameProcessDetector impl. Checks: lotroclient, lotroclient64, LotroLauncher, TurbineLauncher
+  GameProcessDetector.cs          IGameProcessDetector impl. Checks: lotroclient, lotroclient64, LotroLauncher, LotroLauncher
   WriteAccessChecker.cs           IWriteAccessChecker impl. Creates temp file to verify write access
 Network/
   ForumPageFetcher.cs             IForumPageFetcher impl. Scrapes LOTRO release notes forum
@@ -33,7 +33,7 @@ InfrastructureDependencyInjection.cs  AddInfrastructureServices()
 
 - `IDatVersionReader` impl — read vnumDatFile/vnumGameData without full handler lifecycle
 - `IDatFileProtector` impl — `attrib +R/-R` on DAT file (currently in lotro.bat)
-- `IGameLauncher` impl — `Process.Start("TurbineLauncher.exe")` with wait
+- `IGameLauncher` impl — `Process.Start("LotroLauncher.exe")` with wait
 
 ## DI Registration
 

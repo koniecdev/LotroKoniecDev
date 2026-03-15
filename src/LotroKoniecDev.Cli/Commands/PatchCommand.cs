@@ -20,7 +20,6 @@ internal sealed class PatchCommand : AsyncCommand<PatchCommand.Settings>
     private readonly IGameUpdateChecker _updateChecker;
     private readonly IGameVersionFileStore _versionStore;
     private readonly IDatPathResolver _datPathResolver;
-
     
     public PatchCommand(
         ISender sender,

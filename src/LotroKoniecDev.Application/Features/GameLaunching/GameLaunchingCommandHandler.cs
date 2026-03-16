@@ -1,16 +1,17 @@
 using LotroKoniecDev.Application.Abstractions;
 using Mediator;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace LotroKoniecDev.Application.Features.GameLaunching;
 
 internal sealed class GameLaunchingCommandHandler : ICommandHandler<GameLaunchingCommand, Result<GameLaunchingResponse>>
 {
-    private readonly LegacyGameLaunchingStrategy _legacy;
-    private readonly SimplifiedGameLaunchingStrategy _simplified;
+    private readonly IGameLaunchingStrategy _legacy;
+    private readonly IGameLaunchingStrategy _simplified;
 
     public GameLaunchingCommandHandler(
-        LegacyGameLaunchingStrategy legacy,
-        SimplifiedGameLaunchingStrategy simplified)
+        [FromKeyedServices("legacy")] IGameLaunchingStrategy legacy,
+        [FromKeyedServices("simplified")] IGameLaunchingStrategy simplified)
     {
         _legacy = legacy;
         _simplified = simplified;

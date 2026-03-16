@@ -17,114 +17,62 @@ public sealed class GameLaunchingCommandHandlerTests
     private const string VersionFilePath = @"C:\temp\version.txt";
     private const string TranslationFilePath = @"C:\translations\polish.txt";
 
+    private readonly IGameLaunchingStrategy _legacy;
+    private readonly IGameLaunchingStrategy _simplified;
+    private readonly GameLaunchingCommandHandler _sut;
+
+    public GameLaunchingCommandHandlerTests()
+    {
+        _legacy = Substitute.For<IGameLaunchingStrategy>();
+        _simplified = Substitute.For<IGameLaunchingStrategy>();
+        _sut = new GameLaunchingCommandHandler(_legacy, _simplified);
+    }
+
     [Fact]
     public async Task Handle_NullCommand_ShouldThrow()
     {
-        // Arrange
-        LegacyGameLaunchingStrategy legacy = CreateLegacyStrategy();
-        SimplifiedGameLaunchingStrategy simplified = CreateSimplifiedStrategy();
-        GameLaunchingCommandHandler sut = new(legacy, simplified);
-
-        // Act & Assert
         await Should.ThrowAsync<ArgumentNullException>(
-            () => sut.Handle(null!, CancellationToken.None).AsTask());
+            () => _sut.Handle(null!, CancellationToken.None).AsTask());
     }
 
     [Fact]
     public async Task Handle_UseLegacyFlow_ShouldDelegateToLegacyStrategy()
     {
         // Arrange
-        IGameProcessDetector processDetector = Substitute.For<IGameProcessDetector>();
-        IGameUpdateChecker updateChecker = Substitute.For<IGameUpdateChecker>();
-        IDatVersionReader datVersionReader = Substitute.For<IDatVersionReader>();
-        IDatFileProtector protector = Substitute.For<IDatFileProtector>();
-        IGameLauncher launcher = Substitute.For<IGameLauncher>();
-        IGameVersionFileStore versionStore = Substitute.For<IGameVersionFileStore>();
-        IPatchingService patchingService = Substitute.For<IPatchingService>();
-
-        StoredVersionInfo stored = new("40.2", 100, 200);
-        updateChecker.CheckForUpdateAsync(VersionFilePath)
-            .Returns(Result.Success(new GameUpdateCheckSummary("40.2", stored)));
-        datVersionReader.ReadVersion(DatFilePath).Returns(Result.Success(new DatVersionInfo(100, 200)));
-        protector.Protect(DatFilePath).Returns(Result.Success());
-        protector.Unprotect(DatFilePath).Returns(Result.Success());
-        launcher.LaunchAndWaitForExitAsync(DatFilePath, Arg.Any<CancellationToken>())
-            .Returns(Result.Success(0));
-
-        LegacyGameLaunchingStrategy legacy = new(
-            updateChecker, versionStore, datVersionReader, protector,
-            launcher, processDetector, patchingService,
-            NullLogger<LegacyGameLaunchingStrategy>.Instance);
-        SimplifiedGameLaunchingStrategy simplified = CreateSimplifiedStrategy();
-        GameLaunchingCommandHandler sut = new(legacy, simplified);
+        GameLaunchingResponse response = new("40.2", false, 0);
+        _legacy.ExecuteAsync(Arg.Any<GameLaunchingCommand>(), Arg.Any<CancellationToken>())
+            .Returns(Result.Success(response));
 
         GameLaunchingCommand command = new(DatFilePath, VersionFilePath, TranslationFilePath, UseLegacyFlow: true);
 
         // Act
-        Result<GameLaunchingResponse> result = await sut.Handle(command, CancellationToken.None);
+        Result<GameLaunchingResponse> result = await _sut.Handle(command, CancellationToken.None);
 
-        // Assert — legacy strategy was used (it calls LaunchAndWaitForExitAsync)
+        // Assert
         result.IsSuccess.ShouldBeTrue();
-        await launcher.Received(1).LaunchAndWaitForExitAsync(DatFilePath, Arg.Any<CancellationToken>());
+        result.Value.ShouldBe(response);
+        await _legacy.Received(1).ExecuteAsync(command, Arg.Any<CancellationToken>());
+        await _simplified.DidNotReceive().ExecuteAsync(Arg.Any<GameLaunchingCommand>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
     public async Task Handle_DefaultFlow_ShouldDelegateToSimplifiedStrategy()
     {
         // Arrange
-        IGameProcessDetector processDetector = Substitute.For<IGameProcessDetector>();
-        IFileHasher fileHasher = Substitute.For<IFileHasher>();
-        IGameVersionFileStore versionStore = Substitute.For<IGameVersionFileStore>();
-        IDatVersionReader datVersionReader = Substitute.For<IDatVersionReader>();
-        IPatchingService patchingService = Substitute.For<IPatchingService>();
-        IGameLauncher launcher = Substitute.For<IGameLauncher>();
-
-        StoredVersionInfo stored = new("40.2", 100, 200, "abc123");
-        fileHasher.ComputeHash(TranslationFilePath).Returns(Result.Success("abc123"));
-        versionStore.ReadStoredVersion(VersionFilePath)
-            .Returns(Result.Success<StoredVersionInfo?>(stored));
-        launcher.Launch(DatFilePath).Returns(Result.Success());
-
-        LegacyGameLaunchingStrategy legacy = CreateLegacyStrategy();
-        SimplifiedGameLaunchingStrategy simplified = new(
-            processDetector, fileHasher, versionStore, datVersionReader,
-            patchingService, launcher,
-            NullLogger<SimplifiedGameLaunchingStrategy>.Instance);
-        GameLaunchingCommandHandler sut = new(legacy, simplified);
+        GameLaunchingResponse response = new(null, false, 0, TranslationsApplied: true, AppliedCount: 50);
+        _simplified.ExecuteAsync(Arg.Any<GameLaunchingCommand>(), Arg.Any<CancellationToken>())
+            .Returns(Result.Success(response));
 
         GameLaunchingCommand command = new(DatFilePath, VersionFilePath, TranslationFilePath);
 
         // Act
-        Result<GameLaunchingResponse> result = await sut.Handle(command, CancellationToken.None);
+        Result<GameLaunchingResponse> result = await _sut.Handle(command, CancellationToken.None);
 
-        // Assert — simplified strategy was used (it calls Launch, not LaunchAndWaitForExitAsync)
+        // Assert
         result.IsSuccess.ShouldBeTrue();
-        launcher.Received(1).Launch(DatFilePath);
-    }
-
-    private static LegacyGameLaunchingStrategy CreateLegacyStrategy()
-    {
-        return new(
-            Substitute.For<IGameUpdateChecker>(),
-            Substitute.For<IGameVersionFileStore>(),
-            Substitute.For<IDatVersionReader>(),
-            Substitute.For<IDatFileProtector>(),
-            Substitute.For<IGameLauncher>(),
-            Substitute.For<IGameProcessDetector>(),
-            Substitute.For<IPatchingService>(),
-            NullLogger<LegacyGameLaunchingStrategy>.Instance);
-    }
-
-    private static SimplifiedGameLaunchingStrategy CreateSimplifiedStrategy()
-    {
-        return new(
-            Substitute.For<IGameProcessDetector>(),
-            Substitute.For<IFileHasher>(),
-            Substitute.For<IGameVersionFileStore>(),
-            Substitute.For<IDatVersionReader>(),
-            Substitute.For<IPatchingService>(),
-            Substitute.For<IGameLauncher>(),
-            NullLogger<SimplifiedGameLaunchingStrategy>.Instance);
+        result.Value.ShouldBe(response);
+        await _simplified.Received(1).ExecuteAsync(command, Arg.Any<CancellationToken>());
+        await _legacy.DidNotReceive().ExecuteAsync(Arg.Any<GameLaunchingCommand>(), Arg.Any<CancellationToken>());
     }
 }
 

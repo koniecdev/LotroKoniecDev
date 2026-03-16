@@ -37,7 +37,11 @@ public sealed class GameVersionFileStore : IGameVersionFileStore
                 && int.TryParse(parts[2], NumberStyles.Integer, CultureInfo.InvariantCulture, out int vnumGameData))
             {
                 string? forumVersion = string.IsNullOrWhiteSpace(parts[0]) ? null : parts[0];
-                return Result.Success<StoredVersionInfo?>(new StoredVersionInfo(forumVersion, vnumDatFile, vnumGameData));
+                string? translationHash = parts.Length >= 4 && !string.IsNullOrWhiteSpace(parts[3])
+                    ? parts[3]
+                    : null;
+                return Result.Success<StoredVersionInfo?>(
+                    new StoredVersionInfo(forumVersion, vnumDatFile, vnumGameData, translationHash));
             }
 
             // Legacy format: plain forum version string (no vnums)
@@ -49,7 +53,12 @@ public sealed class GameVersionFileStore : IGameVersionFileStore
         }
     }
 
-    public Result SaveVersion(string versionFilePath, string? forumVersion, int vnumDatFile, int vnumGameData)
+    public Result SaveVersion(
+        string versionFilePath,
+        string? forumVersion,
+        int vnumDatFile,
+        int vnumGameData,
+        string? translationFileHash = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(versionFilePath);
         try
@@ -62,7 +71,7 @@ public sealed class GameVersionFileStore : IGameVersionFileStore
             }
 
             string content = string.Create(CultureInfo.InvariantCulture,
-                $"{forumVersion}{Separator}{vnumDatFile}{Separator}{vnumGameData}");
+                $"{forumVersion}{Separator}{vnumDatFile}{Separator}{vnumGameData}{Separator}{translationFileHash}");
             File.WriteAllText(versionFilePath, content);
             return Result.Success();
         }

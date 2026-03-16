@@ -57,6 +57,7 @@ internal sealed class LegacyGameLaunchingStrategy : IGameLaunchingStrategy
 
         // 1. Gather intel: forum version + stored version info
         _logger.LogInformation("Step 1: Checking for game update (forum + stored version)...");
+        
         Result<GameUpdateCheckSummary> checkResult =
             await _gameUpdateChecker.CheckForUpdateAsync(command.GameVersionFilePath);
         if (checkResult.IsFailure)
@@ -66,6 +67,7 @@ internal sealed class LegacyGameLaunchingStrategy : IGameLaunchingStrategy
         }
 
         GameUpdateCheckSummary summary = checkResult.Value;
+        
         _logger.LogInformation("Forum version: {ForumVersion}", summary.ForumVersion ?? "(null)");
         _logger.LogInformation("Stored info: ForumVersion={StoredForum}, VnumDat={VnumDat}, VnumGame={VnumGame}",
             summary.StoredInfo?.ForumVersion ?? "(null)",
@@ -76,6 +78,7 @@ internal sealed class LegacyGameLaunchingStrategy : IGameLaunchingStrategy
 
         // 2. Read current DAT vnum
         _logger.LogInformation("Step 2: Reading current DAT vnum...");
+        
         Result<DatVersionInfo> currentVnumResult = _datVersionReader.ReadVersion(command.DatFilePath);
         if (currentVnumResult.IsFailure)
         {
@@ -84,6 +87,7 @@ internal sealed class LegacyGameLaunchingStrategy : IGameLaunchingStrategy
         }
 
         DatVersionInfo currentVnum = currentVnumResult.Value;
+        
         _logger.LogInformation("Current DAT: VnumDatFile={VnumDat}, VnumGameData={VnumGame}",
             currentVnum.VnumDatFile, currentVnum.VnumGameData);
 
@@ -94,14 +98,20 @@ internal sealed class LegacyGameLaunchingStrategy : IGameLaunchingStrategy
             && currentVnum.VnumGameData != summary.StoredInfo.VnumGameData;
         bool forumNewVersion = summary.ForumVersionChanged;
 
-        _logger.LogInformation("Decision matrix: isFirstRun={IsFirst}, vnumChanged={VnumChanged}, forumNewVersion={ForumNew}",
+        _logger.LogInformation(
+            "Decision matrix: isFirstRun={IsFirst}, vnumChanged={VnumChanged}, forumNewVersion={ForumNew}",
             isFirstRun, vnumChanged, forumNewVersion);
 
         // a) First run — no baseline, establish it, re-patch, launch normally
         if (isFirstRun)
         {
             _logger.LogInformation(">>> BRANCH A: First run — establishing version baseline");
-            return await SaveRepatchAndLaunch(command, summary.ForumVersion, currentVnum, cancellationToken);
+            Result<GameLaunchingResponse> result = await SaveRepatchAndLaunch(
+                command,
+                summary.ForumVersion,
+                currentVnum,
+                cancellationToken);
+            return result;
         }
 
         // b) Vnum changed — DAT was overwritten by official launcher, re-patch needed
@@ -134,11 +144,17 @@ internal sealed class LegacyGameLaunchingStrategy : IGameLaunchingStrategy
         DatVersionInfo currentVnum,
         CancellationToken cancellationToken)
     {
-        _logger.LogInformation("SaveRepatchAndLaunch: saving version (forum={Forum}, vnumDat={VnumDat}, vnumGame={VnumGame})",
-            forumVersion ?? "(null)", currentVnum.VnumDatFile, currentVnum.VnumGameData);
+        _logger.LogInformation(
+            "SaveRepatchAndLaunch: saving version (forum={Forum}, vnumDat={VnumDat}, vnumGame={VnumGame})",
+            forumVersion ?? "(null)",
+            currentVnum.VnumDatFile,
+            currentVnum.VnumGameData);
 
         Result saveResult = _gameVersionFileStore.SaveVersion(
-            command.GameVersionFilePath, forumVersion, currentVnum.VnumDatFile, currentVnum.VnumGameData);
+            versionFilePath: command.GameVersionFilePath,
+            forumVersion: forumVersion,
+            vnumDatFile: currentVnum.VnumDatFile,
+            vnumGameData: currentVnum.VnumGameData);
         if (saveResult.IsFailure)
         {
             _logger.LogError("SaveVersion FAILED: {Error}", saveResult.Error.Message);
@@ -146,11 +162,13 @@ internal sealed class LegacyGameLaunchingStrategy : IGameLaunchingStrategy
         }
 
         _logger.LogInformation("SaveRepatchAndLaunch: applying translations from {Path}", command.TranslationFilePath);
+        
         Result<PatchSummaryResponse> repatchResult =
             _patchingService.ApplyTranslations(command.TranslationFilePath, command.DatFilePath);
         if (repatchResult.IsFailure)
         {
             _logger.LogError("ApplyTranslations FAILED: {Error}", repatchResult.Error.Message);
+            
             return Result.Failure<GameLaunchingResponse>(
                 DomainErrors.GameLaunch.RepatchFailed(repatchResult.Error.Message));
         }
@@ -158,7 +176,12 @@ internal sealed class LegacyGameLaunchingStrategy : IGameLaunchingStrategy
         _logger.LogInformation("Patched translations: {Applied} applied, {Skipped} skipped",
             repatchResult.Value.AppliedTranslations, repatchResult.Value.SkippedTranslations);
 
-        return await ProtectedLaunch(command.DatFilePath, forumVersion, updateWasDetected: true, cancellationToken);
+        Result<GameLaunchingResponse> result = await ProtectedLaunch(
+            datFilePath: command.DatFilePath,
+            forumVersion: forumVersion,
+            updateWasDetected: true,
+            cancellationToken: cancellationToken);
+        return result;
     }
 
     private async ValueTask<Result<GameLaunchingResponse>> HandleUpdatePath(
@@ -317,7 +340,10 @@ internal sealed class LegacyGameLaunchingStrategy : IGameLaunchingStrategy
         try
         {
             // Phase 1: Wait for a restarted launcher to appear (UAC → kill → new process).
-            _logger.LogInformation("Phase 1: Waiting for UAC-restarted launcher (timeout={Timeout}ms)...", LauncherReappearTimeoutMs);
+            _logger.LogInformation(
+                "Phase 1: Waiting for UAC-restarted launcher (timeout={Timeout}ms)...", 
+                LauncherReappearTimeoutMs);
+            
             long deadline = Environment.TickCount64 + LauncherReappearTimeoutMs;
             bool launcherReappeared = false;
 
@@ -328,6 +354,7 @@ internal sealed class LegacyGameLaunchingStrategy : IGameLaunchingStrategy
                 if (_gameProcessDetector.IsLotroLauncherRunning())
                 {
                     _logger.LogInformation("Phase 1: Restarted LOTRO launcher detected!");
+                    
                     launcherReappeared = true;
                     break;
                 }
@@ -370,6 +397,7 @@ internal sealed class LegacyGameLaunchingStrategy : IGameLaunchingStrategy
 
                 await Task.Delay(ProcessPollingIntervalMs, cancellationToken);
             }
+            
             _logger.LogInformation("Phase 2: Launcher monitoring ended (polled {Count} times)", pollCount);
 
             // Phase 3: Safety net — kill game client if it started while we weren't monitoring.

@@ -60,34 +60,36 @@ internal sealed class SimplifiedGameLaunchingStrategy : IGameLaunchingStrategy
             return ValueTask.FromResult(
                 Result.Failure<GameLaunchingResponse>(hashResult.Error));
         }
-
         string currentHash = hashResult.Value;
+        
         _logger.LogInformation("Current translation hash: {Hash}", currentHash);
 
         _logger.LogInformation("Step 2: Reading stored version info...");
-        Result<StoredVersionInfo?> storedResult =
-            _gameVersionFileStore.ReadStoredVersion(command.GameVersionFilePath);
+        
+        Result<StoredVersionInfo?> storedResult = _gameVersionFileStore.ReadStoredVersion(command.GameVersionFilePath);
         if (storedResult.IsFailure)
         {
             _logger.LogError("ReadStoredVersion FAILED: {Error}", storedResult.Error.Message);
             return ValueTask.FromResult(
                 Result.Failure<GameLaunchingResponse>(storedResult.Error));
         }
+        StoredVersionInfo? storedInfo = storedResult.Value;
 
-        _logger.LogInformation("Stored info: ForumVersion={Forum}, VnumDat={VnumDat}, VnumGame={VnumGame}, Hash={Hash}",
-            storedResult.Value?.ForumVersion ?? "(null)",
-            storedResult.Value?.VnumDatFile?.ToString() ?? "(null)",
-            storedResult.Value?.VnumGameData?.ToString() ?? "(null)",
-            storedResult.Value?.TranslationFileHash ?? "(null)");
+        _logger.LogInformation(
+            "Stored info: ForumVersion={Forum}, VnumDat={VnumDat}, VnumGame={VnumGame}, Hash={Hash}",
+            storedInfo?.ForumVersion ?? "(null)",
+            storedInfo?.VnumDatFile?.ToString() ?? "(null)",
+            storedInfo?.VnumGameData?.ToString() ?? "(null)",
+            storedInfo?.TranslationFileHash ?? "(null)");
 
         bool translationChanged = storedResult.Value?.TranslationFileHash is null
             || !string.Equals(currentHash, storedResult.Value.TranslationFileHash, StringComparison.Ordinal);
 
         _logger.LogInformation("Translation changed? {Changed} (stored hash null={IsNull}, match={Match})",
             translationChanged,
-            storedResult.Value?.TranslationFileHash is null,
-            storedResult.Value?.TranslationFileHash is not null
-                && string.Equals(currentHash, storedResult.Value.TranslationFileHash, StringComparison.Ordinal));
+            storedInfo?.TranslationFileHash is null,
+            storedInfo?.TranslationFileHash is not null
+            && string.Equals(currentHash, storedInfo.TranslationFileHash, StringComparison.Ordinal));
 
         bool translationsApplied = false;
         int appliedCount = 0;
@@ -106,16 +108,19 @@ internal sealed class SimplifiedGameLaunchingStrategy : IGameLaunchingStrategy
                     Result.Failure<GameLaunchingResponse>(
                         DomainErrors.GameLaunch.RepatchFailed(patchResult.Error.Message)));
             }
+            
+            PatchSummaryResponse patchSummary = patchResult.Value;
 
             translationsApplied = true;
-            appliedCount = patchResult.Value.AppliedTranslations;
-            skippedCount = patchResult.Value.SkippedTranslations;
+            appliedCount = patchSummary.AppliedTranslations;
+            skippedCount = patchSummary.SkippedTranslations;
 
             _logger.LogInformation("Patched translations: {Applied} applied, {Skipped} skipped",
                 appliedCount, skippedCount);
 
             // Save new hash + current vnum
             _logger.LogInformation("Reading DAT vnum to save alongside hash...");
+            
             Result<DatVersionInfo> vnumResult = _datVersionReader.ReadVersion(command.DatFilePath);
             if (vnumResult.IsFailure)
             {
@@ -123,15 +128,16 @@ internal sealed class SimplifiedGameLaunchingStrategy : IGameLaunchingStrategy
                 return ValueTask.FromResult(
                     Result.Failure<GameLaunchingResponse>(vnumResult.Error));
             }
-
+            DatVersionInfo datVersion = vnumResult.Value;
+            
             _logger.LogInformation("DAT vnum: VnumDat={VnumDat}, VnumGame={VnumGame}",
-                vnumResult.Value.VnumDatFile, vnumResult.Value.VnumGameData);
+                datVersion.VnumDatFile, datVersion.VnumGameData);
 
             Result saveResult = _gameVersionFileStore.SaveVersion(
                 command.GameVersionFilePath,
                 storedResult.Value?.ForumVersion,
-                vnumResult.Value.VnumDatFile,
-                vnumResult.Value.VnumGameData,
+                datVersion.VnumDatFile,
+                datVersion.VnumGameData,
                 currentHash);
             if (saveResult.IsFailure)
             {

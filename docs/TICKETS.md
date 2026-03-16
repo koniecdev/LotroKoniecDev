@@ -306,6 +306,22 @@ Implementacja: Auto-detect `LotroLauncher.exe` wzgledem sciezki DAT. `Process.St
 **Labels:** `critical` `feature` `bug`
 **Zalezy od:** M1-05b (CLI patch na MediatR), M1-07 (launch infrastructure)
 
+> **STATUS: CZESCIOWO ZROBIONY + REFAKTOR POST-LIVE-TEST**
+>
+> Legacy flow (opisany ponizej) zostal zaimplementowany w #80, ale live testy (update 47→47.1) wykazaly ze:
+> - `attrib +R` jest bezuzyteczny (finally zdejmuje przed prawdziwym update)
+> - HandleUpdatePath z process monitoring/kill jest szkodliwy (zabija sesje gracza)
+> - Bezwarunkowe re-patchowanie po update jest ZLE (stale translacje nadpisuja swiezy angielski tekst SSG)
+>
+> **Obecny stan:** Strategy Pattern — `LegacyGameLaunchingStrategy` (legacy, flaga `--legacy`) + `SimplifiedGameLaunchingStrategy` (domyslna). Simplified flow uzywa hash pliku tlumaczen jako jedynego triggera re-patchu + fire-and-forget launch. Jest to POPRAWNE podejscie — vnum-triggered re-patch bylby szkodliwy.
+>
+> **Do zrobienia dalej:**
+> - Usunac `LegacyGameLaunchingStrategy` i flage `--legacy` (po potwierdzeniu ze simplified flow jest stabilny)
+> - Usunac `IDatFileProtector` + implementacja (niepotrzebne)
+> - Usunac `HandleUpdatePath`, `WaitForLauncherCompletionAsync`, `ProtectedLaunch`
+> - `IGameProcessDetector.IsLotroRunning()` zostaje (check na poczatku)
+> - Forum scraping przenosi sie do API (M3-11) jako admin notification, nie jako trigger w patcherze
+
 **UWAGA SEKWENCJI:** Ten ticket zmienia zachowanie `GameUpdateChecker` — po zmianie `CheckForUpdateAsync()` NIE zapisuje wersji. Stary `PreflightChecker` polegal na auto-save. Dlatego M1-05b (refaktor patch na MediatR) MUSI byc zrobiony PRZED tym ticketem.
 
 **Do zrobienia — TRZY czesci:**
@@ -710,11 +726,13 @@ Zaktualizuj .slnx, DI registration (`AddPersistenceServices(connectionString)`).
 
 1. **LanguageEntity**: Code (PK, `pl`/`en`), Name, IsActive
 2. **ExportedTextEntity**: Id, FileId, GossipId (`long`/bigint), EnglishContent, ImportedAt. UNIQUE(FileId, GossipId).
-3. **TranslationEntity**: Id, FileId, GossipId (`long`/bigint), LanguageCode (FK), Content, ArgsOrder (string), ArgsId, IsApproved, Notes, CreatedAt, UpdatedAt. UNIQUE(FileId, GossipId, LanguageCode).
+3. **TranslationEntity**: Id, FileId, GossipId (`long`/bigint), LanguageCode (FK), Content, ArgsOrder (string), ArgsId, Status (enum: `Draft`, `Submitted`, `Approved`, `NeedsReview`), CompatibleSinceVnum (int, nullable — vnum gry przy ktorym ta translacja zostala stworzona/zweryfikowana), Notes, CreatedAt, UpdatedAt. UNIQUE(FileId, GossipId, LanguageCode).
+   - **WAZNE:** `IsApproved` zastapiony przez `Status` enum — `NeedsReview` potrzebny do oznaczania translacji uniewaznonych przez update gry (patrz M2-03). `CompatibleSinceVnum` pozwala API filtrowac: zwroc tylko translacje kompatybilne z vnum gracza.
 4. **TranslationHistoryEntity**: Id, TranslationId (FK), OldContent, NewContent, ChangedAt.
 5. **GlossaryTermEntity**: Id, EnglishTerm, PolishTerm, Notes, Category, CreatedAt. UNIQUE(EnglishTerm, Category).
 6. **TextContextEntity**: Id, FileId, GossipId (`long`/bigint), ContextType, ParentName, ParentCategory, ParentLevel, NpcName, Region, SourceFile, ImportedAt. UNIQUE(FileId, GossipId, ContextType).
-7. **DatVersionEntity**: Id, VnumDatFile, VnumGameData, ForumVersion, DetectedAt.
+7. **GameVersionReportEntity**: Id, VnumDatFile, VnumGameData, FirstReportedAt, ReporterCount (int), ForumVersion (string?), ForumDetectedAt (DateTime?), Confirmed (bool). UNIQUE(VnumDatFile, VnumGameData).
+   - **Zmiana vs oryginal:** Zastepuje `DatVersionEntity`. Two-source confirmation model — `Confirmed = true` tylko gdy ZAROWNO user raport vnum JAK I forum scraping potwierdzaja update. Patrz M3-10.
 
 **WAZNE — GossipId typ `long` (bigint):**
 W Domain `Translation.GossipId` jest `int`, ale `Fragment.FragmentId` jest `ulong` (8 bajtow). Konwersja `(ulong)GossipId` w `Translation.FragmentId` moze tracic dane. W DB entities uzyj `long` (bigint w PostgreSQL).
@@ -773,16 +791,40 @@ Handler:
 - **UWAGA SEMANTYCZNA:** Parser zwraca `List<Translation>` gdzie `Content` = angielski tekst zrodlowy. Mapping: `Translation.Content` -> `ExportedTextEntity.EnglishContent`. ArgsOrder/ArgsId/Approved ignorowane przy imporcie exported texts.
 - Batch upsert do `ExportedTexts`
 
+**Czesc 3: Diff detection — oznaczanie unieważnionych translacji**
+
+Kluczowa logika uruchamiana przy imporcie nowej wersji exported texts (po game update):
+1. Przy upsert: jesli `EnglishContent` sie zmienil dla danego (FileId, GossipId) → pobierz powiazane TranslationEntity
+2. Ustaw `Translation.Status = NeedsReview` dla kazdej translacji powiazanej z tym tekstem
+3. Zwroc w `ImportSummary` dodatkowe pole: `InvalidatedTranslations` (int)
+
+**Dlaczego:** Gdy SSG zmienia angielski tekst (np. lore correction, quest rewrite), nasza stara translacja jest nieaktualna. Nie wolno jej serwowac graczom — musi przejsc review/re-translate. Bez tej logiki stale translacje nadpisalyby swiezy angielski tekst SSG.
+
+**Flow admina po game update:**
+```
+Admin aktualizuje LOTRO → export → import-exported-texts nowy_export.txt
+→ DB porownuje stary EnglishContent z nowym
+→ Zmienione teksty: translacje → NeedsReview
+→ Nowe teksty (gossip_id nie istnial): czekaja na tlumaczenie
+→ Niezmienione: translacje bez zmian (nadal Approved)
+```
+
 **Testy:**
 - Batch upsert 100k+ rekordow w < 30s
 - Duplicate (FileId, GossipId) -> update content
+- **EnglishContent changed -> powiazana Translation.Status = NeedsReview**
+- **EnglishContent unchanged -> Translation.Status bez zmian**
+- **Nowy tekst bez istniejacego Translation -> brak side effects**
 - Integration test z prawdziwa baza (TestContainers preferowane)
 
 **Acceptance criteria:**
 - [ ] Batch upsert dziala wydajnie
 - [ ] Drugi import tego samego pliku -> updates, nie duplikaty
+- [ ] **Zmiana EnglishContent → powiazane translacje oznaczone NeedsReview**
+- [ ] **Niezmienione teksty → translacje untouched**
 - [ ] Mapping Translation -> ExportedText jest jawny i przetestowany
-- [ ] Min. 3 testy
+- [ ] `ImportSummary` zawiera `InvalidatedTranslations` count
+- [ ] Min. 5 testow
 
 ---
 
@@ -800,10 +842,12 @@ public interface ITranslationRepository
     Task<Result<TranslationDto?>> GetAsync(int fileId, long gossipId, string languageCode);
     Task<Result<IReadOnlyList<TranslationDto>>> GetAllForLanguageAsync(string languageCode);
     Task<Result<int>> GetCountAsync(string languageCode);
-    Task<Result<int>> GetApprovedCountAsync(string languageCode);
+    Task<Result<int>> GetCountByStatusAsync(string languageCode, TranslationStatus status);
 }
 ```
 `TranslationDto` = Application-level DTO. Auto-history: przy upsert z innym content -> dodaj `TranslationHistoryEntity`.
+
+**UWAGA:** `IsApproved` zastapione przez `TranslationStatus` enum (`Draft`, `Submitted`, `Approved`, `NeedsReview`). `NeedsReview` ustawiany automatycznie przez M2-03 diff detection gdy EnglishContent sie zmieni po game update.
 
 **Czesc 2: CRUD Commands/Queries**
 1. `CreateTranslationCommand(FileId, GossipId, LanguageCode, Content, ArgsOrder?, Notes?)`
@@ -827,16 +871,23 @@ public interface ITranslationRepository
 **Zalezy od:** M2-04
 
 **Do zrobienia:**
-1. `ExportTranslationsQuery(LanguageCode, OnlyApproved?)`:
-   - Pobierz wszystkie tlumaczenia z DB
+1. `ExportTranslationsQuery(LanguageCode, StatusFilter?, CompatibleWithVnum?)`:
+   - Pobierz tlumaczenia z DB z filtrowaniem:
+     - `StatusFilter` (default: `Approved`) — nie eksportuj `NeedsReview` ani `Draft`
+     - `CompatibleWithVnum` (optional) — jesli podany, eksportuj tylko translacje gdzie `CompatibleSinceVnum <= vnum`
    - Sformatuj do `file_id||gossip_id||content||args_order||args_id||approved`
    - Posortuj po FileId, GossipId
    - Zapisz do pliku
 2. Output kompatybilny z istniejacym `TranslationFileParser`.
 
+**Kontekst filtrowania po vnum:**
+Gdy wychodzi game update i SSG zmienil 50 tekstow, ich translacje dostaja `NeedsReview`. Export z `StatusFilter=Approved` automatycznie je pomija — gracz dostaje plik BEZ stalych translacji. Dopiero po review/re-translate przez tlumaczy te teksty wroca do eksportu.
+
 **Acceptance criteria:**
 - [ ] Wyeksportowany plik jest identyczny formatowo z recznym `polish.txt`
 - [ ] Roundtrip: import -> export -> parse -> patch -> dziala
+- [ ] `NeedsReview` translacje NIE trafiaja do eksportu (default)
+- [ ] Filtrowanie po `CompatibleWithVnum` dziala
 - [ ] Test: porownanie export z oryginalem
 
 ---
@@ -936,16 +987,24 @@ public interface ITextContextRepository
 3. Kategorie: ProperNouns, Locations, Items, Skills, UI, General.
 4. Seed z ~20 podstawowych terminow Tolkienowskich (Moria, Shire = Hrabstwo, etc.)
 
-**Czesc 2: DatVersions**
-1. Entity + prosta metoda `RecordVersion(vnumDatFile, vnumGameData, forumVersion)`.
-2. Query: `GetLatestVersion()`, `GetHistory(count)`.
+**Czesc 2: GameVersionReports (two-source confirmation)**
+1. Entity `GameVersionReportEntity` (zdefiniowana w M2-02): VnumDatFile, VnumGameData, ReporterCount, ForumVersion, Confirmed.
+2. Repository: `IGameVersionReportRepository` w Application:
+   ```csharp
+   Task<Result> ReportVersionAsync(int vnumDatFile, int vnumGameData); // increment ReporterCount or create
+   Task<Result> ConfirmWithForumAsync(int vnumDatFile, int vnumGameData, string forumVersion);
+   Task<Result<GameVersionReport?>> GetLatestConfirmedAsync();
+   Task<Result<IReadOnlyList<GameVersionReport>>> GetHistoryAsync(int count);
+   ```
+3. Logika `Confirmed`: true tylko gdy ZAROWNO ReporterCount > 0 JAK I ForumVersion != null.
 
 **Acceptance criteria:**
 - [ ] Glossary CRUD dziala
 - [ ] Search po EN/PL terminie
 - [ ] UNIQUE(EnglishTerm, Category)
-- [ ] DatVersions rejestruje historie
-- [ ] Min. 4 testy
+- [ ] GameVersionReport: two-source confirmation dziala
+- [ ] Report + forum confirm = Confirmed=true
+- [ ] Min. 5 testow
 
 ---
 
@@ -1154,8 +1213,8 @@ API to centralny backend dla WSZYSTKICH konsumentow: Blazor WebApp, CLI (downloa
 **Zalezy od:** M3-01, M2-03, M2-05
 
 **Do zrobienia:**
-1. `POST /api/v1/import/exported-texts` — upload `exported.txt`, import do bazy via MediatR handler (M2-03).
-2. `GET /api/v1/translations/export?lang=pl&onlyApproved=false` — download `polish.txt` via handler (M2-05).
+1. `POST /api/v1/import/exported-texts` — upload `exported.txt`, import do bazy via MediatR handler (M2-03). **Triggeruje diff detection** — zmienione EnglishContent → powiazane translacje NeedsReview.
+2. `GET /api/v1/translations/export?lang=pl&vnum=115` — download `polish.txt` via handler (M2-05). Filtruje: `Status=Approved` + `CompatibleSinceVnum <= vnum`. **Docelowy interfejs patchera** — patcher podaje swoj vnum, API zwraca tylko kompatybilne translacje.
 3. Endpointy w projekcie Api.
 4. Walidacja pliku (rozmiar, format).
 5. Streaming response dla duzych eksportow.
@@ -1163,7 +1222,10 @@ API to centralny backend dla WSZYSTKICH konsumentow: Blazor WebApp, CLI (downloa
 
 **Acceptance criteria:**
 - [ ] Upload exported.txt przez API → import do DB
+- [ ] Upload triggeruje diff → zmienione teksty → translacje NeedsReview
 - [ ] Download polish.txt → kompatybilny z CLI patch
+- [ ] Download z `vnum` param filtruje po CompatibleSinceVnum
+- [ ] Download BEZ `vnum` param → zwraca wszystkie Approved (backward compat)
 - [ ] Error handling (zly format, pusty plik)
 - [ ] Streaming dla duzych plikow
 
@@ -1245,6 +1307,78 @@ API to centralny backend dla WSZYSTKICH konsumentow: Blazor WebApp, CLI (downloa
 - [ ] Api dostepny na :5100, WebApp na :5000
 - [ ] Style guide dostepny
 - [ ] Kluczowe flows przetestowane
+
+---
+
+### M3-10: Game version report endpoint (crowdsource update detection)
+**Labels:** `high` `feature`
+**Zalezy od:** M3-01, M2-09 (GameVersionReport entity + repository)
+**Blokuje:** —
+
+**Kontekst:**
+End-userzy sa najlepszym zrodlem informacji o nowych wersjach gry. Patcher juz czyta vnum z DAT — wystarczy jeden HTTP call zeby API wiedzial o nowej wersji. Two-source confirmation: user raport + forum scraping musza sie zgodzic zanim admin dostanie notyfikacje.
+
+**Do zrobienia:**
+
+**Czesc 1: API endpoint**
+```
+POST /api/v1/game-version/report
+{
+  "vnumDatFile": 115,
+  "vnumGameData": 42
+}
+```
+- Anonimowy (brak auth) — kazdy patcher moze raportowac
+- Rate limiting per IP (max 10/min)
+- Jesli vnum > latest stored → stworz/zaktualizuj GameVersionReport, increment ReporterCount
+- Jesli vnum <= latest stored → 200 OK, brak akcji
+- Response: `{ "isNewVersion": true/false, "confirmed": false }`
+
+**Czesc 2: On-demand forum check**
+- Po otrzymaniu nowego vnum reportu → triggeruj forum check (reuse `IGameUpdateChecker` logic)
+- Jesli forum potwierdza update → `Confirmed = true`
+- Notyfikacja do admina (M5-08 Discord webhook, albo prosty log na poczatek)
+
+**Czesc 3: Patcher integration**
+- Po odczytaniu vnum z DAT w simplified flow → fire-and-forget `POST /api/v1/game-version/report`
+- Brak blokowania — jesli API niedostepne, patcher kontynuuje normalnie
+- Konfiguracja URL API w ustawieniach (CLI: argument/config, WPF: settings)
+
+**Acceptance criteria:**
+- [ ] `POST /api/v1/game-version/report` z nowym vnum → stored, ReporterCount++
+- [ ] Duplikat vnum → increment ReporterCount, brak duplikatu entity
+- [ ] Stary vnum → 200 OK, brak zmian
+- [ ] Rate limiting dziala
+- [ ] Forum check triggerowany on-demand po nowym raporcie
+- [ ] Oba zrodla zgodne → Confirmed=true
+- [ ] Patcher wysyla raport fire-and-forget (nie blokuje flow)
+- [ ] Min. 4 testy
+
+---
+
+### M3-11: Forum cron — admin notification o nowych wersjach gry
+**Labels:** `medium` `feature`
+**Zalezy od:** M3-01, M2-09
+
+**Kontekst:**
+Niezaleznie od user raportow, admin chce wiedziec kiedy wychodzi update — zeby pobrac LOTRO, zrobic export, i zaktualizowac baze tekstow. Forum cron daje standalone wartosc nawet bez crowdsource.
+
+**Do zrobienia:**
+1. Background service w Api (IHostedService) lub osobny worker
+2. Co godzine sprawdza forum LOTRO (reuse `IGameUpdateChecker` / `IForumPageFetcher`)
+3. Jesli wykryto nowa wersje:
+   - Jesli istnieje unconfirmed GameVersionReport z pasujacym vnum → ustaw Confirmed=true
+   - Jesli brak raportu → stworz GameVersionReport z ForumVersion + ForumDetectedAt (Confirmed=false, czeka na user raport)
+   - Wyslij notyfikacje (Discord webhook / email / log)
+4. Konfiguracja: interwwal crona, wlacz/wylacz, URL forum
+
+**Acceptance criteria:**
+- [ ] Cron sprawdza forum co godzine
+- [ ] Wykrycie nowej wersji → notyfikacja do admina
+- [ ] Integracja z GameVersionReport (two-source confirmation)
+- [ ] Konfigurowalny interwwal
+- [ ] Graceful failure (forum niedostepne → retry, nie crash)
+- [ ] Min. 2 testy
 
 ---
 
@@ -1541,10 +1675,10 @@ Wydaje JWT tokeny, zarzadza uzytkownikami i rolami. API waliduje tokeny, Blazor 
 |-----------|---------|----------|------|--------|-----|
 | M1 | 14 | 2 | 8 | 3 | 1 |
 | M2 | 11 | 1 | 7 | 3 | 0 |
-| M3 | 9 | 0 | 4 | 4 | 1 |
+| M3 | 11 | 0 | 5 | 5 | 1 |
 | M4 | 6 | 0 | 5 | 1 | 0 |
 | M5 | 9 | 0 | 3 | 0 | 6 |
-| **Total** | **49** | **3** | **27** | **11** | **8** |
+| **Total** | **51** | **3** | **28** | **12** | **8** |
 
 ## Poprawiony critical path
 
@@ -1567,7 +1701,9 @@ Track C: TFM split → M2 → M3 (API + Blazor)
     ├── M2-01 (Docker + Persistence) ──→ M2-02..M2-10
     │                                      └── M2-04 ──→ M2-11 (split Application) ──┐
     └── M3-01 (API) ←─────────────────────────────────────────────────────────────────┘
-          └── M3-02 (Blazor SSR) ──→ M3-03..M3-08
+          ├── M3-02 (Blazor SSR) ──→ M3-03..M3-08
+          ├── M3-10 (game version report endpoint) ← M2-09
+          └── M3-11 (forum cron admin notification) ← M2-09
 
 Track D: Testy integracyjne (PRZED M1-05!)
   M1-11 (integration test infra + DatFileHandler) ──→ M1-12 (Exporter + Patcher pipeline)
@@ -1615,3 +1751,10 @@ Tests.Integration (0 testow — M1-11/M1-12 + M2-10):
 | M4-04 zalezy od M3-08 (web API) | Usunieto: WPF uzywa lokalnych plikow MVP |
 | Brak ticketu na NuGet versions | Wliczone w M1-06 (TFM split) |
 | M1-07 i M1-08 osobne tickety | Scalone w jeden M1-09 (low priority) |
+| M1-08 legacy flow jako docelowy | Legacy flow deprecated po live testach — simplified flow (hash-based) jest poprawny |
+| Brak update detection po stronie API | Dodane M3-10 (crowdsource vnum report) + M3-11 (forum cron) |
+| `IsApproved` bool na TranslationEntity | Zastapione `Status` enum (Draft/Submitted/Approved/NeedsReview) + `CompatibleSinceVnum` |
+| `DatVersionEntity` prosta historia | Zastapione `GameVersionReportEntity` z two-source confirmation model |
+| M2-03 import bez diff detection | Dodane: zmiana EnglishContent → translacje NeedsReview |
+| Vnum-triggered re-patch planowany | ODRZUCONY — stale translacje nadpisalyby swiezy angielski tekst SSG |
+| M2-05 export bez filtrowania | Dodane: filtrowanie po Status + CompatibleSinceVnum |

@@ -53,7 +53,7 @@ public sealed class E2ETestFixture : IAsyncLifetime
         // Pre-export once for all tests to share
         string exportDir = CreateTempDir();
         CachedExportPath = Path.Combine(exportDir, "export.txt");
-        CachedExportResult = await RunCliAsync($"export \"{DatFilePath}\" \"{CachedExportPath}\"");
+        CachedExportResult = await RunCliAsync($"export -d \"{DatFilePath}\" -o \"{CachedExportPath}\"");
 
         if (CachedExportResult.ExitCode != 0)
         {

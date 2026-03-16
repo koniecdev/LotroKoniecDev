@@ -53,6 +53,9 @@ public sealed class Program
         });
 
         int result = await app.RunAsync(args, cancellationTokenSource.Token);
-        return result;
+
+        // Spectre.Console.Cli returns -1 for parse errors (unknown command, missing args).
+        // Map to our InvalidArguments exit code for consistent contract.
+        return result < 0 ? ExitCodes.InvalidArguments : result;
     }
 }

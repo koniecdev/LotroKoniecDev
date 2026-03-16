@@ -19,7 +19,7 @@ public sealed class ErrorPathE2ETests
         string outputPath = Path.Combine(_fixture.CreateTempDir(), "export.txt");
 
         CliResult result = await _fixture.RunCliAsync(
-            $"export \"{fakeDatPath}\" \"{outputPath}\"");
+            $"export -d \"{fakeDatPath}\" -o \"{outputPath}\"");
 
         result.ExitCode.ShouldBe((int)CliExitCode.FileNotFound, $"stdout: {result.Stdout}");
     }
@@ -33,7 +33,7 @@ public sealed class ErrorPathE2ETests
         string fakeTranslationsPath = Path.Combine(_fixture.CreateTempDir(), "nonexistent.txt");
 
         CliResult result = await _fixture.RunCliAsync(
-            $"patch \"{fakeTranslationsPath}\" \"{tempDatPath}\"");
+            $"patch \"{fakeTranslationsPath}\" -d \"{tempDatPath}\"");
 
         result.ExitCode.ShouldBe((int)CliExitCode.FileNotFound, $"stdout: {result.Stdout}");
     }
@@ -46,7 +46,7 @@ public sealed class ErrorPathE2ETests
         string fakeDatPath = Path.Combine(_fixture.CreateTempDir(), "nonexistent.dat");
 
         CliResult result = await _fixture.RunCliAsync(
-            $"patch \"{_fixture.TranslationsPolishPath}\" \"{fakeDatPath}\"");
+            $"patch \"{_fixture.TranslationsPolishPath}\" -d \"{fakeDatPath}\"");
 
         result.ExitCode.ShouldBe((int)CliExitCode.FileNotFound, $"stdout: {result.Stdout}");
     }
@@ -79,7 +79,7 @@ public sealed class ErrorPathE2ETests
         string badOutputPath = Path.Combine(_fixture.CreateTempDir(), "nonexistent_subdir", "export.txt");
 
         CliResult result = await _fixture.RunCliAsync(
-            $"export \"{_fixture.DatFilePath}\" \"{badOutputPath}\"");
+            $"export -d \"{_fixture.DatFilePath}\" -o \"{badOutputPath}\"");
 
         result.ExitCode.ShouldBe((int)CliExitCode.OperationFailed,
             $"Export to non-existent directory should fail. stdout: {result.Stdout}");
@@ -101,7 +101,7 @@ public sealed class ErrorPathE2ETests
 
         //Act
         CliResult result = await _fixture.RunCliAsync(
-            $"patch \"{garbagePath}\" \"{tempDatPath}\"");
+            $"patch \"{garbagePath}\" -d \"{tempDatPath}\"");
 
         //Assert — parser returns empty list → Patcher returns NoTranslations → exit code 3
         result.ExitCode.ShouldBe((int)CliExitCode.OperationFailed,
@@ -125,7 +125,7 @@ public sealed class ErrorPathE2ETests
 
         //Act
         CliResult result = await _fixture.RunCliAsync(
-            $"patch \"{commentsPath}\" \"{tempDatPath}\"");
+            $"patch \"{commentsPath}\" -d \"{tempDatPath}\"");
 
         //Assert — all lines skipped → empty translations → exit code 3
         result.ExitCode.ShouldBe((int)CliExitCode.OperationFailed,

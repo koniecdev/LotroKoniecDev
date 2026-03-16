@@ -20,7 +20,7 @@ public sealed class PatchE2ETests
 
         //Act
         CliResult result = await _fixture.RunCliAsync(
-            $"patch \"{_fixture.TranslationsPolishPath}\" \"{tempDatPath}\"");
+            $"patch \"{_fixture.TranslationsPolishPath}\" -d \"{tempDatPath}\"");
 
         //Assert
         result.ExitCode.ShouldBe((int)CliExitCode.Success, $"stderr: {result.Stderr}");
@@ -39,7 +39,7 @@ public sealed class PatchE2ETests
 
         //Act
         CliResult result = await _fixture.RunCliAsync(
-            $"patch \"{_fixture.TranslationsPolishPath}\" \"{tempDatPath}\"");
+            $"patch \"{_fixture.TranslationsPolishPath}\" -d \"{tempDatPath}\"");
 
         //Assert
         result.ExitCode.ShouldBe((int)CliExitCode.Success, $"stderr: {result.Stderr}");
@@ -60,7 +60,7 @@ public sealed class PatchE2ETests
 
         //Act
         CliResult result = await _fixture.RunCliAsync(
-            $"patch \"{_fixture.TranslationsPolishPath}\" \"{tempDatPath}\"");
+            $"patch \"{_fixture.TranslationsPolishPath}\" -d \"{tempDatPath}\"");
 
         //Assert
         result.ExitCode.ShouldBe((int)CliExitCode.Success, $"stderr: {result.Stderr}");
@@ -78,7 +78,7 @@ public sealed class PatchE2ETests
         //Arrange — first patch creates backup
         string tempDatPath = _fixture.CreateTempDatCopy();
         CliResult firstPatch = await _fixture.RunCliAsync(
-            $"patch \"{_fixture.TranslationsPolishPath}\" \"{tempDatPath}\"");
+            $"patch \"{_fixture.TranslationsPolishPath}\" -d \"{tempDatPath}\"");
         firstPatch.ExitCode.ShouldBe((int)CliExitCode.Success, $"First patch failed: {firstPatch.Stderr}");
 
         string backupPath = tempDatPath + ".backup";
@@ -86,7 +86,7 @@ public sealed class PatchE2ETests
 
         //Act — second patch should reuse existing backup
         CliResult secondPatch = await _fixture.RunCliAsync(
-            $"patch \"{_fixture.TranslationsPolishPath}\" \"{tempDatPath}\"");
+            $"patch \"{_fixture.TranslationsPolishPath}\" -d \"{tempDatPath}\"");
 
         //Assert
         secondPatch.ExitCode.ShouldBe((int)CliExitCode.Success, $"Second patch failed: {secondPatch.Stderr}");
@@ -109,7 +109,7 @@ public sealed class PatchE2ETests
 
         //Act — use short name "polish" (no path separators, no .txt extension)
         CliResult result = await _fixture.RunCliAsync(
-            $"patch polish \"{tempDatPath}\"",
+            $"patch polish -d \"{tempDatPath}\"",
             workingDirectory: workDir);
 
         //Assert — should resolve "polish" → "translations/polish.txt" and succeed

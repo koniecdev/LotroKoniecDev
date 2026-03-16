@@ -1,10 +1,9 @@
-﻿using System.ComponentModel;
+using System.ComponentModel;
 using LotroKoniecDev.Application.Abstractions;
 using LotroKoniecDev.Application.Abstractions.DatFilesServices;
 using LotroKoniecDev.Application.Features.Patching;
 using LotroKoniecDev.Application.Features.PreflightChecking;
 using LotroKoniecDev.Domain.Core.Monads;
-using LotroKoniecDev.Domain.Models;
 using Mediator;
 using Spectre.Console.Cli;
 
@@ -16,34 +15,25 @@ internal sealed class PatchCommand : AsyncCommand<PatchCommand.Settings>
     private readonly IBackupManager _backupManager;
     private readonly IFileProvider _fileProvider;
     private readonly IOperationStatusReporter _reporter;
-    private readonly IDatVersionReader _datVersionReader;
-    private readonly IGameUpdateChecker _updateChecker;
-    private readonly IGameVersionFileStore _versionStore;
     private readonly IDatPathResolver _datPathResolver;
-    private readonly IFileHasher _fileHasher;
+    private readonly IVersionBaselineService _versionBaselineService;
 
     public PatchCommand(
         ISender sender,
         IBackupManager backupManager,
         IFileProvider fileProvider,
         IOperationStatusReporter reporter,
-        IDatVersionReader datVersionReader,
-        IGameUpdateChecker updateChecker,
-        IGameVersionFileStore versionStore,
         IDatPathResolver datPathResolver,
-        IFileHasher fileHasher)
+        IVersionBaselineService versionBaselineService)
     {
         _sender = sender;
         _backupManager = backupManager;
         _fileProvider = fileProvider;
         _reporter = reporter;
-        _datVersionReader = datVersionReader;
-        _updateChecker = updateChecker;
-        _versionStore = versionStore;
         _datPathResolver = datPathResolver;
-        _fileHasher = fileHasher;
+        _versionBaselineService = versionBaselineService;
     }
-    
+
     public sealed class Settings : GlobalSettings
     {
         [CommandArgument(0, "<NAME>")]
@@ -73,7 +63,7 @@ internal sealed class PatchCommand : AsyncCommand<PatchCommand.Settings>
             _reporter.Report(preflightCheckResponse.Error.ToString());
             return ErrorMapper.MapErrorToExitCode(preflightCheckResponse.Error);
         }
-        
+
         Result backupResult = _backupManager.Create(actualResolvedPaths.Value.DatFilePath);
         if (backupResult.IsFailure)
         {
@@ -107,9 +97,10 @@ internal sealed class PatchCommand : AsyncCommand<PatchCommand.Settings>
             _reporter.Report(result.Value.ToString());
 
             // Save version baseline after successful patch so next `launch` doesn't falsely detect an update
-            await SaveVersionBaselineAsync(
+            await _versionBaselineService.SaveBaselineAsync(
                 actualResolvedPaths.Value.DatFilePath,
-                actualResolvedPaths.Value.TranslationsPath);
+                actualResolvedPaths.Value.TranslationsPath,
+                GlobalSettings.VersionFilePath);
 
             return ExitCodes.Success;
         }
@@ -120,7 +111,7 @@ internal sealed class PatchCommand : AsyncCommand<PatchCommand.Settings>
             return ExitCodes.OperationFailed;
         }
     }
-    
+
     private (string TranslationsPath, string DatFilePath)? ResolveCommandPaths(Settings settings)
     {
         string actualTranslationsPath = ResolveTranslationsPath(settings.TranslationName);
@@ -129,7 +120,7 @@ internal sealed class PatchCommand : AsyncCommand<PatchCommand.Settings>
             _reporter.Report($"Translation file not found: {actualTranslationsPath}");
             return null;
         }
-        
+
         string? datFilePath = _datPathResolver.Resolve(settings.DatFilePath);
         if (datFilePath is null)
         {
@@ -144,7 +135,7 @@ internal sealed class PatchCommand : AsyncCommand<PatchCommand.Settings>
         _reporter.Report($"DAT file not found: {datFilePath}");
         return null;
     }
-    
+
     private static string ResolveTranslationsPath(string input)
     {
         return input.Contains(Path.DirectorySeparatorChar) ||
@@ -152,29 +143,5 @@ internal sealed class PatchCommand : AsyncCommand<PatchCommand.Settings>
                input.EndsWith(".txt", StringComparison.OrdinalIgnoreCase)
             ? input
             : Path.Combine(GlobalSettings.TranslationsDir, input + ".txt");
-    }
-    
-    private async Task SaveVersionBaselineAsync(string datFilePath, string translationFilePath)
-    {
-        Result<DatVersionInfo> vnumResult = _datVersionReader.ReadVersion(datFilePath);
-        if (vnumResult.IsFailure)
-        {
-            return;
-        }
-
-        Result<GameUpdateCheckSummary> checkResult =
-            await _updateChecker.CheckForUpdateAsync(GlobalSettings.VersionFilePath);
-
-        string? forumVersion = checkResult.IsSuccess ? checkResult.Value.ForumVersion : null;
-
-        Result<string> hashResult = _fileHasher.ComputeHash(translationFilePath);
-        string? translationHash = hashResult.IsSuccess ? hashResult.Value : null;
-
-        _versionStore.SaveVersion(
-            versionFilePath: GlobalSettings.VersionFilePath,
-            forumVersion: forumVersion,
-            vnumDatFile: vnumResult.Value.VnumDatFile,
-            vnumGameData: vnumResult.Value.VnumGameData,
-            translationFileHash: translationHash);
     }
 }

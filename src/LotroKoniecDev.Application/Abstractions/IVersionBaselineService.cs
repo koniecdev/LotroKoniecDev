@@ -1,6 +1,12 @@
+using LotroKoniecDev.Domain.Models;
+
 namespace LotroKoniecDev.Application.Abstractions;
 
 public interface IVersionBaselineService
 {
-    Task<Result> SaveBaselineAsync(string datFilePath, string translationFilePath, string versionFilePath);
+    Result SaveBaseline(
+        DatVersionInfo datVersion,
+        string? forumVersion,
+        string translationFilePath,
+        string versionFilePath);
 }

@@ -4,6 +4,7 @@ using LotroKoniecDev.Application.Abstractions.DatFilesServices;
 using LotroKoniecDev.Application.Features.Patching;
 using LotroKoniecDev.Application.Features.PreflightChecking;
 using LotroKoniecDev.Domain.Core.Monads;
+using LotroKoniecDev.Domain.Models;
 using Mediator;
 using Spectre.Console.Cli;
 
@@ -16,6 +17,7 @@ internal sealed class PatchCommand : AsyncCommand<PatchCommand.Settings>
     private readonly IFileProvider _fileProvider;
     private readonly IOperationStatusReporter _reporter;
     private readonly IDatPathResolver _datPathResolver;
+    private readonly IDatVersionReader _datVersionReader;
     private readonly IVersionBaselineService _versionBaselineService;
 
     public PatchCommand(
@@ -24,6 +26,7 @@ internal sealed class PatchCommand : AsyncCommand<PatchCommand.Settings>
         IFileProvider fileProvider,
         IOperationStatusReporter reporter,
         IDatPathResolver datPathResolver,
+        IDatVersionReader datVersionReader,
         IVersionBaselineService versionBaselineService)
     {
         _sender = sender;
@@ -31,6 +34,7 @@ internal sealed class PatchCommand : AsyncCommand<PatchCommand.Settings>
         _fileProvider = fileProvider;
         _reporter = reporter;
         _datPathResolver = datPathResolver;
+        _datVersionReader = datVersionReader;
         _versionBaselineService = versionBaselineService;
     }
 
@@ -63,6 +67,9 @@ internal sealed class PatchCommand : AsyncCommand<PatchCommand.Settings>
             _reporter.Report(preflightCheckResponse.Error.ToString());
             return ErrorMapper.MapErrorToExitCode(preflightCheckResponse.Error);
         }
+
+        // Read DAT version before patching — avoids reopening the file after native DLL closes it
+        Result<DatVersionInfo> datVersionResult = _datVersionReader.ReadVersion(actualResolvedPaths.Value.DatFilePath);
 
         Result backupResult = _backupManager.Create(actualResolvedPaths.Value.DatFilePath);
         if (backupResult.IsFailure)
@@ -97,10 +104,18 @@ internal sealed class PatchCommand : AsyncCommand<PatchCommand.Settings>
             _reporter.Report(result.Value.ToString());
 
             // Save version baseline after successful patch so next `launch` doesn't falsely detect an update
-            await _versionBaselineService.SaveBaselineAsync(
-                actualResolvedPaths.Value.DatFilePath,
-                actualResolvedPaths.Value.TranslationsPath,
-                GlobalSettings.VersionFilePath);
+            if (datVersionResult.IsSuccess)
+            {
+                string? forumVersion = preflightCheckResponse.Value.GameUpdateCheckResult is { IsSuccess: true }
+                    ? preflightCheckResponse.Value.GameUpdateCheckResult.Value.ForumVersion
+                    : null;
+
+                _versionBaselineService.SaveBaseline(
+                    datVersionResult.Value,
+                    forumVersion,
+                    actualResolvedPaths.Value.TranslationsPath,
+                    GlobalSettings.VersionFilePath);
+            }
 
             return ExitCodes.Success;
         }

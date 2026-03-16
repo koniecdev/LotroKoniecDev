@@ -23,6 +23,20 @@ public sealed class GameLauncher : IGameLauncher
         return Result.Success(process.ExitCode);
     }
 
+    public Result Launch(string datFilePath)
+    {
+        Result<Process> startResult = StartLauncherProcess(datFilePath);
+        if (startResult.IsFailure)
+        {
+            return Result.Failure(startResult.Error);
+        }
+
+        // Fire-and-forget: dispose immediately, don't wait for exit.
+        // The launcher will restart itself with UAC elevation anyway.
+        startResult.Value.Dispose();
+        return Result.Success();
+    }
+
     private static Result<Process> StartLauncherProcess(string datFilePath)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(datFilePath);

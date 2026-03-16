@@ -5,4 +5,5 @@ namespace LotroKoniecDev.Application.Features.GameLaunching;
 public sealed record GameLaunchingCommand(
     string DatFilePath,
     string GameVersionFilePath,
-    string TranslationFilePath) : ICommand<Result<GameLaunchingResponse>>;
+    string TranslationFilePath,
+    bool UseLegacyFlow = false) : ICommand<Result<GameLaunchingResponse>>;

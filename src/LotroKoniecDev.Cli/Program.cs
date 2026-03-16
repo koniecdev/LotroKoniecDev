@@ -12,8 +12,12 @@ public sealed class Program
 {
     private static async Task<int> Main(string[] args)
     {
+        string logFilePath = Path.Combine(GlobalSettings.DataDir, "launch_test.log");
         Log.Logger = new LoggerConfiguration()
+            .MinimumLevel.Debug()
             .WriteTo.Console()
+            .WriteTo.File(logFilePath,
+                outputTemplate: "{Timestamp:HH:mm:ss.fff} [{Level:u3}] {Message:lj}{NewLine}{Exception}")
             .CreateLogger();
 
         CancellationTokenSource cancellationTokenSource = new();

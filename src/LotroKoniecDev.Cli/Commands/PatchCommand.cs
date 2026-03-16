@@ -20,7 +20,8 @@ internal sealed class PatchCommand : AsyncCommand<PatchCommand.Settings>
     private readonly IGameUpdateChecker _updateChecker;
     private readonly IGameVersionFileStore _versionStore;
     private readonly IDatPathResolver _datPathResolver;
-    
+    private readonly IFileHasher _fileHasher;
+
     public PatchCommand(
         ISender sender,
         IBackupManager backupManager,
@@ -29,7 +30,8 @@ internal sealed class PatchCommand : AsyncCommand<PatchCommand.Settings>
         IDatVersionReader datVersionReader,
         IGameUpdateChecker updateChecker,
         IGameVersionFileStore versionStore,
-        IDatPathResolver datPathResolver)
+        IDatPathResolver datPathResolver,
+        IFileHasher fileHasher)
     {
         _sender = sender;
         _backupManager = backupManager;
@@ -39,6 +41,7 @@ internal sealed class PatchCommand : AsyncCommand<PatchCommand.Settings>
         _updateChecker = updateChecker;
         _versionStore = versionStore;
         _datPathResolver = datPathResolver;
+        _fileHasher = fileHasher;
     }
     
     public sealed class Settings : GlobalSettings
@@ -104,7 +107,9 @@ internal sealed class PatchCommand : AsyncCommand<PatchCommand.Settings>
             _reporter.Report(result.Value.ToString());
 
             // Save version baseline after successful patch so next `launch` doesn't falsely detect an update
-            await SaveVersionBaselineAsync(actualResolvedPaths.Value.DatFilePath);
+            await SaveVersionBaselineAsync(
+                actualResolvedPaths.Value.DatFilePath,
+                actualResolvedPaths.Value.TranslationsPath);
 
             return ExitCodes.Success;
         }
@@ -149,7 +154,7 @@ internal sealed class PatchCommand : AsyncCommand<PatchCommand.Settings>
             : Path.Combine(GlobalSettings.TranslationsDir, input + ".txt");
     }
     
-    private async Task SaveVersionBaselineAsync(string datFilePath)
+    private async Task SaveVersionBaselineAsync(string datFilePath, string translationFilePath)
     {
         Result<DatVersionInfo> vnumResult = _datVersionReader.ReadVersion(datFilePath);
         if (vnumResult.IsFailure)
@@ -157,15 +162,19 @@ internal sealed class PatchCommand : AsyncCommand<PatchCommand.Settings>
             return;
         }
 
-        Result<GameUpdateCheckSummary> checkResult = 
+        Result<GameUpdateCheckSummary> checkResult =
             await _updateChecker.CheckForUpdateAsync(GlobalSettings.VersionFilePath);
-        
+
         string? forumVersion = checkResult.IsSuccess ? checkResult.Value.ForumVersion : null;
+
+        Result<string> hashResult = _fileHasher.ComputeHash(translationFilePath);
+        string? translationHash = hashResult.IsSuccess ? hashResult.Value : null;
 
         _versionStore.SaveVersion(
             versionFilePath: GlobalSettings.VersionFilePath,
             forumVersion: forumVersion,
             vnumDatFile: vnumResult.Value.VnumDatFile,
-            vnumGameData: vnumResult.Value.VnumGameData);
+            vnumGameData: vnumResult.Value.VnumGameData,
+            translationFileHash: translationHash);
     }
 }

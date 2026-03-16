@@ -1,7 +1,7 @@
 ﻿using LotroKoniecDev.Application.Extensions;
 using LotroKoniecDev.Cli.Commands;
 using LotroKoniecDev.Infrastructure;
-using LotroKoniecDev.Infrastructure.DependencyInjection;
+using LotroKoniecDev.Cli.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection;
 using Serilog;
 using Spectre.Console.Cli;

@@ -1,7 +1,7 @@
-﻿using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection;
 using Spectre.Console.Cli;
 
-namespace LotroKoniecDev.Infrastructure.DependencyInjection;
+namespace LotroKoniecDev.Cli.DependencyInjection;
 
 public sealed class TypeRegistrar : ITypeRegistrar
 {
@@ -11,7 +11,7 @@ public sealed class TypeRegistrar : ITypeRegistrar
     {
         _services = services;
     }
-    
+
     public ITypeResolver Build()
     {
         ServiceProvider provider = _services.BuildServiceProvider();

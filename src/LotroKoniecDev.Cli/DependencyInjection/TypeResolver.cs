@@ -1,6 +1,6 @@
-﻿using Spectre.Console.Cli;
+using Spectre.Console.Cli;
 
-namespace LotroKoniecDev.Infrastructure.DependencyInjection;
+namespace LotroKoniecDev.Cli.DependencyInjection;
 
 public sealed class TypeResolver : ITypeResolver
 {
@@ -10,7 +10,7 @@ public sealed class TypeResolver : ITypeResolver
     {
         _provider = provider;
     }
-    
+
     public object? Resolve(Type? type)
     {
         object? result = type is null ? null : _provider.GetService(type);

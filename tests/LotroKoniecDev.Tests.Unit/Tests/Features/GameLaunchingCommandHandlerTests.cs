@@ -478,7 +478,7 @@ public sealed class LegacyGameLaunchingStrategyTests
     }
 
     [Fact]
-    public async Task ExecuteAsync_LegacyStoredVersion_ShouldEnterForcedLauncherFlow()
+    public async Task ExecuteAsync_LegacyStoredVersion_NullVnum_ShouldSkipVnumChangeBranch_AndRepatchViaSaveRepatchAndLaunch()
     {
         StoredVersionInfo legacyStored = new("40.1", null, null);
         _updateChecker.CheckForUpdateAsync(VersionFilePath)

@@ -2,7 +2,7 @@ using Spectre.Console.Cli;
 
 namespace LotroKoniecDev.Cli.DependencyInjection;
 
-public sealed class TypeResolver : ITypeResolver
+public sealed class TypeResolver : ITypeResolver, IDisposable
 {
     private readonly IServiceProvider _provider;
 
@@ -15,5 +15,13 @@ public sealed class TypeResolver : ITypeResolver
     {
         object? result = type is null ? null : _provider.GetService(type);
         return result;
+    }
+
+    public void Dispose()
+    {
+        if (_provider is IDisposable disposable)
+        {
+            disposable.Dispose();
+        }
     }
 }

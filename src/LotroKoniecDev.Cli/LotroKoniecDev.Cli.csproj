@@ -13,15 +13,18 @@
     </PropertyGroup>
 
     <ItemGroup>
-        <PackageReference Include="Microsoft.Extensions.DependencyInjection"/>
-        <PackageReference Include="Serilog"/>
-        <PackageReference Include="Serilog.Extensions.Logging"/>
-        <PackageReference Include="Serilog.Sinks.Console"/>
+        <PackageReference Include="Microsoft.Extensions.DependencyInjection" />
+        <PackageReference Include="Serilog" />
+        <PackageReference Include="Serilog.Extensions.Logging" />
+        <PackageReference Include="Serilog.Sinks.Console" />
+        <PackageReference Include="Serilog.Sinks.File" />
+        <PackageReference Include="Spectre.Console" />
+        <PackageReference Include="Spectre.Console.Cli" />
     </ItemGroup>
 
     <ItemGroup>
-        <ProjectReference Include="..\LotroKoniecDev.Application\LotroKoniecDev.Application.csproj"/>
-        <ProjectReference Include="..\LotroKoniecDev.Infrastructure\LotroKoniecDev.Infrastructure.csproj"/>
+        <ProjectReference Include="..\LotroKoniecDev.Application\LotroKoniecDev.Application.csproj" />
+        <ProjectReference Include="..\LotroKoniecDev.Infrastructure\LotroKoniecDev.Infrastructure.csproj" />
     </ItemGroup>
 
 </Project>

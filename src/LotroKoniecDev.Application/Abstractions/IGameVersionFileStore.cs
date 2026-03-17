@@ -11,10 +11,11 @@ public interface IGameVersionFileStore
     /// Reads the stored version info. Returns null if the file does not exist (first run).
     /// </summary>
     Result<StoredVersionInfo?> ReadStoredVersion(string versionFilePath);
-
-    /// <summary>
-    /// Saves the forum version and DAT vnums to the version file.
-    /// Format: forumVersion|vnumDatFile|vnumGameData
-    /// </summary>
-    Result SaveVersion(string versionFilePath, string? forumVersion, int vnumDatFile, int vnumGameData);
+    
+    Result SaveVersion(
+        string versionFilePath,
+        string? forumVersion,
+        int vnumDatFile,
+        int vnumGameData,
+        string? translationFileHash = null);
 }

@@ -484,3 +484,9 @@ data/
 
 # Backupy
 *.backup
+
+# Build output (self-contained exe at repo root)
+/LotroKoniecDev.Cli.exe
+
+# Claude lock files
+.claude/scheduled_tasks.lock

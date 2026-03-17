@@ -33,7 +33,7 @@ public sealed class RoundtripE2ETests
         //Arrange — copy DAT to temp and patch it
         string tempDatPath = _fixture.CreateTempDatCopy();
         CliResult patch = await _fixture.RunCliAsync(
-            $"patch \"{_fixture.TranslationsPolishPath}\" \"{tempDatPath}\"");
+            $"patch \"{_fixture.TranslationsPolishPath}\" -d \"{tempDatPath}\"");
         patch.ExitCode.ShouldBe((int)CliExitCode.Success, $"Patch failed: {patch.Stderr}");
         patch.Stderr.ShouldBeNullOrWhiteSpace(
             "Patch should not produce stderr output");
@@ -41,7 +41,7 @@ public sealed class RoundtripE2ETests
         //Act — export the patched DAT
         string afterPath = Path.Combine(_fixture.CreateTempDir(), "after.txt");
         CliResult exportAfter = await _fixture.RunCliAsync(
-            $"export \"{tempDatPath}\" \"{afterPath}\"");
+            $"export -d \"{tempDatPath}\" -o \"{afterPath}\"");
         exportAfter.ExitCode.ShouldBe((int)CliExitCode.Success, $"Export after failed: {exportAfter.Stderr}");
         exportAfter.Stderr.ShouldBeNullOrWhiteSpace(
             "Export after should not produce stderr output");
@@ -94,13 +94,13 @@ public sealed class RoundtripE2ETests
         //Arrange — patch a temp copy
         string tempDatPath = _fixture.CreateTempDatCopy();
         CliResult patch = await _fixture.RunCliAsync(
-            $"patch \"{_fixture.TranslationsPolishPath}\" \"{tempDatPath}\"");
+            $"patch \"{_fixture.TranslationsPolishPath}\" -d \"{tempDatPath}\"");
         patch.ExitCode.ShouldBe((int)CliExitCode.Success, $"Patch failed: {patch.Stderr}");
 
         //Act — export patched DAT
         string afterPath = Path.Combine(_fixture.CreateTempDir(), "after.txt");
         CliResult exportAfter = await _fixture.RunCliAsync(
-            $"export \"{tempDatPath}\" \"{afterPath}\"");
+            $"export -d \"{tempDatPath}\" -o \"{afterPath}\"");
         exportAfter.ExitCode.ShouldBe((int)CliExitCode.Success, $"Export after failed: {exportAfter.Stderr}");
 
         //Assert — sample untranslated lines and verify they're identical

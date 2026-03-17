@@ -1,295 +1,61 @@
-using LotroKoniecDev.Application.Abstractions;
-using LotroKoniecDev.Application.Abstractions.DatFilesServices;
-using LotroKoniecDev.Application.Extensions;
-using LotroKoniecDev.Application.Features.Exporting;
-using LotroKoniecDev.Application.Features.GameLaunching;
-using LotroKoniecDev.Application.Features.Patching;
-using LotroKoniecDev.Application.Features.PreflightChecking;
-using LotroKoniecDev.Domain.Core.BuildingBlocks;
-using LotroKoniecDev.Domain.Core.Monads;
-using LotroKoniecDev.Domain.Models;
+﻿using LotroKoniecDev.Application.Extensions;
+using LotroKoniecDev.Cli.Commands;
 using LotroKoniecDev.Infrastructure;
-using LotroKoniecDev.Primitives.Enums;
-using Mediator;
+using LotroKoniecDev.Cli.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection;
 using Serilog;
-using static LotroKoniecDev.Cli.ConsoleWriter;
+using Spectre.Console.Cli;
 
 namespace LotroKoniecDev.Cli;
 
-internal static class Program
+public sealed class Program
 {
-    private static readonly string DataDir = Path.GetFullPath("data");
-    private const string TranslationsDir = "translations";
-    private static readonly string VersionFilePath = Path.Combine(DataDir, "last_known_game_version.txt");
-
     private static async Task<int> Main(string[] args)
     {
-        PrintBanner();
-
-        if (args.Length == 0)
-        {
-            PrintUsage();
-            return ExitCodes.InvalidArguments;
-        }
-
-        string command = args[0].ToLowerInvariant();
-
-        if (command is "patch" or "launch" && args.Length < 2)
-        {
-            WriteError("Missing required argument: translation name");
-            PrintUsage();
-            return ExitCodes.InvalidArguments;
-        }
-
+        string logFilePath = Path.Combine(GlobalSettings.DataDir, "launch_test.log");
         Log.Logger = new LoggerConfiguration()
+            .MinimumLevel.Debug()
             .WriteTo.Console()
+            .WriteTo.File(logFilePath,
+                outputTemplate: "{Timestamp:HH:mm:ss.fff} [{Level:u3}] {Message:lj}{NewLine}{Exception}")
             .CreateLogger();
 
+        CancellationTokenSource cancellationTokenSource = new();
+
+        Console.CancelKeyPress += (_, e) =>
+        {
+            e.Cancel = true;
+            cancellationTokenSource.Cancel();
+            Console.WriteLine("Cancellation requested...");
+        };
+        
         ServiceCollection services = new();
         services.AddLogging(builder => builder.AddSerilog());
         services.AddApplicationServices();
         services.AddInfrastructureServices();
         services.AddCliServices();
+        
+        TypeRegistrar typeRegistrar = new(services);
+        CommandApp app = new(typeRegistrar);
 
-        await using ServiceProvider serviceProvider = services.BuildServiceProvider();
-
-        ISender sender = serviceProvider.GetRequiredService<ISender>();
-
-        IOperationStatusReporter reporter = serviceProvider.GetRequiredService<IOperationStatusReporter>();
-
-        switch (command)
+        app.Configure(config =>
         {
-            case "export":
-                {
-                    IDatPathResolver datPathResolver = serviceProvider.GetRequiredService<IDatPathResolver>();
-                    string? datPath = datPathResolver.Resolve(args.Length > 1 ? args[1] : null);
-                    if (datPath is null)
-                    {
-                        return ExitCodes.FileNotFound;
-                    }
-
-                    string outputPath = args.Length > 2
-                        ? args[2]
-                        : Path.Combine(DataDir, "exported.txt");
-
-                    ExportTextsQuery query = new(
-                        DatFilePath: datPath,
-                        OutputPath: outputPath);
-                    try
-                    {
-                        Result<ExportSummaryResponse> result = await sender.Send(query);
-                        if (result.IsFailure)
-                        {
-                            reporter.Report(result.Error.ToString());
-                            return MapErrorToExitCode(result.Error);
-                        }
-                        
-                        reporter.Report(result.Value.ToString());
-                        return ExitCodes.Success;
-                    }
-                    catch(Exception ex)
-                    {
-                        reporter.Report(ex.ToString());
-                        return ExitCodes.OperationFailed;
-                    }
-                }
+            config.SetApplicationName("LotroKoniecDev");
             
-            case "patch":
-                {
-                    (string TranslationsPath, string DatFilePath)? paths = ResolveCommandPaths(args, serviceProvider, reporter);
-                    if (paths is null)
-                    {
-                        return ExitCodes.FileNotFound;
-                    }
+            config.AddCommand<ExportCommand>("export")
+                  .WithDescription("EXPORT texts from game");
+            
+            config.AddCommand<PatchCommand>("patch")
+                  .WithDescription("PATCH (inject translations)");
 
-                    PreflightCheckQuery preflightCheckQuery = new(paths.Value.DatFilePath, VersionFilePath);
-                    Result<PreflightReportResponse> preflightCheckResponse = await sender.Send(preflightCheckQuery);
-                    if(preflightCheckResponse.IsFailure)
-                    {
-                        reporter.Report(preflightCheckResponse.Error.ToString());
-                        return MapErrorToExitCode(preflightCheckResponse.Error);
-                    }
+            config.AddCommand<LaunchCommand>("launch")
+                  .WithDescription("LAUNCH (patch + protect + play)");
+        });
 
-                    IBackupManager backupManager = serviceProvider.GetRequiredService<IBackupManager>();
+        int result = await app.RunAsync(args, cancellationTokenSource.Token);
 
-                    Result backupResult = backupManager.Create(paths.Value.DatFilePath);
-                    if (backupResult.IsFailure)
-                    {
-                        reporter.Report(backupResult.Error.ToString());
-                        return MapErrorToExitCode(backupResult.Error);
-                    }
-
-                    try
-                    {
-                        ApplyPatchCommand applyPatchCommand = new(
-                            TranslationsPath: paths.Value.TranslationsPath,
-                            DatFilePath: paths.Value.DatFilePath);
-
-                        Result<PatchSummaryResponse> result = await sender.Send(applyPatchCommand);
-                        if (result.IsFailure)
-                        {
-                            reporter.Report(result.Error.ToString());
-                            return MapErrorToExitCode(result.Error);
-                        }
-
-                        foreach (string warning in result.Value.Warnings)
-                        {
-                            reporter.Report(warning);
-                        }
-
-                        if (result.Value.SkippedTranslations > 0)
-                        {
-                            reporter.Report($"Skipped {result.Value.SkippedTranslations} translations");
-                        }
-
-                        reporter.Report(result.Value.ToString());
-
-                        // Save version baseline after successful patch so next `launch` doesn't falsely detect an update
-                        await SaveVersionBaselineAsync(serviceProvider, paths.Value.DatFilePath);
-
-                        return ExitCodes.Success;
-                    }
-                    catch(Exception ex)
-                    {
-                        backupManager.Restore(paths.Value.DatFilePath);
-                        reporter.Report(ex.ToString());
-                        return ExitCodes.OperationFailed;
-                    }
-                }
-
-            case "launch":
-                {
-                    (string TranslationsPath, string DatFilePath)? paths = ResolveCommandPaths(args, serviceProvider, reporter);
-                    if (paths is null)
-                    {
-                        return ExitCodes.FileNotFound;
-                    }
-
-                    try
-                    {
-                        GameLaunchingCommand gameLaunchingCommand = new(
-                            DatFilePath: paths.Value.DatFilePath,
-                            GameVersionFilePath: VersionFilePath,
-                            TranslationFilePath: paths.Value.TranslationsPath);
-
-                        Result<GameLaunchingResponse> result = await sender.Send(gameLaunchingCommand);
-                        if (result.IsFailure)
-                        {
-                            reporter.Report(result.Error.ToString());
-                            return MapErrorToExitCode(result.Error);
-                        }
-
-                        reporter.Report(result.Value.ToString());
-                        return ExitCodes.Success;
-                    }
-                    catch (Exception ex)
-                    {
-                        reporter.Report(ex.ToString());
-                        return ExitCodes.OperationFailed;
-                    }
-                }
-            default:
-                return HandleUnknownCommand();
-        }
-    }
-
-    private static async Task SaveVersionBaselineAsync(ServiceProvider serviceProvider, string datFilePath)
-    {
-        IDatVersionReader datVersionReader = serviceProvider.GetRequiredService<IDatVersionReader>();
-        IGameUpdateChecker updateChecker = serviceProvider.GetRequiredService<IGameUpdateChecker>();
-        IGameVersionFileStore versionStore = serviceProvider.GetRequiredService<IGameVersionFileStore>();
-
-        Result<DatVersionInfo> vnumResult = datVersionReader.ReadVersion(datFilePath);
-        if (vnumResult.IsFailure)
-        {
-            return;
-        }
-
-        Result<GameUpdateCheckSummary> checkResult = await updateChecker.CheckForUpdateAsync(VersionFilePath);
-        string? forumVersion = checkResult.IsSuccess ? checkResult.Value.ForumVersion : null;
-
-        versionStore.SaveVersion(VersionFilePath, forumVersion, vnumResult.Value.VnumDatFile, vnumResult.Value.VnumGameData);
-    }
-
-    private static (string TranslationsPath, string DatFilePath)? ResolveCommandPaths(
-        string[] args,
-        ServiceProvider serviceProvider,
-        IOperationStatusReporter reporter)
-    {
-        IFileProvider fileProvider = serviceProvider.GetRequiredService<IFileProvider>();
-
-        string translationsPath = ResolveTranslationsPath(args[1]);
-        if (!fileProvider.Exists(translationsPath))
-        {
-            reporter.Report($"Translation file not found: {translationsPath}");
-            return null;
-        }
-
-        reporter.Report($"Loading translations from: {args[1]}");
-
-        IDatPathResolver datPathResolver = serviceProvider.GetRequiredService<IDatPathResolver>();
-        string? datFilePath = datPathResolver.Resolve(args.Length > 2 ? args[2] : null);
-        if (datFilePath is null)
-        {
-            return null;
-        }
-        if (!fileProvider.Exists(datFilePath))
-        {
-            reporter.Report($"DAT file not found: {datFilePath}");
-            return null;
-        }
-
-        return (translationsPath, datFilePath);
-    }
-
-    private static string ResolveTranslationsPath(string input)
-    {
-        return input.Contains(Path.DirectorySeparatorChar) ||
-               input.Contains(Path.AltDirectorySeparatorChar) ||
-               input.EndsWith(".txt", StringComparison.OrdinalIgnoreCase)
-            ? input
-            : Path.Combine(TranslationsDir, input + ".txt");
-    }
-    
-    private static void PrintUsage()
-    {
-        Console.WriteLine("Usage:");
-        Console.WriteLine();
-        Console.WriteLine("  EXPORT texts from game:");
-        Console.WriteLine("    LotroKoniecDev export [dat_file] [output.txt]");
-        Console.WriteLine();
-        Console.WriteLine("  PATCH (inject translations):");
-        Console.WriteLine("    LotroKoniecDev patch <name> [dat_file]");
-        Console.WriteLine("    Name resolves to translations/<name>.txt");
-        Console.WriteLine();
-        Console.WriteLine("  LAUNCH (patch + protect + play):");
-        Console.WriteLine("    LotroKoniecDev launch <name> [dat_file]");
-        Console.WriteLine("    Checks for updates, protects DAT, launches game, unprotects after exit");
-        Console.WriteLine();
-        Console.WriteLine("If no DAT file is specified, LOTRO installation is detected automatically.");
-        Console.WriteLine();
-        Console.WriteLine("Examples:");
-        Console.WriteLine("  LotroKoniecDev patch example_polish");
-        Console.WriteLine(@"  LotroKoniecDev patch example_polish C:\path\to\client_local_English.dat");
-        Console.WriteLine("  LotroKoniecDev launch example_polish");
-        Console.WriteLine("  LotroKoniecDev export");
-    }
-
-    private static int MapErrorToExitCode(Error error) =>
-        error.Type == ErrorType.NotFound
-            ? ExitCodes.FileNotFound
-            : ExitCodes.OperationFailed;
-
-    private static int HandleUnknownCommand()
-    {
-        PrintUsage();
-        return ExitCodes.InvalidArguments;
-    }
-
-    private static void PrintBanner()
-    {
-        Console.WriteLine("=== LOTRO Translations Patcher ===");
-        Console.WriteLine();
+        // Spectre.Console.Cli returns -1 for parse errors (unknown command, missing args).
+        // Map to our InvalidArguments exit code for consistent contract.
+        return result < 0 ? ExitCodes.InvalidArguments : result;
     }
 }

@@ -1,5 +1,6 @@
 using LotroKoniecDev.Application.Abstractions;
 using LotroKoniecDev.Application.Behaviors;
+using LotroKoniecDev.Application.Features.GameLaunching;
 using LotroKoniecDev.Application.Features.Patching;
 using LotroKoniecDev.Application.Features.UpdateChecking;
 using LotroKoniecDev.Application.Parsers;
@@ -30,6 +31,9 @@ public static class ApplicationDependencyInjection
         services.AddSingleton<ITranslationParser, TranslationFileParser>();
         services.AddSingleton<IGameUpdateChecker, GameUpdateChecker>();
         services.AddScoped<IPatchingService, PatchingService>();
+        services.AddScoped<IVersionBaselineService, VersionBaselineService>();
+        services.AddKeyedScoped<IGameLaunchingStrategy, LegacyGameLaunchingStrategy>("legacy");
+        services.AddKeyedScoped<IGameLaunchingStrategy, SimplifiedGameLaunchingStrategy>("simplified");
 
         return services;
     }

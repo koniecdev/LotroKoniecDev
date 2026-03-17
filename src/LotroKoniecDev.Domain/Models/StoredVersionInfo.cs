@@ -6,4 +6,5 @@ namespace LotroKoniecDev.Domain.Models;
 public sealed record StoredVersionInfo(
     string? ForumVersion,
     int? VnumDatFile,
-    int? VnumGameData);
+    int? VnumGameData,
+    string? TranslationFileHash = null);

@@ -63,6 +63,12 @@ internal sealed class PatchingService : IPatchingService
 
             foreach (Translation translation in translations)
             {
+                if (!translation.IsApproved)
+                {
+                    skippedCount++;
+                    continue;
+                }
+
                 if (!fileSizes.ContainsKey(translation.FileId))
                 {
                     warnings.Add($"File {translation.FileId} not found in DAT archive");
@@ -124,6 +130,16 @@ internal sealed class PatchingService : IPatchingService
                     && fragment is not null)
                 {
                     fragment.Pieces = translation.GetPieces().ToList();
+
+                    if (translation.ArgsOrder is not null && fragment.HasArguments)
+                    {
+                        if (!fragment.TryReorderArgRefs(translation.ArgsOrder))
+                        {
+                            warnings.Add(
+                                $"ArgRefs reorder failed for fragment {translation.GossipId} in file {translation.FileId}");
+                        }
+                    }
+
                     appliedCount++;
 
                     if (appliedCount % ProgressReportInterval == 0)

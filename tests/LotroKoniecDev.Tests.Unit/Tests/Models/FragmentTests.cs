@@ -256,6 +256,105 @@ public sealed class FragmentTests
     }
 
     [Fact]
+    public void TryReorderArgRefs_NullOrder_ShouldThrowArgumentNullException()
+    {
+        // Arrange
+        Fragment fragment = new();
+        fragment.ArgRefs.Add([0x01, 0x00, 0x00, 0x00]);
+
+        // Act
+        Action action = () => fragment.TryReorderArgRefs(null!);
+
+        // Assert
+        action.ShouldThrow<ArgumentNullException>();
+    }
+
+    [Fact]
+    public void TryReorderArgRefs_SwapTwoArgs_ShouldReorder()
+    {
+        // Arrange
+        Fragment fragment = new();
+        fragment.ArgRefs.Add([0x01, 0x00, 0x00, 0x00]);
+        fragment.ArgRefs.Add([0x02, 0x00, 0x00, 0x00]);
+
+        // Act
+        bool result = fragment.TryReorderArgRefs([1, 0]);
+
+        // Assert
+        result.ShouldBeTrue();
+        fragment.ArgRefs[0].ShouldBe(new byte[] { 0x02, 0x00, 0x00, 0x00 });
+        fragment.ArgRefs[1].ShouldBe(new byte[] { 0x01, 0x00, 0x00, 0x00 });
+    }
+
+    [Fact]
+    public void TryReorderArgRefs_SameOrder_ShouldPreserveOrder()
+    {
+        // Arrange
+        Fragment fragment = new();
+        fragment.ArgRefs.Add([0x01, 0x00, 0x00, 0x00]);
+        fragment.ArgRefs.Add([0x02, 0x00, 0x00, 0x00]);
+
+        // Act
+        bool result = fragment.TryReorderArgRefs([0, 1]);
+
+        // Assert
+        result.ShouldBeTrue();
+        fragment.ArgRefs[0].ShouldBe(new byte[] { 0x01, 0x00, 0x00, 0x00 });
+        fragment.ArgRefs[1].ShouldBe(new byte[] { 0x02, 0x00, 0x00, 0x00 });
+    }
+
+    [Fact]
+    public void TryReorderArgRefs_MismatchedLength_ShouldReturnFalse()
+    {
+        // Arrange
+        Fragment fragment = new();
+        fragment.ArgRefs.Add([0x01, 0x00, 0x00, 0x00]);
+        fragment.ArgRefs.Add([0x02, 0x00, 0x00, 0x00]);
+
+        // Act
+        bool result = fragment.TryReorderArgRefs([0, 1, 2]);
+
+        // Assert
+        result.ShouldBeFalse();
+        // ArgRefs should remain unchanged
+        fragment.ArgRefs.Count.ShouldBe(2);
+    }
+
+    [Fact]
+    public void TryReorderArgRefs_OutOfRangeIndex_ShouldReturnFalse()
+    {
+        // Arrange
+        Fragment fragment = new();
+        fragment.ArgRefs.Add([0x01, 0x00, 0x00, 0x00]);
+        fragment.ArgRefs.Add([0x02, 0x00, 0x00, 0x00]);
+
+        // Act
+        bool result = fragment.TryReorderArgRefs([0, 5]);
+
+        // Assert
+        result.ShouldBeFalse();
+    }
+
+    [Fact]
+    public void TryReorderArgRefs_ThreeArgs_ShouldReorderCorrectly()
+    {
+        // Arrange
+        Fragment fragment = new();
+        fragment.ArgRefs.Add([0x0A, 0x00, 0x00, 0x00]);
+        fragment.ArgRefs.Add([0x0B, 0x00, 0x00, 0x00]);
+        fragment.ArgRefs.Add([0x0C, 0x00, 0x00, 0x00]);
+
+        // Act — rotate: [2, 0, 1] means new[0]=old[2], new[1]=old[0], new[2]=old[1]
+        bool result = fragment.TryReorderArgRefs([2, 0, 1]);
+
+        // Assert
+        result.ShouldBeTrue();
+        fragment.ArgRefs[0].ShouldBe(new byte[] { 0x0C, 0x00, 0x00, 0x00 });
+        fragment.ArgRefs[1].ShouldBe(new byte[] { 0x0A, 0x00, 0x00, 0x00 });
+        fragment.ArgRefs[2].ShouldBe(new byte[] { 0x0B, 0x00, 0x00, 0x00 });
+    }
+
+    [Fact]
     public void ParseAndWrite_RoundTrip_WithArgStrings_ShouldPreserveData()
     {
         // Arrange — build binary with pieces + arg refs + arg string groups

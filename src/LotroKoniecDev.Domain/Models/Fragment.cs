@@ -27,6 +27,37 @@ public sealed class Fragment
         string.Join(separator, Pieces);
 
     /// <summary>
+    /// Reorders argument references according to the specified order.
+    /// Each element in <paramref name="order"/> is a 0-indexed source position.
+    /// </summary>
+    /// <param name="order">The reordering map (e.g. [1, 0] swaps two args).</param>
+    /// <returns>True if reordering succeeded; false if order is invalid.</returns>
+    public bool TryReorderArgRefs(int[] order)
+    {
+        ArgumentNullException.ThrowIfNull(order);
+
+        if (order.Length != ArgRefs.Count)
+        {
+            return false;
+        }
+
+        List<byte[]> reordered = new(order.Length);
+
+        foreach (int sourceIndex in order)
+        {
+            if (sourceIndex < 0 || sourceIndex >= ArgRefs.Count)
+            {
+                return false;
+            }
+
+            reordered.Add(ArgRefs[sourceIndex]);
+        }
+
+        ArgRefs = reordered;
+        return true;
+    }
+
+    /// <summary>
     /// Parses a fragment from binary data.
     /// </summary>
     /// <param name="reader">The binary reader positioned at the fragment start.</param>

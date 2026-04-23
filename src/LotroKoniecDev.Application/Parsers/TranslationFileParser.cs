@@ -14,7 +14,7 @@ namespace LotroKoniecDev.Application.Parsers;
 public sealed class TranslationFileParser : ITranslationParser
 {
     private const string FieldSeparator = "||";
-    private const int MinimumFieldCount = 5;
+    private const int MinimumFieldCount = 6;
 
     public Result<IReadOnlyList<Translation>> ParseFile(string filePath)
     {
@@ -82,7 +82,8 @@ public sealed class TranslationFileParser : ITranslationParser
                 GossipId = int.Parse(parts[1]),
                 Content = UnescapeContent(parts[2]),
                 ArgsOrder = ParseArgsArray(parts[3]),
-                ArgsId = ParseArgsArray(parts[4])
+                ArgsId = ParseArgsArray(parts[4]),
+                IsApproved = parts[5] == "1"
             };
 
             return Result.Success(translation);

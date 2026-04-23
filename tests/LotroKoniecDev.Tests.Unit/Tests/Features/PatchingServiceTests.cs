@@ -51,14 +51,17 @@ public sealed class PatchingServiceTests
     private static Translation CreateTranslation(
         int fileId = TextFileId,
         int gossipId = (int)FragmentId1,
-        string content = "Przetlumaczony tekst") =>
+        string content = "Przetlumaczony tekst",
+        int[]? argsOrder = null,
+        bool isApproved = true) =>
         new()
         {
             FileId = fileId,
             GossipId = gossipId,
             Content = content,
-            ArgsOrder = null,
-            ArgsId = null
+            ArgsOrder = argsOrder,
+            ArgsId = null,
+            IsApproved = isApproved
         };
 
     [Fact]
@@ -333,6 +336,93 @@ public sealed class PatchingServiceTests
             DatHandle, TextFileId, Arg.Any<byte[]>(), Arg.Any<int>(), 1);
         _datFileHandler.Received(1).PutSubfileData(
             DatHandle, TextFileId2, Arg.Any<byte[]>(), Arg.Any<int>(), 2);
+    }
+
+    [Fact]
+    public void ApplyTranslations_UnapprovedTranslation_ShouldSkip()
+    {
+        // Arrange
+        SetupAllPassingDefaults();
+        SetupTranslations(CreateTranslation(isApproved: false));
+
+        // Act
+        Result<PatchSummaryResponse> result = _sut.ApplyTranslations("/translations/polish.txt", "/game/client_local_English.dat");
+
+        // Assert
+        result.IsSuccess.ShouldBeTrue();
+        result.Value.AppliedTranslations.ShouldBe(0);
+        result.Value.SkippedTranslations.ShouldBe(1);
+    }
+
+    [Fact]
+    public void ApplyTranslations_MixedApproval_ShouldOnlyApplyApproved()
+    {
+        // Arrange
+        SetupAllPassingDefaults();
+
+        byte[] subFileData = TestDataFactory.CreateTextSubFileData(TextFileId, FragmentId1, 2);
+        _datFileHandler.GetSubfileData(DatHandle, TextFileId, 100)
+            .Returns(Result.Success(subFileData));
+
+        Translation approved = CreateTranslation(gossipId: (int)FragmentId1, isApproved: true);
+        Translation unapproved = CreateTranslation(gossipId: (int)FragmentId2, isApproved: false);
+        SetupTranslations(approved, unapproved);
+
+        // Act
+        Result<PatchSummaryResponse> result = _sut.ApplyTranslations("/translations/polish.txt", "/game/client_local_English.dat");
+
+        // Assert
+        result.IsSuccess.ShouldBeTrue();
+        result.Value.AppliedTranslations.ShouldBe(1);
+        result.Value.SkippedTranslations.ShouldBe(1);
+    }
+
+    [Fact]
+    public void ApplyTranslations_WithArgsOrder_ShouldReorderArgRefs()
+    {
+        // Arrange
+        byte[][] argRefs =
+        [
+            [0x01, 0x00, 0x00, 0x00],
+            [0x02, 0x00, 0x00, 0x00]
+        ];
+        byte[] subFileData = TestDataFactory.CreateTextSubFileDataWithArgs(
+            TextFileId, FragmentId1, ["Part1", "Part2", "Part3"], argRefs);
+
+        _datFileHandler.Open(Arg.Any<string>()).Returns(Result.Success(DatHandle));
+        _datFileHandler.GetAllSubfileSizes(DatHandle).Returns(new Dictionary<int, (int, int)>
+        {
+            { TextFileId, (subFileData.Length, 1) }
+        });
+        _datFileHandler.GetSubfileData(DatHandle, TextFileId, subFileData.Length)
+            .Returns(Result.Success(subFileData));
+        _datFileHandler.GetSubfileVersion(DatHandle, TextFileId).Returns(1);
+        _datFileHandler.PutSubfileData(DatHandle, Arg.Any<int>(), Arg.Any<byte[]>(), Arg.Any<int>(), Arg.Any<int>())
+            .Returns(Result.Success());
+
+        // Translation with swapped arg order: [1, 0] means new[0]=old[1], new[1]=old[0]
+        Translation translation = CreateTranslation(
+            content: "Czesc1<--DO_NOT_TOUCH!-->Czesc2<--DO_NOT_TOUCH!-->Czesc3",
+            argsOrder: [1, 0]);
+        SetupTranslations(translation);
+
+        byte[]? capturedData = null;
+        _datFileHandler.PutSubfileData(DatHandle, TextFileId, Arg.Do<byte[]>(d => capturedData = d), Arg.Any<int>(), 1)
+            .Returns(Result.Success());
+
+        // Act
+        Result<PatchSummaryResponse> result = _sut.ApplyTranslations("/translations/polish.txt", "/game/client_local_English.dat");
+
+        // Assert
+        result.IsSuccess.ShouldBeTrue();
+        result.Value.AppliedTranslations.ShouldBe(1);
+
+        capturedData.ShouldNotBeNull();
+        SubFile verifySubFile = new();
+        verifySubFile.Parse(capturedData);
+        verifySubFile.TryGetFragment(FragmentId1, out Fragment? verifyFragment).ShouldBeTrue();
+        verifyFragment!.ArgRefs[0].ShouldBe(new byte[] { 0x02, 0x00, 0x00, 0x00 });
+        verifyFragment.ArgRefs[1].ShouldBe(new byte[] { 0x01, 0x00, 0x00, 0x00 });
     }
 
     [Fact]

@@ -31,6 +31,45 @@ internal static class TestDataFactory
     }
 
     /// <summary>
+    /// Creates binary SubFile data with a single fragment containing argument references.
+    /// </summary>
+    internal static byte[] CreateTextSubFileDataWithArgs(
+        int fileId,
+        ulong fragmentId,
+        string[] pieces,
+        byte[][] argRefs)
+    {
+        using MemoryStream stream = new();
+        using BinaryWriter writer = new(stream);
+
+        writer.Write(fileId);
+        writer.Write(new byte[4]); // Unknown1
+        writer.Write((byte)0); // Unknown2
+        writer.Write((byte)1); // numFragments (varlen)
+
+        // Fragment
+        writer.Write(fragmentId);
+        writer.Write(pieces.Length); // numPieces
+
+        foreach (string piece in pieces)
+        {
+            writer.Write((byte)piece.Length); // piece length (varlen)
+            writer.Write(Encoding.Unicode.GetBytes(piece));
+        }
+
+        writer.Write(argRefs.Length); // numArgRefs
+
+        foreach (byte[] argRef in argRefs)
+        {
+            writer.Write(argRef);
+        }
+
+        writer.Write((byte)0); // numArgStringGroups
+
+        return stream.ToArray();
+    }
+
+    /// <summary>
     /// Creates binary SubFile data with multiple fragments, IDs starting from <paramref name="fragmentId"/>.
     /// Each fragment contains a single "Test" piece.
     /// </summary>

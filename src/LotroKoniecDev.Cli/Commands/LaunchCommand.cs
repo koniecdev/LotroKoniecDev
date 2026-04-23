@@ -39,11 +39,6 @@ internal sealed class LaunchCommand : AsyncCommand<LaunchCommand.Settings>
         [CommandOption("-d|--dat-file-path")]
         [Description("Optional path to the DAT file")]
         public string? DatFilePath { get; init; }
-
-        [CommandOption("--legacy")]
-        [Description("Use legacy launch flow (with DAT protection and process monitoring)")]
-        [DefaultValue(false)]
-        public bool Legacy { get; init; }
     }
     
     public override async Task<int> ExecuteAsync(CommandContext context, Settings settings,
@@ -60,8 +55,7 @@ internal sealed class LaunchCommand : AsyncCommand<LaunchCommand.Settings>
             GameLaunchingCommand gameLaunchingCommand = new(
                 DatFilePath: actualResolvedPaths.Value.DatFilePath,
                 GameVersionFilePath: GlobalSettings.VersionFilePath,
-                TranslationFilePath: actualResolvedPaths.Value.TranslationsPath,
-                UseLegacyFlow: settings.Legacy);
+                TranslationFilePath: actualResolvedPaths.Value.TranslationsPath);
 
             Result<GameLaunchingResponse> result = await _sender.Send(gameLaunchingCommand, cancellationToken);
             if (result.IsFailure)

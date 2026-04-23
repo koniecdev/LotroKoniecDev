@@ -27,17 +27,6 @@ public static partial class DomainErrors
             IoError("DatFileLocation", "NoWriteAccess", $"'{path}'. Run as Administrator.");
     }
 
-    public static class DatFileProtection
-    {
-        public static Error ProtectFailed(string path, string message) =>
-            IoError("DatFileProtection", "ProtectFailed", $"'{path}': {message}");
-
-        public static Error UnprotectFailed(string path, string message) =>
-            IoError("DatFileProtection", "UnprotectFailed", $"'{path}': {message}");
-        public static Error IsProtectedFailed(string path, string message) =>
-            IoError("DatFileProtection", "IsProtectedFailed", $"'{path}': {message}");
-    }
-
     public static class GameLaunch
     {
         public static Error GameAlreadyRunning =>
@@ -48,9 +37,6 @@ public static partial class DomainErrors
 
         public static Error LaunchFailed(string message) =>
             OperationFailed("GameLaunch", message);
-
-        public static Error KillFailed(string message) =>
-            OperationFailed("GameLaunch", $"Failed to kill LOTRO processes: {message}");
 
         public static Error RepatchFailed(string message) =>
             OperationFailed("GameLaunch", $"Re-patching translations after update failed: {message}");

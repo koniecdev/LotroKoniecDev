@@ -38,14 +38,16 @@ file_id||gossip_id||translated_text||args_order||args_id||approved
 
 ## Game Update Detection
 
-Two-source model:
-1. **Forum checker** (proactive): scrapes lotro.com release notes, regex `Update\s+(\d+(?:\.\d+)*)\s+Release\s+Notes`
-2. **DAT vnum** (confirmation): `OpenDatFileEx2()` -> `vnumGameData`
+- **Forum checker**: scrapes lotro.com release notes, regex `Update\s+(\d+(?:\.\d+)*)\s+Release\s+Notes`
+- **DAT vnum**: `OpenDatFileEx2()` -> `vnumGameData` — empirically useless as content version (112/3 unchanged across 47→47.1→47.2 even when DAT was actively patched)
+- **Forum version** (e.g. "47.2") is the reliable game version identifier, not vnum
 
-## DAT File Protection
+## DAT Update Behavior (empirically proven)
 
-`attrib +R` on `client_local_English.dat` — OS-level read-only, launcher cannot bypass.
-Stronger than Russian project's `-disablePatch` flag - it intentionally blocks game updates.
+- Launcher uses **chunk-based patching**: downloads partial files (e.g. `client_local_English-98232.dat`), applies only changed entries
+- **Translations survive updates** — proven across 5 tests including updates that actively patched DAT
+- `attrib +R` protection is **unnecessary** — translations persist without it
+- Simplified flow (hash-based patch + fire-and-forget launch) is fully validated
 
 ## 3. Code Style & Syntax
 * **Namespaces:** Use file-scoped namespaces.

@@ -9,35 +9,7 @@ public sealed class GameLauncher : IGameLauncher
 {
     private const string LauncherExecutable = "LotroLauncher.exe";
 
-    public async Task<Result<int>> LaunchAndWaitForExitAsync(string datFilePath, CancellationToken cancellationToken = default)
-    {
-        Result<Process> startResult = StartLauncherProcess(datFilePath);
-        if (startResult.IsFailure)
-        {
-            return Result.Failure<int>(startResult.Error);
-        }
-
-        using Process process = startResult.Value;
-        await process.WaitForExitAsync(cancellationToken);
-
-        return Result.Success(process.ExitCode);
-    }
-
     public Result Launch(string datFilePath)
-    {
-        Result<Process> startResult = StartLauncherProcess(datFilePath);
-        if (startResult.IsFailure)
-        {
-            return Result.Failure(startResult.Error);
-        }
-
-        // Fire-and-forget: dispose immediately, don't wait for exit.
-        // The launcher will restart itself with UAC elevation anyway.
-        startResult.Value.Dispose();
-        return Result.Success();
-    }
-
-    private static Result<Process> StartLauncherProcess(string datFilePath)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(datFilePath);
 
@@ -45,7 +17,7 @@ public sealed class GameLauncher : IGameLauncher
 
         if (!File.Exists(launcherPath))
         {
-            return Result.Failure<Process>(DomainErrors.GameLaunch.LauncherNotFound(launcherPath));
+            return Result.Failure(DomainErrors.GameLaunch.LauncherNotFound(launcherPath));
         }
 
         try
@@ -61,15 +33,18 @@ public sealed class GameLauncher : IGameLauncher
 
             if (process is null)
             {
-                return Result.Failure<Process>(DomainErrors.GameLaunch.LaunchFailed(
+                return Result.Failure(DomainErrors.GameLaunch.LaunchFailed(
                     "Process.Start returned null — the launcher could not be started."));
             }
 
-            return Result.Success(process);
+            // Fire-and-forget: dispose immediately, don't wait for exit.
+            // The launcher will restart itself with UAC elevation anyway.
+            process.Dispose();
+            return Result.Success();
         }
         catch (Exception ex)
         {
-            return Result.Failure<Process>(DomainErrors.GameLaunch.LaunchFailed(ex.Message));
+            return Result.Failure(DomainErrors.GameLaunch.LaunchFailed(ex.Message));
         }
     }
 

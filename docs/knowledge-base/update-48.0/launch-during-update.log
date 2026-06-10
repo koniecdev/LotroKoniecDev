@@ -1,0 +1,40 @@
+12:24:29.470 [INF] Processing request ExportTextsQuery
+12:24:29.539 [ERR] Completed request ExportTextsQuery in 35ms with error {"Code":"DatFile.CannotOpen","Message":"CannotOpen failed for datfile: C:/Program Files (x86)/StandingStoneGames/The Lord of the Rings Online/client_local_English.dat","Type":"IoError","$type":"Error"}
+12:24:29.546 [INF] Completed request ExportTextsQuery in 35ms
+12:30:15.427 [INF] Processing request ExportTextsQuery
+12:30:18.493 [INF] Completed request ExportTextsQuery in 3042ms
+12:35:48.846 [INF] Processing request GameLaunchingCommand
+12:35:48.874 [INF] === SIMPLIFIED LAUNCH START ===
+12:35:48.875 [INF] DatFilePath: C:\Program Files (x86)\StandingStoneGames\The Lord of the Rings Online\client_local_English.dat
+12:35:48.876 [INF] TranslationFilePath: translations\polish.txt
+12:35:48.877 [INF] GameVersionFilePath: C:\Users\halin\RiderProjects\LotroKoniecDev\data\last_known_game_version.txt
+12:35:48.910 [INF] Step 1: Computing translation file hash...
+12:35:48.925 [INF] Current translation hash: 40b613a24dc5c1082697ddde5f542b0b607349a2613d83a88ddf225dc83ed3d6
+12:35:48.927 [INF] Step 2: Reading stored version info...
+12:35:48.928 [INF] Stored info: ForumVersion=47, VnumDat=112, VnumGame=3, Hash=(null)
+12:35:48.930 [INF] Translation changed? true (stored hash null=true, match=false)
+12:35:48.933 [INF] >>> PATCHING: Translation file changed — applying patch
+12:35:48.947 [ERR] ApplyTranslations FAILED: CannotOpen failed for datfile: C:\Program Files (x86)\StandingStoneGames\The Lord of the Rings Online\client_local_English.dat
+12:35:48.953 [ERR] Completed request GameLaunchingCommand in 77ms with error {"Code":"GameLaunch.Failed","Message":"Re-patching translations after update failed: CannotOpen failed for datfile: C:\\Program Files (x86)\\StandingStoneGames\\The Lord of the Rings Online\\client_local_English.dat","Type":"Failure","$type":"Error"}
+12:35:48.961 [INF] Completed request GameLaunchingCommand in 77ms
+12:37:21.037 [INF] Processing request GameLaunchingCommand
+12:37:21.060 [INF] === SIMPLIFIED LAUNCH START ===
+12:37:21.062 [INF] DatFilePath: C:\Program Files (x86)\StandingStoneGames\The Lord of the Rings Online\client_local_English.dat
+12:37:21.062 [INF] TranslationFilePath: translations\polish.txt
+12:37:21.063 [INF] GameVersionFilePath: C:\Users\halin\RiderProjects\LotroKoniecDev\data\last_known_game_version.txt
+12:37:21.093 [INF] Step 1: Computing translation file hash...
+12:37:21.102 [INF] Current translation hash: 40b613a24dc5c1082697ddde5f542b0b607349a2613d83a88ddf225dc83ed3d6
+12:37:21.104 [INF] Step 2: Reading stored version info...
+12:37:21.106 [INF] Stored info: ForumVersion=47, VnumDat=112, VnumGame=3, Hash=(null)
+12:37:21.107 [INF] Translation changed? true (stored hash null=true, match=false)
+12:37:21.110 [INF] >>> PATCHING: Translation file changed — applying patch
+12:37:21.424 [INF] Patched translations: 8 applied, 0 skipped
+12:37:21.426 [INF] Reading DAT vnum to save alongside hash...
+12:37:21.541 [INF] DAT vnum: VnumDat=112, VnumGame=3
+12:37:21.542 [INF] Version saved OK
+12:37:21.543 [INF] Step 3: Launching game (fire-and-forget)...
+12:37:21.739 [INF] Launcher started OK (fire-and-forget, not waiting for exit)
+12:37:21.740 [INF] === SIMPLIFIED LAUNCH END ===
+12:37:21.740 [INF] Completed request GameLaunchingCommand in 682ms
+12:47:48.734 [INF] Processing request ExportTextsQuery
+12:47:52.267 [INF] Completed request ExportTextsQuery in 3511ms

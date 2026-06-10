@@ -490,3 +490,9 @@ data/
 
 # Claude lock files
 .claude/scheduled_tasks.lock
+
+# Claude per-user settings
+.claude/settings.local.json
+
+# Intel / test snapshots (DAT backups, exports, diffs — too large for git)
+intel/

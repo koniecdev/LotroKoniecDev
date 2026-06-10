@@ -32,8 +32,7 @@ public static class ApplicationDependencyInjection
         services.AddSingleton<IGameUpdateChecker, GameUpdateChecker>();
         services.AddScoped<IPatchingService, PatchingService>();
         services.AddScoped<IVersionBaselineService, VersionBaselineService>();
-        services.AddKeyedScoped<IGameLaunchingStrategy, LegacyGameLaunchingStrategy>("legacy");
-        services.AddKeyedScoped<IGameLaunchingStrategy, SimplifiedGameLaunchingStrategy>("simplified");
+        services.AddScoped<IGameLaunchingStrategy, SimplifiedGameLaunchingStrategy>();
 
         return services;
     }

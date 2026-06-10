@@ -1,6 +1,6 @@
 # LOTRO Polish Patcher — Backlog
 
-> Przepisane po audycie PM. Oryginalne 74 tickety skonsolidowane do 41.
+> Przepisane po audycie PM. Oryginalne 74 tickety skonsolidowane do 51.
 > Poprawione: falszywe zaleznosci, brakujace feature'y, overengineering, priorytetyzacja.
 > Numeracja `M{milestone}-{numer}`. Testy wliczone w feature ticket (nie osobne).
 >
@@ -254,7 +254,9 @@
 
 **UWAGA:** Ten ticket nie ma zadnych zaleznosci — mozna go robic rownolegle z M1-01..M1-05b.
 
-**Do zrobienia — TRZY male abstrakcje + implementacje:**
+**Do zrobienia — DWIE abstrakcje + implementacje:**
+
+> **UWAGA:** Oryginalnie 3 abstrakcje. `IDatFileProtector` zostal USUNIETY — live testy (2026-03-16/17) udowodnily ze `attrib +R` jest niepotrzebny. Translacje przetrwaja update bez protekcji. Patrz M1-08.
 
 **1. IDatVersionReader** (Application/Abstractions):
 ```csharp
@@ -268,36 +270,27 @@ Implementacja w Infrastructure — otwiera DAT (`OpenDatFileEx2` z `OpenFlagsRea
 
 **UWAGA:** NIE zakladaj read-only mode (flags=2) — datexport.dll to zamkniety Turbine binary, nie wiadomo czy jest obslugiwany.
 
-**2. IDatFileProtector** (Application/Abstractions):
-```csharp
-public interface IDatFileProtector
-{
-    Result Protect(string datFilePath);
-    Result Unprotect(string datFilePath);
-    bool IsProtected(string datFilePath);
-}
-```
-Implementacja: `File.SetAttributes()` z `FileAttributes.ReadOnly`. NIE uzywaj `attrib.exe` (Process.Start).
-
-**3. IGameLauncher** (Application/Abstractions):
+**2. IGameLauncher** (Application/Abstractions):
 ```csharp
 public interface IGameLauncher
 {
-    Result<int> Launch(string lotroPath, bool waitForExit = true);
+    Result Launch(string lotroPath); // fire-and-forget, nie czekaj na exit
 }
 ```
-Implementacja: Auto-detect `LotroLauncher.exe` wzgledem sciezki DAT. `Process.Start()` z `WaitForExit()`. NIE dodawaj flag `-disablePatch`.
+Implementacja: Auto-detect `LotroLauncher.exe` wzgledem sciezki DAT. `Process.Start()` BEZ `WaitForExit()`. NIE dodawaj flag `-disablePatch`.
+
+**~~3. IDatFileProtector~~ — USUNIETY (DEPRECATED)**
+Live testy udowodnily ze `attrib +R` jest niepotrzebny. Translacje przetrwaja update LOTRO bez protekcji. Implementacja istnieje w kodzie ale jest do usuniecia.
 
 **Testy** (w `Tests.Unit/Tests/Features/` lub `Tests.Unit/Tests/Infrastructure/`):
 - IDatVersionReader: unit test z mock IDatFileHandler. Uzyj `TestDataFactory` z `Shared/` do tworzenia binary test data.
-- IDatFileProtector: unit testy z temp plikami (Protect/Unprotect/IsProtected)
 - IGameLauncher: unit test z mock (nie startuje prawdziwego procesu)
 
 **Acceptance criteria:**
-- [ ] Trzy interfejsy w Application/Abstractions
-- [ ] Trzy implementacje w Infrastructure
+- [ ] Dwa interfejsy w Application/Abstractions
+- [ ] Dwie implementacje w Infrastructure
 - [ ] DI registration
-- [ ] Min. 6 unit testow (2 per abstrakcja)
+- [ ] Min. 4 unit testow (2 per abstrakcja)
 - [ ] Build + testy ok
 
 ---
@@ -345,64 +338,35 @@ Fix:
 3. Zmien `GameUpdateCheckResult` zeby zawieralo `DatVersionInfo`.
 4. Zaktualizuj istniejace 16 testow w `Tests.Unit/Tests/Features/GameUpdateCheckerTests.cs` — testy aktualnie testuja stare zachowanie (auto-save). Po zmianie: testy "save on detect" -> failure, nowe testy dla `ConfirmUpdateInstalled()`.
 
-**Czesc 2: LaunchGameCommand + Handler**
+**Czesc 2: LaunchGameCommand + Handler (SIMPLIFIED FLOW)**
+
+> **UWAGA:** Oryginalny opis zawierał legacy flow z attrib +R, process monitoring, kill game.
+> Live testy (2026-03-16/17) udowodniły ze jest SZKODLIWY. Ponizej opis POPRAWNEGO simplified flow.
 
 Stworz `LaunchGameCommand : ICommand<Result<GameLaunchingResponse>>`.
 
-**KONTEKST DLACZEGO TAKI FLOW:**
-LOTRO launcher ZAWSZE nadpisuje DAT (hashe nie pasuja po naszych tlumaczeniach) — dlatego chronimy attrib +R.
-Ale na prawdziwy major update user MUSI dostac nowy angielski DAT — inaczej gra crashuje (brakujace teksty nowego regionu).
-Dlatego handler ORKIESTRUJE update automatycznie — nie mowi "idz zaktualizuj sam" jak rosyjski projekt.
+**KONTEKST:**
+LOTRO launcher nadpisuje w DAT TYLKO te wpisy ktore faktycznie sie zmienily w danym patchu — nasze tlumaczenia w niezmienionych wpisach przetrwaja. Protekcja attrib +R jest niepotrzebna. Re-patchowanie po update jest ZLE (stale tlumaczenia nadpisalyby swiezy angielski tekst SSG).
 
-**Pipeline handlera — DWA SCIEZKI:**
-
-Gdy NIE ma updatu (normalny launch):
+**Pipeline handlera — JEDEN FLOW:**
 ```
-1. CheckForUpdateAsync → updateDetected = false
-   - Forum fail → graceful (updateDetected = false, nie blokuj grania)
-2. Protect (attrib +R)
-3. Launch LOTRO (waitForExit)
-4. Unprotect (attrib -R) ← ZAWSZE, try/finally
-5. Return GameLaunchingResponse
-```
-
-Gdy update wykryty:
-```
-1. CheckForUpdateAsync → updateDetected = true, forumVersion
-   - Forum fail → graceful (updateDetected = false, nie blokuj grania)
-2. ReadVersion(datFilePath) → previousVnum (snapshot PRZED update)
-3. Unprotect DAT (attrib -R) ← zeby launcher MOGL nadpisac
-4. Launch LOTRO launcher
-5. Monitoruj:
-   a. User zamknal launcher → sprawdz vnum
-   b. User odpalil gre (lotroclient.exe detected) → kill gre + launcher
-6. ConfirmUpdateInstalled:
-   - First run (brak version.txt) → zapisz forumVersion, success
-   - Nth run → vnum zmieniony? → zapisz, else → failure "nie zaktualizowalesc"
-7. Re-patch tlumaczenia na swiezy DAT (via IMediator → ApplyPatchCommand)
-8. Protect (attrib +R)
-9. Launch LOTRO (waitForExit) ← normalna gra z tlumaczeniami
-10. Unprotect (attrib -R) ← ZAWSZE, try/finally
-11. Return GameLaunchingResponse
+1. IsLotroRunning? → if yes: return Failure(GameAlreadyRunning)
+2. ComputeHash(translationFile) → currentHash
+3. ReadStoredVersion() → storedInfo (moze byc null = first run)
+4. currentHash != storedHash? → if yes: ApplyTranslations() + SaveVersion()
+5. Launch(datFilePath) → fire-and-forget
+6. Return GameLaunchingResponse
 ```
 
 **Zaleznosci handlera (konstruktor):**
-- `IGameUpdateChecker` — CheckForUpdateAsync + ConfirmUpdateInstalled
-- `IDatVersionReader` — odczyt vnum z DAT
-- `IDatFileProtector` — attrib +R/-R
-- `IGameLauncher` — uruchomienie gry (WYMAGA ROZSZERZENIA — patrz nizej)
-- `IGameProcessDetector` — wykrycie lotroclient.exe (interfejs juz istnieje)
-- `IMediator` — do wyslania ApplyPatchCommand (re-patch po update)
+- `IGameProcessDetector` — IsLotroRunning() check na poczatku
+- `IFileHasher` — SHA256 hash pliku tlumaczen
+- `IGameVersionFileStore` — odczyt/zapis stored version info z hashem
+- `IDatVersionReader` — odczyt vnum z DAT (snapshot do zapisu)
+- `IPatchingService` — ApplyTranslations
+- `IGameLauncher` — fire-and-forget launch
 
-**Rozszerzenie IGameLauncher (#19 zamkniete, zmiany w ramach tego ticketu):**
-Obecny interfejs za prosty. Potrzebne:
-```csharp
-Result<GameLaunchResult> LaunchAndMonitor(string lotroPath);
-// Wewnetrznie: start launcher → poll lotroclient.exe → if detected: kill both
-```
-
-**Rozszerzenie GameLaunchingCommand:**
-Dodaj `TranslationFilePath` (potrzebne do re-patcha po update):
+**GameLaunchingCommand:**
 ```csharp
 public sealed record GameLaunchingCommand(
     string DatFilePath,
@@ -410,42 +374,31 @@ public sealed record GameLaunchingCommand(
     string TranslationFilePath) : ICommand<Result<GameLaunchingResponse>>;
 ```
 
-Sciezka do LotroLauncher.exe: derivowac z DatFilePath (sa w tym samym katalogu).
-
 **Czesc 3: CLI wiring**
 
 1. Dodaj `"launch"` do switch w `Program.cs`.
 2. Resolve sciezka LOTRO (DatPathResolver).
 3. `IMediator.Send(new GameLaunchingCommand(...))`.
-4. Zaktualizuj `PrintUsage()`.
 
 **Testy:**
-- `GameUpdateCheckerTests` (istniejace 16 testow — zaktualizuj): wykrycie update -> brak zapisu; nowe testy dla `ConfirmUpdateInstalled()` z vnum
-- `ConfirmUpdateInstalled_FirstRun_ShouldSaveAndSucceed` (nowy)
-- `ConfirmUpdateInstalled_NthRun_VnumChanged_ShouldSaveAndSucceed` (nowy)
-- `ConfirmUpdateInstalled_NthRun_VnumSame_ShouldReturnFailure` (nowy)
-- `LaunchGameCommandHandlerTests` (nowe):
-  - Happy path: brak update, launch OK → GameLaunchingResponse z PlayTime
-  - Update detected → orkiestracja: unprotect → launch → confirm → re-patch → protect → launch
-  - Update detected + first run → ConfirmUpdateInstalled success (brak baseline)
-  - Update detected + vnum unchanged → Failure "nie zaktualizowalesc"
-  - Update detected + game process detected → kill game + launcher, kontynuuj
-  - Protect fail → Failure, Launch NIE wywolany
-  - Launch fail → Failure, ale Unprotect WYWOLANY (sprzatanie!)
-  - Forum check fail → graceful, launch kontynuuje (brak netu != brak gry)
-  - Re-patch fail po update → Failure (nie odpalaj gry bez tlumaczen)
+- `SimplifiedGameLaunchingStrategy` testy:
+  - Happy path: hash zmieniony → patch + launch OK
+  - Hash niezmieniony → skip patch, launch OK
+  - First run (stored=null) → patch + launch OK
+  - Gra juz uruchomiona → Failure(GameAlreadyRunning)
+  - ComputeHash fail → Failure
+  - ApplyTranslations fail → Failure(RepatchFailed)
+  - Launch fail → Failure
 
 **Acceptance criteria:**
-- [ ] `CheckForUpdateAsync()` nigdy nie zapisuje wersji
-- [ ] Wersja zapisywana tylko po potwierdzeniu przez vnum z DAT
-- [ ] `ConfirmUpdateInstalled` przy first run → success (brak baseline)
-- [ ] `dotnet run -- launch` startuje gre z ochrona DAT
-- [ ] Update wykryty → handler orkiestruje: unprotect → launch → confirm → re-patch → protect → launch
-- [ ] Game process detected podczas update → kill + kontynuuj
-- [ ] DAT chroniony PRZED i odchroniony PO grze (try/finally)
-- [ ] Forum fail → graceful fallback (nie blokuj grania)
-- [ ] `PrintUsage()` wyswietla komende launch
-- [ ] Min. 12 test cases
+- [ ] Hash pliku tlumaczen jako jedyny trigger re-patchu
+- [ ] First run (brak version file) → patch + launch
+- [ ] Hash niezmieniony → skip patch, launch
+- [ ] Fire-and-forget launch (brak WaitForExit, brak process monitoring)
+- [ ] Brak attrib +R/protekcji DAT
+- [ ] Brak process monitoring/kill
+- [ ] Forum check NIE jest triggerem (przeniesiony do API M3-11)
+- [ ] Min. 7 test cases
 
 ---
 
@@ -578,14 +531,14 @@ ArgsOrder jest parsowane przez `TranslationFileParser` i przechowywane w `Transl
    Jesli ArgsOrder = [2, 0, 1] (0-indexed, po konwersji z pliku)
    to ArgRefs powinny byc przelozone w tej kolejnosci
    ```
-2. **Approved**: Dodaj `bool IsApproved` do `Translation` model. Zmien parser aby czytal `parts[5]` (jesli istnieje). CLI ignoruje wartosc (patchuje wszystko), ale wartosc jest zachowana dla M2 (DB).
+2. **Approved/Status**: Dodaj pole `Status` do `Translation` model (enum lub string). Zmien parser aby czytal `parts[5]` (jesli istnieje). Wartosc `1` → `Approved`, `0` → `Draft`. CLI patchuje niezaleznie od statusu (patchuje wszystko), ale wartosc jest zachowana dla M2 (DB import z `Status` enum: Draft/Submitted/Approved/NeedsReview).
 3. Testy z przykladem: "arg2 arg0 arg1" z ArgsOrder=[2,0,1].
 
 **Acceptance criteria:**
 - [ ] ArgsOrder reorderuje ArgRefs w fragment
-- [ ] `Translation.IsApproved` istnieje i jest parsowane z pliku
-- [ ] CLI patchuje niezaleznie od `approved` (zachowanie bez zmian)
-- [ ] Testy: ArgsOrder reorder + approved parsing
+- [ ] `Translation.Status` istnieje i jest parsowane z pliku (1=Approved, 0=Draft)
+- [ ] CLI patchuje niezaleznie od `Status` (zachowanie bez zmian)
+- [ ] Testy: ArgsOrder reorder + status parsing
 - [ ] Brak regression w istniejacych testach
 
 ---
@@ -900,11 +853,11 @@ Gdy wychodzi game update i SSG zmienil 50 tekstow, ich translacje dostaja `Needs
 1. Stworz komende `import-translations` w CLI:
    - Parsuj `translations/polish.txt`
    - Dla kazdej linii: `ITranslationRepository.UpsertAsync()` z `LanguageCode = "pl"`
-2. Ustaw `IsApproved = true` dla wszystkich (juz przetlumaczone i przetestowane).
+2. Ustaw `Status = TranslationStatus.Approved` dla wszystkich (juz przetlumaczone i przetestowane).
 
 **Acceptance criteria:**
 - [ ] Wszystkie linie z `polish.txt` sa w bazie
-- [ ] `IsApproved = true`
+- [ ] `Status = Approved`
 - [ ] Duplikat import -> update, nie blad
 
 ---
@@ -1471,17 +1424,23 @@ Niezaleznie od user raportow, admin chce wiedziec kiedy wychodzi update — zeby
 
 ### M4-04: Game update alert
 **Labels:** `high` `feature`
-**Zalezy od:** M4-01, M1-08
+**Zalezy od:** M4-01, M3-10 (GameVersionReport API)
+
+**Kontekst:**
+Two-source confirmation model (M3-10 + M3-11): update jest potwierdzony gdy ZAROWNO end-user raport vnum JAK I forum scraping sie zgadzaja. WPF odpytuje API o status.
 
 **Do zrobienia:**
-1. Banner na gorze okna: "Wykryto aktualizacje gry! Zaktualizuj gre przed patchowaniem."
-2. Przycisk "Graj" zablokowany dopoki wersje nie pasuja.
-3. Instrukcja: "Uruchom oficjalny launcher, zaktualizuj, wroc tutaj."
+1. Przy starcie WPF: `GET /api/v1/game-version/latest-confirmed` → sprawdz czy lokalne vnum < confirmed vnum
+2. Banner na gorze okna: "Dostepna aktualizacja gry ({ForumVersion})! Zaktualizuj gre, potem wroc tutaj."
+3. Przycisk "Graj" **NIE blokowany** — gracz moze grac ze starymi tlumaczeniami (simplified flow patchuje co ma, pomija NeedsReview)
+4. Instrukcja: "Uruchom oficjalny launcher, zaktualizuj. Nowe tlumaczenia pojawia sie gdy tlumacze je zaktualizuja."
+5. Po aktualizacji gry + pobraniu nowej paczki tlumaczen → banner znika
 
 **Acceptance criteria:**
-- [ ] Banner widoczny przy mismatch wersji
-- [ ] Przycisk "Graj" disabled
-- [ ] Po aktualizacji: banner znika
+- [ ] Banner widoczny gdy API potwierdza nowsza wersje gry
+- [ ] Banner informacyjny (nie blokujacy)
+- [ ] API niedostepne → brak bannera (graceful)
+- [ ] Po aktualizacji gry + nowa paczka tlumaczen → banner znika
 
 ---
 
@@ -1650,7 +1609,21 @@ Wydaje JWT tokeny, zarzadza uzytkownikami i rolami. API waliduje tokeny, Blazor 
 
 ### M5-08: Powiadomienia — Discord webhook
 **Labels:** `low` `feature`
-**Zalezy od:** M5-05
+**Zalezy od:** M3-11 (forum cron — potrzebny trigger), M5-05
+
+**Do zrobienia:**
+1. Webhook URL konfigurowalny (env var / appsettings).
+2. Trigger: `GameVersionReport.Confirmed = true` (two-source: user vnum report + forum scraping).
+3. Wiadomosc Discord:
+   - "Nowa wersja LOTRO wykryta: {ForumVersion} (vnum: {VnumDatFile}/{VnumGameData})"
+   - "Pierwszy raport: {FirstReportedAt}, potwierdzony: {ForumDetectedAt}"
+   - "Akcja: zaktualizuj LOTRO, zrob export, import-exported-texts do DB"
+4. Opcjonalnie: notification gdy import wykryje zmienione teksty (InvalidatedTranslations > 0).
+
+**Acceptance criteria:**
+- [ ] Webhook wysylany przy Confirmed=true
+- [ ] Konfigurowalny URL
+- [ ] Graceful failure (webhook niedostepny → log, nie crash)
 
 ---
 
@@ -1693,7 +1666,7 @@ Track A: MediatR + CLI refaktor (BEZ CZEKANIA na TFM split)
                           M1-05a ──┘
 
 Track B: Launch infrastructure (BRAK ZALEZNOSCI — start od razu)
-  M1-07 (IDatVersionReader + IDatFileProtector + IGameLauncher)
+  M1-07 (IDatVersionReader + IGameLauncher — IDatFileProtector USUNIETY)
     └── M1-05b (Track A) + M1-07 ──→ M1-08 (fix GameUpdateChecker + LaunchGameCommand)
 
 Track C: TFM split → M2 → M3 (API + Blazor)
@@ -1742,7 +1715,7 @@ Tests.Integration (0 testow — M1-11/M1-12 + M2-10):
 | Problem w oryginale | Poprawka |
 |---------------------|----------|
 | M1-01 (TFM) blokuje WSZYSTKO w M1 | TFM blokuje TYLKO M2/M3. MediatR idzie od razu |
-| 74 tickety | Skonsolidowane do 45 |
+| 74 tickety | Skonsolidowane do 51 (M1:14, M2:11, M3:11, M4:6, M5:9) |
 | 7 osobnych ticket testowych | Testy wliczone w feature tickety |
 | M1-17 + M1-18 duplikaty | Scalone w jeden M1-08 |
 | M1-21 "zweryfikuj approved" | Poprawione: "DODAJ parsowanie approved" (nie jest parsowane!) |
@@ -1750,7 +1723,7 @@ Tests.Integration (0 testow — M1-11/M1-12 + M2-10):
 | M2-02 trzy projekty Infrastructure | Uproszczone do dwoch (obecny + Persistence) |
 | M4-04 zalezy od M3-08 (web API) | Usunieto: WPF uzywa lokalnych plikow MVP |
 | Brak ticketu na NuGet versions | Wliczone w M1-06 (TFM split) |
-| M1-07 i M1-08 osobne tickety | Scalone w jeden M1-09 (low priority) |
+| M1-07 IDatFileProtector wymagany | USUNIETY — attrib +R niepotrzebny (live testy 2026-03-16/17) |
 | M1-08 legacy flow jako docelowy | Legacy flow deprecated po live testach — simplified flow (hash-based) jest poprawny |
 | Brak update detection po stronie API | Dodane M3-10 (crowdsource vnum report) + M3-11 (forum cron) |
 | `IsApproved` bool na TranslationEntity | Zastapione `Status` enum (Draft/Submitted/Approved/NeedsReview) + `CompatibleSinceVnum` |

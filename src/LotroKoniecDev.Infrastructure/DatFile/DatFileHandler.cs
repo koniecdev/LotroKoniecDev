@@ -11,15 +11,9 @@ namespace LotroKoniecDev.Infrastructure.DatFile;
 /// </summary>
 public sealed class DatFileHandler : IDatFileHandler, IDatVersionReader
 {
-    private readonly IDatFileProtector _protector;
     private readonly Lock _lock = new();
     private readonly HashSet<int> _openHandles = [];
     private bool _disposed;
-
-    public DatFileHandler(IDatFileProtector protector)
-    {
-        _protector = protector;
-    }
 
     /// <summary>
     /// Opens a LOTRO DAT file given its file path and returns a handle to the open file.
@@ -94,21 +88,6 @@ public sealed class DatFileHandler : IDatFileHandler, IDatVersionReader
         byte[] datIdStamp = new byte[64];
         byte[] firstIterGuid = new byte[64];
 
-        Result<bool> wasProtected = _protector.IsProtected(datFilePath);
-        if (wasProtected.IsFailure)
-        {
-            return Result.Failure<DatVersionInfo>(wasProtected.Error);
-        }
-
-        if (wasProtected.Value)
-        {
-            Result unprotectResult = _protector.Unprotect(datFilePath);
-            if (unprotectResult.IsFailure)
-            {
-                return Result.Failure<DatVersionInfo>(unprotectResult.Error);
-            }
-        }
-
         try
         {
             int result = DatExportNative.OpenDatFileEx2(
@@ -140,13 +119,6 @@ public sealed class DatFileHandler : IDatFileHandler, IDatVersionReader
         catch (Exception ex)
         {
             return Result.Failure<DatVersionInfo>(DomainErrors.DatFile.CannotOpen($"{datFilePath}: {ex.Message}"));
-        }
-        finally
-        {
-            if (wasProtected.Value)
-            {
-                _protector.Protect(datFilePath);
-            }
         }
     }
     

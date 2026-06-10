@@ -232,6 +232,39 @@ public sealed class TranslationFileParserTests : IDisposable
     }
 
     [Fact]
+    public void ParseLine_ApprovedField_ShouldParseAsTrue()
+    {
+        // Act
+        Result<Translation> result = _parser.ParseLine("100||200||Content||NULL||NULL||1");
+
+        // Assert
+        result.IsSuccess.ShouldBeTrue();
+        result.Value.IsApproved.ShouldBeTrue();
+    }
+
+    [Fact]
+    public void ParseLine_UnapprovedField_ShouldParseAsFalse()
+    {
+        // Act
+        Result<Translation> result = _parser.ParseLine("100||200||Content||NULL||NULL||0");
+
+        // Assert
+        result.IsSuccess.ShouldBeTrue();
+        result.Value.IsApproved.ShouldBeFalse();
+    }
+
+    [Fact]
+    public void ParseLine_FiveFields_ShouldReturnFailure()
+    {
+        // Act — missing approved field
+        Result<Translation> result = _parser.ParseLine("100||200||Content||NULL||NULL");
+
+        // Assert
+        result.IsFailure.ShouldBeTrue();
+        result.Error.Code.ShouldBe("Translation.InvalidFormat");
+    }
+
+    [Fact]
     public void ParseFile_WithInvalidLines_ShouldSkipAndContinue()
     {
         // Arrange

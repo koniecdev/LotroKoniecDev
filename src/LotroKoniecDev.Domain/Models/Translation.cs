@@ -12,6 +12,7 @@ public sealed class Translation
     public string Content { get; init; } = string.Empty;
     public int[]? ArgsOrder { get; init; }
     public int[]? ArgsId { get; init; }
+    public bool IsApproved { get; init; } = true;
 
     /// <summary>
     /// Indicates whether this translation has argument reordering information.

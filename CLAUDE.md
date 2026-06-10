@@ -39,13 +39,13 @@ file_id||gossip_id||translated_text||args_order||args_id||approved
 ## Game Update Detection
 
 - **Forum checker**: scrapes lotro.com release notes, regex `Update\s+(\d+(?:\.\d+)*)\s+Release\s+Notes`
-- **DAT vnum**: `OpenDatFileEx2()` -> `vnumGameData` — empirically useless as content version (112/3 unchanged across 47→47.1→47.2 even when DAT was actively patched)
+- **DAT vnum**: `OpenDatFileEx2()` -> `vnumGameData` — empirically useless as content version (112/3 unchanged across 45.x→47.x→48.0, including the 48.0 major update, even when DAT was actively patched)
 - **Forum version** (e.g. "47.2") is the reliable game version identifier, not vnum
 
 ## DAT Update Behavior (empirically proven)
 
 - Launcher uses **chunk-based patching**: downloads partial files (e.g. `client_local_English-98232.dat`), applies only changed entries
-- **Translations survive updates** — proven across 5 tests including updates that actively patched DAT
+- **Translations survive updates** — proven across 6 live tests, including the 47.2→48.0 **major** update (2026-04-23) and updates that actively patched the DAT
 - `attrib +R` protection is **unnecessary** — translations persist without it
 - Simplified flow (hash-based patch + fire-and-forget launch) is fully validated
 
@@ -61,6 +61,12 @@ If you really need it, See `docs/RUSSIAN_PROJECT_RESEARCH.md` for full analysis.
 
 ## Roadmap
 If you really need it, see `docs/PROJECT_PLAN.md` for full plan with step-by-step execution guide.
+
+## Knowledge Base (empirical findings, research, decisions)
+`docs/knowledge-base/` is the curated project knowledge base — empirical DAT/update test results,
+reverse-engineering notes, and strategy decisions, each dated. Start at `docs/knowledge-base/README.md`.
+Consult it before re-investigating DAT update behavior, vnum semantics, translation survival, or the
+launch flow — those are already empirically settled there (6 live tests, incl. the 48.0 major update).
 
 # Cli Layer
 CLI layer should serve as presentation layer - with fact in mind, that in the future, there will be WPF next to it.

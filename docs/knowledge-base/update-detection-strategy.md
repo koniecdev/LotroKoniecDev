@@ -4,6 +4,14 @@ description: How the system detects LOTRO updates, validates translations agains
 type: project
 ---
 
+> **Superseded in part (2026-06-11):** the vnum-based "Docelowy Model" (`CompatibleSinceVnum`,
+> vnum-filtered export) and the two-source crowdsource+forum detection below are superseded by
+> [`docs/specs/0001-game-update-lifecycle-and-translation-invalidation.md`](../specs/0001-game-update-lifecycle-and-translation-invalidation.md)
+> — forum-only detection, `GameVersion` aggregate, status-based invalidation (`NeedsReview` +
+> `PreviousSourceText`), pre-built ETag-cached distribution artifact, CLI auto-download (M2-20).
+> The Core Insight below and the admin upload→diff flow remain valid and are codified there;
+> crowdsourced reports stay post-MVP (#84/#31).
+
 ## Core Insight: Re-patching After Game Update is WRONG
 
 When SSG releases an update that changes existing English texts (e.g. lore corrections, quest rewrites), blindly re-applying old translations would overwrite fresh English with stale Polish. Translations must be validated against the new game version before re-application.

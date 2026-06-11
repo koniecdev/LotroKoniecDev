@@ -39,7 +39,7 @@ conflicts with this file (MediatR, one shared Application for all UIs, auth post
 src/
   LotroKoniecDev.{Primitives,Domain,Application,Infrastructure,Cli}                       ← PATCHER (exists, frozen)
   SharedKernel/LotroKoniecDev.SharedKernel                                                ← M2 (lift; TMS-side only)
-  TranslationSystem/LotroKoniecDev.TranslationSystem.{Domain,Persistence,Contracts,API}   ← M2 (new)
+  TranslationSystem/LotroKoniecDev.TranslationSystem.{Primitives,Domain,ReadModels,ReadModels.EntityFramework,Persistence,Contracts,API} ← M2 (new)
   AuthSystem/LotroKoniecDev.AuthSystem.{API,Domain,Infrastructure,Persistence,Contracts}  ← M2 (lift)
   Frontend/LotroKoniecDev.Frontend                                                        ← M3 (Blazor SSR, OIDC RP)
   Utilities/…                                                                             ← M2 (lift only what's used)
@@ -80,18 +80,21 @@ spec 0001): the M2-20 translation-file auto-download slice in the launch flow.
 | Building… | Mirror from `~/RiderProjects/TheKittySaver` | Lift notes |
 |---|---|---|
 | `SharedKernel` | `src/SharedKernel/TheKittySaver.SharedKernel` | Drop the `Mediator.Abstractions` package; add `Messaging/` with in-house `ICommand(Handler)`/`IQuery(Handler)` (same shapes as patcher `Application/Abstractions/Messaging/`). Keep monads, BuildingBlocks, `Ensure`, `StronglyTypedId` |
+| `TranslationSystem.Primitives` | `…AdoptionSystem.Primitives` | Strongly-typed ID types + enums per aggregate (`Aggregates/<X>Aggregate/`), shared by Domain, ReadModels and Contracts; the `StronglyTypedId` base stays in SharedKernel (ADR-0002 amendment 2026-06-12) |
 | `TranslationSystem.Domain` | `src/AdoptionSystem/…AdoptionSystem.Domain` | `Aggregates/<X>Aggregate/{Entities,ValueObjects,Repositories}` + `Core/Errors`; our aggregates are far simpler than `Cat` — don't inflate them |
-| `TranslationSystem.Persistence` | `…AdoptionSystem.Persistence` | DbContext + configurations + UoW + migrations + design-time factory; EF house rules below |
+| `TranslationSystem.ReadModels` + `…ReadModels.EntityFramework` | `…AdoptionSystem.ReadModels` + `…ReadModels.EntityFramework` | POCO read models per aggregate (`IReadOnlyEntity<TId>`) + their EF configurations; query handlers read them via `IApplicationReadDbContext` — never the write model (ADR-0002 amendment 2026-06-12) |
+| `TranslationSystem.Persistence` | `…AdoptionSystem.Persistence` | Write + read DbContexts (`ApplicationWriteDbContext` = the UoW + owns migrations; `ApplicationReadDbContext` behind `IApplicationReadDbContext`, applies the ReadModels.EntityFramework configurations) + design-time factory; EF house rules below |
 | `TranslationSystem.Contracts` | `…AdoptionSystem.Contracts` | Request/response DTOs per feature; referenced by Frontend |
 | `TranslationSystem.API` | `…AdoptionSystem.API` | `IEndpoint` + assembly-scan `AddEndpoints`/`MapEndpoints`; slices in `Features/<Area>/<Action>.cs`; `ExceptionHandlers/`, `Auth/` (JwtBearer + policies + `CurrentUserAccessor` + ownership guards), health checks, Serilog + OTel bootstrap |
 | `AuthSystem` (whole module) | `src/AuthSystem/*` | Self-hosted OpenIddict + Identity server — lift wholesale. **Do NOT lift the synchronous `RegisterUser`→`CreatePersonAsync` saga**: provision the translator profile lazily & idempotently on first authenticated TMS request (pattern: KittySaver ADR-0007 §4) |
 | `Frontend` (infra) | `src/Frontend/TheKittySaver.Frontend` | Lift `Infrastructure/` (OIDC RP, `CookieTokenRefresher`, `DiscoveryCache`, `ApiResult`, typed HttpClients, error pages); pages are written fresh for translations; reference `TranslationSystem.Contracts` directly |
 | Docker / compose | `compose.yaml`, `Dockerfile.migrator`, `Dockerfile.tests` | postgres + migrator + auth-api + tms-api (+ mailpit/aspire-dashboard in dev); Frontend joins in M3 |
 
-**Deliberate non-lifts (YAGNI — revisit only on a real, present need):** `ReadModels(+EF)`
-read/write split, `Calculators`, per-system `Primitives`, domain events (KittySaver dispatches
-them via Mediator notifications; the TMS core loop doesn't need them — if a need appears, design
-an in-house dispatcher via ADR first).
+**Deliberate non-lifts (YAGNI — revisit only on a real, present need):** `Calculators`, domain
+events (KittySaver dispatches them via Mediator notifications; the TMS core loop doesn't need
+them — if a need appears, design an in-house dispatcher via ADR first). `ReadModels(+EF)` and
+per-system `Primitives` were on this list and are now lifted from day 1 (ADR-0002 amendment
+2026-06-12).
 
 ### De-mediatorization recipe (apply to every lifted slice)
 
@@ -205,6 +208,10 @@ file_id||gossip_id||translated_text||args_order||args_id||approved
 - **No mediator — slim SRP handlers (ADR-0001), repo-wide.** One use case = one record + one
   handler implementing the in-house `ICommandHandler<,>`/`IQueryHandler<,>`. Consumers inject the
   closed handler interface directly. Lifted KittySaver code is de-mediatorized on entry.
+- **CQRS read/write split, day 1 (ADR-0002 amendment).** Query handlers read POCO `ReadModels`
+  through `IApplicationReadDbContext`; command handlers load and mutate aggregates via
+  repositories + `IUnitOfWork`. The write model never serves list/search queries; every new
+  aggregate ships with its read model + EF configuration in the same change.
 - **Patcher is frozen** (see Architecture) — never refactor it to serve the TMS.
 - **TMS ships with auth from day 1.** Endpoints are authorized by default (public ones are
   explicit); the first migration already carries user attribution (`SubmittedById`,
@@ -252,7 +259,8 @@ internal sealed class <Action> : IEndpoint
 
     internal sealed class Handler : ICommandHandler<Command, Result<TResponse>>
     {
-        // explicit ctor DI: repositories, IUnitOfWork, IValidator<Command> (commands only)…
+        // explicit ctor DI — command: repositories + IUnitOfWork + IValidator<Command>;
+        // query: IApplicationReadDbContext (read models only)
     }
 
     public void MapEndpoint(IEndpointRouteBuilder endpointRouteBuilder) { … } // injects the closed
@@ -308,8 +316,8 @@ structure.
 ## Roadmap (digest — details land as re-cut GitHub issues)
 
 - **M2 — TMS backend (core loop + update lifecycle — spec 0001).** ADR-0002 (record this pivot)
-  → SharedKernel lift → AuthSystem lift → TranslationSystem (Domain/Persistence/Contracts/API)
-  with exactly these slices: version-bound import of `exported.txt` + diff/invalidation (upload),
+  → SharedKernel lift → AuthSystem lift → TranslationSystem
+  (Primitives/Domain/ReadModels(+EF)/Persistence/Contracts/API) with exactly these slices: version-bound import of `exported.txt` + diff/invalidation (upload),
   list translations (search/filter/paginate, incl. `NeedsReview`), get one, upsert, approve
   (clears invalidation + regenerates the artifact), translation-file distribution (pre-built
   artifact + ETag/304, `GET /translation-files/{lang}`), GameVersion endpoints, forum watcher

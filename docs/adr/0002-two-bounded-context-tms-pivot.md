@@ -82,14 +82,24 @@ inline in query handlers. `Mediator`/`MediatR` packages remain forbidden.
 
 ### 5. Deliberate non-lifts (YAGNI — revisit only on a real, present need)
 
-- **`ReadModels(+EF)` read/write split** — the TMS query load is a translator UI list/search;
-  one EF model serves both sides until a real read-shape divergence appears.
 - **`Calculators`** — adoption-domain computation with no TMS equivalent.
-- **Per-system `Primitives` projects** — TMS constants fit in SharedKernel/Domain; a project per
-  system is structure without content.
 - **Domain events** — KittySaver dispatches them via Mediator notifications; the TMS core loop
   (import → edit → approve → export) needs none, and if a need appears the dispatcher is designed
   in-house via ADR first.
+
+**Amendment (2026-06-12) — `ReadModels(+EF)` and per-system `Primitives` moved to lifts.** Both
+originally sat on this list. Maintainer decision: the CQRS read/write split is part of the lifted
+architectural identity this repo showcases, and retrofitting it after the first query slices ship
+would mean rewriting every list/search handler — lifting it alongside the first aggregate costs
+one thin projection instead. The shape mirrors KittySaver 1:1: `TranslationSystem.ReadModels`
+(POCO read models per aggregate) + `TranslationSystem.ReadModels.EntityFramework` (their EF
+configurations), mapped onto the same tables the write model owns; `ApplicationWriteDbContext`
+(the `IUnitOfWork`, owns migrations) serves commands, `ApplicationReadDbContext` behind
+`IApplicationReadDbContext` serves queries — query handlers never touch the write model.
+`TranslationSystem.Primitives` follows as a mechanical consequence of the mirror: read models
+must not reference the domain, yet both sides share the strongly-typed ID types and enums, and
+in KittySaver those live in the per-system Primitives project (the `StronglyTypedId` base itself
+stays in SharedKernel).
 
 ### 6. Auth ships from day 1 — the self-hosted OpenIddict AuthSystem is lifted wholesale
 
@@ -128,7 +138,8 @@ win; align the ticket before coding.
   database on the gaming box.
 - Auth and user attribution exist from the first migration; nothing to retrofit.
 - The public repo demonstrates both a native-interop CLI and a full web platform (VSA, DDD,
-  OpenIddict, Docker, integration tests against real PostgreSQL) — the portfolio goal.
+  CQRS read/write split, OpenIddict, Docker, integration tests against real PostgreSQL) — the
+  portfolio goal.
 
 ### Negative / Accepted Trade-offs
 
@@ -188,7 +199,7 @@ a future config-level swap if the forces ever materialize.
 
 - New (M2): `src/SharedKernel/LotroKoniecDev.SharedKernel` (lift; `Mediator.Abstractions`
   dropped, in-house `Messaging/` added),
-  `src/TranslationSystem/LotroKoniecDev.TranslationSystem.{Domain,Persistence,Contracts,API}`,
+  `src/TranslationSystem/LotroKoniecDev.TranslationSystem.{Primitives,Domain,ReadModels,ReadModels.EntityFramework,Persistence,Contracts,API}`,
   `src/AuthSystem/LotroKoniecDev.AuthSystem.{API,Domain,Infrastructure,Persistence,Contracts}`,
   `src/Utilities/…` (only what's used), `compose.yaml` + `Dockerfile.migrator` +
   `Dockerfile.tests`.

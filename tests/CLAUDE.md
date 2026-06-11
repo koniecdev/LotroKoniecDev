@@ -3,18 +3,21 @@
 ## Run Tests
 
 ```bash
-dotnet test                                          # All tests
-dotnet test tests/LotroKoniecDev.Tests.Unit          # Unit only
-dotnet test tests/LotroKoniecDev.Tests.Integration   # Integration only
-dotnet test --filter "FullyQualifiedName~Fragment"    # Filter by name
+dotnet test                                            # everything runnable on this OS
+dotnet test tests/LotroKoniecDev.Tests.Unit            # unit only — always green, every OS
+dotnet test tests/LotroKoniecDev.Tests.Infrastructure  # real-infrastructure tests
+dotnet test tests/LotroKoniecDev.Tests.E2E             # full CLI pipeline — auto-skips off-Windows
+dotnet test --filter "FullyQualifiedName~Fragment"     # filter by name
 ```
 
 ## Framework & Libraries
 
-- **xUnit 2.9.3** - Test framework (Fact, Theory, InlineData attributes)
-- **Shouldly 4.3.0** - `.ShouldBe()`, `.ShouldBeTrue()`, `.ShouldContain()`, etc.
-- **NSubstitute 5.3.0** - Mocking: `Substitute.For<IInterface>()`
-- **coverlet.collector 6.0.4** - Code coverage
+- **xUnit** — test framework (`Fact`, `Theory`, `InlineData`)
+- **Shouldly** — `.ShouldBe()`, `.ShouldBeTrue()`, `.ShouldContain()`, …
+- **NSubstitute** — mocking: `Substitute.For<IInterface>()`
+- **Xunit.SkippableFact** — E2E tests that need Windows + a real DAT
+- **coverlet.collector** — code coverage
+- Versions: `Directory.Packages.props` is the single source of truth.
 
 ## Unit Tests (LotroKoniecDev.Tests.Unit)
 
@@ -33,9 +36,13 @@ Tests/
   Extensions/
     ResultExtensionsTests.cs  Map, Bind, OnSuccess, OnFailure, Match, Combine
   Features/
-    ExporterTests.cs          Export orchestration (mocked IDatFileHandler)
-    PatcherTests.cs           Patch orchestration (mocked IDatFileHandler + ITranslationParser)
-    GameUpdateCheckerTests.cs Forum scraping + version comparison (mocked fetcher + store)
+    ExportTextsQueryHandlerTests.cs    Export handler (mocked IDatFileHandler) + validation guards
+    ApplyPatchCommandHandlerTests.cs   Patch handler (mocked IPatchingService, real validator)
+    GameLaunchingCommandHandlerTests.cs Launch handler + SimplifiedGameLaunchingStrategy branches
+    PreflightCheckQueryHandlerTests.cs Preflight checks (process, write access, update check)
+    PatchingServiceTests.cs            Patch orchestration (mocked IDatFileHandler + ITranslationParser)
+    VersionBaselineServiceTests.cs     Version baseline persistence rules
+    GameUpdateCheckerTests.cs          Forum scraping + version comparison (mocked fetcher + store)
   Models/
     FragmentTests.cs          Binary parse/write roundtrip
     SubFileTests.cs           Serialization/deserialization
@@ -44,15 +51,32 @@ Tests/
     TranslationFileParserTests.cs  Line parsing, format validation, edge cases
 ```
 
-## Integration Tests (LotroKoniecDev.Tests.Integration)
+Command handlers are constructed with their **real FluentValidation validator** (validators are
+dependency-free) and mocked ports. Unit tests are **pure**: no filesystem assertions, no network,
+no real DAT — and **platform-agnostic** (build paths with `Path.Combine`, never hardcode `C:\`;
+the suite runs on macOS too).
 
-Reserved for tests that use real infrastructure (DAT files, database, HTTP).
-Currently empty — will be populated in M2 (PostgreSQL + EF Core) and when real DAT file tests are needed.
+## Infrastructure Tests (LotroKoniecDev.Tests.Infrastructure)
+
+Tests that touch real infrastructure adapters (today: `GameLauncherTests`). Grows in M2
+(PostgreSQL + EF Core) and whenever file-content verification is needed — asserting on real file
+output belongs here, never in `Tests.Unit`. Targets `net10.0-windows`: builds everywhere,
+**runs on Windows only** (on macOS the run aborts — expected).
+
+## E2E Tests (LotroKoniecDev.Tests.E2E)
+
+Full-pipeline tests driving the CLI (`ExportE2ETests`, `PatchE2ETests`, `RoundtripE2ETests`,
+`ErrorPathE2ETests`) against a real DAT. They use `SkippableFact` and **skip automatically**
+off-Windows or without a DAT available — `Skipped` on macOS is expected, not a failure.
 
 ## Conventions
 
 - Test class naming: `{ClassUnderTest}Tests`
 - Method naming: `MethodName_Scenario_ExpectedResult`
-- One assertion concept per test (may have multiple Shouldly calls)
+- AAA structure; assertions inline in the test method — never hidden in helpers
+- One reason to fail per test (may use multiple Shouldly calls for one concept)
+- `[Theory]` + `[InlineData]` for boundary/unhappy-path matrices
 - Shouldly style only, no raw `Assert.*`
-- Shared test data builders go in `Shared/` directory
+- `.Received()` only for side effects invisible in the return value (cleanup, "must NOT have
+  been called on validation failure") — never to mirror internal call patterns
+- Shared test data builders go in `Shared/` (extend `TestDataFactory`, don't hand-roll bytes)

@@ -13,7 +13,9 @@ Work GitHub ticket **#$ARGUMENTS** end-to-end, BRD/spec-driven. Follow this loop
 - For each `Depends on #X` / `Blocks #X`: `gh issue view X` enough to know whether the dependency
   is satisfied. If an open dependency genuinely blocks this ticket, **stop and say so** — don't
   build on missing foundations.
-- If the body conflicts with `docs/TICKETS.md`, the **issue wins** (it's the live truth).
+- Issues created before the 2026-06 architecture pivot may describe a dead world (MediatR, one
+  shared Application for all UIs, auth postponed to M5). If the body conflicts with `CLAUDE.md`,
+  **CLAUDE.md wins** — surface the conflict and align the ticket before implementing.
 
 ## 2. Ground it in the repo
 

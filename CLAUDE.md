@@ -6,48 +6,118 @@
 
 ## What this is
 
-A **LOTRO Polish translation patcher** on **.NET 10 / C# 13**: exports English texts from the
-game's binary DAT file, injects `||`-format Polish translations back, and launches the game.
-CLI today (`export` / `patch` / `launch`); the roadmap adds PostgreSQL (M2), Web API + Blazor SSR
-(M3), WPF (M4), auth (M5) — see `docs/PROJECT_PLAN.md`.
+A **LOTRO Polish translation platform** on **.NET 10 / C# 13** — **two bounded contexts in one
+repo**, integrating through a file contract:
 
-**Architectural identity:** this repo is a boilerplate copy of **TheKittySaver**
-(`~/RiderProjects/TheKittySaver` — the reference for every pattern: Result monad, feature slices,
-testing philosophy, spec/ADR discipline) with **exactly one deviation — no mediator**.
-Commands/queries are dispatched by **direct handler injection** (ADR-0001). Never add
-Mediator/MediatR back.
+1. **Patcher** (shipped, **frozen**) — CLI that exports English texts from the game's binary DAT
+   file (`export`), injects `||`-format Polish translations back (`patch`), and launches the game
+   (`launch`). A WPF player app (M4) will reuse its Application handlers.
+2. **TMS — Translation Management System** (M2/M3, in progress) — PostgreSQL + Web API + Blazor
+   SSR + self-hosted OpenIddict auth: translators import the CLI export, edit with review
+   workflow, and export `polish.txt` back for patching.
+
+**Architectural identity:** every TMS pattern is lifted **1:1 from TheKittySaver**
+(`~/RiderProjects/TheKittySaver` — the canonical reference for Vertical Slice Architecture, DDD
+domain, Result monad, the OpenIddict auth server, Docker/compose, testing discipline), with
+**one repo-wide deviation: NO MEDIATOR (ADR-0001)**. KittySaver uses `Mediator.SourceGenerator`;
+every lifted slice is de-mediatorized on entry (recipe below). `Mediator`/`MediatR` packages are
+forbidden — never add them back.
 
 ## Project status — pre-release, no users
 
 Active development, zero production users. **Breaking changes are free** — no back-compat shims,
-no deprecation windows. Optimize for the right end-state. (Revisit at first public release.)
+no deprecation windows. M1 (patcher) is done and empirically proven. Current milestone: **M2 —
+TMS backend** (first step: write ADR-0002 recording this pivot). Live backlog: `gh issue list`,
+**but** issues are being re-cut after the 2026-06 architecture pivot — where an old issue body
+conflicts with this file (MediatR, one shared Application for all UIs, auth postponed to M5),
+**this file wins**; align the ticket before coding.
 
-## Architecture
+## Architecture — two bounded contexts, one file contract
 
-Strict Clean Architecture, 5 layers. Dependency rule (NEVER violate the downward flow):
+```
+src/
+  LotroKoniecDev.{Primitives,Domain,Application,Infrastructure,Cli}                       ← PATCHER (exists, frozen)
+  SharedKernel/LotroKoniecDev.SharedKernel                                                ← M2 (lift; TMS-side only)
+  TranslationSystem/LotroKoniecDev.TranslationSystem.{Domain,Persistence,Contracts,API}   ← M2 (new)
+  AuthSystem/LotroKoniecDev.AuthSystem.{API,Domain,Infrastructure,Persistence,Contracts}  ← M2 (lift)
+  Frontend/LotroKoniecDev.Frontend                                                        ← M3 (Blazor SSR, OIDC RP)
+  Utilities/…                                                                             ← M2 (lift only what's used)
+```
 
-**Cli (presentation) / Infrastructure → Application → Domain → Primitives**
+**The contexts share a data contract, not code: the `||` translation file.** CLI `export` →
+`exported.txt` → TMS import; TMS export → `polish.txt` → CLI `patch`. Each context owns its own
+parser/serializer; **golden fixture files + round-trip tests on both sides** guard against format
+drift, and the format itself changes only via ADR. The TMS never references `datexport.dll`/DAT
+code (it runs in Linux Docker); the patcher never touches the DB (it runs on a Windows gaming
+box). WPF (M4) calls patcher handlers locally and downloads `polish.txt` from the TMS API.
+
+### Patcher — frozen (do not refactor)
+
+Strict Clean Architecture; dependency rule: **Cli / Infrastructure → Application → Domain →
+Primitives**.
 
 | Project | Role |
 |---|---|
-| `LotroKoniecDev.Cli` | Spectre.Console commands; resolves paths, reports, maps `Error` → exit code. Presentation only — WPF will sit beside it (M4) |
-| `LotroKoniecDev.Application` | feature slices (`Features/<Area>/`): command/query records + slim handlers + services; `Abstractions/` ports |
-| `LotroKoniecDev.Domain` | `Result`/`Maybe` monads, `Error` + `DomainErrors` factories, DAT models (`SubFile`, `Fragment`, `Translation`), `VarLenEncoder` — Eric Evans DDD |
-| `LotroKoniecDev.Infrastructure` | native lotro DLL interop (`datexport.dll`), DAT file handler, forum fetcher, process/launcher adapters |
+| `LotroKoniecDev.Cli` | Spectre.Console commands; resolves paths, reports, maps `Error` → exit code |
+| `LotroKoniecDev.Application` | feature slices (`Features/<Area>/`): command/query records + slim handlers + services; `Abstractions/` ports incl. in-house `Messaging/` interfaces |
+| `LotroKoniecDev.Domain` | `Result`/`Maybe` monads, `Error` + `DomainErrors`, DAT models (`SubFile`, `Fragment`, `Translation`), `VarLenEncoder` |
+| `LotroKoniecDev.Infrastructure` | native interop (`datexport.dll`, x86 Windows), DAT handler, forum fetcher, launcher |
 | `LotroKoniecDev.Primitives` | constants + enums, zero dependencies |
-| `tests/` | `Tests.Unit` (pure, mocked), `Tests.Infrastructure` (reserved: real DAT/DB), `Tests.E2E` (full pipeline, Windows-only, `SkippableFact`) |
+| `tests/LotroKoniecDev.Tests.{Unit,Infrastructure,E2E}` | patcher tests (E2E Windows-only via `SkippableFact`) |
+
+**Frozen means:** bugfix tickets only — no renames, no extractions, no restructuring in service
+of the TMS. The TMS deliberately duplicates the few tiny building blocks it needs (Result/Maybe/
+Error shapes, messaging interfaces — they arrive inside the lifted SharedKernel); consolidating
+that duplication is at most a post-MVP ticket. Any change here must keep every existing test
+green without touching its assertions.
+
+### TMS — the KittySaver lift map
+
+| Building… | Mirror from `~/RiderProjects/TheKittySaver` | Lift notes |
+|---|---|---|
+| `SharedKernel` | `src/SharedKernel/TheKittySaver.SharedKernel` | Drop the `Mediator.Abstractions` package; add `Messaging/` with in-house `ICommand(Handler)`/`IQuery(Handler)` (same shapes as patcher `Application/Abstractions/Messaging/`). Keep monads, BuildingBlocks, `Ensure`, `StronglyTypedId` |
+| `TranslationSystem.Domain` | `src/AdoptionSystem/…AdoptionSystem.Domain` | `Aggregates/<X>Aggregate/{Entities,ValueObjects,Repositories}` + `Core/Errors`; our aggregates are far simpler than `Cat` — don't inflate them |
+| `TranslationSystem.Persistence` | `…AdoptionSystem.Persistence` | DbContext + configurations + UoW + migrations + design-time factory; EF house rules below |
+| `TranslationSystem.Contracts` | `…AdoptionSystem.Contracts` | Request/response DTOs per feature; referenced by Frontend |
+| `TranslationSystem.API` | `…AdoptionSystem.API` | `IEndpoint` + assembly-scan `AddEndpoints`/`MapEndpoints`; slices in `Features/<Area>/<Action>.cs`; `ExceptionHandlers/`, `Auth/` (JwtBearer + policies + `CurrentUserAccessor` + ownership guards), health checks, Serilog + OTel bootstrap |
+| `AuthSystem` (whole module) | `src/AuthSystem/*` | Self-hosted OpenIddict + Identity server — lift wholesale. **Do NOT lift the synchronous `RegisterUser`→`CreatePersonAsync` saga**: provision the translator profile lazily & idempotently on first authenticated TMS request (pattern: KittySaver ADR-0007 §4) |
+| `Frontend` (infra) | `src/Frontend/TheKittySaver.Frontend` | Lift `Infrastructure/` (OIDC RP, `CookieTokenRefresher`, `DiscoveryCache`, `ApiResult`, typed HttpClients, error pages); pages are written fresh for translations; reference `TranslationSystem.Contracts` directly |
+| Docker / compose | `compose.yaml`, `Dockerfile.migrator`, `Dockerfile.tests` | postgres + migrator + auth-api + tms-api (+ mailpit/aspire-dashboard in dev); Frontend joins in M3 |
+
+**Deliberate non-lifts (YAGNI — revisit only on a real, present need):** `ReadModels(+EF)`
+read/write split, `Calculators`, per-system `Primitives`, domain events (KittySaver dispatches
+them via Mediator notifications; the TMS core loop doesn't need them — if a need appears, design
+an in-house dispatcher via ADR first).
+
+### De-mediatorization recipe (apply to every lifted slice)
+
+A KittySaver slice is one file: `internal sealed class <Action> : IEndpoint` containing a nested
+`Command`/`Query` record + nested `Handler`; the endpoint dispatches via `ISender`. Transform:
+
+1. The record implements in-house `ICommand<Result<TResponse>>` / `IQuery<Result<TResponse>>`
+   from `SharedKernel.Messaging`.
+2. `Handler` implements `ICommandHandler<Command, Result<TResponse>>` — explicit constructor DI,
+   `ValueTask Handle(...)`.
+3. Register the **closed** interface explicitly in the system's DI:
+   `services.AddScoped<ICommandHandler<<Action>.Command, Result<TResponse>>, <Action>.Handler>();`
+4. The endpoint's route delegate takes the closed handler interface as a parameter (instead of
+   `ISender`) and calls `handler.Handle(request, cancellationToken)`.
+5. Pipeline behaviours don't exist here: validation — **command** handlers inject
+   `IValidator<TCommand>` and map failures to `Result` (queries validate inline); logging —
+   `ILogger<Handler>` inside the handler.
 
 ## Read-first routing (do this BEFORE touching the area)
 
 | You're about to… | Read first |
 |---|---|
-| Work a GitHub ticket end-to-end | run **`/ticket <number>`** — it drives BRD/spec → branch → slice → review |
-| Touch DAT binary parsing / writing / native interop | delegate to the **`dat-format-expert`** agent — it holds the full format spec + KB index |
-| Re-investigate update behavior, vnum, translation survival, launch flow | **don't** — empirically settled in `docs/knowledge-base/` (start at its README; 6 live tests incl. 48.0 major) |
-| Make a non-trivial architectural/modeling decision | skim `docs/adr/`, then **write a new ADR** (`/adr`) |
+| Build/change a **TMS slice** | the nearest sibling slice in TheKittySaver (`AdoptionSystem.API/Features/…`) — mirror it, then apply the de-mediatorization recipe |
+| Work a GitHub ticket end-to-end | run **`/ticket <number>`** (mind the pivot-supersedes rule in Project status) |
+| Touch DAT binary parsing / writing / native interop | delegate to the **`dat-format-expert`** agent |
+| Re-investigate update behavior, vnum, translation survival, launch flow | **don't** — empirically settled in `docs/knowledge-base/` (start at its README) |
+| Make a non-trivial architectural/modeling decision | skim `docs/adr/`, then **write a new ADR** (`/adr`); anchors: 0001 (no mediator), 0002 (TMS pivot — to be written at M2 start) |
 | Implement a feature whose business rules are fuzzy | **`/spec`** first (seed → questions → agreed spec in `docs/specs/`) |
-| Review a finished change | the **`code-reviewer`** agent (acceptance criteria + architecture + test purity) |
-| Understand the backlog / milestones | `gh issue list` (live truth) + `docs/TICKETS.md` (static plan) |
+| Review a finished change | the **`code-reviewer`** agent |
+| Understand the backlog / milestones | `gh issue list` (being re-cut post-pivot) + Roadmap digest below |
 | Compare with the Russian sister project | `docs/RUSSIAN_PROJECT_RESEARCH.md` + `docs/knowledge-base/russian-project.md` |
 
 ## Commands
@@ -58,8 +128,8 @@ dotnet build LotroKoniecDev.slnx
 
 # Tests
 dotnet test                                            # everything runnable on this OS
-dotnet test tests/LotroKoniecDev.Tests.Unit            # fast, pure unit (this must always be green)
-dotnet test tests/LotroKoniecDev.Tests.E2E             # full pipeline — auto-skips off-Windows (SkippableFact)
+dotnet test tests/LotroKoniecDev.Tests.Unit            # fast, pure unit (must always be green)
+dotnet test tests/LotroKoniecDev.Tests.E2E             # full pipeline — auto-skips off-Windows
 dotnet test --filter "FullyQualifiedName~Fragment"     # filter by name
 
 # Run the CLI (Windows; needs LOTRO + admin for DAT write)
@@ -75,8 +145,9 @@ gh issue develop <n> --checkout                        # create + checkout the l
 gh pr create --fill --body "Closes #<n>"               # PR title mirrors the ticket; body closes it
 ```
 
-Exit codes: `0` success, `1` invalid arguments (incl. `ErrorType.Validation`), `2` file not found,
-`3` operation failed, `4` cancelled.
+TMS compose/migration commands land with M2 — **add them to this section the moment they exist.**
+Exit codes (CLI): `0` success, `1` invalid arguments (incl. `ErrorType.Validation`), `2` file not
+found, `3` operation failed, `4` cancelled.
 
 ## DAT binary format (digest — full notes in `docs/knowledge-base/`)
 
@@ -92,7 +163,7 @@ SubFile (text, FileId high byte = 0x25):
 VarLen: 0-127 = 1 byte; 128-32767 = 2 bytes (high bit flag)
 ```
 
-## Translation file format
+## Translation file format — THE inter-context contract
 
 ```
 # Comments start with #
@@ -105,6 +176,8 @@ file_id||gossip_id||translated_text||args_order||args_id||approved
 - `args_order`: `NULL` or `1-2-3` (1-indexed in file, 0-indexed internally)
 - `\r`, `\n` in content are unescaped by parser
 - Results sorted by FileId then GossipId for sequential DAT I/O
+- **Changing this format requires an ADR + updated golden fixtures in BOTH contexts** (patcher
+  parser tests and TMS import/export tests).
 
 ## Game update behavior (empirically proven — do not re-test, see knowledge base)
 
@@ -121,20 +194,25 @@ file_id||gossip_id||translated_text||args_order||args_id||approved
 - **Zero warnings.** `TreatWarningsAsErrors` is repo-wide. Fix it; don't suppress it (a scoped
   `.editorconfig` exception requires a stated reason, like the `Result._value` guarded getter).
 - **Errors are values, not exceptions.** Business failures → `Result.Failure(Error)` via
-  `DomainErrors.*` factories / `Error.Validation(...)`. `ArgumentNullException.ThrowIfNull` &
-  guards are for **programmer** errors only — never throw for a user-facing rule.
-- **No mediator — slim SRP handlers (ADR-0001).** One use case = one record + one handler
-  implementing the in-house `ICommandHandler<,>`/`IQueryHandler<,>`
-  (`Application/Abstractions/Messaging/`). Consumers inject the closed handler interface
-  directly. `Mediator`/`MediatR` packages are forbidden.
+  `DomainErrors.*` factories / `Error.Validation(...)`. Guards (`Ensure`,
+  `ArgumentNullException.ThrowIfNull`) are for **programmer** errors only. The API's
+  `ExceptionHandlers/` are safety nets, not a control-flow mechanism.
+- **No mediator — slim SRP handlers (ADR-0001), repo-wide.** One use case = one record + one
+  handler implementing the in-house `ICommandHandler<,>`/`IQueryHandler<,>`. Consumers inject the
+  closed handler interface directly. Lifted KittySaver code is de-mediatorized on entry.
+- **Patcher is frozen** (see Architecture) — never refactor it to serve the TMS.
+- **TMS ships with auth from day 1.** Endpoints are authorized by default (public ones are
+  explicit); the first migration already carries user attribution (`SubmittedById`,
+  `ApprovedById`). No auth-less interim state to retrofit later.
 - **Validation:** FluentValidation **for commands only** — the command handler injects
   `IValidator<TCommand>` and maps failures to `Result` (never throws). Queries validate inline
-  in their handler. Every validator must be **registered in DI** (`AddApplicationServices`).
-- **Handlers are orchestrators.** Business logic lives in domain/application services
-  (`PatchingService`, `SimplifiedGameLaunchingStrategy`); handlers validate, delegate, return.
-- **EF Core (from M2 on):** Fluent API only (never attributes), `nameof()` for column names,
-  `MaxLength`/`Precision`+`Scale` over `HasColumnType`, no needless `IsRequired()` (value types &
-  non-null strings are already required), FK property names parametrized with `nameof()`.
+  in their handler. Every validator must be registered in DI.
+- **Handlers are orchestrators.** Business logic lives in domain/application services; handlers
+  validate, delegate, return.
+- **EF Core (`TranslationSystem.Persistence`):** Fluent API only (never attributes), `nameof()`
+  for column names, `MaxLength`/`Precision`+`Scale` over `HasColumnType`, no needless
+  `IsRequired()` (value types & non-null strings are already required), FK property names
+  parametrized with `nameof()`.
 - **Right-size the design — YAGNI by default.** Before proposing an abstraction, cache, config
   knob, queue, or new infra, check it solves a **real, present** need from the current
   spec/ticket — not a hypothetical future. Pick the simple path and note the trade-off in one line.
@@ -148,75 +226,97 @@ file_id||gossip_id||translated_text||args_order||args_id||approved
 - **File-scoped namespaces**, **Allman braces**, no `#region`, no useless/obvious comments.
 - Code & identifiers in **English**.
 
-## Anatomy of an Application feature slice
+## Anatomy of a feature slice
 
-One use case = one folder: `Application/Features/<Area>/`. Canonical example to copy:
-`Features/Patching/` (command) and `Features/PreflightChecking/` (query). Shape:
+### Patcher slice (frozen — reference only for bugfixes)
+
+`Application/Features/<Area>/`: `<Action>Command.cs` (sealed record `: ICommand<Result<T>>`) +
+`<Action>CommandHandler.cs` (internal sealed, explicit ctor DI) + validator (commands only) +
+response record. Wired in `ApplicationDependencyInjection`; CLI injects the closed interface and
+maps failures via `ErrorMapper.MapErrorToExitCode`. Canonical examples: `Features/Patching/`,
+`Features/PreflightChecking/`.
+
+### TMS slice (the shape going forward — VSA in the API project)
 
 ```
-Features/<Area>/
-├── <Action>Command.cs        public sealed record : ICommand<Result<TResponse>>
-│     (or <Action>Query.cs    public sealed record : IQuery<Result<TResponse>>)
-├── <Action>CommandHandler.cs internal sealed class : ICommandHandler<TCommand, Result<TResponse>>
-│                             — explicit ctor DI; ValueTask Handle(); commands inject IValidator<TCommand>,
-│                               map failures via .ToValidationError(nameof(TCommand)); queries guard inline
-├── <Action>CommandValidator.cs  commands only — FluentValidation, sealed
-├── <X>Response.cs            public sealed record result DTO (with ToString() for CLI display)
-└── <X>Service.cs             optional — real business logic when the handler would exceed orchestration
+TranslationSystem.API/Features/<Area>/<Action>.cs
+
+internal sealed class <Action> : IEndpoint
+{
+    internal sealed record Command(…) : ICommand<Result<TResponse>>;          // or Query : IQuery<…>
+
+    internal sealed class Handler : ICommandHandler<Command, Result<TResponse>>
+    {
+        // explicit ctor DI: repositories, IUnitOfWork, IValidator<Command> (commands only)…
+    }
+
+    public void MapEndpoint(IEndpointRouteBuilder endpointRouteBuilder) { … } // injects the closed
+}                                                                             // handler interface
 ```
 
-Then wire the rest — **all three steps, every time**:
-1. **DI**: register handler + validator explicitly in `ApplicationDependencyInjection.AddApplicationServices()`.
-2. **Consumer**: CLI command injects the closed interface, e.g.
-   `ICommandHandler<ApplyPatchCommand, Result<PatchSummaryResponse>>`, calls
-   `await handler.Handle(request, cancellationToken)`, maps failure via
-   `ErrorMapper.MapErrorToExitCode(result.Error)`.
-3. **Tests**: handler tests in `Tests.Unit/Tests/Features/` (construct the real validator, mock
-   the ports); E2E only if the CLI pipeline contract changed.
-
-**Mirror the nearest existing sibling slice** rather than inventing structure.
+Wire the rest — **all three steps, every time**: (1) explicit DI registration of the closed
+handler interface, (2) request/response DTOs in `TranslationSystem.Contracts`, (3) tests —
+domain/handler unit tests + endpoint integration test against real PostgreSQL.
+**Mirror the nearest existing sibling slice** (here or in TheKittySaver) rather than inventing
+structure.
 
 ## Testing philosophy — repo-authoritative
 
 - **Black box over the public seam — never the implementation.** Assert observable behavior:
   inputs in → `Result`/persisted state out. NSubstitute stubs **genuine boundaries**
   (`IDatFileHandler`, `IForumPageFetcher`), never internals you own.
-- **`.Received()` policy:** only for side effects invisible in the return value (resource cleanup
-  `Close()`/`Dispose()`, "destructive op was NOT called on validation failure"). If the return
-  value already proves it, `.Received()` is forbidden — a behavior-preserving refactor must never
-  break a test.
-- **Unit tests are pure:** no filesystem asserts, no network, no DB, no order dependence. File
-  content verification = `Tests.Infrastructure`, not `Tests.Unit`.
+- **`.Received()` policy:** only for side effects invisible in the return value (resource cleanup,
+  "destructive op was NOT called on validation failure"). If the return value already proves it,
+  `.Received()` is forbidden — a behavior-preserving refactor must never break a test.
+- **Unit tests are pure:** no filesystem, no network, no DB, no order dependence. Real-resource
+  verification belongs to integration projects.
 - **Edge cases are first-class.** Happy path is the floor. `[Theory]` + `[InlineData]` for the
   unhappy-path/boundary matrix (empty, max, malformed, already-in-state).
-- **AAA always; assertions inline in the test method** — never hidden in helpers. DRY the
-  Arrange (builders like `TestDataFactory`), never the Assert. One reason to fail per test.
+- **AAA always; assertions inline in the test method.** DRY the Arrange (builders), never the
+  Assert. One reason to fail per test.
 - **Tooling: xUnit + Shouldly + NSubstitute only.** Naming: `MethodName_Scenario_ExpectedResult`.
-- Platform honesty: tests must pass on macOS AND Windows — build paths with `Path.Combine`,
-  never hardcode `C:\` (the CLI itself is Windows-only; tests are not).
+- Platform honesty: tests must pass on macOS AND Windows — `Path.Combine`, never hardcoded `C:\`.
+- **TMS test projects mirror KittySaver naming:**
+  `tests/LotroKoniecDev.TranslationSystem.Domain.Tests.Unit` (pure),
+  `tests/LotroKoniecDev.TranslationSystem.API.Tests.Integration` (real PostgreSQL — never in a
+  Unit project), Frontend unit tests in M3. Patcher test projects stay exactly as they are.
 
 ## Workflow (the loop that compounds)
 
-1. **Ticket before code.** Work flows from GitHub issues (`M{milestone}-{nn}: Title`,
-   labels `critical/high/medium/low` + `bug/refactor/infra/feature/test`, body with
-   Context / Depends on / Tasks / Acceptance criteria). Run **`/ticket <n>`** — it pulls the
-   issue, grounds it in code + knowledge base, and produces the BRD/spec.
+1. **Ticket before code.** Work flows from GitHub issues (`M{milestone}-{nn}: Title`, labels
+   `critical/high/medium/low` + `bug/refactor/infra/feature/test`). Run **`/ticket <n>`**.
 2. **Spec before code.** Anything non-trivial gets `docs/specs/NNNN-*.md` (via `/ticket` or
    `/spec`). Open questions are **extracted for the user, never invented**. Implementation starts
    only at **Status: Agreed**.
-3. **Decision before code.** Non-trivial modeling/architecture choice → **`/adr`** first
-   (house format, anchor: `docs/adr/0001-*`), implement second.
-4. **Slice, mirror, test, review.** Branch via `gh issue develop <n> --checkout`
-   (`{n}-{kebab-title}`). Implement by mirroring the nearest sibling slice (`/feature`), add
-   unit tests, then run the **`code-reviewer`** agent on the diff (**`/security-review`** for
-   anything touching native interop, file protection, or auth later).
+3. **Decision before code.** Non-trivial modeling/architecture choice → **`/adr`** first.
+4. **Slice, mirror, test, review.** Branch via `gh issue develop <n> --checkout`. Implement by
+   mirroring the nearest sibling slice, add tests, then run the **`code-reviewer`** agent on the
+   diff (**`/security-review`** for anything touching native interop, file protection, or auth).
    **Green build + zero warnings + clean review = "done" — not before.**
 5. **PR closes the ticket.** Title mirrors the ticket; body contains `Closes #<n>`.
    Ask before pushing.
-6. **Feed the flywheel.** When a correction is reusable, persist it so it can't recur:
-   agent-specific lesson → `.claude/agent-memory/<agent>/`; a global rule → **this file**;
-   a real decision → a new ADR; an empirical DAT/update finding → `docs/knowledge-base/` (dated).
-   The same mistake made twice means a rule is missing.
+6. **Feed the flywheel.** Reusable correction → persist it: agent lesson →
+   `.claude/agent-memory/<agent>/`; global rule → **this file**; real decision → new ADR;
+   empirical DAT/update finding → `docs/knowledge-base/` (dated). The same mistake made twice
+   means a rule is missing.
+
+## Roadmap (digest — details land as re-cut GitHub issues)
+
+- **M2 — TMS backend (core loop).** ADR-0002 (record this pivot) → SharedKernel lift →
+  AuthSystem lift → TranslationSystem (Domain/Persistence/Contracts/API) with exactly these
+  slices: import `exported.txt` (upload), list translations (search/filter/paginate), get one,
+  upsert translation, approve translation, export `polish.txt` (download) → compose (postgres +
+  migrator + auth-api + tms-api) → integration tests.
+  **DoD:** the full loop works: CLI `export` → TMS import → edit/approve → TMS export → CLI
+  `patch` → texts visible in game.
+- **M3 — Frontend (Blazor SSR).** Lifted OIDC infra; pages: translation list, side-by-side
+  editor with `<--DO_NOT_TOUCH!-->` placeholder validation, approve flow, import/export,
+  mini-dashboard (progress counters). **DoD:** a translator completes the whole loop in the
+  browser, authenticated.
+- **M4 — WPF player app** (later): patcher handlers + HTTP download of `polish.txt` from the TMS.
+- **Post-MVP backlog (deliberately cut from MVP):** LOTRO Companion XML context import, glossary,
+  quest browser, `TranslationHistory`, bulk operations, keyboard shortcuts, AI review, Discord
+  notifications, public API versioning, crowdsourced game-version reports, per-language roles.
 
 ## Proactive command use
 
@@ -224,12 +324,12 @@ The `/ticket`, `/spec`, `/feature`, `/adr` workflows are model-invocable — rea
 when the request matches, without waiting for the user to type the slash:
 
 - User references **a ticket number or pastes an issue** → run **`/ticket`**.
-- User floats a **rough feature idea** with unclear business rules → **`/spec`** first, then `/feature`.
-- User describes a **concrete new use case** for an existing area → **`/feature`** directly
-  (ask one focused question only if a business rule is genuinely ambiguous — otherwise go).
+- User floats a **rough feature idea** with unclear business rules → **`/spec`** first.
+- User describes a **concrete new use case** → mirror the nearest sibling slice (note:
+  **`/feature` scaffolds the patcher-style Application slice** — for TMS slices mirror
+  TheKittySaver + the de-mediatorization recipe until the skill is updated).
 - User is **settling an architecture/modeling choice** → **`/adr`** first, then implement.
-- Any **DAT binary format work** (parsing, writing, args, VarLen, native interop) → hand off to
-  the **`dat-format-expert`** agent; don't re-derive the format ad hoc.
+- Any **DAT binary format work** → hand off to the **`dat-format-expert`** agent.
 
 Don't narrate "I'll run the command" — just follow the workflow and report results. Never scaffold
 off a vague one-liner: if a business rule is unclear, ask once, then proceed.

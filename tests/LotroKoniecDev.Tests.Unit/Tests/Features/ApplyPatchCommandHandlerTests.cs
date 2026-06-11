@@ -16,7 +16,7 @@ public sealed class ApplyPatchCommandHandlerTests
     {
         _patchingService = Substitute.For<IPatchingService>();
         IProgress<OperationProgress> progress = Substitute.For<IProgress<OperationProgress>>();
-        _sut = new ApplyPatchCommandHandler(_patchingService, progress);
+        _sut = new ApplyPatchCommandHandler(_patchingService, progress, new ApplyPatchCommandValidator());
     }
 
     [Fact]
@@ -24,6 +24,25 @@ public sealed class ApplyPatchCommandHandlerTests
     {
         await Should.ThrowAsync<ArgumentNullException>(
             () => _sut.Handle(null!, CancellationToken.None).AsTask());
+    }
+
+    [Theory]
+    [InlineData("", "/game/client_local_English.dat")]
+    [InlineData("/translations/polish.txt", "")]
+    public async Task Handle_EmptyPath_ShouldReturnValidationFailure(string translationsPath, string datFilePath)
+    {
+        // Arrange
+        ApplyPatchCommand command = new(translationsPath, datFilePath);
+
+        // Act
+        Result<PatchSummaryResponse> result = await _sut.Handle(command, CancellationToken.None);
+
+        // Assert
+        result.IsFailure.ShouldBeTrue();
+        result.Error.Type.ShouldBe(ErrorType.Validation);
+        result.Error.Code.ShouldBe("ApplyPatchCommand.Validation");
+        _patchingService.DidNotReceive().ApplyTranslations(
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<IProgress<OperationProgress>?>());
     }
 
     [Fact]

@@ -33,6 +33,24 @@ public sealed class ExportTextsQueryHandlerTests : IDisposable
         }
     }
 
+    [Theory]
+    [InlineData("", "output.txt")]
+    [InlineData("test.dat", "")]
+    public async Task Handle_EmptyPath_ShouldReturnValidationFailure(string datFilePath, string outputPath)
+    {
+        // Arrange
+        ExportTextsQuery query = new(datFilePath, outputPath);
+
+        // Act
+        Result<ExportSummaryResponse> result = await _sut.Handle(query, CancellationToken.None);
+
+        // Assert
+        result.IsFailure.ShouldBeTrue();
+        result.Error.Type.ShouldBe(ErrorType.Validation);
+        result.Error.Code.ShouldBe("ExportTextsQuery.Validation");
+        _mockHandler.DidNotReceive().Open(Arg.Any<string>());
+    }
+
     [Fact]
     public async Task Handle_SuccessfulExport_ShouldReturnSummary()
     {

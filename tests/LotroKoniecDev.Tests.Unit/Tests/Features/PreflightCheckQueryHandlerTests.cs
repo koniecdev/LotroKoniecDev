@@ -36,12 +36,29 @@ public sealed class PreflightCheckQueryHandlerTests
         string versionFilePath = VersionFilePath) =>
         new(datFilePath, versionFilePath);
 
+    [Theory]
+    [InlineData("", VersionFilePath)]
+    [InlineData(DatFilePath, "")]
+    public async Task Handle_EmptyPath_ShouldReturnValidationFailure(string datFilePath, string versionFilePath)
+    {
+        // Arrange
+        PreflightCheckQuery query = CreateQuery(datFilePath, versionFilePath);
+
+        // Act
+        Result<PreflightReportResponse> result = await _sut.Handle(query, CancellationToken.None);
+
+        // Assert
+        result.IsFailure.ShouldBeTrue();
+        result.Error.Type.ShouldBe(ErrorType.Validation);
+        result.Error.Code.ShouldBe("PreflightCheckQuery.Validation");
+    }
+
     [Fact]
     public async Task Handle_AllChecksPass_ShouldReturnSuccessReport()
     {
         // Arrange
         _mockProcessDetector.IsLotroRunning().Returns(false);
-        _mockWriteAccessChecker.CanWriteTo(@"C:\game").Returns(true);
+        _mockWriteAccessChecker.CanWriteTo(Path.GetDirectoryName(DatFilePath)!).Returns(true);
         _mockUpdateChecker.CheckForUpdateAsync(VersionFilePath)
             .Returns(Result.Success(new GameUpdateCheckSummary("40.1", StoredInfo)));
 
@@ -179,12 +196,13 @@ public sealed class PreflightCheckQueryHandlerTests
         _mockUpdateChecker.CheckForUpdateAsync(Arg.Any<string>())
             .Returns(Result.Success(new GameUpdateCheckSummary("40.1", StoredInfo)));
 
-        PreflightCheckQuery query = new(@"D:\lotro\data\client_local_English.dat", VersionFilePath);
+        string datFilePath = Path.Combine("lotro", "data", "client_local_English.dat");
+        PreflightCheckQuery query = new(datFilePath, VersionFilePath);
 
         // Act
         await _sut.Handle(query, CancellationToken.None);
 
         // Assert
-        _mockWriteAccessChecker.Received(1).CanWriteTo(@"D:\lotro\data");
+        _mockWriteAccessChecker.Received(1).CanWriteTo(Path.Combine("lotro", "data"));
     }
 }

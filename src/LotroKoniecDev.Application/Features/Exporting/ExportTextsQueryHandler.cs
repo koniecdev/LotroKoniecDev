@@ -1,10 +1,11 @@
 ﻿using System.Text;
 using LotroKoniecDev.Application.Abstractions.DatFilesServices;
+using LotroKoniecDev.Application.Abstractions.Messaging;
 using LotroKoniecDev.Application.Extensions;
+using LotroKoniecDev.Domain.Core.BuildingBlocks;
 using LotroKoniecDev.Domain.Core.Errors;
 using LotroKoniecDev.Domain.Models;
 using LotroKoniecDev.Primitives.Constants;
-using Mediator;
 
 namespace LotroKoniecDev.Application.Features.Exporting;
 
@@ -25,7 +26,19 @@ internal sealed class ExportTextsQueryHandler : IQueryHandler<ExportTextsQuery, 
     public async ValueTask<Result<ExportSummaryResponse>> Handle(ExportTextsQuery query, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(query);
-        
+
+        if (string.IsNullOrWhiteSpace(query.DatFilePath))
+        {
+            return Result.Failure<ExportSummaryResponse>(
+                Error.Validation($"{nameof(ExportTextsQuery)}.Validation", "DatFilePath must not be empty."));
+        }
+
+        if (string.IsNullOrWhiteSpace(query.OutputPath))
+        {
+            return Result.Failure<ExportSummaryResponse>(
+                Error.Validation($"{nameof(ExportTextsQuery)}.Validation", "OutputPath must not be empty."));
+        }
+
         Result<int> openResult = _datFileHandler.Open(query.DatFilePath);
         if (openResult.IsFailure)
         {

@@ -1,7 +1,10 @@
+using FluentValidation;
 using LotroKoniecDev.Application.Abstractions;
-using LotroKoniecDev.Application.Behaviors;
+using LotroKoniecDev.Application.Abstractions.Messaging;
+using LotroKoniecDev.Application.Features.Exporting;
 using LotroKoniecDev.Application.Features.GameLaunching;
 using LotroKoniecDev.Application.Features.Patching;
+using LotroKoniecDev.Application.Features.PreflightChecking;
 using LotroKoniecDev.Application.Features.UpdateChecking;
 using LotroKoniecDev.Application.Parsers;
 using Microsoft.Extensions.DependencyInjection;
@@ -18,16 +21,14 @@ public static class ApplicationDependencyInjection
     /// </summary>
     public static IServiceCollection AddApplicationServices(this IServiceCollection services)
     {
-        services.AddMediator(options =>
-        {
-            options.ServiceLifetime = ServiceLifetime.Scoped;
-            options.PipelineBehaviors =
-            [
-                typeof(RequestLoggingPipelineBehavior<,>),
-                typeof(ValidationPipelineBehavior<,>)
-            ];
-        });
-        
+        services.AddScoped<IQueryHandler<ExportTextsQuery, Result<ExportSummaryResponse>>, ExportTextsQueryHandler>();
+        services.AddScoped<IQueryHandler<PreflightCheckQuery, Result<PreflightReportResponse>>, PreflightCheckQueryHandler>();
+        services.AddScoped<ICommandHandler<ApplyPatchCommand, Result<PatchSummaryResponse>>, ApplyPatchCommandHandler>();
+        services.AddScoped<ICommandHandler<GameLaunchingCommand, Result<GameLaunchingResponse>>, GameLaunchingCommandHandler>();
+
+        services.AddSingleton<IValidator<ApplyPatchCommand>, ApplyPatchCommandValidator>();
+        services.AddSingleton<IValidator<GameLaunchingCommand>, GameLaunchingCommandValidator>();
+
         services.AddSingleton<ITranslationParser, TranslationFileParser>();
         services.AddSingleton<IGameUpdateChecker, GameUpdateChecker>();
         services.AddScoped<IPatchingService, PatchingService>();

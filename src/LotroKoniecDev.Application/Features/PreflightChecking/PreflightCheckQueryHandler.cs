@@ -1,5 +1,6 @@
 ﻿using LotroKoniecDev.Application.Abstractions;
-using Mediator;
+using LotroKoniecDev.Application.Abstractions.Messaging;
+using LotroKoniecDev.Domain.Core.BuildingBlocks;
 
 namespace LotroKoniecDev.Application.Features.PreflightChecking;
 
@@ -21,6 +22,20 @@ internal sealed class PreflightCheckQueryHandler : IQueryHandler<PreflightCheckQ
     
     public async ValueTask<Result<PreflightReportResponse>> Handle(PreflightCheckQuery query, CancellationToken cancellationToken)
     {
+        ArgumentNullException.ThrowIfNull(query);
+
+        if (string.IsNullOrWhiteSpace(query.DatFilePath))
+        {
+            return Result.Failure<PreflightReportResponse>(
+                Error.Validation($"{nameof(PreflightCheckQuery)}.Validation", "DatFilePath must not be empty."));
+        }
+
+        if (string.IsNullOrWhiteSpace(query.VersionFilePath))
+        {
+            return Result.Failure<PreflightReportResponse>(
+                Error.Validation($"{nameof(PreflightCheckQuery)}.Validation", "VersionFilePath must not be empty."));
+        }
+
         bool isGameRunning = _gameProcessDetector.IsLotroRunning();
         
         string? directory = Path.GetDirectoryName(query.DatFilePath);

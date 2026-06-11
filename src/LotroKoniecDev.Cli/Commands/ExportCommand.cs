@@ -1,24 +1,24 @@
 ﻿using System.ComponentModel;
 using LotroKoniecDev.Application.Abstractions.DatFilesServices;
+using LotroKoniecDev.Application.Abstractions.Messaging;
 using LotroKoniecDev.Application.Features.Exporting;
 using LotroKoniecDev.Domain.Core.Monads;
-using Mediator;
 using Spectre.Console.Cli;
 
 namespace LotroKoniecDev.Cli.Commands;
 
 internal sealed class ExportCommand : AsyncCommand<ExportCommand.Settings>
 {
-    private readonly ISender _sender;
+    private readonly IQueryHandler<ExportTextsQuery, Result<ExportSummaryResponse>> _exportTextsHandler;
     private readonly IDatPathResolver _datPathResolver;
     private readonly IOperationStatusReporter _reporter;
 
     public ExportCommand(
-        ISender sender, 
+        IQueryHandler<ExportTextsQuery, Result<ExportSummaryResponse>> exportTextsHandler,
         IDatPathResolver datPathResolver,
         IOperationStatusReporter reporter)
     {
-        _sender = sender;
+        _exportTextsHandler = exportTextsHandler;
         _datPathResolver = datPathResolver;
         _reporter = reporter;
     }
@@ -50,7 +50,7 @@ internal sealed class ExportCommand : AsyncCommand<ExportCommand.Settings>
         
         try
         {
-            Result<ExportSummaryResponse> result = await _sender.Send(query, cancellationToken);
+            Result<ExportSummaryResponse> result = await _exportTextsHandler.Handle(query, cancellationToken);
             if (result.IsFailure)
             {
                 _reporter.Report(result.Error.ToString());

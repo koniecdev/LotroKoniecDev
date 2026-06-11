@@ -1,4 +1,4 @@
-﻿using Mediator;
+﻿using LotroKoniecDev.Application.Abstractions.Messaging;
 
 namespace LotroKoniecDev.Application.Features.PreflightChecking;
 

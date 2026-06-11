@@ -76,14 +76,18 @@ public sealed class TranslationFileParser : ITranslationParser
 
         try
         {
+            // Anchor from both ends: file_id, gossip_id lead; args_order, args_id, approved trail.
+            // Everything between is content re-joined with the separator, so content may contain "||".
+            string content = string.Join(FieldSeparator, parts[2..^3]);
+
             Translation translation = new()
             {
                 FileId = int.Parse(parts[0]),
                 GossipId = int.Parse(parts[1]),
-                Content = UnescapeContent(parts[2]),
-                ArgsOrder = ParseArgsArray(parts[3]),
-                ArgsId = ParseArgsArray(parts[4]),
-                IsApproved = parts[5] == "1"
+                Content = UnescapeContent(content),
+                ArgsOrder = ParseArgsArray(parts[^3]),
+                ArgsId = ParseArgsArray(parts[^2]),
+                IsApproved = parts[^1] == "1"
             };
 
             return Result.Success(translation);

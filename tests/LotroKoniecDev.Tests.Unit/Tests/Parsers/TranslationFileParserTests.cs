@@ -265,6 +265,71 @@ public sealed class TranslationFileParserTests : IDisposable
     }
 
     [Fact]
+    public void ParseLine_ContentContainsSeparator_ShouldPreserveFullContent()
+    {
+        // Act
+        Result<Translation> result = _parser.ParseLine("100||200||Left||Right||NULL||NULL||1");
+
+        // Assert
+        result.IsSuccess.ShouldBeTrue();
+        result.Value.FileId.ShouldBe(100);
+        result.Value.GossipId.ShouldBe(200);
+        result.Value.Content.ShouldBe("Left||Right");
+        result.Value.ArgsOrder.ShouldBeNull();
+        result.Value.ArgsId.ShouldBeNull();
+        result.Value.IsApproved.ShouldBeTrue();
+    }
+
+    [Theory]
+    [InlineData("100||200||a||b||NULL||NULL||1", "a||b")]              // separator inside content
+    [InlineData("100||200||||trailing||NULL||NULL||1", "||trailing")] // content starts with separator
+    [InlineData("100||200||leading||||NULL||NULL||1", "leading||")]   // content ends with separator
+    [InlineData("100||200||a||b||c||NULL||NULL||1", "a||b||c")]       // multiple separators
+    [InlineData("100||200||||NULL||NULL||1", "")]                     // empty content, minimum field count
+    public void ParseLine_ContentWithSeparators_ShouldRecoverExactContent(string line, string expectedContent)
+    {
+        // Act
+        Result<Translation> result = _parser.ParseLine(line);
+
+        // Assert
+        result.IsSuccess.ShouldBeTrue();
+        result.Value.Content.ShouldBe(expectedContent);
+    }
+
+    [Fact]
+    public void ParseLine_ContentContainsSeparatorWithArgs_ShouldKeepContentAndArgsSeparate()
+    {
+        // Act
+        Result<Translation> result = _parser.ParseLine("100||200||Tekst||z argumentem||1-2||3-4||0");
+
+        // Assert
+        result.IsSuccess.ShouldBeTrue();
+        result.Value.Content.ShouldBe("Tekst||z argumentem");
+        result.Value.ArgsOrder.ShouldBe(new[] { 0, 1 });
+        result.Value.ArgsId.ShouldBe(new[] { 2, 3 });
+        result.Value.IsApproved.ShouldBeFalse();
+    }
+
+    [Theory]
+    [InlineData("Left||Right")]
+    [InlineData("||leading")]
+    [InlineData("trailing||")]
+    [InlineData("a||b||c")]
+    [InlineData("Witaj||w Srodziemiu||przyjacielu")]
+    public void ParseLine_ContentWithSeparators_ShouldRoundTripToIdenticalContent(string content)
+    {
+        // Arrange — serialize via the canonical export line format (file_id||gossip_id||content||args_order||args_id||approved)
+        string serializedLine = $"100||200||{content}||NULL||NULL||1";
+
+        // Act
+        Result<Translation> result = _parser.ParseLine(serializedLine);
+
+        // Assert
+        result.IsSuccess.ShouldBeTrue();
+        result.Value.Content.ShouldBe(content);
+    }
+
+    [Fact]
     public void ParseFile_WithInvalidLines_ShouldSkipAndContinue()
     {
         // Arrange

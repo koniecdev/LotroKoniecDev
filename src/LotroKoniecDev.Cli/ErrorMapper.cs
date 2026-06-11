@@ -6,7 +6,10 @@ namespace LotroKoniecDev.Cli;
 public static class ErrorMapper
 {
     public static int MapErrorToExitCode(Error error) =>
-        error.Type is ErrorType.NotFound
-            ? ExitCodes.FileNotFound
-            : ExitCodes.OperationFailed;
+        error.Type switch
+        {
+            ErrorType.NotFound => ExitCodes.FileNotFound,
+            ErrorType.Validation => ExitCodes.InvalidArguments,
+            _ => ExitCodes.OperationFailed
+        };
 }

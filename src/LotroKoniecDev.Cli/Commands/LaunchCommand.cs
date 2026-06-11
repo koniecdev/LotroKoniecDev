@@ -1,30 +1,30 @@
 ﻿using System.ComponentModel;
 using LotroKoniecDev.Application.Abstractions;
 using LotroKoniecDev.Application.Abstractions.DatFilesServices;
+using LotroKoniecDev.Application.Abstractions.Messaging;
 using LotroKoniecDev.Application.Features.GameLaunching;
 using LotroKoniecDev.Application.Features.Patching;
 using LotroKoniecDev.Application.Features.PreflightChecking;
 using LotroKoniecDev.Domain.Core.Monads;
 using LotroKoniecDev.Domain.Models;
-using Mediator;
 using Spectre.Console.Cli;
 
 namespace LotroKoniecDev.Cli.Commands;
 
 internal sealed class LaunchCommand : AsyncCommand<LaunchCommand.Settings>
 {
-    private readonly ISender _sender;
+    private readonly ICommandHandler<GameLaunchingCommand, Result<GameLaunchingResponse>> _gameLaunchingHandler;
     private readonly IFileProvider _fileProvider;
     private readonly IOperationStatusReporter _reporter;
     private readonly IDatPathResolver _datPathResolver;
-    
+
     public LaunchCommand(
-        ISender sender,
+        ICommandHandler<GameLaunchingCommand, Result<GameLaunchingResponse>> gameLaunchingHandler,
         IFileProvider fileProvider,
         IOperationStatusReporter reporter,
         IDatPathResolver datPathResolver)
     {
-        _sender = sender;
+        _gameLaunchingHandler = gameLaunchingHandler;
         _fileProvider = fileProvider;
         _reporter = reporter;
         _datPathResolver = datPathResolver;
@@ -57,7 +57,7 @@ internal sealed class LaunchCommand : AsyncCommand<LaunchCommand.Settings>
                 GameVersionFilePath: GlobalSettings.VersionFilePath,
                 TranslationFilePath: actualResolvedPaths.Value.TranslationsPath);
 
-            Result<GameLaunchingResponse> result = await _sender.Send(gameLaunchingCommand, cancellationToken);
+            Result<GameLaunchingResponse> result = await _gameLaunchingHandler.Handle(gameLaunchingCommand, cancellationToken);
             if (result.IsFailure)
             {
                 _reporter.Report(result.Error.ToString());

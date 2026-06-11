@@ -23,7 +23,7 @@ public sealed class GameLaunchingCommandHandlerTests
     public GameLaunchingCommandHandlerTests()
     {
         _strategy = Substitute.For<IGameLaunchingStrategy>();
-        _sut = new GameLaunchingCommandHandler(_strategy);
+        _sut = new GameLaunchingCommandHandler(_strategy, new GameLaunchingCommandValidator());
     }
 
     [Fact]
@@ -31,6 +31,23 @@ public sealed class GameLaunchingCommandHandlerTests
     {
         await Should.ThrowAsync<ArgumentNullException>(
             () => _sut.Handle(null!, CancellationToken.None).AsTask());
+    }
+
+    [Theory]
+    [InlineData("", VersionFilePath, TranslationFilePath)]
+    [InlineData(DatFilePath, "", TranslationFilePath)]
+    [InlineData(DatFilePath, VersionFilePath, "")]
+    public async Task Handle_EmptyPath_ShouldReturnValidationFailure(
+        string datFilePath, string versionFilePath, string translationFilePath)
+    {
+        GameLaunchingCommand command = new(datFilePath, versionFilePath, translationFilePath);
+
+        Result<GameLaunchingResponse> result = await _sut.Handle(command, CancellationToken.None);
+
+        result.IsFailure.ShouldBeTrue();
+        result.Error.Type.ShouldBe(ErrorType.Validation);
+        result.Error.Code.ShouldBe("GameLaunchingCommand.Validation");
+        await _strategy.DidNotReceive().ExecuteAsync(Arg.Any<GameLaunchingCommand>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]

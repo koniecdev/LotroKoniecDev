@@ -2,6 +2,10 @@
 
 Narzedzie do wstrzykiwania polskich tlumaczen do plikow DAT gry Lord of the Rings Online.
 
+**Status:** CLI (`export` / `patch` / `launch`) dziala i jest przetestowane na zywych
+aktualizacjach gry. W budowie: webowa platforma do zarzadzania tlumaczeniami
+(Web API + Blazor SSR + PostgreSQL + OpenIddict).
+
 ## Wymagania
 
 - Windows (x86/x64)
@@ -82,16 +86,25 @@ export.bat
 
 Eksportuje wszystkie teksty z pliku DAT do `data/exported.txt`. Przydatne jako baza do tlumaczenia.
 
-### Uruchamianie LOTRO po patchowaniu
+### Launch (patch + uruchomienie gry)
+
+```
+LotroKoniecDev.exe launch polish
+```
+
+Sprawdza hash pliku tlumaczen, patchuje tylko jesli tlumaczenia sie zmienily, po czym uruchamia
+launcher LOTRO. Testy na zywo wykazaly, ze tlumaczenia przezywaja aktualizacje gry — to zalecany
+sposob codziennego grania.
+
+### lotro.bat (alternatywa manualna)
 
 ```
 lotro.bat
 ```
 
-Launcher LOTRO moze nadpisac spatchowany plik DAT przy aktualizacji. Skrypt `lotro.bat`:
-1. Ustawia plik DAT na read-only (chroni tlumaczenia przed nadpisaniem)
-2. Uruchamia launcher LOTRO
-3. Po zamknieciu gry przywraca zapis do pliku DAT
+Starszy helper: ustawia plik DAT na read-only, uruchamia launcher LOTRO, a po zamknieciu gry
+przywraca zapis. Ochrona read-only okazala sie w testach zbedna (tlumaczenia przezywaja
+aktualizacje bez niej) — preferuj komende `launch`.
 
 Mozna podac sciezke do instalacji: `lotro.bat "D:\Games\LOTRO"`
 
@@ -131,17 +144,17 @@ Zasady:
 
 ```
 LotroKoniecDev/
-  translations/                 # Pliki tlumaczen
-    example_polish.txt          # Przyklad
-  data/                         # Lokalna kopia DAT (fallback)
+  translations/                    # Pliki tlumaczen
+    example_polish.txt             # Przyklad
+  data/                            # Lokalna kopia DAT (fallback)
   src/
-    LotroKoniecDev/             # CLI (punkt wejscia)
-    LotroKoniecDev.Application/ # Logika biznesowa
-    LotroKoniecDev.Domain/      # Model domenowy
+    LotroKoniecDev.Cli/            # CLI (punkt wejscia)
+    LotroKoniecDev.Application/    # Use case'y (slim handlery)
+    LotroKoniecDev.Domain/         # Model domenowy, Result
     LotroKoniecDev.Infrastructure/ # Obsluga plikow DAT (natywne DLL)
-  patch.bat                     # Buduj + patchuj
-  export.bat                    # Buduj + eksportuj
-  lotro.bat                     # Uruchom LOTRO z ochrona DAT
+    LotroKoniecDev.Primitives/     # Stale i enumy
+  tests/                           # Unit / Infrastructure / E2E
+  patch.bat / export.bat / lotro.bat
 ```
 
 ## Przywracanie oryginalu

@@ -433,13 +433,13 @@ Ale rosyjskie podejscie DZIALA (bo jest prostsze), a nasze ma known bug
 | **Separator** | \<--DO_NOT_TOUCH!--\> | IDENTYCZNY |
 | **TextFileMarker** | 0x25 (high byte FileId) | IDENTYCZNY |
 | **API** | REST (GET) z timestamp filtering | Planowany REST (M3) |
-| **Auth** | Email + password, role-based | Planowany OpenIddict (M5) |
+| **Auth** | Email + password, role-based | Planowany OpenIddict (M2, lift z TheKittySaver) |
 | **Platforma** | Windows + Linux (Proton) | Windows only (na razie) |
 | **Instalator** | Standalone installer | Planowany MSIX/Inno Setup (M4) |
 | **Auto-update** | Tak (Legacy 3.0) | Planowany (M4 #69) |
 | **Community** | 8+ lat, aktywna, 100% tlumaczenia | 1 osoba (na razie) |
 | **Licencja** | GPL-3.0 (Elanor), MIT (patcher) | OSS |
-| **Dokumentacja** | FAQ, gajdy na stronie | CLAUDE.md, PROJECT_PLAN.md |
+| **Dokumentacja** | FAQ, gajdy na stronie | CLAUDE.md, docs/knowledge-base |
 
 ---
 

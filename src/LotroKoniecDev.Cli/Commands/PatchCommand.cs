@@ -1,18 +1,19 @@
 using System.ComponentModel;
 using LotroKoniecDev.Application.Abstractions;
 using LotroKoniecDev.Application.Abstractions.DatFilesServices;
+using LotroKoniecDev.Application.Abstractions.Messaging;
 using LotroKoniecDev.Application.Features.Patching;
 using LotroKoniecDev.Application.Features.PreflightChecking;
 using LotroKoniecDev.Domain.Core.Monads;
 using LotroKoniecDev.Domain.Models;
-using Mediator;
 using Spectre.Console.Cli;
 
 namespace LotroKoniecDev.Cli.Commands;
 
 internal sealed class PatchCommand : AsyncCommand<PatchCommand.Settings>
 {
-    private readonly ISender _sender;
+    private readonly IQueryHandler<PreflightCheckQuery, Result<PreflightReportResponse>> _preflightCheckHandler;
+    private readonly ICommandHandler<ApplyPatchCommand, Result<PatchSummaryResponse>> _applyPatchHandler;
     private readonly IBackupManager _backupManager;
     private readonly IFileProvider _fileProvider;
     private readonly IOperationStatusReporter _reporter;
@@ -21,7 +22,8 @@ internal sealed class PatchCommand : AsyncCommand<PatchCommand.Settings>
     private readonly IVersionBaselineService _versionBaselineService;
 
     public PatchCommand(
-        ISender sender,
+        IQueryHandler<PreflightCheckQuery, Result<PreflightReportResponse>> preflightCheckHandler,
+        ICommandHandler<ApplyPatchCommand, Result<PatchSummaryResponse>> applyPatchHandler,
         IBackupManager backupManager,
         IFileProvider fileProvider,
         IOperationStatusReporter reporter,
@@ -29,7 +31,8 @@ internal sealed class PatchCommand : AsyncCommand<PatchCommand.Settings>
         IDatVersionReader datVersionReader,
         IVersionBaselineService versionBaselineService)
     {
-        _sender = sender;
+        _preflightCheckHandler = preflightCheckHandler;
+        _applyPatchHandler = applyPatchHandler;
         _backupManager = backupManager;
         _fileProvider = fileProvider;
         _reporter = reporter;
@@ -61,7 +64,7 @@ internal sealed class PatchCommand : AsyncCommand<PatchCommand.Settings>
 
         PreflightCheckQuery preflightCheckQuery = new(actualResolvedPaths.Value.DatFilePath, GlobalSettings.VersionFilePath);
         Result<PreflightReportResponse> preflightCheckResponse =
-            await _sender.Send(preflightCheckQuery, cancellationToken);
+            await _preflightCheckHandler.Handle(preflightCheckQuery, cancellationToken);
         if (preflightCheckResponse.IsFailure)
         {
             _reporter.Report(preflightCheckResponse.Error.ToString());
@@ -84,7 +87,7 @@ internal sealed class PatchCommand : AsyncCommand<PatchCommand.Settings>
                 TranslationsPath: actualResolvedPaths.Value.TranslationsPath,
                 DatFilePath: actualResolvedPaths.Value.DatFilePath);
 
-            Result<PatchSummaryResponse> result = await _sender.Send(applyPatchCommand, cancellationToken);
+            Result<PatchSummaryResponse> result = await _applyPatchHandler.Handle(applyPatchCommand, cancellationToken);
             if (result.IsFailure)
             {
                 _reporter.Report(result.Error.ToString());

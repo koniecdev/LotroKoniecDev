@@ -99,7 +99,8 @@ only the irreplaceable text artifacts are preserved here:
 
 ## Related committed docs (broader context)
 
-- [`../PROJECT_PLAN.md`](../PROJECT_PLAN.md) — full roadmap with step-by-step execution guide
-- [`../TICKETS.md`](../TICKETS.md) — detailed tickets
+- [`../../CLAUDE.md`](../../CLAUDE.md) — project memory: architecture, roadmap digest, house rules (live backlog: `gh issue list`)
 - [`../RUSSIAN_PROJECT_RESEARCH.md`](../RUSSIAN_PROJECT_RESEARCH.md) — full Russian-project analysis
-- [`../LIVE_TEST_RESULTS.md`](../LIVE_TEST_RESULTS.md) — earlier detailed launch-flow test reconstructions (Test 1/2, up to 2026-03-17)
+
+Earlier raw launch-flow reconstructions (the pre-knowledge-base `LIVE_TEST_RESULTS.md`) were
+distilled into [`live-test-2026-03-16.md`](live-test-2026-03-16.md) and the dated files above.

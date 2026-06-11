@@ -58,6 +58,12 @@ duplicates the tiny building blocks it needs (Result/Maybe/Error shapes, messagi
 they arrive inside the lifted SharedKernel); consolidating that duplication is at most a
 post-MVP ticket.
 
+**Amendment (2026-06-11, spec 0001):** the freeze admits exactly one additive slice — the CLI
+translation-file auto-download in the launch flow (ticket M2-20): the patcher acts as a TMS
+distribution *consumer* over HTTP (distribution, not integration — see Alternative E). The new
+slice and its launch-flow wiring are sanctioned; refactors of existing handlers are not, and
+every pre-existing test stays green with assertions untouched.
+
 ### 3. The `||` translation file is the only contract between the contexts
 
 Each context owns its own parser/serializer. Golden fixture files + round-trip tests on both
@@ -166,7 +172,8 @@ pivot exists to avoid.
 
 Rejected. The patcher must work on a Windows gaming box with zero TMS dependency; the file
 contract already exists, is human-readable, and is proven to round-trip into the live game. (The
-M4 WPF app merely downloads `polish.txt` over HTTP — distribution, not integration.)
+CLI launch flow (M2-20, per the §2 amendment) and the M4 WPF app merely download the translation
+file over HTTP — distribution, not integration.)
 
 ### F. Follow KittySaver ADR-0007 — Entra External ID instead of the lifted OpenIddict server
 

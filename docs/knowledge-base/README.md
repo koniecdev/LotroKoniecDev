@@ -62,7 +62,8 @@ Detailed analysis: [lotro-update-history.md](lotro-update-history.md)
 Detailed analysis: [update-detection-strategy.md](update-detection-strategy.md)
 - Vnum-triggered re-patch is WRONG (would never fire + would be destructive if it did)
 - Only valid local trigger: translation file hash change
-- Target model: API filters translations by forum-version compatibility
+- Target model superseded by `docs/specs/0001-game-update-lifecycle-and-translation-invalidation.md`
+  (forum-only `GameVersion` lifecycle + status-based invalidation); the core insight stands
 - Simplified flow is CORRECT as MVP — hash-based trigger naturally evolves into the API model
 
 ### VM Test Plan (Friend's 2-Year-Old LOTRO)

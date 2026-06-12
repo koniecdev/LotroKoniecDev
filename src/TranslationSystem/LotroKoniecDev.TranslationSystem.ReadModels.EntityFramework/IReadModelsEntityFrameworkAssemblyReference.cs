@@ -1,0 +1,3 @@
+namespace LotroKoniecDev.TranslationSystem.ReadModels.EntityFramework;
+
+public interface IReadModelsEntityFrameworkAssemblyReference;

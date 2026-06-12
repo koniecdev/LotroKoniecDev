@@ -1,0 +1,33 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+    <PropertyGroup>
+        <TargetFramework>net10.0</TargetFramework>
+        <PlatformTarget>AnyCPU</PlatformTarget>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <InternalsVisibleTo Include="LotroKoniecDev.TranslationSystem.API.Tests.Integration" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <PackageReference Include="FluentValidation" />
+        <PackageReference Include="FluentValidation.DependencyInjectionExtensions" />
+        <PackageReference Include="Microsoft.EntityFrameworkCore" />
+        <PackageReference Include="Microsoft.EntityFrameworkCore.Design">
+            <PrivateAssets>all</PrivateAssets>
+            <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+        </PackageReference>
+        <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" />
+        <PackageReference Include="Microsoft.Extensions.Configuration" />
+        <PackageReference Include="Microsoft.Extensions.Configuration.EnvironmentVariables" />
+        <PackageReference Include="Microsoft.Extensions.Configuration.Json" />
+        <PackageReference Include="Microsoft.Extensions.Options.ConfigurationExtensions" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <ProjectReference Include="..\LotroKoniecDev.TranslationSystem.Domain\LotroKoniecDev.TranslationSystem.Domain.csproj" />
+        <ProjectReference Include="..\LotroKoniecDev.TranslationSystem.ReadModels.EntityFramework\LotroKoniecDev.TranslationSystem.ReadModels.EntityFramework.csproj" />
+        <ProjectReference Include="..\..\Utilities\LotroKoniecDev.Options\LotroKoniecDev.Options.csproj" />
+    </ItemGroup>
+
+</Project>

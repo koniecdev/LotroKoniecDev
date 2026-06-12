@@ -1,4 +1,5 @@
 using LotroKoniecDev.SharedKernel.BuildingBlocks;
+using LotroKoniecDev.TranslationSystem.Domain.Aggregates.GameVersionAggregate.Entities;
 using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.GameVersionAggregate;
 
 namespace LotroKoniecDev.TranslationSystem.Domain.Core.Errors;
@@ -10,14 +11,8 @@ public static partial class DomainErrors
         public static Error NotFound(GameVersionId id)
             => HasNotBeenFound(nameof(GameVersionEntity), id.Value);
 
-        public static Error VersionRequired
-            => Required(nameof(GameVersionEntity), "Version");
-
-        public static Error VersionTooLong(int maxLength)
-            => TooManyCharacters(nameof(GameVersionEntity), "Version", maxLength);
-
         public static Error VersionAlreadyRegistered(string version)
-            => AlreadyHasBeenTaken(nameof(GameVersionEntity), "Version", version);
+            => AlreadyHasBeenTaken(nameof(GameVersionEntity), nameof(GameVersion.Version), version);
 
         public static Error SupersededCannotBeProcessed(GameVersionId id)
             => InvalidOperation(
@@ -30,5 +25,14 @@ public static partial class DomainErrors
                 nameof(GameVersionEntity),
                 $"Game version with ID '{id.Value}' is already processed and cannot be superseded.",
                 "ProcessedCannotBeSuperseded");
+
+        public static class VersionProperty
+        {
+            public static Error NullOrEmpty
+                => Required(nameof(GameVersionEntity), nameof(GameVersion.Version));
+
+            public static Error LongerThanAllowed
+                => TooManyCharacters(nameof(GameVersionEntity), nameof(GameVersion.Version), GameVersion.VersionMaxLength);
+        }
     }
 }

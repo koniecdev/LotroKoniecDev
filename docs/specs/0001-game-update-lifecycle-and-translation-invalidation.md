@@ -113,6 +113,10 @@ player's patcher downloads a translation file that never shows outdated text in 
   versions are marked superseded/skipped — they will never receive an upload.
 - Re-upload to an already processed version is allowed and **idempotent** (admin uploaded a wrong
   file and corrects it; same guarantee #97 already demands).
+- *(Amendment 2026-06-12, M2-04 Phase A)*: `IsProcessed` + the superseded/skipped marker are
+  realized in code as a single `GameVersionStatus` enum (`Unprocessed | Processed | Superseded`) —
+  the same no-parallel-bool philosophy as the Translation status model below, making
+  processed-and-superseded unrepresentable.
 
 ### Diff semantics (runs only on upload, over the full file)
 

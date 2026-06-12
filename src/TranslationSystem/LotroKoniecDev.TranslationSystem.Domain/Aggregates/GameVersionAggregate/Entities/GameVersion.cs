@@ -21,13 +21,13 @@ public sealed class GameVersion : AggregateRoot<GameVersionId>
 
         if (string.IsNullOrWhiteSpace(version))
         {
-            return Result.Failure<GameVersion>(DomainErrors.GameVersionEntity.VersionRequired);
+            return Result.Failure<GameVersion>(DomainErrors.GameVersionEntity.VersionProperty.NullOrEmpty);
         }
 
         string trimmedVersion = version.Trim();
         if (trimmedVersion.Length > VersionMaxLength)
         {
-            return Result.Failure<GameVersion>(DomainErrors.GameVersionEntity.VersionTooLong(VersionMaxLength));
+            return Result.Failure<GameVersion>(DomainErrors.GameVersionEntity.VersionProperty.LongerThanAllowed);
         }
 
         GameVersion instance = new(GameVersionId.Create(), trimmedVersion, detectedAt);

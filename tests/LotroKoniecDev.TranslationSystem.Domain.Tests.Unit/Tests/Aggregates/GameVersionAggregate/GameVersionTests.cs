@@ -3,18 +3,14 @@ using LotroKoniecDev.TranslationSystem.Domain.Aggregates.GameVersionAggregate.En
 using LotroKoniecDev.TranslationSystem.Domain.Core.Errors;
 using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.GameVersionAggregate.Enums;
 
-namespace LotroKoniecDev.TranslationSystem.Domain.Tests.Unit.Tests.Aggregates;
+namespace LotroKoniecDev.TranslationSystem.Domain.Tests.Unit.Tests.Aggregates.GameVersionAggregate;
 
 public sealed class GameVersionTests
 {
     private static readonly DateTimeOffset DetectedAt = new(2026, 6, 12, 12, 0, 0, TimeSpan.Zero);
 
     private static GameVersion CreateGameVersion(string version = "48.0")
-    {
-        Result<GameVersion> result = GameVersion.Create(version, DetectedAt);
-        result.IsSuccess.ShouldBeTrue();
-        return result.Value;
-    }
+        => GameVersion.Create(version, DetectedAt).Value;
 
     [Fact]
     public void Create_WithValidVersion_ShouldSucceedAsUnprocessed()
@@ -52,7 +48,7 @@ public sealed class GameVersionTests
 
         // Assert
         result.IsFailure.ShouldBeTrue();
-        result.Error.ShouldBe(DomainErrors.GameVersionEntity.VersionRequired);
+        result.Error.ShouldBe(DomainErrors.GameVersionEntity.VersionProperty.NullOrEmpty);
     }
 
     [Fact]
@@ -66,7 +62,7 @@ public sealed class GameVersionTests
 
         // Assert
         result.IsFailure.ShouldBeTrue();
-        result.Error.ShouldBe(DomainErrors.GameVersionEntity.VersionTooLong(GameVersion.VersionMaxLength));
+        result.Error.ShouldBe(DomainErrors.GameVersionEntity.VersionProperty.LongerThanAllowed);
     }
 
     [Fact]

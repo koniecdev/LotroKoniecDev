@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+    <PropertyGroup>
+        <TargetFramework>net10.0</TargetFramework>
+        <PlatformTarget>AnyCPU</PlatformTarget>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <PackageReference Include="StronglyTypedId" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <ProjectReference Include="..\..\SharedKernel\LotroKoniecDev.SharedKernel\LotroKoniecDev.SharedKernel.csproj" />
+    </ItemGroup>
+
+</Project>

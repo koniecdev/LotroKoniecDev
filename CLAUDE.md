@@ -228,10 +228,23 @@ file_id||gossip_id||translated_text||args_order||args_id||approved
   in their handler. Every validator must be registered in DI.
 - **Handlers are orchestrators.** Business logic lives in domain/application services; handlers
   validate, delegate, return.
+- **No primitive obsession in the domain layer.** Every domain concept that carries a constraint
+  or identity is a `ValueObject` — never a raw `string`, `int`, `Guid`, etc. passed or stored
+  directly. Golden templates:
+  `TranslationSystem.Domain/Aggregates/GameVersionAggregate/ValueObjects/LotroNotationVersion.cs`
+  (constrained-string VO) and
+  `TranslationSystem.Domain/Aggregates/GameVersionAggregate/Entities/GameVersion.cs`
+  (an aggregate that models its constrained version concept as a VO — its timestamp and enum
+  stay primitive, because they carry no extra invariant).
 - **EF Core (`TranslationSystem.Persistence`):** Fluent API only (never attributes), `nameof()`
   for column names, `MaxLength`/`Precision`+`Scale` over `HasColumnType`, no needless
   `IsRequired()` (value types & non-null strings are already required), FK property names
   parametrized with `nameof()`.
+- **VO persistence mapping — `ComplexProperty` by default, `OwnsOne` when index is needed.**
+  `ComplexProperty` is the semantically correct mapping for VOs (pure value type, no identity
+  tracking). Switch to `OwnsOne` only when the property requires a DB index — `ComplexProperty`
+  cannot be indexed in EF Core 10 (limitation removed in EF Core 11). With `OwnsOne`, define
+  `HasColumnName` explicitly and put `HasIndex` inside the owned builder.
 - **Right-size the design — YAGNI by default.** Before proposing an abstraction, cache, config
   knob, queue, or new infra, check it solves a **real, present** need from the current
   spec/ticket — not a hypothetical future. Pick the simple path and note the trade-off in one line.
@@ -242,7 +255,10 @@ file_id||gossip_id||translated_text||args_order||args_id||approved
 - **Explicit constructors** in classes — no primary constructors for a `class` (records are fine).
 - `var` **only for anonymous types**; explicit types everywhere else.
 - **LINQ methods**, never query syntax. **Pattern matching** — except inside a query expression.
-- **File-scoped namespaces**, **Allman braces**, no `#region`, no useless/obvious comments.
+- **File-scoped namespaces**, **Allman braces**, no `#region`.
+- **Documentation uses `/// <summary>` XML doc comments** — never plain `//` comments to
+  document a type or member. Omit entirely when the name already explains the intent; reserve
+  plain `//` for the non-obvious *why* inline in logic.
 - Code & identifiers in **English**.
 
 ## Anatomy of a feature slice

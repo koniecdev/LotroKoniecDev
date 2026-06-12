@@ -148,4 +148,24 @@ public sealed class MaybeTests
         // Assert
         maybe.GetHashCode().ShouldBe(0);
     }
+
+    [Fact]
+    public void GetHashCode_WhenValue_ShouldBeValueHashCode()
+    {
+        // Arrange
+        Maybe<string> maybe = Maybe<string>.From("value");
+
+        // Assert
+        maybe.GetHashCode().ShouldBe("value".GetHashCode());
+    }
+
+    [Fact]
+    public void Equals_UnrelatedType_ShouldBeFalse()
+    {
+        // Arrange
+        Maybe<string> maybe = Maybe<string>.From("value");
+
+        // Assert
+        maybe.Equals(42).ShouldBeFalse();
+    }
 }

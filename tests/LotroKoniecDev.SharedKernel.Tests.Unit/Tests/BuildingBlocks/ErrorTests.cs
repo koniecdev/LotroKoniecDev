@@ -54,6 +54,17 @@ public sealed class ErrorTests
     }
 
     [Fact]
+    public void GetHashCode_SameValues_ShouldBeEqual()
+    {
+        // Arrange
+        Error first = new("Test.Code", "Test message", TypeOfError.NotFound);
+        Error second = new("Test.Code", "Test message", TypeOfError.NotFound);
+
+        // Assert
+        first.GetHashCode().ShouldBe(second.GetHashCode());
+    }
+
+    [Fact]
     public void ToString_ShouldFormatTypeCodeAndMessage()
     {
         // Arrange

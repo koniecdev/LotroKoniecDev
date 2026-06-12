@@ -1,0 +1,83 @@
+name: CI
+
+# Post-merge backstop on main: re-runs the full gate (Release build + unit + integration)
+# to catch anything that slipped past PR verification — direct pushes to main, or a PR that
+# went green against an older main. The integration suite spins up postgres:17-alpine via
+# Testcontainers; the ubuntu runner has Docker preinstalled.
+on:
+  push:
+    branches: ["main"]
+    paths-ignore:
+      - '**/*.md'
+      - 'docs/**'
+      - 'LICENSE'
+      - '.gitignore'
+
+concurrency:
+  group: ci-main-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: CI
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '10.0.100'
+
+      - name: Cache NuGet packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ hashFiles('**/Directory.Packages.props', '**/*.csproj') }}
+          restore-keys: |
+            nuget-${{ runner.os }}-
+
+      - name: Restore
+        run: dotnet restore
+
+      - name: Build
+        run: dotnet build --configuration Release --no-restore
+
+      # See pr-verify.yml for why we target test projects by name rather than the solution.
+      - name: Run Unit Tests
+        run: |
+          set -euo pipefail
+          found=0
+          while IFS= read -r proj; do
+            found=1
+            echo "::group::$(basename "$proj")"
+            dotnet test "$proj" --configuration Release --no-build --logger "console;verbosity=minimal"
+            echo "::endgroup::"
+          done < <(find tests -name '*.Tests.Unit.csproj' | sort)
+          if [ "$found" -eq 0 ]; then
+            echo "::error::No *.Tests.Unit projects found — refusing to report a false green."
+            exit 1
+          fi
+
+      # Real PostgreSQL via Testcontainers (currently AuthSystem.API.Tests.Integration;
+      # the TranslationSystem.API integration suite joins by the same convention when M2-15 lands).
+      - name: Run Integration Tests
+        run: |
+          set -euo pipefail
+          found=0
+          while IFS= read -r proj; do
+            found=1
+            echo "::group::$(basename "$proj")"
+            dotnet test "$proj" --configuration Release --no-build --logger "console;verbosity=minimal"
+            echo "::endgroup::"
+          done < <(find tests -name '*.Tests.Integration.csproj' | sort)
+          if [ "$found" -eq 0 ]; then
+            echo "::error::No *.Tests.Integration projects found — refusing to report a false green."
+            exit 1
+          fi

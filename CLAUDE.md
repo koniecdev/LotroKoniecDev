@@ -151,9 +151,16 @@ gh issue list --state open                             # backlog; titles follow 
 gh issue view <n>                                      # body holds Context / Depends on / Tasks / Acceptance criteria
 gh issue develop <n> --checkout                        # create + checkout the linked "{n}-{kebab-title}" branch
 gh pr create --fill --body "Closes #<n>"               # PR title mirrors the ticket; body closes it
+
+# TMS — EF Core migrations (write context owns them; --connection makes it work without appsettings/live DB)
+dotnet ef migrations add <Name> \
+  --project src/TranslationSystem/LotroKoniecDev.TranslationSystem.Persistence \
+  --startup-project src/TranslationSystem/LotroKoniecDev.TranslationSystem.Persistence \
+  --context ApplicationWriteDbContext \
+  -- --connection "Host=localhost;Database=lotro_translation;Username=postgres;Password=postgres"
 ```
 
-TMS compose/migration commands land with M2 — **add them to this section the moment they exist.**
+TMS compose commands land with M2-14 — **add them to this section the moment they exist.**
 Exit codes (CLI): `0` success, `1` invalid arguments (incl. `ErrorType.Validation`), `2` file not
 found, `3` operation failed, `4` cancelled.
 

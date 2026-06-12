@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+    <PropertyGroup>
+        <TargetFramework>net10.0</TargetFramework>
+        <PlatformTarget>AnyCPU</PlatformTarget>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <InternalsVisibleTo Include="LotroKoniecDev.TranslationSystem.Domain.Tests.Unit" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <ProjectReference Include="..\LotroKoniecDev.TranslationSystem.Primitives\LotroKoniecDev.TranslationSystem.Primitives.csproj" />
+        <ProjectReference Include="..\..\SharedKernel\LotroKoniecDev.SharedKernel\LotroKoniecDev.SharedKernel.csproj" />
+    </ItemGroup>
+
+</Project>

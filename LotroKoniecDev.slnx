@@ -29,12 +29,16 @@
     <Project Path="src/Utilities/LotroKoniecDev.Hateoas.Abstractions/LotroKoniecDev.Hateoas.Abstractions.csproj" />
     <Project Path="src/Utilities/LotroKoniecDev.Logging/LotroKoniecDev.Logging.csproj" />
     <Project Path="src/Utilities/LotroKoniecDev.Options/LotroKoniecDev.Options.csproj" />
+    <Project Path="src/TranslationSystem/LotroKoniecDev.TranslationSystem.Primitives/LotroKoniecDev.TranslationSystem.Primitives.csproj" />
+    <Project Path="src/TranslationSystem/LotroKoniecDev.TranslationSystem.Domain/LotroKoniecDev.TranslationSystem.Domain.csproj" />
+    <Project Path="src/TranslationSystem/LotroKoniecDev.TranslationSystem.ReadModels/LotroKoniecDev.TranslationSystem.ReadModels.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <File Path="tests/README.md" />
     <Project Path="tests/LotroKoniecDev.AuthSystem.API.Tests.Integration/LotroKoniecDev.AuthSystem.API.Tests.Integration.csproj" />
     <Project Path="tests/LotroKoniecDev.SharedKernel.Tests.Unit/LotroKoniecDev.SharedKernel.Tests.Unit.csproj" />
     <Project Path="tests/LotroKoniecDev.Tests.E2E/LotroKoniecDev.Tests.E2E.csproj" />
+    <Project Path="tests/LotroKoniecDev.TranslationSystem.Domain.Tests.Unit/LotroKoniecDev.TranslationSystem.Domain.Tests.Unit.csproj" />
     <Project Path="tests/LotroKoniecDev.Tests.Infrastructure/LotroKoniecDev.Tests.Infrastructure.csproj" />
     <Project Path="tests/LotroKoniecDev.Tests.Unit/LotroKoniecDev.Tests.Unit.csproj" />
   </Folder>

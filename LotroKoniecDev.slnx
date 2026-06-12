@@ -19,9 +19,11 @@
     <Project Path="src/LotroKoniecDev.Application/LotroKoniecDev.Application.csproj" />
     <Project Path="src/LotroKoniecDev.Infrastructure/LotroKoniecDev.Infrastructure.csproj" />
     <Project Path="src/LotroKoniecDev.Cli/LotroKoniecDev.Cli.csproj" />
+    <Project Path="src/SharedKernel/LotroKoniecDev.SharedKernel/LotroKoniecDev.SharedKernel.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <File Path="tests/README.md" />
+    <Project Path="tests/LotroKoniecDev.SharedKernel.Tests.Unit/LotroKoniecDev.SharedKernel.Tests.Unit.csproj" />
     <Project Path="tests/LotroKoniecDev.Tests.E2E/LotroKoniecDev.Tests.E2E.csproj" />
     <Project Path="tests/LotroKoniecDev.Tests.Infrastructure/LotroKoniecDev.Tests.Infrastructure.csproj" />
     <Project Path="tests/LotroKoniecDev.Tests.Unit/LotroKoniecDev.Tests.Unit.csproj" />

@@ -1,0 +1,89 @@
+name: Pull Request Verification
+
+# Full gate on every PR push, BEFORE merge: Release build (the repo-wide zero-warning gate)
+# + unit tests + integration tests (real PostgreSQL via Testcontainers). In this repo the
+# author merges their own PRs (loop workflow), so the PR — not a post-merge job — is where
+# main is kept green. The CI workflow re-runs the same suite on main as a backstop.
+on:
+  pull_request:
+    branches: ["main"]
+    paths-ignore:
+      - '**/*.md'
+      - 'docs/**'
+      - 'LICENSE'
+      - '.gitignore'
+
+# A new push to the same PR cancels the in-progress run instead of paying for both.
+concurrency:
+  group: pr-verify-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Pull Request Verification
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '10.0.100'
+
+      - name: Cache NuGet packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ hashFiles('**/Directory.Packages.props', '**/*.csproj') }}
+          restore-keys: |
+            nuget-${{ runner.os }}-
+
+      - name: Restore
+        run: dotnet restore
+
+      # TreatWarningsAsErrors is repo-wide — a single warning fails this build.
+      - name: Build
+        run: dotnet build --configuration Release --no-restore
+
+      # Solution-wide `dotnet test` can't host the patcher's x86 native-interop suite
+      # (LotroKoniecDev.Tests.Infrastructure) on the Linux runner, so target the
+      # cross-platform test projects by naming convention. New suites are picked up
+      # automatically; the Windows-only ones (.Tests.Infrastructure / .Tests.E2E) are
+      # excluded by name.
+      - name: Run Unit Tests
+        run: |
+          set -euo pipefail
+          found=0
+          while IFS= read -r proj; do
+            found=1
+            echo "::group::$(basename "$proj")"
+            dotnet test "$proj" --configuration Release --no-build --logger "console;verbosity=minimal"
+            echo "::endgroup::"
+          done < <(find tests -name '*.Tests.Unit.csproj' | sort)
+          if [ "$found" -eq 0 ]; then
+            echo "::error::No *.Tests.Unit projects found — refusing to report a false green."
+            exit 1
+          fi
+
+      # Real PostgreSQL via Testcontainers (currently AuthSystem.API.Tests.Integration;
+      # the TranslationSystem.API suite joins by the same convention when M2-15 lands).
+      - name: Run Integration Tests
+        run: |
+          set -euo pipefail
+          found=0
+          while IFS= read -r proj; do
+            found=1
+            echo "::group::$(basename "$proj")"
+            dotnet test "$proj" --configuration Release --no-build --logger "console;verbosity=minimal"
+            echo "::endgroup::"
+          done < <(find tests -name '*.Tests.Integration.csproj' | sort)
+          if [ "$found" -eq 0 ]; then
+            echo "::error::No *.Tests.Integration projects found — refusing to report a false green."
+            exit 1
+          fi

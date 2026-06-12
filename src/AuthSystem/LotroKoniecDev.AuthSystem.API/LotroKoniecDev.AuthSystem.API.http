@@ -1,0 +1,43 @@
+@baseUrl = https://localhost:5002
+
+### Register a new user
+POST {{baseUrl}}/auth/register
+Content-Type: application/json
+
+{
+  "username": "testuser",
+  "email": "testuser@example.com",
+  "password": "Test@12345",
+  "phoneNumber": "+48123456789",
+  "acceptedPrivacyPolicy": true,
+  "acceptedDataProcessingConsent": true
+}
+
+### Get token using client credentials (service-to-service)
+# Note: ApiClientSecret must be configured in appsettings or environment variables
+POST {{baseUrl}}/connect/token
+Content-Type: application/x-www-form-urlencoded
+
+grant_type=client_credentials&client_id=lotrokoniecdev-api&client_secret=<your_api_client_secret>&scope=api service
+
+### Refresh token (for web client after authorization code flow)
+POST {{baseUrl}}/connect/token
+Content-Type: application/x-www-form-urlencoded
+
+grant_type=refresh_token&client_id=lotrokoniecdev-web&refresh_token=<your_refresh_token_here>
+
+### Get user info (requires valid access token)
+GET {{baseUrl}}/connect/userinfo
+Authorization: Bearer <your_access_token_here>
+
+### Revoke token
+POST {{baseUrl}}/connect/token
+Content-Type: application/x-www-form-urlencoded
+
+token=<your_token_here>&client_id=lotrokoniecdev-web
+
+### Health check - liveness
+GET {{baseUrl}}/health/live
+
+### Health check - readiness
+GET {{baseUrl}}/health/ready

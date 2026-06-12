@@ -1,0 +1,676 @@
+@page
+@model LotroKoniecDev.AuthSystem.API.Pages.Account.LoginModel
+@{
+    Layout = null;
+}
+
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Zaloguj się — lotro.koniec.dev</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@@400;500;600;700;800&family=JetBrains+Mono:wght@@400;500&display=swap" rel="stylesheet" />
+    <style>
+        :root {
+            --bg:        oklch(0.16 0.013 165);
+            --bg-2:      oklch(0.20 0.015 165);
+            --surface:   oklch(0.23 0.016 165);
+            --surface-hi:oklch(0.28 0.018 165);
+            --border:    oklch(0.34 0.018 165);
+            --border-hi: oklch(0.44 0.022 165);
+
+            --text:      oklch(0.96 0.008 160);
+            --text-mute: oklch(0.80 0.012 160);
+            --text-dim:  oklch(0.68 0.014 160);
+
+            --accent:     oklch(0.80 0.17 168);
+            --accent-hi:  oklch(0.87 0.18 168);
+            --accent-dim: oklch(0.48 0.10 168);
+
+            --danger:     oklch(0.65 0.20 25);
+            --danger-hi:  oklch(0.76 0.18 25);
+            --danger-dim: oklch(0.42 0.10 25);
+
+            --radius: 14px;
+            --radius-sm: 8px;
+            --shadow: 0 1px 0 oklch(0.38 0.014 165 / 0.5) inset, 0 8px 24px -12px rgba(0,0,0,0.55);
+
+            --font-sans: "Manrope", ui-sans-serif, system-ui, -apple-system, "Helvetica Neue", sans-serif;
+            --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+
+            --container-max: 1200px;
+            --container-px: 32px;
+        }
+
+        * { box-sizing: border-box; }
+        html, body { margin: 0; padding: 0; }
+        body {
+            background: var(--bg);
+            color: var(--text);
+            font-family: var(--font-sans);
+            font-size: 15px;
+            line-height: 1.55;
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+            min-height: 100vh;
+        }
+        button, input { font-family: inherit; }
+        button { cursor: pointer; }
+        a { color: inherit; text-decoration: none; }
+        h1, h2, p { margin: 0; }
+
+        .app {
+            background:
+                radial-gradient(1200px 600px at 80% -200px, oklch(0.28 0.06 168 / 0.35), transparent 60%),
+                radial-gradient(900px 500px at -100px 100px, oklch(0.22 0.03 165 / 0.5), transparent 60%);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+        .container {
+            width: 100%;
+            max-width: var(--container-max);
+            margin: 0 auto;
+            padding: 0 var(--container-px);
+        }
+
+        /* ── Brand strip ── */
+        .auth-top {
+            padding: 22px 0 0;
+        }
+        .brand {
+            display: inline-flex;
+            align-items: center;
+            gap: 12px;
+            color: var(--text);
+            font-weight: 700;
+            font-size: 17px;
+            letter-spacing: -0.01em;
+        }
+        .brand-mark {
+            width: 34px; height: 34px;
+            border-radius: 9px;
+            background: linear-gradient(160deg, var(--accent), var(--accent-dim));
+            color: oklch(0.16 0.012 165);
+            display: grid;
+            place-items: center;
+            box-shadow: 0 0 0 1px oklch(0.60 0.08 168 / 0.5) inset;
+        }
+        .brand-mark svg { width: 22px; height: 22px; }
+        .brand-accent { color: var(--accent-hi); }
+
+        /* ── Layout ── */
+        .auth-wrap {
+            padding-top: 56px;
+            padding-bottom: 64px;
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr);
+            gap: 48px;
+            align-items: start;
+        }
+
+        /* ── Left intro ── */
+        .auth-intro {
+            padding-top: 12px;
+            display: flex;
+            flex-direction: column;
+            gap: 28px;
+            min-width: 0;
+        }
+        .eyebrow {
+            font-family: var(--font-mono);
+            font-size: 11px;
+            letter-spacing: 0.18em;
+            color: var(--accent-hi);
+            text-transform: uppercase;
+            margin-bottom: 14px;
+        }
+        .auth-intro h1 {
+            font-size: clamp(34px, 4.4vw, 48px);
+            line-height: 1.05;
+            letter-spacing: -0.025em;
+            font-weight: 700;
+            text-wrap: balance;
+            max-width: 14ch;
+        }
+        .auth-intro .lede {
+            font-size: 16px;
+            color: var(--text-mute);
+            max-width: 42ch;
+        }
+        .auth-perks {
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+            margin: 4px 0 0;
+            padding: 0;
+            list-style: none;
+            border-top: 1px dashed var(--border);
+        }
+        .auth-perks li {
+            display: grid;
+            grid-template-columns: 22px 1fr auto;
+            align-items: center;
+            gap: 14px;
+            padding: 14px 0;
+            border-bottom: 1px dashed var(--border);
+        }
+        .auth-perks .ico {
+            width: 22px; height: 22px;
+            color: var(--accent-hi);
+            display: grid;
+            place-items: center;
+        }
+        .auth-perks .ico svg { width: 20px; height: 20px; }
+        .auth-perks .copy {
+            font-size: 14.5px;
+            color: var(--text);
+            font-weight: 500;
+        }
+        .auth-perks .copy .sub {
+            display: block;
+            font-size: 12.5px;
+            color: var(--text-dim);
+            font-weight: 400;
+            margin-top: 2px;
+        }
+        .auth-perks .num {
+            font-family: var(--font-mono);
+            font-size: 10.5px;
+            color: var(--text-mute);
+            letter-spacing: 0.14em;
+        }
+
+        /* ── Right form panel ── */
+        .auth-panel {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            box-shadow: var(--shadow);
+            overflow: hidden;
+            width: 100%;
+            max-width: 480px;
+            justify-self: end;
+        }
+        .auth-panel-head {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            padding: 18px 24px;
+            border-bottom: 1px solid var(--border);
+            background: linear-gradient(to bottom, oklch(0.25 0.018 165 / 0.6), oklch(0.22 0.016 165 / 0));
+        }
+        .auth-panel-head h2 {
+            font-size: 16px;
+            font-weight: 700;
+            letter-spacing: -0.005em;
+            color: var(--text);
+            display: inline-flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .auth-panel-head .panel-num {
+            font-family: var(--font-mono);
+            font-size: 10.5px;
+            color: var(--accent);
+            letter-spacing: 0.14em;
+        }
+        .auth-panel-head .panel-aside {
+            font-family: var(--font-mono);
+            font-size: 10.5px;
+            color: var(--text-mute);
+            letter-spacing: 0.1em;
+            text-transform: uppercase;
+        }
+        .auth-panel-body {
+            padding: 22px 24px 22px;
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }
+
+        /* ── Fields ── */
+        .auth-field { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+        .auth-field-row {
+            display: flex;
+            align-items: baseline;
+            justify-content: space-between;
+            gap: 12px;
+        }
+        .auth-field label {
+            font-family: var(--font-mono);
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            color: var(--text-mute);
+        }
+        .auth-field .hint-link {
+            font-family: var(--font-mono);
+            font-size: 11px;
+            letter-spacing: 0.06em;
+            color: var(--accent);
+        }
+        .auth-field .hint-link:hover { color: var(--accent-hi); }
+
+        .auth-input-wrap { position: relative; }
+        .auth-input-wrap > svg.leading {
+            position: absolute;
+            left: 14px; top: 50%;
+            transform: translateY(-50%);
+            color: var(--text-mute);
+            pointer-events: none;
+            width: 16px; height: 16px;
+        }
+        .auth-input {
+            width: 100%;
+            padding: 12px 14px 12px 42px;
+            background: var(--bg-2);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-sm);
+            color: var(--text);
+            font: inherit;
+            font-size: 14.5px;
+            transition: border-color .15s, box-shadow .15s, background .15s;
+        }
+        .auth-input::placeholder { color: var(--text-dim); }
+        .auth-input:hover:not(:disabled) { border-color: var(--border-hi); }
+        .auth-input:focus {
+            outline: none;
+            border-color: var(--accent);
+            box-shadow: 0 0 0 3px oklch(0.80 0.17 168 / 0.18);
+        }
+        .auth-input.has-trailing { padding-right: 44px; }
+
+        .auth-input-trailing {
+            position: absolute;
+            right: 8px; top: 50%;
+            transform: translateY(-50%);
+            width: 32px; height: 32px;
+            border-radius: 6px;
+            border: 0;
+            background: transparent;
+            color: var(--text-mute);
+            display: grid;
+            place-items: center;
+            transition: color .15s, background .15s;
+        }
+        .auth-input-trailing:hover { color: var(--text); background: var(--surface-hi); }
+        .auth-input-trailing svg { width: 16px; height: 16px; }
+
+        /* ── Remember me ── */
+        .auth-row-meta {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            flex-wrap: wrap;
+        }
+        .checkbox {
+            display: inline-flex;
+            align-items: center;
+            gap: 10px;
+            cursor: pointer;
+            font-size: 13.5px;
+            color: var(--text-mute);
+            user-select: none;
+        }
+        .checkbox input { position: absolute; opacity: 0; pointer-events: none; }
+        .checkbox .box {
+            width: 18px; height: 18px;
+            border-radius: 5px;
+            background: var(--bg-2);
+            border: 1px solid var(--border-hi);
+            display: grid;
+            place-items: center;
+            transition: background .15s, border-color .15s;
+            flex: 0 0 18px;
+        }
+        .checkbox .box svg {
+            width: 12px; height: 12px;
+            color: oklch(0.15 0.014 165);
+            opacity: 0;
+            transform: scale(0.7);
+            transition: opacity .12s, transform .12s;
+        }
+        .checkbox input:checked ~ .box {
+            background: var(--accent);
+            border-color: var(--accent);
+        }
+        .checkbox input:checked ~ .box svg { opacity: 1; transform: scale(1); }
+        .checkbox input:focus-visible ~ .box {
+            box-shadow: 0 0 0 3px oklch(0.80 0.17 168 / 0.25);
+        }
+        .checkbox:hover .box { border-color: var(--text-mute); }
+
+        /* ── Submit ── */
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 11px 18px;
+            border-radius: var(--radius-sm);
+            border: 1px solid transparent;
+            font-weight: 600;
+            font-size: 14px;
+            transition: background .15s, color .15s, border-color .15s, transform .08s;
+        }
+        .btn-primary {
+            background: var(--accent);
+            color: oklch(0.16 0.012 165);
+            border-color: var(--accent);
+        }
+        .btn-primary:hover:not([disabled]) { background: var(--accent-hi); border-color: var(--accent-hi); }
+        .btn-primary:active:not([disabled]) { transform: translateY(1px); }
+        .btn-primary[disabled] { opacity: 0.6; cursor: progress; }
+
+        .auth-submit {
+            width: 100%;
+            justify-content: center;
+            padding: 13px 20px;
+            font-size: 14.5px;
+            margin-top: 4px;
+        }
+        .auth-submit svg { width: 16px; height: 16px; flex: 0 0 16px; }
+        .auth-submit .spinner-sm {
+            width: 14px; height: 14px;
+            border-radius: 50%;
+            border: 2px solid oklch(0.15 0.014 165 / 0.35);
+            border-top-color: oklch(0.15 0.014 165);
+            animation: spin 0.7s linear infinite;
+            display: none;
+        }
+        .auth-submit.is-loading .spinner-sm { display: inline-block; }
+        .auth-submit.is-loading .submit-arrow { display: none; }
+        @@keyframes spin { to { transform: rotate(360deg); } }
+
+        /* ── Alert ── */
+        .auth-alert {
+            display: flex;
+            align-items: flex-start;
+            gap: 10px;
+            padding: 12px 14px;
+            background: oklch(0.30 0.07 25 / 0.4);
+            border: 1px solid var(--danger-dim);
+            border-radius: var(--radius-sm);
+            color: oklch(0.92 0.04 25);
+            font-size: 13px;
+            line-height: 1.45;
+        }
+        .auth-alert svg { width: 16px; height: 16px; flex: 0 0 16px; color: var(--danger-hi); margin-top: 1px; }
+        .auth-alert .t { font-weight: 600; }
+        .auth-alert .s {
+            display: block;
+            margin-top: 2px;
+            color: oklch(0.82 0.06 25);
+            font-size: 12.5px;
+        }
+
+        /* ── Secondary info strip ── */
+        .auth-meta {
+            margin-top: 14px;
+            font-family: var(--font-mono);
+            font-size: 10.5px;
+            letter-spacing: 0.08em;
+            color: var(--text-dim);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            text-transform: uppercase;
+        }
+        .auth-meta .lock {
+            width: 12px; height: 12px;
+            color: var(--accent-hi);
+        }
+
+        /* ── Foot ── */
+        .foot {
+            margin-top: auto;
+            padding: 24px var(--container-px);
+            border-top: 1px solid var(--border);
+            color: var(--text-dim);
+            font-size: 12.5px;
+            text-align: center;
+        }
+
+        /* ── Responsive ── */
+        @@media (max-width: 1100px) {
+            .auth-panel-head .panel-aside { display: none; }
+        }
+        @@media (max-width: 980px) {
+            .auth-wrap {
+                grid-template-columns: 1fr;
+                gap: 32px;
+                padding-top: 32px;
+                padding-bottom: 40px;
+            }
+            .auth-panel { justify-self: stretch; max-width: none; }
+            .auth-intro h1 { max-width: none; }
+        }
+        @@media (max-width: 560px) {
+            .auth-panel-body { padding: 18px 18px 18px; }
+            .auth-panel-head { padding: 14px 18px; }
+        }
+    </style>
+</head>
+<body>
+    <div class="app">
+        <header class="auth-top">
+            <div class="container">
+                <a href="https://lotro.koniec.dev" class="brand">
+                    <span class="brand-mark" aria-hidden="true">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M4 10 L4 19 L10 19 L10 14 L14 14 L14 19 L20 19 L20 10" />
+                            <path d="M4 10 L12 4 L20 10" />
+                            <circle cx="9"  cy="17" r="0.6" fill="currentColor"/>
+                            <circle cx="11" cy="17" r="0.6" fill="currentColor"/>
+                        </svg>
+                    </span>
+                    <span>lotro<span class="brand-accent">koniec</span>.dev</span>
+                </a>
+            </div>
+        </header>
+
+        <section class="container">
+            <div class="auth-wrap">
+                <div class="auth-intro">
+                    <div>
+                        <p class="eyebrow">DOSTĘP DO KONTA</p>
+                        <h1>Zaloguj się do lotro.koniec.dev</h1>
+                    </div>
+                    <p class="lede">Zaloguj się, aby tłumaczyć teksty gry, przeglądać postępy i zatwierdzać gotowe wpisy.</p>
+                    <ul class="auth-perks">
+                        <li>
+                            <span class="ico">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                    <circle cx="5.5"  cy="11" r="1.7"/>
+                                    <circle cx="18.5" cy="11" r="1.7"/>
+                                    <circle cx="9"    cy="6.5" r="1.7"/>
+                                    <circle cx="15"   cy="6.5" r="1.7"/>
+                                    <path d="M8.5 14.5C8 17 6 18.2 6 20a2.5 2.5 0 0 0 4.6 1.3c.5-.7 1.3-1 2.4-.6 1.1.4 2.3.6 3 .1A2.5 2.5 0 0 0 18 20c0-1.8-2-3-2.5-5.5-.4-1.7-2.2-2.5-3.5-2.5s-3.1.8-3.5 2.5z"/>
+                                </svg>
+                            </span>
+                            <span class="copy">
+                                Publikuj ogłoszenia
+                                <span class="sub">Tłumacz teksty gry prosto w przeglądarce</span>
+                            </span>
+                        </li>
+                        <li>
+                            <span class="ico">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                    <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+                                    <rect x="9.5" y="10.5" width="5" height="4" rx="1"/>
+                                    <path d="M10.5 10.5V9.5a1.5 1.5 0 0 1 3 0v1"/>
+                                </svg>
+                            </span>
+                            <span class="copy">
+                                Śledź postęp tłumaczenia
+                                <span class="sub">Pełna lista, zdjęcia, statusy adopcji</span>
+                            </span>
+                        </li>
+                        <li>
+                            <span class="ico">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                    <rect x="3" y="4" width="18" height="16" rx="2"/>
+                                    <path d="M3 9h18"/>
+                                    <path d="m8 14 3 3 5-6"/>
+                                </svg>
+                            </span>
+                            <span class="copy">
+                                Twoje dane pod kontrolą
+                                <span class="sub">Eksport i usunięcie konta zgodne z RODO</span>
+                            </span>
+                        </li>
+                    </ul>
+                </div>
+
+                <div>
+                    <section class="auth-panel" aria-labelledby="auth-h">
+                        <header class="auth-panel-head">
+                            <h2 id="auth-h">
+                                Logowanie
+                            </h2>
+                            <span class="panel-aside">Nazwa użytkownika + hasło</span>
+                        </header>
+
+                        <form id="login-form" method="post" asp-route-returnUrl="@Model.ReturnUrl" class="auth-panel-body">
+                            @if (!string.IsNullOrEmpty(Model.ErrorMessage))
+                            {
+                                <div class="auth-alert" role="alert" aria-live="assertive">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                        <path d="M12 9v4"/>
+                                        <path d="M12 17h.01"/>
+                                        <path d="M10.3 3.86 1.82 18a2 2 0 0 0 1.7 3h16.94a2 2 0 0 0 1.7-3L13.69 3.86a2 2 0 0 0-3.4 0z"/>
+                                    </svg>
+                                    <div>
+                                        <span class="t">Nie udało się zalogować</span>
+                                        <span class="s">@Model.ErrorMessage</span>
+                                    </div>
+                                </div>
+                            }
+
+                            <div class="auth-field">
+                                <div class="auth-field-row">
+                                    <label asp-for="Username">Nazwa użytkownika</label>
+                                </div>
+                                <div class="auth-input-wrap">
+                                    <svg class="leading" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                        <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
+                                        <circle cx="12" cy="7" r="4"/>
+                                    </svg>
+                                    <input asp-for="Username"
+                                           type="text"
+                                           class="auth-input"
+                                           placeholder="np. kasia92"
+                                           autocomplete="username"
+                                           required
+                                           autofocus />
+                                </div>
+                            </div>
+
+                            <div class="auth-field">
+                                <div class="auth-field-row">
+                                    <label asp-for="Password">Hasło</label>
+                                    <a href="/Account/ForgotPassword" class="hint-link">Nie pamiętam hasła →</a>
+                                </div>
+                                <div class="auth-input-wrap">
+                                    <svg class="leading" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                        <rect x="4" y="11" width="16" height="10" rx="2"/>
+                                        <path d="M8 11V8a4 4 0 0 1 8 0v3"/>
+                                    </svg>
+                                    <input id="password-input"
+                                           asp-for="Password"
+                                           type="password"
+                                           class="auth-input has-trailing"
+                                           placeholder="••••••••"
+                                           autocomplete="current-password"
+                                           required />
+                                    <button type="button"
+                                            id="password-toggle"
+                                            class="auth-input-trailing"
+                                            aria-label="Pokaż hasło"
+                                            aria-pressed="false"
+                                            aria-controls="password-input"
+                                            tabindex="-1">
+                                        <svg id="password-toggle-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                            <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/>
+                                            <circle cx="12" cy="12" r="3"/>
+                                        </svg>
+                                    </button>
+                                </div>
+                            </div>
+
+                            <div class="auth-row-meta">
+                                <label class="checkbox">
+                                    <input asp-for="RememberMe" type="checkbox" />
+                                    <span class="box">
+                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                            <path d="M20 6 9 17l-5-5"/>
+                                        </svg>
+                                    </span>
+                                    <span>Zapamiętaj mnie na tym urządzeniu</span>
+                                </label>
+                            </div>
+
+                            <button id="submit-btn" type="submit" class="btn btn-primary auth-submit">
+                                <span class="spinner-sm" aria-hidden="true"></span>
+                                <span class="submit-btn-label">Zaloguj się</span>
+                                <svg class="submit-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                    <path d="M5 12h14"/>
+                                    <path d="m13 5 7 7-7 7"/>
+                                </svg>
+                            </button>
+                        </form>
+                    </section>
+
+                    <div class="auth-meta">
+                        <svg viewBox="0 0 24 24" class="lock" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                            <rect x="4" y="11" width="16" height="10" rx="2"/>
+                            <path d="M8 11V8a4 4 0 0 1 8 0v3"/>
+                        </svg>
+                        Połączenie szyfrowane · TLS 1.3
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <footer class="foot">
+            <p>lotro.koniec.dev — niekomercyjny projekt społeczności polskich graczy LOTRO</p>
+        </footer>
+    </div>
+
+    <script>
+        (function () {
+            var toggle = document.getElementById('password-toggle');
+            var icon = document.getElementById('password-toggle-icon');
+            var pwd = document.getElementById('password-input');
+            var eyeOpen = '<path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>';
+            var eyeOff = '<path d="M3 3l18 18"/><path d="M10.6 6.1A9.7 9.7 0 0 1 12 6c6.5 0 10 6 10 6a17 17 0 0 1-3 3.7"/><path d="M6.2 6.2C3.7 7.9 2 12 2 12s3.5 6 10 6c1.8 0 3.4-.4 4.8-1.1"/><path d="M9.9 9.9a3 3 0 0 0 4.2 4.2"/>';
+            if (toggle && pwd && icon) {
+                toggle.addEventListener('click', function () {
+                    var shown = pwd.getAttribute('type') === 'text';
+                    pwd.setAttribute('type', shown ? 'password' : 'text');
+                    toggle.setAttribute('aria-pressed', shown ? 'false' : 'true');
+                    toggle.setAttribute('aria-label', shown ? 'Pokaż hasło' : 'Ukryj hasło');
+                    icon.innerHTML = shown ? eyeOpen : eyeOff;
+                });
+            }
+
+            var form = document.getElementById('login-form');
+            var btn = document.getElementById('submit-btn');
+            if (form && btn) {
+                form.addEventListener('submit', function () {
+                    if (btn.disabled) { return; }
+                    btn.disabled = true;
+                    btn.classList.add('is-loading');
+                    var label = btn.querySelector('.submit-btn-label');
+                    if (label) { label.textContent = 'Logowanie…'; }
+                });
+            }
+        })();
+    </script>
+</body>
+</html>

@@ -313,6 +313,25 @@ structure.
    empirical DAT/update finding → `docs/knowledge-base/` (dated). The same mistake made twice
    means a rule is missing.
 
+### Loop mode — one ticket = one closed PR, never a pile-up
+
+When running tickets in a loop (`/loop`, autonomous run, or "work through the backlog"), **fully
+close each ticket before starting the next** — never let two tickets' work share an uncommitted
+working copy. Per ticket, in order:
+
+1. Implement on the ticket's branch (`gh issue develop <n> --checkout`) — green build, zero warnings.
+2. **Commit** the slice (message references the ticket; Co-Authored-By footer).
+3. Run the **`code-reviewer`** agent on the diff (+ **`/security-review`** for native interop / file
+   protection / auth); fix findings and re-commit until the review is clean.
+4. Push and open the PR: `gh pr create --fill --body "Closes #<n>"`.
+5. Merge it yourself: `gh pr merge <n> --squash --delete-branch`, then `git checkout main && git pull`.
+6. Only now pick up the next ticket.
+
+Entering loop mode **is** the standing authorization for steps 2–5 — the interactive "ask before
+pushing" rule (§5 above) is waived for the duration of the loop. A single wholesale lift (e.g. the
+AuthSystem module) is **one ticket**: a large diff there is expected and fine — what's not fine is
+two tickets' worth of files sitting uncommitted at once.
+
 ## Roadmap (digest — details land as re-cut GitHub issues)
 
 - **M2 — TMS backend (core loop + update lifecycle — spec 0001).** ADR-0002 (record this pivot)

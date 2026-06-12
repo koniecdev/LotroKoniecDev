@@ -20,9 +20,19 @@
     <Project Path="src/LotroKoniecDev.Infrastructure/LotroKoniecDev.Infrastructure.csproj" />
     <Project Path="src/LotroKoniecDev.Cli/LotroKoniecDev.Cli.csproj" />
     <Project Path="src/SharedKernel/LotroKoniecDev.SharedKernel/LotroKoniecDev.SharedKernel.csproj" />
+    <Project Path="src/AuthSystem/LotroKoniecDev.AuthSystem.API/LotroKoniecDev.AuthSystem.API.csproj" />
+    <Project Path="src/AuthSystem/LotroKoniecDev.AuthSystem.Contracts/LotroKoniecDev.AuthSystem.Contracts.csproj" />
+    <Project Path="src/AuthSystem/LotroKoniecDev.AuthSystem.Domain/LotroKoniecDev.AuthSystem.Domain.csproj" />
+    <Project Path="src/AuthSystem/LotroKoniecDev.AuthSystem.Infrastructure/LotroKoniecDev.AuthSystem.Infrastructure.csproj" />
+    <Project Path="src/AuthSystem/LotroKoniecDev.AuthSystem.Persistence/LotroKoniecDev.AuthSystem.Persistence.csproj" />
+    <Project Path="src/Utilities/LotroKoniecDev.Hateoas/LotroKoniecDev.Hateoas.csproj" />
+    <Project Path="src/Utilities/LotroKoniecDev.Hateoas.Abstractions/LotroKoniecDev.Hateoas.Abstractions.csproj" />
+    <Project Path="src/Utilities/LotroKoniecDev.Logging/LotroKoniecDev.Logging.csproj" />
+    <Project Path="src/Utilities/LotroKoniecDev.Options/LotroKoniecDev.Options.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <File Path="tests/README.md" />
+    <Project Path="tests/LotroKoniecDev.AuthSystem.API.Tests.Integration/LotroKoniecDev.AuthSystem.API.Tests.Integration.csproj" />
     <Project Path="tests/LotroKoniecDev.SharedKernel.Tests.Unit/LotroKoniecDev.SharedKernel.Tests.Unit.csproj" />
     <Project Path="tests/LotroKoniecDev.Tests.E2E/LotroKoniecDev.Tests.E2E.csproj" />
     <Project Path="tests/LotroKoniecDev.Tests.Infrastructure/LotroKoniecDev.Tests.Infrastructure.csproj" />

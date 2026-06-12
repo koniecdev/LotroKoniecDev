@@ -1,0 +1,279 @@
+@page
+@model LotroKoniecDev.AuthSystem.API.Pages.Account.PrivacyPolicyModel
+@{
+    Layout = null;
+}
+
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Polityka prywatności — lotro.koniec.dev</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@@400;500;600;700;800&family=JetBrains+Mono:wght@@400;500&display=swap" rel="stylesheet" />
+    <style>
+        :root {
+            --bg:        oklch(0.16 0.013 165);
+            --bg-2:      oklch(0.20 0.015 165);
+            --surface:   oklch(0.23 0.016 165);
+            --surface-hi:oklch(0.28 0.018 165);
+            --border:    oklch(0.34 0.018 165);
+            --border-hi: oklch(0.44 0.022 165);
+
+            --text:      oklch(0.96 0.008 160);
+            --text-mute: oklch(0.80 0.012 160);
+            --text-dim:  oklch(0.68 0.014 160);
+
+            --accent:     oklch(0.80 0.17 168);
+            --accent-hi:  oklch(0.87 0.18 168);
+            --accent-dim: oklch(0.48 0.10 168);
+
+            --radius: 14px;
+            --radius-sm: 8px;
+            --shadow: 0 1px 0 oklch(0.38 0.014 165 / 0.5) inset, 0 8px 24px -12px rgba(0,0,0,0.55);
+
+            --font-sans: "Manrope", ui-sans-serif, system-ui, -apple-system, "Helvetica Neue", sans-serif;
+            --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+        }
+
+        * { box-sizing: border-box; }
+        html, body { margin: 0; padding: 0; }
+        body {
+            background: var(--bg);
+            color: var(--text);
+            font-family: var(--font-sans);
+            font-size: 15px;
+            line-height: 1.55;
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+            min-height: 100vh;
+        }
+        a { color: inherit; text-decoration: none; }
+
+        .app {
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            background:
+                radial-gradient(1200px 600px at 80% -200px, oklch(0.28 0.06 168 / 0.35), transparent 60%),
+                radial-gradient(900px 500px at -100px 100px, oklch(0.22 0.03 165 / 0.5), transparent 60%);
+        }
+
+        .auth-top {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 16px;
+            padding: 16px 28px;
+            border-bottom: 1px solid var(--border);
+            background: oklch(0.15 0.012 165 / 0.7);
+            backdrop-filter: blur(10px);
+        }
+        .brand {
+            display: inline-flex;
+            align-items: center;
+            gap: 10px;
+            color: var(--text);
+            font-weight: 700;
+            font-size: 16px;
+            letter-spacing: -0.01em;
+        }
+        .brand-mark {
+            width: 30px; height: 30px;
+            border-radius: 8px;
+            background: linear-gradient(160deg, var(--accent), var(--accent-dim));
+            color: oklch(0.16 0.012 165);
+            display: grid;
+            place-items: center;
+            box-shadow: 0 0 0 1px oklch(0.60 0.08 168 / 0.5) inset;
+        }
+        .brand-mark svg { width: 17px; height: 17px; }
+        .brand-accent { color: var(--accent-hi); }
+        .auth-top .top-link {
+            display: inline-flex;
+            align-items: center;
+            gap: 7px;
+            font-family: var(--font-mono);
+            font-size: 11px;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            color: var(--text-mute);
+            padding: 7px 13px;
+            border: 1px solid var(--border);
+            border-radius: 999px;
+            background: var(--bg-2);
+            transition: color .15s, border-color .15s, background .15s;
+        }
+        .auth-top .top-link:hover { color: var(--text); border-color: var(--border-hi); background: var(--surface-hi); }
+        .auth-top .top-link svg { width: 13px; height: 13px; }
+
+        .prose-main {
+            flex: 1;
+            width: 100%;
+            max-width: 760px;
+            margin: 0 auto;
+            padding: 52px 28px 64px;
+        }
+        .auth-eyebrow {
+            font-family: var(--font-mono);
+            font-size: 11px;
+            letter-spacing: 0.18em;
+            color: var(--accent);
+            margin: 0 0 16px;
+            text-transform: uppercase;
+        }
+        .prose h1 {
+            font-size: clamp(30px, 4vw, 40px);
+            line-height: 1.08;
+            letter-spacing: -0.025em;
+            font-weight: 800;
+            margin: 0 0 12px;
+            text-wrap: balance;
+        }
+        .prose .updated {
+            font-family: var(--font-mono);
+            font-size: 11px;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            color: var(--text-dim);
+            margin: 0 0 36px;
+            padding-bottom: 24px;
+            border-bottom: 1px solid var(--border);
+        }
+        .prose h2 {
+            font-size: 19px;
+            font-weight: 700;
+            letter-spacing: -0.01em;
+            color: var(--text);
+            margin: 38px 0 12px;
+            display: flex;
+            align-items: baseline;
+            gap: 12px;
+        }
+        .prose h2 .sec-num {
+            font-family: var(--font-mono);
+            font-size: 12px;
+            font-weight: 500;
+            letter-spacing: 0.1em;
+            color: var(--accent);
+            flex: 0 0 auto;
+        }
+        .prose p { margin: 0 0 14px; color: var(--text-mute); font-size: 15px; line-height: 1.7; }
+        .prose p strong { color: var(--text); font-weight: 600; }
+        .prose a { color: var(--accent-hi); text-decoration: underline; text-underline-offset: 2px; }
+        .prose a:hover { color: var(--accent); }
+        .prose ul { margin: 0 0 14px; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 9px; }
+        .prose ul li {
+            position: relative;
+            padding-left: 24px;
+            color: var(--text-mute);
+            font-size: 14.5px;
+            line-height: 1.6;
+        }
+        .prose ul li::before {
+            content: "";
+            position: absolute;
+            left: 4px; top: 10px;
+            width: 6px; height: 6px;
+            border-radius: 50%;
+            background: var(--accent);
+        }
+        .prose ul li strong { color: var(--text); font-weight: 600; }
+        .prose-card {
+            margin-top: 30px;
+            padding: 18px 20px;
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            background: var(--surface);
+            display: flex;
+            align-items: flex-start;
+            gap: 14px;
+            box-shadow: var(--shadow);
+        }
+        .prose-card svg { width: 20px; height: 20px; flex: 0 0 20px; color: var(--accent-hi); margin-top: 2px; }
+        .prose-card .pc-t { font-weight: 700; color: var(--text); font-size: 14.5px; }
+        .prose-card .pc-s { color: var(--text-mute); font-size: 13.5px; margin-top: 2px; line-height: 1.55; }
+
+        .foot {
+            padding: 22px 28px 26px;
+            border-top: 1px solid var(--border);
+            text-align: center;
+        }
+        .foot p {
+            margin: 0;
+            font-family: var(--font-mono);
+            font-size: 11px;
+            letter-spacing: 0.08em;
+            color: var(--text-mute);
+        }
+
+        @@media (max-width: 640px) {
+            .auth-top { padding: 14px 18px; }
+            .auth-top .top-link span { display: none; }
+        }
+    </style>
+</head>
+<body>
+    <div class="app">
+        <div class="auth-top">
+            <a href="https://lotro.koniec.dev" class="brand">
+                <span class="brand-mark" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 10 L4 19 L10 19 L10 14 L14 14 L14 19 L20 19 L20 10"/><path d="M4 10 L12 4 L20 10"/></svg></span>
+                <span class="brand-text">lotro<span class="brand-accent">koniec</span>.dev</span>
+            </a>
+            <a href="/Account/Login" class="top-link"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><path d="m10 17 5-5-5-5"/><path d="M15 12H3"/></svg><span>Zaloguj się</span></a>
+        </div>
+
+        <div class="prose-main prose">
+            <p class="auth-eyebrow">Ochrona danych · RODO</p>
+            <h1>Polityka prywatności</h1>
+            <p class="updated">Ostatnia aktualizacja: 8 czerwca 2026</p>
+
+            <p>Niniejsza polityka opisuje, w jaki sposób serwis <strong>lotro.koniec.dev</strong> przetwarza dane osobowe użytkowników zgodnie z Rozporządzeniem Parlamentu Europejskiego i Rady (UE) 2016/679 (RODO). Korzystając z serwisu, akceptujesz zasady opisane poniżej.</p>
+
+            <h2><span class="sec-num">01</span> Administrator danych</h2>
+            <p>Administratorem Twoich danych osobowych jest społeczność <strong>lotro.koniec.dev</strong> — niekomercyjny projekt polskiego tłumaczenia gry The Lord of the Rings Online. W sprawach dotyczących ochrony danych skontaktujesz się z nami pod adresem <a href="mailto:rodo@@lotro.koniec.dev">rodo@@lotro.koniec.dev</a>.</p>
+
+            <h2><span class="sec-num">02</span> Zakres przetwarzanych danych</h2>
+            <p>Przetwarzamy wyłącznie dane niezbędne do działania serwisu:</p>
+            <ul>
+                <li><strong>Dane konta</strong> — adres e-mail, nazwa użytkownika oraz zaszyfrowane hasło.</li>
+                <li><strong>Dane wkładu tłumaczeniowego</strong> — treść zgłaszanych tłumaczeń oraz powiązana z nimi atrybucja autorstwa i zatwierdzeń.</li>
+                <li><strong>Dane techniczne</strong> — adres IP, typ przeglądarki i pliki cookie niezbędne do utrzymania sesji.</li>
+            </ul>
+
+            <h2><span class="sec-num">03</span> Cel i podstawa przetwarzania</h2>
+            <p>Dane przetwarzamy w celu prowadzenia konta i publikacji ogłoszeń (art. 6 ust. 1 lit. b RODO — wykonanie umowy), zapewnienia bezpieczeństwa serwisu (lit. f — prawnie uzasadniony interes) oraz — jeśli wyrazisz zgodę — kontaktu w sprawach związanych z adopcją (lit. a).</p>
+
+            <h2><span class="sec-num">04</span> Twoje prawa</h2>
+            <p>W każdej chwili możesz skorzystać z przysługujących Ci praw:</p>
+            <ul>
+                <li><strong>Prawo dostępu</strong> — możesz uzyskać kopię swoich danych przechowywanych w serwisie.</li>
+                <li><strong>Prawo do sprostowania</strong> — poprawisz nieaktualne lub błędne dane w ustawieniach konta.</li>
+                <li><strong>Prawo do usunięcia</strong> — usuniesz konto, a Twoje dane zostaną trwale zanonimizowane.</li>
+                <li><strong>Prawo do przenoszenia (eksport)</strong> — pobierzesz swoje dane w ustrukturyzowanym formacie.</li>
+                <li><strong>Prawo sprzeciwu</strong> — wycofasz zgodę na przetwarzanie w dowolnym momencie.</li>
+            </ul>
+
+            <h2><span class="sec-num">05</span> Okres przechowywania</h2>
+            <p>Dane konta przechowujemy przez czas jego istnienia. Po usunięciu konta dane osobowe są anonimizowane, a wkład tłumaczeniowy pozostaje w serwisie wyłącznie z nieprzypisywalnym identyfikatorem. Dane techniczne usuwamy po wygaśnięciu uzasadnionego okresu bezpieczeństwa.</p>
+
+            <h2><span class="sec-num">06</span> Kontakt</h2>
+            <p>Pytania dotyczące przetwarzania danych lub realizacji praw kieruj na adres <a href="mailto:rodo@@lotro.koniec.dev">rodo@@lotro.koniec.dev</a>. Przysługuje Ci również prawo wniesienia skargi do Prezesa Urzędu Ochrony Danych Osobowych.</p>
+
+            <div class="prose-card">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="m9 12 2 2 4-4"/></svg>
+                <div>
+                    <div class="pc-t">Realizacja praw bez formalności</div>
+                    <div class="pc-s">Eksport oraz usunięcie konta uruchomisz samodzielnie w sekcji „Moje konto" — bez konieczności kontaktu mailowego.</div>
+                </div>
+            </div>
+        </div>
+
+        <footer class="foot">
+            <p>lotro.koniec.dev — niekomercyjny projekt społeczności polskich graczy LOTRO</p>
+        </footer>
+    </div>
+</body>
+</html>

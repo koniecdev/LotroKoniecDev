@@ -3,6 +3,7 @@ using System;
 using LotroKoniecDev.TranslationSystem.Persistence.DbContexts.WriteDbContexts;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace LotroKoniecDev.TranslationSystem.Persistence.Migrations
 {
     [DbContext(typeof(ApplicationWriteDbContext))]
-    partial class ApplicationWriteDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260612214124_RefactorGameVersionToOwnsOne")]
+    partial class RefactorGameVersionToOwnsOne
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder

@@ -1,5 +1,6 @@
 using LotroKoniecDev.SharedKernel.Monads;
 using LotroKoniecDev.TranslationSystem.Domain.Aggregates.GameVersionAggregate.Entities;
+using LotroKoniecDev.TranslationSystem.Domain.Aggregates.GameVersionAggregate.ValueObjects;
 using LotroKoniecDev.TranslationSystem.Domain.Core.Errors;
 using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.GameVersionAggregate.Enums;
 
@@ -10,80 +11,38 @@ public sealed class GameVersionTests
     private static readonly DateTimeOffset DetectedAt = new(2026, 6, 12, 12, 0, 0, TimeSpan.Zero);
 
     private static GameVersion CreateGameVersion(string version = "48.0")
-        => GameVersion.Create(version, DetectedAt).Value;
+        => GameVersion.Create(LotroNotationVersion.Create(version).Value, DetectedAt).Value;
 
     [Fact]
     public void Create_WithValidVersion_ShouldSucceedAsUnprocessed()
     {
+        // Arrange
+        LotroNotationVersion version = LotroNotationVersion.Create("48.0").Value;
+
         // Act
-        Result<GameVersion> result = GameVersion.Create("48.0", DetectedAt);
+        Result<GameVersion> result = GameVersion.Create(version, DetectedAt);
 
         // Assert
         result.IsSuccess.ShouldBeTrue();
-        result.Value.Version.ShouldBe("48.0");
+        result.Value.LotroNotationVersion.Value.ShouldBe("48.0");
         result.Value.DetectedAt.ShouldBe(DetectedAt);
         result.Value.Status.ShouldBe(GameVersionStatus.Unprocessed);
         result.Value.Id.Value.ShouldNotBe(Guid.Empty);
     }
 
     [Fact]
-    public void Create_WithSurroundingWhitespace_ShouldTrimVersion()
-    {
-        // Act
-        Result<GameVersion> result = GameVersion.Create("  47.1.1  ", DetectedAt);
-
-        // Assert
-        result.IsSuccess.ShouldBeTrue();
-        result.Value.Version.ShouldBe("47.1.1");
-    }
-
-    [Theory]
-    [InlineData(null)]
-    [InlineData("")]
-    [InlineData("   ")]
-    public void Create_WithNullOrWhitespaceVersion_ShouldReturnVersionRequired(string? version)
-    {
-        // Act
-        Result<GameVersion> result = GameVersion.Create(version!, DetectedAt);
-
-        // Assert
-        result.IsFailure.ShouldBeTrue();
-        result.Error.ShouldBe(DomainErrors.GameVersionEntity.VersionProperty.NullOrEmpty);
-    }
-
-    [Fact]
-    public void Create_WithTooLongVersion_ShouldReturnVersionTooLong()
-    {
-        // Arrange
-        string version = new('1', GameVersion.VersionMaxLength + 1);
-
-        // Act
-        Result<GameVersion> result = GameVersion.Create(version, DetectedAt);
-
-        // Assert
-        result.IsFailure.ShouldBeTrue();
-        result.Error.ShouldBe(DomainErrors.GameVersionEntity.VersionProperty.LongerThanAllowed);
-    }
-
-    [Fact]
-    public void Create_WithVersionAtMaxLength_ShouldSucceed()
-    {
-        // Arrange
-        string version = new('1', GameVersion.VersionMaxLength);
-
-        // Act
-        Result<GameVersion> result = GameVersion.Create(version, DetectedAt);
-
-        // Assert
-        result.IsSuccess.ShouldBeTrue();
-    }
-
-    [Fact]
     public void Create_WithDefaultDetectedAt_ShouldThrowArgumentException()
     {
+        // Arrange
+        LotroNotationVersion version = LotroNotationVersion.Create("48.0").Value;
+
         // Assert
-        Should.Throw<ArgumentException>(() => GameVersion.Create("48.0", default));
+        Should.Throw<ArgumentException>(() => GameVersion.Create(version, default));
     }
+
+    [Fact]
+    public void Create_WithNullVersion_ShouldThrowArgumentNullException()
+        => Should.Throw<ArgumentNullException>(() => GameVersion.Create(null!, DetectedAt));
 
     [Fact]
     public void MarkProcessed_WhenUnprocessed_ShouldTransitionToProcessed()

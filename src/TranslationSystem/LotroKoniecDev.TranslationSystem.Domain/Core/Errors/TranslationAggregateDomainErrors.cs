@@ -11,6 +11,16 @@ public static partial class DomainErrors
         public static Error NotFound(TranslationId id)
             => HasNotBeenFound(nameof(TranslationEntity), id.Value);
 
+        public static Error CannotApproveWithoutTranslation
+            => InvalidOperation(nameof(TranslationEntity),
+                "A translation cannot be approved without Polish content.",
+                "CannotApproveWithoutTranslation");
+
+        public static Error CannotApproveRemoved
+            => InvalidOperation(nameof(TranslationEntity),
+                "A soft-removed translation cannot be approved.",
+                "CannotApproveRemoved");
+
         public static class FragmentKeyProperty
         {
             public static Error InvalidFileId

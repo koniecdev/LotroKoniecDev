@@ -18,6 +18,12 @@ public sealed class TranslationExportParserTests
         return await new TranslationExportParser().ParseAsync(stream, CancellationToken.None);
     }
 
+    private static async Task<ParsedExport> ParseBytesAsync(byte[] content)
+    {
+        using MemoryStream stream = new(content);
+        return await new TranslationExportParser().ParseAsync(stream, CancellationToken.None);
+    }
+
     [Fact]
     public async Task ParseAsync_WithGoldenFixture_ShouldParseEveryRowWithoutErrors()
     {
@@ -101,6 +107,52 @@ public sealed class TranslationExportParserTests
     {
         // Act
         ParsedExport result = await ParseAsync("620756992||notanumber||Text||NULL||NULL||1");
+
+        // Assert
+        result.HasErrors.ShouldBeTrue();
+        result.Rows.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task ParseAsync_WithPolishDiacritics_ShouldPreserveContent()
+    {
+        // Act
+        ParsedExport result = await ParseAsync("620756992||1001||Zazolc gesla jazn: Zażółć gęślą jaźń||NULL||NULL||1");
+
+        // Assert
+        result.HasErrors.ShouldBeFalse();
+        result.Rows[0].Content.ShouldBe("Zazolc gesla jazn: Zażółć gęślą jaźń");
+    }
+
+    [Fact]
+    public async Task ParseAsync_WithUtf8Bom_ShouldStripItAndParseTheFirstRow()
+    {
+        // Arrange — the patcher writes UTF-8, which can carry a BOM; it must not corrupt the file id.
+        byte[] content = [0xEF, 0xBB, 0xBF, .. Encoding.UTF8.GetBytes("620756992||1001||Witaj||NULL||NULL||1")];
+
+        // Act
+        ParsedExport result = await ParseBytesAsync(content);
+
+        // Assert
+        result.HasErrors.ShouldBeFalse();
+        result.Rows.Count.ShouldBe(1);
+        result.Rows[0].FileId.ShouldBe(620756992);
+    }
+
+    [Fact]
+    public async Task ParseAsync_WithInvalidUtf8Bytes_ShouldRejectTheUpload()
+    {
+        // Arrange — a stray 0xFF is never valid UTF-8. A wrong-charset/corrupt upload must be rejected,
+        // not silently mis-decoded into content the diff would then treat as a mass source change.
+        byte[] content =
+        [
+            .. Encoding.ASCII.GetBytes("620756992||1001||"),
+            0xFF,
+            .. Encoding.ASCII.GetBytes("||NULL||NULL||1"),
+        ];
+
+        // Act
+        ParsedExport result = await ParseBytesAsync(content);
 
         // Assert
         result.HasErrors.ShouldBeTrue();

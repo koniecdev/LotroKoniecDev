@@ -27,10 +27,16 @@ internal static class ImportErrors
             $"The upload contains more than one row for fragment ({fileId}, {gossipId}).",
             TypeOfError.DataConflict);
 
-    public static Error MassRemovalBlocked(int removedCount, int activeCount, double threshold)
+    public static Error EmptyUpload()
+        => new("Import.EmptyUpload",
+            "The upload contains no translatable rows; an empty or comments-only file is rejected "
+            + "rather than marking the version processed with no content.",
+            TypeOfError.DataConflict);
+
+    public static Error MassRemovalBlocked(int removedCount, int activeCount, double removedFraction, double threshold)
         => new("Import.MassRemovalBlocked",
             $"The upload would remove {removedCount} of {activeCount} active row(s) "
-            + $"({(activeCount is 0 ? 0d : (double)removedCount / activeCount).ToString("P0", CultureInfo.InvariantCulture)}), "
+            + $"({removedFraction.ToString("P0", CultureInfo.InvariantCulture)}), "
             + $"exceeding the {threshold.ToString("P0", CultureInfo.InvariantCulture)} safety threshold. "
             + "Re-upload with the override flag if this mass removal is intentional.",
             TypeOfError.DataConflict);

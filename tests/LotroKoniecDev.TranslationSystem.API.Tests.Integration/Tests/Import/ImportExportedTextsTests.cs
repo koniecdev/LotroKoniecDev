@@ -7,6 +7,7 @@ using LotroKoniecDev.TranslationSystem.Domain.Aggregates.GameVersionAggregate.Va
 using LotroKoniecDev.TranslationSystem.Domain.Aggregates.TranslationAggregate.Entities;
 using LotroKoniecDev.TranslationSystem.Persistence.DbContexts.WriteDbContexts;
 using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.GameVersionAggregate;
+using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.GameVersionAggregate.Enums;
 using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.TranslationAggregate.Enums;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
@@ -55,6 +56,7 @@ public sealed class ImportExportedTextsTests : IAsyncLifetime
         summary.Unchanged.ShouldBe(0);
         (await CountTranslationsAsync()).ShouldBe(3);
         (await GetTranslationAsync(1))!.Status.ShouldBe(TranslationStatus.Untranslated);
+        (await GetVersionStatusAsync(versionId)).ShouldBe(GameVersionStatus.Processed);
     }
 
     [Fact]
@@ -64,6 +66,7 @@ public sealed class ImportExportedTextsTests : IAsyncLifetime
         GameVersionId versionId = await SeedVersionAsync("48.0");
         using HttpClient client = AdminClient();
         await client.PostAsync(ImportRoute(versionId), ExportContent(Line(1, "Alpha"), Line(2, "Beta")));
+        DateTimeOffset firstSeenAt = (await GetTranslationAsync(1))!.UpdatedAt;
 
         // Act — re-upload the identical file to the same (now processed) version.
         HttpResponseMessage response = await client.PostAsync(
@@ -77,6 +80,8 @@ public sealed class ImportExportedTextsTests : IAsyncLifetime
         summary.Added.ShouldBe(0);
         summary.Unchanged.ShouldBe(2);
         (await CountTranslationsAsync()).ShouldBe(2);
+        // Unchanged rows are a byte-for-byte no-op — the timestamp must not advance on re-import.
+        (await GetTranslationAsync(1))!.UpdatedAt.ShouldBe(firstSeenAt);
     }
 
     [Fact]
@@ -131,6 +136,8 @@ public sealed class ImportExportedTextsTests : IAsyncLifetime
         response.StatusCode.ShouldBe(HttpStatusCode.UnprocessableEntity);
         (await GetTranslationAsync(2))!.IsRemoved.ShouldBeFalse();
         (await GetTranslationAsync(3))!.IsRemoved.ShouldBeFalse();
+        // A rejected import is all-or-nothing: the version must not flip to processed.
+        (await GetVersionStatusAsync(secondVersion)).ShouldBe(GameVersionStatus.Unprocessed);
     }
 
     [Fact]
@@ -251,5 +258,13 @@ public sealed class ImportExportedTextsTests : IAsyncLifetime
         using IServiceScope scope = _factory.Services.CreateScope();
         ApplicationWriteDbContext dbContext = scope.ServiceProvider.GetRequiredService<ApplicationWriteDbContext>();
         return await dbContext.Translations.CountAsync();
+    }
+
+    private async Task<GameVersionStatus> GetVersionStatusAsync(GameVersionId versionId)
+    {
+        using IServiceScope scope = _factory.Services.CreateScope();
+        ApplicationWriteDbContext dbContext = scope.ServiceProvider.GetRequiredService<ApplicationWriteDbContext>();
+        GameVersion version = await dbContext.GameVersions.AsNoTracking().SingleAsync(row => row.Id == versionId);
+        return version.Status;
     }
 }

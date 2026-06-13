@@ -96,7 +96,7 @@ public sealed class Translation : AggregateRoot<TranslationId>
     }
 
     /// <summary>
-    /// Attaches the Polish draft for this row (the upsert/seed seed; #100 enriches it with
+    /// Attaches the Polish draft for this row (the upsert/seed helper; #100 enriches it with
     /// placeholder validation). Untranslated/NeedsReview move to <see cref="TranslationStatus.Draft"/>.
     /// </summary>
     public void ProvideTranslation(string translatedText, DateTimeOffset now)

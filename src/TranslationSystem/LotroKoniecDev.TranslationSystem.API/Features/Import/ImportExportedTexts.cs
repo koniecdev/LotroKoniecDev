@@ -97,6 +97,11 @@ internal sealed class ImportExportedTexts : IEndpoint
                 return Result.Failure<ImportSummary>(ImportErrors.ParseFailed(parsed.Errors.Count, parsed.Errors[0]));
             }
 
+            if (parsed.Rows.Count == 0)
+            {
+                return Result.Failure<ImportSummary>(ImportErrors.EmptyUpload());
+            }
+
             Result<IReadOnlyList<IncomingTranslation>> incomingResult = MapToIncoming(parsed.Rows);
             if (incomingResult.IsFailure)
             {
@@ -116,7 +121,11 @@ internal sealed class ImportExportedTexts : IEndpoint
             if (!command.AllowMassRemoval && plan.RemovedFraction > _settings.MaxRemovedFractionWithoutOverride)
             {
                 return Result.Failure<ImportSummary>(
-                    ImportErrors.MassRemovalBlocked(plan.Removed.Count, plan.ComparableExistingCount, _settings.MaxRemovedFractionWithoutOverride));
+                    ImportErrors.MassRemovalBlocked(
+                        plan.Removed.Count,
+                        plan.ComparableExistingCount,
+                        plan.RemovedFraction,
+                        _settings.MaxRemovedFractionWithoutOverride));
             }
 
             _translationRepository.InsertRange(plan.Added);
@@ -138,6 +147,8 @@ internal sealed class ImportExportedTexts : IEndpoint
 
             // Single SaveChanges = one transaction: the row changes and the version's processed
             // flag commit together, so IsProcessed flips only after the diff is durable (spec 0001).
+            // Imports are admin-only and serial — concurrent imports of one version are out of scope,
+            // so no optimistic-concurrency token is modelled.
             Result markProcessedResult = gameVersion.MarkProcessed();
             if (markProcessedResult.IsFailure)
             {

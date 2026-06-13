@@ -213,6 +213,22 @@ public sealed class ImportExportedTextsHandlerTests
     }
 
     [Fact]
+    public async Task Handle_WhenUploadHasNoRows_ShouldRejectAndNotPersist()
+    {
+        // Arrange — a comments-and-blanks-only file parses cleanly to zero rows.
+        GivenVersion(UnprocessedVersion());
+
+        // Act
+        Result<ImportSummary> result = await CreateHandler().Handle(
+            Command(VersionId, "# only a comment\n   \n"), CancellationToken.None);
+
+        // Assert
+        result.IsFailure.ShouldBeTrue();
+        result.Error.Code.ShouldBe("Import.EmptyUpload");
+        await _unitOfWork.DidNotReceive().SaveChangesAsync(Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
     public async Task Handle_OnBaselineImport_ShouldAddEveryRowAndMarkVersionProcessed()
     {
         // Arrange

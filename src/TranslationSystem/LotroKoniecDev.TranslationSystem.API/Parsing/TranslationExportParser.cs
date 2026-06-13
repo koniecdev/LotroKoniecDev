@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Text;
 
 namespace LotroKoniecDev.TranslationSystem.API.Parsing;
 
@@ -12,6 +13,14 @@ internal sealed class TranslationExportParser : ITranslationExportParser
     private const string FieldSeparator = "||";
     private const int MinimumFieldCount = 6;
 
+    /// <summary>
+    /// The patcher writes <c>exported.txt</c> as UTF-8; decode it strictly. A wrong-charset or
+    /// corrupt upload then throws instead of silently mis-decoding into garbage content that the
+    /// diff would treat as a source change and mass-invalidate every Polish row — the rejection
+    /// routes through the same truncation guard as a structural parse failure.
+    /// </summary>
+    private static readonly UTF8Encoding StrictUtf8 = new(encoderShouldEmitUTF8Identifier: false, throwOnInvalidBytes: true);
+
     public async Task<ParsedExport> ParseAsync(Stream stream, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(stream);
@@ -19,26 +28,33 @@ internal sealed class TranslationExportParser : ITranslationExportParser
         List<ParsedExportRow> rows = [];
         List<ExportParseError> errors = [];
 
-        using StreamReader reader = new(stream, leaveOpen: true);
+        using StreamReader reader = new(stream, StrictUtf8, leaveOpen: true);
 
         int lineNumber = 0;
-        while (await reader.ReadLineAsync(cancellationToken) is { } line)
+        try
         {
-            lineNumber++;
+            while (await reader.ReadLineAsync(cancellationToken) is { } line)
+            {
+                lineNumber++;
 
-            if (ShouldSkipLine(line))
-            {
-                continue;
-            }
+                if (ShouldSkipLine(line))
+                {
+                    continue;
+                }
 
-            if (TryParseLine(line, out ParsedExportRow? row, out string? error))
-            {
-                rows.Add(row!);
+                if (TryParseLine(line, out ParsedExportRow? row, out string? error))
+                {
+                    rows.Add(row!);
+                }
+                else
+                {
+                    errors.Add(new ExportParseError(lineNumber, error!));
+                }
             }
-            else
-            {
-                errors.Add(new ExportParseError(lineNumber, error!));
-            }
+        }
+        catch (DecoderFallbackException exception)
+        {
+            errors.Add(new ExportParseError(lineNumber + 1, $"The upload is not valid UTF-8: {exception.Message}"));
         }
 
         return new ParsedExport(rows, errors);

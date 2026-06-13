@@ -1,6 +1,4 @@
-using System.Net;
 using System.Net.Http.Headers;
-using System.Net.Http.Json;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using LotroKoniecDev.SharedKernel.Authorization;
@@ -87,6 +85,20 @@ public sealed class ListTranslationsTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task List_WithPageBeyondRange_ShouldReturnEmptyWithAccurateTotal()
+    {
+        // Arrange
+        await SeedAsync(Row(1, "a"), Row(2, "b"), Row(3, "c"));
+
+        // Act
+        PaginationResponse<TranslationListItemResponse> page = await ListAsync("?page=99&pageSize=2");
+
+        // Assert
+        page.Items.ShouldBeEmpty();
+        page.TotalCount.ShouldBe(3);
+    }
+
+    [Fact]
     public async Task List_WithSearch_ShouldMatchContentCaseInsensitively()
     {
         // Arrange
@@ -94,6 +106,32 @@ public sealed class ListTranslationsTests : IAsyncLifetime
 
         // Act
         PaginationResponse<TranslationListItemResponse> page = await ListAsync("?search=FRODO");
+
+        // Assert
+        page.Items.Single().GossipId.ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task List_WithSearch_ShouldAlsoMatchTheTranslatedText()
+    {
+        // Arrange — only the drafted row carries Polish ("Polski tekst").
+        await SeedAsync(Row(1, "Aragorn"), Row(2, "Boromir", TranslationStatus.Draft));
+
+        // Act
+        PaginationResponse<TranslationListItemResponse> page = await ListAsync("?search=tekst");
+
+        // Assert
+        page.Items.Single().GossipId.ShouldBe(2);
+    }
+
+    [Fact]
+    public async Task List_WithLikeMetacharacterInSearch_ShouldMatchItLiterally()
+    {
+        // Arrange — '%' must be a literal, not a LIKE wildcard, or "100%" would also match "1000".
+        await SeedAsync(Row(1, "Reward 100% bonus"), Row(2, "Reward 1000 bonus"));
+
+        // Act
+        PaginationResponse<TranslationListItemResponse> page = await ListAsync("?search=100%25");
 
         // Assert
         page.Items.Single().GossipId.ShouldBe(1);

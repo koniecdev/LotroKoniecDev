@@ -1,4 +1,3 @@
-using System.Globalization;
 using LotroKoniecDev.SharedKernel.BuildingBlocks;
 using LotroKoniecDev.SharedKernel.Enums;
 using LotroKoniecDev.SharedKernel.Messaging;
@@ -17,10 +16,11 @@ using Microsoft.EntityFrameworkCore;
 namespace LotroKoniecDev.TranslationSystem.API.Features.Translations;
 
 /// <summary>
-/// Lists translations for the editor (spec 0001): paginated, optionally text-searched and
-/// status-filtered, sorted deterministically by <c>(FileId, GossipId)</c>. Soft-removed rows are
-/// excluded; <c>status=NeedsReview</c> is the "needs re-translation" view (rows a game update
-/// invalidated). Reads the POCO read model — never the write aggregate (CQRS, ADR-0002 amendment).
+/// Lists translations for the editor (spec 0001): paginated, optionally text-searched (English
+/// source or Polish translation) and status-filtered, sorted deterministically by
+/// <c>(FileId, GossipId)</c>. Soft-removed rows are excluded; <c>status=NeedsReview</c> is the
+/// "needs re-translation" view (rows a game update invalidated). Reads the POCO read model — never
+/// the write aggregate (CQRS, ADR-0002 amendment).
 /// </summary>
 internal sealed class ListTranslations : IEndpoint
 {
@@ -67,10 +67,13 @@ internal sealed class ListTranslations : IEndpoint
 
             if (!string.IsNullOrWhiteSpace(query.Search))
             {
-                string term = query.Search.Trim().ToLower(CultureInfo.InvariantCulture);
+                // ILIKE is case-insensitive; escape LIKE metacharacters so a literal % or _ in the
+                // term (LOTRO source carries both) matches literally instead of as a wildcard.
+                string pattern = $"%{EscapeLike(query.Search.Trim())}%";
                 filtered = filtered.Where(translation =>
-                    translation.SourceText.ToLower().Contains(term)
-                    || translation.TranslatedText != null && translation.TranslatedText.ToLower().Contains(term));
+                    EF.Functions.ILike(translation.SourceText, pattern, LikeEscapeCharacter)
+                    || translation.TranslatedText != null
+                       && EF.Functions.ILike(translation.TranslatedText, pattern, LikeEscapeCharacter));
             }
 
             int totalCount = await filtered.CountAsync(cancellationToken);
@@ -98,6 +101,15 @@ internal sealed class ListTranslations : IEndpoint
                 TotalCount = totalCount
             });
         }
+
+        private const string LikeEscapeCharacter = "\\";
+
+        /// <summary>Escapes the LIKE/ILIKE metacharacters so the search term matches literally.</summary>
+        private static string EscapeLike(string term)
+            => term
+                .Replace("\\", "\\\\")
+                .Replace("%", "\\%")
+                .Replace("_", "\\_");
     }
 
     public void MapEndpoint(IEndpointRouteBuilder endpointRouteBuilder)

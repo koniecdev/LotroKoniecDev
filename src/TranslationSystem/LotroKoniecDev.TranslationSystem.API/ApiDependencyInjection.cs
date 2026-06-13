@@ -9,11 +9,16 @@ using Microsoft.IdentityModel.Tokens;
 using LotroKoniecDev.Hateoas;
 using LotroKoniecDev.Options;
 using LotroKoniecDev.SharedKernel.Authorization;
+using LotroKoniecDev.SharedKernel.Messaging;
+using LotroKoniecDev.SharedKernel.Monads;
 using LotroKoniecDev.TranslationSystem.API.Auth;
 using LotroKoniecDev.TranslationSystem.API.Auth.CurrentUserAccessing;
 using LotroKoniecDev.TranslationSystem.API.ExceptionHandlers;
 using LotroKoniecDev.TranslationSystem.API.Extensions;
+using LotroKoniecDev.TranslationSystem.API.Features.Import;
 using LotroKoniecDev.TranslationSystem.API.Hateoas.DiscoveryFactories;
+using LotroKoniecDev.TranslationSystem.API.Parsing;
+using LotroKoniecDev.TranslationSystem.Contracts.Import;
 
 namespace LotroKoniecDev.TranslationSystem.API;
 
@@ -42,7 +47,19 @@ internal static class ApiDependencyInjection
             // so ASP.NET Core's default writer handles plain JSON / RFC 7807 Accept values first.
             services.AddHateoasInfrastructure();
 
+            services.AddImportFeature();
+
             return services;
+        }
+
+        private void AddImportFeature()
+        {
+            services.AddSingleton(TimeProvider.System);
+            services.AddSingleton<ITranslationExportParser, TranslationExportParser>();
+            services.AddOptions<ImportSettings>().BindConfiguration(ImportSettings.ConfigurationSection);
+
+            services.AddScoped<IValidator<ImportExportedTexts.Command>, ImportExportedTexts.Validator>();
+            services.AddScoped<ICommandHandler<ImportExportedTexts.Command, Result<ImportSummary>>, ImportExportedTexts.Handler>();
         }
 
         public IServiceCollection AddJwtBearerAuthentication(IWebHostEnvironment environment)

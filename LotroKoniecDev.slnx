@@ -42,6 +42,7 @@
     <Project Path="tests/LotroKoniecDev.AuthSystem.API.Tests.Integration/LotroKoniecDev.AuthSystem.API.Tests.Integration.csproj" />
     <Project Path="tests/LotroKoniecDev.SharedKernel.Tests.Unit/LotroKoniecDev.SharedKernel.Tests.Unit.csproj" />
     <Project Path="tests/LotroKoniecDev.TranslationSystem.API.Tests.Integration/LotroKoniecDev.TranslationSystem.API.Tests.Integration.csproj" />
+    <Project Path="tests/LotroKoniecDev.TranslationSystem.API.Tests.Unit/LotroKoniecDev.TranslationSystem.API.Tests.Unit.csproj" />
     <Project Path="tests/LotroKoniecDev.Tests.E2E/LotroKoniecDev.Tests.E2E.csproj" />
     <Project Path="tests/LotroKoniecDev.Tests.Infrastructure/LotroKoniecDev.Tests.Infrastructure.csproj" />
     <Project Path="tests/LotroKoniecDev.Tests.Unit/LotroKoniecDev.Tests.Unit.csproj" />

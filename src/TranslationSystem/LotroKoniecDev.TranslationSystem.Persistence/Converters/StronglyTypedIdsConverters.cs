@@ -1,4 +1,5 @@
 using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.GameVersionAggregate;
+using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.TranslationAggregate;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
@@ -19,6 +20,10 @@ public static class StronglyTypedIdsConverters
             .Properties<GameVersionId>()
             .HaveConversion<GameVersionIdConverter>();
 
+        configurationBuilder
+            .Properties<TranslationId>()
+            .HaveConversion<TranslationIdConverter>();
+
         return configurationBuilder;
     }
 
@@ -29,4 +34,8 @@ public static class StronglyTypedIdsConverters
     private sealed class GameVersionIdConverter() : ValueConverter<GameVersionId, Guid>(
         id => id.Value,
         value => new GameVersionId(value));
+
+    private sealed class TranslationIdConverter() : ValueConverter<TranslationId, Guid>(
+        id => id.Value,
+        value => new TranslationId(value));
 }

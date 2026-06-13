@@ -1,6 +1,7 @@
 using System.Data;
 using System.Reflection;
 using LotroKoniecDev.TranslationSystem.Domain.Aggregates.GameVersionAggregate.Entities;
+using LotroKoniecDev.TranslationSystem.Domain.Aggregates.TranslationAggregate.Entities;
 using LotroKoniecDev.TranslationSystem.Persistence.Converters;
 using LotroKoniecDev.TranslationSystem.Persistence.DbContexts.Abstractions;
 using Microsoft.EntityFrameworkCore;
@@ -15,6 +16,8 @@ internal sealed class ApplicationWriteDbContext : DbContext, IUnitOfWork
     }
 
     public DbSet<GameVersion> GameVersions => Set<GameVersion>();
+
+    public DbSet<Translation> Translations => Set<Translation>();
 
     protected override void ConfigureConventions(ModelConfigurationBuilder configurationBuilder)
     {

@@ -11,6 +11,16 @@ public static partial class DomainErrors
         public static Error NotFound(TranslationId id)
             => HasNotBeenFound(nameof(TranslationEntity), id.Value);
 
+        public static Error NotFound(int fileId, long gossipId)
+            => new($"{nameof(TranslationEntity)}.NotFound",
+                $"The translation for fragment ({fileId}, {gossipId}) has not been found.",
+                TypeOfError.NotFound);
+
+        public static Error CannotEditRemoved
+            => InvalidOperation(nameof(TranslationEntity),
+                "A soft-removed translation cannot be edited.",
+                "CannotEditRemoved");
+
         public static Error CannotApproveWithoutTranslation
             => InvalidOperation(nameof(TranslationEntity),
                 "A translation cannot be approved without Polish content.",

@@ -2,6 +2,7 @@ using System.Net.Http.Headers;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using LotroKoniecDev.SharedKernel.Authorization;
+using LotroKoniecDev.SharedKernel.StronglyTypedIds;
 using LotroKoniecDev.TranslationSystem.Contracts.Common;
 using LotroKoniecDev.TranslationSystem.Contracts.Translations;
 using LotroKoniecDev.TranslationSystem.Domain.Aggregates.GameVersionAggregate.Entities;
@@ -228,10 +229,10 @@ public sealed class ListTranslationsTests : IAsyncLifetime
         switch (status)
         {
             case TranslationStatus.Draft:
-                row.ProvideTranslation("Polski tekst", Now);
+                row.ProvideTranslation("Polski tekst", IdentityId.Create(), Now);
                 break;
             case TranslationStatus.NeedsReview:
-                row.ProvideTranslation("Polski tekst", Now);
+                row.ProvideTranslation("Polski tekst", IdentityId.Create(), Now);
                 row.ApplySourceChange(TranslationSource.Create($"{source} (reworded)", null, null).Value, _versionId, Now);
                 break;
         }

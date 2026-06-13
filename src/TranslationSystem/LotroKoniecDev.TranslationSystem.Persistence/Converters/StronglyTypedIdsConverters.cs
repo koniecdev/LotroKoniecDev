@@ -1,3 +1,4 @@
+using LotroKoniecDev.SharedKernel.StronglyTypedIds;
 using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.GameVersionAggregate;
 using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.TranslationAggregate;
 using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.TranslationArtifactAggregate;
@@ -29,6 +30,12 @@ public static class StronglyTypedIdsConverters
             .Properties<TranslationArtifactId>()
             .HaveConversion<TranslationArtifactIdConverter>();
 
+        // IdentityId is the AuthSystem user id (cross-context reference) stamped on edited rows as
+        // SubmittedById; it lives in the SharedKernel, not the TMS Primitives, but persists the same way.
+        configurationBuilder
+            .Properties<IdentityId>()
+            .HaveConversion<IdentityIdConverter>();
+
         return configurationBuilder;
     }
 
@@ -47,4 +54,8 @@ public static class StronglyTypedIdsConverters
     private sealed class TranslationArtifactIdConverter() : ValueConverter<TranslationArtifactId, Guid>(
         id => id.Value,
         value => new TranslationArtifactId(value));
+
+    private sealed class IdentityIdConverter() : ValueConverter<IdentityId, Guid>(
+        id => id.Value,
+        value => new IdentityId(value));
 }

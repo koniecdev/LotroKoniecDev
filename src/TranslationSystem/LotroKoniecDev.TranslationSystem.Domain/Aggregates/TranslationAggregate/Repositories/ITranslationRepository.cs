@@ -1,5 +1,7 @@
 using LotroKoniecDev.SharedKernel.BuildingBlocks;
+using LotroKoniecDev.SharedKernel.Monads;
 using LotroKoniecDev.TranslationSystem.Domain.Aggregates.TranslationAggregate.Entities;
+using LotroKoniecDev.TranslationSystem.Domain.Aggregates.TranslationAggregate.ValueObjects;
 using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.TranslationAggregate;
 
 namespace LotroKoniecDev.TranslationSystem.Domain.Aggregates.TranslationAggregate.Repositories;
@@ -13,6 +15,12 @@ public interface ITranslationRepository : IRepository<Translation, TranslationId
     /// proven ~780k-row envelope; revisit only if a real perf need appears.
     /// </summary>
     Task<IReadOnlyList<Translation>> GetAllAsync(CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Loads the single tracked translation for a fragment identity, or <see cref="Maybe{T}.None"/>
+    /// when the pair is unknown. Backs the editor upsert path, which mutates the returned aggregate.
+    /// </summary>
+    Task<Maybe<Translation>> GetByFragmentKeyAsync(FragmentKey fragmentKey, CancellationToken cancellationToken);
 
     void InsertRange(IEnumerable<Translation> translations);
 }

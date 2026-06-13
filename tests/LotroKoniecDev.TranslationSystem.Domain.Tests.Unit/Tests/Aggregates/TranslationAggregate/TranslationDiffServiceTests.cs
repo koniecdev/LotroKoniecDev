@@ -1,3 +1,4 @@
+using LotroKoniecDev.SharedKernel.StronglyTypedIds;
 using LotroKoniecDev.TranslationSystem.Domain.Aggregates.TranslationAggregate.Entities;
 using LotroKoniecDev.TranslationSystem.Domain.Aggregates.TranslationAggregate.Services;
 using LotroKoniecDev.TranslationSystem.Domain.Aggregates.TranslationAggregate.ValueObjects;
@@ -97,7 +98,7 @@ public sealed class TranslationDiffServiceTests
     {
         // Arrange
         Translation withPolish = Existing(1, 1, "Old");
-        withPolish.ProvideTranslation("Polski", StoredAt);
+        withPolish.ProvideTranslation("Polski", IdentityId.Create(), StoredAt);
         IncomingTranslation[] incoming = [Incoming(1, 1, "New")];
 
         // Act

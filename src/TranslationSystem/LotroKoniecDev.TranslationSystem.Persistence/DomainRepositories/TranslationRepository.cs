@@ -1,5 +1,7 @@
+using LotroKoniecDev.SharedKernel.Monads;
 using LotroKoniecDev.TranslationSystem.Domain.Aggregates.TranslationAggregate.Entities;
 using LotroKoniecDev.TranslationSystem.Domain.Aggregates.TranslationAggregate.Repositories;
+using LotroKoniecDev.TranslationSystem.Domain.Aggregates.TranslationAggregate.ValueObjects;
 using LotroKoniecDev.TranslationSystem.Persistence.DbContexts.WriteDbContexts;
 using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.TranslationAggregate;
 using Microsoft.EntityFrameworkCore;
@@ -18,6 +20,18 @@ internal sealed class TranslationRepository : GenericRepository<Translation, Tra
             .ToListAsync(cancellationToken);
 
         return translations;
+    }
+
+    public async Task<Maybe<Translation>> GetByFragmentKeyAsync(FragmentKey fragmentKey, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(fragmentKey);
+
+        Translation? translation = await DbContext.Set<Translation>()
+            .FirstOrDefaultAsync(
+                row => row.FragmentKey.FileId == fragmentKey.FileId && row.FragmentKey.GossipId == fragmentKey.GossipId,
+                cancellationToken);
+
+        return Maybe<Translation>.From(translation);
     }
 
     public void InsertRange(IEnumerable<Translation> translations)

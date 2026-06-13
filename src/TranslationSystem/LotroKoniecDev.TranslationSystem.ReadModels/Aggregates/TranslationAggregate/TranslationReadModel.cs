@@ -14,6 +14,7 @@ public sealed record TranslationReadModel(
     string? ArgsId,
     string? TranslatedText,
     string? PreviousSourceText,
+    Guid? SubmittedById,
     TranslationStatus Status,
     GameVersionId IntroducedInVersion,
     GameVersionId? LastSourceChangeInVersion,

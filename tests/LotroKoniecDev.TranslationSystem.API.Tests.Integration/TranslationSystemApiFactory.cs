@@ -65,8 +65,9 @@ public class TranslationSystemApiFactory : WebApplicationFactory<Program>, IAsyn
 
     public static string CreateAccessToken(
         string role = AuthConstants.Roles.Translator,
-        string scope = AuthConstants.Scopes.Api)
-        => CreateToken(TestSigningKey, DateTime.UtcNow.AddMinutes(30), role, scope);
+        string scope = AuthConstants.Scopes.Api,
+        Guid? subject = null)
+        => CreateToken(TestSigningKey, DateTime.UtcNow.AddMinutes(30), role, scope, subject);
 
     public static string CreateExpiredAccessToken()
         => CreateToken(TestSigningKey, DateTime.UtcNow.AddMinutes(-20));
@@ -80,7 +81,8 @@ public class TranslationSystemApiFactory : WebApplicationFactory<Program>, IAsyn
         SymmetricSecurityKey signingKey,
         DateTime expires,
         string role = AuthConstants.Roles.Translator,
-        string scope = AuthConstants.Scopes.Api)
+        string scope = AuthConstants.Scopes.Api,
+        Guid? subject = null)
     {
         JsonWebTokenHandler handler = new();
 
@@ -94,7 +96,7 @@ public class TranslationSystemApiFactory : WebApplicationFactory<Program>, IAsyn
             SigningCredentials = new SigningCredentials(signingKey, SecurityAlgorithms.HmacSha256),
             Claims = new Dictionary<string, object>
             {
-                ["sub"] = Guid.NewGuid().ToString(),
+                ["sub"] = (subject ?? Guid.NewGuid()).ToString(),
                 ["name"] = "integration-test-user",
                 ["email"] = "translator@lotro.koniec.dev",
                 ["role"] = role,

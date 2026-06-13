@@ -47,6 +47,7 @@ internal sealed class GetTranslation : IEndpoint
                     translation.ArgsId,
                     translation.TranslatedText,
                     translation.PreviousSourceText,
+                    translation.SubmittedById,
                     translation.Status,
                     translation.CreatedAt,
                     translation.UpdatedAt))

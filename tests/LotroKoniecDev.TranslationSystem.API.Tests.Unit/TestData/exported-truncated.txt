@@ -1,0 +1,3 @@
+620756992||1001||Good line||NULL||NULL||1
+620756992||1002||Bad line missing trailing fields
+notanumber||1003||Bad file id||NULL||NULL||1

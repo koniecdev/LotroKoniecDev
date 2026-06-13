@@ -41,6 +41,7 @@
 
     <ItemGroup>
         <InternalsVisibleTo Include="LotroKoniecDev.TranslationSystem.API.Tests.Integration" />
+        <InternalsVisibleTo Include="LotroKoniecDev.TranslationSystem.API.Tests.Unit" />
     </ItemGroup>
 
     <ItemGroup>

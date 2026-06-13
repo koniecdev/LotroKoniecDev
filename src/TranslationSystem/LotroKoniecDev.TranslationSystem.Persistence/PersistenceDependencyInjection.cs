@@ -1,6 +1,7 @@
 using FluentValidation;
 using LotroKoniecDev.Options;
 using LotroKoniecDev.TranslationSystem.Domain.Aggregates.GameVersionAggregate.Repositories;
+using LotroKoniecDev.TranslationSystem.Domain.Aggregates.TranslationAggregate.Repositories;
 using LotroKoniecDev.TranslationSystem.Persistence.DbContexts.Abstractions;
 using LotroKoniecDev.TranslationSystem.Persistence.DbContexts.ReadDbContexts;
 using LotroKoniecDev.TranslationSystem.Persistence.DbContexts.WriteDbContexts;
@@ -54,6 +55,7 @@ public static class PersistenceDependencyInjection
                 serviceProvider.GetRequiredService<ApplicationWriteDbContext>());
 
             services.AddScoped<IGameVersionRepository, GameVersionRepository>();
+            services.AddScoped<ITranslationRepository, TranslationRepository>();
 
             return services;
         }

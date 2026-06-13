@@ -1,5 +1,6 @@
 using LotroKoniecDev.TranslationSystem.Domain.Aggregates.GameVersionAggregate.Entities;
 using LotroKoniecDev.TranslationSystem.Domain.Aggregates.GameVersionAggregate.Repositories;
+using LotroKoniecDev.TranslationSystem.Domain.Aggregates.GameVersionAggregate.ValueObjects;
 using LotroKoniecDev.TranslationSystem.Persistence.DbContexts.WriteDbContexts;
 using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.GameVersionAggregate;
 using Microsoft.EntityFrameworkCore;
@@ -12,12 +13,12 @@ internal sealed class GameVersionRepository : GenericRepository<GameVersion, Gam
     {
     }
 
-    public async Task<bool> ExistsByVersionAsync(string version, CancellationToken cancellationToken)
+    public async Task<bool> ExistsByVersionAsync(LotroNotationVersion version, CancellationToken cancellationToken)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(version);
+        ArgumentNullException.ThrowIfNull(version);
 
         bool exists = await DbContext.GameVersions
-            .AnyAsync(gameVersion => gameVersion.Version == version, cancellationToken);
+            .AnyAsync(gameVersion => gameVersion.LotroNotationVersion.Value == version.Value, cancellationToken);
 
         return exists;
     }

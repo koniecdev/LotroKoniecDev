@@ -6,7 +6,7 @@ namespace LotroKoniecDev.TranslationSystem.ReadModels.Aggregates.GameVersionAggr
 
 public sealed record GameVersionReadModel(
     GameVersionId Id,
-    string Version,
+    string LotroNotationVersion,
     DateTimeOffset DetectedAt,
     GameVersionStatus Status) : IReadOnlyEntity<GameVersionId>
 {

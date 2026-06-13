@@ -1,4 +1,5 @@
 using LotroKoniecDev.TranslationSystem.Domain.Aggregates.GameVersionAggregate.Entities;
+using LotroKoniecDev.TranslationSystem.Domain.Aggregates.GameVersionAggregate.ValueObjects;
 using LotroKoniecDev.TranslationSystem.Persistence.Consts;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
@@ -14,11 +15,15 @@ internal sealed class GameVersionConfiguration : IEntityTypeConfiguration<GameVe
         builder.Property(gameVersion => gameVersion.Id)
             .ValueGeneratedNever();
 
-        builder.Property(gameVersion => gameVersion.Version)
-            .HasMaxLength(GameVersion.VersionMaxLength);
+        builder.OwnsOne(gameVersion => gameVersion.LotroNotationVersion, ownedBuilder =>
+        {
+            ownedBuilder.Property(v => v.Value)
+                .HasColumnName(nameof(GameVersion.LotroNotationVersion))
+                .HasMaxLength(LotroNotationVersion.VersionMaxLength);
 
-        builder.HasIndex(gameVersion => gameVersion.Version)
-            .IsUnique();
+            ownedBuilder.HasIndex(v => v.Value)
+                .IsUnique();
+        });
 
         // Get-only property — EF Core convention skips it without an explicit mapping.
         builder.Property(gameVersion => gameVersion.DetectedAt);

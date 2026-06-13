@@ -1,6 +1,7 @@
 using LotroKoniecDev.SharedKernel.BuildingBlocks;
 using LotroKoniecDev.SharedKernel.Guards;
 using LotroKoniecDev.SharedKernel.Monads;
+using LotroKoniecDev.TranslationSystem.Domain.Aggregates.GameVersionAggregate.ValueObjects;
 using LotroKoniecDev.TranslationSystem.Domain.Core.Errors;
 using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.GameVersionAggregate;
 using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.GameVersionAggregate.Enums;
@@ -9,28 +10,16 @@ namespace LotroKoniecDev.TranslationSystem.Domain.Aggregates.GameVersionAggregat
 
 public sealed class GameVersion : AggregateRoot<GameVersionId>
 {
-    public const int VersionMaxLength = 50;
-
-    public string Version { get; }
+    public LotroNotationVersion LotroNotationVersion { get; }
     public DateTimeOffset DetectedAt { get; }
     public GameVersionStatus Status { get; private set; }
 
-    public static Result<GameVersion> Create(string version, DateTimeOffset detectedAt)
+    public static Result<GameVersion> Create(LotroNotationVersion version, DateTimeOffset detectedAt)
     {
+        ArgumentNullException.ThrowIfNull(version);
         Ensure.NotEmpty(detectedAt);
 
-        if (string.IsNullOrWhiteSpace(version))
-        {
-            return Result.Failure<GameVersion>(DomainErrors.GameVersionEntity.VersionProperty.NullOrEmpty);
-        }
-
-        string trimmedVersion = version.Trim();
-        if (trimmedVersion.Length > VersionMaxLength)
-        {
-            return Result.Failure<GameVersion>(DomainErrors.GameVersionEntity.VersionProperty.LongerThanAllowed);
-        }
-
-        GameVersion instance = new(GameVersionId.Create(), trimmedVersion, detectedAt);
+        GameVersion instance = new(GameVersionId.Create(), version, detectedAt);
 
         return Result.Success(instance);
     }
@@ -65,16 +54,16 @@ public sealed class GameVersion : AggregateRoot<GameVersionId>
 
     private GameVersion(
         GameVersionId id,
-        string version,
+        LotroNotationVersion version,
         DateTimeOffset detectedAt) : base(id)
     {
-        Version = version;
+        LotroNotationVersion = version;
         DetectedAt = detectedAt;
         Status = GameVersionStatus.Unprocessed;
     }
 
     private GameVersion()
     {
-        Version = null!;
+        LotroNotationVersion = null!;
     }
 }

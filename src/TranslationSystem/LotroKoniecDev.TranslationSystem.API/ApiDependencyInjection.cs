@@ -71,6 +71,9 @@ internal static class ApiDependencyInjection
             services.AddScoped<
                 IQueryHandler<ListTranslations.Query, Result<PaginationResponse<TranslationListItemResponse>>>,
                 ListTranslations.Handler>();
+            services.AddScoped<
+                IQueryHandler<GetTranslation.Query, Result<TranslationDetailResponse>>,
+                GetTranslation.Handler>();
         }
 
         public IServiceCollection AddJwtBearerAuthentication(IWebHostEnvironment environment)

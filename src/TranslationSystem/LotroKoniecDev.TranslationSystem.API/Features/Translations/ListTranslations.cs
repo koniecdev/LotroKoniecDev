@@ -25,7 +25,7 @@ namespace LotroKoniecDev.TranslationSystem.API.Features.Translations;
 internal sealed class ListTranslations : IEndpoint
 {
     /// <summary>The only language the catalog holds today; multi-language is post-MVP.</summary>
-    private const string SupportedLanguage = "pl";
+    private const string SupportedLanguage = SupportedLanguages.Polish;
 
     internal sealed record Query(string? Lang, string? Search, TranslationStatus? Status, int Page = 1, int PageSize = 50)
         : IQuery<Result<PaginationResponse<TranslationListItemResponse>>>

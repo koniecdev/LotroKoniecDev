@@ -16,6 +16,7 @@ using LotroKoniecDev.TranslationSystem.API.Auth.CurrentUserAccessing;
 using LotroKoniecDev.TranslationSystem.API.ExceptionHandlers;
 using LotroKoniecDev.TranslationSystem.API.Extensions;
 using LotroKoniecDev.TranslationSystem.API.Features.Import;
+using LotroKoniecDev.TranslationSystem.API.Features.TranslationFiles;
 using LotroKoniecDev.TranslationSystem.API.Features.Translations;
 using LotroKoniecDev.TranslationSystem.API.Hateoas.DiscoveryFactories;
 using LotroKoniecDev.TranslationSystem.API.Parsing;
@@ -52,6 +53,7 @@ internal static class ApiDependencyInjection
 
             services.AddImportFeature();
             services.AddTranslationsFeature();
+            services.AddTranslationFilesFeature();
 
             return services;
         }
@@ -74,6 +76,17 @@ internal static class ApiDependencyInjection
             services.AddScoped<
                 IQueryHandler<GetTranslation.Query, Result<TranslationDetailResponse>>,
                 GetTranslation.Handler>();
+        }
+
+        private void AddTranslationFilesFeature()
+        {
+            // Serializer + builder are stateless except the builder's single-flight gate, so both
+            // are singletons; the builder resolves scoped EF services through a fresh scope.
+            services.AddSingleton<ITranslationFileSerializer, TranslationFileSerializer>();
+            services.AddSingleton<ITranslationArtifactBuilder, TranslationArtifactBuilder>();
+            services.AddScoped<
+                IQueryHandler<GetTranslationFile.Query, Result<GetTranslationFile.TranslationFileResult>>,
+                GetTranslationFile.Handler>();
         }
 
         public IServiceCollection AddJwtBearerAuthentication(IWebHostEnvironment environment)

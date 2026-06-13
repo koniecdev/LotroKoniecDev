@@ -2,6 +2,7 @@ using LotroKoniecDev.SharedKernel.BuildingBlocks;
 using LotroKoniecDev.SharedKernel.Guards;
 using LotroKoniecDev.SharedKernel.Monads;
 using LotroKoniecDev.TranslationSystem.Domain.Aggregates.TranslationAggregate.ValueObjects;
+using LotroKoniecDev.TranslationSystem.Domain.Core.Errors;
 using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.GameVersionAggregate;
 using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.TranslationAggregate;
 using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.TranslationAggregate.Enums;
@@ -106,6 +107,30 @@ public sealed class Translation : AggregateRoot<TranslationId>
         TranslatedText = translatedText;
         Status = TranslationStatus.Draft;
         UpdatedAt = now;
+    }
+
+    /// <summary>
+    /// Approves the Polish draft for distribution (spec 0001). Minimal seed form (#102): requires
+    /// Polish content and a non-removed row, then flips the status to
+    /// <see cref="TranslationStatus.Approved"/>. #101 enriches it — clears
+    /// <see cref="PreviousSourceText"/>, stamps the approver and triggers artifact regeneration.
+    /// </summary>
+    public Result Approve(DateTimeOffset now)
+    {
+        if (string.IsNullOrWhiteSpace(TranslatedText))
+        {
+            return Result.Failure(DomainErrors.TranslationEntity.CannotApproveWithoutTranslation);
+        }
+
+        if (IsRemoved)
+        {
+            return Result.Failure(DomainErrors.TranslationEntity.CannotApproveRemoved);
+        }
+
+        Status = TranslationStatus.Approved;
+        UpdatedAt = now;
+
+        return Result.Success();
     }
 
     private Translation(

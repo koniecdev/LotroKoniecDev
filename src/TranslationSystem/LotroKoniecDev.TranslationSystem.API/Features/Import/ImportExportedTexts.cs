@@ -7,6 +7,7 @@ using LotroKoniecDev.SharedKernel.Monads;
 using LotroKoniecDev.TranslationSystem.API.Auth;
 using LotroKoniecDev.TranslationSystem.API.Common;
 using LotroKoniecDev.TranslationSystem.API.Extensions;
+using LotroKoniecDev.TranslationSystem.API.Features.TranslationFiles;
 using LotroKoniecDev.TranslationSystem.API.Parsing;
 using LotroKoniecDev.TranslationSystem.Contracts.Import;
 using LotroKoniecDev.TranslationSystem.Domain.Aggregates.GameVersionAggregate.Entities;
@@ -55,6 +56,7 @@ internal sealed class ImportExportedTexts : IEndpoint
         private readonly IUnitOfWork _unitOfWork;
         private readonly TimeProvider _timeProvider;
         private readonly ImportSettings _settings;
+        private readonly ITranslationArtifactBuilder _artifactBuilder;
 
         public Handler(
             IValidator<Command> validator,
@@ -63,7 +65,8 @@ internal sealed class ImportExportedTexts : IEndpoint
             ITranslationRepository translationRepository,
             IUnitOfWork unitOfWork,
             TimeProvider timeProvider,
-            IOptions<ImportSettings> settings)
+            IOptions<ImportSettings> settings,
+            ITranslationArtifactBuilder artifactBuilder)
         {
             _validator = validator;
             _parser = parser;
@@ -72,6 +75,7 @@ internal sealed class ImportExportedTexts : IEndpoint
             _unitOfWork = unitOfWork;
             _timeProvider = timeProvider;
             _settings = settings.Value;
+            _artifactBuilder = artifactBuilder;
         }
 
         public async ValueTask<Result<ImportSummary>> Handle(Command command, CancellationToken cancellationToken)
@@ -156,6 +160,11 @@ internal sealed class ImportExportedTexts : IEndpoint
             }
 
             await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+            // Version processing changes the distributed set (removed rows drop out, re-added rows
+            // return), so regenerate the pre-built translation file after the import commits
+            // (spec 0001: regenerate on write — the download endpoint never builds per-request).
+            await _artifactBuilder.RebuildAsync(SupportedLanguages.Polish, cancellationToken);
 
             return Result.Success(BuildSummary(plan));
         }

@@ -28,6 +28,10 @@
 
     <ItemGroup>
       <ProjectReference Include="..\..\src\TranslationSystem\LotroKoniecDev.TranslationSystem.API\LotroKoniecDev.TranslationSystem.API.csproj" />
+      <!-- Test-only: the distribution round-trip parses the downloaded file with the patcher's own
+           parser (the export half of the || contract drift guard). The patcher Application is
+           net10.0/AnyCPU, so this reference stays cross-platform; the contexts remain decoupled in production. -->
+      <ProjectReference Include="..\..\src\LotroKoniecDev.Application\LotroKoniecDev.Application.csproj" />
     </ItemGroup>
 
 </Project>

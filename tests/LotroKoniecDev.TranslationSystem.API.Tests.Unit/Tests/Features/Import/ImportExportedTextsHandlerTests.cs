@@ -1,6 +1,7 @@
 using System.Text;
 using LotroKoniecDev.SharedKernel.Monads;
 using LotroKoniecDev.TranslationSystem.API.Features.Import;
+using LotroKoniecDev.TranslationSystem.API.Features.TranslationFiles;
 using LotroKoniecDev.TranslationSystem.API.Parsing;
 using LotroKoniecDev.TranslationSystem.Contracts.Import;
 using LotroKoniecDev.TranslationSystem.Domain.Aggregates.GameVersionAggregate.Entities;
@@ -40,7 +41,16 @@ public sealed class ImportExportedTextsHandlerTests
             _translationRepository,
             _unitOfWork,
             TimeProvider.System,
-            Microsoft.Extensions.Options.Options.Create(new ImportSettings { MaxRemovedFractionWithoutOverride = maxRemovedFraction }));
+            Microsoft.Extensions.Options.Options.Create(new ImportSettings { MaxRemovedFractionWithoutOverride = maxRemovedFraction }),
+            new NoOpArtifactBuilder());
+
+    // The artifact builder is an internal interface (NSubstitute/Castle can't proxy it without a
+    // DynamicProxyGenAssembly2 hook); a hand-written no-op keeps the import handler tests focused
+    // on the diff, not on artifact regeneration (covered by the distribution integration tests).
+    private sealed class NoOpArtifactBuilder : ITranslationArtifactBuilder
+    {
+        public Task RebuildAsync(string language, CancellationToken cancellationToken) => Task.CompletedTask;
+    }
 
     private static ImportExportedTexts.Command Command(GameVersionId versionId, string export, bool allowMassRemoval = false)
         => new(versionId, new MemoryStream(Encoding.UTF8.GetBytes(export)), allowMassRemoval);

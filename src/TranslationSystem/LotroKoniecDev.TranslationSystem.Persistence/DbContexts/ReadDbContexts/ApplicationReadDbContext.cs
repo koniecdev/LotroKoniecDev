@@ -1,6 +1,7 @@
 using LotroKoniecDev.TranslationSystem.Persistence.Converters;
 using LotroKoniecDev.TranslationSystem.ReadModels.Aggregates.GameVersionAggregate;
 using LotroKoniecDev.TranslationSystem.ReadModels.Aggregates.TranslationAggregate;
+using LotroKoniecDev.TranslationSystem.ReadModels.Aggregates.TranslationArtifactAggregate;
 using LotroKoniecDev.TranslationSystem.ReadModels.EntityFramework;
 using Microsoft.EntityFrameworkCore;
 
@@ -15,6 +16,8 @@ internal sealed class ApplicationReadDbContext : DbContext, IApplicationReadDbCo
     public DbSet<GameVersionReadModel> GameVersions => Set<GameVersionReadModel>();
 
     public DbSet<TranslationReadModel> Translations => Set<TranslationReadModel>();
+
+    public DbSet<TranslationArtifactReadModel> TranslationArtifacts => Set<TranslationArtifactReadModel>();
 
     protected override void ConfigureConventions(ModelConfigurationBuilder configurationBuilder)
     {

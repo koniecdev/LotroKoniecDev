@@ -133,4 +133,68 @@ public sealed class TranslationTests
         translation.TranslatedText.ShouldBe("Witaj");
         translation.UpdatedAt.ShouldBe(Changed);
     }
+
+    [Fact]
+    public void Approve_WhenDraft_ShouldSetApproved()
+    {
+        // Arrange
+        Translation translation = CreateUntranslated();
+        translation.ProvideTranslation("Witaj", Created);
+
+        // Act
+        Result result = translation.Approve(Changed);
+
+        // Assert
+        result.IsSuccess.ShouldBeTrue();
+        translation.Status.ShouldBe(TranslationStatus.Approved);
+        translation.UpdatedAt.ShouldBe(Changed);
+    }
+
+    [Fact]
+    public void Approve_WhenNeedsReview_ShouldSetApproved()
+    {
+        // Arrange — an invalidated row keeps its Polish; approving re-publishes it (spec 0001).
+        Translation translation = CreateUntranslated();
+        translation.ProvideTranslation("Stary polski", Created);
+        translation.ApplySourceChange(Source("New English"), ChangeVersion, Changed);
+        translation.Status.ShouldBe(TranslationStatus.NeedsReview);
+
+        // Act
+        Result result = translation.Approve(Changed);
+
+        // Assert
+        result.IsSuccess.ShouldBeTrue();
+        translation.Status.ShouldBe(TranslationStatus.Approved);
+    }
+
+    [Fact]
+    public void Approve_WithoutTranslation_ShouldFail()
+    {
+        // Arrange
+        Translation translation = CreateUntranslated();
+
+        // Act
+        Result result = translation.Approve(Changed);
+
+        // Assert
+        result.IsFailure.ShouldBeTrue();
+        result.Error.Code.ShouldBe("TranslationEntity.CannotApproveWithoutTranslation");
+        translation.Status.ShouldBe(TranslationStatus.Untranslated);
+    }
+
+    [Fact]
+    public void Approve_WhenRemoved_ShouldFail()
+    {
+        // Arrange
+        Translation translation = CreateUntranslated();
+        translation.ProvideTranslation("Polski", Created);
+        translation.MarkRemoved(ChangeVersion, Changed);
+
+        // Act
+        Result result = translation.Approve(Changed);
+
+        // Assert
+        result.IsFailure.ShouldBeTrue();
+        result.Error.Code.ShouldBe("TranslationEntity.CannotApproveRemoved");
+    }
 }

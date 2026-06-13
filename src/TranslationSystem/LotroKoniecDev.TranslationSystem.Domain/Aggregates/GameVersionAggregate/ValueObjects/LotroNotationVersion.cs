@@ -37,6 +37,8 @@ public sealed class LotroNotationVersion : ValueObject
         Value = value;
     }
 
+    public override string ToString() => Value;
+
     protected override IEnumerable<object> GetAtomicValues()
     {
         yield return Value;

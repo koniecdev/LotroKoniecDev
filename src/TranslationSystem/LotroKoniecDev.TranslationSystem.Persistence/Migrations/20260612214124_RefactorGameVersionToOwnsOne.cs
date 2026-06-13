@@ -10,61 +10,55 @@ namespace LotroKoniecDev.TranslationSystem.Persistence.Migrations
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
         {
-            migrationBuilder.DropIndex(
-                name: "IX_GameVersions_Version",
-                schema: "translation",
-                table: "GameVersions");
-
-            migrationBuilder.DropColumn(
+            migrationBuilder.RenameColumn(
                 name: "Version",
                 schema: "translation",
-                table: "GameVersions");
+                table: "GameVersions",
+                newName: "LotroNotationVersion");
 
-            migrationBuilder.AddColumn<string>(
+            migrationBuilder.RenameIndex(
+                name: "IX_GameVersions_Version",
+                schema: "translation",
+                table: "GameVersions",
+                newName: "IX_GameVersions_LotroNotationVersion");
+
+            migrationBuilder.AlterColumn<string>(
                 name: "LotroNotationVersion",
                 schema: "translation",
                 table: "GameVersions",
                 type: "character varying(12)",
                 maxLength: 12,
                 nullable: false,
-                defaultValue: "");
-
-            migrationBuilder.CreateIndex(
-                name: "IX_GameVersions_LotroNotationVersion",
-                schema: "translation",
-                table: "GameVersions",
-                column: "LotroNotationVersion",
-                unique: true);
+                oldClrType: typeof(string),
+                oldType: "character varying(50)",
+                oldMaxLength: 50);
         }
 
         /// <inheritdoc />
         protected override void Down(MigrationBuilder migrationBuilder)
         {
-            migrationBuilder.DropIndex(
-                name: "IX_GameVersions_LotroNotationVersion",
-                schema: "translation",
-                table: "GameVersions");
-
-            migrationBuilder.DropColumn(
+            migrationBuilder.AlterColumn<string>(
                 name: "LotroNotationVersion",
-                schema: "translation",
-                table: "GameVersions");
-
-            migrationBuilder.AddColumn<string>(
-                name: "Version",
                 schema: "translation",
                 table: "GameVersions",
                 type: "character varying(50)",
                 maxLength: 50,
                 nullable: false,
-                defaultValue: "");
+                oldClrType: typeof(string),
+                oldType: "character varying(12)",
+                oldMaxLength: 12);
 
-            migrationBuilder.CreateIndex(
-                name: "IX_GameVersions_Version",
+            migrationBuilder.RenameIndex(
+                name: "IX_GameVersions_LotroNotationVersion",
                 schema: "translation",
                 table: "GameVersions",
-                column: "Version",
-                unique: true);
+                newName: "IX_GameVersions_Version");
+
+            migrationBuilder.RenameColumn(
+                name: "LotroNotationVersion",
+                schema: "translation",
+                table: "GameVersions",
+                newName: "Version");
         }
     }
 }

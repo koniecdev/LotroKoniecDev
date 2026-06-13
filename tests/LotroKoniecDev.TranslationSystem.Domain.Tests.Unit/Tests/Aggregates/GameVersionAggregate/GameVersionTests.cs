@@ -42,7 +42,10 @@ public sealed class GameVersionTests
 
     [Fact]
     public void Create_WithNullVersion_ShouldThrowArgumentNullException()
-        => Should.Throw<ArgumentNullException>(() => GameVersion.Create(null!, DetectedAt));
+    {
+        // Assert
+        Should.Throw<ArgumentNullException>(() => GameVersion.Create(null!, DetectedAt));
+    }
 
     [Fact]
     public void MarkProcessed_WhenUnprocessed_ShouldTransitionToProcessed()

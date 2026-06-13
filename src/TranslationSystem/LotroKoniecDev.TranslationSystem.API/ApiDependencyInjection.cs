@@ -16,9 +16,12 @@ using LotroKoniecDev.TranslationSystem.API.Auth.CurrentUserAccessing;
 using LotroKoniecDev.TranslationSystem.API.ExceptionHandlers;
 using LotroKoniecDev.TranslationSystem.API.Extensions;
 using LotroKoniecDev.TranslationSystem.API.Features.Import;
+using LotroKoniecDev.TranslationSystem.API.Features.Translations;
 using LotroKoniecDev.TranslationSystem.API.Hateoas.DiscoveryFactories;
 using LotroKoniecDev.TranslationSystem.API.Parsing;
+using LotroKoniecDev.TranslationSystem.Contracts.Common;
 using LotroKoniecDev.TranslationSystem.Contracts.Import;
+using LotroKoniecDev.TranslationSystem.Contracts.Translations;
 
 namespace LotroKoniecDev.TranslationSystem.API;
 
@@ -48,6 +51,7 @@ internal static class ApiDependencyInjection
             services.AddHateoasInfrastructure();
 
             services.AddImportFeature();
+            services.AddTranslationsFeature();
 
             return services;
         }
@@ -60,6 +64,13 @@ internal static class ApiDependencyInjection
 
             services.AddScoped<IValidator<ImportExportedTexts.Command>, ImportExportedTexts.Validator>();
             services.AddScoped<ICommandHandler<ImportExportedTexts.Command, Result<ImportSummary>>, ImportExportedTexts.Handler>();
+        }
+
+        private void AddTranslationsFeature()
+        {
+            services.AddScoped<
+                IQueryHandler<ListTranslations.Query, Result<PaginationResponse<TranslationListItemResponse>>>,
+                ListTranslations.Handler>();
         }
 
         public IServiceCollection AddJwtBearerAuthentication(IWebHostEnvironment environment)

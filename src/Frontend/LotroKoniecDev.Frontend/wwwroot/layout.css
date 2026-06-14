@@ -323,6 +323,15 @@ code {
     background: rgba(217, 83, 79, 0.08);
 }
 
+.status-message.status-warning {
+    border-color: rgba(217, 164, 65, 0.4);
+    background: rgba(217, 164, 65, 0.08);
+}
+
+.status-message p {
+    margin: 0;
+}
+
 /* Responsive — stack the sidebar on top on small screens */
 @media (max-width: 760px) {
     .app-shell {

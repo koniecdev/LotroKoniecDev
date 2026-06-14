@@ -1,6 +1,7 @@
 using System.Reflection;
 using FluentValidation;
 using LotroKoniecDev.Frontend.Infrastructure.Auth;
+using LotroKoniecDev.Frontend.Infrastructure.Auth.DeadSession;
 using LotroKoniecDev.Frontend.Infrastructure.Discovery;
 using LotroKoniecDev.Frontend.Infrastructure.HttpClients;
 
@@ -17,6 +18,7 @@ public static class DependencyInjection
             services.AddAntiforgery(options => options.Cookie.Path = "/");
 
             services.AddHttpClients();
+            services.AddDeadSessionRegistry();
             services.AddDiscoveryCache();
             services.AddFrontendAuthentication();
 

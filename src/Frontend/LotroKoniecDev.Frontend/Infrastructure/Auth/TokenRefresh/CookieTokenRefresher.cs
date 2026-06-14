@@ -7,17 +7,18 @@ using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.JsonWebTokens;
 using Microsoft.IdentityModel.Protocols.OpenIdConnect;
 using Microsoft.IdentityModel.Tokens;
+using LotroKoniecDev.Frontend.Infrastructure.Auth.DeadSession;
 
 namespace LotroKoniecDev.Frontend.Infrastructure.Auth.TokenRefresh;
 
 /// <summary>
-/// Runs on every cookie validation (<c>OnValidatePrincipal</c>). It refreshes the access token shortly
-/// before expiry using the stored refresh token, and — when the token is still locally alive —
-/// proactively re-validates its signature against the cached OIDC JWKS so a key rotated upstream signs
-/// the user out cleanly instead of letting a doomed token reach the API. A failed refresh or a token
-/// that fails signature validation after a metadata refresh rejects the principal and signs out the
-/// cookie. The reactive dead-session backstop and the soft "session expired" notice are deferred to
-/// the M3-02 auth-session slice; this lifts the core refresh + key-rotation mechanism.
+/// Runs on every cookie validation (<c>OnValidatePrincipal</c>). It first consumes any reactive
+/// "dead session" marker raised by a prior 401 and signs the cookie out cleanly; otherwise it
+/// refreshes the access token shortly before expiry using the stored refresh token, and — when the
+/// token is still locally alive — proactively re-validates its signature against the cached OIDC JWKS
+/// so a key rotated upstream signs the user out cleanly instead of letting a doomed token reach the
+/// API. Any rejection raises a one-shot "session expired" notice (a deliberate <c>/auth/logout</c>
+/// does not pass through here, so it never raises the notice).
 /// </summary>
 internal sealed class CookieTokenRefresher
 {
@@ -25,6 +26,7 @@ internal sealed class CookieTokenRefresher
     private const string RefreshTokenName = "refresh_token";
     private const string IdTokenName = "id_token";
     private const string ExpiresAtName = "expires_at";
+    private const string SubjectClaimType = "sub";
 
     /// <summary>
     /// Refresh slightly before actual expiry so an in-flight backend call cannot land with a token that
@@ -34,21 +36,40 @@ internal sealed class CookieTokenRefresher
 
     private readonly ITokenEndpointClient _tokenEndpointClient;
     private readonly IOptionsMonitor<OpenIdConnectOptions> _openIdConnectOptionsMonitor;
+    private readonly IDeadSessionRegistry _deadSessionRegistry;
+    private readonly ISessionExpiryNotice _sessionExpiryNotice;
     private readonly ILogger<CookieTokenRefresher> _logger;
 
     public CookieTokenRefresher(
         ITokenEndpointClient tokenEndpointClient,
         IOptionsMonitor<OpenIdConnectOptions> openIdConnectOptionsMonitor,
+        IDeadSessionRegistry deadSessionRegistry,
+        ISessionExpiryNotice sessionExpiryNotice,
         ILogger<CookieTokenRefresher> logger)
     {
         _tokenEndpointClient = tokenEndpointClient;
         _openIdConnectOptionsMonitor = openIdConnectOptionsMonitor;
+        _deadSessionRegistry = deadSessionRegistry;
+        _sessionExpiryNotice = sessionExpiryNotice;
         _logger = logger;
     }
 
     public async Task ValidateAsync(CookieValidatePrincipalContext context)
     {
         CancellationToken cancellationToken = context.HttpContext.RequestAborted;
+
+        // Reactive backstop: a 401 observed by the TMS delegating handler on a prior request marked
+        // this subject's session dead. The response there may already have been streaming, so the clean
+        // sign-out is deferred to here, where the response has not started. This runs first so a
+        // known-dead session never reaches the API again.
+        string? subject = GetSubject(context);
+        if (subject is not null
+            && await _deadSessionRegistry.ConsumeAsync(subject, cancellationToken))
+        {
+            LogReactiveDeadSession(_logger, null);
+            await RejectAsync(context);
+            return;
+        }
 
         RefreshOutcome refreshOutcome = await TryRefreshIfNearExpiryAsync(context, cancellationToken);
         if (refreshOutcome is RefreshOutcome.Stop)
@@ -220,8 +241,18 @@ internal sealed class CookieTokenRefresher
         return result.IsValid;
     }
 
-    private static async Task RejectAsync(CookieValidatePrincipalContext context)
+    private static string? GetSubject(CookieValidatePrincipalContext context)
     {
+        string? subject = context.Principal?.FindFirst(SubjectClaimType)?.Value;
+        return string.IsNullOrWhiteSpace(subject) ? null : subject;
+    }
+
+    private async Task RejectAsync(CookieValidatePrincipalContext context)
+    {
+        // Raise the one-shot soft notice BEFORE sign-out so it is written while the response has not
+        // started. A deliberate /auth/logout signs out directly (not through this rejection path), so
+        // it never raises the notice — exactly the "not shown to users who logged out" rule.
+        _sessionExpiryNotice.Raise();
         context.RejectPrincipal();
         await context.HttpContext.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
     }
@@ -268,4 +299,10 @@ internal sealed class CookieTokenRefresher
             LogLevel.Information,
             new EventId(3, nameof(LogProactiveInvalidToken)),
             "Access token failed local JWKS signature validation after a metadata refresh; principal rejected.");
+
+    private static readonly Action<ILogger, Exception?> LogReactiveDeadSession =
+        LoggerMessage.Define(
+            LogLevel.Information,
+            new EventId(4, nameof(LogReactiveDeadSession)),
+            "Session was marked dead by a prior 401; principal rejected.");
 }

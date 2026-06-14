@@ -13,6 +13,7 @@ using Serilog;
 using Serilog.Sinks.OpenTelemetry;
 using LotroKoniecDev.TranslationSystem.API;
 using LotroKoniecDev.TranslationSystem.API.Extensions;
+using LotroKoniecDev.TranslationSystem.API.Features.Bootstrap;
 using LotroKoniecDev.TranslationSystem.API.Health;
 using LotroKoniecDev.TranslationSystem.API.Middleware;
 using LotroKoniecDev.TranslationSystem.Persistence.Settings;
@@ -205,6 +206,10 @@ try
     }
 
     app.MapEndpoints(endpointsGroup);
+
+    // One-time, opt-in DB bootstrap (spec 0001, first run / #28): baseline import + polish.txt seed.
+    // Disabled by default; runs after the schema is in place and before the app serves traffic.
+    await app.BootstrapTranslationsAsync();
 
     await app.RunAsync();
 }

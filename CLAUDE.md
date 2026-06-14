@@ -158,9 +158,20 @@ dotnet ef migrations add <Name> \
   --startup-project src/TranslationSystem/LotroKoniecDev.TranslationSystem.Persistence \
   --context ApplicationWriteDbContext \
   -- --connection "Host=localhost;Database=lotro_translation;Username=postgres;Password=postgres"
+
+# TMS — Docker compose stack (postgres + migrator + auth-api + tms-api + aspire-dashboard + mailpit)
+docker compose up -d                                   # boots the whole M2 backend (HTTP-only, dev defaults; no .env needed)
+docker compose build [<service>]                       # rebuild the API/migrator images after code changes
+docker compose logs -f migrator                        # watch the one-shot schema migration (TMS + Auth contexts)
+docker compose down                                    # stop; add -v to also drop the postgres volume (fresh DB)
+# Endpoints: tms-api :5002 · auth-api :5003 · aspire :18888 · mailpit :8025   (e.g. curl http://localhost:5002/health)
+# scripts/up.sh | up.ps1 = the same `up` with a one-time .env bootstrap from .env.example.
 ```
 
-TMS compose commands land with M2-14 — **add them to this section the moment they exist.**
+The compose stack runs the backend on **HTTP** for local dev; HTTPS + dev-cert mounting arrives with the
+M3 Frontend (OIDC RP). Dev uses **ephemeral** OpenIddict keys; production-like runs supply real keys via
+env (see `.env.example`). The migrator is a one-shot container (TMS migrates through its Persistence
+project, Auth through its API — only those carry EF Core Design); both APIs wait for it to complete.
 Exit codes (CLI): `0` success, `1` invalid arguments (incl. `ErrorType.Validation`), `2` file not
 found, `3` operation failed, `4` cancelled.
 

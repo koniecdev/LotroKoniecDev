@@ -1,0 +1,29 @@
+FROM mcr.microsoft.com/dotnet/sdk:10.0
+
+WORKDIR /app
+
+COPY ["Directory.Build.props", "."]
+COPY ["Directory.Packages.props", "."]
+COPY [".editorconfig", "."]
+
+COPY ["src/", "src/"]
+COPY ["tests/", "tests/"]
+
+RUN dotnet restore tests/LotroKoniecDev.TranslationSystem.Domain.Tests.Unit/LotroKoniecDev.TranslationSystem.Domain.Tests.Unit.csproj && \
+    dotnet restore tests/LotroKoniecDev.TranslationSystem.API.Tests.Integration/LotroKoniecDev.TranslationSystem.API.Tests.Integration.csproj && \
+    dotnet restore tests/LotroKoniecDev.AuthSystem.API.Tests.Integration/LotroKoniecDev.AuthSystem.API.Tests.Integration.csproj
+
+RUN dotnet build tests/LotroKoniecDev.TranslationSystem.Domain.Tests.Unit/LotroKoniecDev.TranslationSystem.Domain.Tests.Unit.csproj -c Release --no-restore && \
+    dotnet build tests/LotroKoniecDev.TranslationSystem.API.Tests.Integration/LotroKoniecDev.TranslationSystem.API.Tests.Integration.csproj -c Release --no-restore && \
+    dotnet build tests/LotroKoniecDev.AuthSystem.API.Tests.Integration/LotroKoniecDev.AuthSystem.API.Tests.Integration.csproj -c Release --no-restore
+
+CMD echo "== UNIT TESTS (TRANSLATION DOMAIN) START ==" && \
+    dotnet test tests/LotroKoniecDev.TranslationSystem.Domain.Tests.Unit/LotroKoniecDev.TranslationSystem.Domain.Tests.Unit.csproj -c Release --no-build --logger "console;verbosity=minimal" && \
+    echo "== UNIT TESTS PASSED ==" && \
+    echo "== INTEGRATION TESTS (TRANSLATION) START ==" && \
+    dotnet test tests/LotroKoniecDev.TranslationSystem.API.Tests.Integration/LotroKoniecDev.TranslationSystem.API.Tests.Integration.csproj -c Release --no-build --logger "console;verbosity=minimal" && \
+    echo "== INTEGRATION TESTS (TRANSLATION) PASSED ==" && \
+    echo "== INTEGRATION TESTS (AUTH) START ==" && \
+    dotnet test tests/LotroKoniecDev.AuthSystem.API.Tests.Integration/LotroKoniecDev.AuthSystem.API.Tests.Integration.csproj -c Release --no-build --logger "console;verbosity=minimal" && \
+    echo "== INTEGRATION TESTS (AUTH) PASSED ==" && \
+    echo "== ALL TESTS PASSED =="

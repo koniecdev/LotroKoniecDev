@@ -1,0 +1,359 @@
+:root {
+    --bg: #0f1115;
+    --surface: #171a21;
+    --surface-2: #1e222b;
+    --border: #2a2f3a;
+    --text: #e6e8ec;
+    --text-dim: #9aa1ad;
+    --accent: #c8a45c;
+    --accent-strong: #e0bd72;
+    --ok: #4caf78;
+    --warn: #d9a441;
+    --danger: #d9534f;
+    --radius: 10px;
+    --sidebar-w: 248px;
+    --font-sans: "Manrope", system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+    --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+* {
+    box-sizing: border-box;
+}
+
+html, body {
+    margin: 0;
+    padding: 0;
+}
+
+body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font-sans);
+    font-size: 15px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+}
+
+h1, h2, h3 {
+    font-weight: 700;
+    line-height: 1.2;
+    margin: 0 0 0.5em;
+}
+
+a {
+    color: var(--accent-strong);
+    text-decoration: none;
+}
+
+a:hover {
+    text-decoration: underline;
+}
+
+code {
+    font-family: var(--font-mono);
+    font-size: 0.9em;
+}
+
+/* App shell — sidebar + content */
+.app-shell {
+    display: flex;
+    min-height: 100vh;
+}
+
+.app-main {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+}
+
+.content {
+    flex: 1;
+    padding: 40px clamp(20px, 5vw, 56px);
+    max-width: 1100px;
+    width: 100%;
+}
+
+.app-footer {
+    padding: 18px clamp(20px, 5vw, 56px);
+    border-top: 1px solid var(--border);
+    color: var(--text-dim);
+    font-size: 13px;
+}
+
+/* Sidebar */
+.sidebar {
+    width: var(--sidebar-w);
+    flex-shrink: 0;
+    background: var(--surface);
+    border-right: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    padding: 24px 18px;
+    gap: 24px;
+}
+
+.sidebar-brand .brand {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    color: var(--text);
+    font-weight: 800;
+    font-size: 18px;
+}
+
+.sidebar-brand .brand:hover {
+    text-decoration: none;
+}
+
+.brand-mark {
+    display: inline-grid;
+    place-items: center;
+    width: 34px;
+    height: 34px;
+    border-radius: 8px;
+    background: var(--accent);
+    color: #1a1300;
+    font-weight: 800;
+    letter-spacing: 0.5px;
+}
+
+.brand-accent {
+    color: var(--accent-strong);
+}
+
+.brand-sub {
+    margin: 8px 0 0 2px;
+    color: var(--text-dim);
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+}
+
+.sidebar-nav {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    flex: 1;
+}
+
+.nav-link {
+    display: block;
+    padding: 10px 12px;
+    border-radius: 8px;
+    color: var(--text-dim);
+    font-weight: 600;
+    transition: background 0.12s, color 0.12s;
+}
+
+.nav-link:hover {
+    background: var(--surface-2);
+    color: var(--text);
+    text-decoration: none;
+}
+
+.nav-link.active {
+    background: var(--surface-2);
+    color: var(--accent-strong);
+    box-shadow: inset 2px 0 0 var(--accent);
+}
+
+.sidebar-auth {
+    border-top: 1px solid var(--border);
+    padding-top: 18px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.auth-user {
+    color: var(--text-dim);
+    font-size: 13px;
+    padding-left: 2px;
+}
+
+/* Buttons */
+.btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 9px 16px;
+    border-radius: 8px;
+    border: 1px solid transparent;
+    font: inherit;
+    font-weight: 600;
+    cursor: pointer;
+    transition: filter 0.12s, background 0.12s;
+}
+
+.btn:hover {
+    text-decoration: none;
+    filter: brightness(1.08);
+}
+
+.btn-block {
+    width: 100%;
+}
+
+.btn-primary {
+    background: var(--accent);
+    color: #1a1300;
+}
+
+.btn-ghost {
+    background: transparent;
+    border-color: var(--border);
+    color: var(--text);
+}
+
+/* Hero + panels */
+.hero {
+    margin-bottom: 36px;
+}
+
+.hero h1 {
+    font-size: clamp(26px, 4vw, 36px);
+}
+
+.lede {
+    color: var(--text-dim);
+    font-size: 17px;
+    max-width: 60ch;
+}
+
+.panel {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 24px;
+}
+
+.panel h2 {
+    font-size: 18px;
+}
+
+/* Status lines (API connectivity) */
+.status-line {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin: 0;
+    font-size: 15px;
+}
+
+.status-line .dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+
+.status-pending .dot {
+    background: var(--text-dim);
+}
+
+.status-ok .dot {
+    background: var(--ok);
+}
+
+.status-down .dot {
+    background: var(--danger);
+}
+
+/* Status / error pages */
+.status-stage {
+    display: grid;
+    place-items: center;
+    min-height: 60vh;
+}
+
+.status-card {
+    text-align: center;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 48px 40px;
+    max-width: 480px;
+}
+
+.status-card.status-danger {
+    border-color: rgba(217, 83, 79, 0.4);
+}
+
+.status-card.status-warning {
+    border-color: rgba(217, 164, 65, 0.4);
+}
+
+.status-code {
+    font-family: var(--font-mono);
+    font-size: 44px;
+    font-weight: 700;
+    color: var(--accent-strong);
+}
+
+.status-desc {
+    color: var(--text-dim);
+}
+
+.status-detail {
+    margin: 18px 0;
+    font-size: 13px;
+    color: var(--text-dim);
+}
+
+.det-k {
+    display: block;
+    margin-bottom: 4px;
+}
+
+.status-actions {
+    margin-top: 24px;
+}
+
+/* Inline status message (error boundary) */
+.status-message {
+    padding: 16px 20px;
+    border-radius: var(--radius);
+    border: 1px solid var(--border);
+}
+
+.status-message.status-error {
+    border-color: rgba(217, 83, 79, 0.4);
+    background: rgba(217, 83, 79, 0.08);
+}
+
+/* Responsive — stack the sidebar on top on small screens */
+@media (max-width: 760px) {
+    .app-shell {
+        flex-direction: column;
+    }
+
+    .sidebar {
+        width: 100%;
+        flex-direction: row;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 12px;
+        padding: 14px 16px;
+    }
+
+    .sidebar-brand {
+        flex: 1;
+    }
+
+    .brand-sub {
+        display: none;
+    }
+
+    .sidebar-nav {
+        flex-direction: row;
+        flex-wrap: wrap;
+        flex: 1 0 100%;
+    }
+
+    .sidebar-auth {
+        border-top: none;
+        padding-top: 0;
+    }
+}

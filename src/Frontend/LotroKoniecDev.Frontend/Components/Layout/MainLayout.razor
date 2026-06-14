@@ -1,0 +1,24 @@
+@inherits LayoutComponentBase
+
+<div class="app-shell">
+    <NavMenu/>
+
+    <div class="app-main">
+        <main class="content">
+            <ErrorBoundary>
+                <ChildContent>
+                    @Body
+                </ChildContent>
+                <ErrorContent>
+                    <div class="status-message status-error" role="alert">
+                        <p>Wystąpił nieoczekiwany błąd. Odśwież stronę lub spróbuj ponownie później.</p>
+                    </div>
+                </ErrorContent>
+            </ErrorBoundary>
+        </main>
+
+        <footer class="app-footer">
+            <span>© @DateTime.UtcNow.Year LotroKoniecDev — polskie tłumaczenie LOTRO</span>
+        </footer>
+    </div>
+</div>

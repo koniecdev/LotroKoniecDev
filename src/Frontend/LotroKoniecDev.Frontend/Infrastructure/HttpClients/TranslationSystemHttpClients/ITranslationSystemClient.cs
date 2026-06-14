@@ -1,0 +1,70 @@
+using LotroKoniecDev.TranslationSystem.Contracts.Discovery;
+
+namespace LotroKoniecDev.Frontend.Infrastructure.HttpClients.TranslationSystemHttpClients;
+
+/// <summary>
+/// Typed client over the TMS API (<c>TranslationSystem.API</c>). It owns the base address and the
+/// content-negotiation + bearer-token delegating handler; pages compose relative URIs (preferring
+/// HATEOAS links from <see cref="GetDiscoveryAsync"/>) and call through the verb helpers.
+/// </summary>
+internal interface ITranslationSystemClient
+{
+    /// <summary>
+    /// Calls the anonymous <c>GET /health</c> endpoint to confirm the API is reachable and healthy.
+    /// </summary>
+    Task<ApiResult<HealthStatusResponse>> GetHealthAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Fetches the HATEOAS discovery root (<c>GET /</c>) — the entry point pages use to resolve links.
+    /// </summary>
+    Task<ApiResult<DiscoveryResponse>> GetDiscoveryAsync(CancellationToken cancellationToken = default);
+
+    Task<ApiResult<T>> GetApiResultAsync<T>(
+        string relativeUri,
+        CancellationToken cancellationToken = default);
+
+    Task<ApiResult> PostApiResultAsync(
+        string relativeUri,
+        object body,
+        CancellationToken cancellationToken = default);
+
+    Task<ApiResult<T>> PostApiResultAsync<T>(
+        string relativeUri,
+        object body,
+        CancellationToken cancellationToken = default);
+
+    Task<ApiResult> PutApiResultAsync(
+        string relativeUri,
+        object body,
+        CancellationToken cancellationToken = default);
+
+    Task<ApiResult<T>> PutApiResultAsync<T>(
+        string relativeUri,
+        object body,
+        CancellationToken cancellationToken = default);
+
+    Task<ApiResult> PutApiResultAsync(
+        string relativeUri,
+        CancellationToken cancellationToken = default);
+
+    Task<ApiResult> PatchApiResultAsync(
+        string relativeUri,
+        object body,
+        CancellationToken cancellationToken = default);
+
+    Task<ApiResult> DeleteApiResultAsync(
+        string relativeUri,
+        CancellationToken cancellationToken = default);
+
+    Task<ApiResult> SendMultipartApiResultAsync(
+        HttpMethod method,
+        string relativeUri,
+        MultipartFormDataContent content,
+        CancellationToken cancellationToken = default);
+
+    Task<ApiResult<T>> SendMultipartApiResultAsync<T>(
+        HttpMethod method,
+        string relativeUri,
+        MultipartFormDataContent content,
+        CancellationToken cancellationToken = default);
+}

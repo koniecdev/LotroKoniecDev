@@ -1,0 +1,17 @@
+@page "/bad-request"
+@layout MainLayout
+@attribute [AllowAnonymous]
+@using Microsoft.AspNetCore.Authorization
+
+<PageTitle>Nieprawidłowe żądanie — LotroKoniecDev</PageTitle>
+
+<div class="status-stage">
+    <div class="status-card status-warning">
+        <div class="status-code">400</div>
+        <h1>Nieprawidłowe żądanie</h1>
+        <p class="status-desc">Serwer nie mógł przetworzyć żądania. Sprawdź wprowadzone dane i spróbuj ponownie.</p>
+        <div class="status-actions">
+            <a href="/" class="btn btn-primary">Wróć na stronę główną</a>
+        </div>
+    </div>
+</div>

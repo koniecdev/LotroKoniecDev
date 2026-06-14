@@ -1,0 +1,17 @@
+@page "/not-found"
+@layout MainLayout
+@attribute [AllowAnonymous]
+@using Microsoft.AspNetCore.Authorization
+
+<PageTitle>Nie znaleziono — LotroKoniecDev</PageTitle>
+
+<div class="status-stage">
+    <div class="status-card">
+        <div class="status-code">404</div>
+        <h1>Strony nie znaleziono</h1>
+        <p class="status-desc">Strona, której szukasz, nie istnieje lub została przeniesiona.</p>
+        <div class="status-actions">
+            <a href="/" class="btn btn-primary">Wróć na stronę główną</a>
+        </div>
+    </div>
+</div>

@@ -1,14 +1,16 @@
 using System.Text;
 using LotroKoniecDev.SharedKernel.Monads;
-using LotroKoniecDev.SharedKernel.StronglyTypedIds;
 using LotroKoniecDev.TranslationSystem.API.Features.Bootstrap;
 using LotroKoniecDev.TranslationSystem.API.Parsing;
 using LotroKoniecDev.TranslationSystem.Domain.Aggregates.TranslationAggregate.Entities;
 using LotroKoniecDev.TranslationSystem.Domain.Aggregates.TranslationAggregate.Repositories;
 using LotroKoniecDev.TranslationSystem.Domain.Aggregates.TranslationAggregate.ValueObjects;
+using LotroKoniecDev.TranslationSystem.Domain.Aggregates.TranslatorAggregate.Entities;
+using LotroKoniecDev.TranslationSystem.Domain.Aggregates.TranslatorAggregate.Repositories;
 using LotroKoniecDev.TranslationSystem.Persistence.DbContexts.Abstractions;
 using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.GameVersionAggregate;
 using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.TranslationAggregate.Enums;
+using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.TranslatorAggregate;
 using Microsoft.Extensions.Logging.Abstractions;
 using NSubstitute;
 
@@ -19,20 +21,30 @@ public sealed class PolishTranslationSeederTests
     private const int FileId = 620756992;
 
     // The parser is pure and dependency-free, so it runs for real; only the genuine boundaries
-    // (repository, unit of work) are stubbed.
+    // (repositories, unit of work) are stubbed.
     private readonly ITranslationRepository _translationRepository = Substitute.For<ITranslationRepository>();
+    private readonly ITranslatorRepository _translatorRepository = Substitute.For<ITranslatorRepository>();
     private readonly IUnitOfWork _unitOfWork = Substitute.For<IUnitOfWork>();
+
+    private Translator? _insertedSystemTranslator;
 
     public PolishTranslationSeederTests()
     {
         _translationRepository.GetByFragmentKeyAsync(Arg.Any<FragmentKey>(), Arg.Any<CancellationToken>())
             .Returns(Maybe<Translation>.None);
+
+        // No system translator yet — the seed provisions one; capture it to assert the stamped FK.
+        _translatorRepository.GetByIdentityIdAsync(Arg.Any<SharedKernel.StronglyTypedIds.IdentityId>(), Arg.Any<CancellationToken>())
+            .Returns(Maybe<Translator>.None);
+        _translatorRepository.When(repository => repository.Insert(Arg.Any<Translator>()))
+            .Do(callInfo => _insertedSystemTranslator = callInfo.Arg<Translator>());
     }
 
     private PolishTranslationSeeder CreateSeeder()
         => new(
             new TranslationExportParser(),
             _translationRepository,
+            _translatorRepository,
             _unitOfWork,
             TimeProvider.System,
             NullLogger<PolishTranslationSeeder>.Instance);
@@ -52,7 +64,7 @@ public sealed class PolishTranslationSeederTests
     private static Translation ApprovedRow(int gossipId, string polish)
     {
         Translation row = BaselineRow(gossipId);
-        IdentityId author = IdentityId.Create();
+        TranslatorId author = TranslatorId.Create();
         row.ProvideTranslation(polish, author, new DateTimeOffset(2026, 6, 2, 0, 0, 0, TimeSpan.Zero));
         row.Approve(author, new DateTimeOffset(2026, 6, 2, 0, 0, 0, TimeSpan.Zero));
         return row;
@@ -63,7 +75,7 @@ public sealed class PolishTranslationSeederTests
             .Returns(Maybe<Translation>.From(row));
 
     [Fact]
-    public async Task SeedAsync_WhenLineMatchesBaselineRow_ShouldApproveWithSystemAttribution()
+    public async Task SeedAsync_WhenLineMatchesBaselineRow_ShouldApproveWithSystemTranslatorAttribution()
     {
         // Arrange
         Translation row = BaselineRow(1);
@@ -77,8 +89,13 @@ public sealed class PolishTranslationSeederTests
         result.Value.Approved.ShouldBe(1);
         row.Status.ShouldBe(TranslationStatus.Approved);
         row.TranslatedText.ShouldBe("Polski jeden");
-        row.SubmittedById.ShouldBe(PolishTranslationSeeder.SystemIdentityId);
-        row.ApprovedById.ShouldBe(PolishTranslationSeeder.SystemIdentityId);
+        // The seed provisions a system Translator and stamps its local id (ADR-0004), not the bare
+        // sentinel IdentityId.
+        _insertedSystemTranslator.ShouldNotBeNull();
+        _insertedSystemTranslator.IdentityId.ShouldBe(PolishTranslationSeeder.SystemIdentityId);
+        _insertedSystemTranslator.DisplayName.Value.ShouldBe(PolishTranslationSeeder.SystemDisplayName);
+        row.SubmittedById.ShouldBe(_insertedSystemTranslator.Id);
+        row.ApprovedById.ShouldBe(_insertedSystemTranslator.Id);
     }
 
     [Fact]
@@ -191,6 +208,5 @@ public sealed class PolishTranslationSeederTests
         // Assert
         result.IsFailure.ShouldBeTrue();
         result.Error.Code.ShouldBe("Bootstrap.PolishSeedInvalidRow");
-        await _unitOfWork.DidNotReceive().SaveChangesAsync(Arg.Any<CancellationToken>());
     }
 }

@@ -1,9 +1,9 @@
 using LotroKoniecDev.SharedKernel.Monads;
-using LotroKoniecDev.SharedKernel.StronglyTypedIds;
 using LotroKoniecDev.TranslationSystem.Domain.Aggregates.TranslationAggregate.Entities;
 using LotroKoniecDev.TranslationSystem.Domain.Aggregates.TranslationAggregate.ValueObjects;
 using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.GameVersionAggregate;
 using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.TranslationAggregate.Enums;
+using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.TranslatorAggregate;
 
 namespace LotroKoniecDev.TranslationSystem.Domain.Tests.Unit.Tests.Aggregates.TranslationAggregate;
 
@@ -13,8 +13,8 @@ public sealed class TranslationTests
     private static readonly DateTimeOffset Changed = new(2026, 6, 13, 12, 0, 0, TimeSpan.Zero);
     private static readonly GameVersionId IntroducedVersion = GameVersionId.Create();
     private static readonly GameVersionId ChangeVersion = GameVersionId.Create();
-    private static readonly IdentityId Submitter = IdentityId.Create();
-    private static readonly IdentityId Approver = IdentityId.Create();
+    private static readonly TranslatorId Submitter = TranslatorId.Create();
+    private static readonly TranslatorId Approver = TranslatorId.Create();
 
     private static FragmentKey Key() => FragmentKey.Create(620756992, 1001).Value;
     private static TranslationSource Source(string text) => TranslationSource.Create(text, null, null).Value;
@@ -188,7 +188,7 @@ public sealed class TranslationTests
         translation.ProvideTranslation("Stary polski", Submitter, Created);
         translation.ApplySourceChange(Source("New English"), ChangeVersion, Changed);
         translation.Status.ShouldBe(TranslationStatus.NeedsReview);
-        IdentityId reviewer = IdentityId.Create();
+        TranslatorId reviewer = TranslatorId.Create();
 
         // Act
         translation.ProvideTranslation("Nowy polski", reviewer, Changed);

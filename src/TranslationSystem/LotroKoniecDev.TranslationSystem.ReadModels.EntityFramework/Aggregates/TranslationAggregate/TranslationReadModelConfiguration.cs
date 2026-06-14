@@ -15,5 +15,15 @@ public sealed class TranslationReadModelConfiguration : IEntityTypeConfiguration
 
         builder.Property(translationReadModel => translationReadModel.Status)
             .HasConversion<string>();
+
+        // Submitter / approver join for display-name resolution (ADR-0004); both optional — a row is
+        // born untranslated (no submitter) and is approved later (no approver until then).
+        builder.HasOne(translationReadModel => translationReadModel.SubmittedBy)
+            .WithMany()
+            .HasForeignKey(translationReadModel => translationReadModel.SubmittedById);
+
+        builder.HasOne(translationReadModel => translationReadModel.ApprovedBy)
+            .WithMany()
+            .HasForeignKey(translationReadModel => translationReadModel.ApprovedById);
     }
 }

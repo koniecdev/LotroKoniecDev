@@ -2,6 +2,7 @@ using System.Data;
 using System.Reflection;
 using LotroKoniecDev.TranslationSystem.Domain.Aggregates.GameVersionAggregate.Entities;
 using LotroKoniecDev.TranslationSystem.Domain.Aggregates.TranslationAggregate.Entities;
+using LotroKoniecDev.TranslationSystem.Domain.Aggregates.TranslatorAggregate.Entities;
 using LotroKoniecDev.TranslationSystem.Persistence.Converters;
 using LotroKoniecDev.TranslationSystem.Persistence.DbContexts.Abstractions;
 using LotroKoniecDev.TranslationSystem.Projections;
@@ -21,6 +22,8 @@ internal sealed class ApplicationWriteDbContext : DbContext, IUnitOfWork
     public DbSet<Translation> Translations => Set<Translation>();
 
     public DbSet<PrecomputedTranslationFile> PrecomputedTranslationFiles => Set<PrecomputedTranslationFile>();
+
+    public DbSet<Translator> Translators => Set<Translator>();
 
     protected override void ConfigureConventions(ModelConfigurationBuilder configurationBuilder)
     {

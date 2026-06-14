@@ -4,9 +4,8 @@ using LotroKoniecDev.SharedKernel.BuildingBlocks;
 using LotroKoniecDev.SharedKernel.Enums;
 using LotroKoniecDev.SharedKernel.Messaging;
 using LotroKoniecDev.SharedKernel.Monads;
-using LotroKoniecDev.SharedKernel.StronglyTypedIds;
 using LotroKoniecDev.TranslationSystem.API.Auth;
-using LotroKoniecDev.TranslationSystem.API.Auth.CurrentUserAccessing;
+using LotroKoniecDev.TranslationSystem.API.Auth.Provisioning;
 using LotroKoniecDev.TranslationSystem.API.Common;
 using LotroKoniecDev.TranslationSystem.API.Extensions;
 using LotroKoniecDev.TranslationSystem.API.Features.TranslationFiles;
@@ -16,7 +15,10 @@ using LotroKoniecDev.TranslationSystem.Domain.Aggregates.TranslationAggregate.Re
 using LotroKoniecDev.TranslationSystem.Domain.Aggregates.TranslationAggregate.ValueObjects;
 using LotroKoniecDev.TranslationSystem.Domain.Core.Errors;
 using LotroKoniecDev.TranslationSystem.Persistence.DbContexts.Abstractions;
+using LotroKoniecDev.TranslationSystem.Persistence.DbContexts.ReadDbContexts;
 using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.TranslationAggregate.Enums;
+using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.TranslatorAggregate;
+using Microsoft.EntityFrameworkCore;
 
 namespace LotroKoniecDev.TranslationSystem.API.Features.Translations;
 
@@ -55,7 +57,8 @@ internal sealed class UpsertTranslation : IEndpoint
         private readonly IValidator<Command> _validator;
         private readonly ITranslationRepository _translationRepository;
         private readonly IUnitOfWork _unitOfWork;
-        private readonly ICurrentUserAccessor _currentUserAccessor;
+        private readonly ITranslatorProvisioner _translatorProvisioner;
+        private readonly IApplicationReadDbContext _readDbContext;
         private readonly TimeProvider _timeProvider;
         private readonly IPrecomputedTranslationFileProjector _projector;
 
@@ -63,14 +66,16 @@ internal sealed class UpsertTranslation : IEndpoint
             IValidator<Command> validator,
             ITranslationRepository translationRepository,
             IUnitOfWork unitOfWork,
-            ICurrentUserAccessor currentUserAccessor,
+            ITranslatorProvisioner translatorProvisioner,
+            IApplicationReadDbContext readDbContext,
             TimeProvider timeProvider,
             IPrecomputedTranslationFileProjector projector)
         {
             _validator = validator;
             _translationRepository = translationRepository;
             _unitOfWork = unitOfWork;
-            _currentUserAccessor = currentUserAccessor;
+            _translatorProvisioner = translatorProvisioner;
+            _readDbContext = readDbContext;
             _timeProvider = timeProvider;
             _projector = projector;
         }
@@ -82,15 +87,6 @@ internal sealed class UpsertTranslation : IEndpoint
             {
                 string message = string.Join("; ", validationResult.Errors.Select(failure => failure.ErrorMessage));
                 return Result.Failure<TranslationDetailResponse>(new Error("Translations.Validation", message, TypeOfError.Validation));
-            }
-
-            ValueMaybe<IdentityId> currentUser = _currentUserAccessor.MaybeIdentityId;
-            if (currentUser.HasNoValue)
-            {
-                return Result.Failure<TranslationDetailResponse>(new Error(
-                    "Translations.Unauthenticated",
-                    "The current user identity is required to submit a translation.",
-                    TypeOfError.Forbidden));
             }
 
             Result<FragmentKey> keyResult = FragmentKey.Create(command.FileId, command.GossipId);
@@ -114,11 +110,19 @@ internal sealed class UpsertTranslation : IEndpoint
                 return Result.Failure<TranslationDetailResponse>(DomainErrors.TranslationEntity.CannotEditRemoved);
             }
 
+            // First-touch lazy provisioning (ADR-0004): get-or-create the caller's Translator row and
+            // commit it before stamping the FK, so the submitter is a valid local TranslatorId.
+            Result<TranslatorId> provisionResult = await _translatorProvisioner.ProvisionCurrentAsync(cancellationToken);
+            if (provisionResult.IsFailure)
+            {
+                return Result.Failure<TranslationDetailResponse>(provisionResult.Error);
+            }
+
             // Editing an Approved row drops it from the distributed set (Status -> Draft), so the
             // artifact must be rebuilt; an edit to any other status does not change that set.
             bool wasApproved = translation.Status is TranslationStatus.Approved;
 
-            translation.ProvideTranslation(command.TranslatedText, currentUser.Value, _timeProvider.GetUtcNow());
+            translation.ProvideTranslation(command.TranslatedText, provisionResult.Value, _timeProvider.GetUtcNow());
 
             await _unitOfWork.SaveChangesAsync(cancellationToken);
 
@@ -127,24 +131,17 @@ internal sealed class UpsertTranslation : IEndpoint
                 await _projector.RebuildAsync(SupportedLanguages.Polish, cancellationToken);
             }
 
-            return Result.Success(ToDetailResponse(translation));
-        }
+            // Re-read the committed row through the read model so the response carries the joined
+            // submitter / approver display names (ADR-0004), identical to the get-one view.
+            TranslationDetailResponse? response = await _readDbContext.Translations
+                .Where(row => row.Id == translation.Id)
+                .Select(TranslationProjections.ToDetail)
+                .FirstOrDefaultAsync(cancellationToken);
 
-        private static TranslationDetailResponse ToDetailResponse(Translation translation)
-            => new(
-                translation.Id,
-                translation.FragmentKey.FileId,
-                translation.FragmentKey.GossipId,
-                translation.Source.Text,
-                translation.Source.ArgsOrder,
-                translation.Source.ArgsId,
-                translation.TranslatedText,
-                translation.PreviousSourceText,
-                translation.SubmittedById?.Value,
-                translation.ApprovedById?.Value,
-                translation.Status,
-                translation.CreatedAt,
-                translation.UpdatedAt);
+            return response is null
+                ? Result.Failure<TranslationDetailResponse>(DomainErrors.TranslationEntity.NotFound(command.FileId, command.GossipId))
+                : Result.Success(response);
+        }
     }
 
     public void MapEndpoint(IEndpointRouteBuilder endpointRouteBuilder)

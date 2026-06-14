@@ -4,9 +4,8 @@ using LotroKoniecDev.SharedKernel.BuildingBlocks;
 using LotroKoniecDev.SharedKernel.Enums;
 using LotroKoniecDev.SharedKernel.Messaging;
 using LotroKoniecDev.SharedKernel.Monads;
-using LotroKoniecDev.SharedKernel.StronglyTypedIds;
 using LotroKoniecDev.TranslationSystem.API.Auth;
-using LotroKoniecDev.TranslationSystem.API.Auth.CurrentUserAccessing;
+using LotroKoniecDev.TranslationSystem.API.Auth.Provisioning;
 using LotroKoniecDev.TranslationSystem.API.Common;
 using LotroKoniecDev.TranslationSystem.API.Extensions;
 using LotroKoniecDev.TranslationSystem.API.Features.TranslationFiles;
@@ -15,6 +14,7 @@ using LotroKoniecDev.TranslationSystem.Domain.Aggregates.TranslationAggregate.Re
 using LotroKoniecDev.TranslationSystem.Domain.Core.Errors;
 using LotroKoniecDev.TranslationSystem.Persistence.DbContexts.Abstractions;
 using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.TranslationAggregate;
+using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.TranslatorAggregate;
 
 namespace LotroKoniecDev.TranslationSystem.API.Features.Translations;
 
@@ -44,7 +44,7 @@ internal sealed class ApproveTranslation : IEndpoint
         private readonly IValidator<Command> _validator;
         private readonly ITranslationRepository _translationRepository;
         private readonly IUnitOfWork _unitOfWork;
-        private readonly ICurrentUserAccessor _currentUserAccessor;
+        private readonly ITranslatorProvisioner _translatorProvisioner;
         private readonly TimeProvider _timeProvider;
         private readonly IPrecomputedTranslationFileProjector _projector;
 
@@ -52,14 +52,14 @@ internal sealed class ApproveTranslation : IEndpoint
             IValidator<Command> validator,
             ITranslationRepository translationRepository,
             IUnitOfWork unitOfWork,
-            ICurrentUserAccessor currentUserAccessor,
+            ITranslatorProvisioner translatorProvisioner,
             TimeProvider timeProvider,
             IPrecomputedTranslationFileProjector projector)
         {
             _validator = validator;
             _translationRepository = translationRepository;
             _unitOfWork = unitOfWork;
-            _currentUserAccessor = currentUserAccessor;
+            _translatorProvisioner = translatorProvisioner;
             _timeProvider = timeProvider;
             _projector = projector;
         }
@@ -73,15 +73,6 @@ internal sealed class ApproveTranslation : IEndpoint
                 return Result.Failure(new Error("Translations.Validation", message, TypeOfError.Validation));
             }
 
-            ValueMaybe<IdentityId> currentUser = _currentUserAccessor.MaybeIdentityId;
-            if (currentUser.HasNoValue)
-            {
-                return Result.Failure(new Error(
-                    "Translations.Unauthenticated",
-                    "The current user identity is required to approve a translation.",
-                    TypeOfError.Forbidden));
-            }
-
             Maybe<Translation> translationMaybe = await _translationRepository.GetByIdAsync(command.Id, cancellationToken);
             if (translationMaybe.HasNoValue)
             {
@@ -90,7 +81,15 @@ internal sealed class ApproveTranslation : IEndpoint
 
             Translation translation = translationMaybe.Value;
 
-            Result approveResult = translation.Approve(currentUser.Value, _timeProvider.GetUtcNow());
+            // First-touch lazy provisioning (ADR-0004): get-or-create the reviewer's Translator row and
+            // commit it before stamping the FK, so the approver is a valid local TranslatorId.
+            Result<TranslatorId> provisionResult = await _translatorProvisioner.ProvisionCurrentAsync(cancellationToken);
+            if (provisionResult.IsFailure)
+            {
+                return provisionResult;
+            }
+
+            Result approveResult = translation.Approve(provisionResult.Value, _timeProvider.GetUtcNow());
             if (approveResult.IsFailure)
             {
                 return approveResult;

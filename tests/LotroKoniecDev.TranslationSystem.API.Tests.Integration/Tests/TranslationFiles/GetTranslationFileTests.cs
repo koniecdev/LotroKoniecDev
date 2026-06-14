@@ -8,8 +8,11 @@ using LotroKoniecDev.TranslationSystem.Domain.Aggregates.GameVersionAggregate.En
 using LotroKoniecDev.TranslationSystem.Domain.Aggregates.GameVersionAggregate.ValueObjects;
 using LotroKoniecDev.TranslationSystem.Domain.Aggregates.TranslationAggregate.Entities;
 using LotroKoniecDev.TranslationSystem.Domain.Aggregates.TranslationAggregate.ValueObjects;
+using LotroKoniecDev.TranslationSystem.Domain.Aggregates.TranslatorAggregate.Entities;
+using LotroKoniecDev.TranslationSystem.Domain.Aggregates.TranslatorAggregate.ValueObjects;
 using LotroKoniecDev.TranslationSystem.Persistence.DbContexts.WriteDbContexts;
 using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.GameVersionAggregate;
+using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.TranslatorAggregate;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -21,10 +24,10 @@ public sealed class GetTranslationFileTests : IAsyncLifetime
     private const int FileId = 620756992;
     private const string Route = "/api/v1/translation-files/pl";
     private static readonly DateTimeOffset Now = new(2026, 6, 13, 0, 0, 0, TimeSpan.Zero);
-    private static readonly IdentityId Submitter = IdentityId.Create();
 
     private readonly TranslationSystemApiFactory _factory;
     private GameVersionId _versionId;
+    private TranslatorId _submitterId;
 
     public GetTranslationFileTests(TranslationSystemApiFactory factory)
     {
@@ -36,12 +39,18 @@ public sealed class GetTranslationFileTests : IAsyncLifetime
         using IServiceScope scope = _factory.Services.CreateScope();
         ApplicationWriteDbContext dbContext = scope.ServiceProvider.GetRequiredService<ApplicationWriteDbContext>();
         await dbContext.Database.ExecuteSqlRawAsync(
-            "TRUNCATE translation.\"Translations\", translation.\"GameVersions\", translation.\"TranslationArtifacts\" CASCADE;");
+            "TRUNCATE translation.\"Translations\", translation.\"GameVersions\", translation.\"TranslationArtifacts\", translation.\"Translators\" CASCADE;");
 
         GameVersion gameVersion = GameVersion.Create(LotroNotationVersion.Create("48.0").Value, Now).Value;
         dbContext.GameVersions.Add(gameVersion);
+
+        Translator submitter = Translator.Create(
+            IdentityId.Create(), DisplayName.Create("Seed Author").Value, email: null, Now).Value;
+        dbContext.Translators.Add(submitter);
+
         await dbContext.SaveChangesAsync();
         _versionId = gameVersion.Id;
+        _submitterId = submitter.Id;
     }
 
     public Task DisposeAsync() => Task.CompletedTask;
@@ -226,19 +235,19 @@ public sealed class GetTranslationFileTests : IAsyncLifetime
         switch (status)
         {
             case SeedStatus.Draft:
-                row.ProvideTranslation(polish, Submitter, Now);
+                row.ProvideTranslation(polish, _submitterId, Now);
                 break;
             case SeedStatus.NeedsReview:
-                row.ProvideTranslation(polish, Submitter, Now);
+                row.ProvideTranslation(polish, _submitterId, Now);
                 row.ApplySourceChange(TranslationSource.Create("English reworded", null, null).Value, _versionId, Now);
                 break;
             case SeedStatus.Approved:
-                row.ProvideTranslation(polish, Submitter, Now);
-                row.Approve(Submitter, Now);
+                row.ProvideTranslation(polish, _submitterId, Now);
+                row.Approve(_submitterId, Now);
                 break;
             case SeedStatus.ApprovedThenRemoved:
-                row.ProvideTranslation(polish, Submitter, Now);
-                row.Approve(Submitter, Now);
+                row.ProvideTranslation(polish, _submitterId, Now);
+                row.Approve(_submitterId, Now);
                 row.MarkRemoved(_versionId, Now);
                 break;
         }
@@ -253,8 +262,8 @@ public sealed class GetTranslationFileTests : IAsyncLifetime
         ApplicationWriteDbContext dbContext = scope.ServiceProvider.GetRequiredService<ApplicationWriteDbContext>();
         Translation row = await dbContext.Translations
             .SingleAsync(translation => translation.FragmentKey.FileId == FileId && translation.FragmentKey.GossipId == gossipId);
-        row.ProvideTranslation(polish, Submitter, Now);
-        row.Approve(Submitter, Now);
+        row.ProvideTranslation(polish, _submitterId, Now);
+        row.Approve(_submitterId, Now);
         await dbContext.SaveChangesAsync();
     }
 

@@ -1,5 +1,6 @@
 using LotroKoniecDev.TranslationSystem.Domain.Aggregates.TranslationAggregate.Entities;
 using LotroKoniecDev.TranslationSystem.Domain.Aggregates.TranslationAggregate.ValueObjects;
+using LotroKoniecDev.TranslationSystem.Domain.Aggregates.TranslatorAggregate.Entities;
 using LotroKoniecDev.TranslationSystem.Persistence.Consts;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
@@ -46,6 +47,25 @@ internal sealed class TranslationConfiguration : IEntityTypeConfiguration<Transl
         builder.Property(translation => translation.Status)
             .HasConversion<string>()
             .HasMaxLength(EnumConsts.MaxLength);
+
+        // Submitter / approver are local FKs to Translators (ADR-0004), not the bare Auth IdentityId.
+        // The write aggregate references the Translator by id only (DDD — no navigation across
+        // aggregate roots); Restrict keeps a translator row from cascade-deleting attributed work.
+        builder.Property(translation => translation.SubmittedById)
+            .HasColumnName(nameof(Translation.SubmittedById));
+
+        builder.HasOne<Translator>()
+            .WithMany()
+            .HasForeignKey(translation => translation.SubmittedById)
+            .OnDelete(DeleteBehavior.Restrict);
+
+        builder.Property(translation => translation.ApprovedById)
+            .HasColumnName(nameof(Translation.ApprovedById));
+
+        builder.HasOne<Translator>()
+            .WithMany()
+            .HasForeignKey(translation => translation.ApprovedById)
+            .OnDelete(DeleteBehavior.Restrict);
 
         // Get-only property — EF Core convention skips it without an explicit mapping.
         builder.Property(translation => translation.CreatedAt);

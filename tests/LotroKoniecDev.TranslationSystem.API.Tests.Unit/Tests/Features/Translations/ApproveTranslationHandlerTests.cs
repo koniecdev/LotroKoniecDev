@@ -1,8 +1,9 @@
+using LotroKoniecDev.SharedKernel.BuildingBlocks;
+using LotroKoniecDev.SharedKernel.Enums;
 using LotroKoniecDev.SharedKernel.Monads;
-using LotroKoniecDev.SharedKernel.StronglyTypedIds;
-using LotroKoniecDev.TranslationSystem.API.Auth.CurrentUserAccessing;
 using LotroKoniecDev.TranslationSystem.API.Features.TranslationFiles;
 using LotroKoniecDev.TranslationSystem.API.Features.Translations;
+using LotroKoniecDev.TranslationSystem.API.Tests.Unit.Shared;
 using LotroKoniecDev.TranslationSystem.Domain.Aggregates.TranslationAggregate.Entities;
 using LotroKoniecDev.TranslationSystem.Domain.Aggregates.TranslationAggregate.Repositories;
 using LotroKoniecDev.TranslationSystem.Domain.Aggregates.TranslationAggregate.ValueObjects;
@@ -10,6 +11,7 @@ using LotroKoniecDev.TranslationSystem.Persistence.DbContexts.Abstractions;
 using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.GameVersionAggregate;
 using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.TranslationAggregate;
 using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.TranslationAggregate.Enums;
+using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.TranslatorAggregate;
 using NSubstitute;
 
 namespace LotroKoniecDev.TranslationSystem.API.Tests.Unit.Tests.Features.Translations;
@@ -19,22 +21,24 @@ public sealed class ApproveTranslationHandlerTests
     private const int FileId = 620756992;
     private static readonly DateTimeOffset Now = new(2026, 6, 13, 0, 0, 0, TimeSpan.Zero);
     private static readonly GameVersionId VersionId = GameVersionId.Create();
-    private static readonly IdentityId Submitter = IdentityId.Create();
-    private static readonly IdentityId Approver = IdentityId.Create();
+    private static readonly TranslatorId Submitter = TranslatorId.Create();
+    private static readonly TranslatorId Approver = TranslatorId.Create();
 
-    // ITranslationRepository / IUnitOfWork are genuine public boundaries (stubbed); the current-user
-    // accessor and the artifact builder are internal interfaces NSubstitute can't proxy, so each gets
-    // a focused hand-written double.
+    // ITranslationRepository / IUnitOfWork are genuine public boundaries (stubbed); the provisioner +
+    // artifact builder are internal interfaces NSubstitute can't proxy, so each gets a hand-written
+    // double.
     private readonly ITranslationRepository _translationRepository = Substitute.For<ITranslationRepository>();
     private readonly IUnitOfWork _unitOfWork = Substitute.For<IUnitOfWork>();
     private readonly RecordingProjector _projector = new();
 
-    private ApproveTranslation.Handler CreateHandler(ValueMaybe<IdentityId>? currentUser = null)
+    private StubTranslatorProvisioner _provisioner = new(Result.Success(Approver));
+
+    private ApproveTranslation.Handler CreateHandler()
         => new(
             new ApproveTranslation.Validator(),
             _translationRepository,
             _unitOfWork,
-            new StubCurrentUserAccessor(currentUser ?? ValueMaybe<IdentityId>.From(Approver)),
+            _provisioner,
             TimeProvider.System,
             _projector);
 
@@ -63,21 +67,23 @@ public sealed class ApproveTranslationHandlerTests
     }
 
     [Fact]
-    public async Task Handle_WhenNoCurrentUser_ShouldReturnForbidden()
+    public async Task Handle_WhenProvisioningFails_ShouldReturnFailureAndNotPersist()
     {
-        // Arrange — defensive guard: the endpoint requires the admin role, but a token without a
-        // parseable subject must never be attributed to an empty approver.
+        // Arrange — defensive guard: a token without a parseable subject must never be attributed to
+        // an empty approver; the provisioner surfaces that and the handler must not approve or persist.
         Translation row = Untranslated();
         row.ProvideTranslation("Polski", Submitter, Now);
         GivenStoredRow(row);
+        _provisioner = new StubTranslatorProvisioner(Result.Failure<TranslatorId>(new Error(
+            "Translators.Unauthenticated", "no subject", TypeOfError.Forbidden)));
 
         // Act
-        Result result = await CreateHandler(ValueMaybe<IdentityId>.None())
-            .Handle(new ApproveTranslation.Command(row.Id), CancellationToken.None);
+        Result result = await CreateHandler().Handle(new ApproveTranslation.Command(row.Id), CancellationToken.None);
 
         // Assert
         result.IsFailure.ShouldBeTrue();
-        result.Error.Code.ShouldBe("Translations.Unauthenticated");
+        result.Error.Code.ShouldBe("Translators.Unauthenticated");
+        row.Status.ShouldBe(TranslationStatus.Draft);
         await _unitOfWork.DidNotReceive().SaveChangesAsync(Arg.Any<CancellationToken>());
         _projector.RebuildCount.ShouldBe(0);
     }
@@ -184,21 +190,5 @@ public sealed class ApproveTranslationHandlerTests
             RebuildCount++;
             return Task.CompletedTask;
         }
-    }
-
-    private sealed class StubCurrentUserAccessor : ICurrentUserAccessor
-    {
-        public StubCurrentUserAccessor(ValueMaybe<IdentityId> identityId)
-        {
-            MaybeIdentityId = identityId;
-        }
-
-        public ValueMaybe<IdentityId> MaybeIdentityId { get; }
-        public string? Email => null;
-        public string? Username => null;
-        public IEnumerable<string> Roles => [];
-        public bool IsAuthenticated => MaybeIdentityId.HasValue;
-        public bool IsInRole(string role) => false;
-        public bool HasOnlyRegularUserPrivileges() => true;
     }
 }

@@ -38,20 +38,7 @@ internal sealed class GetTranslation : IEndpoint
 
             TranslationDetailResponse? response = await _readDbContext.Translations
                 .Where(translation => translation.Id == query.Id)
-                .Select(translation => new TranslationDetailResponse(
-                    translation.Id,
-                    translation.FileId,
-                    translation.GossipId,
-                    translation.SourceText,
-                    translation.ArgsOrder,
-                    translation.ArgsId,
-                    translation.TranslatedText,
-                    translation.PreviousSourceText,
-                    translation.SubmittedById,
-                    translation.ApprovedById,
-                    translation.Status,
-                    translation.CreatedAt,
-                    translation.UpdatedAt))
+                .Select(TranslationProjections.ToDetail)
                 .FirstOrDefaultAsync(cancellationToken);
 
             return response is null

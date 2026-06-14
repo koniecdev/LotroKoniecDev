@@ -48,7 +48,8 @@ namespace LotroKoniecDev.TranslationSystem.Persistence.Migrations
                         .HasColumnType("uuid");
 
                     b.Property<Guid?>("ApprovedById")
-                        .HasColumnType("uuid");
+                        .HasColumnType("uuid")
+                        .HasColumnName("ApprovedById");
 
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
@@ -71,7 +72,8 @@ namespace LotroKoniecDev.TranslationSystem.Persistence.Migrations
                         .HasColumnType("character varying(100)");
 
                     b.Property<Guid?>("SubmittedById")
-                        .HasColumnType("uuid");
+                        .HasColumnType("uuid")
+                        .HasColumnName("SubmittedById");
 
                     b.Property<string>("TranslatedText")
                         .HasColumnType("text");
@@ -99,7 +101,53 @@ namespace LotroKoniecDev.TranslationSystem.Persistence.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("ApprovedById");
+
+                    b.HasIndex("SubmittedById");
+
                     b.ToTable("Translations", "translation");
+                });
+
+            modelBuilder.Entity("LotroKoniecDev.TranslationSystem.Domain.Aggregates.TranslatorAggregate.Entities.Translator", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("IdentityId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("LastSeenAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset>("ProvisionedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.ComplexProperty(typeof(Dictionary<string, object>), "DisplayName", "LotroKoniecDev.TranslationSystem.Domain.Aggregates.TranslatorAggregate.Entities.Translator.DisplayName#DisplayName", b1 =>
+                        {
+                            b1.IsRequired();
+
+                            b1.Property<string>("Value")
+                                .IsRequired()
+                                .HasMaxLength(150)
+                                .HasColumnType("character varying(150)")
+                                .HasColumnName("DisplayName");
+                        });
+
+                    b.ComplexProperty(typeof(Dictionary<string, object>), "Email", "LotroKoniecDev.TranslationSystem.Domain.Aggregates.TranslatorAggregate.Entities.Translator.Email#Email", b1 =>
+                        {
+                            b1.Property<string>("Value")
+                                .IsRequired()
+                                .HasMaxLength(250)
+                                .HasColumnType("character varying(250)")
+                                .HasColumnName("Email");
+                        });
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("IdentityId")
+                        .IsUnique();
+
+                    b.ToTable("Translators", "translation");
                 });
 
             modelBuilder.Entity("LotroKoniecDev.TranslationSystem.Projections.PrecomputedTranslationFile", b =>
@@ -162,6 +210,16 @@ namespace LotroKoniecDev.TranslationSystem.Persistence.Migrations
 
             modelBuilder.Entity("LotroKoniecDev.TranslationSystem.Domain.Aggregates.TranslationAggregate.Entities.Translation", b =>
                 {
+                    b.HasOne("LotroKoniecDev.TranslationSystem.Domain.Aggregates.TranslatorAggregate.Entities.Translator", null)
+                        .WithMany()
+                        .HasForeignKey("ApprovedById")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("LotroKoniecDev.TranslationSystem.Domain.Aggregates.TranslatorAggregate.Entities.Translator", null)
+                        .WithMany()
+                        .HasForeignKey("SubmittedById")
+                        .OnDelete(DeleteBehavior.Restrict);
+
                     b.OwnsOne("LotroKoniecDev.TranslationSystem.Domain.Aggregates.TranslationAggregate.ValueObjects.FragmentKey", "FragmentKey", b1 =>
                         {
                             b1.Property<Guid>("TranslationId")

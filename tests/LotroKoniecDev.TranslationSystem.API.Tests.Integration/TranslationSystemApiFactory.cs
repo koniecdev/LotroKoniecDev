@@ -21,6 +21,8 @@ public class TranslationSystemApiFactory : WebApplicationFactory<Program>, IAsyn
 {
     public const string TestIssuer = "https://localhost:5003";
     public const string TestAudience = "lotrokoniecdev-api";
+    public const string TestUserDisplayName = "integration-test-user";
+    public const string TestUserEmail = "translator@lotro.koniec.dev";
 
     private static readonly SymmetricSecurityKey TestSigningKey =
         new("integration-test-signing-key-32-bytes!!"u8.ToArray());
@@ -66,8 +68,10 @@ public class TranslationSystemApiFactory : WebApplicationFactory<Program>, IAsyn
     public static string CreateAccessToken(
         string role = AuthConstants.Roles.Translator,
         string scope = AuthConstants.Scopes.Api,
-        Guid? subject = null)
-        => CreateToken(TestSigningKey, DateTime.UtcNow.AddMinutes(30), role, scope, subject);
+        Guid? subject = null,
+        string displayName = TestUserDisplayName,
+        string email = TestUserEmail)
+        => CreateToken(TestSigningKey, DateTime.UtcNow.AddMinutes(30), role, scope, subject, displayName, email);
 
     public static string CreateExpiredAccessToken()
         => CreateToken(TestSigningKey, DateTime.UtcNow.AddMinutes(-20));
@@ -82,7 +86,9 @@ public class TranslationSystemApiFactory : WebApplicationFactory<Program>, IAsyn
         DateTime expires,
         string role = AuthConstants.Roles.Translator,
         string scope = AuthConstants.Scopes.Api,
-        Guid? subject = null)
+        Guid? subject = null,
+        string displayName = TestUserDisplayName,
+        string email = TestUserEmail)
     {
         JsonWebTokenHandler handler = new();
 
@@ -97,8 +103,8 @@ public class TranslationSystemApiFactory : WebApplicationFactory<Program>, IAsyn
             Claims = new Dictionary<string, object>
             {
                 ["sub"] = (subject ?? Guid.NewGuid()).ToString(),
-                ["name"] = "integration-test-user",
-                ["email"] = "translator@lotro.koniec.dev",
+                ["name"] = displayName,
+                ["email"] = email,
                 ["role"] = role,
                 ["scope"] = scope
             }

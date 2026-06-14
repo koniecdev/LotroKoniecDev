@@ -83,14 +83,7 @@ internal sealed class ListTranslations : IEndpoint
                 .ThenBy(translation => translation.GossipId)
                 .Skip((query.Page - 1) * query.PageSize)
                 .Take(query.PageSize)
-                .Select(translation => new TranslationListItemResponse(
-                    translation.Id,
-                    translation.FileId,
-                    translation.GossipId,
-                    translation.SourceText,
-                    translation.TranslatedText,
-                    translation.Status,
-                    translation.UpdatedAt))
+                .Select(TranslationProjections.ToListItem)
                 .ToListAsync(cancellationToken);
 
             return Result.Success(new PaginationResponse<TranslationListItemResponse>

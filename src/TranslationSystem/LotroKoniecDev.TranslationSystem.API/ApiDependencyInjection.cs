@@ -13,6 +13,7 @@ using LotroKoniecDev.SharedKernel.Messaging;
 using LotroKoniecDev.SharedKernel.Monads;
 using LotroKoniecDev.TranslationSystem.API.Auth;
 using LotroKoniecDev.TranslationSystem.API.Auth.CurrentUserAccessing;
+using LotroKoniecDev.TranslationSystem.API.Auth.Provisioning;
 using LotroKoniecDev.TranslationSystem.API.ExceptionHandlers;
 using LotroKoniecDev.TranslationSystem.API.Extensions;
 using LotroKoniecDev.TranslationSystem.API.Features.Bootstrap;
@@ -177,6 +178,7 @@ internal static class ApiDependencyInjection
 
             services.AddHttpContextAccessor();
             services.AddScoped<ICurrentUserAccessor, CurrentUserAccessor>();
+            services.AddScoped<ITranslatorProvisioner, TranslatorProvisioner>();
 
             return services;
         }

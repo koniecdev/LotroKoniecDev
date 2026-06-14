@@ -4,8 +4,12 @@ using LotroKoniecDev.TranslationSystem.API.Parsing;
 using LotroKoniecDev.TranslationSystem.Domain.Aggregates.TranslationAggregate.Entities;
 using LotroKoniecDev.TranslationSystem.Domain.Aggregates.TranslationAggregate.Repositories;
 using LotroKoniecDev.TranslationSystem.Domain.Aggregates.TranslationAggregate.ValueObjects;
+using LotroKoniecDev.TranslationSystem.Domain.Aggregates.TranslatorAggregate.Entities;
+using LotroKoniecDev.TranslationSystem.Domain.Aggregates.TranslatorAggregate.Repositories;
+using LotroKoniecDev.TranslationSystem.Domain.Aggregates.TranslatorAggregate.ValueObjects;
 using LotroKoniecDev.TranslationSystem.Persistence.DbContexts.Abstractions;
 using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.TranslationAggregate.Enums;
+using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.TranslatorAggregate;
 using Microsoft.Extensions.Logging;
 
 namespace LotroKoniecDev.TranslationSystem.API.Features.Bootstrap;
@@ -23,13 +27,18 @@ internal sealed class PolishTranslationSeeder : IPolishTranslationSeeder
     /// Well-known system principal stamped as submitter and approver on bootstrap-seeded rows: the
     /// existing production translations predate the editor loop and have no interactive author. The
     /// sentinel GUID (mnemonic <c>5EED</c>) is deliberately recognizable and never collides with an
-    /// OpenIddict-issued user id.
+    /// OpenIddict-issued user id. It is the <c>IdentityId</c> of the system <c>Translator</c> the seed
+    /// provisions (ADR-0004).
     /// </summary>
     public static readonly IdentityId SystemIdentityId =
         IdentityId.Create(new Guid("5eed0000-0000-0000-0000-000000000001"));
 
+    /// <summary>The display name of the system translator the bootstrap seed attributes rows to.</summary>
+    public const string SystemDisplayName = "System (bootstrap seed)";
+
     private readonly ITranslationExportParser _parser;
     private readonly ITranslationRepository _translationRepository;
+    private readonly ITranslatorRepository _translatorRepository;
     private readonly IUnitOfWork _unitOfWork;
     private readonly TimeProvider _timeProvider;
     private readonly ILogger<PolishTranslationSeeder> _logger;
@@ -37,12 +46,14 @@ internal sealed class PolishTranslationSeeder : IPolishTranslationSeeder
     public PolishTranslationSeeder(
         ITranslationExportParser parser,
         ITranslationRepository translationRepository,
+        ITranslatorRepository translatorRepository,
         IUnitOfWork unitOfWork,
         TimeProvider timeProvider,
         ILogger<PolishTranslationSeeder> logger)
     {
         _parser = parser;
         _translationRepository = translationRepository;
+        _translatorRepository = translatorRepository;
         _unitOfWork = unitOfWork;
         _timeProvider = timeProvider;
         _logger = logger;
@@ -60,6 +71,17 @@ internal sealed class PolishTranslationSeeder : IPolishTranslationSeeder
         }
 
         DateTimeOffset now = _timeProvider.GetUtcNow();
+
+        // Seeded rows are attributed to a local system Translator (ADR-0004) — get-or-create it once,
+        // idempotently, before stamping its TranslatorId. The system principal has no claims, so its
+        // display name is a fixed constant.
+        Result<TranslatorId> systemTranslatorResult = await GetOrCreateSystemTranslatorAsync(now, cancellationToken);
+        if (systemTranslatorResult.IsFailure)
+        {
+            return Result.Failure<PolishSeedSummary>(systemTranslatorResult.Error);
+        }
+
+        TranslatorId systemTranslatorId = systemTranslatorResult.Value;
 
         int approved = 0;
         int alreadyApproved = 0;
@@ -105,8 +127,8 @@ internal sealed class PolishTranslationSeeder : IPolishTranslationSeeder
             // Any other matched state is (re)written to the seeded Polish and approved under the
             // system principal. The bootstrap targets a fresh/empty DB (#28), so in practice this only
             // ever fills Untranslated baseline rows — it does not race a live translator's draft.
-            translation.ProvideTranslation(row.Content, SystemIdentityId, now);
-            Result approveResult = translation.Approve(SystemIdentityId, now);
+            translation.ProvideTranslation(row.Content, systemTranslatorId, now);
+            Result approveResult = translation.Approve(systemTranslatorId, now);
             if (approveResult.IsFailure)
             {
                 return Result.Failure<PolishSeedSummary>(approveResult.Error);
@@ -124,5 +146,36 @@ internal sealed class PolishTranslationSeeder : IPolishTranslationSeeder
             summary.Approved, summary.AlreadyApproved, summary.SkippedRemoved, summary.Unmatched.Count);
 
         return Result.Success(summary);
+    }
+
+    /// <summary>
+    /// Idempotently provisions the system <c>Translator</c> the seed attributes rows to (ADR-0004):
+    /// returns the existing row's id, or creates it and commits it so the seeded translations can
+    /// reference it as a valid local <c>TranslatorId</c>.
+    /// </summary>
+    private async Task<Result<TranslatorId>> GetOrCreateSystemTranslatorAsync(DateTimeOffset now, CancellationToken cancellationToken)
+    {
+        Maybe<Translator> existing = await _translatorRepository.GetByIdentityIdAsync(SystemIdentityId, cancellationToken);
+        if (existing.HasValue)
+        {
+            return Result.Success(existing.Value.Id);
+        }
+
+        Result<DisplayName> displayNameResult = DisplayName.Create(SystemDisplayName);
+        if (displayNameResult.IsFailure)
+        {
+            return Result.Failure<TranslatorId>(displayNameResult.Error);
+        }
+
+        Result<Translator> createResult = Translator.Create(SystemIdentityId, displayNameResult.Value, email: null, now);
+        if (createResult.IsFailure)
+        {
+            return Result.Failure<TranslatorId>(createResult.Error);
+        }
+
+        _translatorRepository.Insert(createResult.Value);
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+        return Result.Success(createResult.Value.Id);
     }
 }

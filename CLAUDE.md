@@ -221,8 +221,10 @@ file_id||gossip_id||translated_text||args_order||args_id||approved
   aggregate ships with its read model + EF configuration in the same change.
 - **Patcher is frozen** (see Architecture) — never refactor it to serve the TMS.
 - **TMS ships with auth from day 1.** Endpoints are authorized by default (public ones are
-  explicit); the first migration already carries user attribution (`SubmittedById`,
-  `ApprovedById`). No auth-less interim state to retrofit later.
+  explicit) and edited rows carry user attribution: `Translation.SubmittedById` is stamped on
+  upsert (added in M2-11; persisted via the `IdentityId` converter in `TranslationSystem.Persistence`),
+  and `ApprovedById` lands with the approve slice (#101 / M2-12). No auth-less interim state to
+  retrofit later.
 - **Validation:** FluentValidation **for commands only** — the command handler injects
   `IValidator<TCommand>` and maps failures to `Result` (never throws). Queries validate inline
   in their handler. Every validator must be registered in DI.

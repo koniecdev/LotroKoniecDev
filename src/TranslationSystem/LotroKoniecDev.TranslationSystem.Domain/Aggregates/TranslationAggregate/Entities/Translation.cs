@@ -1,6 +1,7 @@
 using LotroKoniecDev.SharedKernel.BuildingBlocks;
 using LotroKoniecDev.SharedKernel.Guards;
 using LotroKoniecDev.SharedKernel.Monads;
+using LotroKoniecDev.SharedKernel.StronglyTypedIds;
 using LotroKoniecDev.TranslationSystem.Domain.Aggregates.TranslationAggregate.ValueObjects;
 using LotroKoniecDev.TranslationSystem.Domain.Core.Errors;
 using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.GameVersionAggregate;
@@ -20,6 +21,7 @@ public sealed class Translation : AggregateRoot<TranslationId>
     public TranslationSource Source { get; private set; }
     public string? TranslatedText { get; private set; }
     public string? PreviousSourceText { get; private set; }
+    public IdentityId? SubmittedById { get; private set; }
     public TranslationStatus Status { get; private set; }
     public GameVersionId IntroducedInVersion { get; private set; }
     public GameVersionId? LastSourceChangeInVersion { get; private set; }
@@ -97,14 +99,20 @@ public sealed class Translation : AggregateRoot<TranslationId>
     }
 
     /// <summary>
-    /// Attaches the Polish draft for this row (the upsert/seed helper; #100 enriches it with
-    /// placeholder validation). Untranslated/NeedsReview move to <see cref="TranslationStatus.Draft"/>.
+    /// Attaches (or replaces) the Polish draft for this row and stamps the submitting translator
+    /// (spec 0001, #100). Any prior status — Untranslated, Draft, Approved or NeedsReview — moves to
+    /// <see cref="TranslationStatus.Draft"/>: editing an Approved row deliberately pulls it out of the
+    /// distributed set until it is re-approved. <see cref="PreviousSourceText"/> is left untouched, so
+    /// re-translating an invalidated row keeps the superseded English for side-by-side context until
+    /// approve clears it. The text is stored verbatim, preserving its <c>&lt;--DO_NOT_TOUCH!--&gt;</c>
+    /// placeholders; the placeholder-count-mismatch warning UX lives in M3.
     /// </summary>
-    public void ProvideTranslation(string translatedText, DateTimeOffset now)
+    public void ProvideTranslation(string translatedText, IdentityId submittedBy, DateTimeOffset now)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(translatedText);
 
         TranslatedText = translatedText;
+        SubmittedById = submittedBy;
         Status = TranslationStatus.Draft;
         UpdatedAt = now;
     }

@@ -1,4 +1,5 @@
 using LotroKoniecDev.SharedKernel.Monads;
+using LotroKoniecDev.SharedKernel.StronglyTypedIds;
 using LotroKoniecDev.TranslationSystem.Domain.Aggregates.TranslationAggregate.Entities;
 using LotroKoniecDev.TranslationSystem.Domain.Aggregates.TranslationAggregate.ValueObjects;
 using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.GameVersionAggregate;
@@ -12,6 +13,7 @@ public sealed class TranslationTests
     private static readonly DateTimeOffset Changed = new(2026, 6, 13, 12, 0, 0, TimeSpan.Zero);
     private static readonly GameVersionId IntroducedVersion = GameVersionId.Create();
     private static readonly GameVersionId ChangeVersion = GameVersionId.Create();
+    private static readonly IdentityId Submitter = IdentityId.Create();
 
     private static FragmentKey Key() => FragmentKey.Create(620756992, 1001).Value;
     private static TranslationSource Source(string text) => TranslationSource.Create(text, null, null).Value;
@@ -58,7 +60,7 @@ public sealed class TranslationTests
     {
         // Arrange
         Translation translation = CreateUntranslated();
-        translation.ProvideTranslation("Stary polski", Created);
+        translation.ProvideTranslation("Stary polski", Submitter, Created);
 
         // Act
         translation.ApplySourceChange(Source("New English"), ChangeVersion, Changed);
@@ -91,7 +93,7 @@ public sealed class TranslationTests
     {
         // Arrange
         Translation translation = CreateUntranslated();
-        translation.ProvideTranslation("Polski", Created);
+        translation.ProvideTranslation("Polski", Submitter, Created);
         translation.MarkRemoved(ChangeVersion, Changed);
 
         // Act
@@ -126,12 +128,34 @@ public sealed class TranslationTests
         Translation translation = CreateUntranslated();
 
         // Act
-        translation.ProvideTranslation("Witaj", Changed);
+        translation.ProvideTranslation("Witaj", Submitter, Changed);
 
         // Assert
         translation.Status.ShouldBe(TranslationStatus.Draft);
         translation.TranslatedText.ShouldBe("Witaj");
+        translation.SubmittedById.ShouldBe(Submitter);
         translation.UpdatedAt.ShouldBe(Changed);
+    }
+
+    [Fact]
+    public void ProvideTranslation_OnNeedsReviewRow_ShouldReturnToDraftAndKeepPreviousSource()
+    {
+        // Arrange — an invalidated row (a game update reworded its source): re-translating it is the
+        // #100 re-translation path. The superseded English must stay until approve clears it.
+        Translation translation = CreateUntranslated();
+        translation.ProvideTranslation("Stary polski", Submitter, Created);
+        translation.ApplySourceChange(Source("New English"), ChangeVersion, Changed);
+        translation.Status.ShouldBe(TranslationStatus.NeedsReview);
+        IdentityId reviewer = IdentityId.Create();
+
+        // Act
+        translation.ProvideTranslation("Nowy polski", reviewer, Changed);
+
+        // Assert
+        translation.Status.ShouldBe(TranslationStatus.Draft);
+        translation.TranslatedText.ShouldBe("Nowy polski");
+        translation.PreviousSourceText.ShouldBe("Old English");
+        translation.SubmittedById.ShouldBe(reviewer);
     }
 
     [Fact]
@@ -139,7 +163,7 @@ public sealed class TranslationTests
     {
         // Arrange
         Translation translation = CreateUntranslated();
-        translation.ProvideTranslation("Witaj", Created);
+        translation.ProvideTranslation("Witaj", Submitter, Created);
 
         // Act
         Result result = translation.Approve(Changed);
@@ -155,7 +179,7 @@ public sealed class TranslationTests
     {
         // Arrange — an invalidated row keeps its Polish; approving re-publishes it (spec 0001).
         Translation translation = CreateUntranslated();
-        translation.ProvideTranslation("Stary polski", Created);
+        translation.ProvideTranslation("Stary polski", Submitter, Created);
         translation.ApplySourceChange(Source("New English"), ChangeVersion, Changed);
         translation.Status.ShouldBe(TranslationStatus.NeedsReview);
 
@@ -187,7 +211,7 @@ public sealed class TranslationTests
     {
         // Arrange
         Translation translation = CreateUntranslated();
-        translation.ProvideTranslation("Polski", Created);
+        translation.ProvideTranslation("Polski", Submitter, Created);
         translation.MarkRemoved(ChangeVersion, Changed);
 
         // Act

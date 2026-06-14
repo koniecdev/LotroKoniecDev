@@ -2,6 +2,7 @@ using System.Net.Http.Headers;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using LotroKoniecDev.SharedKernel.Authorization;
+using LotroKoniecDev.SharedKernel.StronglyTypedIds;
 using LotroKoniecDev.TranslationSystem.Contracts.Translations;
 using LotroKoniecDev.TranslationSystem.Domain.Aggregates.GameVersionAggregate.Entities;
 using LotroKoniecDev.TranslationSystem.Domain.Aggregates.GameVersionAggregate.ValueObjects;
@@ -145,7 +146,7 @@ public sealed class GetTranslationTests : IAsyncLifetime
             TranslationSource.Create("Original source", "1-2", "3-4").Value,
             _versionId,
             Now).Value;
-        row.ProvideTranslation("Polski tekst", Now);
+        row.ProvideTranslation("Polski tekst", IdentityId.Create(), Now);
         row.ApplySourceChange(TranslationSource.Create("Reworded source", "1-2", "3-4").Value, _versionId, Now);
         dbContext.Translations.Add(row);
         await dbContext.SaveChangesAsync();

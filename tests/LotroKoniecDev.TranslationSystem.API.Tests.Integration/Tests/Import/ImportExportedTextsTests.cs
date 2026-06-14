@@ -1,6 +1,7 @@
 using System.Net.Http.Headers;
 using System.Text;
 using LotroKoniecDev.SharedKernel.Authorization;
+using LotroKoniecDev.SharedKernel.StronglyTypedIds;
 using LotroKoniecDev.TranslationSystem.Contracts.Import;
 using LotroKoniecDev.TranslationSystem.Domain.Aggregates.GameVersionAggregate.Entities;
 using LotroKoniecDev.TranslationSystem.Domain.Aggregates.GameVersionAggregate.ValueObjects;
@@ -240,7 +241,7 @@ public sealed class ImportExportedTextsTests : IAsyncLifetime
         ApplicationWriteDbContext dbContext = scope.ServiceProvider.GetRequiredService<ApplicationWriteDbContext>();
         Translation translation = await dbContext.Translations
             .SingleAsync(row => row.FragmentKey.FileId == FileId && row.FragmentKey.GossipId == gossipId);
-        translation.ProvideTranslation(polish, DateTimeOffset.UtcNow);
+        translation.ProvideTranslation(polish, IdentityId.Create(), DateTimeOffset.UtcNow);
         await dbContext.SaveChangesAsync();
     }
 

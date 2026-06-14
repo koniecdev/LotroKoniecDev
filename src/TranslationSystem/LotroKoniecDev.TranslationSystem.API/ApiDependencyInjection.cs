@@ -51,6 +51,10 @@ internal static class ApiDependencyInjection
             // so ASP.NET Core's default writer handles plain JSON / RFC 7807 Accept values first.
             services.AddHateoasInfrastructure();
 
+            // Cross-cutting clock shared by every command handler that stamps timestamps
+            // (import diff, translation upsert, …) — registered once at the API root, not per feature.
+            services.AddSingleton(TimeProvider.System);
+
             services.AddImportFeature();
             services.AddTranslationsFeature();
             services.AddTranslationFilesFeature();
@@ -60,7 +64,6 @@ internal static class ApiDependencyInjection
 
         private void AddImportFeature()
         {
-            services.AddSingleton(TimeProvider.System);
             services.AddSingleton<ITranslationExportParser, TranslationExportParser>();
             services.AddOptions<ImportSettings>().BindConfiguration(ImportSettings.ConfigurationSection);
 
@@ -76,6 +79,11 @@ internal static class ApiDependencyInjection
             services.AddScoped<
                 IQueryHandler<GetTranslation.Query, Result<TranslationDetailResponse>>,
                 GetTranslation.Handler>();
+
+            services.AddScoped<IValidator<UpsertTranslation.Command>, UpsertTranslation.Validator>();
+            services.AddScoped<
+                ICommandHandler<UpsertTranslation.Command, Result<TranslationDetailResponse>>,
+                UpsertTranslation.Handler>();
         }
 
         private void AddTranslationFilesFeature()

@@ -2,6 +2,7 @@ using System.Net.Http.Headers;
 using System.Text;
 using LotroKoniecDev.Application.Parsers;
 using LotroKoniecDev.SharedKernel.Authorization;
+using LotroKoniecDev.SharedKernel.StronglyTypedIds;
 using LotroKoniecDev.TranslationSystem.API.Features.TranslationFiles;
 using LotroKoniecDev.TranslationSystem.Domain.Aggregates.GameVersionAggregate.Entities;
 using LotroKoniecDev.TranslationSystem.Domain.Aggregates.GameVersionAggregate.ValueObjects;
@@ -20,6 +21,7 @@ public sealed class GetTranslationFileTests : IAsyncLifetime
     private const int FileId = 620756992;
     private const string Route = "/api/v1/translation-files/pl";
     private static readonly DateTimeOffset Now = new(2026, 6, 13, 0, 0, 0, TimeSpan.Zero);
+    private static readonly IdentityId Submitter = IdentityId.Create();
 
     private readonly TranslationSystemApiFactory _factory;
     private GameVersionId _versionId;
@@ -224,18 +226,18 @@ public sealed class GetTranslationFileTests : IAsyncLifetime
         switch (status)
         {
             case SeedStatus.Draft:
-                row.ProvideTranslation(polish, Now);
+                row.ProvideTranslation(polish, Submitter, Now);
                 break;
             case SeedStatus.NeedsReview:
-                row.ProvideTranslation(polish, Now);
+                row.ProvideTranslation(polish, Submitter, Now);
                 row.ApplySourceChange(TranslationSource.Create("English reworded", null, null).Value, _versionId, Now);
                 break;
             case SeedStatus.Approved:
-                row.ProvideTranslation(polish, Now);
+                row.ProvideTranslation(polish, Submitter, Now);
                 row.Approve(Now);
                 break;
             case SeedStatus.ApprovedThenRemoved:
-                row.ProvideTranslation(polish, Now);
+                row.ProvideTranslation(polish, Submitter, Now);
                 row.Approve(Now);
                 row.MarkRemoved(_versionId, Now);
                 break;
@@ -251,7 +253,7 @@ public sealed class GetTranslationFileTests : IAsyncLifetime
         ApplicationWriteDbContext dbContext = scope.ServiceProvider.GetRequiredService<ApplicationWriteDbContext>();
         Translation row = await dbContext.Translations
             .SingleAsync(translation => translation.FragmentKey.FileId == FileId && translation.FragmentKey.GossipId == gossipId);
-        row.ProvideTranslation(polish, Now);
+        row.ProvideTranslation(polish, Submitter, Now);
         row.Approve(Now);
         await dbContext.SaveChangesAsync();
     }

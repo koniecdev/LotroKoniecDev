@@ -1,0 +1,17 @@
+@page "/auth/access-denied"
+@layout MainLayout
+@attribute [AllowAnonymous]
+@using Microsoft.AspNetCore.Authorization
+
+<PageTitle>Brak dostępu — LotroKoniecDev</PageTitle>
+
+<div class="status-stage">
+    <div class="status-card status-danger">
+        <div class="status-code">403</div>
+        <h1>Brak dostępu</h1>
+        <p class="status-desc">Nie masz uprawnień do wyświetlenia tej strony.</p>
+        <div class="status-actions">
+            <a href="/" class="btn btn-primary">Wróć na stronę główną</a>
+        </div>
+    </div>
+</div>

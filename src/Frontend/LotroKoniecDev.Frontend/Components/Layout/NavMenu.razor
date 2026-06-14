@@ -1,0 +1,46 @@
+@using LotroKoniecDev.Frontend.Infrastructure.Auth
+
+<aside class="sidebar">
+    <div class="sidebar-brand">
+        <a class="brand" href="/">
+            <span class="brand-mark">LK</span>
+            <span class="brand-text">LotroKoniec<span class="brand-accent">Dev</span></span>
+        </a>
+        <p class="brand-sub">Tłumaczenie LOTRO</p>
+    </div>
+
+    <nav class="sidebar-nav" aria-label="Nawigacja główna">
+        <NavLink class="nav-link" href="/" Match="NavLinkMatch.All">
+            <span class="nav-text">Start</span>
+        </NavLink>
+        <NavLink class="nav-link" href="/translations">
+            <span class="nav-text">Tłumaczenia</span>
+        </NavLink>
+        <NavLink class="nav-link" href="/editor">
+            <span class="nav-text">Edytor</span>
+        </NavLink>
+        <NavLink class="nav-link" href="/import-export">
+            <span class="nav-text">Import / Eksport</span>
+        </NavLink>
+        <NavLink class="nav-link" href="/dashboard">
+            <span class="nav-text">Panel</span>
+        </NavLink>
+    </nav>
+
+    <div class="sidebar-auth">
+        <AuthorizeView>
+            <Authorized>
+                <span class="auth-user">@(context.User.Identity?.Name)</span>
+                <form method="post" action="@AuthenticationDependencyInjectionExtensions.LogoutPath">
+                    <AntiforgeryToken/>
+                    <button type="submit" class="btn btn-ghost btn-block">Wyloguj</button>
+                </form>
+            </Authorized>
+            <NotAuthorized>
+                <a class="btn btn-primary btn-block" href="@AuthenticationDependencyInjectionExtensions.LoginPath">
+                    Zaloguj
+                </a>
+            </NotAuthorized>
+        </AuthorizeView>
+    </div>
+</aside>

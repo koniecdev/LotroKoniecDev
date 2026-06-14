@@ -37,6 +37,7 @@
     <Project Path="src/TranslationSystem/LotroKoniecDev.TranslationSystem.Persistence/LotroKoniecDev.TranslationSystem.Persistence.csproj" />
     <Project Path="src/TranslationSystem/LotroKoniecDev.TranslationSystem.Contracts/LotroKoniecDev.TranslationSystem.Contracts.csproj" />
     <Project Path="src/TranslationSystem/LotroKoniecDev.TranslationSystem.API/LotroKoniecDev.TranslationSystem.API.csproj" />
+    <Project Path="src/Frontend/LotroKoniecDev.Frontend/LotroKoniecDev.Frontend.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <File Path="tests/README.md" />
@@ -48,5 +49,6 @@
     <Project Path="tests/LotroKoniecDev.Tests.Infrastructure/LotroKoniecDev.Tests.Infrastructure.csproj" />
     <Project Path="tests/LotroKoniecDev.Tests.Unit/LotroKoniecDev.Tests.Unit.csproj" />
     <Project Path="tests/LotroKoniecDev.TranslationSystem.Domain.Tests.Unit/LotroKoniecDev.TranslationSystem.Domain.Tests.Unit.csproj" />
+    <Project Path="tests/LotroKoniecDev.Frontend.Tests.Unit/LotroKoniecDev.Frontend.Tests.Unit.csproj" />
   </Folder>
 </Solution>

@@ -1,0 +1,50 @@
+@page "/"
+@attribute [AllowAnonymous]
+@attribute [StreamRendering]
+@using Microsoft.AspNetCore.Authorization
+@using LotroKoniecDev.Frontend.Infrastructure.HttpClients
+@using LotroKoniecDev.Frontend.Infrastructure.HttpClients.TranslationSystemHttpClients
+@inject ITranslationSystemClient TranslationSystemClient
+
+<PageTitle>LotroKoniecDev — Tłumaczenie LOTRO</PageTitle>
+
+<section class="hero">
+    <h1>System zarządzania tłumaczeniami</h1>
+    <p class="lede">
+        Panel tłumacza polskiej wersji The Lord of the Rings Online: import tekstów z gry,
+        edycja z obiegiem zatwierdzania i eksport pliku tłumaczenia do patchera.
+    </p>
+</section>
+
+<section class="panel">
+    <h2>Połączenie z API</h2>
+    @if (_healthResult is null)
+    {
+        <p class="status-line status-pending">
+            <span class="dot"></span> Sprawdzanie dostępności API…
+        </p>
+    }
+    else if (_healthResult.IsSuccess)
+    {
+        <p class="status-line status-ok">
+            <span class="dot"></span> API odpowiada — stan: <strong>@_healthResult.Value.Status</strong>
+        </p>
+    }
+    else
+    {
+        <p class="status-line status-down" role="alert">
+            <span class="dot"></span>
+            @(_healthResult.ProblemDetails?.Title ?? "API jest nieosiągalne")
+        </p>
+    }
+</section>
+
+@code
+{
+    private ApiResult<HealthStatusResponse>? _healthResult;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _healthResult = await TranslationSystemClient.GetHealthAsync();
+    }
+}

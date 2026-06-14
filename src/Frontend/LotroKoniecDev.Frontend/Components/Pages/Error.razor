@@ -1,0 +1,34 @@
+@page "/Error"
+@layout MainLayout
+@attribute [AllowAnonymous]
+@using System.Diagnostics
+@using Microsoft.AspNetCore.Authorization
+
+<PageTitle>Błąd — LotroKoniecDev</PageTitle>
+
+<div class="status-stage">
+    <div class="status-card status-danger">
+        <div class="status-code">500</div>
+        <h1>Coś poszło nie tak</h1>
+        <p class="status-desc">Wystąpił nieoczekiwany błąd po stronie serwera. Spróbuj ponownie za chwilę.</p>
+        @if (!string.IsNullOrEmpty(RequestId))
+        {
+            <div class="status-detail">
+                <span class="det-k">Identyfikator żądania</span>
+                <code>@RequestId</code>
+            </div>
+        }
+        <div class="status-actions">
+            <a href="/" class="btn btn-primary">Wróć na stronę główną</a>
+        </div>
+    </div>
+</div>
+
+@code {
+    [CascadingParameter] private HttpContext? HttpContext { get; set; }
+
+    private string? RequestId { get; set; }
+
+    protected override void OnInitialized() =>
+        RequestId = Activity.Current?.Id ?? HttpContext?.TraceIdentifier;
+}

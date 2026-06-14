@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Security.Claims;
 using System.Security.Cryptography;
+using LotroKoniecDev.Frontend.Infrastructure.Auth.DeadSession;
 using LotroKoniecDev.Frontend.Infrastructure.Auth.TokenRefresh;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
@@ -159,6 +160,80 @@ public sealed class CookieTokenRefresherTests : IDisposable
             Arg.Any<AuthenticationProperties>());
     }
 
+    [Fact]
+    public async Task ValidateAsync_WhenSessionMarkedDead_RejectsPrincipalAndSignsOut()
+    {
+        // A prior 401 marked this subject dead. The reactive backstop must reject before any refresh or
+        // proactive probe runs — even though the token is alive and signed by a trusted key.
+        RsaSecurityKey signingKey = CreateRsaKey();
+        string accessToken = MintAccessToken(signingKey, tokenIssuer: DiscoveryIssuer);
+
+        IDeadSessionRegistry deadSessionRegistry = Substitute.For<IDeadSessionRegistry>();
+        deadSessionRegistry
+            .ConsumeAsync(Subject, Arg.Any<CancellationToken>())
+            .Returns(true);
+
+        IAuthenticationService authenticationService = Substitute.For<IAuthenticationService>();
+        CookieTokenRefresher refresher = CreateRefresher(
+            trustedKeys: [signingKey],
+            discoveryIssuer: DiscoveryIssuer,
+            deadSessionRegistry: deadSessionRegistry);
+        CookieValidatePrincipalContext context = CreateContext(
+            accessToken, authenticationService, expiresAt: DateTimeOffset.UtcNow.AddHours(1));
+
+        await refresher.ValidateAsync(context);
+
+        context.Principal.ShouldBeNull();
+        await authenticationService.Received(1).SignOutAsync(
+            Arg.Any<HttpContext>(),
+            CookieAuthenticationDefaults.AuthenticationScheme,
+            Arg.Any<AuthenticationProperties>());
+    }
+
+    [Fact]
+    public async Task ValidateAsync_WhenSessionAliveAndTrusted_DoesNotRaiseExpiryNotice()
+    {
+        RsaSecurityKey signingKey = CreateRsaKey();
+        string accessToken = MintAccessToken(signingKey, tokenIssuer: DiscoveryIssuer);
+
+        ISessionExpiryNotice sessionExpiryNotice = Substitute.For<ISessionExpiryNotice>();
+        IAuthenticationService authenticationService = Substitute.For<IAuthenticationService>();
+        CookieTokenRefresher refresher = CreateRefresher(
+            trustedKeys: [signingKey],
+            discoveryIssuer: DiscoveryIssuer,
+            sessionExpiryNotice: sessionExpiryNotice);
+        CookieValidatePrincipalContext context = CreateContext(
+            accessToken, authenticationService, expiresAt: DateTimeOffset.UtcNow.AddHours(1));
+
+        await refresher.ValidateAsync(context);
+
+        sessionExpiryNotice.DidNotReceive().Raise();
+    }
+
+    [Fact]
+    public async Task ValidateAsync_WhenPrincipalRejected_RaisesOneShotExpiryNotice()
+    {
+        // A rotated key forces a rejection; the soft "session expired" notice must be raised so the next
+        // render can surface the banner.
+        RsaSecurityKey actualSigningKey = CreateRsaKey();
+        RsaSecurityKey trustedKey = CreateRsaKey();
+        string accessToken = MintAccessToken(actualSigningKey, tokenIssuer: DiscoveryIssuer);
+
+        ISessionExpiryNotice sessionExpiryNotice = Substitute.For<ISessionExpiryNotice>();
+        IAuthenticationService authenticationService = Substitute.For<IAuthenticationService>();
+        CookieTokenRefresher refresher = CreateRefresher(
+            trustedKeys: [trustedKey],
+            discoveryIssuer: DiscoveryIssuer,
+            sessionExpiryNotice: sessionExpiryNotice);
+        CookieValidatePrincipalContext context = CreateContext(
+            accessToken, authenticationService, expiresAt: DateTimeOffset.UtcNow.AddHours(1));
+
+        await refresher.ValidateAsync(context);
+
+        context.Principal.ShouldBeNull();
+        sessionExpiryNotice.Received(1).Raise();
+    }
+
     public void Dispose()
     {
         foreach (RSA rsa in _rsaInstances)
@@ -170,7 +245,9 @@ public sealed class CookieTokenRefresherTests : IDisposable
     private CookieTokenRefresher CreateRefresher(
         IReadOnlyCollection<SecurityKey> trustedKeys,
         string? discoveryIssuer,
-        TokenResponse? refreshResult = null)
+        TokenResponse? refreshResult = null,
+        IDeadSessionRegistry? deadSessionRegistry = null,
+        ISessionExpiryNotice? sessionExpiryNotice = null)
     {
         ITokenEndpointClient tokenEndpointClient = Substitute.For<ITokenEndpointClient>();
         if (refreshResult is not null)
@@ -203,6 +280,8 @@ public sealed class CookieTokenRefresherTests : IDisposable
         return new CookieTokenRefresher(
             tokenEndpointClient,
             optionsMonitor,
+            deadSessionRegistry ?? Substitute.For<IDeadSessionRegistry>(),
+            sessionExpiryNotice ?? Substitute.For<ISessionExpiryNotice>(),
             NullLogger<CookieTokenRefresher>.Instance);
     }
 

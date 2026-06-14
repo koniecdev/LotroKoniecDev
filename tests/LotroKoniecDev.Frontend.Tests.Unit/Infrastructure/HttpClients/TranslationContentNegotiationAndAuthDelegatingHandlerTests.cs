@@ -1,5 +1,6 @@
 using System.Net;
 using System.Security.Claims;
+using LotroKoniecDev.Frontend.Infrastructure.Auth.DeadSession;
 using LotroKoniecDev.Frontend.Infrastructure.HttpClients.TranslationSystemHttpClients;
 using LotroKoniecDev.Hateoas.Abstractions;
 using Microsoft.AspNetCore.Authentication;
@@ -65,14 +66,62 @@ public sealed class TranslationContentNegotiationAndAuthDelegatingHandlerTests
         inner.LastRequest!.Headers.Authorization.ShouldBeNull();
     }
 
-    private static (HttpMessageInvoker, StubHttpMessageHandler) CreateInvoker(IHttpContextAccessor accessor)
+    [Fact]
+    public async Task SendAsync_WhenAuthenticatedCallReturns401_MarksSessionDead()
     {
-        StubHttpMessageHandler inner = StubHttpMessageHandler.RespondWith(HttpStatusCode.OK, "{}");
+        IDeadSessionRegistry deadSessionRegistry = Substitute.For<IDeadSessionRegistry>();
+        IHttpContextAccessor accessor = AuthenticatedContext(
+            accessToken: "the-access-token", deadSessionRegistry: deadSessionRegistry);
+        (HttpMessageInvoker invoker, _) = CreateInvoker(
+            accessor, StubHttpMessageHandler.RespondWith(HttpStatusCode.Unauthorized, "{}"));
+
+        using HttpRequestMessage request = new(HttpMethod.Get, "https://localhost:5004/translations");
+        await invoker.SendAsync(request, CancellationToken.None);
+
+        await deadSessionRegistry.Received(1).MarkDeadAsync("user-1", Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task SendAsync_WhenAuthenticatedCallSucceeds_DoesNotMarkSessionDead()
+    {
+        IDeadSessionRegistry deadSessionRegistry = Substitute.For<IDeadSessionRegistry>();
+        IHttpContextAccessor accessor = AuthenticatedContext(
+            accessToken: "the-access-token", deadSessionRegistry: deadSessionRegistry);
+        (HttpMessageInvoker invoker, _) = CreateInvoker(accessor);
+
+        using HttpRequestMessage request = new(HttpMethod.Get, "https://localhost:5004/translations");
+        await invoker.SendAsync(request, CancellationToken.None);
+
+        await deadSessionRegistry.DidNotReceive()
+            .MarkDeadAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task SendAsync_WhenAnonymousCallReturns401_DoesNotMarkSessionDead()
+    {
+        // An anonymous request returns before the 401 backstop (the handler short-circuits at the
+        // IsAuthenticated guard), so the registry is never resolved and no subject is ever marked.
+        IHttpContextAccessor accessor = AnonymousContext();
+        (HttpMessageInvoker invoker, _) = CreateInvoker(
+            accessor, StubHttpMessageHandler.RespondWith(HttpStatusCode.Unauthorized, "{}"));
+
+        using HttpRequestMessage request = new(HttpMethod.Get, "https://localhost:5004/translations");
+        HttpResponseMessage response = await invoker.SendAsync(request, CancellationToken.None);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.Unauthorized);
+        response.Dispose();
+    }
+
+    private static (HttpMessageInvoker, StubHttpMessageHandler) CreateInvoker(
+        IHttpContextAccessor accessor,
+        StubHttpMessageHandler? inner = null)
+    {
+        StubHttpMessageHandler stub = inner ?? StubHttpMessageHandler.RespondWith(HttpStatusCode.OK, "{}");
         TranslationContentNegotiationAndAuthDelegatingHandler handler = new(accessor)
         {
-            InnerHandler = inner
+            InnerHandler = stub
         };
-        return (new HttpMessageInvoker(handler), inner);
+        return (new HttpMessageInvoker(handler), stub);
     }
 
     private static IHttpContextAccessor AnonymousContext()
@@ -86,7 +135,9 @@ public sealed class TranslationContentNegotiationAndAuthDelegatingHandlerTests
         return accessor;
     }
 
-    private static IHttpContextAccessor AuthenticatedContext(string? accessToken)
+    private static IHttpContextAccessor AuthenticatedContext(
+        string? accessToken,
+        IDeadSessionRegistry? deadSessionRegistry = null)
     {
         ClaimsPrincipal principal = new(new ClaimsIdentity(
             [new Claim("sub", "user-1")],
@@ -110,6 +161,7 @@ public sealed class TranslationContentNegotiationAndAuthDelegatingHandlerTests
 
         ServiceCollection services = new();
         services.AddSingleton(authenticationService);
+        services.AddSingleton(deadSessionRegistry ?? Substitute.For<IDeadSessionRegistry>());
 
         DefaultHttpContext httpContext = new()
         {

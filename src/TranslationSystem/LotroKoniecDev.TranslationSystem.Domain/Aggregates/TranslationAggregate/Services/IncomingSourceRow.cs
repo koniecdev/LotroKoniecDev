@@ -7,4 +7,4 @@ namespace LotroKoniecDev.TranslationSystem.Domain.Aggregates.TranslationAggregat
 /// English source. The API parser produces the raw rows; the import handler validates them into
 /// these value-object pairs before handing them to <see cref="TranslationDiffService"/>.
 /// </summary>
-public sealed record IncomingTranslation(FragmentKey Key, TranslationSource Source);
+public sealed record IncomingSourceRow(FragmentKey Key, TranslationSource Source);

@@ -54,17 +54,24 @@ public sealed class Translation : AggregateRoot<TranslationId>
 
     /// <summary>
     /// Source-changed (spec 0001): overwrite the stored English; if Polish work exists it is
-    /// invalidated (parked as <see cref="TranslationStatus.NeedsReview"/>, the superseded English
-    /// kept in <see cref="PreviousSourceText"/> for side-by-side context); stamps
-    /// <see cref="LastSourceChangeInVersion"/>. Also clears any soft-removal — a re-added pair
-    /// whose source differs lands here.
+    /// invalidated (parked as <see cref="TranslationStatus.NeedsReview"/>, the English the current
+    /// Polish was written against kept in <see cref="PreviousSourceText"/> for side-by-side context);
+    /// stamps <see cref="LastSourceChangeInVersion"/>. Also clears any soft-removal — a re-added pair
+    /// whose source differs lands here. Further source changes while still
+    /// <see cref="TranslationStatus.NeedsReview"/> overwrite the source but leave
+    /// <see cref="PreviousSourceText"/> frozen, so a row reworded across several updates before review
+    /// still shows the translator the English their Polish actually corresponds to; it refreshes only
+    /// once the row is re-drafted (<see cref="ProvideTranslation"/>).
     /// </summary>
     public void ApplySourceChange(TranslationSource newSource, GameVersionId changedInVersion, DateTimeOffset now)
     {
         ArgumentNullException.ThrowIfNull(newSource);
         Ensure.NotEmpty(changedInVersion);
 
-        if (Status is TranslationStatus.Draft or TranslationStatus.Approved or TranslationStatus.NeedsReview)
+        // Capture the superseded English only when leaving a state where the Polish was valid
+        // (Draft/Approved). Re-entering from NeedsReview would clobber the baseline the current Polish
+        // was written against with an intermediate source the translator never saw.
+        if (Status is TranslationStatus.Draft or TranslationStatus.Approved)
         {
             PreviousSourceText = Source.Text;
             Status = TranslationStatus.NeedsReview;

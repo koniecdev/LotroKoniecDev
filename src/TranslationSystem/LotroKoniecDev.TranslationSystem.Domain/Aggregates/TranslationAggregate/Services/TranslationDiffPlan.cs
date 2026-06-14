@@ -19,10 +19,14 @@ public sealed class TranslationDiffPlan
     public IReadOnlyList<Translation> Restored { get; }
     public int UnchangedCount { get; }
 
-    /// <summary>Source-changed rows that carried Polish work and were therefore invalidated.</summary>
+    /// <summary>
+    /// Source-changed rows that carried Polish work and were therefore invalidated.
+    /// </summary>
     public int InvalidatedCount { get; }
 
-    /// <summary>Active (non-removed) stored rows — the denominator of the removed-fraction guard.</summary>
+    /// <summary>
+    /// Active (non-removed) stored rows — the denominator of the removed-fraction guard.
+    /// </summary>
     public int ComparableExistingCount { get; }
 
     public TranslationDiffPlan(

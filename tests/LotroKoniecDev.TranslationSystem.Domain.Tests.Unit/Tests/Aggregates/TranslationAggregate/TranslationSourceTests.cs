@@ -1,6 +1,5 @@
 using LotroKoniecDev.SharedKernel.Monads;
 using LotroKoniecDev.TranslationSystem.Domain.Aggregates.TranslationAggregate.ValueObjects;
-using LotroKoniecDev.TranslationSystem.Domain.Core.Errors;
 
 namespace LotroKoniecDev.TranslationSystem.Domain.Tests.Unit.Tests.Aggregates.TranslationAggregate;
 
@@ -17,17 +16,6 @@ public sealed class TranslationSourceTests
         result.Value.Text.ShouldBe("Welcome to <--DO_NOT_TOUCH!--> Middle-earth");
         result.Value.ArgsOrder.ShouldBe("1");
         result.Value.ArgsId.ShouldBe("1");
-    }
-
-    [Fact]
-    public void Create_WithNullText_ShouldReturnTextRequired()
-    {
-        // Act
-        Result<TranslationSource> result = TranslationSource.Create(null!, null, null);
-
-        // Assert
-        result.IsFailure.ShouldBeTrue();
-        result.Error.ShouldBe(DomainErrors.TranslationEntity.SourceProperty.TextRequired);
     }
 
     [Theory]

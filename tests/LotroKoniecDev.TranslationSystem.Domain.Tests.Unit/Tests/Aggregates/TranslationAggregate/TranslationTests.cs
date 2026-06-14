@@ -75,6 +75,47 @@ public sealed class TranslationTests
     }
 
     [Fact]
+    public void ApplySourceChange_OnAlreadyNeedsReviewRow_ShouldKeepFirstSupersededSource()
+    {
+        // Arrange — a row reworded by several updates before anyone reviews it (spec 0001): the
+        // superseded English must stay pinned to what the still-current Polish was written against,
+        // not drift to an intermediate source the translator never translated.
+        Translation translation = CreateUntranslated();
+        translation.ProvideTranslation("Stary polski", Submitter, Created);
+        translation.ApplySourceChange(Source("Reworded once"), ChangeVersion, Changed);
+
+        // Act
+        translation.ApplySourceChange(Source("Reworded twice"), ChangeVersion, Changed);
+
+        // Assert
+        translation.Status.ShouldBe(TranslationStatus.NeedsReview);
+        translation.PreviousSourceText.ShouldBe("Old English");
+        translation.Source.Text.ShouldBe("Reworded twice");
+        translation.TranslatedText.ShouldBe("Stary polski");
+    }
+
+    [Fact]
+    public void ApplySourceChange_AfterReDraftingInvalidatedRow_ShouldRefreshPreviousSource()
+    {
+        // Arrange — translator re-translates an invalidated row against its new English, then a later
+        // update rewords it again: the superseded English must now track the re-drafted baseline, not
+        // the original (spec 0001).
+        Translation translation = CreateUntranslated();
+        translation.ProvideTranslation("Stary polski", Submitter, Created);
+        translation.ApplySourceChange(Source("Reworded once"), ChangeVersion, Changed);
+        translation.ProvideTranslation("Nowy polski", Submitter, Changed);
+
+        // Act
+        translation.ApplySourceChange(Source("Reworded twice"), ChangeVersion, Changed);
+
+        // Assert
+        translation.Status.ShouldBe(TranslationStatus.NeedsReview);
+        translation.PreviousSourceText.ShouldBe("Reworded once");
+        translation.Source.Text.ShouldBe("Reworded twice");
+        translation.TranslatedText.ShouldBe("Nowy polski");
+    }
+
+    [Fact]
     public void MarkRemoved_ShouldSoftMarkWithVersion()
     {
         // Arrange

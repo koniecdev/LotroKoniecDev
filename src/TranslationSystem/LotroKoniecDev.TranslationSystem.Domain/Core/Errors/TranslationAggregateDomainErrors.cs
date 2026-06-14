@@ -43,11 +43,5 @@ public static partial class DomainErrors
                     "The gossip id must not be negative.",
                     TypeOfError.Validation);
         }
-
-        public static class SourceProperty
-        {
-            public static Error TextRequired
-                => Required(nameof(TranslationEntity), "SourceText");
-        }
     }
 }

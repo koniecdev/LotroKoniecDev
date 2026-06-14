@@ -159,6 +159,12 @@ For every row of the uploaded export, compared against the stored source state b
   slice #101 gains this rule). The stale Polish is **kept** as the draft starting point, and the
   superseded English is stored in a single `PreviousSourceText` column so the translator sees
   old-vs-new source side by side — one column, not a history table (#50 stays post-MVP).
+- **Multi-update-before-review:** when a row is reworded by several patches before anyone reviews
+  it, `PreviousSourceText` is **frozen at the first invalidation** — the English the still-current
+  Polish was written against — not overwritten by each intermediate source the translator never
+  saw. It refreshes only when the row is re-drafted (upsert against the new English), so it always
+  tracks the baseline the current Polish actually corresponds to. Per-patch history stays #50,
+  post-MVP.
 - Worst case is by design: every patch may invalidate some translations; that is the system
   working, not failing.
 

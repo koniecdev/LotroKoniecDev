@@ -273,6 +273,13 @@ file_id||gossip_id||translated_text||args_order||args_id||approved
   document a type or member. Omit entirely when the name already explains the intent; reserve
   plain `//` for the non-obvious *why* inline in logic.
 - Code & identifiers in **English**.
+- **Domain class member order — mirror TheKittySaver exactly** (golden refs:
+  `…AdoptionSystem.Domain/Aggregates/CatAggregate/Entities/Cat.cs`, `…/Vaccination.cs`). Top to
+  bottom: (1) `public const`s, (2) `private readonly` backing fields (e.g. child collections),
+  (3) public properties, (4) public/internal behavior methods, (5) public/internal `static`
+  factory method(s) (`Create`), (6) private constructors (domain ctor, then the parameterless EF
+  ctor), (7) private helper methods. The `Create` factory sits **after** the behavior methods and
+  **immediately before** the constructors — not at the top.
 
 ## Anatomy of a feature slice
 
@@ -349,24 +356,40 @@ structure.
    empirical DAT/update finding → `docs/knowledge-base/` (dated). The same mistake made twice
    means a rule is missing.
 
-### Loop mode — one ticket = one closed PR, never a pile-up
+### Loop mode — one ticket = one closed PR, in its own fresh context
 
-When running tickets in a loop (`/loop`, autonomous run, or "work through the backlog"), **fully
-close each ticket before starting the next** — never let two tickets' work share an uncommitted
-working copy. Per ticket, in order:
+Working the backlog autonomously has **two non-negotiables: one ticket = one closed PR (git
+hygiene), and one ticket = one fresh context (cost + quality).** Different rules; both must hold.
 
-1. Implement on the ticket's branch (`gh issue develop <n> --checkout`) — green build, zero warnings.
-2. **Commit** the slice (message references the ticket; Co-Authored-By footer).
-3. Run the **`code-reviewer`** agent on the diff (+ **`/security-review`** for native interop / file
-   protection / auth); fix findings and re-commit until the review is clean.
-4. Push and open the PR: `gh pr create --fill --body "Closes #<n>"`.
-5. Merge it yourself: `gh pr merge <n> --squash --delete-branch`, then `git checkout main && git pull`.
-6. Only now pick up the next ticket.
+**Context isolation — the canonical loop is `/backlog`, not `/loop /ticket`.** A self-paced
+`/loop /ticket` runs every ticket in the *same* growing session: ticket N's full transcript stays
+in context while ticket N+1 works, per-turn cache-read cost climbs, lossy auto-compaction
+eventually fires, and signal gets diluted — the opposite of "sharp context per ticket." Instead the
+**`/backlog` orchestrator** spawns one **`ticket-worker`** subagent per ticket; each worker gets a
+fresh, isolated context, does the whole slice, and returns only a compact summary. The orchestrator
+stays thin (N summaries, not N transcripts) and never reads diffs or implements — so per-ticket
+cost is bounded and predictable, with no context bleed between tickets. (Parallelism across
+*independent* tickets is a separate opt-in move: background agents + a worktree per ticket; the
+default loop is serial.)
 
-Entering loop mode **is** the standing authorization for steps 2–5 — the interactive "ask before
-pushing" rule (§5 above) is waived for the duration of the loop. A single wholesale lift (e.g. the
-AuthSystem module) is **one ticket**: a large diff there is expected and fine — what's not fine is
-two tickets' worth of files sitting uncommitted at once.
+**Git hygiene — fully close each ticket before the next; never let two tickets' work share an
+uncommitted working copy.** Division of labour:
+
+- **`ticket-worker`** (own context), per ticket: branch (`gh issue develop <n> --checkout`) →
+  implement (green build, zero warnings) → unit/integration tests → **`code-reviewer`** agent
+  (+ **`/security-review`** for native interop / file protection / auth) until APPROVE → commit
+  (ticket ref + Co-Authored-By footer) → push → `gh pr create --fill --body "Closes #<n>"`. It does
+  **not** merge. On an open *business* question, unmet dependency, mis-scope, or an unreachable
+  green build / clean review, it returns **BLOCKED** instead of guessing.
+- **`/backlog`** (thin orchestrator): merges each clean PR (`gh pr merge <n> --squash
+  --delete-branch`, then `git checkout main && git pull`), surfaces every BLOCKED ticket's questions
+  to the user verbatim, and picks the next ready ticket.
+
+Entering loop mode (`/backlog`, or an explicit "work through the backlog") **is** the standing
+authorization for commit → push → PR → merge — the interactive "ask before pushing" rule (§5 above)
+is waived for the duration of the loop. A single wholesale lift (e.g. the AuthSystem module) is
+**one ticket**: a large diff there is expected and fine — what's not fine is two tickets' worth of
+files sitting uncommitted at once, or two tickets sharing one context.
 
 ## Roadmap (digest — details land as re-cut GitHub issues)
 
@@ -403,6 +426,11 @@ when the request matches, without waiting for the user to type the slash:
   TheKittySaver + the de-mediatorization recipe until the skill is updated).
 - User is **settling an architecture/modeling choice** → **`/adr`** first, then implement.
 - Any **DAT binary format work** → hand off to the **`dat-format-expert`** agent.
+- User says **"kontynuuj pracę w pętli" / "continue the loop" / "work through the backlog" /
+  "jazda dalej"** (any keep-grinding-tickets phrasing, in a fresh or current session) → invoke
+  **`/backlog`** (one isolated `ticket-worker` per ticket). NEVER grind tickets inline in the
+  current session — that balloons one context, the exact anti-pattern Loop mode forbids — and
+  never route to `/loop`.
 
 Don't narrate "I'll run the command" — just follow the workflow and report results. Never scaffold
 off a vague one-liner: if a business rule is unclear, ask once, then proceed.

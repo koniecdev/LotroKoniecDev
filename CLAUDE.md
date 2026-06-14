@@ -157,15 +157,15 @@ dotnet ef migrations add <Name> \
   --project src/TranslationSystem/LotroKoniecDev.TranslationSystem.Persistence \
   --startup-project src/TranslationSystem/LotroKoniecDev.TranslationSystem.Persistence \
   --context ApplicationWriteDbContext \
-  -- --connection "Host=localhost;Database=lotro_translation;Username=postgres;Password=postgres"
+  -- --connection "Host=localhost;Database=lotro_translation;Username=postgres;Password=changeme"
 
 # TMS — Docker compose stack (postgres + migrator + auth-api + tms-api + aspire-dashboard + mailpit)
-docker compose up -d                                   # boots the whole M2 backend (HTTP-only, dev defaults; no .env needed)
+docker compose up -d                                   # boots the M2 backend (HTTP-only); requires a .env — scripts/up.sh creates one
 docker compose build [<service>]                       # rebuild the API/migrator images after code changes
 docker compose logs -f migrator                        # watch the one-shot schema migration (TMS + Auth contexts)
 docker compose down                                    # stop; add -v to also drop the postgres volume (fresh DB)
 # Endpoints: tms-api :5002 · auth-api :5003 · aspire :18888 · mailpit :8025   (e.g. curl http://localhost:5002/health)
-# scripts/up.sh | up.ps1 = the same `up` with a one-time .env bootstrap from .env.example.
+# scripts/up.sh | up.ps1 = recommended boot — bootstraps .env from .env.example (compose has no secret defaults), then up.
 ```
 
 The compose stack runs the backend on **HTTP** for local dev; HTTPS + dev-cert mounting arrives with the

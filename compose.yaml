@@ -5,7 +5,7 @@ services:
     image: postgres:17-alpine
     environment:
       POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: lotro_translation
     ports:
       - "5432:5432"
@@ -39,8 +39,8 @@ services:
       dockerfile: Dockerfile.migrator
     environment:
       ASPNETCORE_ENVIRONMENT: Development
-      ConnectionStrings__TranslationDatabase: "Host=postgres;Port=5432;Database=lotro_translation;Username=postgres;Password=${POSTGRES_PASSWORD:-postgres}"
-      ConnectionStrings__AuthDatabase: "Host=postgres;Port=5432;Database=lotro_auth;Username=postgres;Password=${POSTGRES_PASSWORD:-postgres}"
+      ConnectionStrings__TranslationDatabase: "Host=postgres;Port=5432;Database=lotro_translation;Username=postgres;Password=${POSTGRES_PASSWORD}"
+      ConnectionStrings__AuthDatabase: "Host=postgres;Port=5432;Database=lotro_auth;Username=postgres;Password=${POSTGRES_PASSWORD}"
     depends_on:
       postgres:
         condition: service_healthy
@@ -55,7 +55,7 @@ services:
     environment:
       ASPNETCORE_ENVIRONMENT: Development
       ASPNETCORE_URLS: "http://+:8080"
-      ConnectionStrings__AuthDatabase: "Host=postgres;Port=5432;Database=lotro_auth;Username=postgres;Password=${POSTGRES_PASSWORD:-postgres}"
+      ConnectionStrings__AuthDatabase: "Host=postgres;Port=5432;Database=lotro_auth;Username=postgres;Password=${POSTGRES_PASSWORD}"
       # Browser-facing issuer stamped into every token's 'iss'; tms-api validates against this exact value.
       OpenIddict__Issuer: "https://localhost:5003"
       AdminUser__Username: ${AUTH_ADMIN_USERNAME:-}
@@ -80,7 +80,7 @@ services:
     environment:
       ASPNETCORE_ENVIRONMENT: Development
       ASPNETCORE_URLS: "http://+:8080"
-      ConnectionStrings__TranslationDatabase: "Host=postgres;Port=5432;Database=lotro_translation;Username=postgres;Password=${POSTGRES_PASSWORD:-postgres}"
+      ConnectionStrings__TranslationDatabase: "Host=postgres;Port=5432;Database=lotro_translation;Username=postgres;Password=${POSTGRES_PASSWORD}"
       # Issuer must match the token 'iss' (auth-api's OpenIddict:Issuer — the browser-facing https URL);
       # Authority is the in-network address tms-api uses to fetch OIDC metadata + JWKS.
       Auth__Issuer: "https://localhost:5003"

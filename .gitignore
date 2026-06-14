@@ -3,8 +3,13 @@
 ##
 ## Get latest from `dotnet new gitignore`
 
-# dotenv files
+# dotenv files & secrets (M2-16) — only .env.example (placeholders) is tracked
 .env
+*.env
+.env.*
+!.env.example
+appsettings.*.local.json
+**/secrets.json
 
 # User-specific files
 *.rsuser

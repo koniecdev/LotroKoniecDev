@@ -1,0 +1,10 @@
+# Local secret-scanning gate. One-time setup per clone:
+#   pip install pre-commit   (or: brew install pre-commit)
+#   pre-commit install
+# Thereafter `git commit` runs gitleaks on staged changes and blocks any leaked secret.
+# Keep `rev` in sync with the gitleaks version pinned in .github/workflows/gitleaks.yml.
+repos:
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.30.1
+    hooks:
+      - id: gitleaks

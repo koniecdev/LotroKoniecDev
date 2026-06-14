@@ -21,7 +21,7 @@ public sealed class TranslationDiffServiceTests
             IntroducedVersion,
             StoredAt).Value;
 
-    private static IncomingTranslation Incoming(int fileId, long gossipId, string text, string? argsOrder = null)
+    private static IncomingSourceRow Incoming(int fileId, long gossipId, string text, string? argsOrder = null)
         => new(
             FragmentKey.Create(fileId, gossipId).Value,
             TranslationSource.Create(text, argsOrder, argsOrder).Value);
@@ -30,7 +30,7 @@ public sealed class TranslationDiffServiceTests
     public void ComputePlan_OnEmptyStore_ShouldAddEveryRow()
     {
         // Arrange
-        IncomingTranslation[] incoming = [Incoming(1, 1, "A"), Incoming(1, 2, "B")];
+        IncomingSourceRow[] incoming = [Incoming(1, 1, "A"), Incoming(1, 2, "B")];
 
         // Act
         TranslationDiffPlan plan = TranslationDiffService.ComputePlan([], incoming, TargetVersion, ImportAt);
@@ -49,7 +49,7 @@ public sealed class TranslationDiffServiceTests
     {
         // Arrange
         Translation[] existing = [Existing(1, 1, "A")];
-        IncomingTranslation[] incoming = [Incoming(1, 1, "A"), Incoming(1, 2, "B")];
+        IncomingSourceRow[] incoming = [Incoming(1, 1, "A"), Incoming(1, 2, "B")];
 
         // Act
         TranslationDiffPlan plan = TranslationDiffService.ComputePlan(existing, incoming, TargetVersion, ImportAt);
@@ -65,7 +65,7 @@ public sealed class TranslationDiffServiceTests
     {
         // Arrange
         Translation[] existing = [Existing(1, 1, "A")];
-        IncomingTranslation[] incoming = [Incoming(1, 1, "A")];
+        IncomingSourceRow[] incoming = [Incoming(1, 1, "A")];
 
         // Act
         TranslationDiffPlan plan = TranslationDiffService.ComputePlan(existing, incoming, TargetVersion, ImportAt);
@@ -82,7 +82,7 @@ public sealed class TranslationDiffServiceTests
     {
         // Arrange
         Translation[] existing = [Existing(1, 1, "Old")];
-        IncomingTranslation[] incoming = [Incoming(1, 1, "New")];
+        IncomingSourceRow[] incoming = [Incoming(1, 1, "New")];
 
         // Act
         TranslationDiffPlan plan = TranslationDiffService.ComputePlan(existing, incoming, TargetVersion, ImportAt);
@@ -99,7 +99,7 @@ public sealed class TranslationDiffServiceTests
         // Arrange
         Translation withPolish = Existing(1, 1, "Old");
         withPolish.ProvideTranslation("Polski", IdentityId.Create(), StoredAt);
-        IncomingTranslation[] incoming = [Incoming(1, 1, "New")];
+        IncomingSourceRow[] incoming = [Incoming(1, 1, "New")];
 
         // Act
         TranslationDiffPlan plan = TranslationDiffService.ComputePlan([withPolish], incoming, TargetVersion, ImportAt);
@@ -114,7 +114,7 @@ public sealed class TranslationDiffServiceTests
     {
         // Arrange — identical text, different argument structure is still a source change.
         Translation[] existing = [Existing(1, 1, "Text", argsOrder: "1-2")];
-        IncomingTranslation[] incoming = [Incoming(1, 1, "Text", argsOrder: "2-1")];
+        IncomingSourceRow[] incoming = [Incoming(1, 1, "Text", argsOrder: "2-1")];
 
         // Act
         TranslationDiffPlan plan = TranslationDiffService.ComputePlan(existing, incoming, TargetVersion, ImportAt);
@@ -129,7 +129,7 @@ public sealed class TranslationDiffServiceTests
     {
         // Arrange
         Translation[] existing = [Existing(1, 1, "A"), Existing(1, 2, "B")];
-        IncomingTranslation[] incoming = [Incoming(1, 1, "A")];
+        IncomingSourceRow[] incoming = [Incoming(1, 1, "A")];
 
         // Act
         TranslationDiffPlan plan = TranslationDiffService.ComputePlan(existing, incoming, TargetVersion, ImportAt);
@@ -146,7 +146,7 @@ public sealed class TranslationDiffServiceTests
         Translation alreadyRemoved = Existing(1, 2, "B");
         alreadyRemoved.MarkRemoved(IntroducedVersion, StoredAt);
         Translation[] existing = [Existing(1, 1, "A"), alreadyRemoved];
-        IncomingTranslation[] incoming = [Incoming(1, 1, "A")];
+        IncomingSourceRow[] incoming = [Incoming(1, 1, "A")];
 
         // Act
         TranslationDiffPlan plan = TranslationDiffService.ComputePlan(existing, incoming, TargetVersion, ImportAt);
@@ -162,7 +162,7 @@ public sealed class TranslationDiffServiceTests
         // Arrange
         Translation removed = Existing(1, 1, "A");
         removed.MarkRemoved(IntroducedVersion, StoredAt);
-        IncomingTranslation[] incoming = [Incoming(1, 1, "A")];
+        IncomingSourceRow[] incoming = [Incoming(1, 1, "A")];
 
         // Act
         TranslationDiffPlan plan = TranslationDiffService.ComputePlan([removed], incoming, TargetVersion, ImportAt);
@@ -179,7 +179,7 @@ public sealed class TranslationDiffServiceTests
         // Arrange
         Translation removed = Existing(1, 1, "Old");
         removed.MarkRemoved(IntroducedVersion, StoredAt);
-        IncomingTranslation[] incoming = [Incoming(1, 1, "New")];
+        IncomingSourceRow[] incoming = [Incoming(1, 1, "New")];
 
         // Act
         TranslationDiffPlan plan = TranslationDiffService.ComputePlan([removed], incoming, TargetVersion, ImportAt);
@@ -197,7 +197,7 @@ public sealed class TranslationDiffServiceTests
         [
             Existing(1, 1, "A"), Existing(1, 2, "B"), Existing(1, 3, "C"), Existing(1, 4, "D"), Existing(1, 5, "E")
         ];
-        IncomingTranslation[] incoming =
+        IncomingSourceRow[] incoming =
         [
             Incoming(1, 1, "A"), Incoming(1, 2, "B"), Incoming(1, 3, "C"), Incoming(1, 4, "D")
         ];

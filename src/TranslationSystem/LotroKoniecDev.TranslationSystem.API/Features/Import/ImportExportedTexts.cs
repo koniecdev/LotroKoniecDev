@@ -106,7 +106,7 @@ internal sealed class ImportExportedTexts : IEndpoint
                 return Result.Failure<ImportSummary>(ImportErrors.EmptyUpload());
             }
 
-            Result<IReadOnlyList<IncomingTranslation>> incomingResult = MapToIncoming(parsed.Rows);
+            Result<IReadOnlyList<IncomingSourceRow>> incomingResult = MapToIncoming(parsed.Rows);
             if (incomingResult.IsFailure)
             {
                 return Result.Failure<ImportSummary>(incomingResult.Error);
@@ -169,9 +169,9 @@ internal sealed class ImportExportedTexts : IEndpoint
             return Result.Success(BuildSummary(plan));
         }
 
-        private static Result<IReadOnlyList<IncomingTranslation>> MapToIncoming(IReadOnlyList<ParsedExportRow> rows)
+        private static Result<IReadOnlyList<IncomingSourceRow>> MapToIncoming(IReadOnlyList<ParsedExportRow> rows)
         {
-            List<IncomingTranslation> incoming = new(rows.Count);
+            List<IncomingSourceRow> incoming = new(rows.Count);
             HashSet<FragmentKey> seen = [];
 
             foreach (ParsedExportRow row in rows)
@@ -179,27 +179,27 @@ internal sealed class ImportExportedTexts : IEndpoint
                 Result<FragmentKey> keyResult = FragmentKey.Create(row.FileId, row.GossipId);
                 if (keyResult.IsFailure)
                 {
-                    return Result.Failure<IReadOnlyList<IncomingTranslation>>(
+                    return Result.Failure<IReadOnlyList<IncomingSourceRow>>(
                         ImportErrors.InvalidRow(row.FileId, row.GossipId, keyResult.Error.Message));
                 }
 
                 Result<TranslationSource> sourceResult = TranslationSource.Create(row.Content, row.ArgsOrder, row.ArgsId);
                 if (sourceResult.IsFailure)
                 {
-                    return Result.Failure<IReadOnlyList<IncomingTranslation>>(
+                    return Result.Failure<IReadOnlyList<IncomingSourceRow>>(
                         ImportErrors.InvalidRow(row.FileId, row.GossipId, sourceResult.Error.Message));
                 }
 
                 if (!seen.Add(keyResult.Value))
                 {
-                    return Result.Failure<IReadOnlyList<IncomingTranslation>>(
+                    return Result.Failure<IReadOnlyList<IncomingSourceRow>>(
                         ImportErrors.DuplicateFragmentKey(row.FileId, row.GossipId));
                 }
 
-                incoming.Add(new IncomingTranslation(keyResult.Value, sourceResult.Value));
+                incoming.Add(new IncomingSourceRow(keyResult.Value, sourceResult.Value));
             }
 
-            return Result.Success<IReadOnlyList<IncomingTranslation>>(incoming);
+            return Result.Success<IReadOnlyList<IncomingSourceRow>>(incoming);
         }
 
         private static ImportSummary BuildSummary(TranslationDiffPlan plan)

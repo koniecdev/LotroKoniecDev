@@ -30,7 +30,9 @@ public sealed class TranslationArtifact : AggregateRoot<TranslationArtifactId>
         return new TranslationArtifact(TranslationArtifactId.Create(), language, content, contentHash, now);
     }
 
-    /// <summary>Regenerate-on-write: replaces the serialized content and its hash in place.</summary>
+    /// <summary>
+    /// Regenerate-on-write: replaces the serialized content and its hash in place.
+    /// </summary>
     public void Replace(string content, string contentHash, DateTimeOffset now)
     {
         ArgumentNullException.ThrowIfNull(content);

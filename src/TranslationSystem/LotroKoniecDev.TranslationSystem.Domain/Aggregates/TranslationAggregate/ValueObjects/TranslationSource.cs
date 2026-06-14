@@ -1,6 +1,5 @@
 using LotroKoniecDev.SharedKernel.BuildingBlocks;
 using LotroKoniecDev.SharedKernel.Monads;
-using LotroKoniecDev.TranslationSystem.Domain.Core.Errors;
 
 namespace LotroKoniecDev.TranslationSystem.Domain.Aggregates.TranslationAggregate.ValueObjects;
 
@@ -19,10 +18,10 @@ public sealed class TranslationSource : ValueObject
 
     public static Result<TranslationSource> Create(string text, string? argsOrder, string? argsId)
     {
-        if (text is null)
-        {
-            return Result.Failure<TranslationSource>(DomainErrors.TranslationEntity.SourceProperty.TextRequired);
-        }
+        // Source text is exported verbatim from the DAT — empty fragments are legal game content and
+        // must round-trip. A null here is never produced by the parser, so it is a programmer error,
+        // not a per-row validation failure.
+        ArgumentNullException.ThrowIfNull(text);
 
         TranslationSource instance = new(text, NormalizeArgs(argsOrder), NormalizeArgs(argsId));
 

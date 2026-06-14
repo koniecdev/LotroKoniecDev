@@ -15,7 +15,7 @@ public static class TranslationDiffService
 {
     public static TranslationDiffPlan ComputePlan(
         IReadOnlyCollection<Translation> existing,
-        IReadOnlyCollection<IncomingTranslation> incoming,
+        IReadOnlyCollection<IncomingSourceRow> incoming,
         GameVersionId targetVersion,
         DateTimeOffset now)
     {
@@ -31,7 +31,7 @@ public static class TranslationDiffService
         int unchangedCount = 0;
         int invalidatedCount = 0;
 
-        foreach (IncomingTranslation row in incoming)
+        foreach (IncomingSourceRow row in incoming)
         {
             if (!existingByKey.TryGetValue(row.Key, out Translation? current))
             {

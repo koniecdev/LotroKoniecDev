@@ -234,11 +234,11 @@ public sealed class GetTranslationFileTests : IAsyncLifetime
                 break;
             case SeedStatus.Approved:
                 row.ProvideTranslation(polish, Submitter, Now);
-                row.Approve(Now);
+                row.Approve(Submitter, Now);
                 break;
             case SeedStatus.ApprovedThenRemoved:
                 row.ProvideTranslation(polish, Submitter, Now);
-                row.Approve(Now);
+                row.Approve(Submitter, Now);
                 row.MarkRemoved(_versionId, Now);
                 break;
         }
@@ -254,7 +254,7 @@ public sealed class GetTranslationFileTests : IAsyncLifetime
         Translation row = await dbContext.Translations
             .SingleAsync(translation => translation.FragmentKey.FileId == FileId && translation.FragmentKey.GossipId == gossipId);
         row.ProvideTranslation(polish, Submitter, Now);
-        row.Approve(Now);
+        row.Approve(Submitter, Now);
         await dbContext.SaveChangesAsync();
     }
 

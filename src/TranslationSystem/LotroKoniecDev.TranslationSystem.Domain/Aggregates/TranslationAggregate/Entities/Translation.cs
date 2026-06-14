@@ -22,6 +22,7 @@ public sealed class Translation : AggregateRoot<TranslationId>
     public string? TranslatedText { get; private set; }
     public string? PreviousSourceText { get; private set; }
     public IdentityId? SubmittedById { get; private set; }
+    public IdentityId? ApprovedById { get; private set; }
     public TranslationStatus Status { get; private set; }
     public GameVersionId IntroducedInVersion { get; private set; }
     public GameVersionId? LastSourceChangeInVersion { get; private set; }
@@ -118,12 +119,13 @@ public sealed class Translation : AggregateRoot<TranslationId>
     }
 
     /// <summary>
-    /// Approves the Polish draft for distribution (spec 0001). Minimal seed form (#102): requires
-    /// Polish content and a non-removed row, then flips the status to
-    /// <see cref="TranslationStatus.Approved"/>. #101 enriches it — clears
-    /// <see cref="PreviousSourceText"/>, stamps the approver and triggers artifact regeneration.
+    /// Approves the Polish draft for distribution (spec 0001, #101): requires Polish content and a
+    /// non-removed row, then flips the status to <see cref="TranslationStatus.Approved"/>, stamps the
+    /// approving reviewer and clears <see cref="PreviousSourceText"/>. Approving a re-translated
+    /// <see cref="TranslationStatus.NeedsReview"/> row resolves the invalidation — the superseded
+    /// English side-by-side context is no longer needed — so the row re-enters the distributed set.
     /// </summary>
-    public Result Approve(DateTimeOffset now)
+    public Result Approve(IdentityId approvedBy, DateTimeOffset now)
     {
         if (string.IsNullOrWhiteSpace(TranslatedText))
         {
@@ -136,6 +138,8 @@ public sealed class Translation : AggregateRoot<TranslationId>
         }
 
         Status = TranslationStatus.Approved;
+        ApprovedById = approvedBy;
+        PreviousSourceText = null;
         UpdatedAt = now;
 
         return Result.Success();

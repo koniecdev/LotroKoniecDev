@@ -141,6 +141,7 @@ internal sealed class UpsertTranslation : IEndpoint
                 translation.TranslatedText,
                 translation.PreviousSourceText,
                 translation.SubmittedById?.Value,
+                translation.ApprovedById?.Value,
                 translation.Status,
                 translation.CreatedAt,
                 translation.UpdatedAt);

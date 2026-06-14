@@ -69,12 +69,12 @@ public sealed class RegisterGameVersionHandlerTests
     {
         // Arrange — repository reports the version is new (default substitute returns false).
 
-        // Act
+        // Act — input is trimmed and normalized to canonical ("48.0" → "48").
         Result<GameVersionResponse> result = await CreateHandler().Handle(new RegisterGameVersion.Command(" 48.0 "), CancellationToken.None);
 
         // Assert
         result.IsSuccess.ShouldBeTrue();
-        result.Value.Version.ShouldBe("48.0");
+        result.Value.Version.ShouldBe("48");
         result.Value.Status.ShouldBe(GameVersionStatus.Unprocessed);
         // Persistence is invisible in the returned response (built from the in-memory aggregate),
         // so SaveChanges is the persistence proof — matching the sibling command tests.

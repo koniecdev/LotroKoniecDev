@@ -50,14 +50,14 @@ public sealed class ListGameVersionsTests : IAsyncLifetime
         GameVersionResponse[]? body = await (await client.GetAsync(Route))
             .Content.ReadFromJsonAsync<GameVersionResponse[]>(JsonOptions);
 
-        // Assert — newest first; status round-trips.
+        // Assert — newest first; status round-trips; versions are stored canonical (trailing zeros dropped).
         body.ShouldNotBeNull();
         body.Length.ShouldBe(3);
-        body[0].Version.ShouldBe("48.0");
+        body[0].Version.ShouldBe("48");
         body[0].Status.ShouldBe(GameVersionStatus.Unprocessed);
         body[1].Version.ShouldBe("47.1");
         body[1].Status.ShouldBe(GameVersionStatus.Processed);
-        body[2].Version.ShouldBe("47.0");
+        body[2].Version.ShouldBe("47");
         body[2].Status.ShouldBe(GameVersionStatus.Superseded);
     }
 

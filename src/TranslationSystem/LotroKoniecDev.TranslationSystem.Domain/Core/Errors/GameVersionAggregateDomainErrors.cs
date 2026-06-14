@@ -34,6 +34,9 @@ public static partial class DomainErrors
 
             public static Error LongerThanAllowed
                 => TooManyCharacters(nameof(GameVersionEntity), nameof(GameVersion.LotroNotationVersion), LotroNotationVersion.VersionMaxLength);
+
+            public static Error InvalidFormat
+                => InvalidDottedNumericFormat(nameof(GameVersionEntity), nameof(GameVersion.LotroNotationVersion));
         }
     }
 }

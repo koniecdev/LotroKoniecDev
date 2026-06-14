@@ -37,7 +37,7 @@ public sealed class RegisterGameVersionTests : IAsyncLifetime
     [Fact]
     public async Task Register_WithNewVersion_ShouldReturn201UnprocessedAndAppearInList()
     {
-        // Arrange
+        // Arrange — input carries an insignificant trailing zero; it is stored canonical ("48").
         using HttpClient client = AdminClient();
 
         // Act
@@ -49,24 +49,42 @@ public sealed class RegisterGameVersionTests : IAsyncLifetime
         // Assert
         response.StatusCode.ShouldBe(HttpStatusCode.Created);
         body.ShouldNotBeNull();
-        body.Version.ShouldBe("48.0");
+        body.Version.ShouldBe("48");
         body.Status.ShouldBe(GameVersionStatus.Unprocessed);
         list.ShouldNotBeNull();
-        list.ShouldContain(version => version.Version == "48.0");
+        list.ShouldContain(version => version.Version == "48");
     }
 
     [Fact]
-    public async Task Register_DuplicateVersion_ShouldReturn422()
+    public async Task Register_DuplicateAcrossEquivalentNotations_ShouldReturn422()
     {
-        // Arrange — registering the same version twice is a conflict (idempotent in effect).
+        // Arrange — "48" and "48.0.0" canonicalize to the same version, so the second is a conflict.
         using HttpClient client = AdminClient();
-        await client.PostAsJsonAsync(Route, new RegisterGameVersionRequest("48.0"));
+        await client.PostAsJsonAsync(Route, new RegisterGameVersionRequest("48"));
 
         // Act
-        HttpResponseMessage response = await client.PostAsJsonAsync(Route, new RegisterGameVersionRequest("48.0"));
+        HttpResponseMessage response = await client.PostAsJsonAsync(Route, new RegisterGameVersionRequest("48.0.0"));
 
         // Assert
         response.StatusCode.ShouldBe(HttpStatusCode.UnprocessableEntity);
+
+        GameVersionResponse[]? list = await (await client.GetAsync(Route))
+            .Content.ReadFromJsonAsync<GameVersionResponse[]>(JsonOptions);
+        list.ShouldNotBeNull();
+        list.Count(version => version.Version == "48").ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task Register_WithInvalidFormat_ShouldReturn400()
+    {
+        // Arrange
+        using HttpClient client = AdminClient();
+
+        // Act
+        HttpResponseMessage response = await client.PostAsJsonAsync(Route, new RegisterGameVersionRequest("banana"));
+
+        // Assert
+        response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
     }
 
     [Fact]

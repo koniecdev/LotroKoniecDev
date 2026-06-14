@@ -1,0 +1,41 @@
+FROM mcr.microsoft.com/dotnet/sdk:10.0
+
+WORKDIR /app
+
+RUN dotnet tool install --global dotnet-ef
+ENV PATH="$PATH:/root/.dotnet/tools"
+
+COPY ["Directory.Build.props", "."]
+COPY ["Directory.Packages.props", "."]
+COPY [".editorconfig", "."]
+
+ARG CACHEBUST=0
+COPY ["src/TranslationSystem/", "src/TranslationSystem/"]
+COPY ["src/AuthSystem/", "src/AuthSystem/"]
+COPY ["src/SharedKernel/", "src/SharedKernel/"]
+COPY ["src/Utilities/", "src/Utilities/"]
+
+# TMS migrations resolve through the Persistence project (it carries EF Core Design +
+# the design-time factory); Auth resolves through its API project (Auth Persistence
+# intentionally has no Design package). Build exactly those two startup projects.
+RUN dotnet restore src/TranslationSystem/LotroKoniecDev.TranslationSystem.Persistence/LotroKoniecDev.TranslationSystem.Persistence.csproj && \
+    dotnet restore src/AuthSystem/LotroKoniecDev.AuthSystem.API/LotroKoniecDev.AuthSystem.API.csproj
+
+RUN dotnet build src/TranslationSystem/LotroKoniecDev.TranslationSystem.Persistence/LotroKoniecDev.TranslationSystem.Persistence.csproj --no-restore && \
+    dotnet build src/AuthSystem/LotroKoniecDev.AuthSystem.API/LotroKoniecDev.AuthSystem.API.csproj --no-restore
+
+CMD echo "== MIGRATOR START ==" && \
+    dotnet ef database update \
+      --no-build \
+      --project src/TranslationSystem/LotroKoniecDev.TranslationSystem.Persistence \
+      --startup-project src/TranslationSystem/LotroKoniecDev.TranslationSystem.Persistence \
+      --context ApplicationWriteDbContext \
+      -- --connection "${ConnectionStrings__TranslationDatabase}" && \
+    echo "== TRANSLATION MIGRATOR DONE ==" && \
+    dotnet ef database update \
+      --no-build \
+      --project src/AuthSystem/LotroKoniecDev.AuthSystem.Persistence \
+      --startup-project src/AuthSystem/LotroKoniecDev.AuthSystem.API \
+      --context AuthDbContext \
+      -- --connection "${ConnectionStrings__AuthDatabase}" && \
+    echo "== AUTH MIGRATOR DONE =="

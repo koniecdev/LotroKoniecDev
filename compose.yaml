@@ -1,0 +1,98 @@
+name: lotrokoniecdev
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: lotro_translation
+    ports:
+      - "5432:5432"
+    volumes:
+      - lotrokoniecdev-postgres-data:/var/lib/postgresql/data
+      - ./scripts/init-postgres.sh:/docker-entrypoint-initdb.d/10-init-databases.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d lotro_translation"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 10s
+
+  aspire-dashboard:
+    image: mcr.microsoft.com/dotnet/aspire-dashboard:latest
+    environment:
+      DASHBOARD__UNSECURED_ALLOW_ANONYMOUS: "true"
+    ports:
+      - "18888:18888"
+      - "4317:18889"
+
+  mailpit:
+    image: axllent/mailpit:latest
+    ports:
+      - "8025:8025"
+      - "1025:1025"
+
+  migrator:
+    build:
+      context: .
+      dockerfile: Dockerfile.migrator
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      ConnectionStrings__TranslationDatabase: "Host=postgres;Port=5432;Database=lotro_translation;Username=postgres;Password=${POSTGRES_PASSWORD:-postgres}"
+      ConnectionStrings__AuthDatabase: "Host=postgres;Port=5432;Database=lotro_auth;Username=postgres;Password=${POSTGRES_PASSWORD:-postgres}"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  auth-api:
+    build:
+      context: .
+      dockerfile: src/AuthSystem/LotroKoniecDev.AuthSystem.API/Dockerfile
+    ports:
+      - "5003:8080"
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      ASPNETCORE_URLS: "http://+:8080"
+      ConnectionStrings__AuthDatabase: "Host=postgres;Port=5432;Database=lotro_auth;Username=postgres;Password=${POSTGRES_PASSWORD:-postgres}"
+      # Browser-facing issuer stamped into every token's 'iss'; tms-api validates against this exact value.
+      OpenIddict__Issuer: "https://localhost:5003"
+      AdminUser__Username: ${AUTH_ADMIN_USERNAME:-}
+      AdminUser__Email: ${AUTH_ADMIN_EMAIL:-}
+      AdminUser__Password: ${AUTH_ADMIN_PASSWORD:-}
+      Email__Host: mailpit
+      Email__Port: "1025"
+      OTEL_EXPORTER_OTLP_ENDPOINT: "http://aspire-dashboard:18889"
+      OTEL_EXPORTER_OTLP_PROTOCOL: grpc
+    depends_on:
+      migrator:
+        condition: service_completed_successfully
+      mailpit:
+        condition: service_started
+
+  tms-api:
+    build:
+      context: .
+      dockerfile: src/TranslationSystem/LotroKoniecDev.TranslationSystem.API/Dockerfile
+    ports:
+      - "5002:8080"
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      ASPNETCORE_URLS: "http://+:8080"
+      ConnectionStrings__TranslationDatabase: "Host=postgres;Port=5432;Database=lotro_translation;Username=postgres;Password=${POSTGRES_PASSWORD:-postgres}"
+      # Issuer must match the token 'iss' (auth-api's OpenIddict:Issuer — the browser-facing https URL);
+      # Authority is the in-network address tms-api uses to fetch OIDC metadata + JWKS.
+      Auth__Issuer: "https://localhost:5003"
+      Auth__Authority: "http://auth-api:8080"
+      Auth__Audience: lotrokoniecdev-api
+      OTEL_EXPORTER_OTLP_ENDPOINT: "http://aspire-dashboard:18889"
+      OTEL_EXPORTER_OTLP_PROTOCOL: grpc
+    depends_on:
+      migrator:
+        condition: service_completed_successfully
+      auth-api:
+        condition: service_healthy
+
+volumes:
+  lotrokoniecdev-postgres-data:

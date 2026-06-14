@@ -56,7 +56,7 @@ internal sealed class ImportExportedTexts : IEndpoint
         private readonly IUnitOfWork _unitOfWork;
         private readonly TimeProvider _timeProvider;
         private readonly ImportSettings _settings;
-        private readonly ITranslationArtifactBuilder _artifactBuilder;
+        private readonly IPrecomputedTranslationFileProjector _projector;
 
         public Handler(
             IValidator<Command> validator,
@@ -66,7 +66,7 @@ internal sealed class ImportExportedTexts : IEndpoint
             IUnitOfWork unitOfWork,
             TimeProvider timeProvider,
             IOptions<ImportSettings> settings,
-            ITranslationArtifactBuilder artifactBuilder)
+            IPrecomputedTranslationFileProjector projector)
         {
             _validator = validator;
             _parser = parser;
@@ -75,7 +75,7 @@ internal sealed class ImportExportedTexts : IEndpoint
             _unitOfWork = unitOfWork;
             _timeProvider = timeProvider;
             _settings = settings.Value;
-            _artifactBuilder = artifactBuilder;
+            _projector = projector;
         }
 
         public async ValueTask<Result<ImportSummary>> Handle(Command command, CancellationToken cancellationToken)
@@ -164,7 +164,7 @@ internal sealed class ImportExportedTexts : IEndpoint
             // Version processing changes the distributed set (removed rows drop out, re-added rows
             // return), so regenerate the pre-built translation file after the import commits
             // (spec 0001: regenerate on write — the download endpoint never builds per-request).
-            await _artifactBuilder.RebuildAsync(SupportedLanguages.Polish, cancellationToken);
+            await _projector.RebuildAsync(SupportedLanguages.Polish, cancellationToken);
 
             return Result.Success(BuildSummary(plan));
         }

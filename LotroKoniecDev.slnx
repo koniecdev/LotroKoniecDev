@@ -33,6 +33,7 @@
     <Project Path="src/TranslationSystem/LotroKoniecDev.TranslationSystem.Domain/LotroKoniecDev.TranslationSystem.Domain.csproj" />
     <Project Path="src/TranslationSystem/LotroKoniecDev.TranslationSystem.ReadModels/LotroKoniecDev.TranslationSystem.ReadModels.csproj" />
     <Project Path="src/TranslationSystem/LotroKoniecDev.TranslationSystem.ReadModels.EntityFramework/LotroKoniecDev.TranslationSystem.ReadModels.EntityFramework.csproj" />
+    <Project Path="src/TranslationSystem/LotroKoniecDev.TranslationSystem.Projections/LotroKoniecDev.TranslationSystem.Projections.csproj" />
     <Project Path="src/TranslationSystem/LotroKoniecDev.TranslationSystem.Persistence/LotroKoniecDev.TranslationSystem.Persistence.csproj" />
     <Project Path="src/TranslationSystem/LotroKoniecDev.TranslationSystem.Contracts/LotroKoniecDev.TranslationSystem.Contracts.csproj" />
     <Project Path="src/TranslationSystem/LotroKoniecDev.TranslationSystem.API/LotroKoniecDev.TranslationSystem.API.csproj" />

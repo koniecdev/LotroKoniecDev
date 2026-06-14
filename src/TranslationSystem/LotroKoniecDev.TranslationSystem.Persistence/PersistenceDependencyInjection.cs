@@ -2,12 +2,13 @@ using FluentValidation;
 using LotroKoniecDev.Options;
 using LotroKoniecDev.TranslationSystem.Domain.Aggregates.GameVersionAggregate.Repositories;
 using LotroKoniecDev.TranslationSystem.Domain.Aggregates.TranslationAggregate.Repositories;
-using LotroKoniecDev.TranslationSystem.Domain.Aggregates.TranslationArtifactAggregate.Repositories;
 using LotroKoniecDev.TranslationSystem.Persistence.DbContexts.Abstractions;
 using LotroKoniecDev.TranslationSystem.Persistence.DbContexts.ReadDbContexts;
 using LotroKoniecDev.TranslationSystem.Persistence.DbContexts.WriteDbContexts;
 using LotroKoniecDev.TranslationSystem.Persistence.DomainRepositories;
+using LotroKoniecDev.TranslationSystem.Persistence.Projections;
 using LotroKoniecDev.TranslationSystem.Persistence.Settings;
+using LotroKoniecDev.TranslationSystem.Projections;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
@@ -57,7 +58,7 @@ public static class PersistenceDependencyInjection
 
             services.AddScoped<IGameVersionRepository, GameVersionRepository>();
             services.AddScoped<ITranslationRepository, TranslationRepository>();
-            services.AddScoped<ITranslationArtifactRepository, TranslationArtifactRepository>();
+            services.AddScoped<IPrecomputedTranslationFileStore, PrecomputedTranslationFileStore>();
 
             return services;
         }

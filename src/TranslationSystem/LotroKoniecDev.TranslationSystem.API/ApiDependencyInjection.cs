@@ -98,10 +98,10 @@ internal static class ApiDependencyInjection
 
         private void AddTranslationFilesFeature()
         {
-            // Serializer + builder are stateless except the builder's single-flight gate, so both
-            // are singletons; the builder resolves scoped EF services through a fresh scope.
+            // Serializer + projector are stateless except the projector's single-flight gate, so both
+            // are singletons; the projector resolves scoped EF services through a fresh scope.
             services.AddSingleton<ITranslationFileSerializer, TranslationFileSerializer>();
-            services.AddSingleton<ITranslationArtifactBuilder, TranslationArtifactBuilder>();
+            services.AddSingleton<IPrecomputedTranslationFileProjector, PrecomputedTranslationFileProjector>();
             services.AddScoped<
                 IQueryHandler<GetTranslationFile.Query, Result<GetTranslationFile.TranslationFileResult>>,
                 GetTranslationFile.Handler>();

@@ -2,29 +2,28 @@ using System.Security.Cryptography;
 using System.Text;
 using LotroKoniecDev.SharedKernel.Monads;
 using LotroKoniecDev.TranslationSystem.API.Parsing;
-using LotroKoniecDev.TranslationSystem.Domain.Aggregates.TranslationArtifactAggregate.Entities;
-using LotroKoniecDev.TranslationSystem.Domain.Aggregates.TranslationArtifactAggregate.Repositories;
 using LotroKoniecDev.TranslationSystem.Persistence.DbContexts.Abstractions;
 using LotroKoniecDev.TranslationSystem.Persistence.DbContexts.ReadDbContexts;
 using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.TranslationAggregate.Enums;
+using LotroKoniecDev.TranslationSystem.Projections;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace LotroKoniecDev.TranslationSystem.API.Features.TranslationFiles;
 
 /// <summary>
-/// Regenerates the pre-built translation file on write (spec 0001: regenerate on version
-/// processing, approve, and upsert affecting an Approved row), so the distribution endpoint serves
-/// a stored artifact without ever building per-request. Single-flight: a process-wide gate
-/// serializes concurrent rebuilds, each producing a consistent snapshot of the Approved set.
-/// Registered as a singleton, so it resolves the scoped EF services through a fresh scope.
+/// Projects the current Approved set into the precomputed translation file on write (spec 0001:
+/// regenerate on version processing, approve, and upsert affecting an Approved row), so the
+/// distribution endpoint serves a stored projection without ever building per-request. Single-flight:
+/// a process-wide gate serializes concurrent rebuilds, each producing a consistent snapshot of the
+/// Approved set. Registered as a singleton, so it resolves the scoped EF services through a fresh scope.
 /// </summary>
-internal sealed class TranslationArtifactBuilder : ITranslationArtifactBuilder
+internal sealed class PrecomputedTranslationFileProjector : IPrecomputedTranslationFileProjector
 {
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly SemaphoreSlim _gate = new(1, 1);
 
-    public TranslationArtifactBuilder(IServiceScopeFactory scopeFactory)
+    public PrecomputedTranslationFileProjector(IServiceScopeFactory scopeFactory)
     {
         _scopeFactory = scopeFactory;
     }
@@ -38,7 +37,7 @@ internal sealed class TranslationArtifactBuilder : ITranslationArtifactBuilder
         {
             await using AsyncServiceScope scope = _scopeFactory.CreateAsyncScope();
             IApplicationReadDbContext readDbContext = scope.ServiceProvider.GetRequiredService<IApplicationReadDbContext>();
-            ITranslationArtifactRepository artifactRepository = scope.ServiceProvider.GetRequiredService<ITranslationArtifactRepository>();
+            IPrecomputedTranslationFileStore fileStore = scope.ServiceProvider.GetRequiredService<IPrecomputedTranslationFileStore>();
             IUnitOfWork unitOfWork = scope.ServiceProvider.GetRequiredService<IUnitOfWork>();
             ITranslationFileSerializer serializer = scope.ServiceProvider.GetRequiredService<ITranslationFileSerializer>();
             TimeProvider timeProvider = scope.ServiceProvider.GetRequiredService<TimeProvider>();
@@ -63,14 +62,14 @@ internal sealed class TranslationArtifactBuilder : ITranslationArtifactBuilder
             string contentHash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(content)));
             DateTimeOffset now = timeProvider.GetUtcNow();
 
-            Maybe<TranslationArtifact> existing = await artifactRepository.GetByLanguageAsync(language, cancellationToken);
+            Maybe<PrecomputedTranslationFile> existing = await fileStore.GetByLanguageAsync(language, cancellationToken);
             if (existing.HasValue)
             {
-                existing.Value.Replace(content, contentHash, now);
+                existing.Value.Refresh(content, contentHash, now);
             }
             else
             {
-                artifactRepository.Insert(TranslationArtifact.Create(language, content, contentHash, now));
+                fileStore.Insert(PrecomputedTranslationFile.Create(language, content, contentHash, now));
             }
 
             await unitOfWork.SaveChangesAsync(cancellationToken);

@@ -27,6 +27,7 @@
     <ItemGroup>
         <ProjectReference Include="..\LotroKoniecDev.TranslationSystem.Domain\LotroKoniecDev.TranslationSystem.Domain.csproj" />
         <ProjectReference Include="..\LotroKoniecDev.TranslationSystem.ReadModels.EntityFramework\LotroKoniecDev.TranslationSystem.ReadModels.EntityFramework.csproj" />
+        <ProjectReference Include="..\LotroKoniecDev.TranslationSystem.Projections\LotroKoniecDev.TranslationSystem.Projections.csproj" />
         <ProjectReference Include="..\..\Utilities\LotroKoniecDev.Options\LotroKoniecDev.Options.csproj" />
     </ItemGroup>
 

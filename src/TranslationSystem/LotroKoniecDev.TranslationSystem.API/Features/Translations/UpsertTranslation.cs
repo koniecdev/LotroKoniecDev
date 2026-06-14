@@ -57,7 +57,7 @@ internal sealed class UpsertTranslation : IEndpoint
         private readonly IUnitOfWork _unitOfWork;
         private readonly ICurrentUserAccessor _currentUserAccessor;
         private readonly TimeProvider _timeProvider;
-        private readonly ITranslationArtifactBuilder _artifactBuilder;
+        private readonly IPrecomputedTranslationFileProjector _projector;
 
         public Handler(
             IValidator<Command> validator,
@@ -65,14 +65,14 @@ internal sealed class UpsertTranslation : IEndpoint
             IUnitOfWork unitOfWork,
             ICurrentUserAccessor currentUserAccessor,
             TimeProvider timeProvider,
-            ITranslationArtifactBuilder artifactBuilder)
+            IPrecomputedTranslationFileProjector projector)
         {
             _validator = validator;
             _translationRepository = translationRepository;
             _unitOfWork = unitOfWork;
             _currentUserAccessor = currentUserAccessor;
             _timeProvider = timeProvider;
-            _artifactBuilder = artifactBuilder;
+            _projector = projector;
         }
 
         public async ValueTask<Result<TranslationDetailResponse>> Handle(Command command, CancellationToken cancellationToken)
@@ -124,7 +124,7 @@ internal sealed class UpsertTranslation : IEndpoint
 
             if (wasApproved)
             {
-                await _artifactBuilder.RebuildAsync(SupportedLanguages.Polish, cancellationToken);
+                await _projector.RebuildAsync(SupportedLanguages.Polish, cancellationToken);
             }
 
             return Result.Success(ToDetailResponse(translation));

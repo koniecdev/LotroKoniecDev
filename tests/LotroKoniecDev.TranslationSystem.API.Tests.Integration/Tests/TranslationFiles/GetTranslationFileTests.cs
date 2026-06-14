@@ -260,7 +260,7 @@ public sealed class GetTranslationFileTests : IAsyncLifetime
 
     private async Task RebuildAsync()
     {
-        ITranslationArtifactBuilder builder = _factory.Services.GetRequiredService<ITranslationArtifactBuilder>();
+        IPrecomputedTranslationFileProjector builder = _factory.Services.GetRequiredService<IPrecomputedTranslationFileProjector>();
         await builder.RebuildAsync("pl", CancellationToken.None);
     }
 

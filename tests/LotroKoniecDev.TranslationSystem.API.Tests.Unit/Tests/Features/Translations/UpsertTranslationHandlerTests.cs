@@ -26,7 +26,7 @@ public sealed class UpsertTranslationHandlerTests
     // a focused hand-written double.
     private readonly ITranslationRepository _translationRepository = Substitute.For<ITranslationRepository>();
     private readonly IUnitOfWork _unitOfWork = Substitute.For<IUnitOfWork>();
-    private readonly RecordingArtifactBuilder _artifactBuilder = new();
+    private readonly RecordingProjector _projector = new();
 
     private UpsertTranslation.Handler CreateHandler(ValueMaybe<IdentityId>? currentUser = null)
         => new(
@@ -35,7 +35,7 @@ public sealed class UpsertTranslationHandlerTests
             _unitOfWork,
             new StubCurrentUserAccessor(currentUser ?? ValueMaybe<IdentityId>.From(CurrentUser)),
             TimeProvider.System,
-            _artifactBuilder);
+            _projector);
 
     private static UpsertTranslation.Command Command(int gossipId, string text)
         => new(FileId, gossipId, text);
@@ -130,7 +130,7 @@ public sealed class UpsertTranslationHandlerTests
         result.Value.SubmittedById.ShouldBe(CurrentUser.Value);
         await _unitOfWork.Received(1).SaveChangesAsync(Arg.Any<CancellationToken>());
         // Editing a non-Approved row does not change the distributed set, so no artifact rebuild.
-        _artifactBuilder.RebuildCount.ShouldBe(0);
+        _projector.RebuildCount.ShouldBe(0);
     }
 
     [Fact]
@@ -148,7 +148,7 @@ public sealed class UpsertTranslationHandlerTests
         // Assert
         result.IsSuccess.ShouldBeTrue();
         result.Value.Status.ShouldBe(TranslationStatus.Draft);
-        _artifactBuilder.RebuildCount.ShouldBe(1);
+        _projector.RebuildCount.ShouldBe(1);
     }
 
     [Fact]
@@ -168,10 +168,10 @@ public sealed class UpsertTranslationHandlerTests
         result.Value.Status.ShouldBe(TranslationStatus.Draft);
         result.Value.PreviousSourceText.ShouldBe("Old English");
         result.Value.TranslatedText.ShouldBe("Nowy polski");
-        _artifactBuilder.RebuildCount.ShouldBe(0);
+        _projector.RebuildCount.ShouldBe(0);
     }
 
-    private sealed class RecordingArtifactBuilder : ITranslationArtifactBuilder
+    private sealed class RecordingProjector : IPrecomputedTranslationFileProjector
     {
         public int RebuildCount { get; private set; }
 

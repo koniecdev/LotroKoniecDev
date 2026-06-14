@@ -1,0 +1,27 @@
+# gitleaks configuration — extends the default ruleset with repo-specific allowlisting only.
+# Local usage:  gitleaks git --staged   (what the pre-commit hook runs)
+#               gitleaks dir             (scan the whole working tree)
+title = "LotroKoniecDev"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Intentionally committed dev defaults and placeholders — no real credentials"
+paths = [
+    # The committed dotenv template holds placeholder values only; real secrets live in the
+    # git-ignored .env (bootstrapped by scripts/up.sh) or in dotnet user-secrets / env.
+    '''\.env\.example$''',
+]
+regexes = [
+    # Synthetic OpenIddict keys in the AuthSystem integration fixtures (env "Testing"). gitleaks
+    # flags both the base64 literal and its decoded form, so exempt both VALUES rather than the
+    # whole file — this keeps the high-confidence fingerprint rules (AWS / GitHub / Stripe / …)
+    # armed on the fixtures, so a real key fat-fingered there is still caught.
+    '''RGV2RW5jcnlwdGlvbktleTMyQnl0ZXNMb25nMTIzNDU=''',
+    '''RGV2U2lnbmluZ0tleTMyQnl0ZXNMb25nRW5vdWdoMTI=''',
+    '''Dev(Encryption|Signing)Key32Bytes[A-Za-z0-9]+''',
+    # Pre-emptive: the dev OpenIddict client secret in appsettings.Development.json. Not flagged by
+    # the current default ruleset, but exempted explicitly so a stricter gitleaks build can't trip CI.
+    '''dev-api-secret-min-32-characters-long''',
+]

@@ -160,3 +160,27 @@ LotroKoniecDev/
 ## Przywracanie oryginalu
 
 Backup pliku DAT jest tworzony automatycznie z rozszerzeniem `.backup` obok oryginalu. Aby przywrocic oryginal, skopiuj backup z powrotem na `client_local_English.dat`.
+
+## Bezpieczenstwo i sekrety (backend / TMS)
+
+Repo bedzie publiczne — **realne sekrety nigdy nie trafiaja do historii gita**. Trzy warstwy ochrony:
+
+1. **pre-commit (gitleaks)** — blokuje commit z sekretem lokalnie. Setup raz na klon:
+   ```
+   pip install pre-commit      # lub: brew install pre-commit
+   pre-commit install
+   ```
+   Od teraz `git commit` skanuje staged changes (gitleaks). Konfiguracja: `.pre-commit-config.yaml` + `.gitleaks.toml`.
+2. **CI** (`.github/workflows/gitleaks.yml`) — skanuje kazdy PR i push do `main`; PR z sekretem nie przejdzie.
+3. **GitGuardian app** — serwerowy skan PR (warstwa dodatkowa).
+
+**Sekrety w dev:** uzywaj `dotnet user-secrets` (per-projekt) albo `.env` (git-ignored, bootstrapowany przez
+`scripts/up.sh` z `.env.example`). W `.gitignore` sa `*.env` / `.env.*` (poza `.env.example`),
+`appsettings.*.local.json` i `**/secrets.json`. `appsettings.Development.json` trzyma **wylacznie** wartosci dev,
+nigdy realne sekrety.
+
+Przyklad ustawienia sekretu w dev przez user-secrets:
+```
+dotnet user-secrets set "OpenIddict:ApiClientSecret" "<twoj-sekret>" \
+  --project src/AuthSystem/LotroKoniecDev.AuthSystem.API
+```

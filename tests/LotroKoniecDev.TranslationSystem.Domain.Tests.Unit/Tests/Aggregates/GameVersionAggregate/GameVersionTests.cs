@@ -17,14 +17,14 @@ public sealed class GameVersionTests
     public void Create_WithValidVersion_ShouldSucceedAsUnprocessed()
     {
         // Arrange
-        LotroNotationVersion version = LotroNotationVersion.Create("48.0").Value;
+        LotroNotationVersion version = LotroNotationVersion.Create("47.1.1").Value;
 
         // Act
         Result<GameVersion> result = GameVersion.Create(version, DetectedAt);
 
         // Assert
         result.IsSuccess.ShouldBeTrue();
-        result.Value.LotroNotationVersion.Value.ShouldBe("48.0");
+        result.Value.LotroNotationVersion.Value.ShouldBe("47.1.1");
         result.Value.DetectedAt.ShouldBe(DetectedAt);
         result.Value.Status.ShouldBe(GameVersionStatus.Unprocessed);
         result.Value.Id.Value.ShouldNotBe(Guid.Empty);

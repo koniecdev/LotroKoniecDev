@@ -35,4 +35,9 @@ public static partial class DomainErrors
 
     private static Error InvalidOperation(string entity, string message, string code)
         => new($"{entity}.{code}", message, TypeOfError.DataConflict);
+
+    private static Error InvalidDottedNumericFormat(string entity, string property)
+        => new($"{entity}.{property}.InvalidFormat",
+            $"The {property.ToLowerInvariant()} must be dotted-numeric notation (e.g. '48.0', '47.1.1').",
+            TypeOfError.Validation);
 }

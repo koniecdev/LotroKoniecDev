@@ -153,7 +153,7 @@ internal sealed class ImportExportedTexts : IEndpoint
             // flag commit together, so IsProcessed flips only after the diff is durable (spec 0001).
             // Imports are admin-only and serial — concurrent imports of one version are out of scope,
             // so no optimistic-concurrency token is modelled.
-            Result markProcessedResult = gameVersion.MarkProcessed();
+            Result markProcessedResult = gameVersion.MarkAsProcessed();
             if (markProcessedResult.IsFailure)
             {
                 return Result.Failure<ImportSummary>(markProcessedResult.Error);

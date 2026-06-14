@@ -96,7 +96,7 @@ public sealed class ListGameVersionsTests : IAsyncLifetime
         switch (status)
         {
             case GameVersionStatus.Processed:
-                gameVersion.MarkProcessed();
+                gameVersion.MarkAsProcessed();
                 break;
             case GameVersionStatus.Superseded:
                 gameVersion.MarkSuperseded();

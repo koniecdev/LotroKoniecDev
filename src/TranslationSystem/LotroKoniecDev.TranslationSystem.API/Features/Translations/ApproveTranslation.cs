@@ -46,7 +46,7 @@ internal sealed class ApproveTranslation : IEndpoint
         private readonly IUnitOfWork _unitOfWork;
         private readonly ICurrentUserAccessor _currentUserAccessor;
         private readonly TimeProvider _timeProvider;
-        private readonly ITranslationArtifactBuilder _artifactBuilder;
+        private readonly IPrecomputedTranslationFileProjector _projector;
 
         public Handler(
             IValidator<Command> validator,
@@ -54,14 +54,14 @@ internal sealed class ApproveTranslation : IEndpoint
             IUnitOfWork unitOfWork,
             ICurrentUserAccessor currentUserAccessor,
             TimeProvider timeProvider,
-            ITranslationArtifactBuilder artifactBuilder)
+            IPrecomputedTranslationFileProjector projector)
         {
             _validator = validator;
             _translationRepository = translationRepository;
             _unitOfWork = unitOfWork;
             _currentUserAccessor = currentUserAccessor;
             _timeProvider = timeProvider;
-            _artifactBuilder = artifactBuilder;
+            _projector = projector;
         }
 
         public async ValueTask<Result> Handle(Command command, CancellationToken cancellationToken)
@@ -99,7 +99,7 @@ internal sealed class ApproveTranslation : IEndpoint
             await _unitOfWork.SaveChangesAsync(cancellationToken);
 
             // The row has (re)entered the distributed set, so the pre-built Polish artifact is stale.
-            await _artifactBuilder.RebuildAsync(SupportedLanguages.Polish, cancellationToken);
+            await _projector.RebuildAsync(SupportedLanguages.Polish, cancellationToken);
 
             return Result.Success();
         }

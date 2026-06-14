@@ -15,7 +15,7 @@ namespace LotroKoniecDev.TranslationSystem.API.Features.TranslationFiles;
 /// Serves the pre-built translation file for a language (spec 0001): streams the stored artifact
 /// with its content hash as the <c>ETag</c> and honors <c>If-None-Match</c> with a 304. Anonymous
 /// (the CLI/player downloads it). Never builds per-request — the artifact is regenerated on write
-/// by <see cref="ITranslationArtifactBuilder"/>.
+/// by <see cref="IPrecomputedTranslationFileProjector"/>.
 /// </summary>
 internal sealed class GetTranslationFile : IEndpoint
 {
@@ -44,9 +44,9 @@ internal sealed class GetTranslationFile : IEndpoint
                     TypeOfError.Validation));
             }
 
-            TranslationFileResult? result = await _readDbContext.TranslationArtifacts
-                .Where(artifact => artifact.Language == SupportedLanguage)
-                .Select(artifact => new TranslationFileResult(artifact.Content, artifact.ContentHash))
+            TranslationFileResult? result = await _readDbContext.PrecomputedTranslationFiles
+                .Where(file => file.Language == SupportedLanguage)
+                .Select(file => new TranslationFileResult(file.Content, file.ContentHash))
                 .FirstOrDefaultAsync(cancellationToken);
 
             return result is null

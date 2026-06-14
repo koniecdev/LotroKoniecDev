@@ -53,8 +53,8 @@ internal static class TranslationsBootstrapExtensions
         // include them (spec 0001: regenerate on write; the download endpoint never builds per-request).
         if (polish is { Approved: > 0 })
         {
-            ITranslationArtifactBuilder artifactBuilder = services.GetRequiredService<ITranslationArtifactBuilder>();
-            await artifactBuilder.RebuildAsync(SupportedLanguages.Polish, cancellationToken);
+            IPrecomputedTranslationFileProjector projector = services.GetRequiredService<IPrecomputedTranslationFileProjector>();
+            await projector.RebuildAsync(SupportedLanguages.Polish, cancellationToken);
         }
 
         return new BootstrapReport(baseline, polish);

@@ -194,7 +194,7 @@ public sealed class UpsertTranslationTests : IAsyncLifetime
 
     private async Task RebuildArtifactAsync()
     {
-        ITranslationArtifactBuilder builder = _factory.Services.GetRequiredService<ITranslationArtifactBuilder>();
+        IPrecomputedTranslationFileProjector builder = _factory.Services.GetRequiredService<IPrecomputedTranslationFileProjector>();
         await builder.RebuildAsync("pl", CancellationToken.None);
     }
 

@@ -42,12 +42,12 @@ public sealed class ImportExportedTextsHandlerTests
             _unitOfWork,
             TimeProvider.System,
             Microsoft.Extensions.Options.Options.Create(new ImportSettings { MaxRemovedFractionWithoutOverride = maxRemovedFraction }),
-            new NoOpArtifactBuilder());
+            new NoOpProjector());
 
-    // The artifact builder is an internal interface (NSubstitute/Castle can't proxy it without a
+    // The projector is an internal interface (NSubstitute/Castle can't proxy it without a
     // DynamicProxyGenAssembly2 hook); a hand-written no-op keeps the import handler tests focused
-    // on the diff, not on artifact regeneration (covered by the distribution integration tests).
-    private sealed class NoOpArtifactBuilder : ITranslationArtifactBuilder
+    // on the diff, not on file regeneration (covered by the distribution integration tests).
+    private sealed class NoOpProjector : IPrecomputedTranslationFileProjector
     {
         public Task RebuildAsync(string language, CancellationToken cancellationToken) => Task.CompletedTask;
     }

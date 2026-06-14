@@ -27,7 +27,7 @@ public sealed class ApproveTranslationHandlerTests
     // a focused hand-written double.
     private readonly ITranslationRepository _translationRepository = Substitute.For<ITranslationRepository>();
     private readonly IUnitOfWork _unitOfWork = Substitute.For<IUnitOfWork>();
-    private readonly RecordingArtifactBuilder _artifactBuilder = new();
+    private readonly RecordingProjector _projector = new();
 
     private ApproveTranslation.Handler CreateHandler(ValueMaybe<IdentityId>? currentUser = null)
         => new(
@@ -36,7 +36,7 @@ public sealed class ApproveTranslationHandlerTests
             _unitOfWork,
             new StubCurrentUserAccessor(currentUser ?? ValueMaybe<IdentityId>.From(Approver)),
             TimeProvider.System,
-            _artifactBuilder);
+            _projector);
 
     private static Translation Untranslated(int gossipId = 1, string source = "English")
         => Translation.CreateUntranslated(
@@ -59,7 +59,7 @@ public sealed class ApproveTranslationHandlerTests
         result.IsFailure.ShouldBeTrue();
         result.Error.Code.ShouldBe("Translations.Validation");
         await _unitOfWork.DidNotReceive().SaveChangesAsync(Arg.Any<CancellationToken>());
-        _artifactBuilder.RebuildCount.ShouldBe(0);
+        _projector.RebuildCount.ShouldBe(0);
     }
 
     [Fact]
@@ -79,7 +79,7 @@ public sealed class ApproveTranslationHandlerTests
         result.IsFailure.ShouldBeTrue();
         result.Error.Code.ShouldBe("Translations.Unauthenticated");
         await _unitOfWork.DidNotReceive().SaveChangesAsync(Arg.Any<CancellationToken>());
-        _artifactBuilder.RebuildCount.ShouldBe(0);
+        _projector.RebuildCount.ShouldBe(0);
     }
 
     [Fact]
@@ -96,7 +96,7 @@ public sealed class ApproveTranslationHandlerTests
         result.IsFailure.ShouldBeTrue();
         result.Error.Code.ShouldBe("TranslationEntity.NotFound");
         await _unitOfWork.DidNotReceive().SaveChangesAsync(Arg.Any<CancellationToken>());
-        _artifactBuilder.RebuildCount.ShouldBe(0);
+        _projector.RebuildCount.ShouldBe(0);
     }
 
     [Fact]
@@ -113,7 +113,7 @@ public sealed class ApproveTranslationHandlerTests
         result.IsFailure.ShouldBeTrue();
         result.Error.Code.ShouldBe("TranslationEntity.CannotApproveWithoutTranslation");
         await _unitOfWork.DidNotReceive().SaveChangesAsync(Arg.Any<CancellationToken>());
-        _artifactBuilder.RebuildCount.ShouldBe(0);
+        _projector.RebuildCount.ShouldBe(0);
     }
 
     [Fact]
@@ -132,7 +132,7 @@ public sealed class ApproveTranslationHandlerTests
         result.IsFailure.ShouldBeTrue();
         result.Error.Code.ShouldBe("TranslationEntity.CannotApproveRemoved");
         await _unitOfWork.DidNotReceive().SaveChangesAsync(Arg.Any<CancellationToken>());
-        _artifactBuilder.RebuildCount.ShouldBe(0);
+        _projector.RebuildCount.ShouldBe(0);
     }
 
     [Fact]
@@ -152,7 +152,7 @@ public sealed class ApproveTranslationHandlerTests
         row.ApprovedById.ShouldBe(Approver);
         await _unitOfWork.Received(1).SaveChangesAsync(Arg.Any<CancellationToken>());
         // The row enters the distributed set, so the artifact is always rebuilt on a successful approve.
-        _artifactBuilder.RebuildCount.ShouldBe(1);
+        _projector.RebuildCount.ShouldBe(1);
     }
 
     [Fact]
@@ -172,10 +172,10 @@ public sealed class ApproveTranslationHandlerTests
         result.IsSuccess.ShouldBeTrue();
         row.Status.ShouldBe(TranslationStatus.Approved);
         row.PreviousSourceText.ShouldBeNull();
-        _artifactBuilder.RebuildCount.ShouldBe(1);
+        _projector.RebuildCount.ShouldBe(1);
     }
 
-    private sealed class RecordingArtifactBuilder : ITranslationArtifactBuilder
+    private sealed class RecordingProjector : IPrecomputedTranslationFileProjector
     {
         public int RebuildCount { get; private set; }
 

@@ -35,6 +35,8 @@ public static class InfrastructureDependencyInjection
             return client;
         });
         services.AddSingleton<IForumPageFetcher, ForumPageFetcher>();
+        services.AddSingleton<ITranslationFileDownloader, TranslationFileDownloader>();
+        services.AddSingleton<ITranslationFileCache, TranslationFileCache>();
         services.AddSingleton<IGameVersionFileStore, GameVersionFileStore>();
         services.AddSingleton<IFileHasher, FileHasher>();
 

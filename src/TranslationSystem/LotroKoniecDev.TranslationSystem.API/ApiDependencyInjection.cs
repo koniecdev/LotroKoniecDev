@@ -84,6 +84,11 @@ internal static class ApiDependencyInjection
             services.AddScoped<
                 ICommandHandler<UpsertTranslation.Command, Result<TranslationDetailResponse>>,
                 UpsertTranslation.Handler>();
+
+            services.AddScoped<IValidator<ApproveTranslation.Command>, ApproveTranslation.Validator>();
+            services.AddScoped<
+                ICommandHandler<ApproveTranslation.Command, Result>,
+                ApproveTranslation.Handler>();
         }
 
         private void AddTranslationFilesFeature()

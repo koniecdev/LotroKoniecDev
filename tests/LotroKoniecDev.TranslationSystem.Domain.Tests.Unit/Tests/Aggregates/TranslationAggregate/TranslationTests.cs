@@ -14,6 +14,7 @@ public sealed class TranslationTests
     private static readonly GameVersionId IntroducedVersion = GameVersionId.Create();
     private static readonly GameVersionId ChangeVersion = GameVersionId.Create();
     private static readonly IdentityId Submitter = IdentityId.Create();
+    private static readonly IdentityId Approver = IdentityId.Create();
 
     private static FragmentKey Key() => FragmentKey.Create(620756992, 1001).Value;
     private static TranslationSource Source(string text) => TranslationSource.Create(text, null, null).Value;
@@ -159,36 +160,41 @@ public sealed class TranslationTests
     }
 
     [Fact]
-    public void Approve_WhenDraft_ShouldSetApproved()
+    public void Approve_WhenDraft_ShouldSetApprovedAndStampApprover()
     {
         // Arrange
         Translation translation = CreateUntranslated();
         translation.ProvideTranslation("Witaj", Submitter, Created);
 
         // Act
-        Result result = translation.Approve(Changed);
+        Result result = translation.Approve(Approver, Changed);
 
         // Assert
         result.IsSuccess.ShouldBeTrue();
         translation.Status.ShouldBe(TranslationStatus.Approved);
+        translation.ApprovedById.ShouldBe(Approver);
         translation.UpdatedAt.ShouldBe(Changed);
     }
 
     [Fact]
-    public void Approve_WhenNeedsReview_ShouldSetApproved()
+    public void Approve_WhenNeedsReview_ShouldSetApprovedAndClearInvalidation()
     {
-        // Arrange — an invalidated row keeps its Polish; approving re-publishes it (spec 0001).
+        // Arrange — an invalidated row keeps its Polish; approving re-publishes it and resolves the
+        // invalidation, so the superseded English (PreviousSourceText) is cleared (spec 0001).
         Translation translation = CreateUntranslated();
         translation.ProvideTranslation("Stary polski", Submitter, Created);
         translation.ApplySourceChange(Source("New English"), ChangeVersion, Changed);
         translation.Status.ShouldBe(TranslationStatus.NeedsReview);
+        translation.PreviousSourceText.ShouldBe("Old English");
 
         // Act
-        Result result = translation.Approve(Changed);
+        Result result = translation.Approve(Approver, Changed);
 
         // Assert
         result.IsSuccess.ShouldBeTrue();
         translation.Status.ShouldBe(TranslationStatus.Approved);
+        translation.PreviousSourceText.ShouldBeNull();
+        translation.ApprovedById.ShouldBe(Approver);
     }
 
     [Fact]
@@ -198,12 +204,13 @@ public sealed class TranslationTests
         Translation translation = CreateUntranslated();
 
         // Act
-        Result result = translation.Approve(Changed);
+        Result result = translation.Approve(Approver, Changed);
 
         // Assert
         result.IsFailure.ShouldBeTrue();
         result.Error.Code.ShouldBe("TranslationEntity.CannotApproveWithoutTranslation");
         translation.Status.ShouldBe(TranslationStatus.Untranslated);
+        translation.ApprovedById.ShouldBeNull();
     }
 
     [Fact]
@@ -215,7 +222,7 @@ public sealed class TranslationTests
         translation.MarkRemoved(ChangeVersion, Changed);
 
         // Act
-        Result result = translation.Approve(Changed);
+        Result result = translation.Approve(Approver, Changed);
 
         // Assert
         result.IsFailure.ShouldBeTrue();

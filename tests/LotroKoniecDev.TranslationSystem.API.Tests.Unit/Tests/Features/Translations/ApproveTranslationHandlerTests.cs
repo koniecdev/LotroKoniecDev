@@ -3,23 +3,24 @@ using LotroKoniecDev.SharedKernel.StronglyTypedIds;
 using LotroKoniecDev.TranslationSystem.API.Auth.CurrentUserAccessing;
 using LotroKoniecDev.TranslationSystem.API.Features.TranslationFiles;
 using LotroKoniecDev.TranslationSystem.API.Features.Translations;
-using LotroKoniecDev.TranslationSystem.Contracts.Translations;
 using LotroKoniecDev.TranslationSystem.Domain.Aggregates.TranslationAggregate.Entities;
 using LotroKoniecDev.TranslationSystem.Domain.Aggregates.TranslationAggregate.Repositories;
 using LotroKoniecDev.TranslationSystem.Domain.Aggregates.TranslationAggregate.ValueObjects;
 using LotroKoniecDev.TranslationSystem.Persistence.DbContexts.Abstractions;
 using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.GameVersionAggregate;
+using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.TranslationAggregate;
 using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.TranslationAggregate.Enums;
 using NSubstitute;
 
 namespace LotroKoniecDev.TranslationSystem.API.Tests.Unit.Tests.Features.Translations;
 
-public sealed class UpsertTranslationHandlerTests
+public sealed class ApproveTranslationHandlerTests
 {
     private const int FileId = 620756992;
     private static readonly DateTimeOffset Now = new(2026, 6, 13, 0, 0, 0, TimeSpan.Zero);
     private static readonly GameVersionId VersionId = GameVersionId.Create();
-    private static readonly IdentityId CurrentUser = IdentityId.Create();
+    private static readonly IdentityId Submitter = IdentityId.Create();
+    private static readonly IdentityId Approver = IdentityId.Create();
 
     // ITranslationRepository / IUnitOfWork are genuine public boundaries (stubbed); the current-user
     // accessor and the artifact builder are internal interfaces NSubstitute can't proxy, so each gets
@@ -28,17 +29,14 @@ public sealed class UpsertTranslationHandlerTests
     private readonly IUnitOfWork _unitOfWork = Substitute.For<IUnitOfWork>();
     private readonly RecordingArtifactBuilder _artifactBuilder = new();
 
-    private UpsertTranslation.Handler CreateHandler(ValueMaybe<IdentityId>? currentUser = null)
+    private ApproveTranslation.Handler CreateHandler(ValueMaybe<IdentityId>? currentUser = null)
         => new(
-            new UpsertTranslation.Validator(),
+            new ApproveTranslation.Validator(),
             _translationRepository,
             _unitOfWork,
-            new StubCurrentUserAccessor(currentUser ?? ValueMaybe<IdentityId>.From(CurrentUser)),
+            new StubCurrentUserAccessor(currentUser ?? ValueMaybe<IdentityId>.From(Approver)),
             TimeProvider.System,
             _artifactBuilder);
-
-    private static UpsertTranslation.Command Command(int gossipId, string text)
-        => new(FileId, gossipId, text);
 
     private static Translation Untranslated(int gossipId = 1, string source = "English")
         => Translation.CreateUntranslated(
@@ -48,127 +46,133 @@ public sealed class UpsertTranslationHandlerTests
             Now).Value;
 
     private void GivenStoredRow(Translation translation)
-        => _translationRepository.GetByFragmentKeyAsync(Arg.Any<FragmentKey>(), Arg.Any<CancellationToken>())
+        => _translationRepository.GetByIdAsync(Arg.Any<TranslationId>(), Arg.Any<CancellationToken>())
             .Returns(Maybe<Translation>.From(translation));
 
     [Fact]
-    public async Task Handle_WhenTranslatedTextEmpty_ShouldReturnValidationError()
+    public async Task Handle_WhenIdEmpty_ShouldReturnValidationError()
     {
         // Act
-        Result<TranslationDetailResponse> result = await CreateHandler().Handle(Command(1, "   "), CancellationToken.None);
+        Result result = await CreateHandler().Handle(new ApproveTranslation.Command(TranslationId.Empty), CancellationToken.None);
 
         // Assert
         result.IsFailure.ShouldBeTrue();
         result.Error.Code.ShouldBe("Translations.Validation");
         await _unitOfWork.DidNotReceive().SaveChangesAsync(Arg.Any<CancellationToken>());
+        _artifactBuilder.RebuildCount.ShouldBe(0);
     }
 
     [Fact]
     public async Task Handle_WhenNoCurrentUser_ShouldReturnForbidden()
     {
-        // Arrange — defensive guard: the endpoint requires auth, but a token without a parseable
-        // subject must never be attributed to an empty submitter.
-        UpsertTranslation.Handler handler = CreateHandler(ValueMaybe<IdentityId>.None());
+        // Arrange — defensive guard: the endpoint requires the admin role, but a token without a
+        // parseable subject must never be attributed to an empty approver.
+        Translation row = Untranslated();
+        row.ProvideTranslation("Polski", Submitter, Now);
+        GivenStoredRow(row);
 
         // Act
-        Result<TranslationDetailResponse> result = await handler.Handle(Command(1, "Polski"), CancellationToken.None);
+        Result result = await CreateHandler(ValueMaybe<IdentityId>.None())
+            .Handle(new ApproveTranslation.Command(row.Id), CancellationToken.None);
 
         // Assert
         result.IsFailure.ShouldBeTrue();
         result.Error.Code.ShouldBe("Translations.Unauthenticated");
         await _unitOfWork.DidNotReceive().SaveChangesAsync(Arg.Any<CancellationToken>());
+        _artifactBuilder.RebuildCount.ShouldBe(0);
     }
 
     [Fact]
     public async Task Handle_WhenRowUnknown_ShouldReturnNotFound()
     {
         // Arrange
-        _translationRepository.GetByFragmentKeyAsync(Arg.Any<FragmentKey>(), Arg.Any<CancellationToken>())
+        _translationRepository.GetByIdAsync(Arg.Any<TranslationId>(), Arg.Any<CancellationToken>())
             .Returns(Maybe<Translation>.None);
 
         // Act
-        Result<TranslationDetailResponse> result = await CreateHandler().Handle(Command(404, "Polski"), CancellationToken.None);
+        Result result = await CreateHandler().Handle(new ApproveTranslation.Command(TranslationId.Create()), CancellationToken.None);
 
         // Assert
         result.IsFailure.ShouldBeTrue();
         result.Error.Code.ShouldBe("TranslationEntity.NotFound");
         await _unitOfWork.DidNotReceive().SaveChangesAsync(Arg.Any<CancellationToken>());
+        _artifactBuilder.RebuildCount.ShouldBe(0);
+    }
+
+    [Fact]
+    public async Task Handle_WhenRowHasNoTranslation_ShouldReturnConflictAndNotPersist()
+    {
+        // Arrange — an untranslated row has no Polish to publish (spec 0001).
+        Translation row = Untranslated();
+        GivenStoredRow(row);
+
+        // Act
+        Result result = await CreateHandler().Handle(new ApproveTranslation.Command(row.Id), CancellationToken.None);
+
+        // Assert
+        result.IsFailure.ShouldBeTrue();
+        result.Error.Code.ShouldBe("TranslationEntity.CannotApproveWithoutTranslation");
+        await _unitOfWork.DidNotReceive().SaveChangesAsync(Arg.Any<CancellationToken>());
+        _artifactBuilder.RebuildCount.ShouldBe(0);
     }
 
     [Fact]
     public async Task Handle_WhenRowRemoved_ShouldReturnConflictAndNotPersist()
     {
-        // Arrange — a soft-removed row is excluded from translation work (spec 0001).
-        Translation removed = Untranslated();
-        removed.ProvideTranslation("Polski", CurrentUser, Now);
-        removed.MarkRemoved(VersionId, Now);
-        GivenStoredRow(removed);
-
-        // Act
-        Result<TranslationDetailResponse> result = await CreateHandler().Handle(Command(1, "Nowy polski"), CancellationToken.None);
-
-        // Assert
-        result.IsFailure.ShouldBeTrue();
-        result.Error.Code.ShouldBe("TranslationEntity.CannotEditRemoved");
-        await _unitOfWork.DidNotReceive().SaveChangesAsync(Arg.Any<CancellationToken>());
-    }
-
-    [Fact]
-    public async Task Handle_OnUntranslatedRow_ShouldSetDraftStampSubmitterAndNotRebuild()
-    {
-        // Arrange
+        // Arrange — a soft-removed row is excluded from the distributed file (spec 0001).
         Translation row = Untranslated();
+        row.ProvideTranslation("Polski", Submitter, Now);
+        row.MarkRemoved(VersionId, Now);
         GivenStoredRow(row);
 
         // Act
-        Result<TranslationDetailResponse> result = await CreateHandler().Handle(Command(1, "Witaj"), CancellationToken.None);
+        Result result = await CreateHandler().Handle(new ApproveTranslation.Command(row.Id), CancellationToken.None);
 
         // Assert
-        result.IsSuccess.ShouldBeTrue();
-        result.Value.Status.ShouldBe(TranslationStatus.Draft);
-        result.Value.TranslatedText.ShouldBe("Witaj");
-        result.Value.SubmittedById.ShouldBe(CurrentUser.Value);
-        await _unitOfWork.Received(1).SaveChangesAsync(Arg.Any<CancellationToken>());
-        // Editing a non-Approved row does not change the distributed set, so no artifact rebuild.
+        result.IsFailure.ShouldBeTrue();
+        result.Error.Code.ShouldBe("TranslationEntity.CannotApproveRemoved");
+        await _unitOfWork.DidNotReceive().SaveChangesAsync(Arg.Any<CancellationToken>());
         _artifactBuilder.RebuildCount.ShouldBe(0);
     }
 
     [Fact]
-    public async Task Handle_OnApprovedRow_ShouldMoveToDraftAndRebuildArtifact()
+    public async Task Handle_OnDraftRow_ShouldApproveStampApproverPersistAndRebuild()
     {
-        // Arrange — an Approved row is in the distributed file; editing pulls it out (spec 0001 Q1).
-        Translation approved = Untranslated();
-        approved.ProvideTranslation("Stary polski", CurrentUser, Now);
-        approved.Approve(CurrentUser, Now);
-        GivenStoredRow(approved);
+        // Arrange
+        Translation row = Untranslated();
+        row.ProvideTranslation("Witaj", Submitter, Now);
+        GivenStoredRow(row);
 
         // Act
-        Result<TranslationDetailResponse> result = await CreateHandler().Handle(Command(1, "Nowy polski"), CancellationToken.None);
+        Result result = await CreateHandler().Handle(new ApproveTranslation.Command(row.Id), CancellationToken.None);
 
         // Assert
         result.IsSuccess.ShouldBeTrue();
-        result.Value.Status.ShouldBe(TranslationStatus.Draft);
+        row.Status.ShouldBe(TranslationStatus.Approved);
+        row.ApprovedById.ShouldBe(Approver);
+        await _unitOfWork.Received(1).SaveChangesAsync(Arg.Any<CancellationToken>());
+        // The row enters the distributed set, so the artifact is always rebuilt on a successful approve.
         _artifactBuilder.RebuildCount.ShouldBe(1);
     }
 
     [Fact]
-    public async Task Handle_OnNeedsReviewRow_ShouldMoveToDraftAndKeepPreviousSource()
+    public async Task Handle_OnNeedsReviewRow_ShouldClearInvalidationAndRebuild()
     {
-        // Arrange — an invalidated row keeps its superseded English until approve (the re-translation path).
-        Translation needsReview = Untranslated(source: "Old English");
-        needsReview.ProvideTranslation("Stary polski", CurrentUser, Now);
-        needsReview.ApplySourceChange(TranslationSource.Create("New English", null, null).Value, VersionId, Now);
-        GivenStoredRow(needsReview);
+        // Arrange — a re-translated invalidated row: approving resolves the invalidation (spec 0001).
+        Translation row = Untranslated(source: "Old English");
+        row.ProvideTranslation("Stary polski", Submitter, Now);
+        row.ApplySourceChange(TranslationSource.Create("New English", null, null).Value, VersionId, Now);
+        row.Status.ShouldBe(TranslationStatus.NeedsReview);
+        GivenStoredRow(row);
 
         // Act
-        Result<TranslationDetailResponse> result = await CreateHandler().Handle(Command(1, "Nowy polski"), CancellationToken.None);
+        Result result = await CreateHandler().Handle(new ApproveTranslation.Command(row.Id), CancellationToken.None);
 
         // Assert
         result.IsSuccess.ShouldBeTrue();
-        result.Value.Status.ShouldBe(TranslationStatus.Draft);
-        result.Value.PreviousSourceText.ShouldBe("Old English");
-        result.Value.TranslatedText.ShouldBe("Nowy polski");
-        _artifactBuilder.RebuildCount.ShouldBe(0);
+        row.Status.ShouldBe(TranslationStatus.Approved);
+        row.PreviousSourceText.ShouldBeNull();
+        _artifactBuilder.RebuildCount.ShouldBe(1);
     }
 
     private sealed class RecordingArtifactBuilder : ITranslationArtifactBuilder

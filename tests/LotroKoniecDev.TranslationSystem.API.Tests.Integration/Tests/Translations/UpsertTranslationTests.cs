@@ -179,11 +179,11 @@ public sealed class UpsertTranslationTests : IAsyncLifetime
         {
             case SeedStatus.Approved:
                 row.ProvideTranslation(polish!, Seeder, Now);
-                row.Approve(Now);
+                row.Approve(Seeder, Now);
                 break;
             case SeedStatus.ApprovedThenRemoved:
                 row.ProvideTranslation(polish!, Seeder, Now);
-                row.Approve(Now);
+                row.Approve(Seeder, Now);
                 row.MarkRemoved(_versionId, Now);
                 break;
         }

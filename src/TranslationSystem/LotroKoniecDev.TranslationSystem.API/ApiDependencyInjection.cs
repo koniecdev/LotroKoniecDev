@@ -15,12 +15,14 @@ using LotroKoniecDev.TranslationSystem.API.Auth;
 using LotroKoniecDev.TranslationSystem.API.Auth.CurrentUserAccessing;
 using LotroKoniecDev.TranslationSystem.API.ExceptionHandlers;
 using LotroKoniecDev.TranslationSystem.API.Extensions;
+using LotroKoniecDev.TranslationSystem.API.Features.GameVersions;
 using LotroKoniecDev.TranslationSystem.API.Features.Import;
 using LotroKoniecDev.TranslationSystem.API.Features.TranslationFiles;
 using LotroKoniecDev.TranslationSystem.API.Features.Translations;
 using LotroKoniecDev.TranslationSystem.API.Hateoas.DiscoveryFactories;
 using LotroKoniecDev.TranslationSystem.API.Parsing;
 using LotroKoniecDev.TranslationSystem.Contracts.Common;
+using LotroKoniecDev.TranslationSystem.Contracts.GameVersions;
 using LotroKoniecDev.TranslationSystem.Contracts.Import;
 using LotroKoniecDev.TranslationSystem.Contracts.Translations;
 
@@ -58,6 +60,7 @@ internal static class ApiDependencyInjection
             services.AddImportFeature();
             services.AddTranslationsFeature();
             services.AddTranslationFilesFeature();
+            services.AddGameVersionsFeature();
 
             return services;
         }
@@ -100,6 +103,18 @@ internal static class ApiDependencyInjection
             services.AddScoped<
                 IQueryHandler<GetTranslationFile.Query, Result<GetTranslationFile.TranslationFileResult>>,
                 GetTranslationFile.Handler>();
+        }
+
+        private void AddGameVersionsFeature()
+        {
+            services.AddScoped<
+                IQueryHandler<ListGameVersions.Query, Result<IReadOnlyList<GameVersionResponse>>>,
+                ListGameVersions.Handler>();
+
+            services.AddScoped<IValidator<RegisterGameVersion.Command>, RegisterGameVersion.Validator>();
+            services.AddScoped<
+                ICommandHandler<RegisterGameVersion.Command, Result<GameVersionResponse>>,
+                RegisterGameVersion.Handler>();
         }
 
         public IServiceCollection AddJwtBearerAuthentication(IWebHostEnvironment environment)

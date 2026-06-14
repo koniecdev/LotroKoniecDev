@@ -1,5 +1,6 @@
 using LotroKoniecDev.TranslationSystem.API.Features.Bootstrap;
 using LotroKoniecDev.TranslationSystem.Domain.Aggregates.TranslationAggregate.Entities;
+using LotroKoniecDev.TranslationSystem.Domain.Aggregates.TranslatorAggregate.Entities;
 using LotroKoniecDev.TranslationSystem.Persistence.DbContexts.WriteDbContexts;
 using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.TranslationAggregate.Enums;
 using Microsoft.EntityFrameworkCore;
@@ -30,7 +31,7 @@ public sealed class BootstrapSeedTests : IAsyncLifetime
         using IServiceScope scope = _factory.Services.CreateScope();
         ApplicationWriteDbContext dbContext = scope.ServiceProvider.GetRequiredService<ApplicationWriteDbContext>();
         await dbContext.Database.ExecuteSqlRawAsync(
-            "TRUNCATE translation.\"Translations\", translation.\"GameVersions\", translation.\"TranslationArtifacts\" CASCADE;");
+            "TRUNCATE translation.\"Translations\", translation.\"GameVersions\", translation.\"TranslationArtifacts\", translation.\"Translators\" CASCADE;");
     }
 
     public Task DisposeAsync() => Task.CompletedTask;
@@ -63,13 +64,20 @@ public sealed class BootstrapSeedTests : IAsyncLifetime
             first.Polish.Approved.ShouldBe(2);
             first.Polish.Unmatched.ShouldBe([$"{FileId}/999"]);
 
-            // The two approved rows are stamped with the system principal; row 3 stays untranslated.
+            // The seed provisioned exactly one system Translator (ADR-0004), keyed by the sentinel
+            // identity and carrying the system display name.
+            List<Translator> translators = await LoadTranslatorsAsync();
+            Translator systemTranslator = translators.ShouldHaveSingleItem();
+            systemTranslator.IdentityId.ShouldBe(PolishTranslationSeeder.SystemIdentityId);
+            systemTranslator.DisplayName.Value.ShouldBe(PolishTranslationSeeder.SystemDisplayName);
+
+            // The two approved rows are stamped with that system Translator's local id; row 3 stays untranslated.
             List<Translation> rows = await LoadTranslationsAsync();
             rows.Count.ShouldBe(3);
             List<Translation> approved = rows.Where(row => row.Status == TranslationStatus.Approved).ToList();
             approved.Count.ShouldBe(2);
-            approved.ShouldAllBe(row => row.SubmittedById == PolishTranslationSeeder.SystemIdentityId);
-            approved.ShouldAllBe(row => row.ApprovedById == PolishTranslationSeeder.SystemIdentityId);
+            approved.ShouldAllBe(row => row.SubmittedById == systemTranslator.Id);
+            approved.ShouldAllBe(row => row.ApprovedById == systemTranslator.Id);
 
             // The distributed file carries the approved Polish, never the untranslated or orphan rows.
             HttpResponseMessage download = await _factory.CreateClient().GetAsync(FileRoute);
@@ -89,13 +97,15 @@ public sealed class BootstrapSeedTests : IAsyncLifetime
             second.Polish.AlreadyApproved.ShouldBe(2);
 
             (await CountGameVersionsAsync()).ShouldBe(1);
+            // Re-run provisions no duplicate system Translator (idempotent on IdentityId — ADR-0004).
+            (await LoadTranslatorsAsync()).ShouldHaveSingleItem();
             List<Translation> afterRerun = await LoadTranslationsAsync();
             afterRerun.Count.ShouldBe(3);
             List<Translation> stillApproved = afterRerun.Where(row => row.Status == TranslationStatus.Approved).ToList();
             stillApproved.Count.ShouldBe(2);
             stillApproved.Select(row => row.TranslatedText).ShouldBe(["Polski jeden", "Polski dwa"], ignoreOrder: true);
-            stillApproved.ShouldAllBe(row => row.SubmittedById == PolishTranslationSeeder.SystemIdentityId);
-            stillApproved.ShouldAllBe(row => row.ApprovedById == PolishTranslationSeeder.SystemIdentityId);
+            stillApproved.ShouldAllBe(row => row.SubmittedById == systemTranslator.Id);
+            stillApproved.ShouldAllBe(row => row.ApprovedById == systemTranslator.Id);
         }
         finally
         {
@@ -128,6 +138,13 @@ public sealed class BootstrapSeedTests : IAsyncLifetime
         using IServiceScope scope = _factory.Services.CreateScope();
         ApplicationWriteDbContext dbContext = scope.ServiceProvider.GetRequiredService<ApplicationWriteDbContext>();
         return await dbContext.Translations.AsNoTracking().ToListAsync();
+    }
+
+    private async Task<List<Translator>> LoadTranslatorsAsync()
+    {
+        using IServiceScope scope = _factory.Services.CreateScope();
+        ApplicationWriteDbContext dbContext = scope.ServiceProvider.GetRequiredService<ApplicationWriteDbContext>();
+        return await dbContext.Translators.AsNoTracking().ToListAsync();
     }
 
     private async Task<int> CountGameVersionsAsync()

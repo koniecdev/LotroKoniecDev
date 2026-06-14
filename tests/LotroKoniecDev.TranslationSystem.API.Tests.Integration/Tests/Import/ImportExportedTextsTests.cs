@@ -6,6 +6,8 @@ using LotroKoniecDev.TranslationSystem.Contracts.Import;
 using LotroKoniecDev.TranslationSystem.Domain.Aggregates.GameVersionAggregate.Entities;
 using LotroKoniecDev.TranslationSystem.Domain.Aggregates.GameVersionAggregate.ValueObjects;
 using LotroKoniecDev.TranslationSystem.Domain.Aggregates.TranslationAggregate.Entities;
+using LotroKoniecDev.TranslationSystem.Domain.Aggregates.TranslatorAggregate.Entities;
+using LotroKoniecDev.TranslationSystem.Domain.Aggregates.TranslatorAggregate.ValueObjects;
 using LotroKoniecDev.TranslationSystem.Persistence.DbContexts.WriteDbContexts;
 using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.GameVersionAggregate;
 using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.GameVersionAggregate.Enums;
@@ -32,7 +34,7 @@ public sealed class ImportExportedTextsTests : IAsyncLifetime
         using IServiceScope scope = _factory.Services.CreateScope();
         ApplicationWriteDbContext dbContext = scope.ServiceProvider.GetRequiredService<ApplicationWriteDbContext>();
         await dbContext.Database.ExecuteSqlRawAsync(
-            "TRUNCATE translation.\"Translations\", translation.\"GameVersions\" CASCADE;");
+            "TRUNCATE translation.\"Translations\", translation.\"GameVersions\", translation.\"Translators\" CASCADE;");
     }
 
     public Task DisposeAsync() => Task.CompletedTask;
@@ -239,10 +241,23 @@ public sealed class ImportExportedTextsTests : IAsyncLifetime
     {
         using IServiceScope scope = _factory.Services.CreateScope();
         ApplicationWriteDbContext dbContext = scope.ServiceProvider.GetRequiredService<ApplicationWriteDbContext>();
+
+        // The submitter is a local TranslatorId (ADR-0004); ensure its FK target exists.
+        Translator submitter = await dbContext.Translators.FirstOrDefaultAsync()
+            ?? AddSubmitter(dbContext);
+
         Translation translation = await dbContext.Translations
             .SingleAsync(row => row.FragmentKey.FileId == FileId && row.FragmentKey.GossipId == gossipId);
-        translation.ProvideTranslation(polish, IdentityId.Create(), DateTimeOffset.UtcNow);
+        translation.ProvideTranslation(polish, submitter.Id, DateTimeOffset.UtcNow);
         await dbContext.SaveChangesAsync();
+    }
+
+    private static Translator AddSubmitter(ApplicationWriteDbContext dbContext)
+    {
+        Translator submitter = Translator.Create(
+            IdentityId.Create(), DisplayName.Create("Seed Author").Value, email: null, DateTimeOffset.UtcNow).Value;
+        dbContext.Translators.Add(submitter);
+        return submitter;
     }
 
     private async Task<Translation?> GetTranslationAsync(int gossipId)

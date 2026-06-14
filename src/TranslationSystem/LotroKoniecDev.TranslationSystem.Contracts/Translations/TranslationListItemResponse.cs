@@ -4,9 +4,10 @@ using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.TranslationAggregat
 namespace LotroKoniecDev.TranslationSystem.Contracts.Translations;
 
 /// <summary>
-/// One row of the paginated translation list: the English source, the current Polish (if any) and
-/// the workflow status, keyed by the <c>(FileId, GossipId)</c> fragment. Full per-row context
-/// (args, superseded source) belongs to the get-one detail endpoint.
+/// One row of the paginated translation list: the English source, the current Polish (if any), the
+/// workflow status and the translator who last submitted Polish (<c>null</c> while untranslated),
+/// shown with their display name (ADR-0004), keyed by the <c>(FileId, GossipId)</c> fragment. Full
+/// per-row context (args, superseded source, approver) belongs to the get-one detail endpoint.
 /// </summary>
 public sealed record TranslationListItemResponse(
     TranslationId Id,
@@ -15,4 +16,5 @@ public sealed record TranslationListItemResponse(
     string SourceText,
     string? TranslatedText,
     TranslationStatus Status,
+    TranslatorSummaryResponse? Submitter,
     DateTimeOffset UpdatedAt);

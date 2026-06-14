@@ -119,6 +119,12 @@ cleanup) is **not** lifted. The translator profile is provisioned lazily and ide
 first authenticated TMS request, keyed by the identity id (pattern: KittySaver ADR-0007 §4).
 This eliminates the distributed transaction without needing an outbox.
 
+**Amendment (2026-06-14, ADR-0004):** this principle is now concrete — the TMS owns translator
+identity via a lean `Translator` aggregate (`IdentityId` + `DisplayName` + optional `Email` +
+timestamps), `Translation.SubmittedById/ApprovedById` reference a local `TranslatorId` (not the bare
+Auth `IdentityId`), and provisioning is a first-touch idempotent get-or-create in the write handlers.
+See ADR-0004 for the full decision and the reference re-point.
+
 ### 8. CLAUDE.md is authoritative; the superseded planning docs are gone
 
 `docs/PROJECT_PLAN.md`, `docs/TICKETS.md`, and `docs/LIVE_TEST_RESULTS.md` were deleted in PR #89

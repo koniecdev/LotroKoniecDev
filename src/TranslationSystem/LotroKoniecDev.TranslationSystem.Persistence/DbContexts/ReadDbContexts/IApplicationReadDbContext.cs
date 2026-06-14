@@ -1,5 +1,6 @@
 using LotroKoniecDev.TranslationSystem.ReadModels.Aggregates.GameVersionAggregate;
 using LotroKoniecDev.TranslationSystem.ReadModels.Aggregates.TranslationAggregate;
+using LotroKoniecDev.TranslationSystem.ReadModels.Aggregates.TranslatorAggregate;
 using LotroKoniecDev.TranslationSystem.ReadModels.Projections;
 using Microsoft.EntityFrameworkCore;
 
@@ -12,4 +13,6 @@ public interface IApplicationReadDbContext
     DbSet<TranslationReadModel> Translations { get; }
 
     DbSet<PrecomputedTranslationFileReadModel> PrecomputedTranslationFiles { get; }
+
+    DbSet<TranslatorReadModel> Translators { get; }
 }

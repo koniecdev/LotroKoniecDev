@@ -1,6 +1,7 @@
 using LotroKoniecDev.SharedKernel.StronglyTypedIds;
 using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.GameVersionAggregate;
 using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.TranslationAggregate;
+using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.TranslatorAggregate;
 using LotroKoniecDev.TranslationSystem.Primitives.Projections;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
@@ -30,8 +31,13 @@ public static class StronglyTypedIdsConverters
             .Properties<PrecomputedTranslationFileId>()
             .HaveConversion<PrecomputedTranslationFileIdConverter>();
 
-        // IdentityId is the AuthSystem user id (cross-context reference) stamped on edited rows as
-        // SubmittedById; it lives in the SharedKernel, not the TMS Primitives, but persists the same way.
+        configurationBuilder
+            .Properties<TranslatorId>()
+            .HaveConversion<TranslatorIdConverter>();
+
+        // IdentityId is the AuthSystem user id (cross-context reference) carried by the Translator as
+        // the lazy-provisioning key (ADR-0004); it lives in the SharedKernel, not the TMS Primitives,
+        // but persists the same way.
         configurationBuilder
             .Properties<IdentityId>()
             .HaveConversion<IdentityIdConverter>();
@@ -54,6 +60,10 @@ public static class StronglyTypedIdsConverters
     private sealed class PrecomputedTranslationFileIdConverter() : ValueConverter<PrecomputedTranslationFileId, Guid>(
         id => id.Value,
         value => new PrecomputedTranslationFileId(value));
+
+    private sealed class TranslatorIdConverter() : ValueConverter<TranslatorId, Guid>(
+        id => id.Value,
+        value => new TranslatorId(value));
 
     private sealed class IdentityIdConverter() : ValueConverter<IdentityId, Guid>(
         id => id.Value,

@@ -9,9 +9,12 @@ using LotroKoniecDev.TranslationSystem.Domain.Aggregates.GameVersionAggregate.En
 using LotroKoniecDev.TranslationSystem.Domain.Aggregates.GameVersionAggregate.ValueObjects;
 using LotroKoniecDev.TranslationSystem.Domain.Aggregates.TranslationAggregate.Entities;
 using LotroKoniecDev.TranslationSystem.Domain.Aggregates.TranslationAggregate.ValueObjects;
+using LotroKoniecDev.TranslationSystem.Domain.Aggregates.TranslatorAggregate.Entities;
+using LotroKoniecDev.TranslationSystem.Domain.Aggregates.TranslatorAggregate.ValueObjects;
 using LotroKoniecDev.TranslationSystem.Persistence.DbContexts.WriteDbContexts;
 using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.GameVersionAggregate;
 using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.TranslationAggregate.Enums;
+using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.TranslatorAggregate;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -21,12 +24,14 @@ namespace LotroKoniecDev.TranslationSystem.API.Tests.Integration.Tests.Translati
 public sealed class ListTranslationsTests : IAsyncLifetime
 {
     private const int FileId = 620756992;
+    private const string SeederDisplayName = "Seed Author";
     private static readonly DateTimeOffset Now = new(2026, 6, 13, 0, 0, 0, TimeSpan.Zero);
     private static readonly JsonSerializerOptions JsonOptions =
         new(JsonSerializerDefaults.Web) { Converters = { new JsonStringEnumConverter() } };
 
     private readonly TranslationSystemApiFactory _factory;
     private GameVersionId _versionId;
+    private TranslatorId _seederId;
 
     public ListTranslationsTests(TranslationSystemApiFactory factory)
     {
@@ -38,12 +43,18 @@ public sealed class ListTranslationsTests : IAsyncLifetime
         using IServiceScope scope = _factory.Services.CreateScope();
         ApplicationWriteDbContext dbContext = scope.ServiceProvider.GetRequiredService<ApplicationWriteDbContext>();
         await dbContext.Database.ExecuteSqlRawAsync(
-            "TRUNCATE translation.\"Translations\", translation.\"GameVersions\" CASCADE;");
+            "TRUNCATE translation.\"Translations\", translation.\"GameVersions\", translation.\"Translators\" CASCADE;");
 
         GameVersion gameVersion = GameVersion.Create(LotroNotationVersion.Create("48.0").Value, Now).Value;
         dbContext.GameVersions.Add(gameVersion);
+
+        Translator seeder = Translator.Create(
+            IdentityId.Create(), DisplayName.Create(SeederDisplayName).Value, email: null, Now).Value;
+        dbContext.Translators.Add(seeder);
+
         await dbContext.SaveChangesAsync();
         _versionId = gameVersion.Id;
+        _seederId = seeder.Id;
     }
 
     public Task DisposeAsync() => Task.CompletedTask;
@@ -121,8 +132,11 @@ public sealed class ListTranslationsTests : IAsyncLifetime
         // Act
         PaginationResponse<TranslationListItemResponse> page = await ListAsync("?search=tekst");
 
-        // Assert
-        page.Items.Single().GossipId.ShouldBe(2);
+        // Assert — the list item joins the submitter's display name (ADR-0004).
+        TranslationListItemResponse item = page.Items.Single();
+        item.GossipId.ShouldBe(2);
+        item.Submitter.ShouldNotBeNull();
+        item.Submitter.DisplayName.ShouldBe(SeederDisplayName);
     }
 
     [Fact]
@@ -229,10 +243,10 @@ public sealed class ListTranslationsTests : IAsyncLifetime
         switch (status)
         {
             case TranslationStatus.Draft:
-                row.ProvideTranslation("Polski tekst", IdentityId.Create(), Now);
+                row.ProvideTranslation("Polski tekst", _seederId, Now);
                 break;
             case TranslationStatus.NeedsReview:
-                row.ProvideTranslation("Polski tekst", IdentityId.Create(), Now);
+                row.ProvideTranslation("Polski tekst", _seederId, Now);
                 row.ApplySourceChange(TranslationSource.Create($"{source} (reworded)", null, null).Value, _versionId, Now);
                 break;
         }

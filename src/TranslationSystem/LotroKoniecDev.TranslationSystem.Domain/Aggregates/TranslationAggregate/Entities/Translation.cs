@@ -1,12 +1,12 @@
 using LotroKoniecDev.SharedKernel.BuildingBlocks;
 using LotroKoniecDev.SharedKernel.Guards;
 using LotroKoniecDev.SharedKernel.Monads;
-using LotroKoniecDev.SharedKernel.StronglyTypedIds;
 using LotroKoniecDev.TranslationSystem.Domain.Aggregates.TranslationAggregate.ValueObjects;
 using LotroKoniecDev.TranslationSystem.Domain.Core.Errors;
 using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.GameVersionAggregate;
 using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.TranslationAggregate;
 using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.TranslationAggregate.Enums;
+using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.TranslatorAggregate;
 
 namespace LotroKoniecDev.TranslationSystem.Domain.Aggregates.TranslationAggregate.Entities;
 
@@ -21,8 +21,8 @@ public sealed class Translation : AggregateRoot<TranslationId>
     public TranslationSource Source { get; private set; }
     public string? TranslatedText { get; private set; }
     public string? PreviousSourceText { get; private set; }
-    public IdentityId? SubmittedById { get; private set; }
-    public IdentityId? ApprovedById { get; private set; }
+    public TranslatorId? SubmittedById { get; private set; }
+    public TranslatorId? ApprovedById { get; private set; }
     public TranslationStatus Status { get; private set; }
     public GameVersionId IntroducedInVersion { get; private set; }
     public GameVersionId? LastSourceChangeInVersion { get; private set; }
@@ -115,9 +115,10 @@ public sealed class Translation : AggregateRoot<TranslationId>
     /// approve clears it. The text is stored verbatim, preserving its <c>&lt;--DO_NOT_TOUCH!--&gt;</c>
     /// placeholders; the placeholder-count-mismatch warning UX lives in M3.
     /// </summary>
-    public void ProvideTranslation(string translatedText, IdentityId submittedBy, DateTimeOffset now)
+    public void ProvideTranslation(string translatedText, TranslatorId submittedBy, DateTimeOffset now)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(translatedText);
+        Ensure.NotEmpty(submittedBy);
 
         TranslatedText = translatedText;
         SubmittedById = submittedBy;
@@ -132,8 +133,10 @@ public sealed class Translation : AggregateRoot<TranslationId>
     /// <see cref="TranslationStatus.NeedsReview"/> row resolves the invalidation — the superseded
     /// English side-by-side context is no longer needed — so the row re-enters the distributed set.
     /// </summary>
-    public Result Approve(IdentityId approvedBy, DateTimeOffset now)
+    public Result Approve(TranslatorId approvedBy, DateTimeOffset now)
     {
+        Ensure.NotEmpty(approvedBy);
+
         if (string.IsNullOrWhiteSpace(TranslatedText))
         {
             return Result.Failure(DomainErrors.TranslationEntity.CannotApproveWithoutTranslation);

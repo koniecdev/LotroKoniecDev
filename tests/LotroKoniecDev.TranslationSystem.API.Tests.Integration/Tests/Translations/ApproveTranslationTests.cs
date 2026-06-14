@@ -8,9 +8,12 @@ using LotroKoniecDev.TranslationSystem.Domain.Aggregates.GameVersionAggregate.En
 using LotroKoniecDev.TranslationSystem.Domain.Aggregates.GameVersionAggregate.ValueObjects;
 using LotroKoniecDev.TranslationSystem.Domain.Aggregates.TranslationAggregate.Entities;
 using LotroKoniecDev.TranslationSystem.Domain.Aggregates.TranslationAggregate.ValueObjects;
+using LotroKoniecDev.TranslationSystem.Domain.Aggregates.TranslatorAggregate.Entities;
+using LotroKoniecDev.TranslationSystem.Domain.Aggregates.TranslatorAggregate.ValueObjects;
 using LotroKoniecDev.TranslationSystem.Persistence.DbContexts.WriteDbContexts;
 using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.GameVersionAggregate;
 using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.TranslationAggregate.Enums;
+using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.TranslatorAggregate;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -22,12 +25,12 @@ public sealed class ApproveTranslationTests : IAsyncLifetime
     private const int FileId = 620756992;
     private const string FileRoute = "/api/v1/translation-files/pl";
     private static readonly DateTimeOffset Now = new(2026, 6, 13, 0, 0, 0, TimeSpan.Zero);
-    private static readonly IdentityId Seeder = IdentityId.Create();
     private static readonly JsonSerializerOptions JsonOptions =
         new(JsonSerializerDefaults.Web) { Converters = { new JsonStringEnumConverter() } };
 
     private readonly TranslationSystemApiFactory _factory;
     private GameVersionId _versionId;
+    private TranslatorId _seederId;
 
     public ApproveTranslationTests(TranslationSystemApiFactory factory)
     {
@@ -39,12 +42,19 @@ public sealed class ApproveTranslationTests : IAsyncLifetime
         using IServiceScope scope = _factory.Services.CreateScope();
         ApplicationWriteDbContext dbContext = scope.ServiceProvider.GetRequiredService<ApplicationWriteDbContext>();
         await dbContext.Database.ExecuteSqlRawAsync(
-            "TRUNCATE translation.\"Translations\", translation.\"GameVersions\", translation.\"TranslationArtifacts\" CASCADE;");
+            "TRUNCATE translation.\"Translations\", translation.\"GameVersions\", translation.\"TranslationArtifacts\", translation.\"Translators\" CASCADE;");
 
         GameVersion gameVersion = GameVersion.Create(LotroNotationVersion.Create("48.0").Value, Now).Value;
         dbContext.GameVersions.Add(gameVersion);
+
+        // Seeded draft rows reference a local TranslatorId submitter (ADR-0004); the FK target must exist.
+        Translator seeder = Translator.Create(
+            IdentityId.Create(), DisplayName.Create("Seed Author").Value, email: null, Now).Value;
+        dbContext.Translators.Add(seeder);
+
         await dbContext.SaveChangesAsync();
         _versionId = gameVersion.Id;
+        _seederId = seeder.Id;
     }
 
     public Task DisposeAsync() => Task.CompletedTask;
@@ -55,8 +65,7 @@ public sealed class ApproveTranslationTests : IAsyncLifetime
         // Arrange — a draft row is excluded from the distributed file; approving must publish it
         // and regenerate the artifact (spec 0001).
         Guid id = await SeedAsync(gossipId: 1, SeedStatus.Draft, polish: "Witaj");
-        Guid approver = Guid.NewGuid();
-        using HttpClient client = AdminClient(approver);
+        using HttpClient client = AdminClient(Guid.NewGuid());
 
         // Act
         HttpResponseMessage response = await client.PostAsync(ApproveRoute(id), null);
@@ -65,11 +74,12 @@ public sealed class ApproveTranslationTests : IAsyncLifetime
             .Content.ReadFromJsonAsync<TranslationDetailResponse>(JsonOptions);
         string file = await (await _factory.CreateClient().GetAsync(FileRoute)).Content.ReadAsStringAsync();
 
-        // Assert
+        // Assert — the approver is the lazily provisioned Translator, carrying the JWT display name.
         response.StatusCode.ShouldBe(HttpStatusCode.NoContent);
         body.ShouldNotBeNull();
         body.Status.ShouldBe(TranslationStatus.Approved);
-        body.ApprovedById.ShouldBe(approver);
+        body.Approver.ShouldNotBeNull();
+        body.Approver.DisplayName.ShouldBe(TranslationSystemApiFactory.TestUserDisplayName);
         file.ShouldContain($"{FileId}||1||Witaj||NULL||NULL||1");
     }
 
@@ -187,14 +197,14 @@ public sealed class ApproveTranslationTests : IAsyncLifetime
         switch (status)
         {
             case SeedStatus.Draft:
-                row.ProvideTranslation(polish!, Seeder, Now);
+                row.ProvideTranslation(polish!, _seederId, Now);
                 break;
             case SeedStatus.NeedsReview:
-                row.ProvideTranslation(polish!, Seeder, Now);
+                row.ProvideTranslation(polish!, _seederId, Now);
                 row.ApplySourceChange(TranslationSource.Create("English reworded", null, null).Value, _versionId, Now);
                 break;
             case SeedStatus.DraftThenRemoved:
-                row.ProvideTranslation(polish!, Seeder, Now);
+                row.ProvideTranslation(polish!, _seederId, Now);
                 row.MarkRemoved(_versionId, Now);
                 break;
         }

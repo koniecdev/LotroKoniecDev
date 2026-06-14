@@ -10,9 +10,12 @@ using LotroKoniecDev.TranslationSystem.Domain.Aggregates.GameVersionAggregate.En
 using LotroKoniecDev.TranslationSystem.Domain.Aggregates.GameVersionAggregate.ValueObjects;
 using LotroKoniecDev.TranslationSystem.Domain.Aggregates.TranslationAggregate.Entities;
 using LotroKoniecDev.TranslationSystem.Domain.Aggregates.TranslationAggregate.ValueObjects;
+using LotroKoniecDev.TranslationSystem.Domain.Aggregates.TranslatorAggregate.Entities;
+using LotroKoniecDev.TranslationSystem.Domain.Aggregates.TranslatorAggregate.ValueObjects;
 using LotroKoniecDev.TranslationSystem.Persistence.DbContexts.WriteDbContexts;
 using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.GameVersionAggregate;
 using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.TranslationAggregate.Enums;
+using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.TranslatorAggregate;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -25,12 +28,12 @@ public sealed class UpsertTranslationTests : IAsyncLifetime
     private const string Route = "/api/v1/translations";
     private const string FileRoute = "/api/v1/translation-files/pl";
     private static readonly DateTimeOffset Now = new(2026, 6, 13, 0, 0, 0, TimeSpan.Zero);
-    private static readonly IdentityId Seeder = IdentityId.Create();
     private static readonly JsonSerializerOptions JsonOptions =
         new(JsonSerializerDefaults.Web) { Converters = { new JsonStringEnumConverter() } };
 
     private readonly TranslationSystemApiFactory _factory;
     private GameVersionId _versionId;
+    private TranslatorId _seederId;
 
     public UpsertTranslationTests(TranslationSystemApiFactory factory)
     {
@@ -42,12 +45,19 @@ public sealed class UpsertTranslationTests : IAsyncLifetime
         using IServiceScope scope = _factory.Services.CreateScope();
         ApplicationWriteDbContext dbContext = scope.ServiceProvider.GetRequiredService<ApplicationWriteDbContext>();
         await dbContext.Database.ExecuteSqlRawAsync(
-            "TRUNCATE translation.\"Translations\", translation.\"GameVersions\", translation.\"TranslationArtifacts\" CASCADE;");
+            "TRUNCATE translation.\"Translations\", translation.\"GameVersions\", translation.\"TranslationArtifacts\", translation.\"Translators\" CASCADE;");
 
         GameVersion gameVersion = GameVersion.Create(LotroNotationVersion.Create("48.0").Value, Now).Value;
         dbContext.GameVersions.Add(gameVersion);
+
+        // Seeded rows reference a local TranslatorId (ADR-0004), so the FK target must exist.
+        Translator seeder = Translator.Create(
+            IdentityId.Create(), DisplayName.Create("Seed Author").Value, email: null, Now).Value;
+        dbContext.Translators.Add(seeder);
+
         await dbContext.SaveChangesAsync();
         _versionId = gameVersion.Id;
+        _seederId = seeder.Id;
     }
 
     public Task DisposeAsync() => Task.CompletedTask;
@@ -57,20 +67,20 @@ public sealed class UpsertTranslationTests : IAsyncLifetime
     {
         // Arrange
         await SeedAsync(gossipId: 1, source: "Welcome to Middle-earth!", SeedStatus.Untranslated);
-        Guid submitter = Guid.NewGuid();
-        using HttpClient client = TranslatorClient(submitter);
+        using HttpClient client = TranslatorClient(Guid.NewGuid());
 
         // Act
         HttpResponseMessage response = await client.PutAsJsonAsync(
             Route, new UpsertTranslationRequest(FileId, 1, "Witaj w Srodziemiu!"));
         TranslationDetailResponse? body = await response.Content.ReadFromJsonAsync<TranslationDetailResponse>(JsonOptions);
 
-        // Assert
+        // Assert — the submitter is the lazily provisioned Translator, carrying the JWT display name.
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
         body.ShouldNotBeNull();
         body.Status.ShouldBe(TranslationStatus.Draft);
         body.TranslatedText.ShouldBe("Witaj w Srodziemiu!");
-        body.SubmittedById.ShouldBe(submitter);
+        body.Submitter.ShouldNotBeNull();
+        body.Submitter.DisplayName.ShouldBe(TranslationSystemApiFactory.TestUserDisplayName);
     }
 
     [Fact]
@@ -178,12 +188,12 @@ public sealed class UpsertTranslationTests : IAsyncLifetime
         switch (status)
         {
             case SeedStatus.Approved:
-                row.ProvideTranslation(polish!, Seeder, Now);
-                row.Approve(Seeder, Now);
+                row.ProvideTranslation(polish!, _seederId, Now);
+                row.Approve(_seederId, Now);
                 break;
             case SeedStatus.ApprovedThenRemoved:
-                row.ProvideTranslation(polish!, Seeder, Now);
-                row.Approve(Seeder, Now);
+                row.ProvideTranslation(polish!, _seederId, Now);
+                row.Approve(_seederId, Now);
                 row.MarkRemoved(_versionId, Now);
                 break;
         }

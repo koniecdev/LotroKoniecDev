@@ -88,6 +88,13 @@ services:
       Auth__Audience: lotrokoniecdev-api
       OTEL_EXPORTER_OTLP_ENDPOINT: "http://aspire-dashboard:18889"
       OTEL_EXPORTER_OTLP_PROTOCOL: grpc
+      # One-time DB bootstrap (spec 0001 / #28). Off by default. To seed a fresh DB: drop an
+      # exported.txt next to translations/polish.txt, then set Bootstrap__Enabled=true plus
+      # Bootstrap__GameVersion and Bootstrap__ExportedTextPath=/app/translations/exported.txt.
+      Bootstrap__Enabled: "false"
+      Bootstrap__PolishTextPath: "/app/translations/polish.txt"
+    volumes:
+      - ./translations:/app/translations:ro
     depends_on:
       migrator:
         condition: service_completed_successfully

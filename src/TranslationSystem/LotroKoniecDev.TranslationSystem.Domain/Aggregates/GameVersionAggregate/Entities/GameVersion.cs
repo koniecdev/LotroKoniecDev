@@ -14,19 +14,16 @@ public sealed class GameVersion : AggregateRoot<GameVersionId>
     public DateTimeOffset DetectedAt { get; }
     public GameVersionStatus Status { get; private set; }
 
-    public static Result<GameVersion> Create(LotroNotationVersion version, DateTimeOffset detectedAt)
-    {
-        ArgumentNullException.ThrowIfNull(version);
-        Ensure.NotEmpty(detectedAt);
-
-        GameVersion instance = new(GameVersionId.Create(), version, detectedAt);
-
-        return Result.Success(instance);
-    }
-
     // Re-upload to an already processed version is allowed and idempotent (spec 0001,
     // GameVersion lifecycle) — only a superseded version can never be processed.
-    public Result MarkProcessed()
+    /// <summary>
+    /// Marks the current game version as processed. A version whose status is
+    /// <see cref="GameVersionStatus.Superseded"/> cannot be processed.
+    /// </summary>
+    /// <returns>
+    /// A success <see cref="Result"/>, or a failure when the version is superseded.
+    /// </returns>
+    public Result MarkAsProcessed()
     {
         if (Status is GameVersionStatus.Superseded)
         {
@@ -50,6 +47,18 @@ public sealed class GameVersion : AggregateRoot<GameVersionId>
         Status = GameVersionStatus.Superseded;
 
         return Result.Success();
+    }
+
+    public static Result<GameVersion> Create(
+        LotroNotationVersion version,
+        DateTimeOffset detectedAt)
+    {
+        ArgumentNullException.ThrowIfNull(version);
+        Ensure.NotEmpty(detectedAt);
+
+        GameVersion instance = new(GameVersionId.Create(), version, detectedAt);
+
+        return Result.Success(instance);
     }
 
     private GameVersion(

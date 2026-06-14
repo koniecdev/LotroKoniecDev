@@ -8,6 +8,7 @@ namespace LotroKoniecDev.TranslationSystem.Domain.Aggregates.GameVersionAggregat
 /// The LOTRO game version in dotted notation as published in the official forum release notes
 /// (e.g. <c>48.0</c>, <c>47.1.1</c>) — the reliable content-version identifier.
 /// </summary>
+//todo: we should normalize 48 - 48.0 - 48.0.0 as the same value.
 public sealed class LotroNotationVersion : ValueObject
 {
     public const int VersionMaxLength = 12;

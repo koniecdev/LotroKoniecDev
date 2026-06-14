@@ -54,7 +54,7 @@ public sealed class GameVersionTests
         GameVersion gameVersion = CreateGameVersion();
 
         // Act
-        Result result = gameVersion.MarkProcessed();
+        Result result = gameVersion.MarkAsProcessed();
 
         // Assert
         result.IsSuccess.ShouldBeTrue();
@@ -66,10 +66,10 @@ public sealed class GameVersionTests
     {
         // Arrange
         GameVersion gameVersion = CreateGameVersion();
-        gameVersion.MarkProcessed();
+        gameVersion.MarkAsProcessed();
 
         // Act
-        Result result = gameVersion.MarkProcessed();
+        Result result = gameVersion.MarkAsProcessed();
 
         // Assert
         result.IsSuccess.ShouldBeTrue();
@@ -84,7 +84,7 @@ public sealed class GameVersionTests
         gameVersion.MarkSuperseded();
 
         // Act
-        Result result = gameVersion.MarkProcessed();
+        Result result = gameVersion.MarkAsProcessed();
 
         // Assert
         result.IsFailure.ShouldBeTrue();
@@ -126,7 +126,7 @@ public sealed class GameVersionTests
     {
         // Arrange
         GameVersion gameVersion = CreateGameVersion();
-        gameVersion.MarkProcessed();
+        gameVersion.MarkAsProcessed();
 
         // Act
         Result result = gameVersion.MarkSuperseded();

@@ -1,6 +1,7 @@
 using System.Globalization;
 using LotroKoniecDev.Frontend;
 using LotroKoniecDev.Frontend.Components;
+using LotroKoniecDev.Frontend.Components.Pages.ImportExport;
 using LotroKoniecDev.Frontend.Infrastructure.Auth;
 using LotroKoniecDev.Frontend.Infrastructure.Errors;
 using LotroKoniecDev.Frontend.Settings;
@@ -106,6 +107,7 @@ try
 
     app.MapStaticAssets();
     app.MapAuthEndpoints();
+    app.MapImportExportEndpoints();
     app.MapRazorComponents<App>();
 
     await app.RunAsync();

@@ -277,6 +277,11 @@ file_id||gossip_id||translated_text||args_order||args_id||approved
 - **Right-size the design — YAGNI by default.** Before proposing an abstraction, cache, config
   knob, queue, or new infra, check it solves a **real, present** need from the current
   spec/ticket — not a hypothetical future. Pick the simple path and note the trade-off in one line.
+- **Git is rebase-based, and branches are never deleted.** Integrate a feature branch off `main`
+  with `git rebase main` — never `git merge main`; no merge commits in feature branches (remote
+  `main` is squash-only, so history stays linear). After a PR's squash commit lands on `main`,
+  **keep both the local and the remote branch** — merge with plain `gh pr merge --squash` (never
+  `--delete-branch`), and never run `git branch -d/-D` or `git push origin --delete`.
 
 ## Code style (C#) — repo-authoritative
 
@@ -397,8 +402,9 @@ uncommitted working copy.** Division of labour:
   (ticket ref + Co-Authored-By footer) → push → `gh pr create --fill --body "Closes #<n>"`. It does
   **not** merge. On an open *business* question, unmet dependency, mis-scope, or an unreachable
   green build / clean review, it returns **BLOCKED** instead of guessing.
-- **`/backlog`** (thin orchestrator): merges each clean PR (`gh pr merge <n> --squash
-  --delete-branch`, then `git checkout main && git pull`), surfaces every BLOCKED ticket's questions
+- **`/backlog`** (thin orchestrator): merges each clean PR (`gh pr merge <n> --squash` — **no
+  `--delete-branch`**; branches are kept, see house rules — then `git checkout main && git pull`),
+  surfaces every BLOCKED ticket's questions
   to the user verbatim, and picks the next ready ticket.
 
 Entering loop mode (`/backlog`, or an explicit "work through the backlog") **is** the standing

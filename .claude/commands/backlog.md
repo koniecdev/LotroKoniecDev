@@ -37,9 +37,9 @@ Serial, one at a time (so the working copy is never shared between two tickets).
 1. **Spawn** the `ticket-worker` agent (Task tool, `subagent_type: ticket-worker`): *"Work ticket
    #<n> end-to-end per your discipline. Return DONE + PR url + summary, or BLOCKED + questions."*
 2. **Judge the return:**
-   - **DONE (clean PR):** merge it — `gh pr merge <n> --squash --delete-branch` — then
-     `git checkout main && git pull` so the next worker branches off fresh main. Keep only the
-     worker's summary.
+   - **DONE (clean PR):** merge it — `gh pr merge <n> --squash` (**never `--delete-branch`** —
+     branches are kept, see CLAUDE.md house rules) — then `git checkout main && git pull` so the
+     next worker branches off fresh main. Keep only the worker's summary.
    - **BLOCKED (open business questions):** do NOT guess. Surface the questions to the user
      verbatim. Then skip to the next *independent* ready ticket, or stop if none is independent —
      your call, stated plainly.

@@ -112,41 +112,12 @@ services:
       auth-api:
         condition: service_healthy
 
-  frontend:
-    build:
-      context: .
-      dockerfile: src/Frontend/LotroKoniecDev.Frontend/Dockerfile
-    # Host port maps to the HTTPS listener (:8081) so the browser reaches the SSR app over TLS.
-    ports:
-      - "5001:8081"
-    volumes:
-      - ./.docker/https:/https:ro
-    environment:
-      ASPNETCORE_ENVIRONMENT: Development
-      ASPNETCORE_URLS: "https://+:8081;http://+:8080"
-      ASPNETCORE_Kestrel__Certificates__Default__Path: /https/aspnetapp.pfx
-      ASPNETCORE_Kestrel__Certificates__Default__Password: ${ASPNETCORE_KESTREL_CERT_PASSWORD}
-      # In-network base addresses the SSR server uses for its own HTTP calls (health probe + token
-      # endpoint). The TMS/auth APIs listen on :8080 inside the compose network.
-      TranslationSystem__BaseUrl: "http://tms-api:8080/"
-      AuthSystem__BaseUrl: "http://auth-api:8080/"
-      # OIDC Authority drives BOTH the server-side discovery/back-channel (code->token, userinfo,
-      # JWKS) AND the browser /authorize redirect from a single value. A containerized RP cannot
-      # satisfy both with one URL: the browser needs https://localhost:5003 (host-reachable, matches
-      # 'iss'), while this container's loopback cannot reach it. Splitting MetadataAddress from
-      # Authority, fronting one shared HTTPS origin via a reverse proxy, or sharing host.docker.internal
-      # is a contested architecture decision deferred to its own reverse-proxy/forwarded-headers ADR
-      # (M3-01 #138 / M3-06 #40) — see the BLOCKED note on M3-10 #144. Until that decision lands the
-      # in-network http value is kept so server-side discovery succeeds and the stack boots over HTTPS;
-      # the browser login leg is the open item.
-      AuthSystem__Authority: "http://auth-api:8080"
-      OTEL_EXPORTER_OTLP_ENDPOINT: "http://aspire-dashboard:18889"
-      OTEL_EXPORTER_OTLP_PROTOCOL: grpc
-    depends_on:
-      tms-api:
-        condition: service_healthy
-      auth-api:
-        condition: service_healthy
+# The Blazor SSR Frontend is intentionally NOT a compose service (ADR-0006): like TheKittySaver, it
+# runs on the host via `dotnet run` (https://localhost:7017) against this in-compose backend. A
+# host-run OIDC relying party and the browser both reach auth-api at https://localhost:5003 and
+# tms-api at https://localhost:5002, so a single `Authority` serves both legs and the token `iss`
+# matches — avoiding the containerized-RP two-legs problem. Production (Azure Container Apps) hosting
+# is deferred; the kept-but-unreferenced Frontend Dockerfile exists for that future build.
 
 volumes:
   lotrokoniecdev-postgres-data:

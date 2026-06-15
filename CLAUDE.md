@@ -160,18 +160,24 @@ dotnet ef migrations add <Name> \
   -- --connection "Host=localhost;Database=lotro_translation;Username=postgres;Password=changeme"
 
 # TMS — Docker compose stack (postgres + migrator + auth-api + tms-api + aspire-dashboard + mailpit)
-docker compose up -d                                   # boots the M2 backend (HTTP-only); requires a .env — scripts/up.sh creates one
+docker compose up -d                                   # boots the M2/M3 stack; requires a .env + dev cert — scripts/up.sh creates both
 docker compose build [<service>]                       # rebuild the API/migrator images after code changes
 docker compose logs -f migrator                        # watch the one-shot schema migration (TMS + Auth contexts)
 docker compose down                                    # stop; add -v to also drop the postgres volume (fresh DB)
-# Endpoints: tms-api :5002 · auth-api :5003 · aspire :18888 · mailpit :8025   (e.g. curl http://localhost:5002/health)
-# scripts/up.sh | up.ps1 = recommended boot — bootstraps .env from .env.example (compose has no secret defaults), then up.
+# Endpoints (HTTPS): frontend :5001 · tms-api :5002 · auth-api :5003 · aspire :18888 · mailpit :8025
+#   (e.g. curl -k https://localhost:5002/health). In-network API↔API + SSR→API still use http://…:8080.
+# scripts/up.sh | up.ps1 = recommended boot — bootstraps .env from .env.example AND (via
+#   scripts/init-dev-https.{sh,ps1}) the ASP.NET dev cert PFX into .docker/https/, then up.
 ```
 
-The compose stack runs the backend on **HTTP** for local dev; HTTPS + dev-cert mounting arrives with the
-M3 Frontend (OIDC RP). Dev uses **ephemeral** OpenIddict keys; production-like runs supply real keys via
-env (see `.env.example`). The migrator is a one-shot container (TMS migrates through its Persistence
-project, Auth through its API — only those carry EF Core Design); both APIs wait for it to complete.
+Each service serves **HTTPS** on its host port (dev cert mounted into Kestrel; `ASPNETCORE_URLS` is
+`https://+:8081;http://+:8080`, host port → :8081), while in-network API↔API + SSR→API calls keep using
+`http://…:8080`. The cert is bootstrapped once by `scripts/init-dev-https.{sh,ps1}` (run automatically
+by `scripts/up.{sh,ps1}` when `.docker/https/aspnetapp.pfx` is missing; password from `.env`
+`ASPNETCORE_KESTREL_CERT_PASSWORD`). Dev uses **ephemeral** OpenIddict keys; production-like runs supply
+real keys via env (see `.env.example`). The migrator is a one-shot container (TMS migrates through its
+Persistence project, Auth through its API — only those carry EF Core Design); both APIs wait for it to
+complete.
 Exit codes (CLI): `0` success, `1` invalid arguments (incl. `ErrorType.Validation`), `2` file not
 found, `3` operation failed, `4` cancelled.
 

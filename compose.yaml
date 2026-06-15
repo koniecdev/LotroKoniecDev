@@ -50,11 +50,17 @@ services:
     build:
       context: .
       dockerfile: src/AuthSystem/LotroKoniecDev.AuthSystem.API/Dockerfile
+    # Host port maps to the HTTPS listener (:8081) so the browser reaches it over TLS at the same
+    # origin stamped into 'iss' (https://localhost:5003). In-network API↔API traffic still uses :8080.
     ports:
-      - "5003:8080"
+      - "5003:8081"
+    volumes:
+      - ./.docker/https:/https:ro
     environment:
       ASPNETCORE_ENVIRONMENT: Development
-      ASPNETCORE_URLS: "http://+:8080"
+      ASPNETCORE_URLS: "https://+:8081;http://+:8080"
+      ASPNETCORE_Kestrel__Certificates__Default__Path: /https/aspnetapp.pfx
+      ASPNETCORE_Kestrel__Certificates__Default__Password: ${ASPNETCORE_KESTREL_CERT_PASSWORD}
       ConnectionStrings__AuthDatabase: "Host=postgres;Port=5432;Database=lotro_auth;Username=postgres;Password=${POSTGRES_PASSWORD}"
       # Browser-facing issuer stamped into every token's 'iss'; tms-api validates against this exact value.
       OpenIddict__Issuer: "https://localhost:5003"
@@ -75,11 +81,18 @@ services:
     build:
       context: .
       dockerfile: src/TranslationSystem/LotroKoniecDev.TranslationSystem.API/Dockerfile
+    # Host port maps to the HTTPS listener (:8081) for browser/CLI reachability over TLS.
+    # In-network SSR→API + API↔API calls keep using http://tms-api:8080.
     ports:
-      - "5002:8080"
+      - "5002:8081"
+    volumes:
+      - ./translations:/app/translations:ro
+      - ./.docker/https:/https:ro
     environment:
       ASPNETCORE_ENVIRONMENT: Development
-      ASPNETCORE_URLS: "http://+:8080"
+      ASPNETCORE_URLS: "https://+:8081;http://+:8080"
+      ASPNETCORE_Kestrel__Certificates__Default__Path: /https/aspnetapp.pfx
+      ASPNETCORE_Kestrel__Certificates__Default__Password: ${ASPNETCORE_KESTREL_CERT_PASSWORD}
       ConnectionStrings__TranslationDatabase: "Host=postgres;Port=5432;Database=lotro_translation;Username=postgres;Password=${POSTGRES_PASSWORD}"
       # Issuer must match the token 'iss' (auth-api's OpenIddict:Issuer — the browser-facing https URL);
       # Authority is the in-network address tms-api uses to fetch OIDC metadata + JWKS.
@@ -93,8 +106,6 @@ services:
       # Bootstrap__GameVersion and Bootstrap__ExportedTextPath=/app/translations/exported.txt.
       Bootstrap__Enabled: "false"
       Bootstrap__PolishTextPath: "/app/translations/polish.txt"
-    volumes:
-      - ./translations:/app/translations:ro
     depends_on:
       migrator:
         condition: service_completed_successfully
@@ -105,21 +116,29 @@ services:
     build:
       context: .
       dockerfile: src/Frontend/LotroKoniecDev.Frontend/Dockerfile
+    # Host port maps to the HTTPS listener (:8081) so the browser reaches the SSR app over TLS.
     ports:
-      - "5001:8080"
+      - "5001:8081"
+    volumes:
+      - ./.docker/https:/https:ro
     environment:
       ASPNETCORE_ENVIRONMENT: Development
-      ASPNETCORE_URLS: "http://+:8080"
+      ASPNETCORE_URLS: "https://+:8081;http://+:8080"
+      ASPNETCORE_Kestrel__Certificates__Default__Path: /https/aspnetapp.pfx
+      ASPNETCORE_Kestrel__Certificates__Default__Password: ${ASPNETCORE_KESTREL_CERT_PASSWORD}
       # In-network base addresses the SSR server uses for its own HTTP calls (health probe + token
       # endpoint). The TMS/auth APIs listen on :8080 inside the compose network.
       TranslationSystem__BaseUrl: "http://tms-api:8080/"
       AuthSystem__BaseUrl: "http://auth-api:8080/"
-      # OIDC Authority doubles as the metadata host (server-side) AND the URL the browser is redirected
-      # to (client-side); for an in-compose value both resolve to auth-api. A fully browser-functional
-      # login additionally needs HTTPS dev certs, a browser-reachable issuer, and the web client's
-      # redirect URI seeded for this host — deferred to its own reverse-proxy/forwarded-headers ADR
-      # (flagged in M3-01 #138); this service joins the stack and boots, matching the HTTP-only dev
-      # posture of the rest of the backend.
+      # OIDC Authority drives BOTH the server-side discovery/back-channel (code->token, userinfo,
+      # JWKS) AND the browser /authorize redirect from a single value. A containerized RP cannot
+      # satisfy both with one URL: the browser needs https://localhost:5003 (host-reachable, matches
+      # 'iss'), while this container's loopback cannot reach it. Splitting MetadataAddress from
+      # Authority, fronting one shared HTTPS origin via a reverse proxy, or sharing host.docker.internal
+      # is a contested architecture decision deferred to its own reverse-proxy/forwarded-headers ADR
+      # (M3-01 #138 / M3-06 #40) — see the BLOCKED note on M3-10 #144. Until that decision lands the
+      # in-network http value is kept so server-side discovery succeeds and the stack boots over HTTPS;
+      # the browser login leg is the open item.
       AuthSystem__Authority: "http://auth-api:8080"
       OTEL_EXPORTER_OTLP_ENDPOINT: "http://aspire-dashboard:18889"
       OTEL_EXPORTER_OTLP_PROTOCOL: grpc

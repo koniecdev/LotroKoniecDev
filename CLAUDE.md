@@ -88,7 +88,7 @@ spec 0001): the M2-20 translation-file auto-download slice in the launch flow.
 | `TranslationSystem.API` | `…AdoptionSystem.API` | `IEndpoint` + assembly-scan `AddEndpoints`/`MapEndpoints`; slices in `Features/<Area>/<Action>.cs`; `ExceptionHandlers/`, `Auth/` (JwtBearer + policies + `CurrentUserAccessor` + ownership guards), health checks, Serilog + OTel bootstrap |
 | `AuthSystem` (whole module) | `src/AuthSystem/*` | Self-hosted OpenIddict + Identity server — lift wholesale. **Do NOT lift the synchronous `RegisterUser`→`CreatePersonAsync` saga**: provision the translator profile lazily & idempotently on first authenticated TMS request (pattern: KittySaver ADR-0007 §4) |
 | `Frontend` (infra) | `src/Frontend/TheKittySaver.Frontend` | Lift `Infrastructure/` (OIDC RP, `CookieTokenRefresher`, `DiscoveryCache`, `ApiResult`, typed HttpClients, error pages); pages are written fresh for translations; reference `TranslationSystem.Contracts` directly |
-| Docker / compose | `compose.yaml`, `Dockerfile.migrator`, `Dockerfile.tests` | postgres + migrator + auth-api + tms-api (+ mailpit/aspire-dashboard in dev); Frontend joins in M3 |
+| Docker / compose | `compose.yaml`, `Dockerfile.migrator`, `Dockerfile.tests` | postgres + migrator + auth-api + tms-api (+ mailpit/aspire-dashboard in dev), serving HTTPS. **Backend-only — the Frontend is NOT a compose service; it runs on the host via `dotnet run` like TheKittySaver (ADR-0006)** |
 
 **Deliberate non-lifts (YAGNI — revisit only on a real, present need):** `Calculators`, domain
 events (KittySaver dispatches them via Mediator notifications; the TMS core loop doesn't need
@@ -159,19 +159,35 @@ dotnet ef migrations add <Name> \
   --context ApplicationWriteDbContext \
   -- --connection "Host=localhost;Database=lotro_translation;Username=postgres;Password=changeme"
 
-# TMS — Docker compose stack (postgres + migrator + auth-api + tms-api + aspire-dashboard + mailpit)
-docker compose up -d                                   # boots the M2 backend (HTTP-only); requires a .env — scripts/up.sh creates one
+# TMS — Docker compose stack (BACKEND-ONLY: postgres + migrator + auth-api + tms-api + aspire-dashboard + mailpit)
+docker compose up -d                                   # boots the M2 backend over HTTPS; requires a .env + dev cert — scripts/up.sh creates both
 docker compose build [<service>]                       # rebuild the API/migrator images after code changes
 docker compose logs -f migrator                        # watch the one-shot schema migration (TMS + Auth contexts)
 docker compose down                                    # stop; add -v to also drop the postgres volume (fresh DB)
-# Endpoints: tms-api :5002 · auth-api :5003 · aspire :18888 · mailpit :8025   (e.g. curl http://localhost:5002/health)
-# scripts/up.sh | up.ps1 = recommended boot — bootstraps .env from .env.example (compose has no secret defaults), then up.
+# Endpoints (HTTPS): tms-api :5002 · auth-api :5003 · aspire :18888 · mailpit :8025
+#   (e.g. curl -k https://localhost:5002/health). In-network API↔API still uses http://…:8080.
+# scripts/up.sh | up.ps1 = recommended boot — bootstraps .env from .env.example AND (via
+#   scripts/init-dev-https.{sh,ps1}) the ASP.NET dev cert PFX into .docker/https/, then up.
+
+# Frontend (Blazor SSR) — NOT in compose (ADR-0006); runs on the host like TheKittySaver, against the in-compose backend
+dotnet run --project src/Frontend/LotroKoniecDev.Frontend   # https://localhost:7017 → hits auth-api :5003 + tms-api :5002 over HTTPS
+# appsettings.Development targets the COMPOSE backend (tms :5002). For the all-local workflow (every API via
+# its own `dotnet run`), tms-api's https launchSettings port is :5004 — point TranslationSystem:BaseUrl there.
+# auth-api is :5003 in both workflows, so its Authority/BaseUrl + the token `iss` need no change.
 ```
 
-The compose stack runs the backend on **HTTP** for local dev; HTTPS + dev-cert mounting arrives with the
-M3 Frontend (OIDC RP). Dev uses **ephemeral** OpenIddict keys; production-like runs supply real keys via
-env (see `.env.example`). The migrator is a one-shot container (TMS migrates through its Persistence
-project, Auth through its API — only those carry EF Core Design); both APIs wait for it to complete.
+The compose stack is **backend-only** (ADR-0006). Each API serves **HTTPS** on its host port (dev cert
+mounted into Kestrel; `ASPNETCORE_URLS` is `https://+:8081;http://+:8080`, host port → :8081), while
+in-network API↔API calls (e.g. tms-api → auth-api JWKS) keep using `http://…:8080`. The Frontend is **not**
+a compose service: like TheKittySaver it runs on the host via `dotnet run` (`https://localhost:7017`), and
+both it and the browser reach the in-compose backend at `https://localhost:5003` (auth) + `https://localhost:5002`
+(tms) — so a single OIDC `Authority` serves the browser and the server-side back-channel and the token `iss`
+matches. The cert is bootstrapped once by `scripts/init-dev-https.{sh,ps1}` (run automatically by
+`scripts/up.{sh,ps1}` when `.docker/https/aspnetapp.pfx` is missing; password from `.env`
+`ASPNETCORE_KESTREL_CERT_PASSWORD`). Dev uses **ephemeral** OpenIddict keys; production-like runs supply
+real keys via env (see `.env.example`). The migrator is a one-shot container (TMS migrates through its
+Persistence project, Auth through its API — only those carry EF Core Design); both APIs wait for it to
+complete.
 Exit codes (CLI): `0` success, `1` invalid arguments (incl. `ErrorType.Validation`), `2` file not
 found, `3` operation failed, `4` cancelled.
 

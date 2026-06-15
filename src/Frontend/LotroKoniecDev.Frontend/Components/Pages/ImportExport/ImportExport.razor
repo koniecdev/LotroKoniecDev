@@ -1,0 +1,276 @@
+@page "/import-export"
+@attribute [Authorize]
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Components.Forms
+@using Microsoft.AspNetCore.Mvc
+@using LotroKoniecDev.Frontend.Infrastructure.HttpClients
+@using LotroKoniecDev.TranslationSystem.Contracts.GameVersions
+@using LotroKoniecDev.TranslationSystem.Contracts.Import
+@using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.GameVersionAggregate
+@inject ImportExportLoader Loader
+
+<PageTitle>Import / Eksport — LotroKoniecDev</PageTitle>
+
+<section class="page-head">
+    <h1>Import / Eksport</h1>
+    <p class="lede">
+        Wgraj świeży plik <code class="mono">exported.txt</code> z gry, aby zaktualizować katalog,
+        oraz pobierz gotowy plik <code class="mono">polish.txt</code> do nałożenia łatki.
+    </p>
+</section>
+
+<section class="panel">
+    <h2>Eksport tłumaczenia</h2>
+    <p class="lede">
+        Pobierz aktualny, zatwierdzony plik tłumaczenia. Zapisz go jako
+        <code class="mono">@ImportExportLoader.DownloadFileName</code> i użyj polecenia
+        <code class="mono">patch</code> patchera.
+    </p>
+    <div class="editor-actions">
+        <a class="btn btn-primary" href="@DownloadPath" download="@ImportExportLoader.DownloadFileName">
+            Pobierz @ImportExportLoader.DownloadFileName
+        </a>
+    </div>
+</section>
+
+@if (_canImport)
+{
+    <section class="panel">
+        <h2>Import eksportu z gry</h2>
+        <p class="lede">
+            Wybierz wersję gry, do której należy plik, a następnie wgraj
+            <code class="mono">exported.txt</code>. Import porówna plik z bieżącym stanem i zaktualizuje
+            teksty (operacja administratora).
+        </p>
+
+        @if (_importProblem is not null)
+        {
+            <p class="status-line status-down" role="alert">
+                <span class="dot"></span>@(_importProblem.Detail ?? _importProblem.Title ?? "Nie udało się zaimportować pliku.")
+            </p>
+        }
+        else if (_summary is not null)
+        {
+            <p class="status-line status-ok" role="status">
+                <span class="dot"></span>Import zakończony powodzeniem.
+            </p>
+        }
+
+        @if (_versionsProblem is not null)
+        {
+            <p class="status-line status-down" role="alert">
+                <span class="dot"></span>@(_versionsProblem.Title ?? "Nie udało się wczytać listy wersji gry.")
+            </p>
+        }
+        else if (_versions is null)
+        {
+            <div class="loading-indicator">
+                <span class="li-spin"></span> Wczytywanie wersji gry…
+            </div>
+        }
+        else if (_versions.Count == 0)
+        {
+            <div class="empty">
+                <h2>Brak wersji gry</h2>
+                <p>Najpierw zarejestruj wersję gry, zanim zaimportujesz eksport.</p>
+            </div>
+        }
+        else
+        {
+            <EditForm Model="ImportInput" OnValidSubmit="ImportAsync"
+                      FormName="import-export" method="post" enctype="multipart/form-data">
+                <AntiforgeryToken/>
+                <div class="filter-form">
+                    <div class="filter-field">
+                        <label for="game-version">Wersja gry</label>
+                        <select id="game-version" name="ImportInput.GameVersionId">
+                            @foreach (GameVersionResponse version in _versions)
+                            {
+                                <option value="@version.Id.Value" selected="@(version.Id.Value == ImportInput?.GameVersionId)">
+                                    @version.Version (@version.Status)
+                                </option>
+                            }
+                        </select>
+                    </div>
+                    <div class="filter-field filter-search">
+                        <label for="export-file">Plik exported.txt</label>
+                        <input id="export-file" name="ImportInput.File" type="file" accept=".txt"/>
+                    </div>
+                    <div class="filter-field">
+                        <label for="allow-mass-removal" class="checkbox-label">
+                            <input id="allow-mass-removal" name="ImportInput.AllowMassRemoval" type="checkbox" value="true"/>
+                            Zezwól na masowe usuwanie
+                        </label>
+                    </div>
+                    <div class="filter-actions">
+                        <button type="submit" class="btn btn-primary">Importuj</button>
+                    </div>
+                </div>
+            </EditForm>
+        }
+
+        @if (_summary is not null)
+        {
+            ImportSummary summary = _summary;
+
+            <section class="stat-grid">
+                <article class="stat-card">
+                    <span class="stat-label">Dodane</span>
+                    <span class="stat-value mono">@summary.Added</span>
+                </article>
+                <article class="stat-card">
+                    <span class="stat-label">Zmieniony angielski</span>
+                    <span class="stat-value mono">@summary.SourceChanged</span>
+                </article>
+                <article class="stat-card">
+                    <span class="stat-label">Unieważnione</span>
+                    <span class="stat-value mono">@summary.Invalidated</span>
+                </article>
+                <article class="stat-card">
+                    <span class="stat-label">Usunięte</span>
+                    <span class="stat-value mono">@summary.Removed</span>
+                </article>
+                <article class="stat-card">
+                    <span class="stat-label">Bez zmian</span>
+                    <span class="stat-value mono">@summary.Unchanged</span>
+                </article>
+            </section>
+
+            @if (summary.Warnings.Count > 0)
+            {
+                <div class="panel">
+                    <h2>Uwagi</h2>
+                    <ul class="notice-list">
+                        @foreach (string warning in summary.Warnings)
+                        {
+                            <li class="status-line status-warning">
+                                <span class="dot"></span>@warning
+                            </li>
+                        }
+                    </ul>
+                </div>
+            }
+        }
+    </section>
+}
+
+@code
+{
+    /// <summary>The Frontend server route that streams the artifact as a named file download.</summary>
+    private const string DownloadPath = "/import-export/download";
+
+    [CascadingParameter]
+    private Task<AuthenticationState>? AuthenticationStateTask { get; set; }
+
+    [SupplyParameterFromForm(FormName = "import-export")]
+    private ImportFormModel? ImportInput { get; set; }
+
+    private IReadOnlyList<GameVersionResponse>? _versions;
+    private ProblemDetails? _versionsProblem;
+    private ProblemDetails? _importProblem;
+    private ImportSummary? _summary;
+    private bool _canImport;
+
+    protected override async Task OnInitializedAsync()
+    {
+        // A property initializer is rejected for a [SupplyParameterFromForm] model (BL0008), so seed it
+        // here: on a non-matching render the model stays empty, on a matching post the bound model wins.
+        ImportInput ??= new ImportFormModel();
+
+        _canImport = await IsAdminAsync();
+        if (_canImport)
+        {
+            await LoadVersionsAsync();
+        }
+    }
+
+    private async Task LoadVersionsAsync()
+    {
+        ApiResult<IReadOnlyList<GameVersionResponse>> result = await Loader.ListGameVersionsAsync(CancellationToken.None);
+        if (result.IsSuccess)
+        {
+            _versions = result.Value;
+            _versionsProblem = null;
+        }
+        else
+        {
+            _versions = null;
+            _versionsProblem = result.ProblemDetails;
+        }
+    }
+
+    private async Task ImportAsync()
+    {
+        _summary = null;
+        _importProblem = null;
+
+        if (!await IsAdminAsync())
+        {
+            return;
+        }
+
+        ImportFormModel input = ImportInput ?? new ImportFormModel();
+
+        if (input.File is null || input.File.Length == 0)
+        {
+            _importProblem = new ProblemDetails { Title = "Wybierz plik exported.txt do wgrania." };
+            await LoadVersionsAsync();
+            return;
+        }
+
+        if (input.GameVersionId == Guid.Empty)
+        {
+            _importProblem = new ProblemDetails { Title = "Wybierz wersję gry." };
+            await LoadVersionsAsync();
+            return;
+        }
+
+        await using Stream fileStream = input.File.OpenReadStream();
+
+        ApiResult<ImportSummary> result = await Loader.ImportAsync(
+            new GameVersionId(input.GameVersionId),
+            fileStream,
+            input.File.FileName,
+            input.AllowMassRemoval,
+            CancellationToken.None);
+
+        if (result.IsSuccess)
+        {
+            _summary = result.Value;
+        }
+        else
+        {
+            _importProblem = result.ProblemDetails;
+        }
+
+        // The import mutated the catalog and the version's status; refresh the selector so it reflects
+        // the new state (e.g. the just-imported version flips to Processed).
+        await LoadVersionsAsync();
+    }
+
+    private async Task<bool> IsAdminAsync()
+    {
+        if (AuthenticationStateTask is null)
+        {
+            return false;
+        }
+
+        AuthenticationState authenticationState = await AuthenticationStateTask;
+        return authenticationState.User.IsInRole(ImportExportRoles.Importer);
+    }
+
+    /// <summary>
+    /// The import form's bound model. Blazor static-SSR form mapping binds an <see cref="IFormFile"/>
+    /// only as a property of a <c>[SupplyParameterFromForm]</c> model — never as a bare top-level
+    /// parameter — so the file, the chosen version id and the override flag travel together here, with
+    /// the inputs named <c>ImportInput.&lt;Property&gt;</c> (mirrors KittySaver's upload form models).
+    /// </summary>
+    private sealed class ImportFormModel
+    {
+        public Guid GameVersionId { get; set; }
+
+        public IFormFile? File { get; set; }
+
+        public bool AllowMassRemoval { get; set; }
+    }
+}

@@ -23,6 +23,14 @@ internal interface ITranslationSystemClient
         string relativeUri,
         CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Fetches an endpoint that returns a raw <c>text/plain</c> body (the pre-built translation file)
+    /// rather than JSON, so the caller can stream it to the browser as a download.
+    /// </summary>
+    Task<ApiResult<string>> GetTextAsync(
+        string relativeUri,
+        CancellationToken cancellationToken = default);
+
     Task<ApiResult> PostApiResultAsync(
         string relativeUri,
         object body,

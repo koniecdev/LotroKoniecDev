@@ -33,6 +33,33 @@ internal static class HttpClientApiExtensions
             return await SendForApiResultAsync<T>(httpClient, request, cancellationToken);
         }
 
+        public async Task<ApiResult<string>> GetTextAsync(
+            string uri,
+            CancellationToken cancellationToken = default)
+        {
+            using HttpRequestMessage request = new(
+                HttpMethod.Get,
+                new Uri(uri, UriKind.RelativeOrAbsolute));
+            try
+            {
+                using HttpResponseMessage response = await httpClient.SendAsync(request, cancellationToken);
+                string content = await response.Content.ReadAsStringAsync(cancellationToken);
+
+                if (response.IsSuccessStatusCode)
+                {
+                    return ApiResult.Success(content);
+                }
+
+                ProblemDetails problem = JsonSerializer.Deserialize<ProblemDetails>(content, JsonOptions)
+                                         ?? throw new JsonException("Failed to deserialize ProblemDetails");
+                return ApiResult.Failure<string>(problem);
+            }
+            catch (Exception ex) when (IsTransportFailure(ex))
+            {
+                return ApiResult.Failure<string>(MapTransportFailureToProblemDetails(ex));
+            }
+        }
+
         public async Task<ApiResult> PostApiResultAsync(
             string uri,
             object body,

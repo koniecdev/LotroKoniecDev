@@ -1,0 +1,294 @@
+@page "/editor/{Id:guid}"
+@attribute [Authorize]
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Mvc
+@using LotroKoniecDev.Frontend.Components.Pages.Translations
+@using LotroKoniecDev.Frontend.Infrastructure.HttpClients
+@using LotroKoniecDev.TranslationSystem.Contracts.Translations
+@using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.TranslationAggregate
+@using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.TranslationAggregate.Enums
+@inject TranslationEditorLoader Loader
+
+<PageTitle>Edytor tłumaczenia — LotroKoniecDev</PageTitle>
+
+<section class="page-head">
+    <h1>Edytor tłumaczenia</h1>
+    <p class="lede">
+        Po lewej tekst angielski (do odczytu), po prawej Twoje tłumaczenie. Zachowaj znaczniki
+        <code class="ph-token">@PlaceholderAnalyzer.Placeholder</code> w niezmienionej postaci.
+    </p>
+    <a class="btn btn-ghost btn-sm" href="/translations">← Wróć do listy</a>
+</section>
+
+@if (_detail is null)
+{
+    @if (_saveProblem is not null && _draftText is not null)
+    {
+        @* Recovery path: the row could not be reloaded AND the save failed in the same request.
+           Surface the error and keep the translator's typed text in a resubmittable form so it is
+           never silently lost (the hidden key fields survived the post). *@
+        <section class="panel">
+            <p class="status-line status-down" role="alert">
+                <span class="dot"></span>@(_saveProblem.Title ?? "Nie udało się zapisać tłumaczenia.")
+            </p>
+        </section>
+        <section class="panel editor-pane">
+            <h2 class="editor-pane-title">Tłumaczenie polskie</h2>
+            <form method="post" @formname="save-translation" @onsubmit="SaveAsync">
+                <AntiforgeryToken/>
+                <input type="hidden" name="FileIdField" value="@FileIdField"/>
+                <input type="hidden" name="GossipIdField" value="@GossipIdField"/>
+                <label class="visually-hidden" for="translated-recovery">Tłumaczenie polskie</label>
+                <textarea id="translated-recovery" name="DraftField" class="editor-textarea mono" rows="8"
+                          placeholder="Wpisz tłumaczenie…">@_draftText</textarea>
+                <div class="editor-actions">
+                    <button type="submit" class="btn btn-primary">Zapisz ponownie</button>
+                </div>
+            </form>
+        </section>
+    }
+    else if (_loadProblem is not null)
+    {
+        <section class="panel">
+            <p class="status-line status-down" role="alert">
+                <span class="dot"></span>@(_loadProblem.Title ?? "Nie udało się wczytać tłumaczenia.")
+            </p>
+        </section>
+    }
+    else
+    {
+        <section class="results-meta">
+            <div class="loading-indicator">
+                <span class="li-spin"></span> Wczytywanie tłumaczenia…
+            </div>
+        </section>
+    }
+}
+else
+{
+    TranslationDetailResponse detail = _detail;
+    PlaceholderComparison comparison = PlaceholderAnalyzer.Compare(detail.SourceText, _draftText ?? detail.TranslatedText);
+
+    <section class="results-meta">
+        <span class="count">FileId <strong class="mono">@detail.FileId</strong></span>
+        <span class="count">GossipId <strong class="mono">@detail.GossipId</strong></span>
+        <span class="badge @TranslationStatusDisplay.BadgeClass(detail.Status)">
+            <span class="dot"></span>@TranslationStatusDisplay.Label(detail.Status)
+        </span>
+    </section>
+
+    @if (_saveProblem is not null)
+    {
+        <section class="panel">
+            <p class="status-line status-down" role="alert">
+                <span class="dot"></span>@(_saveProblem.Title ?? "Nie udało się zapisać tłumaczenia.")
+            </p>
+        </section>
+    }
+    else if (_saved)
+    {
+        <section class="panel">
+            <p class="status-line status-ok" role="status">
+                <span class="dot"></span>Tłumaczenie zapisano.
+            </p>
+        </section>
+    }
+
+    @if (_approveProblem is not null)
+    {
+        <section class="panel">
+            <p class="status-line status-down" role="alert">
+                <span class="dot"></span>@(_approveProblem.Title ?? "Nie udało się zatwierdzić tłumaczenia.")
+            </p>
+        </section>
+    }
+    else if (_approved)
+    {
+        <section class="panel">
+            <p class="status-line status-ok" role="status">
+                <span class="dot"></span>Tłumaczenie zatwierdzono i dołączono do dystrybucji.
+            </p>
+        </section>
+    }
+
+    @if (!comparison.IsMatch)
+    {
+        <section class="panel">
+            <p class="status-line status-warning" role="alert">
+                <span class="dot"></span>
+                Liczba znaczników się nie zgadza: w tekście angielskim @comparison.SourceCount,
+                w tłumaczeniu @comparison.TranslatedCount. Zachowaj każdy znacznik
+                <code class="ph-token">@PlaceholderAnalyzer.Placeholder</code>.
+            </p>
+        </section>
+    }
+
+    <div class="editor-grid">
+        <section class="panel editor-pane">
+            <h2 class="editor-pane-title">Tekst angielski</h2>
+            <div class="editor-source">@RenderHighlighted(detail.SourceText)</div>
+
+            @if (!string.IsNullOrEmpty(detail.PreviousSourceText))
+            {
+                <div class="editor-superseded">
+                    <h3 class="editor-pane-subtitle">Poprzednia wersja angielska (do porównania)</h3>
+                    <div class="editor-source is-superseded">@RenderHighlighted(detail.PreviousSourceText)</div>
+                </div>
+            }
+        </section>
+
+        <section class="panel editor-pane">
+            <h2 class="editor-pane-title">Tłumaczenie polskie</h2>
+            <form method="post" @formname="save-translation" @onsubmit="SaveAsync">
+                <AntiforgeryToken/>
+                <input type="hidden" name="FileIdField" value="@detail.FileId"/>
+                <input type="hidden" name="GossipIdField" value="@detail.GossipId"/>
+                <label class="visually-hidden" for="translated">Tłumaczenie polskie</label>
+                <textarea id="translated" name="DraftField" class="editor-textarea mono" rows="8"
+                          placeholder="Wpisz tłumaczenie…">@(_draftText ?? detail.TranslatedText)</textarea>
+                <div class="editor-actions">
+                    <button type="submit" class="btn btn-primary">Zapisz</button>
+                </div>
+            </form>
+
+            @if (CanApprove)
+            {
+                <form method="post" @formname="approve-translation" @onsubmit="ApproveAsync" class="editor-approve">
+                    <AntiforgeryToken/>
+                    <button type="submit" class="btn btn-ghost"
+                            disabled="@(detail.Status is TranslationStatus.Approved || string.IsNullOrWhiteSpace(detail.TranslatedText))">
+                        Zatwierdź
+                    </button>
+                    @if (string.IsNullOrWhiteSpace(detail.TranslatedText))
+                    {
+                        <span class="text-dim">Nie można zatwierdzić pustego tłumaczenia.</span>
+                    }
+                </form>
+            }
+        </section>
+    </div>
+}
+
+@code
+{
+    [Parameter]
+    public Guid Id { get; set; }
+
+    [CascadingParameter]
+    private Task<AuthenticationState>? AuthenticationStateTask { get; set; }
+
+    [SupplyParameterFromForm(FormName = "save-translation")]
+    private string? DraftField { get; set; }
+
+    [SupplyParameterFromForm(FormName = "save-translation")]
+    private int FileIdField { get; set; }
+
+    [SupplyParameterFromForm(FormName = "save-translation")]
+    private long GossipIdField { get; set; }
+
+    private TranslationDetailResponse? _detail;
+    private ProblemDetails? _loadProblem;
+    private ProblemDetails? _saveProblem;
+    private ProblemDetails? _approveProblem;
+    private string? _draftText;
+    private bool _saved;
+    private bool _approved;
+    private bool _canApprove;
+
+    private bool CanApprove => _canApprove;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        _canApprove = await IsAdminAsync();
+
+        ApiResult<TranslationDetailResponse> result = await Loader.LoadAsync(new TranslationId(Id), CancellationToken.None);
+        if (result.IsSuccess)
+        {
+            _detail = result.Value;
+            _loadProblem = null;
+        }
+        else
+        {
+            _detail = null;
+            _loadProblem = result.ProblemDetails;
+        }
+    }
+
+    private async Task SaveAsync()
+    {
+        _saved = false;
+        _saveProblem = null;
+        _draftText = DraftField ?? string.Empty;
+
+        UpsertTranslationRequest request = new(FileIdField, GossipIdField, _draftText);
+        ApiResult<TranslationDetailResponse> result = await Loader.SaveAsync(request, CancellationToken.None);
+
+        if (result.IsSuccess)
+        {
+            _detail = result.Value;
+            _draftText = null;
+            _saved = true;
+        }
+        else
+        {
+            _saveProblem = result.ProblemDetails;
+        }
+    }
+
+    private async Task ApproveAsync()
+    {
+        _approved = false;
+        _approveProblem = null;
+
+        if (!await IsAdminAsync())
+        {
+            return;
+        }
+
+        ApiResult result = await Loader.ApproveAsync(new TranslationId(Id), CancellationToken.None);
+        if (result.IsSuccess)
+        {
+            _approved = true;
+
+            ApiResult<TranslationDetailResponse> reload = await Loader.LoadAsync(new TranslationId(Id), CancellationToken.None);
+            if (reload.IsSuccess)
+            {
+                _detail = reload.Value;
+            }
+        }
+        else
+        {
+            _approveProblem = result.ProblemDetails;
+        }
+    }
+
+    private async Task<bool> IsAdminAsync()
+    {
+        if (AuthenticationStateTask is null)
+        {
+            return false;
+        }
+
+        AuthenticationState authenticationState = await AuthenticationStateTask;
+        return authenticationState.User.IsInRole(EditorRoles.Approver);
+    }
+
+    private static RenderFragment RenderHighlighted(string text) => builder =>
+    {
+        int sequence = 0;
+        foreach (PlaceholderSegment segment in PlaceholderAnalyzer.Segment(text))
+        {
+            if (segment.IsPlaceholder)
+            {
+                builder.OpenElement(sequence++, "span");
+                builder.AddAttribute(sequence++, "class", "ph-token");
+                builder.AddContent(sequence++, segment.Text);
+                builder.CloseElement();
+            }
+            else
+            {
+                builder.AddContent(sequence++, segment.Text);
+            }
+        }
+    };
+}

@@ -1,5 +1,6 @@
 using System.Reflection;
 using FluentValidation;
+using LotroKoniecDev.Frontend.Components.Pages.Editor;
 using LotroKoniecDev.Frontend.Components.Pages.Translations;
 using LotroKoniecDev.Frontend.Infrastructure.Auth;
 using LotroKoniecDev.Frontend.Infrastructure.Auth.DeadSession;
@@ -24,6 +25,7 @@ public static class DependencyInjection
             services.AddFrontendAuthentication();
 
             services.AddScoped<TranslationListLoader>();
+            services.AddScoped<TranslationEditorLoader>();
 
             return services;
         }

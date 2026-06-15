@@ -18,6 +18,13 @@ internal sealed class StubHttpMessageHandler : HttpMessageHandler
 
     public HttpRequestMessage? LastRequest { get; private set; }
 
+    /// <summary>
+    /// The body of the last request, captured at send time. Read here because the typed client disposes
+    /// the request (and its content) right after sending, so <see cref="LastRequest"/>.Content can no
+    /// longer be read once <c>SendAsync</c> returns.
+    /// </summary>
+    public string? LastRequestBody { get; private set; }
+
     public static StubHttpMessageHandler RespondWith(HttpStatusCode statusCode, string jsonBody)
     {
         return new StubHttpMessageHandler(_ => new HttpResponseMessage(statusCode)
@@ -31,11 +38,14 @@ internal sealed class StubHttpMessageHandler : HttpMessageHandler
         return new StubHttpMessageHandler(_ => throw exception);
     }
 
-    protected override Task<HttpResponseMessage> SendAsync(
+    protected override async Task<HttpResponseMessage> SendAsync(
         HttpRequestMessage request,
         CancellationToken cancellationToken)
     {
         LastRequest = request;
-        return Task.FromResult(_responder(request));
+        LastRequestBody = request.Content is null
+            ? null
+            : await request.Content.ReadAsStringAsync(cancellationToken);
+        return _responder(request);
     }
 }

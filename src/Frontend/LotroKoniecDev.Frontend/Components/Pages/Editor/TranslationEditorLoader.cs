@@ -10,8 +10,8 @@ namespace LotroKoniecDev.Frontend.Components.Pages.Editor;
 /// Drives the side-by-side editor's three TMS calls through the typed client: load one translation
 /// (<c>GET /api/v1/translations/{id}</c>), save the Polish (<c>PUT /api/v1/translations</c>, #100) and
 /// approve it (<c>POST /api/v1/translations/{id}/approve</c>, #101). Kept as a thin injectable seam so
-/// the editor's load / save / approve behavior is unit-testable end-to-end over a stubbed HTTP handler
-/// (the Frontend has no bUnit for component-level rendering tests).
+/// the editor's load / save / approve behavior is unit-testable end-to-end over a stubbed HTTP handler,
+/// and so a bUnit render test can drive the editor through a substituted loader.
 /// </summary>
 internal sealed class TranslationEditorLoader
 {

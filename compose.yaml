@@ -101,5 +101,33 @@ services:
       auth-api:
         condition: service_healthy
 
+  frontend:
+    build:
+      context: .
+      dockerfile: src/Frontend/LotroKoniecDev.Frontend/Dockerfile
+    ports:
+      - "5001:8080"
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      ASPNETCORE_URLS: "http://+:8080"
+      # In-network base addresses the SSR server uses for its own HTTP calls (health probe + token
+      # endpoint). The TMS/auth APIs listen on :8080 inside the compose network.
+      TranslationSystem__BaseUrl: "http://tms-api:8080/"
+      AuthSystem__BaseUrl: "http://auth-api:8080/"
+      # OIDC Authority doubles as the metadata host (server-side) AND the URL the browser is redirected
+      # to (client-side); for an in-compose value both resolve to auth-api. A fully browser-functional
+      # login additionally needs HTTPS dev certs, a browser-reachable issuer, and the web client's
+      # redirect URI seeded for this host — deferred to its own reverse-proxy/forwarded-headers ADR
+      # (flagged in M3-01 #138); this service joins the stack and boots, matching the HTTP-only dev
+      # posture of the rest of the backend.
+      AuthSystem__Authority: "http://auth-api:8080"
+      OTEL_EXPORTER_OTLP_ENDPOINT: "http://aspire-dashboard:18889"
+      OTEL_EXPORTER_OTLP_PROTOCOL: grpc
+    depends_on:
+      tms-api:
+        condition: service_healthy
+      auth-api:
+        condition: service_healthy
+
 volumes:
   lotrokoniecdev-postgres-data:

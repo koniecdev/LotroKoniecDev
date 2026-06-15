@@ -6,8 +6,8 @@ namespace LotroKoniecDev.Frontend.Components.Pages.Editor;
 /// so the page can highlight the markers without an interactive layer. The token is the inter-context
 /// file contract (a piece separator); the Frontend owns its own copy as a constant rather than
 /// referencing the frozen patcher, exactly as each bounded context owns its own parser. Kept isolated
-/// so the count / comparison / segmentation rules are unit-testable without rendering the component
-/// (the Frontend has no bUnit).
+/// so the count / comparison / segmentation rules are unit-testable directly, without paying the cost
+/// of rendering the component (the editor's render-level highlighting is covered separately by bUnit).
 /// </summary>
 internal static class PlaceholderAnalyzer
 {

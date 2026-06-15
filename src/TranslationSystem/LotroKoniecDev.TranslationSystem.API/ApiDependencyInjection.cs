@@ -85,6 +85,9 @@ internal static class ApiDependencyInjection
             services.AddScoped<
                 IQueryHandler<GetTranslation.Query, Result<TranslationDetailResponse>>,
                 GetTranslation.Handler>();
+            services.AddScoped<
+                IQueryHandler<GetTranslationStats.Query, Result<TranslationStatsResponse>>,
+                GetTranslationStats.Handler>();
 
             services.AddScoped<IValidator<UpsertTranslation.Command>, UpsertTranslation.Validator>();
             services.AddScoped<

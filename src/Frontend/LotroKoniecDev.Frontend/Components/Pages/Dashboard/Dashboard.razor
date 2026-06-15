@@ -1,0 +1,78 @@
+@page "/dashboard"
+@attribute [Authorize]
+@attribute [StreamRendering]
+@using System.Globalization
+@using Microsoft.AspNetCore.Authorization
+@using LotroKoniecDev.Frontend.Infrastructure.HttpClients
+@using LotroKoniecDev.TranslationSystem.Contracts.Translations
+@inject DashboardStatsLoader Loader
+
+<PageTitle>Panel — LotroKoniecDev</PageTitle>
+
+<section class="page-head">
+    <h1>Panel</h1>
+    <p class="lede">Postęp tłumaczenia polskiej wersji LOTRO w skrócie.</p>
+</section>
+
+@if (_result is null)
+{
+    <section class="results-meta">
+        <div class="loading-indicator">
+            <span class="li-spin"></span> Wczytywanie statystyk…
+        </div>
+    </section>
+}
+else if (_result.IsFailure)
+{
+    <section class="panel">
+        <p class="status-line status-down" role="alert">
+            <span class="dot"></span>
+            @(_result.ProblemDetails?.Title ?? "Nie udało się wczytać statystyk.")
+        </p>
+    </section>
+}
+else
+{
+    DashboardView view = DashboardView.From(_result.Value);
+
+    <section class="stat-grid">
+        <article class="stat-card">
+            <span class="stat-label">Wszystkie</span>
+            <span class="stat-value mono">@view.Total</span>
+        </article>
+        <article class="stat-card">
+            <span class="stat-label">Przetłumaczone</span>
+            <span class="stat-value mono">@view.Translated</span>
+        </article>
+        <article class="stat-card">
+            <span class="stat-label">Zatwierdzone</span>
+            <span class="stat-value mono stat-value-ok">@view.Approved</span>
+        </article>
+        <article class="stat-card">
+            <span class="stat-label">Pozostałe</span>
+            <span class="stat-value mono">@view.Remaining</span>
+        </article>
+    </section>
+
+    <section class="panel">
+        <h2>Postęp zatwierdzania</h2>
+        <div class="progress" role="progressbar"
+             aria-valuenow="@view.ApprovedPercent" aria-valuemin="0" aria-valuemax="100"
+             aria-label="Zatwierdzone tłumaczenia">
+            <div class="progress-bar" style="width: @view.ApprovedPercent.ToString(CultureInfo.InvariantCulture)%;"></div>
+        </div>
+        <p class="progress-caption">
+            <strong>@view.ApprovedPercent%</strong> zatwierdzone (@view.Approved z @view.Total)
+        </p>
+    </section>
+}
+
+@code
+{
+    private ApiResult<TranslationStatsResponse>? _result;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _result = await Loader.LoadAsync(CancellationToken.None);
+    }
+}

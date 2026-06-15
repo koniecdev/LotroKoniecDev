@@ -1,0 +1,176 @@
+@page "/translations"
+@attribute [Authorize]
+@attribute [StreamRendering]
+@using Microsoft.AspNetCore.Authorization
+@using LotroKoniecDev.Frontend.Infrastructure.HttpClients
+@using LotroKoniecDev.TranslationSystem.Contracts.Common
+@using LotroKoniecDev.TranslationSystem.Contracts.Translations
+@using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.TranslationAggregate.Enums
+@inject TranslationListLoader Loader
+
+<PageTitle>Tłumaczenia — LotroKoniecDev</PageTitle>
+
+<section class="page-head">
+    <h1>Tłumaczenia</h1>
+    <p class="lede">Przeglądaj, wyszukuj i filtruj teksty zaimportowane z gry.</p>
+</section>
+
+<section class="panel filters">
+    <form method="get" class="filter-form">
+        <div class="filter-field filter-search">
+            <label for="search">Wyszukaj</label>
+            <input id="search" name="search" type="search" value="@_query.Search"
+                   placeholder="Tekst angielski lub polski…" autocomplete="off"/>
+        </div>
+        <div class="filter-field">
+            <label for="status">Status</label>
+            <select id="status" name="status">
+                <option value="">Wszystkie</option>
+                @foreach (TranslationStatus status in TranslationStatusDisplay.FilterableStatuses)
+                {
+                    <option value="@status" selected="@(_query.Status == status)">
+                        @TranslationStatusDisplay.Label(status)
+                    </option>
+                }
+            </select>
+        </div>
+        <div class="filter-actions">
+            <button type="submit" class="btn btn-primary">Filtruj</button>
+            <a class="btn btn-ghost" href="/translations">Wyczyść</a>
+        </div>
+    </form>
+</section>
+
+@if (_result is null)
+{
+    <section class="results-meta">
+        <div class="loading-indicator">
+            <span class="li-spin"></span> Wczytywanie tłumaczeń…
+        </div>
+    </section>
+}
+else if (_result.IsFailure)
+{
+    <section class="panel">
+        <p class="status-line status-down" role="alert">
+            <span class="dot"></span>
+            @(_result.ProblemDetails?.Title ?? "Nie udało się wczytać tłumaczeń.")
+        </p>
+    </section>
+}
+else
+{
+    PaginationResponse<TranslationListItemResponse> pageData = _result.Value;
+
+    <section class="results-meta">
+        <span class="count">Znaleziono: <strong>@pageData.TotalCount</strong></span>
+        @if (pageData.TotalPages > 0)
+        {
+            <span class="count">Strona @pageData.Page z @pageData.TotalPages</span>
+        }
+    </section>
+
+    @if (pageData.Items.Count == 0)
+    {
+        <section class="panel">
+            <div class="empty">
+                <h2>Brak wyników</h2>
+                <p>Żadne tłumaczenie nie pasuje do wybranych kryteriów.</p>
+            </div>
+        </section>
+    }
+    else
+    {
+        <section class="table-wrap">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th scope="col" class="col-num">FileId</th>
+                        <th scope="col" class="col-num">GossipId</th>
+                        <th scope="col">Tekst angielski</th>
+                        <th scope="col">Tłumaczenie polskie</th>
+                        <th scope="col" class="col-status">Status</th>
+                        <th scope="col" class="col-actions"><span class="visually-hidden">Akcje</span></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (TranslationListItemResponse item in pageData.Items)
+                    {
+                        <tr>
+                            <td class="col-num mono">@item.FileId</td>
+                            <td class="col-num mono">@item.GossipId</td>
+                            <td class="col-text">@item.SourceText</td>
+                            <td class="col-text">
+                                @if (string.IsNullOrWhiteSpace(item.TranslatedText))
+                                {
+                                    <span class="text-dim">—</span>
+                                }
+                                else
+                                {
+                                    @item.TranslatedText
+                                }
+                            </td>
+                            <td class="col-status">
+                                <span class="badge @TranslationStatusDisplay.BadgeClass(item.Status)">
+                                    <span class="dot"></span>@TranslationStatusDisplay.Label(item.Status)
+                                </span>
+                            </td>
+                            <td class="col-actions">
+                                <a class="btn btn-ghost btn-sm" href="@EditorHref(item)">Edytuj</a>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </section>
+
+        @if (pageData.TotalPages > 1)
+        {
+            <nav class="pager" aria-label="Stronicowanie">
+                @if (pageData.HasPreviousPage)
+                {
+                    <a class="btn btn-ghost" href="@_query.ToPageRelativeUri(pageData.Page - 1)" rel="prev">← Poprzednia</a>
+                }
+                else
+                {
+                    <span class="btn btn-ghost is-disabled" aria-disabled="true">← Poprzednia</span>
+                }
+
+                <span class="pager-status">@pageData.Page / @pageData.TotalPages</span>
+
+                @if (pageData.HasNextPage)
+                {
+                    <a class="btn btn-ghost" href="@_query.ToPageRelativeUri(pageData.Page + 1)" rel="next">Następna →</a>
+                }
+                else
+                {
+                    <span class="btn btn-ghost is-disabled" aria-disabled="true">Następna →</span>
+                }
+            </nav>
+        }
+    }
+}
+
+@code
+{
+    [SupplyParameterFromQuery]
+    private string? Search { get; set; }
+
+    [SupplyParameterFromQuery]
+    private string? Status { get; set; }
+
+    [SupplyParameterFromQuery]
+    private int Page { get; set; }
+
+    private TranslationListQuery _query = TranslationListQuery.From(null, null, 1);
+    private ApiResult<PaginationResponse<TranslationListItemResponse>>? _result;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        _query = TranslationListQuery.From(Search, Status, Page);
+        _result = await Loader.LoadAsync(_query, CancellationToken.None);
+    }
+
+    private static string EditorHref(TranslationListItemResponse item) =>
+        $"/editor/{item.Id.Value}";
+}

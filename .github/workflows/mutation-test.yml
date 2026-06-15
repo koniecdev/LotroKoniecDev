@@ -1,0 +1,79 @@
+name: Mutation Testing
+
+# Stryker.NET mutation gate on the purest, highest-value layers (Domain / SharedKernel and their
+# dependencies). Heavy job (~up to 30 min/leg) — path-filtered so it only runs when the mutated
+# code or its config actually changes in a PR. Also runnable on demand via the Actions tab /
+# `gh workflow run mutation-test.yml`. Unlike TheKittySaver (post-merge on main), this is a PR gate:
+# `break: 67` makes `dotnet stryker` exit non-zero — and the leg go red — when the score drops below it.
+on:
+  pull_request:
+    branches: ["main"]
+    paths:
+      - 'src/TranslationSystem/LotroKoniecDev.TranslationSystem.Domain/**'
+      - 'src/TranslationSystem/LotroKoniecDev.TranslationSystem.Primitives/**'
+      - 'src/SharedKernel/**'
+      - 'tests/LotroKoniecDev.TranslationSystem.Domain.Tests.Unit/**'
+      - 'tests/LotroKoniecDev.SharedKernel.Tests.Unit/**'
+      - '.config/dotnet-tools.json'
+      - 'Directory.Build.props'
+      - 'Directory.Packages.props'
+      - '.github/workflows/mutation-test.yml'
+  workflow_dispatch:
+
+# A new push to the same PR cancels the in-progress run (both matrix legs) instead of paying for both.
+concurrency:
+  group: mutation-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  stryker:
+    name: Stryker.NET (${{ matrix.name }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    strategy:
+      # One weak leg must not cancel the other — we want both reports every run.
+      fail-fast: false
+      matrix:
+        include:
+          - name: Domain
+            working-directory: tests/LotroKoniecDev.TranslationSystem.Domain.Tests.Unit
+          - name: SharedKernel
+            working-directory: tests/LotroKoniecDev.SharedKernel.Tests.Unit
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '10.0.100'
+
+      - name: Cache NuGet packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ hashFiles('**/Directory.Packages.props', '**/*.csproj', '.config/dotnet-tools.json') }}
+          restore-keys: |
+            nuget-${{ runner.os }}-
+
+      - name: Restore tools
+        run: dotnet tool restore
+
+      - name: Restore packages
+        run: dotnet restore
+
+      - name: Run Stryker
+        working-directory: ${{ matrix.working-directory }}
+        run: dotnet stryker
+
+      - name: Upload mutation report
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: stryker-report-${{ matrix.name }}-${{ github.run_number }}
+          path: ${{ matrix.working-directory }}/StrykerOutput/
+          retention-days: 14

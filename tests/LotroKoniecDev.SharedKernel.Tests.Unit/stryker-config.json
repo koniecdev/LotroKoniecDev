@@ -1,0 +1,29 @@
+{
+  "stryker-config": {
+    "project": "LotroKoniecDev.SharedKernel.csproj",
+    "test-projects": [
+      "LotroKoniecDev.SharedKernel.Tests.Unit.csproj"
+    ],
+    "mutate": [
+      "**/*.cs",
+      "!**/obj/**/*.cs",
+      "!**/bin/**/*.cs",
+      "!**/*.g.cs",
+      "!**/*.g.i.cs",
+      "!**/Generated/**/*.cs",
+      "!**/Messaging/**/*.cs",
+      "!**/*DependencyInjection.cs"
+    ],
+    "reporters": [
+      "html",
+      "json",
+      "progress",
+      "cleartext"
+    ],
+    "thresholds": {
+      "high": 80,
+      "low": 70,
+      "break": 67
+    }
+  }
+}

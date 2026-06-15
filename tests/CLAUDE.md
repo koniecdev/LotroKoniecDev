@@ -10,6 +10,25 @@ dotnet test tests/LotroKoniecDev.Tests.E2E             # full CLI pipeline — a
 dotnet test --filter "FullyQualifiedName~Fragment"     # filter by name
 ```
 
+## Mutation Testing (Stryker.NET)
+
+Mutation testing runs on the two purest, highest-value layers — `TranslationSystem.Domain` and
+`SharedKernel` — as a **PR gate** (`.github/workflows/mutation-test.yml`: path-filtered +
+`workflow_dispatch`, matrix over both targets). The tool is pinned in `.config/dotnet-tools.json`;
+each target carries its own `stryker-config.json`.
+
+```bash
+dotnet tool restore                                            # once — restores dotnet-stryker (pinned)
+
+# Run from each test project directory; writes ./StrykerOutput/ (gitignored) with the HTML report:
+( cd tests/LotroKoniecDev.TranslationSystem.Domain.Tests.Unit && dotnet stryker )
+( cd tests/LotroKoniecDev.SharedKernel.Tests.Unit            && dotnet stryker )
+```
+
+Thresholds are high 80 / low 70 / **break 67** — `break` fails the run (and the CI leg) when the
+mutation score drops below it. `break: 67` is a calibrated starting point, not dogma; adjust it in the
+per-project `stryker-config.json` after reviewing the baseline report.
+
 ## Framework & Libraries
 
 - **xUnit** — test framework (`Fact`, `Theory`, `InlineData`)

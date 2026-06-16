@@ -1,3 +1,4 @@
+using LotroKoniecDev.Hateoas.Abstractions;
 using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.GameVersionAggregate;
 using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.GameVersionAggregate.Enums;
 
@@ -12,4 +13,7 @@ public sealed record GameVersionResponse(
     GameVersionId Id,
     string Version,
     DateTimeOffset DetectedAt,
-    GameVersionStatus Status);
+    GameVersionStatus Status) : ILinksResponse
+{
+    public IReadOnlyCollection<LinkDto> Links { get; set; } = [];
+}

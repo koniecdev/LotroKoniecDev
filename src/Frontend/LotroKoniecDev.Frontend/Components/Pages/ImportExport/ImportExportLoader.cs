@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Net.Http.Headers;
 using LotroKoniecDev.Frontend.Infrastructure.HttpClients;
 using LotroKoniecDev.Frontend.Infrastructure.HttpClients.TranslationSystemHttpClients;
+using LotroKoniecDev.TranslationSystem.Contracts.Common;
 using LotroKoniecDev.TranslationSystem.Contracts.GameVersions;
 using LotroKoniecDev.TranslationSystem.Contracts.Import;
 using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.GameVersionAggregate;
@@ -39,12 +40,18 @@ internal sealed class ImportExportLoader
         _client = client;
     }
 
-    public Task<ApiResult<IReadOnlyList<GameVersionResponse>>> ListGameVersionsAsync(
+    public async Task<ApiResult<IReadOnlyList<GameVersionResponse>>> ListGameVersionsAsync(
         CancellationToken cancellationToken = default)
     {
-        return _client.GetApiResultAsync<IReadOnlyList<GameVersionResponse>>(
-            GameVersionsApiPath,
-            cancellationToken);
+        // The list is served as a HATEOAS collection envelope (M2-25); the page only needs the items.
+        ApiResult<CollectionResponse<GameVersionResponse>> result =
+            await _client.GetApiResultAsync<CollectionResponse<GameVersionResponse>>(
+                GameVersionsApiPath,
+                cancellationToken);
+
+        return result.IsSuccess
+            ? ApiResult.Success<IReadOnlyList<GameVersionResponse>>([.. result.Value.Items])
+            : ApiResult.Failure<IReadOnlyList<GameVersionResponse>>(result.ProblemDetails!);
     }
 
     public async Task<ApiResult<ImportSummary>> ImportAsync(

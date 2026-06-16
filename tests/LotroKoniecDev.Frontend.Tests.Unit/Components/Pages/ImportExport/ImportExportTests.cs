@@ -4,6 +4,7 @@ using Bunit.TestDoubles;
 using LotroKoniecDev.Frontend.Components.Pages.ImportExport;
 using LotroKoniecDev.Frontend.Infrastructure.HttpClients;
 using LotroKoniecDev.Frontend.Infrastructure.HttpClients.TranslationSystemHttpClients;
+using LotroKoniecDev.TranslationSystem.Contracts.Common;
 using LotroKoniecDev.TranslationSystem.Contracts.GameVersions;
 using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.GameVersionAggregate;
 using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.GameVersionAggregate.Enums;
@@ -58,7 +59,7 @@ public sealed class ImportExportTests : BunitContext
 
         component.FindAll("form").ShouldBeEmpty();
         component.FindAll("input[type=file]").ShouldBeEmpty();
-        _client.DidNotReceive().GetApiResultAsync<IReadOnlyList<GameVersionResponse>>(
+        _client.DidNotReceive().GetApiResultAsync<CollectionResponse<GameVersionResponse>>(
             Arg.Any<string>(),
             Arg.Any<CancellationToken>());
     }
@@ -126,8 +127,8 @@ public sealed class ImportExportTests : BunitContext
     {
         AuthorizeAs("Sam", AdminRole);
         _client
-            .GetApiResultAsync<IReadOnlyList<GameVersionResponse>>(Arg.Any<string>(), Arg.Any<CancellationToken>())
-            .Returns(ApiResult.Failure<IReadOnlyList<GameVersionResponse>>(new() { Title = "Nie udało się wczytać wersji." }));
+            .GetApiResultAsync<CollectionResponse<GameVersionResponse>>(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(ApiResult.Failure<CollectionResponse<GameVersionResponse>>(new() { Title = "Nie udało się wczytać wersji." }));
 
         IRenderedComponent<ImportExportComponent> component = RenderPage();
 
@@ -151,7 +152,7 @@ public sealed class ImportExportTests : BunitContext
     private void StubVersions(params GameVersionResponse[] versions)
     {
         _client
-            .GetApiResultAsync<IReadOnlyList<GameVersionResponse>>(Arg.Any<string>(), Arg.Any<CancellationToken>())
-            .Returns(ApiResult.Success<IReadOnlyList<GameVersionResponse>>(versions));
+            .GetApiResultAsync<CollectionResponse<GameVersionResponse>>(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(ApiResult.Success(new CollectionResponse<GameVersionResponse> { Items = versions }));
     }
 }

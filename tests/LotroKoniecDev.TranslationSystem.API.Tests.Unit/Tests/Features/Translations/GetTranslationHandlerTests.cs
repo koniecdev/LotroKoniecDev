@@ -1,6 +1,5 @@
 using LotroKoniecDev.SharedKernel.Monads;
 using LotroKoniecDev.TranslationSystem.API.Features.Translations;
-using LotroKoniecDev.TranslationSystem.Contracts.Translations;
 using LotroKoniecDev.TranslationSystem.Persistence.DbContexts.ReadDbContexts;
 using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.TranslationAggregate;
 using NSubstitute;
@@ -16,7 +15,7 @@ public sealed class GetTranslationHandlerTests
         GetTranslation.Handler handler = new(Substitute.For<IApplicationReadDbContext>());
 
         // Act
-        Result<TranslationDetailResponse> result =
+        Result<GetTranslation.QueryResult> result =
             await handler.Handle(new GetTranslation.Query(TranslationId.Empty), CancellationToken.None);
 
         // Assert

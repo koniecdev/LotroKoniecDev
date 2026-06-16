@@ -2,6 +2,7 @@ using System.Net.Http.Headers;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using LotroKoniecDev.SharedKernel.Authorization;
+using LotroKoniecDev.TranslationSystem.Contracts.Common;
 using LotroKoniecDev.TranslationSystem.Contracts.GameVersions;
 using LotroKoniecDev.TranslationSystem.Persistence.DbContexts.WriteDbContexts;
 using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.GameVersionAggregate.Enums;
@@ -43,16 +44,17 @@ public sealed class RegisterGameVersionTests : IAsyncLifetime
         // Act
         HttpResponseMessage response = await client.PostAsJsonAsync(Route, new RegisterGameVersionRequest("48.0"));
         GameVersionResponse? body = await response.Content.ReadFromJsonAsync<GameVersionResponse>(JsonOptions);
-        GameVersionResponse[]? list = await (await client.GetAsync(Route))
-            .Content.ReadFromJsonAsync<GameVersionResponse[]>(JsonOptions);
+        CollectionResponse<GameVersionResponse>? list = await (await client.GetAsync(Route))
+            .Content.ReadFromJsonAsync<CollectionResponse<GameVersionResponse>>(JsonOptions);
 
         // Assert
         response.StatusCode.ShouldBe(HttpStatusCode.Created);
         body.ShouldNotBeNull();
+        response.Headers.Location!.ToString().ShouldContain($"/api/v1/game-versions/{body.Id.Value}");
         body.Version.ShouldBe("48");
         body.Status.ShouldBe(GameVersionStatus.Unprocessed);
         list.ShouldNotBeNull();
-        list.ShouldContain(version => version.Version == "48");
+        list.Items.ShouldContain(version => version.Version == "48");
     }
 
     [Fact]
@@ -68,10 +70,10 @@ public sealed class RegisterGameVersionTests : IAsyncLifetime
         // Assert
         response.StatusCode.ShouldBe(HttpStatusCode.UnprocessableEntity);
 
-        GameVersionResponse[]? list = await (await client.GetAsync(Route))
-            .Content.ReadFromJsonAsync<GameVersionResponse[]>(JsonOptions);
+        CollectionResponse<GameVersionResponse>? list = await (await client.GetAsync(Route))
+            .Content.ReadFromJsonAsync<CollectionResponse<GameVersionResponse>>(JsonOptions);
         list.ShouldNotBeNull();
-        list.Count(version => version.Version == "48").ShouldBe(1);
+        list.Items.Count(version => version.Version == "48").ShouldBe(1);
     }
 
     [Fact]

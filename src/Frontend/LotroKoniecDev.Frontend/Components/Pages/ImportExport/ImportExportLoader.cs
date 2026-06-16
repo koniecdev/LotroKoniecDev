@@ -40,18 +40,17 @@ internal sealed class ImportExportLoader
         _client = client;
     }
 
-    public async Task<ApiResult<IReadOnlyList<GameVersionResponse>>> ListGameVersionsAsync(
+    /// <summary>
+    /// Lists the game versions as the HATEOAS collection envelope (M2-25), <b>keeping its
+    /// <c>Links</c></b> (#158): the page reads the collection-level <c>register</c> rel — emitted
+    /// admin-only by the API — to gate the import affordance, instead of recomputing the role locally.
+    /// </summary>
+    public Task<ApiResult<CollectionResponse<GameVersionResponse>>> ListGameVersionsAsync(
         CancellationToken cancellationToken = default)
     {
-        // The list is served as a HATEOAS collection envelope (M2-25); the page only needs the items.
-        ApiResult<CollectionResponse<GameVersionResponse>> result =
-            await _client.GetApiResultAsync<CollectionResponse<GameVersionResponse>>(
-                GameVersionsApiPath,
-                cancellationToken);
-
-        return result.IsSuccess
-            ? ApiResult.Success<IReadOnlyList<GameVersionResponse>>([.. result.Value.Items])
-            : ApiResult.Failure<IReadOnlyList<GameVersionResponse>>(result.ProblemDetails!);
+        return _client.GetApiResultAsync<CollectionResponse<GameVersionResponse>>(
+            GameVersionsApiPath,
+            cancellationToken);
     }
 
     public async Task<ApiResult<ImportSummary>> ImportAsync(

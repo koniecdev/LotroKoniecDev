@@ -15,6 +15,12 @@ namespace LotroKoniecDev.Frontend.Tests.Unit.Components.Pages.Editor;
 public sealed class TranslationEditorLoaderTests
 {
     private const string BaseUrl = "https://localhost:5004/";
+
+    // Deliberately distinctive server hrefs — on a different host/path than any FE-built path — so the
+    // assertions prove the loader follows the link the server hands it, not a hardcoded route (#158).
+    private const string UpsertHref = "https://tms.example/hateoas/translations";
+    private const string ApproveHref = "https://tms.example/hateoas/translations/abc/approve";
+
     private static readonly Guid TranslationGuid = Guid.Parse("0192a000-0000-7000-8000-000000000042");
 
     // Mirrors the JSON options the Frontend's HTTP seam uses (HttpClientApiExtensions) so the stub
@@ -80,7 +86,7 @@ public sealed class TranslationEditorLoaderTests
     }
 
     [Fact]
-    public async Task SaveAsync_PutsTheRequestBodyToTheCollectionEndpoint()
+    public async Task SaveAsync_PutsTheRequestBodyToTheProvidedUpsertHref()
     {
         TranslationEditorLoader loader = CreateLoader(
             HttpStatusCode.OK,
@@ -88,11 +94,12 @@ public sealed class TranslationEditorLoaderTests
             out StubHttpMessageHandler handler);
         UpsertTranslationRequest request = new(620756992, 1002, "Masz <--DO_NOT_TOUCH!--> złota");
 
-        await loader.SaveAsync(request);
+        await loader.SaveAsync(UpsertHref, request);
 
         handler.LastRequest.ShouldNotBeNull();
         handler.LastRequest!.Method.ShouldBe(HttpMethod.Put);
-        handler.LastRequest.RequestUri!.ToString().ShouldBe($"{BaseUrl}api/v1/translations");
+        // The request goes to the server's upsert href verbatim — not a FE-constructed /api/v1/translations.
+        handler.LastRequest.RequestUri!.ToString().ShouldBe(UpsertHref);
         handler.LastRequestBody.ShouldNotBeNull();
         // Deserialize the sent JSON rather than substring-match it: System.Text.Json escapes '<', '>'
         // and non-ASCII, so the placeholder/diacritics only survive a round-trip, not a raw contains.
@@ -112,7 +119,7 @@ public sealed class TranslationEditorLoaderTests
             out _);
 
         ApiResult<TranslationDetailResponse> result =
-            await loader.SaveAsync(new UpsertTranslationRequest(620756992, 1002, "x"));
+            await loader.SaveAsync(UpsertHref, new UpsertTranslationRequest(620756992, 1002, "x"));
 
         result.IsSuccess.ShouldBeTrue();
         result.Value.Id.Value.ShouldBe(TranslationGuid);
@@ -127,24 +134,24 @@ public sealed class TranslationEditorLoaderTests
             out _);
 
         ApiResult<TranslationDetailResponse> result =
-            await loader.SaveAsync(new UpsertTranslationRequest(620756992, 1002, ""));
+            await loader.SaveAsync(UpsertHref, new UpsertTranslationRequest(620756992, 1002, ""));
 
         result.IsFailure.ShouldBeTrue();
         result.ProblemDetails!.Status.ShouldBe(422);
     }
 
     [Fact]
-    public async Task ApproveAsync_PostsToTheApproveEndpointForTheGivenId()
+    public async Task ApproveAsync_PostsToTheProvidedApproveHref()
     {
         TranslationEditorLoader loader = CreateLoader(HttpStatusCode.NoContent, string.Empty, out StubHttpMessageHandler handler);
 
-        ApiResult result = await loader.ApproveAsync(TranslationId.Create(TranslationGuid));
+        ApiResult result = await loader.ApproveAsync(ApproveHref);
 
         result.IsSuccess.ShouldBeTrue();
         handler.LastRequest.ShouldNotBeNull();
         handler.LastRequest!.Method.ShouldBe(HttpMethod.Post);
-        handler.LastRequest.RequestUri!.ToString()
-            .ShouldBe($"{BaseUrl}api/v1/translations/{TranslationGuid}/approve");
+        // The request goes to the server's approve href verbatim — not a FE-constructed {id}/approve path.
+        handler.LastRequest.RequestUri!.ToString().ShouldBe(ApproveHref);
     }
 
     [Fact]
@@ -155,7 +162,7 @@ public sealed class TranslationEditorLoaderTests
             """{ "title": "Brak uprawnień", "status": 403 }""",
             out _);
 
-        ApiResult result = await loader.ApproveAsync(TranslationId.Create(TranslationGuid));
+        ApiResult result = await loader.ApproveAsync(ApproveHref);
 
         result.IsFailure.ShouldBeTrue();
         result.ProblemDetails!.Status.ShouldBe(403);

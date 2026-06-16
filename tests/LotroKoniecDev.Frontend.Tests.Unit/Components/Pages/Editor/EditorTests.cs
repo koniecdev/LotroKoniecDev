@@ -3,6 +3,8 @@ using Bunit.TestDoubles;
 using LotroKoniecDev.Frontend.Components.Pages.Editor;
 using LotroKoniecDev.Frontend.Infrastructure.HttpClients;
 using LotroKoniecDev.Frontend.Infrastructure.HttpClients.TranslationSystemHttpClients;
+using LotroKoniecDev.Hateoas.Abstractions;
+using LotroKoniecDev.TranslationSystem.Contracts.Hateoas;
 using LotroKoniecDev.TranslationSystem.Contracts.Translations;
 using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.TranslationAggregate;
 using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.TranslationAggregate.Enums;
@@ -126,6 +128,84 @@ public sealed class EditorTests : BunitContext
         component.FindAll(".editor-superseded").ShouldBeEmpty();
     }
 
+    [Fact]
+    public void Render_WhenDetailCarriesTheUpsertRel_RendersTheSaveForm()
+    {
+        StubLoad(BuildDetail(sourceText: "Hello.", translatedText: "Cześć.", canEdit: true));
+
+        IRenderedComponent<EditorComponent> component = RenderEditor();
+
+        component.FindAll("textarea#translated").Count.ShouldBe(1);
+    }
+
+    [Fact]
+    public void Render_WhenDetailLacksTheUpsertRel_HidesTheSaveFormAndShowsTheReadOnlyNote()
+    {
+        // A soft-removed row advertises `self` only; the editor must offer no way to edit it.
+        StubLoad(BuildDetail(sourceText: "Hello.", translatedText: "Cześć.", canEdit: false));
+
+        IRenderedComponent<EditorComponent> component = RenderEditor();
+
+        component.FindAll("textarea#translated").ShouldBeEmpty();
+        component.Find(".text-dim").TextContent.ShouldContain("tylko do odczytu");
+    }
+
+    [Fact]
+    public void Render_WhenDetailCarriesTheApproveRel_ShowsTheApproveButton()
+    {
+        StubLoad(BuildDetail(sourceText: "Hello.", translatedText: "Cześć.", canApprove: true));
+
+        IRenderedComponent<EditorComponent> component = RenderEditor();
+
+        component.FindAll(".editor-approve").Count.ShouldBe(1);
+        component.Find(".editor-approve button").TextContent.ShouldContain("Zatwierdź");
+    }
+
+    [Fact]
+    public void Render_WhenDetailLacksTheApproveRel_HidesTheApproveButton()
+    {
+        // The same authenticated non-reviewer: the affordance is gated purely by the absent rel, with no
+        // local role/status recomputation in the editor.
+        StubLoad(BuildDetail(sourceText: "Hello.", translatedText: "Cześć.", canApprove: false));
+
+        IRenderedComponent<EditorComponent> component = RenderEditor();
+
+        component.FindAll(".editor-approve").ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task Save_WhenSubmitted_FollowsTheUpsertLinkHrefAndConfirms()
+    {
+        StubLoad(BuildDetail(sourceText: "Hello.", translatedText: "Cześć.", canEdit: true));
+        _client
+            .PutApiResultAsync<TranslationDetailResponse>(SaveHref, Arg.Any<object>(), Arg.Any<CancellationToken>())
+            .Returns(ApiResult.Success(BuildDetail("Hello.", "Cześć.", canEdit: true)));
+        IRenderedComponent<EditorComponent> component = RenderEditor();
+
+        // The fixture carries the upsert rel but not the approve rel, so the save form is the only form.
+        await component.Find("form").SubmitAsync();
+
+        // Behaviour-visible proof the upsert href (read from the loaded detail's links) was followed:
+        // only a PUT to that exact href is stubbed to succeed, so the confirmation renders iff it was used.
+        component.Find(".status-ok").TextContent.ShouldContain("Tłumaczenie zapisano");
+    }
+
+    [Fact]
+    public async Task Approve_WhenSubmitted_FollowsTheApproveLinkHrefAndConfirms()
+    {
+        StubLoad(BuildDetail(sourceText: "Hello.", translatedText: "Cześć.", canApprove: true));
+        _client
+            .PostApiResultAsync(ApproveHref, Arg.Any<object>(), Arg.Any<CancellationToken>())
+            .Returns(ApiResult.Success());
+        IRenderedComponent<EditorComponent> component = RenderEditor();
+
+        await component.Find(".editor-approve").SubmitAsync();
+
+        // Behaviour-visible proof the approve link href was followed: only a POST to that exact href is
+        // stubbed to succeed, so the success confirmation renders iff the editor used it.
+        component.Find(".status-ok").TextContent.ShouldContain("Tłumaczenie zatwierdzono");
+    }
+
     private IRenderedComponent<EditorComponent> RenderEditor() =>
         Render<EditorComponent>(parameters => parameters.Add(component => component.Id, Guid.NewGuid()));
 
@@ -136,11 +216,29 @@ public sealed class EditorTests : BunitContext
             .Returns(ApiResult.Success(detail));
     }
 
+    // Deliberately distinctive server hrefs so a wiring test can prove the editor follows the link.
+    private const string SaveHref = "https://tms.example/hateoas/translations";
+    private const string ApproveHref = "https://tms.example/hateoas/translations/abc/approve";
+
     private static TranslationDetailResponse BuildDetail(
         string sourceText,
         string? translatedText,
-        string? previousSourceText = null) =>
-        new(
+        string? previousSourceText = null,
+        bool canEdit = true,
+        bool canApprove = false)
+    {
+        List<LinkDto> links = [];
+        if (canEdit)
+        {
+            links.Add(new LinkDto(SaveHref, Rels.Upsert, "PUT"));
+        }
+
+        if (canApprove)
+        {
+            links.Add(new LinkDto(ApproveHref, Rels.Approve, "POST"));
+        }
+
+        return new TranslationDetailResponse(
             new TranslationId(Guid.NewGuid()),
             FileId: 620756992,
             GossipId: 1002,
@@ -153,5 +251,9 @@ public sealed class EditorTests : BunitContext
             Approver: null,
             Status: TranslationStatus.Draft,
             CreatedAt: DateTimeOffset.UnixEpoch,
-            UpdatedAt: DateTimeOffset.UnixEpoch);
+            UpdatedAt: DateTimeOffset.UnixEpoch)
+        {
+            Links = links
+        };
+    }
 }

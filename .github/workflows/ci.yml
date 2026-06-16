@@ -30,6 +30,10 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v5
 
+      # Same Static-SSR gate as pr-verify — backstops direct pushes to main.
+      - name: Pure-SSR guard
+        run: ./scripts/check-ssr-purity.sh
+
       - name: Setup .NET
         uses: actions/setup-dotnet@v5
         with:

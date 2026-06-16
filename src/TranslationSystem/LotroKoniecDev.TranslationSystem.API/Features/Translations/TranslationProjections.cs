@@ -5,9 +5,10 @@ using LotroKoniecDev.TranslationSystem.ReadModels.Aggregates.TranslationAggregat
 namespace LotroKoniecDev.TranslationSystem.API.Features.Translations;
 
 /// <summary>
-/// Shared read-model projections so the get-one, upsert and approve slices return an identical
-/// translation view — including the joined submitter / approver display names (ADR-0004) — without
-/// duplicating the projection expression.
+/// Shared read-model projections so the translation slices return an identical translation view —
+/// including the joined submitter / approver display names (ADR-0004). The upsert slice re-reads the
+/// committed row through <see cref="ToDetail"/>; the get-one slice inlines an equivalent projection so
+/// it can also carry the soft-removal flag for HATEOAS link shaping.
 /// </summary>
 internal static class TranslationProjections
 {

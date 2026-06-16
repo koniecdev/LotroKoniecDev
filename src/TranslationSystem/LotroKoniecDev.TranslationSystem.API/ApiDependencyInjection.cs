@@ -22,6 +22,9 @@ using LotroKoniecDev.TranslationSystem.API.Features.Import;
 using LotroKoniecDev.TranslationSystem.API.Features.TranslationFiles;
 using LotroKoniecDev.TranslationSystem.API.Features.Translations;
 using LotroKoniecDev.TranslationSystem.API.Hateoas.DiscoveryFactories;
+using LotroKoniecDev.TranslationSystem.API.Hateoas.GameVersionAggregateFactories;
+using LotroKoniecDev.TranslationSystem.API.Hateoas.PaginationLinkFactories;
+using LotroKoniecDev.TranslationSystem.API.Hateoas.TranslationAggregateFactories;
 using LotroKoniecDev.TranslationSystem.API.Parsing;
 using LotroKoniecDev.TranslationSystem.Contracts.Common;
 using LotroKoniecDev.TranslationSystem.Contracts.GameVersions;
@@ -37,6 +40,9 @@ internal static class ApiDependencyInjection
         public IServiceCollection AddApi()
         {
             services.AddTransient<IDiscoveryLinkFactory, DiscoveryLinkFactory>();
+            services.AddTransient<ITranslationAggregateLinkFactory, TranslationAggregateLinkFactory>();
+            services.AddTransient<IGameVersionAggregateLinkFactory, GameVersionAggregateLinkFactory>();
+            services.AddTransient<IPaginationLinkFactory, PaginationLinkFactory>();
 
             services.AddExceptionHandler<BadHttpRequestExceptionHandler>();
             services.AddExceptionHandler<FluentValidationExceptionHandler>();
@@ -83,7 +89,7 @@ internal static class ApiDependencyInjection
                 IQueryHandler<ListTranslations.Query, Result<PaginationResponse<TranslationListItemResponse>>>,
                 ListTranslations.Handler>();
             services.AddScoped<
-                IQueryHandler<GetTranslation.Query, Result<TranslationDetailResponse>>,
+                IQueryHandler<GetTranslation.Query, Result<GetTranslation.QueryResult>>,
                 GetTranslation.Handler>();
             services.AddScoped<
                 IQueryHandler<GetTranslationStats.Query, Result<TranslationStatsResponse>>,
@@ -116,6 +122,9 @@ internal static class ApiDependencyInjection
             services.AddScoped<
                 IQueryHandler<ListGameVersions.Query, Result<IReadOnlyList<GameVersionResponse>>>,
                 ListGameVersions.Handler>();
+            services.AddScoped<
+                IQueryHandler<GetGameVersion.Query, Result<GameVersionResponse>>,
+                GetGameVersion.Handler>();
 
             services.AddScoped<IValidator<RegisterGameVersion.Command>, RegisterGameVersion.Validator>();
             services.AddScoped<

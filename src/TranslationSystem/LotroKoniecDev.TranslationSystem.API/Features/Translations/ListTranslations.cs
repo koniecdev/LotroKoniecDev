@@ -1,3 +1,6 @@
+using System.Security.Claims;
+using LotroKoniecDev.Hateoas.ContentNegotiation;
+using LotroKoniecDev.SharedKernel.Authorization;
 using LotroKoniecDev.SharedKernel.BuildingBlocks;
 using LotroKoniecDev.SharedKernel.Enums;
 using LotroKoniecDev.SharedKernel.Messaging;
@@ -5,6 +8,8 @@ using LotroKoniecDev.SharedKernel.Monads;
 using LotroKoniecDev.TranslationSystem.API.Auth;
 using LotroKoniecDev.TranslationSystem.API.Common;
 using LotroKoniecDev.TranslationSystem.API.Extensions;
+using LotroKoniecDev.TranslationSystem.API.Hateoas.PaginationLinkFactories;
+using LotroKoniecDev.TranslationSystem.API.Hateoas.TranslationAggregateFactories;
 using LotroKoniecDev.TranslationSystem.Contracts.Common;
 using LotroKoniecDev.TranslationSystem.Contracts.Translations;
 using LotroKoniecDev.TranslationSystem.Persistence.DbContexts.ReadDbContexts;
@@ -109,6 +114,9 @@ internal sealed class ListTranslations : IEndpoint
     {
         endpointRouteBuilder.MapGet("/api/v1/translations", async (
                 IQueryHandler<Query, Result<PaginationResponse<TranslationListItemResponse>>> handler,
+                ITranslationAggregateLinkFactory translationLinkFactory,
+                IPaginationLinkFactory paginationLinkFactory,
+                ClaimsPrincipal user,
                 CancellationToken cancellationToken,
                 [FromQuery] string? lang = null,
                 [FromQuery] string? search = null,
@@ -120,9 +128,25 @@ internal sealed class ListTranslations : IEndpoint
 
                 Result<PaginationResponse<TranslationListItemResponse>> result = await handler.Handle(query, cancellationToken);
 
-                return result.IsSuccess
-                    ? Results.Ok(result.Value)
-                    : Results.Problem(result.Error.ToProblemDetails());
+                if (result.IsFailure)
+                {
+                    return Results.Problem(result.Error.ToProblemDetails());
+                }
+
+                PaginationResponse<TranslationListItemResponse> response = result.Value;
+                bool callerIsAdmin = user.IsInRole(AuthConstants.Roles.Admin);
+
+                return HateoasResults.Ok(response, paged =>
+                {
+                    foreach (TranslationListItemResponse item in paged.Items)
+                    {
+                        item.Links = translationLinkFactory.CreateTranslationLinks(
+                            item.Id, item.Status, isRemoved: false, callerIsAdmin);
+                    }
+
+                    paged.Links = paginationLinkFactory.CreatePaginationLinks(
+                        nameof(ListTranslations), paged, new { lang, search, status });
+                });
             })
             .WithName(nameof(ListTranslations))
             .WithTags("Translations")

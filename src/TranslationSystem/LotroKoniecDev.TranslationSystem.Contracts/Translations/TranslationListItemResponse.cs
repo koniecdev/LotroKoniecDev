@@ -1,3 +1,4 @@
+using LotroKoniecDev.Hateoas.Abstractions;
 using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.TranslationAggregate;
 using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.TranslationAggregate.Enums;
 
@@ -17,4 +18,7 @@ public sealed record TranslationListItemResponse(
     string? TranslatedText,
     TranslationStatus Status,
     TranslatorSummaryResponse? Submitter,
-    DateTimeOffset UpdatedAt);
+    DateTimeOffset UpdatedAt) : ILinksResponse
+{
+    public IReadOnlyCollection<LinkDto> Links { get; set; } = [];
+}

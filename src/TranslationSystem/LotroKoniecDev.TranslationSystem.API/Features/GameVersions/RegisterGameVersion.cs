@@ -105,9 +105,9 @@ internal sealed class RegisterGameVersion : IEndpoint
 
                 Result<GameVersionResponse> result = await handler.Handle(command, cancellationToken);
 
-                // No item endpoint yet (YAGNI); the created version is discoverable in the collection.
+                // Point Location at the new resource's own item endpoint (GET /game-versions/{id}, added in M2-25).
                 return result.IsSuccess
-                    ? Results.Created("/api/v1/game-versions", result.Value)
+                    ? Results.Created($"/api/v1/game-versions/{result.Value.Id.Value}", result.Value)
                     : Results.Problem(result.Error.ToProblemDetails());
             })
             .WithName(nameof(RegisterGameVersion))

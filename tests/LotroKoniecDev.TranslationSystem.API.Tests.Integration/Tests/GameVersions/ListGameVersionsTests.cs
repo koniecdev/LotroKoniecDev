@@ -2,6 +2,7 @@ using System.Net.Http.Headers;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using LotroKoniecDev.SharedKernel.Authorization;
+using LotroKoniecDev.TranslationSystem.Contracts.Common;
 using LotroKoniecDev.TranslationSystem.Contracts.GameVersions;
 using LotroKoniecDev.TranslationSystem.Domain.Aggregates.GameVersionAggregate.Entities;
 using LotroKoniecDev.TranslationSystem.Domain.Aggregates.GameVersionAggregate.ValueObjects;
@@ -46,35 +47,37 @@ public sealed class ListGameVersionsTests : IAsyncLifetime
         await SeedAsync("48.0", Now.AddDays(2), GameVersionStatus.Unprocessed);
         using HttpClient client = TranslatorClient();
 
-        // Act
-        GameVersionResponse[]? body = await (await client.GetAsync(Route))
-            .Content.ReadFromJsonAsync<GameVersionResponse[]>(JsonOptions);
+        // Act — the list is wrapped in a HATEOAS collection envelope (M2-25).
+        CollectionResponse<GameVersionResponse>? body = await (await client.GetAsync(Route))
+            .Content.ReadFromJsonAsync<CollectionResponse<GameVersionResponse>>(JsonOptions);
 
         // Assert — newest first; status round-trips; versions are stored canonical (trailing zeros dropped).
         body.ShouldNotBeNull();
-        body.Length.ShouldBe(3);
-        body[0].Version.ShouldBe("48");
-        body[0].Status.ShouldBe(GameVersionStatus.Unprocessed);
-        body[1].Version.ShouldBe("47.1");
-        body[1].Status.ShouldBe(GameVersionStatus.Processed);
-        body[2].Version.ShouldBe("47");
-        body[2].Status.ShouldBe(GameVersionStatus.Superseded);
+        GameVersionResponse[] items = body.Items.ToArray();
+        items.Length.ShouldBe(3);
+        items[0].Version.ShouldBe("48");
+        items[0].Status.ShouldBe(GameVersionStatus.Unprocessed);
+        items[1].Version.ShouldBe("47.1");
+        items[1].Status.ShouldBe(GameVersionStatus.Processed);
+        items[2].Version.ShouldBe("47");
+        items[2].Status.ShouldBe(GameVersionStatus.Superseded);
     }
 
     [Fact]
-    public async Task List_WhenEmpty_ReturnsEmptyArray()
+    public async Task List_WhenEmpty_ReturnsEmptyCollection()
     {
         // Arrange
         using HttpClient client = TranslatorClient();
 
         // Act
         HttpResponseMessage response = await client.GetAsync(Route);
-        GameVersionResponse[]? body = await response.Content.ReadFromJsonAsync<GameVersionResponse[]>(JsonOptions);
+        CollectionResponse<GameVersionResponse>? body =
+            await response.Content.ReadFromJsonAsync<CollectionResponse<GameVersionResponse>>(JsonOptions);
 
         // Assert
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
         body.ShouldNotBeNull();
-        body.ShouldBeEmpty();
+        body.Items.ShouldBeEmpty();
     }
 
     [Fact]

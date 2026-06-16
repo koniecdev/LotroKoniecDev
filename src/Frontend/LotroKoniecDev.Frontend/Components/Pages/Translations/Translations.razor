@@ -2,8 +2,10 @@
 @attribute [Authorize]
 @attribute [StreamRendering]
 @using Microsoft.AspNetCore.Authorization
+@using LotroKoniecDev.Frontend.Infrastructure.Hateoas
 @using LotroKoniecDev.Frontend.Infrastructure.HttpClients
 @using LotroKoniecDev.TranslationSystem.Contracts.Common
+@using LotroKoniecDev.TranslationSystem.Contracts.Hateoas
 @using LotroKoniecDev.TranslationSystem.Contracts.Translations
 @using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.TranslationAggregate.Enums
 @inject TranslationListLoader Loader
@@ -116,7 +118,10 @@ else
                                 </span>
                             </td>
                             <td class="col-actions">
-                                <a class="btn btn-ghost btn-sm" href="@EditorHref(item)">Edytuj</a>
+                                @if (item.Links.HasLink(Rels.Upsert))
+                                {
+                                    <a class="btn btn-ghost btn-sm" href="@EditorHref(item)">Edytuj</a>
+                                }
                             </td>
                         </tr>
                     }
@@ -124,10 +129,21 @@ else
             </table>
         </section>
 
-        @if (pageData.TotalPages > 1)
+        @* The pager controls' availability is driven by the server's pagination link rels (#158); the
+           user-facing /translations?... URLs stay FE-built via ToPageRelativeUri so they remain clean. *@
+        @if (pageData.Links.HasLink(Rels.PreviousPage) || pageData.Links.HasLink(Rels.NextPage))
         {
             <nav class="pager" aria-label="Stronicowanie">
-                @if (pageData.HasPreviousPage)
+                @if (pageData.Links.HasLink(Rels.FirstPage))
+                {
+                    <a class="btn btn-ghost" href="@_query.ToPageRelativeUri(1)" rel="first">« Pierwsza</a>
+                }
+                else
+                {
+                    <span class="btn btn-ghost is-disabled" aria-disabled="true">« Pierwsza</span>
+                }
+
+                @if (pageData.Links.HasLink(Rels.PreviousPage))
                 {
                     <a class="btn btn-ghost" href="@_query.ToPageRelativeUri(pageData.Page - 1)" rel="prev">← Poprzednia</a>
                 }
@@ -138,13 +154,22 @@ else
 
                 <span class="pager-status">@pageData.Page / @pageData.TotalPages</span>
 
-                @if (pageData.HasNextPage)
+                @if (pageData.Links.HasLink(Rels.NextPage))
                 {
                     <a class="btn btn-ghost" href="@_query.ToPageRelativeUri(pageData.Page + 1)" rel="next">Następna →</a>
                 }
                 else
                 {
                     <span class="btn btn-ghost is-disabled" aria-disabled="true">Następna →</span>
+                }
+
+                @if (pageData.Links.HasLink(Rels.LastPage))
+                {
+                    <a class="btn btn-ghost" href="@_query.ToPageRelativeUri(pageData.TotalPages)" rel="last">Ostatnia »</a>
+                }
+                else
+                {
+                    <span class="btn btn-ghost is-disabled" aria-disabled="true">Ostatnia »</span>
                 }
             </nav>
         }

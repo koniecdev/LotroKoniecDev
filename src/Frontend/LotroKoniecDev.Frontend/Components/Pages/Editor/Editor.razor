@@ -3,10 +3,12 @@
 @using Microsoft.AspNetCore.Authorization
 @using Microsoft.AspNetCore.Mvc
 @using LotroKoniecDev.Frontend.Components.Pages.Translations
+@using LotroKoniecDev.Frontend.Infrastructure.Hateoas
 @using LotroKoniecDev.Frontend.Infrastructure.HttpClients
+@using LotroKoniecDev.Hateoas.Abstractions
+@using LotroKoniecDev.TranslationSystem.Contracts.Hateoas
 @using LotroKoniecDev.TranslationSystem.Contracts.Translations
 @using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.TranslationAggregate
-@using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.TranslationAggregate.Enums
 @inject TranslationEditorLoader Loader
 
 <PageTitle>Edytor tłumaczenia — LotroKoniecDev</PageTitle>
@@ -139,30 +141,34 @@ else
 
         <section class="panel editor-pane">
             <h2 class="editor-pane-title">Tłumaczenie polskie</h2>
-            <form method="post" @formname="save-translation" @onsubmit="SaveAsync">
-                <AntiforgeryToken/>
-                <input type="hidden" name="FileIdField" value="@detail.FileId"/>
-                <input type="hidden" name="GossipIdField" value="@detail.GossipId"/>
-                <label class="visually-hidden" for="translated">Tłumaczenie polskie</label>
-                <textarea id="translated" name="DraftField" class="editor-textarea mono" rows="8"
-                          placeholder="Wpisz tłumaczenie…">@(_draftText ?? detail.TranslatedText)</textarea>
-                <div class="editor-actions">
-                    <button type="submit" class="btn btn-primary">Zapisz</button>
-                </div>
-            </form>
 
-            @if (CanApprove)
+            @{
+                LinkDto? upsertLink = detail.Links.FindLink(Rels.Upsert);
+            }
+            @if (upsertLink is not null)
+            {
+                <form method="post" @formname="save-translation" @onsubmit="SaveAsync">
+                    <AntiforgeryToken/>
+                    <input type="hidden" name="FileIdField" value="@detail.FileId"/>
+                    <input type="hidden" name="GossipIdField" value="@detail.GossipId"/>
+                    <label class="visually-hidden" for="translated">Tłumaczenie polskie</label>
+                    <textarea id="translated" name="DraftField" class="editor-textarea mono" rows="8"
+                              placeholder="Wpisz tłumaczenie…">@(_draftText ?? detail.TranslatedText)</textarea>
+                    <div class="editor-actions">
+                        <button type="submit" class="btn btn-primary">Zapisz</button>
+                    </div>
+                </form>
+            }
+            else
+            {
+                <p class="text-dim">Ten wiersz jest tylko do odczytu.</p>
+            }
+
+            @if (detail.Links.HasLink(Rels.Approve))
             {
                 <form method="post" @formname="approve-translation" @onsubmit="ApproveAsync" class="editor-approve">
                     <AntiforgeryToken/>
-                    <button type="submit" class="btn btn-ghost"
-                            disabled="@(detail.Status is TranslationStatus.Approved || string.IsNullOrWhiteSpace(detail.TranslatedText))">
-                        Zatwierdź
-                    </button>
-                    @if (string.IsNullOrWhiteSpace(detail.TranslatedText))
-                    {
-                        <span class="text-dim">Nie można zatwierdzić pustego tłumaczenia.</span>
-                    }
+                    <button type="submit" class="btn btn-ghost">Zatwierdź</button>
                 </form>
             }
         </section>
@@ -171,11 +177,15 @@ else
 
 @code
 {
+    /// <summary>
+    /// Recovery-only fallback for the upsert target: the upsert rel is row-independent (it always points
+    /// at the collection PUT), so when the row could not be reloaded on a resubmit we PUT here rather
+    /// than trust a client-submitted href. The happy path follows <c>_detail</c>'s advertised link.
+    /// </summary>
+    private const string CollectionUpsertPath = "/api/v1/translations";
+
     [Parameter]
     public Guid Id { get; set; }
-
-    [CascadingParameter]
-    private Task<AuthenticationState>? AuthenticationStateTask { get; set; }
 
     [SupplyParameterFromForm(FormName = "save-translation")]
     private string? DraftField { get; set; }
@@ -193,14 +203,9 @@ else
     private string? _draftText;
     private bool _saved;
     private bool _approved;
-    private bool _canApprove;
-
-    private bool CanApprove => _canApprove;
 
     protected override async Task OnParametersSetAsync()
     {
-        _canApprove = await IsAdminAsync();
-
         ApiResult<TranslationDetailResponse> result = await Loader.LoadAsync(new TranslationId(Id), CancellationToken.None);
         if (result.IsSuccess)
         {
@@ -220,8 +225,13 @@ else
         _saveProblem = null;
         _draftText = DraftField ?? string.Empty;
 
+        // Follow the row's server-advertised upsert href (never a client-submitted one — that would let a
+        // tampered post redirect the bearer-token request off-host); fall back to the collection PUT only
+        // when the row is unloadable on a recovery resubmit.
+        string upsertHref = _detail?.Links.FindLink(Rels.Upsert)?.Href ?? CollectionUpsertPath;
+
         UpsertTranslationRequest request = new(FileIdField, GossipIdField, _draftText);
-        ApiResult<TranslationDetailResponse> result = await Loader.SaveAsync(request, CancellationToken.None);
+        ApiResult<TranslationDetailResponse> result = await Loader.SaveAsync(upsertHref, request, CancellationToken.None);
 
         if (result.IsSuccess)
         {
@@ -240,12 +250,15 @@ else
         _approved = false;
         _approveProblem = null;
 
-        if (!await IsAdminAsync())
+        // Link-driven: the API emits the approve rel only for a reviewer on a Draft/NeedsReview row, so
+        // its presence on the freshly loaded detail is the whole gate — no local role/status recompute.
+        LinkDto? approveLink = _detail?.Links.FindLink(Rels.Approve);
+        if (approveLink is null)
         {
             return;
         }
 
-        ApiResult result = await Loader.ApproveAsync(new TranslationId(Id), CancellationToken.None);
+        ApiResult result = await Loader.ApproveAsync(approveLink.Href, CancellationToken.None);
         if (result.IsSuccess)
         {
             _approved = true;
@@ -260,17 +273,6 @@ else
         {
             _approveProblem = result.ProblemDetails;
         }
-    }
-
-    private async Task<bool> IsAdminAsync()
-    {
-        if (AuthenticationStateTask is null)
-        {
-            return false;
-        }
-
-        AuthenticationState authenticationState = await AuthenticationStateTask;
-        return authenticationState.User.IsInRole(EditorRoles.Approver);
     }
 
     private static RenderFragment RenderHighlighted(string text) => builder =>

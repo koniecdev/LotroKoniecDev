@@ -6,8 +6,10 @@ using LotroKoniecDev.Frontend.Components.Pages.ImportExport;
 using LotroKoniecDev.Frontend.Infrastructure.HttpClients;
 using LotroKoniecDev.Frontend.Infrastructure.HttpClients.TranslationSystemHttpClients;
 using LotroKoniecDev.Frontend.Tests.Unit.Infrastructure.HttpClients;
+using LotroKoniecDev.Hateoas.Abstractions;
 using LotroKoniecDev.TranslationSystem.Contracts.Common;
 using LotroKoniecDev.TranslationSystem.Contracts.GameVersions;
+using LotroKoniecDev.TranslationSystem.Contracts.Hateoas;
 using LotroKoniecDev.TranslationSystem.Contracts.Import;
 using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.GameVersionAggregate;
 using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.GameVersionAggregate.Enums;
@@ -51,13 +53,34 @@ public sealed class ImportExportLoaderTests
                 new CollectionResponse<GameVersionResponse> { Items = [VersionFixture()] }, ApiJsonOptions),
             out _);
 
-        ApiResult<IReadOnlyList<GameVersionResponse>> result = await loader.ListGameVersionsAsync();
+        ApiResult<CollectionResponse<GameVersionResponse>> result = await loader.ListGameVersionsAsync();
 
         result.IsSuccess.ShouldBeTrue();
-        result.Value.Count.ShouldBe(1);
-        result.Value[0].Id.Value.ShouldBe(GameVersionGuid);
-        result.Value[0].Version.ShouldBe("48.0");
-        result.Value[0].Status.ShouldBe(GameVersionStatus.Unprocessed);
+        GameVersionResponse version = result.Value.Items.ShouldHaveSingleItem();
+        version.Id.Value.ShouldBe(GameVersionGuid);
+        version.Version.ShouldBe("48.0");
+        version.Status.ShouldBe(GameVersionStatus.Unprocessed);
+    }
+
+    [Fact]
+    public async Task ListGameVersionsAsync_PreservesTheCollectionLinksSoTheRegisterRelCanGateImport()
+    {
+        // The collection's admin-only `register` rel must survive deserialization — the import/export
+        // page gates the import panel on its presence (#158) rather than recomputing the role locally.
+        CollectionResponse<GameVersionResponse> collection = new()
+        {
+            Items = [VersionFixture()],
+            Links = [new LinkDto("https://tms.example/api/v1/game-versions", Rels.Register, "POST")]
+        };
+        ImportExportLoader loader = CreateLoader(
+            HttpStatusCode.OK,
+            JsonSerializer.Serialize(collection, ApiJsonOptions),
+            out _);
+
+        ApiResult<CollectionResponse<GameVersionResponse>> result = await loader.ListGameVersionsAsync();
+
+        result.IsSuccess.ShouldBeTrue();
+        result.Value.Links.ShouldContain(link => link.Rel == Rels.Register);
     }
 
     [Fact]
@@ -68,7 +91,7 @@ public sealed class ImportExportLoaderTests
             """{ "title": "Nie udało się wczytać wersji.", "status": 500 }""",
             out _);
 
-        ApiResult<IReadOnlyList<GameVersionResponse>> result = await loader.ListGameVersionsAsync();
+        ApiResult<CollectionResponse<GameVersionResponse>> result = await loader.ListGameVersionsAsync();
 
         result.IsFailure.ShouldBeTrue();
         result.ProblemDetails!.Status.ShouldBe(500);

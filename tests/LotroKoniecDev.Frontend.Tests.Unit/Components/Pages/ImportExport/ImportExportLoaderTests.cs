@@ -6,6 +6,7 @@ using LotroKoniecDev.Frontend.Components.Pages.ImportExport;
 using LotroKoniecDev.Frontend.Infrastructure.HttpClients;
 using LotroKoniecDev.Frontend.Infrastructure.HttpClients.TranslationSystemHttpClients;
 using LotroKoniecDev.Frontend.Tests.Unit.Infrastructure.HttpClients;
+using LotroKoniecDev.TranslationSystem.Contracts.Common;
 using LotroKoniecDev.TranslationSystem.Contracts.GameVersions;
 using LotroKoniecDev.TranslationSystem.Contracts.Import;
 using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.GameVersionAggregate;
@@ -30,7 +31,8 @@ public sealed class ImportExportLoaderTests
     {
         ImportExportLoader loader = CreateLoader(
             HttpStatusCode.OK,
-            JsonSerializer.Serialize(new[] { VersionFixture() }, ApiJsonOptions),
+            JsonSerializer.Serialize(
+                new CollectionResponse<GameVersionResponse> { Items = [VersionFixture()] }, ApiJsonOptions),
             out StubHttpMessageHandler handler);
 
         await loader.ListGameVersionsAsync();
@@ -45,7 +47,8 @@ public sealed class ImportExportLoaderTests
     {
         ImportExportLoader loader = CreateLoader(
             HttpStatusCode.OK,
-            JsonSerializer.Serialize(new[] { VersionFixture() }, ApiJsonOptions),
+            JsonSerializer.Serialize(
+                new CollectionResponse<GameVersionResponse> { Items = [VersionFixture()] }, ApiJsonOptions),
             out _);
 
         ApiResult<IReadOnlyList<GameVersionResponse>> result = await loader.ListGameVersionsAsync();

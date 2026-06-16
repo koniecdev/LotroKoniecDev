@@ -277,6 +277,12 @@ file_id||gossip_id||translated_text||args_order||args_id||approved
 - **Right-size the design — YAGNI by default.** Before proposing an abstraction, cache, config
   knob, queue, or new infra, check it solves a **real, present** need from the current
   spec/ticket — not a hypothetical future. Pick the simple path and note the trade-off in one line.
+- **Frontend is Static SSR — enforced, not just documented.** No WebAssembly, no SignalR circuit,
+  no per-user server state; forms post via `<form method="post" @formname @onsubmit>` (the SSR
+  `@onsubmit` special-case) or `<EditForm OnValidSubmit>` — never interactive `@on*` handlers,
+  `@rendermode`, `StateHasChanged`, or `AddInteractive*`. `scripts/check-ssr-purity.sh` (with a
+  `.ps1` twin for local Windows devs) gates this in **both** `pr-verify` and `ci`, before
+  `setup-dotnet`. Genuinely need interactivity? That's an ADR-first architecture change.
 - **Git is rebase-based, and branches are never deleted.** Integrate a feature branch off `main`
   with `git rebase main` — never `git merge main`; no merge commits in feature branches (remote
   `main` is squash-only, so history stays linear). After a PR's squash commit lands on `main`,

@@ -1,0 +1,50 @@
+name: E2E
+
+# Heaviest possible job: the E2ETestFixture builds the auth/tms/migrator Docker images and spins up the
+# full stack (Postgres + migrator + both APIs) via Testcontainers, then drives the core loop over real HTTP
+# with real auth-api tokens. Manual only — never on push/PR — so it costs nothing routinely. The project is
+# named `...E2E.Tests` (not `*.Tests.Unit`/`*.Tests.Integration`), so pr-verify/ci skip it by convention.
+# Run from the Actions tab or `gh workflow run e2e.yml`.
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: e2e-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  e2e:
+    name: E2E (full stack via Testcontainers)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '10.0.100'
+
+      - name: Cache NuGet packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ hashFiles('**/Directory.Packages.props', '**/*.csproj') }}
+          restore-keys: |
+            nuget-${{ runner.os }}-
+
+      - name: Restore
+        run: dotnet restore tests/LotroKoniecDev.TranslationSystem.E2E.Tests/LotroKoniecDev.TranslationSystem.E2E.Tests.csproj
+
+      - name: Build
+        run: dotnet build tests/LotroKoniecDev.TranslationSystem.E2E.Tests/LotroKoniecDev.TranslationSystem.E2E.Tests.csproj --configuration Release --no-restore
+
+      # The fixture shells out to `docker build` for the three images (the ubuntu runner has Docker preinstalled),
+      # then boots the stack via Testcontainers — no SKIP_DOCKER_BUILD, no pre-built images.
+      - name: Run E2E Tests
+        run: dotnet test tests/LotroKoniecDev.TranslationSystem.E2E.Tests/LotroKoniecDev.TranslationSystem.E2E.Tests.csproj --configuration Release --no-build --logger "console;verbosity=minimal"

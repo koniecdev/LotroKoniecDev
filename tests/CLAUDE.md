@@ -7,8 +7,13 @@ dotnet test                                            # everything runnable on 
 dotnet test tests/LotroKoniecDev.Tests.Unit            # unit only — always green, every OS
 dotnet test tests/LotroKoniecDev.Tests.Infrastructure  # real-infrastructure tests
 dotnet test tests/LotroKoniecDev.Tests.E2E             # full CLI pipeline — auto-skips off-Windows
+dotnet test tests/LotroKoniecDev.TranslationSystem.E2E.Tests  # real-process TMS stack — REQUIRES Docker (builds 3 images)
 dotnet test --filter "FullyQualifiedName~Fragment"     # filter by name
 ```
+
+> **Heads-up on bare `dotnet test`:** the TMS real-process E2E suite runs whenever the whole solution is
+> tested and **requires a running Docker daemon** (it builds the auth/tms/migrator images and boots the
+> stack). It is off the PR/CI gate by name (below); target a specific project when you don't have Docker.
 
 ## Mutation Testing (Stryker.NET)
 
@@ -87,6 +92,26 @@ output belongs here, never in `Tests.Unit`. Targets `net10.0-windows`: builds ev
 Full-pipeline tests driving the CLI (`ExportE2ETests`, `PatchE2ETests`, `RoundtripE2ETests`,
 `ErrorPathE2ETests`) against a real DAT. They use `SkippableFact` and **skip automatically**
 off-Windows or without a DAT available — `Skipped` on macOS is expected, not a failure.
+
+## TMS Real-Process E2E Tests (LotroKoniecDev.TranslationSystem.E2E.Tests)
+
+A Testcontainers-driven suite that mirrors TheKittySaver's `E2E.Tests`: `E2ETestFixture` builds the
+`auth`/`tms`/`migrator` Docker images (`SKIP_DOCKER_BUILD=true` to reuse pre-built ones), spins up a private
+network with `postgres:17-alpine` (+ the bind-mounted `scripts/init-postgres.sh` for the second `lotro_auth`
+DB), runs the one-shot migrator, then boots `auth-api` (env `Testing` → password-grant `lotrokoniecdev-test`
+client + seeded Admin) and `tms-api` on `http://+:8080`, waiting on `/health/live`. Tests drive the loop over
+real HTTP with **real auth-api tokens validated by tms-api via live JWKS + lazy translator provisioning** — the
+layer the in-process `*.Tests.Integration` suite fakes by forging HS256 tokens.
+
+- `AuthFlowE2ETests` — real Admin token accepted + first write lazily provisions the translator; a registered
+  Translator's token is accepted; no/garbage token → 401.
+- `CoreLoopE2ETests` — register version → import → list → upsert → approve → download (+ ETag/304).
+- `UpdateCycleE2ETests` — a later import reword's an approved row's source → invalidated + dropped from the file.
+
+**Requires Docker; off the PR gate by name** — the project is `...E2E.Tests` (not `*.Tests.Unit` /
+`*.Tests.Integration`), so the `pr-verify.yml`/`ci.yml` test-discovery globs skip it. It runs only via
+`.github/workflows/e2e.yml` (`workflow_dispatch`) or a local `dotnet test` of the project. It IS compiled by the
+solution build, so the zero-warning gate still covers it.
 
 ## Conventions
 

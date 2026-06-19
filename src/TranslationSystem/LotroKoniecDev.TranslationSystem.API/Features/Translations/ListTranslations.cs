@@ -1,3 +1,5 @@
+using System.Globalization;
+using System.Linq.Expressions;
 using System.Security.Claims;
 using LotroKoniecDev.Hateoas.ContentNegotiation;
 using LotroKoniecDev.SharedKernel.Authorization;
@@ -32,8 +34,14 @@ internal sealed class ListTranslations : IEndpoint
     /// <summary>The only language the catalog holds today; multi-language is post-MVP.</summary>
     private const string SupportedLanguage = SupportedLanguages.Polish;
 
-    internal sealed record Query(string? Lang, string? Search, TranslationStatus? Status, int Page = 1, int PageSize = 50)
-        : IQuery<Result<PaginationResponse<TranslationListItemResponse>>>
+    internal sealed record Query(
+        string? Lang,
+        string? Search,
+        TranslationStatus? Status,
+        int Page = 1,
+        int PageSize = 50,
+        string? Sort = null)
+        : IQuery<Result<PaginationResponse<TranslationListItemResponse>>>, IPaginationable, ISortable
     {
         public int Page { get; } = Math.Max(Page, 1);
         public int PageSize { get; } = Math.Clamp(PageSize, 1, 100);
@@ -83,11 +91,14 @@ internal sealed class ListTranslations : IEndpoint
 
             int totalCount = await filtered.CountAsync(cancellationToken);
 
-            List<TranslationListItemResponse> items = await filtered
-                .OrderBy(translation => translation.FileId)
-                .ThenBy(translation => translation.GossipId)
-                .Skip((query.Page - 1) * query.PageSize)
-                .Take(query.PageSize)
+            IQueryable<TranslationReadModel> ordered = string.IsNullOrWhiteSpace(query.Sort)
+                ? filtered
+                    .OrderBy(translation => translation.FileId)
+                    .ThenBy(translation => translation.GossipId)
+                : filtered.ApplyMultipleSorting(query.Sort, GetSortProperty);
+
+            List<TranslationListItemResponse> items = await ordered
+                .ApplyPagination(query.Page, query.PageSize)
                 .Select(TranslationProjections.ToListItem)
                 .ToListAsync(cancellationToken);
 
@@ -99,6 +110,23 @@ internal sealed class ListTranslations : IEndpoint
                 TotalCount = totalCount
             });
         }
+
+        /// <summary>
+        /// Maps a <c>?sort=</c> key to the read-model column it orders by. Unknown keys fall back to
+        /// <c>FileId</c> ascending — the primary leg of the default ordering — so a typo degrades
+        /// gracefully instead of failing. <c>submittedAt</c> targets <c>UpdatedAt</c>, the last-submission
+        /// timestamp the list row exposes; <c>status</c> sorts by the enum's stored name (the column is
+        /// persisted as a string), not its integer value.
+        /// </summary>
+        private static Expression<Func<TranslationReadModel, object>> GetSortProperty(string propertyName)
+            => propertyName.ToLower(CultureInfo.InvariantCulture) switch
+            {
+                "fileid" => translation => translation.FileId,
+                "gossipid" => translation => translation.GossipId,
+                "status" => translation => translation.Status,
+                "submittedat" => translation => translation.UpdatedAt,
+                _ => translation => translation.FileId
+            };
 
         private const string LikeEscapeCharacter = "\\";
 
@@ -122,9 +150,10 @@ internal sealed class ListTranslations : IEndpoint
                 [FromQuery] string? search = null,
                 [FromQuery] TranslationStatus? status = null,
                 [FromQuery] int page = 1,
-                [FromQuery] int pageSize = 50) =>
+                [FromQuery] int pageSize = 50,
+                [FromQuery] string? sort = null) =>
             {
-                Query query = new(lang, search, status, page, pageSize);
+                Query query = new(lang, search, status, page, pageSize, sort);
 
                 Result<PaginationResponse<TranslationListItemResponse>> result = await handler.Handle(query, cancellationToken);
 
@@ -145,7 +174,7 @@ internal sealed class ListTranslations : IEndpoint
                     }
 
                     paged.Links = paginationLinkFactory.CreatePaginationLinks(
-                        nameof(ListTranslations), paged, new { lang, search, status });
+                        nameof(ListTranslations), paged, new { lang, search, status, sort });
                 });
             })
             .WithName(nameof(ListTranslations))

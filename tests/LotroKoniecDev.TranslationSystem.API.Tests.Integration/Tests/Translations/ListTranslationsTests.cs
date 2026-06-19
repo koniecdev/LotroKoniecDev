@@ -185,6 +185,55 @@ public sealed class ListTranslationsTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task List_WithSortGossipIdDescending_ReturnsRowsDescending()
+    {
+        // Arrange — seeded ascending; the descending sort must reverse them.
+        await SeedAsync(Row(1, "a"), Row(2, "b"), Row(3, "c"));
+
+        // Act
+        PaginationResponse<TranslationListItemResponse> page = await ListAsync("?sort=gossipId:desc");
+
+        // Assert
+        page.Items.Select(item => item.GossipId).ShouldBe([3L, 2L, 1L]);
+    }
+
+    [Fact]
+    public async Task List_WithMultiKeySort_AppliesStatusDescThenFileIdAsc()
+    {
+        // Arrange — the AC's example: Status is stored as its enum name, so "desc" orders
+        // "NeedsReview" before "Draft"; FileId breaks the tie between the two Draft rows.
+        await SeedAsync(
+            Row(1, "needs", TranslationStatus.NeedsReview, fileId: 300),
+            Row(1, "draft-hi", TranslationStatus.Draft, fileId: 200),
+            Row(1, "draft-lo", TranslationStatus.Draft, fileId: 100));
+
+        // Act
+        PaginationResponse<TranslationListItemResponse> page = await ListAsync("?sort=status:desc,fileId:asc");
+
+        // Assert
+        page.Items.Select(item => (item.FileId, item.Status)).ShouldBe(
+        [
+            (300, TranslationStatus.NeedsReview),
+            (100, TranslationStatus.Draft),
+            (200, TranslationStatus.Draft)
+        ]);
+    }
+
+    [Fact]
+    public async Task List_WithUnknownSortKey_FallsBackToDefaultOrdering()
+    {
+        // Arrange — seeded out of FileId order; an unrecognized key degrades to the default
+        // (FileId ascending), the primary leg of today's default ordering.
+        await SeedAsync(Row(1, "b", fileId: 200), Row(1, "a", fileId: 100), Row(1, "c", fileId: 300));
+
+        // Act
+        PaginationResponse<TranslationListItemResponse> page = await ListAsync("?sort=banana");
+
+        // Assert
+        page.Items.Select(item => item.FileId).ShouldBe([100, 200, 300]);
+    }
+
+    [Fact]
     public async Task List_WithUnsupportedLanguage_ShouldReturn400()
     {
         // Act

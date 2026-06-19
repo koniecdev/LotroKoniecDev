@@ -5,7 +5,7 @@ namespace LotroKoniecDev.TranslationSystem.Projections;
 /// <summary>
 /// Write-side persistence port for the <see cref="PrecomputedTranslationFile"/> projection.
 /// Deliberately not an <c>IRepository</c> (those are constrained to aggregate roots): the precomputed
-/// file is a derived read projection, upserted by its natural key — one row per language. See ADR-0003.
+/// file is a derived read projection, upserted by its natural key — one row per language. See ADR-0007.
 /// </summary>
 public interface IPrecomputedTranslationFileStore
 {

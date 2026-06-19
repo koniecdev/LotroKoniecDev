@@ -12,7 +12,7 @@ namespace LotroKoniecDev.TranslationSystem.Persistence.Migrations
         {
             // No schema change: this migration only re-syncs the model snapshot after the
             // TranslationArtifact aggregate was renamed to the PrecomputedTranslationFile projection
-            // (ADR-0003). The physical table ("TranslationArtifacts") and its columns are unchanged.
+            // (ADR-0007). The physical table ("TranslationArtifacts") and its columns are unchanged.
         }
 
         /// <inheritdoc />

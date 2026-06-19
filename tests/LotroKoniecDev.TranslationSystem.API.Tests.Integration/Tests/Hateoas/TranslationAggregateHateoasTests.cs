@@ -265,6 +265,27 @@ public sealed class TranslationAggregateHateoasTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task ListTranslations_PaginationLinks_PreserveTheActiveSort()
+    {
+        // Arrange — three rows, one per page, so page 2 carries the full nav set; the active sort
+        // must ride along on every page link, exactly as the filters do.
+        await SeedAsync(Row(1, "a"), Row(2, "b"), Row(3, "c"));
+
+        // Act
+        PaginationResponse<TranslationListItemResponse> response =
+            await GetHateoasAsync<PaginationResponse<TranslationListItemResponse>>(
+                AdminClient(), "/api/v1/translations?sort=gossipId:desc&page=2&pageSize=1");
+
+        // Assert — the active sort rides every page link (the operand colon may be URL-encoded).
+        response.Page.ShouldBe(2);
+        response.Links.First(l => l.Rel == Rels.Self).Href.ShouldContain("sort=gossipId", Case.Insensitive);
+        response.Links.First(l => l.Rel == Rels.FirstPage).Href.ShouldContain("sort=gossipId", Case.Insensitive);
+        response.Links.First(l => l.Rel == Rels.LastPage).Href.ShouldContain("sort=gossipId", Case.Insensitive);
+        response.Links.First(l => l.Rel == Rels.PreviousPage).Href.ShouldContain("sort=gossipId", Case.Insensitive);
+        response.Links.First(l => l.Rel == Rels.NextPage).Href.ShouldContain("sort=gossipId", Case.Insensitive);
+    }
+
+    [Fact]
     public async Task ListTranslations_PlainJson_OmitsItemAndPaginationLinks()
     {
         // Arrange

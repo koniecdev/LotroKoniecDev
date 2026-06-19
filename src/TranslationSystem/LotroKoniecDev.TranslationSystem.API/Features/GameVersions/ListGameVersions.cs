@@ -1,3 +1,5 @@
+using System.Globalization;
+using System.Linq.Expressions;
 using System.Security.Claims;
 using LotroKoniecDev.Hateoas.ContentNegotiation;
 using LotroKoniecDev.SharedKernel.Authorization;
@@ -10,6 +12,8 @@ using LotroKoniecDev.TranslationSystem.API.Hateoas.GameVersionAggregateFactories
 using LotroKoniecDev.TranslationSystem.Contracts.Common;
 using LotroKoniecDev.TranslationSystem.Contracts.GameVersions;
 using LotroKoniecDev.TranslationSystem.Persistence.DbContexts.ReadDbContexts;
+using LotroKoniecDev.TranslationSystem.ReadModels.Aggregates.GameVersionAggregate;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 
 namespace LotroKoniecDev.TranslationSystem.API.Features.GameVersions;
@@ -22,7 +26,7 @@ namespace LotroKoniecDev.TranslationSystem.API.Features.GameVersions;
 /// </summary>
 internal sealed class ListGameVersions : IEndpoint
 {
-    internal sealed record Query : IQuery<Result<IReadOnlyList<GameVersionResponse>>>;
+    internal sealed record Query(string? Sort = null) : IQuery<Result<IReadOnlyList<GameVersionResponse>>>, ISortable;
 
     internal sealed class Handler : IQueryHandler<Query, Result<IReadOnlyList<GameVersionResponse>>>
     {
@@ -35,8 +39,11 @@ internal sealed class ListGameVersions : IEndpoint
 
         public async ValueTask<Result<IReadOnlyList<GameVersionResponse>>> Handle(Query query, CancellationToken cancellationToken)
         {
-            List<GameVersionResponse> items = await _readDbContext.GameVersions
-                .OrderByDescending(gameVersion => gameVersion.DetectedAt)
+            IQueryable<GameVersionReadModel> ordered = string.IsNullOrWhiteSpace(query.Sort)
+                ? _readDbContext.GameVersions.OrderByDescending(gameVersion => gameVersion.DetectedAt)
+                : _readDbContext.GameVersions.ApplyMultipleSorting(query.Sort, GetSortProperty);
+
+            List<GameVersionResponse> items = await ordered
                 .Select(gameVersion => new GameVersionResponse(
                     gameVersion.Id,
                     gameVersion.LotroNotationVersion,
@@ -46,6 +53,22 @@ internal sealed class ListGameVersions : IEndpoint
 
             return Result.Success<IReadOnlyList<GameVersionResponse>>(items);
         }
+
+        /// <summary>
+        /// Maps a <c>?sort=</c> key to the read-model column it orders by. An unknown key degrades to
+        /// <c>DetectedAt</c> <b>ascending</b> (the parser's default operand) — note this is oldest-first,
+        /// not the newest-first ordering used when <c>sort</c> is omitted. <c>version</c> sorts the
+        /// canonical version string lexicographically (no semantic version ordering); <c>status</c> sorts
+        /// by the enum's stored name (the column is persisted as a string), not its integer value.
+        /// </summary>
+        private static Expression<Func<GameVersionReadModel, object>> GetSortProperty(string propertyName)
+            => propertyName.ToLower(CultureInfo.InvariantCulture) switch
+            {
+                "version" => gameVersion => gameVersion.LotroNotationVersion,
+                "detectedat" => gameVersion => gameVersion.DetectedAt,
+                "status" => gameVersion => gameVersion.Status,
+                _ => gameVersion => gameVersion.DetectedAt
+            };
     }
 
     public void MapEndpoint(IEndpointRouteBuilder endpointRouteBuilder)
@@ -54,9 +77,10 @@ internal sealed class ListGameVersions : IEndpoint
                 IQueryHandler<Query, Result<IReadOnlyList<GameVersionResponse>>> handler,
                 IGameVersionAggregateLinkFactory gameVersionLinkFactory,
                 ClaimsPrincipal user,
-                CancellationToken cancellationToken) =>
+                CancellationToken cancellationToken,
+                [FromQuery] string? sort = null) =>
             {
-                Result<IReadOnlyList<GameVersionResponse>> result = await handler.Handle(new Query(), cancellationToken);
+                Result<IReadOnlyList<GameVersionResponse>> result = await handler.Handle(new Query(sort), cancellationToken);
 
                 if (result.IsFailure)
                 {

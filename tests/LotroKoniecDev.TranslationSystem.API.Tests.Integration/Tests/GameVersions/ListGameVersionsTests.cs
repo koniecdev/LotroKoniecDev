@@ -64,6 +64,51 @@ public sealed class ListGameVersionsTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task List_WithSortVersionAscending_OrdersLexicographically()
+    {
+        // Arrange — versions are stored canonical (trailing zeros dropped) and sorted as strings.
+        await SeedAsync("47.0", Now, GameVersionStatus.Unprocessed);
+        await SeedAsync("48.0", Now.AddDays(1), GameVersionStatus.Unprocessed);
+        await SeedAsync("46.5", Now.AddDays(2), GameVersionStatus.Unprocessed);
+
+        // Act
+        GameVersionResponse[] items = await ListVersionsAsync("?sort=version:asc");
+
+        // Assert
+        items.Select(item => item.Version).ShouldBe(["46.5", "47", "48"]);
+    }
+
+    [Fact]
+    public async Task List_WithSortDetectedAtAscending_OrdersOldestFirst()
+    {
+        // Arrange — the default is newest-first; an ascending sort flips it to oldest-first.
+        await SeedAsync("47.0", Now, GameVersionStatus.Unprocessed);
+        await SeedAsync("47.1", Now.AddDays(1), GameVersionStatus.Unprocessed);
+        await SeedAsync("48.0", Now.AddDays(2), GameVersionStatus.Unprocessed);
+
+        // Act
+        GameVersionResponse[] items = await ListVersionsAsync("?sort=detectedAt:asc");
+
+        // Assert
+        items.Select(item => item.Version).ShouldBe(["47", "47.1", "48"]);
+    }
+
+    [Fact]
+    public async Task List_WithUnknownSortKey_FallsBackToDetectedAtAscending()
+    {
+        // Arrange — an unrecognized key degrades to the default column (DetectedAt) ascending: the
+        // full set, oldest-first (deliberately oldest-first, not the newest-first no-sort default).
+        await SeedAsync("47.0", Now, GameVersionStatus.Unprocessed);
+        await SeedAsync("48.0", Now.AddDays(1), GameVersionStatus.Unprocessed);
+
+        // Act
+        GameVersionResponse[] items = await ListVersionsAsync("?sort=banana");
+
+        // Assert
+        items.Select(item => item.Version).ShouldBe(["47", "48"]);
+    }
+
+    [Fact]
     public async Task List_WhenEmpty_ReturnsEmptyCollection()
     {
         // Arrange
@@ -88,6 +133,17 @@ public sealed class ListGameVersionsTests : IAsyncLifetime
 
         // Assert
         response.StatusCode.ShouldBe(HttpStatusCode.Unauthorized);
+    }
+
+    private async Task<GameVersionResponse[]> ListVersionsAsync(string queryString)
+    {
+        using HttpClient client = TranslatorClient();
+        HttpResponseMessage response = await client.GetAsync($"{Route}{queryString}");
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        CollectionResponse<GameVersionResponse>? body =
+            await response.Content.ReadFromJsonAsync<CollectionResponse<GameVersionResponse>>(JsonOptions);
+        body.ShouldNotBeNull();
+        return body.Items.ToArray();
     }
 
     private async Task SeedAsync(string version, DateTimeOffset detectedAt, GameVersionStatus status)

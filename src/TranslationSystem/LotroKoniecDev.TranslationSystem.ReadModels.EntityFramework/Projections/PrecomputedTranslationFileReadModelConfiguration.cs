@@ -8,7 +8,7 @@ public sealed class PrecomputedTranslationFileReadModelConfiguration : IEntityTy
 {
     public void Configure(EntityTypeBuilder<PrecomputedTranslationFileReadModel> builder)
     {
-        // Physical table name retained from the original aggregate (ADR-0003): the rename is a
+        // Physical table name retained from the original aggregate (ADR-0007): the rename is a
         // code-model change only, so no migration is needed.
         builder.ToTable("TranslationArtifacts");
 

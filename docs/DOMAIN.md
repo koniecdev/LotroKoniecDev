@@ -56,12 +56,12 @@ Kierunek zależności (warstwy TMS):
 
 ```
 API  ─▶  Domain  ─▶  Primitives        (Persistence / ReadModels(+EF) / Projections / Contracts wpinają się obok)
-        (ReadModels ─▶ Primitives — read modele nie znają Domain; ADR-0003 „read projections are not aggregates")
+        (ReadModels ─▶ Primitives — read modele nie znają Domain; ADR-0007 „read projections are not aggregates")
 ```
 
 Trzy agregaty (`Translation`, `GameVersion`, `Translator`) plus jedna **materializowana projekcja**
 (`PrecomputedTranslationFile`) — gotowy do dystrybucji plik `polish.txt`, świadomie **nie** będący
-agregatem (ADR-0003).
+agregatem (ADR-0007).
 
 ---
 
@@ -257,7 +257,7 @@ Gotowy do dystrybucji plik `polish.txt` (Approved + nieunieważnione + nieusuni�
 po `FileId` potem `GossipId`), serwowany przez `GET /api/v1/translation-files/{lang}` z content-hash
 ETag i regenerowany przy każdym zapisie zmieniającym zbiór dystrybucji.
 
-**Świadomie NIE jest agregatem (ADR-0003 „read projections are not aggregates").** To `Entity`, nie
+**Świadomie NIE jest agregatem (ADR-0007 „read projections are not aggregates").** To `Entity`, nie
 `AggregateRoot` — nie broni żadnego invariantu, jest wyprowadzony i regenerowalny. Stąd:
 
 - żyje w osobnym projekcie `TranslationSystem.Projections` (Domain nie referuje Projections);
@@ -267,7 +267,7 @@ ETag i regenerowany przy każdym zapisie zmieniającym zbiór dystrybucji.
   single-flight, we własnej transakcji.
 
 Strona odczytu (`PrecomputedTranslationFileReadModel`) i typ zapisu **dual-mapują na tę samą fizyczną
-tabelę** `TranslationArtifacts` (nazwa fizyczna zachowana po refaktorze typu — ADR-0003).
+tabelę** `TranslationArtifacts` (nazwa fizyczna zachowana po refaktorze typu — ADR-0007).
 
 ---
 
@@ -282,7 +282,7 @@ tabelę** `TranslationArtifacts` (nazwa fizyczna zachowana po refaktorze typu �
   implementuje go `ApplicationWriteDbContext`.
 - `IPrecomputedTranslationFileStore` — osobny **Store** (nie repozytorium) dla projekcji
   (`…Projections/PrecomputedTranslationFileStore.cs`). Współistnienie `Store` i `Repository` jest
-  zamierzone (ADR-0003), nie niespójnością.
+  zamierzone (ADR-0007), nie niespójnością.
 
 ---
 
@@ -345,5 +345,5 @@ src/TranslationSystem/
 - **CQRS read/write split (ADR-0002).**
 - **Value Object + strongly-typed ID** — brak prymitywnej obsesji.
 - **Result/Maybe monad** — błędy jako wartości.
-- **Materialized read projection (ADR-0003)** — projekcja ≠ agregat; `Store` ≠ `Repository`.
+- **Materialized read projection (ADR-0007)** — projekcja ≠ agregat; `Store` ≠ `Repository`.
 - **Lazy idempotent provisioning (ADR-0004)** — tożsamość tłumacza tworzona przy pierwszym zapisie.

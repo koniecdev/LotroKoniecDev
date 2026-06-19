@@ -42,7 +42,7 @@ Statusy: `Unprocessed, Processed, Superseded` (+ `Unset` nigdy). Rodzi się **Un
 - 🔵 ⚠️ `DisplayName` = claim `name`, fallback `email`; brak obu ⇒ błąd. Email malformowany ⇒ brak emaila (nie wywala zapisu).
 - 🟢 `DisplayName` niepuste ≤ **150**; `Email` (opcjonalny) niepuste ≤ **250** + regex `^[^@\s]+@[^@\s]+\.[^@\s]+$`.
 
-## 5. PrecomputedTranslationFile (ADR-0003)
+## 5. PrecomputedTranslationFile (ADR-0007)
 - 🟢 ⚠️ `Entity`, **nie** `AggregateRoot` — nie broni invariantu; za `Store`, nie `Repository`. Jeden wiersz na język (klucz naturalny, upsert).
 - 🔵 Plik = **Approved + nieunieważnione + nieusunięte**, sort `FileId`→`GossipId`; kolumna `approved` zawsze `1`, CRLF; byte-compatible z patcherem. Regenerowany po każdym zapisie zmieniającym zbiór dystrybucji.
 

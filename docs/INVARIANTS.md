@@ -148,7 +148,7 @@ referencja do AuthSystem.
 
 | # | Invariant | Reguła | Lokalizacja |
 |---|-----------|--------|-------------|
-| INV-5.1 | 🟢 ⚠️ To `Entity`, **nie** `AggregateRoot` | Nie broni żadnego invariantu; wyprowadzony, regenerowalny. Persystowany przez `IPrecomputedTranslationFileStore` (Store ≠ Repository). (ADR-0003) | `PrecomputedTranslationFile.cs:16` |
+| INV-5.1 | 🟢 ⚠️ To `Entity`, **nie** `AggregateRoot` | Nie broni żadnego invariantu; wyprowadzony, regenerowalny. Persystowany przez `IPrecomputedTranslationFileStore` (Store ≠ Repository). (ADR-0007) | `PrecomputedTranslationFile.cs:16` |
 | INV-5.2 | 🟢 Jeden wiersz na język (klucz naturalny) | Store upsertuje po `Language`; `Refresh` nadpisuje `Content`+`ContentHash` w miejscu. | `PrecomputedTranslationFile.cs:29`, `IPrecomputedTranslationFileStore.cs:12` |
 | INV-5.3 | 🔵 Plik = **Approved + nieunieważnione + nieusunięte**, sort `FileId` → `GossipId` | Regenerowany po każdym zapisie zmieniającym zbiór dystrybucji (import / upsert na Approved / approve). | `PrecomputedTranslationFileProjector.cs`, `TranslationFileSerializer.cs` |
 | INV-5.4 | 🔵 Kolumna `approved` zawsze `1`, terminatory CRLF | Serializacja byte-compatible z writerem patchera (golden fixture + round-trip). | `TranslationFileSerializer.cs:13-39` |
@@ -266,4 +266,4 @@ Lifted wholesale (OpenIddict + ASP.NET Identity). Pełna narracja: [auth-tutoria
 - **Jeden enum zamiast bool+flaga.** `TranslationStatus` i `GameVersionStatus` kodują pełny cykl życia
   w jednym enumie — nielegalne kombinacje niereprezentowalne (spec 0001 Q6).
 - **Projekcja ≠ agregat (INV-5.1).** `PrecomputedTranslationFile` to `Entity` za `Store`, nie agregat
-  za `Repository` — celowo (ADR-0003).
+  za `Repository` — celowo (ADR-0007).

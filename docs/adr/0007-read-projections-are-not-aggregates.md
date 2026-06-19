@@ -1,4 +1,4 @@
-# ADR-0003: Read projections are not aggregates — the PrecomputedTranslationFile projection
+# ADR-0007: Read projections are not aggregates — the PrecomputedTranslationFile projection
 
 **Status:** Accepted
 **Date:** 2026-06-14

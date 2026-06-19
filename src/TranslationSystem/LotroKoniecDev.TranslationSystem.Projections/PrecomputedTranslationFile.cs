@@ -11,7 +11,7 @@ namespace LotroKoniecDev.TranslationSystem.Projections;
 /// that changes the distributed set (see <c>IPrecomputedTranslationFileProjector</c>) and never a
 /// source of truth. It is deliberately a plain <see cref="Entity{TId}"/>, not an
 /// <see cref="AggregateRoot{TId}"/>: it guards no business invariant and is only ever blind-upserted
-/// by its natural key (one row per language). See ADR-0003.
+/// by its natural key (one row per language). See ADR-0007.
 /// </summary>
 public sealed class PrecomputedTranslationFile : Entity<PrecomputedTranslationFileId>
 {

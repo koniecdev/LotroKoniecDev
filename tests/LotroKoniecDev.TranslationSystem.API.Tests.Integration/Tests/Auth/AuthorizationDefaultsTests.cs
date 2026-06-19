@@ -103,4 +103,50 @@ public sealed class AuthorizationDefaultsTests
         // Assert
         response.StatusCode.ShouldBe(HttpStatusCode.NotFound);
     }
+
+    [Fact]
+    public async Task GetProtectedResource_WithExpiredToken_ShouldReturn401()
+    {
+        // Arrange — token rejection is enforced on every protected route, not just discovery.
+        using HttpClient client = _factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization =
+            new AuthenticationHeaderValue("Bearer", TranslationSystemApiFactory.CreateExpiredAccessToken());
+
+        // Act
+        HttpResponseMessage response = await client.GetAsync("/api/v1/translations");
+
+        // Assert
+        response.StatusCode.ShouldBe(HttpStatusCode.Unauthorized);
+    }
+
+    [Fact]
+    public async Task GetProtectedResource_WithTokenSignedByUnknownKey_ShouldReturn401()
+    {
+        // Arrange
+        using HttpClient client = _factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization =
+            new AuthenticationHeaderValue("Bearer", TranslationSystemApiFactory.CreateTokenSignedWithUnknownKey());
+
+        // Act
+        HttpResponseMessage response = await client.GetAsync("/api/v1/translations");
+
+        // Assert
+        response.StatusCode.ShouldBe(HttpStatusCode.Unauthorized);
+    }
+
+    [Fact]
+    public async Task GetTranslatorResource_WithUnrecognizedRole_ShouldReturn403()
+    {
+        // Arrange — a correctly-signed token whose role is neither Admin nor Translator is
+        // authenticated, but the RequireTranslatorRole policy still rejects it.
+        using HttpClient client = _factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization =
+            new AuthenticationHeaderValue("Bearer", TranslationSystemApiFactory.CreateAccessToken("Reviewer"));
+
+        // Act
+        HttpResponseMessage response = await client.GetAsync("/api/v1/translations");
+
+        // Assert
+        response.StatusCode.ShouldBe(HttpStatusCode.Forbidden);
+    }
 }

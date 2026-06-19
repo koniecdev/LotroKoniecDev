@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Reflection;
 using System.Threading.RateLimiting;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.ResponseCompression;
 using Microsoft.Extensions.Options;
 using OpenTelemetry;
@@ -81,6 +82,21 @@ try
         options.MimeTypes = ResponseCompressionDefaults.MimeTypes;
     });
 
+    // Behind a cloud ingress (ACA / ALB / any reverse proxy) TLS terminates at the proxy and the
+    // container receives plain HTTP with X-Forwarded-* headers. Honour them so Request.Scheme is
+    // https, which keeps the JWT issuer, HATEOAS hrefs, Secure cookies, and UseHttpsRedirection
+    // correct. The ingress hop has no stable IP, so KnownIPNetworks/KnownProxies are cleared — i.e.
+    // every upstream proxy is trusted. That is safe only because the container is never exposed
+    // directly: it is always reached through the ingress that sets these headers (ADR-0008).
+    builder.Services.Configure<ForwardedHeadersOptions>(options =>
+    {
+        options.ForwardedHeaders = ForwardedHeaders.XForwardedFor
+                                   | ForwardedHeaders.XForwardedProto
+                                   | ForwardedHeaders.XForwardedHost;
+        options.KnownIPNetworks.Clear();
+        options.KnownProxies.Clear();
+    });
+
     builder.Services.Configure<RouteHandlerOptions>(options =>
     {
         options.ThrowOnBadRequest = true;
@@ -133,6 +149,16 @@ try
     });
 
     WebApplication app = builder.Build();
+
+    // Must run before anything that reads the request scheme/host (logging, HSTS, redirect, auth,
+    // HATEOAS link generation). Skipped in Development so `docker compose up` keeps its plain-http
+    // behaviour unchanged; active in Testing + Production/Staging where a TLS-terminating proxy sets
+    // X-Forwarded-Proto. With the proto honoured first, UseHttpsRedirection below is a no-op (the
+    // scheme already reads https) — there is no redirect loop.
+    if (!app.Environment.IsDevelopment())
+    {
+        app.UseForwardedHeaders();
+    }
 
     app.UseRequestContextLogging();
 

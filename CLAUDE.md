@@ -121,7 +121,7 @@ A KittySaver slice is one file: `internal sealed class <Action> : IEndpoint` con
 | Work a GitHub ticket end-to-end | run **`/ticket <number>`** (mind the pivot-supersedes rule in Project status) |
 | Touch DAT binary parsing / writing / native interop | delegate to the **`dat-format-expert`** agent |
 | Re-investigate update behavior, vnum, translation survival, launch flow | **don't** — empirically settled in `docs/knowledge-base/` (start at its README) |
-| Make a non-trivial architectural/modeling decision | skim `docs/adr/`, then **write a new ADR** (`/adr`); anchors: 0001 (no mediator), 0002 (TMS pivot + freeze amendment) |
+| Make a non-trivial architectural/modeling decision | skim `docs/adr/`, then **write a new ADR** (`/adr`); anchors: 0001 (no mediator), 0002 (TMS pivot + freeze amendment), 0008 (cloud-agnostic deployment + env strategy — M6) |
 | Touch the update lifecycle (GameVersion, import diff, invalidation, distribution, CLI sync) | `docs/specs/0001-game-update-lifecycle-and-translation-invalidation.md` — the agreed domain spec |
 | Implement a feature whose business rules are fuzzy | **`/spec`** first (seed → questions → agreed spec in `docs/specs/`) |
 | Review a finished change | the **`code-reviewer`** agent |

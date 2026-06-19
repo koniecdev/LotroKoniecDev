@@ -1,5 +1,6 @@
 using System.Net.Http.Headers;
 using System.Text;
+using System.Text.Json;
 using LotroKoniecDev.SharedKernel.Authorization;
 using LotroKoniecDev.SharedKernel.StronglyTypedIds;
 using LotroKoniecDev.TranslationSystem.Contracts.Import;
@@ -202,6 +203,70 @@ public sealed class ImportExportedTextsTests : IAsyncLifetime
 
         // Assert
         response.StatusCode.ShouldBe(HttpStatusCode.Unauthorized);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("# only a comment, no rows")]
+    public async Task Import_EmptyOrCommentsOnlyFile_ShouldReturn422EmptyUpload(string fileContent)
+    {
+        // Arrange — an upload with no translatable rows must be rejected rather than marking the
+        // version processed with no content.
+        GameVersionId versionId = await SeedVersionAsync("48.0");
+        using HttpClient client = AdminClient();
+
+        // Act
+        HttpResponseMessage response = await client.PostAsync(ImportRoute(versionId), TextContent(fileContent));
+
+        // Assert
+        response.StatusCode.ShouldBe(HttpStatusCode.UnprocessableEntity);
+        (await ReadErrorCodeAsync(response)).ShouldBe("Import.EmptyUpload");
+        (await CountTranslationsAsync()).ShouldBe(0);
+        (await GetVersionStatusAsync(versionId)).ShouldBe(GameVersionStatus.Unprocessed);
+    }
+
+    [Fact]
+    public async Task Import_DuplicateFragmentKeyInUpload_ShouldReturn422()
+    {
+        // Arrange — two rows for the same (FileId, GossipId) make the upload ambiguous.
+        GameVersionId versionId = await SeedVersionAsync("48.0");
+        using HttpClient client = AdminClient();
+
+        // Act
+        HttpResponseMessage response = await client.PostAsync(
+            ImportRoute(versionId), ExportContent(Line(1, "Alpha"), Line(1, "Alpha duplicate")));
+
+        // Assert
+        response.StatusCode.ShouldBe(HttpStatusCode.UnprocessableEntity);
+        (await ReadErrorCodeAsync(response)).ShouldBe("Import.DuplicateFragmentKey");
+        (await CountTranslationsAsync()).ShouldBe(0);
+    }
+
+    [Fact]
+    public async Task Import_WithOctetStreamFilePart_ShouldStillSucceed()
+    {
+        // Arrange — the endpoint does not gate on the file part's declared MIME type; the `||` parser
+        // is the sole gate, so a valid body served as application/octet-stream is still imported.
+        GameVersionId versionId = await SeedVersionAsync("48.0");
+        using HttpClient client = AdminClient();
+
+        ByteArrayContent fileContent = new(Encoding.UTF8.GetBytes(Line(1, "Alpha")));
+        fileContent.Headers.ContentType = new MediaTypeHeaderValue("application/octet-stream");
+        using MultipartFormDataContent body = new() { { fileContent, "file", "exported.bin" } };
+
+        // Act
+        HttpResponseMessage response = await client.PostAsync(ImportRoute(versionId), body);
+
+        // Assert
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        (await CountTranslationsAsync()).ShouldBe(1);
+    }
+
+    private static async Task<string?> ReadErrorCodeAsync(HttpResponseMessage response)
+    {
+        await using Stream stream = await response.Content.ReadAsStreamAsync();
+        using JsonDocument document = await JsonDocument.ParseAsync(stream);
+        return document.RootElement.TryGetProperty("errorCode", out JsonElement code) ? code.GetString() : null;
     }
 
     private static string ImportRoute(GameVersionId versionId)

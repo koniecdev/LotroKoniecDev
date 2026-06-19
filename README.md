@@ -161,6 +161,26 @@ LotroKoniecDev/
 
 Backup pliku DAT jest tworzony automatycznie z rozszerzeniem `.backup` obok oryginalu. Aby przywrocic oryginal, skopiuj backup z powrotem na `client_local_English.dat`.
 
+## Dokumentacja (TMS)
+
+Cztery dokumenty referencyjne dla backendu TMS — wygenerowane **z kodu** (kod jest źródłem prawdy):
+
+- [`docs/API.md`](docs/API.md) — pełna referencja HTTP API: każdy endpoint (`/api/v1/...`), polityki
+  autoryzacji, kształty request/response, kody statusu + `ProblemDetails`, endpointy tokenowe Auth i
+  dystrybucja pliku tłumaczeń (ETag/304).
+- [`docs/DOMAIN.md`](docs/DOMAIN.md) — spacer po modelu domenowym: agregaty (`Translation`,
+  `GameVersion`, `Translator`), value objecty, cykl aktualizacji / unieważnienia (spec 0001) i podział
+  CQRS read/write.
+- [`docs/INVARIANTS.md`](docs/INVARIANTS.md) (+ [`INVARIANTS.slim.md`](docs/INVARIANTS.slim.md)) —
+  katalog egzekwowanych reguł z Domain + walidatorów, każda z tagiem 🟢 Domena / 🔵 Aplikacja i kotwicą
+  `plik:linia`.
+- [`docs/auth-tutorial.md`](docs/auth-tutorial.md) — auth end-to-end: serwer autoryzacji OpenIddict
+  (AuthSystem), resource server JwtBearer (tms-api), JWKS, leniwe prowizjonowanie tłumacza (ADR-0004),
+  role/policies.
+
+Głębiej: `docs/specs/` (spec 0001 — cykl aktualizacji; spec 0002 — HATEOAS), `docs/adr/` (decyzje
+architektoniczne), `docs/knowledge-base/` (empiryczne ustalenia o DAT/aktualizacjach).
+
 ## Bezpieczenstwo i sekrety (backend / TMS)
 
 Repo bedzie publiczne — **realne sekrety nigdy nie trafiaja do historii gita**. Trzy warstwy ochrony:

@@ -6,7 +6,9 @@ name: CD
 #   * lotrokoniecdev-auth-api   — src/AuthSystem/LotroKoniecDev.AuthSystem.API/Dockerfile
 #   * lotrokoniecdev-tms-api    — src/TranslationSystem/LotroKoniecDev.TranslationSystem.API/Dockerfile
 #   * lotrokoniecdev-frontend   — src/Frontend/LotroKoniecDev.Frontend/Dockerfile
-#   * lotrokoniecdev-migrator   — Dockerfile.migrator
+#   * lotrokoniecdev-migrator   — Dockerfile.migrator.prod (the lean, self-contained EF migration-bundle
+#                                 image — the artifact a cloud pre-deploy job runs; M6-10, ADR-0008 §6.
+#                                 The dev Dockerfile.migrator is built locally by compose.yaml, never published.)
 #
 # Triggers:
 #   * push to main           → publishes :sha-<short> and :latest (the moving "tip of main")
@@ -55,7 +57,7 @@ jobs:
           - image: lotrokoniecdev-frontend
             dockerfile: src/Frontend/LotroKoniecDev.Frontend/Dockerfile
           - image: lotrokoniecdev-migrator
-            dockerfile: Dockerfile.migrator
+            dockerfile: Dockerfile.migrator.prod
 
     steps:
       - name: Checkout

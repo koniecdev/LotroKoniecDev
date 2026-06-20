@@ -55,10 +55,15 @@ services:
       retries: 30
       start_period: 10s
 
+  # Production migrator (ADR-0008 §6, M6-10): the lean, self-contained EF migration-bundle image
+  # (Dockerfile.migrator.prod) — NOT the dev SDK migrator (Dockerfile.migrator stays dev-only). Runs
+  # both bundles to completion against the connection strings, in order; both APIs depend on its
+  # success below (service_completed_successfully), so a failed migration (non-zero exit) blocks API
+  # startup and there is never half-migrated serving. Idempotent — re-running is a no-op.
   migrator:
     build:
       context: .
-      dockerfile: Dockerfile.migrator
+      dockerfile: Dockerfile.migrator.prod
     environment:
       ASPNETCORE_ENVIRONMENT: Production
       ConnectionStrings__TranslationDatabase: ${ConnectionStrings__TranslationDatabase}

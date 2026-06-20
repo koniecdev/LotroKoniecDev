@@ -1,0 +1,89 @@
+# Production migration image (ADR-0008 §6, ticket M6-10).
+#
+# The dev Dockerfile.migrator (kept as-is) ships the full SDK + the dotnet-ef tool + the sources and
+# runs `dotnet ef database update` — convenient for dev, multi-GB, and not a production artifact.
+# This image instead bakes two SELF-CONTAINED `dotnet ef migrations bundle` executables (one per
+# write context) onto a lean runtime-deps base: no SDK, no dotnet-ef tool, no sources, no .NET
+# runtime install — each bundle carries its own. The result is a standalone "apply migrations against
+# a connection string" job, ~10x smaller than the dev SDK image.
+#
+# It runs as a PRE-DEPLOY job / init step: compose.prod's migrator service runs this to completion and
+# both APIs `depend_on` its success (service_completed_successfully), so a failed migration blocks API
+# startup and there is never half-migrated serving. The same image is the unit a cloud pre-deploy job
+# (ACA Job / ECS task) runs — see docs/deployment/runbook.md.
+#
+# Why self-contained (not framework-dependent): the ticket calls for a "standalone executable", and a
+# runtime-deps base + self-contained bundles removes any .NET-runtime-version coupling between this
+# image and the API images. The trade-off is larger bundle binaries (~260 MB for the two vs ~90 MB
+# framework-dependent); accepted for the standalone property and the leaner base.
+
+ARG BUILD_CONFIGURATION=Release
+ARG TARGET_RUNTIME=linux-x64
+
+FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
+ARG BUILD_CONFIGURATION
+ARG TARGET_RUNTIME
+WORKDIR /src
+
+# dotnet-ef is the CLI only; the bundle is built against each project's pinned EF Core version
+# (Directory.Packages.props), so this is left unpinned exactly like the dev Dockerfile.migrator.
+RUN dotnet tool install --global dotnet-ef
+ENV PATH="$PATH:/root/.dotnet/tools"
+
+COPY ["Directory.Build.props", "./"]
+COPY ["Directory.Packages.props", "./"]
+COPY [".editorconfig", "./"]
+
+# Docker content-hashes these directory COPYs, so any migration/source change invalidates them and
+# the two `bundle` RUN layers below — the bundles can never go stale against the source.
+COPY ["src/TranslationSystem/", "src/TranslationSystem/"]
+COPY ["src/AuthSystem/", "src/AuthSystem/"]
+COPY ["src/SharedKernel/", "src/SharedKernel/"]
+COPY ["src/Utilities/", "src/Utilities/"]
+
+# Restore the two startup projects (`ef migrations bundle` does not restore on its own) — exactly the
+# two projects the dev migrator restores.
+RUN dotnet restore src/TranslationSystem/LotroKoniecDev.TranslationSystem.Persistence/LotroKoniecDev.TranslationSystem.Persistence.csproj && \
+    dotnet restore src/AuthSystem/LotroKoniecDev.AuthSystem.API/LotroKoniecDev.AuthSystem.API.csproj
+
+# TMS migrations resolve through the Persistence project (it carries EF Core Design + the design-time
+# factory); Auth resolves through its API project (Auth Persistence intentionally has no Design
+# package). The throwaway --connection at the end satisfies the design-time factory while EF builds
+# the model to bundle it — the real connection string is supplied at RUN time by the bundle itself.
+RUN dotnet ef migrations bundle \
+      --self-contained --target-runtime "$TARGET_RUNTIME" --configuration "$BUILD_CONFIGURATION" \
+      --project src/TranslationSystem/LotroKoniecDev.TranslationSystem.Persistence \
+      --startup-project src/TranslationSystem/LotroKoniecDev.TranslationSystem.Persistence \
+      --context ApplicationWriteDbContext \
+      --output /bundles/tms-migrate \
+      -- --connection "Host=build-time-placeholder;Database=build;Username=build;Password=build"
+
+RUN dotnet ef migrations bundle \
+      --self-contained --target-runtime "$TARGET_RUNTIME" --configuration "$BUILD_CONFIGURATION" \
+      --project src/AuthSystem/LotroKoniecDev.AuthSystem.Persistence \
+      --startup-project src/AuthSystem/LotroKoniecDev.AuthSystem.API \
+      --context AuthDbContext \
+      --output /bundles/auth-migrate \
+      -- --connection "Host=build-time-placeholder;Database=build;Username=build;Password=build"
+
+# runtime-deps = the leanest official base that runs a self-contained app (native deps + ICU, no
+# managed runtime). USER $APP_UID drops to the non-root app user the base image ships.
+# libgssapi-krb5-2 lets Npgsql negotiate GSSAPI cleanly (some Postgres hosts advertise it); without
+# it Npgsql logs a noisy `libgssapi_krb5.so.2: cannot open shared object file` before falling back to
+# password auth. Installing it keeps the migrator output clean and works against GSSAPI-capable hosts.
+FROM mcr.microsoft.com/dotnet/runtime-deps:10.0 AS final
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends libgssapi-krb5-2 \
+    && rm -rf /var/lib/apt/lists/*
+WORKDIR /app
+
+COPY --from=build /bundles/tms-migrate ./tms-migrate
+COPY --from=build /bundles/auth-migrate ./auth-migrate
+COPY ["scripts/apply-migrations.sh", "./apply-migrations.sh"]
+
+USER $APP_UID
+
+# Idempotent by construction: EF skips migrations already recorded in each context's
+# __EFMigrationsHistory table, so re-running this job is a no-op. Ordering and fail-fast (set -e) live
+# in the entrypoint script.
+ENTRYPOINT ["/bin/sh", "/app/apply-migrations.sh"]

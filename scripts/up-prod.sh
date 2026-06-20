@@ -25,9 +25,31 @@ if [ ! -f "$CERT_PATH" ]; then
     scripts/init-prod-https.sh
 fi
 
-echo ""
-echo "Reminder: map the vhosts to loopback once (REQUIRED — *.test is not auto-resolved by browsers):"
-echo "  127.0.0.1 app.lotro.test auth.lotro.test tms.lotro.test"
-echo ""
+# Map the *.lotro.test vhosts to loopback (REQUIRED — *.test is never resolved by public DNS, by
+# design, so only a local hosts entry works). Idempotent: a no-op once present, so no repeated
+# prompts — admin is needed only the first time on a fresh machine. The in-stack containers don't
+# need this (they reach Caddy via Docker network aliases); it's purely for the browser + host curl.
+HOSTS_FILE="/etc/hosts"
+VHOSTS="app.lotro.test auth.lotro.test tms.lotro.test"
+HOSTS_MISSING=0
+for name in $VHOSTS; do
+    grep -qiF "$name" "$HOSTS_FILE" 2>/dev/null || HOSTS_MISSING=1
+done
+if [ "$HOSTS_MISSING" -eq 1 ]; then
+    echo "Mapping *.lotro.test -> 127.0.0.1 in $HOSTS_FILE (one-time per machine; may prompt for admin)..."
+    HOSTS_MARKER="# LotroKoniecDev prod-parity (compose.prod.yaml) — auto-added by up-prod"
+    HOSTS_LINE="127.0.0.1 $VHOSTS"
+    if [ -w "$HOSTS_FILE" ]; then
+        printf '\n%s\n%s\n' "$HOSTS_MARKER" "$HOSTS_LINE" >> "$HOSTS_FILE"
+    else
+        printf '\n%s\n%s\n' "$HOSTS_MARKER" "$HOSTS_LINE" | sudo tee -a "$HOSTS_FILE" >/dev/null
+    fi
+    # macOS keeps a resolver cache; flush it so the new mapping resolves immediately (sudo creds are
+    # still cached from the tee above, so this won't prompt again).
+    if [ "$(uname)" = "Darwin" ]; then
+        sudo dscacheutil -flushcache 2>/dev/null || true
+        sudo killall -HUP mDNSResponder 2>/dev/null || true
+    fi
+fi
 
 exec docker compose -f compose.prod.yaml --env-file "$ENV_FILE" up "$@"

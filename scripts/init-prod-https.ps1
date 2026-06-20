@@ -72,5 +72,5 @@ Set-Content -Path (Join-Path $certDir 'postgres.key') -Value $pgRsa.ExportPkcs8P
 
 Write-Host ""
 Write-Host "Done. TLS material at: $certDir"
-Write-Host "Ensure your hosts file maps the vhosts to loopback (one-time):"
-Write-Host "  127.0.0.1 app.lotro.test auth.lotro.test tms.lotro.test"
+Write-Host "Next: scripts/up-prod.ps1 maps the *.lotro.test vhosts to loopback automatically (one-time, needs admin)."
+Write-Host "  (manual equivalent: add '127.0.0.1 app.lotro.test auth.lotro.test tms.lotro.test' to your hosts file)"

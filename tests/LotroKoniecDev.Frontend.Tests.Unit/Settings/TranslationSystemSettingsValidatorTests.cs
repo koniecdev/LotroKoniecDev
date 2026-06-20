@@ -30,5 +30,7 @@ public sealed class TranslationSystemSettingsValidatorTests
 
         result.IsValid.ShouldBeFalse();
         result.Errors.ShouldContain(error => error.PropertyName == nameof(TranslationSystemSettings.BaseUrl));
+        result.Errors.ShouldContain(error =>
+            error.ErrorMessage.Contains("TranslationSystem:BaseUrl", StringComparison.Ordinal));
     }
 }

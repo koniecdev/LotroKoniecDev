@@ -1,0 +1,25 @@
+# Reverse proxy for the production-parity stack (compose.prod.yaml).
+#
+# Reproduces the cloud topology locally: the browser and the in-stack Frontend both reach the
+# backend through ONE TLS-terminating ingress on three host-based virtual hosts, so a single OIDC
+# Authority/issuer serves the front-channel (browser redirects) AND the Frontend container's
+# back-channel — the two-legs problem ADR-0006 documented dissolves behind a shared origin.
+#
+# TLS terminates here with the local-CA leaf cert minted by scripts/init-prod-https.sh; traffic to
+# the apps is plain HTTP on :8080 with X-Forwarded-Proto/Host/For set, exercising UseForwardedHeaders
+# (M6-02). Explicit `tls` files make Caddy serve our cert and skip ACME — no internet needed.
+
+app.lotro.test {
+	tls /etc/caddy/certs/proxy.crt /etc/caddy/certs/proxy.key
+	reverse_proxy frontend:8080
+}
+
+auth.lotro.test {
+	tls /etc/caddy/certs/proxy.crt /etc/caddy/certs/proxy.key
+	reverse_proxy auth-api:8080
+}
+
+tms.lotro.test {
+	tls /etc/caddy/certs/proxy.crt /etc/caddy/certs/proxy.key
+	reverse_proxy tms-api:8080
+}

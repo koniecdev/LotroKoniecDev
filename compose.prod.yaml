@@ -1,0 +1,236 @@
+# Production-PARITY stack — runnable on a laptop (ADR-0008 §4, ticket M6-07).
+#
+# This is NOT the dev stack. The dev compose.yaml (ADR-0006) stays dev-flavored (ephemeral
+# OpenIddict keys, host-run Frontend, mailpit/aspire on by default, no reverse proxy). This file
+# reproduces production as closely as a laptop allows so prod-only failures surface BEFORE staging:
+#   * every app runs ASPNETCORE_ENVIRONMENT=Production (real keys, fail-fast config, forwarded headers)
+#   * the Frontend is containerized (ADR-0008 §7) and behind the same ingress as the APIs
+#   * a Caddy reverse proxy terminates TLS on one origin per app, so a single OIDC Authority works
+#     for both the browser and the in-stack Frontend back-channel (M6-08 ingress parity)
+#   * auth-api + Frontend persist their Data Protection keyrings to volumes (M6-04, ADR-0005)
+#   * Postgres is self-hosted with SSL and a named volume; pointing at a managed instance is a
+#     one-env-var swap (the two ConnectionStrings__* below)
+#   * SMTP + OTLP are real, from env — no mailpit/aspire unless you opt into the profiles below
+#
+# Boot it:
+#   scripts/init-prod-https.sh                  # one-time: local CA + proxy/postgres certs
+#   cp .env.prod.example .env.prod && edit it   # real secrets (scripts/gen-openiddict-keys.sh helps)
+#   docker compose -f compose.prod.yaml --env-file .env.prod up --build
+# Add to your hosts file once: 127.0.0.1 app.lotro.test auth.lotro.test tms.lotro.test
+# Then: https://app.lotro.test (browser OIDC login), https://auth.lotro.test/health/ready,
+#       https://tms.lotro.test/health/ready (curl --cacert .docker/prod-https/rootCA.crt).
+
+name: lotrokoniecdev-prod
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    # Copy the mounted certs to a postgres-owned path, fix key perms (Postgres refuses a key it can
+    # read but does not own / that is group/world-readable), then hand off to the stock entrypoint
+    # with ssl=on. Self-signed server cert; the app connects with Trust Server Certificate=true.
+    entrypoint:
+      - sh
+      - -c
+      - |
+        cp /certs-src/postgres.crt /certs-src/postgres.key /var/lib/postgresql/ && \
+        chown postgres:postgres /var/lib/postgresql/postgres.crt /var/lib/postgresql/postgres.key && \
+        chmod 600 /var/lib/postgresql/postgres.key && \
+        exec docker-entrypoint.sh postgres \
+          -c ssl=on \
+          -c ssl_cert_file=/var/lib/postgresql/postgres.crt \
+          -c ssl_key_file=/var/lib/postgresql/postgres.key
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: lotro_translation
+    volumes:
+      - lotrokoniecdev-prod-postgres-data:/var/lib/postgresql/data
+      - ./.docker/prod-https:/certs-src:ro
+      - ./scripts/init-postgres.sh:/docker-entrypoint-initdb.d/10-init-databases.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d lotro_translation"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 10s
+
+  migrator:
+    build:
+      context: .
+      dockerfile: Dockerfile.migrator
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ConnectionStrings__TranslationDatabase: ${ConnectionStrings__TranslationDatabase}
+      ConnectionStrings__AuthDatabase: ${ConnectionStrings__AuthDatabase}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  auth-api:
+    build:
+      context: .
+      dockerfile: src/AuthSystem/LotroKoniecDev.AuthSystem.API/Dockerfile
+    # No published port and no TLS in the app: the proxy terminates TLS and reaches it over the
+    # in-network HTTP listener. UseForwardedHeaders (M6-02) restores https scheme from the proxy.
+    expose:
+      - "8080"
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ASPNETCORE_URLS: "http://+:8080"
+      ConnectionStrings__AuthDatabase: ${ConnectionStrings__AuthDatabase}
+      # Public issuer served by the proxy — stamped into every token's 'iss'; reachable identically
+      # from the browser (front-channel) and the Frontend container (back-channel) through the proxy.
+      OpenIddict__Issuer: "https://auth.lotro.test"
+      OpenIddict__SigningKey__RsaPrivateKeyXml: ${OpenIddict__SigningKey__RsaPrivateKeyXml}
+      OpenIddict__EncryptionKey__Key: ${OpenIddict__EncryptionKey__Key}
+      OpenIddict__ApiClientSecret: ${OpenIddict__ApiClientSecret}
+      OpenIddict__WebClient__RedirectUris__0: "https://app.lotro.test/callback"
+      OpenIddict__WebClient__PostLogoutRedirectUris__0: "https://app.lotro.test"
+      Cors__AllowedOrigins__0: "https://app.lotro.test"
+      # DP keyring persisted to a volume (M6-04, ADR-0005) — without it every restart/replica
+      # invalidates Identity cookies, antiforgery tokens and password-reset links.
+      DataProtection__KeyRingPath: "/keys"
+      Email__Host: ${Email__Host}
+      Email__Port: ${Email__Port}
+      Email__Mode: ${Email__Mode}
+      Email__SenderEmail: ${Email__SenderEmail}
+      Email__Sender: ${Email__Sender}
+      Email__Username: ${Email__Username:-}
+      Email__Password: ${Email__Password:-}
+      AdminUser__Username: ${AUTH_ADMIN_USERNAME:-}
+      AdminUser__Email: ${AUTH_ADMIN_EMAIL:-}
+      AdminUser__Password: ${AUTH_ADMIN_PASSWORD:-}
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
+      OTEL_EXPORTER_OTLP_PROTOCOL: grpc
+    volumes:
+      - lotrokoniecdev-prod-auth-keys:/keys
+    depends_on:
+      migrator:
+        condition: service_completed_successfully
+
+  tms-api:
+    build:
+      context: .
+      dockerfile: src/TranslationSystem/LotroKoniecDev.TranslationSystem.API/Dockerfile
+    expose:
+      - "8080"
+    # Run as root only so the entrypoint can install the local CA, then drop back to the app user.
+    user: root
+    entrypoint: ["/bin/sh", "/usr/local/bin/trust-ca-entrypoint.sh"]
+    command: ["dotnet", "LotroKoniecDev.TranslationSystem.API.dll"]
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ASPNETCORE_URLS: "http://+:8080"
+      ConnectionStrings__TranslationDatabase: ${ConnectionStrings__TranslationDatabase}
+      # In Production OpenIddict rejects plain HTTP, so tms-api fetches OIDC metadata + JWKS through
+      # the proxy over https (why it trusts the local CA via the entrypoint above). Issuer = the public
+      # origin the tokens carry; Authority = where metadata/JWKS are fetched (the same proxy origin).
+      Auth__Issuer: "https://auth.lotro.test"
+      Auth__Authority: "https://auth.lotro.test"
+      Auth__Audience: lotrokoniecdev-api
+      Cors__AllowedOrigins__0: "https://app.lotro.test"
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
+      OTEL_EXPORTER_OTLP_PROTOCOL: grpc
+      Bootstrap__Enabled: "false"
+      Bootstrap__PolishTextPath: "/app/translations/polish.txt"
+    volumes:
+      - ./translations:/app/translations:ro
+      # Local-parity TLS trust: the entrypoint installs this CA into the OS store so .NET trusts the
+      # proxy's leaf cert when fetching OIDC metadata/JWKS from https://auth.lotro.test (.NET ignores
+      # SSL_CERT_FILE; real prod uses a publicly-trusted ingress cert, so neither mount exists there).
+      - ./.docker/trust-ca-entrypoint.sh:/usr/local/bin/trust-ca-entrypoint.sh:ro
+      - ./.docker/prod-https/rootCA.crt:/certs/rootCA.crt:ro
+    depends_on:
+      migrator:
+        condition: service_completed_successfully
+      auth-api:
+        condition: service_healthy
+
+  frontend:
+    build:
+      context: .
+      dockerfile: src/Frontend/LotroKoniecDev.Frontend/Dockerfile
+    expose:
+      - "8080"
+    # Run as root only so the entrypoint can install the local CA, then drop back to the app user.
+    user: root
+    entrypoint: ["/bin/sh", "/usr/local/bin/trust-ca-entrypoint.sh"]
+    command: ["dotnet", "LotroKoniecDev.Frontend.dll"]
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ASPNETCORE_URLS: "http://+:8080"
+      # OIDC RP: a single Authority (the proxy origin) drives the browser /authorize redirect AND the
+      # container's discovery/token/userinfo back-channel — both resolve to the proxy (browser via
+      # hosts file, container via the proxy's network aliases below).
+      AuthSystem__Authority: "https://auth.lotro.test"
+      AuthSystem__BaseUrl: "https://auth.lotro.test/"
+      TranslationSystem__BaseUrl: "https://tms.lotro.test/"
+      DataProtection__KeyRingPath: "/keys"
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
+      OTEL_EXPORTER_OTLP_PROTOCOL: grpc
+    volumes:
+      - lotrokoniecdev-prod-frontend-keys:/keys
+      # Local-parity TLS trust: the entrypoint installs this CA into the OS store so .NET trusts the
+      # proxy's leaf cert on the OIDC back-channel to https://auth.lotro.test (.NET ignores SSL_CERT_FILE;
+      # real prod uses a publicly-trusted ingress cert, so neither mount exists there).
+      - ./.docker/trust-ca-entrypoint.sh:/usr/local/bin/trust-ca-entrypoint.sh:ro
+      - ./.docker/prod-https/rootCA.crt:/certs/rootCA.crt:ro
+    depends_on:
+      auth-api:
+        condition: service_healthy
+      tms-api:
+        condition: service_healthy
+
+  caddy:
+    image: caddy:2-alpine
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./.docker/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./.docker/prod-https/proxy.crt:/etc/caddy/certs/proxy.crt:ro
+      - ./.docker/prod-https/proxy.key:/etc/caddy/certs/proxy.key:ro
+      - lotrokoniecdev-prod-caddy-data:/data
+    networks:
+      default:
+        # The in-stack Frontend resolves these to the proxy, so its OIDC back-channel hits the same
+        # origin the browser uses. The proxy routes by Host header to the right app.
+        aliases:
+          - app.lotro.test
+          - auth.lotro.test
+          - tms.lotro.test
+    depends_on:
+      auth-api:
+        condition: service_healthy
+      tms-api:
+        condition: service_healthy
+      frontend:
+        condition: service_started
+
+  # --- Optional local infra (NOT started by default — opt in with --profile) ---
+  # Real deployments point Email__* / OTEL_EXPORTER_OTLP_ENDPOINT at managed services via .env.prod.
+  # For an all-local parity run, enable these to satisfy the SMTP /health/ready probe + view traces:
+  #   docker compose -f compose.prod.yaml --env-file .env.prod --profile local-smtp --profile local-otel up
+  # (set Email__Host=mailpit, Email__Port=1025, Email__Mode=None, OTEL_EXPORTER_OTLP_ENDPOINT=http://aspire-dashboard:18889)
+  mailpit:
+    image: axllent/mailpit:latest
+    profiles: ["local-smtp"]
+    # Alternate host port (dev compose uses 8025) so the prod-parity stack can run alongside dev.
+    ports:
+      - "8026:8025"
+
+  aspire-dashboard:
+    image: mcr.microsoft.com/dotnet/aspire-dashboard:latest
+    profiles: ["local-otel"]
+    environment:
+      DASHBOARD__UNSECURED_ALLOW_ANONYMOUS: "true"
+    # Alternate host port (dev compose uses 18888) so the prod-parity stack can run alongside dev.
+    ports:
+      - "18889:18888"
+
+volumes:
+  lotrokoniecdev-prod-postgres-data:
+  lotrokoniecdev-prod-auth-keys:
+  lotrokoniecdev-prod-frontend-keys:
+  lotrokoniecdev-prod-caddy-data:

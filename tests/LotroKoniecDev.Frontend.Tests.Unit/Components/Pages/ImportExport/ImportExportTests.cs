@@ -103,7 +103,7 @@ public sealed class ImportExportTests : BunitContext
         await component.Find("form").SubmitAsync();
 
         component.Find(".status-down").TextContent.ShouldContain("Wybierz plik exported.txt");
-        await _client.DidNotReceive().SendMultipartApiResultAsync<LotroKoniecDev.TranslationSystem.Contracts.Import.ImportSummary>(
+        await _client.DidNotReceive().SendMultipartApiResultAsync<TranslationSystem.Contracts.Import.ImportSummary>(
             Arg.Any<HttpMethod>(),
             Arg.Any<string>(),
             Arg.Any<MultipartFormDataContent>(),
@@ -144,7 +144,7 @@ public sealed class ImportExportTests : BunitContext
         Render<ImportExportComponent>();
 
     private void AuthorizeAs(string userName) =>
-        this.AddAuthorization().SetAuthorized(userName);
+        AddAuthorization().SetAuthorized(userName);
 
     /// <summary>Stubs the versions list as a plain translator sees it — no admin <c>register</c> rel.</summary>
     private void StubVersions(params GameVersionResponse[] versions) =>

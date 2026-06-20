@@ -3,13 +3,17 @@
 ##
 ## Get latest from `dotnet new gitignore`
 
-# dotenv files & secrets (M2-16) — only .env.example (placeholders) is tracked
+# dotenv files & secrets (M2-16) — only .env.example / .env.prod.example (placeholders) are tracked
 .env
 *.env
 .env.*
 !.env.example
+!.env.prod.example
 appsettings.*.local.json
 **/secrets.json
+
+# Production-parity TLS material (local CA, proxy + Postgres certs) — generated, never committed
+.docker/prod-https/
 
 # User-specific files
 *.rsuser

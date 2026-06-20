@@ -174,6 +174,21 @@ dotnet run --project src/Frontend/LotroKoniecDev.Frontend   # https://localhost:
 # appsettings.Development targets the COMPOSE backend (tms :5002). For the all-local workflow (every API via
 # its own `dotnet run`), tms-api's https launchSettings port is :5004 — point TranslationSystem:BaseUrl there.
 # auth-api is :5003 in both workflows, so its Authority/BaseUrl + the token `iss` need no change.
+
+# TMS — Production-PARITY stack (compose.prod.yaml; ADR-0008 §4 / M6-07) — SEPARATE from dev compose.
+# ALL FOUR images + a Caddy reverse proxy run under ASPNETCORE_ENVIRONMENT=Production: real OpenIddict
+# keys, DP keyring volumes (auth + frontend), self-hosted Postgres over SSL, the containerized Frontend.
+# Catches prod-only breakage on a laptop before staging. Coexists with the dev stack (separate project).
+scripts/up-prod.sh | up-prod.ps1                       # recommended boot — bootstraps .env.prod (with generated
+                                                       #   OpenIddict secrets) + local CA/proxy/Postgres certs, then up
+docker compose -f compose.prod.yaml --env-file .env.prod up --build      # raw command (after the two one-time bootstraps)
+docker compose -f compose.prod.yaml --env-file .env.prod --profile local-smtp --profile local-otel up  # + mailpit + aspire (all-local)
+docker compose -f compose.prod.yaml --env-file .env.prod down            # add -v to drop prod volumes (fresh DB/keys)
+# One-time: scripts/gen-openiddict-keys.{sh,ps1} (3 OpenIddict secrets → .env.prod) +
+#   scripts/init-prod-https.{sh,ps1} (local CA → .docker/prod-https/). Hosts file (once):
+#   127.0.0.1 app.lotro.test auth.lotro.test tms.lotro.test
+# Browser OIDC login: https://app.lotro.test. Health (trust the local CA):
+#   curl --cacert .docker/prod-https/rootCA.crt https://auth.lotro.test/health/ready
 ```
 
 The compose stack is **backend-only** (ADR-0006). Each API serves **HTTPS** on its host port (dev cert
@@ -188,6 +203,30 @@ matches. The cert is bootstrapped once by `scripts/init-dev-https.{sh,ps1}` (run
 real keys via env (see `.env.example`). The migrator is a one-shot container (TMS migrates through its
 Persistence project, Auth through its API — only those carry EF Core Design); both APIs wait for it to
 complete.
+
+`compose.prod.yaml` is the **separate production-parity stack** (ADR-0008 §4 / M6-07; the dev
+`compose.yaml` is left untouched). It runs all four images **plus a Caddy reverse proxy** under
+`ASPNETCORE_ENVIRONMENT=Production`, reproducing the cloud topology locally so prod-only breakage
+surfaces before staging. Caddy terminates TLS on one origin per app — `app|auth|tms.lotro.test` —
+reachable **identically** from the browser (hosts file — `.test` is not auto-resolved) and from the in-stack Frontend
+container (Caddy network aliases). That single shared origin is what lets one OIDC `Authority` serve
+both the browser front-channel and the Frontend's back-channel, so the containerized-RP two-legs
+problem of ADR-0006 dissolves behind the proxy (this folds in the M6-08 ingress). The proxy forwards
+`X-Forwarded-Proto/Host/For`, exercising `UseForwardedHeaders` (M6-02). Production specifics: real
+OpenIddict keys (`scripts/gen-openiddict-keys.{sh,ps1}`), DP keyring **volumes** for auth + frontend
+(M6-04 / ADR-0005), self-hosted Postgres with `ssl=on` (`Ssl Mode=Require;Trust Server Certificate=true`;
+swap to a managed DB = change just the two `ConnectionStrings__*` in `.env.prod`), real SMTP + OTLP from
+env (mailpit/aspire only behind `--profile local-smtp|local-otel`). In Production OpenIddict rejects
+plain-HTTP requests, so **both** tms-api (OIDC metadata + JWKS for token validation) and the Frontend
+(OIDC discovery/token/userinfo) reach auth **through the proxy** over `https://auth.lotro.test` —
+`Auth:Authority` / `AuthSystem:Authority` is that proxy origin (matching the token `iss`), not the
+in-network `http://auth-api:8080`. .NET validates the proxy's leaf cert against the **OS trust store**
+(it ignores `SSL_CERT_FILE`), so a shared mount-only entrypoint (`.docker/trust-ca-entrypoint.sh`)
+installs the local CA via `update-ca-certificates` and drops back to the non-root app user — no app or
+Dockerfile change (real prod uses a publicly-trusted ingress cert, so the shim is parity-stack-only).
+Secrets live in the git-ignored `.env.prod`; TLS material in `.docker/prod-https/` (also git-ignored),
+both bootstrapped by `scripts/up-prod.{sh,ps1}`.
+
 Exit codes (CLI): `0` success, `1` invalid arguments (incl. `ErrorType.Validation`), `2` file not
 found, `3` operation failed, `4` cancelled.
 

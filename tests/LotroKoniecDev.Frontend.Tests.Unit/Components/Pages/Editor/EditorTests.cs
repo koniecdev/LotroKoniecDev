@@ -33,7 +33,7 @@ public sealed class EditorTests : BunitContext
         Services.AddAntiforgery();
         Services.AddSingleton(_client);
         Services.AddScoped<TranslationEditorLoader>();
-        this.AddAuthorization().SetAuthorized("Frodo");
+        AddAuthorization().SetAuthorized("Frodo");
     }
 
     [Fact]

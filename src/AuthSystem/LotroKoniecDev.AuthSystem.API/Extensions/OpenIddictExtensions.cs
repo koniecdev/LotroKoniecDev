@@ -142,7 +142,11 @@ internal sealed class ConfigureOpenIddictServerSettings(IConfiguration configura
             string rsaXml = System.Text.Encoding.UTF8.GetString(
                 Convert.FromBase64String(settings.SigningKey.RsaPrivateKeyXml));
 
-            using RSA rsa = RSA.Create();
+            // Not wrapped in `using`: OpenIddict retains this RSA (via RsaSecurityKey in the singleton
+            // server options) for the app's lifetime — to sign tokens AND to export the public key on
+            // /.well-known/jwks. Disposing it makes the JWKS endpoint throw ObjectDisposedException
+            // (RSAOpenSsl), so discovery succeeds but JWKS 500s → IDX20807 at every relying party.
+            RSA rsa = RSA.Create();
             rsa.FromXmlString(rsaXml);
 
             // Validate minimum key size (RSA-2048)
@@ -179,7 +183,8 @@ internal sealed class ConfigureOpenIddictServerSettings(IConfiguration configura
             string prevRsaXml = System.Text.Encoding.UTF8.GetString(
                 Convert.FromBase64String(settings.SigningKey.PreviousRsaPrivateKeyXml));
 
-            using RSA prevRsa = RSA.Create();
+            // Not disposed — same app-lifetime requirement as the current signing key above.
+            RSA prevRsa = RSA.Create();
             prevRsa.FromXmlString(prevRsaXml);
 
             RsaSecurityKey prevRsaKey = new(prevRsa) { KeyId = "signing-key-previous" };

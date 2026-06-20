@@ -5,10 +5,13 @@ namespace LotroKoniecDev.AuthSystem.API.Settings;
 
 /// <summary>
 /// Fails fast at startup when the OpenIddict server is misconfigured in a deployed environment
-/// (Staging/Production), naming the offending key and the environment (ADR-0008 §3, M6-05).
-/// Development and Testing mint ephemeral signing/encryption keys (see <c>OpenIddictExtensions</c>),
-/// so the production key material is intentionally absent there and validation is skipped — mirroring
-/// <see cref="CorsSettingsValidator"/> and the Data Protection keyring guard.
+/// (Staging/Production), naming the offending key and the environment (ADR-0008 §3, M6-05). Guards
+/// the production key material, the issuer, and — since the base <c>appsettings.json</c> no longer
+/// bakes them (M6-06) — the web client redirect URIs the seeder registers.
+/// Development and Testing mint ephemeral signing/encryption keys (see <c>OpenIddictExtensions</c>)
+/// and supply localhost redirect URIs from their own configuration, so the production values are
+/// intentionally absent there and validation is skipped — mirroring <see cref="CorsSettingsValidator"/>
+/// and the Data Protection keyring guard.
 /// </summary>
 internal sealed class OpenIddictSettingsValidator : IValidateOptions<OpenIddictSettings>
 {
@@ -83,6 +86,50 @@ internal sealed class OpenIddictSettingsValidator : IValidateOptions<OpenIddictS
             errors.Add(
                 $"{OpenIddictSettings.ConfigurationSection}:{nameof(OpenIddictSettings.Issuer)} cannot contain "
                 + $"'localhost' in {_environment.EnvironmentName}.");
+        }
+
+        if (options.WebClient.RedirectUris.Length == 0)
+        {
+            errors.Add(
+                $"{OpenIddictSettings.ConfigurationSection}:{nameof(OpenIddictSettings.WebClient)}:"
+                + $"{nameof(WebClientSettings.RedirectUris)} must contain at least one absolute http(s) URL in "
+                + $"{_environment.EnvironmentName}. Inject the web client OAuth callback URL(s) via the "
+                + $"{OpenIddictSettings.ConfigurationSection}__{nameof(OpenIddictSettings.WebClient)}__"
+                + $"{nameof(WebClientSettings.RedirectUris)}__0 environment variable "
+                + "(e.g. https://lotro.koniec.dev/callback).");
+        }
+
+        foreach (string redirectUri in options.WebClient.RedirectUris)
+        {
+            if (!BeAbsoluteHttpUrl(redirectUri))
+            {
+                errors.Add(
+                    $"{OpenIddictSettings.ConfigurationSection}:{nameof(OpenIddictSettings.WebClient)}:"
+                    + $"{nameof(WebClientSettings.RedirectUris)} entry '{redirectUri}' must be an absolute http(s) URL "
+                    + $"in {_environment.EnvironmentName}.");
+            }
+        }
+
+        if (options.WebClient.PostLogoutRedirectUris.Length == 0)
+        {
+            errors.Add(
+                $"{OpenIddictSettings.ConfigurationSection}:{nameof(OpenIddictSettings.WebClient)}:"
+                + $"{nameof(WebClientSettings.PostLogoutRedirectUris)} must contain at least one absolute http(s) URL in "
+                + $"{_environment.EnvironmentName}. Inject the web client post-logout URL(s) via the "
+                + $"{OpenIddictSettings.ConfigurationSection}__{nameof(OpenIddictSettings.WebClient)}__"
+                + $"{nameof(WebClientSettings.PostLogoutRedirectUris)}__0 environment variable "
+                + "(e.g. https://lotro.koniec.dev).");
+        }
+
+        foreach (string postLogoutRedirectUri in options.WebClient.PostLogoutRedirectUris)
+        {
+            if (!BeAbsoluteHttpUrl(postLogoutRedirectUri))
+            {
+                errors.Add(
+                    $"{OpenIddictSettings.ConfigurationSection}:{nameof(OpenIddictSettings.WebClient)}:"
+                    + $"{nameof(WebClientSettings.PostLogoutRedirectUris)} entry '{postLogoutRedirectUri}' must be an "
+                    + $"absolute http(s) URL in {_environment.EnvironmentName}.");
+            }
         }
 
         return errors.Count > 0

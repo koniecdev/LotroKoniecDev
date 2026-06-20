@@ -161,7 +161,11 @@ public sealed class E2ETestFixture : IAsyncLifetime
             .WithEnvironment("AdminUser__Email", AdminEmail)
             .WithEnvironment("AdminUser__Password", AdminPassword)
             // No mailpit in this network: the confirmation-email send fails fast and registration auto-confirms,
-            // so a freshly-registered translator can log in without the email round-trip.
+            // so a freshly-registered translator can log in without the email round-trip. The sender identity is
+            // no longer baked into base appsettings.json (M6-06), so it is injected here too — otherwise the
+            // unconditional EmailOptionsValidator would abort auth-api startup.
+            .WithEnvironment("Email__SenderEmail", "noreply@lotro.koniec.dev")
+            .WithEnvironment("Email__Sender", "lotro.koniec.dev")
             .WithEnvironment("Email__Host", "localhost")
             .WithEnvironment("Email__Port", "2525")
             .WithWaitStrategy(Wait.ForUnixContainer()

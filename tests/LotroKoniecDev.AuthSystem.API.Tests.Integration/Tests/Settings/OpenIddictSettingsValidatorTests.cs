@@ -25,6 +25,11 @@ public sealed class OpenIddictSettingsValidatorTests
     private const string ValidApiClientSecret = "a-strong-and-sufficiently-long-secret-value";
     private const string ValidIssuer = "https://auth.lotro.koniec.dev";
 
+    // Redirect URIs are full callback URLs (path included), so they are validated as absolute http(s)
+    // URLs — not as bare CORS origins.
+    private static readonly string[] ValidRedirectUris = ["https://lotro.koniec.dev/callback"];
+    private static readonly string[] ValidPostLogoutRedirectUris = ["https://lotro.koniec.dev"];
+
     [Theory]
     [InlineData(Development)]
     [InlineData(Testing)]
@@ -209,7 +214,9 @@ public sealed class OpenIddictSettingsValidatorTests
             encryptionKey: string.Empty,
             signingKeyXml: string.Empty,
             apiClientSecret: string.Empty,
-            issuer: string.Empty);
+            issuer: string.Empty,
+            redirectUris: [],
+            postLogoutRedirectUris: []);
 
         ValidateOptionsResult result = validator.Validate(name: null, settings);
 
@@ -219,18 +226,106 @@ public sealed class OpenIddictSettingsValidatorTests
         result.Failures.ShouldContain(failure => failure.Contains("OpenIddict:SigningKey:RsaPrivateKeyXml", StringComparison.Ordinal));
         result.Failures.ShouldContain(failure => failure.Contains("OpenIddict:ApiClientSecret", StringComparison.Ordinal));
         result.Failures.ShouldContain(failure => failure.Contains("OpenIddict:Issuer", StringComparison.Ordinal));
+        result.Failures.ShouldContain(failure => failure.Contains("OpenIddict:WebClient:RedirectUris", StringComparison.Ordinal));
+        result.Failures.ShouldContain(failure => failure.Contains("OpenIddict:WebClient:PostLogoutRedirectUris", StringComparison.Ordinal));
+    }
+
+    [Theory]
+    [InlineData(Development)]
+    [InlineData(Testing)]
+    public void Validate_NonDeployedEnvironmentWithEmptyRedirectUris_Succeeds(string environmentName)
+    {
+        OpenIddictSettingsValidator validator = CreateValidator(environmentName);
+        OpenIddictSettings settings = SettingsWith(redirectUris: [], postLogoutRedirectUris: []);
+
+        ValidateOptionsResult result = validator.Validate(name: null, settings);
+
+        result.Succeeded.ShouldBeTrue();
+    }
+
+    [Fact]
+    public void Validate_ProductionWithEmptyRedirectUris_FailsNamingTheKeyAndEnvironment()
+    {
+        OpenIddictSettingsValidator validator = CreateValidator(Production);
+        OpenIddictSettings settings = SettingsWith(redirectUris: []);
+
+        ValidateOptionsResult result = validator.Validate(name: null, settings);
+
+        result.Failed.ShouldBeTrue();
+        result.Failures.ShouldNotBeNull();
+        result.Failures.ShouldContain(failure =>
+            failure.Contains("OpenIddict:WebClient:RedirectUris", StringComparison.Ordinal)
+            && failure.Contains(Production, StringComparison.Ordinal));
+    }
+
+    [Theory]
+    [InlineData("not-a-url")]
+    [InlineData("ftp://lotro.koniec.dev/callback")]
+    [InlineData("lotro.koniec.dev/callback")]
+    public void Validate_ProductionWithNonHttpRedirectUri_FailsNamingTheKey(string redirectUri)
+    {
+        OpenIddictSettingsValidator validator = CreateValidator(Production);
+        OpenIddictSettings settings = SettingsWith(redirectUris: [redirectUri]);
+
+        ValidateOptionsResult result = validator.Validate(name: null, settings);
+
+        result.Failed.ShouldBeTrue();
+        result.Failures.ShouldNotBeNull();
+        result.Failures.ShouldContain(failure =>
+            failure.Contains("OpenIddict:WebClient:RedirectUris", StringComparison.Ordinal)
+            && failure.Contains("absolute", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Validate_ProductionWithEmptyPostLogoutRedirectUris_FailsNamingTheKeyAndEnvironment()
+    {
+        OpenIddictSettingsValidator validator = CreateValidator(Production);
+        OpenIddictSettings settings = SettingsWith(postLogoutRedirectUris: []);
+
+        ValidateOptionsResult result = validator.Validate(name: null, settings);
+
+        result.Failed.ShouldBeTrue();
+        result.Failures.ShouldNotBeNull();
+        result.Failures.ShouldContain(failure =>
+            failure.Contains("OpenIddict:WebClient:PostLogoutRedirectUris", StringComparison.Ordinal)
+            && failure.Contains(Production, StringComparison.Ordinal));
+    }
+
+    [Theory]
+    [InlineData("not-a-url")]
+    [InlineData("ftp://lotro.koniec.dev")]
+    [InlineData("lotro.koniec.dev")]
+    public void Validate_ProductionWithNonHttpPostLogoutRedirectUri_FailsNamingTheKey(string postLogoutRedirectUri)
+    {
+        OpenIddictSettingsValidator validator = CreateValidator(Production);
+        OpenIddictSettings settings = SettingsWith(postLogoutRedirectUris: [postLogoutRedirectUri]);
+
+        ValidateOptionsResult result = validator.Validate(name: null, settings);
+
+        result.Failed.ShouldBeTrue();
+        result.Failures.ShouldNotBeNull();
+        result.Failures.ShouldContain(failure =>
+            failure.Contains("OpenIddict:WebClient:PostLogoutRedirectUris", StringComparison.Ordinal)
+            && failure.Contains("absolute", StringComparison.Ordinal));
     }
 
     private static OpenIddictSettings SettingsWith(
         string? encryptionKey = ValidEncryptionKey,
         string? signingKeyXml = ValidSigningKeyXml,
         string? apiClientSecret = ValidApiClientSecret,
-        string? issuer = ValidIssuer) => new()
+        string? issuer = ValidIssuer,
+        string[]? redirectUris = null,
+        string[]? postLogoutRedirectUris = null) => new()
     {
         Issuer = issuer!,
         ApiClientSecret = apiClientSecret!,
         EncryptionKey = new EncryptionKeySettings { Key = encryptionKey! },
-        SigningKey = new SigningKeySettings { RsaPrivateKeyXml = signingKeyXml! }
+        SigningKey = new SigningKeySettings { RsaPrivateKeyXml = signingKeyXml! },
+        WebClient = new WebClientSettings
+        {
+            RedirectUris = redirectUris ?? ValidRedirectUris,
+            PostLogoutRedirectUris = postLogoutRedirectUris ?? ValidPostLogoutRedirectUris
+        }
     };
 
     private static OpenIddictSettingsValidator CreateValidator(string environmentName)

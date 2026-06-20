@@ -48,6 +48,12 @@ public class AuthSystemApiFactory : WebApplicationFactory<Program>, IAsyncLifeti
                 { "AdminUser:Username", "seeded-admin" },
                 { "AdminUser:Email", "admin@lotro.koniec.dev" },
                 { "AdminUser:Password", "AdminTest123!" },
+                // Email identity is no longer baked into base appsettings.json (M6-06); supply it here
+                // so the unconditional EmailOptionsValidator passes at startup (the senders themselves
+                // are replaced with spies below, so these values are never used to send mail).
+                { "Email:SenderEmail", "noreply@lotro.koniec.dev" },
+                { "Email:Sender", "lotro.koniec.dev" },
+                { "Email:Host", "localhost" },
             });
         });
 

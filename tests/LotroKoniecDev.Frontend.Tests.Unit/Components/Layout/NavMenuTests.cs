@@ -24,7 +24,7 @@ public sealed class NavMenuTests : BunitContext
     [Fact]
     public void Render_WhenAnonymous_ShowsTheLoginLinkAndNoLogoutForm()
     {
-        this.AddAuthorization().SetNotAuthorized();
+        AddAuthorization().SetNotAuthorized();
 
         IRenderedComponent<NavMenu> component = RenderNavMenu();
 
@@ -36,7 +36,7 @@ public sealed class NavMenuTests : BunitContext
     [Fact]
     public void Render_WhenAuthenticated_ShowsTheUserNameAndALogoutFormPostingToTheLogoutPath()
     {
-        this.AddAuthorization().SetAuthorized("Frodo");
+        AddAuthorization().SetAuthorized("Frodo");
 
         IRenderedComponent<NavMenu> component = RenderNavMenu();
 
@@ -51,7 +51,7 @@ public sealed class NavMenuTests : BunitContext
     [Fact]
     public void Render_Always_ShowsTheCoreNavigationLinksInOrder()
     {
-        this.AddAuthorization().SetNotAuthorized();
+        AddAuthorization().SetNotAuthorized();
 
         IRenderedComponent<NavMenu> component = RenderNavMenu();
 

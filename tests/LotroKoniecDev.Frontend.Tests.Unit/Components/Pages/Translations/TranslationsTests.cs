@@ -29,7 +29,7 @@ public sealed class TranslationsTests : BunitContext
     {
         Services.AddSingleton(_client);
         Services.AddScoped<TranslationListLoader>();
-        this.AddAuthorization().SetAuthorized("Frodo");
+        AddAuthorization().SetAuthorized("Frodo");
     }
 
     [Fact]

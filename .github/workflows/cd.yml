@@ -1,0 +1,103 @@
+name: CD
+
+# Build + push the four service images to GHCR (ADR-0008 §6, ticket M6-09). The deployment unit is
+# an OCI image (ADR-0008 §1); this is the only workflow that publishes one. It builds the existing
+# multi-stage Dockerfiles — no new build logic — and pushes to ghcr.io/koniecdev/<image>:
+#   * lotrokoniecdev-auth-api   — src/AuthSystem/LotroKoniecDev.AuthSystem.API/Dockerfile
+#   * lotrokoniecdev-tms-api    — src/TranslationSystem/LotroKoniecDev.TranslationSystem.API/Dockerfile
+#   * lotrokoniecdev-frontend   — src/Frontend/LotroKoniecDev.Frontend/Dockerfile
+#   * lotrokoniecdev-migrator   — Dockerfile.migrator
+#
+# Triggers:
+#   * push to main           → publishes :sha-<short> and :latest (the moving "tip of main")
+#   * push of a v* tag       → publishes :sha-<short>, :<major.minor.patch> and :<major.minor>
+#                              (immutable release coordinates; `latest` is NOT moved by a tag — it
+#                               tracks the default branch only, so its meaning stays unambiguous)
+#
+# Pull a published image (the runbook — M6-11 — documents this for operators):
+#   docker pull ghcr.io/koniecdev/lotrokoniecdev-tms-api:latest
+on:
+  push:
+    branches: ["main"]
+    tags: ["v*"]
+
+# Don't pile up publishes for the same ref; a newer push supersedes an in-flight one. Keyed by ref
+# so a main push and a tag push (different refs) never cancel each other.
+concurrency:
+  group: cd-${{ github.ref }}
+  cancel-in-progress: true
+
+# Least privilege: read the repo, write packages (GHCR). GITHUB_TOKEN is scoped to this repo's
+# packages only — no PAT, no cross-repo reach.
+permissions:
+  contents: read
+  packages: write
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAMESPACE: ${{ github.repository_owner }}
+
+jobs:
+  build-and-push:
+    name: Build & push ${{ matrix.image }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+
+    strategy:
+      # Publish every image even if one fails, so a single flaky build doesn't mask the rest.
+      fail-fast: false
+      matrix:
+        include:
+          - image: lotrokoniecdev-auth-api
+            dockerfile: src/AuthSystem/LotroKoniecDev.AuthSystem.API/Dockerfile
+          - image: lotrokoniecdev-tms-api
+            dockerfile: src/TranslationSystem/LotroKoniecDev.TranslationSystem.API/Dockerfile
+          - image: lotrokoniecdev-frontend
+            dockerfile: src/Frontend/LotroKoniecDev.Frontend/Dockerfile
+          - image: lotrokoniecdev-migrator
+            dockerfile: Dockerfile.migrator
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # Log in to GHCR with the workflow's own scoped token — no stored secret.
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Derive image tags & labels
+        id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAMESPACE }}/${{ matrix.image }}
+          # `latest` is added explicitly below (default-branch only), never auto-applied to tags.
+          flavor: |
+            latest=false
+          tags: |
+            type=sha
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Build & push
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: ${{ matrix.dockerfile }}
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            BUILD_CONFIGURATION=Release
+          # Per-image GHA layer cache so unchanged layers (restore/build) are reused across runs,
+          # keeping rebuilds fast. Scoped per image so the four builds don't clobber each other.
+          cache-from: type=gha,scope=${{ matrix.image }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.image }}
+          provenance: false

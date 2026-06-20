@@ -12,11 +12,12 @@
 #     one-env-var swap (the two ConnectionStrings__* below)
 #   * SMTP + OTLP are real, from env — no mailpit/aspire unless you opt into the profiles below
 #
-# Boot it:
-#   scripts/init-prod-https.sh                  # one-time: local CA + proxy/postgres certs
-#   cp .env.prod.example .env.prod && edit it   # real secrets (scripts/gen-openiddict-keys.sh helps)
+# Boot it (recommended — bootstraps .env.prod + TLS certs AND maps the *.lotro.test vhosts to
+# loopback idempotently; admin is prompted only the first time on a fresh machine):
+#   scripts/up-prod.sh --build                  # PowerShell: scripts/up-prod.ps1 --build
+# Raw (only after the one-time bootstraps + a manual hosts mapping):
 #   docker compose -f compose.prod.yaml --env-file .env.prod up --build
-# Add to your hosts file once: 127.0.0.1 app.lotro.test auth.lotro.test tms.lotro.test
+#   # hosts file, once: 127.0.0.1 app.lotro.test auth.lotro.test tms.lotro.test  (.test never resolves via public DNS)
 # Then: https://app.lotro.test (browser OIDC login), https://auth.lotro.test/health/ready,
 #       https://tms.lotro.test/health/ready (curl --cacert .docker/prod-https/rootCA.crt).
 

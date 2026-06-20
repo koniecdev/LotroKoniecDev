@@ -180,13 +180,15 @@ dotnet run --project src/Frontend/LotroKoniecDev.Frontend   # https://localhost:
 # keys, DP keyring volumes (auth + frontend), self-hosted Postgres over SSL, the containerized Frontend.
 # Catches prod-only breakage on a laptop before staging. Coexists with the dev stack (separate project).
 scripts/up-prod.sh | up-prod.ps1                       # recommended boot — bootstraps .env.prod (with generated
-                                                       #   OpenIddict secrets) + local CA/proxy/Postgres certs, then up
-docker compose -f compose.prod.yaml --env-file .env.prod up --build      # raw command (after the two one-time bootstraps)
-docker compose -f compose.prod.yaml --env-file .env.prod --profile local-smtp --profile local-otel up  # + mailpit + aspire (all-local)
+                                                       #   OpenIddict secrets) + local CA/proxy/Postgres certs, maps the
+                                                       #   *.lotro.test vhosts to loopback (idempotent; admin only the
+                                                       #   first time), then up. Args pass through (e.g. --build, -d).
+docker compose -f compose.prod.yaml --env-file .env.prod up --build      # raw command (after the bootstraps + a manual hosts entry)
+docker compose -f compose.prod.yaml --env-file .env.prod --profile local-smtp --profile local-otel up  # + mailpit + aspire (all-local; needed for green auth /health/ready)
 docker compose -f compose.prod.yaml --env-file .env.prod down            # add -v to drop prod volumes (fresh DB/keys)
-# One-time: scripts/gen-openiddict-keys.{sh,ps1} (3 OpenIddict secrets → .env.prod) +
-#   scripts/init-prod-https.{sh,ps1} (local CA → .docker/prod-https/). Hosts file (once):
-#   127.0.0.1 app.lotro.test auth.lotro.test tms.lotro.test
+# up-prod.{sh,ps1} runs both one-time bootstraps for you: gen-openiddict-keys (3 secrets → .env.prod) +
+#   init-prod-https (local CA → .docker/prod-https/). It also auto-maps the hosts file (cross-platform:
+#   sudo on macOS/Linux, UAC on Windows); manual equivalent: 127.0.0.1 app.lotro.test auth.lotro.test tms.lotro.test
 # Browser OIDC login: https://app.lotro.test. Health (trust the local CA):
 #   curl --cacert .docker/prod-https/rootCA.crt https://auth.lotro.test/health/ready
 ```

@@ -27,9 +27,46 @@ if (-not (Test-Path $certPath))
     & (Join-Path $PSScriptRoot "init-prod-https.ps1")
 }
 
-Write-Host ""
-Write-Host "Reminder: map the vhosts to loopback once (REQUIRED — *.test is not auto-resolved by browsers):"
-Write-Host "  127.0.0.1 app.lotro.test auth.lotro.test tms.lotro.test"
-Write-Host ""
+# Map the *.lotro.test vhosts to loopback (REQUIRED — *.test is never resolved by public DNS, by
+# design, so only a local hosts entry works). Idempotent: a no-op once present, so no repeated
+# prompts — admin is needed only the first time on a fresh machine. The in-stack containers don't
+# need this (they reach Caddy via Docker network aliases); it's purely for the browser + host curl.
+$vhosts = @('app.lotro.test', 'auth.lotro.test', 'tms.lotro.test')
+if ($IsWindows -or ($null -eq $IsWindows -and $env:OS -eq 'Windows_NT'))
+{
+    $hostsPath = Join-Path $env:SystemRoot 'System32\drivers\etc\hosts'
+}
+else
+{
+    $hostsPath = '/etc/hosts'
+}
+
+$hostsContent = if (Test-Path $hostsPath) { Get-Content $hostsPath -Raw -ErrorAction SilentlyContinue } else { '' }
+$hostsMissing = $false
+foreach ($name in $vhosts) { if ($hostsContent -notmatch [regex]::Escape($name)) { $hostsMissing = $true } }
+
+if ($hostsMissing)
+{
+    Write-Host "Mapping *.lotro.test -> 127.0.0.1 in $hostsPath (one-time per machine; may prompt for admin)..."
+    $hostsValue = "`n# LotroKoniecDev prod-parity (compose.prod.yaml) - auto-added by up-prod`n127.0.0.1 $($vhosts -join ' ')"
+    try
+    {
+        Add-Content -Path $hostsPath -Value $hostsValue -ErrorAction Stop
+    }
+    catch
+    {
+        # Not writable as the current user — elevate just for the append (UAC on Windows, sudo on *nix).
+        $escaped = $hostsValue -replace "'", "''"
+        if ($hostsPath -like '*System32*')
+        {
+            Start-Process -FilePath 'powershell' -Verb RunAs -Wait `
+                -ArgumentList '-NoProfile', '-Command', "Add-Content -Path '$hostsPath' -Value '$escaped'"
+        }
+        else
+        {
+            & sudo pwsh -NoProfile -Command "Add-Content -Path '$hostsPath' -Value '$escaped'"
+        }
+    }
+}
 
 docker compose -f compose.prod.yaml --env-file $envFile up @args

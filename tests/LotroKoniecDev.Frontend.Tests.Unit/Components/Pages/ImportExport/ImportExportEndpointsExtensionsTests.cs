@@ -15,7 +15,7 @@ namespace LotroKoniecDev.Frontend.Tests.Unit.Components.Pages.ImportExport;
 /// </summary>
 public sealed class ImportExportEndpointsExtensionsTests
 {
-    private const string BaseUrl = "https://localhost:5004/";
+    private const string BaseUrl = "https://localhost:5002/";
 
     [Fact]
     public async Task DownloadTranslationFileAsync_OnSuccess_ReturnsThePolishTxtFileWithTheArtifactBytes()

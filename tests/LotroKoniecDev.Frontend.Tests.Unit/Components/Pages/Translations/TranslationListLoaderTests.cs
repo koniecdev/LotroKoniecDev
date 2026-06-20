@@ -15,7 +15,7 @@ namespace LotroKoniecDev.Frontend.Tests.Unit.Components.Pages.Translations;
 
 public sealed class TranslationListLoaderTests
 {
-    private const string BaseUrl = "https://localhost:5004/";
+    private const string BaseUrl = "https://localhost:5002/";
 
     // Mirrors the JSON options the Frontend's HTTP seam uses (HttpClientApiExtensions) so the stub
     // body deserializes through the exact same contract the loader relies on.

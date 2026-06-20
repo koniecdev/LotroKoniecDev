@@ -85,7 +85,7 @@ public sealed class HttpClientApiExtensionsTests
     {
         return new HttpClient(handler)
         {
-            BaseAddress = new Uri("https://localhost:5004/")
+            BaseAddress = new Uri("https://localhost:5002/")
         };
     }
 }

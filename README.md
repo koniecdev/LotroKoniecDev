@@ -178,6 +178,10 @@ Cztery dokumenty referencyjne dla backendu TMS — wygenerowane **z kodu** (kod 
   (AuthSystem), resource server JwtBearer (tms-api), JWKS, leniwe prowizjonowanie tłumacza (ADR-0004),
   role/policies.
 
+Wdrożenie i operacje: [`docs/deployment/runbook.md`](docs/deployment/runbook.md) — runbook operatora:
+macierz zmiennych środowiskowych (usługa × środowisko), generowanie sekretów, reguły spójności
+(issuer / redirect / authority / CORS), sekwencja uruchomienia i migracje bazy.
+
 Głębiej: `docs/specs/` (spec 0001 — cykl aktualizacji; spec 0002 — HATEOAS), `docs/adr/` (decyzje
 architektoniczne), `docs/knowledge-base/` (empiryczne ustalenia o DAT/aktualizacjach).
 

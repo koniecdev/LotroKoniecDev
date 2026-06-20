@@ -10,7 +10,7 @@ public sealed class TranslationSystemSettingsValidatorTests
     [Fact]
     public void Validate_WithAbsoluteHttpsUrl_Passes()
     {
-        TranslationSystemSettings settings = new() { BaseUrl = "https://localhost:5004/" };
+        TranslationSystemSettings settings = new() { BaseUrl = "https://localhost:5002/" };
 
         ValidationResult result = _validator.Validate(settings);
 
@@ -21,7 +21,7 @@ public sealed class TranslationSystemSettingsValidatorTests
     [InlineData("")]
     [InlineData("not-a-url")]
     [InlineData("/relative/path")]
-    [InlineData("ftp://localhost:5004")]
+    [InlineData("ftp://localhost:5002")]
     public void Validate_WithNonHttpBaseUrl_Fails(string baseUrl)
     {
         TranslationSystemSettings settings = new() { BaseUrl = baseUrl };

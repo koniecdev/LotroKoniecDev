@@ -4,8 +4,293 @@
 > design (ADR-0008): everything here is "a 12-factor OCI image behind a TLS ingress" and applies to
 > Azure Container Apps, AWS ECS/App Runner, or a plain Docker host alike.
 >
-> **Scope today:** database migrations (M6-10). The full bring-up walkthrough, secrets handling, and
-> the Azure⇄AWS service mapping land with M6-11 / M6-12 and extend this file.
+> **Scope:** the full configuration surface and bring-up of the four service images across
+> environments — the environment-variable matrix, secret generation, the consistency rules that bite,
+> the bring-up sequence, and database migrations. The only deferred piece is the provider-specific
+> deploy walkthrough + Azure⇄AWS service mapping (M6-12, `docs/deployment/target-requirements.md`).
+
+## Contents
+
+- [Services & the container contract](#services--the-container-contract)
+- [Environment variable matrix](#environment-variable-matrix) — the single source of truth, per service × environment
+- [Generating secrets](#generating-secrets)
+- [Consistency rules that bite](#consistency-rules-that-bite) — issuer / redirect / authority / CORS
+- [Bringing the stack up](#bringing-the-stack-up)
+- [Database migrations](#database-migrations)
+- [See also](#see-also)
+
+## Services & the container contract
+
+Four OCI images (built by the four multi-stage Dockerfiles, published to GHCR by CD — M6-09) behind
+one TLS-terminating ingress:
+
+| Service | Image (`ghcr.io/koniecdev/…`) | Listens | Health | Persists |
+|---|---|---|---|---|
+| **auth-api** | `lotrokoniecdev-auth-api` | `:8080` (HTTP) | `/health/live`, `/health/ready` (DB + SMTP) | Data Protection keyring → `/keys` |
+| **tms-api** | `lotrokoniecdev-tms-api` | `:8080` (HTTP) | `/health` (anon), `/health/live`, `/health/ready` (DB) | translation artifacts (read-only mount) |
+| **frontend** | `lotrokoniecdev-frontend` | `:8080` (HTTP) | — | Data Protection keyring → `/keys` |
+| **migrator** | `lotrokoniecdev-migrator` | one-shot (exits 0) | exit code | — |
+| _ingress_ | any TLS-terminating reverse proxy | `:443` | — | — |
+
+Container contract (ADR-0008 §2): each app serves **plain HTTP on `:8080`** and expects a
+TLS-terminating ingress in front; runs **non-root**; logs **structured JSON to stdout**; takes **all
+runtime configuration from environment variables**. The migrator runs to completion *before* the APIs
+serve traffic, and the APIs depend on its success — so there is never half-migrated serving.
+
+## Environment variable matrix
+
+The single source of truth: every deployment-relevant setting, per service, per environment. One
+table per service.
+
+**Reading the tables:**
+
+- **Key form.** Keys are shown in the env-var (double-underscore) form ASP.NET Core binds —
+  `Section__Sub__Leaf`, e.g. `OpenIddict__WebClient__RedirectUris__0`. The config/appsettings form is
+  the same with `:` (`OpenIddict:WebClient:RedirectUris:0`); error messages use the `:` form.
+- **Required?** = whether boot **fails fast** without it (M6-05) in that environment. `✅ all` =
+  required in every environment; `✅ non-dev` = required in Staging/Production only (Development
+  supplies a default or skips the guard); `optional` = safe default; `dev-compose only` = only set by
+  `compose.yaml`.
+- **Source.** **secret** = inject via the platform's secret store (or the git-ignored `.env*`), never
+  commit; **plain** = non-sensitive, fine in plain app config / `appsettings.*`.
+- **local-dev** column = how `compose.yaml` + `appsettings.Development.json` set the value (the
+  Frontend is **not** in dev compose — ADR-0006 — so its dev column is `appsettings.Development.json`
+  + `launchSettings.json`, served on the host via `dotnet run`).
+- **Staging / Production** are structurally identical — same required set, same sources; they differ
+  only in **hostnames** (use the environment's own domain) and **secret values**. This column shows
+  **production placeholders**; substitute `lotro.koniec.dev` with your environment's domain (e.g. a
+  `*.staging.lotro.koniec.dev` for staging). The local production-parity stack
+  (`compose.prod.yaml`) wires the very same keys with `*.lotro.test` hostnames.
+
+Purely optional tuning knobs with safe defaults are omitted (e.g. `OpenIddict:AccessTokenLifetimeMinutes`
+= 60, `OpenIddict:RefreshTokenLifetimeDays` = 14, `Import:*`, `Email:TimeoutSeconds`/`MaxSendAttempts`,
+`AllowedHosts` = `*`).
+
+### auth-api
+
+| Variable | local-dev | Staging / Production (placeholder) | Required? | Source | Notes |
+|---|---|---|---|---|---|
+| `ASPNETCORE_ENVIRONMENT` | `Development` | `Production` | ✅ all | plain | Gates fail-fast validation, ephemeral-vs-real keys, the CORS policy. |
+| `ASPNETCORE_URLS` | `https://+:8081;http://+:8080` | `http://+:8080` | ✅ all | plain | Prod serves HTTP only (the ingress owns TLS); dev compose also holds the dev cert. |
+| `ConnectionStrings__AuthDatabase` | from `POSTGRES_PASSWORD` | `Host=…;Database=lotro_auth;Username=…;Password=…;Ssl Mode=Require;Trust Server Certificate=true` | ✅ all | **secret** | Carries the DB password. Managed DB: keep `Ssl Mode=Require`, drop `Trust Server Certificate`. |
+| `OpenIddict__Issuer` | `https://localhost:5003` | `https://auth.lotro.koniec.dev` | ✅ non-dev | plain | **THE token `iss`.** Absolute http(s), no `localhost`. Must equal tms `Auth__Issuer`. |
+| `OpenIddict__SigningKey__RsaPrivateKeyXml` | — (ephemeral) | base64 of RSA XML (≥2048-bit) | ✅ non-dev | **secret** | Generate with `gen-openiddict-keys`. |
+| `OpenIddict__EncryptionKey__Key` | — (ephemeral) | base64 of a ≥32-byte key | ✅ non-dev | **secret** | Generate with `gen-openiddict-keys`. |
+| `OpenIddict__ApiClientSecret` | `dev-api-secret-min-32-characters-long` | ≥32-char random secret | ✅ non-dev | **secret** | Generate with `gen-openiddict-keys`. Shared with the service client. |
+| `OpenIddict__WebClient__RedirectUris__0` | `https://localhost:7017/callback` | `https://lotro.koniec.dev/callback` | ✅ non-dev | plain | MUST equal the Frontend callback (its public origin + `AuthSystem__CallbackPath`). |
+| `OpenIddict__WebClient__PostLogoutRedirectUris__0` | `https://localhost:7017` | `https://lotro.koniec.dev` | ✅ non-dev | plain | Frontend post-logout return URL. |
+| `Cors__AllowedOrigins__0` | — (AllowAnyOrigin) | `https://lotro.koniec.dev` | ✅ non-dev | plain | Bare origin = Frontend public URL. Lowercase, no port-if-default, no path/slash. |
+| `DataProtection__KeyRingPath` | — (host default) | `/keys` | ✅ non-dev | plain | Persistent, replica-shared volume; else logins/antiforgery/reset links break on deploy/scale. |
+| `Email__Host` | `mailpit` | `smtp.sendgrid.net` | ✅ all | plain | SMTP host. Validated on start (every environment). |
+| `Email__Port` | `1025` | `587` | ✅ all | plain | 1–65535. |
+| `Email__Mode` | `None` | `StartTls` | ✅ all | plain | One of `None` / `StartTls` / `TLS`. |
+| `Email__SenderEmail` | `noreply@lotro.koniec.dev` | `no-reply@lotro.koniec.dev` | ✅ all | plain | Must be a valid email. |
+| `Email__Sender` | `lotro.koniec.dev` | `LOTRO PL` | ✅ all | plain | Display name. |
+| `Email__Username` / `Email__Password` | — | provider credentials | optional¹ | **secret** (Password) | ¹If `Username` is set, `Password` is required. |
+| `AdminUser__Username` / `AdminUser__Email` / `AdminUser__Password` | from `AUTH_ADMIN_*` | from `AUTH_ADMIN_*` | optional | **secret** (Password) | Seeds one admin on first boot; leave blank to skip. |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | `http://aspire-dashboard:18889` | OTLP collector URL | optional | plain | Empty = telemetry export disabled. |
+| `OTEL_EXPORTER_OTLP_PROTOCOL` | `grpc` | `grpc` / `http/protobuf` | optional | plain | Defaults to `grpc`. |
+| `ASPNETCORE_Kestrel__Certificates__Default__Path` / `__Password` | `/https/aspnetapp.pfx` / `ASPNETCORE_KESTREL_CERT_PASSWORD` | — | dev-compose only | **secret** (Password) | Only when the container itself serves TLS (prod terminates at the ingress). |
+
+### tms-api
+
+| Variable | local-dev | Staging / Production (placeholder) | Required? | Source | Notes |
+|---|---|---|---|---|---|
+| `ASPNETCORE_ENVIRONMENT` | `Development` | `Production` | ✅ all | plain | Gates fail-fast validation + the CORS policy. |
+| `ASPNETCORE_URLS` | `https://+:8081;http://+:8080` | `http://+:8080` | ✅ all | plain | Prod serves HTTP only (ingress owns TLS). |
+| `ConnectionStrings__TranslationDatabase` | from `POSTGRES_PASSWORD` | `Host=…;Database=lotro_translation;Username=…;Password=…;Ssl Mode=Require;Trust Server Certificate=true` | ✅ all | **secret** | TMS write context. Managed DB swap = change just this value. |
+| `Auth__Issuer` | `https://localhost:5003` | `https://auth.lotro.koniec.dev` | ✅ all | plain | MUST equal auth `OpenIddict__Issuer` (the token `iss`); tokens are rejected otherwise. |
+| `Auth__Authority` | `http://auth-api:8080` | `https://auth.lotro.koniec.dev` | optional² | plain | Back-channel for OIDC metadata + JWKS. ²Unset → falls back to `Issuer`. Prod: must be `https` (OpenIddict rejects plain HTTP) and reachable from the container. |
+| `Auth__Audience` | `lotrokoniecdev-api` | `lotrokoniecdev-api` | ✅ all | plain | Default in base `appsettings.json`. |
+| `Cors__AllowedOrigins__0` | — (AllowAnyOrigin) | `https://lotro.koniec.dev` | ✅ non-dev | plain | Bare origin = Frontend public URL. |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` / `OTEL_EXPORTER_OTLP_PROTOCOL` | aspire / `grpc` | collector / `grpc` | optional | plain | Empty endpoint = export disabled. |
+| `Bootstrap__Enabled` | `false` | `false` | optional | plain | One-time DB seed of the first export (spec 0001). Off by default. |
+| `Bootstrap__GameVersion` / `Bootstrap__ExportedTextPath` / `Bootstrap__PolishTextPath` | — / — / `/app/translations/polish.txt` | as needed | optional | plain | Only consulted when `Bootstrap__Enabled=true`. |
+| `ASPNETCORE_Kestrel__Certificates__Default__Path` / `__Password` | `/https/aspnetapp.pfx` / `ASPNETCORE_KESTREL_CERT_PASSWORD` | — | dev-compose only | **secret** (Password) | Only when the container itself serves TLS. |
+
+### frontend
+
+Runs on the **host** in dev (`dotnet run`, ADR-0006) — its dev column is `appsettings.Development.json`
++ `launchSettings.json`; it is containerized only in Staging/Production.
+
+| Variable | local-dev | Staging / Production (placeholder) | Required? | Source | Notes |
+|---|---|---|---|---|---|
+| `ASPNETCORE_ENVIRONMENT` | `Development` | `Production` | ✅ all | plain | Gates the DP keyring guard. |
+| `ASPNETCORE_URLS` | `https://localhost:7017` (launchSettings) | `http://+:8080` | ✅ all | plain | Prod serves HTTP only (ingress owns TLS). |
+| `AuthSystem__Authority` | `https://localhost:5003` | `https://auth.lotro.koniec.dev` | ✅ all | plain | Drives the `/authorize` redirect (front-channel) **and** discovery/token (back-channel). |
+| `AuthSystem__BaseUrl` | `https://localhost:5003/` | `https://auth.lotro.koniec.dev/` | ✅ all | plain | Auth origin (trailing slash). |
+| `AuthSystem__ClientId` | `lotrokoniecdev-web` | `lotrokoniecdev-web` | ✅ all | plain | Must match the OpenIddict web-client id. |
+| `AuthSystem__CallbackPath` | `/callback` | `/callback` | ✅ all | plain | Origin + this MUST be registered in auth `RedirectUris`. |
+| `AuthSystem__SignedOutCallbackPath` | `/signout-callback-oidc` | `/signout-callback-oidc` | ✅ all | plain | Origin + this MUST be in auth `PostLogoutRedirectUris`. |
+| `AuthSystem__Scopes` | `openid,email,profile,roles,api,offline_access` | same | ✅ all | plain | At least one scope. |
+| `TranslationSystem__BaseUrl` | `https://localhost:5002/` | `https://tms.lotro.koniec.dev/` | ✅ all | plain | TMS API origin (trailing slash). |
+| `DataProtection__KeyRingPath` | — (host default) | `/keys` | ✅ non-dev | plain | Persistent, replica-shared volume (ADR-0005); else antiforgery + auth cookies break on deploy/scale. |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` / `OTEL_EXPORTER_OTLP_PROTOCOL` | — | collector / `grpc` | optional | plain | Empty endpoint = export disabled. |
+
+### migrator
+
+A one-shot job — reads exactly the two connection strings (see [Database migrations](#database-migrations)
+for the full strategy):
+
+| Variable | local-dev | Staging / Production (placeholder) | Required? | Source | Notes |
+|---|---|---|---|---|---|
+| `ASPNETCORE_ENVIRONMENT` | `Development` | `Production` | ✅ all | plain | |
+| `ConnectionStrings__TranslationDatabase` | from `POSTGRES_PASSWORD` | managed/self-hosted connection string | ✅ all | **secret** | TMS write context (`lotro_translation`). |
+| `ConnectionStrings__AuthDatabase` | from `POSTGRES_PASSWORD` | managed/self-hosted connection string | ✅ all | **secret** | Auth context (`lotro_auth`). |
+
+## Generating secrets
+
+Every value marked **secret** above. All commands are copy-paste runnable; `.sh` shown, each has a
+`.ps1` twin.
+
+### OpenIddict production keys (auth-api)
+
+The three OpenIddict secrets — generate all at once and append to your env / secret store:
+
+```bash
+scripts/gen-openiddict-keys.sh >> .env.prod        # PowerShell: scripts/gen-openiddict-keys.ps1 >> .env.prod
+```
+
+It prints a leading comment line plus three `KEY=VALUE` lines:
+
+```
+# Generated by scripts/gen-openiddict-keys.sh — keep secret, never commit.
+OpenIddict__EncryptionKey__Key=<base64 of a 32-byte key>
+OpenIddict__ApiClientSecret=<48 hex chars>
+OpenIddict__SigningKey__RsaPrivateKeyXml=<base64 of RSA.ToXmlString(true), 2048-bit>
+```
+
+Manual equivalents for the two simple ones (if you cannot run the script):
+
+```bash
+openssl rand -base64 32        # OpenIddict__EncryptionKey__Key  (256-bit symmetric key)
+openssl rand -hex 24           # OpenIddict__ApiClientSecret     (48 chars, ≥ the 32 minimum)
+```
+
+`RsaPrivateKeyXml` is base64 of .NET's `RSA.ToXmlString(true)` for a ≥2048-bit key — the script does
+the PEM→.NET-XML conversion (it needs `openssl` + `python3`); reproduce it with the script rather than
+by hand.
+
+### TLS / ingress certificate
+
+- **Real environment:** a publicly-trusted cert on the **ingress** (managed cert / Let's Encrypt). The
+  app containers validate the ingress's cert against the **OS trust store** — no app config, no mount.
+- **Local prod-parity:** `scripts/init-prod-https.sh` mints a local CA + a `*.lotro.test` leaf for
+  Caddy; `.docker/trust-ca-entrypoint.sh` installs the CA into the tms-api/frontend OS store so their
+  OIDC back-channel to `https://auth.lotro.test` is trusted (.NET ignores `SSL_CERT_FILE`).
+- **Dev compose:** `scripts/init-dev-https.sh` exports the ASP.NET Core dev-cert PFX into
+  `.docker/https/` (password from `.env` `ASPNETCORE_KESTREL_CERT_PASSWORD`).
+
+### Databases
+
+The system uses **two** databases: `lotro_translation` (TMS) and `lotro_auth` (Auth). A managed
+Postgres typically provisions one — create the second:
+
+```sql
+CREATE DATABASE "lotro_auth";
+```
+
+`scripts/init-postgres.sh` does this automatically for the self-hosted (compose) Postgres on first
+boot. The connection-string password is a **secret** — keep it out of git.
+
+### Admin seed (optional)
+
+Set all three to seed one usable admin login into the auth DB on first boot; leave blank to skip:
+
+```
+AUTH_ADMIN_USERNAME=…
+AUTH_ADMIN_EMAIL=…
+AUTH_ADMIN_PASSWORD=…        # secret
+```
+
+## Consistency rules that bite
+
+The cross-service settings that are individually valid but break the system when they disagree. Most
+"works locally, 401/redirect error on staging" failures are one of these.
+
+1. **Issuer must equal the token `iss`.** auth-api stamps `OpenIddict__Issuer` into every token's
+   `iss`; tms-api validates it against `Auth__Issuer` (`ValidIssuer`). The two MUST be byte-identical
+   and MUST be the **public auth origin the browser uses**. Mismatch → tms-api `401`s every request.
+   Outside Development the value may not contain `localhost` (the validator rejects it).
+
+2. **Authority is the back-channel address, not the issuer.** `Auth__Authority` (tms-api) and
+   `AuthSystem__Authority` (frontend) are where the app **fetches OIDC metadata + JWKS**; the issuer
+   is what it **validates `iss` against**. They legitimately differ when metadata is on an internal
+   address while tokens carry the browser-facing URL (dev compose: `Auth__Authority=http://auth-api:8080`
+   but `Auth__Issuer=https://localhost:5003`). Two production traps: (a) in Production **OpenIddict
+   rejects plain HTTP**, so the Authority MUST be `https` — use the public/ingress origin, not
+   `http://auth-api:8080`; (b) that host MUST be reachable from inside the container and its cert
+   trusted by the container's OS store. Unset `Auth__Authority` falls back to `Auth__Issuer`.
+
+3. **Frontend redirect URIs must be registered at the auth server.** The frontend sends
+   `redirect_uri = <its public origin> + AuthSystem__CallbackPath` (and post-logout = origin +
+   `SignedOutCallbackPath`). Those exact absolute URLs MUST appear in auth's
+   `OpenIddict__WebClient__RedirectUris` / `…PostLogoutRedirectUris`. Any difference (scheme, host,
+   trailing slash) → OIDC `invalid redirect_uri` at login. `AuthSystem__ClientId` must equal the
+   registered web-client id (`lotrokoniecdev-web`).
+
+4. **CORS origin = the frontend's public URL, as a bare origin.** auth/tms `Cors__AllowedOrigins__0`
+   MUST be the browser app's exact origin — **lowercase scheme+host, no port if default, no userinfo,
+   no path, no query, no trailing slash** (the validator rejects anything else at boot). It is the
+   same value as a redirect URI's origin part.
+
+5. **Behind a TLS-terminating ingress, forwarded headers are load-bearing.** The ingress MUST send
+   `X-Forwarded-Proto` (and Host); all three apps read them (`UseForwardedHeaders`, M6-02) to
+   reconstruct the `https` scheme used for `iss`, `redirect_uri`, and `Secure` cookies. The containers
+   trust **all** upstream proxies (`KnownProxies`/`KnownIPNetworks` cleared) — safe **only** because
+   they are never reachable except through the ingress, so **do not expose `:8080` publicly**. In prod
+   the apps serve HTTP only; the proxy owns TLS.
+
+6. **The Data Protection keyring must be persistent and shared.** auth-api + frontend need
+   `DataProtection__KeyRingPath` pointing at a persistent, replica-shared volume (`/keys`). An
+   ephemeral keyring → every deploy/scale-out logs everyone out and breaks antiforgery +
+   password-reset/email-confirmation links. Fails fast at boot if unset outside Development.
+
+## Bringing the stack up
+
+### Locally, production-parity (the rehearsal)
+
+The fastest way to exercise the real topology — real keys, forwarded headers, DP volumes,
+containerized frontend, TLS proxy — on a laptop (ADR-0008 §4):
+
+```bash
+scripts/up-prod.sh --build          # PowerShell: scripts/up-prod.ps1 --build
+```
+
+It bootstraps `.env.prod` (with freshly generated OpenIddict secrets), the local CA + certs, and the
+`*.lotro.test` hosts mapping, then runs `docker compose -f compose.prod.yaml up`. Verify:
+
+```bash
+curl --cacert .docker/prod-https/rootCA.crt https://auth.lotro.test/health/ready
+curl --cacert .docker/prod-https/rootCA.crt https://tms.lotro.test/health/ready
+# browser OIDC login: https://app.lotro.test
+```
+
+For an all-local run (no external SMTP/OTLP), add the profiles so the auth `/health/ready` SMTP probe
+passes and traces are viewable, and set `Email__Host=mailpit` / `Email__Port=1025` / `Email__Mode=None`
++ `OTEL_EXPORTER_OTLP_ENDPOINT=http://aspire-dashboard:18889` in `.env.prod`:
+
+```bash
+docker compose -f compose.prod.yaml --env-file .env.prod --profile local-smtp --profile local-otel up --build
+```
+
+### A real environment (staging / production)
+
+Provider-neutral sequence — anything that runs an OCI image behind a TLS ingress (the
+provider-specific walkthrough + Azure⇄AWS mapping is M6-12):
+
+1. **Provision** Postgres (two databases — see [Generating secrets](#generating-secrets)) and a TLS
+   ingress holding a publicly-trusted cert.
+2. **Configure** every service per the [matrix](#environment-variable-matrix): plain values in the
+   platform's app config, secrets in its secret store. Then re-check the
+   [consistency rules](#consistency-rules-that-bite) — issuer / redirect / authority / CORS — **across**
+   services.
+3. **Migrate**: run the migrator image to completion against both databases
+   ([Database migrations](#database-migrations)). A non-zero exit blocks the rollout.
+4. **Roll out** auth-api, tms-api, frontend on the **same image tag** as the migrator. Mount the DP
+   keyring volumes; point the ingress at each app's `:8080`.
+5. **Verify**: `/health/ready` green on both APIs, a full browser OIDC login, and the post-deploy
+   smoke test (M6-13).
 
 ## Database migrations
 
@@ -101,3 +386,15 @@ psql "$ConnectionStrings__TranslationDatabase" -c 'SELECT "MigrationId" FROM tra
 # applied Auth migrations
 psql "$ConnectionStrings__AuthDatabase"        -c 'SELECT "MigrationId" FROM auth."__EFMigrationsHistory" ORDER BY "MigrationId";'
 ```
+
+## See also
+
+- [`.env.example`](../../.env.example) — the dev-compose env template (`scripts/up.sh` bootstraps `.env` from it).
+- [`.env.prod.example`](../../.env.prod.example) — the production-parity env template: secrets + the
+  managed-DB swap point (`scripts/up-prod.sh` bootstraps `.env.prod` from it, generating the OpenIddict secrets).
+- [`compose.yaml`](../../compose.yaml) / [`compose.prod.yaml`](../../compose.prod.yaml) — the dev and
+  production-parity stacks; the literal env→container wiring this matrix abstracts.
+- [ADR-0008](../adr/0008-cloud-agnostic-deployment-and-environment-strategy.md) — the cloud-agnostic
+  deployment & environment strategy this runbook operationalizes.
+- `docs/deployment/target-requirements.md` — platform requirements + Azure⇄AWS service mapping
+  (M6-12, forthcoming).

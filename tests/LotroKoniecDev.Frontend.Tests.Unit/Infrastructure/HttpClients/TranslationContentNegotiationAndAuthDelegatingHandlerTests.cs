@@ -20,7 +20,7 @@ public sealed class TranslationContentNegotiationAndAuthDelegatingHandlerTests
         IHttpContextAccessor accessor = AnonymousContext();
         (HttpMessageInvoker invoker, StubHttpMessageHandler inner) = CreateInvoker(accessor);
 
-        using HttpRequestMessage request = new(HttpMethod.Get, "https://localhost:5004/translations");
+        using HttpRequestMessage request = new(HttpMethod.Get, "https://localhost:5002/translations");
         await invoker.SendAsync(request, CancellationToken.None);
 
         inner.LastRequest.ShouldNotBeNull();
@@ -34,7 +34,7 @@ public sealed class TranslationContentNegotiationAndAuthDelegatingHandlerTests
         IHttpContextAccessor accessor = AnonymousContext();
         (HttpMessageInvoker invoker, StubHttpMessageHandler inner) = CreateInvoker(accessor);
 
-        using HttpRequestMessage request = new(HttpMethod.Get, "https://localhost:5004/health");
+        using HttpRequestMessage request = new(HttpMethod.Get, "https://localhost:5002/health");
         await invoker.SendAsync(request, CancellationToken.None);
 
         inner.LastRequest!.Headers.Authorization.ShouldBeNull();
@@ -46,7 +46,7 @@ public sealed class TranslationContentNegotiationAndAuthDelegatingHandlerTests
         IHttpContextAccessor accessor = AuthenticatedContext(accessToken: "the-access-token");
         (HttpMessageInvoker invoker, StubHttpMessageHandler inner) = CreateInvoker(accessor);
 
-        using HttpRequestMessage request = new(HttpMethod.Get, "https://localhost:5004/translations");
+        using HttpRequestMessage request = new(HttpMethod.Get, "https://localhost:5002/translations");
         await invoker.SendAsync(request, CancellationToken.None);
 
         inner.LastRequest!.Headers.Authorization.ShouldNotBeNull();
@@ -60,7 +60,7 @@ public sealed class TranslationContentNegotiationAndAuthDelegatingHandlerTests
         IHttpContextAccessor accessor = AuthenticatedContext(accessToken: null);
         (HttpMessageInvoker invoker, StubHttpMessageHandler inner) = CreateInvoker(accessor);
 
-        using HttpRequestMessage request = new(HttpMethod.Get, "https://localhost:5004/translations");
+        using HttpRequestMessage request = new(HttpMethod.Get, "https://localhost:5002/translations");
         await invoker.SendAsync(request, CancellationToken.None);
 
         inner.LastRequest!.Headers.Authorization.ShouldBeNull();
@@ -75,7 +75,7 @@ public sealed class TranslationContentNegotiationAndAuthDelegatingHandlerTests
         (HttpMessageInvoker invoker, _) = CreateInvoker(
             accessor, StubHttpMessageHandler.RespondWith(HttpStatusCode.Unauthorized, "{}"));
 
-        using HttpRequestMessage request = new(HttpMethod.Get, "https://localhost:5004/translations");
+        using HttpRequestMessage request = new(HttpMethod.Get, "https://localhost:5002/translations");
         await invoker.SendAsync(request, CancellationToken.None);
 
         await deadSessionRegistry.Received(1).MarkDeadAsync("user-1", Arg.Any<CancellationToken>());
@@ -89,7 +89,7 @@ public sealed class TranslationContentNegotiationAndAuthDelegatingHandlerTests
             accessToken: "the-access-token", deadSessionRegistry: deadSessionRegistry);
         (HttpMessageInvoker invoker, _) = CreateInvoker(accessor);
 
-        using HttpRequestMessage request = new(HttpMethod.Get, "https://localhost:5004/translations");
+        using HttpRequestMessage request = new(HttpMethod.Get, "https://localhost:5002/translations");
         await invoker.SendAsync(request, CancellationToken.None);
 
         await deadSessionRegistry.DidNotReceive()
@@ -105,7 +105,7 @@ public sealed class TranslationContentNegotiationAndAuthDelegatingHandlerTests
         (HttpMessageInvoker invoker, _) = CreateInvoker(
             accessor, StubHttpMessageHandler.RespondWith(HttpStatusCode.Unauthorized, "{}"));
 
-        using HttpRequestMessage request = new(HttpMethod.Get, "https://localhost:5004/translations");
+        using HttpRequestMessage request = new(HttpMethod.Get, "https://localhost:5002/translations");
         HttpResponseMessage response = await invoker.SendAsync(request, CancellationToken.None);
 
         response.StatusCode.ShouldBe(HttpStatusCode.Unauthorized);

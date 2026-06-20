@@ -38,9 +38,9 @@ those tokens. A Blazor SSR frontend (the OIDC relying party) and the patcher CLI
 
 The compose stack is **backend-only** (ADR-0006). Each API serves HTTPS on its host port (dev cert
 in Kestrel; `ASPNETCORE_URLS = https://+:8081;http://+:8080`, host → `:8081`), while API↔API calls
-(tms-api → auth-api JWKS) use `http://…:8080`. For the all-local workflow (each API via its own
-`dotnet run`), `tms-api`'s HTTPS launch port is `:5004`; `auth-api` stays `:5003` in both workflows,
-so the OIDC `Authority` and the token `iss` never change.
+(tms-api → auth-api JWKS) use `http://…:8080`. The all-local workflow (each API via its own
+`dotnet run`) uses the SAME host ports — `tms-api` `:5002`, `auth-api` `:5003` — so the
+`TranslationSystem` base URL, the OIDC `Authority`, and the token `iss` never change between workflows.
 
 - `tms-api` base path for the domain: **`/api/v1/...`**. Its root `GET /` is a discovery document.
 - `auth-api` endpoints live at the root: **`connect/*`** (OpenIddict) and **`auth/*`** (custom).

@@ -14,7 +14,7 @@ namespace LotroKoniecDev.Frontend.Tests.Unit.Components.Pages.Editor;
 
 public sealed class TranslationEditorLoaderTests
 {
-    private const string BaseUrl = "https://localhost:5004/";
+    private const string BaseUrl = "https://localhost:5002/";
 
     // Deliberately distinctive server hrefs — on a different host/path than any FE-built path — so the
     // assertions prove the loader follows the link the server hands it, not a hardcoded route (#158).

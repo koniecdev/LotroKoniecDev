@@ -18,7 +18,7 @@ namespace LotroKoniecDev.Frontend.Tests.Unit.Components.Pages.ImportExport;
 
 public sealed class ImportExportLoaderTests
 {
-    private const string BaseUrl = "https://localhost:5004/";
+    private const string BaseUrl = "https://localhost:5002/";
     private static readonly Guid GameVersionGuid = Guid.Parse("0192a000-0000-7000-8000-000000000099");
 
     // Mirrors the JSON options the Frontend's HTTP seam uses (HttpClientApiExtensions) so the stub

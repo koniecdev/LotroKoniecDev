@@ -122,6 +122,7 @@ A KittySaver slice is one file: `internal sealed class <Action> : IEndpoint` con
 | Touch DAT binary parsing / writing / native interop | delegate to the **`dat-format-expert`** agent |
 | Re-investigate update behavior, vnum, translation survival, launch flow | **don't** — empirically settled in `docs/knowledge-base/` (start at its README) |
 | Make a non-trivial architectural/modeling decision | skim `docs/adr/`, then **write a new ADR** (`/adr`); anchors: 0001 (no mediator), 0002 (TMS pivot + freeze amendment), 0008 (cloud-agnostic deployment + env strategy — M6) |
+| Deploy/operate the stack, or set env vars per environment | `docs/deployment/runbook.md` — env-var matrix (service × environment), secret generation, the issuer/redirect/authority/CORS gotchas, bring-up sequence + DB migrations |
 | Touch the update lifecycle (GameVersion, import diff, invalidation, distribution, CLI sync) | `docs/specs/0001-game-update-lifecycle-and-translation-invalidation.md` — the agreed domain spec |
 | Implement a feature whose business rules are fuzzy | **`/spec`** first (seed → questions → agreed spec in `docs/specs/`) |
 | Review a finished change | the **`code-reviewer`** agent |
@@ -171,9 +172,10 @@ docker compose down                                    # stop; add -v to also dr
 
 # Frontend (Blazor SSR) — NOT in compose (ADR-0006); runs on the host like TheKittySaver, against the in-compose backend
 dotnet run --project src/Frontend/LotroKoniecDev.Frontend   # https://localhost:7017 → hits auth-api :5003 + tms-api :5002 over HTTPS
-# appsettings.Development targets the COMPOSE backend (tms :5002). For the all-local workflow (every API via
-# its own `dotnet run`), tms-api's https launchSettings port is :5004 — point TranslationSystem:BaseUrl there.
-# auth-api is :5003 in both workflows, so its Authority/BaseUrl + the token `iss` need no change.
+# appsettings.Development targets the COMPOSE backend (tms :5002, auth :5003). The all-local workflow (every
+# API via its own `dotnet run`) uses the SAME host ports — tms-api's https launchSettings port is :5002 and
+# auth-api's is :5003 — so TranslationSystem:BaseUrl, AuthSystem:Authority/BaseUrl + the token `iss` need no
+# change when switching between the compose backend and all-local.
 
 # TMS — Production-PARITY stack (compose.prod.yaml; ADR-0008 §4 / M6-07) — SEPARATE from dev compose.
 # ALL FOUR images + a Caddy reverse proxy run under ASPNETCORE_ENVIRONMENT=Production: real OpenIddict

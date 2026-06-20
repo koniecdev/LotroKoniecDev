@@ -6,7 +6,7 @@ namespace LotroKoniecDev.Frontend.Tests.Unit.Infrastructure.HttpClients;
 
 public sealed class TranslationSystemClientTests
 {
-    private const string BaseUrl = "https://localhost:5004/";
+    private const string BaseUrl = "https://localhost:5002/";
 
     [Fact]
     public async Task GetHealthAsync_WhenApiReportsHealthy_ReturnsSuccessWithStatus()
@@ -34,7 +34,7 @@ public sealed class TranslationSystemClientTests
 
         handler.LastRequest.ShouldNotBeNull();
         handler.LastRequest!.Method.ShouldBe(HttpMethod.Get);
-        handler.LastRequest.RequestUri.ShouldBe(new Uri("https://localhost:5004/health"));
+        handler.LastRequest.RequestUri.ShouldBe(new Uri("https://localhost:5002/health"));
     }
 
     [Fact]

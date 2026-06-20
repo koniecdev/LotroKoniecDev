@@ -15,6 +15,7 @@ using LotroKoniecDev.AuthSystem.API;
 using LotroKoniecDev.AuthSystem.API.Extensions;
 using LotroKoniecDev.AuthSystem.API.Health;
 using LotroKoniecDev.AuthSystem.API.Middleware;
+using LotroKoniecDev.AuthSystem.API.Settings;
 using LotroKoniecDev.AuthSystem.Persistence.Settings;
 
 Log.Logger = new LoggerConfiguration()
@@ -119,6 +120,21 @@ try
         options.ThrowOnBadRequest = true;
     });
 
+    // CORS origins are environment-injected, not baked into code (ADR-0008 §3, M6-03): the production
+    // policy admits only the configured browser origins, validated at startup so a missing or
+    // malformed origin aborts boot in Staging/Production (CorsSettingsValidator) instead of silently
+    // blocking the browser. Development uses the permissive policy below and ignores this list.
+    // AllowCredentials() (required for the cookie/OIDC auth flows) is preserved — it pairs with the
+    // explicit WithOrigins list, never with AllowAnyOrigin (which the framework would reject).
+    builder.Services.AddOptions<CorsSettings>()
+        .BindConfiguration(CorsSettings.ConfigurationSection)
+        .ValidateOnStart();
+    builder.Services.AddSingleton<IValidateOptions<CorsSettings>, CorsSettingsValidator>();
+
+    string[] allowedCorsOrigins = builder.Configuration
+        .GetSection(CorsSettings.ConfigurationSection)
+        .Get<CorsSettings>()?.AllowedOrigins ?? [];
+
     const string localCorsPolicy = "DevelopmentPolicy";
     const string productionCorsPolicy = "ProductionPolicy";
 
@@ -134,7 +150,7 @@ try
         options.AddPolicy(productionCorsPolicy, corsBuilder =>
         {
             corsBuilder
-                .WithOrigins("https://lotro.koniec.dev")
+                .WithOrigins(allowedCorsOrigins)
                 .WithHeaders("Authorization", "Content-Type", "X-Requested-With", "Accept")
                 .WithMethods("GET", "POST", "PUT", "DELETE", "OPTIONS")
                 .AllowCredentials();
@@ -236,11 +252,12 @@ try
     app.UseRouting();
     app.UseGlobalNoCache();
 
-    string corsPolicy = app.Environment.EnvironmentName switch
-    {
-        EnvironmentsExtensions.ProductionName => productionCorsPolicy,
-        _ => localCorsPolicy
-    };
+    // Only Development gets the permissive AllowAnyOrigin policy; every deployed environment
+    // (Staging + Production, ADR-0008 §1) serves the restrictive configured-origins policy, so a
+    // staging origin is never silently waved through.
+    string corsPolicy = app.Environment.IsDevelopment()
+        ? localCorsPolicy
+        : productionCorsPolicy;
     app.UseCors(corsPolicy);
 
     app.UseAuthentication();

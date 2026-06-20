@@ -74,9 +74,13 @@ internal static class ApiDependencyInjection
             services.AddScoped<IPasswordResetEmailSender, PasswordResetEmailSender>();
             services.AddScoped<IAccountConfirmationEmailSender, AccountConfirmationEmailSender>();
 
+            // Fail-fast startup validation of the OpenIddict server config (ADR-0008 §3, M6-05): the
+            // OpenIddictSettingsValidator enforces the production key material / issuer and names the
+            // offending key + environment. No ValidateDataAnnotations() — the settings carry no
+            // DataAnnotations attributes (the `required` issuer is a binder constraint), so that call
+            // validated nothing.
             services.AddOptions<OpenIddictSettings>()
                 .BindConfiguration(OpenIddictSettings.ConfigurationSection)
-                .ValidateDataAnnotations()
                 .ValidateOnStart();
 
             services.AddSingleton<IValidateOptions<OpenIddictSettings>, OpenIddictSettingsValidator>();

@@ -55,14 +55,45 @@ public sealed class AuthSystemSettingsValidatorTests
         result.Errors.ShouldContain(error => error.PropertyName == nameof(AuthSystemSettings.Scopes));
     }
 
+    [Theory]
+    [InlineData("")]
+    [InlineData("not-a-url")]
+    [InlineData("ftp://localhost:5003")]
+    public void Validate_WithNonHttpBaseUrl_FailsNamingTheKey(string baseUrl)
+    {
+        AuthSystemSettings settings = Settings(baseUrl: baseUrl);
+
+        ValidationResult result = _validator.Validate(settings);
+
+        result.IsValid.ShouldBeFalse();
+        result.Errors.ShouldContain(error => error.PropertyName == nameof(AuthSystemSettings.BaseUrl));
+        result.Errors.ShouldContain(error =>
+            error.ErrorMessage.Contains("AuthSystem:BaseUrl", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Validate_WithMissingClientId_FailsNamingTheKey()
+    {
+        AuthSystemSettings settings = Settings(clientId: "");
+
+        ValidationResult result = _validator.Validate(settings);
+
+        result.IsValid.ShouldBeFalse();
+        result.Errors.ShouldContain(error => error.PropertyName == nameof(AuthSystemSettings.ClientId));
+        result.Errors.ShouldContain(error =>
+            error.ErrorMessage.Contains("AuthSystem:ClientId", StringComparison.Ordinal));
+    }
+
     private static AuthSystemSettings Settings(
+        string baseUrl = "https://localhost:5003/",
         string authority = "https://localhost:5003",
+        string clientId = "lotrokoniecdev-web",
         string callbackPath = "/callback",
         IReadOnlyList<string>? scopes = null) => new()
     {
-        BaseUrl = "https://localhost:5003/",
+        BaseUrl = baseUrl,
         Authority = authority,
-        ClientId = "lotrokoniecdev-web",
+        ClientId = clientId,
         CallbackPath = callbackPath,
         SignedOutCallbackPath = "/signout-callback-oidc",
         Scopes = scopes ?? ["openid", "profile", "api"]

@@ -1,14 +1,29 @@
 using Microsoft.Extensions.Options;
+using LotroKoniecDev.AuthSystem.API.Extensions;
 
 namespace LotroKoniecDev.AuthSystem.API.Settings;
 
-internal sealed class OpenIddictSettingsValidator(IWebHostEnvironment environment)
-    : IValidateOptions<OpenIddictSettings>
+/// <summary>
+/// Fails fast at startup when the OpenIddict server is misconfigured in a deployed environment
+/// (Staging/Production), naming the offending key and the environment (ADR-0008 §3, M6-05).
+/// Development and Testing mint ephemeral signing/encryption keys (see <c>OpenIddictExtensions</c>),
+/// so the production key material is intentionally absent there and validation is skipped — mirroring
+/// <see cref="CorsSettingsValidator"/> and the Data Protection keyring guard.
+/// </summary>
+internal sealed class OpenIddictSettingsValidator : IValidateOptions<OpenIddictSettings>
 {
+    private readonly IWebHostEnvironment _environment;
+
+    public OpenIddictSettingsValidator(IWebHostEnvironment environment)
+    {
+        _environment = environment;
+    }
+
     public ValidateOptionsResult Validate(string? name, OpenIddictSettings options)
     {
-        // In development/testing, ephemeral keys are used - no validation needed
-        if (environment.IsDevelopment() || environment.IsEnvironment("Testing"))
+        ArgumentNullException.ThrowIfNull(options);
+
+        if (_environment.IsDevelopment() || _environment.IsTesting())
         {
             return ValidateOptionsResult.Success;
         }
@@ -17,30 +32,69 @@ internal sealed class OpenIddictSettingsValidator(IWebHostEnvironment environmen
 
         if (string.IsNullOrWhiteSpace(options.EncryptionKey.Key))
         {
-            errors.Add("EncryptionKey.Key must be set in production. Generate a 256-bit (32-byte) key and base64 encode it.");
+            errors.Add(
+                $"{OpenIddictSettings.ConfigurationSection}:{nameof(OpenIddictSettings.EncryptionKey)}:"
+                + $"{nameof(EncryptionKeySettings.Key)} must be set in {_environment.EnvironmentName}. Generate a "
+                + "256-bit (32-byte) key and base64-encode it, then inject it via the "
+                + $"{OpenIddictSettings.ConfigurationSection}__{nameof(OpenIddictSettings.EncryptionKey)}__"
+                + $"{nameof(EncryptionKeySettings.Key)} environment variable.");
         }
 
         if (string.IsNullOrWhiteSpace(options.SigningKey.RsaPrivateKeyXml))
         {
-            errors.Add("SigningKey.RsaPrivateKeyXml must be set in production. Generate an RSA key pair and base64 encode the XML.");
+            errors.Add(
+                $"{OpenIddictSettings.ConfigurationSection}:{nameof(OpenIddictSettings.SigningKey)}:"
+                + $"{nameof(SigningKeySettings.RsaPrivateKeyXml)} must be set in {_environment.EnvironmentName}. "
+                + "Generate an RSA key pair and base64-encode its XML, then inject it via the "
+                + $"{OpenIddictSettings.ConfigurationSection}__{nameof(OpenIddictSettings.SigningKey)}__"
+                + $"{nameof(SigningKeySettings.RsaPrivateKeyXml)} environment variable.");
         }
 
         if (string.IsNullOrWhiteSpace(options.ApiClientSecret))
         {
-            errors.Add("ApiClientSecret must be set in production.");
+            errors.Add(
+                $"{OpenIddictSettings.ConfigurationSection}:{nameof(OpenIddictSettings.ApiClientSecret)} must be set "
+                + $"in {_environment.EnvironmentName}. Use a strong, randomly generated secret of at least "
+                + $"{MinimumApiClientSecretLength} characters.");
         }
-        else if (options.ApiClientSecret.Length < 32)
+        else if (options.ApiClientSecret.Length < MinimumApiClientSecretLength)
         {
-            errors.Add("ApiClientSecret must be at least 32 characters for security.");
+            errors.Add(
+                $"{OpenIddictSettings.ConfigurationSection}:{nameof(OpenIddictSettings.ApiClientSecret)} must be at "
+                + $"least {MinimumApiClientSecretLength} characters in {_environment.EnvironmentName} for security.");
         }
 
-        if (options.Issuer.Contains("localhost", StringComparison.OrdinalIgnoreCase))
+        if (string.IsNullOrWhiteSpace(options.Issuer))
         {
-            errors.Add("Issuer cannot contain 'localhost' in production.");
+            errors.Add(
+                $"{OpenIddictSettings.ConfigurationSection}:{nameof(OpenIddictSettings.Issuer)} must be set in "
+                + $"{_environment.EnvironmentName}. Inject the public token issuer URL via the "
+                + $"{OpenIddictSettings.ConfigurationSection}__{nameof(OpenIddictSettings.Issuer)} environment "
+                + "variable (e.g. https://auth.lotro.koniec.dev).");
+        }
+        else if (!BeAbsoluteHttpUrl(options.Issuer))
+        {
+            errors.Add(
+                $"{OpenIddictSettings.ConfigurationSection}:{nameof(OpenIddictSettings.Issuer)} must be an absolute "
+                + $"http(s) URL in {_environment.EnvironmentName} (e.g. https://auth.lotro.koniec.dev).");
+        }
+        else if (options.Issuer.Contains("localhost", StringComparison.OrdinalIgnoreCase))
+        {
+            errors.Add(
+                $"{OpenIddictSettings.ConfigurationSection}:{nameof(OpenIddictSettings.Issuer)} cannot contain "
+                + $"'localhost' in {_environment.EnvironmentName}.");
         }
 
         return errors.Count > 0
             ? ValidateOptionsResult.Fail(errors)
             : ValidateOptionsResult.Success;
+    }
+
+    private const int MinimumApiClientSecretLength = 32;
+
+    private static bool BeAbsoluteHttpUrl(string value)
+    {
+        return Uri.TryCreate(value, UriKind.Absolute, out Uri? uri)
+               && (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps);
     }
 }

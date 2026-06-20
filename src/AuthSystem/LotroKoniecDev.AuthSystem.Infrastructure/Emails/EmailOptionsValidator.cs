@@ -23,7 +23,9 @@ public sealed class EmailOptionsValidator : AbstractValidator<EmailOptions>
 
         RuleFor(x => x.Host)
             .NotEmpty()
-            .WithMessage($"{nameof(EmailOptions.Host)} is required");
+            .WithMessage(
+                $"{EmailOptions.ConfigurationSection}:{nameof(EmailOptions.Host)} (the SMTP host) is required. "
+                + $"Inject it via the {EmailOptions.ConfigurationSection}__{nameof(EmailOptions.Host)} environment variable.");
 
         RuleFor(x => x.Port)
             .InclusiveBetween(1, 65535)

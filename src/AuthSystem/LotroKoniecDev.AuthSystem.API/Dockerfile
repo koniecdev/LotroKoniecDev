@@ -35,6 +35,14 @@ FROM base AS final
 WORKDIR /app
 COPY --from=publish /app/publish .
 
+# Data Protection keyring mount point (M6-04, ADR-0005). A non-dev deployment MUST mount a
+# shared/persistent volume here and set DataProtection__KeyRingPath=/keys, or the startup guard
+# fails fast. A named volume covers single-host restart/scale; multi-host needs ReadWriteMany
+# (NFS/EFS/Azure Files). No VOLUME instruction on purpose: an anonymous volume would silently mask
+# a missing mount. The dev compose runs under Development, where an empty keyring path is valid
+# (host-default location), so this directory is unused there.
+USER root
+RUN mkdir -p /keys && chown app:app /keys
 USER app
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \

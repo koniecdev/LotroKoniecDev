@@ -55,6 +55,13 @@ try
 
     builder.Services.AddAuthSystem(builder.Environment);
 
+    // Configured before the host is built and read straight from configuration (M6-04, mirrors the
+    // Frontend posture in ADR-0005): the keyring must be persistent and the application name pinned
+    // so the Identity login cookie, Razor antiforgery, and password-reset/email-confirmation tokens
+    // survive restarts and are shared across replicas. Registered before AddAuthentication, which
+    // depends on the configured keyring to protect its cookie.
+    builder.Services.AddAuthDataProtection(builder.Configuration, builder.Environment);
+
     builder.Services.AddAuthentication(options =>
     {
         options.DefaultScheme = OpenIddict.Validation.AspNetCore.OpenIddictValidationAspNetCoreDefaults.AuthenticationScheme;

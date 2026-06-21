@@ -30,17 +30,19 @@ those tokens. A Blazor SSR frontend (the OIDC relying party) and the patcher CLI
 
 ## 1. Service topology
 
-| Service | Role | Host port (HTTPS, compose) | In-network |
+| Service | Role | Host URL (HTTPS) | In-network (containerized) |
 |---|---|---|---|
 | `auth-api` | OpenIddict authorization server + ASP.NET Identity user store | `https://localhost:5003` | `http://auth-api:8080` |
 | `tms-api` | Translation domain resource server (JwtBearer) | `https://localhost:5002` | `http://tms-api:8080` |
-| Frontend (Blazor SSR) | OIDC relying party — **not** a compose service, runs on the host | `https://localhost:7017` | — |
+| Frontend (Blazor SSR) | OIDC relying party — runs on the host | `https://localhost:7017` | — |
 
-The compose stack is **backend-only** (ADR-0006). Each API serves HTTPS on its host port (dev cert
-in Kestrel; `ASPNETCORE_URLS = https://+:8081;http://+:8080`, host → `:8081`), while API↔API calls
-(tms-api → auth-api JWKS) use `http://…:8080`. The all-local workflow (each API via its own
-`dotnet run`) uses the SAME host ports — `tms-api` `:5002`, `auth-api` `:5003` — so the
-`TranslationSystem` base URL, the OIDC `Authority`, and the token `iss` never change between workflows.
+In dev the `compose.yaml` is **infra-only** (postgres + migrator + mailpit + aspire) and all three apps
+run on the **host** (ADR-0006, amended by #190 / M6-14) — each via its `https` `launchSettings` profile,
+served with the native ASP.NET Core dev cert. The `http://…:8080` in-network addresses above apply to the
+containerized stacks (`compose.prod.yaml` / a real deployment), where tms-api → auth-api JWKS resolves via
+the in-network host; in dev that back-channel uses the `Auth:Authority`→`Auth:Issuer` fallback to
+`https://localhost:5003`. Because the same host ports serve every workflow, the `TranslationSystem` base
+URL, the OIDC `Authority`, and the token `iss` never change between workflows.
 
 - `tms-api` base path for the domain: **`/api/v1/...`**. Its root `GET /` is a discovery document.
 - `auth-api` endpoints live at the root: **`connect/*`** (OpenIddict) and **`auth/*`** (custom).

@@ -143,8 +143,10 @@ Konfiguracja: `OpenIddictExtensions.cs:33-43`.
 | Frontend | `Frontend` | `:7017` | OIDC Relying Party (cookie + OIDC) |
 
 Jeden issuer (`auth-api`) obsługuje **przeglądarkę** i **back-channel** Frontendu, więc token `iss`
-zgadza się dla obu (CLAUDE.md / ADR-0006). W sieci compose API↔API gada po `http://…:8080`; w tokenie
-i metadanych OIDC `iss` jest browser-facing (`https://localhost:5003/`).
+zgadza się dla obu (CLAUDE.md / ADR-0006). W stacku kontenerowym (`compose.prod.yaml`) API↔API gada
+po `http://…:8080`; w dev (ADR-0006 zmieniony przez #190 — wszystkie trzy aplikacje na hoście) ten
+back-channel idzie po `https://localhost:5003` (tms-api: fallback `Auth:Authority`→`Auth:Issuer`). W
+tokenie i metadanych OIDC `iss` jest zawsze browser-facing (`https://localhost:5003/`).
 
 ### 4.2 Klienci OAuth zarejestrowani w bazie
 Seedowani na starcie (`DatabaseSeederExtensions.cs:109`), id z `AuthConstants.ClientIds`:

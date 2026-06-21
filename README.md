@@ -161,6 +161,27 @@ LotroKoniecDev/
 
 Backup pliku DAT jest tworzony automatycznie z rozszerzeniem `.backup` obok oryginalu. Aby przywrocic oryginal, skopiuj backup z powrotem na `client_local_English.dat`.
 
+## Lokalne uruchomienie backendu TMS (dev)
+
+Petla deweloperska TMS to **infra w Dockerze + trzy aplikacje na hoscie** (ADR-0006, zmieniony przez
+#190 / M6-14). `compose.yaml` uruchamia wylacznie infrastrukture: postgres + migrator + mailpit +
+aspire-dashboard. Aplikacje (auth-api, tms-api, frontend) odpalasz na hoscie — szybki hot reload,
+breakpointy, bez przebudowy obrazow.
+
+```bash
+scripts/up.sh                       # PowerShell: scripts/up.ps1 — startuje infrastrukture + migrator
+dotnet dev-certs https --trust      # jednorazowo, aby host serwowal zaufane HTTPS
+
+# trzy hosty naraz: kompound Rider "TMS dev (all hosts)", albo kazdy osobno:
+dotnet run --project src/AuthSystem/LotroKoniecDev.AuthSystem.API                 # https://localhost:5003
+dotnet run --project src/TranslationSystem/LotroKoniecDev.TranslationSystem.API   # https://localhost:5002
+dotnet run --project src/Frontend/LotroKoniecDev.Frontend                         # https://localhost:7017
+```
+
+Pelna procedura, macierz zmiennych srodowiskowych i sekwencja bring-up:
+[`docs/deployment/runbook.md`](docs/deployment/runbook.md). `compose.prod.yaml` to osobny stack
+parytetu produkcyjnego (`scripts/up-prod.sh`).
+
 ## Dokumentacja (TMS)
 
 Cztery dokumenty referencyjne dla backendu TMS — wygenerowane **z kodu** (kod jest źródłem prawdy):

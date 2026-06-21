@@ -270,11 +270,17 @@ For every row of the uploaded export, compared against the stored source state b
 - *Why is exclusion enough for English fallback?* Launcher chunk-patching already delivers fresh
   English; only re-applying stale Polish could mask it (`dat-protection.md`,
   `update-detection-strategy.md`).
-- *Do real GossipIds exceed `int.MaxValue`?* `[needs verification]` — scan a real `exported.txt`
-  on the Windows box (`awk -F'\|\|' 'max<$2+0{max=$2+0}END{print max}'`). Export writes raw
-  8-byte `FragmentId`; the **patcher's** parser does `int.Parse` (`TranslationFileParser.cs:86`)
-  and would warn-skip larger IDs — dormant today, candidate patcher **bugfix** ticket (allowed
-  under freeze) if the scan finds large IDs. TMS uses `long` regardless (#93).
+- *Do real GossipIds exceed `int.MaxValue`?* **Resolved — #109 (M1-15), 2026-06-21.** Hardened
+  defensively instead of measured on the Windows box: the **patcher's** `Translation.GossipId` and
+  `TranslationFileParser` were widened from `int` to `ulong` — matching the producer exactly, since
+  `export` writes the raw 8-byte `Fragment.FragmentId` (a `ulong` read via `ReadUInt64`). The parser
+  now round-trips the **full** unsigned 8-byte range, so the scan is moot: every id the exporter can
+  emit is covered regardless of its actual maximum (`int.MaxValue` was the old silent-loss ceiling;
+  proven ids like `620756992` always fit). Out-of-range/garbage ids (negative, `> ulong.MaxValue`)
+  warn-skip cleanly instead of throwing (`OverflowException` joined the per-line `catch`). The TMS
+  stores GossipId as signed 64-bit `long` (#93), so a hypothetical high-bit id (`> long.MaxValue`)
+  would be rejected at TMS import rather than silently lost — a deliberate, surfaced boundary, not a
+  drop; widening the TMS contract is a separate ADR-level decision if such an id ever appears.
 
 ### Business decisions — resolved by the user, 2026-06-11
 
@@ -329,6 +335,6 @@ For every row of the uploaded export, compared against the stored source state b
   #104 (update-cycle integration scenario).
 - **New tickets:** **#107** (M2-19) GameVersion endpoints (list + manual register fallback),
   **#108** (M2-20) CLI auto-download (launch sync; freeze amendment), **#109** (M1-15) GossipId
-  int-overflow verification/hardening `[needs verification]`.
+  int-overflow hardening — `int`→`ulong` in the patcher parser + domain `[resolved 2026-06-21]`.
 - **Post-MVP unchanged:** #84/#31 (crowdsource reports), #50 (TranslationHistory), #30 (XML
   contexts), #38/#39 (glossary/UX).

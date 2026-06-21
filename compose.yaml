@@ -46,78 +46,17 @@ services:
         condition: service_healthy
     restart: "no"
 
-  auth-api:
-    build:
-      context: .
-      dockerfile: src/AuthSystem/LotroKoniecDev.AuthSystem.API/Dockerfile
-    # Host port maps to the HTTPS listener (:8081) so the browser reaches it over TLS at the same
-    # origin stamped into 'iss' (https://localhost:5003). In-network API↔API traffic still uses :8080.
-    ports:
-      - "5003:8081"
-    volumes:
-      - ./.docker/https:/https:ro
-    environment:
-      ASPNETCORE_ENVIRONMENT: Development
-      ASPNETCORE_URLS: "https://+:8081;http://+:8080"
-      ASPNETCORE_Kestrel__Certificates__Default__Path: /https/aspnetapp.pfx
-      ASPNETCORE_Kestrel__Certificates__Default__Password: ${ASPNETCORE_KESTREL_CERT_PASSWORD}
-      ConnectionStrings__AuthDatabase: "Host=postgres;Port=5432;Database=lotro_auth;Username=postgres;Password=${POSTGRES_PASSWORD}"
-      # Browser-facing issuer stamped into every token's 'iss'; tms-api validates against this exact value.
-      OpenIddict__Issuer: "https://localhost:5003"
-      AdminUser__Username: ${AUTH_ADMIN_USERNAME:-}
-      AdminUser__Email: ${AUTH_ADMIN_EMAIL:-}
-      AdminUser__Password: ${AUTH_ADMIN_PASSWORD:-}
-      Email__Host: mailpit
-      Email__Port: "1025"
-      OTEL_EXPORTER_OTLP_ENDPOINT: "http://aspire-dashboard:18889"
-      OTEL_EXPORTER_OTLP_PROTOCOL: grpc
-    depends_on:
-      migrator:
-        condition: service_completed_successfully
-      mailpit:
-        condition: service_started
-
-  tms-api:
-    build:
-      context: .
-      dockerfile: src/TranslationSystem/LotroKoniecDev.TranslationSystem.API/Dockerfile
-    # Host port maps to the HTTPS listener (:8081) for browser/CLI reachability over TLS.
-    # In-network SSR→API + API↔API calls keep using http://tms-api:8080.
-    ports:
-      - "5002:8081"
-    volumes:
-      - ./translations:/app/translations:ro
-      - ./.docker/https:/https:ro
-    environment:
-      ASPNETCORE_ENVIRONMENT: Development
-      ASPNETCORE_URLS: "https://+:8081;http://+:8080"
-      ASPNETCORE_Kestrel__Certificates__Default__Path: /https/aspnetapp.pfx
-      ASPNETCORE_Kestrel__Certificates__Default__Password: ${ASPNETCORE_KESTREL_CERT_PASSWORD}
-      ConnectionStrings__TranslationDatabase: "Host=postgres;Port=5432;Database=lotro_translation;Username=postgres;Password=${POSTGRES_PASSWORD}"
-      # Issuer must match the token 'iss' (auth-api's OpenIddict:Issuer — the browser-facing https URL);
-      # Authority is the in-network address tms-api uses to fetch OIDC metadata + JWKS.
-      Auth__Issuer: "https://localhost:5003"
-      Auth__Authority: "http://auth-api:8080"
-      Auth__Audience: lotrokoniecdev-api
-      OTEL_EXPORTER_OTLP_ENDPOINT: "http://aspire-dashboard:18889"
-      OTEL_EXPORTER_OTLP_PROTOCOL: grpc
-      # One-time DB bootstrap (spec 0001 / #28). Off by default. To seed a fresh DB: drop an
-      # exported.txt next to translations/polish.txt, then set Bootstrap__Enabled=true plus
-      # Bootstrap__GameVersion and Bootstrap__ExportedTextPath=/app/translations/exported.txt.
-      Bootstrap__Enabled: "false"
-      Bootstrap__PolishTextPath: "/app/translations/polish.txt"
-    depends_on:
-      migrator:
-        condition: service_completed_successfully
-      auth-api:
-        condition: service_healthy
-
-# The Blazor SSR Frontend is intentionally NOT a compose service (ADR-0006): like TheKittySaver, it
-# runs on the host via `dotnet run` (https://localhost:7017) against this in-compose backend. A
-# host-run OIDC relying party and the browser both reach auth-api at https://localhost:5003 and
-# tms-api at https://localhost:5002, so a single `Authority` serves both legs and the token `iss`
-# matches — avoiding the containerized-RP two-legs problem. Production (Azure Container Apps) hosting
-# is deferred; the kept-but-unreferenced Frontend Dockerfile exists for that future build.
+# This dev stack is INFRA-ONLY (ADR-0006, amended by #190 / M6-14): postgres + migrator + mailpit +
+# aspire-dashboard. The three apps — auth-api (:5003), tms-api (:5002) and the Blazor SSR frontend
+# (:7017) — run on the HOST via `dotnet run` (their `https` launchSettings profiles) or the Rider
+# compound `.run/TMS dev (all hosts).run.xml`, against this in-compose Postgres on localhost:5432.
+# Host Kestrels use the native ASP.NET Core dev cert (`dotnet dev-certs https --trust`) — no PFX
+# mount. Because the browser, the host RP and the host resource server all resolve localhost:5003 /
+# :5002 identically, one OIDC Authority/Issuer serves every leg and the token `iss` matches; tms-api
+# falls back from Auth:Authority to Auth:Issuer (https://localhost:5003) to reach the host auth
+# Kestrel. The containerized auth-api/tms-api services were retired here because they were neither
+# the fast dev loop (host Kestrels give hot reload + breakpoints + no image rebuild) nor prod-parity
+# — compose.prod.yaml is the sole containerized/parity stack and exercises the very same Dockerfiles.
 
 volumes:
   lotrokoniecdev-postgres-data:

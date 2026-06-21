@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # One-time bootstrap of the TLS material for the production-parity stack (compose.prod.yaml).
 #
-# Unlike the dev stack (scripts/init-dev-https.sh), the prod-parity stack terminates TLS at a
-# reverse proxy (Caddy) on three host-based virtual hosts, so it needs a cert whose SANs cover
-# them — the ASP.NET `localhost` dev cert does not. This script mints a tiny local CA and:
+# Unlike the host dev Kestrels (which use the native ASP.NET `localhost` dev cert), the prod-parity
+# stack terminates TLS at a reverse proxy (Caddy) on three host-based virtual hosts, so it needs a
+# cert whose SANs cover them — the `localhost` dev cert does not. This script mints a tiny local CA and:
 #   * proxy.{crt,key}  — leaf for app/auth/tms.lotro.test (mounted into Caddy)
 #   * rootCA.crt       — the CA the Frontend + tms-api containers trust for their OIDC back-channel
 #                        to https://auth.lotro.test; .docker/trust-ca-entrypoint.sh installs it into

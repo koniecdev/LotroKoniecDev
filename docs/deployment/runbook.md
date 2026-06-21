@@ -6,8 +6,9 @@
 >
 > **Scope:** the full configuration surface and bring-up of the four service images across
 > environments — the environment-variable matrix, secret generation, the consistency rules that bite,
-> the bring-up sequence, and database migrations. The only deferred piece is the provider-specific
-> deploy walkthrough + Azure⇄AWS service mapping (M6-12, `docs/deployment/target-requirements.md`).
+> the bring-up sequence, and database migrations. The platform requirements + Azure⇄AWS service
+> mapping live in [`target-requirements.md`](target-requirements.md) (M6-12); the only deferred
+> piece is the provider-specific deploy walkthrough, authored once the provider is chosen.
 
 ## Contents
 
@@ -301,8 +302,9 @@ docker compose -f compose.prod.yaml --env-file .env.prod --profile local-smtp --
 
 ### A real environment (staging / production)
 
-Provider-neutral sequence — anything that runs an OCI image behind a TLS ingress (the
-provider-specific walkthrough + Azure⇄AWS mapping is M6-12):
+Provider-neutral sequence — anything that runs an OCI image behind a TLS ingress (platform
+requirements + the Azure⇄AWS service mapping are in [`target-requirements.md`](target-requirements.md);
+the provider-specific walkthrough is deferred until the provider is chosen):
 
 1. **Provision** Postgres (two databases — see [Generating secrets](#generating-secrets)) and a TLS
    ingress holding a publicly-trusted cert.
@@ -421,5 +423,5 @@ psql "$ConnectionStrings__AuthDatabase"        -c 'SELECT "MigrationId" FROM aut
   production-parity stacks; the literal env→container wiring this matrix abstracts.
 - [ADR-0008](../adr/0008-cloud-agnostic-deployment-and-environment-strategy.md) — the cloud-agnostic
   deployment & environment strategy this runbook operationalizes.
-- `docs/deployment/target-requirements.md` — platform requirements + Azure⇄AWS service mapping
-  (M6-12, forthcoming).
+- [`target-requirements.md`](target-requirements.md) — platform requirements + Azure⇄AWS service
+  mapping (M6-12).

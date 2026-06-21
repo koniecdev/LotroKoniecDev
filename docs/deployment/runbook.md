@@ -49,13 +49,13 @@ table per service.
   the same with `:` (`OpenIddict:WebClient:RedirectUris:0`); error messages use the `:` form.
 - **Required?** = whether boot **fails fast** without it (M6-05) in that environment. `✅ all` =
   required in every environment; `✅ non-dev` = required in Staging/Production only (Development
-  supplies a default or skips the guard); `optional` = safe default; `dev-compose only` = only set by
-  `compose.yaml`.
+  supplies a default or skips the guard); `optional` = safe default.
 - **Source.** **secret** = inject via the platform's secret store (or the git-ignored `.env*`), never
   commit; **plain** = non-sensitive, fine in plain app config / `appsettings.*`.
-- **local-dev** column = how `compose.yaml` + `appsettings.Development.json` set the value (the
-  Frontend is **not** in dev compose — ADR-0006 — so its dev column is `appsettings.Development.json`
-  + `launchSettings.json`, served on the host via `dotnet run`).
+- **local-dev** column = how the value is set in dev. Since ADR-0006 (amended by #190 / M6-14) the
+  dev `compose.yaml` is **infra-only** and all three apps (auth-api, tms-api, frontend) run on the
+  **host** via `dotnet run` — so for the apps the dev column is `appsettings.Development.json` +
+  `launchSettings.json`; only postgres / migrator / mailpit / aspire are set by `compose.yaml`.
 - **Staging / Production** are structurally identical — same required set, same sources; they differ
   only in **hostnames** (use the environment's own domain) and **secret values**. This column shows
   **production placeholders**; substitute `lotro.koniec.dev` with your environment's domain (e.g. a
@@ -71,8 +71,8 @@ Purely optional tuning knobs with safe defaults are omitted (e.g. `OpenIddict:Ac
 | Variable | local-dev | Staging / Production (placeholder) | Required? | Source | Notes |
 |---|---|---|---|---|---|
 | `ASPNETCORE_ENVIRONMENT` | `Development` | `Production` | ✅ all | plain | Gates fail-fast validation, ephemeral-vs-real keys, the CORS policy. |
-| `ASPNETCORE_URLS` | `https://+:8081;http://+:8080` | `http://+:8080` | ✅ all | plain | Prod serves HTTP only (the ingress owns TLS); dev compose also holds the dev cert. |
-| `ConnectionStrings__AuthDatabase` | from `POSTGRES_PASSWORD` | `Host=…;Database=lotro_auth;Username=…;Password=…;Ssl Mode=Require;Trust Server Certificate=true` | ✅ all | **secret** | Carries the DB password. Managed DB: keep `Ssl Mode=Require`, drop `Trust Server Certificate`. |
+| `ASPNETCORE_URLS` | `https://localhost:5003` (launchSettings) | `http://+:8080` | ✅ all | plain | Host dev Kestrel (native dev cert); prod serves HTTP only (the ingress owns TLS). |
+| `ConnectionStrings__AuthDatabase` | `…;Database=lotro_auth;…;Password=changeme` (appsettings.Development) | `Host=…;Database=lotro_auth;Username=…;Password=…;Ssl Mode=Require;Trust Server Certificate=true` | ✅ all | **secret** | Carries the DB password. Host dev hits the compose Postgres on `localhost:5432`. Managed DB: keep `Ssl Mode=Require`, drop `Trust Server Certificate`. |
 | `OpenIddict__Issuer` | `https://localhost:5003` | `https://auth.lotro.koniec.dev` | ✅ non-dev | plain | **THE token `iss`.** Absolute http(s), no `localhost`. Must equal tms `Auth__Issuer`. |
 | `OpenIddict__SigningKey__RsaPrivateKeyXml` | — (ephemeral) | base64 of RSA XML (≥2048-bit) | ✅ non-dev | **secret** | Generate with `gen-openiddict-keys`. |
 | `OpenIddict__EncryptionKey__Key` | — (ephemeral) | base64 of a ≥32-byte key | ✅ non-dev | **secret** | Generate with `gen-openiddict-keys`. |
@@ -90,28 +90,27 @@ Purely optional tuning knobs with safe defaults are omitted (e.g. `OpenIddict:Ac
 | `AdminUser__Username` / `AdminUser__Email` / `AdminUser__Password` | from `AUTH_ADMIN_*` | from `AUTH_ADMIN_*` | optional | **secret** (Password) | Seeds one admin on first boot; leave blank to skip. |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | `http://aspire-dashboard:18889` | OTLP collector URL | optional | plain | Empty = telemetry export disabled. |
 | `OTEL_EXPORTER_OTLP_PROTOCOL` | `grpc` | `grpc` / `http/protobuf` | optional | plain | Defaults to `grpc`. |
-| `ASPNETCORE_Kestrel__Certificates__Default__Path` / `__Password` | `/https/aspnetapp.pfx` / `ASPNETCORE_KESTREL_CERT_PASSWORD` | — | dev-compose only | **secret** (Password) | Only when the container itself serves TLS (prod terminates at the ingress). |
 
 ### tms-api
 
 | Variable | local-dev | Staging / Production (placeholder) | Required? | Source | Notes |
 |---|---|---|---|---|---|
 | `ASPNETCORE_ENVIRONMENT` | `Development` | `Production` | ✅ all | plain | Gates fail-fast validation + the CORS policy. |
-| `ASPNETCORE_URLS` | `https://+:8081;http://+:8080` | `http://+:8080` | ✅ all | plain | Prod serves HTTP only (ingress owns TLS). |
-| `ConnectionStrings__TranslationDatabase` | from `POSTGRES_PASSWORD` | `Host=…;Database=lotro_translation;Username=…;Password=…;Ssl Mode=Require;Trust Server Certificate=true` | ✅ all | **secret** | TMS write context. Managed DB swap = change just this value. |
+| `ASPNETCORE_URLS` | `https://localhost:5002` (launchSettings) | `http://+:8080` | ✅ all | plain | Host dev Kestrel (native dev cert); prod serves HTTP only (ingress owns TLS). |
+| `ConnectionStrings__TranslationDatabase` | `…;Database=lotro_translation;…;Password=changeme` (appsettings.Development) | `Host=…;Database=lotro_translation;Username=…;Password=…;Ssl Mode=Require;Trust Server Certificate=true` | ✅ all | **secret** | TMS write context. Host dev hits the compose Postgres on `localhost:5432`. Managed DB swap = change just this value. |
 | `Auth__Issuer` | `https://localhost:5003` | `https://auth.lotro.koniec.dev` | ✅ all | plain | MUST equal auth `OpenIddict__Issuer` (the token `iss`); tokens are rejected otherwise. |
-| `Auth__Authority` | `http://auth-api:8080` | `https://auth.lotro.koniec.dev` | optional² | plain | Back-channel for OIDC metadata + JWKS. ²Unset → falls back to `Issuer`. Prod: must be `https` (OpenIddict rejects plain HTTP) and reachable from the container. |
+| `Auth__Authority` | — (unset → falls back to `Issuer`, `https://localhost:5003`) | `https://auth.lotro.koniec.dev` | optional² | plain | Back-channel for OIDC metadata + JWKS. ²Unset → falls back to `Issuer`; the dev host run relies on that fallback to reach the host auth Kestrel. Prod: must be `https` (OpenIddict rejects plain HTTP) and reachable from the container. |
 | `Auth__Audience` | `lotrokoniecdev-api` | `lotrokoniecdev-api` | ✅ all | plain | Default in base `appsettings.json`. |
 | `Cors__AllowedOrigins__0` | — (AllowAnyOrigin) | `https://lotro.koniec.dev` | ✅ non-dev | plain | Bare origin = Frontend public URL. |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` / `OTEL_EXPORTER_OTLP_PROTOCOL` | aspire / `grpc` | collector / `grpc` | optional | plain | Empty endpoint = export disabled. |
 | `Bootstrap__Enabled` | `false` | `false` | optional | plain | One-time DB seed of the first export (spec 0001). Off by default. |
 | `Bootstrap__GameVersion` / `Bootstrap__ExportedTextPath` / `Bootstrap__PolishTextPath` | — / — / `/app/translations/polish.txt` | as needed | optional | plain | Only consulted when `Bootstrap__Enabled=true`. |
-| `ASPNETCORE_Kestrel__Certificates__Default__Path` / `__Password` | `/https/aspnetapp.pfx` / `ASPNETCORE_KESTREL_CERT_PASSWORD` | — | dev-compose only | **secret** (Password) | Only when the container itself serves TLS. |
 
 ### frontend
 
-Runs on the **host** in dev (`dotnet run`, ADR-0006) — its dev column is `appsettings.Development.json`
-+ `launchSettings.json`; it is containerized only in Staging/Production.
+Runs on the **host** in dev (`dotnet run`, ADR-0006 — and since #190 / M6-14 so do auth-api + tms-api) —
+its dev column is `appsettings.Development.json` + `launchSettings.json`; it is containerized only in
+Staging/Production.
 
 | Variable | local-dev | Staging / Production (placeholder) | Required? | Source | Notes |
 |---|---|---|---|---|---|
@@ -178,8 +177,9 @@ by hand.
 - **Local prod-parity:** `scripts/init-prod-https.sh` mints a local CA + a `*.lotro.test` leaf for
   Caddy; `.docker/trust-ca-entrypoint.sh` installs the CA into the tms-api/frontend OS store so their
   OIDC back-channel to `https://auth.lotro.test` is trusted (.NET ignores `SSL_CERT_FILE`).
-- **Dev compose:** `scripts/init-dev-https.sh` exports the ASP.NET Core dev-cert PFX into
-  `.docker/https/` (password from `.env` `ASPNETCORE_KESTREL_CERT_PASSWORD`).
+- **Local dev (host Kestrels):** the apps run on the host (ADR-0006, amended by #190 / M6-14) and serve
+  HTTPS with the **native** ASP.NET Core dev cert — run `dotnet dev-certs https --trust` once. No PFX,
+  no mount; the dev `compose.yaml` is infra-only and runs no app containers.
 
 ### Databases
 
@@ -215,9 +215,12 @@ The cross-service settings that are individually valid but break the system when
 
 2. **Authority is the back-channel address, not the issuer.** `Auth__Authority` (tms-api) and
    `AuthSystem__Authority` (frontend) are where the app **fetches OIDC metadata + JWKS**; the issuer
-   is what it **validates `iss` against**. They legitimately differ when metadata is on an internal
-   address while tokens carry the browser-facing URL (dev compose: `Auth__Authority=http://auth-api:8080`
-   but `Auth__Issuer=https://localhost:5003`). Two production traps: (a) in Production **OpenIddict
+   is what it **validates `iss` against**. They can legitimately differ when metadata is on an internal
+   address while tokens carry the browser-facing URL — but in this repo they currently coincide in
+   every environment: dev leaves `Auth__Authority` unset so it falls back to `Auth__Issuer`
+   (`https://localhost:5003`, the host auth Kestrel), and the containerized prod-parity stack sets both
+   to the proxy origin (`https://auth.lotro.test`) because Production **OpenIddict rejects plain HTTP**,
+   so the internal `http://auth-api:8080` cannot serve as Authority there. Two production traps: (a) in Production **OpenIddict
    rejects plain HTTP**, so the Authority MUST be `https` — use the public/ingress origin, not
    `http://auth-api:8080`; (b) that host MUST be reachable from inside the container and its cert
    trusted by the container's OS store. Unset `Auth__Authority` falls back to `Auth__Issuer`.
@@ -247,6 +250,28 @@ The cross-service settings that are individually valid but break the system when
    password-reset/email-confirmation links. Fails fast at boot if unset outside Development.
 
 ## Bringing the stack up
+
+### Locally, development (infra + host Kestrels)
+
+The day-to-day inner loop (ADR-0006, amended by #190 / M6-14). Boot the infra-only stack, then run the
+three apps on the host:
+
+```bash
+scripts/up.sh                       # PowerShell: scripts/up.ps1 — boots postgres + migrator + mailpit + aspire
+dotnet dev-certs https --trust      # one-time, so the host Kestrels serve trusted HTTPS
+```
+
+Then start the three host Kestrels — all at once via the Rider compound **`TMS dev (all hosts)`**, or
+each in its own terminal:
+
+```bash
+dotnet run --project src/AuthSystem/LotroKoniecDev.AuthSystem.API                 # → https://localhost:5003
+dotnet run --project src/TranslationSystem/LotroKoniecDev.TranslationSystem.API   # → https://localhost:5002
+dotnet run --project src/Frontend/LotroKoniecDev.Frontend                         # → https://localhost:7017
+```
+
+Verify: open `https://localhost:7017`, log in via OIDC, and confirm an authenticated TMS call succeeds.
+An app-code change is picked up by re-running that one project (or hot reload) — no image rebuild.
 
 ### Locally, production-parity (the rehearsal)
 

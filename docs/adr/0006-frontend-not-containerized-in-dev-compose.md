@@ -1,12 +1,14 @@
 # ADR-0006: The TMS Frontend is not containerized in dev compose — it runs on the host
 
-**Status:** Accepted
+**Status:** Accepted (amended 2026-06-20 — #190/M6-14, see the amendments under §1 and §3)
 **Date:** 2026-06-15
 **Decision-makers:** Solo maintainer
 **Related:** Frontend (OIDC RP), AuthSystem (OpenIddict), `compose.yaml`, ticket #144 (M3-10 — HTTPS
 in compose), ticket #40 (M3-06 — Frontend Dockerfile + join compose, **partially superseded**),
-M3-01 #138 (lifted OIDC RP infra), ADR-0002 (TMS pivot + KittySaver lift), ADR-0005 (Frontend Data
-Protection key persistence), TheKittySaver `compose.yaml`
+M3-01 #138 (lifted OIDC RP infra), ticket #190 (M6-14 — dev = infra-only compose + host Kestrels,
+**amends §1/§3**), ADR-0002 (TMS pivot + KittySaver lift), ADR-0005 (Frontend Data Protection key
+persistence), ADR-0008 (cloud-agnostic deployment — `compose.prod.yaml` is the parity stack this
+amendment leans on), TheKittySaver `compose.yaml`
 
 ## Context
 
@@ -53,6 +55,30 @@ Code facts that constrain the choice:
 `frontend` service added in #40 is removed. Compose is the backend the translator's browser and a
 host-run Frontend talk to — not a place the Frontend itself runs in dev.
 
+**Amendment (2026-06-20, #190 / M6-14) — dev compose is now *infra-only*; all three apps run on host
+Kestrels.** §1's "backend-only compose" is superseded for the dev inner loop. `compose.yaml` is
+demoted to **infra-only** — `postgres` + `migrator` + `mailpit` + `aspire-dashboard` — and the
+**three apps run on the host** as the canonical dev loop: auth-api (`https://localhost:5003`),
+tms-api (`https://localhost:5002`), frontend (`https://localhost:7017`), each via its `https`
+`launchSettings` profile (`dotnet run`, or a Rider compound — `.run/TMS dev (all hosts).run.xml`).
+The containerized `auth-api`/`tms-api` services are removed from `compose.yaml`.
+
+Rationale: the containerized middle tier no longer earned its place. It was *not* the fast dev loop
+(host Kestrels give hot reload, breakpoints, and no `docker compose build <api>` on every code
+change), and it was *not* prod-parity either — `compose.prod.yaml` (M6-07/08) already exercises the
+**same Dockerfiles** behind Caddy with real keys / forwarded headers / DP volumes, and CD (M6-09)
+builds those images in CI. So "the API images build & wire up" stays covered without paying a
+rebuild on every inner-loop change, and the dev posture moves even closer to the all-host
+TheKittySaver loop (§Context).
+
+The two-legs / `iss` reasoning of §2 is unchanged and now applies to all three apps uniformly:
+every app resolves `localhost:5003` / `:5002` identically (browser, host RP, host resource server),
+so one `Authority` / `Issuer` serves every leg. tms-api's back-channel relies on the
+`Auth:Authority` → `Auth:Issuer` fallback (`AuthSettings.EffectiveAuthority`) to reach the host auth
+Kestrel at `https://localhost:5003`; the in-network `http://auth-api:8080` was a compose-ism,
+removed with the service. `compose.prod.yaml` remains the **sole** containerized / parity stack and
+is **untouched** (out of scope, per the ticket).
+
 ### 2. The Frontend runs on the host via `dotnet run`, exactly like TheKittySaver
 
 The translator (and the developer) launches `LotroKoniecDev.Frontend` on the host
@@ -72,6 +98,14 @@ HTTPS host ports; the `http://…:8080` in-network listener remains for containe
 (e.g. tms-api → auth-api JWKS). `scripts/init-dev-https.{sh,ps1}` + `up.{sh,ps1}` and the
 `.env.example` `ASPNETCORE_KESTREL_CERT_PASSWORD` key stay — the cert is still required by the two
 APIs.
+
+**Amendment (2026-06-20, #190 / M6-14):** with the APIs off dev compose (§1 amendment), the mounted
+dev-cert PFX is gone from the dev loop. Host Kestrels use the **native** ASP.NET Core dev certificate
+(`dotnet dev-certs https --trust`) selected by their `https` `launchSettings` profile — no PFX, no
+mount, no `ASPNETCORE_Kestrel__Certificates__*`. `scripts/init-dev-https.{sh,ps1}` and the
+`.env.example` `ASPNETCORE_KESTREL_CERT_PASSWORD` key are therefore **retired** (the PFX export
+served only the now-removed containerized APIs). Prod-parity TLS — `scripts/init-prod-https` + Caddy
++ `.docker/trust-ca-entrypoint.sh` — is a separate path and is unaffected.
 
 ### 4. The Frontend Dockerfile is kept but unreferenced
 
@@ -153,6 +187,14 @@ no gain over A.
 - Kept: `scripts/init-dev-https.{sh,ps1}`, `scripts/up.{sh,ps1}`, `.env.example`
   `ASPNETCORE_KESTREL_CERT_PASSWORD`, `src/Frontend/LotroKoniecDev.Frontend/Dockerfile`
   (unreferenced).
+- **Amended by #190 (M6-14) — superseding the two lines above:** `compose.yaml` drops the
+  `auth-api`/`tms-api` services (now infra-only); `scripts/init-dev-https.{sh,ps1}` and the
+  `.env.example` `ASPNETCORE_KESTREL_CERT_PASSWORD` key are **removed** (host Kestrels use the native
+  dev cert — §3 amendment); auth `appsettings.Development.json` connection string is corrected to
+  `Database=lotro_auth` and carries the dev Postgres password, and tms keeps no `Auth:Authority`
+  (the `EffectiveAuthority` fallback resolves the host auth Kestrel) so host Kestrels hit the
+  compose Postgres + auth over `localhost`. `scripts/up.{sh,ps1}` boot infra + migrator only (no
+  `--build` for app-code changes). `src/Frontend/.../Dockerfile` stays kept-but-unreferenced.
 - Docs: `CLAUDE.md` — compose stack is backend-only over HTTPS; Frontend runs locally via
   `dotnet run`; correct the lift-map "frontend joins compose" line and the stale "HTTPS arrives with
   the M3 Frontend" note.

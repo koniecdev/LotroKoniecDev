@@ -88,7 +88,7 @@ spec 0001): the M2-20 translation-file auto-download slice in the launch flow.
 | `TranslationSystem.API` | `…AdoptionSystem.API` | `IEndpoint` + assembly-scan `AddEndpoints`/`MapEndpoints`; slices in `Features/<Area>/<Action>.cs`; `ExceptionHandlers/`, `Auth/` (JwtBearer + policies + `CurrentUserAccessor` + ownership guards), health checks, Serilog + OTel bootstrap |
 | `AuthSystem` (whole module) | `src/AuthSystem/*` | Self-hosted OpenIddict + Identity server — lift wholesale. **Do NOT lift the synchronous `RegisterUser`→`CreatePersonAsync` saga**: provision the translator profile lazily & idempotently on first authenticated TMS request (pattern: KittySaver ADR-0007 §4) |
 | `Frontend` (infra) | `src/Frontend/TheKittySaver.Frontend` | Lift `Infrastructure/` (OIDC RP, `CookieTokenRefresher`, `DiscoveryCache`, `ApiResult`, typed HttpClients, error pages); pages are written fresh for translations; reference `TranslationSystem.Contracts` directly |
-| Docker / compose | `compose.yaml`, `Dockerfile.migrator`, `Dockerfile.tests` | postgres + migrator + auth-api + tms-api (+ mailpit/aspire-dashboard in dev), serving HTTPS. **Backend-only — the Frontend is NOT a compose service; it runs on the host via `dotnet run` like TheKittySaver (ADR-0006)** |
+| Docker / compose | `compose.yaml`, `Dockerfile.migrator`, `Dockerfile.tests` | **Infra-only dev stack (ADR-0006 as amended by #190/M6-14): postgres + migrator + mailpit + aspire-dashboard.** All three apps (auth-api, tms-api, frontend) run on the HOST via `dotnet run` / the Rider compound `.run/TMS dev (all hosts)` — like TheKittySaver. `compose.prod.yaml` is the separate containerized/parity stack |
 
 **Deliberate non-lifts (YAGNI — revisit only on a real, present need):** `Calculators`, domain
 events (KittySaver dispatches them via Mediator notifications; the TMS core loop doesn't need
@@ -160,22 +160,22 @@ dotnet ef migrations add <Name> \
   --context ApplicationWriteDbContext \
   -- --connection "Host=localhost;Database=lotro_translation;Username=postgres;Password=changeme"
 
-# TMS — Docker compose stack (BACKEND-ONLY: postgres + migrator + auth-api + tms-api + aspire-dashboard + mailpit)
-docker compose up -d                                   # boots the M2 backend over HTTPS; requires a .env + dev cert — scripts/up.sh creates both
-docker compose build [<service>]                       # rebuild the API/migrator images after code changes
+# TMS dev — INFRA-ONLY compose (postgres + migrator + mailpit + aspire) + THREE host Kestrels (ADR-0006, amended #190/M6-14)
+docker compose up -d                                   # boots infra + runs the one-shot migrator; NO app images (the apps run on host)
+docker compose up --build migrator                     # rebuild the migrator image only after adding an EF migration
 docker compose logs -f migrator                        # watch the one-shot schema migration (TMS + Auth contexts)
 docker compose down                                    # stop; add -v to also drop the postgres volume (fresh DB)
-# Endpoints (HTTPS): tms-api :5002 · auth-api :5003 · aspire :18888 · mailpit :8025
-#   (e.g. curl -k https://localhost:5002/health). In-network API↔API still uses http://…:8080.
-# scripts/up.sh | up.ps1 = recommended boot — bootstraps .env from .env.example AND (via
-#   scripts/init-dev-https.{sh,ps1}) the ASP.NET dev cert PFX into .docker/https/, then up.
-
-# Frontend (Blazor SSR) — NOT in compose (ADR-0006); runs on the host like TheKittySaver, against the in-compose backend
-dotnet run --project src/Frontend/LotroKoniecDev.Frontend   # https://localhost:7017 → hits auth-api :5003 + tms-api :5002 over HTTPS
-# appsettings.Development targets the COMPOSE backend (tms :5002, auth :5003). The all-local workflow (every
-# API via its own `dotnet run`) uses the SAME host ports — tms-api's https launchSettings port is :5002 and
-# auth-api's is :5003 — so TranslationSystem:BaseUrl, AuthSystem:Authority/BaseUrl + the token `iss` need no
-# change when switching between the compose backend and all-local.
+# scripts/up.sh | up.ps1 = recommended boot — bootstraps .env from .env.example, then `docker compose up` (no cert, no API build).
+# One-time host prereq so the host Kestrels serve HTTPS:  dotnet dev-certs https --trust
+# The three apps run on the HOST (hot reload, breakpoints, no image rebuild) — all three at once via the Rider
+# compound ".run/TMS dev (all hosts)", or each via its own `dotnet run` (each uses its `https` launchSettings profile):
+dotnet run --project src/AuthSystem/LotroKoniecDev.AuthSystem.API                 # auth-api → https://localhost:5003
+dotnet run --project src/TranslationSystem/LotroKoniecDev.TranslationSystem.API   # tms-api  → https://localhost:5002
+dotnet run --project src/Frontend/LotroKoniecDev.Frontend                         # frontend → https://localhost:7017
+# Endpoints (HTTPS): tms-api :5002 · auth-api :5003 · frontend :7017 · aspire :18888 · mailpit :8025
+#   (e.g. curl -k https://localhost:5002/health). The browser, the host RP and the host resource server all resolve
+#   localhost:5003/:5002 identically, so one OIDC Authority/Issuer serves every leg + the token `iss`. tms falls back
+#   from Auth:Authority to Auth:Issuer (https://localhost:5003) to reach the host auth Kestrel; no config differs by run mode.
 
 # TMS — Production-PARITY stack (compose.prod.yaml; ADR-0008 §4 / M6-07) — SEPARATE from dev compose.
 # ALL FOUR images + a Caddy reverse proxy run under ASPNETCORE_ENVIRONMENT=Production: real OpenIddict
@@ -195,18 +195,20 @@ docker compose -f compose.prod.yaml --env-file .env.prod down            # add -
 #   curl --cacert .docker/prod-https/rootCA.crt https://auth.lotro.test/health/ready
 ```
 
-The compose stack is **backend-only** (ADR-0006). Each API serves **HTTPS** on its host port (dev cert
-mounted into Kestrel; `ASPNETCORE_URLS` is `https://+:8081;http://+:8080`, host port → :8081), while
-in-network API↔API calls (e.g. tms-api → auth-api JWKS) keep using `http://…:8080`. The Frontend is **not**
-a compose service: like TheKittySaver it runs on the host via `dotnet run` (`https://localhost:7017`), and
-both it and the browser reach the in-compose backend at `https://localhost:5003` (auth) + `https://localhost:5002`
-(tms) — so a single OIDC `Authority` serves the browser and the server-side back-channel and the token `iss`
-matches. The cert is bootstrapped once by `scripts/init-dev-https.{sh,ps1}` (run automatically by
-`scripts/up.{sh,ps1}` when `.docker/https/aspnetapp.pfx` is missing; password from `.env`
-`ASPNETCORE_KESTREL_CERT_PASSWORD`). Dev uses **ephemeral** OpenIddict keys; production-like runs supply
-real keys via env (see `.env.example`). The migrator is a one-shot container (TMS migrates through its
-Persistence project, Auth through its API — only those carry EF Core Design); both APIs wait for it to
-complete.
+The dev stack is **infra-only** (ADR-0006, amended by #190 / M6-14): `compose.yaml` runs postgres +
+migrator + mailpit + aspire-dashboard, and the **three apps run on the host** as the canonical dev loop —
+auth-api (`https://localhost:5003`), tms-api (`https://localhost:5002`), frontend (`https://localhost:7017`),
+each via its `https` `launchSettings` profile (`dotnet run`, or the Rider compound `.run/TMS dev (all hosts)`).
+Host Kestrels serve HTTPS with the **native** ASP.NET Core dev cert (one-time `dotnet dev-certs https --trust`)
+— no PFX, no mount. Because the browser, the host RP and the host resource server all resolve
+`localhost:5003`/`:5002` identically, a single OIDC `Authority`/`Issuer` serves every leg and the token `iss`
+matches; tms-api's back-channel uses the `Auth:Authority`→`Auth:Issuer` fallback (`AuthSettings.EffectiveAuthority`)
+to reach the host auth Kestrel. The containerized `auth-api`/`tms-api` services were retired from dev because they
+were neither the fast inner loop (host Kestrels give hot reload + breakpoints + no image rebuild) nor prod-parity —
+`compose.prod.yaml` is the sole containerized/parity stack and exercises the very same Dockerfiles. The migrator is
+a one-shot container (TMS migrates through its Persistence project, Auth through its API — only those carry EF Core
+Design); it runs to completion against both DBs so the host Kestrels hit a migrated schema. Dev uses **ephemeral**
+OpenIddict keys; production-like runs supply real keys via env (see `.env.example`).
 
 `compose.prod.yaml` is the **separate production-parity stack** (ADR-0008 §4 / M6-07; the dev
 `compose.yaml` is left untouched). It runs all four images **plus a Caddy reverse proxy** under
@@ -470,7 +472,8 @@ files sitting uncommitted at once, or two tickets sharing one context.
   list translations (search/filter/paginate, incl. `NeedsReview`), get one, upsert, approve
   (clears invalidation + regenerates the artifact), translation-file distribution (pre-built
   artifact + ETag/304, `GET /translation-files/{lang}`), GameVersion endpoints, forum watcher
-  (creates unprocessed `GameVersion`) → compose (postgres + migrator + auth-api + tms-api) →
+  (creates unprocessed `GameVersion`) → compose (postgres + migrator + auth-api + tms-api; M6-14
+  later demoted the dev stack to infra-only + host Kestrels — ADR-0006 amendment) →
   integration tests → CLI auto-download (M2-20, the freeze exception).
   **DoD:** the full loop works: CLI `export` → TMS import (diff) → edit/approve → CLI `launch`
   auto-downloads → `patch` → texts visible in game; a simulated game update invalidates changed

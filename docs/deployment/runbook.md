@@ -18,6 +18,7 @@
 - [Consistency rules that bite](#consistency-rules-that-bite) — issuer / redirect / authority / CORS
 - [Bringing the stack up](#bringing-the-stack-up)
 - [Database migrations](#database-migrations)
+- [Post-deploy smoke test](#post-deploy-smoke-test) — one command verifies a deployed environment end-to-end
 - [See also](#see-also)
 
 ## Services & the container contract
@@ -316,8 +317,9 @@ the provider-specific walkthrough is deferred until the provider is chosen):
    ([Database migrations](#database-migrations)). A non-zero exit blocks the rollout.
 4. **Roll out** auth-api, tms-api, frontend on the **same image tag** as the migrator. Mount the DP
    keyring volumes; point the ingress at each app's `:8080`.
-5. **Verify**: `/health/ready` green on both APIs, a full browser OIDC login, and the post-deploy
-   smoke test (M6-13).
+5. **Verify**: `/health/ready` green on both APIs, a full browser OIDC login, and the
+   [post-deploy smoke test](#post-deploy-smoke-test) (one command — health + auth token + token
+   acceptance + file distribution).
 
 ## Database migrations
 
@@ -413,6 +415,78 @@ psql "$ConnectionStrings__TranslationDatabase" -c 'SELECT "MigrationId" FROM tra
 # applied Auth migrations
 psql "$ConnectionStrings__AuthDatabase"        -c 'SELECT "MigrationId" FROM auth."__EFMigrationsHistory" ORDER BY "MigrationId";'
 ```
+
+## Post-deploy smoke test
+
+One command that gives a green/red signal that a deployed environment came up correctly, without
+manual clicking — run it as the final [bring-up](#bringing-the-stack-up) step (after migrations + a
+browser login) and after every subsequent deploy. `scripts/smoke.sh` (with a `scripts/smoke.ps1`
+twin per repo convention) takes the three base URLs + the OpenIddict API client secret and exercises
+the four legs that actually break on a deploy:
+
+| # | Check | Pass condition |
+|---|---|---|
+| 1 | **Health** | `GET {auth}/health/ready` = 200, `GET {tms}/health/ready` = 200, `GET {frontend}/` = 2xx/3xx |
+| 2 | **OIDC token** | `POST {auth}/connect/token` (client_credentials) = 200 + an `access_token` |
+| 3 | **Token accepted by tms** | anonymous `GET {tms}/api/v1/game-versions` = **401**; the same call **with** the bearer token is **NOT 401** |
+| 4 | **File distribution** | `GET {tms}/api/v1/translation-files/{lang}` = 200 + `ETag`, then a re-GET with `If-None-Match` = 304 |
+
+It prints a `✓`/`✗`/`⚠` per check and **exits non-zero (1) on any failure** (a usage/config problem
+exits 2); CI consumers and `&&` chains can rely on the exit code. Two behaviours are deliberate and
+worth knowing before you read a result:
+
+- **Leg 3 expects 403, and that is success.** The only non-interactive OIDC grant in a deployed
+  environment is **client-credentials** (the web client needs a browser; the password-flow client is
+  seeded only in `Testing`). A client-credentials token carries **no user role**, and every TMS
+  endpoint is role-gated — so a *validated* token is **403 Forbidden**, not 200. The check therefore
+  proves the token is **accepted** (got past authentication), pairing it with an anonymous 401 to
+  prove the endpoint is genuinely protected. A **401 with a valid token is the real red flag**: it
+  means tms rejected it — almost always an issuer / audience / JWKS mismatch (see
+  [Consistency rules that bite](#consistency-rules-that-bite), rules #1–#2), the classic
+  "works locally, 401 on staging" failure this leg exists to catch.
+- **Leg 4 warns (does not fail) on 404.** A freshly deployed but not-yet-imported environment has no
+  translation artifact, so the endpoint returns 404 — the endpoint is up, there is just nothing to
+  distribute yet. That is a `⚠` warning, not a failure (the run can still pass); a green 200 + 304
+  appears once an import/seed has run.
+
+### Running it
+
+```bash
+# A real environment (publicly-trusted ingress cert — no --insecure needed):
+SMOKE_CLIENT_SECRET="$OPENIDDICT_API_CLIENT_SECRET" scripts/smoke.sh \
+  --auth-url     https://auth.lotro.koniec.dev \
+  --tms-url      https://tms.lotro.koniec.dev \
+  --frontend-url https://lotro.koniec.dev
+# PowerShell twin: $env:SMOKE_CLIENT_SECRET='…'; scripts/smoke.ps1 -AuthUrl … -TmsUrl … -FrontendUrl …
+
+# The local prod-parity stack (compose.prod.yaml): client secret is the generated value in .env.prod;
+# certs are the local CA, so add --insecure (or trust .docker/prod-https/rootCA.crt):
+scripts/smoke.sh --insecure \
+  --auth-url https://auth.lotro.test --tms-url https://tms.lotro.test --frontend-url https://app.lotro.test \
+  --client-secret "$(grep '^OpenIddict__ApiClientSecret=' .env.prod | cut -d= -f2-)"
+
+# The local dev stack (host Kestrels + untrusted dev cert): the dev API client secret is the well-known
+# appsettings.Development.json value:
+scripts/smoke.sh --insecure \
+  --auth-url https://localhost:5003 --tms-url https://localhost:5002 --frontend-url https://localhost:7017 \
+  --client-secret dev-api-secret-min-32-characters-long
+```
+
+Each flag has a `SMOKE_*` environment fallback (`--auth-url`/`SMOKE_AUTH_URL`,
+`--tms-url`/`SMOKE_TMS_URL`, `--frontend-url`/`SMOKE_FRONTEND_URL`,
+`--client-secret`/`SMOKE_CLIENT_SECRET`, `--client-id`/`SMOKE_CLIENT_ID` (default
+`lotrokoniecdev-api`), `--scope`/`SMOKE_SCOPE` (default `service`), `--lang`/`SMOKE_LANG` (default
+`pl`), `--timeout`/`SMOKE_TIMEOUT` (default 15), `--insecure`/`SMOKE_INSECURE=1`). The `--client-secret`
+is the auth server's `OpenIddict__ApiClientSecret` (see [Generating secrets](#generating-secrets));
+`bash scripts/smoke.sh --help` prints the full reference.
+
+### In CI
+
+The [`Smoke test`](../../.github/workflows/smoke.yml) workflow runs `scripts/smoke.sh` on demand
+(`workflow_dispatch` — enter the three URLs; the secret comes from the repository/environment secret
+`SMOKE_CLIENT_SECRET`). It is **manual-only by design**: the deploy target/provider is deferred
+(ADR-0008), so there is no environment to auto-run against yet. When a provider + staging exist, call
+this job at the end of the deploy workflow so a deploy that comes up wrong fails loudly.
 
 ## See also
 

@@ -1,0 +1,8 @@
+<component name="ProjectRunConfigurationManager">
+  <configuration default="false" name="TMS dev (all hosts)" type="CompoundRunConfigurationType">
+    <toRun name="auth-api (https)" type="LaunchSettings" />
+    <toRun name="tms-api (https)" type="LaunchSettings" />
+    <toRun name="frontend (https)" type="LaunchSettings" />
+    <method v="2" />
+  </configuration>
+</component>

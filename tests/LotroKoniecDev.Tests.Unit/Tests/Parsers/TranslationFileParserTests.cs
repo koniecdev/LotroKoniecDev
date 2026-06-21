@@ -109,7 +109,7 @@ public sealed class TranslationFileParserTests : IDisposable
         result.IsSuccess.ShouldBeTrue();
         result.Value.Count.ShouldBe(1);
         result.Value[0].FileId.ShouldBe(12345);
-        result.Value[0].GossipId.ShouldBe(67890);
+        result.Value[0].GossipId.ShouldBe(67890UL);
         result.Value[0].Content.ShouldBe("Hello World");
         result.Value[0].ArgsOrder.ShouldBeNull();
         result.Value[0].ArgsId.ShouldBeNull();
@@ -167,11 +167,11 @@ public sealed class TranslationFileParserTests : IDisposable
         result.IsSuccess.ShouldBeTrue();
         result.Value.Count.ShouldBe(3);
         result.Value[0].FileId.ShouldBe(100);
-        result.Value[0].GossipId.ShouldBe(200);
+        result.Value[0].GossipId.ShouldBe(200UL);
         result.Value[1].FileId.ShouldBe(100);
-        result.Value[1].GossipId.ShouldBe(300);
+        result.Value[1].GossipId.ShouldBe(300UL);
         result.Value[2].FileId.ShouldBe(200);
-        result.Value[2].GossipId.ShouldBe(300);
+        result.Value[2].GossipId.ShouldBe(300UL);
     }
 
     [Fact]
@@ -218,6 +218,35 @@ public sealed class TranslationFileParserTests : IDisposable
         result.Error.Code.ShouldBe("Translation.ParseError");
     }
 
+    [Theory]
+    [InlineData("100||2147483647||Content||NULL||NULL||1", 2147483647UL)]                       // int.MaxValue — the old ceiling
+    [InlineData("100||2147483648||Content||NULL||NULL||1", 2147483648UL)]                       // int.MaxValue + 1 — previously warn-skipped (silent loss)
+    [InlineData("100||9223372036854775808||Content||NULL||NULL||1", 9223372036854775808UL)]     // long.MaxValue + 1 — the high-bit band long cannot hold
+    [InlineData("100||18446744073709551615||Content||NULL||NULL||1", 18446744073709551615UL)]   // ulong.MaxValue — full 8-byte range the exporter can write
+    public void ParseLine_GossipIdAtOrAboveIntMaxValue_ShouldParseFullUnsignedRange(string line, ulong expectedGossipId)
+    {
+        // Act
+        Result<Translation> result = _parser.ParseLine(line);
+
+        // Assert
+        result.IsSuccess.ShouldBeTrue();
+        result.Value.GossipId.ShouldBe(expectedGossipId);
+    }
+
+    [Theory]
+    [InlineData("100||-5||Content||NULL||NULL||1")]                          // negative — meaningless for an unsigned 8-byte id
+    [InlineData("100||18446744073709551616||Content||NULL||NULL||1")]        // ulong.MaxValue + 1 — beyond the 8-byte range
+    public void ParseLine_GossipIdOutsideUnsignedRange_ShouldReturnFailure(string line)
+    {
+        // Act — the tolerant parser must report a per-line failure (warn-skip), not let the
+        // OverflowException abort the whole file.
+        Result<Translation> result = _parser.ParseLine(line);
+
+        // Assert
+        result.IsFailure.ShouldBeTrue();
+        result.Error.Code.ShouldBe("Translation.ParseError");
+    }
+
     [Fact]
     public void ParseLine_ValidLine_ShouldReturnSuccess()
     {
@@ -227,7 +256,7 @@ public sealed class TranslationFileParserTests : IDisposable
         // Assert
         result.IsSuccess.ShouldBeTrue();
         result.Value.FileId.ShouldBe(100);
-        result.Value.GossipId.ShouldBe(200);
+        result.Value.GossipId.ShouldBe(200UL);
         result.Value.Content.ShouldBe("Test content");
     }
 
@@ -273,7 +302,7 @@ public sealed class TranslationFileParserTests : IDisposable
         // Assert
         result.IsSuccess.ShouldBeTrue();
         result.Value.FileId.ShouldBe(100);
-        result.Value.GossipId.ShouldBe(200);
+        result.Value.GossipId.ShouldBe(200UL);
         result.Value.Content.ShouldBe("Left||Right");
         result.Value.ArgsOrder.ShouldBeNull();
         result.Value.ArgsId.ShouldBeNull();

@@ -50,7 +50,7 @@ public sealed class PatchingServiceTests
 
     private static Translation CreateTranslation(
         int fileId = TextFileId,
-        int gossipId = (int)FragmentId1,
+        ulong gossipId = FragmentId1,
         string content = "Przetlumaczony tekst",
         int[]? argsOrder = null,
         bool isApproved = true) =>
@@ -290,8 +290,8 @@ public sealed class PatchingServiceTests
         _datFileHandler.GetSubfileData(DatHandle, TextFileId, 100)
             .Returns(Result.Success(subFileData));
 
-        Translation t1 = CreateTranslation(gossipId: (int)FragmentId1);
-        Translation t2 = CreateTranslation(gossipId: (int)FragmentId2);
+        Translation t1 = CreateTranslation(gossipId: FragmentId1);
+        Translation t2 = CreateTranslation(gossipId: FragmentId2);
         SetupTranslations(t1, t2);
 
         // Act
@@ -364,8 +364,8 @@ public sealed class PatchingServiceTests
         _datFileHandler.GetSubfileData(DatHandle, TextFileId, 100)
             .Returns(Result.Success(subFileData));
 
-        Translation approved = CreateTranslation(gossipId: (int)FragmentId1, isApproved: true);
-        Translation unapproved = CreateTranslation(gossipId: (int)FragmentId2, isApproved: false);
+        Translation approved = CreateTranslation(gossipId: FragmentId1, isApproved: true);
+        Translation unapproved = CreateTranslation(gossipId: FragmentId2, isApproved: false);
         SetupTranslations(approved, unapproved);
 
         // Act

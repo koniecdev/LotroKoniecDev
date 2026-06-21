@@ -8,7 +8,7 @@ namespace LotroKoniecDev.Domain.Models;
 public sealed class Translation
 {
     public int FileId { get; init; }
-    public int GossipId { get; init; }
+    public ulong GossipId { get; init; }
     public string Content { get; init; } = string.Empty;
     public int[]? ArgsOrder { get; init; }
     public int[]? ArgsId { get; init; }
@@ -20,9 +20,10 @@ public sealed class Translation
     public bool HasArguments => ArgsOrder is { Length: > 0 };
 
     /// <summary>
-    /// Gets the fragment ID as an unsigned long.
+    /// Gets the fragment ID — the 8-byte unsigned <see cref="Fragment.FragmentId"/> this row
+    /// targets. Equal to <see cref="GossipId"/>, surfaced under the DAT-domain name.
     /// </summary>
-    public ulong FragmentId => (ulong)GossipId;
+    public ulong FragmentId => GossipId;
 
     /// <summary>
     /// Splits the content into text pieces using the separator.

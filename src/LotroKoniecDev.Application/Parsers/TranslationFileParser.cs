@@ -83,7 +83,7 @@ public sealed class TranslationFileParser : ITranslationParser
             Translation translation = new()
             {
                 FileId = int.Parse(parts[0]),
-                GossipId = int.Parse(parts[1]),
+                GossipId = ulong.Parse(parts[1]),
                 Content = UnescapeContent(content),
                 ArgsOrder = ParseArgsArray(parts[^3]),
                 ArgsId = ParseArgsArray(parts[^2]),
@@ -92,7 +92,7 @@ public sealed class TranslationFileParser : ITranslationParser
 
             return Result.Success(translation);
         }
-        catch (FormatException ex)
+        catch (Exception ex) when (ex is FormatException or OverflowException)
         {
             return Result.Failure<Translation>(
                 DomainErrors.Translation.ParseError(line, ex.Message));

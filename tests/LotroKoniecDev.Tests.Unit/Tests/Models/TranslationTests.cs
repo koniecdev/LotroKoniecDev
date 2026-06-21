@@ -71,6 +71,21 @@ public sealed class TranslationTests
     }
 
     [Fact]
+    public void FragmentId_WithMaxUnsignedGossipId_ShouldReturnSameValueWithoutNarrowing()
+    {
+        // Arrange
+        Translation translation = new()
+        {
+            FileId = 1,
+            GossipId = ulong.MaxValue,
+            Content = "Test"
+        };
+
+        // Assert — the old int-backed GossipId would have truncated anything above int.MaxValue.
+        translation.FragmentId.ShouldBe(ulong.MaxValue);
+    }
+
+    [Fact]
     public void GetPieces_WithoutSeparator_ShouldReturnSinglePiece()
     {
         // Arrange

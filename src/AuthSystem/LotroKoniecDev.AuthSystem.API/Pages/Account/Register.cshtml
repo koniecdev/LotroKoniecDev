@@ -1,0 +1,578 @@
+@page
+@model LotroKoniecDev.AuthSystem.API.Pages.Account.RegisterModel
+@{
+    Layout = null;
+    string loginUrl = string.IsNullOrEmpty(Model.ReturnUrl)
+        ? "/Account/Login"
+        : $"/Account/Login?returnUrl={Uri.EscapeDataString(Model.ReturnUrl)}";
+}
+
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Załóż konto — lotro.koniec.dev</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@@400;500;600;700;800&family=JetBrains+Mono:wght@@400;500&display=swap" rel="stylesheet" />
+    <style>
+        :root {
+            --bg:        oklch(0.16 0.013 165);
+            --bg-2:      oklch(0.20 0.015 165);
+            --surface:   oklch(0.23 0.016 165);
+            --surface-hi:oklch(0.28 0.018 165);
+            --border:    oklch(0.34 0.018 165);
+            --border-hi: oklch(0.44 0.022 165);
+
+            --text:      oklch(0.96 0.008 160);
+            --text-mute: oklch(0.80 0.012 160);
+            --text-dim:  oklch(0.68 0.014 160);
+
+            --accent:     oklch(0.80 0.17 168);
+            --accent-hi:  oklch(0.87 0.18 168);
+            --accent-dim: oklch(0.48 0.10 168);
+            --accent-soft:oklch(0.32 0.08 168);
+
+            --danger:      oklch(0.68 0.16 25);
+            --danger-hi:   oklch(0.76 0.18 25);
+            --danger-dim:  oklch(0.42 0.10 25);
+            --danger-soft: oklch(0.30 0.07 25);
+
+            --radius: 14px;
+            --radius-sm: 8px;
+            --shadow: 0 1px 0 oklch(0.38 0.014 165 / 0.5) inset, 0 8px 24px -12px rgba(0,0,0,0.55);
+
+            --font-sans: "Manrope", ui-sans-serif, system-ui, -apple-system, "Helvetica Neue", sans-serif;
+            --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+        }
+
+        * { box-sizing: border-box; }
+        html, body { margin: 0; padding: 0; }
+        body {
+            background: var(--bg);
+            color: var(--text);
+            font-family: var(--font-sans);
+            font-size: 15px;
+            line-height: 1.55;
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+            min-height: 100vh;
+        }
+        a { color: inherit; text-decoration: none; }
+        button { font-family: inherit; cursor: pointer; }
+
+        .app {
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            background:
+                radial-gradient(1200px 600px at 80% -200px, oklch(0.28 0.06 168 / 0.35), transparent 60%),
+                radial-gradient(900px 500px at -100px 100px, oklch(0.22 0.03 165 / 0.5), transparent 60%);
+        }
+
+        .auth-top {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 16px;
+            padding: 16px 28px;
+            border-bottom: 1px solid var(--border);
+            background: oklch(0.15 0.012 165 / 0.7);
+            backdrop-filter: blur(10px);
+        }
+        .brand {
+            display: inline-flex;
+            align-items: center;
+            gap: 10px;
+            color: var(--text);
+            font-weight: 700;
+            font-size: 16px;
+            letter-spacing: -0.01em;
+        }
+        .brand-mark {
+            width: 30px; height: 30px;
+            border-radius: 8px;
+            background: linear-gradient(160deg, var(--accent), var(--accent-dim));
+            color: oklch(0.16 0.012 165);
+            display: grid;
+            place-items: center;
+            box-shadow: 0 0 0 1px oklch(0.60 0.08 168 / 0.5) inset;
+        }
+        .brand-mark svg { width: 17px; height: 17px; }
+        .brand-accent { color: var(--accent-hi); }
+        .auth-top .top-link {
+            display: inline-flex;
+            align-items: center;
+            gap: 7px;
+            font-family: var(--font-mono);
+            font-size: 11px;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            color: var(--text-mute);
+            padding: 7px 13px;
+            border: 1px solid var(--border);
+            border-radius: 999px;
+            background: var(--bg-2);
+            transition: color .15s, border-color .15s, background .15s;
+        }
+        .auth-top .top-link:hover { color: var(--text); border-color: var(--border-hi); background: var(--surface-hi); }
+        .auth-top .top-link svg { width: 13px; height: 13px; }
+
+        .auth-main {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 48px 24px 56px;
+        }
+        .auth-stack { width: 100%; max-width: 440px; }
+
+        .auth-eyebrow {
+            font-family: var(--font-mono);
+            font-size: 11px;
+            letter-spacing: 0.18em;
+            color: var(--accent);
+            text-align: center;
+            margin: 0 0 16px;
+            text-transform: uppercase;
+        }
+
+        .auth-panel {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            box-shadow: var(--shadow);
+            overflow: hidden;
+            width: 100%;
+        }
+        .auth-panel-head {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            padding: 18px 24px;
+            border-bottom: 1px solid var(--border);
+            background: linear-gradient(to bottom,
+                oklch(0.25 0.018 165 / 0.6),
+                oklch(0.22 0.016 165 / 0));
+        }
+        .auth-panel-head h2 {
+            margin: 0;
+            font-size: 16px;
+            font-weight: 700;
+            letter-spacing: -0.005em;
+            color: var(--text);
+            display: inline-flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .auth-panel-head .panel-icon {
+            width: 30px; height: 30px;
+            border-radius: 8px;
+            background: var(--bg-2);
+            border: 1px solid var(--border);
+            color: var(--accent-hi);
+            display: grid;
+            place-items: center;
+            flex: 0 0 30px;
+        }
+        .auth-panel-head .panel-icon svg { width: 16px; height: 16px; }
+        .auth-panel-head .panel-aside {
+            font-family: var(--font-mono);
+            font-size: 10.5px;
+            color: var(--text-mute);
+            letter-spacing: 0.1em;
+            text-transform: uppercase;
+        }
+        .auth-panel-body {
+            padding: 22px 24px;
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }
+        .auth-lead {
+            margin: -2px 0 0;
+            font-size: 13.5px;
+            color: var(--text-mute);
+            line-height: 1.5;
+        }
+
+        .auth-field { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+        .auth-field label {
+            font-family: var(--font-mono);
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            color: var(--text-mute);
+        }
+        .auth-input-wrap { position: relative; }
+        .auth-input-wrap > svg.leading {
+            position: absolute;
+            left: 14px; top: 50%;
+            transform: translateY(-50%);
+            color: var(--text-mute);
+            pointer-events: none;
+            width: 16px; height: 16px;
+        }
+        .auth-input {
+            width: 100%;
+            padding: 12px 14px 12px 42px;
+            background: var(--bg-2);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-sm);
+            color: var(--text);
+            font: inherit;
+            font-size: 14.5px;
+            transition: border-color .15s, box-shadow .15s, background .15s;
+        }
+        .auth-input::placeholder { color: var(--text-dim); }
+        .auth-input:hover:not(:disabled) { border-color: var(--border-hi); }
+        .auth-input:focus {
+            outline: none;
+            border-color: var(--accent);
+            box-shadow: 0 0 0 3px oklch(0.80 0.17 168 / 0.18);
+        }
+        .auth-field-help {
+            font-size: 12.5px;
+            color: var(--text-dim);
+            line-height: 1.5;
+        }
+
+        .auth-alert {
+            display: flex;
+            align-items: flex-start;
+            gap: 10px;
+            padding: 13px 15px;
+            background: oklch(0.30 0.07 25 / 0.4);
+            border: 1px solid var(--danger-dim);
+            border-radius: var(--radius-sm);
+            color: oklch(0.92 0.04 25);
+            font-size: 13px;
+            line-height: 1.45;
+        }
+        .auth-alert > svg { width: 18px; height: 18px; flex: 0 0 18px; color: var(--danger-hi); margin-top: 1px; }
+        .auth-alert .t { font-weight: 600; display: block; }
+        .auth-alert .s {
+            display: block;
+            margin-top: 3px;
+            color: oklch(0.82 0.06 25);
+            font-size: 12.5px;
+        }
+        .auth-alert.success {
+            background: oklch(0.28 0.06 165 / 0.42);
+            border-color: oklch(0.55 0.13 165 / 0.5);
+            color: oklch(0.94 0.04 165);
+        }
+        .auth-alert.success > svg { color: var(--accent-hi); }
+        .auth-alert.success .s { color: oklch(0.84 0.05 165); }
+
+        .pw-rules {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px 16px;
+            margin: 2px 0 0;
+            padding: 13px 15px;
+            list-style: none;
+            border: 1px dashed var(--border);
+            border-radius: var(--radius-sm);
+            background: var(--bg-2);
+        }
+        .pw-rules li {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 12.5px;
+            color: var(--text-dim);
+        }
+        .pw-rules li .dot {
+            width: 14px; height: 14px;
+            border-radius: 50%;
+            border: 1px solid var(--border-hi);
+            display: grid;
+            place-items: center;
+            flex: 0 0 14px;
+        }
+        .pw-rules li .dot svg {
+            width: 9px; height: 9px;
+            color: oklch(0.15 0.014 165);
+            opacity: 0.55;
+        }
+
+        .auth-consents {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            padding: 14px 15px;
+            border: 1px dashed var(--border);
+            border-radius: var(--radius-sm);
+            background: var(--bg-2);
+        }
+        .checkbox {
+            display: inline-flex;
+            align-items: flex-start;
+            gap: 10px;
+            cursor: pointer;
+            font-size: 13px;
+            color: var(--text-mute);
+            line-height: 1.45;
+            user-select: none;
+        }
+        .checkbox input { position: absolute; opacity: 0; pointer-events: none; }
+        .checkbox .box {
+            width: 18px; height: 18px;
+            margin-top: 1px;
+            border-radius: 5px;
+            background: var(--surface);
+            border: 1px solid var(--border-hi);
+            display: grid;
+            place-items: center;
+            transition: background .15s, border-color .15s;
+            flex: 0 0 18px;
+        }
+        .checkbox .box svg {
+            width: 12px; height: 12px;
+            color: oklch(0.15 0.014 165);
+            opacity: 0;
+            transform: scale(0.7);
+            transition: opacity .12s, transform .12s;
+        }
+        .checkbox input:checked ~ .box {
+            background: var(--accent);
+            border-color: var(--accent);
+        }
+        .checkbox input:checked ~ .box svg { opacity: 1; transform: scale(1); }
+        .checkbox input:focus-visible ~ .box {
+            box-shadow: 0 0 0 3px oklch(0.80 0.17 168 / 0.25);
+        }
+        .checkbox:hover .box { border-color: var(--text-mute); }
+        .checkbox a { color: var(--accent-hi); font-weight: 600; }
+        .checkbox a:hover { color: var(--accent); }
+
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            padding: 13px 20px;
+            border-radius: var(--radius-sm);
+            border: 1px solid transparent;
+            font-weight: 600;
+            font-size: 14.5px;
+            transition: transform .08s, background .15s, border-color .15s, color .15s;
+        }
+        .btn:active { transform: translateY(1px); }
+        .btn svg { width: 16px; height: 16px; flex: 0 0 16px; }
+        .btn-primary {
+            background: var(--accent);
+            color: oklch(0.15 0.014 165);
+            border-color: oklch(0.62 0.10 168);
+        }
+        .btn-primary:hover { background: var(--accent-hi); }
+        .btn-ghost {
+            background: transparent;
+            color: var(--text-mute);
+            border-color: var(--border);
+        }
+        .btn-ghost:hover { color: var(--text); border-color: var(--border-hi); background: var(--surface-hi); }
+        .btn-block { width: 100%; }
+
+        .auth-actions { display: flex; flex-direction: column; gap: 10px; margin-top: 2px; }
+
+        .auth-panel-foot {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            padding: 15px 24px;
+            border-top: 1px solid var(--border);
+            background: var(--bg-2);
+            font-size: 13px;
+            color: var(--text-mute);
+        }
+        .auth-panel-foot a {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            color: var(--accent-hi);
+            font-weight: 600;
+        }
+        .auth-panel-foot a:hover { color: var(--accent); }
+        .auth-panel-foot a svg { width: 13px; height: 13px; }
+
+        .auth-meta {
+            margin-top: 16px;
+            font-family: var(--font-mono);
+            font-size: 10.5px;
+            letter-spacing: 0.08em;
+            color: var(--text-dim);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            text-transform: uppercase;
+        }
+        .auth-meta svg { width: 12px; height: 12px; color: var(--accent-hi); }
+
+        .foot {
+            padding: 22px 28px 26px;
+            border-top: 1px solid var(--border);
+            text-align: center;
+        }
+        .foot p {
+            margin: 0;
+            font-family: var(--font-mono);
+            font-size: 11px;
+            letter-spacing: 0.08em;
+            color: var(--text-mute);
+        }
+
+        @@media (max-width: 640px) {
+            .auth-top { padding: 14px 18px; }
+            .auth-top .top-link span { display: none; }
+            .pw-rules { grid-template-columns: 1fr; }
+        }
+    </style>
+</head>
+<body>
+    <div class="app">
+        <div class="auth-top">
+            <a href="https://lotro.koniec.dev" class="brand">
+                <span class="brand-mark" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 10 L4 19 L10 19 L10 14 L14 14 L14 19 L20 19 L20 10"/><path d="M4 10 L12 4 L20 10"/></svg></span>
+                <span class="brand-text">lotro<span class="brand-accent">koniec</span>.dev</span>
+            </a>
+            <a href="@loginUrl" class="top-link"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><path d="m10 17 5-5-5-5"/><path d="M15 12H3"/></svg><span>Zaloguj się</span></a>
+        </div>
+
+        <div class="auth-main">
+            <div class="auth-stack">
+                @if (Model.IsRegistered)
+                {
+                    <p class="auth-eyebrow">Witaj w projekcie</p>
+                    <section class="auth-panel" aria-labelledby="register-h">
+                        <header class="auth-panel-head">
+                            <h2 id="register-h">
+                                <span class="panel-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg></span>
+                                Konto utworzone
+                            </h2>
+                            <span class="panel-aside">Gotowe</span>
+                        </header>
+                        <div class="auth-panel-body">
+                            <div class="auth-alert success" role="status">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
+                                <div>
+                                    <span class="t">Konto zostało utworzone — potwierdź adres e-mail</span>
+                                    <span class="s">Wysłaliśmy link aktywacyjny na podany adres. Kliknij go, aby potwierdzić konto, a następnie zaloguj się.</span>
+                                </div>
+                            </div>
+                            <div class="auth-actions">
+                                <a href="@loginUrl" class="btn btn-primary btn-block">
+                                    Przejdź do logowania
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m13 5 7 7-7 7"/></svg>
+                                </a>
+                            </div>
+                        </div>
+                    </section>
+                }
+                else
+                {
+                    <p class="auth-eyebrow">Dołącz do projektu</p>
+                    <section class="auth-panel" aria-labelledby="register-h">
+                        <header class="auth-panel-head">
+                            <h2 id="register-h">
+                                <span class="panel-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg></span>
+                                Załóż konto
+                            </h2>
+                            <span class="panel-aside">Publiczna</span>
+                        </header>
+                        <form class="auth-panel-body" method="post" asp-route-returnUrl="@Model.ReturnUrl">
+                            @if (!string.IsNullOrEmpty(Model.ErrorMessage))
+                            {
+                                <div class="auth-alert" role="alert">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 9v4"/><path d="M12 17h.01"/><path d="M10.3 3.86 1.82 18a2 2 0 0 0 1.7 3h16.94a2 2 0 0 0 1.7-3L13.69 3.86a2 2 0 0 0-3.4 0z"/></svg>
+                                    <div>
+                                        <span class="t">Nie udało się założyć konta</span>
+                                        <span class="s">@Model.ErrorMessage</span>
+                                    </div>
+                                </div>
+                            }
+                            <p class="auth-lead">Utwórz konto, aby tłumaczyć teksty gry, zgłaszać poprawki i zatwierdzać gotowe wpisy.</p>
+
+                            <div class="auth-field">
+                                <label asp-for="Username">Nazwa użytkownika</label>
+                                <div class="auth-input-wrap">
+                                    <svg class="leading" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+                                    <input asp-for="Username" type="text" class="auth-input" placeholder="np. kasia92" autocomplete="username" required autofocus />
+                                </div>
+                            </div>
+
+                            <div class="auth-field">
+                                <label asp-for="Email">Adres e-mail</label>
+                                <div class="auth-input-wrap">
+                                    <svg class="leading" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 7 9 6 9-6"/></svg>
+                                    <input asp-for="Email" type="email" class="auth-input" placeholder="ty@@example.com" autocomplete="email" required />
+                                </div>
+                            </div>
+
+                            <div class="auth-field">
+                                <label asp-for="Password">Hasło</label>
+                                <div class="auth-input-wrap">
+                                    <svg class="leading" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>
+                                    <input asp-for="Password" type="password" class="auth-input" placeholder="Minimum 8 znaków" autocomplete="new-password" required />
+                                </div>
+                            </div>
+
+                            <div class="auth-field">
+                                <label asp-for="ConfirmPassword">Powtórz hasło</label>
+                                <div class="auth-input-wrap">
+                                    <svg class="leading" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>
+                                    <input asp-for="ConfirmPassword" type="password" class="auth-input" placeholder="Wpisz hasło ponownie" autocomplete="new-password" required />
+                                </div>
+                            </div>
+
+                            <ul class="pw-rules" aria-label="Wymagania hasła">
+                                <li><span class="dot"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg></span>Min. 8 znaków</li>
+                                <li><span class="dot"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg></span>Mała i wielka litera</li>
+                                <li><span class="dot"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg></span>Cyfra</li>
+                                <li><span class="dot"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg></span>Znak specjalny</li>
+                            </ul>
+
+                            <div class="auth-consents">
+                                <label class="checkbox">
+                                    <input asp-for="AcceptedPrivacyPolicy" type="checkbox" />
+                                    <span class="box" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg></span>
+                                    <span>Akceptuję <a href="/Account/PrivacyPolicy" target="_blank" rel="noopener">politykę prywatności</a>.</span>
+                                </label>
+                                <label class="checkbox">
+                                    <input asp-for="AcceptedDataProcessingConsent" type="checkbox" />
+                                    <span class="box" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg></span>
+                                    <span>Wyrażam zgodę na przetwarzanie moich danych osobowych w celu prowadzenia konta.</span>
+                                </label>
+                            </div>
+
+                            <div class="auth-actions">
+                                <button type="submit" class="btn btn-primary btn-block">
+                                    Załóż konto
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m13 5 7 7-7 7"/></svg>
+                                </button>
+                            </div>
+                        </form>
+                        <footer class="auth-panel-foot">
+                            <span>Masz już konto?</span>
+                            <a href="@loginUrl">Zaloguj się
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m13 5 7 7-7 7"/></svg>
+                            </a>
+                        </footer>
+                    </section>
+                }
+                <p class="auth-meta"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg> Połączenie szyfrowane · TLS 1.3</p>
+            </div>
+        </div>
+
+        <footer class="foot">
+            <p>lotro.koniec.dev — niekomercyjny projekt społeczności polskich graczy LOTRO</p>
+        </footer>
+    </div>
+</body>
+</html>

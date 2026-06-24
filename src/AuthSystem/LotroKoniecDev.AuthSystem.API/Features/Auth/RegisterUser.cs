@@ -22,14 +22,12 @@ internal sealed partial class RegisterUser : IApiEndpoint
         string Username,
         string Email,
         string Password,
-        string PhoneNumber,
         bool AcceptedPrivacyPolicy,
         bool AcceptedDataProcessingConsent) : ICommand<Result<IdentityId>>;
 
     internal sealed class CommandValidator : AbstractValidator<Command>
     {
         private const int UsernameMaxLength = 150;
-        private const int PhoneNumberMaxLength = 30;
 
         public CommandValidator()
         {
@@ -46,11 +44,6 @@ internal sealed partial class RegisterUser : IApiEndpoint
                     .WithMessage($"Username must not exceed {UsernameMaxLength} characters.");
 
             RuleFor(x => x.Password).ApplyPasswordRules();
-
-            RuleFor(x => x.PhoneNumber)
-                .NotEmpty().WithMessage("Phone number is required.")
-                .MaximumLength(PhoneNumberMaxLength)
-                    .WithMessage($"Phone number must not exceed {PhoneNumberMaxLength} characters.");
 
             RuleFor(x => x.AcceptedPrivacyPolicy)
                 .Equal(true).WithMessage("You must accept the privacy policy to register.");
@@ -112,7 +105,6 @@ internal sealed partial class RegisterUser : IApiEndpoint
                 {
                     UserName = command.Username,
                     Email = command.Email,
-                    PhoneNumber = command.PhoneNumber,
                     DataProcessingConsentGiven = command.AcceptedDataProcessingConsent,
                     DataProcessingConsentDate = command.AcceptedDataProcessingConsent ? _timeProvider.GetUtcNow() : null,
                     PrivacyPolicyAccepted = command.AcceptedPrivacyPolicy,
@@ -191,7 +183,6 @@ internal sealed partial class RegisterUser : IApiEndpoint
                     request.Username,
                     request.Email,
                     request.Password,
-                    request.PhoneNumber,
                     request.AcceptedPrivacyPolicy,
                     request.AcceptedDataProcessingConsent);
 

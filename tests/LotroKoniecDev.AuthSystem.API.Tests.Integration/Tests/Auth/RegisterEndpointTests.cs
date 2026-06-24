@@ -39,7 +39,6 @@ public sealed class RegisterEndpointTests : EndpointsTestBase
             Faker.Internet.UserName() + Faker.Random.AlphaNumeric(4),
             existingRequest.Email,
             "TestPass1!",
-            Faker.Person.PolishPhoneNumber(),
             AcceptedPrivacyPolicy: true,
             AcceptedDataProcessingConsent: true);
 
@@ -62,7 +61,6 @@ public sealed class RegisterEndpointTests : EndpointsTestBase
             existingRequest.Username,
             Faker.Internet.Email(),
             "TestPass1!",
-            Faker.Person.PolishPhoneNumber(),
             AcceptedPrivacyPolicy: true,
             AcceptedDataProcessingConsent: true);
 
@@ -82,7 +80,6 @@ public sealed class RegisterEndpointTests : EndpointsTestBase
             Faker.Internet.UserName() + Faker.Random.AlphaNumeric(4),
             Faker.Internet.Email(),
             "TestPass1!",
-            Faker.Person.PolishPhoneNumber(),
             AcceptedPrivacyPolicy: false,
             AcceptedDataProcessingConsent: true);
 

@@ -65,9 +65,21 @@ internal sealed class TranslatorProvisioner : ITranslatorProvisioner
         Maybe<Translator> existing = await _translatorRepository.GetByIdentityIdAsync(identityId, cancellationToken);
         if (existing.HasValue)
         {
-            existing.Value.RefreshProfile(displayNameResult.Value, email, now);
-            await _unitOfWork.SaveChangesAsync(cancellationToken);
-            return Result.Success(existing.Value.Id);
+            Translator translator = existing.Value;
+
+            // Steady state on the hot path: the row exists and the claims are unchanged, so there is
+            // nothing to write. Provisioning now runs on every authenticated request (ADR-0004
+            // amendment 2026-06-24), so it must be a pure read here — a write fires only when an
+            // account was actually renamed, never on a plain re-touch.
+            bool claimsChanged = !translator.DisplayName.Equals(displayNameResult.Value)
+                                 || !Equals(translator.Email, email);
+            if (claimsChanged)
+            {
+                translator.RefreshProfile(displayNameResult.Value, email);
+                await _unitOfWork.SaveChangesAsync(cancellationToken);
+            }
+
+            return Result.Success(translator.Id);
         }
 
         Result<Translator> createResult = Translator.Create(identityId, displayNameResult.Value, email, now);
@@ -97,7 +109,7 @@ internal sealed class TranslatorProvisioner : ITranslatorProvisioner
                 throw;
             }
 
-            raced.Value.RefreshProfile(displayNameResult.Value, email, now);
+            raced.Value.RefreshProfile(displayNameResult.Value, email);
             await _unitOfWork.SaveChangesAsync(cancellationToken);
             return Result.Success(raced.Value.Id);
         }

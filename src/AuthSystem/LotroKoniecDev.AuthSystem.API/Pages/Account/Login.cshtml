@@ -2,6 +2,9 @@
 @model LotroKoniecDev.AuthSystem.API.Pages.Account.LoginModel
 @{
     Layout = null;
+    string registerUrl = string.IsNullOrEmpty(Model.ReturnUrl)
+        ? "/Account/Register"
+        : $"/Account/Register?returnUrl={Uri.EscapeDataString(Model.ReturnUrl)}";
 }
 
 <!DOCTYPE html>
@@ -426,6 +429,16 @@
             color: var(--accent-hi);
         }
 
+        /* ── Register switch ── */
+        .auth-switch {
+            margin-top: 18px;
+            text-align: center;
+            font-size: 13.5px;
+            color: var(--text-mute);
+        }
+        .auth-switch a { color: var(--accent-hi); font-weight: 600; }
+        .auth-switch a:hover { color: var(--accent); }
+
         /* ── Foot ── */
         .foot {
             margin-top: auto;
@@ -625,6 +638,8 @@
                             </button>
                         </form>
                     </section>
+
+                    <p class="auth-switch">Nie masz jeszcze konta? <a href="@registerUrl">Zarejestruj się →</a></p>
 
                     <div class="auth-meta">
                         <svg viewBox="0 0 24 24" class="lock" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">

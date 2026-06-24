@@ -48,7 +48,7 @@
 | INV-0.2 | 🟢 Brak prymitywnej obsesji | Każdy koncept z ograniczeniem/tożsamością to `ValueObject` lub strongly-typed ID (`FragmentKey`, `TranslationSource`, `LotroNotationVersion`, `DisplayName`, `Email`, `*Id`). | Domain/Aggregates/**/ValueObjects |
 | INV-0.3 | 🟢 Walidacja string-VO: kolejność **pustość → trim → długość → format** | Najpierw `IsNullOrWhiteSpace` na surowej wartości, potem `Trim()`, potem długość, potem ew. regex/gramatyka. Skutek: same spacje → `NullOrEmpty`/`InvalidFormat`, nigdy `LongerThanAllowed`. | `LotroNotationVersion.cs:34-52`, `DisplayName.cs:19-29`, `Email.cs:25-40` |
 | INV-0.4 | 🟢 Strongly-typed ID-y to **GUID v7** | Wszystkie `*Id` (`TranslationId`, `GameVersionId`, `TranslatorId`, `PrecomputedTranslationFileId`, `IdentityId`) generują się przez `Guid.CreateVersion7()` (czasowo uporządkowane) i serializują jako goły string GUID. | `Primitives/**`, `SharedKernel/StronglyTypedIds` |
-| INV-0.5 | 🟢 Każda mutacja encji stempluje `UpdatedAt`/`LastSeenAt`/`GeneratedAt` | Wszystkie metody zachowań ustawiają znacznik `now` przekazany z `TimeProvider`. | `Translation.cs`, `Translator.cs:38`, `PrecomputedTranslationFile.cs:37` |
+| INV-0.5 | 🟢 Mutacje encji z polem znacznika stemplują `UpdatedAt`/`GeneratedAt` | Metody zachowań ustawiają znacznik `now` przekazany z `TimeProvider`. `Translator` nie ma znacznika mutacji — tylko niezmienny `ProvisionedAt` (ADR-0004 aneks). | `Translation.cs`, `PrecomputedTranslationFile.cs:37` |
 | INV-0.6 | 🔵 Endpointy są **autoryzowane domyślnie** | Fallback policy wymaga uwierzytelnionego użytkownika; publiczne endpointy jawnie `AllowAnonymous`. Atrybucja użytkownika brana z tokena, nigdy z body. | `ApiDependencyInjection.cs:198-219` |
 
 ---
@@ -130,8 +130,8 @@ referencja do AuthSystem.
 
 | # | Invariant | Reguła | Lokalizacja |
 |---|-----------|--------|-------------|
-| INV-4.1 | 🟢 `IdentityId` niezmienny, wymagany | `get`-only; `Create` wymaga `Ensure.NotEmpty(identityId)`. | `Translator.cs:20`, `:47` |
-| INV-4.2 | 🟢 `RefreshProfile` zbiega profil z bieżących claimów | Odświeża `DisplayName`/`Email`, stempluje `LastSeenAt`; `null` email **czyści** wcześniejszy. Przemianowane konto zbiega bez osobnej synchronizacji. | `Translator.cs:31-39` |
+| INV-4.1 | 🟢 `IdentityId` niezmienny, wymagany | `get`-only; `Create` wymaga `Ensure.NotEmpty(identityId)`. | `Translator.cs:21`, `:45` |
+| INV-4.2 | 🟢 `RefreshProfile` zbiega profil z bieżących claimów | Odświeża `DisplayName`/`Email` (bez znacznika czasu); `null` email **czyści** wcześniejszy. Przemianowane konto zbiega bez osobnej synchronizacji. | `Translator.cs:31-37` |
 | INV-4.3 | 🔵 `Translators.IdentityId` **unikalny** (klucz idempotencji) | Unikalny indeks DB gwarantuje jeden wiersz na tożsamość nawet w wyścigu. | `TranslatorConfiguration.cs:20` |
 | INV-4.4 | 🔵 Prowizjonowanie **leniwe i idempotentne** przy pierwszym zapisie | `ProvisionCurrentAsync`: get-or-create po `IdentityId`; przy `DbUpdateException` (wyścig „pierwszego zapisu") odpina swój insert i re-czyta zacommitowany wiersz. | `TranslatorProvisioner.cs:40`, `:86-103` |
 | INV-4.5 | 🔵 Brak tożsamości w tokenie → `Forbidden` | Gdy `MaybeIdentityId.HasNoValue`. | `Translators.Unauthenticated` (`TranslatorProvisioner.cs:43-49`) |

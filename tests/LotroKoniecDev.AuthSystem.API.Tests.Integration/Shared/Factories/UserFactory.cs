@@ -13,7 +13,6 @@ internal static class UserFactory
         faker.Internet.UserName() + faker.Random.AlphaNumeric(4),
         faker.Internet.Email(),
         password ?? DefaultPassword,
-        faker.Person.PolishPhoneNumber(),
         AcceptedPrivacyPolicy: true,
         AcceptedDataProcessingConsent: true);
 

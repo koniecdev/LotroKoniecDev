@@ -12,8 +12,9 @@ namespace LotroKoniecDev.TranslationSystem.Domain.Aggregates.TranslatorAggregate
 /// counterpart to KittySaver's <c>Person</c>. Holds the human-readable identity the editor renders
 /// (<see cref="DisplayName"/>, optional <see cref="Email"/>) keyed by the cross-context
 /// <see cref="IdentityId"/> (the AuthSystem user id). Provisioned lazily and idempotently on the
-/// first authenticated write that stamps a <see cref="TranslatorId"/>; the profile refreshes from
-/// the current claims on each touch, so a renamed account converges without a separate sync.
+/// caller's first authenticated request (ADR-0004 amendment 2026-06-24), so a registered and logged-in
+/// user has a profile before any write; the profile refreshes from
+/// the current claims whenever they change, so a renamed account converges without a separate sync.
 /// </summary>
 public sealed class Translator : AggregateRoot<TranslatorId>
 {
@@ -21,21 +22,18 @@ public sealed class Translator : AggregateRoot<TranslatorId>
     public DisplayName DisplayName { get; private set; }
     public Email? Email { get; private set; }
     public DateTimeOffset ProvisionedAt { get; }
-    public DateTimeOffset LastSeenAt { get; private set; }
 
     /// <summary>
-    /// Re-applies the latest claims on an authenticated touch: refreshes the display name and email
-    /// (so a renamed account converges) and stamps <see cref="LastSeenAt"/>. A <c>null</c>
-    /// <paramref name="email"/> clears a previously known address.
+    /// Re-applies the latest claims on an authenticated touch: refreshes the display name and email so
+    /// a renamed account converges. A <c>null</c> <paramref name="email"/> clears a previously known
+    /// address.
     /// </summary>
-    public void RefreshProfile(DisplayName displayName, Email? email, DateTimeOffset now)
+    public void RefreshProfile(DisplayName displayName, Email? email)
     {
         ArgumentNullException.ThrowIfNull(displayName);
-        Ensure.NotEmpty(now);
 
         DisplayName = displayName;
         Email = email;
-        LastSeenAt = now;
     }
 
     public static Result<Translator> Create(
@@ -64,7 +62,6 @@ public sealed class Translator : AggregateRoot<TranslatorId>
         DisplayName = displayName;
         Email = email;
         ProvisionedAt = now;
-        LastSeenAt = now;
     }
 
     private Translator()

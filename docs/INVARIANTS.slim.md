@@ -9,7 +9,7 @@
 - Errors-as-values: reguły biznesowe ⇒ `Result.Failure(Error)`/`Maybe`. `Ensure.*`/`ArgumentNullException`/`ArgumentException` = błędy programisty (rzucają).
 - Brak prymitywnej obsesji: każdy koncept z ograniczeniem/tożsamością = `ValueObject` lub strongly-typed ID (GUID v7, serializowany jako goły string).
 - Walidacja string-VO: **pustość → trim → długość → format**. Same spacje ⇒ `NullOrEmpty`/`InvalidFormat`, nigdy `LongerThanAllowed`.
-- Każda mutacja stempluje znacznik czasu (`UpdatedAt`/`LastSeenAt`/`GeneratedAt`) z `TimeProvider`.
+- Mutacje encji z polem znacznika stemplują czas (`UpdatedAt`/`GeneratedAt`) z `TimeProvider` (`Translator` go nie ma — tylko niezmienny `ProvisionedAt`).
 - Endpointy **autoryzowane domyślnie** (fallback policy); publiczne jawnie `AllowAnonymous`. Atrybucja użytkownika z tokena, nigdy z body.
 - Walidatory **tylko dla komend**; zapytania walidują się inline w handlerze.
 - Mapowanie błędów na HTTP: `Validation→400`, `NotFound→404`, `Forbidden→403`, `DataConflict→422`, reszta→500; kod w rozszerzeniu `errorCode` (`ProblemDetails`).

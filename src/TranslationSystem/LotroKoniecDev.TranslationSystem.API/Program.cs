@@ -211,6 +211,12 @@ try
 
     app.UseAuthorizationLogging();
 
+    // Eagerly provision the caller's Translator on their first authenticated request (ADR-0004
+    // amendment 2026-06-24), so a freshly registered + logged-in user already has a TMS profile
+    // before any write. Placed after UseAuthorization so a 401/403 short-circuits ahead of it; the
+    // provisioner only writes when claims changed, so authenticated reads stay a pure lookup.
+    app.UseTranslatorProvisioning();
+
     if (!app.Environment.IsDevelopment() && !app.Environment.IsTesting())
     {
         app.UseRateLimiter();

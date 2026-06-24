@@ -21,5 +21,11 @@ public static class MiddlewareDependencyInjection
             app.UseMiddleware<AuthorizationLoggingMiddleware>();
             return app;
         }
+
+        public IApplicationBuilder UseTranslatorProvisioning()
+        {
+            app.UseMiddleware<TranslatorProvisioningMiddleware>();
+            return app;
+        }
     }
 }

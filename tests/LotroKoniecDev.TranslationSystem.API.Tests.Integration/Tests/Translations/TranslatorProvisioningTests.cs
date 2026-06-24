@@ -17,10 +17,10 @@ using Microsoft.Extensions.DependencyInjection;
 namespace LotroKoniecDev.TranslationSystem.API.Tests.Integration.Tests.Translations;
 
 /// <summary>
-/// Proves lazy, idempotent translator provisioning (ADR-0004) against real PostgreSQL: the first
-/// authenticated write that stamps a <c>TranslatorId</c> provisions the caller's <c>Translator</c>,
-/// repeat requests by the same identity add no duplicate row, distinct identities get distinct rows,
-/// and the profile refreshes from the latest claims on each touch.
+/// Proves lazy, idempotent translator provisioning (ADR-0004 + its 2026-06-24 amendment) against real
+/// PostgreSQL: the caller's first authenticated request — a plain read, before any write — provisions
+/// their <c>Translator</c>, repeat requests by the same identity add no duplicate row, distinct
+/// identities get distinct rows, and the profile refreshes from the latest claims when they change.
 /// </summary>
 [Collection("TranslationApi")]
 public sealed class TranslatorProvisioningTests : IAsyncLifetime
@@ -123,6 +123,27 @@ public sealed class TranslatorProvisioningTests : IAsyncLifetime
         translator.DisplayName.Value.ShouldBe("Aragorn");
         translator.Email.ShouldNotBeNull();
         translator.Email.Value.ShouldBe("aragorn@gondor.test");
+    }
+
+    [Fact]
+    public async Task AuthenticatedReadWithoutAnyWrite_ShouldEagerlyProvisionTranslator()
+    {
+        // Arrange — a freshly registered + logged-in user who has not edited anything yet.
+        Guid subject = Guid.NewGuid();
+        using HttpClient client = TranslatorClient(subject, "Frodo", "frodo@shire.test");
+
+        // Act — a plain authenticated read, not a write.
+        HttpResponseMessage response = await client.GetAsync("/");
+
+        // Assert — the read succeeds and the caller already has a Translator row from its claims
+        // (ADR-0004 amendment): the "my profile" view works before any write.
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        List<Translator> translators = await LoadTranslatorsAsync();
+        Translator translator = translators.ShouldHaveSingleItem();
+        translator.IdentityId.Value.ShouldBe(subject);
+        translator.DisplayName.Value.ShouldBe("Frodo");
+        translator.Email.ShouldNotBeNull();
+        translator.Email.Value.ShouldBe("frodo@shire.test");
     }
 
     private async Task SeedUntranslatedAsync(int gossipId, string source)

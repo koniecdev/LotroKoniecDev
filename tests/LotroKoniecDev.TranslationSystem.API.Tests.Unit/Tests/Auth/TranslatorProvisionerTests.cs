@@ -136,6 +136,32 @@ public sealed class TranslatorProvisionerTests
     }
 
     [Fact]
+    public async Task ProvisionCurrentAsync_WhenAlreadyProvisionedAndClaimsUnchanged_ShouldReturnExistingIdWithoutWriting()
+    {
+        // Arrange — the row already carries exactly the current claims. Provisioning now runs on every
+        // authenticated request (ADR-0004 amendment), so an unchanged re-touch must be a pure read: no
+        // refresh write on the hot path.
+        Translator existing = Translator.Create(
+            Identity,
+            DisplayName.Create("Aragorn").Value,
+            Email.Create("aragorn@gondor.test").Value,
+            Now).Value;
+        TranslatorId existingId = existing.Id;
+        _translatorRepository.GetByIdentityIdAsync(Identity, Arg.Any<CancellationToken>())
+            .Returns(Maybe<Translator>.From(existing));
+        TranslatorProvisioner provisioner = CreateProvisioner(Accessor());
+
+        // Act
+        Result<TranslatorId> result = await provisioner.ProvisionCurrentAsync(CancellationToken.None);
+
+        // Assert
+        result.IsSuccess.ShouldBeTrue();
+        result.Value.ShouldBe(existingId);
+        _translatorRepository.DidNotReceive().Insert(Arg.Any<Translator>());
+        await _unitOfWork.DidNotReceive().SaveChangesAsync(Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
     public async Task ProvisionCurrentAsync_WhenNew_ShouldInsertAndReturnNewId()
     {
         // Arrange

@@ -24,7 +24,6 @@ public sealed class ConcurrencyEndpointsTests : EndpointsTestBase
                 Faker.Internet.UserName() + Faker.Random.AlphaNumeric(4) + i,
                 sharedEmail,
                 sharedPassword,
-                Faker.Person.PolishPhoneNumber(),
                 AcceptedPrivacyPolicy: true,
                 AcceptedDataProcessingConsent: true))
             .ToArray();

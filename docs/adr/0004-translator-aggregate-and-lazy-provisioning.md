@@ -8,6 +8,41 @@ provisioning), TheKittySaver ADR-0007 §4 (lazy idempotent `Person` provisioning
 `Cat → Person → Auth` reference shape, spec 0001 (the translation domain), M3 consumers #34
 (list) / #35 (editor) / #36 (mini-dashboard)
 
+## Amendment (2026-06-24): provision on the first authenticated *request*, not the first *write*
+
+**Supersedes §3's "first-touch in the write handlers, not global middleware".** Provisioning now
+also runs eagerly on the caller's **first authenticated request** via a best-effort
+`TranslatorProvisioningMiddleware` (wired after `UseAuthorization`), in addition to the existing
+authoritative call inside the write handlers. This realigns the implementation with the wording
+ADR-0002 §7 fixed from the start ("provision lazily and idempotently on the first authenticated
+request").
+
+**Why (the real, present need that flips the §3 YAGNI call).** Under write-only provisioning a
+user who registers, confirms their email and logs in has **no** TMS `Translator` row until they
+happen to perform a write. So a freshly logged-in user opening their profile / the M3 mini-dashboard
+(#36) — or any "who am I in the TMS" view — would see *nothing*, because browsing never provisioned
+them. That is wrong UX, not a hypothetical: the profile must exist the moment an authenticated user
+first touches the TMS, regardless of whether their first action is a read or a write. (A synchronous
+`Register → CreateTranslator` cross-context saga remains rejected — ADR-0002 §7; the only saga-free
+place to create the row is still the TMS, on first authenticated contact.)
+
+**Why the original §3 objection no longer applies.** §3 rejected global provisioning because it
+"puts a write on the read path". It no longer does: the provisioner now **writes only when the
+claims actually changed** (display name / email), so the steady state is a single indexed `SELECT`
+on `Translators.IdentityId` and **no** write — the same lookup a "current translator" read would do
+anyway. The middleware is **best-effort**: a `Result` failure (e.g. a token without a display-name
+claim) is logged and skipped so read endpoints never depend on provisioning succeeding, and a 401/403
+short-circuits before it ever runs. The write handlers keep their own provisioning call as the
+**authoritative** attribution step (a write is never unattributed even if the middleware was skipped
+or best-effort-failed), now reduced to that same cheap lookup once the row exists.
+
+**Trade-offs accepted.** One extra indexed `SELECT` per authenticated request (negligible, and the
+read it would already need). `LastSeenAt` now means "first provisioned / last claim change" rather
+than "last request", because bumping it on every request would reintroduce the write-on-read §3
+guarded against; a true activity timestamp, if ever needed, is a separate throttled concern (YAGNI).
+Everything else in this ADR — the lean aggregate (§1), `Translation.*ById → TranslatorId` (§2),
+read-model-first (§4), and the idempotency guarantees — stands unchanged.
+
 ## Context
 
 Today `Translation.SubmittedById` / `ApprovedById` are `IdentityId` value objects pointing

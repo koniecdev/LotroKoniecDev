@@ -12,8 +12,9 @@ namespace LotroKoniecDev.TranslationSystem.Domain.Aggregates.TranslatorAggregate
 /// counterpart to KittySaver's <c>Person</c>. Holds the human-readable identity the editor renders
 /// (<see cref="DisplayName"/>, optional <see cref="Email"/>) keyed by the cross-context
 /// <see cref="IdentityId"/> (the AuthSystem user id). Provisioned lazily and idempotently on the
-/// first authenticated write that stamps a <see cref="TranslatorId"/>; the profile refreshes from
-/// the current claims on each touch, so a renamed account converges without a separate sync.
+/// caller's first authenticated request (ADR-0004 amendment 2026-06-24), so a registered and logged-in
+/// user has a profile before any write; the profile refreshes from
+/// the current claims whenever they change, so a renamed account converges without a separate sync.
 /// </summary>
 public sealed class Translator : AggregateRoot<TranslatorId>
 {

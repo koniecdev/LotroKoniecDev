@@ -57,7 +57,6 @@ public abstract class E2ETestBase : IAsyncLifetime
             username,
             email,
             TranslatorPassword,
-            "+48500100200",
             AcceptedPrivacyPolicy: true,
             AcceptedDataProcessingConsent: true);
 

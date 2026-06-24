@@ -130,7 +130,6 @@ public sealed class TranslatorProvisionerTests
         result.IsSuccess.ShouldBeTrue();
         result.Value.ShouldBe(existingId);
         existing.DisplayName.Value.ShouldBe("Aragorn");
-        existing.LastSeenAt.ShouldBe(Now);
         _translatorRepository.DidNotReceive().Insert(Arg.Any<Translator>());
         await _unitOfWork.Received(1).SaveChangesAsync(Arg.Any<CancellationToken>());
     }

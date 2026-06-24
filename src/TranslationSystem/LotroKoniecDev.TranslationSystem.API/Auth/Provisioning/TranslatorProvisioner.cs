@@ -75,7 +75,7 @@ internal sealed class TranslatorProvisioner : ITranslatorProvisioner
                                  || !Equals(translator.Email, email);
             if (claimsChanged)
             {
-                translator.RefreshProfile(displayNameResult.Value, email, now);
+                translator.RefreshProfile(displayNameResult.Value, email);
                 await _unitOfWork.SaveChangesAsync(cancellationToken);
             }
 
@@ -109,7 +109,7 @@ internal sealed class TranslatorProvisioner : ITranslatorProvisioner
                 throw;
             }
 
-            raced.Value.RefreshProfile(displayNameResult.Value, email, now);
+            raced.Value.RefreshProfile(displayNameResult.Value, email);
             await _unitOfWork.SaveChangesAsync(cancellationToken);
             return Result.Success(raced.Value.Id);
         }

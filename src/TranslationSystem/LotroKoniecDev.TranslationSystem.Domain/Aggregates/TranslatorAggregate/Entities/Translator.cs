@@ -22,21 +22,18 @@ public sealed class Translator : AggregateRoot<TranslatorId>
     public DisplayName DisplayName { get; private set; }
     public Email? Email { get; private set; }
     public DateTimeOffset ProvisionedAt { get; }
-    public DateTimeOffset LastSeenAt { get; private set; }
 
     /// <summary>
-    /// Re-applies the latest claims on an authenticated touch: refreshes the display name and email
-    /// (so a renamed account converges) and stamps <see cref="LastSeenAt"/>. A <c>null</c>
-    /// <paramref name="email"/> clears a previously known address.
+    /// Re-applies the latest claims on an authenticated touch: refreshes the display name and email so
+    /// a renamed account converges. A <c>null</c> <paramref name="email"/> clears a previously known
+    /// address.
     /// </summary>
-    public void RefreshProfile(DisplayName displayName, Email? email, DateTimeOffset now)
+    public void RefreshProfile(DisplayName displayName, Email? email)
     {
         ArgumentNullException.ThrowIfNull(displayName);
-        Ensure.NotEmpty(now);
 
         DisplayName = displayName;
         Email = email;
-        LastSeenAt = now;
     }
 
     public static Result<Translator> Create(
@@ -65,7 +62,6 @@ public sealed class Translator : AggregateRoot<TranslatorId>
         DisplayName = displayName;
         Email = email;
         ProvisionedAt = now;
-        LastSeenAt = now;
     }
 
     private Translator()

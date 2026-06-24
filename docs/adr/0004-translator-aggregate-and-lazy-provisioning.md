@@ -37,9 +37,11 @@ short-circuits before it ever runs. The write handlers keep their own provisioni
 or best-effort-failed), now reduced to that same cheap lookup once the row exists.
 
 **Trade-offs accepted.** One extra indexed `SELECT` per authenticated request (negligible, and the
-read it would already need). `LastSeenAt` now means "first provisioned / last claim change" rather
-than "last request", because bumping it on every request would reintroduce the write-on-read §3
-guarded against; a true activity timestamp, if ever needed, is a separate throttled concern (YAGNI).
+read it would already need). The aggregate keeps **only** an immutable `ProvisionedAt`: a mutable
+`LastSeenAt` was dropped (migration `RemoveTranslatorLastSeenAt`) because bumping it on every request
+would reintroduce the write-on-read §3 guarded against, while stamping it only on a claim change made
+its "last seen" name lie and left it with no consumer — dead weight. A true activity timestamp, if
+ever needed, is a separate throttled concern (YAGNI).
 Everything else in this ADR — the lean aggregate (§1), `Translation.*ById → TranslatorId` (§2),
 read-model-first (§4), and the idempotency guarantees — stands unchanged.
 
@@ -78,7 +80,8 @@ surface. `IdentityId` stays the cross-context microservice FK to the AuthSystem;
 a local TMS concern.
 
 - **In scope:** `IdentityId` (the Auth user id, unique), a `DisplayName` value object, an
-  **optional** `Email` value object, and `ProvisionedAt` / `LastSeenAt` timestamps.
+  **optional** `Email` value object, and an immutable `ProvisionedAt` timestamp (a mutable
+  `LastSeenAt` was considered and dropped — see the 2026-06-24 amendment).
 - **Out of scope (lives in Auth, or is post-MVP):** addresses, phone numbers,
   archival/anonymization, preferred language, per-language roles, statistics. CLAUDE.md is explicit
   — "our aggregates are far simpler than `Cat` — don't inflate them"; the same discipline applies to

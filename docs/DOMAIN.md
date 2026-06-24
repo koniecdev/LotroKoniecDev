@@ -147,13 +147,14 @@ leniwie i idempotentnie** przy pierwszym uwierzytelnionym zapisie (szczegóły w
 | `IdentityId` | `IdentityId` (VO/STID) | jedyna cross-contextowa referencja do Auth; **unikalna** |
 | `DisplayName` | `DisplayName` (VO) | nazwa renderowana w edytorze (z claimu `name`) |
 | `Email` | `Email?` (VO) | opcjonalny (claim `email` może nie istnieć) |
-| `ProvisionedAt` / `LastSeenAt` | `DateTimeOffset` | czas pierwszego i ostatniego dotknięcia |
+| `ProvisionedAt` | `DateTimeOffset` | czas prowizjonowania (niezmienny) |
 
 **Zachowania:**
 
-- `RefreshProfile(displayName, email, now)` — odświeża profil z bieżących claimów na każdym dotknięciu
-  (przemianowane konto zbiega się bez osobnej synchronizacji), stempluje `LastSeenAt` (`Translator.cs:31`).
-- `Create(identityId, displayName, email, now)` — fabryka (`Translator.cs:41`).
+- `RefreshProfile(displayName, email)` — odświeża `DisplayName`/`Email` z bieżących claimów na każdym
+  dotknięciu (przemianowane konto zbiega się bez osobnej synchronizacji); **nie** stempluje znacznika czasu
+  (`Translator.cs:31`).
+- `Create(identityId, displayName, email, now)` — fabryka, stempluje niezmienny `ProvisionedAt` (`Translator.cs:39`).
 
 **Łańcuch referencji:** `Translation.SubmittedById/ApprovedById → Translator.Id (TranslatorId)`, a
 `Translator.IdentityId → użytkownik Auth`. Znormalizowany wiersz `Translator` zamiast denormalizowanej

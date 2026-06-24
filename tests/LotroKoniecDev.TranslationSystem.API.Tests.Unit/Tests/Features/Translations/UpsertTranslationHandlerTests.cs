@@ -86,7 +86,7 @@ public sealed class UpsertTranslationHandlerTests
             Now)
         {
             SubmittedBy = new TranslatorReadModel(
-                CurrentTranslator, default, SubmitterName, null, Now, Now)
+                CurrentTranslator, default, SubmitterName, null, Now)
         });
 
     [Fact]

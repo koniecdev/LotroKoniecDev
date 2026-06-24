@@ -14,8 +14,7 @@ public sealed record TranslatorReadModel(
     IdentityId IdentityId,
     string DisplayName,
     string? Email,
-    DateTimeOffset ProvisionedAt,
-    DateTimeOffset LastSeenAt) : IReadOnlyEntity<TranslatorId>
+    DateTimeOffset ProvisionedAt) : IReadOnlyEntity<TranslatorId>
 {
     DateTimeOffset IReadOnlyEntity<TranslatorId>.CreatedAt => ProvisionedAt;
 }

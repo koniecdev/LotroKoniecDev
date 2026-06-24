@@ -8,14 +8,13 @@ namespace LotroKoniecDev.TranslationSystem.Domain.Tests.Unit.Tests.Aggregates.Tr
 public sealed class TranslatorTests
 {
     private static readonly DateTimeOffset Provisioned = new(2026, 6, 1, 12, 0, 0, TimeSpan.Zero);
-    private static readonly DateTimeOffset SeenAgain = new(2026, 6, 14, 9, 30, 0, TimeSpan.Zero);
     private static readonly IdentityId Identity = IdentityId.Create();
 
     private static DisplayName Name(string value = "Aragorn") => DisplayName.Create(value).Value;
     private static Email Mail(string value = "aragorn@gondor.test") => Email.Create(value).Value;
 
     [Fact]
-    public void Create_WithValidInputs_ShouldProvisionWithMatchingTimestamps()
+    public void Create_WithValidInputs_ShouldProvisionTranslatorWithProvisionedAt()
     {
         // Act
         Result<Translator> result = Translator.Create(Identity, Name(), Mail(), Provisioned);
@@ -28,7 +27,6 @@ public sealed class TranslatorTests
         translator.Email.ShouldNotBeNull();
         translator.Email.Value.ShouldBe("aragorn@gondor.test");
         translator.ProvisionedAt.ShouldBe(Provisioned);
-        translator.LastSeenAt.ShouldBe(Provisioned);
         translator.Id.Value.ShouldNotBe(Guid.Empty);
     }
 
@@ -51,19 +49,18 @@ public sealed class TranslatorTests
     }
 
     [Fact]
-    public void RefreshProfile_ShouldUpdateNameEmailAndStampLastSeen()
+    public void RefreshProfile_ShouldUpdateNameAndEmailWithoutTouchingProvisionedAt()
     {
         // Arrange
         Translator translator = Translator.Create(Identity, Name("Strider"), null, Provisioned).Value;
 
         // Act — a renamed account converges on the next authenticated touch.
-        translator.RefreshProfile(Name("Aragorn"), Mail(), SeenAgain);
+        translator.RefreshProfile(Name("Aragorn"), Mail());
 
         // Assert
         translator.DisplayName.Value.ShouldBe("Aragorn");
         translator.Email.ShouldNotBeNull();
         translator.Email.Value.ShouldBe("aragorn@gondor.test");
-        translator.LastSeenAt.ShouldBe(SeenAgain);
         translator.ProvisionedAt.ShouldBe(Provisioned);
         translator.IdentityId.ShouldBe(Identity);
     }
@@ -75,7 +72,7 @@ public sealed class TranslatorTests
         Translator translator = Translator.Create(Identity, Name(), Mail(), Provisioned).Value;
 
         // Act — the email claim disappeared (or became malformed) on a later touch.
-        translator.RefreshProfile(Name(), email: null, SeenAgain);
+        translator.RefreshProfile(Name(), email: null);
 
         // Assert
         translator.Email.ShouldBeNull();

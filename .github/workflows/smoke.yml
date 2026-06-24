@@ -1,0 +1,53 @@
+name: Smoke test
+
+# Post-deploy smoke test (M6-13). Manual on-demand run against a deployed environment — it gives a
+# green/red signal that auth-api + tms-api + frontend came up correctly (health, an OIDC token
+# round-trip, that tms accepts the token, and the public translation-file distribution).
+#
+# It is workflow_dispatch ONLY, by design: the deploy target/provider is deliberately deferred
+# (ADR-0008), so there is no environment to auto-run against yet. Once a provider + staging exist,
+# add a call to this job (workflow_call or a step) at the end of the deploy workflow.
+#
+# Prerequisite: set the repository/environment secret SMOKE_CLIENT_SECRET to the auth server's
+# OpenIddict API client secret (OpenIddict__ApiClientSecret — the same value auth-api runs with).
+on:
+  workflow_dispatch:
+    inputs:
+      auth_url:
+        description: 'auth-api base URL (e.g. https://auth.lotro.koniec.dev)'
+        required: true
+      tms_url:
+        description: 'tms-api base URL (e.g. https://tms.lotro.koniec.dev)'
+        required: true
+      frontend_url:
+        description: 'frontend base URL (e.g. https://lotro.koniec.dev)'
+        required: true
+      client_id:
+        description: 'OIDC client id (client-credentials)'
+        required: false
+        default: 'lotrokoniecdev-api'
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    name: Post-deploy smoke test
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      # Inputs/secret are passed through the environment (never interpolated into the run: script)
+      # so an input value cannot inject shell, and the secret never reaches a log line. smoke.sh
+      # reads each SMOKE_* variable as its fallback for the matching flag.
+      - name: Run smoke test
+        env:
+          SMOKE_AUTH_URL: ${{ inputs.auth_url }}
+          SMOKE_TMS_URL: ${{ inputs.tms_url }}
+          SMOKE_FRONTEND_URL: ${{ inputs.frontend_url }}
+          SMOKE_CLIENT_ID: ${{ inputs.client_id }}
+          SMOKE_CLIENT_SECRET: ${{ secrets.SMOKE_CLIENT_SECRET }}
+        run: ./scripts/smoke.sh

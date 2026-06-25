@@ -8,6 +8,7 @@ dotnet test tests/LotroKoniecDev.Tests.Unit            # unit only — always gr
 dotnet test tests/LotroKoniecDev.Tests.Infrastructure  # real-infrastructure tests
 dotnet test tests/LotroKoniecDev.Tests.E2E             # full CLI pipeline — auto-skips off-Windows
 dotnet test tests/LotroKoniecDev.TranslationSystem.E2E.Tests  # real-process TMS stack — REQUIRES Docker (builds 3 images)
+dotnet test tests/LotroKoniecDev.Frontend.E2E.Tests          # browser stack via Testcontainers — REQUIRES Docker (4 images + Playwright)
 dotnet test --filter "FullyQualifiedName~Fragment"     # filter by name
 ```
 
@@ -112,6 +113,27 @@ layer the in-process `*.Tests.Integration` suite fakes by forging HS256 tokens.
 `*.Tests.Integration`), so the `pr-verify.yml`/`ci.yml` test-discovery globs skip it. It runs only via
 `.github/workflows/e2e.yml` (`workflow_dispatch`) or a local `dotnet test` of the project. It IS compiled by the
 solution build, so the zero-warning gate still covers it.
+
+## Frontend Browser E2E Tests (LotroKoniecDev.Frontend.E2E.Tests)
+
+A **Playwright** browser suite over the same Testcontainers idiom (ADR-0009 — **not** a compose file, **not**
+FluentDocker). `PlaywrightStackFixture` builds the `auth`/`tms`/`frontend`/`migrator` images, boots the whole
+browser-facing stack on one network — postgres + migrator + auth-api + tms-api + **frontend** + **mailpit** —
+all over **HTTPS** (a cert generated in C#; SAN = the service DNS names; trusted in-container via an inline root
+entrypoint), plus the **official `Testcontainers.Playwright`** browser container. The host connects to the
+in-network browser over WS (`Chromium.ConnectAsync(GetConnectionString())`), so `https://auth-api:8443` resolves
+identically for the browser front-channel and the FE OIDC back-channel — the single-`Authority` constraint
+(ADR-0006) held in-network via DNS. Mailpit receives the real confirmation e-mail (no auto-confirm), read back
+over its HTTP API. Because the browser is in a container, the host needs **no** `playwright install` (no browser
+download). NuGet-only (no `ProjectReference`) — it drives everything over HTTP/the browser.
+
+- `RegisterConfirmLoginLogoutTests` — register (Auth Razor Page) → confirm via the Mailpit link → login through
+  the FE OIDC challenge → logout. **No DB seed, no `exported.txt`.** PL-only (the pages have no culture routing).
+
+Locators follow Playwright's guidance: `GetByRole`/`GetByLabel` first, `data-testid` only for the consent
+checkboxes + state panels (`register-success`, `confirm-email-success`). **Requires Docker; off the PR gate by
+name** (`...E2E.Tests`) — runs via `e2e.yml` (the `e2e-frontend` job) or a local `dotnet test`. Compiled by the
+solution build, so the zero-warning gate covers it.
 
 ## Conventions
 

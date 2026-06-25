@@ -1,9 +1,13 @@
 name: E2E
 
-# Heaviest possible job: the E2ETestFixture builds the auth/tms/migrator Docker images and spins up the
-# full stack (Postgres + migrator + both APIs) via Testcontainers, then drives the core loop over real HTTP
-# with real auth-api tokens. Manual only — never on push/PR — so it costs nothing routinely. The project is
-# named `...E2E.Tests` (not `*.Tests.Unit`/`*.Tests.Integration`), so pr-verify/ci skip it by convention.
+# Heaviest possible jobs, both via Testcontainers (the ubuntu runner has Docker preinstalled):
+#   - e2e:          builds the auth/tms/migrator images, boots Postgres + migrator + both APIs, and drives
+#                   the core loop over real HTTP with real auth-api tokens.
+#   - e2e-frontend: additionally builds the Frontend image, boots the whole browser-facing stack (+ Mailpit +
+#                   the official Testcontainers Playwright browser), and drives the register→confirm→login→
+#                   logout loop in a real headless Chromium (ADR-0009).
+# Manual only — never on push/PR — so they cost nothing routinely. Both projects are named `...E2E.Tests`
+# (not `*.Tests.Unit`/`*.Tests.Integration`), so pr-verify/ci skip them by convention.
 # Run from the Actions tab or `gh workflow run e2e.yml`.
 on:
   workflow_dispatch:
@@ -48,3 +52,37 @@ jobs:
       # then boots the stack via Testcontainers — no SKIP_DOCKER_BUILD, no pre-built images.
       - name: Run E2E Tests
         run: dotnet test tests/LotroKoniecDev.TranslationSystem.E2E.Tests/LotroKoniecDev.TranslationSystem.E2E.Tests.csproj --configuration Release --no-build --logger "console;verbosity=minimal"
+
+  e2e-frontend:
+    name: E2E Frontend (browser via Testcontainers + Playwright)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 50
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '10.0.100'
+
+      - name: Cache NuGet packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ hashFiles('**/Directory.Packages.props', '**/*.csproj') }}
+          restore-keys: |
+            nuget-${{ runner.os }}-
+
+      - name: Restore
+        run: dotnet restore tests/LotroKoniecDev.Frontend.E2E.Tests/LotroKoniecDev.Frontend.E2E.Tests.csproj
+
+      - name: Build
+        run: dotnet build tests/LotroKoniecDev.Frontend.E2E.Tests/LotroKoniecDev.Frontend.E2E.Tests.csproj --configuration Release --no-restore
+
+      # The fixture builds the auth/tms/frontend/migrator images, then boots the whole browser-facing stack
+      # (+ Mailpit + the official Testcontainers Playwright browser) and drives it over a real headless Chromium.
+      # ConnectAsync uses the in-container browser, so no `playwright install` (no host browser download) is needed.
+      - name: Run Frontend E2E Tests
+        run: dotnet test tests/LotroKoniecDev.Frontend.E2E.Tests/LotroKoniecDev.Frontend.E2E.Tests.csproj --configuration Release --no-build --logger "console;verbosity=minimal"

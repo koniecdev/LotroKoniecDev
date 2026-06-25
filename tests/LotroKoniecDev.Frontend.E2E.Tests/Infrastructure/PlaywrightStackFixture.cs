@@ -1,0 +1,446 @@
+using System.Diagnostics;
+using System.Globalization;
+using System.Security.Cryptography;
+using System.Security.Cryptography.X509Certificates;
+using System.Text;
+using DotNet.Testcontainers.Builders;
+using DotNet.Testcontainers.Containers;
+using DotNet.Testcontainers.Networks;
+using Microsoft.Playwright;
+using Testcontainers.Playwright;
+using Testcontainers.PostgreSql;
+
+namespace LotroKoniecDev.Frontend.E2E.Tests.Infrastructure;
+
+/// <summary>
+/// Boots the whole browser-facing stack — Postgres + the one-shot migrator + auth-api + tms-api +
+/// the Blazor SSR Frontend + Mailpit + a headless Chromium — as real containers on one private
+/// network, then connects Playwright to the in-network browser over WebSocket (the official
+/// <c>Testcontainers.Playwright</c> module). Every service has a DNS alias, so
+/// <c>https://auth-api:8443</c> resolves identically for the in-container browser front-channel AND
+/// the Frontend's server-side OIDC back-channel — the single-<c>Authority</c> property ADR-0006
+/// secured on the host via <c>localhost</c>, here secured in-network via DNS (ADR-0009). HTTPS is
+/// mandatory (the OIDC correlation cookie is <c>SameSite=None</c>); the cert is generated in C# and
+/// the back-channel services trust it via an inline root entrypoint. Mailpit receives the real
+/// confirmation e-mail, so registration is NOT auto-confirmed and the confirm-link step is genuine.
+/// </summary>
+public sealed class PlaywrightStackFixture : IAsyncLifetime
+{
+    private const string AuthImage = "lotrokoniecdev-auth:fe-e2e";
+    private const string TmsImage = "lotrokoniecdev-tms:fe-e2e";
+    private const string FrontendImage = "lotrokoniecdev-frontend:fe-e2e";
+    private const string MigratorImage = "lotrokoniecdev-migrator:fe-e2e";
+    private const string MailpitImage = "axllent/mailpit:latest";
+
+    // Pinned to match the Microsoft.Playwright client version, so ConnectAsync speaks the same protocol.
+    private const string PlaywrightImage = "mcr.microsoft.com/playwright:v1.60.0-noble";
+
+    /// <summary>Image name → Dockerfile path (relative to the solution root), built in order if not present.</summary>
+    private static readonly (string Image, string Dockerfile)[] DockerImages =
+    [
+        (AuthImage, "src/AuthSystem/LotroKoniecDev.AuthSystem.API/Dockerfile"),
+        (TmsImage, "src/TranslationSystem/LotroKoniecDev.TranslationSystem.API/Dockerfile"),
+        (FrontendImage, "src/Frontend/LotroKoniecDev.Frontend/Dockerfile"),
+        (MigratorImage, "Dockerfile.migrator")
+    ];
+
+    private const int HttpsPort = 8443;
+    private const int HttpPort = 8080;
+    private const int MailpitHttpPort = 8025;
+    private const int MailpitSmtpPort = 1025;
+    private const string KestrelUrls = "https://+:8443;http://+:8080";
+
+    private const string AuthHttpsOrigin = "https://auth-api:8443";
+    private const string TmsHttpsOrigin = "https://tms-api:8443";
+    private const string FrontendHttpsOrigin = "https://frontend:8443";
+
+    private const string TranslationDatabaseName = "lotro_translation";
+    private const string AuthDatabaseName = "lotro_auth";
+    private const string PostgresUser = "postgres";
+    private const string PostgresPassword = "fe-e2e-postgres-password";
+
+    private const string Audience = "lotrokoniecdev-api";
+    private const string ApiClientSecret = "fe-e2e-api-client-secret-min-32-characters";
+    private const string WebClientId = "lotrokoniecdev-web";
+
+    private const string AdminUsername = "fe-e2e-admin";
+    private const string AdminEmail = "fe-e2e-admin@lotro.koniec.dev";
+    private const string AdminPassword = "FeE2eAdminPass123!";
+
+    private string _certPem = null!;
+    private string _keyPem = null!;
+
+    private INetwork _network = null!;
+    private PostgreSqlContainer _postgres = null!;
+    private IContainer _migrator = null!;
+    private IContainer _mailpit = null!;
+    private IContainer _authApi = null!;
+    private IContainer _tmsApi = null!;
+    private IContainer _frontend = null!;
+    private PlaywrightContainer _playwrightContainer = null!;
+    private IPlaywright _playwright = null!;
+
+    public IBrowser Browser { get; private set; } = null!;
+
+    /// <summary>Frontend origin, resolved by the in-network browser via the compose DNS alias.</summary>
+    public string FrontendBaseUrl => FrontendHttpsOrigin;
+
+    /// <summary>Auth (OpenIddict + Identity Razor Pages) origin, resolved by the in-network browser.</summary>
+    public string AuthBaseUrl => AuthHttpsOrigin;
+
+    /// <summary>Mailpit HTTP API, reached from the host test process over the mapped port.</summary>
+    public string MailpitBaseUrl => $"http://localhost:{_mailpit.GetMappedPublicPort(MailpitHttpPort)}";
+
+    private static string TranslationConnectionString => BuildConnectionString(TranslationDatabaseName);
+    private static string AuthConnectionString => BuildConnectionString(AuthDatabaseName);
+
+    public async Task InitializeAsync()
+    {
+        GenerateCertificate();
+        await BuildDockerImagesAsync();
+
+        _network = new NetworkBuilder()
+            .WithName($"fe-e2e-{Guid.NewGuid():N}")
+            .Build();
+        await _network.CreateAsync();
+
+        await StartPostgresAsync();
+        await StartMailpitAsync();
+        await RunMigratorAsync();
+        await StartAuthApiAsync();
+        await StartTmsApiAsync();
+        await StartFrontendAsync();
+        await StartBrowserAsync();
+    }
+
+    private async Task StartPostgresAsync()
+    {
+        // POSTGRES_DB creates lotro_translation on first boot; the bind-mounted init script adds the
+        // second database (lotro_auth) the AuthSystem needs — identical to the compose stack.
+        string initScriptPath = Path.Combine(FindSolutionDirectory(), "scripts", "init-postgres.sh");
+        _postgres = new PostgreSqlBuilder("postgres:17-alpine")
+            .WithNetwork(_network)
+            .WithNetworkAliases("postgres")
+            .WithUsername(PostgresUser)
+            .WithPassword(PostgresPassword)
+            .WithDatabase(TranslationDatabaseName)
+            .WithBindMount(initScriptPath, "/docker-entrypoint-initdb.d/10-init-databases.sh")
+            .Build();
+        await _postgres.StartAsync();
+    }
+
+    private async Task StartMailpitAsync()
+    {
+        _mailpit = new ContainerBuilder(MailpitImage)
+            .WithNetwork(_network)
+            .WithNetworkAliases("mailpit")
+            .WithPortBinding(MailpitHttpPort, true)
+            .WithWaitStrategy(Wait.ForUnixContainer()
+                .UntilHttpRequestIsSucceeded(request => request.ForPath("/").ForPort(MailpitHttpPort)))
+            .Build();
+        await _mailpit.StartAsync();
+    }
+
+    private async Task RunMigratorAsync()
+    {
+        _migrator = new ContainerBuilder(MigratorImage)
+            .WithNetwork(_network)
+            .WithEnvironment("ASPNETCORE_ENVIRONMENT", "Development")
+            .WithEnvironment("ConnectionStrings__TranslationDatabase", TranslationConnectionString)
+            .WithEnvironment("ConnectionStrings__AuthDatabase", AuthConnectionString)
+            .Build();
+
+        await _migrator.StartAsync();
+
+        long exitCode = await _migrator.GetExitCodeAsync();
+        if (exitCode != 0)
+        {
+            (string? stdout, string? stderr) = await _migrator.GetLogsAsync();
+            throw new InvalidOperationException(
+                $"Migrator failed with exit code {exitCode}.\nStdout:\n{stdout}\nStderr:\n{stderr}");
+        }
+    }
+
+    private async Task StartAuthApiAsync()
+    {
+        // Testing profile: seeds a deterministic admin + the OpenIddict clients. The web client's
+        // redirect/post-logout URIs and the issuer are pointed at the in-network HTTPS origins, and
+        // Email targets Mailpit so a registration actually sends a confirmation link (no auto-confirm).
+        _authApi = new ContainerBuilder(AuthImage)
+            .WithNetwork(_network)
+            .WithNetworkAliases("auth-api")
+            .WithPortBinding(HttpPort, true)
+            .WithCreateParameterModifier(parameters => parameters.User = "0")
+            .WithEnvironment("ASPNETCORE_ENVIRONMENT", "Testing")
+            .WithEnvironment("ASPNETCORE_URLS", KestrelUrls)
+            .WithEnvironment("ConnectionStrings__AuthDatabase", AuthConnectionString)
+            .WithEnvironment("OpenIddict__Issuer", AuthHttpsOrigin)
+            .WithEnvironment("OpenIddict__ApiClientSecret", ApiClientSecret)
+            .WithEnvironment("OpenIddict__WebClient__RedirectUris__0", $"{FrontendHttpsOrigin}/callback")
+            .WithEnvironment("OpenIddict__WebClient__PostLogoutRedirectUris__0", FrontendHttpsOrigin)
+            .WithEnvironment("OpenIddict__WebClient__PostLogoutRedirectUris__1", $"{FrontendHttpsOrigin}/")
+            .WithEnvironment("OpenIddict__WebClient__PostLogoutRedirectUris__2", $"{FrontendHttpsOrigin}/signout-callback-oidc")
+            .WithEnvironment("AdminUser__Username", AdminUsername)
+            .WithEnvironment("AdminUser__Email", AdminEmail)
+            .WithEnvironment("AdminUser__Password", AdminPassword)
+            .WithEnvironment("Email__SenderEmail", "noreply@lotro.koniec.dev")
+            .WithEnvironment("Email__Sender", "lotro.koniec.dev")
+            .WithEnvironment("Email__Host", "mailpit")
+            .WithEnvironment("Email__Port", MailpitSmtpPort.ToString(CultureInfo.InvariantCulture))
+            .WithEnvironment("Email__Mode", "None")
+            .WithEnvironment("ASPNETCORE_Kestrel__Certificates__Default__Path", "/certs/e2e.crt")
+            .WithEnvironment("ASPNETCORE_Kestrel__Certificates__Default__KeyPath", "/certs/e2e.key")
+            .WithResourceMapping(Encoding.ASCII.GetBytes(_certPem), "/certs/e2e.crt")
+            .WithResourceMapping(Encoding.ASCII.GetBytes(_keyPem), "/certs/e2e.key")
+            .WithWaitStrategy(Wait.ForUnixContainer()
+                .UntilHttpRequestIsSucceeded(request => request.ForPath("/health/live").ForPort(HttpPort)))
+            .Build();
+
+        await StartWithDiagnosticsAsync(_authApi, "auth-api");
+    }
+
+    private async Task StartTmsApiAsync()
+    {
+        // tms validates JWTs against the issuer over HTTPS (JWKS from https://auth-api:8443), so it
+        // trusts the e2e cert via the inline entrypoint. Not strictly exercised by the auth loop, but
+        // kept wired so the stack is complete and the later editor/list flows have a target.
+        _tmsApi = new ContainerBuilder(TmsImage)
+            .WithNetwork(_network)
+            .WithNetworkAliases("tms-api")
+            .WithPortBinding(HttpPort, true)
+            .WithCreateParameterModifier(parameters => parameters.User = "0")
+            .WithEnvironment("ASPNETCORE_ENVIRONMENT", "Development")
+            .WithEnvironment("ASPNETCORE_URLS", KestrelUrls)
+            .WithEnvironment("ConnectionStrings__TranslationDatabase", TranslationConnectionString)
+            .WithEnvironment("Auth__Issuer", AuthHttpsOrigin)
+            .WithEnvironment("Auth__Authority", AuthHttpsOrigin)
+            .WithEnvironment("Auth__Audience", Audience)
+            .WithEnvironment("Bootstrap__Enabled", "false")
+            .WithEnvironment("ASPNETCORE_Kestrel__Certificates__Default__Path", "/certs/e2e.crt")
+            .WithEnvironment("ASPNETCORE_Kestrel__Certificates__Default__KeyPath", "/certs/e2e.key")
+            .WithResourceMapping(Encoding.ASCII.GetBytes(_certPem), "/certs/e2e.crt")
+            .WithResourceMapping(Encoding.ASCII.GetBytes(_keyPem), "/certs/e2e.key")
+            .WithEntrypoint("/bin/sh", "-c", TrustThenRun("LotroKoniecDev.TranslationSystem.API.dll"))
+            .WithWaitStrategy(Wait.ForUnixContainer()
+                .UntilHttpRequestIsSucceeded(request => request.ForPath("/health/live").ForPort(HttpPort)))
+            .Build();
+
+        await StartWithDiagnosticsAsync(_tmsApi, "tms-api");
+    }
+
+    private async Task StartFrontendAsync()
+    {
+        // The RP's single Authority + the typed tms client both back-channel over HTTPS, so the FE
+        // trusts the e2e cert via the inline entrypoint. The browser hits the FE at the same origin.
+        _frontend = new ContainerBuilder(FrontendImage)
+            .WithNetwork(_network)
+            .WithNetworkAliases("frontend")
+            .WithPortBinding(HttpPort, true)
+            .WithCreateParameterModifier(parameters => parameters.User = "0")
+            .WithEnvironment("ASPNETCORE_ENVIRONMENT", "Development")
+            .WithEnvironment("ASPNETCORE_URLS", KestrelUrls)
+            .WithEnvironment("AuthSystem__Authority", AuthHttpsOrigin)
+            .WithEnvironment("AuthSystem__BaseUrl", $"{AuthHttpsOrigin}/")
+            .WithEnvironment("AuthSystem__ClientId", WebClientId)
+            .WithEnvironment("TranslationSystem__BaseUrl", $"{TmsHttpsOrigin}/")
+            .WithEnvironment("ASPNETCORE_Kestrel__Certificates__Default__Path", "/certs/e2e.crt")
+            .WithEnvironment("ASPNETCORE_Kestrel__Certificates__Default__KeyPath", "/certs/e2e.key")
+            .WithResourceMapping(Encoding.ASCII.GetBytes(_certPem), "/certs/e2e.crt")
+            .WithResourceMapping(Encoding.ASCII.GetBytes(_keyPem), "/certs/e2e.key")
+            .WithEntrypoint("/bin/sh", "-c", TrustThenRun("LotroKoniecDev.Frontend.dll"))
+            // The FE has no health endpoint, and UseHttpsRedirection turns every HTTP request into a 307
+            // to the HTTPS origin — which the wait's HttpClient follows to an unpublished port and fails.
+            // So gate on the host startup log line instead: redirect-proof and deterministic. The browser
+            // still reaches the FE over in-network HTTPS (:8443) regardless.
+            .WithWaitStrategy(Wait.ForUnixContainer().UntilMessageIsLogged("Application started"))
+            .Build();
+
+        await StartWithDiagnosticsAsync(_frontend, "frontend");
+    }
+
+    private async Task StartBrowserAsync()
+    {
+        _playwrightContainer = new PlaywrightBuilder(PlaywrightImage)
+            .WithNetwork(_network)
+            .Build();
+        await _playwrightContainer.StartAsync();
+
+        _playwright = await Playwright.CreateAsync();
+        Browser = await _playwright.Chromium.ConnectAsync(_playwrightContainer.GetConnectionString());
+    }
+
+    /// <summary>
+    /// Installs the e2e CA into the OS trust store (root) then execs the app — .NET validates the
+    /// back-channel leaf against the OS store (it ignores SSL_CERT_FILE), so the cert must land there
+    /// before Kestrel/HttpClient start. Inline, so it needs no committed entrypoint script.
+    /// </summary>
+    private static string TrustThenRun(string dll) =>
+        "cp /certs/e2e.crt /usr/local/share/ca-certificates/lotro-e2e.crt && " +
+        "update-ca-certificates >/dev/null 2>&1; " +
+        $"exec dotnet {dll}";
+
+    private void GenerateCertificate()
+    {
+        using RSA rsa = RSA.Create(2048);
+        CertificateRequest request = new(
+            "CN=lotro-e2e", rsa, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
+
+        SubjectAlternativeNameBuilder san = new();
+        san.AddDnsName("localhost");
+        san.AddDnsName("auth-api");
+        san.AddDnsName("tms-api");
+        san.AddDnsName("frontend");
+        san.AddDnsName("mailpit");
+        request.CertificateExtensions.Add(san.Build());
+        request.CertificateExtensions.Add(
+            new X509BasicConstraintsExtension(certificateAuthority: true, hasPathLengthConstraint: false, pathLengthConstraint: 0, critical: true));
+        request.CertificateExtensions.Add(
+            new X509KeyUsageExtension(
+                X509KeyUsageFlags.DigitalSignature | X509KeyUsageFlags.KeyEncipherment | X509KeyUsageFlags.KeyCertSign,
+                critical: true));
+
+        using X509Certificate2 certificate = request.CreateSelfSigned(
+            DateTimeOffset.UtcNow.AddDays(-1), DateTimeOffset.UtcNow.AddDays(825));
+
+        _certPem = certificate.ExportCertificatePem();
+        _keyPem = rsa.ExportPkcs8PrivateKeyPem();
+    }
+
+    private static async Task StartWithDiagnosticsAsync(IContainer container, string name)
+    {
+        // Bound the readiness wait so a genuinely unhealthy container fails in minutes — the default
+        // strategy otherwise retries for ~1 hour.
+        using CancellationTokenSource cts = new(TimeSpan.FromMinutes(5));
+        try
+        {
+            await container.StartAsync(cts.Token);
+        }
+        catch (Exception ex)
+        {
+            (string? stdout, string? stderr) = await container.GetLogsAsync();
+            throw new InvalidOperationException(
+                $"Container '{name}' failed to reach its ready state within the timeout.\n" +
+                $"Stdout:\n{stdout}\nStderr:\n{stderr}", ex);
+        }
+    }
+
+    private static string BuildConnectionString(string database) =>
+        $"Host=postgres;Port=5432;Database={database};Username={PostgresUser};Password={PostgresPassword}";
+
+    private static async Task BuildDockerImagesAsync()
+    {
+        // CI pre-builds the images and sets SKIP_DOCKER_BUILD=true; locally the suite builds them on demand.
+        if (Environment.GetEnvironmentVariable("SKIP_DOCKER_BUILD") == "true")
+        {
+            Console.WriteLine("Skipping Docker image build (SKIP_DOCKER_BUILD=true).");
+            return;
+        }
+
+        string solutionDir = FindSolutionDirectory();
+        string cacheBust = DateTimeOffset.UtcNow.ToUnixTimeSeconds().ToString(CultureInfo.InvariantCulture);
+
+        foreach ((string imageName, string dockerfile) in DockerImages)
+        {
+            Console.WriteLine($"Building Docker image: {imageName}...");
+
+            using Process process = new();
+            process.StartInfo = new ProcessStartInfo
+            {
+                FileName = "docker",
+                Arguments = $"build --build-arg CACHEBUST={cacheBust} -f {dockerfile} -t {imageName} .",
+                WorkingDirectory = solutionDir,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true
+            };
+
+            process.Start();
+
+            Task<string> stdoutTask = process.StandardOutput.ReadToEndAsync();
+            Task<string> stderrTask = process.StandardError.ReadToEndAsync();
+
+            await process.WaitForExitAsync();
+
+            if (process.ExitCode != 0)
+            {
+                string stdout = await stdoutTask;
+                string stderr = await stderrTask;
+                throw new InvalidOperationException(
+                    $"Failed to build Docker image '{imageName}' (exit code {process.ExitCode}).\n" +
+                    $"Dockerfile: {dockerfile}\nWorking directory: {solutionDir}\n" +
+                    $"Stdout:\n{stdout}\nStderr:\n{stderr}");
+            }
+
+            Console.WriteLine($"Successfully built: {imageName}");
+        }
+    }
+
+    private static string FindSolutionDirectory()
+    {
+        DirectoryInfo? directory = new(Directory.GetCurrentDirectory());
+
+        while (directory is not null)
+        {
+            if (File.Exists(Path.Combine(directory.FullName, "LotroKoniecDev.slnx")))
+            {
+                return directory.FullName;
+            }
+
+            directory = directory.Parent;
+        }
+
+        throw new InvalidOperationException(
+            $"Could not find the solution directory (LotroKoniecDev.slnx). Started from: {Directory.GetCurrentDirectory()}");
+    }
+
+    public async Task DisposeAsync()
+    {
+        if (Browser is not null)
+        {
+            await Browser.DisposeAsync();
+        }
+
+        _playwright?.Dispose();
+
+        if (_playwrightContainer is not null)
+        {
+            await _playwrightContainer.DisposeAsync();
+        }
+
+        if (_frontend is not null)
+        {
+            await _frontend.DisposeAsync();
+        }
+
+        if (_tmsApi is not null)
+        {
+            await _tmsApi.DisposeAsync();
+        }
+
+        if (_authApi is not null)
+        {
+            await _authApi.DisposeAsync();
+        }
+
+        if (_mailpit is not null)
+        {
+            await _mailpit.DisposeAsync();
+        }
+
+        if (_migrator is not null)
+        {
+            await _migrator.DisposeAsync();
+        }
+
+        if (_postgres is not null)
+        {
+            await _postgres.DisposeAsync();
+        }
+
+        if (_network is not null)
+        {
+            await _network.DeleteAsync();
+        }
+    }
+}

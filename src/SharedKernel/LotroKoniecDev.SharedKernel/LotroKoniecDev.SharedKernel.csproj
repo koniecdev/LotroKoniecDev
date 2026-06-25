@@ -4,7 +4,4 @@
         <PlatformTarget>AnyCPU</PlatformTarget>
     </PropertyGroup>
 
-    <ItemGroup>
-        <PackageReference Include="StronglyTypedId" />
-    </ItemGroup>
 </Project>

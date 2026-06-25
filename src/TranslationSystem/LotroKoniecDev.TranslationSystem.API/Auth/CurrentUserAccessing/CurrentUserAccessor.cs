@@ -29,7 +29,7 @@ internal sealed class CurrentUserAccessor : ICurrentUserAccessor
         get
         {
             string? subject = User?.FindFirstValue(SubjectClaimType);
-            IdentityId? result = Guid.TryParse(subject, out Guid userId) ? new IdentityId(userId) : null;
+            IdentityId? result = Guid.TryParse(subject, out Guid userId) ? IdentityId.FromValue(userId) : null;
             return ValueMaybe<IdentityId>.From(result);
         }
     }

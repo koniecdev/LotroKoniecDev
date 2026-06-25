@@ -111,7 +111,7 @@ internal sealed class ApproveTranslation : IEndpoint
                 ICommandHandler<Command, Result> handler,
                 CancellationToken cancellationToken) =>
             {
-                Result result = await handler.Handle(new Command(new TranslationId(id)), cancellationToken);
+                Result result = await handler.Handle(new Command(TranslationId.FromValue(id)), cancellationToken);
 
                 return result.IsSuccess
                     ? Results.NoContent()

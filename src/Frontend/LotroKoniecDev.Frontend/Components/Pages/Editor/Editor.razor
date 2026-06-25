@@ -206,7 +206,7 @@ else
 
     protected override async Task OnParametersSetAsync()
     {
-        ApiResult<TranslationDetailResponse> result = await Loader.LoadAsync(new TranslationId(Id), CancellationToken.None);
+        ApiResult<TranslationDetailResponse> result = await Loader.LoadAsync(TranslationId.FromValue(Id), CancellationToken.None);
         if (result.IsSuccess)
         {
             _detail = result.Value;
@@ -263,7 +263,7 @@ else
         {
             _approved = true;
 
-            ApiResult<TranslationDetailResponse> reload = await Loader.LoadAsync(new TranslationId(Id), CancellationToken.None);
+            ApiResult<TranslationDetailResponse> reload = await Loader.LoadAsync(TranslationId.FromValue(Id), CancellationToken.None);
             if (reload.IsSuccess)
             {
                 _detail = reload.Value;

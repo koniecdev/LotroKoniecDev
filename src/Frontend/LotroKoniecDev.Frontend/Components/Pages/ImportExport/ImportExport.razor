@@ -232,7 +232,7 @@
         await using Stream fileStream = input.File.OpenReadStream();
 
         ApiResult<ImportSummary> result = await Loader.ImportAsync(
-            new GameVersionId(input.GameVersionId),
+            GameVersionId.FromValue(input.GameVersionId),
             fileStream,
             input.File.FileName,
             input.AllowMassRemoval,

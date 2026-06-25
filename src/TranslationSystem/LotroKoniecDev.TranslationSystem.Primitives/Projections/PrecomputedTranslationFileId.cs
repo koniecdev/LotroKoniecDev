@@ -8,7 +8,7 @@ namespace LotroKoniecDev.TranslationSystem.Primitives.Projections;
 [JsonConverter(typeof(StronglyTypedIdJsonConverter<PrecomputedTranslationFileId>))]
 public readonly record struct PrecomputedTranslationFileId : IStronglyTypedId<PrecomputedTranslationFileId>
 {
-    public static readonly PrecomputedTranslationFileId Empty;
+    public static readonly PrecomputedTranslationFileId Empty = default;
 
     public Guid Value { get; }
 

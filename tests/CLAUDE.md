@@ -120,8 +120,10 @@ A **Playwright** browser suite over the same Testcontainers idiom (ADR-0009 — 
 FluentDocker). `PlaywrightStackFixture` builds the `auth`/`tms`/`frontend`/`migrator` images, boots the whole
 browser-facing stack on one network — postgres + migrator + auth-api + tms-api + **frontend** + **mailpit** —
 all over **HTTPS** (a cert generated in C#; SAN = the service DNS names; trusted in-container via an inline root
-entrypoint), plus the **official `Testcontainers.Playwright`** browser container. The host connects to the
-in-network browser over WS (`Chromium.ConnectAsync(GetConnectionString())`), so `https://auth-api:8443` resolves
+entrypoint), plus a Playwright `run-server` browser container built by hand (the `Testcontainers.Playwright`
+module is unusable on Playwright v1.55+ images — it omits run-server's `--host` and hard-codes a `localhost`
+readiness probe; see `PlaywrightStackFixture.StartBrowserAsync`). The host connects to the
+in-network browser over WS (`Chromium.ConnectAsync(ws://host:mappedPort/)`), so `https://auth-api:8443` resolves
 identically for the browser front-channel and the FE OIDC back-channel — the single-`Authority` constraint
 (ADR-0006) held in-network via DNS. Mailpit receives the real confirmation e-mail (no auto-confirm), read back
 over its HTTP API. Because the browser is in a container, the host needs **no** `playwright install` (no browser

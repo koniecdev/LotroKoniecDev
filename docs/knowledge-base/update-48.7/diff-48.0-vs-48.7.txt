@@ -1,0 +1,1749 @@
+diff --git a/intel/update-48.7/export-48.0.txt b/intel/update-48.7/export-48.7.txt
+index 2a3cdfb..7d136fd 100644
+--- a/intel/update-48.7/export-48.0.txt
++++ b/intel/update-48.7/export-48.7.txt
+@@ -60828 +60828 @@
+-620774636||228870261||Spirit of Vengeance[mn]||NULL||NULL||1
++620774636||228870261||Tyrant Tharbîl[mn]||NULL||NULL||1
+@@ -85818 +85818 @@
+-620789385||251118158||<u>Pagru-kirít, the Garden of Corpses</u>\n\qThe ancient crypts of Pagru-kirít were built for Kishâsu the Knowing below his great tower in the second age. Sudûgul now plans to use the corpses filling the crypts to raise an army of the undead for Bârshud. We must catch him and put an end to this!\q||NULL||NULL||1
++620789385||251118158||<u>Pagru-kirít, the Garden of Corpses</u>\n\qThe ancient crypts of Pagru-kirít were built for Kishâsu the Knowing below his great tower in the second age. Sudûgul now plans to use the corpses filling the crypts to raise an army of the Dead for Bârshud. We must catch him and put an end to this!\q||NULL||NULL||1
+@@ -85848 +85848 @@
+-620789385||1578985||<u>A City Under Siege, Part 2</u>\n\qYour distraction worked well - the Ordâkhai are in disarray. Open the main gate - our remaining Subuzûri stand ready on the other side.\q||NULL||NULL||1
++620789385||1578985||<u>A City On Fire, Part 2</u>\n\qYour distraction worked well - the Ordâkhai are in disarray.\q||NULL||NULL||1
+@@ -86076,0 +86077 @@
++620789385||246673972||<u>DNT</u>\n\qDNT\q||NULL||NULL||1
+@@ -94601,0 +94603 @@
++620792218||249575973||DNT - Availability of the Throne of the Dread Terror Raid||NULL||NULL||1
+@@ -94707,0 +94710 @@
++620792218||46260811||DNT - Used to end the initial window of time to complete the U50 Raid on Tier 3.||NULL||NULL||1
+@@ -94827,0 +94831 @@
++620792218||205091492||Gaergoth has fallen to our heroes, and the forge is lit!||NULL||NULL||1
+@@ -95083 +95087 @@
+-620792218||65752466||DNT - Access to The Delving of Frór||NULL||NULL||1
++620792218||65752466||Access to The Delving of Frór||NULL||NULL||1
+@@ -95087,0 +95092 @@
++620792218||97661579||DNT - Used to end the initial window of time to complete the final 6-,am encounter 'challenge' of Hatokali Fells 6man Instance in Mur Ghala on Tier 3.||NULL||NULL||1
+@@ -95146 +95151 @@
+-620792218||100088274||Sluggards! You let the Free Peoples claim Tirith Rhaw! Get it back!||NULL||NULL||1
++620792218||100088274||Sluggards! You let the Free Peoples claim Tírith Rhaw! Get it back!||NULL||NULL||1
+@@ -95219,0 +95225 @@
++620792218||93596917||DNT - LI2 reward track season 18 status. Warning: setting to false could reset track progress.||NULL||NULL||1
+@@ -95271,0 +95278 @@
++620792218||245227236||Gaergoth has fallen to our fangs, but the forge is lit!||NULL||NULL||1
+@@ -95338,0 +95346 @@
++620792218||85196484||Gaergoth has fallen to the enemy, but the forge is lit!||NULL||NULL||1
+@@ -95359 +95367 @@
+-620792218||97507282||Angmar's forces have taken Tirith Rhaw!||NULL||NULL||1
++620792218||97507282||Angmar's forces have taken Tírith Rhaw!||NULL||NULL||1
+@@ -95382,0 +95391 @@
++620792218||229620357||DNT - Controls the available tiers for U50 Raid||NULL||NULL||1
+@@ -95555 +95564 @@
+-620792218||116865490||Look at the feeble târks run! Tirith Rhaw is claimed for Angmar!||NULL||NULL||1
++620792218||116865490||Look at the feeble târks run! Tírith Rhaw is claimed for Angmar!||NULL||NULL||1
+@@ -95682,0 +95692 @@
++620792218||61637925||DNT - Controls the available tiers for Pagru-Kirit 6man in Hatokali Fells||NULL||NULL||1
+@@ -95748 +95758,2 @@
+-620792218||114284498||Tirith Rhaw is claimed in the name of the Free Peoples!||NULL||NULL||1
++620792218||244342948||Gaergoth has fallen to cowards from the south, and the forge is lit!||NULL||NULL||1
++620792218||114284498||Tírith Rhaw is claimed in the name of the Free Peoples!||NULL||NULL||1
+@@ -95793 +95804 @@
+-620792218||165253074||DNT - Access to The Delving of Frór||NULL||NULL||1
++620792218||165253074||Access to The Delving of Frór||NULL||NULL||1
+@@ -452324,0 +452336 @@
++620960997||127458226||Sea-side Steed||NULL||NULL||1
+@@ -452325,0 +452338 @@
++620960997||127458227||Elk of the Flowering Sun||NULL||NULL||1
+@@ -477163,0 +477177 @@
++620969526||92229268||Acquired from the Timeless Patron's Luxuriant Coffer of the Noldor.\nUse deed_default to turn off this style.||NULL||NULL||1
+@@ -477167,0 +477182 @@
++620969526||9615861||Acquired from the Timeless Patron's Luxuriant Coffer of the Noldor.\nUse milestone_default to turn off this style.||NULL||NULL||1
+@@ -498477,0 +498493 @@
++620995772||63310614||Only available from the Timeless Patron's Luxuriant Coffer of the Noldor.||NULL||NULL||1
+@@ -544083,0 +544100 @@
++621012615||158905077||Account-wide portrait frame: Season of Destruction Frame||NULL||NULL||1
+@@ -684221 +684238 @@
+-621075984||191029568||A different visual appearance for your March! skill that gives your feet a brilliant gold glow.||NULL||NULL||1
++621075984||191029568||A different visual appearance for your March! skill that gives you a brilliant gold glow while marching.||NULL||NULL||1
+@@ -684223 +684240 @@
+-621075984||54354734||A different visual appearance for your March! skill that gives your feet a brilliant gold glow.||NULL||NULL||1
++621075984||54354734||A different visual appearance for your March! skill that gives you a brilliant gold glow while marching.||NULL||NULL||1
+@@ -732148 +732165 @@
+-621096343||241593989||Amelia's Studies (Req: Respected & Lvl 111)||NULL||NULL||1
++621096343||241593989||Amelia's Studies (Req: Respected & Lvl 101)||NULL||NULL||1
+@@ -753070,0 +753088,2 @@
++621104524||229802005||Shield Isles Race Master[f]||NULL||NULL||1
++621104524||81781765||Lêkhar[fn]||NULL||NULL||1
+@@ -754109,2 +754128,17 @@
+-621104757||218649169||TBD 'Greetings to you, stranger! Are you here to try out our obstacle course? Only the most experienced of riders will be able to master such a tricky path in the amount of time we have allotted.\n\n'The rules are very simple -- race through each gate, and you mustn't fall off your steed before the time runs out. When you see two gates next to one another, you must choose which path to take, be it high or low. The low path may be muddy, and the high is sure to be dry, but precarious indeed. There will be other hurdles to disrupt you as well.\n\n'Do you feel up for this challenge? Only the most spirited riders should even attempt such a feat! It is sure to be very dangerous, but you have a hardy look to you.'||NULL||NULL||1
+-621104757||218649170||TBD 'It is rare to see such excellent riding in these parts, <--DO_NOT_TOUCH!-->! I am very impressed. Take these tokens in reward of your achievement!'||1||1||1
++621104757||111477398||Race to the twelfth gate||NULL||NULL||1
++621104757||111477399||Race to the thirteenth gate||NULL||NULL||1
++621104757||111477400||Race to the fourteenth gate||NULL||NULL||1
++621104757||111477401||Race to the fifteenth gate||NULL||NULL||1
++621104757||216727827||The gates can be found by following the path around Furtherholm.\n\nYou must race through all the gates before the timer runs out.||NULL||NULL||1
++621104757||216727828||The gates can be found by following the path around Furtherholm.\n\nYou must race through all the gates before the timer runs out.||NULL||NULL||1
++621104757||225071137||Race to the ninth gate||NULL||NULL||1
++621104757||216727833||The gates can be found by following the path around Furtherholm.\n\nYou must race through all the gates before the timer runs out.||NULL||NULL||1
++621104757||177082786||You have lost the race||NULL||NULL||1
++621104757||225071142||Race to the tenth gate||NULL||NULL||1
++621104757||177082787||You have lost the race||NULL||NULL||1
++621104757||218649169||'Fair winds to you, my friend! Do you ride horses?\n\n'In the fair land where I hail from, we take great pride in our breed of horses, highly valued not just for their speed and endurance, but also their courage and loyalty. We have a long history of grand competitions where riders display their animals and their skills, and I wanted to bring such an event to Zír Aktar's visitors.\n\n'If you think you can handle one of our fine steeds, you are welcome to give our race course a try. I warn you though, only the most skilled of riders will be able to master such a tricky path in the amount of time we have allotted.\n\n'The rules of the race are very simple -- race through each gate, and you must not fall off your steed before the time runs out. You will find obstacles and challenging terrain, but it is also a wonderful way to see the island. When you see two gates next to one another, you must choose which path to take, be it high or low. Each path has its own benefits and hinderances.\n\n'Do you feel up for this challenge? Only the most spirited riders should even attempt such a feat! It is sure to be very dangerous, but you have an adventurous look to you.'||NULL||NULL||1
++621104757||218649170||'Excellent riding, <--DO_NOT_TOUCH!-->! I am very impressed. Take these tokens in reward of your achievement!'||1||1||1
++621104757||177082788||You have lost the race||NULL||NULL||1
++621104757||177082789||You have lost the race||NULL||NULL||1
++621104757||246419842||The gates can be found by following the path around Furtherholm.\n\nYou must race through all the gates before the timer runs out.||NULL||NULL||1
++621104757||177082790||You have lost the race||NULL||NULL||1
+@@ -754111,0 +754146,2 @@
++621104757||246419843||The gates can be found by following the path around Furtherholm.\n\nYou must race through all the gates before the timer runs out.||NULL||NULL||1
++621104757||177082791||A shortcut!||NULL||NULL||1
+@@ -754112,0 +754149,2 @@
++621104757||246419844||The gates can be found by following the path around Furtherholm.\n\nYou must race through all the gates before the timer runs out.||NULL||NULL||1
++621104757||177082792||The road ahead is very muddy||NULL||NULL||1
+@@ -754113,0 +754152 @@
++621104757||246419845||The gates can be found by following the path around Furtherholm.\n\nYou must race through all the gates before the timer runs out.||NULL||NULL||1
+@@ -754118 +754157 @@
+-621104757||54354734||TBD The Anniversary Run is a time-honoured tradition in the Horsefields of Bree. Many challenges have been laid down to present a tricky course for the brave riders of Middle-earth who wish to demonstrate their mettle on horseback.\n\n<rgb=#FF0000> NOTE: This quest will be removed from your quest log when the current festival ends. </rgb>||NULL||NULL||1
++621104757||54354734||Lêkhar has brought Hamâti horses to Furtherholm and set up a challenging race course around the island for skilled riders to test their mettle on horseback.\n\n<rgb=#FF0000> NOTE: This quest will be removed from your quest log when the current festival ends. </rgb>||NULL||NULL||1
+@@ -754121 +754160,3 @@
+-621104757||84765776||TBD Race through the low sixth gate through sticky mud||NULL||NULL||1
++621104757||177082801||You have lost the race||NULL||NULL||1
++621104757||246419856||The gates can be found by following the path around Furtherholm.\n\nYou must race through all the gates before the timer runs out.||NULL||NULL||1
++621104757||84765776||Race to the sixth gate||NULL||NULL||1
+@@ -754123,0 +754165 @@
++621104757||262725906||You have lost the race||NULL||NULL||1
+@@ -754126 +754168 @@
+-621104757||84765781||Speak with TBD Race Master||NULL||NULL||1
++621104757||84765781||Talk to Nârud, the Shield Isles Race Marshal||NULL||NULL||1
+@@ -754127,0 +754170 @@
++621104757||262725912||You have lost the race||NULL||NULL||1
+@@ -754129 +754172 @@
+-621104757||22075075||Cross the starting line to enter the race-track||NULL||NULL||1
++621104757||22075075||Cross the starting line to begin the race||NULL||NULL||1
+@@ -754132 +754175 @@
+-621104757||22075078||TBD Race through the low third gate through sticky mud||NULL||NULL||1
++621104757||22075078||Race to the third gate||NULL||NULL||1
+@@ -754136,2 +754179,2 @@
+-621104757||40092692||'You should hurry and mount your horse, else you will fail the course!'||NULL||NULL||1
+-621104757||94621393||TBD The festival steeds can be found spoiling for the race in the stable at the Bree-fields Festival Grounds.\n\nYou should mount a steed to begin the race -- a pony if you are shorter in stature, or a horse if you are of a taller build.||NULL||NULL||1
++621104757||40092692||'You should hurry and mount your horse or you will fail the race!'||NULL||NULL||1
++621104757||94621393||The Hamâti steeds can be found spoiling for the race in the stable east of The Cracked Flagon.\n\nYou should mount a steed to begin the race -- a pony if you are shorter in stature, or a horse if you are of a taller build.||NULL||NULL||1
+@@ -754139 +754182 @@
+-621104757||94621394||TBD The gates can be found by following the race-track at the Bree-fields' Festival Ground.\n\nYou must race through all the gates before the timer runs out.||NULL||NULL||1
++621104757||94621394||The gates can be found by following the path around Furtherholm.\n\nYou must race through all the gates before the timer runs out.||NULL||NULL||1
+@@ -754141 +754184 @@
+-621104757||94621395||TBD The gates can be found by following the race-track at the Bree-fields' Festival Ground.\n\nYou must race through all the gates before the timer runs out.||NULL||NULL||1
++621104757||94621395||The gates can be found by following the path around Furtherholm.\n\nYou must race through all the gates before the timer runs out.||NULL||NULL||1
+@@ -754143 +754186 @@
+-621104757||94621396||TBD The gates can be found by following the race-track at the Bree-fields' Festival Ground.\n\nYou must race through all the gates before the timer runs out.||NULL||NULL||1
++621104757||94621396||The gates can be found by following the path around Furtherholm.\n\nYou must race through all the gates before the timer runs out.||NULL||NULL||1
+@@ -754145 +754188 @@
+-621104757||94621397||TBD The gates can be found by following the race-track at the Bree-fields' Festival Ground.\n\nYou must race through all the gates before the timer runs out.||NULL||NULL||1
++621104757||94621397||The gates can be found by following the path around Furtherholm.\n\nYou must race through all the gates before the timer runs out.||NULL||NULL||1
+@@ -754147 +754190 @@
+-621104757||94621398||TBD The gates can be found by following the race-track at the Bree-fields' Festival Ground.\n\nYou must race through all the gates before the timer runs out.||NULL||NULL||1
++621104757||94621398||The gates can be found by following the path around Furtherholm.\n\nYou must race through all the gates before the timer runs out.||NULL||NULL||1
+@@ -754149 +754192 @@
+-621104757||94621399||TBD The gates can be found by following the race-track at the Bree-fields' Festival Ground.\n\nYou must race through all the gates before the timer runs out.||NULL||NULL||1
++621104757||94621399||The gates can be found by following the path around Furtherholm.\n\nYou must race through all the gates before the timer runs out.||NULL||NULL||1
+@@ -754151,3 +754194,4 @@
+-621104757||94621400||TBD The gates can be found by following the race-track at the Bree-fields' Festival Ground.\n\nYou must race through all the gates before the timer runs out.||NULL||NULL||1
+-621104757||32729287||TBD You have won the Bree-fields Anniversary Run||NULL||NULL||1
+-621104757||94621401||TBD The gates can be found by following the race-track at the Bree-fields' Festival Ground.\n\nYou must race through all the gates before the timer runs out.||NULL||NULL||1
++621104757||111477377||Race to the sixteenth gate||NULL||NULL||1
++621104757||94621400||The gates can be found by following the path around Furtherholm.\n\nYou must race through all the gates before the timer runs out.||NULL||NULL||1
++621104757||32729287||You have won the Shield Isles Midsummer Run||NULL||NULL||1
++621104757||94621401||The gates can be found by following the path around Furtherholm.\n\nYou must race through all the gates before the timer runs out.||NULL||NULL||1
+@@ -754155 +754199 @@
+-621104757||171765008||TBD The gates can be found by following the race-track at the Bree-fields' Festival Ground.\n\nYou must race through all the gates before the timer runs out.||NULL||NULL||1
++621104757||171765008||The gates can be found by following the path around Furtherholm. Here you must choose to follow the beach or go up the hill.\n\nYou must race through all the gates before the timer runs out.||NULL||NULL||1
+@@ -754157,2 +754201,3 @@
+-621104757||171765010||TBD Sally Threshing stands next to the finish line at the race-track in Bree.\n\nYou should speak with Sally Threshing and inform her of your success.||NULL||NULL||1
+-621104757||228870261||TBD The Shield Isles Midsummer Run||NULL||NULL||1
++621104757||171765010||Nârud, the Shield Isles Race Marshal, stands next to the finish line at the race-track at the south-east end of Furtherholm.\n\nYou should speak with Nârud and inform him of your success.||NULL||NULL||1
++621104757||228870261||The Shield Isles Midsummer Run||NULL||NULL||1
++621104757||111477392||Race to the eleventh gate||NULL||NULL||1
+@@ -764280,0 +764326,2 @@
++621108859||228870261||Tome of the Pony of Umbar[e]||NULL||NULL||1
++621108859||54354734||Using this item will teach you to summon a pony of Umbar.||NULL||NULL||1
+@@ -764293 +764340 @@
+-621108869||211796645||NOT PUBLISHED||NULL||NULL||1
++621108869||211796645||Limited time availability: Legendary Item Reward Track Season 18.||NULL||NULL||1
+@@ -764404 +764451 @@
+-621108959||211796645||NOT PUBLISHED||NULL||NULL||1
++621108959||211796645||Limited time availability: Legendary Item Reward Track Season 18.||NULL||NULL||1
+@@ -764418,0 +764466,2 @@
++621108972||228870261||Tome of the Tame Hyena[e]||NULL||NULL||1
++621108972||54354734||Using this item will teach you to summon a tame hyena.||NULL||NULL||1
+@@ -770172,0 +770222 @@
++621112850||246419832||Kotráka Saiya's sister, Barkhuráni, will not allow her to leave with the children.\n\nYou should defeat Dark Priestess Barkhuráni.||NULL||NULL||1
+@@ -770185,0 +770236 @@
++621112850||111477264||Talk to Dark Priestess Barkhuráni||NULL||NULL||1
+@@ -770206,0 +770258 @@
++621112850||162883689||'Are you here to take the children, <--DO_NOT_TOUCH!-->? What lies have you spread to convince my sister to abandon her empire, husband, and sister?'||1||1||1
+@@ -771138,0 +771191 @@
++621113165||38001543||Deadly Ordâkhai archers have overpowered you.||NULL||NULL||1
+@@ -772557,0 +772611,2 @@
++621113538||228870261||Zajâni Wall Fountain[e]||NULL||NULL||1
++621113539||228870261||Zajâni Sitting Gazebo[e]||NULL||NULL||1
+@@ -772601,0 +772657 @@
++621113589||228870261||Zajâni Well[e]||NULL||NULL||1
+@@ -772673,0 +772730 @@
++621113675||228870261||Ornate Zajâni Wall Fountain[v]||NULL||NULL||1
+@@ -776411 +776468 @@
+-621114702||228284034||'I have witnessed your strength—in arm, in spirit. You have stood beside me through triumph and grief. We have spilled blood, not as strangers, but as comrades. And now, we draw near to the ending. Hamât shall rise again, renewed by my hand.\n\n'There is no other I would call to my side in this hour, <--DO_NOT_TOUCH!-->. My campaign must find its end—and before that hour comes, I shall call upon you again, if you will attend me.\n\n'My captains and lieutenants clamour for aid as there is much to do and prepare; all that you do in my name shall bring you honour, and raise your standing among my host. I have named Lumgâna to keep your share of the spoils safe, and to grant you access to our deeper stores.\n\n'Stay steady, <--DO_NOT_TOUCH!-->. The road narrows, and the end draws near. I will need your strength before the last banner is raised.'||1-2||1-2||1
++621114702||228284034||'We have witnessed your strength—in arm, in spirit. You have stood beside us through triumph and grief. We have spilled blood, not as strangers, but as comrades. And now, we draw near to the ending. Hamât shall rise again, renewed by Mizâdi's hand.\n\n'There is no other she would call to my side in this hour, <--DO_NOT_TOUCH!-->. The campaign must find its end—and before that hour comes, she shall call upon you again, if you will attend her.\n\n'Captains and lieutenants clamour for aid as there is much to do and prepare; all that you do in her name shall bring you honour, and raise your standing among her host. Lumgâna will keep your share of the spoils safe, and grant you access to our deeper stores.\n\n'Stay steady, <--DO_NOT_TOUCH!-->. The road narrows, and the end draws near. We will need your strength before the last banner is raised.'||1-2||1-2||1
+@@ -776783,0 +776841 @@
++621114946||228870261||Small Zajâni Bird Bath[e]||NULL||NULL||1
+@@ -778631,0 +778690,4 @@
++621116064||191029568||A different visual appearance for your Warg Stalker: a tawny Hyena appearance.||NULL||NULL||1
++621116064||228870261||Tawny Hyena Appearance||NULL||NULL||1
++621116064||54354734||A different visual appearance for your Warg Stalker: a tawny hyena appearance.||NULL||NULL||1
++621116064||106251889|| ||NULL||NULL||1
+@@ -778635,0 +778698,4 @@
++621116066||191029568||A different visual appearance for your Spider Weaver: an albino weaver infected with the blight.||NULL||NULL||1
++621116066||228870261||Albino Adagím Blight-crawler Appearance||NULL||NULL||1
++621116066||54354734||A different visual appearance for your Spider Weaver: albino weaver infected with the blight.||NULL||NULL||1
++621116066||106251889|| ||NULL||NULL||1
+@@ -778639,0 +778706,2 @@
++621116069||228870261||Tawny Hyena Appearance[e]||NULL||NULL||1
++621116069||54354734||This item will reward your character with the Tawny Hyena Warg Appearance.||NULL||NULL||1
+@@ -778657,0 +778726,2 @@
++621116086||228870261||Albino Adagím Blight-crawler Appearance[v]||NULL||NULL||1
++621116086||54354734||This item will reward your character with the Albino Adagím Blight-crawler Appearance.||NULL||NULL||1
+@@ -783447 +783517 @@
+-621118589||191177136||Get Gilded CaravanCoffer||NULL||NULL||1
++621118589||191177136||Get Gilded Caravan Coffer||NULL||NULL||1
+@@ -783450 +783520 @@
+-621118590||191177136||Get Gilded CaravanCoffer||NULL||NULL||1
++621118590||191177136||Get Gilded Caravan Coffer||NULL||NULL||1
+@@ -783468 +783538 @@
+-621118596||191177136||Get Gilded CaravanCoffer||NULL||NULL||1
++621118596||191177136||Get Gilded Caravan Coffer||NULL||NULL||1
+@@ -785446 +785516 @@
+-621119820||81781765||Owen 'The Mark' Whitethorn[m]||NULL||NULL||1
++621119820||81781765||Owen 'The Mark' Whitethorn[mn]||NULL||NULL||1
+@@ -786208 +786278 @@
+-621120276||54354734||A gold coin with a curoius mark on its face, which gives you a foul feeling.||NULL||NULL||1
++621120276||54354734||A gold coin with a curious mark on its face, which gives you a foul feeling.||NULL||NULL||1
+@@ -786848,0 +786919 @@
++621120615||229802005||Far-ranging Stables[f]||NULL||NULL||1
+@@ -787255 +787326 @@
+-621120907||228870261||Second Age Yoeman[m]||NULL||NULL||1
++621120907||228870261||Second Age Yeoman[m]||NULL||NULL||1
+@@ -787349 +787420 @@
+-621120973||54354734||Earn the Favour of Mordírith from special daily quests during the reward track season to earn new cosmetics, skins, and items for your Monster Player characters and currency used by both your Monster Player Characters and Free People Characters to enhance their strength in the Ettenmoors. Any of your Monster Player characters in this world help to advance this track and can claim rewards from it. This reward track is only available for a limited time!||NULL||NULL||1
++621120973||54354734||Earn the Favour of Mordirith from special daily quests during the reward track season to earn new cosmetics, skins, and items for your Monster Player characters and currency used by both your Monster Player Characters and Free People Characters to enhance their strength in the Ettenmoors. Any of your Monster Player characters in this world help to advance this track and can claim rewards from it. This reward track is only available for a limited time!||NULL||NULL||1
+@@ -787530,0 +787602,6 @@
++621120983||228870261||Corrupted Great Axe Appearance[e]||NULL||NULL||1
++621120983||54354734||This item will reward your character with a Corrupted Great Axe Appearance for your main hand.||NULL||NULL||1
++621120994||228870261||High Chieftain Claghórd's Shield Appearance[n]||NULL||NULL||1
++621120994||54354734||This item will reward your character with High Chieftain Claghórd's Shield Appearance for your shield.||NULL||NULL||1
++621120998||228870261||Ásachal's Staff Appearance[n]||NULL||NULL||1
++621120998||54354734||This item will reward your character with Ásachal's Staff Appearance for your main hand.||NULL||NULL||1
+@@ -787538,0 +787616,4 @@
++621121003||191029568||A different visual appearance for your staff.||NULL||NULL||1
++621121003||228870261||Ásachal's Staff Appearance||NULL||NULL||1
++621121003||54354734||A different visual appearance for your staff.||NULL||NULL||1
++621121003||106251889|| ||NULL||NULL||1
+@@ -787540,0 +787622,6 @@
++621121005||228870261||Gothmog's Mace Appearance (Off-hand)[n]||NULL||NULL||1
++621121005||54354734||This item will reward your character with Gothmog's Mace Appearance for your secondary weapon.||NULL||NULL||1
++621121008||191029568||A different visual appearance for your off-hand melee weapon.||NULL||NULL||1
++621121008||228870261||Gothmog's Mace Appearance (Off-hand)||NULL||NULL||1
++621121008||54354734||A different visual appearance for your off-hand melee weapon.||NULL||NULL||1
++621121008||106251889|| ||NULL||NULL||1
+@@ -787542,0 +787630,4 @@
++621121013||191029568||A different visual appearance for your shield.||NULL||NULL||1
++621121013||228870261||High Chieftain Claghórd Shield Appearance||NULL||NULL||1
++621121013||54354734||A different visual appearance for your shield.||NULL||NULL||1
++621121013||106251889|| ||NULL||NULL||1
+@@ -787550,0 +787642,4 @@
++621121021||191029568||A different visual appearance for your main-hand melee weapon: a flaming blade of Angmarim design.||NULL||NULL||1
++621121021||228870261||Elemental Fire Sword Appearance||NULL||NULL||1
++621121021||54354734||A different visual appearance for your main-hand melee weapon: a flaming blade of Angmarim design.||NULL||NULL||1
++621121021||106251889|| ||NULL||NULL||1
+@@ -787558,0 +787654,10 @@
++621121032||191029568||A different visual appearance for your main-hand melee weapon: a large axe of Angmarim design.||NULL||NULL||1
++621121032||228870261||Corrupted Great Axe Appearance||NULL||NULL||1
++621121032||54354734||A different visual appearance for your main-hand melee weapon: a large axe of Angmarim design.||NULL||NULL||1
++621121032||106251889|| ||NULL||NULL||1
++621121037||191029568||A different visual appearance for your bow: a translucent longbow.||NULL||NULL||1
++621121037||228870261||Translucent Bow Appearance||NULL||NULL||1
++621121037||54354734||A different visual appearance for your bow: a translucent longbow.||NULL||NULL||1
++621121037||106251889|| ||NULL||NULL||1
++621121038||228870261||Translucent Bow Appearance[e]||NULL||NULL||1
++621121038||54354734||This item will reward your character with a Translucent Bow Appearance for your shortbow.||NULL||NULL||1
+@@ -787566,0 +787672,2 @@
++621121041||228870261||Elemental Fire Sword Appearance[v]||NULL||NULL||1
++621121041||54354734||This item will reward your character with an Elemental Fire Sword Appearance for your main hand.||NULL||NULL||1
+@@ -787728 +787835 @@
+-621121155||228870261||Sakhar Kishâsya||NULL||NULL||1
++621121155||228870261||Pagru-kirít, the Garden of Corpses||NULL||NULL||1
+@@ -787785 +787892 @@
+-621121158||228870261||Title Bastion of the Light||NULL||NULL||1
++621121158||228870261||Title: Bastion of the Light||NULL||NULL||1
+@@ -787855 +787962 @@
+-621121165||241593989||Season 6 - Title||NULL||NULL||1
++621121165||241593989||Season 7 - Title||NULL||NULL||1
+@@ -787857 +787964 @@
+-621121167||241593989||Season 2 & 3 - Appearances||NULL||NULL||1
++621121167||241593989||Previous Season - Appearances||NULL||NULL||1
+@@ -787859 +787966 @@
+-621121169||241593989||Season 4 & 5 - Appearances||NULL||NULL||1
++621121169||241593989||Previous Seasons - Appearances||NULL||NULL||1
+@@ -788524,0 +788632,2 @@
++621121302||181298206||Welcomes a visitor||NULL||NULL||1
++621121302||228870261||Call Property Guard||NULL||NULL||1
+@@ -788532,0 +788642,2 @@
++621121317||228870261||Subuzûri Property Guard (Female)[e]||NULL||NULL||1
++621121317||54354734||A hired guard tasked with protecting your property.||NULL||NULL||1
+@@ -788534,0 +788646 @@
++621121322||228870261||Visiting Shagâni Warrior (Male)[m]||NULL||NULL||1
+@@ -788538,0 +788651,2 @@
++621121332||181298206||Welcomes a visitor||NULL||NULL||1
++621121332||228870261||Call Property Guard||NULL||NULL||1
+@@ -788539,0 +788654,2 @@
++621121337||228870261||Subuzûri Property Guard (Male)[e]||NULL||NULL||1
++621121337||54354734||A hired guard tasked with protecting your property.||NULL||NULL||1
+@@ -788540,0 +788657,2 @@
++621121339||228870261||Dumûri Property Guard[e]||NULL||NULL||1
++621121339||54354734||A hired guard tasked with protecting your property.||NULL||NULL||1
+@@ -788543,0 +788662 @@
++621121344||228870261||Visiting Shagâni Warrior (Female)[f]||NULL||NULL||1
+@@ -788549,0 +788669,4 @@
++621121354||228870261||Visiting Shagâni Warrior (Female)[e]||NULL||NULL||1
++621121354||54354734||A visitor from lands far away.||NULL||NULL||1
++621121355||181298206||Welcomes a visitor||NULL||NULL||1
++621121355||228870261||Call Property Guard||NULL||NULL||1
+@@ -788552,0 +788676,2 @@
++621121363||228870261||Dumûri Property Guard[f]||NULL||NULL||1
++621121365||228870261||Subuzûri Property Guard (Female)[f]||NULL||NULL||1
+@@ -788572,0 +788698,2 @@
++621121398||181298206||Welcomes a visitor||NULL||NULL||1
++621121398||228870261||Call Property Guard||NULL||NULL||1
+@@ -788590,0 +788718,2 @@
++621121437||181298206||Welcomes a visitor||NULL||NULL||1
++621121437||228870261||Call Property Guard||NULL||NULL||1
+@@ -788601,0 +788731,3 @@
++621121461||228870261||Subuzûri Property Guard (Male)[m]||NULL||NULL||1
++621121463||228870261||Visiting Shagâni Warrior (Male)[e]||NULL||NULL||1
++621121463||54354734||A visitor from lands far away.||NULL||NULL||1
+@@ -788616 +788748 @@
+-621121490||228870261||Hanging Standard of Kûr Anzar[e]||NULL||NULL||1
++621121490||228870261||Hanging Standard of Ekhamât[e]||NULL||NULL||1
+@@ -788887,0 +789020,2 @@
++621121664||218513886||TBD||NULL||NULL||1
++621121664||227696533||Pagru-kirít, the Garden of Corpses||NULL||NULL||1
+@@ -789406 +789540 @@
+-621121821||228870261||Heraldry of Anórien[p]||NULL||NULL||1
++621121821||228870261||Heraldry of Anfalas[p]||NULL||NULL||1
+@@ -789408 +789542 @@
+-621121821||98907573||Heraldry of Anórien[p]||NULL||NULL||1
++621121821||98907573||Heraldry of Anfalas[p]||NULL||NULL||1
+@@ -789473 +789607 @@
+-621121848||228870261||Heraldry of Anfalas[p]||NULL||NULL||1
++621121848||228870261||Heraldry of Anórien[p]||NULL||NULL||1
+@@ -789475 +789609 @@
+-621121848||98907573||Heraldry of Anfalas[p]||NULL||NULL||1
++621121848||98907573||Heraldry of Anórien[p]||NULL||NULL||1
+@@ -789535,0 +789670 @@
++621121890||77357201||You hear the loud click of a mechanism shifting into place.||NULL||NULL||1
+@@ -789565 +789700 @@
+-621121915||228870261||Stinging Scorpion Trophy[e]||NULL||NULL||1
++621121915||228870261||Threatening Scorpion Trophy[e]||NULL||NULL||1
+@@ -789575 +789710 @@
+-621121933||228870261||Charging Scorpion Trophy[e]||NULL||NULL||1
++621121933||228870261||Stinging Scorpion Trophy[e]||NULL||NULL||1
+@@ -789579,0 +789715 @@
++621121939||228870261||Sudûgul[mn]||NULL||NULL||1
+@@ -789580,0 +789717,14 @@
++621121941||218886035||'Shadow consumes you!'||NULL||NULL||1
++621121941||39554926||'Darkness rains from the skies!'||NULL||NULL||1
++621121941||7558385||'You fools dare to follow me? You will be buried here with the rest.'||NULL||NULL||1
++621121941||7558386||'Bârshud will not be stopped! These corpses will flood the land and devour his enemies.'||NULL||NULL||1
++621121941||7558387||'I have not the time for the likes of you. You will fall before the creator of this garden.'||NULL||NULL||1
++621121941||12515762||Shadows of Ushkudâsh appear in the sky to the East||NULL||NULL||1
++621121941||7558162||'This army will consume the land, and you will all bow to Bârshud.'||NULL||NULL||1
++621121941||7558163||'Rise! Show these fools how pointless their efforts are!'||NULL||NULL||1
++621121941||7558164||'You will be the first to fall to the might of Ushkudâsh!'||NULL||NULL||1
++621121941||3058353||'No! This means nothing! You cannot win!'||NULL||NULL||1
++621121941||3058354||'I will end you myself!'||NULL||NULL||1
++621121941||50804031||'You continue to be a thorn in my side. Why do you fight against the inevitable? This staff gives me power you cannot hope to match.'||NULL||NULL||1
++621121941||228870261||Sudûgul[mn]||NULL||NULL||1
++621121941||48405155||'Rise, spawn of Ushkudâsh!'||NULL||NULL||1
+@@ -789582 +789732,4 @@
+-621121943||228870261||Takâltu the Scabbard[mn]||NULL||NULL||1
++621121943||161676548||'Takâltu moves to a nearby weapon rack'||NULL||NULL||1
++621121943||228870261||Takâltu the Weaponmaster[mn]||NULL||NULL||1
++621121943||64530581||'Time for a change.'||NULL||NULL||1
++621121944||37316356||Khardâmu unfurls banners to signal the start of battle!||NULL||NULL||1
+@@ -789584 +789737,2 @@
+-621121946||228870261||Takâltu the Scabbard[mn]||NULL||NULL||1
++621121945||228870261||Sudûgul[mn]||NULL||NULL||1
++621121946||228870261||Takâltu the Weaponmaster[mn]||NULL||NULL||1
+@@ -789588,2 +789742,5 @@
+-621121950||228870261||Takâltu the Scabbard[mn]||NULL||NULL||1
+-621121951||228870261||Takâltu the Scabbard[mn]||NULL||NULL||1
++621121949||66773262||'Takâltu... show them your skills.'||NULL||NULL||1
++621121949||221925348||Kishâsu's weaponmaster rises from the ground!||NULL||NULL||1
++621121949||63582584||'You die with honour my friend. Unlike these interlopers.'||NULL||NULL||1
++621121950||228870261||Takâltu the Weaponmaster[mn]||NULL||NULL||1
++621121951||228870261||Takâltu the Weaponmaster[mn]||NULL||NULL||1
+@@ -790313,3 +790469,0 @@
+-621122167||228870261||Stone for Cleaning[e]||NULL||NULL||1
+-621122167||54354734||These stones, shaped by thousands of years of rivers passing over them, are ideal for cleaning armour.||NULL||NULL||1
+-621122167||98907573||Stones for Cleaning[p]||NULL||NULL||1
+@@ -790317 +790471 @@
+-621122168||54354734||The trader dropped this key in his frantic exit. Perhaps it opens the Imizíla gate lock?||NULL||NULL||1
++621122168||54354734||You see a key peeking out from the dirt. Perhaps it opens the Imizíla gate lock?||NULL||NULL||1
+@@ -790360,3 +790513,0 @@
+-621122184||228870261||Barrel of Fresh Water[e]||NULL||NULL||1
+-621122184||54354734||A barrel of water, matching the description provided to you by Gíshu.||NULL||NULL||1
+-621122184||98907573||Barrels of Fresh Water[p]||NULL||NULL||1
+@@ -790376,2 +790526,0 @@
+-621122191||157882551||'I know of nothing better than battles and ballads. Stew? Possibly stew.'||NULL||NULL||1
+-621122191||81781765||Numûru[mn]||NULL||NULL||1
+@@ -790426,3 +790574,0 @@
+-621122211||157882551||'There is much to do and see so far from home, but I cannot let my gaze drift from my hunt for Bârshud.'||NULL||NULL||1
+-621122211||229802005||Shâra of Hamât Renewed[f]||NULL||NULL||1
+-621122211||81781765||Mizâdi[fn]||NULL||NULL||1
+@@ -790443,8 +790588,0 @@
+-621122218||157882551||'Hamât Renewed has many enemies. I intend to hunt them all.'||NULL||NULL||1
+-621122218||229802005||Hamâti Scout[m]||NULL||NULL||1
+-621122218||81781765||Razâl[mn]||NULL||NULL||1
+-621122219||157882551||'My duty is to Shâra Mizâdi and Hamât, but my heart is with my husband, Baradûm.'||NULL||NULL||1
+-621122219||81781765||Wounded Subuzûri[fn]||NULL||NULL||1
+-621122220||157882551||'Hamât Renewed has many enemies. I intend to hunt them all.'||NULL||NULL||1
+-621122220||229802005||Hamâti Scout[m]||NULL||NULL||1
+-621122220||81781765||Razâl[mn]||NULL||NULL||1
+@@ -790453,2 +790590,0 @@
+-621122222||81781765||Wounded Subuzûri[mn]||NULL||NULL||1
+-621122223||81781765||Wounded Subuzûri[mn]||NULL||NULL||1
+@@ -790472,2 +790607,0 @@
+-621122234||157882551||'I know of nothing better than battles and ballads. Stew? Possibly stew.'||NULL||NULL||1
+-621122234||81781765||Numûru[mn]||NULL||NULL||1
+@@ -790486,2 +790620,2 @@
+-621122240||228870261||Ushkudâsh's Chest - Solo[n]||NULL||NULL||1
+-621122241||228870261||Ushkudâsh's Chest - Tier 3[n]||NULL||NULL||1
++621122240||228870261||Sudûgul's Chest - Solo[n]||NULL||NULL||1
++621122241||228870261||Sudûgul's Chest - Tier 3[n]||NULL||NULL||1
+@@ -790492 +790626 @@
+-621122246||228870261||Ushkudâsh's Chest - Tier 2[n]||NULL||NULL||1
++621122246||228870261||Sudûgul's Chest - Tier 2[n]||NULL||NULL||1
+@@ -790496 +790630 @@
+-621122250||228870261||Ushkudâsh's Chest - Tier 1[n]||NULL||NULL||1
++621122250||228870261||Sudûgul's Chest - Tier 1[n]||NULL||NULL||1
+@@ -790501 +790635 @@
+-621122255||227696533||Instance: A City Under Siege, Part 2||NULL||NULL||1
++621122255||227696533||Instance: A City On Fire, Part 2||NULL||NULL||1
+@@ -790510,3 +790643,0 @@
+-621122260||228870261||Razâl's Horn[n]||NULL||NULL||1
+-621122260||54354734||Blow this horn to signal to Mizâdi's forces that it is safe to approach.||NULL||NULL||1
+-621122260||98907573||…[p]||NULL||NULL||1
+@@ -790555,3 +790685,0 @@
+-621122275||228870261||Hamât Barricade[e]||NULL||NULL||1
+-621122275||54354734||This is a good place to construct a new, sturdier barricade.||NULL||NULL||1
+-621122275||98907573||…[p]||NULL||NULL||1
+@@ -790562 +790690 @@
+-621122277||54354734||This Subuzûri shield is shining and looking good as new.||NULL||NULL||1
++621122277||54354734||This Subuzûri shield has deep gashes and divots in the metal and woodwork. It needs repairs to be useful once more.||NULL||NULL||1
+@@ -790564,3 +790691,0 @@
+-621122278||228870261||Suspicious Party Dish[e]||NULL||NULL||1
+-621122278||54354734||This dish smells intriguing, but also quite acrid. Perhaps the chef didn't know their way around a spice rack.||NULL||NULL||1
+-621122278||98907573||…[p]||NULL||NULL||1
+@@ -790607,7 +790732,7 @@
+-621122295||228870261||TBD Debuff Darkwater[n]||NULL||NULL||1
+-621122296||228870261||TBD Ranged Wight[n]||NULL||NULL||1
+-621122297||228870261||TBD Healer Wight[n]||NULL||NULL||1
+-621122298||228870261||TBD Heavy Wight[n]||NULL||NULL||1
+-621122299||228870261||TBD Melee Wight[n]||NULL||NULL||1
+-621122300||228870261||TBD Melee Darkwater[n]||NULL||NULL||1
+-621122301||228870261||TBD Debuff Wight[n]||NULL||NULL||1
++621122295||228870261||Vengeful Spirit[e]||NULL||NULL||1
++621122296||228870261||Second Age Archer[m]||NULL||NULL||1
++621122297||228870261||Second Age Tender[m]||NULL||NULL||1
++621122298||228870261||Second Age Guardsman[m]||NULL||NULL||1
++621122299||228870261||Second Age Warrior[m]||NULL||NULL||1
++621122300||228870261||Frenzied Spirit[e]||NULL||NULL||1
++621122301||228870261||Second Age Conjuror[m]||NULL||NULL||1
+@@ -790623,7 +790748,7 @@
+-621122303||228870261||TBD Healer Wight[n]||NULL||NULL||1
+-621122304||228870261||TBD Debuff Darkwater[n]||NULL||NULL||1
+-621122305||228870261||TBD Melee Wight[n]||NULL||NULL||1
+-621122306||228870261||TBD Heavy Wight[n]||NULL||NULL||1
+-621122307||228870261||TBD Melee Darkwater[n]||NULL||NULL||1
+-621122308||228870261||TBD Debuff Wight[n]||NULL||NULL||1
+-621122309||228870261||TBD Ranged Wight[n]||NULL||NULL||1
++621122303||228870261||Second Age Tender[m]||NULL||NULL||1
++621122304||228870261||Vengeful Spirit[e]||NULL||NULL||1
++621122305||228870261||Second Age Warrior[m]||NULL||NULL||1
++621122306||228870261||Second Age Guardsman[m]||NULL||NULL||1
++621122307||228870261||Frenzied Spirit[e]||NULL||NULL||1
++621122308||228870261||Second Age Conjuror[m]||NULL||NULL||1
++621122309||228870261||Second Age Archer[m]||NULL||NULL||1
+@@ -790854,16 +790978,0 @@
+-621122357||228870261||Instance: Black Tar and Fresh Dust||NULL||NULL||1
+-621122357||246419874||Speak with Mizâdi to determine what to do next.||NULL||NULL||1
+-621122357||111477377||Defeat Ordâkhai (<--DO_NOT_TOUCH!-->/<--DO_NOT_TOUCH!-->)||1-2||1-2||1
+-621122357||111477424||Protect Mizâdi as Numûru's force assaults on the main gate||NULL||NULL||1
+-621122357||111477379||Aid wounded Subuzûri (<--DO_NOT_TOUCH!-->/<--DO_NOT_TOUCH!-->)||1-2||1-2||1
+-621122357||111477427||Speak with Mizâdi to determine what to do next||NULL||NULL||1
+-621122357||111477382||Join Mizâdi and Numûru at the main gate of Imizíla||NULL||NULL||1
+-621122357||228284038||TBD||NULL||NULL||1
+-621122357||111477383||<rgb=#ff0000>Mizâdi must not falter</rgb>||NULL||NULL||1
+-621122357||228284040||TBD||NULL||NULL||1
+-621122357||162883729||TBD||NULL||NULL||1
+-621122357||51875089||Our glorious victory is close! I can practically taste it. We just need to take Imizíla and Bârshud - and his forces - will soon fall.||NULL||NULL||1
+-621122357||216727826||TBD||NULL||NULL||1
+-621122357||246419844||Join the conversation with Mizâdi and Numûru.||NULL||NULL||1
+-621122357||162883736||'I understand Numûru's concerns, but I will not let Bârshud slip from my grasp again. He will die this day.'||NULL||NULL||1
+-621122357||111477394||TBD||NULL||NULL||1
+@@ -790871,2 +790979,0 @@
+-621122357||246419847||Speak with Mizâdi below Imizíla.||NULL||NULL||1
+-621122357||216727833||Join the conversation with Mizâdi and Numûru.||NULL||NULL||1
+@@ -790874,5 +790980,0 @@
+-621122357||111477401||Speak with Mizâdi below Imizíla||NULL||NULL||1
+-621122357||225071140||TBD||NULL||NULL||1
+-621122357||246419856||Defeat Ordâkhai and help wounded soldiers on the way to the main gate of Imizíla.||NULL||NULL||1
+-621122357||193379889||'We must press on - we are nearly there.'||NULL||NULL||1
+-621122357||193379890||'No! Bârshud could escape again, flee in the middle of the night.'||NULL||NULL||1
+@@ -790880,2 +790981,0 @@
+-621122357||246419861||Join Mizâdi and Numûru at the main gate of Imizíla.||NULL||NULL||1
+-621122357||193379891||'I will not chase him any more, Numûru. I will have my victory this day. We press the assault.'||NULL||NULL||1
+@@ -790883 +790983 @@
+-621122357||193379892||'Numûru!'||NULL||NULL||1
++621122357||111477401||Speak with Mizâdi near Imizíla||NULL||NULL||1
+@@ -790887 +790987,12 @@
+-621122357||246419865||Protect Mizâdi as Numûru's force assaults on the main gate.||NULL||NULL||1
++621122357||177082775||Mizâdi has faltered!||NULL||NULL||1
++621122357||105886246||'We move to press the assault now, my Shâra.'||NULL||NULL||1
++621122357||216727826||TBD||NULL||NULL||1
++621122357||177082777||Mizâdi has faltered!||NULL||NULL||1
++621122357||111477409||Join Mizâdi and Numûru near the main gate of Imizíla||NULL||NULL||1
++621122357||51875089||Our glorious victory is close! I can practically taste it. We just need to take Imizíla and Bârshud - and his forces - will soon fall.||NULL||NULL||1
++621122357||111477410||<rgb=#ff0000>Numûru must not falter</rgb>||NULL||NULL||1
++621122357||228284038||TBD||NULL||NULL||1
++621122357||216727833||Join the conversation with Mizâdi and Numûru.||NULL||NULL||1
++621122357||111477413||Defend Mizâdi from the Ordâkhai counter-attack||NULL||NULL||1
++621122357||228284040||TBD||NULL||NULL||1
++621122357||225071140||TBD||NULL||NULL||1
+@@ -790890 +791001,2 @@
+-621122357||162883761||'I - we - fall back! Everyone - fall back to Ingarûma!||NULL||NULL||1
++621122357||162883729||TBD||NULL||NULL||1
++621122357||246419844||Join the conversation with Mizâdi and Numûru.||NULL||NULL||1
+@@ -790891,0 +791004,29 @@
++621122357||111477424||Take the main gate with Numûru ||NULL||NULL||1
++621122357||246419847||Speak with Mizâdi near Imizíla.||NULL||NULL||1
++621122357||162883736||'I understand Numûru's concerns, but I will not let Bârshud slip from my grasp again. He will die this day.'||NULL||NULL||1
++621122357||111477427||Speak with Mizâdi to determine what to do next||NULL||NULL||1
++621122357||111477429||Defend Mizâdi from the Ordâkhai counter-attack||NULL||NULL||1
++621122357||111477430||<rgb=#ff0000>Mizâdi must not falter</rgb>||NULL||NULL||1
++621122357||111477432||<rgb=#ff0000>Mizâdi must not falter</rgb>||NULL||NULL||1
++621122357||246419856||Defeat Ordâkhai and help wounded soldiers on the way to the main gate of Imizíla.||NULL||NULL||1
++621122357||246419861||Join Mizâdi and Numûru once more near the main gate of Imizíla.||NULL||NULL||1
++621122357||246419865||Join Numûru and the Subuzûri to take the main gate.||NULL||NULL||1
++621122357||67043569||'Fire!'||NULL||NULL||1
++621122357||162883761||'I - we - fall back! Everyone - fall back to Ingarûma!||NULL||NULL||1
++621122357||246419874||Speak with Mizâdi to determine what to do next.||NULL||NULL||1
++621122357||246419876||Defend Mizâdi from the Ordâkhai counter-attack!||NULL||NULL||1
++621122357||193379889||'We must press on - we are nearly there.'||NULL||NULL||1
++621122357||193379890||'No! Bârshud could escape again, flee in the middle of the night.'||NULL||NULL||1
++621122357||193379891||'I will not chase him any more, Numûru. I will have my victory this day. We will press the assault.'||NULL||NULL||1
++621122357||193379892||'Numûru!'||NULL||NULL||1
++621122357||246419888||Join Mizâdi and Numûru once more near the main gate of Imizíla.||NULL||NULL||1
++621122357||193379893||'Destroy the gate, that our Subuzûri may pour forth and we may have our victory this day!'||NULL||NULL||1
++621122357||111477377||Defeat Ordâkhai (<--DO_NOT_TOUCH!-->/<--DO_NOT_TOUCH!-->)||1-2||1-2||1
++621122357||193379894||'Go with fortune, Numûru!'||NULL||NULL||1
++621122357||111477379||Aid wounded Subuzûri (<--DO_NOT_TOUCH!-->/<--DO_NOT_TOUCH!-->)||1-2||1-2||1
++621122357||246419892||Defend Mizâdi from the Ordâkhai counter-attack!||NULL||NULL||1
++621122357||111477382||Join Mizâdi and Numûru near the main gate of Imizíla||NULL||NULL||1
++621122357||111477383||<rgb=#ff0000>Mizâdi must not falter</rgb>||NULL||NULL||1
++621122357||177082755||Numûru has faltered!||NULL||NULL||1
++621122357||228870261||Instance: Black Tar and Fresh Dust||NULL||NULL||1
++621122357||111477394||TBD||NULL||NULL||1
+@@ -790897,0 +791039 @@
++621122358||49286662||Place the map on the table in front of Mizâdi||NULL||NULL||1
+@@ -790907 +791049 @@
+-621122358||162883716||'I will not allow sorrow to distract me from the mission at hand, and actions we can take to avenge Numûru.\n\n'We have much to do, and still more to plan.'||NULL||NULL||1
++621122358||162883716||'We have much to do, and still more to plan.'||NULL||NULL||1
+@@ -790924,0 +791067 @@
++621122359||177082757||Zalûd roars in anger at the sight of your incursion!||NULL||NULL||1
+@@ -790928,0 +791072 @@
++621122359||177082760||Zalûd roars in anger at the sight of your incursion!||NULL||NULL||1
+@@ -790934,0 +791079 @@
++621122359||246419894||Find and defeat the brigand chief Zalûd within Ingarûma.||NULL||NULL||1
+@@ -790950,0 +791096 @@
++621122359||111477417||Find and defeat the brigand chief Zalûd within Ingarûma||NULL||NULL||1
+@@ -790952 +791098 @@
+-621122360||228284040||'Ha! This is brilliant, my friend. They will be blinded by the shine of our armour in the mid-day sun.'||NULL||NULL||1
++621122360||228284040||'Ha! This is brilliant, my friend. They will be blinded by the shine of our armour in the noon-day sun.'||NULL||NULL||1
+@@ -790954 +791100 @@
+-621122360||216727833||Defeat Hatokáli serpents and strikers to collect their oils, to polish Subuzûri armour.||NULL||NULL||1
++621122360||216727833||Collect whetstones and defeat Hatokáli serpents and strikers to collect their oils, to polish and repair Subuzûri armour.||NULL||NULL||1
+@@ -790966 +791112 @@
+-621122360||228284038||'Our scouts have confirmed it - Bârshud dwells within Imizíla. We must ready for battle.\n\n'Please. speak with Numûru - he knows what is still required of us before our Subuzûri are adequately prepared.'||NULL||NULL||1
++621122360||228284038||'Our scouts have confirmed it - Bârshud dwells within Imizíla. We must ready for battle.\n\n'Please, speak with Numûru - he knows what is still required of us before our Subuzûri are adequately prepared.'||NULL||NULL||1
+@@ -791041 +791187 @@
+-621122364||246419844||Defeat Ordâkhai and aid wounded Subuzûri in the valley below Imizíla.||NULL||NULL||1
++621122364||246419844||Continue moving south, defeating Ordâkhai and aiding wounded Subuzûri as you find them in the valley between Imizíla and Ingarûma. ||NULL||NULL||1
+@@ -791046 +791192 @@
+-621122364||111477399||Aid wounded Subuzûri (<--DO_NOT_TOUCH!-->/<--DO_NOT_TOUCH!-->)||1-2||1-2||1
++621122364||111477399||Aid wounded Subuzûri south of Ingarûma (<--DO_NOT_TOUCH!-->/<--DO_NOT_TOUCH!-->)||1-2||1-2||1
+@@ -791051 +791197 @@
+-621122364||177082808||Aid wounded Subuzûri (<--DO_NOT_TOUCH!-->/<--DO_NOT_TOUCH!-->)||1-2||1-2||1
++621122364||177082808||Helped wounded Subuzûri (<--DO_NOT_TOUCH!-->/<--DO_NOT_TOUCH!-->)||1-2||1-2||1
+@@ -791120,0 +791267 @@
++621122367||246419872||Speak with Razâl near Imizíla.||NULL||NULL||1
+@@ -791123,0 +791271 @@
++621122367||111477425||Speak with Razâl near Imizíla||NULL||NULL||1
+@@ -791132 +791280 @@
+-621122367||162883733||'Over here! Our friend arrived a few minutes ago. Nervous sort. He seems to be alone.\n\n'We should go speak with him now.'||NULL||NULL||1
++621122367||162883733||'Over here! Our friend arrived a few minutes ago. Nervous sort. He seems to be alone.\n\n'Speak with him - I will come in with the Subuzûri if necessary.'||NULL||NULL||1
+@@ -791148 +791296 @@
+-621122368||162883717||'I must go back - go back to Shagâna. That is where I am needed. To help my people and shield them from the shadow of war, that it may not visit Shagâna again, at least in my lifetime.'||NULL||NULL||1
++621122368||162883717||'I must go back - go back to Shagâna. That is where I am needed. To help my people and shield them from the shadow of war, that it may never visit Shagâna again, at least in my lifetime.'||NULL||NULL||1
+@@ -791151,0 +791300 @@
++621122368||111477329||Speak with Mizâdi by the memorial cairn for Numûru||NULL||NULL||1
+@@ -791154 +791303 @@
+-621122368||111477378||Speak with Mizâdi by the memorial cairn for Numûru||NULL||NULL||1
++621122368||111477378||Speak once more with Mizâdi by the memorial cairn for Numûru||NULL||NULL||1
+@@ -791157,0 +791307 @@
++621122368||246419878||Place the memorial stones you've collected on top of the existing stones.||NULL||NULL||1
+@@ -791159,0 +791310 @@
++621122368||246419881||Join and speak with Mizâdi by the memorial cairn for Numûru.||NULL||NULL||1
+@@ -791161,0 +791313 @@
++621122368||111477431||Place the memorial stones upon the cairn (<--DO_NOT_TOUCH!-->/<--DO_NOT_TOUCH!-->)||1-2||1-2||1
+@@ -791163,0 +791316 @@
++621122368||177082759||Kirí bounds up to you and Mizâdi - he seems excited to see you||NULL||NULL||1
+@@ -791167,0 +791321,2 @@
++621122368||246419890||Speak with Mizâdi by the memorial cairn for Numûru.||NULL||NULL||1
++621122368||246419891||Speak with Mizâdi by the memorial cairn for Numûru.||NULL||NULL||1
+@@ -791174 +791329,4 @@
+-621122368||246419849||Speak with Mizâdi by the memorial cairn for Numûru.||NULL||NULL||1
++621122368||246419849||Speak once more with Mizâdi by the memorial cairn for Numûru.||NULL||NULL||1
++621122368||246419896||Speak with Mizâdi by the memorial cairn for Numûru.||NULL||NULL||1
++621122368||162883744||'Thank you for coming with me, <--DO_NOT_TOUCH!-->. You should put the stones you collected on top of the ones I've gathered.'||1||1||1
++621122368||177082776||Place the memorial stones (<--DO_NOT_TOUCH!-->/<--DO_NOT_TOUCH!-->)||1-2||1-2||1
+@@ -791175,0 +791334,3 @@
++621122368||162883750||'Yes, Kirí followed me here. I believe he knew what I was doing, and who it was for.'\n\nMizâdi looks at you, hesitating for a moment.\n\n'Would you take him? I believe his days of adventuring are not yet over. I believe Numûru would have wanted him to go on some adventures with you.'||NULL||NULL||1
++621122368||111477409||Speak with Mizâdi by the memorial cairn for Numûru||NULL||NULL||1
++621122368||111477412||Speak with Mizâdi by the memorial cairn for Numûru||NULL||NULL||1
+@@ -791176,0 +791338 @@
++621122368||111477413||Speak with Mizâdi by the memorial cairn for Numûru||NULL||NULL||1
+@@ -791177,0 +791340,2 @@
++621122368||111477417||Speak with Mizâdi by the memorial cairn for Numûru||NULL||NULL||1
++621122368||246419776||Speak with Mizâdi by the memorial cairn for Numûru.||NULL||NULL||1
+@@ -791198 +791362 @@
+-621122369||228284038||'Work with Razâl to distract the Ordâkhai - draw them away from Bârshud's fortress. Then, meet with us when you can.'||NULL||NULL||1
++621122369||228284038||'Now that we have the key, we can move into Imizíla from the secret entrance.\n\n'Work with Razâl to distract the Ordâkhai - draw them away from Bârshud's fortress. Then, meet with us when you can.'||NULL||NULL||1
+@@ -791264,0 +791429 @@
++621122372||177082774||Mizâdi has faltered!||NULL||NULL||1
+@@ -791265,0 +791431 @@
++621122372||177082776||Mizâdi has faltered!||NULL||NULL||1
+@@ -791281,0 +791448,2 @@
++621122372||111477429||<rgb=#ff0000>Mizâdi must not falter</rgb>||NULL||NULL||1
++621122372||111477431||<rgb=#ff0000>Mizâdi must not falter</rgb>||NULL||NULL||1
+@@ -791282,0 +791451 @@
++621122372||229383921||'It will be done, my Shâra.'||NULL||NULL||1
+@@ -791300,2 +791469,2 @@
+-621122372||193379890||'No! You monster....'||NULL||NULL||1
+-621122372||193379891||'This is for Numûru, and for Shagâna.'||NULL||NULL||1
++621122372||193379890||'No! No! You monster....'||NULL||NULL||1
++621122372||193379891||'This is for Numûru, and for Shagâna!'||NULL||NULL||1
+@@ -791305,0 +791475,2 @@
++621122372||193379895||'Subuzûri! Take Numûru and bring him back to Ingarûma. He will have a proper burial.'||NULL||NULL||1
++621122372||193379896||'Rahâzi, see where Sudûgul ran off to. Friend, come with me.'||NULL||NULL||1
+@@ -791319 +791490 @@
+-621122373||111477377||Enter Nakársong in the hills east of Ingarûma||NULL||NULL||1
++621122373||111477377||Enter Nakársong in the hills south-west of Ingarûma||NULL||NULL||1
+@@ -791355,0 +791527 @@
++621122376||162883764||'Your distraction worked well - the Ordâkhai are in disarray. Join our Subuzûri, and take the fight to the Ordâkhai to drive them from Imizíla forever.'||NULL||NULL||1
+@@ -791357,0 +791530 @@
++621122376||246419875||Speak with Shâra Mizâdi within Imizíla.||NULL||NULL||1
+@@ -791360,0 +791534,2 @@
++621122376||246419878||Defeat Ordâkhai and destroy barricades within Imizíla to force out the remaining Ordâkhai.||NULL||NULL||1
++621122376||246419880||Find and speak with Shâra Mizâdi in Imizíla.||NULL||NULL||1
+@@ -791361,0 +791537 @@
++621122376||111477429||Speak with Shâra Mizâdi within Imizíla||NULL||NULL||1
+@@ -791364,0 +791541,2 @@
++621122376||249227569||'I needed but a moment - I'm ready for battle.'||NULL||NULL||1
++621122376||111477431||Defeat Ordâkhai & destroy barricades within Imizíla||NULL||NULL||1
+@@ -791365,0 +791544 @@
++621122376||249227570||'My breath stings, but whilst I draw it, I fight.'||NULL||NULL||1
+@@ -791366,0 +791546,3 @@
++621122376||249227571||'Imizíla will be rid of the scourge of the Ordâkhai!'||NULL||NULL||1
++621122376||111477433||Find and speak with Shâra Mizâdi in Imizíla||NULL||NULL||1
++621122376||249227572||'I suppose I should not hide back here any longer.'||NULL||NULL||1
+@@ -791368,0 +791551,2 @@
++621122376||249227573||'My strength fails me - but my spirit does not. I will fight on.'||NULL||NULL||1
++621122376||246419888||Rally faltering Subuzûri within Imizíla and defeat the remaining Ordâkhai bóra.||NULL||NULL||1
+@@ -791378,0 +791563 @@
++621122376||111477409||Defeat Ordâkhai bóra & rally faltering Subuzûri in Imizíla||NULL||NULL||1
+@@ -791382 +791567 @@
+-621122376||162883761||'I agree with Razâl. We will return to bring Sudûgul to justice, but for now, let us savour this victory, with as dear as the cost was.\n\n'Let's return to Ingarûma.'||NULL||NULL||1
++621122376||162883761||'I agree with Razâl. We will return to bring Sudûgul to justice, but for now, let us savour this victory, with as dear as the cost was.\n\n'This battle is won, the remaining Ordâkhai are in retreat. Let us head back to Ingarûma.'||NULL||NULL||1
+@@ -791424 +791609 @@
+-621122380||228284041||'We must press on - we are nearly there.'||NULL||NULL||1
++621122380||228284041||'We shall have our victory this day.'||NULL||NULL||1
+@@ -791429 +791614 @@
+-621122381||229383924||'But Imizíla is still crawling with Ordâkhai - what does it matter if we can get in, if our forces will be swarmed?'||NULL||NULL||1
++621122381||229383924||'But Imizíla is still swarming with Ordâkhai - what does it matter if we can get in, if our forces will be overwhelmed?'||NULL||NULL||1
+@@ -791431 +791616 @@
+-621122381||228284035||'We lost. We lost... everything. And it is all my fault.'||NULL||NULL||1
++621122381||228284035||'We lost! We lost... everything! And it is all my fault!'||NULL||NULL||1
+@@ -791442,2 +791627,2 @@
+-621122381||49516583||'That would allow you, Mizâdi, and a few Subuzûri to make it to the fortress in the back of Imizíla.'||NULL||NULL||1
+-621122381||49516584||'Bârshud is almost certainly there - it is the only structure in Imizíla that could house his pride.'||NULL||NULL||1
++621122381||49516583||'That would allow you, Mizâdi, and a few Subuzûri to make it to the fortress at the rear of Imizíla.'||NULL||NULL||1
++621122381||49516584||'Bârshud is almost certainly there - it is the only structure in Imizíla that could house his substantial pride.'||NULL||NULL||1
+@@ -791453 +791638 @@
+-621122381||229383921||'Okay, okay, I think I understand everything that happened this day.'||NULL||NULL||1
++621122381||229383921||'Yes, yes, I think I understand everything that happened this day.'||NULL||NULL||1
+@@ -791464 +791649 @@
+-621122383||228284035||'Your distraction worked well - the Ordâkhai are in disarray. Open the main gate - our remaining Subuzûri stand ready on the other side.'||NULL||NULL||1
++621122383||228284035||'Bârshud is no more - but our work is not yet complete. We still have much to do before Imizíla can be rid of the presence of the Ordâkhai.'||NULL||NULL||1
+@@ -791469 +791654 @@
+-621122383||228284041||'Our work is not yet done - Imizíla must be taken, and the remaining Ordâkhai scattered.'||NULL||NULL||1
++621122383||228284041||'There is much that needs doing this day - Imizíla must be taken, and the remaining Ordâkhai scattered.'||NULL||NULL||1
+@@ -791481,6 +791666,6 @@
+-621122392||228870261||TBD Heavy Skeleton[n]||NULL||NULL||1
+-621122393||228870261||TBD Heavy Skeleton[n]||NULL||NULL||1
+-621122395||228870261||TBD Ranged Skeleton[n]||NULL||NULL||1
+-621122396||228870261||TBD Melee Skeleton[n]||NULL||NULL||1
+-621122398||228870261||TBD Ranged Skeleton[n]||NULL||NULL||1
+-621122399||228870261||TBD Melee Skeleton[n]||NULL||NULL||1
++621122392||228870261||Second Age Warden[m]||NULL||NULL||1
++621122393||228870261||Second Age Warden[m]||NULL||NULL||1
++621122395||228870261||Second Age Scout[m]||NULL||NULL||1
++621122396||228870261||Second Age Revenant[m]||NULL||NULL||1
++621122398||228870261||Second Age Scout[m]||NULL||NULL||1
++621122399||228870261||Second Age Revenant[m]||NULL||NULL||1
+@@ -791490,8 +791675,12 @@
+-621122407||228870261||TBD Ranged Ordakhai[n]||NULL||NULL||1
+-621122408||228870261||TBD Healer Ordakhai[n]||NULL||NULL||1
+-621122409||228870261||TBD Debuff Ordakhai[n]||NULL||NULL||1
+-621122410||228870261||TBD Debuff Ordakhai[n]||NULL||NULL||1
+-621122411||228870261||TBD Ranged Ordakhai[n]||NULL||NULL||1
+-621122412||228870261||TBD Melee Ordakhai[n]||NULL||NULL||1
+-621122413||228870261||TBD Melee Ordakhai[n]||NULL||NULL||1
+-621122414||228870261||TBD Healer Ordakhai[n]||NULL||NULL||1
++621122405||228870261||Race Pony[E]||NULL||NULL||1
++621122405||54354734||A horse used in the Festival Run.||NULL||NULL||1
++621122406||228870261||Race Horse[E]||NULL||NULL||1
++621122406||54354734||A horse used in the Festival Run.||NULL||NULL||1
++621122407||228870261||Ordâkhai Bowman[mv]||NULL||NULL||1
++621122408||228870261||Ordâkhai Herbalist[mv]||NULL||NULL||1
++621122409||228870261||Ordâkhai Sorcerer[mv]||NULL||NULL||1
++621122410||228870261||Ordâkhai Sorcerer[mv]||NULL||NULL||1
++621122411||228870261||Ordâkhai Bowman[mv]||NULL||NULL||1
++621122412||228870261||Ordâkhai Warrior[mv]||NULL||NULL||1
++621122413||228870261||Ordâkhai Warrior[mv]||NULL||NULL||1
++621122414||228870261||Ordâkhai Herbalist[mv]||NULL||NULL||1
+@@ -792106 +792295 @@
+-621122884||228870261||Breath of Shadow||NULL||NULL||1
++621122884||228870261||Vile Spew||NULL||NULL||1
+@@ -792197 +792386 @@
+-621123098||111477328||From the Ashes Comes Virtue - I||NULL||NULL||1
++621123098||111477328||Complete Quest: From the Ashes Comes Virtue - I||NULL||NULL||1
+@@ -792208,3 +792397,3 @@
+-621123098||111477335||From the Ashes Comes Virtue - II||NULL||NULL||1
+-621123098||111477336||From the Ashes Comes Virtue - III||NULL||NULL||1
+-621123098||111477337||From the Ashes Comes Virtue - IV||NULL||NULL||1
++621123098||111477335||Complete Quest: From the Ashes Comes Virtue - II||NULL||NULL||1
++621123098||111477336||Complete Quest: From the Ashes Comes Virtue - III||NULL||NULL||1
++621123098||111477337||Complete Quest: From the Ashes Comes Virtue - IV||NULL||NULL||1
+@@ -792219,2 +792408,2 @@
+-621123098||111477312||From the Ashes Comes Virtue - V||NULL||NULL||1
+-621123098||111477313||From the Ashes Comes Virtue - VI||NULL||NULL||1
++621123098||111477312||Complete Quest: From the Ashes Comes Virtue - V||NULL||NULL||1
++621123098||111477313||Complete Quest: From the Ashes Comes Virtue - VI||NULL||NULL||1
+@@ -792409 +792598 @@
+-621123130||54354734||This fragile coin fell from a wight in the Hatokáli Fells. Perhaps it was part of an ancient burial ritual, but the fell spirits inhabiting the dead speak not of the past, so its purpose remains unknown.||NULL||NULL||1
++621123130||54354734||This fragile coin fell from a wight in the Hatokáli Fells. Perhaps it was part of an ancient burial ritual, but the fell spirits inhabiting the Dead speak not of the past, so its purpose remains unknown.||NULL||NULL||1
+@@ -792411,3 +792600,3 @@
+-621123131||228870261||TBD Instance Reward[e]||NULL||NULL||1
+-621123131||54354734||TBD||NULL||NULL||1
+-621123131||98907573||TBD[ps]||NULL||NULL||1
++621123131||228870261||Badge of Forgotten Rank[e]||NULL||NULL||1
++621123131||54354734||These withered badges are held by only the strongest risen dead in Kishâsu's service.||NULL||NULL||1
++621123131||98907573||Badges of Forgotten Rank[p]||NULL||NULL||1
+@@ -792416,0 +792606,2 @@
++621123167||229802005||Shield Isles Race Marshal[m]||NULL||NULL||1
++621123167||81781765||Nârud[mn]||NULL||NULL||1
+@@ -792450 +792641 @@
+-621123194||228870261||Breath of Shadow||NULL||NULL||1
++621123194||228870261||Vile Spew||NULL||NULL||1
+@@ -792452 +792642,0 @@
+-621123196||228870261||Silencing Shot||NULL||NULL||1
+@@ -792503,0 +792694,12 @@
++621123232||228870261||Mounted||NULL||NULL||1
++621123232||138936629||Umûn||NULL||NULL||1
++621123232||106251889||Speed: +32%\nMorale: 100\n||NULL||NULL||1
++621123232||106251890||Unable to evade.||NULL||NULL||1
++621123232||106251891||Unable to parry.||NULL||NULL||1
++621123232||106251892||Unable to block.||NULL||NULL||1
++621123233||228870261||Mounted||NULL||NULL||1
++621123233||138936629||Dôlo||NULL||NULL||1
++621123233||106251889||Speed: +32%\nMorale: 100\n||NULL||NULL||1
++621123233||106251890||Unable to evade.||NULL||NULL||1
++621123233||106251891||Unable to parry.||NULL||NULL||1
++621123233||106251892||Unable to block.||NULL||NULL||1
+@@ -792509,0 +792712,957 @@
++621123275||5380958||..||NULL||NULL||1
++621123275||91664869||Treading Carefully||NULL||NULL||1
++621123276||228870261||Treacherous Ground||NULL||NULL||1
++621123276||54354734||Your mount is finding the ground here difficult to navigate, slowing your progress.||NULL||NULL||1
++621123277||5380958||..||NULL||NULL||1
++621123277||91664869||Burst of Speed||NULL||NULL||1
++621123278||20562268||Race!||NULL||NULL||1
++621123278||85260796||Quitting the race||NULL||NULL||1
++621123278||135040604||Quitting the race||NULL||NULL||1
++621123278||179862700||Are you sure you want to quit the race?||NULL||NULL||1
++621123278||164133372||Finishing the race||NULL||NULL||1
++621123279||228870261||Solid Ground||NULL||NULL||1
++621123279||54354734||The firm surface underfoot allows your mount to gain a burst of speed.||NULL||NULL||1
++621123280||228870261||Legendary Coffer of the Hamât Renewed Protectors[s]||NULL||NULL||1
++621123280||54354734||Contains a Cracked Tracery Token and the Hamât Renewed housing bundle.||NULL||NULL||1
++621123280||98907573||Legendary Coffer of the Hamât Renewed Protectors[s]||NULL||NULL||1
++621123281||228870261||Ambarûl Property Guard Housing Collection[v]||NULL||NULL||1
++621123281||54354734||Contains several Dumûri property guards to guard your abode. Also includes banners to show your support of the Dumûri.||NULL||NULL||1
++621123281||98907573||Ambarûl Property Guard Housing Collection[v]||NULL||NULL||1
++621123282||228870261||Incomparable Coffer of the Ambarûl Property Guard[v]||NULL||NULL||1
++621123282||54354734||Contains Ancient Script and the Ambarûl Property Guard housing bundle.||NULL||NULL||1
++621123282||98907573||Incomparable Coffer of the Ambarûl Property Guard[v]||NULL||NULL||1
++621123283||228870261||Legendary Coffer of the Tame Hyena[e]||NULL||NULL||1
++621123283||54354734||Contains a Cracked Tracery Token, Legendary Enhancement Runes, Ancient Script, and the Tome of the Tame Hyena.||NULL||NULL||1
++621123283||98907573||Legendary Coffer of the Tame Hyena[e]||NULL||NULL||1
++621123284||228870261||Legendary Items Reward Track - 18||NULL||NULL||1
++621123284||54354734||Earn Legendary Item XP to advance the track and earn rewards to enhance your Legendary Items! Any of your characters in this world can help advance this track, or claim earned rewards from it. The reward track will reset with a new set of rewards roughly every three months.||NULL||NULL||1
++621123285||228870261||Hamât Renewed Housing Collection[e]||NULL||NULL||1
++621123285||54354734||Contains several Subuzûri property guards to protect your domicile. Includes several Hamât Renewed banners. Also includes a lounging rock for lions, the symbol of Hamât Renewed.||NULL||NULL||1
++621123285||98907573||Hamât Renewed Housing Collection[e]||NULL||NULL||1
++621123286||228870261||Legendary Coffer of the Umbar Pony[e]||NULL||NULL||1
++621123286||54354734||Contains a Cracked Tracery Token and the Tome of the Umbar Pony.||NULL||NULL||1
++621123286||98907573||Legendary Coffer of the Umbar Pony[e]||NULL||NULL||1
++621123287||175532558||You are recognized as a valued patron and admired for your timeless style.||NULL||NULL||1
++621123287||172691445||#1:<--DO_NOT_TOUCH!-->#1:{ [E]}#2:<--DO_NOT_TOUCH!-->#3:{ [E]}#3:<--DO_NOT_TOUCH!-->, Enduring Wisdom||1-2-3||1-2-3||1
++621123288||175532558||You are recognized as a valued patron and admired for your timeless style.||NULL||NULL||1
++621123288||172691445||#1:<--DO_NOT_TOUCH!-->#1:{ [E]}#2:<--DO_NOT_TOUCH!-->#3:{ [E]}#3:<--DO_NOT_TOUCH!-->, Timeless Hero||1-2-3||1-2-3||1
++621123289||175532558||You are recognized as a valued patron and admired for your timeless style.||NULL||NULL||1
++621123289||172691445||#1:<--DO_NOT_TOUCH!-->#1:{ [E]}#2:<--DO_NOT_TOUCH!-->#3:{ [E]}#3:<--DO_NOT_TOUCH!-->, Timeless Star||1-2-3||1-2-3||1
++621123290||228870261||Timeless Hauberk of the Noldor[e]||NULL||NULL||1
++621123291||228870261||Timeless Leggings of the Noldor[p]||NULL||NULL||1
++621123292||228870261||Timeless Boots of the Noldor[p]||NULL||NULL||1
++621123293||228870261||Timeless Pauldrons of the Noldor[p]||NULL||NULL||1
++621123294||228870261||Timeless Hooded Helmet of the Noldor[e]||NULL||NULL||1
++621123295||228870261||Timeless Gauntlets of the Noldor[p]||NULL||NULL||1
++621123296||228870261||Timeless Quiver & Cloak of the Noldor[e]||NULL||NULL||1
++621123297||228870261||Mounted||NULL||NULL||1
++621123297||138936629||Wisdom||NULL||NULL||1
++621123297||106251889||Speed: <--DO_NOT_TOUCH!-->\nMorale: 250\n||1||1||1
++621123297||106251890||Unable to evade.||NULL||NULL||1
++621123297||106251891||Unable to parry.||NULL||NULL||1
++621123297||106251892||Unable to block.||NULL||NULL||1
++621123298||228870261||Mounted||NULL||NULL||1
++621123298||138936629||Wisdom||NULL||NULL||1
++621123298||106251889||Speed: <--DO_NOT_TOUCH!-->\nMorale: 250\n||1||1||1
++621123298||106251890||Unable to evade.||NULL||NULL||1
++621123298||106251891||Unable to parry.||NULL||NULL||1
++621123298||106251892||Unable to block.||NULL||NULL||1
++621123299||228870261||Timeless Patron's Simple Coffer of the Noldor||NULL||NULL||1
++621123299||191177136||Get Timeless Coffer of the Noldor||NULL||NULL||1
++621123299||42763444||Offer not available at this time||NULL||NULL||1
++621123300||228870261||Timeless Patron's Enhanced Coffer of the Noldor||NULL||NULL||1
++621123300||191177136||Get Timeless Coffer of the Noldor||NULL||NULL||1
++621123300||42763444||Offer not available at this time||NULL||NULL||1
++621123301||228870261||Timeless Patron's Luxuriant Coffer of the Noldor||NULL||NULL||1
++621123301||191177136||Get Timeless Coffer of the Noldor||NULL||NULL||1
++621123301||42763444||Offer not available at this time||NULL||NULL||1
++621123302||228870261||Timeless Steed of the Noldor||NULL||NULL||1
++621123302||228830419|| ||NULL||NULL||1
++621123303||228870261||Timeless Steed of the Noldor||NULL||NULL||1
++621123303||228830419|| ||NULL||NULL||1
++621123304||228870261||Timeless Steed of the Noldor[e]||NULL||NULL||1
++621123304||54354734||You can use this token to learn a skill to call this mount.\n\nUsing this token will grant you the Timeless Steed of the Noldor skill.||NULL||NULL||1
++621123305||228870261||Timeless Leg-guards of the Noldor||NULL||NULL||1
++621123306||228870261||Timeless Caparison of the Noldor||NULL||NULL||1
++621123307||228870261||Timeless Saddle of the Noldor||NULL||NULL||1
++621123307||54354734||This saddle will display the dye color applied to your equipped caparison||NULL||NULL||1
++621123308||228870261||Timeless Accessory of the Noldor||NULL||NULL||1
++621123308||54354734||This accessory will display the dye color applied to your equipped caparison||NULL||NULL||1
++621123309||228870261||Timeless Head-piece of the Noldor||NULL||NULL||1
++621123310||228870261||Timeless Tail of the Noldor||NULL||NULL||1
++621123310||54354734||This tail's decoration will also display the dye color applied to your equipped caparison||NULL||NULL||1
++621123311||228870261||Timeless Bow of the Noldor[e]||NULL||NULL||1
++621123312||228870261||Timeless Sword of the Noldor[e]||NULL||NULL||1
++621123313||228870261||Timeless Weapon Aura of the Noldor[e]||NULL||NULL||1
++621123313||54354734||Your weapon glows with a timeless aura.||NULL||NULL||1
++621123314||228870261||Timeless Elf-hawk[e]||NULL||NULL||1
++621123316||228870261||Timeless Elf-hawk[e]||NULL||NULL||1
++621123316||228830419||Summons a noble hawk to accompany you on your travels.||NULL||NULL||1
++621123316||211796645||Available in the Timeless Patron's Simple, Enhanced, or Luxuriant Coffers of the Noldor.||NULL||NULL||1
++621123317||228870261||Tome of the Timeless Elf-hawk[e]||NULL||NULL||1
++621123317||54354734||Using this item will teach you to summon a noble bird companion.||NULL||NULL||1
++621123318||33816677||Elfaroth||NULL||NULL||1
++621123319||141415310||You decide to use a timeless style for your deed completions.||NULL||NULL||1
++621123319||167847310||Using this emote will toggle on the Timeless deed completion style. Use deed_default to turn off this style.||NULL||NULL||1
++621123319||260688135||deed_timeless||NULL||NULL||1
++621123319||135933102||<--DO_NOT_TOUCH!--> chooses a timeless deed completion style.||1||1||1
++621123319||18044740||<--DO_NOT_TOUCH!--> chooses a timeless deed completion style to impress <--DO_NOT_TOUCH!-->.||1-2||1-2||1
++621123319||238239924||You choose a timeless deed completion style to display for <--DO_NOT_TOUCH!-->.||1||1||1
++621123320||141415310||You return to the default deed completion style.||NULL||NULL||1
++621123320||167847310||Using this emote will restore the default deed completion style.||NULL||NULL||1
++621123320||260688135||deed_default||NULL||NULL||1
++621123320||135933102||<--DO_NOT_TOUCH!--> chooses the default deed completion style.||1||1||1
++621123320||18044740||<--DO_NOT_TOUCH!--> chooses the default deed completion style to show <--DO_NOT_TOUCH!-->.||1-2||1-2||1
++621123320||238239924||You choose the default deed completion style to display for <--DO_NOT_TOUCH!-->.||1||1||1
++621123321||141415310||You decide to use a timeless travel style for your milestone skills.||NULL||NULL||1
++621123321||167847310||Using this emote will toggle on the Timeless milestone travel skill style. Use milestone_default to turn off this style.||NULL||NULL||1
++621123321||260688135||milestone_timeless||NULL||NULL||1
++621123321||135933102||<--DO_NOT_TOUCH!--> chooses a timeless milestone travel style.||1||1||1
++621123321||18044740||<--DO_NOT_TOUCH!--> chooses a timeless milestone travel style to impress <--DO_NOT_TOUCH!-->.||1-2||1-2||1
++621123321||238239924||You choose a timeless milestone travel style to display for <--DO_NOT_TOUCH!-->.||1||1||1
++621123322||228870261||Timeless Milestone Style||NULL||NULL||1
++621123322||54354734||Travel home in a timeless style.||NULL||NULL||1
++621123323||228870261||Timeless Deed Completion Style||NULL||NULL||1
++621123323||54354734||Complete deeds in a timeless style.||NULL||NULL||1
++621123324||228870261||Grant the Timeless Milestone Style Emote[e]||NULL||NULL||1
++621123324||54354734||Using this item will grant you the Timeless milestone travel style emote (/milestone_timeless).||NULL||NULL||1
++621123325||228870261||Grant the Timeless Deed Completion Style Emote[e]||NULL||NULL||1
++621123325||54354734||Using this item will grant you the Timeless deed completion style emote (/deed_timeless).||NULL||NULL||1
++621123326||228870261||Timeless Patron's Luxuriant Wardrobe Cosmetics of the Noldor[p]||NULL||NULL||1
++621123326||54354734||Cosmetics for a valued patron that can be placed in the wardrobe.||NULL||NULL||1
++621123326||98907573||Timeless Patron's Luxuriant Wardrobe Cosmetics of the Noldor[p]||NULL||NULL||1
++621123327||228870261||Timeless Patron's Enhanced Mithril Coffer of the Noldor[e]||NULL||NULL||1
++621123327||54354734||Contains Mithril Coins and Virtue XP.||NULL||NULL||1
++621123327||98907573||Timeless Patron's Enhanced Mithril Coffer of the Noldor[e]||NULL||NULL||1
++621123328||228870261||Timeless Patron's Simple Mithril Coffer of the Noldor[e]||NULL||NULL||1
++621123328||54354734||Contains Mithril Coins.||NULL||NULL||1
++621123328||98907573||Timeless Patron's Simple Mithril Coffer of the Noldor[e]||NULL||NULL||1
++621123329||228870261||Timeless Patron's Luxuriant Cosmetics Coffer of the Noldor[e]||NULL||NULL||1
++621123329||54354734||Cosmetics for a valued patron.||NULL||NULL||1
++621123329||98907573||Timeless Patron's Luxuriant Cosmetics Coffer of the Noldor[e]||NULL||NULL||1
++621123330||228870261||Timeless Patron's Luxuriant Mithril Coffer of the Noldor[e]||NULL||NULL||1
++621123330||54354734||Contains Mithril Coins and Virtue XP.||NULL||NULL||1
++621123330||98907573||Timeless Patron's Luxuriant Mithril Coffer of the Noldor[e]||NULL||NULL||1
++621123331||228870261||Timeless Patron's Enhanced Cosmetics Coffer of the Noldor[e]||NULL||NULL||1
++621123331||54354734||Cosmetics for a valued patron.||NULL||NULL||1
++621123331||98907573||Timeless Patron's Enhanced Cosmetics Coffer of the Noldor[e]||NULL||NULL||1
++621123332||228870261||Timeless Patron's Simple Cosmetics Coffer of the Noldor[e]||NULL||NULL||1
++621123332||54354734||Cosmetics for a valued patron.||NULL||NULL||1
++621123332||98907573||Timeless Patron's Simple Cosmetics Coffer of the Noldor[e]||NULL||NULL||1
++621123361||228870261||Pale Utûgi Blackarrow Appearance[e]||NULL||NULL||1
++621123361||54354734||This item will reward your character with the Pale Utûgi Blackarrow Appearance.||NULL||NULL||1
++621123364||191029568||A different visual appearance for your Uruk Warleader: an indigo-skinned Overseer from the Rift of Nûrz Ghâshu.||NULL||NULL||1
++621123364||228870261||Yellow Utûgi Warleader Appearance||NULL||NULL||1
++621123364||54354734||A different visual appearance for your Uruk Warleader: a pale-skinned Utûgi Warleader appearance.||NULL||NULL||1
++621123364||106251889|| ||NULL||NULL||1
++621123387||228870261||Yellow Utûgi Warleader Appearance[e]||NULL||NULL||1
++621123387||54354734||This item will reward your character with the Yellow Utûgi Warleader Appearance.||NULL||NULL||1
++621123395||191029568||A different visual appearance for your Uruk Blackarrow: a pale Utûgi Blackarrow appearance.||NULL||NULL||1
++621123395||228870261||Pale Utûgi Blackarrow Appearance||NULL||NULL||1
++621123395||54354734||A different visual appearance for your Uruk Blackarrow: a pale Utûgi Blackarrow appearance.||NULL||NULL||1
++621123395||106251889|| ||NULL||NULL||1
++621123415||228870261||Black-skinned Harad Defiler Novice Appearance[e]||NULL||NULL||1
++621123415||54354734||This item will reward your character with the Black-skinned Harad Defiler Novice Appearance.||NULL||NULL||1
++621123416||191029568||A different visual appearance for your Orc Reaver: a blue-skinned Harad Reaver Recruit appearance with a helm and left spaulder and pauldron.||NULL||NULL||1
++621123416||228870261||Pale-Blue Harad Reaver Recruit Appearance||NULL||NULL||1
++621123416||54354734||A different visual appearance for your Orc Reaver: a blue-skinned Harad Reaver Recruit appearance with a helm and left spaulder and pauldron.||NULL||NULL||1
++621123416||106251889|| ||NULL||NULL||1
++621123417||191029568||A different visual appearance for your Orc Defiler. A black-skinned Orc  wearing a black tunic over leathers, with a fur and bone spaulder and a lion-head mask.||NULL||NULL||1
++621123417||228870261||Black-skinned Harad Defiler Novice Appearance||NULL||NULL||1
++621123417||54354734||A different visual appearance for your Orc Defiler: a black-skinned Harad novice defiler.||NULL||NULL||1
++621123417||106251889|| ||NULL||NULL||1
++621123418||228870261||Pale-blue Harad Reaver Recruit Appearance[e]||NULL||NULL||1
++621123418||54354734||This item will reward you with the Pale-blue Harad Reaver Recruit Appearance.||NULL||NULL||1
++621123421||228870261||Account Wide Season of Destruction Portrait[v]||NULL||NULL||1
++621123421||54354734||An item granting an account wide portrait frame for the Season of Destruction Monster Play Reward Track.||NULL||NULL||1
++621123422||228870261||Season of Destruction Monster Frame[e]||NULL||NULL||1
++621123423||228870261||Title: Herald of Destruction[e]||NULL||NULL||1
++621123423||54354734||Contains the 'Herald of Destruction' Title.||NULL||NULL||1
++621123423||98907573||Title: Herald of Destruction[e]||NULL||NULL||1
++621123424||228870261||Monster Player Rewards - Track 7||NULL||NULL||1
++621123424||54354734||Earn the Favour of Mordirith from special daily quests during the reward track season to earn new cosmetics, skins, and items for your Monster Player characters and currency used by both your Monster Player Characters and Free People Characters to enhance their strength in the Ettenmoors. Any of your Monster Player characters in this world help to advance this track and can claim rewards from it. This reward track is only available for a limited time!||NULL||NULL||1
++621123425||228870261||Title: Herald of Destruction||NULL||NULL||1
++621123425||54354734||Collecting this item will grant the title Herald of Destruction to this character.||NULL||NULL||1
++621123427||228870261||Monster Player Rewards - Season 7||NULL||NULL||1
++621123427||191177136||Unlock Season 7 Monster Player Rewards||NULL||NULL||1
++621123427||42763444||Offer not available at this time||NULL||NULL||1
++621123428||175532558||When the light must be restored, you be its bearer. Earned from participating in the Season 7 Monster Player Reward Track.||NULL||NULL||1
++621123428||172691445||#1:<--DO_NOT_TOUCH!-->#1:{ [E]}#2:<--DO_NOT_TOUCH!-->#3:{ [E]}#3:<--DO_NOT_TOUCH!-->, Herald of Restoration||1-2-3||1-2-3||1
++621123429||228870261||Monster Player Reward Track - Appearance Choice Box[e]||NULL||NULL||1
++621123429||54354734||A selection of appearances for monster players.||NULL||NULL||1
++621123429||98907573||Monster Player Reward Track - Appearance Choice Box[e]||NULL||NULL||1
++621123430||51875089||You earned access to the Season of Destruction Portrait Frame.||NULL||NULL||1
++621123430||228870261||Frame: Season of Destruction Frame||NULL||NULL||1
++621123431||228870261||Season of Destruction Free People Frame[e]||NULL||NULL||1
++621123432||228870261||Title: Herald of Restoration||NULL||NULL||1
++621123432||54354734||Collecting this item will grant the title Herald of Restoration to this character.||NULL||NULL||1
++621123433||228870261||Season of Destruction Frame[e]||NULL||NULL||1
++621123433||54354734||This item, when used, will grant you a new portrait frame.||NULL||NULL||1
++621123434||228870261||Season of Destruction Portrait Frame[e]||NULL||NULL||1
++621123434||54354734||Contains the Season of Destruction Portrait Frame.||NULL||NULL||1
++621123434||98907573||Season of Destruction Portrait Frame[e]||NULL||NULL||1
++621123435||175532558||When destruction reigns, you shall bear its banner. Earned by completing the Season 7 Monster Player Reward Track.||NULL||NULL||1
++621123435||172691445||#1:<--DO_NOT_TOUCH!-->#1:{ [E]}#2:<--DO_NOT_TOUCH!-->#3:{ [E]}#3:<--DO_NOT_TOUCH!-->, Herald of Destruction||1-2-3||1-2-3||1
++621123436||228870261||Monster Player Reward Track - Cosmetic Choice Box[e]||NULL||NULL||1
++621123436||54354734||A selection of appearances, cosmetic weapons, and March! Vfx for monster players.||NULL||NULL||1
++621123436||98907573||Monster Player Reward Track - Cosmetic Choice Box[e]||NULL||NULL||1
++621123437||228870261||Season of Destruction Free People Frame[e]||NULL||NULL||1
++621123437||54354734||This item, when used, will grant you a new portrait frame.\n\n<rgb=#00ff00>You can trade this item to other players or place it on the auction house.</rgb>\n\n<rgb=#ff0000>Warning: If you have already acquired this portrait frame, using this item will consume the item and have no further effect.</rgb>||NULL||NULL||1
++621123462||228870261||Sightseer[m]||NULL||NULL||1
++621123492||81781765||Lion Cub[e]||NULL||NULL||1
++621123493||81781765||Lion[e]||NULL||NULL||1
++621123494||81781765||Lion[e]||NULL||NULL||1
++621123495||81781765||Lion Cub[e]||NULL||NULL||1
++621123496||81781765||Lioness[e]||NULL||NULL||1
++621123497||81781765||Lioness[e]||NULL||NULL||1
++621123498||228870261||DNT - Genesis||NULL||NULL||1
++621123499||228870261||DNT||NULL||NULL||1
++621123500||228870261||DNT - Genesis||NULL||NULL||1
++621123501||228870261||DNT - Genesis||NULL||NULL||1
++621123502||228870261||DNT||NULL||NULL||1
++621123503||228870261||DNT - Genesis||NULL||NULL||1
++621123504||228870261||DNT||NULL||NULL||1
++621123505||228870261||DNT - Genesis||NULL||NULL||1
++621123506||228870261||DNT||NULL||NULL||1
++621123507||228870261||DNT - Genesis||NULL||NULL||1
++621123508||228870261||Pride's Rock[e]||NULL||NULL||1
++621123508||54354734||This looks like an ideal spot for lions to relax or play.||NULL||NULL||1
++621123511||228870261||Ritual Statue[e]||NULL||NULL||1
++621123512||228870261||Ritual Statue[e]||NULL||NULL||1
++621123513||127328924||Success!||NULL||NULL||1
++621123513||247623100||Interrupted!||NULL||NULL||1
++621123576||81781765||Ordâkhai Look-out[m]||NULL||NULL||1
++621123577||5380958||..||NULL||NULL||1
++621123577||91664869||Volley||NULL||NULL||1
++621123578||228870261||DNT - dispel Volley||NULL||NULL||1
++621123579||228870261||Mend Flesh||NULL||NULL||1
++621123580||228870261||Lingering Shadow||NULL||NULL||1
++621123581||228870261||Uncontrolled Rage||NULL||NULL||1
++621123582||228870261||Power Drain||NULL||NULL||1
++621123583||228870261||Weakening Blow||NULL||NULL||1
++621123584||228870261||Poisoned Morale||NULL||NULL||1
++621123586||228870261||Tainted Blood||NULL||NULL||1
++621123587||228870261||Devour Life||NULL||NULL||1
++621123588||228870261||Roar of Terror||NULL||NULL||1
++621123589||228870261||Rending Cleave||NULL||NULL||1
++621123590||228870261||Silencing Shot||NULL||NULL||1
++621123592||228870261||Revitalize||NULL||NULL||1
++621123593||228870261||Bulwark of the Dead||NULL||NULL||1
++621123888||175532558||You have repeatedly won the sea-side Shield Isles Midsummer Run horse race, proving yourself to be a masterful rider.||NULL||NULL||1
++621123888||172691445||#1:<--DO_NOT_TOUCH!-->#1:{ [E]}#2:<--DO_NOT_TOUCH!-->#3:{ [E]}#3:<--DO_NOT_TOUCH!-->, Sea Horse-master||1-2-3||1-2-3||1
++621123909||51875089||Impress the people of Furtherholm by winning the Shield Isles Midsummer Run many times.||NULL||NULL||1
++621123909||225071139||Complete the Shield Isles Midsummer Run||NULL||NULL||1
++621123909||216727826||Complete the Shield Isles Midsummer Run during the Midsummer Festival.||NULL||NULL||1
++621123909||149027360||Sea-side Sensation||NULL||NULL||1
++621123941||228870261||Beckon Empowered Archer||NULL||NULL||1
++621123942||228870261||Beckon Empowered Tender||NULL||NULL||1
++621123943||228870261||Beckon Warrior||NULL||NULL||1
++621123944||228870261||Beckon Tender||NULL||NULL||1
++621123945||228870261||Beckon Empowered Guardsman||NULL||NULL||1
++621123946||228870261||Beckon Empowered Warrior||NULL||NULL||1
++621123947||228870261||Beckon Guardsman||NULL||NULL||1
++621123948||228870261||Beckon Archer||NULL||NULL||1
++621123949||228870261||Beckon Empowered Warrior||NULL||NULL||1
++621123950||228870261||Beckon Empowered Guardsman||NULL||NULL||1
++621123951||228870261||Beckon Guardsman||NULL||NULL||1
++621123952||228870261||Beckon Warrior||NULL||NULL||1
++621123977||228870261||Area for Memorial Stone[e]||NULL||NULL||1
++621123977||54354734||This is a good place for a memorial stone.||NULL||NULL||1
++621123977||98907573||…[p]||NULL||NULL||1
++621123990||229802005||Numûru's Wolf-dog||NULL||NULL||1
++621123990||81781765||Kirí[mn]||NULL||NULL||1
++621124014||228870261||Area for Banner[e]||NULL||NULL||1
++621124014||54354734||This is a good place to put Mizâdi's banner, to claim this area for Hamât Renewed.||NULL||NULL||1
++621124014||98907573||…[p]||NULL||NULL||1
++621124015||228870261||Poisoned Rend||NULL||NULL||1
++621124016||228870261||Gutting Cleave||NULL||NULL||1
++621124017||228870261||Grave Rend||NULL||NULL||1
++621124018||228870261||Wail of the Fallen||NULL||NULL||1
++621124019||228870261||Call Power Devourer||NULL||NULL||1
++621124020||228870261||Focused Will||NULL||NULL||1
++621124021||228870261||Consuming Call||NULL||NULL||1
++621124023||228870261||The Dragon's Maw - Spear[n]||NULL||NULL||1
++621124023||54354734||Though it spent untold years in the form of a staff, this ancient tooth still has some bite left.||NULL||NULL||1
++621124024||228870261||The Dragon's Maw - Pole-arm[n]||NULL||NULL||1
++621124024||54354734||Though shattered and reassembled, this weapon is made of dragon-bone, and is remarkably sturdy.||NULL||NULL||1
++621124025||228870261||The Dragon's Maw - Staff[n]||NULL||NULL||1
++621124025||54354734||Though the terrible dread once found in this staff has fled, its reassembled pieces still carry an undeniable power.||NULL||NULL||1
++621124039||225071143||Defeat Ushkudâsh||NULL||NULL||1
++621124039||51875089||The ancient crypts of Pagru-kirít were built for Kishâsu the Knowing below his great tower in the second age. Sudûgul now plans to use the corpses filling the crypts to raise an army of the Dead for Bârshud. We must catch him and put an end to this!||NULL||NULL||1
++621124039||228870261||Pagru-kirít, The Garden of Corpses -- Tier 1||NULL||NULL||1
++621124039||262725908||Defeated Kishâsu the Knowing||NULL||NULL||1
++621124039||225071139||Defeat Kishâsu the Knowing||NULL||NULL||1
++621124039||216727826||Sudûgul plans to raise an army of the Dead for Bârshud.\n\nYou must enter the garden and stop him.||NULL||NULL||1
++621124039||262725910||Defeated Khardâmu Blood-sworn||NULL||NULL||1
++621124039||225071141||Defeat Khardâmu Blood-sworn||NULL||NULL||1
++621124039||262725912||Defeated Ushkudâsh||NULL||NULL||1
++621124040||225071143||Defeat Ushkudâsh||NULL||NULL||1
++621124040||51875089||The ancient crypts of Pagru-kirít were built for Kishâsu the Knowing below his great tower in the second age. Sudûgul now plans to use the corpses filling the crypts to raise an army of the Dead for Bârshud. We must catch him and put an end to this!||NULL||NULL||1
++621124040||228870261||Pagru-kirít, The Garden of Corpses -- Tier 3||NULL||NULL||1
++621124040||262725908||Defeated Kishâsu the Knowing||NULL||NULL||1
++621124040||225071139||Defeat Kishâsu the Knowing||NULL||NULL||1
++621124040||216727826||Sudûgul plans to raise an army of the Dead for Bârshud.\n\nYou must enter the garden and stop him.||NULL||NULL||1
++621124040||262725910||Defeated Khardâmu Blood-sworn||NULL||NULL||1
++621124040||225071141||Defeat Khardâmu Blood-sworn||NULL||NULL||1
++621124040||262725912||Defeated Ushkudâsh||NULL||NULL||1
++621124041||225071143||Defeat Ushkudâsh||NULL||NULL||1
++621124041||51875089||The ancient crypts of Pagru-kirít were built for Kishâsu the Knowing below his great tower in the second age. Sudûgul now plans to use the corpses filling the crypts to raise an army of the Dead for Bârshud. We must catch him and put an end to this!||NULL||NULL||1
++621124041||228870261||Pagru-kirít, The Garden of Corpses -- Solo/Duo||NULL||NULL||1
++621124041||262725908||Defeated Kishâsu the Knowing||NULL||NULL||1
++621124041||225071139||Defeat Kishâsu the Knowing||NULL||NULL||1
++621124041||216727826||Sudûgul plans to raise an army of the Dead for Bârshud.\n\nYou must enter the garden and stop him.||NULL||NULL||1
++621124041||262725910||Defeated Khardâmu Blood-sworn||NULL||NULL||1
++621124041||225071141||Defeat Khardâmu Blood-sworn||NULL||NULL||1
++621124041||262725912||Defeated Ushkudâsh||NULL||NULL||1
++621124042||225071144||Defeat Khardâmu Blood-sworn||NULL||NULL||1
++621124042||51875089||The ancient crypts of Pagru-kirít were built for Kishâsu the Knowing below his great tower in the second age. Sudûgul now plans to use the corpses filling the crypts to raise an army of the Dead for Bârshud. We must catch him and put an end to this!||NULL||NULL||1
++621124042||228870261||Pagru-kirít, The Garden of Corpses -- Tier 2||NULL||NULL||1
++621124042||262725909||Defeated Kishâsu the Knowing||NULL||NULL||1
++621124042||216727826||Sudûgul plans to raise an army of the Dead for Bârshud.\n\nYou must enter the garden and stop him.||NULL||NULL||1
++621124042||225071140||Defeat Kishâsu the Knowing||NULL||NULL||1
++621124042||262725911||Defeated Ushkudâsh||NULL||NULL||1
++621124042||225071142||Defeat Ushkudâsh||NULL||NULL||1
++621124042||262725913||Defeated Khardâmu Blood-sworn||NULL||NULL||1
++621124043||228870261||Empowered Second Age Warrior[mv]||NULL||NULL||1
++621124044||228870261||DNT - Summons||NULL||NULL||1
++621124044||54354734||..||NULL||NULL||1
++621124045||228870261||DNT - Summons||NULL||NULL||1
++621124045||54354734||..||NULL||NULL||1
++621124046||228870261||Empowered Second Age Guardsman[mv]||NULL||NULL||1
++621124047||228870261||Empowered Second Age Tender[mv]||NULL||NULL||1
++621124048||228870261||DNT - Summons||NULL||NULL||1
++621124048||54354734||..||NULL||NULL||1
++621124049||228870261||DNT - Summons||NULL||NULL||1
++621124049||54354734||..||NULL||NULL||1
++621124050||228870261||DNT - Summons||NULL||NULL||1
++621124050||54354734||..||NULL||NULL||1
++621124051||228870261||DNT - Summons||NULL||NULL||1
++621124051||54354734||..||NULL||NULL||1
++621124052||228870261||DNT - Summons||NULL||NULL||1
++621124052||54354734||..||NULL||NULL||1
++621124053||228870261||DNT - Summons||NULL||NULL||1
++621124053||54354734||..||NULL||NULL||1
++621124054||228870261||Second Age Archer[m]||NULL||NULL||1
++621124055||228870261||Second Age Guardsman[m]||NULL||NULL||1
++621124056||228870261||DNT - Summons||NULL||NULL||1
++621124056||54354734||..||NULL||NULL||1
++621124057||228870261||DNT - Summons||NULL||NULL||1
++621124057||54354734||..||NULL||NULL||1
++621124058||228870261||DNT - Summons||NULL||NULL||1
++621124058||54354734||..||NULL||NULL||1
++621124059||228870261||Second Age Tender[m]||NULL||NULL||1
++621124060||228870261||DNT - Summons||NULL||NULL||1
++621124060||54354734||..||NULL||NULL||1
++621124061||228870261||Second Age Warrior[m]||NULL||NULL||1
++621124062||228870261||Empowered Second Age Archer[mv]||NULL||NULL||1
++621124063||228870261||Empowered Second Age Warrior[mv]||NULL||NULL||1
++621124064||228870261||Second Age Guardsman[m]||NULL||NULL||1
++621124065||228870261||Empowered Second Age Guardsman[mv]||NULL||NULL||1
++621124066||228870261||Second Age Warrior[m]||NULL||NULL||1
++621124086||228870261||DNT - Summons||NULL||NULL||1
++621124086||54354734||..||NULL||NULL||1
++621124087||228870261||Call Power Devourer||NULL||NULL||1
++621124088||228870261||Power Devourer[e]||NULL||NULL||1
++621124089||228870261||Power Devourer[e]||NULL||NULL||1
++621124090||228870261||DNT - Summons||NULL||NULL||1
++621124090||54354734||..||NULL||NULL||1
++621124224||228870261||Blood-sworn Guard[m]||NULL||NULL||1
++621124225||228870261||Shadowy Charge||NULL||NULL||1
++621124226||228870261||Rotting Blood||NULL||NULL||1
++621124227||228870261||Shadowy Charge||NULL||NULL||1
++621124228||228870261||Blood-sworn Guard[m]||NULL||NULL||1
++621124229||228870261||Weaken Bones||NULL||NULL||1
++621124230||228870261||Shadowy Charge||NULL||NULL||1
++621124231||228870261||Unnerving Gaze||NULL||NULL||1
++621124232||228870261||Blood-sworn Guard[m]||NULL||NULL||1
++621124233||228870261||Blood-sworn Guard[m]||NULL||NULL||1
++621124252||228870261||DNT||NULL||NULL||1
++621124253||228870261||DNT - Give random hint to enable skill after gap close||NULL||NULL||1
++621124254||228870261||DNT||NULL||NULL||1
++621124258||228870261||DNT||NULL||NULL||1
++621124259||228870261||Shadowy Charge||NULL||NULL||1
++621124260||228870261||DNT||NULL||NULL||1
++621124265||228870261||DNT||NULL||NULL||1
++621124266||228870261||Frailty||NULL||NULL||1
++621124266||54354734||Your mind is clouded and your body feels frail.||NULL||NULL||1
++621124266||106251891||x<--DO_NOT_TOUCH!--> Outgoing Damage||1||1||1
++621124267||228870261||Grave Rend||NULL||NULL||1
++621124267||54354734||Shadows crawl across your body and carve into your flesh.||NULL||NULL||1
++621124268||127328924||Success!||NULL||NULL||1
++621124268||247623100||Interrupted!||NULL||NULL||1
++621124269||228870261||Wail of the Fallen||NULL||NULL||1
++621124269||54354734||The cries of the dead invade your mind.||NULL||NULL||1
++621124270||127328924||Success!||NULL||NULL||1
++621124270||247623100||Interrupted!||NULL||NULL||1
++621124275||228870261||Rotting Blood||NULL||NULL||1
++621124275||54354734||Heal to full to remove this effect.||NULL||NULL||1
++621124276||228870261||DNT - Remove Rotting Blood||NULL||NULL||1
++621124299||228870261||DNT - Black Ichor||NULL||NULL||1
++621124299||54354734||..||NULL||NULL||1
++621124300||228870261||Tainted Blood||NULL||NULL||1
++621124301||5380958||..||NULL||NULL||1
++621124301||91664869||Tainted Blood||NULL||NULL||1
++621124302||228870261||DNT - Black Ichor||NULL||NULL||1
++621124302||54354734||..||NULL||NULL||1
++621124303||228870261||Tainted Blood||NULL||NULL||1
++621124304||5380958||..||NULL||NULL||1
++621124304||91664869||Tainted Blood||NULL||NULL||1
++621124305||5380958||..||NULL||NULL||1
++621124305||91664869||Tainted Blood||NULL||NULL||1
++621124306||228870261||DNT - Black Ichor||NULL||NULL||1
++621124306||54354734||..||NULL||NULL||1
++621124310||228870261||DNT - Advanced||NULL||NULL||1
++621124310||54354734||DNT - Advanced Hint.||NULL||NULL||1
++621124311||228870261||DNT - Marked||NULL||NULL||1
++621124312||228870261||Deep Wound||NULL||NULL||1
++621124313||228870261||Poisoned Wound||NULL||NULL||1
++621124314||228870261||Deep Wound||NULL||NULL||1
++621124315||228870261||Weakened||NULL||NULL||1
++621124316||228870261||Lingering Shadow||NULL||NULL||1
++621124317||228870261||Mend Flesh||NULL||NULL||1
++621124317||54354734||<rgb=#00ff00>\nRestores 15% Morale every 3 seconds.</rgb>||NULL||NULL||1
++621124318||228870261||Devour Life||NULL||NULL||1
++621124318||54354734||Kishâsu is draining your life force.||NULL||NULL||1
++621124319||228870261||Devouring Life||NULL||NULL||1
++621124320||228870261||Subdued||NULL||NULL||1
++621124320||54354734|| ||NULL||NULL||1
++621124321||228870261||DNT||NULL||NULL||1
++621124322||228870261||DNT - Remove Devour Life||NULL||NULL||1
++621124323||5380958||..||NULL||NULL||1
++621124323||91664869||DNT - Devour Life||NULL||NULL||1
++621124338||228870261||DNT||NULL||NULL||1
++621124342||228870261||Spawn of Ushkudâsh[m]||NULL||NULL||1
++621124343||228870261||Egg[v]||NULL||NULL||1
++621124344||228870261||Egg[v]||NULL||NULL||1
++621124373||241593989||Hunter - Armour Upgrades||NULL||NULL||1
++621124374||241593989||Lore-master - Armour Upgrades||NULL||NULL||1
++621124375||241593989||Warden - Armour Upgrades||NULL||NULL||1
++621124376||241593989||Captain - Armour Upgrades||NULL||NULL||1
++621124378||241593989||Guardian - Armour Upgrades||NULL||NULL||1
++621124379||241593989||Hurum Kâna - Rare Finds||NULL||NULL||1
++621124381||241593989||Brawler - Armour Upgrades||NULL||NULL||1
++621124382||241593989||Burglar - Armour Upgrades||NULL||NULL||1
++621124383||241593989||Rune-keeper - Armour Upgrades||NULL||NULL||1
++621124384||241593989||Pagru-kirít - Rare Finds||NULL||NULL||1
++621124385||241593989||Champion - Armour Upgrades||NULL||NULL||1
++621124386||241593989||Mariner - Armour Upgrades||NULL||NULL||1
++621124387||241593989||Ekal-nêbi - Rare Finds||NULL||NULL||1
++621124388||241593989||Minstrel - Armour Upgrades||NULL||NULL||1
++621124389||241593989||Kôth Rau - Rare Finds||NULL||NULL||1
++621124390||241593989||Beorning - Armour Upgrades||NULL||NULL||1
++621124391||228870261||Fractured Dragon's Maw - Haft[e]||NULL||NULL||1
++621124391||54354734||A piece of the shattered Dragon's Maw.\nMizâdi's Advance Guard Quartermaster may know what to do with this.||NULL||NULL||1
++621124391||98907573||Fractured Dragon's Maw - Hafts[ps]||NULL||NULL||1
++621124392||228870261||Fractured Dragon's Maw - Head[e]||NULL||NULL||1
++621124392||54354734||A piece of the shattered Dragon's Maw.\nMizâdi's Advance Guard Quartermaster may know what to do with this.||NULL||NULL||1
++621124392||98907573||Fractured Dragon's Maw - Heads[ps]||NULL||NULL||1
++621124393||228870261||Fractured Dragon's Maw - Mandible[e]||NULL||NULL||1
++621124393||54354734||A piece of the shattered Dragon's Maw.\nMizâdi's Advance Guard Quartermaster may know what to do with this.||NULL||NULL||1
++621124393||98907573||Fractured Dragon's Maw - Mandibles[ps]||NULL||NULL||1
++621124394||228870261||Fractured Dragon's Maw - Incomplete[e]||NULL||NULL||1
++621124394||54354734||Recollected pieces of the shattered Dragon's Maw.||NULL||NULL||1
++621124394||98907573||Fractured Dragon's Maws - Incomplete[p]||NULL||NULL||1
++621124396||228870261||Poisoned Morale||NULL||NULL||1
++621124396||54354734||Your morale is weakened.||NULL||NULL||1
++621124397||228870261||Darkened Spirit||NULL||NULL||1
++621124397||54354734||Your spirit is weakened as shadows invade you.||NULL||NULL||1
++621124398||241593989||Season 7 - Portrait||NULL||NULL||1
++621124407||228870261||Enraged Will||NULL||NULL||1
++621124408||228870261||DNT||NULL||NULL||1
++621124409||228870261||Focused Target||NULL||NULL||1
++621124409||106251889||A Blood-sworn Guard is focusing their aggression on you.||NULL||NULL||1
++621124410||228870261||Focused Will||NULL||NULL||1
++621124411||228870261||DNT||NULL||NULL||1
++621124412||228870261||Imposing Banner[v]||NULL||NULL||1
++621124413||20562268||Devour Life||NULL||NULL||1
++621124413||85260796|| ||NULL||NULL||1
++621124413||135040604|| ||NULL||NULL||1
++621124413||164133372|| ||NULL||NULL||1
++621124414||228870261||Ritual of the Dead||NULL||NULL||1
++621124415||228870261||DNT||NULL||NULL||1
++621124416||127328924||Success!||NULL||NULL||1
++621124416||247623100||Interrupted!||NULL||NULL||1
++621124417||228870261||Focused Will||NULL||NULL||1
++621124418||228870261||DNT||NULL||NULL||1
++621124419||228870261||Ritual of the Dead||NULL||NULL||1
++621124420||228870261||Focused Target||NULL||NULL||1
++621124420||106251889||A Blood-sworn Guard is focusing their aggression on you.||NULL||NULL||1
++621124421||228870261||Focused Target||NULL||NULL||1
++621124421||106251889||A Blood-sworn Guard is focusing their aggression on you.||NULL||NULL||1
++621124422||228870261||Focused Will||NULL||NULL||1
++621124423||228870261||DNT - Protection Dispel||NULL||NULL||1
++621124424||228870261||Frenzied Will||NULL||NULL||1
++621124425||228870261||Focused Target||NULL||NULL||1
++621124425||106251889||A Blood-sworn Guard is focusing their aggression on you.||NULL||NULL||1
++621124426||228870261||Deadly Presence - 1||NULL||NULL||1
++621124426||54354734||Khardâmu's commanding presence fills you with fear.||NULL||NULL||1
++621124427||228870261||Deadly Presence - 6||NULL||NULL||1
++621124427||54354734||Khardâmu's commanding presence fills you with fear.||NULL||NULL||1
++621124428||228870261||Deadly Presence - 8||NULL||NULL||1
++621124428||54354734||Khardâmu's commanding presence fills you with fear.||NULL||NULL||1
++621124429||228870261||Deadly Presence - 10||NULL||NULL||1
++621124429||54354734||Khardâmu's commanding presence fills you with fear.||NULL||NULL||1
++621124430||228870261||Deadly Presence - 3||NULL||NULL||1
++621124430||54354734||Khardâmu's commanding presence fills you with fear.||NULL||NULL||1
++621124431||228870261||DNT - Deadly Presence||NULL||NULL||1
++621124432||5380958||..||NULL||NULL||1
++621124432||91664869||Deadly Presence||NULL||NULL||1
++621124433||228870261||Deadly Presence - 5||NULL||NULL||1
++621124433||54354734||Khardâmu's commanding presence fills you with fear.||NULL||NULL||1
++621124434||228870261||Deadly Presence - 7||NULL||NULL||1
++621124434||54354734||Khardâmu's commanding presence fills you with fear.||NULL||NULL||1
++621124435||228870261||DNT||NULL||NULL||1
++621124436||228870261||Deadly Presence - 2||NULL||NULL||1
++621124436||54354734||Khardâmu's commanding presence fills you with fear.||NULL||NULL||1
++621124437||228870261||Deadly Presence - 9||NULL||NULL||1
++621124437||54354734||Khardâmu's commanding presence fills you with fear.||NULL||NULL||1
++621124438||228870261||Deadly Presence - 4||NULL||NULL||1
++621124438||54354734||Khardâmu's commanding presence fills you with fear.||NULL||NULL||1
++621124439||228870261||Consumed Strength - 2||NULL||NULL||1
++621124439||106251891||x<--DO_NOT_TOUCH!--> Outgoing Damage||1||1||1
++621124440||228870261||DNT||NULL||NULL||1
++621124441||228870261||Consumed Strength - 4||NULL||NULL||1
++621124441||106251891||x<--DO_NOT_TOUCH!--> Outgoing Damage||1||1||1
++621124442||228870261||DNT - Reset VoT Tierups||NULL||NULL||1
++621124443||228870261||Consumed Strength - 4||NULL||NULL||1
++621124443||106251891||x<--DO_NOT_TOUCH!--> Outgoing Damage||1||1||1
++621124444||228870261||DNT||NULL||NULL||1
++621124446||228870261||Consumed Strength - 5||NULL||NULL||1
++621124446||106251891||x<--DO_NOT_TOUCH!--> Outgoing Damage||1||1||1
++621124447||228870261||DNT - VoT Dispel||NULL||NULL||1
++621124448||228870261||Consumed Strength - 3||NULL||NULL||1
++621124448||106251891||x<--DO_NOT_TOUCH!--> Outgoing Damage||1||1||1
++621124449||228870261||Consumed Strength - 1||NULL||NULL||1
++621124449||106251891||x<--DO_NOT_TOUCH!--> Outgoing Damage||1||1||1
++621124450||228870261||DNT - Rallying Cry||NULL||NULL||1
++621124451||228870261||DNT||NULL||NULL||1
++621124452||228870261||Consumed Strength - 5||NULL||NULL||1
++621124452||106251891||x<--DO_NOT_TOUCH!--> Outgoing Damage||1||1||1
++621124453||228870261||DNT||NULL||NULL||1
++621124454||228870261||Consumed Strength - 3||NULL||NULL||1
++621124454||106251891||x<--DO_NOT_TOUCH!--> Outgoing Damage||1||1||1
++621124455||228870261||Consumed Strength - 1||NULL||NULL||1
++621124455||106251891||x<--DO_NOT_TOUCH!--> Outgoing Damage||1||1||1
++621124456||228870261||DNT - Deadly Presence||NULL||NULL||1
++621124457||228870261||Consumed Strength - 2||NULL||NULL||1
++621124457||106251891||x<--DO_NOT_TOUCH!--> Outgoing Damage||1||1||1
++621124458||228870261||Consuming Call||NULL||NULL||1
++621124460||228870261||Lingering Pain||NULL||NULL||1
++621124461||228870261||Renewed Strength||NULL||NULL||1
++621124462||228870261||DNT - Harrowing Slash Friendly Buff||NULL||NULL||1
++621124462||54354734||..||NULL||NULL||1
++621124463||228870261||Lingering Pain||NULL||NULL||1
++621124464||228870261||Renewed Strength||NULL||NULL||1
++621124465||5380958||..||NULL||NULL||1
++621124465||91664869||Lingering Pain||NULL||NULL||1
++621124466||228870261||Lingering Pain||NULL||NULL||1
++621124467||228870261||Ending Strike||NULL||NULL||1
++621124468||228870261||DNT - Harrowing Slash Damage||NULL||NULL||1
++621124468||54354734||..||NULL||NULL||1
++621124469||228870261||Renewed Strength||NULL||NULL||1
++621124470||5380958||..||NULL||NULL||1
++621124470||91664869||Lingering Pain||NULL||NULL||1
++621124471||228870261||Harrowing Slash||NULL||NULL||1
++621124473||228870261||Twisting Shadows||NULL||NULL||1
++621124474||5380958||..||NULL||NULL||1
++621124474||91664869||Twisting Shadows||NULL||NULL||1
++621124476||228870261||DNT||NULL||NULL||1
++621124477||228870261||Twisting Shadows||NULL||NULL||1
++621124479||228870261||DNT - Summons||NULL||NULL||1
++621124479||54354734||..||NULL||NULL||1
++621124480||228870261||Twisting Shadows||NULL||NULL||1
++621124546||228870261||Shadow of Ushkudâsh[n]||NULL||NULL||1
++621124550||228870261||Shadowy Restoration||NULL||NULL||1
++621124551||228870261||Shadowy Restoration - 1||NULL||NULL||1
++621124552||228870261||Shadowy Restoration - 3||NULL||NULL||1
++621124553||228870261||Shadowy Restoration - 6||NULL||NULL||1
++621124554||228870261||Shadowy Restoration - 5||NULL||NULL||1
++621124555||228870261||Shadowy Restoration - 2||NULL||NULL||1
++621124556||228870261||Shadowy Restoration - 4||NULL||NULL||1
++621124557||228870261||Endure||NULL||NULL||1
++621124558||228870261||Enraged||NULL||NULL||1
++621124558||106251890||x<--DO_NOT_TOUCH!--> Outgoing Damage||1||1||1
++621124558||106251891||x<--DO_NOT_TOUCH!--> Outgoing Damage||1||1||1
++621124559||228870261||DNT||NULL||NULL||1
++621124560||228870261||Endure||NULL||NULL||1
++621124561||228870261||Enraged||NULL||NULL||1
++621124561||106251889||A Blood-sworn Guard is focusing their aggression on you.||NULL||NULL||1
++621124561||106251890||x<--DO_NOT_TOUCH!--> Outgoing Damage||1||1||1
++621124561||106251891||x<--DO_NOT_TOUCH!--> Outgoing Damage||1||1||1
++621124562||228870261||DNT||NULL||NULL||1
++621124563||228870261||Endure||NULL||NULL||1
++621124564||228870261||Enraged||NULL||NULL||1
++621124564||106251890||x<--DO_NOT_TOUCH!--> Outgoing Damage||1||1||1
++621124564||106251891||x<--DO_NOT_TOUCH!--> Outgoing Damage||1||1||1
++621124565||228870261||Endure||NULL||NULL||1
++621124566||228870261||DNT||NULL||NULL||1
++621124567||228870261||DNT||NULL||NULL||1
++621124568||228870261||Enraged||NULL||NULL||1
++621124568||106251890||x<--DO_NOT_TOUCH!--> Outgoing Damage||1||1||1
++621124568||106251891||x<--DO_NOT_TOUCH!--> Outgoing Damage||1||1||1
++621124569||228870261||Endure||NULL||NULL||1
++621124570||228870261||Endure||NULL||NULL||1
++621124571||228870261||DNT||NULL||NULL||1
++621124572||228870261||DNT||NULL||NULL||1
++621124573||228870261||Enraged||NULL||NULL||1
++621124573||106251889||A Blood-sworn Guard is focusing their aggression on you.||NULL||NULL||1
++621124573||106251890||x<--DO_NOT_TOUCH!--> Outgoing Damage||1||1||1
++621124573||106251891||x<--DO_NOT_TOUCH!--> Outgoing Damage||1||1||1
++621124574||228870261||DNT||NULL||NULL||1
++621124575||228870261||Enraged||NULL||NULL||1
++621124575||106251890||x<--DO_NOT_TOUCH!--> Outgoing Damage||1||1||1
++621124575||106251891||x<--DO_NOT_TOUCH!--> Outgoing Damage||1||1||1
++621124576||228870261||Endure||NULL||NULL||1
++621124577||228870261||DNT||NULL||NULL||1
++621124578||228870261||Enraged||NULL||NULL||1
++621124578||106251890||x<--DO_NOT_TOUCH!--> Outgoing Damage||1||1||1
++621124578||106251891||x<--DO_NOT_TOUCH!--> Outgoing Damage||1||1||1
++621124579||228870261||Endure||NULL||NULL||1
++621124580||228870261||Enraged||NULL||NULL||1
++621124580||106251890||x<--DO_NOT_TOUCH!--> Outgoing Damage||1||1||1
++621124580||106251891||x<--DO_NOT_TOUCH!--> Outgoing Damage||1||1||1
++621124581||228870261||Endure||NULL||NULL||1
++621124582||228870261||Enraged||NULL||NULL||1
++621124582||106251890||x<--DO_NOT_TOUCH!--> Outgoing Damage||1||1||1
++621124582||106251891||x<--DO_NOT_TOUCH!--> Outgoing Damage||1||1||1
++621124583||228870261||DNT||NULL||NULL||1
++621124585||5380958||..||NULL||NULL||1
++621124585||91664869||Rotting Soul||NULL||NULL||1
++621124586||228870261||Shadow Bonds||NULL||NULL||1
++621124587||228870261||Shadow Binding||NULL||NULL||1
++621124588||228870261||Shadow Bonds||NULL||NULL||1
++621124589||228870261||DNT - Rotting Soul||NULL||NULL||1
++621124589||54354734||..||NULL||NULL||1
++621124590||228870261||Shadow Bonds||NULL||NULL||1
++621124591||228870261||Shadow Bound||NULL||NULL||1
++621124591||54354734||Shadows bind you from within.||NULL||NULL||1
++621124591||106251889||||NULL||NULL||1
++621124592||228870261||Shadow of Bârshud II[mn]||NULL||NULL||1
++621124595||228870261||Call for Aid||NULL||NULL||1
++621124598||228870261||DNT - Summons||NULL||NULL||1
++621124598||54354734||..||NULL||NULL||1
++621124625||228870261||Wounding Shadow||NULL||NULL||1
++621124629||241593989||Current Season - Appearances||NULL||NULL||1
++621124700||228870261||DNT||NULL||NULL||1
++621124701||228870261||DNT||NULL||NULL||1
++621124702||228870261||Ending Strike||NULL||NULL||1
++621124703||228870261||a mighty ranged attack||NULL||NULL||1
++621124704||228870261||a moderate ranged attack||NULL||NULL||1
++621124705||201542353||'Another threat falls.'||NULL||NULL||1
++621124705||61589265||'Kishâsu… I have failed you…'||NULL||NULL||1
++621124705||169669921||'You cannot run from me!'||NULL||NULL||1
++621124705||169669889||'Guards! Sieze them!'||NULL||NULL||1
++621124705||169669926||'Crumble before me!'||NULL||NULL||1
++621124705||169669905||'Form ranks!'||NULL||NULL||1
++621124705||187542321||'My life for Kishâsu.'||NULL||NULL||1
++621124706||5380958||..||NULL||NULL||1
++621124706||91664869||Falling||NULL||NULL||1
++621124707||201542353||'You are unworthy.'||NULL||NULL||1
++621124707||61589265||'Usurpers...'||NULL||NULL||1
++621124707||169669942||Fall to me, <--DO_NOT_TOUCH!-->!||1||1||1
++621124707||169669921||'Your power wanes!'||NULL||NULL||1
++621124707||169669889||'Your life sustains me!'||NULL||NULL||1
++621124707||169669937||'Fools!'||NULL||NULL||1
++621124707||169669926||'Bow to me!'||NULL||NULL||1
++621124707||169669905||'Servants, to me!'||NULL||NULL||1
++621124707||187542321||'Ah... more corpses for my garden.'||NULL||NULL||1
++621124708||228870261||DNT - Fall Teleport||NULL||NULL||1
++621124709||169669889||'Fall to my blade!'||NULL||NULL||1
++621124709||169669905||'Through your heart!'||NULL||NULL||1
++621124709||187542321||'A test for my blades.'||NULL||NULL||1
++621124710||61589265||<Dying Screams>||NULL||NULL||1
++621124710||169669921||'Darkness rains from the skies!'||NULL||NULL||1
++621124710||169669889||'Rise, spawn of Ushkudâsh!'||NULL||NULL||1
++621124710||169669926||'You cannot stop Bârshud!'||NULL||NULL||1
++621124710||169669905||'Shadow consumes you!'||NULL||NULL||1
++621124710||187542321||||NULL||NULL||1
++621124711||5380958||..||NULL||NULL||1
++621124711||91664869||Falling||NULL||NULL||1
++621124712||228870261||DNT - Fall Teleport||NULL||NULL||1
++621124915||228870261||DNT - Remove Fixate||NULL||NULL||1
++621124916||228870261||DNT - Remove Fixate||NULL||NULL||1
++621124917||228870261||DNT||NULL||NULL||1
++621124918||228870261||DNT - Remove Fixate||NULL||NULL||1
++621124919||228870261||DNT||NULL||NULL||1
++621124920||228870261||DNT||NULL||NULL||1
++621124921||228870261||DNT||NULL||NULL||1
++621124922||228870261||DNT||NULL||NULL||1
++621124923||228870261||DNT - Remove Fixate||NULL||NULL||1
++621124924||228870261||DNT||NULL||NULL||1
++621124925||228870261||DNT||NULL||NULL||1
++621124926||228870261||DNT||NULL||NULL||1
++621124928||228870261||Bulwark of the Dead||NULL||NULL||1
++621124929||228870261||DNT - AOE Damage||NULL||NULL||1
++621124930||228870261||Rotting Blood||NULL||NULL||1
++621124931||228870261||Bulwark of the Dead||NULL||NULL||1
++621124932||228870261||DNT||NULL||NULL||1
++621124933||228870261||DNT - AOE Damage||NULL||NULL||1
++621124934||228870261||DNT||NULL||NULL||1
++621124935||127328924||Success!||NULL||NULL||1
++621124935||247623100||Interrupted!||NULL||NULL||1
++621124936||228870261||Rotting Blood||NULL||NULL||1
++621124936||54354734||Heal to full to remove this effect.||NULL||NULL||1
++621124937||228870261||Ritual of the Dead||NULL||NULL||1
++621124963||169669889||'Fall to my blade!'||NULL||NULL||1
++621124963||169669905||'Through your heart!'||NULL||NULL||1
++621125025||228870261||Blood-sworn Guard[m]||NULL||NULL||1
++621125026||228870261||Blood-sworn Guard[m]||NULL||NULL||1
++621125029||228870261||Imposing Banner[v]||NULL||NULL||1
++621125086||228870261||Harrowing Slash||NULL||NULL||1
++621125088||228870261||Rain of Shadows||NULL||NULL||1
++621125089||228870261||Rain of Shadows||NULL||NULL||1
++621125090||5380958||..||NULL||NULL||1
++621125090||91664869||Rain of Shadows||NULL||NULL||1
++621125091||228870261||Rain of Shadows||NULL||NULL||1
++621125092||228870261||Rain of Shadows||NULL||NULL||1
++621125114||228870261||Silencing Shot||NULL||NULL||1
++621125166||228870261||Roar of Battle||NULL||NULL||1
++621125167||228870261||Roar of Battle||NULL||NULL||1
++621125186||218639268||You have completed Pagru-kirít, The Garden of Corpses -- Tier 1||NULL||NULL||1
++621125186||51875089||The ancient crypts of Pagru-kirít were built for Kishâsu the Knowing below his great tower in the second age. Sudûgul now plans to use the corpses filling the crypts to raise an army of the Dead for Bârshud. We must catch him and put an end to this!||NULL||NULL||1
++621125186||228870261||Pagru-kirít, The Garden of Corpses -- Tier 1||NULL||NULL||1
++621125186||225071138||Complete Pagru-kirít, The Garden of Corpses -- Tier 1||NULL||NULL||1
++621125187||218639267||You have completed Pagru-kirít, The Garden of Corpses -- Tier 2||NULL||NULL||1
++621125187||51875089||The ancient crypts of Pagru-kirít were built for Kishâsu the Knowing below his great tower in the second age. Sudûgul now plans to use the corpses filling the crypts to raise an army of the Dead for Bârshud. We must catch him and put an end to this!||NULL||NULL||1
++621125187||228870261||Pagru-kirít, The Garden of Corpses -- Tier 2||NULL||NULL||1
++621125187||225071138||Complete Pagru-kirít, The Garden of Corpses -- Tier 2||NULL||NULL||1
++621125188||218639267||You have completed Pagru-kirít, The Garden of Corpses -- Tier 3||NULL||NULL||1
++621125188||51875089||The ancient crypts of Pagru-kirít were built for Kishâsu the Knowing below his great tower in the second age. Sudûgul now plans to use the corpses filling the crypts to raise an army of the Dead for Bârshud. We must catch him and put an end to this!||NULL||NULL||1
++621125188||228870261||Pagru-kirít, The Garden of Corpses -- Tier 3||NULL||NULL||1
++621125188||225071138||Complete Pagru-kirít, The Garden of Corpses -- Tier 3||NULL||NULL||1
++621125201||218639267||You have completed Pagru-kirít, The Garden of Corpses -- Tier 3||NULL||NULL||1
++621125201||51875089||The ancient crypts of Pagru-kirít were built for Kishâsu the Knowing below his great tower in the second age. Sudûgul now plans to use the corpses filling the crypts to raise an army of the Dead for Bârshud. We must catch him and put an end to this!||NULL||NULL||1
++621125201||228870261||Pagru-kirít, The Garden of Corpses -- Tier 3 -- Leading the Charge||NULL||NULL||1
++621125201||225071138||Complete Pagru-kirít, The Garden of Corpses -- Tier 3||NULL||NULL||1
++621125202||175532558||You have defeated all of Kishâsu's Risen at Pagru-kirít, and cleansed the garden of evil.||NULL||NULL||1
++621125202||172691445||#1:<--DO_NOT_TOUCH!-->#1:{ [E]}#2:<--DO_NOT_TOUCH!-->#3:{ [E]}#3:<--DO_NOT_TOUCH!-->, Wightbreaker||1-2-3||1-2-3||1
++621125203||175532558||You have faced and conquered all the dangers of 'Pagru-kirít, The Garden of Corpses'.||NULL||NULL||1
++621125203||172691445||#1:<--DO_NOT_TOUCH!-->#1:{ [E]}#2:<--DO_NOT_TOUCH!-->#3:{ [E]}#3:<--DO_NOT_TOUCH!-->, Kishâsu's Bane||1-2-3||1-2-3||1
++621125204||218639268||Defeat Kishâsu's Risen within Pagru-kirít, The Garden of Corpses||NULL||NULL||1
++621125204||51875089||The ancient crypts of Pagru-kirít were built for Kishâsu the Knowing below his great tower in the second age. Sudûgul now plans to use the corpses filling the crypts to raise an army of the Dead for Bârshud. We must catch him and put an end to this!||NULL||NULL||1
++621125204||228870261||Pagru-kirít, The Garden of Corpses -- Kishâsu's Risen||NULL||NULL||1
++621125204||225071139||Defeat Kishâsu's Risen within Pagru-kirít, The Garden of Corpses||NULL||NULL||1
++621125204||216727826||Defeat Kishâsu's Risen within Pagru-kirít, The Garden of Corpses||NULL||NULL||1
++621125205||175532558||You were among the first to complete 'Pagru-kirít, The Garden of Corpses' on Tier 3.||NULL||NULL||1
++621125205||172691445||#1:<--DO_NOT_TOUCH!-->#1:{ [E]}#2:<--DO_NOT_TOUCH!-->#3:{ [E]}#3:<--DO_NOT_TOUCH!-->, Led the Charge at the Garden of Corpses||1-2-3||1-2-3||1
++621125206||218639267||You have completed Pagru-kirít, The Garden of Corpses -- Tier 1||NULL||NULL||1
++621125206||225071144||Complete Pagru-kirít, The Garden of Corpses -- Kishâsu's Risen||NULL||NULL||1
++621125206||218639268||You have completed Pagru-kirít, The Garden of Corpses -- Tier 2||NULL||NULL||1
++621125206||51875089||The ancient crypts of Pagru-kirít were built for Kishâsu the Knowing below his great tower in the second age. Sudûgul now plans to use the corpses filling the crypts to raise an army of the Dead for Bârshud. We must catch him and put an end to this!||NULL||NULL||1
++621125206||228870261||Vanquisher of Pagru-kirít, The Garden of Corpses||NULL||NULL||1
++621125206||218639271||You have completed Pagru-kirít, The Garden of Corpses -- Tier 3||NULL||NULL||1
++621125206||225071138||Complete Pagru-kirít, The Garden of Corpses -- Tier 1||NULL||NULL||1
++621125206||218639273||You have completed Pagru-kirít, The Garden of Corpses -- Kishâsu's Risen||NULL||NULL||1
++621125206||225071141||Complete Pagru-kirít, The Garden of Corpses -- Tier 2||NULL||NULL||1
++621125206||225071142||Complete Pagru-kirít, The Garden of Corpses -- Tier 3||NULL||NULL||1
++621125254||228870261||Frailty||NULL||NULL||1
++621125254||54354734||Shadows cloud your mind and weaken your resolve.||NULL||NULL||1
++621125255||228870261||Shadow Spit||NULL||NULL||1
++621125256||127328924||Success!||NULL||NULL||1
++621125256||247623100||Interrupted!||NULL||NULL||1
++621125257||228870261||Wing Flap||NULL||NULL||1
++621125258||228870261||Shadow Spit||NULL||NULL||1
++621125259||228870261||Tail Swipe||NULL||NULL||1
++621125260||228870261||Shadow Breath||NULL||NULL||1
++621125266||228870261||Shadow Spit||NULL||NULL||1
++621125267||228870261||Shadow Spit||NULL||NULL||1
++621125278||228870261||DNT||NULL||NULL||1
++621125279||228870261||DNT||NULL||NULL||1
++621125280||228870261||Hardened Resolve||NULL||NULL||1
++621125280||106251889||x<--DO_NOT_TOUCH!--> Incoming Damage||1||1||1
++621125281||228870261||Burning Rage||NULL||NULL||1
++621125281||106251889||x<--DO_NOT_TOUCH!--> Outgoing Damage||1||1||1
++621125282||228870261||Barbed Shot||NULL||NULL||1
++621125283||228870261||Entangling Shot||NULL||NULL||1
++621125284||228870261||Entangling Shot||NULL||NULL||1
++621125285||228870261||Barbed Shot||NULL||NULL||1
++621125286||228870261||Entangling Shot||NULL||NULL||1
++621125287||228870261||Entangling Shot||NULL||NULL||1
++621125288||228870261||Barbed Shot||NULL||NULL||1
++621125289||228870261||Barbed Shot||NULL||NULL||1
++621125290||228870261||Instill Fear||NULL||NULL||1
++621125291||228870261||Filled with Fear||NULL||NULL||1
++621125292||228870261||Shadow Strike||NULL||NULL||1
++621125301||228870261||Tainted Blood||NULL||NULL||1
++621125306||228870261||Gutting Cleave||NULL||NULL||1
++621125307||228870261||Serrated Slash||NULL||NULL||1
++621125308||228870261||Wounding Cut||NULL||NULL||1
++621125309||228870261||Serrated Slash||NULL||NULL||1
++621125310||228870261||Wounding Slash||NULL||NULL||1
++621125311||228870261||Wounding Slash||NULL||NULL||1
++621125312||228870261||Empowered||NULL||NULL||1
++621125312||106251889||x<--DO_NOT_TOUCH!--> Outgoing Damage||1||1||1
++621125313||228870261||Wounding Cut||NULL||NULL||1
++621125314||228870261||Heavy Cleave||NULL||NULL||1
++621125315||228870261||Wounding Slash||NULL||NULL||1
++621125316||228870261||Wounding Cut||NULL||NULL||1
++621125321||228870261||DNT - Summons||NULL||NULL||1
++621125321||54354734||..||NULL||NULL||1
++621125322||228870261||Shadow of Ushkudâsh[n]||NULL||NULL||1
++621125323||228870261||DNT - Summons||NULL||NULL||1
++621125323||54354734||..||NULL||NULL||1
++621125324||228870261||Weave Shadows||NULL||NULL||1
++621125325||228870261||Weave Shadows||NULL||NULL||1
++621125326||228870261||Break Power||NULL||NULL||1
++621125327||228870261||Break Power||NULL||NULL||1
++621125328||228870261||Shattering Roar||NULL||NULL||1
++621125343||228870261||Elk of the Flowering Sun||NULL||NULL||1
++621125343||228830419|| ||NULL||NULL||1
++621125344||228870261||Elk of the Flowering Sun||NULL||NULL||1
++621125344||228830419|| ||NULL||NULL||1
++621125345||228870261||Mounted||NULL||NULL||1
++621125345||138936629||Ray||NULL||NULL||1
++621125345||106251889||Speed: <--DO_NOT_TOUCH!-->\nMorale: 200\n||1||1||1
++621125345||106251890||Unable to evade.||NULL||NULL||1
++621125345||106251891||Unable to parry.||NULL||NULL||1
++621125345||106251892||Unable to block.||NULL||NULL||1
++621125346||228870261||Mounted||NULL||NULL||1
++621125346||138936629||Ray||NULL||NULL||1
++621125346||106251889||Speed: <--DO_NOT_TOUCH!-->\nMorale: 200\n||1||1||1
++621125346||106251890||Unable to evade.||NULL||NULL||1
++621125346||106251891||Unable to parry.||NULL||NULL||1
++621125346||106251892||Unable to block.||NULL||NULL||1
++621125349||181298206||||NULL||NULL||1
++621125349||228870261||Reflective Shield||NULL||NULL||1
++621125349||54354734||Reflects damage back at attackers.||NULL||NULL||1
++621125350||228870261||Damage Reflection||NULL||NULL||1
++621125351||228870261||Elk of the Flowering Sun[v]||NULL||NULL||1
++621125351||54354734||You can use this token to learn a skill to call this mount.\n\nUsing this token will grant you the Elk of the Flowering Sun.||NULL||NULL||1
++621125352||33816677||Bubo||NULL||NULL||1
++621125353||228870261||Eagle-Owl[v]||NULL||NULL||1
++621125355||228870261||Eagle-Owl of the Flowering Sun[v]||NULL||NULL||1
++621125355||228830419||Summons an eagle-owl to accompany you on your travels.||NULL||NULL||1
++621125355||211796645||Available for barter during the Midsummer Festival.||NULL||NULL||1
++621125356||228870261||Tome of the Eagle-Owl of the Flowering Sun[e]||NULL||NULL||1
++621125356||54354734||Using this item will teach you to summon an eagle-owl companion.||NULL||NULL||1
++621125357||228870261||Tunic and Trousers of the Flowering Sun[p]||NULL||NULL||1
++621125358||228870261||Dress of the Flowering Sun[e]||NULL||NULL||1
++621125359||228870261||Cloak of the Flowering Sun[e]||NULL||NULL||1
++621125360||228870261||Hooded Cloak of the Flowering Sun[e]||NULL||NULL||1
++621125361||228870261||Garden Chair of the Flowering Sun[e]||NULL||NULL||1
++621125362||228870261||Garden Table of the Flowering Sun[e]||NULL||NULL||1
++621125365||228870261||Flowering Sun Garments - Gift-wrapped Selection Box[e]||NULL||NULL||1
++621125365||54354734||A garment of the flowering sun, packaged, and ready to gift to someone special in your life. Use to select a garment of your choice.||NULL||NULL||1
++621125365||98907573||Flowering Sun Garments - Gift-wrapped Selection Box[e]||NULL||NULL||1
++621125371||229802005||Spoils from Pagru-kirít[m]||NULL||NULL||1
++621125371||81781765||Advance Guard Quartermaster[mv]||NULL||NULL||1
++621125372||228870261||Temámir Token of Friendship[e]||NULL||NULL||1
++621125372||54354734||A token of friendship from the Temámir Dwarves of Jiret-menêsh.||NULL||NULL||1
++621125372||98907573||Temámir Tokens of Friendship[p]||NULL||NULL||1
++621125373||228870261||Zajâni Token of Friendship[e]||NULL||NULL||1
++621125373||54354734||A token of friendship from the Doorwards of Zajâna.||NULL||NULL||1
++621125373||98907573||Zajâni Tokens of Friendship[p]||NULL||NULL||1
++621125374||228870261||Purification Tincture[e]||NULL||NULL||1
++621125374||54354734||A tincture of purification from the Kintai battling the Pale Blight.||NULL||NULL||1
++621125374||98907573||Purification Tinctures[ps]||NULL||NULL||1
++621125375||228870261||Fallen Mystic's Garb\n(Max Level: 164)||NULL||NULL||1
++621125376||228870261||Kinta Token of Friendship[e]||NULL||NULL||1
++621125376||54354734||A token of friendship from the Kintai Elves of Sul Madásh.||NULL||NULL||1
++621125376||98907573||Kinta Tokens of Friendship[p]||NULL||NULL||1
++621125377||228870261||Fallen Sage's Garb\n(Max Level: 164)||NULL||NULL||1
++621125378||228870261||Fallen Conjurer's Garb\n(Max Level: 164)||NULL||NULL||1
++621125379||228870261||Fallen Guardsman's Garb\n(Max Level: 164)||NULL||NULL||1
++621125380||228870261||Fallen Noble's Garb\n(Max Level: 164)||NULL||NULL||1
++621125381||228870261||Fallen Rogue's Garb\n(Max Level: 164)||NULL||NULL||1
++621125382||228870261||Fallen Warden's Garb\n(Max Level: 164)||NULL||NULL||1
++621125383||228870261||Fallen Scout's Garb\n(Max Level: 164)||NULL||NULL||1
++621125384||228870261||Fallen Warrior's Garb\n(Max Level: 164)||NULL||NULL||1
++621125385||228870261||DNT||NULL||NULL||1
++621125386||228870261||DNT - Deadly Presence||NULL||NULL||1
++621125387||228870261||Consumed Strength - 10||NULL||NULL||1
++621125387||106251891||x<--DO_NOT_TOUCH!--> Outgoing Damage||1||1||1
++621125388||228870261||Shadowy Restoration||NULL||NULL||1
++621125389||228870261||Consumed Strength - 7||NULL||NULL||1
++621125389||106251891||x<--DO_NOT_TOUCH!--> Outgoing Damage||1||1||1
++621125390||228870261||Consumed Strength - 6||NULL||NULL||1
++621125390||106251891||x<--DO_NOT_TOUCH!--> Outgoing Damage||1||1||1
++621125391||228870261||Consumed Strength - 8||NULL||NULL||1
++621125391||106251891||x<--DO_NOT_TOUCH!--> Outgoing Damage||1||1||1
++621125392||228870261||Consumed Strength - 9||NULL||NULL||1
++621125392||106251891||x<--DO_NOT_TOUCH!--> Outgoing Damage||1||1||1
++621125393||228870261||Restoring Shadows||NULL||NULL||1
++621125399||228870261||DNT||NULL||NULL||1
++621125400||228870261||DNT||NULL||NULL||1
++621125402||228870261||Shadow of Ushkudâsh[n]||NULL||NULL||1
++621125403||228870261||Shattering Roar||NULL||NULL||1
++621125425||127328924||Success!||NULL||NULL||1
++621125425||247623100||Interrupted!||NULL||NULL||1
++621125435||228870261||Uncontrolled Rage||NULL||NULL||1
++621125497||241593989||Amelia's Studies (Req: Honoured & Lvl 106)||NULL||NULL||1
++621125527||228870261||Roar of Terror||NULL||NULL||1
++621125528||127328924||Success!||NULL||NULL||1
++621125528||247623100||Interrupted!||NULL||NULL||1
++621125558||241593989||Amelia's Armoury (Req: Honoured & Lvl 106)||NULL||NULL||1
++621125559||157882551||'You weren't followed, were you? It should be safe here... if anywhere can be called safe in these times.'||NULL||NULL||1
++621125559||229802005||Harried Scholar[f]||NULL||NULL||1
++621125559||81781765||Amelia[fn]||NULL||NULL||1
++621125560||241593989||Amelia's Armoury (Req: Kindred & Lvl 96)||NULL||NULL||1
++621125561||241593989||Amelia's Armoury (Req: Respected & Lvl 101)||NULL||NULL||1
++621125580||228870261||Scholar's Healing Salve (Lvl 115)[e]||NULL||NULL||1
++621125580||54354734||Amelia's balms can swiftly mitigate the terrible injuries left by the shadowy blades of the Nazgûl.||NULL||NULL||1
++621125580||98907573||Scholar's Healing Salves (Lvl 115)[p]||NULL||NULL||1
++621125582||228870261||Scholar's Healing Balm (Lvl 105)[e]||NULL||NULL||1
++621125582||54354734||Amelia's balms can swiftly mitigate the terrible injuries left by the shadowy blades of the Nazgûl.||NULL||NULL||1
++621125582||98907573||Scholar's Healing Balms (Lvl 105)[p]||NULL||NULL||1
++621125583||228870261||Scholar's Healing Balm (Lvl 115)[e]||NULL||NULL||1
++621125583||54354734||Amelia's balms can swiftly mitigate the terrible injuries left by the shadowy blades of the Nazgûl.||NULL||NULL||1
++621125583||98907573||Scholar's Healing Balms (Lvl 115)[p]||NULL||NULL||1
++621125585||228870261||Scholar's Healing Salve (Lvl 105)[e]||NULL||NULL||1
++621125585||54354734||Amelia's balms can swiftly mitigate the terrible injuries left by the shadowy blades of the Nazgûl.||NULL||NULL||1
++621125585||98907573||Scholar's Healing Salves (Lvl 105)[p]||NULL||NULL||1
++621125601||228870261||Charm of Gathering Shadows[e]||NULL||NULL||1
++621125601||54354734||This charm will draw the attention of dark forces during the legendary Ringwraith event, increasing the frequency with which non-unique wraiths are encountered.||NULL||NULL||1
++621125602||228870261||Gathering Shadows||NULL||NULL||1
++621125602||54354734||Your form is surrounded by flickering shadows.||NULL||NULL||1
++621125662||228870261||Faster Nazgûl event spawns||NULL||NULL||1
++621125767||228870261||Echo of Nuzêru[mv]||NULL||NULL||1
++621125769||228870261||Song of Nuzêru||NULL||NULL||1
++621125770||228870261||Volatile Flame - 3||NULL||NULL||1
++621125770||54354734||The Song of Nuzêru weakens with each fading echo's death.||NULL||NULL||1
++621125771||228870261||Song of Nuzêru||NULL||NULL||1
++621125772||228870261||DNT||NULL||NULL||1
++621125773||228870261||Song of Nuzêru||NULL||NULL||1
++621125774||228870261||DNT||NULL||NULL||1
++621125775||20562268||Song of Nuzêru||NULL||NULL||1
++621125775||85260796|| ||NULL||NULL||1
++621125775||135040604|| ||NULL||NULL||1
++621125775||164133372|| ||NULL||NULL||1
++621125776||228870261||Protection from Nuzêru||NULL||NULL||1
++621125776||54354734||Protecting from Song of Nuzêru||NULL||NULL||1
++621125777||228870261||DNT||NULL||NULL||1
++621125778||228870261||Song of Nuzêru||NULL||NULL||1
++621125779||228870261||Protection from Nuzêru||NULL||NULL||1
++621125779||54354734||Protecting from Song of Nuzêru||NULL||NULL||1
++621125780||228870261||Volatile Flame - 5||NULL||NULL||1
++621125780||54354734||The Song of Nuzêru weakens with each fading echo's death.||NULL||NULL||1
++621125781||5380958||..||NULL||NULL||1
++621125781||91664869||DNT||NULL||NULL||1
++621125782||228870261||DNT - Summons||NULL||NULL||1
++621125782||54354734||..||NULL||NULL||1
++621125783||228870261||DNT||NULL||NULL||1
++621125784||228870261||Volatile Flame||NULL||NULL||1
++621125784||54354734||The fading echo weakens the Song of Nuzêru upon death.||NULL||NULL||1
++621125785||228870261||Volatile Flame - 2||NULL||NULL||1
++621125785||54354734||The Song of Nuzêru weakens with each fading echo's death.||NULL||NULL||1
++621125786||228870261||DNT||NULL||NULL||1
++621125787||228870261||DNT||NULL||NULL||1
++621125788||228870261||Call to Nuzêru||NULL||NULL||1
++621125789||228870261||DNT||NULL||NULL||1
++621125790||228870261||Volatile Flame - 7||NULL||NULL||1
++621125790||54354734||The Song of Nuzêru weakens with each fading echo's death.||NULL||NULL||1
++621125791||228870261||DNT||NULL||NULL||1
++621125792||228870261||Volatile Flame - 4||NULL||NULL||1
++621125792||54354734||The Song of Nuzêru weakens with each fading echo's death.||NULL||NULL||1
++621125793||228870261||DNT||NULL||NULL||1
++621125794||228870261||Volatile Flame - 1||NULL||NULL||1
++621125794||54354734||The Song of Nuzêru weakens with each fading echo's death.||NULL||NULL||1
++621125795||228870261||Volatile Flame - 6||NULL||NULL||1
++621125795||54354734||The Song of Nuzêru weakens with each fading echo's death.||NULL||NULL||1
++621125848||228870261||Healing Echo||NULL||NULL||1
++621125982||228870261||DNT||NULL||NULL||1
++621125985||127328924||Success!||NULL||NULL||1
++621125985||247623100||Interrupted!||NULL||NULL||1
++621126065||228870261||Shadowy Charge||NULL||NULL||1
++621126066||228870261||DNT - Summons||NULL||NULL||1
++621126066||54354734||..||NULL||NULL||1
++621126067||228870261||Nuzêru's Protection||NULL||NULL||1

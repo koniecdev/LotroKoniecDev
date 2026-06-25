@@ -8,7 +8,7 @@ namespace LotroKoniecDev.TranslationSystem.Primitives.Aggregates.TranslationAggr
 [JsonConverter(typeof(StronglyTypedIdJsonConverter<TranslationId>))]
 public readonly record struct TranslationId : IStronglyTypedId<TranslationId>
 {
-    public static readonly TranslationId Empty;
+    public static readonly TranslationId Empty = default;
 
     public Guid Value { get; }
 

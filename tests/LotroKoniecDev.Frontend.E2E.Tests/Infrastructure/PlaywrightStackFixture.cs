@@ -7,7 +7,6 @@ using DotNet.Testcontainers.Builders;
 using DotNet.Testcontainers.Containers;
 using DotNet.Testcontainers.Networks;
 using Microsoft.Playwright;
-using Testcontainers.Playwright;
 using Testcontainers.PostgreSql;
 
 namespace LotroKoniecDev.Frontend.E2E.Tests.Infrastructure;
@@ -15,8 +14,10 @@ namespace LotroKoniecDev.Frontend.E2E.Tests.Infrastructure;
 /// <summary>
 /// Boots the whole browser-facing stack — Postgres + the one-shot migrator + auth-api + tms-api +
 /// the Blazor SSR Frontend + Mailpit + a headless Chromium — as real containers on one private
-/// network, then connects Playwright to the in-network browser over WebSocket (the official
-/// <c>Testcontainers.Playwright</c> module). Every service has a DNS alias, so
+/// network, then connects Playwright to the in-network browser over WebSocket. (The browser
+/// container is built by hand rather than via the <c>Testcontainers.Playwright</c> module — see
+/// <see cref="StartBrowserAsync"/> for why that module is unusable with current Playwright images.)
+/// Every service has a DNS alias, so
 /// <c>https://auth-api:8443</c> resolves identically for the in-container browser front-channel AND
 /// the Frontend's server-side OIDC back-channel — the single-<c>Authority</c> property ADR-0006
 /// secured on the host via <c>localhost</c>, here secured in-network via DNS (ADR-0009). HTTPS is
@@ -34,6 +35,17 @@ public sealed class PlaywrightStackFixture : IAsyncLifetime
 
     // Pinned to match the Microsoft.Playwright client version, so ConnectAsync speaks the same protocol.
     private const string PlaywrightImage = "mcr.microsoft.com/playwright:v1.60.0-noble";
+    private const int PlaywrightPort = 8080;
+
+    /// <summary>
+    /// run-server command — identical to the one the <c>Testcontainers.Playwright</c> module emits
+    /// (the driver version is read from the image at startup so it matches the client protocol), but
+    /// with <c>--host 0.0.0.0</c> appended. Without it, Playwright v1.55+ binds the WebSocket server
+    /// to the container loopback, which the host can never reach through the published port.
+    /// </summary>
+    private const string PlaywrightServerCommand =
+        "npx -y playwright@$(sed --quiet 's/.*\\\"driverVersion\\\": *\"\\([^\"]*\\)\".*/\\1/p' ms-playwright/.docker-info) "
+        + "run-server --port 8080 --host 0.0.0.0";
 
     /// <summary>Image name → Dockerfile path (relative to the solution root), built in order if not present.</summary>
     private static readonly (string Image, string Dockerfile)[] DockerImages =
@@ -77,7 +89,7 @@ public sealed class PlaywrightStackFixture : IAsyncLifetime
     private IContainer _authApi = null!;
     private IContainer _tmsApi = null!;
     private IContainer _frontend = null!;
-    private PlaywrightContainer _playwrightContainer = null!;
+    private IContainer _playwrightContainer = null!;
     private IPlaywright _playwright = null!;
 
     public IBrowser Browser { get; private set; } = null!;
@@ -260,13 +272,29 @@ public sealed class PlaywrightStackFixture : IAsyncLifetime
 
     private async Task StartBrowserAsync()
     {
-        _playwrightContainer = new PlaywrightBuilder(PlaywrightImage)
+        // Built by hand instead of via PlaywrightBuilder: that module omits run-server's --host flag
+        // and hard-codes a "Listening on ws://localhost:8080/" readiness probe. Since Playwright v1.55+
+        // run-server binds to the container loopback (logging "ws://[::1]:8080/") unless --host is given,
+        // the module's probe never matches (so StartAsync hangs in the wait strategy) AND the loopback-
+        // bound server is unreachable through the published port (so ConnectAsync would hang too). Its
+        // wait strategies are append-only, so the broken probe can't be replaced. Binding 0.0.0.0 fixes
+        // both: the WebSocket server is reachable via the mapped port and logs the address we wait on.
+        _playwrightContainer = new ContainerBuilder(PlaywrightImage)
             .WithNetwork(_network)
+            .WithEntrypoint("/bin/sh", "-c")
+            .WithCommand(PlaywrightServerCommand)
+            .WithPortBinding(PlaywrightPort, true)
+            .WithWaitStrategy(Wait.ForUnixContainer()
+                .UntilMessageIsLogged($"Listening on ws://0.0.0.0:{PlaywrightPort}"))
             .Build();
-        await _playwrightContainer.StartAsync();
+
+        await StartWithDiagnosticsAsync(_playwrightContainer, "playwright");
 
         _playwright = await Playwright.CreateAsync();
-        Browser = await _playwright.Chromium.ConnectAsync(_playwrightContainer.GetConnectionString());
+        string browserWsEndpoint = new UriBuilder(
+            "ws", _playwrightContainer.Hostname, _playwrightContainer.GetMappedPublicPort(PlaywrightPort)).ToString();
+        Browser = await _playwright.Chromium.ConnectAsync(
+            browserWsEndpoint, new BrowserTypeConnectOptions { Timeout = 60_000 });
     }
 
     /// <summary>

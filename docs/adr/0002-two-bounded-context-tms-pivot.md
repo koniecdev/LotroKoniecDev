@@ -1,4 +1,4 @@
-# ADR-0002: Two bounded contexts — TMS lifted from TheKittySaver, patcher frozen
+# ADR-0002: Two bounded contexts — TMS lifted from TheKittySaver, patcher frozen (later lifted)
 
 **Status:** Accepted
 **Date:** 2026-06-11
@@ -63,6 +63,18 @@ translation-file auto-download in the launch flow (ticket M2-20): the patcher ac
 distribution *consumer* over HTTP (distribution, not integration — see Alternative E). The new
 slice and its launch-flow wiring are sanctioned; refactors of existing handlers are not, and
 every pre-existing test stays green with assertions untouched.
+
+**Amendment (2026-06-25): the freeze is lifted — the patcher is *stable*, not frozen.** With the
+TMS backend essentially in place, the original force (don't risk the proven core for consistency
+gains under time pressure) no longer outweighs the cost of a codebase that visibly contradicts
+itself — a flat `src/` bag of patcher projects beside cleanly foldered contexts, in the one public
+portfolio repo. Refactors, renames and restructuring of the patcher are now allowed when they earn
+their keep; the first was relocating the five projects under `src/Patcher/` (a pure `git mv` +
+reference re-point, zero code change). The protective invariant that actually mattered is retained
+and generalized: **every change keeps all existing patcher tests green with their assertions
+untouched, and must not regress behavior proven in `docs/knowledge-base/`.** The `||` format gate
+(§3) and the no-cross-reference boundary (§1) are unaffected, and this dissolves the "sole
+exception" framing above — M2-20 is now an ordinary additive slice, not a sanctioned exception.
 
 ### 3. The `||` translation file is the only contract between the contexts
 

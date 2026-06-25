@@ -153,7 +153,7 @@ public sealed class E2ETestFixture : IAsyncLifetime
     private static async Task BuildCliProjectAsync()
     {
         string solutionRoot = FindSolutionRoot();
-        string cliProjectPath = Path.Combine(solutionRoot, "src", CliProjectName);
+        string cliProjectPath = Path.Combine(solutionRoot, "src", "Patcher", CliProjectName);
 
         using Process process = new();
         process.StartInfo = new ProcessStartInfo
@@ -206,12 +206,12 @@ public sealed class E2ETestFixture : IAsyncLifetime
     private static string FindCliExe()
     {
         string solutionRoot = FindSolutionRoot();
-        string cliBinDir = Path.Combine(solutionRoot, "src", CliProjectName, "bin");
+        string cliBinDir = Path.Combine(solutionRoot, "src", "Patcher", CliProjectName, "bin");
 
         if (!Directory.Exists(cliBinDir))
         {
             throw new InvalidOperationException(
-                $"CLI bin directory not found at {cliBinDir}. Build the CLI first: dotnet build src/{CliProjectName}");
+                $"CLI bin directory not found at {cliBinDir}. Build the CLI first: dotnet build src/Patcher/{CliProjectName}");
         }
 
         string exeName = $"{CliProjectName}.exe";
@@ -219,7 +219,7 @@ public sealed class E2ETestFixture : IAsyncLifetime
             .OrderByDescending(File.GetLastWriteTimeUtc)
             .FirstOrDefault() 
             ?? throw new InvalidOperationException(
-                $"CLI exe '{exeName}' not found under {cliBinDir}. Build the CLI first: dotnet build src/{CliProjectName}");
+                $"CLI exe '{exeName}' not found under {cliBinDir}. Build the CLI first: dotnet build src/Patcher/{CliProjectName}");
 
         return exePath;
     }

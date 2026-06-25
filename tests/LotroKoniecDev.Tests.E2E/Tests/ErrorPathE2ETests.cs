@@ -103,8 +103,8 @@ public sealed class ErrorPathE2ETests
         CliResult result = await _fixture.RunCliAsync(
             $"patch \"{garbagePath}\" -d \"{tempDatPath}\"");
 
-        //Assert — parser returns empty list → Patcher returns NoTranslations → exit code 3
-        result.ExitCode.ShouldBe((int)CliExitCode.OperationFailed,
+        //Assert — parser skips all unparseable lines → empty list → NoTranslations (Validation) → exit code 1
+        result.ExitCode.ShouldBe((int)CliExitCode.InvalidArguments,
             $"Patch with garbage translations should fail. stdout: {result.Stdout}");
     }
 
@@ -127,8 +127,8 @@ public sealed class ErrorPathE2ETests
         CliResult result = await _fixture.RunCliAsync(
             $"patch \"{commentsPath}\" -d \"{tempDatPath}\"");
 
-        //Assert — all lines skipped → empty translations → exit code 3
-        result.ExitCode.ShouldBe((int)CliExitCode.OperationFailed,
+        //Assert — all lines skipped → empty translations → NoTranslations (Validation) → exit code 1
+        result.ExitCode.ShouldBe((int)CliExitCode.InvalidArguments,
             $"Patch with comment-only file should fail. stdout: {result.Stdout}");
     }
 

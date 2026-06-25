@@ -7,5 +7,5 @@ if errorlevel 1 (
 )
 dotnet build src\Patcher\LotroKoniecDev.Cli -v:minimal -nologo
 if errorlevel 1 exit /b 1
-src\Patcher\LotroKoniecDev.Cli\bin\Debug\net10.0-windows\LotroKoniecDev.Cli.exe patch %*
+src\Patcher\LotroKoniecDev.Cli\bin\Debug\net10.0-windows\win-x86\LotroKoniecDev.Cli.exe patch %*
 pause

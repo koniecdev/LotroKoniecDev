@@ -9,7 +9,7 @@
 A **LOTRO Polish translation platform** on **.NET 10 / C# 13** — **two bounded contexts in one
 repo**, integrating through a file contract:
 
-1. **Patcher** (shipped, **frozen**) — CLI that exports English texts from the game's binary DAT
+1. **Patcher** (shipped, **stable**) — CLI that exports English texts from the game's binary DAT
    file (`export`), injects `||`-format Polish translations back (`patch`), and launches the game
    (`launch`). A WPF player app (M4) will reuse its Application handlers.
 2. **TMS — Translation Management System** (M2/M3, in progress) — PostgreSQL + Web API + Blazor
@@ -37,7 +37,7 @@ conflicts with this file (MediatR, one shared Application for all UIs, auth post
 
 ```
 src/
-  Patcher/LotroKoniecDev.{Primitives,Domain,Application,Infrastructure,Cli}               ← PATCHER (exists, frozen)
+  Patcher/LotroKoniecDev.{Primitives,Domain,Application,Infrastructure,Cli}               ← PATCHER (exists, stable)
   SharedKernel/LotroKoniecDev.SharedKernel                                                ← M2 (lift; TMS-side only)
   TranslationSystem/LotroKoniecDev.TranslationSystem.{Primitives,Domain,ReadModels,ReadModels.EntityFramework,Persistence,Contracts,API} ← M2 (new)
   AuthSystem/LotroKoniecDev.AuthSystem.{API,Domain,Infrastructure,Persistence,Contracts}  ← M2 (lift)
@@ -51,10 +51,10 @@ parser/serializer; **golden fixture files + round-trip tests on both sides** gua
 drift, and the format itself changes only via ADR. The TMS never references `datexport.dll`/DAT
 code (it runs in Linux Docker); the patcher never touches the DB (it runs on a Windows gaming
 box). Distribution is HTTP, not integration: the CLI launch flow auto-downloads the current
-translation file from the TMS API (ETag-cached; M2-20, the sole freeze exception — ADR-0002
-amendment), and the WPF app (M4) is a GUI over the same patcher handlers + download.
+translation file from the TMS API (ETag-cached; M2-20), and the WPF app (M4) is a GUI over the
+same patcher handlers + download.
 
-### Patcher — frozen (do not refactor)
+### Patcher — stable (shipped & empirically proven)
 
 Strict Clean Architecture; dependency rule: **Cli / Infrastructure → Application → Domain →
 Primitives**.
@@ -68,12 +68,14 @@ Primitives**.
 | `LotroKoniecDev.Primitives` | constants + enums, zero dependencies |
 | `tests/LotroKoniecDev.Tests.{Unit,Infrastructure,E2E}` | patcher tests (E2E Windows-only via `SkippableFact`) |
 
-**Frozen means:** bugfix tickets only — no renames, no extractions, no restructuring in service
-of the TMS. The TMS deliberately duplicates the few tiny building blocks it needs (Result/Maybe/
-Error shapes, messaging interfaces — they arrive inside the lifted SharedKernel); consolidating
-that duplication is at most a post-MVP ticket. Any change here must keep every existing test
-green without touching its assertions. One sanctioned additive exception (ADR-0002 amendment,
-spec 0001): the M2-20 translation-file auto-download slice in the launch flow.
+**Stable means:** the patcher is shipped and empirically proven, so the bar for touching it is
+high — but it is **no longer frozen** (ADR-0002 amendment, 2026-06-25). Refactors, renames and
+restructuring are allowed when they earn their keep (the `src/Patcher/` grouping was the first);
+**any change must keep every existing test green without touching its assertions**, and behavior
+proven in `docs/knowledge-base/` must not regress. The TMS still deliberately duplicates the few
+tiny building blocks it needs (Result/Maybe/Error shapes, messaging interfaces — they arrive
+inside the lifted SharedKernel); consolidating that duplication is an opt-in cleanup, not a
+mandate. The DAT/`||` file format still changes only via ADR + updated golden fixtures.
 
 ### TMS — the KittySaver lift map
 
@@ -121,7 +123,7 @@ A KittySaver slice is one file: `internal sealed class <Action> : IEndpoint` con
 | Work a GitHub ticket end-to-end | run **`/ticket <number>`** (mind the pivot-supersedes rule in Project status) |
 | Touch DAT binary parsing / writing / native interop | delegate to the **`dat-format-expert`** agent |
 | Re-investigate update behavior, vnum, translation survival, launch flow | **don't** — empirically settled in `docs/knowledge-base/` (start at its README) |
-| Make a non-trivial architectural/modeling decision | skim `docs/adr/`, then **write a new ADR** (`/adr`); anchors: 0001 (no mediator), 0002 (TMS pivot + freeze amendment), 0008 (cloud-agnostic deployment + env strategy — M6), 0009 (browser E2E via Testcontainers + Playwright) |
+| Make a non-trivial architectural/modeling decision | skim `docs/adr/`, then **write a new ADR** (`/adr`); anchors: 0001 (no mediator), 0002 (TMS pivot + freeze/unfreeze amendments), 0008 (cloud-agnostic deployment + env strategy — M6), 0009 (browser E2E via Testcontainers + Playwright) |
 | Deploy/operate the stack, or set env vars per environment | `docs/deployment/runbook.md` — env-var matrix (service × environment), secret generation, the issuer/redirect/authority/CORS gotchas, bring-up sequence + DB migrations |
 | Touch the update lifecycle (GameVersion, import diff, invalidation, distribution, CLI sync) | `docs/specs/0001-game-update-lifecycle-and-translation-invalidation.md` — the agreed domain spec |
 | Implement a feature whose business rules are fuzzy | **`/spec`** first (seed → questions → agreed spec in `docs/specs/`) |
@@ -291,7 +293,9 @@ file_id||gossip_id||translated_text||args_order||args_id||approved
   through `IApplicationReadDbContext`; command handlers load and mutate aggregates via
   repositories + `IUnitOfWork`. The write model never serves list/search queries; every new
   aggregate ships with its read model + EF configuration in the same change.
-- **Patcher is frozen** (see Architecture) — never refactor it to serve the TMS.
+- **Patcher is stable, not frozen** (ADR-0002 amendment 2026-06-25) — refactor it when it earns
+  its keep, but every change must keep its existing tests green (assertions untouched) and must not
+  regress behavior proven in `docs/knowledge-base/`.
 - **TMS ships with auth from day 1.** Endpoints are authorized by default (public ones are
   explicit) and edited rows carry user attribution: `Translation.SubmittedById` is stamped on
   upsert (added in M2-11; persisted via the `IdentityId` converter in `TranslationSystem.Persistence`),
@@ -355,7 +359,7 @@ file_id||gossip_id||translated_text||args_order||args_id||approved
 
 ## Anatomy of a feature slice
 
-### Patcher slice (frozen — reference only for bugfixes)
+### Patcher slice (stable — the reference shape; bugfixes & deliberate refactors)
 
 `Application/Features/<Area>/`: `<Action>Command.cs` (sealed record `: ICommand<Result<T>>`) +
 `<Action>CommandHandler.cs` (internal sealed, explicit ctor DI) + validator (commands only) +
@@ -476,7 +480,7 @@ files sitting uncommitted at once, or two tickets sharing one context.
   artifact + ETag/304, `GET /translation-files/{lang}`), GameVersion endpoints, forum watcher
   (creates unprocessed `GameVersion`) → compose (postgres + migrator + auth-api + tms-api; M6-14
   later demoted the dev stack to infra-only + host Kestrels — ADR-0006 amendment) →
-  integration tests → CLI auto-download (M2-20, the freeze exception).
+  integration tests → CLI auto-download (M2-20).
   **DoD:** the full loop works: CLI `export` → TMS import (diff) → edit/approve → CLI `launch`
   auto-downloads → `patch` → texts visible in game; a simulated game update invalidates changed
   rows and the distributed file excludes them.

@@ -13,8 +13,10 @@ postgres ─ migrator ─ auth-api ─ tms-api ─ frontend ─ mailpit ─ play
 ```
 
 - All app services get a DNS alias and serve **HTTPS** (`https://auth-api:8443`, `https://frontend:8443`).
-- The **browser is a container too** (the official `Testcontainers.Playwright` module); the host test
-  connects to it over WebSocket (`Chromium.ConnectAsync(container.GetConnectionString())`). Because the
+- The **browser is a container too** — a Playwright `run-server` container we build by hand (the
+  `Testcontainers.Playwright` module hard-codes a `localhost` readiness probe and omits run-server's
+  `--host`, both broken on Playwright v1.55+ images; see `PlaywrightStackFixture.StartBrowserAsync`).
+  The host test connects to it over WebSocket (`Chromium.ConnectAsync(ws://host:mappedPort/)`). Because the
   browser and the Frontend's OIDC back-channel are on the **same** network, `https://auth-api:8443`
   resolves identically for both — so the single-`Authority` OIDC constraint (ADR-0006) holds in-network.
 - HTTPS is mandatory (the OIDC correlation cookie is `SameSite=None`). The cert is **generated in C#**

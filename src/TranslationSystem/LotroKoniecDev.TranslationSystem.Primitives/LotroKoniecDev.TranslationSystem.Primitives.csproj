@@ -6,10 +6,6 @@
     </PropertyGroup>
 
     <ItemGroup>
-        <PackageReference Include="StronglyTypedId" />
-    </ItemGroup>
-
-    <ItemGroup>
         <ProjectReference Include="..\..\SharedKernel\LotroKoniecDev.SharedKernel\LotroKoniecDev.SharedKernel.csproj" />
     </ItemGroup>
 

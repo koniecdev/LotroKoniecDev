@@ -239,7 +239,7 @@ public sealed class EditorTests : BunitContext
         }
 
         return new TranslationDetailResponse(
-            new TranslationId(Guid.NewGuid()),
+            TranslationId.Create(Guid.NewGuid()),
             FileId: 620756992,
             GossipId: 1002,
             SourceText: sourceText,

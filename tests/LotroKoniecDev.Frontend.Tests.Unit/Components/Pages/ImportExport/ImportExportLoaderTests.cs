@@ -106,7 +106,7 @@ public sealed class ImportExportLoaderTests
             out StubHttpMessageHandler handler);
         using MemoryStream file = new(Encoding.UTF8.GetBytes("620756992||1001||Witaj||NULL||NULL||1"));
 
-        await loader.ImportAsync(new GameVersionId(GameVersionGuid), file, "exported.txt", allowMassRemoval: false);
+        await loader.ImportAsync(GameVersionId.Create(GameVersionGuid), file, "exported.txt", allowMassRemoval: false);
 
         handler.LastRequest.ShouldNotBeNull();
         handler.LastRequest!.Method.ShouldBe(HttpMethod.Post);
@@ -123,7 +123,7 @@ public sealed class ImportExportLoaderTests
             out StubHttpMessageHandler handler);
         using MemoryStream file = new(Encoding.UTF8.GetBytes("620756992||1001||Witaj||NULL||NULL||1"));
 
-        await loader.ImportAsync(new GameVersionId(GameVersionGuid), file, "exported.txt", allowMassRemoval: false);
+        await loader.ImportAsync(GameVersionId.Create(GameVersionGuid), file, "exported.txt", allowMassRemoval: false);
 
         handler.LastRequestBody.ShouldNotBeNull();
         handler.LastRequestBody!.ShouldContain("name=file");
@@ -142,7 +142,7 @@ public sealed class ImportExportLoaderTests
             out StubHttpMessageHandler handler);
         using MemoryStream file = new(Encoding.UTF8.GetBytes("x"));
 
-        await loader.ImportAsync(new GameVersionId(GameVersionGuid), file, "exported.txt", allowMassRemoval: true);
+        await loader.ImportAsync(GameVersionId.Create(GameVersionGuid), file, "exported.txt", allowMassRemoval: true);
 
         handler.LastRequest!.RequestUri!.Query.ShouldBe("?allowMassRemoval=true");
     }
@@ -157,7 +157,7 @@ public sealed class ImportExportLoaderTests
         using MemoryStream file = new(Encoding.UTF8.GetBytes("x"));
 
         ApiResult<ImportSummary> result =
-            await loader.ImportAsync(new GameVersionId(GameVersionGuid), file, "exported.txt", allowMassRemoval: false);
+            await loader.ImportAsync(GameVersionId.Create(GameVersionGuid), file, "exported.txt", allowMassRemoval: false);
 
         result.IsSuccess.ShouldBeTrue();
         result.Value.Added.ShouldBe(3);
@@ -178,7 +178,7 @@ public sealed class ImportExportLoaderTests
         using MemoryStream file = new(Encoding.UTF8.GetBytes("x"));
 
         ApiResult<ImportSummary> result =
-            await loader.ImportAsync(new GameVersionId(GameVersionGuid), file, "exported.txt", allowMassRemoval: false);
+            await loader.ImportAsync(GameVersionId.Create(GameVersionGuid), file, "exported.txt", allowMassRemoval: false);
 
         result.IsFailure.ShouldBeTrue();
         result.ProblemDetails!.Status.ShouldBe(422);
@@ -223,7 +223,7 @@ public sealed class ImportExportLoaderTests
     }
 
     private static GameVersionResponse VersionFixture() =>
-        new(new GameVersionId(GameVersionGuid), "48.0", DateTimeOffset.UnixEpoch, GameVersionStatus.Unprocessed);
+        new(GameVersionId.Create(GameVersionGuid), "48.0", DateTimeOffset.UnixEpoch, GameVersionStatus.Unprocessed);
 
     private static ImportSummary SummaryFixture() =>
         new(Added: 3, SourceChanged: 2, Invalidated: 1, Removed: 4, Unchanged: 10, Warnings: ["1 wiersz przywrócony."]);

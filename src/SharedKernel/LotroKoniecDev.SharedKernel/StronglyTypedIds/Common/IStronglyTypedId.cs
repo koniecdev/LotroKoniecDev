@@ -15,4 +15,11 @@ public interface IStronglyTypedId<out TSelf> where TSelf : IStronglyTypedId<TSel
 
     public static abstract TSelf Create();
     public static abstract TSelf Create(Guid id);
+
+    /// <summary>
+    /// Rehydrates an ID from a trusted store (EF materialization, JSON deserialization) without
+    /// running domain validation — the store is the source of truth. Untrusted input must go
+    /// through <see cref="Create(Guid)"/> instead.
+    /// </summary>
+    public static abstract TSelf FromValue(Guid id);
 }

@@ -86,7 +86,7 @@ internal sealed class GetTranslation : IEndpoint
                 ClaimsPrincipal user,
                 CancellationToken cancellationToken) =>
             {
-                Result<QueryResult> result = await handler.Handle(new Query(new TranslationId(id)), cancellationToken);
+                Result<QueryResult> result = await handler.Handle(new Query(TranslationId.FromValue(id)), cancellationToken);
 
                 if (result.IsFailure)
                 {

@@ -21,26 +21,26 @@ public static class StronglyTypedIdsConverters
 
         configurationBuilder
             .Properties<GameVersionId>()
-            .HaveConversion<GameVersionIdConverter>();
+            .HaveConversion<StronglyTypedIdValueConverter<GameVersionId>>();
 
         configurationBuilder
             .Properties<TranslationId>()
-            .HaveConversion<TranslationIdConverter>();
+            .HaveConversion<StronglyTypedIdValueConverter<TranslationId>>();
 
         configurationBuilder
             .Properties<PrecomputedTranslationFileId>()
-            .HaveConversion<PrecomputedTranslationFileIdConverter>();
+            .HaveConversion<StronglyTypedIdValueConverter<PrecomputedTranslationFileId>>();
 
         configurationBuilder
             .Properties<TranslatorId>()
-            .HaveConversion<TranslatorIdConverter>();
+            .HaveConversion<StronglyTypedIdValueConverter<TranslatorId>>();
 
         // IdentityId is the AuthSystem user id (cross-context reference) carried by the Translator as
         // the lazy-provisioning key (ADR-0004); it lives in the SharedKernel, not the TMS Primitives,
         // but persists the same way.
         configurationBuilder
             .Properties<IdentityId>()
-            .HaveConversion<IdentityIdConverter>();
+            .HaveConversion<StronglyTypedIdValueConverter<IdentityId>>();
 
         return configurationBuilder;
     }
@@ -48,24 +48,4 @@ public static class StronglyTypedIdsConverters
     private sealed class UtcDateTimeOffsetConverter() : ValueConverter<DateTimeOffset, DateTimeOffset>(
         dto => dto.ToUniversalTime(),
         dto => dto.ToUniversalTime());
-
-    private sealed class GameVersionIdConverter() : ValueConverter<GameVersionId, Guid>(
-        id => id.Value,
-        value => new GameVersionId(value));
-
-    private sealed class TranslationIdConverter() : ValueConverter<TranslationId, Guid>(
-        id => id.Value,
-        value => new TranslationId(value));
-
-    private sealed class PrecomputedTranslationFileIdConverter() : ValueConverter<PrecomputedTranslationFileId, Guid>(
-        id => id.Value,
-        value => new PrecomputedTranslationFileId(value));
-
-    private sealed class TranslatorIdConverter() : ValueConverter<TranslatorId, Guid>(
-        id => id.Value,
-        value => new TranslatorId(value));
-
-    private sealed class IdentityIdConverter() : ValueConverter<IdentityId, Guid>(
-        id => id.Value,
-        value => new IdentityId(value));
 }

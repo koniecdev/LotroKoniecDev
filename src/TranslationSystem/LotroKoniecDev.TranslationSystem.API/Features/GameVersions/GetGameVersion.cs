@@ -62,7 +62,7 @@ internal sealed class GetGameVersion : IEndpoint
                 IGameVersionAggregateLinkFactory gameVersionLinkFactory,
                 CancellationToken cancellationToken) =>
             {
-                Result<GameVersionResponse> result = await handler.Handle(new Query(new GameVersionId(id)), cancellationToken);
+                Result<GameVersionResponse> result = await handler.Handle(new Query(GameVersionId.FromValue(id)), cancellationToken);
 
                 if (result.IsFailure)
                 {

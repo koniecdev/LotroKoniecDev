@@ -56,7 +56,7 @@ public sealed class ImportExportTests : BunitContext
         // admin-only import panel stays hidden — driven by the server's affordance, not a local role check.
         AuthorizeAs("Frodo");
         StubVersions(
-            new GameVersionResponse(new GameVersionId(Guid.NewGuid()), "48.0", DateTimeOffset.UnixEpoch, GameVersionStatus.Unprocessed));
+            new GameVersionResponse(GameVersionId.Create(Guid.NewGuid()), "48.0", DateTimeOffset.UnixEpoch, GameVersionStatus.Unprocessed));
 
         IRenderedComponent<ImportExportComponent> component = RenderPage();
 
@@ -69,8 +69,8 @@ public sealed class ImportExportTests : BunitContext
     {
         AuthorizeAs("Sam");
         StubVersionsWithRegisterRel(
-            new GameVersionResponse(new GameVersionId(Guid.NewGuid()), "48.0", DateTimeOffset.UnixEpoch, GameVersionStatus.Unprocessed),
-            new GameVersionResponse(new GameVersionId(Guid.NewGuid()), "47.2", DateTimeOffset.UnixEpoch, GameVersionStatus.Processed));
+            new GameVersionResponse(GameVersionId.Create(Guid.NewGuid()), "48.0", DateTimeOffset.UnixEpoch, GameVersionStatus.Unprocessed),
+            new GameVersionResponse(GameVersionId.Create(Guid.NewGuid()), "47.2", DateTimeOffset.UnixEpoch, GameVersionStatus.Processed));
 
         IRenderedComponent<ImportExportComponent> component = RenderPage();
 
@@ -84,7 +84,7 @@ public sealed class ImportExportTests : BunitContext
         // property of a [SupplyParameterFromForm] model, so the inputs MUST be named ImportInput.* —
         // a bare name (e.g. "UploadFile") binds null and the import can never run.
         AuthorizeAs("Sam");
-        StubVersionsWithRegisterRel(new GameVersionResponse(new GameVersionId(Guid.NewGuid()), "48.0", DateTimeOffset.UnixEpoch, GameVersionStatus.Unprocessed));
+        StubVersionsWithRegisterRel(new GameVersionResponse(GameVersionId.Create(Guid.NewGuid()), "48.0", DateTimeOffset.UnixEpoch, GameVersionStatus.Unprocessed));
 
         IRenderedComponent<ImportExportComponent> component = RenderPage();
 
@@ -97,7 +97,7 @@ public sealed class ImportExportTests : BunitContext
     public async Task Submit_WhenNoFileChosen_ShowsTheChooseFileValidationAndDoesNotCallImport()
     {
         AuthorizeAs("Sam");
-        StubVersionsWithRegisterRel(new GameVersionResponse(new GameVersionId(Guid.NewGuid()), "48.0", DateTimeOffset.UnixEpoch, GameVersionStatus.Unprocessed));
+        StubVersionsWithRegisterRel(new GameVersionResponse(GameVersionId.Create(Guid.NewGuid()), "48.0", DateTimeOffset.UnixEpoch, GameVersionStatus.Unprocessed));
         IRenderedComponent<ImportExportComponent> component = RenderPage();
 
         await component.Find("form").SubmitAsync();

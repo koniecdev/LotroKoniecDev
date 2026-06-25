@@ -121,7 +121,7 @@ A KittySaver slice is one file: `internal sealed class <Action> : IEndpoint` con
 | Work a GitHub ticket end-to-end | run **`/ticket <number>`** (mind the pivot-supersedes rule in Project status) |
 | Touch DAT binary parsing / writing / native interop | delegate to the **`dat-format-expert`** agent |
 | Re-investigate update behavior, vnum, translation survival, launch flow | **don't** — empirically settled in `docs/knowledge-base/` (start at its README) |
-| Make a non-trivial architectural/modeling decision | skim `docs/adr/`, then **write a new ADR** (`/adr`); anchors: 0001 (no mediator), 0002 (TMS pivot + freeze amendment), 0008 (cloud-agnostic deployment + env strategy — M6) |
+| Make a non-trivial architectural/modeling decision | skim `docs/adr/`, then **write a new ADR** (`/adr`); anchors: 0001 (no mediator), 0002 (TMS pivot + freeze amendment), 0008 (cloud-agnostic deployment + env strategy — M6), 0009 (browser E2E via Testcontainers + Playwright) |
 | Deploy/operate the stack, or set env vars per environment | `docs/deployment/runbook.md` — env-var matrix (service × environment), secret generation, the issuer/redirect/authority/CORS gotchas, bring-up sequence + DB migrations |
 | Touch the update lifecycle (GameVersion, import diff, invalidation, distribution, CLI sync) | `docs/specs/0001-game-update-lifecycle-and-translation-invalidation.md` — the agreed domain spec |
 | Implement a feature whose business rules are fuzzy | **`/spec`** first (seed → questions → agreed spec in `docs/specs/`) |
@@ -407,7 +407,9 @@ structure.
 - **TMS test projects mirror KittySaver naming:**
   `tests/LotroKoniecDev.TranslationSystem.Domain.Tests.Unit` (pure),
   `tests/LotroKoniecDev.TranslationSystem.API.Tests.Integration` (real PostgreSQL — never in a
-  Unit project), Frontend unit tests in M3. Patcher test projects stay exactly as they are.
+  Unit project), Frontend unit tests in M3, and `tests/LotroKoniecDev.Frontend.E2E.Tests` (Playwright
+  browser stack via Testcontainers — ADR-0009; Docker-required, off the PR gate by name). Patcher test
+  projects stay exactly as they are.
 
 ## Workflow (the loop that compounds)
 

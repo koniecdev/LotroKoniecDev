@@ -303,5 +303,5 @@ dotnet_diagnostic.IDE0305.severity = none
 
 # Result<T>._value backs a guarded getter (throws on failure access) — the IDE0032
 # auto-property suggestion would drop that guard.
-[src/LotroKoniecDev.Domain/Core/Monads/Result.cs]
+[src/Patcher/LotroKoniecDev.Domain/Core/Monads/Result.cs]
 dotnet_diagnostic.IDE0032.severity = none

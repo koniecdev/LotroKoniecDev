@@ -24,7 +24,7 @@ Facts that invalidated it:
 - **The integration artifact already exists.** The `||` translation file flows CLI `export` →
   TMS import and TMS export → CLI `patch`. A file contract needs no shared code; the format is
   round-trip-proven in the live game and its parser was just hardened against `||` inside content
-  (M1-14, PR #106 — `src/LotroKoniecDev.Application/Parsers/TranslationFileParser.cs`).
+  (M1-14, PR #106 — `src/Patcher/LotroKoniecDev.Application/Parsers/TranslationFileParser.cs`).
 - **The patcher is done.** Every refactor in service of the TMS risks the proven core for
   consistency gains. The maintainer explicitly chose freezing working code over consistency
   refactors under time pressure.

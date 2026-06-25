@@ -37,7 +37,7 @@ conflicts with this file (MediatR, one shared Application for all UIs, auth post
 
 ```
 src/
-  LotroKoniecDev.{Primitives,Domain,Application,Infrastructure,Cli}                       ← PATCHER (exists, frozen)
+  Patcher/LotroKoniecDev.{Primitives,Domain,Application,Infrastructure,Cli}               ← PATCHER (exists, frozen)
   SharedKernel/LotroKoniecDev.SharedKernel                                                ← M2 (lift; TMS-side only)
   TranslationSystem/LotroKoniecDev.TranslationSystem.{Primitives,Domain,ReadModels,ReadModels.EntityFramework,Persistence,Contracts,API} ← M2 (new)
   AuthSystem/LotroKoniecDev.AuthSystem.{API,Domain,Infrastructure,Persistence,Contracts}  ← M2 (lift)
@@ -142,9 +142,9 @@ dotnet test tests/LotroKoniecDev.Tests.E2E             # full pipeline — auto-
 dotnet test --filter "FullyQualifiedName~Fragment"     # filter by name
 
 # Run the CLI (Windows; needs LOTRO + admin for DAT write)
-dotnet run --project src/LotroKoniecDev.Cli -- export                 # DAT → data/exported.txt
-dotnet run --project src/LotroKoniecDev.Cli -- patch polish           # translations/polish.txt → DAT
-dotnet run --project src/LotroKoniecDev.Cli -- launch polish          # hash-check → patch if changed → launch
+dotnet run --project src/Patcher/LotroKoniecDev.Cli -- export                 # DAT → data/exported.txt
+dotnet run --project src/Patcher/LotroKoniecDev.Cli -- patch polish           # translations/polish.txt → DAT
+dotnet run --project src/Patcher/LotroKoniecDev.Cli -- launch polish          # hash-check → patch if changed → launch
 # or the elevated .bat wrappers: export.bat / patch.bat / lotro.bat
 
 # GitHub tickets (BRD/spec-driven flow)

@@ -31,9 +31,9 @@
     </ItemGroup>
 
     <ItemGroup>
-        <ProjectReference Include="..\..\src\LotroKoniecDev.Primitives\LotroKoniecDev.Primitives.csproj"/>
-        <ProjectReference Include="..\..\src\LotroKoniecDev.Domain\LotroKoniecDev.Domain.csproj"/>
-        <ProjectReference Include="..\..\src\LotroKoniecDev.Application\LotroKoniecDev.Application.csproj"/>
+        <ProjectReference Include="..\..\src\Patcher\LotroKoniecDev.Primitives\LotroKoniecDev.Primitives.csproj"/>
+        <ProjectReference Include="..\..\src\Patcher\LotroKoniecDev.Domain\LotroKoniecDev.Domain.csproj"/>
+        <ProjectReference Include="..\..\src\Patcher\LotroKoniecDev.Application\LotroKoniecDev.Application.csproj"/>
     </ItemGroup>
 
 </Project>

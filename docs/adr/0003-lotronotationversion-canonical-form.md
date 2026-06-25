@@ -33,7 +33,7 @@ engineering choice. This ADR records the resolution.
 The **only** producer of these strings is the lotro.com release-notes title, parsed by the regex
 the patcher's `UpdateChecking` feature uses and the TMS forum watcher duplicates
 (`docs/knowledge-base/lotro-update-history.md`,
-`src/LotroKoniecDev.Application/Features/UpdateChecking/GameUpdateChecker.cs`):
+`src/Patcher/LotroKoniecDev.Application/Features/UpdateChecking/GameUpdateChecker.cs`):
 
 ```
 Update\s+(\d+(?:\.\d+)*)\s+Release\s+Notes

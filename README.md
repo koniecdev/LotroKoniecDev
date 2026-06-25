@@ -148,11 +148,13 @@ LotroKoniecDev/
     example_polish.txt             # Przyklad
   data/                            # Lokalna kopia DAT (fallback)
   src/
-    LotroKoniecDev.Cli/            # CLI (punkt wejscia)
-    LotroKoniecDev.Application/    # Use case'y (slim handlery)
-    LotroKoniecDev.Domain/         # Model domenowy, Result
-    LotroKoniecDev.Infrastructure/ # Obsluga plikow DAT (natywne DLL)
-    LotroKoniecDev.Primitives/     # Stale i enumy
+    Patcher/                       # Patcher (CLI) - warstwy Clean Architecture
+      LotroKoniecDev.Cli/            # CLI (punkt wejscia)
+      LotroKoniecDev.Application/    # Use case'y (slim handlery)
+      LotroKoniecDev.Domain/         # Model domenowy, Result
+      LotroKoniecDev.Infrastructure/ # Obsluga plikow DAT (natywne DLL)
+      LotroKoniecDev.Primitives/     # Stale i enumy
+    SharedKernel/ TranslationSystem/ AuthSystem/ Frontend/ Utilities/   # TMS (M2+)
   tests/                           # Unit / Infrastructure / E2E
   patch.bat / export.bat / lotro.bat
 ```

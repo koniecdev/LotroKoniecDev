@@ -2,7 +2,7 @@ namespace LotroKoniecDev.Tests.E2E;
 
 /// <summary>
 /// Mirrors CLI exit codes for readable E2E assertions.
-/// Keep in sync with src/LotroKoniecDev.Cli/ExitCodes.cs.
+/// Keep in sync with src/Patcher/LotroKoniecDev.Cli/ExitCodes.cs.
 /// </summary>
 public enum CliExitCode
 {

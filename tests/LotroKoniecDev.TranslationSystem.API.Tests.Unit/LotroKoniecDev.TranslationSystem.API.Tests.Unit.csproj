@@ -36,7 +36,7 @@
         <!-- Test-only: the parser-parity drift guard compares the TMS parser against the patcher's
              own parser on the same contract line. The patcher Application is net10.0/AnyCPU, so this
              reference stays cross-platform; the two contexts remain decoupled in production. -->
-        <ProjectReference Include="..\..\src\LotroKoniecDev.Application\LotroKoniecDev.Application.csproj" />
+        <ProjectReference Include="..\..\src\Patcher\LotroKoniecDev.Application\LotroKoniecDev.Application.csproj" />
     </ItemGroup>
 
 </Project>

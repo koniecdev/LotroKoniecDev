@@ -1,56 +1,119 @@
 <Solution>
-  <Folder Name="/docs/">
-    <File Path="docs/RUSSIAN_PROJECT_RESEARCH.md" />
-  </Folder>
-  <Folder Name="/items/">
+  <Folder Name="/Solution Items/">
+    <File Path=".dockerignore" />
     <File Path=".editorconfig" />
+    <File Path=".env.example" />
+    <File Path=".env.prod.example" />
     <File Path=".gitignore" />
+    <File Path=".gitleaks.toml" />
+    <File Path=".pre-commit-config.yaml" />
     <File Path="CLAUDE.md" />
+    <File Path="README.md" />
     <File Path="Directory.Build.props" />
     <File Path="Directory.Packages.props" />
+    <File Path="LotroKoniecDev.sln.DotSettings" />
+    <File Path="compose.yaml" />
+    <File Path="compose.prod.yaml" />
+    <File Path="Dockerfile.migrator" />
+    <File Path="Dockerfile.migrator.prod" />
+    <File Path="Dockerfile.tests" />
     <File Path="export.bat" />
-    <File Path="lotro.bat" />
     <File Path="patch.bat" />
-    <File Path="README.md" />
+    <File Path="lotro.bat" />
   </Folder>
-  <Folder Name="/src/">
-    <Project Path="src/LotroKoniecDev.Primitives/LotroKoniecDev.Primitives.csproj" />
-    <Project Path="src/LotroKoniecDev.Domain/LotroKoniecDev.Domain.csproj" />
-    <Project Path="src/LotroKoniecDev.Application/LotroKoniecDev.Application.csproj" />
-    <Project Path="src/LotroKoniecDev.Infrastructure/LotroKoniecDev.Infrastructure.csproj" />
-    <Project Path="src/LotroKoniecDev.Cli/LotroKoniecDev.Cli.csproj" />
+  <Folder Name="/Solution Items/ci/">
+    <File Path=".github/workflows/ci.yml" />
+    <File Path=".github/workflows/cd.yml" />
+    <File Path=".github/workflows/pr-verify.yml" />
+    <File Path=".github/workflows/e2e.yml" />
+    <File Path=".github/workflows/smoke.yml" />
+    <File Path=".github/workflows/mutation-test.yml" />
+    <File Path=".github/workflows/gitleaks.yml" />
+  </Folder>
+  <Folder Name="/Solution Items/scripts/">
+    <File Path="scripts/up.sh" />
+    <File Path="scripts/up.ps1" />
+    <File Path="scripts/up-prod.sh" />
+    <File Path="scripts/up-prod.ps1" />
+    <File Path="scripts/apply-migrations.sh" />
+    <File Path="scripts/init-postgres.sh" />
+    <File Path="scripts/init-prod-https.sh" />
+    <File Path="scripts/init-prod-https.ps1" />
+    <File Path="scripts/gen-openiddict-keys.sh" />
+    <File Path="scripts/gen-openiddict-keys.ps1" />
+    <File Path="scripts/check-ssr-purity.sh" />
+    <File Path="scripts/check-ssr-purity.ps1" />
+    <File Path="scripts/smoke.sh" />
+    <File Path="scripts/smoke.ps1" />
+  </Folder>
+  <Folder Name="/docs/">
+    <File Path="docs/DOMAIN.md" />
+    <File Path="docs/INVARIANTS.md" />
+    <File Path="docs/API.md" />
+    <File Path="docs/auth-tutorial.md" />
+    <File Path="docs/RUSSIAN_PROJECT_RESEARCH.md" />
+  </Folder>
+  <Folder Name="/src/" />
+  <Folder Name="/src/Patcher/">
+    <Project Path="src/Patcher/LotroKoniecDev.Primitives/LotroKoniecDev.Primitives.csproj" />
+    <Project Path="src/Patcher/LotroKoniecDev.Domain/LotroKoniecDev.Domain.csproj" />
+    <Project Path="src/Patcher/LotroKoniecDev.Application/LotroKoniecDev.Application.csproj" />
+    <Project Path="src/Patcher/LotroKoniecDev.Infrastructure/LotroKoniecDev.Infrastructure.csproj" />
+    <Project Path="src/Patcher/LotroKoniecDev.Cli/LotroKoniecDev.Cli.csproj" />
+  </Folder>
+  <Folder Name="/src/SharedKernel/">
     <Project Path="src/SharedKernel/LotroKoniecDev.SharedKernel/LotroKoniecDev.SharedKernel.csproj" />
+  </Folder>
+  <Folder Name="/src/TranslationSystem/">
+    <Project Path="src/TranslationSystem/LotroKoniecDev.TranslationSystem.API/LotroKoniecDev.TranslationSystem.API.csproj" />
+  </Folder>
+  <Folder Name="/src/TranslationSystem/Core/">
+    <Project Path="src/TranslationSystem/LotroKoniecDev.TranslationSystem.Primitives/LotroKoniecDev.TranslationSystem.Primitives.csproj" />
+    <Project Path="src/TranslationSystem/LotroKoniecDev.TranslationSystem.Domain/LotroKoniecDev.TranslationSystem.Domain.csproj" />
+    <Project Path="src/TranslationSystem/LotroKoniecDev.TranslationSystem.ReadModels/LotroKoniecDev.TranslationSystem.ReadModels.csproj" />
+    <Project Path="src/TranslationSystem/LotroKoniecDev.TranslationSystem.Projections/LotroKoniecDev.TranslationSystem.Projections.csproj" />
+    <Project Path="src/TranslationSystem/LotroKoniecDev.TranslationSystem.Contracts/LotroKoniecDev.TranslationSystem.Contracts.csproj" />
+  </Folder>
+  <Folder Name="/src/TranslationSystem/EntityFrameworkRelated/">
+    <Project Path="src/TranslationSystem/LotroKoniecDev.TranslationSystem.ReadModels.EntityFramework/LotroKoniecDev.TranslationSystem.ReadModels.EntityFramework.csproj" />
+    <Project Path="src/TranslationSystem/LotroKoniecDev.TranslationSystem.Persistence/LotroKoniecDev.TranslationSystem.Persistence.csproj" />
+  </Folder>
+  <Folder Name="/src/AuthSystem/">
     <Project Path="src/AuthSystem/LotroKoniecDev.AuthSystem.API/LotroKoniecDev.AuthSystem.API.csproj" />
     <Project Path="src/AuthSystem/LotroKoniecDev.AuthSystem.Contracts/LotroKoniecDev.AuthSystem.Contracts.csproj" />
     <Project Path="src/AuthSystem/LotroKoniecDev.AuthSystem.Domain/LotroKoniecDev.AuthSystem.Domain.csproj" />
     <Project Path="src/AuthSystem/LotroKoniecDev.AuthSystem.Infrastructure/LotroKoniecDev.AuthSystem.Infrastructure.csproj" />
     <Project Path="src/AuthSystem/LotroKoniecDev.AuthSystem.Persistence/LotroKoniecDev.AuthSystem.Persistence.csproj" />
-    <Project Path="src/Utilities/LotroKoniecDev.Hateoas/LotroKoniecDev.Hateoas.csproj" />
-    <Project Path="src/Utilities/LotroKoniecDev.Hateoas.Abstractions/LotroKoniecDev.Hateoas.Abstractions.csproj" />
-    <Project Path="src/Utilities/LotroKoniecDev.Logging/LotroKoniecDev.Logging.csproj" />
-    <Project Path="src/Utilities/LotroKoniecDev.Options/LotroKoniecDev.Options.csproj" />
-    <Project Path="src/TranslationSystem/LotroKoniecDev.TranslationSystem.Primitives/LotroKoniecDev.TranslationSystem.Primitives.csproj" />
-    <Project Path="src/TranslationSystem/LotroKoniecDev.TranslationSystem.Domain/LotroKoniecDev.TranslationSystem.Domain.csproj" />
-    <Project Path="src/TranslationSystem/LotroKoniecDev.TranslationSystem.ReadModels/LotroKoniecDev.TranslationSystem.ReadModels.csproj" />
-    <Project Path="src/TranslationSystem/LotroKoniecDev.TranslationSystem.ReadModels.EntityFramework/LotroKoniecDev.TranslationSystem.ReadModels.EntityFramework.csproj" />
-    <Project Path="src/TranslationSystem/LotroKoniecDev.TranslationSystem.Projections/LotroKoniecDev.TranslationSystem.Projections.csproj" />
-    <Project Path="src/TranslationSystem/LotroKoniecDev.TranslationSystem.Persistence/LotroKoniecDev.TranslationSystem.Persistence.csproj" />
-    <Project Path="src/TranslationSystem/LotroKoniecDev.TranslationSystem.Contracts/LotroKoniecDev.TranslationSystem.Contracts.csproj" />
-    <Project Path="src/TranslationSystem/LotroKoniecDev.TranslationSystem.API/LotroKoniecDev.TranslationSystem.API.csproj" />
+  </Folder>
+  <Folder Name="/src/Frontend/">
     <Project Path="src/Frontend/LotroKoniecDev.Frontend/LotroKoniecDev.Frontend.csproj" />
   </Folder>
-  <Folder Name="/tests/">
-    <File Path="tests/README.md" />
-    <Project Path="tests/LotroKoniecDev.AuthSystem.API.Tests.Integration/LotroKoniecDev.AuthSystem.API.Tests.Integration.csproj" />
-    <Project Path="tests/LotroKoniecDev.SharedKernel.Tests.Unit/LotroKoniecDev.SharedKernel.Tests.Unit.csproj" />
-    <Project Path="tests/LotroKoniecDev.TranslationSystem.API.Tests.Integration/LotroKoniecDev.TranslationSystem.API.Tests.Integration.csproj" />
-    <Project Path="tests/LotroKoniecDev.TranslationSystem.API.Tests.Unit/LotroKoniecDev.TranslationSystem.API.Tests.Unit.csproj" />
-    <Project Path="tests/LotroKoniecDev.TranslationSystem.E2E.Tests/LotroKoniecDev.TranslationSystem.E2E.Tests.csproj" />
-    <Project Path="tests/LotroKoniecDev.Frontend.E2E.Tests/LotroKoniecDev.Frontend.E2E.Tests.csproj" />
-    <Project Path="tests/LotroKoniecDev.Tests.E2E/LotroKoniecDev.Tests.E2E.csproj" />
-    <Project Path="tests/LotroKoniecDev.Tests.Infrastructure/LotroKoniecDev.Tests.Infrastructure.csproj" />
+  <Folder Name="/src/Utilities/">
+    <Project Path="src/Utilities/LotroKoniecDev.Hateoas.Abstractions/LotroKoniecDev.Hateoas.Abstractions.csproj" />
+    <Project Path="src/Utilities/LotroKoniecDev.Hateoas/LotroKoniecDev.Hateoas.csproj" />
+    <Project Path="src/Utilities/LotroKoniecDev.Logging/LotroKoniecDev.Logging.csproj" />
+    <Project Path="src/Utilities/LotroKoniecDev.Options/LotroKoniecDev.Options.csproj" />
+  </Folder>
+  <Folder Name="/tests/" />
+  <Folder Name="/tests/Patcher/">
     <Project Path="tests/LotroKoniecDev.Tests.Unit/LotroKoniecDev.Tests.Unit.csproj" />
+    <Project Path="tests/LotroKoniecDev.Tests.Infrastructure/LotroKoniecDev.Tests.Infrastructure.csproj" />
+    <Project Path="tests/LotroKoniecDev.Tests.E2E/LotroKoniecDev.Tests.E2E.csproj" />
+  </Folder>
+  <Folder Name="/tests/SharedKernel/">
+    <Project Path="tests/LotroKoniecDev.SharedKernel.Tests.Unit/LotroKoniecDev.SharedKernel.Tests.Unit.csproj" />
+  </Folder>
+  <Folder Name="/tests/TranslationSystem/">
     <Project Path="tests/LotroKoniecDev.TranslationSystem.Domain.Tests.Unit/LotroKoniecDev.TranslationSystem.Domain.Tests.Unit.csproj" />
+    <Project Path="tests/LotroKoniecDev.TranslationSystem.API.Tests.Unit/LotroKoniecDev.TranslationSystem.API.Tests.Unit.csproj" />
+    <Project Path="tests/LotroKoniecDev.TranslationSystem.API.Tests.Integration/LotroKoniecDev.TranslationSystem.API.Tests.Integration.csproj" />
+    <Project Path="tests/LotroKoniecDev.TranslationSystem.E2E.Tests/LotroKoniecDev.TranslationSystem.E2E.Tests.csproj" />
+  </Folder>
+  <Folder Name="/tests/AuthSystem/">
+    <Project Path="tests/LotroKoniecDev.AuthSystem.API.Tests.Integration/LotroKoniecDev.AuthSystem.API.Tests.Integration.csproj" />
+  </Folder>
+  <Folder Name="/tests/Frontend/">
     <Project Path="tests/LotroKoniecDev.Frontend.Tests.Unit/LotroKoniecDev.Frontend.Tests.Unit.csproj" />
+    <Project Path="tests/LotroKoniecDev.Frontend.E2E.Tests/LotroKoniecDev.Frontend.E2E.Tests.csproj" />
   </Folder>
 </Solution>

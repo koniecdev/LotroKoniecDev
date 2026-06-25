@@ -459,7 +459,7 @@
                             <span class="panel-aside">Gotowe</span>
                         </header>
                         <div class="auth-panel-body">
-                            <div class="auth-alert success" role="status">
+                            <div class="auth-alert success" role="status" data-testid="register-success">
                                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
                                 <div>
                                     <span class="t">Konto zostało utworzone — potwierdź adres e-mail</span>
@@ -540,12 +540,12 @@
 
                             <div class="auth-consents">
                                 <label class="checkbox">
-                                    <input asp-for="AcceptedPrivacyPolicy" type="checkbox" />
+                                    <input asp-for="AcceptedPrivacyPolicy" type="checkbox" data-testid="register-accept-privacy" />
                                     <span class="box" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg></span>
                                     <span>Akceptuję <a href="/Account/PrivacyPolicy" target="_blank" rel="noopener">politykę prywatności</a>.</span>
                                 </label>
                                 <label class="checkbox">
-                                    <input asp-for="AcceptedDataProcessingConsent" type="checkbox" />
+                                    <input asp-for="AcceptedDataProcessingConsent" type="checkbox" data-testid="register-accept-data-processing" />
                                     <span class="box" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg></span>
                                     <span>Wyrażam zgodę na przetwarzanie moich danych osobowych w celu prowadzenia konta.</span>
                                 </label>

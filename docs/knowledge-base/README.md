@@ -24,7 +24,7 @@ Detailed analysis: [russian-project.md](russian-project.md)
 
 ### DAT Protection: NOT NEEDED — Translations Survive Updates (incl. MAJOR)
 Detailed analysis: [dat-protection.md](dat-protection.md)
-- **PROVEN by 6 independent tests** including major update 47.2→48.0 (2026-04-23)
+- **PROVEN by 7 independent tests** including updates 47.2→48.0 (2026-04-23) and 48.0→48.7 (2026-06-25)
 - Launcher uses chunk-based patching — our fragments sit in untouched chunks → byte-for-byte intact
 - `attrib +R` protection is unnecessary; legacy `HandleUpdatePath` is actively harmful; vnum-trigger is dead
 - Simplified flow (hash-based patch + fire-and-forget) is fully validated
@@ -35,6 +35,14 @@ Detailed analysis: [live-test-2026-04-23.md](live-test-2026-04-23.md) · raw int
 - 4 independent survival channels verified: in-game, export presence, diff stability, launch log
 - datexport.dll READ + WRITE paths confirmed compatible with 48.0 DAT schema
 - Program Files (x86) perms gotcha: first launch failed non-elevated, retry as admin worked — installer needs UAC manifest
+
+### Live Test — Update 2026-06-25 (48.0 → 48.7)
+Detailed analysis: [live-test-2026-06-25.md](live-test-2026-06-25.md) · committed artifacts: [update-48.7/](update-48.7/) · raw intel: `intel/update-48.7/`
+- **Second live update; first via the SKIP-path branch** — translations already resident (hash match) → launch only fires the launcher
+- 4 independent survival channels verified again; 8/8 byte-identical across 204 diff hunks
+- Translations persisted untouched across the whole 48.x cycle (Apr→Jun, identical DAT SHA256 `833C22DE…1826`) with zero re-patch
+- datexport.dll READ + WRITE confirmed on 48.7 DAT schema; vnum 112/3 unchanged (4th cycle); forum-fetcher independently returned "48.7"
+- DAT grew by exactly +1 MiB = one allocation block (reinforces chunk-based model)
 
 ### Live Test — Chunk Patches 2026-03-16..22
 Detailed analysis: [live-test-2026-03-16.md](live-test-2026-03-16.md)
@@ -95,6 +103,22 @@ only the irreplaceable text artifacts are preserved here:
 | [`launch-during-update.log`](update-48.0/launch-during-update.log) | Serilog of the launch flow during the update |
 | `polish-pre-48.txt` | `polish.txt` snapshot at test time |
 | `version-file-pre-48.txt` / `version-file-post-48.txt` | Version file before/after the run |
+
+---
+
+## `update-48.7/` — committed text artifacts from the 48.0 → 48.7 test (2026-06-25)
+
+Same shape as `update-48.0/`. The 1.76 GB DAT backups + 78 MB full exports live in the gitignored
+`intel/update-48.7/`; committed here are the irreplaceable text artifacts:
+
+| File | What it is |
+|------|-----------|
+| [`BASELINE.md`](update-48.7/BASELINE.md) | Pre-update 48.0 snapshot: DAT hash, export stats, the 8 translation pairs |
+| [`RESULTS.md`](update-48.7/RESULTS.md) | Full 48.0→48.7 results, metrics, verdict |
+| [`diff-48.0-vs-48.7.txt`](update-48.7/diff-48.0-vs-48.7.txt) | Unified diff of the two full exports (131 KB, 204 hunks) |
+| [`launch-during-update.log`](update-48.7/launch-during-update.log) | SKIP-path launch flow during the update |
+| `polish-pre-48.7.txt` | `polish.txt` snapshot at test time |
+| `version-file-pre-48.7.txt` | `48|112|3|<hash>` before the run |
 
 ---
 

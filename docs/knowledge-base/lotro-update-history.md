@@ -14,6 +14,7 @@ originSessionId: fcf33c21-a957-445f-bc57-c8ea7814f1b6
 → 47 (MAJOR — Guardian rework, new instances)
 → 47.1 → 47.1.1 → 47.2
 → 48.0 (MAJOR — 2026-04-23, Hatokáli Fells / Rhûn content)
+→ 48.7 (point — 2026-06-25, +1,159 fragments / +601 text files)
 ```
 
 All observed with **vnum 112/3 unchanged** — see [vnum-observations.md](vnum-observations.md).
@@ -27,6 +28,7 @@ All observed with **vnum 112/3 unchanged** — see [vnum-observations.md](vnum-o
 | 2026-03-17 | 47.1 | Simplified flow all paths except SKIP, export baseline |
 | 2026-03-22 | 47.1 → 47.2 (chunk) | SKIP path, translations survive DAT-patching update |
 | **2026-04-23** | **47.2 → 48.0 (MAJOR)** | **First major update since simplified flow. 4-channel survival verified. datexport.dll READ + WRITE compat with 48.0 schema.** |
+| **2026-06-25** | **48.0 → 48.7 (point)** | **Second live update, first via SKIP path. 4-channel survival verified. datexport.dll READ+WRITE compat with 48.7. vnum 112/3 (4th cycle). Forum-fetcher returned "48.7".** |
 
 ## Major update 48.0 content (from diff analysis)
 

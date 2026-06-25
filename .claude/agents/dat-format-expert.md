@@ -16,20 +16,20 @@ rules; sealed types; explicit ctors; LINQ methods; zero warnings — `TreatWarni
 # Repository layout you care about
 
 ```
-src/LotroKoniecDev.Domain/
+src/Patcher/LotroKoniecDev.Domain/
 ├── Models/SubFile.cs            binary container: Parse(byte[]) / Serialize(argsOrder, argsId, targetFragmentId)
 ├── Models/Fragment.cs           Pieces + ArgRefs + ArgStrings; Parse(BinaryReader) / Write(BinaryWriter); TryReorderArgRefs(int[])
 ├── Models/Translation.cs        one parsed translation line
 ├── Core/Utilities/VarLenEncoder.cs   Read / Write / GetEncodedLength
 └── Core/Errors/DatFileDomainErrors.cs + TranslationDomainErrors.cs
 
-src/LotroKoniecDev.Application/
+src/Patcher/LotroKoniecDev.Application/
 ├── Features/Exporting/ExportTextsQueryHandler.cs   DAT → translation .txt
 ├── Features/Patching/PatchingService.cs            translation .txt → DAT
 ├── Parsers/TranslationFileParser.cs                ||-format line parser
 └── Abstractions/DatFilesServices/                  IDatFileHandler & co. (ports)
 
-src/LotroKoniecDev.Infrastructure/
+src/Patcher/LotroKoniecDev.Infrastructure/
 ├── DatFile/DatExportNative.cs   [LibraryImport] P/Invoke into datexport.dll (cdecl, LPStr)
 ├── DatFile/DatFileHandler.cs    safe wrapper: Open/Close, GetAllSubfileSizes, LoadSubFile, write-back
 └── datexport.dll (+ msvc*/zlib1T.dll)   native 32-bit libs — the reason Cli targets win-x86

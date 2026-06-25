@@ -8,7 +8,7 @@ namespace LotroKoniecDev.TranslationSystem.Primitives.Aggregates.GameVersionAggr
 [JsonConverter(typeof(StronglyTypedIdJsonConverter<GameVersionId>))]
 public readonly record struct GameVersionId : IStronglyTypedId<GameVersionId>
 {
-    public static readonly GameVersionId Empty;
+    public static readonly GameVersionId Empty = default;
 
     public Guid Value { get; }
 

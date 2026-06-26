@@ -1,0 +1,15 @@
+{
+  "_comment": [
+    "Per-developer LOCAL overrides for the auth-api host run (dotnet run, Development).",
+    "Copy this file to 'appsettings.Local.json' (git-ignored). It is also the file the EF design-time factories read.",
+    "On every host start DatabaseSeederExtensions.SeedAuthDatabaseAsync reads AdminUser:* and idempotently",
+    "seeds a confirmed admin in the Admin role — so the login survives 'docker compose down -v' (just restart auth-api).",
+    "Leave Email or Password blank to skip admin seeding. Password must satisfy the Identity policy:",
+    "min 8 chars + uppercase + lowercase + digit + non-alphanumeric (PersistenceDependencyInjection.cs)."
+  ],
+  "AdminUser": {
+    "Username": "admin",
+    "Email": "admin@lotro.local",
+    "Password": "ChangeMe!2345"
+  }
+}

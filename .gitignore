@@ -9,7 +9,7 @@
 .env.*
 !.env.example
 !.env.prod.example
-appsettings.*.local.json
+appsettings.Local.json
 **/secrets.json
 
 # Production-parity TLS material (local CA, proxy + Postgres certs) — generated, never committed

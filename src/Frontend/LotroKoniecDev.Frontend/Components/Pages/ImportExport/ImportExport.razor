@@ -1,7 +1,6 @@
 @page "/import-export"
 @attribute [Authorize]
 @using Microsoft.AspNetCore.Authorization
-@using Microsoft.AspNetCore.Components.Forms
 @using Microsoft.AspNetCore.Mvc
 @using LotroKoniecDev.Frontend.Infrastructure.Hateoas
 @using LotroKoniecDev.Frontend.Infrastructure.HttpClients
@@ -85,9 +84,11 @@
         }
         else if (_versions is not null)
         {
+            @* EditForm in static SSR emits the antiforgery token itself; a manual <AntiforgeryToken/>
+               here would render __RequestVerificationToken twice and the middleware reads the
+               comma-joined pair as an invalid token. Plain <form> posts (Editor/NavMenu) still need it. *@
             <EditForm Model="ImportInput" OnValidSubmit="ImportAsync"
                       FormName="import-export" method="post" enctype="multipart/form-data">
-                <AntiforgeryToken/>
                 <div class="filter-form">
                     <div class="filter-field">
                         <label for="game-version">Wersja gry</label>

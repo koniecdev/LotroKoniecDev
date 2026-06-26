@@ -7,6 +7,7 @@ using LotroKoniecDev.Frontend.Infrastructure.Auth;
 using LotroKoniecDev.Frontend.Infrastructure.Errors;
 using LotroKoniecDev.Frontend.Settings;
 using LotroKoniecDev.Options;
+using Microsoft.AspNetCore.Http.Features;
 using OpenTelemetry;
 using OpenTelemetry.Metrics;
 using OpenTelemetry.Resources;
@@ -128,7 +129,7 @@ try
 
     app.UseAuthentication();
     app.UseAuthorization();
-
+    
     app.UseAntiforgery();
 
     app.MapStaticAssets();

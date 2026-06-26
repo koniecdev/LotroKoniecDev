@@ -28,6 +28,14 @@ try
 
     WebApplicationBuilder builder = WebApplication.CreateBuilder(args);
 
+    // Optional, git-ignored per-developer overrides (e.g. AdminUser:* seed credentials), the same
+    // machine-local file the EF design-time factories already read. It survives `docker compose
+    // down -v`, so a local admin is re-seeded on the next host start.
+    builder.Configuration.AddJsonFile(
+        "appsettings.Local.json",
+        optional: true,
+        reloadOnChange: true);
+
     builder.Services.AddSerilog((services, lc) =>
     {
         lc.ReadFrom.Configuration(builder.Configuration)

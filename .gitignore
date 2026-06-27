@@ -508,3 +508,27 @@ intel/
 
 # Stryker.NET mutation testing output
 StrykerOutput/
+
+# Lokalne katalogi z plikami providerów
+**/.terraform/*
+
+*.tfstate
+*.tfstate.*
+
+crash.log
+crash.*.log
+
+*.tfvars
+*.tfvars.json
+
+# Terraform plan output (may embed secrets in plaintext)
+*.tfplan
+tfplan
+
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+
+.terraformrc
+terraform.rc

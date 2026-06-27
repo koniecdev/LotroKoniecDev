@@ -13,11 +13,11 @@ namespace LotroKoniecDev.AuthSystem.Persistence.Migrations
         protected override void Up(MigrationBuilder migrationBuilder)
         {
             migrationBuilder.EnsureSchema(
-                name: "auth");
+                name: "authsystem");
 
             migrationBuilder.CreateTable(
                 name: "OpenIddictApplications",
-                schema: "auth",
+                schema: "authsystem",
                 columns: table => new
                 {
                     Id = table.Column<string>(type: "text", nullable: false),
@@ -44,7 +44,7 @@ namespace LotroKoniecDev.AuthSystem.Persistence.Migrations
 
             migrationBuilder.CreateTable(
                 name: "OpenIddictScopes",
-                schema: "auth",
+                schema: "authsystem",
                 columns: table => new
                 {
                     Id = table.Column<string>(type: "text", nullable: false),
@@ -64,7 +64,7 @@ namespace LotroKoniecDev.AuthSystem.Persistence.Migrations
 
             migrationBuilder.CreateTable(
                 name: "Roles",
-                schema: "auth",
+                schema: "authsystem",
                 columns: table => new
                 {
                     Id = table.Column<Guid>(type: "uuid", nullable: false),
@@ -79,7 +79,7 @@ namespace LotroKoniecDev.AuthSystem.Persistence.Migrations
 
             migrationBuilder.CreateTable(
                 name: "Users",
-                schema: "auth",
+                schema: "authsystem",
                 columns: table => new
                 {
                     Id = table.Column<Guid>(type: "uuid", nullable: false),
@@ -109,7 +109,7 @@ namespace LotroKoniecDev.AuthSystem.Persistence.Migrations
 
             migrationBuilder.CreateTable(
                 name: "OpenIddictAuthorizations",
-                schema: "auth",
+                schema: "authsystem",
                 columns: table => new
                 {
                     Id = table.Column<string>(type: "text", nullable: false),
@@ -128,14 +128,14 @@ namespace LotroKoniecDev.AuthSystem.Persistence.Migrations
                     table.ForeignKey(
                         name: "FK_OpenIddictAuthorizations_OpenIddictApplications_Application~",
                         column: x => x.ApplicationId,
-                        principalSchema: "auth",
+                        principalSchema: "authsystem",
                         principalTable: "OpenIddictApplications",
                         principalColumn: "Id");
                 });
 
             migrationBuilder.CreateTable(
                 name: "RoleClaims",
-                schema: "auth",
+                schema: "authsystem",
                 columns: table => new
                 {
                     Id = table.Column<int>(type: "integer", nullable: false)
@@ -150,7 +150,7 @@ namespace LotroKoniecDev.AuthSystem.Persistence.Migrations
                     table.ForeignKey(
                         name: "FK_RoleClaims_Roles_RoleId",
                         column: x => x.RoleId,
-                        principalSchema: "auth",
+                        principalSchema: "authsystem",
                         principalTable: "Roles",
                         principalColumn: "Id",
                         onDelete: ReferentialAction.Cascade);
@@ -158,7 +158,7 @@ namespace LotroKoniecDev.AuthSystem.Persistence.Migrations
 
             migrationBuilder.CreateTable(
                 name: "UserClaims",
-                schema: "auth",
+                schema: "authsystem",
                 columns: table => new
                 {
                     Id = table.Column<int>(type: "integer", nullable: false)
@@ -173,7 +173,7 @@ namespace LotroKoniecDev.AuthSystem.Persistence.Migrations
                     table.ForeignKey(
                         name: "FK_UserClaims_Users_UserId",
                         column: x => x.UserId,
-                        principalSchema: "auth",
+                        principalSchema: "authsystem",
                         principalTable: "Users",
                         principalColumn: "Id",
                         onDelete: ReferentialAction.Cascade);
@@ -181,7 +181,7 @@ namespace LotroKoniecDev.AuthSystem.Persistence.Migrations
 
             migrationBuilder.CreateTable(
                 name: "UserLogins",
-                schema: "auth",
+                schema: "authsystem",
                 columns: table => new
                 {
                     LoginProvider = table.Column<string>(type: "text", nullable: false),
@@ -195,7 +195,7 @@ namespace LotroKoniecDev.AuthSystem.Persistence.Migrations
                     table.ForeignKey(
                         name: "FK_UserLogins_Users_UserId",
                         column: x => x.UserId,
-                        principalSchema: "auth",
+                        principalSchema: "authsystem",
                         principalTable: "Users",
                         principalColumn: "Id",
                         onDelete: ReferentialAction.Cascade);
@@ -203,7 +203,7 @@ namespace LotroKoniecDev.AuthSystem.Persistence.Migrations
 
             migrationBuilder.CreateTable(
                 name: "UserRoles",
-                schema: "auth",
+                schema: "authsystem",
                 columns: table => new
                 {
                     UserId = table.Column<Guid>(type: "uuid", nullable: false),
@@ -215,14 +215,14 @@ namespace LotroKoniecDev.AuthSystem.Persistence.Migrations
                     table.ForeignKey(
                         name: "FK_UserRoles_Roles_RoleId",
                         column: x => x.RoleId,
-                        principalSchema: "auth",
+                        principalSchema: "authsystem",
                         principalTable: "Roles",
                         principalColumn: "Id",
                         onDelete: ReferentialAction.Cascade);
                     table.ForeignKey(
                         name: "FK_UserRoles_Users_UserId",
                         column: x => x.UserId,
-                        principalSchema: "auth",
+                        principalSchema: "authsystem",
                         principalTable: "Users",
                         principalColumn: "Id",
                         onDelete: ReferentialAction.Cascade);
@@ -230,7 +230,7 @@ namespace LotroKoniecDev.AuthSystem.Persistence.Migrations
 
             migrationBuilder.CreateTable(
                 name: "UserTokens",
-                schema: "auth",
+                schema: "authsystem",
                 columns: table => new
                 {
                     UserId = table.Column<Guid>(type: "uuid", nullable: false),
@@ -244,7 +244,7 @@ namespace LotroKoniecDev.AuthSystem.Persistence.Migrations
                     table.ForeignKey(
                         name: "FK_UserTokens_Users_UserId",
                         column: x => x.UserId,
-                        principalSchema: "auth",
+                        principalSchema: "authsystem",
                         principalTable: "Users",
                         principalColumn: "Id",
                         onDelete: ReferentialAction.Cascade);
@@ -252,7 +252,7 @@ namespace LotroKoniecDev.AuthSystem.Persistence.Migrations
 
             migrationBuilder.CreateTable(
                 name: "OpenIddictTokens",
-                schema: "auth",
+                schema: "authsystem",
                 columns: table => new
                 {
                     Id = table.Column<string>(type: "text", nullable: false),
@@ -275,117 +275,117 @@ namespace LotroKoniecDev.AuthSystem.Persistence.Migrations
                     table.ForeignKey(
                         name: "FK_OpenIddictTokens_OpenIddictApplications_ApplicationId",
                         column: x => x.ApplicationId,
-                        principalSchema: "auth",
+                        principalSchema: "authsystem",
                         principalTable: "OpenIddictApplications",
                         principalColumn: "Id");
                     table.ForeignKey(
                         name: "FK_OpenIddictTokens_OpenIddictAuthorizations_AuthorizationId",
                         column: x => x.AuthorizationId,
-                        principalSchema: "auth",
+                        principalSchema: "authsystem",
                         principalTable: "OpenIddictAuthorizations",
                         principalColumn: "Id");
                 });
 
             migrationBuilder.CreateIndex(
                 name: "IX_OpenIddictApplications_ClientId",
-                schema: "auth",
+                schema: "authsystem",
                 table: "OpenIddictApplications",
                 column: "ClientId",
                 unique: true);
 
             migrationBuilder.CreateIndex(
                 name: "IX_OpenIddictAuthorizations_ApplicationId_Status_Subject_Type",
-                schema: "auth",
+                schema: "authsystem",
                 table: "OpenIddictAuthorizations",
                 columns: new[] { "ApplicationId", "Status", "Subject", "Type" });
 
             migrationBuilder.CreateIndex(
                 name: "IX_OpenIddictScopes_Name",
-                schema: "auth",
+                schema: "authsystem",
                 table: "OpenIddictScopes",
                 column: "Name",
                 unique: true);
 
             migrationBuilder.CreateIndex(
                 name: "IX_OpenIddictTokens_ApplicationId_Status_Subject_Type",
-                schema: "auth",
+                schema: "authsystem",
                 table: "OpenIddictTokens",
                 columns: new[] { "ApplicationId", "Status", "Subject", "Type" });
 
             migrationBuilder.CreateIndex(
                 name: "IX_OpenIddictTokens_AuthorizationId",
-                schema: "auth",
+                schema: "authsystem",
                 table: "OpenIddictTokens",
                 column: "AuthorizationId");
 
             migrationBuilder.CreateIndex(
                 name: "IX_OpenIddictTokens_ReferenceId",
-                schema: "auth",
+                schema: "authsystem",
                 table: "OpenIddictTokens",
                 column: "ReferenceId",
                 unique: true);
 
             migrationBuilder.CreateIndex(
                 name: "IX_RoleClaims_RoleId",
-                schema: "auth",
+                schema: "authsystem",
                 table: "RoleClaims",
                 column: "RoleId");
 
             migrationBuilder.CreateIndex(
                 name: "IX_Roles_Name",
-                schema: "auth",
+                schema: "authsystem",
                 table: "Roles",
                 column: "Name",
                 unique: true);
 
             migrationBuilder.CreateIndex(
                 name: "RoleNameIndex",
-                schema: "auth",
+                schema: "authsystem",
                 table: "Roles",
                 column: "NormalizedName",
                 unique: true);
 
             migrationBuilder.CreateIndex(
                 name: "IX_UserClaims_UserId",
-                schema: "auth",
+                schema: "authsystem",
                 table: "UserClaims",
                 column: "UserId");
 
             migrationBuilder.CreateIndex(
                 name: "IX_UserLogins_UserId",
-                schema: "auth",
+                schema: "authsystem",
                 table: "UserLogins",
                 column: "UserId");
 
             migrationBuilder.CreateIndex(
                 name: "IX_UserRoles_RoleId",
-                schema: "auth",
+                schema: "authsystem",
                 table: "UserRoles",
                 column: "RoleId");
 
             migrationBuilder.CreateIndex(
                 name: "EmailIndex",
-                schema: "auth",
+                schema: "authsystem",
                 table: "Users",
                 column: "NormalizedEmail");
 
             migrationBuilder.CreateIndex(
                 name: "IX_Users_Email",
-                schema: "auth",
+                schema: "authsystem",
                 table: "Users",
                 column: "Email",
                 unique: true);
 
             migrationBuilder.CreateIndex(
                 name: "IX_Users_UserName",
-                schema: "auth",
+                schema: "authsystem",
                 table: "Users",
                 column: "UserName",
                 unique: true);
 
             migrationBuilder.CreateIndex(
                 name: "UserNameIndex",
-                schema: "auth",
+                schema: "authsystem",
                 table: "Users",
                 column: "NormalizedUserName",
                 unique: true);
@@ -396,47 +396,47 @@ namespace LotroKoniecDev.AuthSystem.Persistence.Migrations
         {
             migrationBuilder.DropTable(
                 name: "OpenIddictScopes",
-                schema: "auth");
+                schema: "authsystem");
 
             migrationBuilder.DropTable(
                 name: "OpenIddictTokens",
-                schema: "auth");
+                schema: "authsystem");
 
             migrationBuilder.DropTable(
                 name: "RoleClaims",
-                schema: "auth");
+                schema: "authsystem");
 
             migrationBuilder.DropTable(
                 name: "UserClaims",
-                schema: "auth");
+                schema: "authsystem");
 
             migrationBuilder.DropTable(
                 name: "UserLogins",
-                schema: "auth");
+                schema: "authsystem");
 
             migrationBuilder.DropTable(
                 name: "UserRoles",
-                schema: "auth");
+                schema: "authsystem");
 
             migrationBuilder.DropTable(
                 name: "UserTokens",
-                schema: "auth");
+                schema: "authsystem");
 
             migrationBuilder.DropTable(
                 name: "OpenIddictAuthorizations",
-                schema: "auth");
+                schema: "authsystem");
 
             migrationBuilder.DropTable(
                 name: "Roles",
-                schema: "auth");
+                schema: "authsystem");
 
             migrationBuilder.DropTable(
                 name: "Users",
-                schema: "auth");
+                schema: "authsystem");
 
             migrationBuilder.DropTable(
                 name: "OpenIddictApplications",
-                schema: "auth");
+                schema: "authsystem");
         }
     }
 }

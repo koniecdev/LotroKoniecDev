@@ -40,8 +40,8 @@ resource "azurerm_container_app" "auth_api" {
     container {
       name   = "auth-api"
       image  = "ghcr.io/koniecdev/lotrokoniecdev-auth-api:latest"
-      cpu    = 0.5
-      memory = "1Gi"
+      cpu    = 0.25
+      memory = "0.5Gi"
 
       env {
         name  = "ASPNETCORE_ENVIRONMENT"
@@ -57,7 +57,7 @@ resource "azurerm_container_app" "auth_api" {
       }
       env {
         name  = "OpenIddict__Issuer"
-        value = "https://auth.lotro.koniec.dev"
+        value = "https://auth.lotro-translator.pl"
       }
       env {
         name        = "OpenIddict__SigningKey__RsaPrivateKeyXml"
@@ -73,15 +73,15 @@ resource "azurerm_container_app" "auth_api" {
       }
       env {
         name  = "OpenIddict__WebClient__RedirectUris__0"
-        value = "https://lotro.koniec.dev/callback"
+        value = "https://lotro-translator.pl/callback"
       }
       env {
         name  = "OpenIddict__WebClient__PostLogoutRedirectUris__0"
-        value = "https://lotro.koniec.dev"
+        value = "https://lotro-translator.pl"
       }
       env {
         name  = "Cors__AllowedOrigins__0"
-        value = "https://lotro.koniec.dev"
+        value = "https://lotro-translator.pl"
       }
       env {
         name  = "DataProtection__KeyRingPath"
@@ -178,8 +178,8 @@ resource "azurerm_container_app" "tms_api" {
     container {
       name   = "tms-api"
       image  = "ghcr.io/koniecdev/lotrokoniecdev-tms-api:latest"
-      cpu    = 0.5
-      memory = "1Gi"
+      cpu    = 0.25
+      memory = "0.5Gi"
 
       env {
         name  = "ASPNETCORE_ENVIRONMENT"
@@ -195,11 +195,11 @@ resource "azurerm_container_app" "tms_api" {
       }
       env {
         name  = "Auth__Issuer"
-        value = "https://auth.lotro.koniec.dev"
+        value = "https://auth.lotro-translator.pl"
       }
       env {
         name  = "Auth__Authority"
-        value = "https://auth.lotro.koniec.dev"
+        value = "https://auth.lotro-translator.pl"
       }
       env {
         name  = "Auth__Audience"
@@ -207,7 +207,7 @@ resource "azurerm_container_app" "tms_api" {
       }
       env {
         name  = "Cors__AllowedOrigins__0"
-        value = "https://lotro.koniec.dev"
+        value = "https://lotro-translator.pl"
       }
       env {
         name  = "Bootstrap__Enabled"
@@ -248,8 +248,8 @@ resource "azurerm_container_app" "frontend" {
     container {
       name   = "frontend"
       image  = "ghcr.io/koniecdev/lotrokoniecdev-frontend:latest"
-      cpu    = 0.5
-      memory = "1Gi"
+      cpu    = 0.25
+      memory = "0.5Gi"
 
       env {
         name  = "ASPNETCORE_ENVIRONMENT"
@@ -261,11 +261,11 @@ resource "azurerm_container_app" "frontend" {
       }
       env {
         name  = "AuthSystem__Authority"
-        value = "https://auth.lotro.koniec.dev"
+        value = "https://auth.lotro-translator.pl"
       }
       env {
         name  = "AuthSystem__BaseUrl"
-        value = "https://auth.lotro.koniec.dev/"
+        value = "https://auth.lotro-translator.pl/"
       }
       env {
         name  = "AuthSystem__ClientId"
@@ -273,7 +273,7 @@ resource "azurerm_container_app" "frontend" {
       }
       env {
         name  = "TranslationSystem__BaseUrl"
-        value = "https://tms.lotro.koniec.dev/"
+        value = "https://tms.lotro-translator.pl/"
       }
       env {
         name  = "DataProtection__KeyRingPath"

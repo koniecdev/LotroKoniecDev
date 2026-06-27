@@ -22,13 +22,13 @@ internal sealed class CleanerService
         // TRUNCATE ... CASCADE is faster than DELETE and handles FK chains in one statement.
         await db.Database.ExecuteSqlRawAsync("""
                                              TRUNCATE TABLE
-                                                 auth."UserRoles",
-                                                 auth."UserClaims",
-                                                 auth."UserLogins",
-                                                 auth."UserTokens",
-                                                 auth."OpenIddictTokens",
-                                                 auth."OpenIddictAuthorizations",
-                                                 auth."Users"
+                                                 authsystem."UserRoles",
+                                                 authsystem."UserClaims",
+                                                 authsystem."UserLogins",
+                                                 authsystem."UserTokens",
+                                                 authsystem."OpenIddictTokens",
+                                                 authsystem."OpenIddictAuthorizations",
+                                                 authsystem."Users"
                                              RESTART IDENTITY CASCADE;
                                              """);
     }

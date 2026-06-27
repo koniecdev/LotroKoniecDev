@@ -300,7 +300,7 @@ public sealed partial class AuthorizationCodeFlowTests : AsyncLifetimeTestBase
         await using AsyncServiceScope scope = Factory.Services.CreateAsyncScope();
         AuthDbContext dbContext = scope.ServiceProvider.GetRequiredService<AuthDbContext>();
         await dbContext.Database.ExecuteSqlRawAsync(
-            """UPDATE auth."OpenIddictTokens" SET "ExpirationDate" = '2020-01-01 00:00:00+00' WHERE "Type" = 'urn:openiddict:params:oauth:token-type:authorization_code'""");
+            """UPDATE authsystem."OpenIddictTokens" SET "ExpirationDate" = '2020-01-01 00:00:00+00' WHERE "Type" = 'urn:openiddict:params:oauth:token-type:authorization_code'""");
 
         using FormUrlEncodedContent tokenRequest = new(new Dictionary<string, string>
         {

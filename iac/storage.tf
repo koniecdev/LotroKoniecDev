@@ -1,7 +1,7 @@
 resource "azurerm_storage_account" "keys" {
   name                     = "lotrotmskeys${var.env_id}"
-  resource_group_name      = azurerm_resource_group.rg-lotrotms-dev-polc-001.name
-  location                 = azurerm_resource_group.rg-lotrotms-dev-polc-001.location
+  resource_group_name      = azurerm_resource_group.rg-lotrotms-prod-polc-001.name
+  location                 = azurerm_resource_group.rg-lotrotms-prod-polc-001.location
   account_tier             = "Standard"
   account_replication_type = "LRS"
   min_tls_version          = "TLS1_2"

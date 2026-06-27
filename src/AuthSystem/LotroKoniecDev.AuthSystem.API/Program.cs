@@ -36,12 +36,13 @@ try
         optional: true,
         reloadOnChange: true);
 
+    string? otlpEndpoint = builder.Configuration["OTEL_EXPORTER_OTLP_ENDPOINT"];
+
     builder.Services.AddSerilog((services, lc) =>
     {
         lc.ReadFrom.Configuration(builder.Configuration)
           .ReadFrom.Services(services);
 
-        string? otlpEndpoint = builder.Configuration["OTEL_EXPORTER_OTLP_ENDPOINT"];
         if (!string.IsNullOrWhiteSpace(otlpEndpoint))
         {
             lc.WriteTo.OpenTelemetry(opts =>
@@ -91,7 +92,7 @@ try
     builder.Services.AddEndpointsApiExplorer();
     builder.Services.AddOpenApi();
 
-    builder.Services.AddOpenTelemetry()
+    IOpenTelemetryBuilder openTelemetryBuilder = builder.Services.AddOpenTelemetry()
         .ConfigureResource(resource => resource.AddService(builder.Environment.ApplicationName))
         .WithTracing(tracing => tracing
             .AddHttpClientInstrumentation()
@@ -102,8 +103,14 @@ try
             .AddAspNetCoreInstrumentation()
             .AddRuntimeInstrumentation()
             .AddMeter("Microsoft.EntityFrameworkCore")
-            .AddMeter("Npgsql"))
-        .UseOtlpExporter();
+            .AddMeter("Npgsql"));
+
+    // Wire the OTLP exporter only when an endpoint is configured; otherwise the SDK keeps retrying
+    // against the default localhost:4317 collector, which does not exist in the cloud runtime.
+    if (!string.IsNullOrWhiteSpace(otlpEndpoint))
+    {
+        openTelemetryBuilder.UseOtlpExporter();
+    }
     
     builder.Services.AddResponseCompression(options =>
     {
@@ -178,9 +185,12 @@ try
             connectionStringFactory: sp => sp.GetRequiredService<IOptions<ConnectionStringSettings>>().Value.AuthDatabase,
             name: "authdb",
             tags: ["db", "postgres", "ready"])
+        // SMTP is intentionally NOT tagged "ready": a Brevo outage must not pull the whole auth
+        // service out of the ingress rotation — login and token issuance work without mail. Only the
+        // database gates readiness; mail failures surface in logs and via "resend confirmation".
         .AddCheck<SmtpHealthCheck>(
             "smtp",
-            tags: ["smtp", "ready"]);
+            tags: ["smtp"]);
 
     const string rateLimitPolicy = "fixed-by-ip";
     const string authEndpointRateLimitPolicy = "auth-endpoint-limit";

@@ -1,7 +1,7 @@
 variable "env_id" {
   type        = string
   description = "The environment id"
-  default     = "dev"
+  default     = "prod"
 }
 
 variable "src_key" {

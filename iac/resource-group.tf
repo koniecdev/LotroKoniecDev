@@ -1,6 +1,6 @@
-resource "azurerm_resource_group" "rg-lotrotms-dev-polc-001" {
+resource "azurerm_resource_group" "rg-lotrotms-prod-polc-001" {
   location = "polandcentral"
-  name     = "rg-lotrotms-dev-polc-001"
+  name     = "rg-lotrotms-prod-polc-001"
 
   tags = {
     environment = var.env_id

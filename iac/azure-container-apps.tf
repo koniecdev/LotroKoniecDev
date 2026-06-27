@@ -1,7 +1,7 @@
 resource "azurerm_container_app" "auth_api" {
   name                         = "lotrotms-auth-api-${var.env_id}"
   container_app_environment_id = azurerm_container_app_environment.app_env.id
-  resource_group_name          = azurerm_resource_group.rg-lotrotms-dev-polc-001.name
+  resource_group_name          = azurerm_resource_group.rg-lotrotms-prod-polc-001.name
   revision_mode                = "Single"
 
   secret {
@@ -34,7 +34,7 @@ resource "azurerm_container_app" "auth_api" {
   }
 
   template {
-    min_replicas = 0
+    min_replicas = 1
     max_replicas = 1
 
     container {
@@ -195,7 +195,7 @@ resource "azurerm_container_app" "auth_api" {
 resource "azurerm_container_app" "tms_api" {
   name                         = "lotrotms-tms-api-${var.env_id}"
   container_app_environment_id = azurerm_container_app_environment.app_env.id
-  resource_group_name          = azurerm_resource_group.rg-lotrotms-dev-polc-001.name
+  resource_group_name          = azurerm_resource_group.rg-lotrotms-prod-polc-001.name
   revision_mode                = "Single"
 
   secret {
@@ -204,7 +204,7 @@ resource "azurerm_container_app" "tms_api" {
   }
 
   template {
-    min_replicas = 0
+    min_replicas = 1
     max_replicas = 1
 
     container {
@@ -302,11 +302,11 @@ resource "azurerm_container_app" "tms_api" {
 resource "azurerm_container_app" "frontend" {
   name                         = "lotrotms-frontend-${var.env_id}"
   container_app_environment_id = azurerm_container_app_environment.app_env.id
-  resource_group_name          = azurerm_resource_group.rg-lotrotms-dev-polc-001.name
+  resource_group_name          = azurerm_resource_group.rg-lotrotms-prod-polc-001.name
   revision_mode                = "Single"
 
   template {
-    min_replicas = 0
+    min_replicas = 1
     max_replicas = 1
 
     container {

@@ -43,6 +43,38 @@ resource "azurerm_container_app" "auth_api" {
       cpu    = 0.25
       memory = "0.5Gi"
 
+      liveness_probe {
+        transport = "HTTP"
+        port      = 8080
+        path      = "/health/live"
+
+        initial_delay           = 5
+        interval_seconds        = 30
+        timeout                 = 5
+        failure_count_threshold = 3
+      }
+
+      readiness_probe {
+        transport = "HTTP"
+        port      = 8080
+        path      = "/health/ready"
+
+        interval_seconds        = 30
+        timeout                 = 5
+        failure_count_threshold = 3
+        success_count_threshold = 1
+      }
+
+      startup_probe {
+        transport = "HTTP"
+        port      = 8080
+        path      = "/health/live"
+
+        interval_seconds        = 10
+        timeout                 = 5
+        failure_count_threshold = 30
+      }
+
       env {
         name  = "ASPNETCORE_ENVIRONMENT"
         value = "Production"
@@ -181,6 +213,38 @@ resource "azurerm_container_app" "tms_api" {
       cpu    = 0.25
       memory = "0.5Gi"
 
+      liveness_probe {
+        transport = "HTTP"
+        port      = 8080
+        path      = "/health/live"
+
+        initial_delay           = 5
+        interval_seconds        = 30
+        timeout                 = 5
+        failure_count_threshold = 3
+      }
+
+      readiness_probe {
+        transport = "HTTP"
+        port      = 8080
+        path      = "/health/ready"
+
+        interval_seconds        = 30
+        timeout                 = 5
+        failure_count_threshold = 3
+        success_count_threshold = 1
+      }
+
+      startup_probe {
+        transport = "HTTP"
+        port      = 8080
+        path      = "/health/live"
+
+        interval_seconds        = 10
+        timeout                 = 5
+        failure_count_threshold = 30
+      }
+
       env {
         name  = "ASPNETCORE_ENVIRONMENT"
         value = "Production"
@@ -250,6 +314,38 @@ resource "azurerm_container_app" "frontend" {
       image  = "ghcr.io/koniecdev/lotrokoniecdev-frontend:latest"
       cpu    = 0.25
       memory = "0.5Gi"
+
+      liveness_probe {
+        transport = "HTTP"
+        port      = 8080
+        path      = "/health/live"
+
+        initial_delay           = 5
+        interval_seconds        = 30
+        timeout                 = 5
+        failure_count_threshold = 3
+      }
+
+      readiness_probe {
+        transport = "HTTP"
+        port      = 8080
+        path      = "/health/ready"
+
+        interval_seconds        = 30
+        timeout                 = 5
+        failure_count_threshold = 3
+        success_count_threshold = 1
+      }
+
+      startup_probe {
+        transport = "HTTP"
+        port      = 8080
+        path      = "/health/live"
+
+        interval_seconds        = 10
+        timeout                 = 5
+        failure_count_threshold = 30
+      }
 
       env {
         name  = "ASPNETCORE_ENVIRONMENT"

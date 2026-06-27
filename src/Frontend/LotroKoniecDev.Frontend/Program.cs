@@ -25,13 +25,14 @@ try
 
     WebApplicationBuilder builder = WebApplication.CreateBuilder(args);
 
+    string? otlpEndpoint = builder.Configuration["OTEL_EXPORTER_OTLP_ENDPOINT"];
+
     builder.Services.AddSerilog((serviceProvider, loggerConfiguration) =>
     {
         loggerConfiguration
             .ReadFrom.Configuration(builder.Configuration)
             .ReadFrom.Services(serviceProvider);
 
-        string? otlpEndpoint = builder.Configuration["OTEL_EXPORTER_OTLP_ENDPOINT"];
         if (!string.IsNullOrWhiteSpace(otlpEndpoint))
         {
             loggerConfiguration.WriteTo.OpenTelemetry(opts =>
@@ -51,7 +52,7 @@ try
         }
     });
 
-    builder.Services.AddOpenTelemetry()
+    IOpenTelemetryBuilder openTelemetryBuilder = builder.Services.AddOpenTelemetry()
         .ConfigureResource(resource => resource.AddService(builder.Environment.ApplicationName))
         .WithTracing(tracing => tracing
             .AddHttpClientInstrumentation()
@@ -59,8 +60,14 @@ try
         .WithMetrics(metrics => metrics
             .AddHttpClientInstrumentation()
             .AddAspNetCoreInstrumentation()
-            .AddRuntimeInstrumentation())
-        .UseOtlpExporter();
+            .AddRuntimeInstrumentation());
+
+    // Wire the OTLP exporter only when an endpoint is configured; otherwise the SDK keeps retrying
+    // against the default localhost:4317 collector, which does not exist in the cloud runtime.
+    if (!string.IsNullOrWhiteSpace(otlpEndpoint))
+    {
+        openTelemetryBuilder.UseOtlpExporter();
+    }
 
     // Behind a cloud ingress (ACA / ALB / any reverse proxy) TLS terminates at the proxy and the
     // container receives plain HTTP with X-Forwarded-* headers. Honour them so Request.Scheme is
@@ -78,6 +85,10 @@ try
     });
 
     builder.Services.AddRazorComponents();
+
+    // Liveness/readiness endpoints for the cloud ingress probes (ACA). The Frontend has no backing
+    // store, so an empty check set is enough — they report healthy once the host is serving requests.
+    builder.Services.AddHealthChecks();
 
     builder.Services
         .AddOptionsWithFluentValidation<TranslationSystemSettings>(TranslationSystemSettings.ConfigurationSection)
@@ -133,6 +144,10 @@ try
     app.UseAntiforgery();
 
     app.MapStaticAssets();
+
+    app.MapHealthChecks("/health/live").AllowAnonymous();
+    app.MapHealthChecks("/health/ready").AllowAnonymous();
+
     app.MapAuthEndpoints();
     app.MapImportExportEndpoints();
     app.MapRazorComponents<App>();

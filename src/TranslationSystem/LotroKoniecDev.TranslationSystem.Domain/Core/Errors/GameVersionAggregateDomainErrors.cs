@@ -27,6 +27,18 @@ public static partial class DomainErrors
                 $"Game version with ID '{id.Value}' is already processed and cannot be superseded.",
                 "ProcessedCannotBeSuperseded");
 
+        public static Error OnlyUnprocessedCanBeDeleted(GameVersionId id)
+            => InvalidOperation(
+                nameof(GameVersionEntity),
+                $"Game version with ID '{id.Value}' is not unprocessed and cannot be deleted; only unprocessed versions can be deleted.",
+                "OnlyUnprocessedCanBeDeleted");
+
+        public static Error CannotDeleteReferencedVersion(GameVersionId id)
+            => InvalidOperation(
+                nameof(GameVersionEntity),
+                $"Game version with ID '{id.Value}' is referenced by one or more translations and cannot be deleted.",
+                "CannotDeleteReferencedVersion");
+
         public static class VersionProperty
         {
             public static Error NullOrEmpty

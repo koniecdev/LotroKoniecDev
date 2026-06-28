@@ -3,6 +3,7 @@ using LotroKoniecDev.TranslationSystem.Domain.Aggregates.TranslationAggregate.En
 using LotroKoniecDev.TranslationSystem.Domain.Aggregates.TranslationAggregate.Repositories;
 using LotroKoniecDev.TranslationSystem.Domain.Aggregates.TranslationAggregate.ValueObjects;
 using LotroKoniecDev.TranslationSystem.Persistence.DbContexts.WriteDbContexts;
+using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.GameVersionAggregate;
 using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.TranslationAggregate;
 using Microsoft.EntityFrameworkCore;
 
@@ -39,5 +40,17 @@ internal sealed class TranslationRepository : GenericRepository<Translation, Tra
         ArgumentNullException.ThrowIfNull(translations);
 
         DbContext.Set<Translation>().AddRange(translations);
+    }
+
+    public async Task<bool> AnyReferencesGameVersionAsync(GameVersionId gameVersionId, CancellationToken cancellationToken)
+    {
+        bool referenced = await DbContext.Set<Translation>()
+            .AnyAsync(
+                translation => translation.IntroducedInVersion == gameVersionId
+                    || translation.LastSourceChangeInVersion == gameVersionId
+                    || translation.RemovedInVersion == gameVersionId,
+                cancellationToken);
+
+        return referenced;
     }
 }

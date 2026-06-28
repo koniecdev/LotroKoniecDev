@@ -2,6 +2,7 @@ using LotroKoniecDev.SharedKernel.BuildingBlocks;
 using LotroKoniecDev.SharedKernel.Monads;
 using LotroKoniecDev.TranslationSystem.Domain.Aggregates.TranslationAggregate.Entities;
 using LotroKoniecDev.TranslationSystem.Domain.Aggregates.TranslationAggregate.ValueObjects;
+using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.GameVersionAggregate;
 using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.TranslationAggregate;
 
 namespace LotroKoniecDev.TranslationSystem.Domain.Aggregates.TranslationAggregate.Repositories;
@@ -23,4 +24,11 @@ public interface ITranslationRepository : IRepository<Translation, TranslationId
     Task<Maybe<Translation>> GetByFragmentKeyAsync(FragmentKey fragmentKey, CancellationToken cancellationToken);
 
     void InsertRange(IEnumerable<Translation> translations);
+
+    /// <summary>
+    /// Whether any stored translation is bound to the given game version — by introduction, source
+    /// change or removal (spec 0001). Guards game-version deletion: a referenced version must never be
+    /// removed, or those rows would point at a missing version.
+    /// </summary>
+    Task<bool> AnyReferencesGameVersionAsync(GameVersionId gameVersionId, CancellationToken cancellationToken);
 }

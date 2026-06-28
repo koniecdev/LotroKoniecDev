@@ -94,7 +94,7 @@ internal sealed class ListGameVersions : IEndpoint
                 {
                     foreach (GameVersionResponse item in collection.Items)
                     {
-                        item.Links = gameVersionLinkFactory.CreateGameVersionLinks(item.Id);
+                        item.Links = gameVersionLinkFactory.CreateGameVersionLinks(item.Id, item.Status, callerIsAdmin);
                     }
 
                     collection.Links = gameVersionLinkFactory.CreateCollectionLinks(callerIsAdmin);

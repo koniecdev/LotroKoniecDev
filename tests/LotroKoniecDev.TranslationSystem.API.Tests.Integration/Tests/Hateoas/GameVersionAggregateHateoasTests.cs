@@ -17,8 +17,9 @@ namespace LotroKoniecDev.TranslationSystem.API.Tests.Integration.Tests.Hateoas;
 
 /// <summary>
 /// Verifies the game-version aggregate's HATEOAS links: per-item <c>self</c> (resolving to the new
-/// item endpoint), the collection <c>self</c>, and the role-gated <c>register</c> action (admins
-/// only). Plain <c>application/json</c> requests must carry no links and still deserialize.
+/// item endpoint) plus the role-gated <c>delete</c> action (admins only, on unprocessed versions), the
+/// collection <c>self</c>, and the role-gated <c>register</c> action (admins only). Plain
+/// <c>application/json</c> requests must carry no links and still deserialize.
 /// </summary>
 [Collection("TranslationApi")]
 public sealed class GameVersionAggregateHateoasTests : IAsyncLifetime
@@ -75,9 +76,9 @@ public sealed class GameVersionAggregateHateoasTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task ListGameVersions_AsAdmin_ReturnsCollectionSelfRegisterAndPerItemSelf()
+    public async Task ListGameVersions_AsAdmin_ReturnsCollectionSelfRegisterAndPerItemSelfAndDelete()
     {
-        // Arrange
+        // Arrange — the seeded version is unprocessed, so an admin may delete it.
         GameVersionId id = await SeedAsync("48.0");
 
         // Act
@@ -88,11 +89,10 @@ public sealed class GameVersionAggregateHateoasTests : IAsyncLifetime
         response.Links.ShouldContain(l => l.Rel == Rels.Self && l.Method == "GET");
         response.Links.ShouldContain(l => l.Rel == Rels.Register && l.Method == "POST");
 
-        // Assert — each item carries its own self
+        // Assert — each item carries its own self plus the admin delete affordance
         GameVersionResponse item = response.Items.First(i => i.Id == id);
-        LinkDto itemSelf = item.Links.ShouldHaveSingleItem();
-        itemSelf.Rel.ShouldBe(Rels.Self);
-        itemSelf.Href.ShouldContain($"{Route}/{id.Value}");
+        item.Links.ShouldContain(l => l.Rel == Rels.Self && l.Href.Contains($"{Route}/{id.Value}"));
+        item.Links.ShouldContain(l => l.Rel == Rels.Delete && l.Method == "DELETE" && l.Href.Contains($"{Route}/{id.Value}"));
     }
 
     [Fact]
@@ -123,6 +123,53 @@ public sealed class GameVersionAggregateHateoasTests : IAsyncLifetime
         // Assert
         response.Links.ShouldContain(l => l.Rel == Rels.Self);
         response.Links.ShouldNotContain(l => l.Rel == Rels.Register);
+    }
+
+    [Fact]
+    public async Task ListGameVersions_AsAdmin_WhenVersionIsProcessed_DoesNotAdvertiseDeleteOnTheItem()
+    {
+        // Arrange — only an unprocessed version may be deleted; a processed one offers self only.
+        GameVersionId id = await SeedProcessedAsync("48.0");
+
+        // Act
+        CollectionResponse<GameVersionResponse> response =
+            await GetHateoasAsync<CollectionResponse<GameVersionResponse>>(AdminClient(), Route);
+
+        // Assert
+        GameVersionResponse item = response.Items.First(i => i.Id == id);
+        item.Links.ShouldContain(l => l.Rel == Rels.Self);
+        item.Links.ShouldNotContain(l => l.Rel == Rels.Delete);
+    }
+
+    [Fact]
+    public async Task ListGameVersions_AsTranslator_DoesNotAdvertiseDeleteOnTheItem()
+    {
+        // Arrange — delete is the admin action; a translator sees self only on an unprocessed version.
+        GameVersionId id = await SeedAsync("48.0");
+
+        // Act
+        CollectionResponse<GameVersionResponse> response =
+            await GetHateoasAsync<CollectionResponse<GameVersionResponse>>(TranslatorClient(), Route);
+
+        // Assert
+        GameVersionResponse item = response.Items.First(i => i.Id == id);
+        item.Links.ShouldContain(l => l.Rel == Rels.Self);
+        item.Links.ShouldNotContain(l => l.Rel == Rels.Delete);
+    }
+
+    [Fact]
+    public async Task GetGameVersion_AsAdmin_WhenUnprocessed_ReturnsSelfAndDelete()
+    {
+        // Arrange
+        GameVersionId id = await SeedAsync("48.0");
+
+        // Act
+        GameVersionResponse response = await GetHateoasAsync<GameVersionResponse>(
+            AdminClient(), $"{Route}/{id.Value}");
+
+        // Assert
+        response.Links.ShouldContain(l => l.Rel == Rels.Self);
+        response.Links.ShouldContain(l => l.Rel == Rels.Delete && l.Method == "DELETE");
     }
 
     [Fact]
@@ -175,6 +222,19 @@ public sealed class GameVersionAggregateHateoasTests : IAsyncLifetime
         ApplicationWriteDbContext dbContext = scope.ServiceProvider.GetRequiredService<ApplicationWriteDbContext>();
 
         GameVersion gameVersion = GameVersion.Create(LotroNotationVersion.Create(version).Value, Now).Value;
+        dbContext.GameVersions.Add(gameVersion);
+        await dbContext.SaveChangesAsync();
+
+        return gameVersion.Id;
+    }
+
+    private async Task<GameVersionId> SeedProcessedAsync(string version)
+    {
+        using IServiceScope scope = _factory.Services.CreateScope();
+        ApplicationWriteDbContext dbContext = scope.ServiceProvider.GetRequiredService<ApplicationWriteDbContext>();
+
+        GameVersion gameVersion = GameVersion.Create(LotroNotationVersion.Create(version).Value, Now).Value;
+        gameVersion.MarkAsProcessed();
         dbContext.GameVersions.Add(gameVersion);
         await dbContext.SaveChangesAsync();
 

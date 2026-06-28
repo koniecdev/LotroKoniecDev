@@ -49,6 +49,22 @@ public sealed class GameVersion : AggregateRoot<GameVersionId>
         return Result.Success();
     }
 
+    /// <summary>
+    /// Guards deletion: only an <see cref="GameVersionStatus.Unprocessed"/> version may be removed. A
+    /// processed or superseded version has been woven into the update lifecycle (spec 0001) and removing
+    /// it would orphan the translations that reference it. The cross-aggregate "no translation references
+    /// this version" check stays in the delete handler — the aggregate only owns the status invariant.
+    /// </summary>
+    public Result EnsureCanBeDeleted()
+    {
+        if (Status is not GameVersionStatus.Unprocessed)
+        {
+            return Result.Failure(DomainErrors.GameVersionEntity.OnlyUnprocessedCanBeDeleted(Id));
+        }
+
+        return Result.Success();
+    }
+
     public static Result<GameVersion> Create(
         LotroNotationVersion version,
         DateTimeOffset detectedAt)

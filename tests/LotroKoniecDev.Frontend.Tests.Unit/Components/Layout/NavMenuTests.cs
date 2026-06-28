@@ -60,7 +60,7 @@ public sealed class NavMenuTests : BunitContext
             .Select(anchor => anchor.GetAttribute("href")!)
             .ToArray();
 
-        navTargets.ShouldBe(["/", "/translations", "/import-export", "/dashboard"]);
+        navTargets.ShouldBe(["/", "/translations", "/import-export", "/game-versions", "/dashboard"]);
     }
 
     /// <summary>

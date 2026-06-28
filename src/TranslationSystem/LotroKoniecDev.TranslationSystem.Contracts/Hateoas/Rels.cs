@@ -10,6 +10,7 @@ public static class Rels
 
     // GameVersion aggregate actions
     public const string Register = "register";
+    public const string Delete = "delete";
 
     // Collection / pagination navigation
     public const string FirstPage = "first-page";

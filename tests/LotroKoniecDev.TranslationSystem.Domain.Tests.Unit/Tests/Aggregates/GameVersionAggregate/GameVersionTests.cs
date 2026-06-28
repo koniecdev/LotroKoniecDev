@@ -136,4 +136,47 @@ public sealed class GameVersionTests
         result.Error.ShouldBe(DomainErrors.GameVersionEntity.ProcessedCannotBeSuperseded(gameVersion.Id));
         gameVersion.Status.ShouldBe(GameVersionStatus.Processed);
     }
+
+    [Fact]
+    public void EnsureCanBeDeleted_WhenUnprocessed_ShouldSucceed()
+    {
+        // Arrange
+        GameVersion gameVersion = CreateGameVersion();
+
+        // Act
+        Result result = gameVersion.EnsureCanBeDeleted();
+
+        // Assert
+        result.IsSuccess.ShouldBeTrue();
+    }
+
+    [Fact]
+    public void EnsureCanBeDeleted_WhenProcessed_ShouldReturnFailure()
+    {
+        // Arrange
+        GameVersion gameVersion = CreateGameVersion();
+        gameVersion.MarkAsProcessed();
+
+        // Act
+        Result result = gameVersion.EnsureCanBeDeleted();
+
+        // Assert
+        result.IsFailure.ShouldBeTrue();
+        result.Error.ShouldBe(DomainErrors.GameVersionEntity.OnlyUnprocessedCanBeDeleted(gameVersion.Id));
+    }
+
+    [Fact]
+    public void EnsureCanBeDeleted_WhenSuperseded_ShouldReturnFailure()
+    {
+        // Arrange
+        GameVersion gameVersion = CreateGameVersion();
+        gameVersion.MarkSuperseded();
+
+        // Act
+        Result result = gameVersion.EnsureCanBeDeleted();
+
+        // Assert
+        result.IsFailure.ShouldBeTrue();
+        result.Error.ShouldBe(DomainErrors.GameVersionEntity.OnlyUnprocessedCanBeDeleted(gameVersion.Id));
+    }
 }

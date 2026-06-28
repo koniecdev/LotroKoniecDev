@@ -1,4 +1,6 @@
+using System.Security.Claims;
 using LotroKoniecDev.Hateoas.ContentNegotiation;
+using LotroKoniecDev.SharedKernel.Authorization;
 using LotroKoniecDev.SharedKernel.Messaging;
 using LotroKoniecDev.SharedKernel.Monads;
 using LotroKoniecDev.TranslationSystem.API.Auth;
@@ -60,6 +62,7 @@ internal sealed class GetGameVersion : IEndpoint
                 Guid id,
                 IQueryHandler<Query, Result<GameVersionResponse>> handler,
                 IGameVersionAggregateLinkFactory gameVersionLinkFactory,
+                ClaimsPrincipal user,
                 CancellationToken cancellationToken) =>
             {
                 Result<GameVersionResponse> result = await handler.Handle(new Query(GameVersionId.FromValue(id)), cancellationToken);
@@ -69,8 +72,10 @@ internal sealed class GetGameVersion : IEndpoint
                     return Results.Problem(result.Error.ToProblemDetails());
                 }
 
+                bool callerIsAdmin = user.IsInRole(AuthConstants.Roles.Admin);
+
                 return HateoasResults.Ok(result.Value, r =>
-                    r.Links = gameVersionLinkFactory.CreateGameVersionLinks(r.Id));
+                    r.Links = gameVersionLinkFactory.CreateGameVersionLinks(r.Id, r.Status, callerIsAdmin));
             })
             .WithName(nameof(GetGameVersion))
             .WithTags("GameVersions")

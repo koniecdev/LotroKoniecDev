@@ -139,6 +139,9 @@ internal static class ApiDependencyInjection
             services.AddScoped<
                 ICommandHandler<RegisterGameVersion.Command, Result<GameVersionResponse>>,
                 RegisterGameVersion.Handler>();
+
+            services.AddScoped<IValidator<DeleteGameVersion.Command>, DeleteGameVersion.Validator>();
+            services.AddScoped<ICommandHandler<DeleteGameVersion.Command, Result>, DeleteGameVersion.Handler>();
         }
 
         private void AddBootstrapFeature()

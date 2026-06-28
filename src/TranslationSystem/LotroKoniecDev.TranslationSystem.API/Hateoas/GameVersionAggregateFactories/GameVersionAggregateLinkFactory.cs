@@ -3,6 +3,7 @@ using LotroKoniecDev.Hateoas.LinkFactories;
 using LotroKoniecDev.TranslationSystem.API.Features.GameVersions;
 using LotroKoniecDev.TranslationSystem.Contracts.Hateoas;
 using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.GameVersionAggregate;
+using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.GameVersionAggregate.Enums;
 
 namespace LotroKoniecDev.TranslationSystem.API.Hateoas.GameVersionAggregateFactories;
 
@@ -15,7 +16,7 @@ internal sealed class GameVersionAggregateLinkFactory : IGameVersionAggregateLin
         _linkFactory = linkFactory;
     }
 
-    public List<LinkDto> CreateGameVersionLinks(GameVersionId id)
+    public List<LinkDto> CreateGameVersionLinks(GameVersionId id, GameVersionStatus status, bool callerIsAdmin)
     {
         List<LinkDto> links = [];
 
@@ -24,6 +25,17 @@ internal sealed class GameVersionAggregateLinkFactory : IGameVersionAggregateLin
             rel: Rels.Self,
             method: HttpMethods.Get,
             values: new { id = id.Value }));
+
+        // Deleting a mistaken manual registration is an admin action, and only an unprocessed version
+        // may be removed (a processed/superseded one is referenced by translations — spec 0001).
+        if (callerIsAdmin && status is GameVersionStatus.Unprocessed)
+        {
+            links.AddIfPresent(_linkFactory.Create(
+                endpoint: nameof(DeleteGameVersion),
+                rel: Rels.Delete,
+                method: HttpMethods.Delete,
+                values: new { id = id.Value }));
+        }
 
         return links;
     }

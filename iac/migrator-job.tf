@@ -25,7 +25,7 @@ resource "azurerm_container_app_job" "migrator" {
   template {
     container {
       name   = "migrator"
-      image  = "ghcr.io/koniecdev/lotrokoniecdev-migrator:latest"
+      image  = "ghcr.io/koniecdev/lotrokoniecdev-migrator:${var.image_tag}"
       cpu    = 0.5
       memory = "1Gi"
 
@@ -42,6 +42,13 @@ resource "azurerm_container_app_job" "migrator" {
         secret_name = "connection-string-auth"
       }
     }
+  }
+
+  # The rolling image is owned by the CD pipeline (az containerapp job update by commit SHA), not
+  # Terraform. Ignore image drift so `terraform apply` never reverts the job to the bootstrap tag
+  # (var.image_tag). See ADR-0012.
+  lifecycle {
+    ignore_changes = [template[0].container[0].image]
   }
 
   tags = {

@@ -10,6 +10,12 @@ variable "src_key" {
   default     = "terraform"
 }
 
+variable "image_tag" {
+  type        = string
+  description = "Bootstrap image tag for the four GHCR images. Only consumed when a Container App / Job is first created; afterwards the rolling tag is owned solely by the CD pipeline (az containerapp update by commit SHA) and Terraform ignores image drift via lifecycle.ignore_changes."
+  default     = "latest"
+}
+
 variable "subscription_id" {
   type        = string
   description = "The Azure subscription id"

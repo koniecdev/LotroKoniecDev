@@ -17,6 +17,7 @@
 - [Generating secrets](#generating-secrets)
 - [Consistency rules that bite](#consistency-rules-that-bite) — issuer / redirect / authority / CORS
 - [Bringing the stack up](#bringing-the-stack-up)
+- [Continuous deployment (CI/CD)](#continuous-deployment-cicd) — the automated rollout, the approval gate, and the one-time operator setup
 - [Database migrations](#database-migrations)
 - [Post-deploy smoke test](#post-deploy-smoke-test) — one command verifies a deployed environment end-to-end
 - [See also](#see-also)
@@ -67,6 +68,11 @@ table per service.
 Purely optional tuning knobs with safe defaults are omitted (e.g. `OpenIddict:AccessTokenLifetimeMinutes`
 = 60, `OpenIddict:RefreshTokenLifetimeDays` = 14, `Import:*`, `Email:TimeoutSeconds`/`MaxSendAttempts`,
 `AllowedHosts` = `*`).
+
+> ⚠️ **Live prod domain is `lotro-translator.pl`** — auth → `https://auth.lotro-translator.pl`,
+> tms → `https://tms.lotro-translator.pl`, frontend → `https://lotro-translator.pl`; live RG
+> `rg-lotrotms-prod-polc-001`. The `*.lotro.koniec.dev` strings in the tables below are historical
+> placeholders — read each as the live domain (or your own environment's).
 
 ### auth-api
 
@@ -321,6 +327,88 @@ the provider-specific walkthrough is deferred until the provider is chosen):
    [post-deploy smoke test](#post-deploy-smoke-test) (one command — health + auth token + token
    acceptance + file distribution).
 
+> The **manual** sequence above is the provider-neutral fallback / first bring-up. **Ongoing deploys
+> to the live Azure environment are automated** — see [Continuous deployment (CI/CD)](#continuous-deployment-cicd).
+
+## Continuous deployment (CI/CD)
+
+Ongoing delivery to the live Azure environment is automated (ADR-0012). Three workflows:
+
+| Workflow | Trigger | What it does |
+|---|---|---|
+| `cd.yml` → `build-and-push` | push to main, `v*` tag | builds + pushes the 4 images to GHCR (`:sha-<short>`, `:latest` on main, semver on tags) |
+| `cd.yml` → `deploy-prod` | push to main / dispatch, **behind the `production` approval gate** | OIDC login → run migrator to success (**gate**) → `az containerapp update` the 3 apps to `:sha-<short>` → readiness wait → smoke |
+| `infra.yml` | PR / push to `iac/**`, dispatch | `plan` on PRs (preview in run summary); **gated** `apply` on main |
+
+**The release control.** Every merge to main builds, then **waits at the `production` environment**
+for a human to approve (GitHub → the run → *Review deployments* → *Approve*). Nothing reaches prod
+until you click — the safeguard for QA testing on prod. Approve when QA is free.
+
+**Deploy a specific build on demand.** Actions → *CD* → *Run workflow* → optional `image_tag`
+(`sha-<short>` or `vX.Y.Z`); empty = the chosen ref's commit. Still gated.
+
+**Roll back.** Re-run *CD* via dispatch with `image_tag` = the previous good `sha-<short>` (GHCR
+images are immutable). Approve. DB migrations are forward-only — roll the schema forward, not back
+(ADR-0008 §6); snapshot the DBs before a risky release.
+
+### One-time operator setup (your Azure + GitHub)
+
+Keyless via OIDC federation — no client secret is stored. Run once.
+
+**1. Entra app + federated credentials** (the `subject` strings must match exactly):
+
+```bash
+APP_ID=$(az ad app create --display-name "github-lotrotms-cd" --query appId -o tsv)
+az ad sp create --id "$APP_ID"
+# gated jobs (deploy-prod + terraform apply both run under environment: production)
+az ad app federated-credential create --id "$APP_ID" --parameters '{
+  "name":"gh-env-production","issuer":"https://token.actions.githubusercontent.com",
+  "subject":"repo:koniecdev/LotroKoniecDev:environment:production",
+  "audiences":["api://AzureADTokenExchange"]}'
+# infra PR plan job (no environment)
+az ad app federated-credential create --id "$APP_ID" --parameters '{
+  "name":"gh-pull-request","issuer":"https://token.actions.githubusercontent.com",
+  "subject":"repo:koniecdev/LotroKoniecDev:pull_request",
+  "audiences":["api://AzureADTokenExchange"]}'
+```
+
+**2. RBAC** — Contributor on both RGs (roll apps + manage infra + read/write tfstate):
+
+```bash
+SP_OBJ=$(az ad sp show --id "$APP_ID" --query id -o tsv)
+SUB=$(az account show --query id -o tsv)
+for RG in rg-lotrotms-prod-polc-001 rg-lotrotms-tfstate; do
+  az role assignment create --assignee-object-id "$SP_OBJ" --assignee-principal-type ServicePrincipal \
+    --role Contributor --scope "/subscriptions/$SUB/resourceGroups/$RG"
+done
+```
+
+**3. GitHub `production` environment** with **you as a required reviewer** (repo Settings →
+Environments → New → `production` → *Required reviewers* → add yourself). This block IS the gate.
+
+**4. GitHub repo Secrets** (Settings → Secrets and variables → Actions → *Secrets*):
+
+| Secret | Value |
+|---|---|
+| `AZURE_CLIENT_ID` | the Entra app id (`$APP_ID`) |
+| `AZURE_TENANT_ID` | `az account show --query tenantId -o tsv` |
+| `AZURE_SUBSCRIPTION_ID` | the subscription id |
+| `SMOKE_CLIENT_SECRET` | `OpenIddict__ApiClientSecret` (the value auth-api runs with) |
+| `CONNECTION_STRING_TRANSLATION` / `CONNECTION_STRING_AUTH` | the two Supabase connection strings |
+| `OPENIDDICT_SIGNING_KEY` / `OPENIDDICT_ENCRYPTION_KEY` / `OPENIDDICT_API_CLIENT_SECRET` | the three OpenIddict secrets |
+| `SMTP_USERNAME` / `SMTP_PASSWORD` | Brevo SMTP credentials |
+| `ADMIN_PASSWORD` | seeded admin password |
+
+**5. GitHub repo Variables** (non-secret): `SMTP_SENDER_EMAIL`, `ADMIN_USERNAME`, `ADMIN_EMAIL`.
+
+The secret/variable values are exactly the ones already in the git-ignored `iac/terraform.tfvars`;
+copying them to GitHub is what lets `infra.yml` plan/apply. They are **never** committed.
+
+**6. Flip the activation switch — repo Variable `CD_ENABLED` = `true`.** This is the master switch:
+the Azure-touching jobs (`deploy-prod`, `infra plan`/`apply`) carry `if: vars.CD_ENABLED == 'true'`,
+so until you set it they are **skipped** — merging is inert and `iac/**` PRs stay green before steps
+1–5 exist. Set it last, once 1–5 are done; unset it to pause all deployment without touching code.
+
 ## Database migrations
 
 ### Strategy (ADR-0008 §6)
@@ -482,11 +570,11 @@ is the auth server's `OpenIddict__ApiClientSecret` (see [Generating secrets](#ge
 
 ### In CI
 
-The [`Smoke test`](../../.github/workflows/smoke.yml) workflow runs `scripts/smoke.sh` on demand
-(`workflow_dispatch` — enter the three URLs; the secret comes from the repository/environment secret
-`SMOKE_CLIENT_SECRET`). It is **manual-only by design**: the deploy target/provider is deferred
-(ADR-0008), so there is no environment to auto-run against yet. When a provider + staging exist, call
-this job at the end of the deploy workflow so a deploy that comes up wrong fails loudly.
+The [`Smoke test`](../../.github/workflows/smoke.yml) workflow is **`workflow_call`-able and is
+called automatically by `cd.yml`'s `deploy-prod` after every prod rollout** (ADR-0012) — a deploy
+that comes up wrong fails loudly. It also stays runnable **on demand** (`workflow_dispatch` — enter
+the three URLs); the secret comes from the repository secret `SMOKE_CLIENT_SECRET`. See
+[Continuous deployment (CI/CD)](#continuous-deployment-cicd).
 
 ## See also
 

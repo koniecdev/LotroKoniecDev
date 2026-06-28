@@ -1,0 +1,130 @@
+name: Infra (Terraform)
+
+# Terraform lifecycle for the Azure infra in iac/ (ADR-0012):
+#   * PR touching iac/**            → terraform fmt-check + validate + PLAN (read-only preview in the
+#                                     run summary; the PR gate for infra changes).
+#   * push to main touching iac/**  → terraform APPLY behind the `production` approval gate.
+#   * workflow_dispatch             → manual APPLY behind the same gate.
+#
+# Auth: Azure OIDC federation (azure/login@v2) — no stored client secret; the azurerm provider AND
+# the azurerm state backend both authenticate via the resulting Azure CLI session (use_cli default).
+# Terraform inputs (iac/vars.tf) arrive as TF_VAR_* env: sensitive ones from repo SECRETS, plain ones
+# from repo VARIABLES. The rolling container image is NOT managed here — cd.yml owns it and the ACA
+# resources ignore image drift (lifecycle.ignore_changes).
+on:
+  pull_request:
+    branches: ["main"]
+    paths:
+      - "iac/**"
+      - ".github/workflows/infra.yml"
+  push:
+    branches: ["main"]
+    paths:
+      - "iac/**"
+      - ".github/workflows/infra.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write # Azure OIDC federation
+
+# Serialize infra runs per ref; never cancel an in-flight apply (state-lock also guards correctness).
+concurrency:
+  group: infra-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+  # Terraform input variables (iac/vars.tf). TF_VAR_<name> is case-sensitive — keep the var name lowercase.
+  TF_VAR_subscription_id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+  TF_VAR_connection_string_translation: ${{ secrets.CONNECTION_STRING_TRANSLATION }}
+  TF_VAR_connection_string_auth: ${{ secrets.CONNECTION_STRING_AUTH }}
+  TF_VAR_openiddict_signing_key_rsa_private_key_xml: ${{ secrets.OPENIDDICT_SIGNING_KEY }}
+  TF_VAR_openiddict_encryption_key: ${{ secrets.OPENIDDICT_ENCRYPTION_KEY }}
+  TF_VAR_openiddict_api_client_secret: ${{ secrets.OPENIDDICT_API_CLIENT_SECRET }}
+  TF_VAR_smtp_username: ${{ secrets.SMTP_USERNAME }}
+  TF_VAR_smtp_password: ${{ secrets.SMTP_PASSWORD }}
+  TF_VAR_admin_password: ${{ secrets.ADMIN_PASSWORD }}
+  TF_VAR_smtp_sender_email: ${{ vars.SMTP_SENDER_EMAIL }}
+  TF_VAR_admin_username: ${{ vars.ADMIN_USERNAME }}
+  TF_VAR_admin_email: ${{ vars.ADMIN_EMAIL }}
+
+jobs:
+  plan:
+    name: terraform plan
+    # Activation switch (see runbook): until CD_ENABLED=true the Azure-touching jobs are skipped, so
+    # an iac/** PR stays green before the one-time OIDC/secret setup is done.
+    if: vars.CD_ENABLED == 'true' && github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: iac
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Azure login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.15.7
+
+      - name: terraform fmt -check
+        run: terraform fmt -check -recursive
+
+      - name: terraform init
+        run: terraform init -input=false
+
+      - name: terraform validate
+        run: terraform validate -no-color
+
+      - name: terraform plan
+        run: |
+          set -euo pipefail
+          terraform plan -input=false -no-color -lock-timeout=300s | tee plan.txt
+          {
+            echo '### Terraform plan';
+            echo '```';
+            tail -c 60000 plan.txt;
+            echo '```';
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  apply:
+    name: terraform apply
+    if: vars.CD_ENABLED == 'true' && github.event_name != 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    # Same approval gate as the app rollout — a human approves before live infra changes.
+    environment:
+      name: production
+    defaults:
+      run:
+        working-directory: iac
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Azure login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.15.7
+
+      - name: terraform init
+        run: terraform init -input=false
+
+      - name: terraform apply
+        run: terraform apply -input=false -auto-approve -lock-timeout=300s

@@ -7,6 +7,7 @@ using LotroKoniecDev.Frontend.Infrastructure.Auth;
 using LotroKoniecDev.Frontend.Infrastructure.Errors;
 using LotroKoniecDev.Frontend.Settings;
 using LotroKoniecDev.Options;
+using LotroKoniecDev.TranslationSystem.Contracts.Import;
 using Microsoft.AspNetCore.Http.Features;
 using OpenTelemetry;
 using OpenTelemetry.Metrics;
@@ -83,6 +84,15 @@ try
         options.KnownIPNetworks.Clear();
         options.KnownProxies.Clear();
     });
+
+    // The Blazor SSR import form (admin-only) uploads exported.txt, which is ~80 MB and grows — far
+    // past Kestrel's 30 MB default body cap and the framework's multipart form-length limit. Lift both
+    // to the shared upload ceiling so the whole file posts to this host in one request, then streams on
+    // to the TMS API (spec 0003, #208).
+    builder.WebHost.ConfigureKestrel(kestrelOptions =>
+        kestrelOptions.Limits.MaxRequestBodySize = ImportUploadLimits.MaxUploadBytes);
+    builder.Services.Configure<FormOptions>(formOptions =>
+        formOptions.MultipartBodyLengthLimit = ImportUploadLimits.MaxUploadBytes);
 
     builder.Services.AddRazorComponents();
 

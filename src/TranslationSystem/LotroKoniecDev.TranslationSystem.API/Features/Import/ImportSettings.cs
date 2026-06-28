@@ -1,3 +1,5 @@
+using LotroKoniecDev.TranslationSystem.Contracts.Import;
+
 namespace LotroKoniecDev.TranslationSystem.API.Features.Import;
 
 /// <summary>
@@ -11,4 +13,12 @@ internal sealed class ImportSettings
     public const string ConfigurationSection = "Import";
 
     public double MaxRemovedFractionWithoutOverride { get; init; } = 0.20;
+
+    /// <summary>
+    /// Maximum accepted upload size in bytes, enforced on the import endpoint (request body + multipart
+    /// form length). Defaults to <see cref="ImportUploadLimits.MaxUploadBytes"/>; configurable so ops
+    /// can lift it as the export grows without a code change (it is read at startup, so a restart — not
+    /// a redeploy — applies a new value) (spec 0003, #208).
+    /// </summary>
+    public long MaxUploadBytes { get; init; } = ImportUploadLimits.MaxUploadBytes;
 }

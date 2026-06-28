@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
@@ -13,7 +14,10 @@ using LotroKoniecDev.TranslationSystem.Persistence.DbContexts.WriteDbContexts;
 using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.GameVersionAggregate;
 using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.GameVersionAggregate.Enums;
 using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.TranslationAggregate.Enums;
+using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace LotroKoniecDev.TranslationSystem.API.Tests.Integration.Tests.Import;
@@ -262,6 +266,58 @@ public sealed class ImportExportedTextsTests : IAsyncLifetime
         (await CountTranslationsAsync()).ShouldBe(1);
     }
 
+    [Fact]
+    public async Task Import_BodyExceedingConfiguredUploadLimit_ShouldReturn413()
+    {
+        // Arrange — a host whose upload ceiling is tiny, so a small payload deterministically trips the
+        // limit. Production lifts the ceiling to ImportUploadLimits.MaxUploadBytes (256 MB) so the
+        // ~80 MB exported.txt posts in one request (#208); here we only prove the ceiling is enforced.
+        // The single Import:MaxUploadBytes key drives both the request-body cap (RequestSizeLimitAttribute)
+        // and the multipart form-length cap (FormOptions), so this asserts the configured ceiling is
+        // enforced without isolating which cap fires; both map to the same 413 (see BadHttpRequestExceptionHandler).
+        const long uploadLimit = 64 * 1024;
+        using WebApplicationFactory<Program> factory = WithUploadLimit(uploadLimit);
+        GameVersionId versionId = await SeedVersionAsync("48.0");
+        using HttpClient client = AdminClient(factory);
+
+        string oversized = string.Join('\n', Enumerable.Repeat(Line(1, "Alpha"), 5_000));
+        Encoding.UTF8.GetByteCount(oversized).ShouldBeGreaterThan((int)uploadLimit);
+
+        // Act
+        HttpResponseMessage response = await client.PostAsync(ImportRoute(versionId), TextContent(oversized));
+
+        // Assert — rejected at the transport layer before any row is written.
+        response.StatusCode.ShouldBe(HttpStatusCode.RequestEntityTooLarge);
+        (await CountTranslationsAsync()).ShouldBe(0);
+        (await GetVersionStatusAsync(versionId)).ShouldBe(GameVersionStatus.Unprocessed);
+    }
+
+    [Fact]
+    public async Task Import_BodyWithinConfiguredUploadLimit_ShouldStillSucceed()
+    {
+        // Arrange — the same tiny ceiling, but a payload comfortably under it must still import: the
+        // limit is a ceiling, not a blanket rejection.
+        const long uploadLimit = 64 * 1024;
+        using WebApplicationFactory<Program> factory = WithUploadLimit(uploadLimit);
+        GameVersionId versionId = await SeedVersionAsync("48.0");
+        using HttpClient client = AdminClient(factory);
+
+        // Act
+        HttpResponseMessage response = await client.PostAsync(ImportRoute(versionId), ExportContent(Line(1, "Alpha")));
+
+        // Assert
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        (await CountTranslationsAsync()).ShouldBe(1);
+    }
+
+    private WebApplicationFactory<Program> WithUploadLimit(long maxUploadBytes) =>
+        _factory.WithWebHostBuilder(builder =>
+            builder.ConfigureAppConfiguration((_, configBuilder) =>
+                configBuilder.AddInMemoryCollection(new Dictionary<string, string?>
+                {
+                    ["Import:MaxUploadBytes"] = maxUploadBytes.ToString(CultureInfo.InvariantCulture)
+                })));
+
     private static async Task<string?> ReadErrorCodeAsync(HttpResponseMessage response)
     {
         await using Stream stream = await response.Content.ReadAsStreamAsync();
@@ -284,9 +340,11 @@ public sealed class ImportExportedTextsTests : IAsyncLifetime
         return new MultipartFormDataContent { { fileContent, "file", "exported.txt" } };
     }
 
-    private HttpClient AdminClient()
+    private HttpClient AdminClient() => AdminClient(_factory);
+
+    private static HttpClient AdminClient(WebApplicationFactory<Program> factory)
     {
-        HttpClient client = _factory.CreateClient();
+        HttpClient client = factory.CreateClient();
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue(
             "Bearer", TranslationSystemApiFactory.CreateAccessToken(AuthConstants.Roles.Admin));
         return client;

@@ -30,13 +30,26 @@ internal sealed partial class BadHttpRequestExceptionHandler : IExceptionHandler
             return false;
         }
 
-        ProblemDetails problemDetails = new()
-        {
-            Status = badHttpRequestException.StatusCode,
-            Type = "https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/400",
-            Title = "Bad Request",
-            Extensions = { ["errorCode"] = "Http.BadRequest" }
-        };
+        // An oversized upload surfaces inconsistently — Kestrel's request-body cap throws a 413, while
+        // the multipart form-length cap throws an InvalidDataException that minimal-API binding wraps as
+        // a generic 400. Normalize both to a clean 413 so an admin uploading too large an exported.txt
+        // gets an actionable "too large" response rather than a bare "Bad Request" (#208).
+        ProblemDetails problemDetails = IsPayloadTooLarge(badHttpRequestException)
+            ? new ProblemDetails
+            {
+                Status = StatusCodes.Status413PayloadTooLarge,
+                Type = "https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/413",
+                Title = "Payload Too Large",
+                Detail = "The upload exceeds the maximum allowed size.",
+                Extensions = { ["errorCode"] = "Http.PayloadTooLarge" }
+            }
+            : new ProblemDetails
+            {
+                Status = badHttpRequestException.StatusCode,
+                Type = "https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/400",
+                Title = "Bad Request",
+                Extensions = { ["errorCode"] = "Http.BadRequest" }
+            };
 
         if (_environment.IsTesting() || _environment.IsDevelopment())
         {
@@ -57,6 +70,25 @@ internal sealed partial class BadHttpRequestExceptionHandler : IExceptionHandler
 
         return true;
     }
+
+    /// <summary>
+    /// True when the bad request is really an over-limit upload, to be normalized to 413: a direct 413
+    /// from Kestrel's request-body cap, or — because the multipart form reader's length cap throws an
+    /// <see cref="InvalidDataException"/> that minimal-API binding wraps as a 400 — a wrapped
+    /// <see cref="InvalidDataException"/> or wrapped 413.
+    /// <para>
+    /// The <see cref="InvalidDataException"/> arm maps <em>every</em> wrapped form-read data error to
+    /// 413, not only the size one. That is acceptable today because the version-bound import upload is
+    /// the API's only form-accepting endpoint and, with the framework's default form limits, its sole
+    /// realistic form-read failure is the body-length (size) cap. Revisit this predicate before adding
+    /// another form endpoint whose other form limits (key/value/count) could legitimately trip — those
+    /// are genuine 400s, not "too large".
+    /// </para>
+    /// </summary>
+    private static bool IsPayloadTooLarge(BadHttpRequestException exception)
+        => exception.StatusCode == StatusCodes.Status413PayloadTooLarge
+           || exception.InnerException is InvalidDataException
+           || exception.InnerException is BadHttpRequestException { StatusCode: StatusCodes.Status413PayloadTooLarge };
 
     [LoggerMessage(EventId = EventIds.BadHttpRequest, Level = LogLevel.Warning, Message = "Bad HTTP request: {ErrorCode} ({ErrorType}) — {ErrorMessage}")]
     private static partial void LogBadHttpRequest(ILogger logger, Exception exception, string errorCode, string errorType, string errorMessage);

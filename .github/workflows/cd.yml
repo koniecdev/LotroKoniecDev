@@ -1,36 +1,36 @@
 name: CD
 
-# Build + push the four service images to GHCR (ADR-0008 §6, ticket M6-09). The deployment unit is
-# an OCI image (ADR-0008 §1); this is the only workflow that publishes one. It builds the existing
-# multi-stage Dockerfiles — no new build logic — and pushes to ghcr.io/koniecdev/<image>:
-#   * lotrokoniecdev-auth-api   — src/AuthSystem/LotroKoniecDev.AuthSystem.API/Dockerfile
-#   * lotrokoniecdev-tms-api    — src/TranslationSystem/LotroKoniecDev.TranslationSystem.API/Dockerfile
-#   * lotrokoniecdev-frontend   — src/Frontend/LotroKoniecDev.Frontend/Dockerfile
-#   * lotrokoniecdev-migrator   — Dockerfile.migrator.prod (the lean, self-contained EF migration-bundle
-#                                 image — the artifact a cloud pre-deploy job runs; M6-10, ADR-0008 §6.
-#                                 The dev Dockerfile.migrator is built locally by compose.yaml, never published.)
+# Continuous delivery + deployment for the TMS (ADR-0012).
 #
-# Triggers:
-#   * push to main           → publishes :sha-<short> and :latest (the moving "tip of main")
-#   * push of a v* tag       → publishes :sha-<short>, :<major.minor.patch> and :<major.minor>
-#                              (immutable release coordinates; `latest` is NOT moved by a tag — it
-#                               tracks the default branch only, so its meaning stays unambiguous)
+#   build-and-push → publishes the four OCI images to GHCR (the deployment unit; ADR-0008 §1/§6).
+#   deploy-prod    → rolls them out to Azure Container Apps, BEHIND a manual approval gate.
+#   smoke          → post-deploy end-to-end signal (reusable smoke.yml).
 #
-# Pull a published image (the runbook — M6-11 — documents this for operators):
-#   docker pull ghcr.io/koniecdev/lotrokoniecdev-tms-api:latest
+# The deployment unit is an immutable per-commit image (`sha-<short>`); the rolling tag is owned by
+# THIS pipeline (`az containerapp update`), not Terraform — the ACA resources ignore image drift
+# (iac/, lifecycle.ignore_changes). `latest` still tracks the tip of main for humans pulling by hand.
+#
+# Build images:
+#   * push to main      → :sha-<short> and :latest
+#   * push of a v* tag  → :sha-<short>, :<major.minor.patch>, :<major.minor>  (latest is NOT moved)
+#
+# Deploy: every push to main becomes a deploy CANDIDATE that pauses at the `production` environment
+# approval gate (prod is de-facto staging for QA — a human releases it when QA is free). A v* tag
+# only publishes artifacts; it does not deploy. `workflow_dispatch` deploys the tip of the chosen
+# ref (or an explicit image_tag) on demand, still behind the gate.
 on:
   push:
     branches: ["main"]
     tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: 'Image tag to deploy (e.g. sha-1a2b3c4 or v1.2.3). Empty = the dispatched commit SHA.'
+        required: false
+        default: ''
 
-# Don't pile up publishes for the same ref; a newer push supersedes an in-flight one. Keyed by ref
-# so a main push and a tag push (different refs) never cancel each other.
-concurrency:
-  group: cd-${{ github.ref }}
-  cancel-in-progress: true
-
-# Least privilege: read the repo, write packages (GHCR). GITHUB_TOKEN is scoped to this repo's
-# packages only — no PAT, no cross-repo reach.
+# Least privilege at the top: read the repo, write packages (GHCR). The deploy job widens to
+# id-token (OIDC) and narrows packages away — see its own permissions block.
 permissions:
   contents: read
   packages: write
@@ -44,6 +44,11 @@ jobs:
     name: Build & push ${{ matrix.image }}
     runs-on: ubuntu-24.04
     timeout-minutes: 30
+    # A newer push supersedes an in-flight BUILD for the same ref; deploys are serialized separately
+    # (deploy-prod uses its own non-cancelling group so a rollout is never interrupted mid-flight).
+    concurrency:
+      group: cd-build-${{ github.ref }}
+      cancel-in-progress: true
 
     strategy:
       # Publish every image even if one fails, so a single flaky build doesn't mask the rest.
@@ -103,3 +108,138 @@ jobs:
           cache-from: type=gha,scope=${{ matrix.image }}
           cache-to: type=gha,mode=max,scope=${{ matrix.image }}
           provenance: false
+
+  deploy-prod:
+    name: Deploy to prod (ACA)
+    needs: build-and-push
+    # Deploy on a main push or a manual dispatch. A v* tag push only builds artifacts.
+    if: github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    # The `production` environment carries the required-reviewer rule: this job PAUSES here until a
+    # human approves the release. That is the "approve a release manually in GitHub" control.
+    environment:
+      name: production
+      url: https://lotro-translator.pl
+    # Never cancel a rollout in progress; queue instead. A waiting-for-approval run is superseded by
+    # the next one only after the running rollout finishes.
+    concurrency:
+      group: cd-deploy-prod
+      cancel-in-progress: false
+    permissions:
+      contents: read # checkout (scripts/)
+      id-token: write # Azure OIDC federation — short-lived token, no stored client secret
+    env:
+      RESOURCE_GROUP: rg-lotrotms-prod-polc-001
+      AUTH_APP: lotrotms-auth-api-prod
+      TMS_APP: lotrotms-tms-api-prod
+      FRONTEND_APP: lotrotms-frontend-prod
+      MIGRATOR_JOB: lotrotms-migrator-prod
+      AUTH_URL: https://auth.lotro-translator.pl
+      TMS_URL: https://tms.lotro-translator.pl
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      # GITHUB_SHA / INPUT_IMAGE_TAG go through the environment (never interpolated into run:) — the
+      # SHA is trusted hex, the input cannot inject shell. `sha-<short>` mirrors docker/metadata type=sha.
+      - name: Resolve image tag
+        id: tag
+        env:
+          INPUT_IMAGE_TAG: ${{ github.event.inputs.image_tag }}
+        run: |
+          set -euo pipefail
+          if [ -n "${INPUT_IMAGE_TAG:-}" ]; then
+            tag="$INPUT_IMAGE_TAG"
+          else
+            tag="sha-$(printf '%s' "$GITHUB_SHA" | cut -c1-7)"
+          fi
+          printf 'tag=%s\n' "$tag" >> "$GITHUB_OUTPUT"
+          printf 'Deploying image tag: %s\n' "$tag"
+
+      - name: Azure login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      # R6 gate: run the migrator to completion BEFORE rolling the APIs. A non-Succeeded execution
+      # fails the job, so the apps are never rolled onto an un-migrated schema (no half-migrated serving).
+      - name: Run migrations (gate — rollout blocked unless this succeeds)
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          set -euo pipefail
+          img="${REGISTRY}/${IMAGE_NAMESPACE}/lotrokoniecdev-migrator:${TAG}"
+          echo "Pinning migrator job to ${img}"
+          az containerapp job update -n "$MIGRATOR_JOB" -g "$RESOURCE_GROUP" --image "$img" -o none
+          echo "Starting migrator job…"
+          az containerapp job start -n "$MIGRATOR_JOB" -g "$RESOURCE_GROUP" -o none
+          echo "Waiting for the latest execution to complete…"
+          status=""
+          for _ in $(seq 1 80); do
+            status=$(az containerapp job execution list -n "$MIGRATOR_JOB" -g "$RESOURCE_GROUP" \
+              --query "sort_by([],&properties.startTime)[-1].properties.status" -o tsv 2>/dev/null || true)
+            echo "  migrator status: ${status:-<pending>}"
+            case "$status" in
+              Succeeded) break ;;
+              Failed | Degraded | Canceled) echo "::error::Migration job ended: ${status}"; exit 1 ;;
+            esac
+            sleep 15
+          done
+          if [ "$status" != "Succeeded" ]; then
+            echo "::error::Migration job did not succeed within the time budget (status=${status:-none})."
+            exit 1
+          fi
+          echo "Migrations applied."
+
+      # Single-revision apps: changing the image rolls traffic to a new revision pinned to this SHA.
+      - name: Roll the three web apps to the new image
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          set -euo pipefail
+          roll() {
+            app="$1"; image="$2"
+            img="${REGISTRY}/${IMAGE_NAMESPACE}/${image}:${TAG}"
+            echo "::group::Rolling ${app} → ${img}"
+            az containerapp update -n "$app" -g "$RESOURCE_GROUP" --image "$img" -o none
+            echo "::endgroup::"
+          }
+          roll "$AUTH_APP" lotrokoniecdev-auth-api
+          roll "$TMS_APP" lotrokoniecdev-tms-api
+          roll "$FRONTEND_APP" lotrokoniecdev-frontend
+
+      # Cold-start tolerant: poll readiness before handing off to the smoke job.
+      - name: Wait for readiness
+        run: |
+          set -euo pipefail
+          wait_ready() {
+            name="$1"; url="$2"
+            echo "::group::Waiting for ${name} readiness: ${url}"
+            for _ in $(seq 1 40); do
+              code=$(curl -fsS -o /dev/null -w '%{http_code}' --max-time 10 "$url" || true)
+              echo "  ${name} → ${code}"
+              if [ "$code" = "200" ]; then echo "::endgroup::"; return 0; fi
+              sleep 10
+            done
+            echo "::endgroup::"
+            echo "::error::${name} did not become ready: ${url}"
+            return 1
+          }
+          wait_ready auth "${AUTH_URL}/health/ready"
+          wait_ready tms "${TMS_URL}/health/ready"
+
+  smoke:
+    name: Post-deploy smoke
+    needs: deploy-prod
+    # The documented "call the smoke job at the end of the deploy workflow" (runbook). secrets:
+    # inherit passes the repo SMOKE_CLIENT_SECRET to the reusable workflow.
+    uses: ./.github/workflows/smoke.yml
+    secrets: inherit
+    with:
+      auth_url: https://auth.lotro-translator.pl
+      tms_url: https://tms.lotro-translator.pl
+      frontend_url: https://lotro-translator.pl

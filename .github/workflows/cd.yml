@@ -44,10 +44,12 @@ jobs:
     name: Build & push ${{ matrix.image }}
     runs-on: ubuntu-24.04
     timeout-minutes: 30
-    # A newer push supersedes an in-flight BUILD for the same ref; deploys are serialized separately
-    # (deploy-prod uses its own non-cancelling group so a rollout is never interrupted mid-flight).
+    # A newer push supersedes an in-flight BUILD of the SAME image for the same ref; deploys are
+    # serialized separately (deploy-prod uses its own non-cancelling group so a rollout is never
+    # interrupted mid-flight). The group MUST include matrix.image — otherwise all four matrix legs
+    # share one group and, with cancel-in-progress, cancel each other (only the last-started survives).
     concurrency:
-      group: cd-build-${{ github.ref }}
+      group: cd-build-${{ github.ref }}-${{ matrix.image }}
       cancel-in-progress: true
 
     strategy:

@@ -4,6 +4,13 @@ resource "azurerm_container_app" "auth_api" {
   resource_group_name          = azurerm_resource_group.rg-lotrotms-prod-polc-001.name
   revision_mode                = "Single"
 
+  # The rolling image is owned by the CD pipeline (az containerapp update by commit SHA), not
+  # Terraform. Ignore image drift so `terraform apply` never reverts a deployed revision back to the
+  # bootstrap tag (var.image_tag). See ADR-0012.
+  lifecycle {
+    ignore_changes = [template[0].container[0].image]
+  }
+
   secret {
     name  = "connection-string-auth"
     value = var.connection_string_auth
@@ -34,12 +41,12 @@ resource "azurerm_container_app" "auth_api" {
   }
 
   template {
-    min_replicas = 0
+    min_replicas = 1
     max_replicas = 1
 
     container {
       name   = "auth-api"
-      image  = "ghcr.io/koniecdev/lotrokoniecdev-auth-api:latest"
+      image  = "ghcr.io/koniecdev/lotrokoniecdev-auth-api:${var.image_tag}"
       cpu    = 0.25
       memory = "0.5Gi"
 
@@ -198,18 +205,25 @@ resource "azurerm_container_app" "tms_api" {
   resource_group_name          = azurerm_resource_group.rg-lotrotms-prod-polc-001.name
   revision_mode                = "Single"
 
+  # The rolling image is owned by the CD pipeline (az containerapp update by commit SHA), not
+  # Terraform. Ignore image drift so `terraform apply` never reverts a deployed revision back to the
+  # bootstrap tag (var.image_tag). See ADR-0012.
+  lifecycle {
+    ignore_changes = [template[0].container[0].image]
+  }
+
   secret {
     name  = "connection-string-translation"
     value = var.connection_string_translation
   }
 
   template {
-    min_replicas = 0
+    min_replicas = 1
     max_replicas = 1
 
     container {
       name   = "tms-api"
-      image  = "ghcr.io/koniecdev/lotrokoniecdev-tms-api:latest"
+      image  = "ghcr.io/koniecdev/lotrokoniecdev-tms-api:${var.image_tag}"
       cpu    = 0.25
       memory = "0.5Gi"
 
@@ -305,13 +319,20 @@ resource "azurerm_container_app" "frontend" {
   resource_group_name          = azurerm_resource_group.rg-lotrotms-prod-polc-001.name
   revision_mode                = "Single"
 
+  # The rolling image is owned by the CD pipeline (az containerapp update by commit SHA), not
+  # Terraform. Ignore image drift so `terraform apply` never reverts a deployed revision back to the
+  # bootstrap tag (var.image_tag). See ADR-0012.
+  lifecycle {
+    ignore_changes = [template[0].container[0].image]
+  }
+
   template {
-    min_replicas = 0
+    min_replicas = 1
     max_replicas = 1
 
     container {
       name   = "frontend"
-      image  = "ghcr.io/koniecdev/lotrokoniecdev-frontend:latest"
+      image  = "ghcr.io/koniecdev/lotrokoniecdev-frontend:${var.image_tag}"
       cpu    = 0.25
       memory = "0.5Gi"
 

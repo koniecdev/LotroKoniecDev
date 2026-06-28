@@ -2,6 +2,7 @@ using System.Text.Json.Serialization;
 using FluentValidation;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Http.Features;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Protocols;
 using Microsoft.IdentityModel.Protocols.OpenIdConnect;
@@ -78,6 +79,14 @@ internal static class ApiDependencyInjection
         {
             services.AddSingleton<ITranslationExportParser, TranslationExportParser>();
             services.AddOptions<ImportSettings>().BindConfiguration(ImportSettings.ConfigurationSection);
+
+            // The import is the only multipart endpoint, so lifting the global multipart form-length
+            // limit to the configured upload ceiling is safe and keeps it in step with the endpoint's
+            // request-body limit — otherwise the framework's 128 MB default would cap a larger ceiling
+            // (spec 0003, #208).
+            services.AddOptions<FormOptions>()
+                .Configure<IOptions<ImportSettings>>((formOptions, importSettings) =>
+                    formOptions.MultipartBodyLengthLimit = importSettings.Value.MaxUploadBytes);
 
             services.AddScoped<IValidator<ImportExportedTexts.Command>, ImportExportedTexts.Validator>();
             services.AddScoped<ICommandHandler<ImportExportedTexts.Command, Result<ImportSummary>>, ImportExportedTexts.Handler>();

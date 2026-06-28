@@ -222,6 +222,13 @@ internal sealed class ImportExportedTexts : IEndpoint
 
     public void MapEndpoint(IEndpointRouteBuilder endpointRouteBuilder)
     {
+        // The exported.txt is ~80 MB and grows, so this single endpoint overrides Kestrel's 30 MB
+        // default body cap with the configured ceiling (spec 0003, #208). No server-side request
+        // timeout is added: a full-catalog import legitimately runs for minutes, and the only client
+        // budget that needed lifting is the Frontend's (HttpClientsDependencyInjectionExtensions).
+        long maxUploadBytes = endpointRouteBuilder.ServiceProvider
+            .GetRequiredService<IOptions<ImportSettings>>().Value.MaxUploadBytes;
+
         endpointRouteBuilder.MapPost("/api/v1/game-versions/{id:guid}/import", async (
                 Guid id,
                 IFormFile file,
@@ -243,8 +250,10 @@ internal sealed class ImportExportedTexts : IEndpoint
             .WithTags("Import")
             .RequireAuthorization(AuthorizationPolicies.RequireAdminRole)
             .DisableAntiforgery()
+            .WithMetadata(new RequestSizeLimitAttribute(maxUploadBytes))
             .Produces<ImportSummary>(StatusCodes.Status200OK)
             .ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status413PayloadTooLarge)
             .ProducesProblem(StatusCodes.Status422UnprocessableEntity);
     }
 }

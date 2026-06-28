@@ -34,7 +34,7 @@ resource "azurerm_container_app" "auth_api" {
   }
 
   template {
-    min_replicas = 1
+    min_replicas = 0
     max_replicas = 1
 
     container {
@@ -204,7 +204,7 @@ resource "azurerm_container_app" "tms_api" {
   }
 
   template {
-    min_replicas = 1
+    min_replicas = 0
     max_replicas = 1
 
     container {
@@ -306,7 +306,7 @@ resource "azurerm_container_app" "frontend" {
   revision_mode                = "Single"
 
   template {
-    min_replicas = 1
+    min_replicas = 0
     max_replicas = 1
 
     container {

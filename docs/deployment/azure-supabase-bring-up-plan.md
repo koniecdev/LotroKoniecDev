@@ -1,5 +1,11 @@
 # TMS on Azure Container Apps + Supabase — Bring-up Plan
 
+> 🟢 **Status: executed.** The infra in `iac/` is live: RG `rg-lotrotms-prod-polc-001`, domain
+> **`lotro-translator.pl`** (`auth.` / `tms.` / apex), DB on Supabase. **Ongoing deploys are now
+> automated and gated** — see [ADR-0012](../adr/0012-continuous-deployment-pipeline.md) and the
+> runbook's *Continuous deployment (CI/CD)* section. The historical `*.lotro.koniec.dev` and
+> `rg-…-dev-…` strings below are from the original plan; read them as the live domain / RG.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: use `superpowers:subagent-driven-development`
 > (recommended) or `superpowers:executing-plans` to implement this plan task-by-task. Steps use
 > checkbox (`- [ ]`) syntax for tracking.

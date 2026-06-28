@@ -404,6 +404,11 @@ Environments → New → `production` → *Required reviewers* → add yourself)
 The secret/variable values are exactly the ones already in the git-ignored `iac/terraform.tfvars`;
 copying them to GitHub is what lets `infra.yml` plan/apply. They are **never** committed.
 
+**6. Flip the activation switch — repo Variable `CD_ENABLED` = `true`.** This is the master switch:
+the Azure-touching jobs (`deploy-prod`, `infra plan`/`apply`) carry `if: vars.CD_ENABLED == 'true'`,
+so until you set it they are **skipped** — merging is inert and `iac/**` PRs stay green before steps
+1–5 exist. Set it last, once 1–5 are done; unset it to pause all deployment without touching code.
+
 ## Database migrations
 
 ### Strategy (ADR-0008 §6)

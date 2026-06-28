@@ -143,7 +143,8 @@ Rejected: a long-lived secret in GitHub versus keyless OIDC federation.
   `koniec.dev → lotro-translator.pl` and the automated-CD description.
 - **Operator one-time setup** (Azure + GitHub; enumerated in the runbook + issue #217): Entra app +
   two federated credentials, RBAC, repo Secrets/Variables, the `production` environment with a
-  required reviewer.
+  required reviewer, and the `CD_ENABLED` activation switch (a repo Variable; the Azure-touching jobs
+  are skipped until it is `true`, so merging this change is inert until the operator activates).
 - **Unchanged:** the four Dockerfiles, the CI gate (`pr-verify`/`ci`), `gitleaks`/`e2e`/`mutation`,
   and the patcher (ADR-0002).
 

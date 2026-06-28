@@ -112,8 +112,10 @@ jobs:
   deploy-prod:
     name: Deploy to prod (ACA)
     needs: build-and-push
-    # Deploy on a main push or a manual dispatch. A v* tag push only builds artifacts.
-    if: github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main'
+    # Activation switch: set repo variable CD_ENABLED=true once the one-time Azure/GitHub setup is
+    # done (runbook). Until then this job is skipped, so merging is inert (build still publishes).
+    # Then: deploy on a main push or a manual dispatch. A v* tag push only builds artifacts.
+    if: vars.CD_ENABLED == 'true' && (github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main')
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     # The `production` environment carries the required-reviewer rule: this job PAUSES here until a

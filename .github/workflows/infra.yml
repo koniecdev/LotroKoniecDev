@@ -52,7 +52,9 @@ env:
 jobs:
   plan:
     name: terraform plan
-    if: github.event_name == 'pull_request'
+    # Activation switch (see runbook): until CD_ENABLED=true the Azure-touching jobs are skipped, so
+    # an iac/** PR stays green before the one-time OIDC/secret setup is done.
+    if: vars.CD_ENABLED == 'true' && github.event_name == 'pull_request'
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     defaults:
@@ -96,7 +98,7 @@ jobs:
 
   apply:
     name: terraform apply
-    if: github.event_name != 'pull_request'
+    if: vars.CD_ENABLED == 'true' && github.event_name != 'pull_request'
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     # Same approval gate as the app rollout — a human approves before live infra changes.

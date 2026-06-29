@@ -48,8 +48,10 @@ jobs:
   plan:
     name: terraform plan
     # Activation switch (see runbook): until CD_ENABLED=true the Azure-touching jobs are skipped, so
-    # an iac/** PR stays green before the one-time OIDC/secret setup is done.
-    if: vars.CD_ENABLED == 'true' && github.event_name == 'pull_request'
+    # an iac/** PR stays green before the one-time OIDC/secret setup is done. Dependabot PRs are also
+    # skipped: they run without repository secrets, so the Azure OIDC login (client-id/tenant-id) can
+    # never succeed there — and granting them Azure access would be a privilege escalation anyway.
+    if: vars.CD_ENABLED == 'true' && github.event_name == 'pull_request' && github.actor != 'dependabot[bot]'
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     defaults:

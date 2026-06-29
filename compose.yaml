@@ -2,7 +2,7 @@ name: lotrokoniecdev
 
 services:
   postgres:
-    image: postgres:17-alpine
+    image: postgres:18-alpine
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
@@ -10,7 +10,9 @@ services:
     ports:
       - "5432:5432"
     volumes:
-      - lotrokoniecdev-postgres-data:/var/lib/postgresql/data
+      # PG18 moved PGDATA to /var/lib/postgresql/18/docker and the VOLUME to /var/lib/postgresql;
+      # mount the directory itself (not .../data) so the data subdir is persisted across recreates.
+      - lotrokoniecdev-postgres-data:/var/lib/postgresql
       - ./scripts/init-postgres.sh:/docker-entrypoint-initdb.d/10-init-databases.sh:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres -d lotro_translation"]

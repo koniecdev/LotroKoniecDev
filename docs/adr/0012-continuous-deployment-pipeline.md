@@ -52,6 +52,24 @@ of a ref (or an explicit `image_tag`) on demand, behind the same gate. A `v*` ta
 artifacts only — it does not deploy. This is the "approve a release manually in GitHub" control that
 protects in-flight QA.
 
+**Amendment (2026-06-29, audit 0001 C2 — CI success is a hard pre-condition of deploy):** the CD
+trigger changed from `on: push: main` to `on: workflow_run` of the **CI** workflow (`types:
+[completed]`, `branches: [main]`). A new `gate` job runs first and proceeds **only** when CI
+concluded `success` on main; a red or cancelled CI skips the whole deploy (the gate records why in
+the run summary — which the approver sees before releasing, satisfying the audit's "show CI status
+in the approval decision"). The gate also pins the exact commit CI tested
+(`github.event.workflow_run.head_sha`); the image build (`checkout` ref + a per-tested-commit build
+concurrency key), its immutable `sha-<short>` tag, the ACA rollout, and even the mutable `latest` tag
+(moved only when the tested commit is still main's tip, `head_sha == github.sha`) are all keyed to
+that commit — so a commit that races ahead of CI can neither be deployed nor make `latest` regress to
+an older commit, and no green commit loses its build to another commit's run. Consequently the original §3 phrasing "a push to main builds
+artifacts unconditionally" no longer holds: a build now happens **only behind a green CI**. The full
+suite (Release build + unit + integration) is thus a gate *before* the deploy candidate exists, not
+a parallel race. `workflow_dispatch` and `v*`-tag pushes are deliberately **not** CI-gated (manual /
+publish-only paths) — they pass through the gate ungated — but a dispatch rollout still requires the
+same human approval, and a tag still only publishes artifacts. Because CI carries `paths-ignore` for
+docs, a docs-only push runs no CI and therefore triggers no CD (incidentally closing audit 0001 M2).
+
 ### 4. Migrations are an enforced pre-rollout gate (R6 — finally live)
 
 `deploy-prod` pins the migrator job to the same `:sha`, starts it, and polls its execution to

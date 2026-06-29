@@ -241,14 +241,14 @@ psql "$ConnectionStrings__AuthDatabase"        -c 'SELECT "MigrationId" FROM aut
 scripts/smoke.sh \
   --auth-url     https://auth.lotro-translator.pl \
   --tms-url      https://tms.lotro-translator.pl \
-  --frontend-url https://app.lotro-translator.pl \
+  --frontend-url https://lotro-translator.pl \
   --client-secret "$SMOKE_CLIENT_SECRET"
 ```
 
   All four legs green (health · client-credentials token · tms accepts the token = 403-not-401 ·
   distribution ETag/304; leg 4 may WARN if no artifact is seeded — that is still "up").
 
-- [ ] **5.2 Browser login** at `https://app.lotro-translator.pl` with the seeded admin
+- [ ] **5.2 Browser login** at `https://lotro-translator.pl` with the seeded admin
   (`admin-password` from Key Vault) — confirms `auth-api` re-seeded the admin into Neon.
 
 - [ ] **5.3 Health probes:**

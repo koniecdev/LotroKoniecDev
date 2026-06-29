@@ -1,7 +1,10 @@
 name: CD
 
-# Continuous delivery + deployment for the TMS (ADR-0012).
+# Continuous delivery + deployment for the TMS (ADR-0012, amended 2026-06-29 — audit 0001 C2).
 #
+#   gate           → CI-success gate. CD is TRIGGERED BY the CI workflow finishing (workflow_run); it
+#                    proceeds only when CI concluded `success` on main, and pins the exact tested
+#                    commit (head_sha) for everything downstream. Dispatch / v* tags pass through.
 #   build-and-push → publishes the four OCI images to GHCR (the deployment unit; ADR-0008 §1/§6).
 #   deploy-prod    → rolls them out to Azure Container Apps, BEHIND a manual approval gate.
 #   smoke          → post-deploy end-to-end signal (reusable smoke.yml).
@@ -10,17 +13,28 @@ name: CD
 # THIS pipeline (`az containerapp update`), not Terraform — the ACA resources ignore image drift
 # (iac/, lifecycle.ignore_changes). `latest` still tracks the tip of main for humans pulling by hand.
 #
-# Build images:
-#   * push to main      → :sha-<short> and :latest
-#   * push of a v* tag  → :sha-<short>, :<major.minor.patch>, :<major.minor>  (latest is NOT moved)
+# CI is a hard pre-condition of deploy (audit 0001 C2): a push to main no longer triggers CD
+# directly. CD waits for the CI workflow (Release build + unit + integration) to finish, and only a
+# `success` conclusion lets the deploy candidate build/roll — testing is no longer a parallel race.
+# A red or cancelled CI silently skips the deploy (the gate records why in the run summary). Because
+# CI carries `paths-ignore` for docs, a docs-only push runs no CI and therefore triggers no CD (this
+# also closes audit 0001 M2).
 #
-# Deploy: every push to main becomes a deploy CANDIDATE that pauses at the `production` environment
-# approval gate (prod is de-facto staging for QA — a human releases it when QA is free). A v* tag
-# only publishes artifacts; it does not deploy. `workflow_dispatch` deploys the tip of the chosen
-# ref (or an explicit image_tag) on demand, still behind the gate.
+# Build images:
+#   * CI success on main → :sha-<short> and :latest
+#   * push of a v* tag   → :sha-<short>, :<major.minor.patch>, :<major.minor>  (latest is NOT moved; not CI-gated)
+#
+# Deploy: every green-CI commit on main becomes a deploy CANDIDATE that pauses at the `production`
+# environment approval gate (prod is de-facto staging for QA — a human releases it when QA is free).
+# The approver sees the CI conclusion + deploying commit in the run summary before approving. A v*
+# tag only publishes artifacts; it does not deploy. `workflow_dispatch` deploys the tip of the chosen
+# ref (or an explicit image_tag) on demand, still behind the gate (and not CI-gated).
 on:
-  push:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
     branches: ["main"]
+  push:
     tags: ["v*"]
   workflow_dispatch:
     inputs:
@@ -40,16 +54,88 @@ env:
   IMAGE_NAMESPACE: ${{ github.repository_owner }}
 
 jobs:
+  # CI-success gate (audit 0001 C2). Reached via workflow_run, this decides whether the deploy
+  # candidate may proceed AND pins the exact commit CI tested (head_sha) for build + rollout — so the
+  # image content, its `sha-<short>` tag and the deployed revision are all the same tested commit,
+  # never main's tip if it raced ahead (which would otherwise re-open C2 under a push race). Manual
+  # dispatch / v* tag publishes pass through ungated. workflow_run fields are read via env, never
+  # interpolated into run: (the SHA is trusted hex, head_branch is allowlisted to main by the trigger).
+  gate:
+    name: CI gate (deploy candidate)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      proceed: ${{ steps.eval.outputs.proceed }}
+      deploy_sha: ${{ steps.eval.outputs.deploy_sha }}
+      short_sha: ${{ steps.eval.outputs.short_sha }}
+    steps:
+      - name: Evaluate trigger & CI conclusion
+        id: eval
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          WR_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+          WR_BRANCH: ${{ github.event.workflow_run.head_branch }}
+          WR_SHA: ${{ github.event.workflow_run.head_sha }}
+          WR_ID: ${{ github.event.workflow_run.id }}
+          WR_URL: ${{ github.event.workflow_run.html_url }}
+          FALLBACK_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          proceed=false
+          deploy_sha="$FALLBACK_SHA"
+          if [ "$EVENT_NAME" = "workflow_run" ]; then
+            deploy_sha="$WR_SHA"
+            if [ "$WR_CONCLUSION" = "success" ] && [ "$WR_BRANCH" = "main" ]; then
+              proceed=true
+              {
+                echo "### ✅ CI gate passed — deploy candidate"
+                echo ""
+                echo "- CI run [#${WR_ID}](${WR_URL}) concluded **${WR_CONCLUSION}** on **${WR_BRANCH}**"
+                echo "- Deploying commit \`${deploy_sha}\` — the exact commit CI tested"
+                echo "- Rollout still pauses at the \`production\` approval gate below."
+              } >> "$GITHUB_STEP_SUMMARY"
+            else
+              {
+                echo "### ⏭️ Deploy skipped — CI did not pass"
+                echo ""
+                echo "- CI run [#${WR_ID}](${WR_URL}) concluded **${WR_CONCLUSION:-unknown}** on **${WR_BRANCH:-unknown}**"
+                echo "- No image is built and no rollout is attempted."
+              } >> "$GITHUB_STEP_SUMMARY"
+            fi
+          else
+            # workflow_dispatch (deploy on demand) or a v* tag push (publish artifacts only).
+            proceed=true
+            {
+              echo "### ▶️ ${EVENT_NAME} — not CI-gated"
+              echo ""
+              echo "- Commit \`${deploy_sha}\`"
+              echo "- Manual dispatch / tag publish. Any rollout still requires approval."
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+          short_sha="$(printf '%s' "$deploy_sha" | cut -c1-7)"
+          {
+            printf 'proceed=%s\n' "$proceed"
+            printf 'deploy_sha=%s\n' "$deploy_sha"
+            printf 'short_sha=%s\n' "$short_sha"
+          } >> "$GITHUB_OUTPUT"
+
   build-and-push:
     name: Build & push ${{ matrix.image }}
+    needs: gate
+    if: needs.gate.outputs.proceed == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 30
-    # A newer push supersedes an in-flight BUILD of the SAME image for the same ref; deploys are
-    # serialized separately (deploy-prod uses its own non-cancelling group so a rollout is never
-    # interrupted mid-flight). The group MUST include matrix.image — otherwise all four matrix legs
-    # share one group and, with cancel-in-progress, cancel each other (only the last-started survives).
+    # Supersede only an in-flight BUILD of the SAME image for the SAME tested commit (e.g. a CI
+    # re-run) — keyed on the tested commit (workflow_run.head_sha, else github.sha for tag/dispatch),
+    # NOT github.ref. Under workflow_run github.ref is always refs/heads/main, so a github.ref key
+    # would make builds for *different* tested commits share one group and cancel each other — a green
+    # commit could lose its image entirely. Deploys are serialized separately (deploy-prod has its own
+    # non-cancelling group). The group MUST include matrix.image, else the four legs share one group
+    # and cancel each other (only the last-started survives).
     concurrency:
-      group: cd-build-${{ github.ref }}-${{ matrix.image }}
+      group: cd-build-${{ github.event.workflow_run.head_sha || github.sha }}-${{ matrix.image }}
       cancel-in-progress: true
 
     strategy:
@@ -67,8 +153,13 @@ jobs:
             dockerfile: Dockerfile.migrator.prod
 
     steps:
+      # Build the EXACT commit the gate pinned (the commit CI tested) — never main's tip. For a
+      # workflow_run, the default checkout ref (github.sha) is the default branch's HEAD, which a
+      # later push could have moved past the tested commit; pinning deploy_sha keeps build == tested.
       - name: Checkout
         uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
+        with:
+          ref: ${{ needs.gate.outputs.deploy_sha }}
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
@@ -86,14 +177,22 @@ jobs:
         uses: docker/metadata-action@80c7e94dd9b9319bd5eb7a0e0fe9291e23a2a2e9 # v6.1.0
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAMESPACE }}/${{ matrix.image }}
-          # `latest` is added explicitly below (default-branch only), never auto-applied to tags.
+          # `latest` is added explicitly below (main tip only — see the tags comment), never auto-applied.
           flavor: |
             latest=false
+          # The sha tag is pinned to the gate's commit (the one CI tested), not github.sha — type=sha
+          # would derive from github.sha, which for a workflow_run is main's tip and can race ahead of
+          # the tested commit. `latest` likewise must NOT follow {{is_default_branch}} (true for ANY
+          # main workflow_run, incl. a raced non-tip commit): it moves only when the tested commit IS
+          # the current main tip (head_sha == github.sha), so latest never regresses to an older commit
+          # under a push race (at worst it lags one tip whose newer sibling's CI is still red — harmless,
+          # latest is human-pull convenience, never deployed). type=semver still reads github.ref
+          # (emits only on a v* tag ref).
           tags: |
-            type=sha
+            type=raw,value=sha-${{ needs.gate.outputs.short_sha }}
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
-            type=raw,value=latest,enable={{is_default_branch}}
+            type=raw,value=latest,enable=${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha == github.sha }}
 
       - name: Build & push
         uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf # v7.2.0
@@ -113,11 +212,15 @@ jobs:
 
   deploy-prod:
     name: Deploy to prod (ACA)
-    needs: build-and-push
+    needs: [gate, build-and-push]
     # Activation switch: set repo variable CD_ENABLED=true once the one-time Azure/GitHub setup is
     # done (runbook). Until then this job is skipped, so merging is inert (build still publishes).
-    # Then: deploy on a main push or a manual dispatch. A v* tag push only builds artifacts.
-    if: vars.CD_ENABLED == 'true' && (github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main')
+    # Then deploy only when the gate cleared AND the trigger is a CI-success workflow_run or a manual
+    # dispatch. A v* tag push (event_name == 'push') publishes artifacts but never deploys.
+    if: >-
+      vars.CD_ENABLED == 'true'
+      && needs.gate.outputs.proceed == 'true'
+      && (github.event_name == 'workflow_run' || github.event_name == 'workflow_dispatch')
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     # The `production` environment carries the required-reviewer rule: this job PAUSES here until a
@@ -143,21 +246,27 @@ jobs:
       TMS_URL: https://tms.lotro-translator.pl
 
     steps:
+      # Same commit pin as build-and-push (the tested commit), so any repo file this job reads
+      # (scripts/) matches the image being rolled, not main's tip.
       - name: Checkout
         uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
+        with:
+          ref: ${{ needs.gate.outputs.deploy_sha }}
 
-      # GITHUB_SHA / INPUT_IMAGE_TAG go through the environment (never interpolated into run:) — the
-      # SHA is trusted hex, the input cannot inject shell. `sha-<short>` mirrors docker/metadata type=sha.
+      # The gate's short_sha / INPUT_IMAGE_TAG go through the environment (never interpolated into
+      # run:) — both are trusted (hex SHA / dispatch input). The default tag is the gate's pinned
+      # commit, byte-identical to the sha-<short> build-and-push published for that same commit.
       - name: Resolve image tag
         id: tag
         env:
           INPUT_IMAGE_TAG: ${{ github.event.inputs.image_tag }}
+          GATE_SHORT_SHA: ${{ needs.gate.outputs.short_sha }}
         run: |
           set -euo pipefail
           if [ -n "${INPUT_IMAGE_TAG:-}" ]; then
             tag="$INPUT_IMAGE_TAG"
           else
-            tag="sha-$(printf '%s' "$GITHUB_SHA" | cut -c1-7)"
+            tag="sha-${GATE_SHORT_SHA}"
           fi
           printf 'tag=%s\n' "$tag" >> "$GITHUB_OUTPUT"
           printf 'Deploying image tag: %s\n' "$tag"

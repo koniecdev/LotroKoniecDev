@@ -21,46 +21,16 @@ variable "subscription_id" {
   description = "The Azure subscription id"
 }
 
-variable "connection_string_translation" {
+variable "key_vault_name" {
   type        = string
-  description = "Npgsql connection string for the TMS (translation) database"
-  sensitive   = true
+  description = "Name of the Key Vault that holds the production app secrets (ADR-0013). Seeded out-of-band by scripts/seed-keyvault.{sh,ps1}; Terraform only data-references it."
+  default     = "lotrotms-kv-prod"
 }
 
-variable "connection_string_auth" {
+variable "aca_identity_name" {
   type        = string
-  description = "Npgsql connection string for the Auth database"
-  sensitive   = true
-}
-
-variable "openiddict_signing_key_rsa_private_key_xml" {
-  type        = string
-  description = "Base64 of RSA.ToXmlString(true) for the OpenIddict signing key"
-  sensitive   = true
-}
-
-variable "openiddict_encryption_key" {
-  type        = string
-  description = "Base64 of a 32-byte OpenIddict encryption key"
-  sensitive   = true
-}
-
-variable "openiddict_api_client_secret" {
-  type        = string
-  description = "OpenIddict API client secret shared with the service client"
-  sensitive   = true
-}
-
-variable "smtp_username" {
-  type        = string
-  description = "Brevo SMTP username"
-  sensitive   = true
-}
-
-variable "smtp_password" {
-  type        = string
-  description = "Brevo SMTP key used as the SMTP password"
-  sensitive   = true
+  description = "Name of the user-assigned managed identity the ACA apps + migrator job assume to read secrets from the Key Vault. Seeded out-of-band by scripts/seed-keyvault.{sh,ps1}; Terraform only data-references it."
+  default     = "lotrotms-aca-prod"
 }
 
 variable "smtp_sender_email" {
@@ -76,10 +46,4 @@ variable "admin_username" {
 variable "admin_email" {
   type        = string
   description = "Seeded admin email"
-}
-
-variable "admin_password" {
-  type        = string
-  description = "Seeded admin password"
-  sensitive   = true
 }

@@ -3,8 +3,13 @@
 > 🟢 **Status: executed.** The infra in `iac/` is live: RG `rg-lotrotms-prod-polc-001`, domain
 > **`lotro-translator.pl`** (`auth.` / `tms.` / apex), DB on Supabase. **Ongoing deploys are now
 > automated and gated** — see [ADR-0012](../adr/0012-continuous-deployment-pipeline.md) and the
-> runbook's *Continuous deployment (CI/CD)* section. The historical `*.lotro.koniec.dev` and
-> `rg-…-dev-…` strings below are from the original plan; read them as the live domain / RG.
+> runbook's *Continuous deployment (CI/CD)* section. **Secret management below is superseded by
+> [ADR-0013](../adr/0013-key-vault-single-source-of-truth-for-prod-secrets.md):** the app secrets now
+> live only in Azure Key Vault (seeded by `scripts/seed-keyvault.{sh,ps1}`), read at runtime via a
+> managed identity — **not** in `iac/terraform.tfvars`, the TF state, or GitHub Secrets. Read every
+> `terraform.tfvars`/`TF_VAR_*`-secret reference below as "set via the Key Vault seed step instead".
+> The historical `*.lotro.koniec.dev` and `rg-…-dev-…` strings below are from the original plan; read
+> them as the live domain / RG.
 
 > **For agentic workers:** REQUIRED SUB-SKILL: use `superpowers:subagent-driven-development`
 > (recommended) or `superpowers:executing-plans` to implement this plan task-by-task. Steps use

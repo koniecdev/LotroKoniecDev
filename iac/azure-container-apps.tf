@@ -4,6 +4,11 @@ resource "azurerm_container_app" "auth_api" {
   resource_group_name          = azurerm_resource_group.rg-lotrotms-prod-polc-001.name
   revision_mode                = "Single"
 
+  identity {
+    type         = "UserAssigned"
+    identity_ids = [data.azurerm_user_assigned_identity.aca.id]
+  }
+
   # The rolling image is owned by the CD pipeline (az containerapp update by commit SHA), not
   # Terraform. Ignore image drift so `terraform apply` never reverts a deployed revision back to the
   # bootstrap tag (var.image_tag). See ADR-0012.
@@ -11,33 +16,42 @@ resource "azurerm_container_app" "auth_api" {
     ignore_changes = [template[0].container[0].image]
   }
 
+  # Secrets resolve from Key Vault at runtime through the user-assigned identity (ADR-0013) — no
+  # plaintext value enters this configuration or the Terraform state.
   secret {
-    name  = "connection-string-auth"
-    value = var.connection_string_auth
+    name                = "connection-string-auth"
+    key_vault_secret_id = local.kv_secret_id["connection-string-auth"]
+    identity            = data.azurerm_user_assigned_identity.aca.id
   }
   secret {
-    name  = "openiddict-signing-key"
-    value = var.openiddict_signing_key_rsa_private_key_xml
+    name                = "openiddict-signing-key"
+    key_vault_secret_id = local.kv_secret_id["openiddict-signing-key"]
+    identity            = data.azurerm_user_assigned_identity.aca.id
   }
   secret {
-    name  = "openiddict-encryption-key"
-    value = var.openiddict_encryption_key
+    name                = "openiddict-encryption-key"
+    key_vault_secret_id = local.kv_secret_id["openiddict-encryption-key"]
+    identity            = data.azurerm_user_assigned_identity.aca.id
   }
   secret {
-    name  = "openiddict-api-client-secret"
-    value = var.openiddict_api_client_secret
+    name                = "openiddict-api-client-secret"
+    key_vault_secret_id = local.kv_secret_id["openiddict-api-client-secret"]
+    identity            = data.azurerm_user_assigned_identity.aca.id
   }
   secret {
-    name  = "smtp-username"
-    value = var.smtp_username
+    name                = "smtp-username"
+    key_vault_secret_id = local.kv_secret_id["smtp-username"]
+    identity            = data.azurerm_user_assigned_identity.aca.id
   }
   secret {
-    name  = "smtp-password"
-    value = var.smtp_password
+    name                = "smtp-password"
+    key_vault_secret_id = local.kv_secret_id["smtp-password"]
+    identity            = data.azurerm_user_assigned_identity.aca.id
   }
   secret {
-    name  = "admin-password"
-    value = var.admin_password
+    name                = "admin-password"
+    key_vault_secret_id = local.kv_secret_id["admin-password"]
+    identity            = data.azurerm_user_assigned_identity.aca.id
   }
 
   template {
@@ -205,6 +219,11 @@ resource "azurerm_container_app" "tms_api" {
   resource_group_name          = azurerm_resource_group.rg-lotrotms-prod-polc-001.name
   revision_mode                = "Single"
 
+  identity {
+    type         = "UserAssigned"
+    identity_ids = [data.azurerm_user_assigned_identity.aca.id]
+  }
+
   # The rolling image is owned by the CD pipeline (az containerapp update by commit SHA), not
   # Terraform. Ignore image drift so `terraform apply` never reverts a deployed revision back to the
   # bootstrap tag (var.image_tag). See ADR-0012.
@@ -212,9 +231,11 @@ resource "azurerm_container_app" "tms_api" {
     ignore_changes = [template[0].container[0].image]
   }
 
+  # Secret resolves from Key Vault at runtime through the user-assigned identity (ADR-0013).
   secret {
-    name  = "connection-string-translation"
-    value = var.connection_string_translation
+    name                = "connection-string-translation"
+    key_vault_secret_id = local.kv_secret_id["connection-string-translation"]
+    identity            = data.azurerm_user_assigned_identity.aca.id
   }
 
   template {

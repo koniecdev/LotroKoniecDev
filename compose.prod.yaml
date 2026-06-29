@@ -25,7 +25,7 @@ name: lotrokoniecdev-prod
 
 services:
   postgres:
-    image: postgres:17-alpine
+    image: postgres:18-alpine
     # Copy the mounted certs to a postgres-owned path, fix key perms (Postgres refuses a key it can
     # read but does not own / that is group/world-readable), then hand off to the stock entrypoint
     # with ssl=on. Self-signed server cert; the app connects with Trust Server Certificate=true.
@@ -45,7 +45,10 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: lotro_translation
     volumes:
-      - lotrokoniecdev-prod-postgres-data:/var/lib/postgresql/data
+      # PG18 moved PGDATA to /var/lib/postgresql/18/docker and the VOLUME to /var/lib/postgresql;
+      # mount the directory itself (not .../data). The entrypoint above still copies the SSL certs
+      # to /var/lib/postgresql/ (now the volume root, alongside the 18/ data subdir) — paths unchanged.
+      - lotrokoniecdev-prod-postgres-data:/var/lib/postgresql
       - ./.docker/prod-https:/certs-src:ro
       - ./scripts/init-postgres.sh:/docker-entrypoint-initdb.d/10-init-databases.sh:ro
     healthcheck:

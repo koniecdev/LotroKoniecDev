@@ -27,7 +27,7 @@ internal sealed class PasswordResetEmailSender : IPasswordResetEmailSender
         string link = WebUtility.HtmlEncode(rawLink);
 
         string emailBody =
-            $"Otrzymaliśmy prośbę o zresetowanie hasła do Twojego konta na lotro.koniec.dev. Kliknij w poniższy link, aby ustawić nowe hasło: <a href='{link}'>link</a>";
+            $"Otrzymaliśmy prośbę o zresetowanie hasła do Twojego konta na lotro-translator.pl. Kliknij w poniższy link, aby ustawić nowe hasło: <a href='{link}'>link</a>";
 
         using IDisposable? scope = _logger.BeginScope(new Dictionary<string, object?>
         {

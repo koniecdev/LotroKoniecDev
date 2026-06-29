@@ -73,13 +73,13 @@ internal sealed class OpenIddictSettingsValidator : IValidateOptions<OpenIddictS
                 $"{OpenIddictSettings.ConfigurationSection}:{nameof(OpenIddictSettings.Issuer)} must be set in "
                 + $"{_environment.EnvironmentName}. Inject the public token issuer URL via the "
                 + $"{OpenIddictSettings.ConfigurationSection}__{nameof(OpenIddictSettings.Issuer)} environment "
-                + "variable (e.g. https://auth.lotro.koniec.dev).");
+                + "variable (e.g. https://auth.lotro-translator.pl).");
         }
         else if (!BeAbsoluteHttpUrl(options.Issuer))
         {
             errors.Add(
                 $"{OpenIddictSettings.ConfigurationSection}:{nameof(OpenIddictSettings.Issuer)} must be an absolute "
-                + $"http(s) URL in {_environment.EnvironmentName} (e.g. https://auth.lotro.koniec.dev).");
+                + $"http(s) URL in {_environment.EnvironmentName} (e.g. https://auth.lotro-translator.pl).");
         }
         else if (options.Issuer.Contains("localhost", StringComparison.OrdinalIgnoreCase))
         {
@@ -96,7 +96,7 @@ internal sealed class OpenIddictSettingsValidator : IValidateOptions<OpenIddictS
                 + $"{_environment.EnvironmentName}. Inject the web client OAuth callback URL(s) via the "
                 + $"{OpenIddictSettings.ConfigurationSection}__{nameof(OpenIddictSettings.WebClient)}__"
                 + $"{nameof(WebClientSettings.RedirectUris)}__0 environment variable "
-                + "(e.g. https://lotro.koniec.dev/callback).");
+                + "(e.g. https://lotro-translator.pl/callback).");
         }
 
         foreach (string redirectUri in options.WebClient.RedirectUris)
@@ -118,7 +118,7 @@ internal sealed class OpenIddictSettingsValidator : IValidateOptions<OpenIddictS
                 + $"{_environment.EnvironmentName}. Inject the web client post-logout URL(s) via the "
                 + $"{OpenIddictSettings.ConfigurationSection}__{nameof(OpenIddictSettings.WebClient)}__"
                 + $"{nameof(WebClientSettings.PostLogoutRedirectUris)}__0 environment variable "
-                + "(e.g. https://lotro.koniec.dev).");
+                + "(e.g. https://lotro-translator.pl).");
         }
 
         foreach (string postLogoutRedirectUri in options.WebClient.PostLogoutRedirectUris)

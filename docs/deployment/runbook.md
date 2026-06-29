@@ -61,8 +61,8 @@ table per service.
   `launchSettings.json`; only postgres / migrator / mailpit / aspire are set by `compose.yaml`.
 - **Staging / Production** are structurally identical — same required set, same sources; they differ
   only in **hostnames** (use the environment's own domain) and **secret values**. This column shows
-  **production placeholders**; substitute `lotro.koniec.dev` with your environment's domain (e.g. a
-  `*.staging.lotro.koniec.dev` for staging). The local production-parity stack
+  **production placeholders**; substitute `lotro-translator.pl` with your environment's domain (e.g. a
+  `*.staging.lotro-translator.pl` for staging). The local production-parity stack
   (`compose.prod.yaml`) wires the very same keys with `*.lotro.test` hostnames.
 
 Purely optional tuning knobs with safe defaults are omitted (e.g. `OpenIddict:AccessTokenLifetimeMinutes`
@@ -71,8 +71,8 @@ Purely optional tuning knobs with safe defaults are omitted (e.g. `OpenIddict:Ac
 
 > ⚠️ **Live prod domain is `lotro-translator.pl`** — auth → `https://auth.lotro-translator.pl`,
 > tms → `https://tms.lotro-translator.pl`, frontend → `https://lotro-translator.pl`; live RG
-> `rg-lotrotms-prod-polc-001`. The `*.lotro.koniec.dev` strings in the tables below are historical
-> placeholders — read each as the live domain (or your own environment's).
+> `rg-lotrotms-prod-polc-001`. The tables below show these live production values directly; for
+> staging substitute your environment's own domain.
 
 ### auth-api
 
@@ -81,19 +81,19 @@ Purely optional tuning knobs with safe defaults are omitted (e.g. `OpenIddict:Ac
 | `ASPNETCORE_ENVIRONMENT` | `Development` | `Production` | ✅ all | plain | Gates fail-fast validation, ephemeral-vs-real keys, the CORS policy. |
 | `ASPNETCORE_URLS` | `https://localhost:5003` (launchSettings) | `http://+:8080` | ✅ all | plain | Host dev Kestrel (native dev cert); prod serves HTTP only (the ingress owns TLS). |
 | `ConnectionStrings__AuthDatabase` | `…;Database=lotro_auth;…;Password=changeme` (appsettings.Development) | `Host=…;Database=lotro_auth;Username=…;Password=…;Ssl Mode=Require;Trust Server Certificate=true` | ✅ all | **secret** | Carries the DB password. Host dev hits the compose Postgres on `localhost:5432`. Managed DB: keep `Ssl Mode=Require`, drop `Trust Server Certificate`. |
-| `OpenIddict__Issuer` | `https://localhost:5003` | `https://auth.lotro.koniec.dev` | ✅ non-dev | plain | **THE token `iss`.** Absolute http(s), no `localhost`. Must equal tms `Auth__Issuer`. |
+| `OpenIddict__Issuer` | `https://localhost:5003` | `https://auth.lotro-translator.pl` | ✅ non-dev | plain | **THE token `iss`.** Absolute http(s), no `localhost`. Must equal tms `Auth__Issuer`. |
 | `OpenIddict__SigningKey__RsaPrivateKeyXml` | — (ephemeral) | base64 of RSA XML (≥2048-bit) | ✅ non-dev | **secret** | Generate with `gen-openiddict-keys`. |
 | `OpenIddict__EncryptionKey__Key` | — (ephemeral) | base64 of a ≥32-byte key | ✅ non-dev | **secret** | Generate with `gen-openiddict-keys`. |
 | `OpenIddict__ApiClientSecret` | `dev-api-secret-min-32-characters-long` | ≥32-char random secret | ✅ non-dev | **secret** | Generate with `gen-openiddict-keys`. Shared with the service client. |
-| `OpenIddict__WebClient__RedirectUris__0` | `https://localhost:7017/callback` | `https://lotro.koniec.dev/callback` | ✅ non-dev | plain | MUST equal the Frontend callback (its public origin + `AuthSystem__CallbackPath`). |
-| `OpenIddict__WebClient__PostLogoutRedirectUris__0` | `https://localhost:7017` | `https://lotro.koniec.dev` | ✅ non-dev | plain | Frontend post-logout return URL. |
-| `Cors__AllowedOrigins__0` | — (AllowAnyOrigin) | `https://lotro.koniec.dev` | ✅ non-dev | plain | Bare origin = Frontend public URL. Lowercase, no port-if-default, no path/slash. |
+| `OpenIddict__WebClient__RedirectUris__0` | `https://localhost:7017/callback` | `https://lotro-translator.pl/callback` | ✅ non-dev | plain | MUST equal the Frontend callback (its public origin + `AuthSystem__CallbackPath`). |
+| `OpenIddict__WebClient__PostLogoutRedirectUris__0` | `https://localhost:7017` | `https://lotro-translator.pl` | ✅ non-dev | plain | Frontend post-logout return URL. |
+| `Cors__AllowedOrigins__0` | — (AllowAnyOrigin) | `https://lotro-translator.pl` | ✅ non-dev | plain | Bare origin = Frontend public URL. Lowercase, no port-if-default, no path/slash. |
 | `DataProtection__KeyRingPath` | — (host default) | `/keys` | ✅ non-dev | plain | Persistent, replica-shared volume; else logins/antiforgery/reset links break on deploy/scale. |
 | `Email__Host` | `mailpit` | `smtp.sendgrid.net` | ✅ all | plain | SMTP host. Validated on start (every environment). |
 | `Email__Port` | `1025` | `587` | ✅ all | plain | 1–65535. |
 | `Email__Mode` | `None` | `StartTls` | ✅ all | plain | One of `None` / `StartTls` / `TLS`. |
-| `Email__SenderEmail` | `noreply@lotro.koniec.dev` | `no-reply@lotro.koniec.dev` | ✅ all | plain | Must be a valid email. |
-| `Email__Sender` | `lotro.koniec.dev` | `LOTRO PL` | ✅ all | plain | Display name. |
+| `Email__SenderEmail` | `noreply@lotro-translator.pl` | `no-reply@lotro-translator.pl` | ✅ all | plain | Must be a valid email. |
+| `Email__Sender` | `lotro-translator.pl` | `LOTRO PL` | ✅ all | plain | Display name. |
 | `Email__Username` / `Email__Password` | — | provider credentials | optional¹ | **secret** (Password) | ¹If `Username` is set, `Password` is required. |
 | `AdminUser__Username` / `AdminUser__Email` / `AdminUser__Password` | from `AUTH_ADMIN_*` | from `AUTH_ADMIN_*` | optional | **secret** (Password) | Seeds one admin on first boot; leave blank to skip. |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | `http://aspire-dashboard:18889` | OTLP collector URL | optional | plain | Empty = telemetry export disabled. |
@@ -106,10 +106,10 @@ Purely optional tuning knobs with safe defaults are omitted (e.g. `OpenIddict:Ac
 | `ASPNETCORE_ENVIRONMENT` | `Development` | `Production` | ✅ all | plain | Gates fail-fast validation + the CORS policy. |
 | `ASPNETCORE_URLS` | `https://localhost:5002` (launchSettings) | `http://+:8080` | ✅ all | plain | Host dev Kestrel (native dev cert); prod serves HTTP only (ingress owns TLS). |
 | `ConnectionStrings__TranslationDatabase` | `…;Database=lotro_translation;…;Password=changeme` (appsettings.Development) | `Host=…;Database=lotro_translation;Username=…;Password=…;Ssl Mode=Require;Trust Server Certificate=true` | ✅ all | **secret** | TMS write context. Host dev hits the compose Postgres on `localhost:5432`. Managed DB swap = change just this value. |
-| `Auth__Issuer` | `https://localhost:5003` | `https://auth.lotro.koniec.dev` | ✅ all | plain | MUST equal auth `OpenIddict__Issuer` (the token `iss`); tokens are rejected otherwise. |
-| `Auth__Authority` | — (unset → falls back to `Issuer`, `https://localhost:5003`) | `https://auth.lotro.koniec.dev` | optional² | plain | Back-channel for OIDC metadata + JWKS. ²Unset → falls back to `Issuer`; the dev host run relies on that fallback to reach the host auth Kestrel. Prod: must be `https` (OpenIddict rejects plain HTTP) and reachable from the container. |
+| `Auth__Issuer` | `https://localhost:5003` | `https://auth.lotro-translator.pl` | ✅ all | plain | MUST equal auth `OpenIddict__Issuer` (the token `iss`); tokens are rejected otherwise. |
+| `Auth__Authority` | — (unset → falls back to `Issuer`, `https://localhost:5003`) | `https://auth.lotro-translator.pl` | optional² | plain | Back-channel for OIDC metadata + JWKS. ²Unset → falls back to `Issuer`; the dev host run relies on that fallback to reach the host auth Kestrel. Prod: must be `https` (OpenIddict rejects plain HTTP) and reachable from the container. |
 | `Auth__Audience` | `lotrokoniecdev-api` | `lotrokoniecdev-api` | ✅ all | plain | Default in base `appsettings.json`. |
-| `Cors__AllowedOrigins__0` | — (AllowAnyOrigin) | `https://lotro.koniec.dev` | ✅ non-dev | plain | Bare origin = Frontend public URL. |
+| `Cors__AllowedOrigins__0` | — (AllowAnyOrigin) | `https://lotro-translator.pl` | ✅ non-dev | plain | Bare origin = Frontend public URL. |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` / `OTEL_EXPORTER_OTLP_PROTOCOL` | aspire / `grpc` | collector / `grpc` | optional | plain | Empty endpoint = export disabled. |
 | `Bootstrap__Enabled` | `false` | `false` | optional | plain | One-time DB seed of the first export (spec 0001). Off by default. |
 | `Bootstrap__GameVersion` / `Bootstrap__ExportedTextPath` / `Bootstrap__PolishTextPath` | — / — / `/app/translations/polish.txt` | as needed | optional | plain | Only consulted when `Bootstrap__Enabled=true`. |
@@ -124,13 +124,13 @@ Staging/Production.
 |---|---|---|---|---|---|
 | `ASPNETCORE_ENVIRONMENT` | `Development` | `Production` | ✅ all | plain | Gates the DP keyring guard. |
 | `ASPNETCORE_URLS` | `https://localhost:7017` (launchSettings) | `http://+:8080` | ✅ all | plain | Prod serves HTTP only (ingress owns TLS). |
-| `AuthSystem__Authority` | `https://localhost:5003` | `https://auth.lotro.koniec.dev` | ✅ all | plain | Drives the `/authorize` redirect (front-channel) **and** discovery/token (back-channel). |
-| `AuthSystem__BaseUrl` | `https://localhost:5003/` | `https://auth.lotro.koniec.dev/` | ✅ all | plain | Auth origin (trailing slash). |
+| `AuthSystem__Authority` | `https://localhost:5003` | `https://auth.lotro-translator.pl` | ✅ all | plain | Drives the `/authorize` redirect (front-channel) **and** discovery/token (back-channel). |
+| `AuthSystem__BaseUrl` | `https://localhost:5003/` | `https://auth.lotro-translator.pl/` | ✅ all | plain | Auth origin (trailing slash). |
 | `AuthSystem__ClientId` | `lotrokoniecdev-web` | `lotrokoniecdev-web` | ✅ all | plain | Must match the OpenIddict web-client id. |
 | `AuthSystem__CallbackPath` | `/callback` | `/callback` | ✅ all | plain | Origin + this MUST be registered in auth `RedirectUris`. |
 | `AuthSystem__SignedOutCallbackPath` | `/signout-callback-oidc` | `/signout-callback-oidc` | ✅ all | plain | Origin + this MUST be in auth `PostLogoutRedirectUris`. |
 | `AuthSystem__Scopes` | `openid,email,profile,roles,api,offline_access` | same | ✅ all | plain | At least one scope. |
-| `TranslationSystem__BaseUrl` | `https://localhost:5002/` | `https://tms.lotro.koniec.dev/` | ✅ all | plain | TMS API origin (trailing slash). |
+| `TranslationSystem__BaseUrl` | `https://localhost:5002/` | `https://tms.lotro-translator.pl/` | ✅ all | plain | TMS API origin (trailing slash). |
 | `DataProtection__KeyRingPath` | — (host default) | `/keys` | ✅ non-dev | plain | Persistent, replica-shared volume (ADR-0005); else antiforgery + auth cookies break on deploy/scale. |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` / `OTEL_EXPORTER_OTLP_PROTOCOL` | — | collector / `grpc` | optional | plain | Empty endpoint = export disabled. |
 
@@ -558,9 +558,9 @@ worth knowing before you read a result:
 ```bash
 # A real environment (publicly-trusted ingress cert — no --insecure needed):
 SMOKE_CLIENT_SECRET="$OPENIDDICT_API_CLIENT_SECRET" scripts/smoke.sh \
-  --auth-url     https://auth.lotro.koniec.dev \
-  --tms-url      https://tms.lotro.koniec.dev \
-  --frontend-url https://lotro.koniec.dev
+  --auth-url     https://auth.lotro-translator.pl \
+  --tms-url      https://tms.lotro-translator.pl \
+  --frontend-url https://lotro-translator.pl
 # PowerShell twin: $env:SMOKE_CLIENT_SECRET='…'; scripts/smoke.ps1 -AuthUrl … -TmsUrl … -FrontendUrl …
 
 # The local prod-parity stack (compose.prod.yaml): client secret is the generated value in .env.prod;

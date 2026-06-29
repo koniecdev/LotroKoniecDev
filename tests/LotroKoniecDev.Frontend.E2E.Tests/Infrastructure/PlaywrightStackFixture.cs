@@ -76,7 +76,7 @@ public sealed class PlaywrightStackFixture : IAsyncLifetime
     private const string WebClientId = "lotrokoniecdev-web";
 
     private const string AdminUsername = "fe-e2e-admin";
-    private const string AdminEmail = "fe-e2e-admin@lotro.koniec.dev";
+    private const string AdminEmail = "fe-e2e-admin@lotro-translator.pl";
     private const string AdminPassword = "FeE2eAdminPass123!";
 
     private string _certPem = null!;
@@ -195,8 +195,8 @@ public sealed class PlaywrightStackFixture : IAsyncLifetime
             .WithEnvironment("AdminUser__Username", AdminUsername)
             .WithEnvironment("AdminUser__Email", AdminEmail)
             .WithEnvironment("AdminUser__Password", AdminPassword)
-            .WithEnvironment("Email__SenderEmail", "noreply@lotro.koniec.dev")
-            .WithEnvironment("Email__Sender", "lotro.koniec.dev")
+            .WithEnvironment("Email__SenderEmail", "noreply@lotro-translator.pl")
+            .WithEnvironment("Email__Sender", "lotro-translator.pl")
             .WithEnvironment("Email__Host", "mailpit")
             .WithEnvironment("Email__Port", MailpitSmtpPort.ToString(CultureInfo.InvariantCulture))
             .WithEnvironment("Email__Mode", "None")

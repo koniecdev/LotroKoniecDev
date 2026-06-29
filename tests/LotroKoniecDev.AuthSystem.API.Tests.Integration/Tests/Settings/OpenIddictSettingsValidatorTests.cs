@@ -23,12 +23,12 @@ public sealed class OpenIddictSettingsValidatorTests
     private const string ValidEncryptionKey = "dummy-non-empty-encryption-key";
     private const string ValidSigningKeyXml = "dummy-non-empty-signing-key-xml";
     private const string ValidApiClientSecret = "a-strong-and-sufficiently-long-secret-value";
-    private const string ValidIssuer = "https://auth.lotro.koniec.dev";
+    private const string ValidIssuer = "https://auth.lotro-translator.pl";
 
     // Redirect URIs are full callback URLs (path included), so they are validated as absolute http(s)
     // URLs — not as bare CORS origins.
-    private static readonly string[] ValidRedirectUris = ["https://lotro.koniec.dev/callback"];
-    private static readonly string[] ValidPostLogoutRedirectUris = ["https://lotro.koniec.dev"];
+    private static readonly string[] ValidRedirectUris = ["https://lotro-translator.pl/callback"];
+    private static readonly string[] ValidPostLogoutRedirectUris = ["https://lotro-translator.pl"];
 
     [Theory]
     [InlineData(Development)]
@@ -175,8 +175,8 @@ public sealed class OpenIddictSettingsValidatorTests
 
     [Theory]
     [InlineData("not-a-url")]
-    [InlineData("ftp://auth.lotro.koniec.dev")]
-    [InlineData("auth.lotro.koniec.dev")]
+    [InlineData("ftp://auth.lotro-translator.pl")]
+    [InlineData("auth.lotro-translator.pl")]
     public void Validate_ProductionWithNonHttpIssuer_FailsNamingTheKey(string issuer)
     {
         OpenIddictSettingsValidator validator = CreateValidator(Production);
@@ -260,8 +260,8 @@ public sealed class OpenIddictSettingsValidatorTests
 
     [Theory]
     [InlineData("not-a-url")]
-    [InlineData("ftp://lotro.koniec.dev/callback")]
-    [InlineData("lotro.koniec.dev/callback")]
+    [InlineData("ftp://lotro-translator.pl/callback")]
+    [InlineData("lotro-translator.pl/callback")]
     public void Validate_ProductionWithNonHttpRedirectUri_FailsNamingTheKey(string redirectUri)
     {
         OpenIddictSettingsValidator validator = CreateValidator(Production);
@@ -293,8 +293,8 @@ public sealed class OpenIddictSettingsValidatorTests
 
     [Theory]
     [InlineData("not-a-url")]
-    [InlineData("ftp://lotro.koniec.dev")]
-    [InlineData("lotro.koniec.dev")]
+    [InlineData("ftp://lotro-translator.pl")]
+    [InlineData("lotro-translator.pl")]
     public void Validate_ProductionWithNonHttpPostLogoutRedirectUri_FailsNamingTheKey(string postLogoutRedirectUri)
     {
         OpenIddictSettingsValidator validator = CreateValidator(Production);

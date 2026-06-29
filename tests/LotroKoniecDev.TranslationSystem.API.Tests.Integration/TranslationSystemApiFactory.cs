@@ -22,7 +22,7 @@ public class TranslationSystemApiFactory : WebApplicationFactory<Program>, IAsyn
     public const string TestIssuer = "https://localhost:5003";
     public const string TestAudience = "lotrokoniecdev-api";
     public const string TestUserDisplayName = "integration-test-user";
-    public const string TestUserEmail = "translator@lotro.koniec.dev";
+    public const string TestUserEmail = "translator@lotro-translator.pl";
 
     private static readonly SymmetricSecurityKey TestSigningKey =
         new("integration-test-signing-key-32-bytes!!"u8.ToArray());

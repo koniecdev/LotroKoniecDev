@@ -94,7 +94,7 @@ public sealed class ForwardedHeadersTests : IAsyncLifetime
         using HttpClient client = TranslatorClient();
         using HttpRequestMessage request = HateoasRequest($"{Route}/{id.Value}");
         request.Headers.Add("X-Forwarded-Proto", "https");
-        request.Headers.Add("X-Forwarded-Host", "tms.lotro.koniec.dev");
+        request.Headers.Add("X-Forwarded-Host", "tms.lotro-translator.pl");
 
         // Act
         GameVersionResponse response = await SendHateoasAsync<GameVersionResponse>(client, request);
@@ -103,7 +103,7 @@ public sealed class ForwardedHeadersTests : IAsyncLifetime
         LinkDto selfLink = response.Links.ShouldHaveSingleItem();
         Uri.TryCreate(selfLink.Href, UriKind.Absolute, out Uri? uri).ShouldBeTrue();
         uri!.Scheme.ShouldBe("https");
-        uri.Host.ShouldBe("tms.lotro.koniec.dev");
+        uri.Host.ShouldBe("tms.lotro-translator.pl");
     }
 
     [Fact]

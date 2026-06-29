@@ -6,7 +6,7 @@ namespace LotroKoniecDev.TranslationSystem.Domain.Tests.Unit.Tests.Aggregates.Tr
 public sealed class EmailTests
 {
     [Theory]
-    [InlineData("translator@lotro.koniec.dev")]
+    [InlineData("translator@lotro-translator.pl")]
     [InlineData("a.b+tag@sub.example.co")]
     public void Create_WithValidValue_ShouldSucceed(string value)
     {

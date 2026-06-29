@@ -27,7 +27,7 @@ internal sealed class AccountConfirmationEmailSender : IAccountConfirmationEmail
         string link = WebUtility.HtmlEncode(rawLink);
 
         string emailBody =
-            $"Dziękujemy za rejestracje na platformie lotro.koniec.dev. Prosimy o kliknięcie w ten link, aby potwierdzić konto: <a href='{link}'>link</a>";
+            $"Dziękujemy za rejestracje na platformie lotro-translator.pl. Prosimy o kliknięcie w ten link, aby potwierdzić konto: <a href='{link}'>link</a>";
 
         using IDisposable? scope = _logger.BeginScope(new Dictionary<string, object?>
         {

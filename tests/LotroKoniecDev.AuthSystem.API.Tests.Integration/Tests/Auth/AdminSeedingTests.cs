@@ -11,7 +11,7 @@ namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Tests.Auth;
 
 public sealed class AdminSeedingTests : EndpointsTestBase
 {
-    private const string AdminEmail = "admin@lotro.koniec.dev";
+    private const string AdminEmail = "admin@lotro-translator.pl";
     private const string AdminUsername = "seeded-admin";
     private const string AdminPassword = "AdminTest123!";
 
@@ -69,7 +69,7 @@ public sealed class AdminSeedingTests : EndpointsTestBase
             ApplicationUser squatter = new()
             {
                 UserName = AdminUsername,
-                Email = "squatter@lotro.koniec.dev",
+                Email = "squatter@lotro-translator.pl",
                 EmailConfirmed = true
             };
 

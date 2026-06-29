@@ -6,7 +6,7 @@ name: Infra (Terraform)
 #   * push to main touching iac/**  → terraform APPLY behind the `production` approval gate.
 #   * workflow_dispatch             → manual APPLY behind the same gate.
 #
-# Auth: Azure OIDC federation (azure/login@v2) — no stored client secret; the azurerm provider AND
+# Auth: Azure OIDC federation (azure/login@a457da9ea143d694b1b9c7c869ebb04ebe844ef5 # v2.3.0) — no stored client secret; the azurerm provider AND
 # the azurerm state backend both authenticate via the resulting Azure CLI session (use_cli default).
 # App secrets are NOT Terraform inputs anymore: they live in Azure Key Vault and the ACA apps read them
 # via a managed identity (ADR-0013), so only the non-secret inputs (iac/vars.tf) arrive as TF_VAR_*
@@ -48,8 +48,10 @@ jobs:
   plan:
     name: terraform plan
     # Activation switch (see runbook): until CD_ENABLED=true the Azure-touching jobs are skipped, so
-    # an iac/** PR stays green before the one-time OIDC/secret setup is done.
-    if: vars.CD_ENABLED == 'true' && github.event_name == 'pull_request'
+    # an iac/** PR stays green before the one-time OIDC/secret setup is done. Dependabot PRs are also
+    # skipped: they run without repository secrets, so the Azure OIDC login (client-id/tenant-id) can
+    # never succeed there — and granting them Azure access would be a privilege escalation anyway.
+    if: vars.CD_ENABLED == 'true' && github.event_name == 'pull_request' && github.actor != 'dependabot[bot]'
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     defaults:
@@ -57,17 +59,17 @@ jobs:
         working-directory: iac
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
 
       - name: Azure login (OIDC)
-        uses: azure/login@v2
+        uses: azure/login@a457da9ea143d694b1b9c7c869ebb04ebe844ef5 # v2.3.0
         with:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
       - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v3
+        uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3.1.2
         with:
           terraform_version: 1.15.7
 
@@ -104,17 +106,17 @@ jobs:
         working-directory: iac
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
 
       - name: Azure login (OIDC)
-        uses: azure/login@v2
+        uses: azure/login@a457da9ea143d694b1b9c7c869ebb04ebe844ef5 # v2.3.0
         with:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
       - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v3
+        uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3.1.2
         with:
           terraform_version: 1.15.7
 

@@ -35,7 +35,7 @@ internal sealed class CorsSettingsValidator : IValidateOptions<CorsSettings>
                 $"{CorsSettings.ConfigurationSection}:{nameof(CorsSettings.AllowedOrigins)} must contain at least one " +
                 $"origin in {_environment.EnvironmentName}. Inject it via the " +
                 $"{CorsSettings.ConfigurationSection}__{nameof(CorsSettings.AllowedOrigins)}__0 environment variable " +
-                "(e.g. https://lotro.koniec.dev).");
+                "(e.g. https://lotro-translator.pl).");
         }
 
         foreach (string origin in options.AllowedOrigins)
@@ -45,7 +45,7 @@ internal sealed class CorsSettingsValidator : IValidateOptions<CorsSettings>
                 errors.Add(
                     $"{CorsSettings.ConfigurationSection}:{nameof(CorsSettings.AllowedOrigins)} entry '{origin}' must be " +
                     "a bare absolute http(s) origin — lowercase scheme and host, no default port, and no userinfo, " +
-                    "path, query, or trailing slash (e.g. https://lotro.koniec.dev).");
+                    "path, query, or trailing slash (e.g. https://lotro-translator.pl).");
             }
         }
 

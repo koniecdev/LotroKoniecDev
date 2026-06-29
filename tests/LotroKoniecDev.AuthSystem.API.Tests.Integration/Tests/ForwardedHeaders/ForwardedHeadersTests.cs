@@ -66,7 +66,7 @@ public sealed class ForwardedHeadersTests : EndpointsTestBase
         // Arrange
         using HttpRequestMessage request = HateoasRequest();
         request.Headers.Add("X-Forwarded-Proto", "https");
-        request.Headers.Add("X-Forwarded-Host", "auth.lotro.koniec.dev");
+        request.Headers.Add("X-Forwarded-Host", "auth.lotro-translator.pl");
 
         // Act
         DiscoveryResponse response = await SendDiscoveryAsync(request);
@@ -77,7 +77,7 @@ public sealed class ForwardedHeadersTests : EndpointsTestBase
         {
             Uri.TryCreate(link.Href, UriKind.Absolute, out Uri? uri).ShouldBeTrue();
             uri!.Scheme.ShouldBe("https");
-            uri.Host.ShouldBe("auth.lotro.koniec.dev");
+            uri.Host.ShouldBe("auth.lotro-translator.pl");
         }
     }
 

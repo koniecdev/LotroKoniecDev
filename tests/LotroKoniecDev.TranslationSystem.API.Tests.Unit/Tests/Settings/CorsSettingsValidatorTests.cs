@@ -58,7 +58,7 @@ public sealed class CorsSettingsValidatorTests
     public void Validate_ProductionWithSingleValidOrigin_Succeeds()
     {
         CorsSettingsValidator validator = CreateValidator(Production);
-        CorsSettings settings = new() { AllowedOrigins = ["https://lotro.koniec.dev"] };
+        CorsSettings settings = new() { AllowedOrigins = ["https://lotro-translator.pl"] };
 
         ValidateOptionsResult result = validator.Validate(name: null, settings);
 
@@ -71,7 +71,7 @@ public sealed class CorsSettingsValidatorTests
         CorsSettingsValidator validator = CreateValidator(Production);
         CorsSettings settings = new()
         {
-            AllowedOrigins = ["https://lotro.koniec.dev", "https://staging.lotro.koniec.dev", "http://localhost:7017"]
+            AllowedOrigins = ["https://lotro-translator.pl", "https://staging.lotro-translator.pl", "http://localhost:7017"]
         };
 
         ValidateOptionsResult result = validator.Validate(name: null, settings);
@@ -84,10 +84,10 @@ public sealed class CorsSettingsValidatorTests
     [InlineData("")]
     [InlineData("not-a-url")]
     [InlineData("/relative/path")]
-    [InlineData("ftp://lotro.koniec.dev")]
-    [InlineData("https://lotro.koniec.dev/")]
-    [InlineData("https://lotro.koniec.dev/api")]
-    [InlineData("https://user:pass@lotro.koniec.dev")]
+    [InlineData("ftp://lotro-translator.pl")]
+    [InlineData("https://lotro-translator.pl/")]
+    [InlineData("https://lotro-translator.pl/api")]
+    [InlineData("https://user:pass@lotro-translator.pl")]
     public void Validate_ProductionWithMalformedOrigin_FailsNamingTheKey(string? origin)
     {
         CorsSettingsValidator validator = CreateValidator(Production);
@@ -106,7 +106,7 @@ public sealed class CorsSettingsValidatorTests
     public void Validate_ProductionWithOneValidAndOneMalformedOrigin_Fails()
     {
         CorsSettingsValidator validator = CreateValidator(Production);
-        CorsSettings settings = new() { AllowedOrigins = ["https://lotro.koniec.dev", "https://bad.example/path"] };
+        CorsSettings settings = new() { AllowedOrigins = ["https://lotro-translator.pl", "https://bad.example/path"] };
 
         ValidateOptionsResult result = validator.Validate(name: null, settings);
 

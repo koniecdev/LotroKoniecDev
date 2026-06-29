@@ -8,8 +8,8 @@
 > live only in Azure Key Vault (seeded by `scripts/seed-keyvault.{sh,ps1}`), read at runtime via a
 > managed identity — **not** in `iac/terraform.tfvars`, the TF state, or GitHub Secrets. Read every
 > `terraform.tfvars`/`TF_VAR_*`-secret reference below as "set via the Key Vault seed step instead".
-> The historical `*.lotro.koniec.dev` and `rg-…-dev-…` strings below are from the original plan; read
-> them as the live domain / RG.
+> The historical `rg-…-dev-…` strings below are from the original plan; read them as the live RG
+> (`rg-lotrotms-prod-polc-001`).
 
 > **For agentic workers:** REQUIRED SUB-SKILL: use `superpowers:subagent-driven-development`
 > (recommended) or `superpowers:executing-plans` to implement this plan task-by-task. Steps use
@@ -274,17 +274,17 @@ az containerapp job execution list -n lotrotms-migrator-prod -g rg-lotrotms-dev-
 
 Set these to the final public origins **now** so you configure them once (changing them later forces
 re-registering redirect URIs). Target origins:
-- frontend → `https://lotro.koniec.dev`
-- auth → `https://auth.lotro.koniec.dev`
-- tms → `https://tms.lotro.koniec.dev`
+- frontend → `https://lotro-translator.pl`
+- auth → `https://auth.lotro-translator.pl`
+- tms → `https://tms.lotro-translator.pl`
 
-- [ ] **6.1 🤖 auth-api:** `OpenIddict__Issuer=https://auth.lotro.koniec.dev`,
-  `OpenIddict__WebClient__RedirectUris__0=https://lotro.koniec.dev/callback`,
-  `…PostLogoutRedirectUris__0=https://lotro.koniec.dev`, `Cors__AllowedOrigins__0=https://lotro.koniec.dev`.
-- [ ] **6.2 🤖 tms-api:** `Auth__Issuer=https://auth.lotro.koniec.dev` (byte-identical to auth's
-  Issuer), `Auth__Authority=https://auth.lotro.koniec.dev`, `Cors__AllowedOrigins__0=https://lotro.koniec.dev`.
-- [ ] **6.3 🤖 frontend:** `AuthSystem__Authority` + `AuthSystem__BaseUrl=https://auth.lotro.koniec.dev(/)`,
-  `TranslationSystem__BaseUrl=https://tms.lotro.koniec.dev/`, `AuthSystem__ClientId=lotrokoniecdev-web`.
+- [ ] **6.1 🤖 auth-api:** `OpenIddict__Issuer=https://auth.lotro-translator.pl`,
+  `OpenIddict__WebClient__RedirectUris__0=https://lotro-translator.pl/callback`,
+  `…PostLogoutRedirectUris__0=https://lotro-translator.pl`, `Cors__AllowedOrigins__0=https://lotro-translator.pl`.
+- [ ] **6.2 🤖 tms-api:** `Auth__Issuer=https://auth.lotro-translator.pl` (byte-identical to auth's
+  Issuer), `Auth__Authority=https://auth.lotro-translator.pl`, `Cors__AllowedOrigins__0=https://lotro-translator.pl`.
+- [ ] **6.3 🤖 frontend:** `AuthSystem__Authority` + `AuthSystem__BaseUrl=https://auth.lotro-translator.pl(/)`,
+  `TranslationSystem__BaseUrl=https://tms.lotro-translator.pl/`, `AuthSystem__ClientId=lotrokoniecdev-web`.
 - [ ] **6.4 🤖 Re-check the 4 consistency rules** (runbook): issuer==iss, redirect URIs exact (scheme/
   host/slash), CORS bare origin (lowercase, no trailing slash), authority is `https`.
 
@@ -294,20 +294,20 @@ re-registering redirect URIs). Target origins:
 
 **Files:** none (DNS at registrar + `az` binding). Done via `az` (simpler than TF for the cert dance).
 
-For each of `lotro` / `auth` / `tms`.lotro.koniec.dev → its ACA app:
+For each of `lotro` / `auth` / `tms`.lotro-translator.pl → its ACA app:
 
 - [ ] **7.1 👤 Add DNS records** at your `koniec.dev` provider: a `CNAME` from the subdomain to the
   app's `*.azurecontainerapps.io` FQDN, plus the `asuid.<sub>` `TXT` validation record ACA prints.
 - [ ] **7.2 👤 Bind + provision the free managed cert:**
 
 ```bash
-az containerapp hostname add  -n lotrotms-frontend-prod -g rg-lotrotms-dev-polc-001 --hostname lotro.koniec.dev
-az containerapp hostname bind -n lotrotms-frontend-prod -g rg-lotrotms-dev-polc-001 --hostname lotro.koniec.dev \
+az containerapp hostname add  -n lotrotms-frontend-prod -g rg-lotrotms-dev-polc-001 --hostname lotro-translator.pl
+az containerapp hostname bind -n lotrotms-frontend-prod -g rg-lotrotms-dev-polc-001 --hostname lotro-translator.pl \
   --environment lotrotmsenvprod --validation-method CNAME
-# repeat for auth.lotro.koniec.dev → -auth-api, tms.lotro.koniec.dev → -tms-api
+# repeat for auth.lotro-translator.pl → -auth-api, tms.lotro-translator.pl → -tms-api
 ```
 
-- [ ] **7.3 👤 Browser login smoke:** open `https://lotro.koniec.dev`, complete an OIDC login.
+- [ ] **7.3 👤 Browser login smoke:** open `https://lotro-translator.pl`, complete an OIDC login.
 
 ---
 
@@ -334,9 +334,9 @@ resets the timer on **both** projects.
 ```bash
 cd ~/RiderProjects/LotroKoniecDev
 SMOKE_CLIENT_SECRET="<OpenIddict__ApiClientSecret from tfvars>" scripts/smoke.sh \
-  --auth-url https://auth.lotro.koniec.dev \
-  --tms-url  https://tms.lotro.koniec.dev \
-  --frontend-url https://lotro.koniec.dev
+  --auth-url https://auth.lotro-translator.pl \
+  --tms-url  https://tms.lotro-translator.pl \
+  --frontend-url https://lotro-translator.pl
 ```
 
 Expect ✓ on legs 1–3; **leg 4 may `⚠` 404** until you import data (next step). A **401 on leg 3 with a
@@ -362,6 +362,5 @@ valid token = issuer/audience/JWKS mismatch** → revisit Phase 6.
 - Secret leak (tfstate) → Phase 1.1. ✅  MSSQL/ACR removal → Phase 1.2. ✅
 - Supabase pause → Phase 8. ✅  OIDC consistency → Phase 6. ✅
 
-**Open decision (yours, low-stakes):** custom domain scheme — `lotro.koniec.dev` (used throughout, to
-match the runbook placeholders) vs `app.lotro.koniec.dev`. Pick before Phase 6 (it's the redirect/CORS
-origin). Default assumed: `lotro.koniec.dev`.
+**Resolved (was an open decision):** custom domain scheme — the apex `lotro-translator.pl` (used
+throughout) won over `app.lotro-translator.pl`; it is the live redirect/CORS origin.

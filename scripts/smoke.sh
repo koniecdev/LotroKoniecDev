@@ -48,9 +48,9 @@ Options:
 Examples:
   # A real environment (publicly-trusted ingress cert — no --insecure):
   SMOKE_CLIENT_SECRET=… scripts/smoke.sh \
-    --auth-url https://auth.lotro.koniec.dev \
-    --tms-url  https://tms.lotro.koniec.dev \
-    --frontend-url https://lotro.koniec.dev
+    --auth-url https://auth.lotro-translator.pl \
+    --tms-url  https://tms.lotro-translator.pl \
+    --frontend-url https://lotro-translator.pl
 
   # The local dev stack (host Kestrels + untrusted dev cert):
   scripts/smoke.sh \

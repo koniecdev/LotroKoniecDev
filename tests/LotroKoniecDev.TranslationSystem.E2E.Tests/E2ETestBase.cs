@@ -51,7 +51,7 @@ public abstract class E2ETestBase : IAsyncLifetime
     protected async Task<RegisteredTranslator> RegisterAndLoginTranslatorAsync()
     {
         string username = $"translator_{Faker.Random.AlphaNumeric(10)}";
-        string email = $"{username}@lotro.koniec.dev";
+        string email = $"{username}@lotro-translator.pl";
 
         RegisterRequest request = new(
             username,

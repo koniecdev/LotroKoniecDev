@@ -41,7 +41,7 @@ public sealed class EmailOptionsValidatorTests
 
     private static EmailOptions Options(string host = "mailpit") => new()
     {
-        SenderEmail = "no-reply@lotro.koniec.dev",
+        SenderEmail = "no-reply@lotro-translator.pl",
         Sender = "LotroKoniecDev",
         Host = host,
         Port = 587,

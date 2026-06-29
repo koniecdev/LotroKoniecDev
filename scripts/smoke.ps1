@@ -28,7 +28,7 @@
 .EXAMPLE
     # A real environment (publicly-trusted ingress cert — no -Insecure):
     $env:SMOKE_CLIENT_SECRET = '...'
-    ./scripts/smoke.ps1 -AuthUrl https://auth.lotro.koniec.dev -TmsUrl https://tms.lotro.koniec.dev -FrontendUrl https://lotro.koniec.dev
+    ./scripts/smoke.ps1 -AuthUrl https://auth.lotro-translator.pl -TmsUrl https://tms.lotro-translator.pl -FrontendUrl https://lotro-translator.pl
 
 .EXAMPLE
     # The local dev stack (host Kestrels + untrusted dev cert):

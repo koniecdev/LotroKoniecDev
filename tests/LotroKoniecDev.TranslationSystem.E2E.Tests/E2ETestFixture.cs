@@ -41,7 +41,7 @@ public sealed class E2ETestFixture : IAsyncLifetime
     /// <c>Admin</c> role — so a password-grant login yields a real Admin token without the email-confirmation dance.
     /// </summary>
     public const string AdminUsername = "e2e-admin";
-    public const string AdminEmail = "e2e-admin@lotro.koniec.dev";
+    public const string AdminEmail = "e2e-admin@lotro-translator.pl";
     public const string AdminPassword = "E2eAdminPass123!";
 
     /// <summary>The public, password-grant OpenIddict client seeded only under the <c>Testing</c> environment.</summary>
@@ -164,8 +164,8 @@ public sealed class E2ETestFixture : IAsyncLifetime
             // so a freshly-registered translator can log in without the email round-trip. The sender identity is
             // no longer baked into base appsettings.json (M6-06), so it is injected here too — otherwise the
             // unconditional EmailOptionsValidator would abort auth-api startup.
-            .WithEnvironment("Email__SenderEmail", "noreply@lotro.koniec.dev")
-            .WithEnvironment("Email__Sender", "lotro.koniec.dev")
+            .WithEnvironment("Email__SenderEmail", "noreply@lotro-translator.pl")
+            .WithEnvironment("Email__Sender", "lotro-translator.pl")
             .WithEnvironment("Email__Host", "localhost")
             .WithEnvironment("Email__Port", "2525")
             .WithWaitStrategy(Wait.ForUnixContainer()

@@ -45,8 +45,8 @@ public sealed class AuthSettingsValidatorTests
 
     [Theory]
     [InlineData("not-a-url")]
-    [InlineData("ftp://auth.lotro.koniec.dev")]
-    [InlineData("auth.lotro.koniec.dev")]
+    [InlineData("ftp://auth.lotro-translator.pl")]
+    [InlineData("auth.lotro-translator.pl")]
     public void Validate_WithNonHttpIssuer_FailsNamingTheKey(string issuer)
     {
         AuthSettings settings = Settings(issuer: issuer);
@@ -75,7 +75,7 @@ public sealed class AuthSettingsValidatorTests
 
     [Theory]
     [InlineData("not-a-url")]
-    [InlineData("ftp://auth.lotro.koniec.dev")]
+    [InlineData("ftp://auth.lotro-translator.pl")]
     public void Validate_WithNonHttpAuthority_FailsNamingTheKey(string authority)
     {
         AuthSettings settings = Settings(authority: authority);
@@ -88,9 +88,9 @@ public sealed class AuthSettingsValidatorTests
     }
 
     private static AuthSettings Settings(
-        string issuer = "https://auth.lotro.koniec.dev",
+        string issuer = "https://auth.lotro-translator.pl",
         string audience = "lotrokoniecdev-api",
-        string? authority = "https://auth.lotro.koniec.dev") => new()
+        string? authority = "https://auth.lotro-translator.pl") => new()
     {
         Issuer = issuer,
         Audience = audience,

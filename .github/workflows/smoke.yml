@@ -61,7 +61,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
 
       # Inputs/secret are passed through the environment (never interpolated into the run: script)
       # so an input value cannot inject shell, and the secret never reaches a log line. smoke.sh

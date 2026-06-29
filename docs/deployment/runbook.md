@@ -395,8 +395,8 @@ Administrator** once — it creates a role assignment, which is why CI never doe
 
 ```bash
 az login   # an Owner / User Access Administrator on the subscription
-export SEED_CONNECTION_STRING_TRANSLATION='…'   # Supabase TMS connection string
-export SEED_CONNECTION_STRING_AUTH='…'          # Supabase Auth connection string
+export SEED_CONNECTION_STRING_TRANSLATION='…'   # Neon TMS connection string
+export SEED_CONNECTION_STRING_AUTH='…'          # Neon Auth connection string
 export SEED_OPENIDDICT_SIGNING_KEY='…'          # base64 RSA xml  (scripts/gen-openiddict-keys.sh)
 export SEED_OPENIDDICT_ENCRYPTION_KEY='…'       # base64 32-byte key      (same generator)
 export SEED_OPENIDDICT_API_CLIENT_SECRET='…'    # >= 32 chars  (== SMOKE_CLIENT_SECRET below)
@@ -434,7 +434,7 @@ the APIs serve traffic — never from inside the application at startup. The rul
 
 - **Two write contexts, one job.** The Translation Management System (`ApplicationWriteDbContext`,
   schema `translation`, database `lotro_translation`) and the Auth server (`AuthDbContext`, schema
-  `auth`, database `lotro_auth`) each have their own migration history. The job applies Translation
+  `authsystem`, database `lotro_auth`) each have their own migration history. The job applies Translation
   first, then Auth.
 - **The artifact is the migrator image** `ghcr.io/koniecdev/lotrokoniecdev-migrator` — built by
   `Dockerfile.migrator.prod` and published by CD (M6-09). It bakes two **self-contained**
@@ -517,7 +517,7 @@ generate migrations.
 # applied Translation migrations
 psql "$ConnectionStrings__TranslationDatabase" -c 'SELECT "MigrationId" FROM translation."__EFMigrationsHistory" ORDER BY "MigrationId";'
 # applied Auth migrations
-psql "$ConnectionStrings__AuthDatabase"        -c 'SELECT "MigrationId" FROM auth."__EFMigrationsHistory" ORDER BY "MigrationId";'
+psql "$ConnectionStrings__AuthDatabase"        -c 'SELECT "MigrationId" FROM authsystem."__EFMigrationsHistory" ORDER BY "MigrationId";'
 ```
 
 ## Post-deploy smoke test

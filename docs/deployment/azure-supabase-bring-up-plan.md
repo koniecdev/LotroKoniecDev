@@ -1,5 +1,9 @@
 # TMS on Azure Container Apps + Supabase — Bring-up Plan
 
+> **⚠️ Superseded for the database layer (2026-06-29):** prod Postgres moved to **Neon** — see
+> `docs/deployment/neon-migration-plan.md` and ADR-0014. The ACA / Key Vault / CD mechanics below
+> still hold; only the Supabase-specific DB steps (Phase 0.3, 4.2, 5.3, 8) are obsolete.
+
 > 🟢 **Status: executed.** The infra in `iac/` is live: RG `rg-lotrotms-prod-polc-001`, domain
 > **`lotro-translator.pl`** (`auth.` / `tms.` / apex), DB on Supabase. **Ongoing deploys are now
 > automated and gated** — see [ADR-0012](../adr/0012-continuous-deployment-pipeline.md) and the

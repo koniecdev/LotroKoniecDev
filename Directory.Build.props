@@ -6,5 +6,11 @@
     <AnalysisLevel>latest</AnalysisLevel>
     <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <!-- NuGet vulnerability audit (audit #0001 / H1): restore reports advisories on direct AND
+         transitive packages; at moderate severity or above the NU19xx warnings become errors via
+         TreatWarningsAsErrors, so a vulnerable dependency fails the build (locally and in CI). -->
+    <NuGetAudit>true</NuGetAudit>
+    <NuGetAuditMode>all</NuGetAuditMode>
+    <NuGetAuditLevel>moderate</NuGetAuditLevel>
   </PropertyGroup>
 </Project>

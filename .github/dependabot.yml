@@ -1,0 +1,38 @@
+# Dependabot — automated dependency freshness (audit #0001 / H1).
+# Keeps the auth server and the four shipped images on patched dependencies, and surfaces newer
+# action versions to pin against (the SHA-pinning follow-up, H6). Grouped to keep PR noise low.
+version: 2
+
+updates:
+  # .NET packages — versions are centrally managed in Directory.Packages.props.
+  - package-ecosystem: "nuget"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 10
+    groups:
+      nuget-minor-patch:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+
+  # GitHub Actions referenced across every workflow.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    groups:
+      github-actions:
+        patterns: ["*"]
+
+  # Container base images for the deployed services (root migrator/test images + the three apps).
+  - package-ecosystem: "docker"
+    directories:
+      - "/"
+      - "/src/AuthSystem/LotroKoniecDev.AuthSystem.API"
+      - "/src/TranslationSystem/LotroKoniecDev.TranslationSystem.API"
+      - "/src/Frontend/LotroKoniecDev.Frontend"
+    schedule:
+      interval: "weekly"
+    groups:
+      docker-base-images:
+        patterns: ["*"]

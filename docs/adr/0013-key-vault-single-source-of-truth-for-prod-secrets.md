@@ -79,8 +79,8 @@ of application code).
 ### Positive
 
 - **One copy of each secret, in a purpose-built store.** No plaintext on disk, in the Terraform
-  state, or in GitHub Secrets. The 6 secret repo Secrets (`CONNECTION_STRING_*`, `OPENIDDICT_*`,
-  `SMTP_USERNAME/PASSWORD`, `ADMIN_PASSWORD`) are now unused and can be deleted.
+  state, or in GitHub Secrets. The 8 secret repo Secrets (`CONNECTION_STRING_TRANSLATION/AUTH`, the
+  three `OPENIDDICT_*`, `SMTP_USERNAME/PASSWORD` and `ADMIN_PASSWORD`) are now unused and can be deleted.
 - **Rotation without a deploy or a code change** — `seed-keyvault` sets a new version; the next
   revision picks it up via the versionless URI.
 - **Least-privilege CI is preserved** — the role assignment is foundational, so CI stays Contributor.
@@ -130,7 +130,7 @@ Rejected. Azure's current guidance is RBAC authorization (unified, auditable, le
   `secret { key_vault_secret_id, identity }` — auth-api ×7, tms-api ×1, migrator ×2; frontend has no
   secrets); `iac/vars.tf` (drop the 8 sensitive variables; add non-secret `key_vault_name` +
   `aca_identity_name`).
-- **Changed (CI):** `.github/workflows/infra.yml` (drop the 6 secret `TF_VAR_*` envs).
+- **Changed (CI):** `.github/workflows/infra.yml` (drop the 8 secret `TF_VAR_*` envs).
 - **Deleted:** `iac/terraform.tfvars` (was untracked; the values now live only in the Vault).
 - **Changed (docs):** `docs/deployment/runbook.md` (Key Vault seed step + rotation + the secret
   matrix).

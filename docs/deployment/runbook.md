@@ -386,28 +386,44 @@ done
 **3. GitHub `production` environment** with **you as a required reviewer** (repo Settings →
 Environments → New → `production` → *Required reviewers* → add yourself). This block IS the gate.
 
-**4. GitHub repo Secrets** (Settings → Secrets and variables → Actions → *Secrets*):
+**4. Seed the app secrets into Azure Key Vault (ADR-0013).** The 8 app secrets are the single source
+of truth in Key Vault (`lotrotms-kv-prod`), read at runtime by the `lotrotms-aca-prod` managed
+identity — they are **not** GitHub Secrets and **not** Terraform inputs (no plaintext on disk, in the
+TF state, or in CI). The idempotent seed script (also the rotation tool) ensures the Vault, the
+identity, its `Key Vault Secrets User` grant, and the 8 secrets. It needs **Owner / User Access
+Administrator** once — it creates a role assignment, which is why CI never does and stays Contributor:
+
+```bash
+az login   # an Owner / User Access Administrator on the subscription
+export SEED_CONNECTION_STRING_TRANSLATION='…'   # Supabase TMS connection string
+export SEED_CONNECTION_STRING_AUTH='…'          # Supabase Auth connection string
+export SEED_OPENIDDICT_SIGNING_KEY='…'          # base64 RSA xml  (scripts/gen-openiddict-keys.sh)
+export SEED_OPENIDDICT_ENCRYPTION_KEY='…'       # base64 32-byte key      (same generator)
+export SEED_OPENIDDICT_API_CLIENT_SECRET='…'    # >= 32 chars  (== SMOKE_CLIENT_SECRET below)
+export SEED_SMTP_USERNAME='…' SEED_SMTP_PASSWORD='…'   # Brevo SMTP credentials
+export SEED_ADMIN_PASSWORD='…'                  # seeded admin password
+scripts/seed-keyvault.sh                        # PowerShell twin: scripts/seed-keyvault.ps1
+```
+
+Rotation later = re-run the script with new `SEED_*` values; the versionless Key Vault URIs make the
+next deployment pick them up with no Terraform change.
+
+**5. GitHub repo Secrets** (Settings → Secrets and variables → Actions → *Secrets*) — **infra/OIDC
+only**, no app secrets (those live in Key Vault, step 4):
 
 | Secret | Value |
 |---|---|
 | `AZURE_CLIENT_ID` | the Entra app id (`$APP_ID`) |
 | `AZURE_TENANT_ID` | `az account show --query tenantId -o tsv` |
 | `AZURE_SUBSCRIPTION_ID` | the subscription id |
-| `SMOKE_CLIENT_SECRET` | `OpenIddict__ApiClientSecret` (the value auth-api runs with) |
-| `CONNECTION_STRING_TRANSLATION` / `CONNECTION_STRING_AUTH` | the two Supabase connection strings |
-| `OPENIDDICT_SIGNING_KEY` / `OPENIDDICT_ENCRYPTION_KEY` / `OPENIDDICT_API_CLIENT_SECRET` | the three OpenIddict secrets |
-| `SMTP_USERNAME` / `SMTP_PASSWORD` | Brevo SMTP credentials |
-| `ADMIN_PASSWORD` | seeded admin password |
+| `SMOKE_CLIENT_SECRET` | `OpenIddict__ApiClientSecret` (== the seeded `openiddict-api-client-secret`) |
 
-**5. GitHub repo Variables** (non-secret): `SMTP_SENDER_EMAIL`, `ADMIN_USERNAME`, `ADMIN_EMAIL`.
+**6. GitHub repo Variables** (non-secret): `SMTP_SENDER_EMAIL`, `ADMIN_USERNAME`, `ADMIN_EMAIL`.
 
-The secret/variable values are exactly the ones already in the git-ignored `iac/terraform.tfvars`;
-copying them to GitHub is what lets `infra.yml` plan/apply. They are **never** committed.
-
-**6. Flip the activation switch — repo Variable `CD_ENABLED` = `true`.** This is the master switch:
+**7. Flip the activation switch — repo Variable `CD_ENABLED` = `true`.** This is the master switch:
 the Azure-touching jobs (`deploy-prod`, `infra plan`/`apply`) carry `if: vars.CD_ENABLED == 'true'`,
 so until you set it they are **skipped** — merging is inert and `iac/**` PRs stay green before steps
-1–5 exist. Set it last, once 1–5 are done; unset it to pause all deployment without touching code.
+1–6 exist. Set it last, once 1–6 are done; unset it to pause all deployment without touching code.
 
 ## Database migrations
 

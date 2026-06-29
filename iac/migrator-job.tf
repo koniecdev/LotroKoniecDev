@@ -12,14 +12,23 @@ resource "azurerm_container_app_job" "migrator" {
     replica_completion_count = 1
   }
 
+  identity {
+    type         = "UserAssigned"
+    identity_ids = [data.azurerm_user_assigned_identity.aca.id]
+  }
+
+  # Secrets resolve from Key Vault at runtime through the user-assigned identity (ADR-0013) — no
+  # plaintext value enters this configuration or the Terraform state.
   secret {
-    name  = "connection-string-translation"
-    value = var.connection_string_translation
+    name                = "connection-string-translation"
+    key_vault_secret_id = local.kv_secret_id["connection-string-translation"]
+    identity            = data.azurerm_user_assigned_identity.aca.id
   }
 
   secret {
-    name  = "connection-string-auth"
-    value = var.connection_string_auth
+    name                = "connection-string-auth"
+    key_vault_secret_id = local.kv_secret_id["connection-string-auth"]
+    identity            = data.azurerm_user_assigned_identity.aca.id
   }
 
   template {

@@ -31,9 +31,15 @@ resource "azurerm_storage_share" "frontend_keys" {
   quota                = 5
 }
 
+# Both envs create their own DP-keyring storage account + shares (above, unchanged), but the
+# environment-storage link is attached to the (possibly shared) managed environment via
+# local.app_env_id. On the shared env the link name must be env-unique so staging's mount doesn't
+# collide with prod's — hence the env_id suffix when create_env is false. For prod (create_env = true)
+# the name stays "auth-keys"/"frontend-keys" and the env id is identical, so neither attribute changes
+# (no moved block needed).
 resource "azurerm_container_app_environment_storage" "auth_keys" {
-  name                         = "auth-keys"
-  container_app_environment_id = azurerm_container_app_environment.app_env.id
+  name                         = local.create_env ? "auth-keys" : "auth-keys-${var.env_id}"
+  container_app_environment_id = local.app_env_id
   account_name                 = azurerm_storage_account.keys.name
   share_name                   = azurerm_storage_share.auth_keys.name
   access_key                   = azurerm_storage_account.keys.primary_access_key
@@ -41,8 +47,8 @@ resource "azurerm_container_app_environment_storage" "auth_keys" {
 }
 
 resource "azurerm_container_app_environment_storage" "frontend_keys" {
-  name                         = "frontend-keys"
-  container_app_environment_id = azurerm_container_app_environment.app_env.id
+  name                         = local.create_env ? "frontend-keys" : "frontend-keys-${var.env_id}"
+  container_app_environment_id = local.app_env_id
   account_name                 = azurerm_storage_account.keys.name
   share_name                   = azurerm_storage_share.frontend_keys.name
   access_key                   = azurerm_storage_account.keys.primary_access_key

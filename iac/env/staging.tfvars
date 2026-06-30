@@ -11,3 +11,9 @@ env_id             = "staging"
 public_base_domain = "staging.lotro-translator.pl"
 key_vault_name     = "lotrotms-kv-staging"
 aca_identity_name  = "lotrotms-aca-staging"
+
+# Shared-environment mode (M6-22): the subscription allows only ONE Container App Environment total,
+# held by prod, so staging deploys its apps INTO prod's managed environment instead of creating its
+# own. These point at prod's environment (name + resource group); see iac/locals.tf (create_env).
+aca_environment_name           = "lotrotmsenvprod"
+aca_environment_resource_group = "rg-lotrotms-prod-polc-001"

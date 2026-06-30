@@ -53,3 +53,15 @@ variable "admin_email" {
   type        = string
   description = "Seeded admin email"
 }
+
+variable "aca_environment_name" {
+  type        = string
+  description = "Name of an EXISTING managed Container Apps environment to deploy this env's apps into (shared-environment mode, M6-22). Empty = create our own. Set because the Azure subscription allows only ONE Container App Environment total, held by prod — staging runs its apps inside the prod environment."
+  default     = ""
+}
+
+variable "aca_environment_resource_group" {
+  type        = string
+  description = "Resource group of the existing managed environment named by var.aca_environment_name. Empty = our own resource group."
+  default     = ""
+}

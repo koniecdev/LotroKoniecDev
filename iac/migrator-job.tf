@@ -1,6 +1,6 @@
 resource "azurerm_container_app_job" "migrator" {
   name                         = "lotrotms-migrator-${var.env_id}"
-  location                     = azurerm_resource_group.main.location
+  location                     = var.location
   resource_group_name          = azurerm_resource_group.main.name
   container_app_environment_id = azurerm_container_app_environment.app_env.id
 

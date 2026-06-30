@@ -53,3 +53,9 @@ variable "admin_email" {
   type        = string
   description = "Seeded admin email"
 }
+
+variable "location" {
+  type        = string
+  description = "Azure region for this environment's compute resources (ACA environment, apps, migrator job, Log Analytics, App Insights, the Data Protection storage account, alerts). Defaults to polandcentral so prod is byte-identical; staging overrides to germanywestcentral because the student subscription allows only ONE Container App Environment per region and prod already holds Poland Central (ADR-0018). The resource group, Key Vault and identity stay in polandcentral."
+  default     = "polandcentral"
+}

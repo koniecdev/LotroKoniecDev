@@ -220,7 +220,7 @@ resource "azurerm_monitor_metric_alert" "memory_saturation" {
 resource "azurerm_monitor_scheduled_query_rules_alert_v2" "log_error_spike" {
   name                = "lotrotms-alert-log-error-spike-${var.env_id}"
   resource_group_name = azurerm_resource_group.main.name
-  location            = azurerm_resource_group.main.location
+  location            = var.location
   description         = "Spike of Error/Fatal Serilog entries in a container app's console logs. Fires by email."
   severity            = 2 # Warning
 
@@ -278,7 +278,7 @@ resource "azurerm_monitor_scheduled_query_rules_alert_v2" "log_error_spike" {
 resource "azurerm_monitor_scheduled_query_rules_alert_v2" "law_daily_cap" {
   name                = "lotrotms-alert-law-daily-cap-${var.env_id}"
   resource_group_name = azurerm_resource_group.main.name
-  location            = azurerm_resource_group.main.location
+  location            = var.location
   description         = "Log Analytics daily ingestion cap reached — log collection has stopped. Fires by email."
   severity            = 2 # Warning
 
@@ -340,7 +340,7 @@ resource "azurerm_monitor_scheduled_query_rules_alert_v2" "law_daily_cap" {
 resource "azurerm_monitor_scheduled_query_rules_alert_v2" "auth_availability" {
   name                = "lotrotms-slo-auth-availability-${var.env_id}"
   resource_group_name = azurerm_resource_group.main.name
-  location            = azurerm_resource_group.main.location
+  location            = var.location
   description         = "SLO: auth /health/ready failing (token-issuance SPOF unavailable). Fires by email."
   severity            = 0 # Critical — platform-wide outage
 

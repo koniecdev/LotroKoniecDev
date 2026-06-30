@@ -1,7 +1,7 @@
 resource "azurerm_container_app" "auth_api" {
   name                         = "lotrotms-auth-api-${var.env_id}"
   container_app_environment_id = azurerm_container_app_environment.app_env.id
-  resource_group_name          = azurerm_resource_group.rg-lotrotms-prod-polc-001.name
+  resource_group_name          = azurerm_resource_group.main.name
   revision_mode                = "Multiple"
 
   identity {
@@ -122,7 +122,7 @@ resource "azurerm_container_app" "auth_api" {
       }
       env {
         name  = "OpenIddict__Issuer"
-        value = "https://auth.lotro-translator.pl"
+        value = local.auth_origin
       }
       env {
         name        = "OpenIddict__SigningKey__RsaPrivateKeyXml"
@@ -138,15 +138,15 @@ resource "azurerm_container_app" "auth_api" {
       }
       env {
         name  = "OpenIddict__WebClient__RedirectUris__0"
-        value = "https://lotro-translator.pl/callback"
+        value = local.callback_url
       }
       env {
         name  = "OpenIddict__WebClient__PostLogoutRedirectUris__0"
-        value = "https://lotro-translator.pl"
+        value = local.apex_origin
       }
       env {
         name  = "Cors__AllowedOrigins__0"
-        value = "https://lotro-translator.pl"
+        value = local.apex_origin
       }
       env {
         name  = "DataProtection__KeyRingPath"
@@ -228,7 +228,7 @@ resource "azurerm_container_app" "auth_api" {
 resource "azurerm_container_app" "tms_api" {
   name                         = "lotrotms-tms-api-${var.env_id}"
   container_app_environment_id = azurerm_container_app_environment.app_env.id
-  resource_group_name          = azurerm_resource_group.rg-lotrotms-prod-polc-001.name
+  resource_group_name          = azurerm_resource_group.main.name
   revision_mode                = "Multiple"
 
   identity {
@@ -318,11 +318,11 @@ resource "azurerm_container_app" "tms_api" {
       }
       env {
         name  = "Auth__Issuer"
-        value = "https://auth.lotro-translator.pl"
+        value = local.auth_origin
       }
       env {
         name  = "Auth__Authority"
-        value = "https://auth.lotro-translator.pl"
+        value = local.auth_origin
       }
       env {
         name  = "Auth__Audience"
@@ -330,7 +330,7 @@ resource "azurerm_container_app" "tms_api" {
       }
       env {
         name  = "Cors__AllowedOrigins__0"
-        value = "https://lotro-translator.pl"
+        value = local.apex_origin
       }
       env {
         name  = "Bootstrap__Enabled"
@@ -361,7 +361,7 @@ resource "azurerm_container_app" "tms_api" {
 resource "azurerm_container_app" "frontend" {
   name                         = "lotrotms-frontend-${var.env_id}"
   container_app_environment_id = azurerm_container_app_environment.app_env.id
-  resource_group_name          = azurerm_resource_group.rg-lotrotms-prod-polc-001.name
+  resource_group_name          = azurerm_resource_group.main.name
   revision_mode                = "Multiple"
 
   # The rolling image is owned by the CD pipeline (az containerapp update by commit SHA), not
@@ -435,11 +435,11 @@ resource "azurerm_container_app" "frontend" {
       }
       env {
         name  = "AuthSystem__Authority"
-        value = "https://auth.lotro-translator.pl"
+        value = local.auth_origin
       }
       env {
         name  = "AuthSystem__BaseUrl"
-        value = "https://auth.lotro-translator.pl/"
+        value = "${local.auth_origin}/"
       }
       env {
         name  = "AuthSystem__ClientId"
@@ -447,7 +447,7 @@ resource "azurerm_container_app" "frontend" {
       }
       env {
         name  = "TranslationSystem__BaseUrl"
-        value = "https://tms.lotro-translator.pl/"
+        value = "${local.tms_origin}/"
       }
       env {
         name  = "DataProtection__KeyRingPath"

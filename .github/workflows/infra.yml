@@ -81,7 +81,7 @@ jobs:
         run: terraform fmt -check -recursive
 
       - name: terraform init
-        run: terraform init -input=false
+        run: terraform init -input=false -reconfigure -backend-config=backend-config/prod.hcl
 
       - name: terraform validate
         run: terraform validate -no-color
@@ -132,7 +132,7 @@ jobs:
           terraform_version: 1.15.7
 
       - name: terraform init
-        run: terraform init -input=false
+        run: terraform init -input=false -reconfigure -backend-config=backend-config/prod.hcl
 
       - name: terraform apply
         run: terraform apply -input=false -auto-approve -lock-timeout=300s

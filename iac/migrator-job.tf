@@ -1,7 +1,7 @@
 resource "azurerm_container_app_job" "migrator" {
   name                         = "lotrotms-migrator-${var.env_id}"
-  location                     = azurerm_resource_group.rg-lotrotms-prod-polc-001.location
-  resource_group_name          = azurerm_resource_group.rg-lotrotms-prod-polc-001.name
+  location                     = azurerm_resource_group.main.location
+  resource_group_name          = azurerm_resource_group.main.name
   container_app_environment_id = azurerm_container_app_environment.app_env.id
 
   replica_timeout_in_seconds = 1800

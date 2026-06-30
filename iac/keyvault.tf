@@ -8,12 +8,12 @@
 
 data "azurerm_key_vault" "secrets" {
   name                = var.key_vault_name
-  resource_group_name = azurerm_resource_group.rg-lotrotms-prod-polc-001.name
+  resource_group_name = azurerm_resource_group.main.name
 }
 
 data "azurerm_user_assigned_identity" "aca" {
   name                = var.aca_identity_name
-  resource_group_name = azurerm_resource_group.rg-lotrotms-prod-polc-001.name
+  resource_group_name = azurerm_resource_group.main.name
 }
 
 locals {

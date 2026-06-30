@@ -47,7 +47,7 @@ locals {
 # ---------------------------------------------------------------------------------------------------
 resource "azurerm_monitor_action_group" "alerts" {
   name                = "lotrotmsag${var.env_id}"
-  resource_group_name = azurerm_resource_group.rg-lotrotms-prod-polc-001.name
+  resource_group_name = azurerm_resource_group.main.name
   # short_name shows up in the notification subject and is capped by Azure at 12 characters, so it
   # cannot simply carry the full env-qualified name — substr keeps it env-aware within the cap
   # (e.g. prod -> "lotrotmsprod", staging -> "lotrotmsstag").
@@ -79,7 +79,7 @@ resource "azurerm_monitor_action_group" "alerts" {
 resource "azurerm_monitor_metric_alert" "replica_restart" {
   for_each            = local.monitored_container_apps
   name                = "lotrotms-alert-replica-restart-${each.key}-${var.env_id}"
-  resource_group_name = azurerm_resource_group.rg-lotrotms-prod-polc-001.name
+  resource_group_name = azurerm_resource_group.main.name
   scopes              = [each.value]
   description         = "Container app ${each.key} restarted a replica (crash-loop signal). Fires by email."
   severity            = 1 # Error
@@ -111,7 +111,7 @@ resource "azurerm_monitor_metric_alert" "replica_restart" {
 resource "azurerm_monitor_metric_alert" "http_server_errors" {
   for_each            = local.monitored_container_apps
   name                = "lotrotms-alert-http-5xx-${each.key}-${var.env_id}"
-  resource_group_name = azurerm_resource_group.rg-lotrotms-prod-polc-001.name
+  resource_group_name = azurerm_resource_group.main.name
   scopes              = [each.value]
   description         = "Spike of HTTP 5xx responses from container app ${each.key}. Fires by email."
   severity            = 1 # Error
@@ -149,7 +149,7 @@ resource "azurerm_monitor_metric_alert" "http_server_errors" {
 resource "azurerm_monitor_metric_alert" "cpu_saturation" {
   for_each            = local.monitored_container_apps
   name                = "lotrotms-alert-cpu-high-${each.key}-${var.env_id}"
-  resource_group_name = azurerm_resource_group.rg-lotrotms-prod-polc-001.name
+  resource_group_name = azurerm_resource_group.main.name
   scopes              = [each.value]
   description         = "Container app ${each.key} CPU sustained above 80% of its limit. Fires by email."
   severity            = 3 # Informational (capacity signal)
@@ -181,7 +181,7 @@ resource "azurerm_monitor_metric_alert" "cpu_saturation" {
 resource "azurerm_monitor_metric_alert" "memory_saturation" {
   for_each            = local.monitored_container_apps
   name                = "lotrotms-alert-memory-high-${each.key}-${var.env_id}"
-  resource_group_name = azurerm_resource_group.rg-lotrotms-prod-polc-001.name
+  resource_group_name = azurerm_resource_group.main.name
   scopes              = [each.value]
   description         = "Container app ${each.key} memory sustained above 80% of its limit (OOM precursor). Fires by email."
   severity            = 2 # Warning
@@ -219,8 +219,8 @@ resource "azurerm_monitor_metric_alert" "memory_saturation" {
 # logged failures that never become a 5xx or a restart (e.g. a background job throwing).
 resource "azurerm_monitor_scheduled_query_rules_alert_v2" "log_error_spike" {
   name                = "lotrotms-alert-log-error-spike-${var.env_id}"
-  resource_group_name = azurerm_resource_group.rg-lotrotms-prod-polc-001.name
-  location            = azurerm_resource_group.rg-lotrotms-prod-polc-001.location
+  resource_group_name = azurerm_resource_group.main.name
+  location            = azurerm_resource_group.main.location
   description         = "Spike of Error/Fatal Serilog entries in a container app's console logs. Fires by email."
   severity            = 2 # Warning
 
@@ -277,8 +277,8 @@ resource "azurerm_monitor_scheduled_query_rules_alert_v2" "log_error_spike" {
 # rule turns a silent blind-spot into an email. Checked hourly because the cap is a daily event.
 resource "azurerm_monitor_scheduled_query_rules_alert_v2" "law_daily_cap" {
   name                = "lotrotms-alert-law-daily-cap-${var.env_id}"
-  resource_group_name = azurerm_resource_group.rg-lotrotms-prod-polc-001.name
-  location            = azurerm_resource_group.rg-lotrotms-prod-polc-001.location
+  resource_group_name = azurerm_resource_group.main.name
+  location            = azurerm_resource_group.main.location
   description         = "Log Analytics daily ingestion cap reached — log collection has stopped. Fires by email."
   severity            = 2 # Warning
 
@@ -339,8 +339,8 @@ resource "azurerm_monitor_scheduled_query_rules_alert_v2" "law_daily_cap" {
 # token set against real ContainerAppSystemLogs_CL on first apply.
 resource "azurerm_monitor_scheduled_query_rules_alert_v2" "auth_availability" {
   name                = "lotrotms-slo-auth-availability-${var.env_id}"
-  resource_group_name = azurerm_resource_group.rg-lotrotms-prod-polc-001.name
-  location            = azurerm_resource_group.rg-lotrotms-prod-polc-001.location
+  resource_group_name = azurerm_resource_group.main.name
+  location            = azurerm_resource_group.main.location
   description         = "SLO: auth /health/ready failing (token-issuance SPOF unavailable). Fires by email."
   severity            = 0 # Critical — platform-wide outage
 

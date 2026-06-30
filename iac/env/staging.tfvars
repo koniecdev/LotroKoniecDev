@@ -6,6 +6,7 @@
 # generated secrets (never the prod vault — audit §C5), a lotrotms-aca-staging identity, and a Neon
 # `staging` branch (audit §H13). The required secret-free inputs (subscription_id, smtp_sender_email,
 # admin_username, admin_email) still arrive as TF_VAR_*, not from this file.
+# See docs/deployment/runbook.md §"Staging bring-up" for the ordered first-time bring-up sequence.
 env_id             = "staging"
 public_base_domain = "staging.lotro-translator.pl"
 key_vault_name     = "lotrotms-kv-staging"

@@ -1,10 +1,16 @@
 resource "azurerm_storage_account" "keys" {
   name                     = "lotrotmskeys${var.env_id}"
-  resource_group_name      = azurerm_resource_group.rg-lotrotms-prod-polc-001.name
-  location                 = azurerm_resource_group.rg-lotrotms-prod-polc-001.location
+  resource_group_name      = azurerm_resource_group.main.name
+  location                 = azurerm_resource_group.main.location
   account_tier             = "Standard"
   account_replication_type = "LRS"
   min_tls_version          = "TLS1_2"
+
+  lifecycle {
+    # Audit 0001 / H11 (ADR-0017): the Data Protection keyring lives in this account — destroying it
+    # logs every user out. Guard against a stray rename / -target slip during multi-env work.
+    prevent_destroy = true
+  }
 
   tags = {
     environment = var.env_id

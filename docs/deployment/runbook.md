@@ -21,6 +21,7 @@
 - [Database migrations](#database-migrations)
 - [Post-deploy smoke test](#post-deploy-smoke-test) — one command verifies a deployed environment end-to-end
 - [Observability](#observability) — where cloud traces + logs land, and the metrics caveat
+- [Monitoring & alerting](#monitoring--alerting) — the Azure Monitor alerts and what each one means
 - [See also](#see-also)
 
 ## Services & the container contract
@@ -629,6 +630,42 @@ So there are no OpenTelemetry metric series (runtime, EF, Npgsql counters) in Ap
 metric-shaped signal rely on **ACA platform metrics** (CPU/memory/replica/request counts — the sibling
 audit 0001 C3 alerting ticket) plus the request/dependency metrics App Insights **reconstructs from
 the traces**. Adding a metrics destination is deferred until there is a real need (YAGNI).
+
+## Monitoring & alerting
+
+Defined as code in [`iac/monitoring.tf`](../../iac/monitoring.tf) (audit 0001 §C3). Every alert
+**fires by email** to `var.admin_email` through a single Azure Monitor action group
+(`lotrotmsag<env_id>`) — **email only, no SMS**. The alerts stand on signals that already exist (ACA
+platform metrics + the Log Analytics workspace the apps stream console logs to), so they need no
+OTLP / cloud-telemetry wiring. Everything is parametrized by `var.env_id`, so a future staging
+inherits the same alerting.
+
+| Alert | Source | Fires when | Severity |
+|---|---|---|---|
+| **Auth availability (SLO)** | LAW `ContainerAppSystemLogs_CL` | the auth app's `/health/ready` readiness probe fails / the app reports unhealthy — auth is the token-issuance SPOF, so this is the platform's first SLO | 0 Critical |
+| **Replica restart** | metric `RestartCount` | any of the three apps restarts a replica (crash-loop signal: OOM, failed readiness, unhandled crash). Sensitive by design (`> 0`); stays active for the affected revision and auto-mitigates on a clean revision | 1 Error |
+| **HTTP 5xx spike** | metric `Requests` (`statusCodeCategory = 5xx`) | an app returns more than 5 server errors in 5 minutes. 4xx is intentionally not alerted (auth 401/400 are normal control flow) | 1 Error |
+| **Log error spike** | LAW `ContainerAppConsoleLogs_CL` | an app logs more than 10 Serilog `Error`/`Fatal` entries in 5 minutes — catches logged failures that never surface as a 5xx or restart | 2 Warning |
+| **Memory saturation** | metric `WorkingSetBytes` | an app sustains >80% of its 0.5 GiB limit for 15 minutes (OOM precursor) | 2 Warning |
+| **LAW daily cap reached** | LAW `Operation` table | the workspace's daily ingestion cap (`daily_quota_gb` in `azure-law.tf`) is hit and **log collection has stopped** — a blind spot exactly during an error storm | 2 Warning |
+| **CPU saturation** | metric `UsageNanoCores` | an app sustains >80% of its 0.25 vCPU limit for 15 minutes (capacity signal; no horizontal headroom at min=max=1 replica) | 3 Informational |
+
+Notes for the operator:
+
+- The metric alerts are fanned out **per app** (a `for_each` over auth-api / tms-api / frontend),
+  one single-scope rule each — the universally-supported shape (Azure does not allow multi-resource
+  metric alerts for Container Apps). The alert name carries the app key, e.g.
+  `lotrotms-alert-replica-restart-auth-api-<env_id>`.
+- The three log (scheduled-query) alerts set `skip_query_validation = true`, because the
+  `*_CL` tables only exist once the apps have emitted those records — a fresh environment can
+  provision the alerts before any logs flow.
+- The auth-availability query matches ACA system-log vocabulary that cannot be verified from a
+  `terraform plan` sandbox — **confirm/tune the matched tokens against real
+  `ContainerAppSystemLogs_CL` after the first apply.**
+- A true synthetic external probe of `/health/ready` (an Application Insights availability test) is
+  deliberately deferred: it needs an App Insights resource and the public hostname extracted to a
+  variable (the H2/H3 follow-ups). The log-based availability check above is the "at least a basic
+  one" the audit calls for, with no new dependencies.
 
 ## See also
 

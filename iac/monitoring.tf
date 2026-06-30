@@ -46,6 +46,7 @@ locals {
 # Action group — the single delivery channel for every alert. Email only (owner decision); no SMS.
 # ---------------------------------------------------------------------------------------------------
 resource "azurerm_monitor_action_group" "alerts" {
+  count               = local.create_env ? 1 : 0
   name                = "lotrotmsag${var.env_id}"
   resource_group_name = azurerm_resource_group.main.name
   # short_name shows up in the notification subject and is capped by Azure at 12 characters, so it
@@ -66,6 +67,15 @@ resource "azurerm_monitor_action_group" "alerts" {
   }
 }
 
+# M6-22: the action group gained a count for shared-environment mode — alerting belongs to the env
+# that owns the workspace, so staging (which reuses prod's environment + workspace) inherits prod's
+# alerts and creates none of its own. This shifts the address to [0]. For prod (create_env = true)
+# the resource is otherwise unchanged, so this is a pure state-address move.
+moved {
+  from = azurerm_monitor_action_group.alerts
+  to   = azurerm_monitor_action_group.alerts[0]
+}
+
 # ---------------------------------------------------------------------------------------------------
 # Metric alerts — ACA platform metrics (Microsoft.App/containerApps). Each metric is one rule fanned
 # out per app (for_each over local.monitored_container_apps), single-scope — see the local for why.
@@ -77,7 +87,7 @@ resource "azurerm_monitor_action_group" "alerts" {
 # revision resets the metric and auto-mitigates it) — read it as "this revision restarted,
 # investigate", not "restarting right now".
 resource "azurerm_monitor_metric_alert" "replica_restart" {
-  for_each            = local.monitored_container_apps
+  for_each            = local.create_env ? local.monitored_container_apps : {}
   name                = "lotrotms-alert-replica-restart-${each.key}-${var.env_id}"
   resource_group_name = azurerm_resource_group.main.name
   scopes              = [each.value]
@@ -95,7 +105,7 @@ resource "azurerm_monitor_metric_alert" "replica_restart" {
   }
 
   action {
-    action_group_id = azurerm_monitor_action_group.alerts.id
+    action_group_id = azurerm_monitor_action_group.alerts[0].id
   }
 
   tags = {
@@ -109,7 +119,7 @@ resource "azurerm_monitor_metric_alert" "replica_restart" {
 # flow (bad credentials, expired tokens) and would only create noise. 5xx is the app failing to serve
 # — the user-visible signal worth waking up for.
 resource "azurerm_monitor_metric_alert" "http_server_errors" {
-  for_each            = local.monitored_container_apps
+  for_each            = local.create_env ? local.monitored_container_apps : {}
   name                = "lotrotms-alert-http-5xx-${each.key}-${var.env_id}"
   resource_group_name = azurerm_resource_group.main.name
   scopes              = [each.value]
@@ -133,7 +143,7 @@ resource "azurerm_monitor_metric_alert" "http_server_errors" {
   }
 
   action {
-    action_group_id = azurerm_monitor_action_group.alerts.id
+    action_group_id = azurerm_monitor_action_group.alerts[0].id
   }
 
   tags = {
@@ -147,7 +157,7 @@ resource "azurerm_monitor_metric_alert" "http_server_errors" {
 # min=max=1 replica there is no horizontal headroom, so this is a capacity signal — investigate or
 # raise the CPU request before it throttles.
 resource "azurerm_monitor_metric_alert" "cpu_saturation" {
-  for_each            = local.monitored_container_apps
+  for_each            = local.create_env ? local.monitored_container_apps : {}
   name                = "lotrotms-alert-cpu-high-${each.key}-${var.env_id}"
   resource_group_name = azurerm_resource_group.main.name
   scopes              = [each.value]
@@ -165,7 +175,7 @@ resource "azurerm_monitor_metric_alert" "cpu_saturation" {
   }
 
   action {
-    action_group_id = azurerm_monitor_action_group.alerts.id
+    action_group_id = azurerm_monitor_action_group.alerts[0].id
   }
 
   tags = {
@@ -179,7 +189,7 @@ resource "azurerm_monitor_metric_alert" "cpu_saturation" {
 # informational: hitting the memory limit triggers an OOM kill and a replica restart, so this is the
 # usual leading indicator of the crash-loop alert above.
 resource "azurerm_monitor_metric_alert" "memory_saturation" {
-  for_each            = local.monitored_container_apps
+  for_each            = local.create_env ? local.monitored_container_apps : {}
   name                = "lotrotms-alert-memory-high-${each.key}-${var.env_id}"
   resource_group_name = azurerm_resource_group.main.name
   scopes              = [each.value]
@@ -197,7 +207,7 @@ resource "azurerm_monitor_metric_alert" "memory_saturation" {
   }
 
   action {
-    action_group_id = azurerm_monitor_action_group.alerts.id
+    action_group_id = azurerm_monitor_action_group.alerts[0].id
   }
 
   tags = {
@@ -218,6 +228,7 @@ resource "azurerm_monitor_metric_alert" "memory_saturation" {
 # app whose count crosses the spike threshold. This complements the metric alerts by catching
 # logged failures that never become a 5xx or a restart (e.g. a background job throwing).
 resource "azurerm_monitor_scheduled_query_rules_alert_v2" "log_error_spike" {
+  count               = local.create_env ? 1 : 0
   name                = "lotrotms-alert-log-error-spike-${var.env_id}"
   resource_group_name = azurerm_resource_group.main.name
   location            = azurerm_resource_group.main.location
@@ -226,7 +237,7 @@ resource "azurerm_monitor_scheduled_query_rules_alert_v2" "log_error_spike" {
 
   evaluation_frequency = "PT5M"
   window_duration      = "PT5M"
-  scopes               = [azurerm_log_analytics_workspace.law.id]
+  scopes               = [azurerm_log_analytics_workspace.law[0].id]
   # The *_CL custom-log tables only materialise once the apps have emitted those records, which lags
   # a fresh environment's first apply. Skip create-time KQL schema validation so the alert can be
   # provisioned before any logs flow — letting a future staging inherit alerting without a
@@ -260,7 +271,7 @@ resource "azurerm_monitor_scheduled_query_rules_alert_v2" "log_error_spike" {
   auto_mitigation_enabled = true
 
   action {
-    action_groups = [azurerm_monitor_action_group.alerts.id]
+    action_groups = [azurerm_monitor_action_group.alerts[0].id]
   }
 
   tags = {
@@ -276,6 +287,7 @@ resource "azurerm_monitor_scheduled_query_rules_alert_v2" "log_error_spike" {
 # in the Operation table ("Data collection stopped due to daily limit reached" / OverQuota), so this
 # rule turns a silent blind-spot into an email. Checked hourly because the cap is a daily event.
 resource "azurerm_monitor_scheduled_query_rules_alert_v2" "law_daily_cap" {
+  count               = local.create_env ? 1 : 0
   name                = "lotrotms-alert-law-daily-cap-${var.env_id}"
   resource_group_name = azurerm_resource_group.main.name
   location            = azurerm_resource_group.main.location
@@ -284,7 +296,7 @@ resource "azurerm_monitor_scheduled_query_rules_alert_v2" "law_daily_cap" {
 
   evaluation_frequency = "PT1H"
   window_duration      = "PT1H"
-  scopes               = [azurerm_log_analytics_workspace.law.id]
+  scopes               = [azurerm_log_analytics_workspace.law[0].id]
   # The *_CL custom-log tables only materialise once the apps have emitted those records, which lags
   # a fresh environment's first apply. Skip create-time KQL schema validation so the alert can be
   # provisioned before any logs flow — letting a future staging inherit alerting without a
@@ -310,7 +322,7 @@ resource "azurerm_monitor_scheduled_query_rules_alert_v2" "law_daily_cap" {
   auto_mitigation_enabled = true
 
   action {
-    action_groups = [azurerm_monitor_action_group.alerts.id]
+    action_groups = [azurerm_monitor_action_group.alerts[0].id]
   }
 
   tags = {
@@ -338,6 +350,7 @@ resource "azurerm_monitor_scheduled_query_rules_alert_v2" "law_daily_cap" {
 # The exact ACA system-log vocabulary cannot be queried from the plan sandbox — confirm/tune the
 # token set against real ContainerAppSystemLogs_CL on first apply.
 resource "azurerm_monitor_scheduled_query_rules_alert_v2" "auth_availability" {
+  count               = local.create_env ? 1 : 0
   name                = "lotrotms-slo-auth-availability-${var.env_id}"
   resource_group_name = azurerm_resource_group.main.name
   location            = azurerm_resource_group.main.location
@@ -346,7 +359,7 @@ resource "azurerm_monitor_scheduled_query_rules_alert_v2" "auth_availability" {
 
   evaluation_frequency = "PT5M"
   window_duration      = "PT5M"
-  scopes               = [azurerm_log_analytics_workspace.law.id]
+  scopes               = [azurerm_log_analytics_workspace.law[0].id]
   # The *_CL custom-log tables only materialise once the apps have emitted those records, which lags
   # a fresh environment's first apply. Skip create-time KQL schema validation so the alert can be
   # provisioned before any logs flow — letting a future staging inherit alerting without a
@@ -375,7 +388,7 @@ resource "azurerm_monitor_scheduled_query_rules_alert_v2" "auth_availability" {
   auto_mitigation_enabled = true
 
   action {
-    action_groups = [azurerm_monitor_action_group.alerts.id]
+    action_groups = [azurerm_monitor_action_group.alerts[0].id]
   }
 
   tags = {
@@ -383,4 +396,23 @@ resource "azurerm_monitor_scheduled_query_rules_alert_v2" "auth_availability" {
     src         = var.src_key
     project     = "lotrotms"
   }
+}
+
+# M6-22: the three log alerts gained a count for shared-environment mode — they query the workspace,
+# which staging reuses from prod, so staging inherits prod's log alerts and creates none of its own.
+# Each address shifts to [0]; for prod (create_env = true) the rules are otherwise unchanged, so these
+# are pure state-address moves.
+moved {
+  from = azurerm_monitor_scheduled_query_rules_alert_v2.log_error_spike
+  to   = azurerm_monitor_scheduled_query_rules_alert_v2.log_error_spike[0]
+}
+
+moved {
+  from = azurerm_monitor_scheduled_query_rules_alert_v2.law_daily_cap
+  to   = azurerm_monitor_scheduled_query_rules_alert_v2.law_daily_cap[0]
+}
+
+moved {
+  from = azurerm_monitor_scheduled_query_rules_alert_v2.auth_availability
+  to   = azurerm_monitor_scheduled_query_rules_alert_v2.auth_availability[0]
 }

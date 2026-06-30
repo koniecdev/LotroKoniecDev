@@ -11,10 +11,11 @@
 # H3 — reuse the LAW, never create a second workspace). Classic (non-workspace) AI is retired by
 # Azure, so workspace_id is mandatory.
 resource "azurerm_application_insights" "app_insights" {
+  count               = local.create_env ? 1 : 0
   name                = "lotrotmsappinsights${var.env_id}"
   location            = azurerm_resource_group.main.location
   resource_group_name = azurerm_resource_group.main.name
-  workspace_id        = azurerm_log_analytics_workspace.law.id
+  workspace_id        = azurerm_log_analytics_workspace.law[0].id
   application_type    = "web"
 
   tags = {
@@ -22,6 +23,14 @@ resource "azurerm_application_insights" "app_insights" {
     src         = var.src_key
     project     = "lotrotms"
   }
+}
+
+# M6-22: app_insights gained a count for shared-environment mode (it backs the OTel agent on the
+# environment we create, which staging skips), shifting its address to [0]. For prod (create_env =
+# true) the resource is otherwise unchanged, so this is a pure state-address move.
+moved {
+  from = azurerm_application_insights.app_insights
+  to   = azurerm_application_insights.app_insights[0]
 }
 
 # Enable the Container Apps managed OpenTelemetry agent on the managed environment. azurerm 4.7.0 has
@@ -47,8 +56,9 @@ resource "azurerm_application_insights" "app_insights" {
 # stable version once Azure GAs the agent (azapi schema-validates the body at plan, so a wrong version
 # fails the infra.yml gate loudly rather than drifting).
 resource "azapi_update_resource" "app_env_otel" {
+  count       = local.create_env ? 1 : 0
   type        = "Microsoft.App/managedEnvironments@2024-10-02-preview"
-  resource_id = azurerm_container_app_environment.app_env.id
+  resource_id = azurerm_container_app_environment.app_env[0].id
 
   body = {
     properties = {
@@ -66,8 +76,17 @@ resource "azapi_update_resource" "app_env_otel" {
   sensitive_body = {
     properties = {
       appInsightsConfiguration = {
-        connectionString = azurerm_application_insights.app_insights.connection_string
+        connectionString = azurerm_application_insights.app_insights[0].connection_string
       }
     }
   }
+}
+
+# M6-22: app_env_otel gained a count for shared-environment mode — we patch the OTel agent only onto
+# the environment we create (staging never reconfigures prod's shared environment), shifting its
+# address to [0]. For prod (create_env = true) the patch is otherwise unchanged, so this is a pure
+# state-address move.
+moved {
+  from = azapi_update_resource.app_env_otel
+  to   = azapi_update_resource.app_env_otel[0]
 }

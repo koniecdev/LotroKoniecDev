@@ -11,3 +11,15 @@ locals {
   tms_origin   = "https://tms.${var.public_base_domain}"
   callback_url = "${local.apex_origin}/callback"
 }
+
+locals {
+  # Shared-environment mode (M6-22). The Azure subscription allows only ONE Container App Environment
+  # total, and prod holds it. When var.aca_environment_name is set this env (staging) deploys its apps
+  # INTO that existing managed environment instead of creating its own: create_env is false, so the
+  # managed-environment + its workspace / app-insights / OTel-agent / monitoring singletons are skipped
+  # and the shared environment is data-read instead. For prod the vars are empty -> create_env = true
+  # -> every singleton is created exactly as before (byte-identical plan). app_env_id is the single
+  # knob every container app, the migrator job, and the keyring storage point at.
+  create_env = var.aca_environment_name == ""
+  app_env_id = local.create_env ? azurerm_container_app_environment.app_env[0].id : data.azurerm_container_app_environment.shared[0].id
+}

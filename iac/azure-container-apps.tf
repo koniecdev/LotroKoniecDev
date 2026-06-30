@@ -1,6 +1,6 @@
 resource "azurerm_container_app" "auth_api" {
   name                         = "lotrotms-auth-api-${var.env_id}"
-  container_app_environment_id = azurerm_container_app_environment.app_env.id
+  container_app_environment_id = local.app_env_id
   resource_group_name          = azurerm_resource_group.main.name
   revision_mode                = "Multiple"
 
@@ -227,7 +227,7 @@ resource "azurerm_container_app" "auth_api" {
 
 resource "azurerm_container_app" "tms_api" {
   name                         = "lotrotms-tms-api-${var.env_id}"
-  container_app_environment_id = azurerm_container_app_environment.app_env.id
+  container_app_environment_id = local.app_env_id
   resource_group_name          = azurerm_resource_group.main.name
   revision_mode                = "Multiple"
 
@@ -360,7 +360,7 @@ resource "azurerm_container_app" "tms_api" {
 
 resource "azurerm_container_app" "frontend" {
   name                         = "lotrotms-frontend-${var.env_id}"
-  container_app_environment_id = azurerm_container_app_environment.app_env.id
+  container_app_environment_id = local.app_env_id
   resource_group_name          = azurerm_resource_group.main.name
   revision_mode                = "Multiple"
 

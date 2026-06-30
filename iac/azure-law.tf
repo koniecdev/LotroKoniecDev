@@ -1,4 +1,5 @@
 resource "azurerm_log_analytics_workspace" "law" {
+  count               = local.create_env ? 1 : 0
   location            = azurerm_resource_group.main.location
   name                = "lotrotmslaw${var.env_id}"
   resource_group_name = azurerm_resource_group.main.name
@@ -17,4 +18,12 @@ resource "azurerm_log_analytics_workspace" "law" {
     src         = var.src_key
     project     = "lotrotms"
   }
+}
+
+# M6-22: law gained a count for shared-environment mode (staging reuses prod's workspace), shifting
+# its address to [0]. For prod (create_env = true) the workspace is otherwise unchanged, so this is a
+# pure state-address move — never a destroy/recreate.
+moved {
+  from = azurerm_log_analytics_workspace.law
+  to   = azurerm_log_analytics_workspace.law[0]
 }

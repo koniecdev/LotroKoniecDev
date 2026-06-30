@@ -337,7 +337,9 @@ Ongoing delivery to the live Azure environment is automated (ADR-0012). Three wo
 | Workflow | Trigger | What it does |
 |---|---|---|
 | `cd.yml` → `build-and-push` | push to main, `v*` tag | builds + pushes the 4 images to GHCR (`:sha-<short>`, `:latest` on main, semver on tags) |
-| `cd.yml` → `deploy-prod` | push to main / dispatch, **behind the `production` approval gate** | OIDC login → run migrator to success (**gate**) → `az containerapp update` the 3 apps to `:sha-<short>` → readiness wait → smoke |
+| `cd.yml` → `deploy-prod` | push to main / dispatch, **behind the `production` approval gate** | OIDC login → run migrator to success (**gate**) → deploy each app as a **candidate revision at 0% traffic** (multiple-revision mode, `--revision-suffix`) → label it `cd-candidate` → readiness wait on the candidate (incl. frontend) |
+| `cd.yml` → `smoke` → `promote` → `smoke-prod` | after `deploy-prod` | smoke the 0%-traffic candidate via its private `…---cd-candidate.<env-domain>` FQDN; only a green smoke shifts 100% of traffic onto it (`promote`); then `smoke-prod` re-checks the real production origins |
+| `cd.yml` → `rollback` | any rollout failure (once a candidate exists) | restores 100% of traffic to the previous revision and deactivates the candidate — no window where users hit a bad revision (audit 0001 H7) |
 | `infra.yml` | PR / push to `iac/**`, dispatch | `plan` on PRs (preview in run summary); **gated** `apply` on main |
 
 **The release control.** Every merge to main builds, then **waits at the `production` environment**
@@ -347,9 +349,15 @@ until you click — the safeguard for QA testing on prod. Approve when QA is fre
 **Deploy a specific build on demand.** Actions → *CD* → *Run workflow* → optional `image_tag`
 (`sha-<short>` or `vX.Y.Z`); empty = the chosen ref's commit. Still gated.
 
-**Roll back.** Re-run *CD* via dispatch with `image_tag` = the previous good `sha-<short>` (GHCR
-images are immutable). Approve. DB migrations are forward-only — roll the schema forward, not back
-(ADR-0008 §6); snapshot the DBs before a risky release.
+**Roll back.** A *failed* rollout rolls back **automatically** (audit 0001 H7): the health-gated
+pipeline shifts traffic only after the candidate passes smoke, and on any failure the `rollback` job
+restores 100% of traffic to the previous revision and deactivates the candidate — so a bad release
+never serves users. To revert a release *after* it was promoted, either re-run *CD* via dispatch with
+`image_tag` = the previous good `sha-<short>` (GHCR images are immutable) and approve, or — for an
+instant manual revert — shift traffic back to the still-present previous revision:
+`az containerapp ingress traffic set -n <app> -g <rg> --revision-weight <prev>=100 <candidate>=0`.
+DB migrations are forward-only — roll the schema forward, not back (ADR-0008 §6); snapshot the DBs
+before a risky release.
 
 ### One-time operator setup (your Azure + GitHub)
 
@@ -587,10 +595,12 @@ is the auth server's `OpenIddict__ApiClientSecret` (see [Generating secrets](#ge
 ### In CI
 
 The [`Smoke test`](../../.github/workflows/smoke.yml) workflow is **`workflow_call`-able and is
-called automatically by `cd.yml`'s `deploy-prod` after every prod rollout** (ADR-0012) — a deploy
-that comes up wrong fails loudly. It also stays runnable **on demand** (`workflow_dispatch` — enter
-the three URLs); the secret comes from the repository secret `SMOKE_CLIENT_SECRET`. See
-[Continuous deployment (CI/CD)](#continuous-deployment-cicd).
+called automatically by `cd.yml` twice per release** (ADR-0012, amended audit 0001 H7): once against
+the **0%-traffic candidate** (its private `…---cd-candidate.<env-domain>` FQDN) **before** any traffic
+shift — a red smoke here means promotion is skipped and the candidate is rolled back, so a broken
+build never serves a user — and once against the **real production origins** after promotion. It also
+stays runnable **on demand** (`workflow_dispatch` — enter the three URLs); the secret comes from the
+repository secret `SMOKE_CLIENT_SECRET`. See [Continuous deployment (CI/CD)](#continuous-deployment-cicd).
 
 ## See also
 

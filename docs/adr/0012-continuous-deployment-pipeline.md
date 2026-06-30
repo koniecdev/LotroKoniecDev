@@ -112,18 +112,32 @@ with no `/health`, is checked for a 2xx/3xx on `/`). The `smoke` job then exerci
 through its private `…---cd-candidate.<env-domain>` label FQDN (valid wildcard cert; the token
 round-trip works cross-revision because the OpenIddict signing key is shared via Key Vault and the
 issuer is pinned). Only a green candidate smoke runs `promote`, which shifts 100% of traffic onto the
-candidate (`ingress traffic set --revision-weight <prev>=0 <candidate>=100`); `smoke-prod` then
-re-checks the real production origins (custom domain + cert + routing). On **any** failure the
-`rollback` job restores 100% of traffic to the previous revision and deactivates the candidate — safe
-in every phase (pre-promotion: traffic never moved; post-promotion: traffic is forced back). The net
-effect is the audit's "deploy at 0% → smoke → 100%": **traffic never lands on an unverified revision**,
-and there is no auto-rollback gap. `min_replicas` stays `0` (the audit's M3 reconciliation is left
-out of scope here): the 0%-traffic candidate is woken from scale-to-zero by the readiness/smoke
-requests to its label FQDN (Container Apps' documented direct-revision-access path), so no replica is
-paid for between deploys. One accepted consequence of decoupling the traffic shift from the image
-roll: during the smoke window the **previous** revision briefly serves on the freshly-migrated schema
-(the migration gate still runs first), which the project's forward-only / expand-contract discipline
+candidate (`ingress traffic set --revision-weight <prev>=0 <candidate>=100`); a final smoke then
+re-checks the real production origins (custom domain + cert + routing). On **any** failure traffic is
+restored to the previous revision and the candidate is deactivated — safe in every phase
+(pre-promotion: traffic never moved; post-promotion: traffic is forced back). The net effect is the
+audit's "deploy at 0% → smoke → 100%": **traffic never lands on an unverified revision**, with no
+auto-rollback gap. One accepted consequence of decoupling the traffic shift from the image roll:
+during the smoke window the **previous** revision briefly serves on the freshly-migrated schema (the
+migration gate still runs first), which the project's forward-only / expand-contract discipline
 already assumes (ADR-0008 §6; audit C4).
+
+**Follow-up (2026-06-30, first prod run of the above).** The first real rollout surfaced two defects,
+fixed here:
+1. **One job, not many.** The rollout was first split into separate `deploy-prod` / `smoke` /
+   `promote` / `smoke-prod` / `rollback` jobs. Only `deploy-prod` declared `environment: production`,
+   so only it got an OIDC subject (`…:environment:production`) matching the Entra **federated
+   credential**; `promote`/`rollback` ran without an environment and **failed `azure/login`**. The
+   federation model trusts only the `production` environment, so **every Azure-mutating step now lives
+   in the single approved `deploy-prod` job** — sharing one OIDC identity and one human approval — with
+   the candidate smoke run **inline** (`scripts/smoke.sh` from the checkout) before the traffic shift.
+2. **`min_replicas` `0 → 1` (resolves audit M3 / fulfils R8).** With scale-to-zero the previous auth
+   revision serving the public origin slept (zero users), so the candidate tms's first cross-revision
+   token validation cold-started auth and exceeded the smoke timeout (`000`). Keeping one warm replica
+   per revision removes the cold start and makes the 0%-traffic candidate immediately smokeable.
+   Because an idle revision now costs a replica, `promote` **deactivates** the superseded revision
+   (the rollback step **re-activates** it before steering traffic back), so exactly one revision stays
+   active in steady state. Readiness still warms the public auth origin as cheap insurance.
 
 ### 6. Infra is also CI-managed, behind the same gate
 

@@ -337,9 +337,7 @@ Ongoing delivery to the live Azure environment is automated (ADR-0012). Three wo
 | Workflow | Trigger | What it does |
 |---|---|---|
 | `cd.yml` → `build-and-push` | push to main, `v*` tag | builds the 4 images, **scans each with Trivy (fails on a fixable HIGH/CRITICAL)**, then pushes to GHCR **signed (cosign keyless) + attested (SLSA provenance + SBOM)** — `:sha-<short>`, `:latest` on main, semver on tags (audit 0001 H9 + H1) |
-| `cd.yml` → `deploy-prod` | push to main / dispatch, **behind the `production` approval gate** | **verify each image's signed provenance (`gh attestation verify`, fail-closed)** → OIDC login → run migrator to success (**gate**) → deploy each app as a **candidate revision at 0% traffic** (multiple-revision mode, `--revision-suffix`) → label it `cd-candidate` → readiness wait on the candidate (incl. frontend) |
-| `cd.yml` → `smoke` → `promote` → `smoke-prod` | after `deploy-prod` | smoke the 0%-traffic candidate via its private `…---cd-candidate.<env-domain>` FQDN; only a green smoke shifts 100% of traffic onto it (`promote`); then `smoke-prod` re-checks the real production origins |
-| `cd.yml` → `rollback` | any rollout failure (once a candidate exists) | restores 100% of traffic to the previous revision and deactivates the candidate — no window where users hit a bad revision (audit 0001 H7) |
+| `cd.yml` → `deploy-prod` | push to main / dispatch, **behind the `production` approval gate** | the whole health-gated rollout in ONE job (every Azure step shares the approved environment's OIDC identity): **verify each image's signed provenance** (`gh attestation verify`, fail-closed) → OIDC login → migrator to success (**gate**) → deploy each app as a **candidate at 0% traffic** (`--revision-suffix`, labelled `cd-candidate`) → readiness (incl. frontend) + warm the auth origin → **smoke the candidate** inline (`scripts/smoke.sh`) → **promote** 100% traffic + deactivate the previous revision → **smoke production** → **roll back on any failure** (restore traffic to the previous revision, deactivate the candidate) — audit 0001 H7 |
 | `infra.yml` | PR / push to `iac/**`, dispatch | `plan` on PRs (preview in run summary); **gated** `apply` on main |
 
 **The release control.** Every merge to main builds, then **waits at the `production` environment**
@@ -352,9 +350,9 @@ build-provenance attestation from our CD or the **verify gate fails closed** (au
 image built since that change has one; an older pre-H9 tag must be rebuilt from its commit.
 
 **Roll back.** A *failed* rollout rolls back **automatically** (audit 0001 H7): the health-gated
-pipeline shifts traffic only after the candidate passes smoke, and on any failure the `rollback` job
-restores 100% of traffic to the previous revision and deactivates the candidate — so a bad release
-never serves users. To revert a release *after* it was promoted, either re-run *CD* via dispatch with
+pipeline shifts traffic only after the candidate passes smoke, and on any failure the rollback step
+(in `deploy-prod`) restores 100% of traffic to the previous revision and deactivates the candidate —
+so a bad release never serves users. To revert a release *after* it was promoted, either re-run *CD* via dispatch with
 `image_tag` = the previous good `sha-<short>` (GHCR images are immutable) and approve, or — for an
 instant manual revert — shift traffic back to the still-present previous revision:
 `az containerapp ingress traffic set -n <app> -g <rg> --revision-weight <prev>=100 <candidate>=0`.
@@ -596,13 +594,15 @@ is the auth server's `OpenIddict__ApiClientSecret` (see [Generating secrets](#ge
 
 ### In CI
 
-The [`Smoke test`](../../.github/workflows/smoke.yml) workflow is **`workflow_call`-able and is
-called automatically by `cd.yml` twice per release** (ADR-0012, amended audit 0001 H7): once against
-the **0%-traffic candidate** (its private `…---cd-candidate.<env-domain>` FQDN) **before** any traffic
-shift — a red smoke here means promotion is skipped and the candidate is rolled back, so a broken
-build never serves a user — and once against the **real production origins** after promotion. It also
-stays runnable **on demand** (`workflow_dispatch` — enter the three URLs); the secret comes from the
-repository secret `SMOKE_CLIENT_SECRET`. See [Continuous deployment (CI/CD)](#continuous-deployment-cicd).
+`cd.yml`'s `deploy-prod` runs `scripts/smoke.sh` **inline twice per release** (ADR-0012, amended audit
+0001 H7): once against the **0%-traffic candidate** (its private `…---cd-candidate.<env-domain>` FQDN)
+**before** any traffic shift — a red smoke here skips promotion and the candidate is rolled back, so a
+broken build never serves a user — and once against the **real production origins** after promotion. It
+runs inline (not as a separate job) because the Azure OIDC federated credential trusts only the
+`production` environment, so every step sharing that identity must live in the one approved job. The
+same [`Smoke test`](../../.github/workflows/smoke.yml) reusable workflow stays runnable **on demand**
+(`workflow_dispatch` — enter the three URLs); the secret comes from the repository secret
+`SMOKE_CLIENT_SECRET`. See [Continuous deployment (CI/CD)](#continuous-deployment-cicd).
 
 ## See also
 

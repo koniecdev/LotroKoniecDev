@@ -10,13 +10,11 @@ name: CD
 #   build-and-push → builds the four OCI images, scans each with Trivy (fail HIGH/CRITICAL), then
 #                    publishes them to GHCR signed + attested (cosign + SLSA provenance/SBOM) — the
 #                    deployment unit (ADR-0008 §1/§6; supply-chain hardening, audit 0001 H9 + H1).
-#   deploy-prod    → verifies each image's signed provenance (fail closed), then rolls each app out as
-#                    a NEW revision at 0% traffic (multiple-revision mode), BEHIND a manual approval
-#                    gate; waits for the candidate (incl. frontend) readiness.
-#   smoke          → smokes the 0%-traffic CANDIDATE through its private label FQDN, before any shift.
-#   promote        → only a green candidate smoke shifts 100% of traffic onto the candidate.
-#   smoke-prod     → post-promotion confirmation on the real production origins.
-#   rollback       → on ANY failure once a candidate exists, restores traffic to the previous revision.
+#   deploy-prod    → the WHOLE health-gated rollout in ONE approval-gated job (so every Azure step
+#                    shares the approved `production` environment's OIDC identity — see the note below):
+#                    verify provenance → migrate → deploy candidates at 0% traffic → readiness (incl.
+#                    frontend) + warm the auth origin → smoke the candidate → promote to 100% → smoke
+#                    prod → roll back on any failure.
 #
 # The deployment unit is an immutable per-commit image (`sha-<short>`); the rolling tag is owned by
 # THIS pipeline (`az containerapp update`), not Terraform — the ACA resources ignore image + traffic
@@ -24,9 +22,17 @@ name: CD
 #
 # Health-gated rollout (audit 0001 H7): traffic NEVER jumps onto an unverified revision. Each app is
 # deployed as a candidate revision receiving 0% production traffic, reachable only through a private
-# `<app>---cd-candidate.<env-domain>` label FQDN. Smoke runs against that candidate first; only then
-# does `promote` shift 100% of traffic to it. The previous revision is kept (0% traffic, scales to
-# zero) so a failure rolls straight back to it — no window where users hit a bad revision.
+# `<app>---cd-candidate.<env-domain>` label FQDN. The candidate is smoked first; only then is 100% of
+# traffic shifted onto it. The previous revision is kept (0% traffic, scales to zero) so any failure
+# rolls straight back to it — no window where users hit a bad revision.
+#
+# Why ONE job (not a job per phase): the Azure OIDC federated credential trusts only the `production`
+# environment subject, so a job WITHOUT `environment: production` cannot `azure/login` (the first cut
+# split promote/rollback into separate jobs and they failed login). Every Azure-mutating step therefore
+# lives in the single approved deploy-prod job — that gives them a working identity and keeps the
+# rollout to ONE human approval, with the candidate smoke run inline (`scripts/smoke.sh`) before the
+# traffic shift. The cross-revision token check also needs the previous auth revision awake
+# (min_replicas=0 ⇒ it scales to zero with no users), so readiness warms the public auth origin first.
 #
 # Supply-chain hardening (audit 0001 H9 + the H1 image-scanning leg — the dependency/SAST legs already
 # ship as NuGetAudit + CodeQL + Dependabot). Each image is scanned by Trivy and a fixable HIGH/CRITICAL
@@ -74,11 +80,14 @@ permissions:
 env:
   REGISTRY: ghcr.io
   IMAGE_NAMESPACE: ${{ github.repository_owner }}
-  # Prod ACA targets, shared by deploy-prod / promote / rollback (non-secret).
+  # Prod ACA targets + public origins, shared by the deploy-prod rollout steps (non-secret).
   RESOURCE_GROUP: rg-lotrotms-prod-polc-001
   AUTH_APP: lotrotms-auth-api-prod
   TMS_APP: lotrotms-tms-api-prod
   FRONTEND_APP: lotrotms-frontend-prod
+  AUTH_URL: https://auth.lotro-translator.pl
+  TMS_URL: https://tms.lotro-translator.pl
+  FRONTEND_URL: https://lotro-translator.pl
   # Label that gives the 0%-traffic candidate a private FQDN for smoke (health-gated rollout).
   CANDIDATE_LABEL: cd-candidate
 
@@ -325,18 +334,6 @@ jobs:
       packages: read # pull image manifest + provenance attestation from GHCR for the verify gate (H9)
     env:
       MIGRATOR_JOB: lotrotms-migrator-prod
-    # Candidate (0%-traffic) revision URLs + the previous/candidate revision names flow to the smoke,
-    # promote and rollback jobs (health-gated rollout — ADR-0012 §5 amendment, audit 0001 H7).
-    outputs:
-      auth_candidate_url: ${{ steps.rollout.outputs.auth_candidate_url }}
-      tms_candidate_url: ${{ steps.rollout.outputs.tms_candidate_url }}
-      frontend_candidate_url: ${{ steps.rollout.outputs.frontend_candidate_url }}
-      auth_prev_rev: ${{ steps.rollout.outputs.auth_prev_rev }}
-      tms_prev_rev: ${{ steps.rollout.outputs.tms_prev_rev }}
-      frontend_prev_rev: ${{ steps.rollout.outputs.frontend_prev_rev }}
-      auth_candidate_rev: ${{ steps.rollout.outputs.auth_candidate_rev }}
-      tms_candidate_rev: ${{ steps.rollout.outputs.tms_candidate_rev }}
-      frontend_candidate_rev: ${{ steps.rollout.outputs.frontend_candidate_rev }}
 
     steps:
       # Same commit pin as build-and-push (the tested commit), so any repo file this job reads
@@ -475,32 +472,31 @@ jobs:
             echo "  candidate URL: ${candidate_url}"
             echo "::endgroup::"
 
+            # Expose to later steps (readiness, smoke, promote, the failure-rollback) via the job env.
+            uc="$(printf '%s' "$prefix" | tr '[:lower:]' '[:upper:]')"
             {
-              printf '%s_prev_rev=%s\n' "$prefix" "$prev"
-              printf '%s_candidate_rev=%s\n' "$prefix" "$candidate"
-              printf '%s_candidate_url=%s\n' "$prefix" "$candidate_url"
-            } >> "$GITHUB_OUTPUT"
+              printf '%s_PREV=%s\n' "$uc" "$prev"
+              printf '%s_CANDIDATE=%s\n' "$uc" "$candidate"
+              printf '%s_CANDIDATE_URL=%s\n' "$uc" "$candidate_url"
+            } >> "$GITHUB_ENV"
           }
           deploy_candidate auth "$AUTH_APP" lotrokoniecdev-auth-api
           deploy_candidate tms "$TMS_APP" lotrokoniecdev-tms-api
           deploy_candidate frontend "$FRONTEND_APP" lotrokoniecdev-frontend
 
-      # Cold-start tolerant readiness against the CANDIDATE revisions. At 0% traffic with
-      # min_replicas=0 the label-FQDN request itself wakes the revision from scale-to-zero; the
-      # generous budget absorbs that cold start. Frontend is polled too (audit 0001 H7): it is a
-      # Static-SSR app with no /health endpoint, so a 2xx/3xx on '/' is its readiness signal.
-      - name: Wait for candidate readiness (incl. frontend)
-        env:
-          AUTH_CANDIDATE_URL: ${{ steps.rollout.outputs.auth_candidate_url }}
-          TMS_CANDIDATE_URL: ${{ steps.rollout.outputs.tms_candidate_url }}
-          FRONTEND_CANDIDATE_URL: ${{ steps.rollout.outputs.frontend_candidate_url }}
+      # Readiness against the CANDIDATE revisions before the gated smoke. With min_replicas=1 every
+      # revision (incl. the 0%-traffic candidate) keeps a live replica, so this is a short wait for the
+      # new replica to pass its probes — not a scale-from-zero cold start — and the previous auth
+      # revision (which the candidate tms validates tokens against via the public origin) stays warm.
+      # We still confirm that auth origin is serving. Frontend: Static-SSR, no /health → 2xx/3xx on '/'.
+      - name: Wait for candidate readiness (incl. frontend) + warm the auth origin
         run: |
           set -euo pipefail
-          wait_ready() {
+          poll() {
             name="$1"; url="$2"; lo="$3"; hi="$4"
-            echo "::group::Waiting for ${name} candidate readiness: ${url}"
+            echo "::group::Waiting for ${name}: ${url}"
             for _ in $(seq 1 60); do
-              code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 10 "$url" || echo 000)
+              code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 15 "$url" || echo 000)
               echo "  ${name} → ${code}"
               if [ "$code" -ge "$lo" ] 2>/dev/null && [ "$code" -le "$hi" ] 2>/dev/null; then
                 echo "::endgroup::"; return 0
@@ -508,57 +504,37 @@ jobs:
               sleep 10
             done
             echo "::endgroup::"
-            echo "::error::${name} candidate did not become ready: ${url}"
+            echo "::error::${name} did not become ready: ${url}"
             return 1
           }
-          wait_ready auth "${AUTH_CANDIDATE_URL}/health/ready" 200 200
-          wait_ready tms "${TMS_CANDIDATE_URL}/health/ready" 200 200
-          wait_ready frontend "${FRONTEND_CANDIDATE_URL}/" 200 399
+          poll auth-candidate     "${AUTH_CANDIDATE_URL}/health/ready" 200 200
+          poll tms-candidate      "${TMS_CANDIDATE_URL}/health/ready" 200 200
+          poll frontend-candidate "${FRONTEND_CANDIDATE_URL}/" 200 399
+          # Wake the previous auth revision serving the public origin (cross-revision JWKS validation).
+          poll auth-origin        "${AUTH_URL}/.well-known/openid-configuration" 200 200
 
-  # Smoke the CANDIDATE revisions via their private label FQDNs BEFORE any production traffic shift
-  # (audit 0001 H7). A red smoke here means the new revision never served a user: promote is skipped
-  # and the rollback job retires the candidate, leaving 100% of traffic on the previous revision.
-  smoke:
-    name: Smoke candidate (pre-promotion)
-    needs: deploy-prod
-    uses: ./.github/workflows/smoke.yml
-    secrets: inherit
-    with:
-      auth_url: ${{ needs.deploy-prod.outputs.auth_candidate_url }}
-      tms_url: ${{ needs.deploy-prod.outputs.tms_candidate_url }}
-      frontend_url: ${{ needs.deploy-prod.outputs.frontend_candidate_url }}
-
-  # The "→ 100%" leg: only a green candidate smoke shifts production traffic onto the candidate. The
-  # previous revision is kept at 0% (it scales to zero on its own) as an instant rollback target.
-  promote:
-    name: Promote candidate to 100% traffic
-    needs: [deploy-prod, smoke]
-    if: ${{ vars.CD_ENABLED == 'true' && needs.deploy-prod.result == 'success' && needs.smoke.result == 'success' }}
-    runs-on: ubuntu-24.04
-    timeout-minutes: 15
-    # Same group as deploy-prod / rollback → all prod-mutating jobs serialize; never cancel mid-shift.
-    concurrency:
-      group: cd-deploy-prod
-      cancel-in-progress: false
-    permissions:
-      contents: read
-      id-token: write # Azure OIDC federation
-    steps:
-      - name: Azure login (OIDC)
-        uses: azure/login@532459ea530d8321f2fb9bb10d1e0bcf23869a43 # v3.0.0
-        with:
-          client-id: ${{ secrets.AZURE_CLIENT_ID }}
-          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
-          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-
-      - name: Shift 100% of traffic to the smoked candidates
+      # Smoke the 0%-traffic CANDIDATE via its private label FQDNs BEFORE any traffic shift (audit
+      # 0001 H7). Runs inline (scripts/smoke.sh from the checkout) so it shares this job's already-
+      # approved `production` environment + Azure OIDC identity with the promote/rollback steps —
+      # separate jobs cannot reuse that federated identity. A red smoke trips the failure-rollback
+      # step below. The candidate is freshly started, so allow a longer per-request timeout for the
+      # first token-validation round-trip.
+      - name: Smoke the candidate (pre-promotion gate)
         env:
-          AUTH_PREV: ${{ needs.deploy-prod.outputs.auth_prev_rev }}
-          TMS_PREV: ${{ needs.deploy-prod.outputs.tms_prev_rev }}
-          FRONTEND_PREV: ${{ needs.deploy-prod.outputs.frontend_prev_rev }}
-          AUTH_CANDIDATE: ${{ needs.deploy-prod.outputs.auth_candidate_rev }}
-          TMS_CANDIDATE: ${{ needs.deploy-prod.outputs.tms_candidate_rev }}
-          FRONTEND_CANDIDATE: ${{ needs.deploy-prod.outputs.frontend_candidate_rev }}
+          SMOKE_CLIENT_SECRET: ${{ secrets.SMOKE_CLIENT_SECRET }}
+        run: |
+          set -euo pipefail
+          ./scripts/smoke.sh \
+            --auth-url "$AUTH_CANDIDATE_URL" \
+            --tms-url "$TMS_CANDIDATE_URL" \
+            --frontend-url "$FRONTEND_CANDIDATE_URL" \
+            --client-secret "$SMOKE_CLIENT_SECRET" \
+            --timeout 30
+
+      # The "→ 100%" leg: a green candidate smoke shifts production traffic onto the candidate, then
+      # deactivates the previous revision (with min_replicas=1 it would otherwise hold an idle replica).
+      # A failed post-promotion smoke re-activates it and steers traffic back (the rollback step).
+      - name: Promote the candidate to 100% traffic
         run: |
           set -euo pipefail
           promote() {
@@ -570,56 +546,35 @@ jobs:
             # candidate; the next rollout recreates it on the next candidate.
             az containerapp revision label remove -n "$app" -g "$RESOURCE_GROUP" \
               --label "$CANDIDATE_LABEL" -o none || true
+            # With min_replicas=1 a kept-active prev would hold a replica forever; deactivate it to
+            # reclaim it. The failure-rollback step re-activates prev before sending traffic back.
+            az containerapp revision deactivate -n "$app" -g "$RESOURCE_GROUP" --revision "$prev" -o none || true
             echo "::endgroup::"
           }
           promote "$AUTH_APP" "$AUTH_PREV" "$AUTH_CANDIDATE"
           promote "$TMS_APP" "$TMS_PREV" "$TMS_CANDIDATE"
           promote "$FRONTEND_APP" "$FRONTEND_PREV" "$FRONTEND_CANDIDATE"
 
-  # Final confirmation on the REAL production origins after the shift (custom domain + cert + routing
-  # — the only legs a candidate label FQDN can't exercise). A red here trips the rollback job.
-  smoke-prod:
-    name: Smoke production (post-promotion)
-    needs: promote
-    uses: ./.github/workflows/smoke.yml
-    secrets: inherit
-    with:
-      auth_url: https://auth.lotro-translator.pl
-      tms_url: https://tms.lotro-translator.pl
-      frontend_url: https://lotro-translator.pl
-
-  # Auto-rollback (audit 0001 H7). Fires on ANY rollout failure once candidates exist. It restores
-  # 100% of traffic to the previous revision and retires the candidate — safe in every phase:
-  #   * pre-promotion failure  → traffic was already on prev (idempotent); candidate deactivated.
-  #   * post-promotion failure → traffic is forced back from the candidate to prev (true rollback).
-  rollback:
-    name: Roll back on failure
-    needs: [deploy-prod, smoke, promote, smoke-prod]
-    if: ${{ always() && vars.CD_ENABLED == 'true' && needs.deploy-prod.outputs.auth_candidate_rev != '' && (needs.deploy-prod.result == 'failure' || needs.smoke.result == 'failure' || needs.promote.result == 'failure' || needs.smoke-prod.result == 'failure') }}
-    runs-on: ubuntu-24.04
-    timeout-minutes: 15
-    concurrency:
-      group: cd-deploy-prod
-      cancel-in-progress: false
-    permissions:
-      contents: read
-      id-token: write # Azure OIDC federation
-    steps:
-      - name: Azure login (OIDC)
-        uses: azure/login@532459ea530d8321f2fb9bb10d1e0bcf23869a43 # v3.0.0
-        with:
-          client-id: ${{ secrets.AZURE_CLIENT_ID }}
-          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
-          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-
-      - name: Restore previous revisions and retire candidates
+      # Final confirmation on the REAL production origins after the shift (custom domain + cert +
+      # routing — legs a candidate label FQDN can't exercise). A red here trips the rollback step.
+      - name: Smoke production (post-promotion)
         env:
-          AUTH_PREV: ${{ needs.deploy-prod.outputs.auth_prev_rev }}
-          TMS_PREV: ${{ needs.deploy-prod.outputs.tms_prev_rev }}
-          FRONTEND_PREV: ${{ needs.deploy-prod.outputs.frontend_prev_rev }}
-          AUTH_CANDIDATE: ${{ needs.deploy-prod.outputs.auth_candidate_rev }}
-          TMS_CANDIDATE: ${{ needs.deploy-prod.outputs.tms_candidate_rev }}
-          FRONTEND_CANDIDATE: ${{ needs.deploy-prod.outputs.frontend_candidate_rev }}
+          SMOKE_CLIENT_SECRET: ${{ secrets.SMOKE_CLIENT_SECRET }}
+        run: |
+          set -euo pipefail
+          ./scripts/smoke.sh \
+            --auth-url "$AUTH_URL" \
+            --tms-url "$TMS_URL" \
+            --frontend-url "$FRONTEND_URL" \
+            --client-secret "$SMOKE_CLIENT_SECRET"
+
+      # Auto-rollback (audit 0001 H7). Runs if ANY step above failed once candidates exist. Restores
+      # 100% of traffic to the previous revision and deactivates the candidate — safe in every phase
+      # (pre-promotion: traffic never moved → idempotent; post-promotion: forced back to prev). The job
+      # still fails (the original error stands); this step only repairs traffic. The revision names come
+      # from the job env the rollout step wrote ('' ⇒ that app never got a candidate ⇒ skip it).
+      - name: Roll back on failure
+        if: failure()
         run: |
           set -euo pipefail
           roll_back() {
@@ -627,6 +582,8 @@ jobs:
             if [ -z "$candidate" ]; then echo "  ${app}: no candidate created — nothing to roll back"; return 0; fi
             echo "::group::Roll back ${app} → ${prev}"
             if [ -n "$prev" ]; then
+              # Promote may have deactivated prev (min_replicas=1 reclaim) — re-activate before traffic.
+              az containerapp revision activate -n "$app" -g "$RESOURCE_GROUP" --revision "$prev" -o none || true
               az containerapp ingress traffic set -n "$app" -g "$RESOURCE_GROUP" \
                 --revision-weight "${prev}=100" "${candidate}=0" -o none || true
             fi
@@ -634,8 +591,7 @@ jobs:
             az containerapp revision label remove -n "$app" -g "$RESOURCE_GROUP" --label "$CANDIDATE_LABEL" -o none || true
             echo "::endgroup::"
           }
-          roll_back "$AUTH_APP" "$AUTH_PREV" "$AUTH_CANDIDATE"
-          roll_back "$TMS_APP" "$TMS_PREV" "$TMS_CANDIDATE"
-          roll_back "$FRONTEND_APP" "$FRONTEND_PREV" "$FRONTEND_CANDIDATE"
+          roll_back "$AUTH_APP" "${AUTH_PREV:-}" "${AUTH_CANDIDATE:-}"
+          roll_back "$TMS_APP" "${TMS_PREV:-}" "${TMS_CANDIDATE:-}"
+          roll_back "$FRONTEND_APP" "${FRONTEND_PREV:-}" "${FRONTEND_CANDIDATE:-}"
           echo "::error::Rollout failed — production traffic restored to the previous revisions; candidates deactivated."
-          exit 1

@@ -17,7 +17,7 @@
 - [Generating secrets](#generating-secrets)
 - [Consistency rules that bite](#consistency-rules-that-bite) — issuer / redirect / authority / CORS
 - [Bringing the stack up](#bringing-the-stack-up)
-- [Continuous deployment (CI/CD)](#continuous-deployment-cicd) — the automated rollout, the approval gate, and the one-time operator setup
+- [Continuous deployment (CI/CD)](#continuous-deployment-cicd) — build-once → auto staging → gated prod promotion, and the one-time operator setup
 - [Database migrations](#database-migrations)
 - [Post-deploy smoke test](#post-deploy-smoke-test) — one command verifies a deployed environment end-to-end
 - [Observability](#observability) — where cloud traces + logs land, and the metrics caveat
@@ -358,21 +358,96 @@ group and every resource name — so the only env-specific edits live in `env/st
 seed a **separate** `lotrotms-kv-staging` Key Vault with freshly generated secrets (never the prod
 vault — audit §C5), a `lotrotms-aca-staging` identity, and a Neon `staging` branch (audit §H13); the
 secret-free required inputs (`subscription_id`, `smtp_sender_email`, `admin_username`, `admin_email`)
-arrive as `TF_VAR_*`. A staging CI job / promotion model (audit §H10) is separate, future work.
+arrive as `TF_VAR_*`. See [Staging bring-up](#staging-bring-up) for the full ordered first-time sequence.
+
+#### Staging bring-up
+
+First-time sequence for the `staging` environment. Prerequisite: complete the [one-time operator setup](#one-time-operator-setup) steps 1–7 (federated credential `gh-env-staging`, `Contributor` on `rg-lotrotms-staging-polc-001`, GitHub `staging` environment with env-scoped variables).
+
+**1 — Seed the staging Key Vault** (a *separate* vault from prod — audit §C5):
+
+```bash
+az login   # Owner / User Access Administrator on the subscription
+export KV_RESOURCE_GROUP=rg-lotrotms-staging-polc-001
+export KV_NAME=lotrotms-kv-staging
+export KV_IDENTITY_NAME=lotrotms-aca-staging
+
+# Generate fresh staging OpenIddict keys and capture them as SEED_* variables:
+eval "$(scripts/gen-openiddict-keys.sh | sed 's/^/SEED_/; s/^SEED_#/#/')"
+export SEED_OPENIDDICT_SIGNING_KEY SEED_OPENIDDICT_ENCRYPTION_KEY SEED_OPENIDDICT_API_CLIENT_SECRET
+
+# Staging uses a SEPARATE Neon project — different connection strings from prod:
+export SEED_CONNECTION_STRING_TRANSLATION='<neon staging lotro_translation connection string>'
+export SEED_CONNECTION_STRING_AUTH='<neon staging lotro_auth connection string>'
+export SEED_SMTP_USERNAME='<brevo smtp username>'
+export SEED_SMTP_PASSWORD='<brevo smtp password>'
+export SEED_ADMIN_PASSWORD='<pick a password>'
+scripts/seed-keyvault.sh
+```
+
+> ⚠️ The `SEED_OPENIDDICT_API_CLIENT_SECRET` captured above is the staging `SMOKE_CLIENT_SECRET`. Note it down — set it as the `SMOKE_CLIENT_SECRET` secret on the GitHub `staging` environment (Settings → Environments → `staging` → Secrets) before enabling CI.
+
+**2 — Apply Terraform for staging:**
+
+```bash
+cd iac
+terraform init -reconfigure -backend-config=backend-config/staging.hcl
+export TF_VAR_subscription_id='<sub>'
+export TF_VAR_smtp_sender_email='koniecdev@gmail.com'
+export TF_VAR_admin_username='<username>'
+export TF_VAR_admin_email='<email>'
+terraform apply -var-file=env/staging.tfvars
+```
+
+**3 — Bind custom domains + managed certs.** Once the staging Container Apps exist, for each of the three apps run:
+
+```bash
+# Repeat for each app (lotrotms-auth-api-staging, lotrotms-tms-api-staging, lotrotms-frontend-staging):
+az containerapp hostname add \
+  -n <app-name> -g rg-lotrotms-staging-polc-001 \
+  --hostname <subdomain>.staging.lotro-translator.pl
+az containerapp hostname bind \
+  -n <app-name> -g rg-lotrotms-staging-polc-001 \
+  --hostname <subdomain>.staging.lotro-translator.pl --validation-method CNAME
+```
+
+The `bind` command outputs the **domain validation token** needed for the TXT record in step 4. Collect all three tokens before adding DNS records.
+
+**4 — Add DNS records at the registrar.** For each app add a CNAME and a matching TXT verification record (exact ACA default domain and validation tokens come from step 3):
+
+| App | CNAME record | TXT verification record |
+|---|---|---|
+| auth-api (`lotrotms-auth-api-staging`) | `auth.staging.lotro-translator.pl → <app>.<aca-env-default-domain>` | `asuid.auth.staging.lotro-translator.pl = <validation-token>` |
+| tms-api (`lotrotms-tms-api-staging`) | `tms.staging.lotro-translator.pl → <app>.<aca-env-default-domain>` | `asuid.tms.staging.lotro-translator.pl = <validation-token>` |
+| frontend (`lotrotms-frontend-staging`) | `staging.lotro-translator.pl → <app>.<aca-env-default-domain>` | `asuid.staging.lotro-translator.pl = <validation-token>` |
+
+**5 — Verify staging** with the smoke test:
+
+```bash
+SMOKE_CLIENT_SECRET="$SEED_OPENIDDICT_API_CLIENT_SECRET" scripts/smoke.sh \
+  --auth-url     https://auth.staging.lotro-translator.pl \
+  --tms-url      https://tms.staging.lotro-translator.pl \
+  --frontend-url https://staging.lotro-translator.pl
+```
+
+**6 — Enable the CI pipeline.** Set both repo Variables — `CD_ENABLED=true` and `STAGING_ENABLED=true` — to activate the two-stage promotion. From this point every merge to `main` auto-deploys to staging; the prod gate waits for your approval.
+
+> Audit 0001 §H10 (staging as the production-gate predecessor) is addressed by this epic. Cross-reference: ADR-0018 (staging environment + two-stage promotion model — being authored in a sibling PR).
 
 ## Continuous deployment (CI/CD)
 
-Ongoing delivery to the live Azure environment is automated (ADR-0012). Three workflows:
+Ongoing delivery to the live Azure environment is automated (ADR-0012). Four workflows (with `STAGING_ENABLED=true`):
 
 | Workflow | Trigger | What it does |
 |---|---|---|
 | `cd.yml` → `build-and-push` | push to main, `v*` tag | builds the 4 images, **scans each with Trivy (fails on a fixable HIGH/CRITICAL)**, then pushes to GHCR **signed (cosign keyless) + attested (SLSA provenance + SBOM)** — `:sha-<short>`, `:latest` on main, semver on tags (audit 0001 H9 + H1) |
-| `cd.yml` → `deploy-prod` | push to main / dispatch, **behind the `production` approval gate** | the whole health-gated rollout in ONE job (every Azure step shares the approved environment's OIDC identity): **verify each image's signed provenance** (`gh attestation verify`, fail-closed) → OIDC login → migrator to success (**gate**) → deploy each app as a **candidate at 0% traffic** (`--revision-suffix`, labelled `cd-candidate`) → readiness (incl. frontend) + warm the auth origin → **smoke the candidate** inline (`scripts/smoke.sh`) → **promote** 100% traffic + deactivate the previous revision → **smoke production** → **roll back on any failure** (restore traffic to the previous revision, deactivate the candidate) — audit 0001 H7 |
-| `infra.yml` | PR / push to `iac/**`, dispatch | `plan` on PRs (preview in run summary); **gated** `apply` on main |
+| `cd.yml` → `deploy-staging` | push to main / dispatch, `STAGING_ENABLED == true`, **auto** (no approval) | identical health-gated rollout as `deploy-prod` targeting the `staging` environment; runs automatically after `build-and-push` (audit 0001 H10, ADR-0018) |
+| `cd.yml` → `deploy-prod` | push to main / dispatch, `STAGING_ENABLED == true`, **behind the `production` approval gate**, `needs: deploy-staging` | the whole health-gated rollout in ONE job (every Azure step shares the approved environment's OIDC identity): **verify each image's signed provenance** (`gh attestation verify`, fail-closed) → OIDC login → migrator to success (**gate**) → deploy each app as a **candidate at 0% traffic** (`--revision-suffix`, labelled `cd-candidate`) → readiness (incl. frontend) + warm the auth origin → **smoke the candidate** inline (`scripts/smoke.sh`) → **promote** 100% traffic + deactivate the previous revision → **smoke production** → **roll back on any failure** (restore traffic to the previous revision, deactivate the candidate) — audit 0001 H7 |
+| `infra.yml` | PR / push to `iac/**`, dispatch | **`plan`** (prod + staging matrix) on PRs (preview in run summary); `apply-staging` (**auto**) → `apply-prod` (**gated**) on main |
 
-**The release control.** Every merge to main builds, then **waits at the `production` environment**
-for a human to approve (GitHub → the run → *Review deployments* → *Approve*). Nothing reaches prod
-until you click — the safeguard for QA testing on prod. Approve when QA is free.
+**The two-stage promotion model.** When `STAGING_ENABLED=true`, every merge to main builds once and **automatically deploys to staging** (no approval needed — `deploy-staging` is auto). The same `sha-<short>` then **waits at the `production` environment** for a human to approve. Clicking *Approve* (GitHub → the run → *Review deployments* → *Approve*) **is** the staging→prod promotion: the identical image that passed staging is what production receives. Test on staging first; approve when ready.
+
+**The `STAGING_ENABLED` master switch** (repo Variable): `false` (or unset) = staging jobs are skipped and `deploy-prod` reverts to a direct single gate (the pre-staging behavior); `true` = staging auto-deploys and prod is gated behind a green staging (`needs: deploy-staging`). Pairs with `CD_ENABLED`: both must be `true` for the full two-stage flow; `CD_ENABLED=false` stops all Azure-touching jobs regardless of `STAGING_ENABLED`.
 
 **Deploy a specific build on demand.** Actions → *CD* → *Run workflow* → optional `image_tag`
 (`sha-<short>` or `vX.Y.Z`); empty = the chosen ref's commit. Still gated. The image must carry a
@@ -398,10 +473,15 @@ Keyless via OIDC federation — no client secret is stored. Run once.
 ```bash
 APP_ID=$(az ad app create --display-name "github-lotrotms-cd" --query appId -o tsv)
 az ad sp create --id "$APP_ID"
-# gated jobs (deploy-prod + terraform apply both run under environment: production)
+# gated jobs (deploy-prod + terraform apply-prod both run under environment: production)
 az ad app federated-credential create --id "$APP_ID" --parameters '{
   "name":"gh-env-production","issuer":"https://token.actions.githubusercontent.com",
   "subject":"repo:koniecdev/LotroKoniecDev:environment:production",
+  "audiences":["api://AzureADTokenExchange"]}'
+# auto job (deploy-staging runs under environment: staging)
+az ad app federated-credential create --id "$APP_ID" --parameters '{
+  "name":"gh-env-staging","issuer":"https://token.actions.githubusercontent.com",
+  "subject":"repo:koniecdev/LotroKoniecDev:environment:staging",
   "audiences":["api://AzureADTokenExchange"]}'
 # infra PR plan job (no environment)
 az ad app federated-credential create --id "$APP_ID" --parameters '{
@@ -410,19 +490,21 @@ az ad app federated-credential create --id "$APP_ID" --parameters '{
   "audiences":["api://AzureADTokenExchange"]}'
 ```
 
-**2. RBAC** — Contributor on both RGs (roll apps + manage infra + read/write tfstate):
+**2. RBAC** — Contributor on all target RGs (roll apps + manage infra + read/write tfstate):
 
 ```bash
 SP_OBJ=$(az ad sp show --id "$APP_ID" --query id -o tsv)
 SUB=$(az account show --query id -o tsv)
-for RG in rg-lotrotms-prod-polc-001 rg-lotrotms-tfstate; do
+for RG in rg-lotrotms-prod-polc-001 rg-lotrotms-staging-polc-001 rg-lotrotms-tfstate; do
   az role assignment create --assignee-object-id "$SP_OBJ" --assignee-principal-type ServicePrincipal \
     --role Contributor --scope "/subscriptions/$SUB/resourceGroups/$RG"
 done
 ```
 
-**3. GitHub `production` environment** with **you as a required reviewer** (repo Settings →
-Environments → New → `production` → *Required reviewers* → add yourself). This block IS the gate.
+**3. GitHub environments** — two environments, different protection:
+
+- **`staging`** (auto — no required reviewers): repo Settings → Environments → New → `staging` — leave *Required reviewers* empty.
+- **`production`** (gated): repo Settings → Environments → New → `production` → *Required reviewers* → add yourself. **This is the gate** — nothing reaches prod until you click *Approve*.
 
 **4. Seed the app secrets into Azure Key Vault (ADR-0013).** The 8 app secrets are the single source
 of truth in Key Vault (`lotrotms-kv-prod`), read at runtime by the `lotrotms-aca-prod` managed
@@ -437,7 +519,7 @@ export SEED_CONNECTION_STRING_TRANSLATION='…'   # Neon TMS connection string
 export SEED_CONNECTION_STRING_AUTH='…'          # Neon Auth connection string
 export SEED_OPENIDDICT_SIGNING_KEY='…'          # base64 RSA xml  (scripts/gen-openiddict-keys.sh)
 export SEED_OPENIDDICT_ENCRYPTION_KEY='…'       # base64 32-byte key      (same generator)
-export SEED_OPENIDDICT_API_CLIENT_SECRET='…'    # >= 32 chars  (== SMOKE_CLIENT_SECRET below)
+export SEED_OPENIDDICT_API_CLIENT_SECRET='…'    # >= 32 chars  (== prod SMOKE_CLIENT_SECRET)
 export SEED_SMTP_USERNAME='…' SEED_SMTP_PASSWORD='…'   # Brevo SMTP credentials
 export SEED_ADMIN_PASSWORD='…'                  # seeded admin password
 scripts/seed-keyvault.sh                        # PowerShell twin: scripts/seed-keyvault.ps1
@@ -446,7 +528,9 @@ scripts/seed-keyvault.sh                        # PowerShell twin: scripts/seed-
 Rotation later = re-run the script with new `SEED_*` values; the versionless Key Vault URIs make the
 next deployment pick them up with no Terraform change.
 
-**5. GitHub repo Secrets** (Settings → Secrets and variables → Actions → *Secrets*) — **infra/OIDC
+The block above seeds the **production** Key Vault (`lotrotms-kv-prod`). The staging Key Vault (`lotrotms-kv-staging`) is seeded separately with its own freshly generated secrets — see [Staging bring-up](#staging-bring-up).
+
+**5. GitHub repo Secrets** (Settings → Secrets and variables → Actions → *Secrets*) — **OIDC infra
 only**, no app secrets (those live in Key Vault, step 4):
 
 | Secret | Value |
@@ -454,14 +538,28 @@ only**, no app secrets (those live in Key Vault, step 4):
 | `AZURE_CLIENT_ID` | the Entra app id (`$APP_ID`) |
 | `AZURE_TENANT_ID` | `az account show --query tenantId -o tsv` |
 | `AZURE_SUBSCRIPTION_ID` | the subscription id |
-| `SMOKE_CLIENT_SECRET` | `OpenIddict__ApiClientSecret` (== the seeded `openiddict-api-client-secret`) |
 
-**6. GitHub repo Variables** (non-secret): `SMTP_SENDER_EMAIL`, `ADMIN_USERNAME`, `ADMIN_EMAIL`.
+**6. GitHub environment Variables and Secrets** (Settings → Environments → `<environment>` → Variables / Secrets). Set these on **both** the `staging` and `production` environments:
 
-**7. Flip the activation switch — repo Variable `CD_ENABLED` = `true`.** This is the master switch:
-the Azure-touching jobs (`deploy-prod`, `infra plan`/`apply`) carry `if: vars.CD_ENABLED == 'true'`,
-so until you set it they are **skipped** — merging is inert and `iac/**` PRs stay green before steps
-1–6 exist. Set it last, once 1–6 are done; unset it to pause all deployment without touching code.
+| Variable | `staging` | `production` |
+|---|---|---|
+| `RESOURCE_GROUP` | `rg-lotrotms-staging-polc-001` | `rg-lotrotms-prod-polc-001` |
+| `AUTH_APP` | `lotrotms-auth-api-staging` | `lotrotms-auth-api` |
+| `TMS_APP` | `lotrotms-tms-api-staging` | `lotrotms-tms-api` |
+| `FRONTEND_APP` | `lotrotms-frontend-staging` | `lotrotms-frontend` |
+| `MIGRATOR_JOB` | `lotrotms-migrator-staging` | `lotrotms-migrator` |
+| `AUTH_URL` | `https://auth.staging.lotro-translator.pl` | `https://auth.lotro-translator.pl` |
+| `TMS_URL` | `https://tms.staging.lotro-translator.pl` | `https://tms.lotro-translator.pl` |
+| `FRONTEND_URL` | `https://staging.lotro-translator.pl` | `https://lotro-translator.pl` |
+
+And the env-scoped **secret** `SMOKE_CLIENT_SECRET` on each environment: set it to that environment's `SEED_OPENIDDICT_API_CLIENT_SECRET` (the value seeded into the environment's Key Vault in step 4 / [Staging bring-up](#staging-bring-up)).
+
+**7. GitHub repo Variables** (non-secret): `SMTP_SENDER_EMAIL`, `ADMIN_USERNAME`, `ADMIN_EMAIL`.
+
+**8. Flip the activation switches** — two repo Variables:
+
+- **`CD_ENABLED` = `true`**: the master switch. The Azure-touching jobs (`deploy-staging`, `deploy-prod`, `infra plan`/`apply`) carry `if: vars.CD_ENABLED == 'true'`, so until you set it they are **skipped** — merging is inert and `iac/**` PRs stay green before steps 1–7 exist. Set last, once 1–7 are done; unset to pause all deployment without touching code.
+- **`STAGING_ENABLED` = `true`**: enables the two-stage promotion (auto staging + gated prod). Set after the staging environment is provisioned and the `SMOKE_CLIENT_SECRET` is wired on the `staging` GitHub environment (see [Staging bring-up](#staging-bring-up)). Can be set at the same time as `CD_ENABLED`.
 
 ## Database migrations
 

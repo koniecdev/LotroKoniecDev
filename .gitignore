@@ -520,6 +520,10 @@ crash.*.log
 
 *.tfvars
 *.tfvars.json
+# Exception: per-environment NON-secret override files under iac/env/ are tracked (ADR-0017) — they
+# carry only env_id / public_base_domain / Key Vault + identity NAMES. Real secrets come from Key
+# Vault (ADR-0013) + TF_VAR_*, never from a tfvars; gitleaks + GitGuardian still gate any slip.
+!iac/env/*.tfvars
 
 # Terraform plan output (may embed secrets in plaintext)
 *.tfplan

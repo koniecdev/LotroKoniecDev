@@ -332,6 +332,34 @@ the provider-specific walkthrough is deferred until the provider is chosen):
 > The **manual** sequence above is the provider-neutral fallback / first bring-up. **Ongoing deploys
 > to the live Azure environment are automated** — see [Continuous deployment (CI/CD)](#continuous-deployment-cicd).
 
+### Per-environment Terraform (state key + staging)
+
+The `iac/` root is a single parametrized module; an environment is **one var-file + one state blob**
+(ADR-0017). The `azurerm` backend is **partial** — the state key is chosen at `init`, and prod runs
+purely on the `vars.tf` defaults:
+
+```bash
+cd iac
+# prod (default — no var-file; vars.tf defaults are already prod-correct):
+terraform init -reconfigure -backend-config=backend-config/prod.hcl
+terraform apply                                    # CI does this behind the production gate
+
+# staging (separate state blob, separate Key Vault + Neon branch — see prerequisites):
+terraform init -reconfigure -backend-config=backend-config/staging.hcl
+terraform apply -var-file=env/staging.tfvars
+```
+
+`prod.terraform.tfstate` and `staging.terraform.tfstate` are separate blobs in the one backend
+container, so a botched staging apply can never corrupt prod state. `var.public_base_domain` derives
+every OIDC issuer / redirect / CORS / base URL (`iac/locals.tf`) and `var.env_id` derives the resource
+group and every resource name — so the only env-specific edits live in `env/staging.tfvars`.
+
+**Before the first staging apply** (out-of-band — they are Terraform *data sources*, ADR-0017 §7):
+seed a **separate** `lotrotms-kv-staging` Key Vault with freshly generated secrets (never the prod
+vault — audit §C5), a `lotrotms-aca-staging` identity, and a Neon `staging` branch (audit §H13); the
+secret-free required inputs (`subscription_id`, `smtp_sender_email`, `admin_username`, `admin_email`)
+arrive as `TF_VAR_*`. A staging CI job / promotion model (audit §H10) is separate, future work.
+
 ## Continuous deployment (CI/CD)
 
 Ongoing delivery to the live Azure environment is automated (ADR-0012). Three workflows:

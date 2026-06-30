@@ -2,8 +2,12 @@
   <PropertyGroup>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
-    <LangVersion>latest</LangVersion>
-    <AnalysisLevel>latest</AnalysisLevel>
+    <!-- Pin the language and analyzer bands instead of `latest` (audit #0001 / M16) so an SDK bump
+         can't silently change the active C# version or analyzer set under TreatWarningsAsErrors. C# 14
+         is required by the `extension(...)` members used across the codebase, and 10.0 is the .NET 10
+         analyzer wave; both match the SDK pinned in CI (10.0.100). -->
+    <LangVersion>14</LangVersion>
+    <AnalysisLevel>10.0</AnalysisLevel>
     <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <!-- NuGet vulnerability audit (audit #0001 / H1): restore reports advisories on direct AND

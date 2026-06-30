@@ -103,6 +103,9 @@
   <Folder Name="/tests/SharedKernel/">
     <Project Path="tests/LotroKoniecDev.SharedKernel.Tests.Unit/LotroKoniecDev.SharedKernel.Tests.Unit.csproj" />
   </Folder>
+  <Folder Name="/tests/Utilities/">
+    <Project Path="tests/LotroKoniecDev.Logging.Tests.Unit/LotroKoniecDev.Logging.Tests.Unit.csproj" />
+  </Folder>
   <Folder Name="/tests/TranslationSystem/">
     <Project Path="tests/LotroKoniecDev.TranslationSystem.Domain.Tests.Unit/LotroKoniecDev.TranslationSystem.Domain.Tests.Unit.csproj" />
     <Project Path="tests/LotroKoniecDev.TranslationSystem.API.Tests.Unit/LotroKoniecDev.TranslationSystem.API.Tests.Unit.csproj" />

@@ -17,6 +17,7 @@ using LotroKoniecDev.AuthSystem.API.Health;
 using LotroKoniecDev.AuthSystem.API.Middleware;
 using LotroKoniecDev.AuthSystem.API.Settings;
 using LotroKoniecDev.AuthSystem.Persistence.Settings;
+using LotroKoniecDev.Logging.Redaction;
 
 Log.Logger = new LoggerConfiguration()
     .WriteTo.Console(formatProvider: CultureInfo.InvariantCulture)
@@ -257,8 +258,17 @@ try
 
     app.UseSerilogRequestLogging(options =>
     {
+        // Redact the request log (audit #0001 / M5): keep RequestPath query-free and log the query
+        // separately with secrets stripped and e-mails masked, so no OAuth code/token or PII is persisted.
+        options.IncludeQueryInRequestPath = false;
+        options.MessageTemplate =
+            "HTTP {RequestMethod} {RequestPath}{RequestQuery} responded {StatusCode} in {Elapsed:0.0000} ms";
         options.EnrichDiagnosticContext = (diagnosticContext, httpContext) =>
         {
+            diagnosticContext.Set(
+                "RequestQuery",
+                SensitiveDataRedactor.RedactQueryString(httpContext.Request.QueryString.Value));
+
             if (httpContext.Items.TryGetValue("CorrelationId", out object? correlationId))
             {
                 diagnosticContext.Set("CorrelationId", correlationId);

@@ -1,4 +1,8 @@
 terraform {
+  # Pin the Terraform core version band (audit #0001 / M15) so a stray CLI version can't silently
+  # apply against this state. Matches the 1.15.7 pinned in the CI workflow (.github/workflows/infra.yml).
+  required_version = "~> 1.15"
+
   required_providers {
     azurerm = {
       source  = "hashicorp/azurerm"

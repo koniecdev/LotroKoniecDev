@@ -5,7 +5,9 @@ using LotroKoniecDev.Frontend.Components;
 using LotroKoniecDev.Frontend.Components.Pages.ImportExport;
 using LotroKoniecDev.Frontend.Infrastructure.Auth;
 using LotroKoniecDev.Frontend.Infrastructure.Errors;
+using LotroKoniecDev.Frontend.Infrastructure.Security;
 using LotroKoniecDev.Frontend.Settings;
+using LotroKoniecDev.Logging.Redaction;
 using LotroKoniecDev.Options;
 using LotroKoniecDev.TranslationSystem.Contracts.Import;
 using Microsoft.AspNetCore.Http.Features;
@@ -85,6 +87,16 @@ try
         options.KnownProxies.Clear();
     });
 
+    // HSTS hardening (audit #0001 / M7): a one-year max-age covering subdomains and flagged for the
+    // preload list. Only emitted by UseHsts() outside Development (the deployed stack is HTTPS-only
+    // behind the ingress); the dev host loop never sends it, so localhost HTTP is unaffected.
+    builder.Services.AddHsts(options =>
+    {
+        options.MaxAge = TimeSpan.FromDays(365);
+        options.IncludeSubDomains = true;
+        options.Preload = true;
+    });
+
     // The Blazor SSR import form (admin-only) uploads exported.txt, which is ~80 MB and grows — far
     // past Kestrel's 30 MB default body cap and the framework's multipart form-length limit. Lift both
     // to the shared upload ceiling so the whole file posts to this host in one request, then streams on
@@ -126,10 +138,20 @@ try
         app.UseForwardedHeaders();
     }
 
-    app.UseSerilogRequestLogging();
+    // Redact the request log (audit #0001 / M5): keep RequestPath query-free and log the query
+    // separately with secrets stripped and e-mails masked, so no OAuth code/token or PII is persisted.
+    app.UseSerilogRequestLogging(options =>
+    {
+        options.IncludeQueryInRequestPath = false;
+        options.MessageTemplate =
+            "HTTP {RequestMethod} {RequestPath}{RequestQuery} responded {StatusCode} in {Elapsed:0.0000} ms";
+        options.EnrichDiagnosticContext = (diagnosticContext, httpContext) =>
+            diagnosticContext.Set("RequestQuery", SensitiveDataRedactor.RedactQueryString(httpContext.Request.QueryString.Value));
+    });
 
     if (!app.Environment.IsDevelopment())
     {
+        app.UseSecurityHeaders();
         app.UseExceptionHandler("/Error", createScopeForErrors: true);
         app.UseHsts();
     }

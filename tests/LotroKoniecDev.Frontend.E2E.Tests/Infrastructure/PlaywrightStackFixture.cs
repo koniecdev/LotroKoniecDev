@@ -33,8 +33,6 @@ public sealed class PlaywrightStackFixture : IAsyncLifetime
     private const string MigratorImage = "lotrokoniecdev-migrator:fe-e2e";
     private const string MailpitImage = "axllent/mailpit:latest";
 
-    // Pinned to match the Microsoft.Playwright client version, so ConnectAsync speaks the same protocol.
-    private const string PlaywrightImage = "mcr.microsoft.com/playwright:v1.61.0-noble";
     private const int PlaywrightPort = 8080;
 
     /// <summary>
@@ -279,7 +277,7 @@ public sealed class PlaywrightStackFixture : IAsyncLifetime
         // bound server is unreachable through the published port (so ConnectAsync would hang too). Its
         // wait strategies are append-only, so the broken probe can't be replaced. Binding 0.0.0.0 fixes
         // both: the WebSocket server is reachable via the mapped port and logs the address we wait on.
-        _playwrightContainer = new ContainerBuilder(PlaywrightImage)
+        _playwrightContainer = new ContainerBuilder(PlaywrightBrowserImage.Tag)
             .WithNetwork(_network)
             .WithEntrypoint("/bin/sh", "-c")
             .WithCommand(PlaywrightServerCommand)
@@ -345,10 +343,24 @@ public sealed class PlaywrightStackFixture : IAsyncLifetime
         }
         catch (Exception ex)
         {
-            (string? stdout, string? stderr) = await container.GetLogsAsync();
+            // Never let log retrieval mask the real failure: a container that died before it was
+            // created has no Id, so GetLogsAsync would itself throw and swallow ex.
             throw new InvalidOperationException(
                 $"Container '{name}' failed to reach its ready state within the timeout.\n" +
-                $"Stdout:\n{stdout}\nStderr:\n{stderr}", ex);
+                $"{await TryGetLogsAsync(container)}", ex);
+        }
+    }
+
+    private static async Task<string> TryGetLogsAsync(IContainer container)
+    {
+        try
+        {
+            (string stdout, string stderr) = await container.GetLogsAsync();
+            return $"Stdout:\n{stdout}\nStderr:\n{stderr}";
+        }
+        catch (Exception ex)
+        {
+            return $"(container logs unavailable: {ex.Message})";
         }
     }
 

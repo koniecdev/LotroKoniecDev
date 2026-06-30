@@ -20,6 +20,7 @@
 - [Continuous deployment (CI/CD)](#continuous-deployment-cicd) — the automated rollout, the approval gate, and the one-time operator setup
 - [Database migrations](#database-migrations)
 - [Post-deploy smoke test](#post-deploy-smoke-test) — one command verifies a deployed environment end-to-end
+- [Observability](#observability) — where cloud traces + logs land, and the metrics caveat
 - [See also](#see-also)
 
 ## Services & the container contract
@@ -604,6 +605,31 @@ same [`Smoke test`](../../.github/workflows/smoke.yml) reusable workflow stays r
 (`workflow_dispatch` — enter the three URLs); the secret comes from the repository secret
 `SMOKE_CLIENT_SECRET`. See [Continuous deployment (CI/CD)](#continuous-deployment-cicd).
 
+## Observability
+
+In the cloud, telemetry flows through the **Container Apps managed OpenTelemetry agent** (enabled at
+the environment level in `iac/observability.tf`; ADR-0016) into **workspace-based Application
+Insights** (`lotrotmsappinsights<env_id>`, backed by the existing Log Analytics workspace). The agent
+injects `OTEL_EXPORTER_OTLP_ENDPOINT` into every container automatically, so the apps' existing OTLP
+pipeline ships **distributed traces + logs** without any app or env-var change. Dev is unaffected — it
+keeps using the aspire-dashboard from `compose.yaml`.
+
+**Where to look** (Azure Portal → the `lotrotmsappinsights<env_id>` resource):
+
+- **Application Map** — live service topology (frontend → tms-api → auth-api → Postgres) with
+  per-edge latency and failure rates.
+- **Transaction search** / **End-to-end transaction details** — individual request traces across the
+  three apps (drill into a single OIDC login or an import call).
+- **Logs (KQL)** — the `requests`, `dependencies`, `traces` and `exceptions` tables, queryable in
+  Application Insights or directly in the linked Log Analytics workspace.
+
+**Metrics caveat.** The managed agent forwards **traces + logs only** to Application Insights — it
+does **not** deliver OTel *metrics* there (the agent's metrics path targets only OTLP/Datadog sinks).
+So there are no OpenTelemetry metric series (runtime, EF, Npgsql counters) in App Insights. For
+metric-shaped signal rely on **ACA platform metrics** (CPU/memory/replica/request counts — the sibling
+audit 0001 C3 alerting ticket) plus the request/dependency metrics App Insights **reconstructs from
+the traces**. Adding a metrics destination is deferred until there is a real need (YAGNI).
+
 ## See also
 
 - [`.env.example`](../../.env.example) — the dev-compose env template (`scripts/up.sh` bootstraps `.env` from it).
@@ -613,5 +639,7 @@ same [`Smoke test`](../../.github/workflows/smoke.yml) reusable workflow stays r
   production-parity stacks; the literal env→container wiring this matrix abstracts.
 - [ADR-0008](../adr/0008-cloud-agnostic-deployment-and-environment-strategy.md) — the cloud-agnostic
   deployment & environment strategy this runbook operationalizes.
+- [ADR-0016](../adr/0016-cloud-telemetry-via-aca-managed-otel-agent.md) — cloud telemetry: the ACA
+  managed OpenTelemetry agent → Application Insights (the [Observability](#observability) section).
 - [`target-requirements.md`](target-requirements.md) — platform requirements + Azure⇄AWS service
   mapping (M6-12).

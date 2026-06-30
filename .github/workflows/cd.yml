@@ -1,14 +1,18 @@
 name: CD
 
 # Continuous delivery + deployment for the TMS (ADR-0012, amended 2026-06-29 audit 0001 C2,
-# 2026-06-30 audit 0001 H7 — health-gated rollout).
+# 2026-06-30 audit 0001 H7 — health-gated rollout, 2026-06-30 audit 0001 H9 + H1 — supply-chain
+# hardening: Trivy image gate + cosign signing + SLSA provenance/SBOM, verified before rollout).
 #
 #   gate           → CI-success gate. CD is TRIGGERED BY the CI workflow finishing (workflow_run); it
 #                    proceeds only when CI concluded `success` on main, and pins the exact tested
 #                    commit (head_sha) for everything downstream. Dispatch / v* tags pass through.
-#   build-and-push → publishes the four OCI images to GHCR (the deployment unit; ADR-0008 §1/§6).
-#   deploy-prod    → rolls each app out as a NEW revision at 0% traffic (multiple-revision mode),
-#                    BEHIND a manual approval gate; waits for the candidate (incl. frontend) readiness.
+#   build-and-push → builds the four OCI images, scans each with Trivy (fail HIGH/CRITICAL), then
+#                    publishes them to GHCR signed + attested (cosign + SLSA provenance/SBOM) — the
+#                    deployment unit (ADR-0008 §1/§6; supply-chain hardening, audit 0001 H9 + H1).
+#   deploy-prod    → verifies each image's signed provenance (fail closed), then rolls each app out as
+#                    a NEW revision at 0% traffic (multiple-revision mode), BEHIND a manual approval
+#                    gate; waits for the candidate (incl. frontend) readiness.
 #   smoke          → smokes the 0%-traffic CANDIDATE through its private label FQDN, before any shift.
 #   promote        → only a green candidate smoke shifts 100% of traffic onto the candidate.
 #   smoke-prod     → post-promotion confirmation on the real production origins.
@@ -23,6 +27,13 @@ name: CD
 # `<app>---cd-candidate.<env-domain>` label FQDN. Smoke runs against that candidate first; only then
 # does `promote` shift 100% of traffic to it. The previous revision is kept (0% traffic, scales to
 # zero) so a failure rolls straight back to it — no window where users hit a bad revision.
+#
+# Supply-chain hardening (audit 0001 H9 + the H1 image-scanning leg — the dependency/SAST legs already
+# ship as NuGetAudit + CodeQL + Dependabot). Each image is scanned by Trivy and a fixable HIGH/CRITICAL
+# fails the build BEFORE publish; the image is then signed keyless (cosign) and carries a signed SLSA
+# build-provenance attestation + an SPDX SBOM, all attached in GHCR. deploy-prod re-verifies that
+# provenance (`gh attestation verify`) and fails closed, so only an image our own CD built, scanned and
+# attested can reach prod. No keys are stored — signing uses the job's GitHub OIDC identity (Fulcio/Rekor).
 #
 # CI is a hard pre-condition of deploy (audit 0001 C2): a push to main no longer triggers CD
 # directly. CD waits for the CI workflow (Release build + unit + integration) to finish, and only a
@@ -145,6 +156,15 @@ jobs:
     if: needs.gate.outputs.proceed == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 30
+    # Build-time supply-chain permissions (audit 0001 H9). A job-level block REPLACES the top-level one,
+    # so it must re-grant contents/packages too: id-token mints the keyless Sigstore/Fulcio cert for
+    # cosign + attestation; attestations records the signed SLSA provenance; packages writes the image
+    # plus its signature/attestation to GHCR.
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
     # Supersede only an in-flight BUILD of the SAME image for the SAME tested commit (e.g. a CI
     # re-run) — keyed on the tested commit (workflow_run.head_sha, else github.sha for tag/dispatch),
     # NOT github.ref. Under workflow_run github.ref is always refs/heads/main, so a github.ref key
@@ -213,6 +233,7 @@ jobs:
             type=raw,value=latest,enable=${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha == github.sha }}
 
       - name: Build & push
+        id: build
         uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf # v7.2.0
         with:
           context: .
@@ -226,7 +247,54 @@ jobs:
           # keeping rebuilds fast. Scoped per image so the four builds don't clobber each other.
           cache-from: type=gha,scope=${{ matrix.image }}
           cache-to: type=gha,mode=max,scope=${{ matrix.image }}
-          provenance: false
+          # Attach build attestations to the image in GHCR (audit 0001 H9): SLSA provenance (build
+          # inputs/invocation) + an SPDX SBOM (package inventory for CVE triage). These ride along as
+          # OCI referrer manifests, so the push is an image INDEX — the linux/amd64 runtime manifest
+          # plus two `unknown/unknown` attestation manifests. ACA/containerd platform-match the amd64
+          # entry and ignore the attestation manifests, so the rollout pull is unchanged.
+          provenance: true
+          sbom: true
+
+      # Image vulnerability gate (audit 0001 H1 — image-scanning leg; the dependency/SAST legs already
+      # ship as NuGetAudit + CodeQL + Dependabot). Scan the exact pushed artifact BY DIGEST and FAIL on
+      # a fixable HIGH/CRITICAL, before the image is signed — a vulnerable image never gets a signature
+      # nor reaches prod. ignore-unfixed: a CVE with no upstream fix can't be actioned here (it would
+      # only force a perpetual red gate); those still print in Trivy's log, they just don't block.
+      - name: Scan image for vulnerabilities (Trivy — fail HIGH/CRITICAL)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: image
+          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAMESPACE }}/${{ matrix.image }}@${{ steps.build.outputs.digest }}
+          format: table
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: '1'
+        env:
+          # Pull the just-pushed image from GHCR with the workflow's own token (same creds as the push).
+          TRIVY_USERNAME: ${{ github.actor }}
+          TRIVY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+
+      # Keyless signature over the image DIGEST (audit 0001 H9). cosign mints a short-lived Fulcio cert
+      # from the job's GitHub OIDC token (no stored key) and records the signature in the Rekor
+      # transparency log; the signature is stored next to the image in GHCR. Signing by digest (not tag)
+      # binds the signature to immutable content.
+      - name: Sign image with cosign (keyless)
+        env:
+          IMAGE_DIGEST: ${{ env.REGISTRY }}/${{ env.IMAGE_NAMESPACE }}/${{ matrix.image }}@${{ steps.build.outputs.digest }}
+        run: cosign sign --yes "$IMAGE_DIGEST"
+
+      # Signed SLSA build provenance (audit 0001 H9) — GitHub's first-party artifact attestation, also
+      # Sigstore-backed. push-to-registry stores it as an OCI referrer so it travels with the image and
+      # can be enforced at deploy (`gh attestation verify`, see deploy-prod) or by an admission controller.
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373 # v4.1.1
+        with:
+          subject-name: ${{ env.REGISTRY }}/${{ env.IMAGE_NAMESPACE }}/${{ matrix.image }}
+          subject-digest: ${{ steps.build.outputs.digest }}
+          push-to-registry: true
 
   deploy-prod:
     name: Deploy to prod (ACA)
@@ -254,6 +322,7 @@ jobs:
     permissions:
       contents: read # checkout (scripts/)
       id-token: write # Azure OIDC federation — short-lived token, no stored client secret
+      packages: read # pull image manifest + provenance attestation from GHCR for the verify gate (H9)
     env:
       MIGRATOR_JOB: lotrotms-migrator-prod
     # Candidate (0%-traffic) revision URLs + the previous/candidate revision names flow to the smoke,
@@ -294,6 +363,25 @@ jobs:
           fi
           printf 'tag=%s\n' "$tag" >> "$GITHUB_OUTPUT"
           printf 'Deploying image tag: %s\n' "$tag"
+
+      # Supply-chain gate BEFORE any prod mutation (audit 0001 H9). Every image about to be deployed must
+      # carry a build-provenance attestation signed by THIS repo's CD. `gh attestation verify` checks the
+      # Sigstore signature AND that the signer is this repo — a foreign, tampered or never-built-by-us
+      # image fails closed here, before the migrator runs or any traffic moves. All four images (the three
+      # apps + the migrator) are verified by the resolved tag; that same tag was just built, scanned and
+      # attested by build-and-push in this run.
+      - name: Verify image provenance (fail closed before rollout)
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          for image in lotrokoniecdev-auth-api lotrokoniecdev-tms-api lotrokoniecdev-frontend lotrokoniecdev-migrator; do
+            ref="${REGISTRY}/${IMAGE_NAMESPACE}/${image}:${TAG}"
+            echo "::group::Verify provenance — ${ref}"
+            gh attestation verify "oci://${ref}" --repo "$GITHUB_REPOSITORY"
+            echo "::endgroup::"
+          done
 
       - name: Azure login (OIDC)
         uses: azure/login@532459ea530d8321f2fb9bb10d1e0bcf23869a43 # v3.0.0

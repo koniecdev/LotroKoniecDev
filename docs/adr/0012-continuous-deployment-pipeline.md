@@ -37,6 +37,22 @@ readiness* but *gated on a human "release now" decision*.
 rolls ACA to that immutable `:sha-<short>` via `az containerapp update`. `:latest` stays a
 human-pull convenience only — never the thing that defines what runs.
 
+**Amendment (2026-06-30, audit 0001 H9 + H1 — supply-chain hardening of the deployment unit).** The
+immutable image is now **scanned, signed and attested** before it can be deployed, and that chain is
+**verified at deploy**. In `build-and-push`, each image is scanned by Trivy (a fixable HIGH/CRITICAL
+fails the build *before* publish — the H1 image-scanning leg, complementing the already-shipped
+NuGetAudit + CodeQL + Dependabot dependency/SAST legs); BuildKit attaches an SLSA provenance + SPDX
+SBOM attestation (`provenance: true`, `sbom: true`); the image is signed keyless with **cosign**
+(Fulcio/Rekor — no stored key, the job's GitHub OIDC identity); and a signed first-party
+**build-provenance attestation** (`actions/attest-build-provenance`) is pushed to GHCR as an OCI
+referrer. `deploy-prod` then runs a **fail-closed verify gate** (`gh attestation verify`) over all
+four images *before* the migration gate (§4) or any traffic move, so only an image our own CD built,
+scanned and attested can reach prod. The attestations are also standalone artifacts (SBOM for CVE
+triage, provenance for "which commit/builder produced this"). One consequence: enabling
+`provenance`/`sbom` turns each push into an OCI **image index** (the `linux/amd64` runtime manifest +
+two `unknown/unknown` attestation manifests); ACA/containerd platform-match the runtime manifest, so
+the rollout pull is unchanged.
+
 ### 2. Terraform owns infra shape; the pipeline owns the running image
 
 Each ACA app + the migrator job carries `lifecycle { ignore_changes = [...container[0].image] }`
@@ -151,6 +167,12 @@ Terraform. `infra.yml` needs the TF inputs, so the `iac/terraform.tfvars` values
 - **TF secrets now also live in GitHub** (besides the laptop). Accepted: scoped repo secrets,
   masked, never in git; the alternative (manual local apply forever) is worse.
 - **Forward-only migrations** (no automated rollback) — unchanged from ADR-0008 §6.
+- **Release availability now depends on Sigstore** (Fulcio/Rekor) + the GHCR attestation store (audit
+  0001 H9): signing/attestation run in the build's critical path (not `continue-on-error`) and the
+  deploy verify gate fails closed, so a Sigstore/GHCR outage blocks publishing or deploying until it
+  clears (re-run later). Accepted for a pre-release — a signed-or-nothing supply chain is the point,
+  and the deploy path is already human-gated. A `workflow_dispatch` of an **old** tag built before
+  this change carries no attestation and fails the verify gate by design: rebuild from the commit.
 
 ## Alternatives Considered
 
@@ -183,6 +205,11 @@ Rejected: a long-lived secret in GitHub versus keyless OIDC federation.
 - **New:** `.github/workflows/infra.yml`; this ADR.
 - **Changed (CI/CD):** `cd.yml` (+`deploy-prod` gated job, +`smoke` reusable-call job);
   `smoke.yml` (+`workflow_call`).
+- **Changed (CI/CD — audit 0001 H9 + H1):** `cd.yml` — `build-and-push` gains a Trivy image-scan gate,
+  `provenance`/`sbom` attestations, cosign keyless signing and `actions/attest-build-provenance` (job
+  perms `id-token`/`attestations`); `deploy-prod` gains a `gh attestation verify` fail-closed gate (job
+  perm `packages: read`). The three new actions are SHA-pinned (Dependabot `github-actions` keeps them
+  fresh); no IaC change.
 - **Changed (infra):** `iac/vars.tf` (`image_tag`); `iac/azure-container-apps.tf` +
   `iac/migrator-job.tf` (`ignore_changes` on the image ×4, `min_replicas` `0 → 1`).
 - **Changed (docs):** `runbook.md` + `azure-supabase-bring-up-plan.md` — domain drift

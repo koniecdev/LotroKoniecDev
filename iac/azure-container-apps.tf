@@ -2,7 +2,7 @@ resource "azurerm_container_app" "auth_api" {
   name                         = "lotrotms-auth-api-${var.env_id}"
   container_app_environment_id = azurerm_container_app_environment.app_env.id
   resource_group_name          = azurerm_resource_group.rg-lotrotms-prod-polc-001.name
-  revision_mode                = "Single"
+  revision_mode                = "Multiple"
 
   identity {
     type         = "UserAssigned"
@@ -11,9 +11,17 @@ resource "azurerm_container_app" "auth_api" {
 
   # The rolling image is owned by the CD pipeline (az containerapp update by commit SHA), not
   # Terraform. Ignore image drift so `terraform apply` never reverts a deployed revision back to the
-  # bootstrap tag (var.image_tag). See ADR-0012.
+  # bootstrap tag (var.image_tag). See ADR-0012 §2.
+  #
+  # Traffic weights are likewise owned by the CD health-gated rollout (ADR-0012 §5 amendment, audit
+  # 0001 H7): each deploy creates a candidate revision at 0% traffic, smokes it, then shifts 100% to
+  # it. Terraform only seeds the initial weight below (latest_revision = true) so a freshly-created
+  # app serves its first revision; it must NOT revert the pipeline's per-deploy traffic decisions.
   lifecycle {
-    ignore_changes = [template[0].container[0].image]
+    ignore_changes = [
+      template[0].container[0].image,
+      ingress[0].traffic_weight,
+    ]
   }
 
   # Secrets resolve from Key Vault at runtime through the user-assigned identity (ADR-0013) — no
@@ -217,7 +225,7 @@ resource "azurerm_container_app" "tms_api" {
   name                         = "lotrotms-tms-api-${var.env_id}"
   container_app_environment_id = azurerm_container_app_environment.app_env.id
   resource_group_name          = azurerm_resource_group.rg-lotrotms-prod-polc-001.name
-  revision_mode                = "Single"
+  revision_mode                = "Multiple"
 
   identity {
     type         = "UserAssigned"
@@ -226,9 +234,17 @@ resource "azurerm_container_app" "tms_api" {
 
   # The rolling image is owned by the CD pipeline (az containerapp update by commit SHA), not
   # Terraform. Ignore image drift so `terraform apply` never reverts a deployed revision back to the
-  # bootstrap tag (var.image_tag). See ADR-0012.
+  # bootstrap tag (var.image_tag). See ADR-0012 §2.
+  #
+  # Traffic weights are likewise owned by the CD health-gated rollout (ADR-0012 §5 amendment, audit
+  # 0001 H7): each deploy creates a candidate revision at 0% traffic, smokes it, then shifts 100% to
+  # it. Terraform only seeds the initial weight below (latest_revision = true) so a freshly-created
+  # app serves its first revision; it must NOT revert the pipeline's per-deploy traffic decisions.
   lifecycle {
-    ignore_changes = [template[0].container[0].image]
+    ignore_changes = [
+      template[0].container[0].image,
+      ingress[0].traffic_weight,
+    ]
   }
 
   # Secret resolves from Key Vault at runtime through the user-assigned identity (ADR-0013).
@@ -338,13 +354,21 @@ resource "azurerm_container_app" "frontend" {
   name                         = "lotrotms-frontend-${var.env_id}"
   container_app_environment_id = azurerm_container_app_environment.app_env.id
   resource_group_name          = azurerm_resource_group.rg-lotrotms-prod-polc-001.name
-  revision_mode                = "Single"
+  revision_mode                = "Multiple"
 
   # The rolling image is owned by the CD pipeline (az containerapp update by commit SHA), not
   # Terraform. Ignore image drift so `terraform apply` never reverts a deployed revision back to the
-  # bootstrap tag (var.image_tag). See ADR-0012.
+  # bootstrap tag (var.image_tag). See ADR-0012 §2.
+  #
+  # Traffic weights are likewise owned by the CD health-gated rollout (ADR-0012 §5 amendment, audit
+  # 0001 H7): each deploy creates a candidate revision at 0% traffic, smokes it, then shifts 100% to
+  # it. Terraform only seeds the initial weight below (latest_revision = true) so a freshly-created
+  # app serves its first revision; it must NOT revert the pipeline's per-deploy traffic decisions.
   lifecycle {
-    ignore_changes = [template[0].container[0].image]
+    ignore_changes = [
+      template[0].container[0].image,
+      ingress[0].traffic_weight,
+    ]
   }
 
   template {

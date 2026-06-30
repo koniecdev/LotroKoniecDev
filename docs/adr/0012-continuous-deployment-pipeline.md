@@ -83,6 +83,32 @@ snapshot before applying in a real environment).
 readiness wait. A failed smoke marks the release failed and visible (the documented "call the smoke
 job at the end of the deploy workflow").
 
+**Amendment (2026-06-30, audit 0001 H7 — health-gated rollout, supersedes the single-revision
+rollout below).** The rollout is no longer "`az containerapp update` → 100% of traffic onto the new
+revision immediately, smoke afterwards". The three web apps run in **multiple-revision mode**
+(`iac/azure-container-apps.tf`: `revision_mode = "Multiple"`, and `lifecycle.ignore_changes` now also
+covers `ingress[0].traffic_weight` — Terraform seeds only the initial `latest_revision = true` weight;
+the pipeline owns per-deploy traffic, mirroring the §2 image split). Per deploy, `deploy-prod` pins
+100% of traffic to the current revision, then creates each app's new revision with `--revision-suffix`
+so it lands at **0% traffic**, labels it `cd-candidate`, and waits for the candidate's readiness —
+**including the frontend** (previously only auth + tms were polled; the frontend, a Static-SSR app
+with no `/health`, is checked for a 2xx/3xx on `/`). The `smoke` job then exercises the candidate
+through its private `…---cd-candidate.<env-domain>` label FQDN (valid wildcard cert; the token
+round-trip works cross-revision because the OpenIddict signing key is shared via Key Vault and the
+issuer is pinned). Only a green candidate smoke runs `promote`, which shifts 100% of traffic onto the
+candidate (`ingress traffic set --revision-weight <prev>=0 <candidate>=100`); `smoke-prod` then
+re-checks the real production origins (custom domain + cert + routing). On **any** failure the
+`rollback` job restores 100% of traffic to the previous revision and deactivates the candidate — safe
+in every phase (pre-promotion: traffic never moved; post-promotion: traffic is forced back). The net
+effect is the audit's "deploy at 0% → smoke → 100%": **traffic never lands on an unverified revision**,
+and there is no auto-rollback gap. `min_replicas` stays `0` (the audit's M3 reconciliation is left
+out of scope here): the 0%-traffic candidate is woken from scale-to-zero by the readiness/smoke
+requests to its label FQDN (Container Apps' documented direct-revision-access path), so no replica is
+paid for between deploys. One accepted consequence of decoupling the traffic shift from the image
+roll: during the smoke window the **previous** revision briefly serves on the freshly-migrated schema
+(the migration gate still runs first), which the project's forward-only / expand-contract discipline
+already assumes (ADR-0008 §6; audit C4).
+
 ### 6. Infra is also CI-managed, behind the same gate
 
 `infra.yml` runs `fmt -check` + `validate` + `plan` on PRs touching `iac/**` (preview in the run
@@ -118,8 +144,10 @@ Terraform. `infra.yml` needs the TF inputs, so the `iac/terraform.tfvars` values
 - **Single environment** (prod = staging): a bad release lands on the only environment. Mitigated by
   the migration gate + smoke + zero users + free breaking changes (ADR-0002). A real staging is a
   future ADR if users arrive.
-- **Single-revision rollout** (no blue/green traffic split). Fine at this scale; revisit if
-  zero-downtime becomes a requirement.
+- ~~**Single-revision rollout** (no blue/green traffic split). Fine at this scale; revisit if
+  zero-downtime becomes a requirement.~~ **Superseded (2026-06-30, audit 0001 H7):** the rollout is
+  now multiple-revision and health-gated — see the §5 amendment. Traffic shifts only onto a
+  candidate that passed smoke, with automatic rollback on failure.
 - **TF secrets now also live in GitHub** (besides the laptop). Accepted: scoped repo secrets,
   masked, never in git; the alternative (manual local apply forever) is worse.
 - **Forward-only migrations** (no automated rollback) — unchanged from ADR-0008 §6.

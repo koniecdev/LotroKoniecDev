@@ -54,7 +54,7 @@ internal sealed class LaunchCommand : AsyncCommand<LaunchCommand.Settings>
         public bool SkipSync { get; init; }
     }
     
-    public override async Task<int> ExecuteAsync(CommandContext context, Settings settings,
+    protected override async Task<int> ExecuteAsync(CommandContext context, Settings settings,
         CancellationToken cancellationToken)
     {
         // Auto-download the current translation file before launch (spec 0001 Q5, freeze exception):

@@ -22,7 +22,10 @@ terraform {
     resource_group_name  = "rg-lotrotms-tfstate"
     storage_account_name = "sttflotrotms23957"
     container_name       = "tfstate"
-    key                  = "prod.terraform.tfstate"
+    # Per-environment state key (audit 0001 / H5, ADR-0017): partial backend — the key is supplied at
+    # init via `-backend-config=backend-config/<env>.hcl` (prod.hcl / staging.hcl), so prod and staging
+    # live in separate blobs in this one container and a botched staging apply can never touch prod
+    # state. CI passes prod.hcl; see .github/workflows/infra.yml and docs/deployment/runbook.md.
   }
 }
 

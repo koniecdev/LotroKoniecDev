@@ -1,0 +1,337 @@
+name: Deploy (reusable rollout)
+
+# Reusable health-gated ACA rollout (ADR-0018). cd.yml calls this ONCE PER ENVIRONMENT —
+# deploy-staging (auto) and deploy-prod (gated promotion) — so the same rollout serves both. The whole
+# rollout stays in ONE job so every Azure step shares the approved environment's OIDC federated identity
+# (the ADR-0012 "one job" constraint, now applied per environment); a job without the right
+# environment: cannot azure/login under that environment's federated credential.
+#
+# Env-specific targets come from environment-scoped GitHub vars (RESOURCE_GROUP, *_APP, *_URL,
+# MIGRATOR_JOB) selected by the environment: this job runs under; secrets arrive via `secrets: inherit`
+# from the caller (AZURE_*, SMOKE_CLIENT_SECRET, GITHUB_TOKEN). The rollout body is byte-identical to the
+# former inline deploy-prod (audit 0001 H7 health-gated rollout + H9 provenance verify).
+on:
+  workflow_call:
+    inputs:
+      environment:
+        description: 'Target GitHub Environment (staging | production) — selects vars/secrets, the OIDC federated credential, and the approval gate.'
+        required: true
+        type: string
+      deploy_sha:
+        description: 'The exact commit CI tested, pinned by the gate (build == deployed).'
+        required: true
+        type: string
+      short_sha:
+        description: 'Short SHA → the sha-<short> image tag.'
+        required: true
+        type: string
+      image_tag:
+        description: 'Explicit image tag to deploy; empty = sha-<short_sha>.'
+        required: false
+        type: string
+        default: ''
+
+permissions:
+  contents: read # checkout (scripts/)
+  id-token: write # Azure OIDC federation — short-lived token, no stored client secret
+  packages: read # pull image manifest + provenance attestation from GHCR for the verify gate (H9)
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAMESPACE: ${{ github.repository_owner }}
+  # Label that gives the 0%-traffic candidate a private FQDN for smoke (health-gated rollout).
+  CANDIDATE_LABEL: cd-candidate
+
+jobs:
+  deploy:
+    name: Deploy to ${{ inputs.environment }} (ACA)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    # The environment carries the protection rules: `production` has the required-reviewer gate (this is
+    # the staging→prod promotion approval); `staging` has none (auto). The environment also selects the
+    # env-scoped vars/secrets and the matching Azure federated credential (gh-env-<environment>).
+    environment:
+      name: ${{ inputs.environment }}
+      url: ${{ vars.FRONTEND_URL }}
+    # Per-environment mutation lock. `prod-mutation` is SHARED with infra.yml apply-prod (serialize app
+    # rollout vs terraform apply, audit 0001 M12); `staging-mutation` is the staging twin. Never cancel a
+    # rollout in progress; queue instead.
+    concurrency:
+      group: ${{ inputs.environment == 'production' && 'prod-mutation' || 'staging-mutation' }}
+      cancel-in-progress: false
+    # Env-specific ACA targets + public origins, from the environment-scoped GitHub vars (non-secret).
+    # The rollout step bodies below reference these exactly as the former inline deploy-prod did.
+    env:
+      RESOURCE_GROUP: ${{ vars.RESOURCE_GROUP }}
+      AUTH_APP: ${{ vars.AUTH_APP }}
+      TMS_APP: ${{ vars.TMS_APP }}
+      FRONTEND_APP: ${{ vars.FRONTEND_APP }}
+      AUTH_URL: ${{ vars.AUTH_URL }}
+      TMS_URL: ${{ vars.TMS_URL }}
+      FRONTEND_URL: ${{ vars.FRONTEND_URL }}
+      MIGRATOR_JOB: ${{ vars.MIGRATOR_JOB }}
+
+    steps:
+      # Build the EXACT commit the gate pinned (the commit CI tested), so any repo file this job reads
+      # (scripts/) matches the image being rolled, not main's tip.
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ inputs.deploy_sha }}
+
+      # The gate's short_sha / image_tag input are trusted (hex SHA / dispatch input). The default tag is
+      # the gate's pinned commit, byte-identical to the sha-<short> build-and-push published for it.
+      - name: Resolve image tag
+        id: tag
+        env:
+          INPUT_IMAGE_TAG: ${{ inputs.image_tag }}
+          GATE_SHORT_SHA: ${{ inputs.short_sha }}
+        run: |
+          set -euo pipefail
+          if [ -n "${INPUT_IMAGE_TAG:-}" ]; then
+            tag="$INPUT_IMAGE_TAG"
+          else
+            tag="sha-${GATE_SHORT_SHA}"
+          fi
+          printf 'tag=%s\n' "$tag" >> "$GITHUB_OUTPUT"
+          printf 'Deploying image tag: %s\n' "$tag"
+
+      # Supply-chain gate BEFORE any mutation (audit 0001 H9). Every image about to be deployed must carry
+      # a build-provenance attestation signed by THIS repo's CD. A foreign, tampered or never-built-by-us
+      # image fails closed here, before the migrator runs or any traffic moves.
+      - name: Verify image provenance (fail closed before rollout)
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          for image in lotrokoniecdev-auth-api lotrokoniecdev-tms-api lotrokoniecdev-frontend lotrokoniecdev-migrator; do
+            ref="${REGISTRY}/${IMAGE_NAMESPACE}/${image}:${TAG}"
+            echo "::group::Verify provenance — ${ref}"
+            gh attestation verify "oci://${ref}" --repo "$GITHUB_REPOSITORY"
+            echo "::endgroup::"
+          done
+
+      - name: Azure login (OIDC)
+        uses: azure/login@532459ea530d8321f2fb9bb10d1e0bcf23869a43 # v3.0.0
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      # R6 gate: run the migrator to completion BEFORE rolling the APIs. A non-Succeeded execution
+      # fails the job, so the apps are never rolled onto an un-migrated schema (no half-migrated serving).
+      - name: Run migrations (gate — rollout blocked unless this succeeds)
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          set -euo pipefail
+          img="${REGISTRY}/${IMAGE_NAMESPACE}/lotrokoniecdev-migrator:${TAG}"
+          echo "Pinning migrator job to ${img}"
+          az containerapp job update -n "$MIGRATOR_JOB" -g "$RESOURCE_GROUP" --image "$img" -o none
+          echo "Starting migrator job…"
+          az containerapp job start -n "$MIGRATOR_JOB" -g "$RESOURCE_GROUP" -o none
+          # Poll budget tracks the migrator job's OWN replica timeout (Terraform migrator-job.tf
+          # replica_timeout_in_seconds) instead of a hardcoded count, so the two can never drift
+          # (audit 0001 M13): a budget shorter than the job timeout would falsely fail a slow-but-
+          # valid migration the job itself still permits. We poll a margin PAST that timeout so the
+          # job reaches a terminal status (Failed/Degraded on timeout) before we give up — our loop
+          # is never the first to quit. Fall back to 1800s if the query yields no positive integer.
+          echo "Waiting for the latest execution to complete…"
+          poll_interval=15
+          replica_timeout=$(az containerapp job show -n "$MIGRATOR_JOB" -g "$RESOURCE_GROUP" \
+            --query "properties.configuration.replicaTimeout" -o tsv 2>/dev/null | tr -d '\r' || true)
+          case "$replica_timeout" in '' | *[!0-9]*) replica_timeout=1800 ;; esac
+          poll_attempts=$(( (replica_timeout + 120 + poll_interval - 1) / poll_interval ))
+          echo "Polling up to ${poll_attempts}×${poll_interval}s (job replica timeout ${replica_timeout}s + margin)."
+          status=""
+          for _ in $(seq 1 "$poll_attempts"); do
+            status=$(az containerapp job execution list -n "$MIGRATOR_JOB" -g "$RESOURCE_GROUP" \
+              --query "sort_by([],&properties.startTime)[-1].properties.status" -o tsv 2>/dev/null || true)
+            echo "  migrator status: ${status:-<pending>}"
+            case "$status" in
+              Succeeded) break ;;
+              Failed | Degraded | Canceled) echo "::error::Migration job ended: ${status}"; exit 1 ;;
+            esac
+            sleep "$poll_interval"
+          done
+          if [ "$status" != "Succeeded" ]; then
+            echo "::error::Migration job did not succeed within the time budget (status=${status:-none})."
+            exit 1
+          fi
+          echo "Migrations applied."
+
+      # Health-gated rollout (ADR-0012 §5 amendment, audit 0001 H7). Multiple-revision mode: deploy each
+      # app as a NEW revision receiving 0% production traffic, reachable only via a private label FQDN.
+      # The candidate is smoked BEFORE any traffic shift, so a bad release never serves a user.
+      - name: Deploy candidate revisions (0% traffic) and label them for smoke
+        id: rollout
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
+          SHORT_SHA: ${{ inputs.short_sha }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+        run: |
+          set -euo pipefail
+          # DNS-safe, unique-per-attempt revision suffix: starts with a letter, [a-z0-9-] only, no '--'.
+          suffix="c${SHORT_SHA}-${RUN_ID}-${RUN_ATTEMPT}"
+          deploy_candidate() {
+            prefix="$1"; app="$2"; image="$3"
+            img="${REGISTRY}/${IMAGE_NAMESPACE}/${image}:${TAG}"
+            echo "::group::Deploy candidate for ${app} (${img})"
+
+            # The revision currently serving production traffic — the rollback anchor; it keeps 100%
+            # of traffic throughout smoke. Highest-weight entry = production; a null name means the
+            # bootstrap latest_revision weight (first rollout) → fall back to the single live revision.
+            prev="$(az containerapp ingress traffic show -n "$app" -g "$RESOURCE_GROUP" \
+                      --query "reverse(sort_by(@, &weight))[0].revisionName" -o tsv 2>/dev/null | tr -d '\r' || true)"
+            if [ -z "$prev" ] || [ "$prev" = "null" ]; then
+              prev="$(az containerapp show -n "$app" -g "$RESOURCE_GROUP" \
+                        --query properties.latestReadyRevisionName -o tsv | tr -d '\r')"
+            fi
+            echo "  previous (production) revision: ${prev}"
+
+            # Pin 100% to the current revision so the new one is created at 0% (also converts any
+            # bootstrap latest_revision weight to the name-pinned weight the pipeline controls).
+            az containerapp ingress traffic set -n "$app" -g "$RESOURCE_GROUP" \
+              --revision-weight "${prev}=100" -o none
+
+            # Create the candidate from the tested image — 0% traffic in multiple-revision mode.
+            az containerapp update -n "$app" -g "$RESOURCE_GROUP" \
+              --image "$img" --revision-suffix "$suffix" -o none
+            candidate="${app}--${suffix}"
+            echo "  candidate revision: ${candidate}"
+
+            # Label gives the candidate a private FQDN for smoke WITHOUT taking production traffic.
+            az containerapp revision label add -n "$app" -g "$RESOURCE_GROUP" \
+              --label "$CANDIDATE_LABEL" --revision "$candidate" --yes -o none
+
+            # Candidate label FQDN = <app>---<label>.<envDefaultDomain>; derive the domain from the
+            # app's own default FQDN (<app>.<envDefaultDomain>) so no environment name is hardcoded.
+            app_fqdn="$(az containerapp show -n "$app" -g "$RESOURCE_GROUP" \
+                          --query properties.configuration.ingress.fqdn -o tsv | tr -d '\r')"
+            domain="${app_fqdn#*.}"
+            candidate_url="https://${app}---${CANDIDATE_LABEL}.${domain}"
+            echo "  candidate URL: ${candidate_url}"
+            echo "::endgroup::"
+
+            # Expose to later steps (readiness, smoke, promote, the failure-rollback) via the job env.
+            uc="$(printf '%s' "$prefix" | tr '[:lower:]' '[:upper:]')"
+            {
+              printf '%s_PREV=%s\n' "$uc" "$prev"
+              printf '%s_CANDIDATE=%s\n' "$uc" "$candidate"
+              printf '%s_CANDIDATE_URL=%s\n' "$uc" "$candidate_url"
+            } >> "$GITHUB_ENV"
+          }
+          deploy_candidate auth "$AUTH_APP" lotrokoniecdev-auth-api
+          deploy_candidate tms "$TMS_APP" lotrokoniecdev-tms-api
+          deploy_candidate frontend "$FRONTEND_APP" lotrokoniecdev-frontend
+
+      # Readiness against the CANDIDATE revisions before the gated smoke. With min_replicas=1 every
+      # revision (incl. the 0%-traffic candidate) keeps a live replica, so this is a short wait for the
+      # new replica to pass its probes — not a scale-from-zero cold start — and the previous auth
+      # revision (which the candidate tms validates tokens against via the public origin) stays warm.
+      # Frontend: Static-SSR, no /health → 2xx/3xx on '/'.
+      - name: Wait for candidate readiness (incl. frontend) + warm the auth origin
+        run: |
+          set -euo pipefail
+          poll() {
+            name="$1"; url="$2"; lo="$3"; hi="$4"
+            echo "::group::Waiting for ${name}: ${url}"
+            for _ in $(seq 1 60); do
+              code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 15 "$url" || echo 000)
+              echo "  ${name} → ${code}"
+              if [ "$code" -ge "$lo" ] 2>/dev/null && [ "$code" -le "$hi" ] 2>/dev/null; then
+                echo "::endgroup::"; return 0
+              fi
+              sleep 10
+            done
+            echo "::endgroup::"
+            echo "::error::${name} did not become ready: ${url}"
+            return 1
+          }
+          poll auth-candidate     "${AUTH_CANDIDATE_URL}/health/ready" 200 200
+          poll tms-candidate      "${TMS_CANDIDATE_URL}/health/ready" 200 200
+          poll frontend-candidate "${FRONTEND_CANDIDATE_URL}/" 200 399
+          # Wake the previous auth revision serving the public origin (cross-revision JWKS validation).
+          poll auth-origin        "${AUTH_URL}/.well-known/openid-configuration" 200 200
+
+      # Smoke the 0%-traffic CANDIDATE via its private label FQDNs BEFORE any traffic shift (audit
+      # 0001 H7). Runs inline so it shares this job's already-approved environment + Azure OIDC identity
+      # with the promote/rollback steps. A red smoke trips the failure-rollback step below.
+      - name: Smoke the candidate (pre-promotion gate)
+        env:
+          SMOKE_CLIENT_SECRET: ${{ secrets.SMOKE_CLIENT_SECRET }}
+        run: |
+          set -euo pipefail
+          ./scripts/smoke.sh \
+            --auth-url "$AUTH_CANDIDATE_URL" \
+            --tms-url "$TMS_CANDIDATE_URL" \
+            --frontend-url "$FRONTEND_CANDIDATE_URL" \
+            --client-secret "$SMOKE_CLIENT_SECRET" \
+            --timeout 30
+
+      # The "→ 100%" leg: a green candidate smoke shifts production traffic onto the candidate, then
+      # deactivates the previous revision (with min_replicas=1 it would otherwise hold an idle replica).
+      # A failed post-promotion smoke re-activates it and steers traffic back (the rollback step).
+      - name: Promote the candidate to 100% traffic
+        run: |
+          set -euo pipefail
+          promote() {
+            app="$1"; prev="$2"; candidate="$3"
+            echo "::group::Promote ${app}: ${candidate} → 100% (was ${prev})"
+            az containerapp ingress traffic set -n "$app" -g "$RESOURCE_GROUP" \
+              --revision-weight "${prev}=0" "${candidate}=100" -o none
+            # The candidate label has done its job (smoke) — drop it so production isn't tagged as a
+            # candidate; the next rollout recreates it on the next candidate.
+            az containerapp revision label remove -n "$app" -g "$RESOURCE_GROUP" \
+              --label "$CANDIDATE_LABEL" -o none || true
+            # With min_replicas=1 a kept-active prev would hold a replica forever; deactivate it to
+            # reclaim it. The failure-rollback step re-activates prev before sending traffic back.
+            az containerapp revision deactivate -n "$app" -g "$RESOURCE_GROUP" --revision "$prev" -o none || true
+            echo "::endgroup::"
+          }
+          promote "$AUTH_APP" "$AUTH_PREV" "$AUTH_CANDIDATE"
+          promote "$TMS_APP" "$TMS_PREV" "$TMS_CANDIDATE"
+          promote "$FRONTEND_APP" "$FRONTEND_PREV" "$FRONTEND_CANDIDATE"
+
+      # Final confirmation on the REAL production origins after the shift (custom domain + cert +
+      # routing — legs a candidate label FQDN can't exercise). A red here trips the rollback step.
+      - name: Smoke production (post-promotion)
+        env:
+          SMOKE_CLIENT_SECRET: ${{ secrets.SMOKE_CLIENT_SECRET }}
+        run: |
+          set -euo pipefail
+          ./scripts/smoke.sh \
+            --auth-url "$AUTH_URL" \
+            --tms-url "$TMS_URL" \
+            --frontend-url "$FRONTEND_URL" \
+            --client-secret "$SMOKE_CLIENT_SECRET"
+
+      # Auto-rollback (audit 0001 H7). Runs if ANY step above failed once candidates exist. Restores
+      # 100% of traffic to the previous revision and deactivates the candidate — safe in every phase
+      # (pre-promotion: traffic never moved → idempotent; post-promotion: forced back to prev). The job
+      # still fails (the original error stands); this step only repairs traffic. The revision names come
+      # from the job env the rollout step wrote ('' ⇒ that app never got a candidate ⇒ skip it).
+      - name: Roll back on failure
+        if: failure()
+        run: |
+          set -euo pipefail
+          roll_back() {
+            app="$1"; prev="$2"; candidate="$3"
+            if [ -z "$candidate" ]; then echo "  ${app}: no candidate created — nothing to roll back"; return 0; fi
+            echo "::group::Roll back ${app} → ${prev}"
+            if [ -n "$prev" ]; then
+              # Promote may have deactivated prev (min_replicas=1 reclaim) — re-activate before traffic.
+              az containerapp revision activate -n "$app" -g "$RESOURCE_GROUP" --revision "$prev" -o none || true
+              az containerapp ingress traffic set -n "$app" -g "$RESOURCE_GROUP" \
+                --revision-weight "${prev}=100" "${candidate}=0" -o none || true
+            fi
+            az containerapp revision deactivate -n "$app" -g "$RESOURCE_GROUP" --revision "$candidate" -o none || true
+            az containerapp revision label remove -n "$app" -g "$RESOURCE_GROUP" --label "$CANDIDATE_LABEL" -o none || true
+            echo "::endgroup::"
+          }
+          roll_back "$AUTH_APP" "${AUTH_PREV:-}" "${AUTH_CANDIDATE:-}"
+          roll_back "$TMS_APP" "${TMS_PREV:-}" "${TMS_CANDIDATE:-}"
+          roll_back "$FRONTEND_APP" "${FRONTEND_PREV:-}" "${FRONTEND_CANDIDATE:-}"
+          echo "::error::Rollout failed — production traffic restored to the previous revisions; candidates deactivated."

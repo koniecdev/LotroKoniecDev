@@ -29,10 +29,9 @@ permissions:
   contents: read
   id-token: write # Azure OIDC federation
 
-# Serialize infra runs per ref; never cancel an in-flight apply (state-lock also guards correctness).
-concurrency:
-  group: infra-${{ github.ref }}
-  cancel-in-progress: false
+# Concurrency is per-JOB, not workflow-wide (audit 0001 M12): the read-only `plan` stays on a
+# per-ref group while `apply` shares the `prod-mutation` group with the cd.yml prod rollout, so a
+# `terraform apply` and a `deploy-prod` rollout can never mutate the same prod resources at once.
 
 env:
   ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
@@ -54,6 +53,11 @@ jobs:
     if: vars.CD_ENABLED == 'true' && github.event_name == 'pull_request' && github.actor != 'dependabot[bot]'
     runs-on: ubuntu-24.04
     timeout-minutes: 15
+    # Read-only plan: serialize per ref, independent of the prod-mutation group — a plan never mutates
+    # prod, so it must neither block nor queue behind a rollout/apply. No-cancel matches the apply job.
+    concurrency:
+      group: infra-plan-${{ github.ref }}
+      cancel-in-progress: false
     defaults:
       run:
         working-directory: iac
@@ -98,6 +102,13 @@ jobs:
     if: vars.CD_ENABLED == 'true' && github.event_name != 'pull_request'
     runs-on: ubuntu-24.04
     timeout-minutes: 30
+    # Shared mutation lock with the cd.yml prod rollout (audit 0001 M12): `apply` and `deploy-prod`
+    # share the `prod-mutation` group so Terraform and the app rollout never mutate the same prod
+    # resources concurrently. Never cancel an in-flight apply (state-lock also guards correctness); a
+    # competing rollout/apply queues until this finishes.
+    concurrency:
+      group: prod-mutation
+      cancel-in-progress: false
     # Same approval gate as the app rollout — a human approves before live infra changes.
     environment:
       name: production

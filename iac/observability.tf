@@ -75,6 +75,19 @@ resource "azapi_update_resource" "app_env_otel" {
 
   sensitive_body = {
     properties = {
+      # #246 fix (M6-23): the 2024-10-02-preview managedEnvironments PATCH re-validates the WHOLE
+      # resource, and the environment's existing appLogsConfiguration round-trips without the
+      # write-only logAnalyticsConfiguration.sharedKey — so a body that omits it fails apply with
+      # `400 LogAnalyticsConfiguration is invalid. Must provide a valid LogAnalyticsConfiguration`.
+      # Re-supply the SAME workspace (customerId + sharedKey) so the existing log-analytics destination
+      # stays valid while the OTel agent is added; this changes no destination, only re-asserts it.
+      appLogsConfiguration = {
+        destination = "log-analytics"
+        logAnalyticsConfiguration = {
+          customerId = azurerm_log_analytics_workspace.law[0].workspace_id
+          sharedKey  = azurerm_log_analytics_workspace.law[0].primary_shared_key
+        }
+      }
       appInsightsConfiguration = {
         connectionString = azurerm_application_insights.app_insights[0].connection_string
       }

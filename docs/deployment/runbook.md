@@ -364,6 +364,15 @@ arrive as `TF_VAR_*`. See [Staging bring-up](#staging-bring-up) for the full ord
 
 First-time sequence for the `staging` environment. Prerequisite: complete the [one-time operator setup](#one-time-operator-setup) steps 1–7 (federated credential `gh-env-staging`, `Contributor` on `rg-lotrotms-staging-polc-001`, GitHub `staging` environment with env-scoped variables).
 
+> ⚠️ **Staging shares the production ACA Environment** (ADR-0018). The "Azure for Students" subscription
+> permits only **one Container Apps Environment in the whole subscription**, so `env/staging.tfvars` sets
+> `aca_environment_name = "lotrotmsenvprod"` / `aca_environment_resource_group = "rg-lotrotms-prod-polc-001"`
+> and the staging apply creates **only** the staging apps + migrator + DP-keyring storage + env-storage
+> links **inside the prod environment** — it does NOT create an environment, Log Analytics, App Insights,
+> the OTel agent or alerts (those are `count = 0` for the shared case). Everything else stays separate
+> (apps, the Neon project, KV + identity, custom domains). The shared env's default domain and
+> `customDomainVerificationId` are the **prod** ones (the same token for all three subdomains).
+
 **1 — Seed the staging Key Vault** (a *separate* vault from prod — audit §C5):
 
 ```bash
@@ -413,13 +422,21 @@ az containerapp hostname bind \
 
 The `bind` command outputs the **domain validation token** needed for the TXT record in step 4. Collect all three tokens before adding DNS records.
 
-**4 — Add DNS records at the registrar.** For each app add a CNAME and a matching TXT verification record (exact ACA default domain and validation tokens come from step 3):
+**4 — Add DNS records at the registrar.** The two subdomains are CNAMEs to their app FQDN; the apex-of-the-tier
+`staging.lotro-translator.pl` is an **A record to the environment's static IP** (it has children
+`auth.staging` / `tms.staging`, so it cannot be a CNAME), exactly like the prod apex. The `asuid` TXT is the
+env's `customDomainVerificationId` — **one value, the same for all three** (shared env). The app FQDN is
+`<app>.<prod-env-default-domain>` (the shared prod env), the env IP is its `staticIp`
+(`az containerapp env show -n lotrotmsenvprod -g rg-lotrotms-prod-polc-001 --query "{ip:properties.staticIp,domain:properties.defaultDomain}"`):
 
-| App | CNAME record | TXT verification record |
+| Host | Record | Value |
 |---|---|---|
-| auth-api (`lotrotms-auth-api-staging`) | `auth.staging.lotro-translator.pl → <app>.<aca-env-default-domain>` | `asuid.auth.staging.lotro-translator.pl = <validation-token>` |
-| tms-api (`lotrotms-tms-api-staging`) | `tms.staging.lotro-translator.pl → <app>.<aca-env-default-domain>` | `asuid.tms.staging.lotro-translator.pl = <validation-token>` |
-| frontend (`lotrotms-frontend-staging`) | `staging.lotro-translator.pl → <app>.<aca-env-default-domain>` | `asuid.staging.lotro-translator.pl = <validation-token>` |
+| `auth.staging.lotro-translator.pl` | CNAME | `lotrotms-auth-api-staging.<prod-env-default-domain>` |
+| `tms.staging.lotro-translator.pl` | CNAME | `lotrotms-tms-api-staging.<prod-env-default-domain>` |
+| `staging.lotro-translator.pl` | A | `<env staticIp>` |
+| `asuid.{,auth.,tms.}staging.lotro-translator.pl` | TXT (×3) | `<customDomainVerificationId>` |
+
+Bind the apex with `--validation-method HTTP` (A record), the two subdomains with `--validation-method CNAME`.
 
 **5 — Verify staging** with the smoke test:
 

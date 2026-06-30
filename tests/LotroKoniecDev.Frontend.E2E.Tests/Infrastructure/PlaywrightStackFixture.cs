@@ -34,7 +34,7 @@ public sealed class PlaywrightStackFixture : IAsyncLifetime
     private const string MailpitImage = "axllent/mailpit:latest";
 
     // Pinned to match the Microsoft.Playwright client version, so ConnectAsync speaks the same protocol.
-    private const string PlaywrightImage = "mcr.microsoft.com/playwright:v1.60.0-noble";
+    private const string PlaywrightImage = "mcr.microsoft.com/playwright:v1.61.0-noble";
     private const int PlaywrightPort = 8080;
 
     /// <summary>

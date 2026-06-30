@@ -63,7 +63,11 @@ resource "azurerm_container_app" "auth_api" {
   }
 
   template {
-    min_replicas = 0
+    # Keep one warm replica per revision (audit 0001 M3 / ADR-0012 R8): no cold starts, and the
+    # health-gated rollout's 0%-traffic candidate stays smokeable while the previous revision stays
+    # warm for cross-revision token validation. The CD rollout deactivates superseded revisions so
+    # min_replicas=1 doesn't accumulate idle replicas.
+    min_replicas = 1
     max_replicas = 1
 
     container {
@@ -255,7 +259,11 @@ resource "azurerm_container_app" "tms_api" {
   }
 
   template {
-    min_replicas = 0
+    # Keep one warm replica per revision (audit 0001 M3 / ADR-0012 R8): no cold starts, and the
+    # health-gated rollout's 0%-traffic candidate stays smokeable while the previous revision stays
+    # warm for cross-revision token validation. The CD rollout deactivates superseded revisions so
+    # min_replicas=1 doesn't accumulate idle replicas.
+    min_replicas = 1
     max_replicas = 1
 
     container {
@@ -372,7 +380,11 @@ resource "azurerm_container_app" "frontend" {
   }
 
   template {
-    min_replicas = 0
+    # Keep one warm replica per revision (audit 0001 M3 / ADR-0012 R8): no cold starts, and the
+    # health-gated rollout's 0%-traffic candidate stays smokeable while the previous revision stays
+    # warm for cross-revision token validation. The CD rollout deactivates superseded revisions so
+    # min_replicas=1 doesn't accumulate idle replicas.
+    min_replicas = 1
     max_replicas = 1
 
     container {

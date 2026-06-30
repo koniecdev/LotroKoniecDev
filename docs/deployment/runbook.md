@@ -336,8 +336,8 @@ Ongoing delivery to the live Azure environment is automated (ADR-0012). Three wo
 
 | Workflow | Trigger | What it does |
 |---|---|---|
-| `cd.yml` → `build-and-push` | push to main, `v*` tag | builds + pushes the 4 images to GHCR (`:sha-<short>`, `:latest` on main, semver on tags) |
-| `cd.yml` → `deploy-prod` | push to main / dispatch, **behind the `production` approval gate** | OIDC login → run migrator to success (**gate**) → deploy each app as a **candidate revision at 0% traffic** (multiple-revision mode, `--revision-suffix`) → label it `cd-candidate` → readiness wait on the candidate (incl. frontend) |
+| `cd.yml` → `build-and-push` | push to main, `v*` tag | builds the 4 images, **scans each with Trivy (fails on a fixable HIGH/CRITICAL)**, then pushes to GHCR **signed (cosign keyless) + attested (SLSA provenance + SBOM)** — `:sha-<short>`, `:latest` on main, semver on tags (audit 0001 H9 + H1) |
+| `cd.yml` → `deploy-prod` | push to main / dispatch, **behind the `production` approval gate** | **verify each image's signed provenance (`gh attestation verify`, fail-closed)** → OIDC login → run migrator to success (**gate**) → deploy each app as a **candidate revision at 0% traffic** (multiple-revision mode, `--revision-suffix`) → label it `cd-candidate` → readiness wait on the candidate (incl. frontend) |
 | `cd.yml` → `smoke` → `promote` → `smoke-prod` | after `deploy-prod` | smoke the 0%-traffic candidate via its private `…---cd-candidate.<env-domain>` FQDN; only a green smoke shifts 100% of traffic onto it (`promote`); then `smoke-prod` re-checks the real production origins |
 | `cd.yml` → `rollback` | any rollout failure (once a candidate exists) | restores 100% of traffic to the previous revision and deactivates the candidate — no window where users hit a bad revision (audit 0001 H7) |
 | `infra.yml` | PR / push to `iac/**`, dispatch | `plan` on PRs (preview in run summary); **gated** `apply` on main |
@@ -347,7 +347,9 @@ for a human to approve (GitHub → the run → *Review deployments* → *Approve
 until you click — the safeguard for QA testing on prod. Approve when QA is free.
 
 **Deploy a specific build on demand.** Actions → *CD* → *Run workflow* → optional `image_tag`
-(`sha-<short>` or `vX.Y.Z`); empty = the chosen ref's commit. Still gated.
+(`sha-<short>` or `vX.Y.Z`); empty = the chosen ref's commit. Still gated. The image must carry a
+build-provenance attestation from our CD or the **verify gate fails closed** (audit 0001 H9) — any
+image built since that change has one; an older pre-H9 tag must be rebuilt from its commit.
 
 **Roll back.** A *failed* rollout rolls back **automatically** (audit 0001 H7): the health-gated
 pipeline shifts traffic only after the candidate passes smoke, and on any failure the `rollback` job

@@ -323,10 +323,12 @@ jobs:
     environment:
       name: production
       url: https://lotro-translator.pl
-    # Never cancel a rollout in progress; queue instead. A waiting-for-approval run is superseded by
-    # the next one only after the running rollout finishes.
+    # Shared mutation lock with the infra.yml `apply` (audit 0001 M12): the `prod-mutation` group
+    # serializes this app rollout against `terraform apply`, so the two never mutate the same prod
+    # resources at once. Never cancel a rollout in progress; queue instead — a waiting-for-approval
+    # run is superseded by the next one only after the running rollout (or a competing apply) finishes.
     concurrency:
-      group: cd-deploy-prod
+      group: prod-mutation
       cancel-in-progress: false
     permissions:
       contents: read # checkout (scripts/)
@@ -399,9 +401,21 @@ jobs:
           az containerapp job update -n "$MIGRATOR_JOB" -g "$RESOURCE_GROUP" --image "$img" -o none
           echo "Starting migrator job…"
           az containerapp job start -n "$MIGRATOR_JOB" -g "$RESOURCE_GROUP" -o none
+          # Poll budget tracks the migrator job's OWN replica timeout (Terraform migrator-job.tf
+          # replica_timeout_in_seconds) instead of a hardcoded count, so the two can never drift
+          # (audit 0001 M13): a budget shorter than the job timeout would falsely fail a slow-but-
+          # valid migration the job itself still permits. We poll a margin PAST that timeout so the
+          # job reaches a terminal status (Failed/Degraded on timeout) before we give up — our loop
+          # is never the first to quit. Fall back to 1800s if the query yields no positive integer.
           echo "Waiting for the latest execution to complete…"
+          poll_interval=15
+          replica_timeout=$(az containerapp job show -n "$MIGRATOR_JOB" -g "$RESOURCE_GROUP" \
+            --query "properties.configuration.replicaTimeout" -o tsv 2>/dev/null | tr -d '\r' || true)
+          case "$replica_timeout" in '' | *[!0-9]*) replica_timeout=1800 ;; esac
+          poll_attempts=$(( (replica_timeout + 120 + poll_interval - 1) / poll_interval ))
+          echo "Polling up to ${poll_attempts}×${poll_interval}s (job replica timeout ${replica_timeout}s + margin)."
           status=""
-          for _ in $(seq 1 80); do
+          for _ in $(seq 1 "$poll_attempts"); do
             status=$(az containerapp job execution list -n "$MIGRATOR_JOB" -g "$RESOURCE_GROUP" \
               --query "sort_by([],&properties.startTime)[-1].properties.status" -o tsv 2>/dev/null || true)
             echo "  migrator status: ${status:-<pending>}"
@@ -409,7 +423,7 @@ jobs:
               Succeeded) break ;;
               Failed | Degraded | Canceled) echo "::error::Migration job ended: ${status}"; exit 1 ;;
             esac
-            sleep 15
+            sleep "$poll_interval"
           done
           if [ "$status" != "Succeeded" ]; then
             echo "::error::Migration job did not succeed within the time budget (status=${status:-none})."

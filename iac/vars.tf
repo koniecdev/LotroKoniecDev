@@ -4,6 +4,12 @@ variable "env_id" {
   default     = "prod"
 }
 
+variable "public_base_domain" {
+  type        = string
+  description = "Public apex domain for this environment. Every OIDC issuer/redirect/CORS/base URL derives from it via iac/locals.tf (audit 0001 / H2). The default keeps prod byte-identical; staging sets \"staging.lotro-translator.pl\"."
+  default     = "lotro-translator.pl"
+}
+
 variable "src_key" {
   type        = string
   description = "The infrastructure source"

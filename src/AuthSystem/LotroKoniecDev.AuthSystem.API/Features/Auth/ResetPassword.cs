@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Identity;
 using LotroKoniecDev.AuthSystem.API.ApiErrors;
 using LotroKoniecDev.AuthSystem.API.Common;
 using LotroKoniecDev.AuthSystem.API.Extensions;
+using LotroKoniecDev.AuthSystem.API.Services.Sessions;
 using LotroKoniecDev.AuthSystem.Contracts.Features.Auth.Password;
 using LotroKoniecDev.AuthSystem.Domain.Aggregates.ApplicationUsers.Entities;
 
@@ -47,15 +48,18 @@ internal sealed partial class ResetPassword : IApiEndpoint
             new PasswordHasher<ApplicationUser>().HashPassword(new ApplicationUser(), "DummyP@ssw0rd!");
 
         private readonly UserManager<ApplicationUser> _userManager;
+        private readonly IUserSessionRevoker _sessionRevoker;
         private readonly IValidator<Command> _validator;
         private readonly ILogger<Handler> _logger;
 
         public Handler(
             UserManager<ApplicationUser> userManager,
+            IUserSessionRevoker sessionRevoker,
             IValidator<Command> validator,
             ILogger<Handler> logger)
         {
             _userManager = userManager;
+            _sessionRevoker = sessionRevoker;
             _validator = validator;
             _logger = logger;
         }
@@ -98,6 +102,8 @@ internal sealed partial class ResetPassword : IApiEndpoint
             {
                 LogSecurityStampUpdateFailed(_logger, user.Id);
             }
+
+            await _sessionRevoker.RevokeAllAsync(user.Id.ToString(), cancellationToken);
 
             return Result.Success();
         }

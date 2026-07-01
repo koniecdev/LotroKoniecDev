@@ -17,6 +17,7 @@ using LotroKoniecDev.TranslationSystem.Domain.Aggregates.TranslationAggregate.Re
 using LotroKoniecDev.TranslationSystem.Domain.Aggregates.TranslationAggregate.Services;
 using LotroKoniecDev.TranslationSystem.Domain.Aggregates.TranslationAggregate.ValueObjects;
 using LotroKoniecDev.TranslationSystem.Domain.Core.Errors;
+using LotroKoniecDev.TranslationSystem.Persistence.Bulk;
 using LotroKoniecDev.TranslationSystem.Persistence.DbContexts.Abstractions;
 using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.GameVersionAggregate;
 using Microsoft.AspNetCore.Mvc;
@@ -53,6 +54,7 @@ internal sealed class ImportExportedTexts : IEndpoint
         private readonly ITranslationExportParser _parser;
         private readonly IGameVersionRepository _gameVersionRepository;
         private readonly ITranslationRepository _translationRepository;
+        private readonly IBulkTranslationInserter _bulkInserter;
         private readonly IUnitOfWork _unitOfWork;
         private readonly TimeProvider _timeProvider;
         private readonly ImportSettings _settings;
@@ -63,6 +65,7 @@ internal sealed class ImportExportedTexts : IEndpoint
             ITranslationExportParser parser,
             IGameVersionRepository gameVersionRepository,
             ITranslationRepository translationRepository,
+            IBulkTranslationInserter bulkInserter,
             IUnitOfWork unitOfWork,
             TimeProvider timeProvider,
             IOptions<ImportSettings> settings,
@@ -72,6 +75,7 @@ internal sealed class ImportExportedTexts : IEndpoint
             _parser = parser;
             _gameVersionRepository = gameVersionRepository;
             _translationRepository = translationRepository;
+            _bulkInserter = bulkInserter;
             _unitOfWork = unitOfWork;
             _timeProvider = timeProvider;
             _settings = settings.Value;
@@ -132,8 +136,6 @@ internal sealed class ImportExportedTexts : IEndpoint
                         _settings.MaxRemovedFractionWithoutOverride));
             }
 
-            _translationRepository.InsertRange(plan.Added);
-
             foreach (TranslationSourceChange change in plan.SourceChanges)
             {
                 change.Existing.ApplySourceChange(change.NewSource, command.GameVersionId, now);
@@ -149,17 +151,25 @@ internal sealed class ImportExportedTexts : IEndpoint
                 restored.Restore(now);
             }
 
-            // Single SaveChanges = one transaction: the row changes and the version's processed
-            // flag commit together, so IsProcessed flips only after the diff is durable (spec 0001).
-            // Imports are admin-only and serial — concurrent imports of one version are out of scope,
-            // so no optimistic-concurrency token is modelled.
+            // The version's processed flag commits with the row changes below, so IsProcessed flips
+            // only after the diff is durable (spec 0001). Imports are admin-only and serial —
+            // concurrent imports of one version are out of scope, so no optimistic-concurrency token
+            // is modelled.
             Result markProcessedResult = gameVersion.MarkAsProcessed();
             if (markProcessedResult.IsFailure)
             {
                 return Result.Failure<ImportSummary>(markProcessedResult.Error);
             }
 
-            await _unitOfWork.SaveChangesAsync(cancellationToken);
+            // One atomic transaction (spec 0001, ADR-0011): the added rows stream in via a binary COPY
+            // on the write context's connection, then the unit of work saves the per-row diff mutations
+            // and the version's processed flag on that same connection — committed together, or rolled
+            // back together on any failure. A baseline is entirely added rows, so the COPY is the whole
+            // of the ~3-minute pain #214 removed. The unit runs under the provider's retrying execution
+            // strategy, which must own the boundary once a manual COPY joins the tracked save.
+            await _unitOfWork.ExecuteInTransactionAsync(
+                transactionToken => _bulkInserter.InsertAsync(plan.Added, transactionToken),
+                cancellationToken);
 
             // Version processing changes the distributed set (removed rows drop out, re-added rows
             // return), so regenerate the pre-built translation file after the import commits

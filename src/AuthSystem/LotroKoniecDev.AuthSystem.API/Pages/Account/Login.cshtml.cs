@@ -84,6 +84,17 @@ internal sealed partial class LoginModel : PageModel
             return Page();
         }
 
+        if (!await _userManager.IsEmailConfirmedAsync(user))
+        {
+            LogEmailNotConfirmed(_logger, user.Id, HttpContext.Connection.RemoteIpAddress);
+            // Identity is configured with RequireConfirmedEmail, but the interactive login path uses
+            // CheckPasswordAsync, which does not run PreSignInCheck. Enforce confirmation explicitly.
+            // Same generic message as the other branches — never reveal that the account exists but is
+            // unconfirmed — and placed after the password hash above so there is no timing oracle.
+            ErrorMessage = "Nieprawidłowa nazwa użytkownika lub hasło.";
+            return Page();
+        }
+
         await _userManager.ResetAccessFailedCountAsync(user);
 
         List<Claim> claims =
@@ -131,6 +142,9 @@ internal sealed partial class LoginModel : PageModel
 
     [LoggerMessage(EventId = EventIds.LoginWrongPassword, Level = LogLevel.Warning, Message = "Failed login: wrong password. UserId: {UserId}, IP: {IP}")]
     private static partial void LogWrongPassword(ILogger logger, Guid userId, System.Net.IPAddress? ip);
+
+    [LoggerMessage(EventId = EventIds.LoginEmailNotConfirmed, Level = LogLevel.Warning, Message = "Failed login: email not confirmed. UserId: {UserId}, IP: {IP}")]
+    private static partial void LogEmailNotConfirmed(ILogger logger, Guid userId, System.Net.IPAddress? ip);
 
     [LoggerMessage(EventId = EventIds.LoginSuccessful, Level = LogLevel.Information, Message = "User {UserId} logged in successfully")]
     private static partial void LogUserLoggedIn(ILogger logger, Guid userId);

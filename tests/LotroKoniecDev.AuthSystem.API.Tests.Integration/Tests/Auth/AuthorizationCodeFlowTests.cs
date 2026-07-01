@@ -265,6 +265,55 @@ public sealed partial class AuthorizationCodeFlowTests : AsyncLifetimeTestBase
     }
 
     [Fact]
+    public async Task Login_ShouldNotAuthenticate_WhenEmailIsNotConfirmed()
+    {
+        // Arrange — a registered but UNCONFIRMED user, logging in with the CORRECT credentials.
+        // RequireConfirmedEmail is enabled, so the interactive login must reject this user.
+        const string password = "TestPass1!";
+        (RegisterRequest registerRequest, _) =
+            await UserFactory.RegisterRandomUserUnconfirmedAsync(ApiClient, Faker, AccountConfirmationEmailSpy, password);
+
+        HttpResponseMessage loginPageResponse = await _noRedirectClient.GetAsync(
+            new Uri("/Account/Login", UriKind.Relative));
+        loginPageResponse.StatusCode.ShouldBe(HttpStatusCode.OK);
+
+        string loginPageHtml = await loginPageResponse.Content.ReadAsStringAsync();
+        string? antiForgeryToken = ExtractAntiForgeryToken(loginPageHtml);
+
+        Dictionary<string, string> loginFormData = new()
+        {
+            ["Username"] = registerRequest.Username,
+            ["Password"] = password
+        };
+
+        if (antiForgeryToken is not null)
+        {
+            loginFormData["__RequestVerificationToken"] = antiForgeryToken;
+        }
+
+        using FormUrlEncodedContent content = new(loginFormData);
+
+        using HttpRequestMessage request = new(HttpMethod.Post, "/Account/Login");
+        request.Content = content;
+
+        foreach (string cookie in loginPageResponse.Headers.GetValues("Set-Cookie"))
+        {
+            string cookiePair = cookie.Split(';')[0];
+            request.Headers.Add("Cookie", cookiePair);
+        }
+
+        // Act
+        HttpResponseMessage response = await _noRedirectClient.SendAsync(request);
+
+        // Assert — login is rejected: the page is re-rendered (200) with the generic error, NOT a
+        // redirect (302), which is what a successful sign-in would return.
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+
+        string html = await response.Content.ReadAsStringAsync();
+        html.ShouldContain("Nieprawidłowa nazwa użytkownika lub hasło");
+    }
+
+    [Fact]
     public async Task AuthorizationCodeExchange_ShouldFail_WhenCodeVerifierIsInvalid()
     {
         // Arrange: Get a valid authorization code through the full auth flow

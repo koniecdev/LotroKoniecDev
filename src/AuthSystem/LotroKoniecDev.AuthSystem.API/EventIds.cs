@@ -67,6 +67,7 @@ internal static class EventIds
     public const int LoginAccountLockedOut = 2621;
     public const int LoginWrongPassword = 2622;
     public const int LoginSuccessful = 2623;
+    public const int LoginEmailNotConfirmed = 2624;
     public const int PasswordResetCompletedViaUi = 2630;
     public const int RegisterCompletedViaUi = 2640;
 }

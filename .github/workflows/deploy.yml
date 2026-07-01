@@ -227,10 +227,12 @@ jobs:
           deploy_candidate tms "$TMS_APP" lotrokoniecdev-tms-api
           deploy_candidate frontend "$FRONTEND_APP" lotrokoniecdev-frontend
 
-      # Readiness against the CANDIDATE revisions before the gated smoke. With min_replicas=1 every
-      # revision (incl. the 0%-traffic candidate) keeps a live replica, so this is a short wait for the
-      # new replica to pass its probes — not a scale-from-zero cold start — and the previous auth
-      # revision (which the candidate tms validates tokens against via the public origin) stays warm.
+      # Readiness against the CANDIDATE revisions before the gated smoke. With prod's min_replicas=1
+      # every revision (incl. the 0%-traffic candidate) keeps a live replica, so this is a short wait
+      # for the new replica to pass its probes. On staging (min_replicas=0, ADR-0020) these polls ARE
+      # the scale-from-zero warm-up — the 60×10s budget absorbs the cold start — and the final poll
+      # wakes the previous auth revision serving the public origin (which the candidate tms validates
+      # tokens against); on prod that revision is already warm and the poll is cheap insurance.
       # Frontend: Static-SSR, no /health → 2xx/3xx on '/'.
       - name: Wait for candidate readiness (incl. frontend) + warm the auth origin
         run: |

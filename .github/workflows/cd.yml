@@ -76,11 +76,12 @@ on:
         required: false
         default: ''
 
-# Least privilege at the top: read the repo, write packages (GHCR). The deploy job widens to
-# id-token (OIDC) and narrows packages away — see its own permissions block.
+# Least privilege at the top: read-only default. Every job below declares its own permissions block
+# (a job-level block REPLACES this one), so nothing here actually grants packages: write — keeping the
+# default read-only means a future job added WITHOUT a permissions block cannot silently publish to
+# GHCR with the workflow token.
 permissions:
   contents: read
-  packages: write
 
 env:
   REGISTRY: ghcr.io

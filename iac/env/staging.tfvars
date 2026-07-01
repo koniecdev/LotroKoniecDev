@@ -17,3 +17,9 @@ aca_identity_name  = "lotrotms-aca-staging"
 # own. These point at prod's environment (name + resource group); see iac/locals.tf (create_env).
 aca_environment_name           = "lotrotmsenvprod"
 aca_environment_resource_group = "rg-lotrotms-prod-polc-001"
+
+# Scale-to-zero (ADR-0020 FinOps): staging serves no steady traffic — no synthetic probes (staging
+# creates no monitoring, ADR-0018/M6-22) and no users between rollouts/QA — so three always-on
+# 0.25 vCPU / 0.5 GiB replicas were pure idle spend (~$15-18/month). First request after idle pays a
+# cold start (~10-20 s incl. Neon wake); accepted for QA. Prod stays at 1 (ADR-0012 R8).
+app_min_replicas = 0

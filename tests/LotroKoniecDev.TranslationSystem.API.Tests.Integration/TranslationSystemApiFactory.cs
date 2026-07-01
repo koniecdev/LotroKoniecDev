@@ -10,6 +10,7 @@ using Microsoft.IdentityModel.JsonWebTokens;
 using Microsoft.IdentityModel.Tokens;
 using Testcontainers.PostgreSql;
 using LotroKoniecDev.SharedKernel.Authorization;
+using LotroKoniecDev.TranslationSystem.Persistence.DbContexts.ReadDbContexts;
 using LotroKoniecDev.TranslationSystem.Persistence.DbContexts.WriteDbContexts;
 
 namespace LotroKoniecDev.TranslationSystem.API.Tests.Integration;
@@ -34,6 +35,13 @@ public class TranslationSystemApiFactory : WebApplicationFactory<Program>, IAsyn
 
     private string _connectionString = string.Empty;
 
+    /// <summary>
+    /// Records the read context's SQL so tests can pin column-level fetch behavior the HTTP
+    /// response cannot reveal (PERF-01/#286). Shared per factory; tests <see cref="SqlCommandRecorder.Clear"/>
+    /// before the request under observation (the collection runs sequentially, so nothing interleaves).
+    /// </summary>
+    public SqlCommandRecorder ReadContextSqlRecorder { get; } = new();
+
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         builder.UseEnvironment("Testing");
@@ -57,6 +65,11 @@ public class TranslationSystemApiFactory : WebApplicationFactory<Program>, IAsyn
                 options.ConfigurationManager = null;
                 options.TokenValidationParameters.IssuerSigningKey = TestSigningKey;
             });
+
+            // AddDbContext calls compose (EF Core 9+): this appends the recording interceptor to the
+            // production registration of the read context instead of replacing it.
+            services.AddDbContext<ApplicationReadDbContext>(options =>
+                options.AddInterceptors(ReadContextSqlRecorder));
         });
 
         builder.ConfigureLogging(logging =>

@@ -69,9 +69,14 @@ public sealed class GetTranslationFileTests : IAsyncLifetime
         HttpResponseMessage response = await _factory.CreateClient().GetAsync(Route);
         string body = await response.Content.ReadAsStringAsync();
 
-        // Assert
+        // Assert — Cache-Control must be the endpoint's revalidation pair, not the no-store
+        // stamp GlobalNoCacheMiddleware applies when an endpoint sets nothing.
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
         response.Headers.ETag.ShouldNotBeNull();
+        response.Headers.CacheControl.ShouldNotBeNull();
+        response.Headers.CacheControl.Private.ShouldBeTrue();
+        response.Headers.CacheControl.NoCache.ShouldBeTrue();
+        response.Headers.CacheControl.NoStore.ShouldBeFalse();
         body.ShouldContain($"{FileId}||1||Alfa||NULL||NULL||1");
         body.ShouldNotContain($"{FileId}||2||");
         body.ShouldNotContain($"{FileId}||3||");
@@ -92,9 +97,15 @@ public sealed class GetTranslationFileTests : IAsyncLifetime
         client.DefaultRequestHeaders.IfNoneMatch.Add(etag);
         HttpResponseMessage second = await client.GetAsync(Route);
 
-        // Assert
+        // Assert — a 304 must re-state the current validator (RFC 9110 §15.4.5) and the
+        // revalidation Cache-Control, or intermediaries would evict the cached artifact.
         second.StatusCode.ShouldBe(HttpStatusCode.NotModified);
         (await second.Content.ReadAsStringAsync()).ShouldBeEmpty();
+        second.Headers.ETag.ShouldBe(etag);
+        second.Headers.CacheControl.ShouldNotBeNull();
+        second.Headers.CacheControl.Private.ShouldBeTrue();
+        second.Headers.CacheControl.NoCache.ShouldBeTrue();
+        second.Headers.CacheControl.NoStore.ShouldBeFalse();
     }
 
     [Fact]
@@ -113,6 +124,67 @@ public sealed class GetTranslationFileTests : IAsyncLifetime
 
         // Assert
         response.StatusCode.ShouldBe(HttpStatusCode.NotModified);
+    }
+
+    [Fact]
+    public async Task Get_WithStaleIfNoneMatch_ShouldReturn200WithCurrentContentAndETag()
+    {
+        // Arrange
+        await SeedAsync(gossipId: 1, polish: "Alfa", status: SeedStatus.Approved);
+        await RebuildAsync();
+        EntityTagHeaderValue currentEtag = (await _factory.CreateClient().GetAsync(Route)).Headers.ETag!;
+
+        // Act — the canonical CLI update download: the held validator no longer matches.
+        using HttpClient client = _factory.CreateClient();
+        client.DefaultRequestHeaders.IfNoneMatch.Add(new EntityTagHeaderValue("\"stale-tag\""));
+        HttpResponseMessage response = await client.GetAsync(Route);
+        string body = await response.Content.ReadAsStringAsync();
+
+        // Assert — full body plus the current validator, so the client re-syncs in one round-trip.
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        response.Headers.ETag.ShouldBe(currentEtag);
+        body.ShouldContain($"{FileId}||1||Alfa||NULL||NULL||1");
+    }
+
+    [Fact]
+    public async Task Get_WithWildcardIfNoneMatch_ShouldReturn304()
+    {
+        // Arrange
+        await SeedAsync(gossipId: 1, polish: "Alfa", status: SeedStatus.Approved);
+        await RebuildAsync();
+
+        // Act — "*" matches any current representation (RFC 9110 §13.1.2).
+        using HttpClient client = _factory.CreateClient();
+        client.DefaultRequestHeaders.IfNoneMatch.Add(EntityTagHeaderValue.Any);
+        HttpResponseMessage response = await client.GetAsync(Route);
+
+        // Assert
+        response.StatusCode.ShouldBe(HttpStatusCode.NotModified);
+    }
+
+    [Fact]
+    public async Task Get_WithMatchingIfNoneMatch_ShouldNotQueryContentColumn()
+    {
+        // Arrange
+        await SeedAsync(gossipId: 1, polish: "Alfa", status: SeedStatus.Approved);
+        await RebuildAsync();
+        EntityTagHeaderValue etag = (await _factory.CreateClient().GetAsync(Route)).Headers.ETag!;
+
+        using HttpClient client = _factory.CreateClient();
+        client.DefaultRequestHeaders.IfNoneMatch.Add(etag);
+        _factory.ReadContextSqlRecorder.Clear();
+
+        // Act
+        HttpResponseMessage response = await client.GetAsync(Route);
+
+        // Assert — the revalidation's cost model (PERF-01/#286): the hash column is read, the
+        // multi-MB Content column is not. The quoted-identifier match is exact on purpose:
+        // "ContentHash" contains the bare substring, so only "Content" with its closing quote
+        // proves the column itself was fetched.
+        response.StatusCode.ShouldBe(HttpStatusCode.NotModified);
+        IReadOnlyList<string> commands = _factory.ReadContextSqlRecorder.Commands;
+        commands.ShouldContain(command => command.Contains("\"ContentHash\""));
+        commands.ShouldAllBe(command => !command.Contains("\"Content\""));
     }
 
     [Fact]

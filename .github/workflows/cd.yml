@@ -207,6 +207,9 @@ jobs:
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           ref: ${{ needs.gate.outputs.deploy_sha }}
+          # No later step does authenticated git — don't leave the workflow token (which in THIS job
+          # carries packages: write) sitting in .git/config for every subsequent step.
+          persist-credentials: false
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4.1.0

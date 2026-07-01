@@ -38,6 +38,7 @@ jobs:
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           fetch-depth: 2
+          persist-credentials: false
 
       # Mirrors the ignore list the `on.paths-ignore` used to carry: **/*.md, docs/**, LICENSE,
       # .gitignore. No untrusted input reaches this script (pure git against the checked-out merge
@@ -73,6 +74,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
 
       # Fast, dependency-free gate: the Frontend must stay Static SSR. Runs before
       # the .NET setup so a stray @rendermode/@onclick fails in seconds, not minutes.

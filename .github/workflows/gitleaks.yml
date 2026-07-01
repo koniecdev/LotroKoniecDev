@@ -27,6 +27,8 @@ jobs:
         with:
           # Full history so the scan covers every commit in the push / PR range.
           fetch-depth: 0
+          # gitleaks talks to the API via its GITHUB_TOKEN env, never via git — don't persist creds.
+          persist-credentials: false
 
       - name: gitleaks
         uses: gitleaks/gitleaks-action@e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e # v3.0.0

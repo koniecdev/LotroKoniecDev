@@ -1,12 +1,31 @@
 # Spec 0004: Bulk / set-based exported.txt import
 
-- **Status:** Agreed
+- **Status:** Implemented (2026-07-01)
 - **Date:** 2026-06-28
 - **Author:** ticket-worker
 - **Ticket:** #214 (follow-up to #208)
 - **Related:** spec 0001 (import lifecycle + the five diff outcomes), spec 0003 / #208 (lifted the
   upload cap — this is its performance follow-up), ADR-0001 (slim handlers), ADR-0007 (read
-  projections are not aggregates), a **new ADR** (set-based import write path — to be written)
+  projections are not aggregates), ADR-0011 (Npgsql COPY for the import added-rows write path)
+
+## Implementation notes (2026-07-01)
+
+Phase 1 shipped as specified: added rows are written by a native Npgsql binary `COPY` behind
+`IBulkTranslationInserter` (`…Persistence/Bulk/`), enlisted in the import transaction; the
+source-change / removed / restored outcomes stay per-row. A full-catalog baseline that took ~3 min
+now completes in **~1 s** on the integration Postgres (measured at 200k rows).
+
+One design detail beyond the original spec surfaced in review and is worth recording: the write
+context has `EnableRetryOnFailure`, so the transaction is driven by the execution strategy
+(`IUnitOfWork.ExecuteInTransactionAsync`). A transient fault **at commit** makes the strategy re-run
+the whole unit — and with EF's default `SaveChanges(acceptAllChangesOnSuccess: true)` the retry would
+find the tracker already accepted and silently drop the tracked diff mutations + the version's
+`Processed` flag (COPY re-runs fine; the tracked half would be lost). The unit therefore saves with
+`acceptAllChangesOnSuccess: false` and calls `ChangeTracker.AcceptAllChanges()` only **after** the
+commit succeeds. This is regression-tested (`ExecuteInTransaction_WhenFirstCommitFailsTransiently…`):
+without the deferral the version ends `Unprocessed`; with it the whole unit survives the retry. The
+commit-ack-loss case (server committed, ack lost → retry re-COPYs → unique-key violation → 500) stays
+a loud, non-corrupting failure the admin re-imports past idempotently.
 
 ## Business context
 
@@ -108,17 +127,17 @@ The set-based write must reproduce `Translation`'s state machine exactly
 
 ## Acceptance criteria
 
-- [ ] A baseline import of a large export (~hundreds of thousands of rows) completes in **< 10 s**
+- [x] A baseline import of a large export (~hundreds of thousands of rows) completes in **< 10 s**
       on the integration Postgres — the same payload that took ~3 min.
-- [ ] Every existing `ImportExportedTextsTests` integration test stays green with **assertions
+- [x] Every existing `ImportExportedTextsTests` integration test stays green with **assertions
       untouched** (idempotent no-op timestamp, the all-five-outcomes case, mass-removal 422 +
       state-intact, truncated/empty/duplicate 422s, auth) — proving semantics are byte-for-byte
       preserved.
-- [ ] The mass-removal guard still rejects (422, nothing persisted, version `Unprocessed`) when the
+- [x] The mass-removal guard still rejects (422, nothing persisted, version `Unprocessed`) when the
       removed fraction exceeds the threshold without the override.
-- [ ] The import is still one atomic transaction: an induced failure mid-write leaves zero changes
+- [x] The import is still one atomic transaction: an induced failure mid-write leaves zero changes
       and the version `Unprocessed`.
-- [ ] A re-import (idempotent) produces `Added=0`, all `Unchanged`, and advances no `UpdatedAt`.
+- [x] A re-import (idempotent) produces `Added=0`, all `Unchanged`, and advances no `UpdatedAt`.
 
 ## Open questions
 

@@ -1,3 +1,5 @@
+using System.Data.Common;
+using System.Diagnostics;
 using System.Globalization;
 using System.Net.Http.Headers;
 using System.Text;
@@ -8,8 +10,11 @@ using LotroKoniecDev.TranslationSystem.Contracts.Import;
 using LotroKoniecDev.TranslationSystem.Domain.Aggregates.GameVersionAggregate.Entities;
 using LotroKoniecDev.TranslationSystem.Domain.Aggregates.GameVersionAggregate.ValueObjects;
 using LotroKoniecDev.TranslationSystem.Domain.Aggregates.TranslationAggregate.Entities;
+using LotroKoniecDev.TranslationSystem.Domain.Aggregates.TranslationAggregate.ValueObjects;
 using LotroKoniecDev.TranslationSystem.Domain.Aggregates.TranslatorAggregate.Entities;
 using LotroKoniecDev.TranslationSystem.Domain.Aggregates.TranslatorAggregate.ValueObjects;
+using LotroKoniecDev.TranslationSystem.Persistence.Bulk;
+using LotroKoniecDev.TranslationSystem.Persistence.DbContexts.Abstractions;
 using LotroKoniecDev.TranslationSystem.Persistence.DbContexts.WriteDbContexts;
 using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.GameVersionAggregate;
 using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.GameVersionAggregate.Enums;
@@ -17,8 +22,10 @@ using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.TranslationAggregat
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Npgsql;
 
 namespace LotroKoniecDev.TranslationSystem.API.Tests.Integration.Tests.Import;
 
@@ -309,6 +316,173 @@ public sealed class ImportExportedTextsTests : IAsyncLifetime
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
         (await CountTranslationsAsync()).ShouldBe(1);
     }
+
+    [Fact]
+    public async Task Import_LargeBaseline_ShouldBulkInsertEveryRowWithinTheBudget()
+    {
+        // Arrange — a full-catalog-scale baseline (all added rows). Per-row EF wrote ~700k rows in
+        // ~3 min (#214); the COPY path (ADR-0011) must load a hundreds-of-thousands-row baseline in
+        // seconds. The budget is spec 0004's < 10 s, which also unambiguously separates the bulk path
+        // from any regression to the multi-minute per-row write (a per-row write of this count alone
+        // would run tens of seconds). The count sits in the AC's "hundreds of thousands" range at a
+        // point that keeps the < 10 s ceiling stable on slower CI hardware.
+        const int rowCount = 200_000;
+        GameVersionId versionId = await SeedVersionAsync("48.0");
+        using HttpClient client = AdminClient();
+        using MultipartFormDataContent body = LargeExportContent(rowCount);
+
+        // Act
+        Stopwatch stopwatch = Stopwatch.StartNew();
+        HttpResponseMessage response = await client.PostAsync(ImportRoute(versionId), body);
+        stopwatch.Stop();
+        ImportSummary? summary = await response.Content.ReadFromJsonAsync<ImportSummary>();
+
+        // Assert
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        summary.ShouldNotBeNull();
+        summary.Added.ShouldBe(rowCount);
+        (await CountTranslationsAsync()).ShouldBe(rowCount);
+        (await GetVersionStatusAsync(versionId)).ShouldBe(GameVersionStatus.Processed);
+        stopwatch.Elapsed.ShouldBeLessThan(TimeSpan.FromSeconds(10));
+    }
+
+    [Fact]
+    public async Task Import_BulkCopyThenFailureBeforeCommit_ShouldRollBackTheCopiedRows()
+    {
+        // Arrange — the COPY runs on the write context's connection inside the import transaction, so
+        // a failure anywhere in that transaction must discard the COPY'd rows too (spec 0001 all-or-
+        // nothing). This pins the connection-enlistment the ADR-0011 atomicity design relies on:
+        // COPY the rows successfully, then throw before the commit.
+        using IServiceScope scope = _factory.Services.CreateScope();
+        IBulkTranslationInserter inserter = scope.ServiceProvider.GetRequiredService<IBulkTranslationInserter>();
+        IUnitOfWork unitOfWork = scope.ServiceProvider.GetRequiredService<IUnitOfWork>();
+
+        List<Translation> rows = [NewUntranslated(10, "Ten"), NewUntranslated(11, "Eleven")];
+        InvalidOperationException induced = new("induced mid-transaction failure");
+
+        // Act
+        InvalidOperationException thrown = await Should.ThrowAsync<InvalidOperationException>(() =>
+            unitOfWork.ExecuteInTransactionAsync(async transactionToken =>
+            {
+                await inserter.InsertAsync(rows, transactionToken);
+                throw induced;
+            }));
+
+        // Assert — the transaction rolled back, so not one COPY'd row survived.
+        thrown.ShouldBeSameAs(induced);
+        (await CountTranslationsAsync()).ShouldBe(0);
+    }
+
+    [Fact]
+    public async Task Import_BaselineRowWithArguments_ShouldCopyArgsColumnsVerbatim()
+    {
+        // Arrange — a real exported.txt row carries the argument columns; the COPY writer's non-null
+        // args branch must round-trip them. Every other baseline fixture uses NULL args, so this pins
+        // the non-null path and the COPY mapping of the args/source/version columns for an added row.
+        GameVersionId versionId = await SeedVersionAsync("48.0");
+        using HttpClient client = AdminClient();
+        string rowWithArgs = $"{FileId}||7||Greet <--DO_NOT_TOUCH!--> friend||2-1||1-1||1";
+
+        // Act
+        HttpResponseMessage response = await client.PostAsync(ImportRoute(versionId), TextContent(rowWithArgs));
+
+        // Assert
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        Translation? copied = await GetTranslationAsync(7);
+        copied.ShouldNotBeNull();
+        copied.Source.Text.ShouldBe("Greet <--DO_NOT_TOUCH!--> friend");
+        copied.Source.ArgsOrder.ShouldBe("2-1");
+        copied.Source.ArgsId.ShouldBe("1-1");
+        copied.Status.ShouldBe(TranslationStatus.Untranslated);
+        copied.IntroducedInVersion.ShouldBe(versionId);
+    }
+
+    [Fact]
+    public async Task ExecuteInTransaction_WhenFirstCommitFailsTransiently_ShouldRetryAndPersistTheWholeUnit()
+    {
+        // Arrange — the write context enables retry-on-failure. An interceptor makes the FIRST commit
+        // fail with a transient serialization error, so the execution strategy re-runs the whole unit.
+        // This pins the accept-deferral in ExecuteInTransactionAsync: without it, the retry would
+        // re-COPY the added row but silently drop the tracked version-processed flag (the changes were
+        // accepted on the first, failed attempt), leaving the version Unprocessed. The context is built
+        // by hand so the interceptor attaches via AddInterceptors, mirroring the production retry config.
+        GameVersionId versionId = await SeedVersionAsync("48.0");
+
+        string connectionString;
+        using (IServiceScope seedScope = _factory.Services.CreateScope())
+        {
+            connectionString = seedScope.ServiceProvider.GetRequiredService<ApplicationWriteDbContext>()
+                .Database.GetConnectionString()!;
+        }
+
+        FailFirstCommitInterceptor interceptor = new();
+        DbContextOptions<ApplicationWriteDbContext> options =
+            new DbContextOptionsBuilder<ApplicationWriteDbContext>()
+                .UseNpgsql(connectionString, npgsql => npgsql.EnableRetryOnFailure(
+                    maxRetryCount: 3, maxRetryDelay: TimeSpan.FromSeconds(10), errorCodesToAdd: null))
+                .AddInterceptors(interceptor)
+                .Options;
+
+        await using ApplicationWriteDbContext dbContext = new(options);
+        BulkTranslationInserter inserter = new(dbContext);
+
+        // A tracked mutation (mark the version processed) plus a COPY, enlisted as one unit.
+        GameVersion version = await dbContext.GameVersions.SingleAsync(row => row.Id == versionId);
+        version.MarkAsProcessed();
+        List<Translation> rows = [NewUntranslated(20, "Twenty")];
+
+        // Act
+        await dbContext.ExecuteInTransactionAsync(transactionToken => inserter.InsertAsync(rows, transactionToken));
+
+        // Assert — the transient commit fired and the strategy retried (self-check), and both halves
+        // of the unit are durable: the COPY'd row AND the tracked version flip survived the retry.
+        interceptor.CommitAttempts.ShouldBeGreaterThanOrEqualTo(2);
+        (await CountTranslationsAsync()).ShouldBe(1);
+        (await GetVersionStatusAsync(versionId)).ShouldBe(GameVersionStatus.Processed);
+    }
+
+    // Fails the first transaction commit with a transient serialization error (SQLSTATE 40001) the
+    // Npgsql retrying execution strategy retries, then lets every later commit through — reproducing a
+    // transient fault landing exactly at commit time.
+    private sealed class FailFirstCommitInterceptor : DbTransactionInterceptor
+    {
+        private int _commitAttempts;
+
+        public int CommitAttempts => _commitAttempts;
+
+        public override ValueTask<InterceptionResult> TransactionCommittingAsync(
+            DbTransaction transaction,
+            TransactionEventData eventData,
+            InterceptionResult result,
+            CancellationToken cancellationToken = default)
+        {
+            if (Interlocked.Increment(ref _commitAttempts) == 1)
+            {
+                throw new PostgresException("simulated transient commit failure", "ERROR", "ERROR", "40001");
+            }
+
+            return base.TransactionCommittingAsync(transaction, eventData, result, cancellationToken);
+        }
+    }
+
+    private static MultipartFormDataContent LargeExportContent(int rowCount)
+    {
+        StringBuilder builder = new(rowCount * 40);
+        for (int gossipId = 1; gossipId <= rowCount; gossipId++)
+        {
+            builder.Append(FileId).Append("||").Append(gossipId).Append("||Source text ")
+                .Append(gossipId).Append("||NULL||NULL||1\n");
+        }
+
+        return TextContent(builder.ToString());
+    }
+
+    private static Translation NewUntranslated(int gossipId, string text)
+        => Translation.CreateUntranslated(
+            FragmentKey.Create(FileId, gossipId).Value,
+            TranslationSource.Create(text, argsOrder: null, argsId: null).Value,
+            GameVersionId.Create(),
+            DateTimeOffset.UtcNow).Value;
 
     private WebApplicationFactory<Program> WithUploadLimit(long maxUploadBytes) =>
         _factory.WithWebHostBuilder(builder =>

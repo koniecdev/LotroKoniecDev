@@ -10,6 +10,7 @@ using LotroKoniecDev.TranslationSystem.Domain.Aggregates.GameVersionAggregate.Va
 using LotroKoniecDev.TranslationSystem.Domain.Aggregates.TranslationAggregate.Entities;
 using LotroKoniecDev.TranslationSystem.Domain.Aggregates.TranslationAggregate.Repositories;
 using LotroKoniecDev.TranslationSystem.Domain.Aggregates.TranslationAggregate.ValueObjects;
+using LotroKoniecDev.TranslationSystem.Persistence.Bulk;
 using LotroKoniecDev.TranslationSystem.Persistence.DbContexts.Abstractions;
 using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.GameVersionAggregate;
 using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.GameVersionAggregate.Enums;
@@ -25,12 +26,18 @@ public sealed class ImportExportedTextsHandlerTests
     // genuine boundaries (repositories, unit of work) are stubbed.
     private readonly IGameVersionRepository _gameVersionRepository = Substitute.For<IGameVersionRepository>();
     private readonly ITranslationRepository _translationRepository = Substitute.For<ITranslationRepository>();
+    private readonly IBulkTranslationInserter _bulkInserter = Substitute.For<IBulkTranslationInserter>();
     private readonly IUnitOfWork _unitOfWork = Substitute.For<IUnitOfWork>();
 
     public ImportExportedTextsHandlerTests()
     {
         _translationRepository.GetAllAsync(Arg.Any<CancellationToken>())
             .Returns(Array.Empty<Translation>());
+
+        // The transaction seam runs its operation for real against the stubbed boundaries, so the
+        // success path still exercises the COPY + SaveChanges orchestration the handler wraps.
+        _unitOfWork.ExecuteInTransactionAsync(Arg.Any<Func<CancellationToken, Task>>(), Arg.Any<CancellationToken>())
+            .Returns(callInfo => callInfo.Arg<Func<CancellationToken, Task>>().Invoke(callInfo.Arg<CancellationToken>()));
     }
 
     private ImportExportedTexts.Handler CreateHandler(double maxRemovedFraction = 0.20)
@@ -39,6 +46,7 @@ public sealed class ImportExportedTextsHandlerTests
             new TranslationExportParser(),
             _gameVersionRepository,
             _translationRepository,
+            _bulkInserter,
             _unitOfWork,
             TimeProvider.System,
             Microsoft.Extensions.Options.Options.Create(new ImportSettings { MaxRemovedFractionWithoutOverride = maxRemovedFraction }),
@@ -119,7 +127,7 @@ public sealed class ImportExportedTextsHandlerTests
         // Assert
         result.IsFailure.ShouldBeTrue();
         result.Error.Code.ShouldBe("Import.ParseFailed");
-        await _unitOfWork.DidNotReceive().SaveChangesAsync(Arg.Any<CancellationToken>());
+        await _unitOfWork.DidNotReceive().ExecuteInTransactionAsync(Arg.Any<Func<CancellationToken, Task>>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -136,7 +144,7 @@ public sealed class ImportExportedTextsHandlerTests
         // Assert
         result.IsFailure.ShouldBeTrue();
         result.Error.Code.ShouldBe("Import.MassRemovalBlocked");
-        await _unitOfWork.DidNotReceive().SaveChangesAsync(Arg.Any<CancellationToken>());
+        await _unitOfWork.DidNotReceive().ExecuteInTransactionAsync(Arg.Any<Func<CancellationToken, Task>>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -185,7 +193,7 @@ public sealed class ImportExportedTextsHandlerTests
         // Assert
         result.IsFailure.ShouldBeTrue();
         result.Error.Code.ShouldBe("Import.InvalidRow");
-        await _unitOfWork.DidNotReceive().SaveChangesAsync(Arg.Any<CancellationToken>());
+        await _unitOfWork.DidNotReceive().ExecuteInTransactionAsync(Arg.Any<Func<CancellationToken, Task>>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -201,7 +209,7 @@ public sealed class ImportExportedTextsHandlerTests
         // Assert
         result.IsFailure.ShouldBeTrue();
         result.Error.Code.ShouldBe("Import.DuplicateFragmentKey");
-        await _unitOfWork.DidNotReceive().SaveChangesAsync(Arg.Any<CancellationToken>());
+        await _unitOfWork.DidNotReceive().ExecuteInTransactionAsync(Arg.Any<Func<CancellationToken, Task>>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -219,7 +227,7 @@ public sealed class ImportExportedTextsHandlerTests
         // Assert
         result.IsFailure.ShouldBeTrue();
         result.Error.Code.ShouldBe("GameVersionEntity.SupersededCannotBeProcessed");
-        await _unitOfWork.DidNotReceive().SaveChangesAsync(Arg.Any<CancellationToken>());
+        await _unitOfWork.DidNotReceive().ExecuteInTransactionAsync(Arg.Any<Func<CancellationToken, Task>>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -235,7 +243,7 @@ public sealed class ImportExportedTextsHandlerTests
         // Assert
         result.IsFailure.ShouldBeTrue();
         result.Error.Code.ShouldBe("Import.EmptyUpload");
-        await _unitOfWork.DidNotReceive().SaveChangesAsync(Arg.Any<CancellationToken>());
+        await _unitOfWork.DidNotReceive().ExecuteInTransactionAsync(Arg.Any<Func<CancellationToken, Task>>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]

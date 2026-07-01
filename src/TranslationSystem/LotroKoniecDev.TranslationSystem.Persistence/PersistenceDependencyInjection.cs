@@ -3,6 +3,7 @@ using LotroKoniecDev.Options;
 using LotroKoniecDev.TranslationSystem.Domain.Aggregates.GameVersionAggregate.Repositories;
 using LotroKoniecDev.TranslationSystem.Domain.Aggregates.TranslationAggregate.Repositories;
 using LotroKoniecDev.TranslationSystem.Domain.Aggregates.TranslatorAggregate.Repositories;
+using LotroKoniecDev.TranslationSystem.Persistence.Bulk;
 using LotroKoniecDev.TranslationSystem.Persistence.DbContexts.Abstractions;
 using LotroKoniecDev.TranslationSystem.Persistence.DbContexts.ReadDbContexts;
 using LotroKoniecDev.TranslationSystem.Persistence.DbContexts.WriteDbContexts;
@@ -59,6 +60,7 @@ public static class PersistenceDependencyInjection
 
             services.AddScoped<IGameVersionRepository, GameVersionRepository>();
             services.AddScoped<ITranslationRepository, TranslationRepository>();
+            services.AddScoped<IBulkTranslationInserter, BulkTranslationInserter>();
             services.AddScoped<IPrecomputedTranslationFileStore, PrecomputedTranslationFileStore>();
             services.AddScoped<ITranslatorRepository, TranslatorRepository>();
 

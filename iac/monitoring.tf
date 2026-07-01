@@ -2,19 +2,21 @@
 # resources existed, so a crash-loop, an error storm, a stopped log pipeline, or an auth outage
 # (token issuance is the platform SPOF) surfaced only when the owner or a user noticed.
 #
-# These alerts deliberately stand on signals that ALREADY exist — ACA platform metrics
-# (Microsoft.App/containerApps) and the Log Analytics workspace the apps already stream console
-# logs to — so they carry NO dependency on the cloud-telemetry / OTLP work (audit H3). Everything
-# is parametrized by var.env_id so a future staging inherits alerting for free.
+# Most alerts deliberately stand on signals that ALREADY exist — ACA platform metrics
+# (Microsoft.App/containerApps) and the Log Analytics workspace the apps already stream console logs
+# to. The availability SLO + auth latency added in ADR-0019 additionally read Application Insights
+# (the synthetic web tests + the OTel-reconstructed request metrics, observability.tf). Everything is
+# parametrized by var.env_id so a future staging inherits alerting for free.
 #
 # Delivery is EMAIL ONLY (owner decision): one action group with a single email receiver
 # (var.admin_email). No SMS, no webhook. Every alert below references that action group.
 #
-# Plan-on-PR caveat: Terraform `plan` does not validate metric names, log-table schemas, or KQL
-# against the live Azure metric/log catalog — those are checked server-side at `apply`. The metric
-# names used here (RestartCount / Requests / UsageNanoCores / WorkingSetBytes) and the log tables
-# (ContainerAppConsoleLogs_CL / ContainerAppSystemLogs_CL / Operation) are the documented
-# Container Apps + LAW signals.
+# Plan-on-PR caveat: Terraform `plan` does not validate metric names, log-table schemas, KQL, the
+# web-test geo codes, or the auth cloud_RoleName against the live Azure catalog — those are checked
+# server-side at `apply` (or observed only once telemetry flows). The metric names used here
+# (RestartCount / Requests / UsageNanoCores / WorkingSetBytes / KeyVault Availability / requests-
+# duration) and the log tables (ContainerAppConsoleLogs_CL / Operation) are the documented
+# Container Apps + Key Vault + App Insights + LAW signals.
 
 locals {
   # All three container apps share one resource type, region and sizing (0.25 vCPU / 0.5 GiB,
@@ -332,63 +334,172 @@ resource "azurerm_monitor_scheduled_query_rules_alert_v2" "law_daily_cap" {
   }
 }
 
-# Auth availability — the platform's first SLO. Auth issues every token, so an unhealthy auth app
-# is a total-platform outage (front-channel login AND tms back-channel validation both fail). This
-# is the external availability check of /health/ready: the ACA readiness probe hits /health/ready,
-# and when it fails the platform records it in ContainerAppSystemLogs_CL. The query watches the
-# auth app for genuine health failures only and fires at the highest severity. (A true synthetic
-# external probe — Application Insights availability test — is the richer option, but it needs an
-# App Insights resource + the public hostname extracted to a variable; that is deferred to the
-# H2/H3 work. This log-based check uses signals that exist today, per the ticket's
-# "scheduled-query / availability test — at least a basic one".)
+# ---------------------------------------------------------------------------------------------------
+# External synthetic availability — the platform's real SLO (ADR-0019). This REPLACES the former
+# log-based auth_availability, which fired on EVERY deploy: that rule matched ContainerAppSystemLogs_CL
+# by app NAME (not revision), so a health-gated candidate revision (0% traffic, still starting → a few
+# transient /health/ready misses until its Npgsql pool connects) tripped a Sev0 while users were served
+# the whole time by the previous, healthy revision.
 #
-# Token discipline (this is severity 0, so a false positive is expensive): the match is deliberately
-# scoped to unhealthy / probe-failure signals and EXCLUDES routine lifecycle events — every deploy
-# deactivates the superseded revision (azure-container-apps.tf, Multiple revision_mode +
-# health-gated rollout), which would otherwise trip a Terminated/Killing match and page Critical on
-# every release. Multi-word phrases use `contains` (term operators like `has` would not match them).
-# The exact ACA system-log vocabulary cannot be queried from the plan sandbox — confirm/tune the
-# token set against real ContainerAppSystemLogs_CL on first apply.
-resource "azurerm_monitor_scheduled_query_rules_alert_v2" "auth_availability" {
-  count               = local.create_env ? 1 : 0
-  name                = "lotrotms-slo-auth-availability-${var.env_id}"
-  resource_group_name = azurerm_resource_group.main.name
-  location            = azurerm_resource_group.main.location
-  description         = "SLO: auth /health/ready failing (token-issuance SPOF unavailable). Fires by email."
-  severity            = 0 # Critical — platform-wide outage
+# A standard web test probes each app's PUBLIC origin from multiple regions. The public origin only
+# ever resolves to the revision serving 100% of traffic — a 0%-traffic candidate is reachable solely via
+# its private <app>---cd-candidate label FQDN — so a deploy CANNOT trip these. The false-positive class
+# is eliminated by construction, not by threshold tuning. This is exactly the synthetic probe audit 0001
+# §C3 named as the correct instrument, deferred only for want of an App Insights resource + a public-
+# origin variable; both now exist (ADR-0016 / ADR-0017).
+locals {
+  # cloud_RoleName as the apps tag it via OTel (service.name = IHostEnvironment.ApplicationName = the
+  # entry-assembly name; each Program.cs ConfigureResource). Scopes the auth latency alert below.
+  # Confirm against live App Insights on first apply (managed OTel agent → AI role-name mapping).
+  auth_role_name = "LotroKoniecDev.AuthSystem.API"
 
-  evaluation_frequency = "PT5M"
-  window_duration      = "PT5M"
-  scopes               = [azurerm_log_analytics_workspace.law[0].id]
-  # The *_CL custom-log tables only materialise once the apps have emitted those records, which lags
-  # a fresh environment's first apply. Skip create-time KQL schema validation so the alert can be
-  # provisioned before any logs flow — letting a future staging inherit alerting without a
-  # chicken-and-egg apply failure.
-  skip_query_validation = true
+  # Probe locations (Azure Monitor availability population tags): West Europe (Amsterdam), North Europe
+  # (Dublin), France Central (Paris) — EU-centric, closest to the Poland Central deployment.
+  availability_test_geo_locations = ["emea-nl-ams-azr", "emea-gb-db3-azr", "emea-fr-pra-edge"]
+
+  # One entry per user-facing app: its public origin, the status it must return, and the alert severity.
+  # auth is Sev0 (token-issuance SPOF = platform outage); tms + frontend are Sev1 (degraded, not a total
+  # outage). expected_status_code 0 = "any code < 400" — the Static-SSR frontend has no /health endpoint,
+  # so a 2xx/3xx on '/' is its liveness.
+  availability_web_tests = {
+    "auth"     = { url = "${local.auth_origin}/health/ready", expected_status_code = 200, severity = 0 }
+    "tms"      = { url = "${local.tms_origin}/health/ready", expected_status_code = 200, severity = 1 }
+    "frontend" = { url = "${local.apex_origin}/", expected_status_code = 0, severity = 1 }
+  }
+}
+
+# The web tests. Standard tests (classic ping tests are Microsoft-retired) run from the geo locations
+# above every 5 minutes, validating the status code + the SSL certificate's remaining lifetime. The
+# 7-day SSL threshold is a free, low-noise cert-expiry guard: the ACA managed cert auto-renews well
+# before 7 days, so a trip means auto-renew has failed — a real imminent outage, correctly escalated.
+resource "azurerm_application_insights_standard_web_test" "availability" {
+  for_each                = local.create_env ? local.availability_web_tests : {}
+  name                    = "lotrotms-webtest-${each.key}-${var.env_id}"
+  resource_group_name     = azurerm_resource_group.main.name
+  location                = azurerm_resource_group.main.location
+  application_insights_id = azurerm_application_insights.app_insights[0].id
+  geo_locations           = local.availability_test_geo_locations
+  frequency               = 300
+  timeout                 = 30
+  enabled                 = true
+  retry_enabled           = true
+  description             = "External synthetic availability probe of ${each.key} at its public origin (ADR-0019)."
+
+  request {
+    url                      = each.value.url
+    follow_redirects_enabled = true
+  }
+
+  validation_rules {
+    expected_status_code        = each.value.expected_status_code
+    ssl_check_enabled           = true
+    ssl_cert_remaining_lifetime = 7
+  }
+
+  tags = {
+    environment = var.env_id
+    src         = var.src_key
+    project     = "lotrotms"
+  }
+}
+
+# Availability alert per web test. Durability is GEOGRAPHIC, not temporal: the alert fires only when at
+# least 2 of the 3 locations fail in the window — rejecting a single-location network blip WITHOUT the
+# detection delay a "wait N consecutive windows" debounce would add to a real Sev0. A
+# location-availability criterion needs BOTH the web test id and the App Insights component id in scopes.
+resource "azurerm_monitor_metric_alert" "availability" {
+  for_each            = local.create_env ? local.availability_web_tests : {}
+  name                = "lotrotms-slo-availability-${each.key}-${var.env_id}"
+  resource_group_name = azurerm_resource_group.main.name
+  scopes = [
+    azurerm_application_insights_standard_web_test.availability[each.key].id,
+    azurerm_application_insights.app_insights[0].id,
+  ]
+  description = "SLO: ${each.key} unreachable at its public origin from multiple regions. Fires by email."
+  severity    = each.value.severity
+  frequency   = "PT1M"
+  window_size = "PT5M"
+
+  application_insights_web_test_location_availability_criteria {
+    web_test_id           = azurerm_application_insights_standard_web_test.availability[each.key].id
+    component_id          = azurerm_application_insights.app_insights[0].id
+    failed_location_count = 2
+  }
+
+  action {
+    action_group_id = azurerm_monitor_action_group.alerts[0].id
+  }
+
+  tags = {
+    environment = var.env_id
+    src         = var.src_key
+    project     = "lotrotms"
+  }
+}
+
+# Key Vault availability (audit 0001 §M14). KV is the secret-resolution SPOF — every app + the migrator
+# resolve their connection strings / OpenIddict keys from it at revision start (ADR-0013), so a KV outage
+# is a platform outage that today surfaces only as a hard boot failure. The vault publishes an
+# Availability percentage; alert when it drops below 99% (a small buffer over a single transient throttle).
+resource "azurerm_monitor_metric_alert" "key_vault_availability" {
+  count               = local.create_env ? 1 : 0
+  name                = "lotrotms-alert-keyvault-availability-${var.env_id}"
+  resource_group_name = azurerm_resource_group.main.name
+  scopes              = [data.azurerm_key_vault.secrets.id]
+  description         = "Key Vault availability dropped below 99% (secret-resolution SPOF). Fires by email."
+  severity            = 1 # Error
+  frequency           = "PT5M"
+  window_size         = "PT15M"
 
   criteria {
-    query                   = <<-KQL
-      ContainerAppSystemLogs_CL
-      | where ContainerAppName_s == "${azurerm_container_app.auth_api.name}"
-      | where Reason_s has_any ("Unhealthy", "ProbeFailed")
-          or Log_s contains "readiness probe failed"
-          or Log_s contains "liveness probe failed"
-          or Log_s contains "unhealthy"
-    KQL
-    time_aggregation_method = "Count"
-    threshold               = 0
-    operator                = "GreaterThan"
+    metric_namespace = "Microsoft.KeyVault/vaults"
+    metric_name      = "Availability"
+    aggregation      = "Average"
+    operator         = "LessThan"
+    threshold        = 99
+  }
 
-    failing_periods {
-      minimum_failing_periods_to_trigger_alert = 1
-      number_of_evaluation_periods             = 1
+  action {
+    action_group_id = azurerm_monitor_action_group.alerts[0].id
+  }
+
+  tags = {
+    environment = var.env_id
+    src         = var.src_key
+    project     = "lotrotms"
+  }
+}
+
+# Auth latency — a LEADING indicator (Sev2), not an outage. Sustained high server response time on the
+# token-issuance SPOF precedes readiness failures and user-visible slowness. Reads App Insights request
+# duration (the managed OTel agent reconstructs request metrics from traces, observability.tf) scoped to
+# the auth role. Auth-only by intent (ADR-0019 §4); a for_each extends it to tms/frontend if a need appears.
+resource "azurerm_monitor_metric_alert" "auth_latency" {
+  count               = local.create_env ? 1 : 0
+  name                = "lotrotms-alert-auth-latency-${var.env_id}"
+  resource_group_name = azurerm_resource_group.main.name
+  scopes              = [azurerm_application_insights.app_insights[0].id]
+  description         = "Auth-api server response time sustained above 2s (degradation leading indicator). Fires by email."
+  severity            = 2 # Warning (leading indicator)
+  frequency           = "PT5M"
+  window_size         = "PT15M"
+
+  criteria {
+    metric_namespace = "microsoft.insights/components"
+    metric_name      = "requests/duration"
+    aggregation      = "Average"
+    operator         = "GreaterThan"
+    threshold        = 2000 # milliseconds
+
+    dimension {
+      name     = "cloud/roleName"
+      operator = "Include"
+      values   = [local.auth_role_name]
     }
   }
 
-  auto_mitigation_enabled = true
-
   action {
-    action_groups = [azurerm_monitor_action_group.alerts[0].id]
+    action_group_id = azurerm_monitor_action_group.alerts[0].id
   }
 
   tags = {
@@ -410,9 +521,4 @@ moved {
 moved {
   from = azurerm_monitor_scheduled_query_rules_alert_v2.law_daily_cap
   to   = azurerm_monitor_scheduled_query_rules_alert_v2.law_daily_cap[0]
-}
-
-moved {
-  from = azurerm_monitor_scheduled_query_rules_alert_v2.auth_availability
-  to   = azurerm_monitor_scheduled_query_rules_alert_v2.auth_availability[0]
 }

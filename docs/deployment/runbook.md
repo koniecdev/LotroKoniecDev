@@ -776,39 +776,73 @@ the traces**. Adding a metrics destination is deferred until there is a real nee
 
 ## Monitoring & alerting
 
-Defined as code in [`iac/monitoring.tf`](../../iac/monitoring.tf) (audit 0001 §C3). Every alert
+Defined as code in [`iac/monitoring.tf`](../../iac/monitoring.tf) (audit 0001 §C3; the availability
+SLO reworked in [ADR-0019](../adr/0019-symptom-based-external-slo-probe.md)). Every alert
 **fires by email** to `var.admin_email` through a single Azure Monitor action group
-(`lotrotmsag<env_id>`) — **email only, no SMS**. The alerts stand on signals that already exist (ACA
-platform metrics + the Log Analytics workspace the apps stream console logs to), so they need no
-OTLP / cloud-telemetry wiring. Everything is parametrized by `var.env_id`, so a future staging
+(`lotrotmsag<env_id>`) — **email only, no SMS**. Most alerts stand on signals that already exist (ACA
+platform metrics + the Log Analytics workspace the apps stream console logs to); the availability SLO
+and the auth latency alert additionally read **Application Insights** (synthetic web tests + the
+OTel-reconstructed request metrics). Everything is parametrized by `var.env_id`, so a future staging
 inherits the same alerting.
 
 | Alert | Source | Fires when | Severity |
 |---|---|---|---|
-| **Auth availability (SLO)** | LAW `ContainerAppSystemLogs_CL` | the auth app's `/health/ready` readiness probe fails / the app reports unhealthy — auth is the token-issuance SPOF, so this is the platform's first SLO | 0 Critical |
+| **Availability SLO — auth** | AI standard web test (public origin) | `https://auth.<domain>/health/ready` is unreachable from **≥2 of 3 regions** — auth is the token-issuance SPOF, so this is the platform's SLO | 0 Critical |
+| **Availability — tms / frontend** | AI standard web tests | `tms/health/ready` or the frontend home is unreachable from **≥2 of 3 regions** | 1 Error |
 | **Replica restart** | metric `RestartCount` | any of the three apps restarts a replica (crash-loop signal: OOM, failed readiness, unhandled crash). Sensitive by design (`> 0`); stays active for the affected revision and auto-mitigates on a clean revision | 1 Error |
 | **HTTP 5xx spike** | metric `Requests` (`statusCodeCategory = 5xx`) | an app returns more than 5 server errors in 5 minutes. 4xx is intentionally not alerted (auth 401/400 are normal control flow) | 1 Error |
+| **Key Vault availability** | metric `Microsoft.KeyVault/vaults` `Availability` | the vault's availability drops below 99% over 15 minutes — KV is the secret-resolution SPOF (every revision resolves its secrets at start) | 1 Error |
 | **Log error spike** | LAW `ContainerAppConsoleLogs_CL` | an app logs more than 10 Serilog `Error`/`Fatal` entries in 5 minutes — catches logged failures that never surface as a 5xx or restart | 2 Warning |
 | **Memory saturation** | metric `WorkingSetBytes` | an app sustains >80% of its 0.5 GiB limit for 15 minutes (OOM precursor) | 2 Warning |
+| **Auth latency** | AI `requests/duration` (auth role) | auth server response time averages **>2 s over 15 minutes** — a leading indicator before readiness fails | 2 Warning |
 | **LAW daily cap reached** | LAW `Operation` table | the workspace's daily ingestion cap (`daily_quota_gb` in `azure-law.tf`) is hit and **log collection has stopped** — a blind spot exactly during an error storm | 2 Warning |
 | **CPU saturation** | metric `UsageNanoCores` | an app sustains >80% of its 0.25 vCPU limit for 15 minutes (capacity signal; no horizontal headroom at min=max=1 replica) | 3 Informational |
 
 Notes for the operator:
 
+- **The availability SLO is deploy-safe by construction.** The standard web tests probe each app's
+  **public origin** — which only ever resolves to the revision serving 100% of traffic. A health-gated
+  rollout's candidate revision takes 0% traffic and is reachable only via its private
+  `<app>---cd-candidate` label FQDN, so **a deploy cannot trip these**. This is the fix for the old
+  log-based `auth_availability`, which paged Sev0 on every release (it matched the app name, not the
+  serving revision). Durability is geographic — **≥2 of 3 locations** (West Europe, North Europe,
+  France Central) must fail — so a single-region blip is rejected without delaying a real outage.
 - The metric alerts are fanned out **per app** (a `for_each` over auth-api / tms-api / frontend),
   one single-scope rule each — the universally-supported shape (Azure does not allow multi-resource
   metric alerts for Container Apps). The alert name carries the app key, e.g.
   `lotrotms-alert-replica-restart-auth-api-<env_id>`.
-- The three log (scheduled-query) alerts set `skip_query_validation = true`, because the
+- The two log (scheduled-query) alerts set `skip_query_validation = true`, because the
   `*_CL` tables only exist once the apps have emitted those records — a fresh environment can
   provision the alerts before any logs flow.
-- The auth-availability query matches ACA system-log vocabulary that cannot be verified from a
-  `terraform plan` sandbox — **confirm/tune the matched tokens against real
-  `ContainerAppSystemLogs_CL` after the first apply.**
-- A true synthetic external probe of `/health/ready` (an Application Insights availability test) is
-  deliberately deferred: it needs an App Insights resource and the public hostname extracted to a
-  variable (the H2/H3 follow-ups). The log-based availability check above is the "at least a basic
-  one" the audit calls for, with no new dependencies.
+- **Confirm-at-apply, not at plan.** The web-test geo codes, the auth alert's `cloud/roleName`
+  (= the app's OTel `service.name` = its entry-assembly name `LotroKoniecDev.AuthSystem.API`), and
+  the App Insights / KV metric names are only validated server-side. If an availability or latency
+  alert shows **no data**, verify those against live App Insights after the first apply.
+
+**Responding to an alert:**
+
+| Alert | First moves |
+|---|---|
+| Availability SLO (auth/tms/frontend) | Hit the public origin yourself: `curl -sS -o /dev/null -w '%{http_code}' https://auth.<domain>/health/ready`. If it's down, check ACA revision health + the traffic split (`az containerapp ingress traffic show`) — a bad revision live means the rollout's auto-rollback (`deploy.yml`) did not fire; steer traffic back with `az containerapp ingress traffic set --revision-weight <prev>=100`. If the origin is up, suspect DNS/cert/regional network. |
+| Key Vault availability | Portal → the vault → check for throttling / an Azure KV incident; confirm the `lotrotms-aca-<env_id>` identity still has *Key Vault Secrets User*; new revisions cannot boot without secret resolution. |
+| Auth latency | App Insights → Performance for the auth role; check the DB (Neon) latency and the sibling CPU/memory saturation alerts. Leading indicator — investigate before it becomes a 5xx / readiness failure. |
+| Replica restart / 5xx / log error spike | App Insights logs + `az containerapp logs show` for the named app; correlate with a recent deploy. |
+| CPU / memory saturation | Capacity signal at min=max=1 replica: inspect the workload, then raise the request or replica ceiling in `azure-container-apps.tf`. |
+
+**Silencing during planned disruptive work.** Routine deploys need **no** suppression (the availability
+SLO is deploy-safe by construction). For genuinely disruptive planned work (e.g. a migration with
+downtime), add a temporary **alert processing rule** rather than editing Terraform — scope it to the
+resource group for the maintenance window, then delete it:
+
+```bash
+az monitor alert-processing-rule create \
+  --name lotrotms-maint-suppress --resource-group rg-lotrotms-prod-polc-001 \
+  --scopes "$(az group show -n rg-lotrotms-prod-polc-001 --query id -o tsv)" \
+  --rule-type RemoveAllActionGroups --enabled true \
+  --description "Planned maintenance — suppress alert emails"
+# … do the work, then:
+az monitor alert-processing-rule delete --name lotrotms-maint-suppress -g rg-lotrotms-prod-polc-001
+```
 
 ## See also
 

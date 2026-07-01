@@ -55,6 +55,8 @@ internal static class EventIds
 
     // Token Revocation (2300–2309)
     public const int TokenRevoked = 2300;
+    public const int UserSessionsRevoked = 2301;
+    public const int UserSessionsRevocationFailed = 2302;
 
     // Middleware (2400–2499)
     public const int UnauthorizedAccessAttempt = 2400;

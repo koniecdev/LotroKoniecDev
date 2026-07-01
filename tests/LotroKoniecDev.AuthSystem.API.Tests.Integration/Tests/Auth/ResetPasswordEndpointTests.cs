@@ -115,6 +115,59 @@ public sealed class ResetPasswordEndpointTests : EndpointsTestBase
     }
 
     [Fact]
+    public async Task ResetPassword_ShouldRevokeExistingRefreshTokens_AfterReset()
+    {
+        // Arrange — a confirmed user with an active refresh token (offline_access)
+        const string originalPassword = "TestPass1!";
+        const string newPassword = "NewPass99!";
+
+        (RegisterRequest registerRequest, _) =
+            await UserFactory.RegisterRandomUserWithRequestAsync(ApiClient, Faker, AccountConfirmationEmailSpy, originalPassword);
+
+        using FormUrlEncodedContent loginRequest = new(new Dictionary<string, string>
+        {
+            ["grant_type"] = "password",
+            ["username"] = registerRequest.Username,
+            ["password"] = originalPassword,
+            ["client_id"] = "lotrokoniecdev-test",
+            ["scope"] = "email profile roles api offline_access"
+        });
+
+        HttpResponseMessage loginResponse = await ApiClient.Http.PostAsync(
+            new Uri("connect/token", UriKind.Relative), loginRequest);
+        loginResponse.StatusCode.ShouldBe(HttpStatusCode.OK);
+
+        string loginContent = await loginResponse.Content.ReadAsStringAsync();
+        using JsonDocument loginJson = JsonDocument.Parse(loginContent);
+        string refreshToken = loginJson.RootElement.GetProperty("refresh_token").GetString()!;
+
+        // Reset the password
+        PasswordResetEmailSpy.Reset();
+        await ApiClient.Http.PostAsJsonAsync(
+            new Uri("auth/forgot-password", UriKind.Relative),
+            new ForgotPasswordRequest(registerRequest.Email));
+
+        HttpResponseMessage resetResponse = await ApiClient.Http.PostAsJsonAsync(
+            new Uri("auth/reset-password", UriKind.Relative),
+            new ResetPasswordRequest(registerRequest.Email, PasswordResetEmailSpy.LastResetToken!, newPassword));
+        resetResponse.StatusCode.ShouldBe(HttpStatusCode.OK);
+
+        // Act — try to use the refresh token that was issued BEFORE the reset
+        using FormUrlEncodedContent refreshRequest = new(new Dictionary<string, string>
+        {
+            ["grant_type"] = "refresh_token",
+            ["refresh_token"] = refreshToken,
+            ["client_id"] = "lotrokoniecdev-test"
+        });
+
+        HttpResponseMessage response = await ApiClient.Http.PostAsync(
+            new Uri("connect/token", UriKind.Relative), refreshRequest);
+
+        // Assert — the pre-reset refresh token must be dead
+        response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+    }
+
+    [Fact]
     public async Task ResetPassword_ShouldReturnBadRequest_WhenTokenIsInvalid()
     {
         // Arrange

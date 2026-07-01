@@ -71,6 +71,57 @@ public sealed class ChangePasswordEndpointTests : EndpointsTestBase
     }
 
     [Fact]
+    public async Task ChangePassword_ShouldRevokeExistingRefreshTokens_AfterChange()
+    {
+        // Arrange — a confirmed user with an active refresh token (offline_access)
+        const string currentPassword = "TestPass1!";
+        const string newPassword = "NewPass99!";
+
+        (RegisterRequest registerRequest, _) =
+            await UserFactory.RegisterRandomUserWithRequestAsync(ApiClient, Faker, AccountConfirmationEmailSpy, currentPassword);
+
+        using FormUrlEncodedContent loginRequest = new(new Dictionary<string, string>
+        {
+            ["grant_type"] = "password",
+            ["username"] = registerRequest.Username,
+            ["password"] = currentPassword,
+            ["client_id"] = "lotrokoniecdev-test",
+            ["scope"] = "email profile roles api offline_access"
+        });
+
+        HttpResponseMessage loginResponse = await ApiClient.Http.PostAsync(
+            new Uri("connect/token", UriKind.Relative), loginRequest);
+        loginResponse.StatusCode.ShouldBe(HttpStatusCode.OK);
+
+        string loginContent = await loginResponse.Content.ReadAsStringAsync();
+        using JsonDocument loginJson = JsonDocument.Parse(loginContent);
+        string accessToken = loginJson.RootElement.GetProperty("access_token").GetString()!;
+        string refreshToken = loginJson.RootElement.GetProperty("refresh_token").GetString()!;
+
+        // Change the password (authenticated with the pre-change access token)
+        using HttpRequestMessage changeReq = new(HttpMethod.Post, "auth/change-password");
+        changeReq.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+        changeReq.Content = JsonContent.Create(new ChangePasswordRequest(currentPassword, newPassword));
+
+        HttpResponseMessage changeResponse = await ApiClient.Http.SendAsync(changeReq);
+        changeResponse.StatusCode.ShouldBe(HttpStatusCode.OK);
+
+        // Act — try to use the refresh token that was issued BEFORE the change
+        using FormUrlEncodedContent refreshRequest = new(new Dictionary<string, string>
+        {
+            ["grant_type"] = "refresh_token",
+            ["refresh_token"] = refreshToken,
+            ["client_id"] = "lotrokoniecdev-test"
+        });
+
+        HttpResponseMessage response = await ApiClient.Http.PostAsync(
+            new Uri("connect/token", UriKind.Relative), refreshRequest);
+
+        // Assert — the pre-change refresh token must be dead
+        response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+    }
+
+    [Fact]
     public async Task ChangePassword_ShouldReturnBadRequest_WhenCurrentPasswordIsWrong()
     {
         // Arrange

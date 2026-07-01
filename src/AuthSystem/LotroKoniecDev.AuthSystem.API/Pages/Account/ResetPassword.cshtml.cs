@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
+using LotroKoniecDev.AuthSystem.API.Services.Sessions;
 using LotroKoniecDev.AuthSystem.Domain.Aggregates.ApplicationUsers.Entities;
 
 namespace LotroKoniecDev.AuthSystem.API.Pages.Account;
@@ -14,13 +15,16 @@ internal sealed partial class ResetPasswordModel : PageModel
         new PasswordHasher<ApplicationUser>().HashPassword(new ApplicationUser(), "DummyP@ssw0rd!");
 
     private readonly UserManager<ApplicationUser> _userManager;
+    private readonly IUserSessionRevoker _sessionRevoker;
     private readonly ILogger<ResetPasswordModel> _logger;
 
     public ResetPasswordModel(
         UserManager<ApplicationUser> userManager,
+        IUserSessionRevoker sessionRevoker,
         ILogger<ResetPasswordModel> logger)
     {
         _userManager = userManager;
+        _sessionRevoker = sessionRevoker;
         _logger = logger;
     }
 
@@ -92,6 +96,7 @@ internal sealed partial class ResetPasswordModel : PageModel
         }
 
         await _userManager.UpdateSecurityStampAsync(user);
+        await _sessionRevoker.RevokeAllAsync(user.Id.ToString(), HttpContext.RequestAborted);
 
         LogPasswordResetCompleted(_logger, user.Id);
 
@@ -99,6 +104,6 @@ internal sealed partial class ResetPasswordModel : PageModel
         return Page();
     }
 
-    [LoggerMessage(EventId = EventIds.PasswordResetCompletedViaUi, Level = LogLevel.Information, Message = "Password reset completed via UI for user {UserId}. All sessions invalidated.")]
+    [LoggerMessage(EventId = EventIds.PasswordResetCompletedViaUi, Level = LogLevel.Information, Message = "Password reset completed via UI for user {UserId}. Tokens and authorizations revoked.")]
     private static partial void LogPasswordResetCompleted(ILogger logger, Guid userId);
 }

@@ -253,8 +253,14 @@ jobs:
             BUILD_CONFIGURATION=Release
           # Per-image GHA layer cache so unchanged layers (restore/build) are reused across runs,
           # keeping rebuilds fast. Scoped per image so the four builds don't clobber each other.
+          # ignore-error=true: the cache EXPORT is a build-speed optimization, not a correctness step —
+          # by the time layers export, the image is already built AND pushed to GHCR. The GHA cache
+          # backend intermittently 404s a single large-layer blob under API throttling (moby/buildkit
+          # #2408/#2276/#2804); that blip must not fail the job and block the deploy. It did once — run
+          # 28515436800, tms-api leg only, while the three sibling legs exported the same cache fine at
+          # the same moment. A flake now degrades to a warning and the next run re-exports the cache.
           cache-from: type=gha,scope=${{ matrix.image }}
-          cache-to: type=gha,mode=max,scope=${{ matrix.image }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.image }},ignore-error=true
           # Attach build attestations to the image in GHCR (audit 0001 H9): SLSA provenance (build
           # inputs/invocation) + an SPDX SBOM (package inventory for CVE triage). These ride along as
           # OCI referrer manifests, so the push is an image INDEX — the linux/amd64 runtime manifest

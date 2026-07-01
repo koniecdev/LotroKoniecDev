@@ -138,6 +138,9 @@ fixed here:
    Because an idle revision now costs a replica, `promote` **deactivates** the superseded revision
    (the rollback step **re-activates** it before steering traffic back), so exactly one revision stays
    active in steady state. Readiness still warms the public auth origin as cheap insurance.
+   > **Scoped by ADR-0020 (2026-07-01):** R8's `min_replicas = 1` stands for **prod**; staging runs
+   > `min_replicas = 0` (`var.app_min_replicas`) — there the readiness warm-up above is the
+   > load-bearing mechanism, not insurance.
 
 ### 6. Infra is also CI-managed, behind the same gate
 

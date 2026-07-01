@@ -76,11 +76,12 @@ on:
         required: false
         default: ''
 
-# Least privilege at the top: read the repo, write packages (GHCR). The deploy job widens to
-# id-token (OIDC) and narrows packages away — see its own permissions block.
+# Least privilege at the top: read-only default. Every job below declares its own permissions block
+# (a job-level block REPLACES this one), so nothing here actually grants packages: write — keeping the
+# default read-only means a future job added WITHOUT a permissions block cannot silently publish to
+# GHCR with the workflow token.
 permissions:
   contents: read
-  packages: write
 
 env:
   REGISTRY: ghcr.io
@@ -206,6 +207,9 @@ jobs:
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           ref: ${{ needs.gate.outputs.deploy_sha }}
+          # No later step does authenticated git — don't leave the workflow token (which in THIS job
+          # carries packages: write) sitting in .git/config for every subsequent step.
+          persist-credentials: false
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4.1.0

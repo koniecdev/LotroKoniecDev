@@ -67,6 +67,11 @@ every 300 s. The alert fires only when **≥2 of 3 locations** fail
 (`failed_location_count = 2`). This rejects a single-location network blip *without* delaying a real
 outage the way "wait N consecutive windows" would — the right trade-off for a Sev0 availability SLO.
 
+> **Amended by ADR-0020 (2026-07-01):** cadence is **900 s** and the alert window **PT30M** — at
+> $0.0006/execution the 300 s cadence cost ≈ $47/month on the student subscription, and a PT5M
+> window cannot reliably hold a 2-location quorum at the sparser cadence. Locations, quorum and SSL
+> validation unchanged.
+
 ### 3. Certificate expiry rides on the same web test
 
 Each standard web test enables SSL validation with a **7-day** remaining-lifetime threshold. The ACA
@@ -126,6 +131,8 @@ prod plan for existing resources stays a no-op.
   supported availability instrument.
 - **Standard web tests bill per execution** (3 tests × 3 locations × every 5 min). At this cadence
   the ingestion/cost is negligible against the LAW `daily_quota_gb`; noted rather than a concern.
+  **Amended by ADR-0020 (2026-07-01):** this assessment missed the execution meter itself —
+  ≈ $47/month at 300 s, the subscription's largest line item; cadence dropped to 900 s.
 - **Email remains a single delivery path** (§5) — a missed email misses a Sev0. Accepted for
   pre-release; §6 revisit.
 - Removing the log-based rule is a **destroy + create** in state (pre-release, breaking changes are

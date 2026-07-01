@@ -8,8 +8,11 @@ name: Deploy (reusable rollout)
 #
 # Env-specific targets come from environment-scoped GitHub vars (RESOURCE_GROUP, *_APP, *_URL,
 # MIGRATOR_JOB) selected by the environment: this job runs under; secrets arrive via `secrets: inherit`
-# from the caller (AZURE_*, SMOKE_CLIENT_SECRET, GITHUB_TOKEN). The rollout body is byte-identical to the
-# former inline deploy-prod (audit 0001 H7 health-gated rollout + H9 provenance verify).
+# from the caller (AZURE_*, SMOKE_CLIENT_SECRET, GITHUB_TOKEN). The rollout body is the audit 0001 H7
+# health-gated rollout + H9 provenance verify, hardened to deploy BY DIGEST: the requested tag is
+# resolved to its immutable digest once, provenance is verified against that digest, and every az
+# mutation ships the digest ref — a GHCR tag moved between verify and rollout (or re-pulled on a
+# replica restart) can neither bypass the gate nor change what runs.
 on:
   workflow_call:
     inputs:
@@ -78,6 +81,8 @@ jobs:
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           ref: ${{ inputs.deploy_sha }}
+          # No later step does authenticated git — don't leave the workflow token in .git/config.
+          persist-credentials: false
 
       # The gate's short_sha / image_tag input are trusted (hex SHA / dispatch input). The default tag is
       # the gate's pinned commit, byte-identical to the sha-<short> build-and-push published for it.
@@ -96,17 +101,50 @@ jobs:
           printf 'tag=%s\n' "$tag" >> "$GITHUB_OUTPUT"
           printf 'Deploying image tag: %s\n' "$tag"
 
-      # Supply-chain gate BEFORE any mutation (audit 0001 H9). Every image about to be deployed must carry
-      # a build-provenance attestation signed by THIS repo's CD. A foreign, tampered or never-built-by-us
-      # image fails closed here, before the migrator runs or any traffic moves.
-      - name: Verify image provenance (fail closed before rollout)
+      # GHCR tags are MUTABLE; digests are not. Resolve the requested tag to its digest ONCE, up front,
+      # and let the provenance verify AND every az mutation below bind to that digest — the H9 gate and
+      # the rollout can never disagree about the bytes being shipped, and a replica-restart re-pull can
+      # never fetch different content than what was verified. Read-only login: resolving a manifest
+      # needs packages: read, nothing more.
+      - name: Log in to GHCR (read-only — digest resolution)
+        uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee # v4.2.0
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Pin images to digests
         env:
           TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          set -euo pipefail
+          for pair in \
+            "AUTH_API_IMAGE lotrokoniecdev-auth-api" \
+            "TMS_API_IMAGE lotrokoniecdev-tms-api" \
+            "FRONTEND_IMAGE lotrokoniecdev-frontend" \
+            "MIGRATOR_IMAGE lotrokoniecdev-migrator"; do
+            set -- $pair
+            var="$1"; image="$2"
+            ref="${REGISTRY}/${IMAGE_NAMESPACE}/${image}:${TAG}"
+            digest="$(docker buildx imagetools inspect "$ref" --format '{{.Manifest.Digest}}')"
+            case "$digest" in
+              sha256:*) ;;
+              *) echo "::error::Could not resolve a digest for ${ref} (got '${digest:-<empty>}')"; exit 1 ;;
+            esac
+            printf '%s=%s@%s\n' "$var" "${REGISTRY}/${IMAGE_NAMESPACE}/${image}" "$digest" >> "$GITHUB_ENV"
+            printf '%s -> %s\n' "$ref" "$digest"
+          done
+
+      # Supply-chain gate BEFORE any mutation (audit 0001 H9). Every image about to be deployed must carry
+      # a build-provenance attestation signed by THIS repo's CD. A foreign, tampered or never-built-by-us
+      # image fails closed here, before the migrator runs or any traffic moves. Verification binds to the
+      # DIGESTS pinned above — the exact bytes every az step below ships — so a tag moved mid-job is inert.
+      - name: Verify image provenance (fail closed before rollout)
+        env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          for image in lotrokoniecdev-auth-api lotrokoniecdev-tms-api lotrokoniecdev-frontend lotrokoniecdev-migrator; do
-            ref="${REGISTRY}/${IMAGE_NAMESPACE}/${image}:${TAG}"
+          for ref in "$AUTH_API_IMAGE" "$TMS_API_IMAGE" "$FRONTEND_IMAGE" "$MIGRATOR_IMAGE"; do
             echo "::group::Verify provenance — ${ref}"
             gh attestation verify "oci://${ref}" --repo "$GITHUB_REPOSITORY"
             echo "::endgroup::"
@@ -122,11 +160,9 @@ jobs:
       # R6 gate: run the migrator to completion BEFORE rolling the APIs. A non-Succeeded execution
       # fails the job, so the apps are never rolled onto an un-migrated schema (no half-migrated serving).
       - name: Run migrations (gate — rollout blocked unless this succeeds)
-        env:
-          TAG: ${{ steps.tag.outputs.tag }}
         run: |
           set -euo pipefail
-          img="${REGISTRY}/${IMAGE_NAMESPACE}/lotrokoniecdev-migrator:${TAG}"
+          img="$MIGRATOR_IMAGE"
           echo "Pinning migrator job to ${img}"
           az containerapp job update -n "$MIGRATOR_JOB" -g "$RESOURCE_GROUP" --image "$img" -o none
           echo "Starting migrator job…"
@@ -167,7 +203,6 @@ jobs:
       - name: Deploy candidate revisions (0% traffic) and label them for smoke
         id: rollout
         env:
-          TAG: ${{ steps.tag.outputs.tag }}
           SHORT_SHA: ${{ inputs.short_sha }}
           RUN_ID: ${{ github.run_id }}
           RUN_ATTEMPT: ${{ github.run_attempt }}
@@ -176,8 +211,7 @@ jobs:
           # DNS-safe, unique-per-attempt revision suffix: starts with a letter, [a-z0-9-] only, no '--'.
           suffix="c${SHORT_SHA}-${RUN_ID}-${RUN_ATTEMPT}"
           deploy_candidate() {
-            prefix="$1"; app="$2"; image="$3"
-            img="${REGISTRY}/${IMAGE_NAMESPACE}/${image}:${TAG}"
+            prefix="$1"; app="$2"; img="$3"
             echo "::group::Deploy candidate for ${app} (${img})"
 
             # The revision currently serving production traffic — the rollback anchor; it keeps 100%
@@ -223,14 +257,16 @@ jobs:
               printf '%s_CANDIDATE_URL=%s\n' "$uc" "$candidate_url"
             } >> "$GITHUB_ENV"
           }
-          deploy_candidate auth "$AUTH_APP" lotrokoniecdev-auth-api
-          deploy_candidate tms "$TMS_APP" lotrokoniecdev-tms-api
-          deploy_candidate frontend "$FRONTEND_APP" lotrokoniecdev-frontend
+          deploy_candidate auth "$AUTH_APP" "$AUTH_API_IMAGE"
+          deploy_candidate tms "$TMS_APP" "$TMS_API_IMAGE"
+          deploy_candidate frontend "$FRONTEND_APP" "$FRONTEND_IMAGE"
 
-      # Readiness against the CANDIDATE revisions before the gated smoke. With min_replicas=1 every
-      # revision (incl. the 0%-traffic candidate) keeps a live replica, so this is a short wait for the
-      # new replica to pass its probes — not a scale-from-zero cold start — and the previous auth
-      # revision (which the candidate tms validates tokens against via the public origin) stays warm.
+      # Readiness against the CANDIDATE revisions before the gated smoke. With prod's min_replicas=1
+      # every revision (incl. the 0%-traffic candidate) keeps a live replica, so this is a short wait
+      # for the new replica to pass its probes. On staging (min_replicas=0, ADR-0020) these polls ARE
+      # the scale-from-zero warm-up — the 60×10s budget absorbs the cold start — and the final poll
+      # wakes the previous auth revision serving the public origin (which the candidate tms validates
+      # tokens against); on prod that revision is already warm and the poll is cheap insurance.
       # Frontend: Static-SSR, no /health → 2xx/3xx on '/'.
       - name: Wait for candidate readiness (incl. frontend) + warm the auth origin
         run: |
@@ -259,6 +295,8 @@ jobs:
       # Smoke the 0%-traffic CANDIDATE via its private label FQDNs BEFORE any traffic shift (audit
       # 0001 H7). Runs inline so it shares this job's already-approved environment + Azure OIDC identity
       # with the promote/rollback steps. A red smoke trips the failure-rollback step below.
+      # The client secret rides ONLY in the env (smoke.sh reads SMOKE_CLIENT_SECRET natively) — as an
+      # argv it would be visible to every process on the runner (ps/procfs) for the script's lifetime.
       - name: Smoke the candidate (pre-promotion gate)
         env:
           SMOKE_CLIENT_SECRET: ${{ secrets.SMOKE_CLIENT_SECRET }}
@@ -268,7 +306,6 @@ jobs:
             --auth-url "$AUTH_CANDIDATE_URL" \
             --tms-url "$TMS_CANDIDATE_URL" \
             --frontend-url "$FRONTEND_CANDIDATE_URL" \
-            --client-secret "$SMOKE_CLIENT_SECRET" \
             --timeout 30
 
       # The "→ 100%" leg: a green candidate smoke shifts production traffic onto the candidate, then
@@ -305,8 +342,7 @@ jobs:
           ./scripts/smoke.sh \
             --auth-url "$AUTH_URL" \
             --tms-url "$TMS_URL" \
-            --frontend-url "$FRONTEND_URL" \
-            --client-secret "$SMOKE_CLIENT_SECRET"
+            --frontend-url "$FRONTEND_URL"
 
       # Auto-rollback (audit 0001 H7). Runs if ANY step above failed once candidates exist. Restores
       # 100% of traffic to the previous revision and deactivates the candidate — safe in every phase

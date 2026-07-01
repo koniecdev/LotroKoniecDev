@@ -4,14 +4,17 @@ name: Pull Request Verification
 # + unit tests + integration tests (real PostgreSQL via Testcontainers). In this repo the
 # author merges their own PRs (loop workflow), so the PR — not a post-merge job — is where
 # main is kept green. The CI workflow re-runs the same suite on main as a backstop.
+#
+# Docs-only PRs (the former deadlock): the main ruleset REQUIRES the "Pull Request Verification"
+# check, but a workflow filtered out by `on.paths-ignore` never reports it — so a docs-only PR
+# could never merge (the workaround was smuggling a non-ignored file into the PR). The workflow
+# therefore ALWAYS triggers and the heavy job self-skips via the `changes` gate below: a job
+# skipped by `if:` reports success to required status checks — GitHub's documented pattern for
+# combining required checks with path filtering. CI (main) keeps its paths-ignore on purpose:
+# a docs-only push must keep triggering no CI and therefore no CD (audit 0001 M2).
 on:
   pull_request:
     branches: ["main"]
-    paths-ignore:
-      - '**/*.md'
-      - 'docs/**'
-      - 'LICENSE'
-      - '.gitignore'
 
 # A new push to the same PR cancels the in-progress run instead of paying for both.
 concurrency:
@@ -22,14 +25,57 @@ permissions:
   contents: read
 
 jobs:
+  changes:
+    name: Detect non-docs changes
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      code: ${{ steps.diff.outputs.code }}
+    steps:
+      # fetch-depth: 2 brings the PR merge commit plus both parents, so HEAD^1 (the base tip)
+      # is diffable without full history.
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+
+      # Mirrors the ignore list the `on.paths-ignore` used to carry: **/*.md, docs/**, LICENSE,
+      # .gitignore. No untrusted input reaches this script (pure git against the checked-out merge
+      # commit). Fails OPEN (code=true) if the diff cannot be computed — a redundant build beats a
+      # false green.
+      - name: Classify changed paths
+        id: diff
+        run: |
+          set -euo pipefail
+          code=true
+          if files="$(git diff --name-only HEAD^1 HEAD)"; then
+            non_docs="$(printf '%s\n' "$files" | grep -vE '\.md$|^docs/|^LICENSE$|^\.gitignore$' || true)"
+            if [ -n "$files" ] && [ -z "$non_docs" ]; then
+              code=false
+            fi
+            echo "Changed files:"
+            printf '%s\n' "$files" | sed 's/^/  /'
+            echo "Non-docs files: ${non_docs:-<none>}"
+          else
+            echo "::warning::Could not compute the PR diff — running the full gate."
+          fi
+          printf 'code=%s\n' "$code" >> "$GITHUB_OUTPUT"
+
   build:
     name: Pull Request Verification
+    needs: changes
+    # Docs-only PR ⇒ skipped, and a skipped job satisfies the required "Pull Request Verification"
+    # status check (see the header comment).
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 20
 
     steps:
       - name: Checkout
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
 
       # Fast, dependency-free gate: the Frontend must stay Static SSR. Runs before
       # the .NET setup so a stray @rendermode/@onclick fails in seconds, not minutes.

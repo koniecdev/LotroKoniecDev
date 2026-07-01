@@ -6,8 +6,9 @@ name: Infra (Terraform)
 #   * push to main touching iac/**  → terraform APPLY: staging auto-applies, prod requires approval.
 #   * workflow_dispatch             → manual APPLY behind the same gates.
 #
-# Auth: Azure OIDC federation (azure/login@532459ea530d8321f2fb9bb10d1e0bcf23869a43 # v2.3.0) — no stored client secret; the azurerm provider AND
-# the azurerm state backend both authenticate via the resulting Azure CLI session (use_cli default).
+# Auth: Azure OIDC federation via azure/login (SHA-pinned in each step) — no stored client secret; the
+# azurerm provider AND the azurerm state backend both authenticate via the resulting Azure CLI session
+# (use_cli default).
 # App secrets are NOT Terraform inputs anymore: they live in Azure Key Vault and the ACA apps read them
 # via a managed identity (ADR-0013), so only the non-secret inputs (iac/vars.tf) arrive as TF_VAR_*
 # from repo VARIABLES. The rolling container image is NOT managed here — cd.yml owns it and the ACA
@@ -51,7 +52,14 @@ jobs:
     # an iac/** PR stays green before the one-time OIDC/secret setup is done. Dependabot PRs are also
     # skipped: they run without repository secrets, so the Azure OIDC login (client-id/tenant-id) can
     # never succeed there — and granting them Azure access would be a privilege escalation anyway.
-    if: vars.CD_ENABLED == 'true' && github.event_name == 'pull_request' && github.actor != 'dependabot[bot]'
+    # Fork PRs are skipped for the same reason (public repo): a pull_request run from a fork receives
+    # no repository secrets, so the login can only fail — the job would go guaranteed-red on every
+    # external iac/** contribution instead of cleanly skipping.
+    if: >-
+      vars.CD_ENABLED == 'true'
+      && github.event_name == 'pull_request'
+      && github.event.pull_request.head.repo.full_name == github.repository
+      && github.actor != 'dependabot[bot]'
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     strategy:
@@ -74,6 +82,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
 
       - name: Azure login (OIDC)
         uses: azure/login@532459ea530d8321f2fb9bb10d1e0bcf23869a43 # v3.0.0
@@ -123,6 +133,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
 
       - name: Azure login (OIDC)
         uses: azure/login@532459ea530d8321f2fb9bb10d1e0bcf23869a43 # v3.0.0
@@ -164,6 +176,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
 
       - name: Azure login (OIDC)
         uses: azure/login@532459ea530d8321f2fb9bb10d1e0bcf23869a43 # v3.0.0

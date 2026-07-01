@@ -20,7 +20,7 @@
 
 locals {
   # All three container apps share one resource type, region and sizing (0.25 vCPU / 0.5 GiB,
-  # min=max=1 replica), so each metric alert below is a single rule fanned out per app via for_each.
+  # ≤1 replica), so each metric alert below is a single rule fanned out per app via for_each.
   # Single-scope alerts are universally supported by Azure Monitor (multi-resource metric alerts are
   # only allowed for a small allowlist of resource types that does NOT include Container Apps), need
   # no target_resource_type/location, and keep the config DRY. The app key is folded into each alert
@@ -369,9 +369,16 @@ locals {
 }
 
 # The web tests. Standard tests (classic ping tests are Microsoft-retired) run from the geo locations
-# above every 5 minutes, validating the status code + the SSL certificate's remaining lifetime. The
+# above every 15 minutes, validating the status code + the SSL certificate's remaining lifetime. The
 # 7-day SSL threshold is a free, low-noise cert-expiry guard: the ACA managed cert auto-renews well
 # before 7 days, so a trip means auto-renew has failed — a real imminent outage, correctly escalated.
+#
+# Cadence is a cost knob (ADR-0020): standard tests bill $0.0006 PER EXECUTION, so 3 tests × 3
+# locations × every 300 s ≈ 77.8k executions ≈ $47/month — the single largest line item on the
+# student subscription, dwarfing the apps' compute. 900 s cuts that to ≈ $15.6/month (and cuts the
+# probes' own request-telemetry ingestion 3×) at the price of ~15-20 min worst-case detection —
+# acceptable pre-release with zero users. When real users arrive, drop auth (the Sev0 SPOF) back to
+# 300 (+$10/month) and leave tms/frontend at 900.
 resource "azurerm_application_insights_standard_web_test" "availability" {
   for_each                = local.create_env ? local.availability_web_tests : {}
   name                    = "lotrotms-webtest-${each.key}-${var.env_id}"
@@ -379,7 +386,7 @@ resource "azurerm_application_insights_standard_web_test" "availability" {
   location                = azurerm_resource_group.main.location
   application_insights_id = azurerm_application_insights.app_insights[0].id
   geo_locations           = local.availability_test_geo_locations
-  frequency               = 300
+  frequency               = 900
   timeout                 = 30
   enabled                 = true
   retry_enabled           = true
@@ -407,6 +414,10 @@ resource "azurerm_application_insights_standard_web_test" "availability" {
 # least 2 of the 3 locations fail in the window — rejecting a single-location network blip WITHOUT the
 # detection delay a "wait N consecutive windows" debounce would add to a real Sev0. A
 # location-availability criterion needs BOTH the web test id and the App Insights component id in scopes.
+# The window must be wide enough to hold results from ≥2 locations at the 900 s cadence (ADR-0020):
+# PT30M holds ~2 results per location; the former PT5M would often hold ≤1 result TOTAL, so the
+# 2-location quorum could never be reached and the alert would go silent — widening it is correctness,
+# not tuning.
 resource "azurerm_monitor_metric_alert" "availability" {
   for_each            = local.create_env ? local.availability_web_tests : {}
   name                = "lotrotms-slo-availability-${each.key}-${var.env_id}"
@@ -418,7 +429,7 @@ resource "azurerm_monitor_metric_alert" "availability" {
   description = "SLO: ${each.key} unreachable at its public origin from multiple regions. Fires by email."
   severity    = each.value.severity
   frequency   = "PT1M"
-  window_size = "PT5M"
+  window_size = "PT30M"
 
   application_insights_web_test_location_availability_criteria {
     web_test_id           = azurerm_application_insights_standard_web_test.availability[each.key].id

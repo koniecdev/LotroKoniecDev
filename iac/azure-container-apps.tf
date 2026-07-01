@@ -63,11 +63,13 @@ resource "azurerm_container_app" "auth_api" {
   }
 
   template {
-    # Keep one warm replica per revision (audit 0001 M3 / ADR-0012 R8): no cold starts, and the
+    # Prod keeps one warm replica per revision (audit 0001 M3 / ADR-0012 R8): no cold starts, and the
     # health-gated rollout's 0%-traffic candidate stays smokeable while the previous revision stays
-    # warm for cross-revision token validation. The CD rollout deactivates superseded revisions so
-    # min_replicas=1 doesn't accumulate idle replicas.
-    min_replicas = 1
+    # warm for cross-revision token validation. Staging runs 0 (ADR-0020 FinOps): scale-to-zero
+    # between rollouts/QA — deploy.yml's readiness polls wake the candidates and warm the public auth
+    # origin before smoke, so the rollout holds at min 0. The CD rollout still deactivates superseded
+    # revisions so a warm minimum never accumulates idle replicas.
+    min_replicas = var.app_min_replicas
     max_replicas = 1
 
     container {
@@ -259,11 +261,13 @@ resource "azurerm_container_app" "tms_api" {
   }
 
   template {
-    # Keep one warm replica per revision (audit 0001 M3 / ADR-0012 R8): no cold starts, and the
+    # Prod keeps one warm replica per revision (audit 0001 M3 / ADR-0012 R8): no cold starts, and the
     # health-gated rollout's 0%-traffic candidate stays smokeable while the previous revision stays
-    # warm for cross-revision token validation. The CD rollout deactivates superseded revisions so
-    # min_replicas=1 doesn't accumulate idle replicas.
-    min_replicas = 1
+    # warm for cross-revision token validation. Staging runs 0 (ADR-0020 FinOps): scale-to-zero
+    # between rollouts/QA — deploy.yml's readiness polls wake the candidates and warm the public auth
+    # origin before smoke, so the rollout holds at min 0. The CD rollout still deactivates superseded
+    # revisions so a warm minimum never accumulates idle replicas.
+    min_replicas = var.app_min_replicas
     max_replicas = 1
 
     container {
@@ -380,11 +384,13 @@ resource "azurerm_container_app" "frontend" {
   }
 
   template {
-    # Keep one warm replica per revision (audit 0001 M3 / ADR-0012 R8): no cold starts, and the
+    # Prod keeps one warm replica per revision (audit 0001 M3 / ADR-0012 R8): no cold starts, and the
     # health-gated rollout's 0%-traffic candidate stays smokeable while the previous revision stays
-    # warm for cross-revision token validation. The CD rollout deactivates superseded revisions so
-    # min_replicas=1 doesn't accumulate idle replicas.
-    min_replicas = 1
+    # warm for cross-revision token validation. Staging runs 0 (ADR-0020 FinOps): scale-to-zero
+    # between rollouts/QA — deploy.yml's readiness polls wake the candidates and warm the public auth
+    # origin before smoke, so the rollout holds at min 0. The CD rollout still deactivates superseded
+    # revisions so a warm minimum never accumulates idle replicas.
+    min_replicas = var.app_min_replicas
     max_replicas = 1
 
     container {

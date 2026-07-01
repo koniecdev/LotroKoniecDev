@@ -65,3 +65,14 @@ variable "aca_environment_resource_group" {
   description = "Resource group of the existing managed environment named by var.aca_environment_name. Empty = our own resource group."
   default     = ""
 }
+
+variable "app_min_replicas" {
+  type        = number
+  description = "min_replicas for the three container apps. Prod keeps the default 1 (ADR-0012 R8 — a warm replica per revision, no cold starts). Staging sets 0 (ADR-0020 FinOps): scale-to-zero between rollouts/QA — the health-gated rollout stays valid because deploy.yml's readiness polls wake the candidates and warm the public auth origin before smoke."
+  default     = 1
+
+  validation {
+    condition     = var.app_min_replicas >= 0 && var.app_min_replicas <= 1
+    error_message = "app_min_replicas must be 0 or 1 (max_replicas is fixed at 1)."
+  }
+}

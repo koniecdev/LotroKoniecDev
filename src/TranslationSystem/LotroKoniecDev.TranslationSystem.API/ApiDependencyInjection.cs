@@ -122,6 +122,9 @@ internal static class ApiDependencyInjection
             services.AddSingleton<ITranslationFileSerializer, TranslationFileSerializer>();
             services.AddSingleton<IPrecomputedTranslationFileProjector, PrecomputedTranslationFileProjector>();
             services.AddScoped<
+                IQueryHandler<GetTranslationFile.HashQuery, Result<string>>,
+                GetTranslationFile.HashHandler>();
+            services.AddScoped<
                 IQueryHandler<GetTranslationFile.Query, Result<GetTranslationFile.TranslationFileResult>>,
                 GetTranslationFile.Handler>();
         }

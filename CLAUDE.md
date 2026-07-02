@@ -121,6 +121,7 @@ A KittySaver slice is one file: `internal sealed class <Action> : IEndpoint` con
 |---|---|
 | Build/change a **TMS slice** | the nearest sibling slice in TheKittySaver (`AdoptionSystem.API/Features/…`) — mirror it, then apply the de-mediatorization recipe |
 | Work a GitHub ticket end-to-end | run **`/ticket <number>`** (mind the pivot-supersedes rule in Project status) |
+| Run the backlog autonomously (Loop mode) | **`/backlog`** → `scripts/claude/backlog-loop.sh` — one fresh headless session per ticket; manual: `docs/claude-loop.md` |
 | Touch DAT binary parsing / writing / native interop | delegate to the **`dat-format-expert`** agent |
 | Re-investigate update behavior, vnum, translation survival, launch flow | **don't** — empirically settled in `docs/knowledge-base/` (start at its README) |
 | Make a non-trivial architectural/modeling decision | skim `docs/adr/`, then **write a new ADR** (`/adr`); anchors: 0001 (no mediator), 0002 (TMS pivot + freeze/unfreeze amendments), 0008 (cloud-agnostic deployment + env strategy — M6), 0009 (browser E2E via Testcontainers + Playwright) |
@@ -154,6 +155,16 @@ gh issue list --state open                             # backlog; titles follow 
 gh issue view <n>                                      # body holds Context / Depends on / Tasks / Acceptance criteria
 gh issue develop <n> --checkout                        # create + checkout the linked "{n}-{kebab-title}" branch
 gh pr create --fill --body "Closes #<n>"               # PR title mirrors the ticket; body closes it
+
+# Autonomous backlog loop (Loop mode) — bash conductor + one FRESH headless session per ticket
+scripts/claude/backlog-loop.sh                         # drain every ready ticket, serially
+scripts/claude/backlog-loop.sh -n 3                    # at most 3 tickets
+scripts/claude/backlog-loop.sh 123 130                 # exactly these tickets, in order
+caffeinate -is scripts/claude/backlog-loop.sh          # overnight run on macOS (blocks sleep)
+scripts/claude/next-ticket.sh                          # print the next READY ticket (priority + deps)
+scripts/claude/work-ticket.sh 123                      # one ticket, one fresh headless session
+# defaults: opus (1M ctx) · effort max · permission-mode auto — override via LOOP_MODEL /
+# LOOP_EFFORT / LOOP_PERMISSION_MODE / LOOP_UNSAFE=1 · full manual: docs/claude-loop.md
 
 # TMS — EF Core migrations (write context owns them; --connection makes it work without appsettings/live DB)
 dotnet ef migrations add <Name> \
@@ -434,41 +445,41 @@ structure.
    empirical DAT/update finding → `docs/knowledge-base/` (dated). The same mistake made twice
    means a rule is missing.
 
-### Loop mode — one ticket = one closed PR, in its own fresh context
+### Loop mode — one ticket = one closed PR, in its own fresh headless process
 
 Working the backlog autonomously has **two non-negotiables: one ticket = one closed PR (git
 hygiene), and one ticket = one fresh context (cost + quality).** Different rules; both must hold.
 
-**Context isolation — the canonical loop is `/backlog`, not `/loop /ticket`.** A self-paced
-`/loop /ticket` runs every ticket in the *same* growing session: ticket N's full transcript stays
-in context while ticket N+1 works, per-turn cache-read cost climbs, lossy auto-compaction
-eventually fires, and signal gets diluted — the opposite of "sharp context per ticket." Instead the
-**`/backlog` orchestrator** spawns one **`ticket-worker`** subagent per ticket; each worker gets a
-fresh, isolated context, does the whole slice, and returns only a compact summary. The orchestrator
-stays thin (N summaries, not N transcripts) and never reads diffs or implements — so per-ticket
-cost is bounded and predictable, with no context bleed between tickets. (Parallelism across
-*independent* tickets is a separate opt-in move: background agents + a worktree per ticket; the
-default loop is serial.)
+**The loop is a SCRIPT, not a session — `scripts/claude/backlog-loop.sh` (the conductor).**
+Deterministic bash picks the next ready ticket (`next-ticket.sh`: priority labels + the
+`Depends on #X` gate + skip rules for qa/post-mvp/Windows-only work) and runs it to completion in
+a **fresh headless process** (`work-ticket.sh` → `claude -p "/work-ticket <n>"`). The per-ticket
+session does the whole slice — spec weight, branch, implement, tests, `code-reviewer` gate,
+commit → push → PR — then **dies**; the runner judges only its final `STATUS: DONE|BLOCKED` block,
+waits for pr-verify, squash-merges (**never `--delete-branch`** — branches are kept), syncs main,
+and moves on. No LLM context outlives a ticket, so per-ticket cost stays flat no matter how many
+tickets run overnight. Earlier designs kept an orchestrator *session* alive across tickets (first
+`/loop /ticket`, then a subagent-spawning `/backlog` orchestrator) — both accumulate N tickets'
+returns in one context and re-read it every turn; that anti-pattern is retired. (Parallelism
+across *independent* tickets would be a separate opt-in move — worktree per ticket; the loop is
+deliberately serial.)
 
 **Git hygiene — fully close each ticket before the next; never let two tickets' work share an
-uncommitted working copy.** Division of labour:
-
-- **`ticket-worker`** (own context), per ticket: branch (`gh issue develop <n> --checkout`) →
-  implement (green build, zero warnings) → unit/integration tests → **`code-reviewer`** agent
-  (+ **`/security-review`** for native interop / file protection / auth) until APPROVE → commit
-  (ticket ref + Co-Authored-By footer) → push → `gh pr create --fill --body "Closes #<n>"`. It does
-  **not** merge. On an open *business* question, unmet dependency, mis-scope, or an unreachable
-  green build / clean review, it returns **BLOCKED** instead of guessing.
-- **`/backlog`** (thin orchestrator): merges each clean PR (`gh pr merge <n> --squash` — **no
-  `--delete-branch`**; branches are kept, see house rules — then `git checkout main && git pull`),
-  surfaces every BLOCKED ticket's questions
-  to the user verbatim, and picks the next ready ticket.
+uncommitted working copy.** The runner enforces it mechanically: it refuses to start on a dirty
+working copy, runs strictly serially, stashes (never deletes) anything a failed or blocked run
+leaves behind (`claude-loop salvage #<n>`), and returns to a freshly-pulled main between tickets.
+The worker (`/work-ticket`) never merges — the runner owns the merge gate. BLOCKED tickets get the
+`loop-blocked` label plus the open questions posted as an issue comment — triage is
+`gh issue list --label loop-blocked` (raw per-ticket session logs stay in
+`logs/claude-loop/<run>/` for debugging only). Business questions are **extracted for the user,
+never invented** — that rule binds the worker and the conductor alike.
 
 Entering loop mode (`/backlog`, or an explicit "work through the backlog") **is** the standing
 authorization for commit → push → PR → merge — the interactive "ask before pushing" rule (§5 above)
 is waived for the duration of the loop. A single wholesale lift (e.g. the AuthSystem module) is
 **one ticket**: a large diff there is expected and fine — what's not fine is two tickets' worth of
-files sitting uncommitted at once, or two tickets sharing one context.
+files sitting uncommitted at once, or two tickets sharing one context. Full manual (overnight
+runs, env knobs, triage, troubleshooting): **`docs/claude-loop.md`**.
 
 ## Roadmap (digest — details land as re-cut GitHub issues)
 
@@ -507,10 +518,11 @@ when the request matches, without waiting for the user to type the slash:
 - User is **settling an architecture/modeling choice** → **`/adr`** first, then implement.
 - Any **DAT binary format work** → hand off to the **`dat-format-expert`** agent.
 - User says **"kontynuuj pracę w pętli" / "continue the loop" / "work through the backlog" /
-  "jazda dalej"** (any keep-grinding-tickets phrasing, in a fresh or current session) → invoke
-  **`/backlog`** (one isolated `ticket-worker` per ticket). NEVER grind tickets inline in the
-  current session — that balloons one context, the exact anti-pattern Loop mode forbids — and
-  never route to `/loop`.
+  "jazda dalej"** (any keep-grinding-tickets phrasing) → invoke **`/backlog`**, which launches
+  `scripts/claude/backlog-loop.sh` in the background — one fresh headless `claude -p` process per
+  ticket. NEVER grind tickets inline in the current session and never spawn per-ticket subagents
+  from it — both balloon one context, the exact anti-pattern Loop mode retires — and never route
+  to `/loop`.
 
 Don't narrate "I'll run the command" — just follow the workflow and report results. Never scaffold
 off a vague one-liner: if a business rule is unclear, ask once, then proceed.

@@ -23,3 +23,10 @@ aca_environment_resource_group = "rg-lotrotms-prod-polc-001"
 # 0.25 vCPU / 0.5 GiB replicas were pure idle spend (~$15-18/month). First request after idle pays a
 # cold start (~10-20 s incl. Neon wake); accepted for QA. Prod stays at 1 (ADR-0012 R8).
 app_min_replicas = 0
+
+# Import-OOM bridge (#300, incident 2026-07-02): a full exported.txt import retains ~1.2 GB managed
+# (a re-import ~2 GB with the tracked catalog on top), so QA imports need the max Consumption size
+# until the #290 streaming import brings the working set to O(batch). Removed with #290's DoD.
+# Nearly free here: with app_min_replicas = 0 the big size bills only while QA actually runs.
+tms_api_cpu    = 2
+tms_api_memory = "4Gi"

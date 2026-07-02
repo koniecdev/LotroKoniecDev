@@ -30,23 +30,38 @@ internal sealed class TranslationConfiguration : IEntityTypeConfiguration<Transl
                 .IsUnique();
         });
 
-        // The English source is a pure value compared as one unit by the diff — ComplexProperty,
-        // no index needed.
-        builder.ComplexProperty(translation => translation.Source, complexBuilder =>
+        // SourceText carries the trigram search index below, so the VO is mapped with OwnsOne
+        // (ComplexProperty cannot be indexed in EF Core 10).
+        builder.OwnsOne(translation => translation.Source, ownedBuilder =>
         {
-            complexBuilder.Property(source => source.Text)
+            ownedBuilder.Property(source => source.Text)
                 .HasColumnName(nameof(Translation.Source) + nameof(TranslationSource.Text));
 
-            complexBuilder.Property(source => source.ArgsOrder)
+            ownedBuilder.Property(source => source.ArgsOrder)
                 .HasColumnName(nameof(TranslationSource.ArgsOrder));
 
-            complexBuilder.Property(source => source.ArgsId)
+            ownedBuilder.Property(source => source.ArgsId)
                 .HasColumnName(nameof(TranslationSource.ArgsId));
+
+            // Trigram GIN serves ListTranslations' ILIKE '%term%' search over the English source.
+            ownedBuilder.HasIndex(source => source.Text)
+                .HasMethod("gin")
+                .HasOperators("gin_trgm_ops");
         });
+
+        // Trigram GIN serves ListTranslations' ILIKE '%term%' search over the Polish text.
+        builder.HasIndex(translation => translation.TranslatedText)
+            .HasMethod("gin")
+            .HasOperators("gin_trgm_ops");
 
         builder.Property(translation => translation.Status)
             .HasConversion<string>()
             .HasMaxLength(EnumConsts.MaxLength);
+
+        // Partial index over the live rows: the status-filtered list, the stats GROUP BY and the
+        // artifact projector's Approved scan all filter on RemovedInVersion IS NULL first.
+        builder.HasIndex(translation => translation.Status)
+            .HasFilter($"\"{nameof(Translation.RemovedInVersion)}\" IS NULL");
 
         // Submitter / approver are local FKs to Translators (ADR-0004), not the bare Auth IdentityId.
         // The write aggregate references the Translator by id only (DDD — no navigation across

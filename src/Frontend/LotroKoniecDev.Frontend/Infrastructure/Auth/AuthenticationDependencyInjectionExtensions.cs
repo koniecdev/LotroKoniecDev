@@ -103,6 +103,11 @@ internal static class AuthenticationDependencyInjectionExtensions
             "http://", StringComparison.OrdinalIgnoreCase);
 
         options.ResponseType = OpenIdConnectResponseType.Code;
+        // Not the handler's form_post default: form_post makes the authorize endpoint render
+        // OpenIddict's bare white interstitial (visible flash before a dark app repaints), while query
+        // keeps the whole login return a 302 chain the browser never paints. Code-in-URL is the
+        // RFC 9700 baseline shape — PKCE below is the mitigation that makes an intercepted code useless.
+        options.ResponseMode = OpenIdConnectResponseMode.Query;
         options.UsePkce = true;
         options.SaveTokens = true;
         options.GetClaimsFromUserInfoEndpoint = true;

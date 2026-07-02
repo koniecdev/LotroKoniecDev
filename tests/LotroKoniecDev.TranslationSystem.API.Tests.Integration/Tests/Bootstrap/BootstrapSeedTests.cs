@@ -28,9 +28,7 @@ public sealed class BootstrapSeedTests : IAsyncLifetime
 
     public async Task InitializeAsync()
     {
-        using IServiceScope scope = _factory.Services.CreateScope();
-        ApplicationWriteDbContext dbContext = scope.ServiceProvider.GetRequiredService<ApplicationWriteDbContext>();
-        await dbContext.Database.ExecuteSqlRawAsync(
+        await _factory.ResetDatabaseAsync(
             "TRUNCATE translation.\"Translations\", translation.\"GameVersions\", translation.\"TranslationArtifacts\", translation.\"Translators\" CASCADE;");
     }
 

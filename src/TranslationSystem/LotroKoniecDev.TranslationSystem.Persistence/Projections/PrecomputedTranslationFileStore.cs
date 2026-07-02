@@ -1,4 +1,3 @@
-using LotroKoniecDev.SharedKernel.Monads;
 using LotroKoniecDev.TranslationSystem.Persistence.DbContexts.WriteDbContexts;
 using LotroKoniecDev.TranslationSystem.Projections;
 using Microsoft.EntityFrameworkCore;
@@ -14,14 +13,27 @@ internal sealed class PrecomputedTranslationFileStore : IPrecomputedTranslationF
         _dbContext = dbContext;
     }
 
-    public async Task<Maybe<PrecomputedTranslationFile>> GetByLanguageAsync(string language, CancellationToken cancellationToken)
+    public async Task<bool> TryRefreshAsync(
+        string language,
+        string content,
+        string contentHash,
+        DateTimeOffset generatedAt,
+        CancellationToken cancellationToken)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(language);
+        ArgumentNullException.ThrowIfNull(content);
+        ArgumentException.ThrowIfNullOrWhiteSpace(contentHash);
 
-        PrecomputedTranslationFile? file = await _dbContext.PrecomputedTranslationFiles
-            .FirstOrDefaultAsync(precomputedTranslationFile => precomputedTranslationFile.Language == language, cancellationToken);
+        int updatedRowCount = await _dbContext.PrecomputedTranslationFiles
+            .Where(precomputedTranslationFile => precomputedTranslationFile.Language == language)
+            .ExecuteUpdateAsync(
+                setters => setters
+                    .SetProperty(precomputedTranslationFile => precomputedTranslationFile.Content, content)
+                    .SetProperty(precomputedTranslationFile => precomputedTranslationFile.ContentHash, contentHash)
+                    .SetProperty(precomputedTranslationFile => precomputedTranslationFile.GeneratedAt, generatedAt),
+                cancellationToken);
 
-        return Maybe<PrecomputedTranslationFile>.From(file);
+        return updatedRowCount > 0;
     }
 
     public void Insert(PrecomputedTranslationFile file)

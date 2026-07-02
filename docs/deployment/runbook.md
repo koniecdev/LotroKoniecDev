@@ -68,8 +68,8 @@ table per service.
   (`compose.prod.yaml`) wires the very same keys with `*.lotro.test` hostnames.
 
 Purely optional tuning knobs with safe defaults are omitted (e.g. `OpenIddict:AccessTokenLifetimeMinutes`
-= 60, `OpenIddict:RefreshTokenLifetimeDays` = 14, `Import:*`, `Email:TimeoutSeconds`/`MaxSendAttempts`,
-`AllowedHosts` = `*`).
+= 60, `OpenIddict:RefreshTokenLifetimeDays` = 14, `Import:*`, `TranslationFileRebuild:DebounceWindow`
+= 2 s (ADR-0021), `Email:TimeoutSeconds`/`MaxSendAttempts`, `AllowedHosts` = `*`).
 
 > ⚠️ **Live prod domain is `lotro-translator.pl`** — auth → `https://auth.lotro-translator.pl`,
 > tms → `https://tms.lotro-translator.pl`, frontend → `https://lotro-translator.pl`; live RG

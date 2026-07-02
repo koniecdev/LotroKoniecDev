@@ -121,6 +121,22 @@ internal static class ApiDependencyInjection
             // are singletons; the projector resolves scoped EF services through a fresh scope.
             services.AddSingleton<ITranslationFileSerializer, TranslationFileSerializer>();
             services.AddSingleton<IPrecomputedTranslationFileProjector, PrecomputedTranslationFileProjector>();
+
+            // Debounced background rebuild (PERF-04, ADR-0021): write handlers signal the scheduler;
+            // the worker coalesces the signals and drives the projector on the host lifetime. The
+            // worker needs the scheduler's channel reader, hence the concrete singleton + forward.
+            services.AddOptions<TranslationFileRebuildSettings>()
+                .BindConfiguration(TranslationFileRebuildSettings.ConfigurationSection)
+                .Validate(
+                    settings => settings.DebounceWindow >= TimeSpan.Zero
+                        && settings.DebounceWindow <= TranslationFileRebuildSettings.MaxDebounceWindow,
+                    $"{TranslationFileRebuildSettings.ConfigurationSection}:{nameof(TranslationFileRebuildSettings.DebounceWindow)} must be between 0 and {TranslationFileRebuildSettings.MaxDebounceWindow}.")
+                .ValidateOnStart();
+            services.AddSingleton<TranslationFileRebuildScheduler>();
+            services.AddSingleton<ITranslationFileRebuildScheduler>(serviceProvider =>
+                serviceProvider.GetRequiredService<TranslationFileRebuildScheduler>());
+            services.AddHostedService<TranslationFileRebuildWorker>();
+
             services.AddScoped<
                 IQueryHandler<GetTranslationFile.HashQuery, Result<string>>,
                 GetTranslationFile.HashHandler>();

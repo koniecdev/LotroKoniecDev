@@ -14,7 +14,6 @@ using LotroKoniecDev.TranslationSystem.Persistence.DbContexts.WriteDbContexts;
 using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.GameVersionAggregate;
 using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.TranslationAggregate.Enums;
 using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.TranslatorAggregate;
-using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace LotroKoniecDev.TranslationSystem.API.Tests.Integration.Tests.Translations;
@@ -39,10 +38,11 @@ public sealed class ApproveTranslationTests : IAsyncLifetime
 
     public async Task InitializeAsync()
     {
+        await _factory.ResetDatabaseAsync(
+            "TRUNCATE translation.\"Translations\", translation.\"GameVersions\", translation.\"TranslationArtifacts\", translation.\"Translators\" CASCADE;");
+
         using IServiceScope scope = _factory.Services.CreateScope();
         ApplicationWriteDbContext dbContext = scope.ServiceProvider.GetRequiredService<ApplicationWriteDbContext>();
-        await dbContext.Database.ExecuteSqlRawAsync(
-            "TRUNCATE translation.\"Translations\", translation.\"GameVersions\", translation.\"TranslationArtifacts\", translation.\"Translators\" CASCADE;");
 
         GameVersion gameVersion = GameVersion.Create(LotroNotationVersion.Create("48.0").Value, Now).Value;
         dbContext.GameVersions.Add(gameVersion);
@@ -72,7 +72,13 @@ public sealed class ApproveTranslationTests : IAsyncLifetime
 
         TranslationDetailResponse? body = await (await client.GetAsync($"/api/v1/translations/{id}"))
             .Content.ReadFromJsonAsync<TranslationDetailResponse>(JsonOptions);
-        string file = await (await _factory.CreateClient().GetAsync(FileRoute)).Content.ReadAsStringAsync();
+
+        // The artifact is rebuilt in the background, debounced (PERF-04): the approve responded
+        // already; poll the download until the rebuild converges on the published row.
+        (_, string file) = await TranslationFileDownloadPolling.DownloadWhenConvergedAsync(
+            _factory.CreateClient(),
+            FileRoute,
+            (download, content) => download.IsSuccessStatusCode && content.Contains($"{FileId}||1||Witaj||NULL||NULL||1"));
 
         // Assert — the approver is the lazily provisioned Translator, carrying the JWT display name.
         response.StatusCode.ShouldBe(HttpStatusCode.NoContent);
@@ -96,7 +102,10 @@ public sealed class ApproveTranslationTests : IAsyncLifetime
 
         TranslationDetailResponse? body = await (await client.GetAsync($"/api/v1/translations/{id}"))
             .Content.ReadFromJsonAsync<TranslationDetailResponse>(JsonOptions);
-        string file = await (await _factory.CreateClient().GetAsync(FileRoute)).Content.ReadAsStringAsync();
+        (_, string file) = await TranslationFileDownloadPolling.DownloadWhenConvergedAsync(
+            _factory.CreateClient(),
+            FileRoute,
+            (download, content) => download.IsSuccessStatusCode && content.Contains($"{FileId}||2||Stary polski||NULL||NULL||1"));
 
         // Assert
         response.StatusCode.ShouldBe(HttpStatusCode.NoContent);

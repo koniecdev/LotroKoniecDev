@@ -14,8 +14,9 @@ namespace LotroKoniecDev.TranslationSystem.API.Features.TranslationFiles;
 /// <summary>
 /// Serves the pre-built translation file for a language (spec 0001): streams the stored artifact
 /// with its content hash as the <c>ETag</c> and honors <c>If-None-Match</c> with a 304. Anonymous
-/// (the CLI/player downloads it). Never builds per-request — the artifact is regenerated on write
-/// by <see cref="IPrecomputedTranslationFileProjector"/>. The 304 decision is driven by a
+/// (the CLI/player downloads it). Never builds per-request — after each relevant write the artifact
+/// is regenerated in the background, debounced, by <see cref="IPrecomputedTranslationFileProjector"/>
+/// (PERF-04, ADR-0021), so a download may briefly trail a commit. The 304 decision is driven by a
 /// hash-only lookup (PERF-01/#286): the multi-MB <c>Content</c> column is TOASTed by PostgreSQL,
 /// so a revalidation that never reads it stays O(1) regardless of artifact size — content is
 /// fetched only when the client's validator no longer matches.

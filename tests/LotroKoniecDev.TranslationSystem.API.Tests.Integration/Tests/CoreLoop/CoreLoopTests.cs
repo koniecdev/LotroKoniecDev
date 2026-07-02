@@ -8,10 +8,7 @@ using LotroKoniecDev.TranslationSystem.Contracts.Common;
 using LotroKoniecDev.TranslationSystem.Contracts.GameVersions;
 using LotroKoniecDev.TranslationSystem.Contracts.Import;
 using LotroKoniecDev.TranslationSystem.Contracts.Translations;
-using LotroKoniecDev.TranslationSystem.Persistence.DbContexts.WriteDbContexts;
 using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.TranslationAggregate.Enums;
-using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.DependencyInjection;
 
 namespace LotroKoniecDev.TranslationSystem.API.Tests.Integration.Tests.CoreLoop;
 
@@ -40,9 +37,7 @@ public sealed class CoreLoopTests : IAsyncLifetime
 
     public async Task InitializeAsync()
     {
-        using IServiceScope scope = _factory.Services.CreateScope();
-        ApplicationWriteDbContext dbContext = scope.ServiceProvider.GetRequiredService<ApplicationWriteDbContext>();
-        await dbContext.Database.ExecuteSqlRawAsync(
+        await _factory.ResetDatabaseAsync(
             "TRUNCATE translation.\"Translations\", translation.\"GameVersions\", translation.\"TranslationArtifacts\" CASCADE;");
     }
 
@@ -73,9 +68,13 @@ public sealed class CoreLoopTests : IAsyncLifetime
         HttpResponseMessage approve = await admin.PostAsync(ApproveRoute(edited.Id.Value), null);
         approve.StatusCode.ShouldBe(HttpStatusCode.NoContent);
 
-        // Download the distributed file (anonymous): the approved row is in, the untranslated one is out.
-        HttpResponseMessage download = await _factory.CreateClient().GetAsync(FileRoute);
-        string file = await download.Content.ReadAsStringAsync();
+        // Download the distributed file (anonymous): the approved row is in, the untranslated one is
+        // out. The artifact is rebuilt in the background, debounced (PERF-04) — poll until the
+        // approve's rebuild has converged.
+        (HttpResponseMessage download, string file) = await TranslationFileDownloadPolling.DownloadWhenConvergedAsync(
+            _factory.CreateClient(),
+            FileRoute,
+            (candidate, content) => candidate.IsSuccessStatusCode && content.Contains($"{FileId}||1||Polski jeden||NULL||NULL||1"));
         download.StatusCode.ShouldBe(HttpStatusCode.OK);
         download.Headers.ETag.ShouldNotBeNull();
         EntityTagHeaderValue etag = download.Headers.ETag!;
@@ -113,14 +112,18 @@ public sealed class CoreLoopTests : IAsyncLifetime
         using HttpClient admin = AdminClient();
         using HttpClient translator = TranslatorClient();
 
-        // Baseline: import, translate + approve row 1, so it is in the distributed file.
+        // Baseline: import, translate + approve row 1, so it is in the distributed file (the approve's
+        // background rebuild is polled to convergence, PERF-04).
         Guid firstVersion = await RegisterVersionAsync(admin, "48.0");
         await ImportAsync(admin, firstVersion, Line(1, "English one"), Line(2, "English two"));
         TranslationDetailResponse edited = await UpsertAsync(translator, gossipId: 1, polish: "Polski jeden");
         await admin.PostAsync(ApproveRoute(edited.Id.Value), null);
 
-        HttpResponseMessage firstDownload = await _factory.CreateClient().GetAsync(FileRoute);
-        (await firstDownload.Content.ReadAsStringAsync()).ShouldContain($"{FileId}||1||Polski jeden||NULL||NULL||1");
+        (HttpResponseMessage firstDownload, string firstFile) = await TranslationFileDownloadPolling.DownloadWhenConvergedAsync(
+            _factory.CreateClient(),
+            FileRoute,
+            (candidate, content) => candidate.IsSuccessStatusCode && content.Contains($"{FileId}||1||Polski jeden||NULL||NULL||1"));
+        firstFile.ShouldContain($"{FileId}||1||Polski jeden||NULL||NULL||1");
         firstDownload.Headers.ETag.ShouldNotBeNull();
         EntityTagHeaderValue firstEtag = firstDownload.Headers.ETag!;
 
@@ -138,10 +141,14 @@ public sealed class CoreLoopTests : IAsyncLifetime
         row1.Status.ShouldBe(TranslationStatus.NeedsReview);
         row1.PreviousSourceText.ShouldBe("English one");
 
-        // The invalidated row drops out of the freshly regenerated distributed file (new ETag).
-        HttpResponseMessage secondDownload = await _factory.CreateClient().GetAsync(FileRoute);
+        // The invalidated row drops out of the regenerated distributed file (new ETag) once the
+        // import's background rebuild converges.
+        (HttpResponseMessage secondDownload, string secondFile) = await TranslationFileDownloadPolling.DownloadWhenConvergedAsync(
+            _factory.CreateClient(),
+            FileRoute,
+            (candidate, content) => candidate.IsSuccessStatusCode && !content.Contains($"{FileId}||1||"));
         secondDownload.Headers.ETag.ShouldNotBe(firstEtag);
-        (await secondDownload.Content.ReadAsStringAsync()).ShouldNotContain($"{FileId}||1||");
+        secondFile.ShouldNotContain($"{FileId}||1||");
     }
 
     private static string ApproveRoute(Guid translationId) => $"{TranslationsRoute}/{translationId}/approve";

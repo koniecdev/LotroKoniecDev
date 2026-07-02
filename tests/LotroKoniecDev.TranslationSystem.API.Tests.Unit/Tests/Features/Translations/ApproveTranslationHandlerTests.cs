@@ -25,13 +25,21 @@ public sealed class ApproveTranslationHandlerTests
     private static readonly TranslatorId Approver = TranslatorId.Create();
 
     // ITranslationRepository / IUnitOfWork are genuine public boundaries (stubbed); the provisioner +
-    // artifact builder are internal interfaces NSubstitute can't proxy, so each gets a hand-written
+    // rebuild scheduler are internal interfaces NSubstitute can't proxy, so each gets a hand-written
     // double.
     private readonly ITranslationRepository _translationRepository = Substitute.For<ITranslationRepository>();
     private readonly IUnitOfWork _unitOfWork = Substitute.For<IUnitOfWork>();
-    private readonly RecordingProjector _projector = new();
+    private readonly List<string> _callOrder = [];
+    private readonly RecordingScheduler _rebuildScheduler;
 
     private StubTranslatorProvisioner _provisioner = new(Result.Success(Approver));
+
+    public ApproveTranslationHandlerTests()
+    {
+        _rebuildScheduler = new RecordingScheduler(_callOrder);
+        _unitOfWork.When(unitOfWork => unitOfWork.SaveChangesAsync(Arg.Any<CancellationToken>()))
+            .Do(_ => _callOrder.Add(nameof(IUnitOfWork.SaveChangesAsync)));
+    }
 
     private ApproveTranslation.Handler CreateHandler()
         => new(
@@ -40,7 +48,7 @@ public sealed class ApproveTranslationHandlerTests
             _unitOfWork,
             _provisioner,
             TimeProvider.System,
-            _projector);
+            _rebuildScheduler);
 
     private static Translation Untranslated(int gossipId = 1, string source = "English")
         => Translation.CreateUntranslated(
@@ -63,7 +71,7 @@ public sealed class ApproveTranslationHandlerTests
         result.IsFailure.ShouldBeTrue();
         result.Error.Code.ShouldBe("Translations.Validation");
         await _unitOfWork.DidNotReceive().SaveChangesAsync(Arg.Any<CancellationToken>());
-        _projector.RebuildCount.ShouldBe(0);
+        _rebuildScheduler.ScheduleCount.ShouldBe(0);
     }
 
     [Fact]
@@ -85,7 +93,7 @@ public sealed class ApproveTranslationHandlerTests
         result.Error.Code.ShouldBe("Translators.Unauthenticated");
         row.Status.ShouldBe(TranslationStatus.Draft);
         await _unitOfWork.DidNotReceive().SaveChangesAsync(Arg.Any<CancellationToken>());
-        _projector.RebuildCount.ShouldBe(0);
+        _rebuildScheduler.ScheduleCount.ShouldBe(0);
     }
 
     [Fact]
@@ -102,7 +110,7 @@ public sealed class ApproveTranslationHandlerTests
         result.IsFailure.ShouldBeTrue();
         result.Error.Code.ShouldBe("TranslationEntity.NotFound");
         await _unitOfWork.DidNotReceive().SaveChangesAsync(Arg.Any<CancellationToken>());
-        _projector.RebuildCount.ShouldBe(0);
+        _rebuildScheduler.ScheduleCount.ShouldBe(0);
     }
 
     [Fact]
@@ -119,7 +127,7 @@ public sealed class ApproveTranslationHandlerTests
         result.IsFailure.ShouldBeTrue();
         result.Error.Code.ShouldBe("TranslationEntity.CannotApproveWithoutTranslation");
         await _unitOfWork.DidNotReceive().SaveChangesAsync(Arg.Any<CancellationToken>());
-        _projector.RebuildCount.ShouldBe(0);
+        _rebuildScheduler.ScheduleCount.ShouldBe(0);
     }
 
     [Fact]
@@ -138,7 +146,7 @@ public sealed class ApproveTranslationHandlerTests
         result.IsFailure.ShouldBeTrue();
         result.Error.Code.ShouldBe("TranslationEntity.CannotApproveRemoved");
         await _unitOfWork.DidNotReceive().SaveChangesAsync(Arg.Any<CancellationToken>());
-        _projector.RebuildCount.ShouldBe(0);
+        _rebuildScheduler.ScheduleCount.ShouldBe(0);
     }
 
     [Fact]
@@ -157,8 +165,26 @@ public sealed class ApproveTranslationHandlerTests
         row.Status.ShouldBe(TranslationStatus.Approved);
         row.ApprovedById.ShouldBe(Approver);
         await _unitOfWork.Received(1).SaveChangesAsync(Arg.Any<CancellationToken>());
-        // The row enters the distributed set, so the artifact is always rebuilt on a successful approve.
-        _projector.RebuildCount.ShouldBe(1);
+        // The row enters the distributed set, so a rebuild is always scheduled on a successful approve.
+        _rebuildScheduler.ScheduleCount.ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task Handle_OnSuccess_ShouldScheduleTheRebuildAfterTheCommit()
+    {
+        // Arrange — ADR-0021 §1: the dirty signal must follow SaveChanges; signalled before the
+        // commit, a zero-debounce rebuild could publish a snapshot missing its own trigger and park
+        // the artifact stale. Ordering is invisible in the return value, hence the call log.
+        Translation row = Untranslated();
+        row.ProvideTranslation("Witaj", Submitter, Now);
+        GivenStoredRow(row);
+
+        // Act
+        Result result = await CreateHandler().Handle(new ApproveTranslation.Command(row.Id), CancellationToken.None);
+
+        // Assert
+        result.IsSuccess.ShouldBeTrue();
+        _callOrder.ShouldBe([nameof(IUnitOfWork.SaveChangesAsync), nameof(ITranslationFileRebuildScheduler.Schedule)]);
     }
 
     [Fact]
@@ -178,17 +204,24 @@ public sealed class ApproveTranslationHandlerTests
         result.IsSuccess.ShouldBeTrue();
         row.Status.ShouldBe(TranslationStatus.Approved);
         row.PreviousSourceText.ShouldBeNull();
-        _projector.RebuildCount.ShouldBe(1);
+        _rebuildScheduler.ScheduleCount.ShouldBe(1);
     }
 
-    private sealed class RecordingProjector : IPrecomputedTranslationFileProjector
+    private sealed class RecordingScheduler : ITranslationFileRebuildScheduler
     {
-        public int RebuildCount { get; private set; }
+        private readonly List<string> _callOrder;
 
-        public Task RebuildAsync(string language, CancellationToken cancellationToken)
+        public RecordingScheduler(List<string> callOrder)
         {
-            RebuildCount++;
-            return Task.CompletedTask;
+            _callOrder = callOrder;
+        }
+
+        public int ScheduleCount { get; private set; }
+
+        public void Schedule(string language)
+        {
+            ScheduleCount++;
+            _callOrder.Add(nameof(ITranslationFileRebuildScheduler.Schedule));
         }
     }
 }

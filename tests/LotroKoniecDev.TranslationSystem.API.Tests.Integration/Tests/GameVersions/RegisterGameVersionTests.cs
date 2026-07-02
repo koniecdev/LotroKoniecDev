@@ -4,10 +4,7 @@ using System.Text.Json.Serialization;
 using LotroKoniecDev.SharedKernel.Authorization;
 using LotroKoniecDev.TranslationSystem.Contracts.Common;
 using LotroKoniecDev.TranslationSystem.Contracts.GameVersions;
-using LotroKoniecDev.TranslationSystem.Persistence.DbContexts.WriteDbContexts;
 using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.GameVersionAggregate.Enums;
-using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.DependencyInjection;
 
 namespace LotroKoniecDev.TranslationSystem.API.Tests.Integration.Tests.GameVersions;
 
@@ -27,9 +24,7 @@ public sealed class RegisterGameVersionTests : IAsyncLifetime
 
     public async Task InitializeAsync()
     {
-        using IServiceScope scope = _factory.Services.CreateScope();
-        ApplicationWriteDbContext dbContext = scope.ServiceProvider.GetRequiredService<ApplicationWriteDbContext>();
-        await dbContext.Database.ExecuteSqlRawAsync(
+        await _factory.ResetDatabaseAsync(
             "TRUNCATE translation.\"Translations\", translation.\"GameVersions\", translation.\"TranslationArtifacts\" CASCADE;");
     }
 

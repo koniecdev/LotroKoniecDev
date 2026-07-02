@@ -56,13 +56,17 @@ public sealed class CoreLoopE2ETests : E2ETestBase
             HttpResponseMessage approve = await admin.ApproveRawAsync(edited.Id.Value);
             approve.StatusCode.ShouldBe(HttpStatusCode.NoContent);
 
-            // Download the distributed file (anonymous): the approved row is in, the untranslated one is out.
-            HttpResponseMessage download = await anonymous.DownloadFileRawAsync(Language);
+            // Download the distributed file (anonymous): the approved row is in, the untranslated one
+            // is out. The artifact is rebuilt in the background, debounced (PERF-04) — poll until the
+            // approve's rebuild has converged.
+            (HttpResponseMessage download, string file) = await TranslationFileDownloadPolling.DownloadWhenConvergedAsync(
+                anonymous,
+                Language,
+                (candidate, content) => candidate.IsSuccessStatusCode && content.Contains($"{FileId}||1||Polski jeden||NULL||NULL||1"));
             download.StatusCode.ShouldBe(HttpStatusCode.OK);
             download.Headers.ETag.ShouldNotBeNull();
             EntityTagHeaderValue etag = download.Headers.ETag!;
 
-            string file = await download.Content.ReadAsStringAsync();
             file.ShouldContain($"{FileId}||1||Polski jeden||NULL||NULL||1");
             file.ShouldNotContain($"{FileId}||2||");
 

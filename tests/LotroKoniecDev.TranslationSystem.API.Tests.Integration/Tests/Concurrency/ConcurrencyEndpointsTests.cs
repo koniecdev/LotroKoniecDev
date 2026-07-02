@@ -21,8 +21,9 @@ namespace LotroKoniecDev.TranslationSystem.API.Tests.Integration.Tests.Concurren
 /// Concurrency guards at the HTTP seam (mirrors the AuthSystem ConcurrencyEndpointsTests). Two write
 /// paths are stressed under a parallel fan-out of identical requests sharing one authenticated
 /// identity: parallel upsert of the same fragment, and double-approve of the same row. Both exercise
-/// the lazy-provisioning first-write race (ADR-0004), and approve additionally exercises the
-/// single-flight artifact rebuild — none of which may surface a 500.
+/// the lazy-provisioning first-write race (ADR-0004), and approve additionally floods the artifact
+/// rebuild scheduler (PERF-04: the burst coalesces into a debounced background rebuild) — none of
+/// which may surface a 500.
 /// </summary>
 [Collection("TranslationApi")]
 public sealed class ConcurrencyEndpointsTests : IAsyncLifetime
@@ -42,10 +43,11 @@ public sealed class ConcurrencyEndpointsTests : IAsyncLifetime
 
     public async Task InitializeAsync()
     {
+        await _factory.ResetDatabaseAsync(
+            "TRUNCATE translation.\"Translations\", translation.\"GameVersions\", translation.\"TranslationArtifacts\", translation.\"Translators\" CASCADE;");
+
         using IServiceScope scope = _factory.Services.CreateScope();
         ApplicationWriteDbContext dbContext = scope.ServiceProvider.GetRequiredService<ApplicationWriteDbContext>();
-        await dbContext.Database.ExecuteSqlRawAsync(
-            "TRUNCATE translation.\"Translations\", translation.\"GameVersions\", translation.\"TranslationArtifacts\", translation.\"Translators\" CASCADE;");
 
         GameVersion gameVersion = GameVersion.Create(LotroNotationVersion.Create("48.0").Value, Now).Value;
         dbContext.GameVersions.Add(gameVersion);
@@ -94,9 +96,10 @@ public sealed class ConcurrencyEndpointsTests : IAsyncLifetime
             .ToArray();
         HttpResponseMessage[] responses = await Task.WhenAll(tasks);
 
-        // Assert — approve is idempotent (no "already approved" guard) and the artifact rebuild is
-        // single-flight, so every concurrent approve publishes; the row settles Approved and the admin
-        // approver is provisioned once (the seeded submitter is the only other Translator).
+        // Assert — approve is idempotent (no "already approved" guard) and the artifact rebuilds are
+        // scheduled, debounced signals (PERF-04), so every concurrent approve publishes; the row
+        // settles Approved and the admin approver is provisioned once (the seeded submitter is the
+        // only other Translator).
         foreach (HttpResponseMessage response in responses)
         {
             ((int)response.StatusCode).ShouldBeLessThan(500, $"Unexpected server error: {response.StatusCode}");

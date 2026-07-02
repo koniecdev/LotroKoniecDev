@@ -50,14 +50,16 @@ public sealed class ImportExportedTextsHandlerTests
             _unitOfWork,
             TimeProvider.System,
             Microsoft.Extensions.Options.Options.Create(new ImportSettings { MaxRemovedFractionWithoutOverride = maxRemovedFraction }),
-            new NoOpProjector());
+            new NoOpScheduler());
 
-    // The projector is an internal interface (NSubstitute/Castle can't proxy it without a
+    // The scheduler is an internal interface (NSubstitute/Castle can't proxy it without a
     // DynamicProxyGenAssembly2 hook); a hand-written no-op keeps the import handler tests focused
     // on the diff, not on file regeneration (covered by the distribution integration tests).
-    private sealed class NoOpProjector : IPrecomputedTranslationFileProjector
+    private sealed class NoOpScheduler : ITranslationFileRebuildScheduler
     {
-        public Task RebuildAsync(string language, CancellationToken cancellationToken) => Task.CompletedTask;
+        public void Schedule(string language)
+        {
+        }
     }
 
     private static ImportExportedTexts.Command Command(GameVersionId versionId, string export, bool allowMassRemoval = false)

@@ -3,9 +3,6 @@ using System.Text.Json;
 using LotroKoniecDev.SharedKernel.Authorization;
 using LotroKoniecDev.TranslationSystem.Contracts.GameVersions;
 using LotroKoniecDev.TranslationSystem.Contracts.Translations;
-using LotroKoniecDev.TranslationSystem.Persistence.DbContexts.WriteDbContexts;
-using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.DependencyInjection;
 
 namespace LotroKoniecDev.TranslationSystem.API.Tests.Integration.Tests.ErrorContract;
 
@@ -31,9 +28,7 @@ public sealed class ProblemDetailsContractTests : IAsyncLifetime
 
     public async Task InitializeAsync()
     {
-        using IServiceScope scope = _factory.Services.CreateScope();
-        ApplicationWriteDbContext dbContext = scope.ServiceProvider.GetRequiredService<ApplicationWriteDbContext>();
-        await dbContext.Database.ExecuteSqlRawAsync(
+        await _factory.ResetDatabaseAsync(
             "TRUNCATE translation.\"Translations\", translation.\"GameVersions\", translation.\"TranslationArtifacts\", translation.\"Translators\" CASCADE;");
     }
 

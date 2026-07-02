@@ -60,6 +60,16 @@ internal sealed class ApplicationWriteDbContext : DbContext, IUnitOfWork
         });
     }
 
+    /// <inheritdoc />
+    public async Task SaveChangesAndClearAsync(CancellationToken cancellationToken = default)
+    {
+        await SaveChangesAsync(acceptAllChangesOnSuccess: false, cancellationToken);
+        ChangeTracker.Clear();
+    }
+
+    /// <inheritdoc />
+    public void ClearChangeTracker() => ChangeTracker.Clear();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.HasDefaultSchema(DatabaseSchemas.Translation);

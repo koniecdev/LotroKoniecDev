@@ -13,8 +13,10 @@ public interface IBulkTranslationInserter
 {
     /// <summary>
     /// Streams <paramref name="translations"/> into <c>translation."Translations"</c> as a single
-    /// binary <c>COPY</c>. A no-op for an empty collection. Each row is serialized from the entity's
-    /// own column values, so the entity stays the single definition of a row's shape (ADR-0011).
+    /// binary <c>COPY</c>, row by row as the stream produces them — never a materialized list, so
+    /// a full-catalog baseline keeps O(1) memory (spec 0006 / ADR-0011 amendment). A no-op for an
+    /// empty stream. Each row is serialized from the entity's own column values, so the entity
+    /// stays the single definition of a row's shape (ADR-0011).
     /// </summary>
-    Task InsertAsync(IReadOnlyCollection<Translation> translations, CancellationToken cancellationToken);
+    Task InsertAsync(IAsyncEnumerable<Translation> translations, CancellationToken cancellationToken);
 }

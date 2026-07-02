@@ -34,4 +34,21 @@ public interface IUnitOfWork
     /// </param>
     /// <param name="cancellationToken">The cancellation token.</param>
     Task ExecuteInTransactionAsync(Func<CancellationToken, Task> operation, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Persists the currently tracked changes as one chunk of a chunked apply inside an
+    /// <see cref="ExecuteInTransactionAsync"/> unit, then clears the change tracker so the next
+    /// chunk starts empty (spec 0006). The save defers accepting changes
+    /// (<c>acceptAllChangesOnSuccess: false</c>), keeping every save inside the retrying unit on
+    /// the same discipline; the clear also guarantees no tracked state survives into a retry.
+    /// </summary>
+    /// <param name="cancellationToken">The cancellation token.</param>
+    Task SaveChangesAndClearAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Detaches everything the unit of work tracks. A retrying transactional unit whose chunks
+    /// clear the tracker calls this first, so a re-run after a transient commit fault never
+    /// re-saves leftovers from the failed attempt.
+    /// </summary>
+    void ClearChangeTracker();
 }

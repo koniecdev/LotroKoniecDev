@@ -32,48 +32,66 @@ internal sealed class BulkTranslationInserter : IBulkTranslationInserter
         _dbContext = dbContext;
     }
 
-    public async Task InsertAsync(IReadOnlyCollection<Translation> translations, CancellationToken cancellationToken)
+    public async Task InsertAsync(IAsyncEnumerable<Translation> translations, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(translations);
 
-        if (translations.Count == 0)
+        // The COPY opens lazily on the first row: an empty stream must stay a no-op, and stream
+        // emptiness is only observable by enumerating. While the COPY is open the connection is in
+        // CopyIn state, so the producing stream must not touch the database — the import's producer
+        // reads the buffered upload file, never the connection. Disposing without CompleteAsync
+        // aborts the COPY, so a producer failure mid-stream discards the partial rows.
+        NpgsqlBinaryImporter? writer = null;
+        try
         {
-            return;
-        }
+            await foreach (Translation translation in translations.WithCancellation(cancellationToken))
+            {
+                if (writer is null)
+                {
+                    // The write context's own connection: when the caller has opened a transaction
+                    // (the import does, via ExecuteInTransactionAsync), it is already open and the
+                    // COPY joins that transaction.
+                    NpgsqlConnection connection = (NpgsqlConnection)_dbContext.Database.GetDbConnection();
+                    if (connection.State != ConnectionState.Open)
+                    {
+                        await connection.OpenAsync(cancellationToken);
+                    }
 
-        // The write context's own connection: when the caller has opened a transaction (the import
-        // does, via ExecuteInTransactionAsync), it is already open and the COPY joins that transaction.
-        NpgsqlConnection connection = (NpgsqlConnection)_dbContext.Database.GetDbConnection();
-        if (connection.State != ConnectionState.Open)
+                    writer = await connection.BeginBinaryImportAsync(CopyCommand, cancellationToken);
+                }
+
+                await writer.StartRowAsync(cancellationToken);
+
+                await writer.WriteAsync(translation.Id.Value, NpgsqlDbType.Uuid, cancellationToken);
+                await writer.WriteAsync(translation.FragmentKey.FileId, NpgsqlDbType.Integer, cancellationToken);
+                await writer.WriteAsync(translation.FragmentKey.GossipId, NpgsqlDbType.Bigint, cancellationToken);
+                await writer.WriteAsync(translation.Source.Text, NpgsqlDbType.Text, cancellationToken);
+                await WriteNullableTextAsync(writer, translation.Source.ArgsOrder, cancellationToken);
+                await WriteNullableTextAsync(writer, translation.Source.ArgsId, cancellationToken);
+                await writer.WriteAsync(translation.Status.ToString(), NpgsqlDbType.Varchar, cancellationToken);
+                await WriteNullableTextAsync(writer, translation.TranslatedText, cancellationToken);
+                await WriteNullableTextAsync(writer, translation.PreviousSourceText, cancellationToken);
+                await WriteNullableUuidAsync(writer, translation.SubmittedById?.Value, cancellationToken);
+                await WriteNullableUuidAsync(writer, translation.ApprovedById?.Value, cancellationToken);
+                await writer.WriteAsync(translation.IntroducedInVersion.Value, NpgsqlDbType.Uuid, cancellationToken);
+                await WriteNullableUuidAsync(writer, translation.LastSourceChangeInVersion?.Value, cancellationToken);
+                await WriteNullableUuidAsync(writer, translation.RemovedInVersion?.Value, cancellationToken);
+                await writer.WriteAsync(translation.CreatedAt.UtcDateTime, NpgsqlDbType.TimestampTz, cancellationToken);
+                await writer.WriteAsync(translation.UpdatedAt.UtcDateTime, NpgsqlDbType.TimestampTz, cancellationToken);
+            }
+
+            if (writer is not null)
+            {
+                await writer.CompleteAsync(cancellationToken);
+            }
+        }
+        finally
         {
-            await connection.OpenAsync(cancellationToken);
+            if (writer is not null)
+            {
+                await writer.DisposeAsync();
+            }
         }
-
-        await using NpgsqlBinaryImporter writer = await connection.BeginBinaryImportAsync(CopyCommand, cancellationToken);
-
-        foreach (Translation translation in translations)
-        {
-            await writer.StartRowAsync(cancellationToken);
-
-            await writer.WriteAsync(translation.Id.Value, NpgsqlDbType.Uuid, cancellationToken);
-            await writer.WriteAsync(translation.FragmentKey.FileId, NpgsqlDbType.Integer, cancellationToken);
-            await writer.WriteAsync(translation.FragmentKey.GossipId, NpgsqlDbType.Bigint, cancellationToken);
-            await writer.WriteAsync(translation.Source.Text, NpgsqlDbType.Text, cancellationToken);
-            await WriteNullableTextAsync(writer, translation.Source.ArgsOrder, cancellationToken);
-            await WriteNullableTextAsync(writer, translation.Source.ArgsId, cancellationToken);
-            await writer.WriteAsync(translation.Status.ToString(), NpgsqlDbType.Varchar, cancellationToken);
-            await WriteNullableTextAsync(writer, translation.TranslatedText, cancellationToken);
-            await WriteNullableTextAsync(writer, translation.PreviousSourceText, cancellationToken);
-            await WriteNullableUuidAsync(writer, translation.SubmittedById?.Value, cancellationToken);
-            await WriteNullableUuidAsync(writer, translation.ApprovedById?.Value, cancellationToken);
-            await writer.WriteAsync(translation.IntroducedInVersion.Value, NpgsqlDbType.Uuid, cancellationToken);
-            await WriteNullableUuidAsync(writer, translation.LastSourceChangeInVersion?.Value, cancellationToken);
-            await WriteNullableUuidAsync(writer, translation.RemovedInVersion?.Value, cancellationToken);
-            await writer.WriteAsync(translation.CreatedAt.UtcDateTime, NpgsqlDbType.TimestampTz, cancellationToken);
-            await writer.WriteAsync(translation.UpdatedAt.UtcDateTime, NpgsqlDbType.TimestampTz, cancellationToken);
-        }
-
-        await writer.CompleteAsync(cancellationToken);
     }
 
     private static async ValueTask WriteNullableTextAsync(NpgsqlBinaryImporter writer, string? value, CancellationToken cancellationToken)

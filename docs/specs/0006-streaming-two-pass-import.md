@@ -1,6 +1,10 @@
 # Spec 0006: Streaming two-pass import — O(batch) memory for the full exported.txt (bulk import Phase 2)
 
-- **Status:** Agreed (2026-07-02, owner accepted as-is)
+- **Status:** Implemented (2026-07-02, #290 — empirical answers: the ASP.NET-buffered form file is
+  seekable, so both passes re-read it directly (the temp-file copy remains as a dead-code
+  fallback); chunk size shipped as `Import:ApplyChunkSize` = 5000; the catalog projection is a raw
+  Npgsql read because EF's retrying strategy buffers entire result sets (`BufferedDataReader`) —
+  an EF-based "stream" re-OOM'd the 792k-row re-import in the incident harness)
 - **Date:** 2026-07-02
 - **Author:** Claude (interactive session, direction chosen by the owner)
 - **Ticket:** #290 (PERF-05 — re-scoped to this spec, 2026-07-02)

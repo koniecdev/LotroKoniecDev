@@ -76,3 +76,15 @@ variable "app_min_replicas" {
     error_message = "app_min_replicas must be 0 or 1 (max_replicas is fixed at 1)."
   }
 }
+
+variable "tms_api_cpu" {
+  type        = number
+  description = "vCPU for the tms-api container. Prod keeps the default 0.25 — the exported.txt import OOM (incident 2026-07-02) is fixed by the #290 streaming import, not by paying ~$40/mo for an always-on bigger box. Staging overrides to 2 (env/staging.tfvars) so QA can import the full file before #290 lands; that override is removed with #290's DoD."
+  default     = 0.25
+}
+
+variable "tms_api_memory" {
+  type        = string
+  description = "Memory for the tms-api container, paired with tms_api_cpu (ACA Consumption allows only fixed pairs: 0.25/0.5Gi, 0.5/1Gi, 1/2Gi, 1.5/3Gi, 2/4Gi). Prod keeps the default 0.5Gi; staging overrides to 4Gi — see tms_api_cpu."
+  default     = "0.5Gi"
+}

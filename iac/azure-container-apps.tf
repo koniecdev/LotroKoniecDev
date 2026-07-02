@@ -271,15 +271,15 @@ resource "azurerm_container_app" "tms_api" {
     max_replicas = 1
 
     container {
-      name   = "tms-api"
-      image  = "ghcr.io/koniecdev/lotrokoniecdev-tms-api:${var.image_tag}"
-      # Import of the full exported.txt (~79 MB, ~792k rows) retains ~1.2 GB managed at peak — the
-      # 0.5Gi size OOMs deterministically at its ~384 MB GC cap (75% of the cgroup limit), and 2Gi
-      # still OOMs on RE-import once the tracked full-catalog load lands on top (incident
-      # 2026-07-02). Max Consumption size until the streaming import (#290) lands; scale back
-      # with #290's DoD.
-      cpu    = 2
-      memory = "4Gi"
+      name  = "tms-api"
+      image = "ghcr.io/koniecdev/lotrokoniecdev-tms-api:${var.image_tag}"
+      # Sizing is per-env (vars.tf): the full exported.txt import (~79 MB, ~792k rows) retains
+      # ~1.2 GB managed at peak and OOMs the 0.5Gi size at its ~384 MB GC cap (75% of the cgroup
+      # limit; incident 2026-07-02), so STAGING overrides to the max Consumption size for QA while
+      # PROD deliberately stays small — the real fix is the #290 streaming import, and the staging
+      # override is removed with #290's DoD.
+      cpu    = var.tms_api_cpu
+      memory = var.tms_api_memory
 
       liveness_probe {
         transport = "HTTP"

@@ -1,64 +1,48 @@
 ---
-description: Autonomous backlog loop — spawn one isolated ticket-worker subagent per ticket (fresh context each), merge between, keep the orchestrator thin. The cheap, context-safe replacement for `/loop /ticket`.
-argument-hint: [count | issue numbers | (empty = next ready ticket)]
+description: Autonomous backlog loop — launch the HEADLESS per-ticket loop (scripts/claude/backlog-loop.sh; one fresh `claude -p` process per ticket) and report the roll-up. Replaces the old in-session subagent orchestrator, whose context ballooned with every ticket.
+argument-hint: [count | issue numbers | (empty = drain all ready tickets)]
 ---
 
-You are the **backlog orchestrator**. Drive the ticket loop while staying **thin**: decide order,
-spawn one **`ticket-worker`** subagent per ticket (each gets its own fresh context), merge clean
-PRs, and keep only each worker's compact summary.
+You are the loop **conductor's assistant**, not the orchestra. The actual loop is
+`scripts/claude/backlog-loop.sh`: deterministic bash picks each ready ticket and runs it in a
+**fresh headless `claude -p` session** that dies with the ticket. Nothing accumulates in YOUR
+context — your only jobs are launch, wait, and report. (The old pattern — spawning ticket
+subagents from this session — piled every worker's results into one growing context; never do it.)
 
-**You never read full diffs, never implement, never review.** That work lives and dies inside each
-worker's isolated context. That separation is the whole point: it is the cost/context win over
-`/loop /ticket`, which piled every ticket into one ballooning context. After N tickets your context
-holds N short summaries — not N transcripts.
+## 1. Launch
 
-## 1. Build the work-list
+Map `$ARGUMENTS` onto the script:
 
-Interpret `$ARGUMENTS`:
-- issue numbers → use exactly those, in the given order.
-- a count `N` → take the next `N` ready tickets.
-- empty → take the single next ready ticket.
+- empty → `scripts/claude/backlog-loop.sh` (drain: run until no ready ticket remains)
+- a count `N` → `scripts/claude/backlog-loop.sh -n N`
+- issue numbers → `scripts/claude/backlog-loop.sh <numbers>` (exactly those, in order)
 
-"Ready" = open AND its dependencies are merged. `gh issue list --state open`; for each candidate
-read `Depends on #X` — if a dependency is unmerged, the ticket is **not ready** (skip it, note
-why). Order by milestone/number (the M2 backlog is dependency-ordered). The M2-18 forum watcher
-(#85) is deferred post-MVP — skip it unless explicitly named.
+Run it via Bash with `run_in_background: true`. If it exits immediately with a dirty-working-copy
+or stale-lock message, surface that to the user and stop — never force it.
 
-## 2. State the plan
+## 2. While it runs
 
-List the tickets you'll run, in order, in 2-3 lines. Then proceed — **entering `/backlog` IS the
-standing authorization** to commit → push → PR → **merge** per ticket (the interactive "ask before
-pushing" rule is waived for the loop, per CLAUDE.md → Loop mode).
+Stay thin. Do not read diffs, do not implement, do not review, do not poll in a tight loop — you
+are re-invoked when the background script exits. If the user asks for progress, check the
+background task's console output and relay the last few `[loop]`/`[conductor]` lines.
 
-## 3. Per ticket — spawn, judge, merge
+## 3. Report the roll-up
 
-Serial, one at a time (so the working copy is never shared between two tickets). For each ticket:
+When the script finishes, report from its console output:
 
-1. **Spawn** the `ticket-worker` agent (Task tool, `subagent_type: ticket-worker`): *"Work ticket
-   #<n> end-to-end per your discipline. Return DONE + PR url + summary, or BLOCKED + questions."*
-2. **Judge the return:**
-   - **DONE (clean PR):** merge it — `gh pr merge <n> --squash` (**never `--delete-branch`** —
-     branches are kept, see CLAUDE.md house rules) — then `git checkout main && git pull` so the
-     next worker branches off fresh main. Keep only the worker's summary.
-   - **BLOCKED (open business questions):** do NOT guess. Surface the questions to the user
-     verbatim. Then skip to the next *independent* ready ticket, or stop if none is independent —
-     your call, stated plainly.
-   - **BLOCKED (unmet dependency / mis-scope / red build / unclean review):** report it, do **not**
-     merge, and stop unless a later ticket is genuinely independent.
-3. Move on.
-
-## 4. Roll-up
-
-When the batch ends (list exhausted, blocked with nothing independent left, or user interrupt),
-report: tickets merged (with PR links), tickets blocked (with the exact questions/blockers the user
-must resolve), and the suggested next action.
+- tickets **merged** (with PR links from the `[loop] … MERGED PR #n` lines) and any **auto-merge
+  queued**,
+- tickets **blocked** — relay each ticket's open questions **verbatim** (they were posted as issue
+  comments; `gh issue list --label loop-blocked` finds them),
+- failures/timeouts with a one-line cause each (dig into `logs/claude-loop/<run>/ticket-<n>.json`
+  only when the console line isn't enough),
+- total cost for the run, and the suggested next action.
 
 ## Guardrails
 
-- **Stay thin.** Don't open diffs, don't re-implement, don't re-review — trust the worker's summary
-  plus the merged PR. If you catch yourself reading source files, you've defeated the purpose.
-- **Serial, clean working copy.** Never run two workers concurrently here — that's the separate
-  worktrees-per-ticket upgrade, not this command. One ticket fully closed before the next.
-- **Never merge broken work.** Red build or non-APPROVE review → stop, don't merge.
-- **Never invent business answers.** A BLOCKED ticket waits for the user — that is both the worker's
-  prime directive and yours.
+- **Never work a ticket inline in this session** and never spawn per-ticket subagents — that is
+  the exact context-ballooning anti-pattern this command replaces.
+- One loop at a time — the script's lock (`.claude/backlog-loop.lock`) enforces it; don't delete
+  the lock unless the user confirms the previous run is dead.
+- The working copy belongs to the loop while it runs: don't edit files or switch branches here
+  until it finishes.

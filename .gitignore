@@ -536,3 +536,5 @@ override.tf.json
 
 .terraformrc
 terraform.rc
+# Claude backlog-loop artifacts (headless run logs + per-ticket JSON transcripts)
+/logs/

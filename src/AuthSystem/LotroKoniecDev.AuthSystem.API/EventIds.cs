@@ -58,6 +58,10 @@ internal static class EventIds
     public const int UserSessionsRevoked = 2301;
     public const int UserSessionsRevocationFailed = 2302;
 
+    // Token Pruning (2310–2319)
+    public const int OpenIddictPruneCompleted = 2310;
+    public const int OpenIddictPruneFailed = 2311;
+
     // Middleware (2400–2499)
     public const int UnauthorizedAccessAttempt = 2400;
     public const int ForbiddenAccessAttempt = 2401;

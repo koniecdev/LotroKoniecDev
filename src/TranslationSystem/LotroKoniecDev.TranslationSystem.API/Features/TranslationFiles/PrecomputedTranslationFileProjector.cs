@@ -1,6 +1,5 @@
 using System.Security.Cryptography;
 using System.Text;
-using LotroKoniecDev.SharedKernel.Monads;
 using LotroKoniecDev.TranslationSystem.API.Parsing;
 using LotroKoniecDev.TranslationSystem.Persistence.DbContexts.Abstractions;
 using LotroKoniecDev.TranslationSystem.Persistence.DbContexts.ReadDbContexts;
@@ -12,11 +11,13 @@ using Microsoft.Extensions.DependencyInjection;
 namespace LotroKoniecDev.TranslationSystem.API.Features.TranslationFiles;
 
 /// <summary>
-/// Projects the current Approved set into the precomputed translation file on write (spec 0001:
-/// regenerate on version processing, approve, and upsert affecting an Approved row), so the
-/// distribution endpoint serves a stored projection without ever building per-request. Single-flight:
-/// a process-wide gate serializes concurrent rebuilds, each producing a consistent snapshot of the
-/// Approved set. Registered as a singleton, so it resolves the scoped EF services through a fresh scope.
+/// Projects the current Approved set into the precomputed translation file (spec 0001: regenerate
+/// after version processing, approve, and upsert affecting an Approved row), so the distribution
+/// endpoint serves a stored projection without ever building per-request. Invoked by the debounced
+/// background worker (PERF-04, ADR-0021) and synchronously by the startup bootstrap seed.
+/// Single-flight: a process-wide gate serializes concurrent rebuilds, each producing a consistent
+/// snapshot of the Approved set — the gate (like the worker's queue) assumes a single API replica.
+/// Registered as a singleton, so it resolves the scoped EF services through a fresh scope.
 /// </summary>
 internal sealed class PrecomputedTranslationFileProjector : IPrecomputedTranslationFileProjector
 {
@@ -62,17 +63,14 @@ internal sealed class PrecomputedTranslationFileProjector : IPrecomputedTranslat
             string contentHash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(content)));
             DateTimeOffset now = timeProvider.GetUtcNow();
 
-            Maybe<PrecomputedTranslationFile> existing = await fileStore.GetByLanguageAsync(language, cancellationToken);
-            if (existing.HasValue)
-            {
-                existing.Value.Refresh(content, contentHash, now);
-            }
-            else
+            // Set-based upsert (PERF-04): a single UPDATE refreshes the existing row without ever
+            // loading the previous multi-MB content; only the first build per language inserts.
+            bool refreshed = await fileStore.TryRefreshAsync(language, content, contentHash, now, cancellationToken);
+            if (!refreshed)
             {
                 fileStore.Insert(PrecomputedTranslationFile.Create(language, content, contentHash, now));
+                await unitOfWork.SaveChangesAsync(cancellationToken);
             }
-
-            await unitOfWork.SaveChangesAsync(cancellationToken);
         }
         finally
         {

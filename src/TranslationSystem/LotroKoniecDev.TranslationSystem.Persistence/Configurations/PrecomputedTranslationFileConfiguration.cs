@@ -15,14 +15,19 @@ internal sealed class PrecomputedTranslationFileConfiguration : IEntityTypeConfi
         builder.Property(precomputedTranslationFile => precomputedTranslationFile.Id)
             .ValueGeneratedNever();
 
-        // Get-only property — EF Core convention skips it without an explicit mapping.
+        // Get-only properties — EF Core convention skips them without an explicit mapping (the
+        // type is immutable; refreshes are set-based updates through the store, PERF-04).
         builder.Property(precomputedTranslationFile => precomputedTranslationFile.Language)
             .HasMaxLength(PrecomputedTranslationFile.LanguageMaxLength);
 
         builder.HasIndex(precomputedTranslationFile => precomputedTranslationFile.Language)
             .IsUnique();
 
+        builder.Property(precomputedTranslationFile => precomputedTranslationFile.Content);
+
         builder.Property(precomputedTranslationFile => precomputedTranslationFile.ContentHash)
             .HasMaxLength(PrecomputedTranslationFile.ContentHashLength);
+
+        builder.Property(precomputedTranslationFile => precomputedTranslationFile.GeneratedAt);
     }
 }

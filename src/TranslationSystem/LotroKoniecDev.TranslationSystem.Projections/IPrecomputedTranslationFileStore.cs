@@ -1,5 +1,3 @@
-using LotroKoniecDev.SharedKernel.Monads;
-
 namespace LotroKoniecDev.TranslationSystem.Projections;
 
 /// <summary>
@@ -9,8 +7,18 @@ namespace LotroKoniecDev.TranslationSystem.Projections;
 /// </summary>
 public interface IPrecomputedTranslationFileStore
 {
-    /// <summary>The projection is upserted by its natural key — one row per language.</summary>
-    Task<Maybe<PrecomputedTranslationFile>> GetByLanguageAsync(string language, CancellationToken cancellationToken);
+    /// <summary>
+    /// Set-based, in-place refresh of the language's projection row (PERF-04): a single
+    /// <c>UPDATE</c> that never loads the previous multi-MB content just to overwrite it. Executes
+    /// immediately — no unit-of-work save is involved. Returns <see langword="false"/> when no row
+    /// exists yet, in which case the caller inserts via <see cref="Insert"/>.
+    /// </summary>
+    Task<bool> TryRefreshAsync(
+        string language,
+        string content,
+        string contentHash,
+        DateTimeOffset generatedAt,
+        CancellationToken cancellationToken);
 
     void Insert(PrecomputedTranslationFile file);
 }

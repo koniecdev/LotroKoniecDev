@@ -16,7 +16,6 @@ using LotroKoniecDev.TranslationSystem.Persistence.DbContexts.WriteDbContexts;
 using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.GameVersionAggregate;
 using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.TranslationAggregate.Enums;
 using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.TranslatorAggregate;
-using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace LotroKoniecDev.TranslationSystem.API.Tests.Integration.Tests.Translations;
@@ -42,10 +41,11 @@ public sealed class UpsertTranslationTests : IAsyncLifetime
 
     public async Task InitializeAsync()
     {
+        await _factory.ResetDatabaseAsync(
+            "TRUNCATE translation.\"Translations\", translation.\"GameVersions\", translation.\"TranslationArtifacts\", translation.\"Translators\" CASCADE;");
+
         using IServiceScope scope = _factory.Services.CreateScope();
         ApplicationWriteDbContext dbContext = scope.ServiceProvider.GetRequiredService<ApplicationWriteDbContext>();
-        await dbContext.Database.ExecuteSqlRawAsync(
-            "TRUNCATE translation.\"Translations\", translation.\"GameVersions\", translation.\"TranslationArtifacts\", translation.\"Translators\" CASCADE;");
 
         GameVersion gameVersion = GameVersion.Create(LotroNotationVersion.Create("48.0").Value, Now).Value;
         dbContext.GameVersions.Add(gameVersion);
@@ -98,8 +98,12 @@ public sealed class UpsertTranslationTests : IAsyncLifetime
             Route, new UpsertTranslationRequest(FileId, 1, "Alfa nowa"));
         TranslationDetailResponse? body = await response.Content.ReadFromJsonAsync<TranslationDetailResponse>(JsonOptions);
 
-        HttpResponseMessage download = await _factory.CreateClient().GetAsync(FileRoute);
-        string file = await download.Content.ReadAsStringAsync();
+        // The artifact is rebuilt in the background, debounced (PERF-04): the upsert responded
+        // already; poll the download until the edited row has dropped out of the file.
+        (HttpResponseMessage download, string file) = await TranslationFileDownloadPolling.DownloadWhenConvergedAsync(
+            _factory.CreateClient(),
+            FileRoute,
+            (candidate, content) => candidate.IsSuccessStatusCode && !content.Contains($"{FileId}||1||"));
 
         // Assert — the edited row is now a draft and gone from the freshly rebuilt file; row 2 stays.
         response.StatusCode.ShouldBe(HttpStatusCode.OK);

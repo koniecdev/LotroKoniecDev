@@ -41,8 +41,12 @@ public sealed class UpdateCycleE2ETests : E2ETestBase
             TranslationDetailResponse edited = await admin.UpsertAsync(FileId, gossipId: 1, translatedText: "Polski jeden");
             await admin.ApproveRawAsync(edited.Id.Value);
 
-            HttpResponseMessage firstDownload = await anonymous.DownloadFileRawAsync(Language);
-            (await firstDownload.Content.ReadAsStringAsync()).ShouldContain($"{FileId}||1||Polski jeden||NULL||NULL||1");
+            // The approve's artifact rebuild is debounced and backgrounded (PERF-04) — poll to convergence.
+            (HttpResponseMessage firstDownload, string firstFile) = await TranslationFileDownloadPolling.DownloadWhenConvergedAsync(
+                anonymous,
+                Language,
+                (candidate, content) => candidate.IsSuccessStatusCode && content.Contains($"{FileId}||1||Polski jeden||NULL||NULL||1"));
+            firstFile.ShouldContain($"{FileId}||1||Polski jeden||NULL||NULL||1");
             firstDownload.Headers.ETag.ShouldNotBeNull();
             EntityTagHeaderValue firstEtag = firstDownload.Headers.ETag!;
 
@@ -59,10 +63,14 @@ public sealed class UpdateCycleE2ETests : E2ETestBase
             row1.Status.ShouldBe(TranslationStatus.NeedsReview);
             row1.PreviousSourceText.ShouldBe("English one");
 
-            // The invalidated row drops out of the freshly regenerated distributed file (new ETag).
-            HttpResponseMessage secondDownload = await anonymous.DownloadFileRawAsync(Language);
+            // The invalidated row drops out of the regenerated distributed file (new ETag) once the
+            // import's background rebuild converges.
+            (HttpResponseMessage secondDownload, string secondFile) = await TranslationFileDownloadPolling.DownloadWhenConvergedAsync(
+                anonymous,
+                Language,
+                (candidate, content) => candidate.IsSuccessStatusCode && !content.Contains($"{FileId}||1||"));
             secondDownload.Headers.ETag.ShouldNotBe(firstEtag);
-            (await secondDownload.Content.ReadAsStringAsync()).ShouldNotContain($"{FileId}||1||");
+            secondFile.ShouldNotContain($"{FileId}||1||");
         }
         catch (Exception)
         {

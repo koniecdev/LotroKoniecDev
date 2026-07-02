@@ -58,7 +58,7 @@ internal sealed class ImportExportedTexts : IEndpoint
         private readonly IUnitOfWork _unitOfWork;
         private readonly TimeProvider _timeProvider;
         private readonly ImportSettings _settings;
-        private readonly IPrecomputedTranslationFileProjector _projector;
+        private readonly ITranslationFileRebuildScheduler _rebuildScheduler;
 
         public Handler(
             IValidator<Command> validator,
@@ -69,7 +69,7 @@ internal sealed class ImportExportedTexts : IEndpoint
             IUnitOfWork unitOfWork,
             TimeProvider timeProvider,
             IOptions<ImportSettings> settings,
-            IPrecomputedTranslationFileProjector projector)
+            ITranslationFileRebuildScheduler rebuildScheduler)
         {
             _validator = validator;
             _parser = parser;
@@ -79,7 +79,7 @@ internal sealed class ImportExportedTexts : IEndpoint
             _unitOfWork = unitOfWork;
             _timeProvider = timeProvider;
             _settings = settings.Value;
-            _projector = projector;
+            _rebuildScheduler = rebuildScheduler;
         }
 
         public async ValueTask<Result<ImportSummary>> Handle(Command command, CancellationToken cancellationToken)
@@ -172,9 +172,10 @@ internal sealed class ImportExportedTexts : IEndpoint
                 cancellationToken);
 
             // Version processing changes the distributed set (removed rows drop out, re-added rows
-            // return), so regenerate the pre-built translation file after the import commits
-            // (spec 0001: regenerate on write — the download endpoint never builds per-request).
-            await _projector.RebuildAsync(SupportedLanguages.Polish, cancellationToken);
+            // return), so the pre-built translation file is regenerated after the import commits
+            // (spec 0001: the download endpoint never builds per-request). Scheduled, not awaited
+            // (PERF-04): the O(N) rebuild runs debounced in the background on the host lifetime.
+            _rebuildScheduler.Schedule(SupportedLanguages.Polish);
 
             return Result.Success(BuildSummary(plan));
         }

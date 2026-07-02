@@ -10,6 +10,7 @@ using Microsoft.IdentityModel.JsonWebTokens;
 using Microsoft.IdentityModel.Tokens;
 using Testcontainers.PostgreSql;
 using LotroKoniecDev.SharedKernel.Authorization;
+using LotroKoniecDev.TranslationSystem.API.Features.TranslationFiles;
 using LotroKoniecDev.TranslationSystem.Persistence.DbContexts.ReadDbContexts;
 using LotroKoniecDev.TranslationSystem.Persistence.DbContexts.WriteDbContexts;
 
@@ -42,6 +43,12 @@ public class TranslationSystemApiFactory : WebApplicationFactory<Program>, IAsyn
     /// </summary>
     public SqlCommandRecorder ReadContextSqlRecorder { get; } = new();
 
+    /// <summary>
+    /// Same seam for the write context, so tests can pin the projection refresh's write shape —
+    /// an in-place UPDATE that never re-fetches the previous multi-MB content (PERF-04/#289).
+    /// </summary>
+    public SqlCommandRecorder WriteContextSqlRecorder { get; } = new();
+
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         builder.UseEnvironment("Testing");
@@ -53,6 +60,9 @@ public class TranslationSystemApiFactory : WebApplicationFactory<Program>, IAsyn
                 { "ConnectionStrings:TranslationDatabase", _connectionString },
                 { "Auth:Issuer", TestIssuer },
                 { "Auth:Audience", TestAudience },
+                // Short debounce so the background artifact rebuild (PERF-04) converges fast; the
+                // polling assertions stay meaningful while the suite stays quick.
+                { "TranslationFileRebuild:DebounceWindow", "00:00:00.050" },
             });
         });
 
@@ -66,16 +76,52 @@ public class TranslationSystemApiFactory : WebApplicationFactory<Program>, IAsyn
                 options.TokenValidationParameters.IssuerSigningKey = TestSigningKey;
             });
 
-            // AddDbContext calls compose (EF Core 9+): this appends the recording interceptor to the
-            // production registration of the read context instead of replacing it.
+            // AddDbContext calls compose (EF Core 9+): this appends the recording interceptors to
+            // the production registrations of the two contexts instead of replacing them.
             services.AddDbContext<ApplicationReadDbContext>(options =>
                 options.AddInterceptors(ReadContextSqlRecorder));
+            services.AddDbContext<ApplicationWriteDbContext>(options =>
+                options.AddInterceptors(WriteContextSqlRecorder));
         });
 
         builder.ConfigureLogging(logging =>
         {
             logging.SetMinimumLevel(LogLevel.Warning);
         });
+    }
+
+    /// <summary>
+    /// Resets shared database state between test classes: quiesces the background artifact rebuild
+    /// (PERF-04, ADR-0021), then truncates the given tables. The quiesce is fused into the reset —
+    /// never an opt-in pairing — because a rebuild still in flight from the previous class's writes
+    /// would re-materialize an artifact row right after the TRUNCATE and poison assertions such as
+    /// the "no artifact yet" 404.
+    /// </summary>
+    public async Task ResetDatabaseAsync(string truncateSql)
+    {
+        await WaitForArtifactRebuildQuiesceAsync();
+
+        using IServiceScope scope = Services.CreateScope();
+        ApplicationWriteDbContext dbContext = scope.ServiceProvider.GetRequiredService<ApplicationWriteDbContext>();
+        await dbContext.Database.ExecuteSqlRawAsync(truncateSql);
+    }
+
+    private async Task WaitForArtifactRebuildQuiesceAsync()
+    {
+        TranslationFileRebuildScheduler scheduler =
+            Services.GetRequiredService<TranslationFileRebuildScheduler>();
+
+        DateTimeOffset deadline = DateTimeOffset.UtcNow + TimeSpan.FromSeconds(15);
+        while (scheduler.PendingCount > 0)
+        {
+            if (DateTimeOffset.UtcNow >= deadline)
+            {
+                throw new TimeoutException(
+                    $"Background artifact rebuild did not quiesce within 15 s; {scheduler.PendingCount} signal(s) still pending.");
+            }
+
+            await Task.Delay(10);
+        }
     }
 
     public static string CreateAccessToken(

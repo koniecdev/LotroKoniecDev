@@ -50,7 +50,9 @@ internal static class TranslationsBootstrapExtensions
         PolishSeedSummary? polish = await SeedPolishIfPresentAsync(services, settings, logger, cancellationToken);
 
         // The seed approves rows, so the pre-built distribution artifact must be regenerated to
-        // include them (spec 0001: regenerate on write; the download endpoint never builds per-request).
+        // include them (spec 0001: the download endpoint never builds per-request). Deliberately
+        // awaited inline — unlike the request handlers (PERF-04, ADR-0021), the bootstrap runs
+        // before the app serves traffic, so the artifact should be ready when it does.
         if (polish is { Approved: > 0 })
         {
             IPrecomputedTranslationFileProjector projector = services.GetRequiredService<IPrecomputedTranslationFileProjector>();

@@ -30,15 +30,23 @@ public sealed class UpsertTranslationHandlerTests
     private static readonly TranslatorId CurrentTranslator = TranslatorId.Create();
 
     // ITranslationRepository / IUnitOfWork are genuine public boundaries (stubbed); the read context
-    // is a pure in-memory double serving the response read-back, and the provisioner + artifact
-    // builder are internal interfaces NSubstitute can't proxy, so each gets a hand-written double.
+    // is a pure in-memory double serving the response read-back, and the provisioner + rebuild
+    // scheduler are internal interfaces NSubstitute can't proxy, so each gets a hand-written double.
     private readonly ITranslationRepository _translationRepository = Substitute.For<ITranslationRepository>();
     private readonly IUnitOfWork _unitOfWork = Substitute.For<IUnitOfWork>();
     private readonly List<TranslationReadModel> _readModels = [];
+    private readonly List<string> _callOrder = [];
 
-    private readonly RecordingProjector _projector = new();
+    private readonly RecordingScheduler _rebuildScheduler;
 
     private StubTranslatorProvisioner _provisioner = new(Result.Success(CurrentTranslator));
+
+    public UpsertTranslationHandlerTests()
+    {
+        _rebuildScheduler = new RecordingScheduler(_callOrder);
+        _unitOfWork.When(unitOfWork => unitOfWork.SaveChangesAsync(Arg.Any<CancellationToken>()))
+            .Do(_ => _callOrder.Add(nameof(IUnitOfWork.SaveChangesAsync)));
+    }
 
     private UpsertTranslation.Handler CreateHandler(IApplicationReadDbContext? readDbContext = null)
         => new(
@@ -48,7 +56,7 @@ public sealed class UpsertTranslationHandlerTests
             _provisioner,
             readDbContext ?? new FakeReadDbContext(_readModels),
             TimeProvider.System,
-            _projector);
+            _rebuildScheduler);
 
     private static UpsertTranslation.Command Command(int gossipId, string text)
         => new(FileId, gossipId, text);
@@ -176,7 +184,7 @@ public sealed class UpsertTranslationHandlerTests
         row.SubmittedById.ShouldBe(CurrentTranslator);
         await _unitOfWork.Received(1).SaveChangesAsync(Arg.Any<CancellationToken>());
         // Editing a non-Approved row does not change the distributed set, so no artifact rebuild.
-        _projector.RebuildCount.ShouldBe(0);
+        _rebuildScheduler.ScheduleCount.ShouldBe(0);
     }
 
     [Fact]
@@ -195,7 +203,27 @@ public sealed class UpsertTranslationHandlerTests
         // Assert
         result.IsSuccess.ShouldBeTrue();
         result.Value.Status.ShouldBe(TranslationStatus.Draft);
-        _projector.RebuildCount.ShouldBe(1);
+        _rebuildScheduler.ScheduleCount.ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task Handle_OnApprovedRow_ShouldScheduleTheRebuildAfterTheCommit()
+    {
+        // Arrange — ADR-0021 §1: the dirty signal must follow SaveChanges; signalled before the
+        // commit, a zero-debounce rebuild could publish a snapshot missing its own trigger and park
+        // the artifact stale. Ordering is invisible in the return value, hence the call log.
+        Translation approved = Untranslated();
+        approved.ProvideTranslation("Stary polski", CurrentTranslator, Now);
+        approved.Approve(CurrentTranslator, Now);
+        GivenStoredRow(approved);
+        GivenReadBack(approved, "Nowy polski");
+
+        // Act
+        Result<TranslationDetailResponse> result = await CreateHandler().Handle(Command(1, "Nowy polski"), CancellationToken.None);
+
+        // Assert
+        result.IsSuccess.ShouldBeTrue();
+        _callOrder.ShouldBe([nameof(IUnitOfWork.SaveChangesAsync), nameof(ITranslationFileRebuildScheduler.Schedule)]);
     }
 
     [Fact]
@@ -216,17 +244,24 @@ public sealed class UpsertTranslationHandlerTests
         result.Value.Status.ShouldBe(TranslationStatus.Draft);
         result.Value.PreviousSourceText.ShouldBe("Old English");
         result.Value.TranslatedText.ShouldBe("Nowy polski");
-        _projector.RebuildCount.ShouldBe(0);
+        _rebuildScheduler.ScheduleCount.ShouldBe(0);
     }
 
-    private sealed class RecordingProjector : IPrecomputedTranslationFileProjector
+    private sealed class RecordingScheduler : ITranslationFileRebuildScheduler
     {
-        public int RebuildCount { get; private set; }
+        private readonly List<string> _callOrder;
 
-        public Task RebuildAsync(string language, CancellationToken cancellationToken)
+        public RecordingScheduler(List<string> callOrder)
         {
-            RebuildCount++;
-            return Task.CompletedTask;
+            _callOrder = callOrder;
+        }
+
+        public int ScheduleCount { get; private set; }
+
+        public void Schedule(string language)
+        {
+            ScheduleCount++;
+            _callOrder.Add(nameof(ITranslationFileRebuildScheduler.Schedule));
         }
     }
 }

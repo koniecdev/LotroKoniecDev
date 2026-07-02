@@ -16,4 +16,8 @@ internal static class EventIds
     public const int UnauthorizedAccessAttempt = 1300;
     public const int ForbiddenAccessAttempt = 1301;
     public const int TranslatorProvisioningSkipped = 1302;
+
+    // Background workers (1400–1499)
+    public const int TranslationFileRebuildCompleted = 1400;
+    public const int TranslationFileRebuildFailed = 1401;
 }

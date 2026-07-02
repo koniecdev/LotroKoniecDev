@@ -1,9 +1,12 @@
 # ADR-0007: Read projections are not aggregates — the PrecomputedTranslationFile projection
 
-**Status:** Accepted
+**Status:** Accepted — amended 2026-07-02 by ADR-0021 (PERF-04): the projection refresh is no
+longer awaited before the response; writes schedule a debounced background rebuild, the store
+refresh is a set-based `ExecuteUpdate`, and `PrecomputedTranslationFile` is immutable
+(`Refresh(...)` deleted).
 **Date:** 2026-06-14
 **Decision-makers:** Solo maintainer
-**Related:** spec 0001 (translation-file distribution), ADR-0002 (TMS pivot + CQRS read/write split), branch `refactor/precomputed-translation-file-projection`
+**Related:** spec 0001 (translation-file distribution), ADR-0002 (TMS pivot + CQRS read/write split), branch `refactor/precomputed-translation-file-projection`, ADR-0021 (amendment)
 
 ## Context
 

@@ -27,7 +27,8 @@ namespace LotroKoniecDev.TranslationSystem.API.Features.Translations;
 /// is born from import (English source only), this slice attaches the translator's Polish. Any prior
 /// status moves to <see cref="TranslationStatus.Draft"/> and the submitting translator is stamped
 /// from the authenticated identity. Editing an <see cref="TranslationStatus.Approved"/> row pulls it
-/// out of the distributed set, so the pre-built artifact is regenerated after the change commits;
+/// out of the distributed set, so a debounced background rebuild of the pre-built artifact is
+/// scheduled after the change commits (PERF-04, ADR-0021);
 /// re-translating a <see cref="TranslationStatus.NeedsReview"/> row keeps its
 /// <c>PreviousSourceText</c> until approve. Placeholders are stored verbatim — the
 /// count-mismatch warning UX is M3.
@@ -60,7 +61,7 @@ internal sealed class UpsertTranslation : IEndpoint
         private readonly ITranslatorProvisioner _translatorProvisioner;
         private readonly IApplicationReadDbContext _readDbContext;
         private readonly TimeProvider _timeProvider;
-        private readonly IPrecomputedTranslationFileProjector _projector;
+        private readonly ITranslationFileRebuildScheduler _rebuildScheduler;
 
         public Handler(
             IValidator<Command> validator,
@@ -69,7 +70,7 @@ internal sealed class UpsertTranslation : IEndpoint
             ITranslatorProvisioner translatorProvisioner,
             IApplicationReadDbContext readDbContext,
             TimeProvider timeProvider,
-            IPrecomputedTranslationFileProjector projector)
+            ITranslationFileRebuildScheduler rebuildScheduler)
         {
             _validator = validator;
             _translationRepository = translationRepository;
@@ -77,7 +78,7 @@ internal sealed class UpsertTranslation : IEndpoint
             _translatorProvisioner = translatorProvisioner;
             _readDbContext = readDbContext;
             _timeProvider = timeProvider;
-            _projector = projector;
+            _rebuildScheduler = rebuildScheduler;
         }
 
         public async ValueTask<Result<TranslationDetailResponse>> Handle(Command command, CancellationToken cancellationToken)
@@ -128,7 +129,10 @@ internal sealed class UpsertTranslation : IEndpoint
 
             if (wasApproved)
             {
-                await _projector.RebuildAsync(SupportedLanguages.Polish, cancellationToken);
+                // Scheduled, not awaited (PERF-04): the rebuild runs debounced in the background on
+                // the host lifetime, so the response returns now and a disconnect cannot strand the
+                // commit.
+                _rebuildScheduler.Schedule(SupportedLanguages.Polish);
             }
 
             // Re-read the committed row through the read model so the response carries the joined

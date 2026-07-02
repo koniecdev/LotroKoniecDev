@@ -273,8 +273,13 @@ resource "azurerm_container_app" "tms_api" {
     container {
       name   = "tms-api"
       image  = "ghcr.io/koniecdev/lotrokoniecdev-tms-api:${var.image_tag}"
-      cpu    = 0.25
-      memory = "0.5Gi"
+      # Import of the full exported.txt (~79 MB, ~792k rows) retains ~1.2 GB managed at peak — the
+      # 0.5Gi size OOMs deterministically at its ~384 MB GC cap (75% of the cgroup limit), and 2Gi
+      # still OOMs on RE-import once the tracked full-catalog load lands on top (incident
+      # 2026-07-02). Max Consumption size until the streaming import (#290) lands; scale back
+      # with #290's DoD.
+      cpu    = 2
+      memory = "4Gi"
 
       liveness_probe {
         transport = "HTTP"

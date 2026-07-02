@@ -64,6 +64,10 @@ internal sealed class ApplicationWriteDbContext : DbContext, IUnitOfWork
     {
         modelBuilder.HasDefaultSchema(DatabaseSchemas.Translation);
 
+        // The trigram GIN indexes on Translations (TranslationConfiguration) need pg_trgm; the
+        // migration emits CREATE EXTENSION IF NOT EXISTS, so the migrator role must be allowed to.
+        modelBuilder.HasPostgresExtension("pg_trgm");
+
         modelBuilder.ApplyConfigurationsFromAssembly(Assembly.GetExecutingAssembly());
 
         base.OnModelCreating(modelBuilder);

@@ -28,9 +28,9 @@ Code facts that constrain the design:
   (`OpenIddictExtensions.cs`). ADR-0006 secured this in dev by running everything on the host
   (`localhost:5003` resolves identically for browser and host RP). A browser E2E needs the same
   property in an automatable, headless-CI-friendly substrate.
-- **HTTPS is mandatory.** The OIDC code flow uses `response_mode=form_post`; the correlation/nonce
-  cookies are `SameSite=None`, which a browser only sends when `Secure`. Plain HTTP breaks the
-  callback. So the stack must serve HTTPS, which means a cert the FE/tms back-channels **trust** —
+- **HTTPS is mandatory.** The OIDC handler's correlation/nonce cookies are `SameSite=None`
+  regardless of the authorize `response_mode` (`form_post` originally; `query` since #306), and a
+  browser only sends `SameSite=None` cookies when `Secure`. Plain HTTP breaks the callback. So the stack must serve HTTPS, which means a cert the FE/tms back-channels **trust** —
   and .NET validates against the **OS trust store** (it ignores `SSL_CERT_FILE`; see
   `.docker/trust-ca-entrypoint.sh`).
 - **We already orchestrate the full stack from C# with Testcontainers.**

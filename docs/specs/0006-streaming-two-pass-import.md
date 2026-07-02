@@ -1,9 +1,9 @@
 # Spec 0006: Streaming two-pass import — O(batch) memory for the full exported.txt (bulk import Phase 2)
 
-- **Status:** Draft (awaiting owner review)
+- **Status:** Agreed (2026-07-02, owner accepted as-is)
 - **Date:** 2026-07-02
 - **Author:** Claude (interactive session, direction chosen by the owner)
-- **Ticket:** #290 (PERF-05 — to be re-scoped to this spec on agreement)
+- **Ticket:** #290 (PERF-05 — re-scoped to this spec, 2026-07-02)
 - **Related:** spec 0001 (import lifecycle + five outcomes), spec 0004 (bulk import Phase 1 — COPY
   for added rows; this realizes its deferred Phase 2), ADR-0011 (Npgsql COPY write path),
   PR #300 (incident 2026-07-02 + staging-only sizing bridge), incident measurements below

@@ -78,7 +78,12 @@ internal static class ApiDependencyInjection
         private void AddImportFeature()
         {
             services.AddSingleton<ITranslationExportParser, TranslationExportParser>();
-            services.AddOptions<ImportSettings>().BindConfiguration(ImportSettings.ConfigurationSection);
+            services.AddOptions<ImportSettings>()
+                .BindConfiguration(ImportSettings.ConfigurationSection)
+                .Validate(
+                    settings => settings.ApplyChunkSize >= 1,
+                    $"{ImportSettings.ConfigurationSection}:{nameof(ImportSettings.ApplyChunkSize)} must be at least 1.")
+                .ValidateOnStart();
 
             // The import is the only multipart endpoint, so lifting the global multipart form-length
             // limit to the configured upload ceiling is safe and keeps it in step with the endpoint's

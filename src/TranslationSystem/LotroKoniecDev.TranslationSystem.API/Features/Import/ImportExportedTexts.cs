@@ -1,3 +1,5 @@
+using System.Diagnostics;
+using System.Runtime.CompilerServices;
 using FluentValidation;
 using FluentValidation.Results;
 using LotroKoniecDev.SharedKernel.BuildingBlocks;
@@ -20,18 +22,28 @@ using LotroKoniecDev.TranslationSystem.Domain.Core.Errors;
 using LotroKoniecDev.TranslationSystem.Persistence.Bulk;
 using LotroKoniecDev.TranslationSystem.Persistence.DbContexts.Abstractions;
 using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.GameVersionAggregate;
+using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.TranslationAggregate;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Options;
 
 namespace LotroKoniecDev.TranslationSystem.API.Features.Import;
 
 /// <summary>
-/// Version-bound import of a fresh <c>exported.txt</c> (spec 0001): parse, diff against the stored
-/// source state by <c>(FileId, GossipId)</c>, apply the five outcomes, flip the version to
-/// processed — all in a single transaction (all-or-nothing, idempotent re-upload).
+/// Version-bound import of a fresh <c>exported.txt</c> (spec 0001), streamed in two passes so the
+/// working set scales with a chunk, never the file or the catalog (spec 0006). Pass 1 validates
+/// the streamed upload into a key→hash map and diffs it against a streamed compact catalog
+/// projection — writing nothing, so the mass-removal guard runs on the full plan first. Pass 2
+/// re-streams the buffered upload inside one transaction: added rows go straight into the binary
+/// <c>COPY</c>, everything else mutates aggregates in bounded chunks, and the version flips to
+/// processed with the last save (all-or-nothing, idempotent re-upload).
 /// </summary>
 internal sealed class ImportExportedTexts : IEndpoint
 {
+    /// <summary>
+    /// <paramref name="FileStream"/> must be seekable — the import reads it once per pass. The
+    /// endpoint guarantees it (ASP.NET buffers multipart files; a non-seekable stream is copied to
+    /// a temp file first).
+    /// </summary>
     internal sealed record Command(GameVersionId GameVersionId, Stream FileStream, bool AllowMassRemoval)
         : ICommand<Result<ImportSummary>>;
 
@@ -50,6 +62,12 @@ internal sealed class ImportExportedTexts : IEndpoint
 
     internal sealed class Handler : ICommandHandler<Command, Result<ImportSummary>>
     {
+        /// <summary>
+        /// An all-garbage 79 MB upload is rejected either way; the cap only bounds how many line
+        /// errors are collected for the rejection message (spec 0006).
+        /// </summary>
+        private const int MaxCollectedParseErrors = 100;
+
         private readonly IValidator<Command> _validator;
         private readonly ITranslationExportParser _parser;
         private readonly IGameVersionRepository _gameVersionRepository;
@@ -59,6 +77,7 @@ internal sealed class ImportExportedTexts : IEndpoint
         private readonly TimeProvider _timeProvider;
         private readonly ImportSettings _settings;
         private readonly ITranslationFileRebuildScheduler _rebuildScheduler;
+        private readonly ILogger<Handler> _logger;
 
         public Handler(
             IValidator<Command> validator,
@@ -69,7 +88,8 @@ internal sealed class ImportExportedTexts : IEndpoint
             IUnitOfWork unitOfWork,
             TimeProvider timeProvider,
             IOptions<ImportSettings> settings,
-            ITranslationFileRebuildScheduler rebuildScheduler)
+            ITranslationFileRebuildScheduler rebuildScheduler,
+            ILogger<Handler> logger)
         {
             _validator = validator;
             _parser = parser;
@@ -80,6 +100,7 @@ internal sealed class ImportExportedTexts : IEndpoint
             _timeProvider = timeProvider;
             _settings = settings.Value;
             _rebuildScheduler = rebuildScheduler;
+            _logger = logger;
         }
 
         public async ValueTask<Result<ImportSummary>> Handle(Command command, CancellationToken cancellationToken)
@@ -99,77 +120,78 @@ internal sealed class ImportExportedTexts : IEndpoint
 
             GameVersion gameVersion = gameVersionMaybe.Value;
 
-            ParsedExport parsed = await _parser.ParseAsync(command.FileStream, cancellationToken);
-            if (parsed.HasErrors)
-            {
-                return Result.Failure<ImportSummary>(ImportErrors.ParseFailed(parsed.Errors.Count, parsed.Errors[0]));
-            }
-
-            if (parsed.Rows.Count == 0)
-            {
-                return Result.Failure<ImportSummary>(ImportErrors.EmptyUpload());
-            }
-
-            Result<IReadOnlyList<IncomingSourceRow>> incomingResult = MapToIncoming(parsed.Rows);
+            // Pass 1, upload side: stream-validate every row into a key→hash map — per-row VOs and
+            // strings are discarded as soon as they are hashed, so the map is the only thing that
+            // scales with the file.
+            Stopwatch passStopwatch = Stopwatch.StartNew();
+            Result<Dictionary<FragmentKeyValue, SourceHash>> incomingResult =
+                await BuildIncomingMapAsync(command.FileStream, cancellationToken);
             if (incomingResult.IsFailure)
             {
                 return Result.Failure<ImportSummary>(incomingResult.Error);
             }
 
+            Dictionary<FragmentKeyValue, SourceHash> incomingByKey = incomingResult.Value;
+            if (incomingByKey.Count == 0)
+            {
+                return Result.Failure<ImportSummary>(ImportErrors.EmptyUpload());
+            }
+
+            long uploadPassMilliseconds = passStopwatch.ElapsedMilliseconds;
+            int incomingCount = incomingByKey.Count;
+
             DateTimeOffset now = _timeProvider.GetUtcNow();
 
-            IReadOnlyList<Translation> existing = await _translationRepository.GetAllAsync(cancellationToken);
-
-            TranslationDiffPlan plan = TranslationDiffService.ComputePlan(
-                existing,
-                incomingResult.Value,
-                command.GameVersionId,
-                now);
+            // Pass 1, catalog side: the diff consumes the incoming map against the streamed
+            // untracked projection and returns a value-row plan (ids, keys and counters only).
+            passStopwatch.Restart();
+            TranslationDiffPlan plan = await TranslationDiffService.ComputePlanAsync(
+                _translationRepository.StreamSourceDigestsAsync(cancellationToken),
+                incomingByKey,
+                cancellationToken);
+            long diffPassMilliseconds = passStopwatch.ElapsedMilliseconds;
 
             if (!command.AllowMassRemoval && plan.RemovedFraction > _settings.MaxRemovedFractionWithoutOverride)
             {
                 return Result.Failure<ImportSummary>(
                     ImportErrors.MassRemovalBlocked(
-                        plan.Removed.Count,
+                        plan.RemovedIds.Count,
                         plan.ComparableExistingCount,
                         plan.RemovedFraction,
                         _settings.MaxRemovedFractionWithoutOverride));
             }
 
-            foreach (TranslationSourceChange change in plan.SourceChanges)
-            {
-                change.Existing.ApplySourceChange(change.NewSource, command.GameVersionId, now);
-            }
-
-            foreach (Translation removed in plan.Removed)
-            {
-                removed.MarkRemoved(command.GameVersionId, now);
-            }
-
-            foreach (Translation restored in plan.Restored)
-            {
-                restored.Restore(now);
-            }
-
-            // The version's processed flag commits with the row changes below, so IsProcessed flips
-            // only after the diff is durable (spec 0001). Imports are admin-only and serial —
-            // concurrent imports of one version are out of scope, so no optimistic-concurrency token
-            // is modelled.
+            // Domain pre-check before any write (a superseded version keeps returning 422 with
+            // nothing persisted). The persisted flip is re-applied at the end of the transaction on
+            // a freshly tracked instance, because the chunked apply clears the change tracker —
+            // this call only proves the transition is legal now. Imports are admin-only and serial
+            // (spec 0001), so the rule cannot change between here and the apply.
             Result markProcessedResult = gameVersion.MarkAsProcessed();
             if (markProcessedResult.IsFailure)
             {
                 return Result.Failure<ImportSummary>(markProcessedResult.Error);
             }
 
-            // One atomic transaction (spec 0001, ADR-0011): the added rows stream in via a binary COPY
-            // on the write context's connection, then the unit of work saves the per-row diff mutations
-            // and the version's processed flag on that same connection — committed together, or rolled
-            // back together on any failure. A baseline is entirely added rows, so the COPY is the whole
-            // of the ~3-minute pain #214 removed. The unit runs under the provider's retrying execution
-            // strategy, which must own the boundary once a manual COPY joins the tracked save.
+            // Pass 2 — one atomic transaction (spec 0001, ADR-0011): the added rows stream from the
+            // buffered upload into a binary COPY on the write context's connection, the remaining
+            // outcomes mutate aggregates in bounded chunks on that same connection, and the version
+            // flip commits with the last save. The unit runs under the provider's retrying
+            // execution strategy and is re-entrant: every pass re-seeks the buffered upload and
+            // reloads its chunks, and no tracked state survives into a retry.
+            passStopwatch.Restart();
             await _unitOfWork.ExecuteInTransactionAsync(
-                transactionToken => _bulkInserter.InsertAsync(plan.Added, transactionToken),
+                transactionToken => ApplyPlanAsync(plan, command, now, transactionToken),
                 cancellationToken);
+            long applyPassMilliseconds = passStopwatch.ElapsedMilliseconds;
+
+            // Pass durations are the "Oś B" (async-import) trigger data (spec 0006): watching them
+            // grow toward the request budget on staging/prod is what would justify that ADR.
+            _logger.LogInformation(
+                "Import passes for {IncomingRows} incoming row(s): upload pass {UploadPassMs} ms, "
+                + "diff pass {DiffPassMs} ms, apply pass {ApplyPassMs} ms "
+                + "(added {Added}, source-changed {SourceChanged}, removed {Removed}, restored {Restored}).",
+                incomingCount, uploadPassMilliseconds, diffPassMilliseconds, applyPassMilliseconds,
+                plan.AddedCount, plan.SourceChangedByKey.Count, plan.RemovedIds.Count, plan.RestoredIds.Count);
 
             // Version processing changes the distributed set (removed rows drop out, re-added rows
             // return), so the pre-built translation file is regenerated after the import commits
@@ -180,52 +202,243 @@ internal sealed class ImportExportedTexts : IEndpoint
             return Result.Success(BuildSummary(plan));
         }
 
-        private static Result<IReadOnlyList<IncomingSourceRow>> MapToIncoming(IReadOnlyList<ParsedExportRow> rows)
+        private async Task<Result<Dictionary<FragmentKeyValue, SourceHash>>> BuildIncomingMapAsync(
+            Stream fileStream,
+            CancellationToken cancellationToken)
         {
-            List<IncomingSourceRow> incoming = new(rows.Count);
-            HashSet<FragmentKey> seen = [];
+            fileStream.Seek(0, SeekOrigin.Begin);
 
-            foreach (ParsedExportRow row in rows)
+            Dictionary<FragmentKeyValue, SourceHash> incomingByKey = [];
+            List<ExportParseError> parseErrors = [];
+
+            await foreach (ParsedExportLine line in _parser.ParseLinesAsync(fileStream, cancellationToken))
             {
+                if (line.Error is { } parseError)
+                {
+                    parseErrors.Add(parseError);
+                    if (parseErrors.Count == MaxCollectedParseErrors)
+                    {
+                        break;
+                    }
+
+                    continue;
+                }
+
+                // One unparseable line already rejects the whole upload (spec 0001: a skipped line
+                // is indistinguishable from a removed row) — keep scanning only to collect more
+                // parse errors for the message, not to validate rows.
+                if (parseErrors.Count > 0)
+                {
+                    continue;
+                }
+
+                ParsedExportRow row = line.Row!;
+
                 Result<FragmentKey> keyResult = FragmentKey.Create(row.FileId, row.GossipId);
                 if (keyResult.IsFailure)
                 {
-                    return Result.Failure<IReadOnlyList<IncomingSourceRow>>(
+                    return Result.Failure<Dictionary<FragmentKeyValue, SourceHash>>(
                         ImportErrors.InvalidRow(row.FileId, row.GossipId, keyResult.Error.Message));
                 }
 
                 Result<TranslationSource> sourceResult = TranslationSource.Create(row.Content, row.ArgsOrder, row.ArgsId);
                 if (sourceResult.IsFailure)
                 {
-                    return Result.Failure<IReadOnlyList<IncomingSourceRow>>(
+                    return Result.Failure<Dictionary<FragmentKeyValue, SourceHash>>(
                         ImportErrors.InvalidRow(row.FileId, row.GossipId, sourceResult.Error.Message));
                 }
 
-                if (!seen.Add(keyResult.Value))
+                if (!incomingByKey.TryAdd(FragmentKeyValue.From(keyResult.Value), SourceHash.Compute(sourceResult.Value)))
                 {
-                    return Result.Failure<IReadOnlyList<IncomingSourceRow>>(
+                    return Result.Failure<Dictionary<FragmentKeyValue, SourceHash>>(
                         ImportErrors.DuplicateFragmentKey(row.FileId, row.GossipId));
                 }
-
-                incoming.Add(new IncomingSourceRow(keyResult.Value, sourceResult.Value));
             }
 
-            return Result.Success<IReadOnlyList<IncomingSourceRow>>(incoming);
+            if (parseErrors.Count > 0)
+            {
+                return Result.Failure<Dictionary<FragmentKeyValue, SourceHash>>(
+                    ImportErrors.ParseFailed(parseErrors.Count, parseErrors[0]));
+            }
+
+            return Result.Success(incomingByKey);
+        }
+
+        private async Task ApplyPlanAsync(
+            TranslationDiffPlan plan,
+            Command command,
+            DateTimeOffset now,
+            CancellationToken cancellationToken)
+        {
+            // Re-entrancy under the retrying execution strategy: a re-run must start from a clean
+            // tracker so nothing from a rolled-back attempt (chunk leftovers, the pre-checked
+            // version instance) is saved twice.
+            _unitOfWork.ClearChangeTracker();
+
+            if (plan.AddedCount > 0)
+            {
+                command.FileStream.Seek(0, SeekOrigin.Begin);
+                await _bulkInserter.InsertAsync(
+                    StreamAddedRowsAsync(plan, command.FileStream, command.GameVersionId, now, cancellationToken),
+                    cancellationToken);
+            }
+
+            if (plan.SourceChangedByKey.Count > 0)
+            {
+                await ApplySourceChangesAsync(plan, command, now, cancellationToken);
+            }
+
+            await ApplyByIdsInChunksAsync(
+                plan.RemovedIds,
+                translation => translation.MarkRemoved(command.GameVersionId, now),
+                cancellationToken);
+
+            await ApplyByIdsInChunksAsync(
+                plan.RestoredIds,
+                translation => translation.Restore(now),
+                cancellationToken);
+
+            // The version's processed flag commits with the unit's final save, so IsProcessed flips
+            // only after the whole diff is durable (spec 0001). Loaded fresh here because the
+            // chunked saves above cleared the tracker; the transition was pre-checked, so a failure
+            // now is an invariant break, not a business outcome.
+            Maybe<GameVersion> gameVersionMaybe =
+                await _gameVersionRepository.GetByIdAsync(command.GameVersionId, cancellationToken);
+            Result markProcessedResult = gameVersionMaybe.Value.MarkAsProcessed();
+            if (markProcessedResult.IsFailure)
+            {
+                throw new InvalidOperationException(
+                    $"The game version refused MarkAsProcessed inside the apply transaction after passing the pre-check: {markProcessedResult.Error.Message}");
+            }
+        }
+
+        private async IAsyncEnumerable<Translation> StreamAddedRowsAsync(
+            TranslationDiffPlan plan,
+            Stream fileStream,
+            GameVersionId gameVersionId,
+            DateTimeOffset now,
+            [EnumeratorCancellation] CancellationToken cancellationToken)
+        {
+            await foreach ((FragmentKey key, TranslationSource source) in StreamValidatedRowsAsync(fileStream, cancellationToken))
+            {
+                if (!plan.IsAdded(FragmentKeyValue.From(key)))
+                {
+                    continue;
+                }
+
+                yield return Translation.CreateUntranslated(key, source, gameVersionId, now).Value;
+            }
+        }
+
+        private async Task ApplySourceChangesAsync(
+            TranslationDiffPlan plan,
+            Command command,
+            DateTimeOffset now,
+            CancellationToken cancellationToken)
+        {
+            command.FileStream.Seek(0, SeekOrigin.Begin);
+
+            List<(TranslationId Id, TranslationSource NewSource)> chunk = new(_settings.ApplyChunkSize);
+
+            await foreach ((FragmentKey key, TranslationSource source) in StreamValidatedRowsAsync(command.FileStream, cancellationToken))
+            {
+                if (!plan.SourceChangedByKey.TryGetValue(FragmentKeyValue.From(key), out TranslationId translationId))
+                {
+                    continue;
+                }
+
+                chunk.Add((translationId, source));
+                if (chunk.Count == _settings.ApplyChunkSize)
+                {
+                    await ApplySourceChangeChunkAsync(chunk, command.GameVersionId, now, cancellationToken);
+                    chunk.Clear();
+                }
+            }
+
+            if (chunk.Count > 0)
+            {
+                await ApplySourceChangeChunkAsync(chunk, command.GameVersionId, now, cancellationToken);
+            }
+        }
+
+        private async Task ApplySourceChangeChunkAsync(
+            List<(TranslationId Id, TranslationSource NewSource)> chunk,
+            GameVersionId gameVersionId,
+            DateTimeOffset now,
+            CancellationToken cancellationToken)
+        {
+            List<TranslationId> ids = chunk.Select(pair => pair.Id).ToList();
+            IReadOnlyList<Translation> translations = await _translationRepository.GetByIdsAsync(ids, cancellationToken);
+            Dictionary<TranslationId, Translation> translationsById = translations.ToDictionary(translation => translation.Id);
+
+            foreach ((TranslationId id, TranslationSource newSource) in chunk)
+            {
+                translationsById[id].ApplySourceChange(newSource, gameVersionId, now);
+            }
+
+            await _unitOfWork.SaveChangesAndClearAsync(cancellationToken);
+        }
+
+        private async Task ApplyByIdsInChunksAsync(
+            IReadOnlyList<TranslationId> ids,
+            Action<Translation> mutate,
+            CancellationToken cancellationToken)
+        {
+            for (int offset = 0; offset < ids.Count; offset += _settings.ApplyChunkSize)
+            {
+                int chunkSize = Math.Min(_settings.ApplyChunkSize, ids.Count - offset);
+                List<TranslationId> chunk = new(chunkSize);
+                for (int index = 0; index < chunkSize; index++)
+                {
+                    chunk.Add(ids[offset + index]);
+                }
+
+                IReadOnlyList<Translation> translations = await _translationRepository.GetByIdsAsync(chunk, cancellationToken);
+                foreach (Translation translation in translations)
+                {
+                    mutate(translation);
+                }
+
+                await _unitOfWork.SaveChangesAndClearAsync(cancellationToken);
+            }
+        }
+
+        /// <summary>
+        /// Pass 2's re-read of the buffered upload: every line already passed Pass 1, so a parse or
+        /// VO failure here is an invariant break (the buffered file cannot change between passes),
+        /// surfaced by <see cref="Result{T}.Value"/>'s guard, not per-row handling.
+        /// </summary>
+        private async IAsyncEnumerable<(FragmentKey Key, TranslationSource Source)> StreamValidatedRowsAsync(
+            Stream fileStream,
+            [EnumeratorCancellation] CancellationToken cancellationToken)
+        {
+            await foreach (ParsedExportLine line in _parser.ParseLinesAsync(fileStream, cancellationToken))
+            {
+                if (line.Row is not { } row)
+                {
+                    throw new InvalidOperationException(
+                        $"The upload failed to re-parse during apply after passing Pass 1 (line {line.Error!.LineNumber}: {line.Error.Message}).");
+                }
+
+                yield return (
+                    FragmentKey.Create(row.FileId, row.GossipId).Value,
+                    TranslationSource.Create(row.Content, row.ArgsOrder, row.ArgsId).Value);
+            }
         }
 
         private static ImportSummary BuildSummary(TranslationDiffPlan plan)
         {
             List<string> warnings = [];
-            if (plan.Restored.Count > 0)
+            if (plan.RestoredIds.Count > 0)
             {
-                warnings.Add($"{plan.Restored.Count} previously-removed row(s) re-added with an unchanged source and restored.");
+                warnings.Add($"{plan.RestoredIds.Count} previously-removed row(s) re-added with an unchanged source and restored.");
             }
 
             return new ImportSummary(
-                Added: plan.Added.Count,
-                SourceChanged: plan.SourceChanges.Count,
+                Added: plan.AddedCount,
+                SourceChanged: plan.SourceChangedByKey.Count,
                 Invalidated: plan.InvalidatedCount,
-                Removed: plan.Removed.Count,
+                Removed: plan.RemovedIds.Count,
                 Unchanged: plan.UnchangedCount,
                 Warnings: warnings);
         }
@@ -249,13 +462,35 @@ internal sealed class ImportExportedTexts : IEndpoint
             {
                 await using Stream stream = file.OpenReadStream();
 
-                Command command = new(GameVersionId.Create(id), stream, allowMassRemoval);
+                // The two-pass import re-reads the upload (spec 0006). ASP.NET buffers multipart
+                // files (memory below 64 KB, temp file above), so the form-file stream is seekable;
+                // the copy is a belt-and-braces fallback should a host ever hand out a forward-only
+                // stream.
+                if (stream.CanSeek)
+                {
+                    Command command = new(GameVersionId.Create(id), stream, allowMassRemoval);
+                    Result<ImportSummary> result = await handler.Handle(command, cancellationToken);
 
-                Result<ImportSummary> result = await handler.Handle(command, cancellationToken);
+                    return result.IsSuccess
+                        ? Results.Ok(result.Value)
+                        : Results.Problem(result.Error.ToProblemDetails());
+                }
 
-                return result.IsSuccess
-                    ? Results.Ok(result.Value)
-                    : Results.Problem(result.Error.ToProblemDetails());
+                await using FileStream buffered = new(
+                    Path.GetTempFileName(),
+                    FileMode.Create,
+                    FileAccess.ReadWrite,
+                    FileShare.None,
+                    bufferSize: 81_920,
+                    FileOptions.Asynchronous | FileOptions.DeleteOnClose);
+                await stream.CopyToAsync(buffered, cancellationToken);
+
+                Command bufferedCommand = new(GameVersionId.Create(id), buffered, allowMassRemoval);
+                Result<ImportSummary> bufferedResult = await handler.Handle(bufferedCommand, cancellationToken);
+
+                return bufferedResult.IsSuccess
+                    ? Results.Ok(bufferedResult.Value)
+                    : Results.Problem(bufferedResult.Error.ToProblemDetails());
             })
             .WithName(nameof(ImportExportedTexts))
             .WithTags("Import")

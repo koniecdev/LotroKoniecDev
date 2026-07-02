@@ -21,4 +21,12 @@ internal sealed class ImportSettings
     /// a redeploy — applies a new value) (spec 0003, #208).
     /// </summary>
     public long MaxUploadBytes { get; init; } = ImportUploadLimits.MaxUploadBytes;
+
+    /// <summary>
+    /// How many rows the import's apply pass mutates per chunk (load by id → mutate → save → clear
+    /// tracker), bounding the transaction's working set no matter how many rows changed (spec 0006).
+    /// Default sits in the spec's 2–5k band; configurable mainly so tests can force chunk
+    /// boundaries cheaply.
+    /// </summary>
+    public int ApplyChunkSize { get; init; } = 5_000;
 }

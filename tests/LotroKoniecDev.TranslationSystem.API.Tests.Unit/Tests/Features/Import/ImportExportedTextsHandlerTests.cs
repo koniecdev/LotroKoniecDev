@@ -9,11 +9,13 @@ using LotroKoniecDev.TranslationSystem.Domain.Aggregates.GameVersionAggregate.Re
 using LotroKoniecDev.TranslationSystem.Domain.Aggregates.GameVersionAggregate.ValueObjects;
 using LotroKoniecDev.TranslationSystem.Domain.Aggregates.TranslationAggregate.Entities;
 using LotroKoniecDev.TranslationSystem.Domain.Aggregates.TranslationAggregate.Repositories;
+using LotroKoniecDev.TranslationSystem.Domain.Aggregates.TranslationAggregate.Services;
 using LotroKoniecDev.TranslationSystem.Domain.Aggregates.TranslationAggregate.ValueObjects;
 using LotroKoniecDev.TranslationSystem.Persistence.Bulk;
 using LotroKoniecDev.TranslationSystem.Persistence.DbContexts.Abstractions;
 using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.GameVersionAggregate;
 using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.GameVersionAggregate.Enums;
+using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.TranslationAggregate;
 using NSubstitute;
 
 namespace LotroKoniecDev.TranslationSystem.API.Tests.Unit.Tests.Features.Import;
@@ -31,8 +33,10 @@ public sealed class ImportExportedTextsHandlerTests
 
     public ImportExportedTextsHandlerTests()
     {
-        _translationRepository.GetAllAsync(Arg.Any<CancellationToken>())
-            .Returns(Array.Empty<Translation>());
+        _translationRepository.StreamSourceDigestsAsync(Arg.Any<CancellationToken>())
+            .Returns(DigestStream());
+        _translationRepository.GetByIdsAsync(Arg.Any<IReadOnlyList<TranslationId>>(), Arg.Any<CancellationToken>())
+            .Returns([]);
 
         // The transaction seam runs its operation for real against the stubbed boundaries, so the
         // success path still exercises the COPY + SaveChanges orchestration the handler wraps.
@@ -50,7 +54,8 @@ public sealed class ImportExportedTextsHandlerTests
             _unitOfWork,
             TimeProvider.System,
             Microsoft.Extensions.Options.Options.Create(new ImportSettings { MaxRemovedFractionWithoutOverride = maxRemovedFraction }),
-            new NoOpScheduler());
+            new NoOpScheduler(),
+            Microsoft.Extensions.Logging.Abstractions.NullLogger<ImportExportedTexts.Handler>.Instance);
 
     // The scheduler is an internal interface (NSubstitute/Castle can't proxy it without a
     // DynamicProxyGenAssembly2 hook); a hand-written no-op keeps the import handler tests focused
@@ -79,13 +84,27 @@ public sealed class ImportExportedTextsHandlerTests
             VersionId,
             new DateTimeOffset(2026, 6, 1, 0, 0, 0, TimeSpan.Zero)).Value;
 
+    private static async IAsyncEnumerable<StoredSourceDigest> DigestStream(params Translation[] translations)
+    {
+        await Task.Yield();
+        foreach (Translation translation in translations)
+        {
+            yield return new StoredSourceDigest(
+                translation.Id,
+                FragmentKeyValue.From(translation.FragmentKey),
+                SourceHash.Compute(translation.Source),
+                translation.Status,
+                translation.IsRemoved);
+        }
+    }
+
     private void GivenVersion(GameVersion gameVersion)
         => _gameVersionRepository.GetByIdAsync(VersionId, Arg.Any<CancellationToken>())
             .Returns(Maybe<GameVersion>.From(gameVersion));
 
     private void GivenExisting(params Translation[] translations)
-        => _translationRepository.GetAllAsync(Arg.Any<CancellationToken>())
-            .Returns(translations);
+        => _translationRepository.StreamSourceDigestsAsync(Arg.Any<CancellationToken>())
+            .Returns(DigestStream(translations));
 
     [Fact]
     public async Task Handle_WhenCommandInvalid_ShouldReturnValidationError()
@@ -129,6 +148,24 @@ public sealed class ImportExportedTextsHandlerTests
         // Assert
         result.IsFailure.ShouldBeTrue();
         result.Error.Code.ShouldBe("Import.ParseFailed");
+        await _unitOfWork.DidNotReceive().ExecuteInTransactionAsync(Arg.Any<Func<CancellationToken, Task>>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Handle_WhenUploadHasMoreBadLinesThanTheCap_ShouldRejectWithCappedErrorCount()
+    {
+        // Arrange — 150 unparseable lines; the import stops collecting at the 100-error cap
+        // (spec 0006) but still rejects the whole upload.
+        GivenVersion(UnprocessedVersion());
+        string export = Export([.. Enumerable.Range(1, 150).Select(index => $"620756992||{index}||missing trailing fields")]);
+
+        // Act
+        Result<ImportSummary> result = await CreateHandler().Handle(Command(VersionId, export), CancellationToken.None);
+
+        // Assert
+        result.IsFailure.ShouldBeTrue();
+        result.Error.Code.ShouldBe("Import.ParseFailed");
+        result.Error.Message.ShouldContain("100 unparseable");
         await _unitOfWork.DidNotReceive().ExecuteInTransactionAsync(Arg.Any<Func<CancellationToken, Task>>(), Arg.Any<CancellationToken>());
     }
 

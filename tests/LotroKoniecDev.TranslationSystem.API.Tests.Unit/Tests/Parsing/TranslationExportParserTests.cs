@@ -158,4 +158,68 @@ public sealed class TranslationExportParserTests
         result.HasErrors.ShouldBeTrue();
         result.Rows.ShouldBeEmpty();
     }
+
+    [Fact]
+    public async Task ParseLinesAsync_WithMixedContent_ShouldStreamRowsAndErrorsInFileOrder()
+    {
+        // Arrange — comment, valid row, unparseable line, valid row: the stream must interleave
+        // rows and errors exactly as the file reads, with 1-based line numbers.
+        string content = "# comment\n620756992||1||Alpha||NULL||NULL||1\nbroken line\n620756992||2||Beta||NULL||NULL||1";
+        using MemoryStream stream = new(Encoding.UTF8.GetBytes(content));
+
+        // Act
+        List<ParsedExportLine> lines = [];
+        await foreach (ParsedExportLine line in new TranslationExportParser().ParseLinesAsync(stream, CancellationToken.None))
+        {
+            lines.Add(line);
+        }
+
+        // Assert
+        lines.Count.ShouldBe(3);
+        lines[0].Row!.GossipId.ShouldBe(1);
+        lines[1].Error!.LineNumber.ShouldBe(3);
+        lines[2].Row!.GossipId.ShouldBe(2);
+    }
+
+    [Fact]
+    public async Task ParseLinesAsync_WithInvalidUtf8MidStream_ShouldYieldOneErrorAndStop()
+    {
+        // Arrange — a valid first line, then bytes that fail strict UTF-8 decoding.
+        byte[] content =
+        [
+            .. Encoding.UTF8.GetBytes("620756992||1||Alpha||NULL||NULL||1\n"),
+            0xFF,
+            .. Encoding.ASCII.GetBytes("||garbage"),
+        ];
+        using MemoryStream stream = new(content);
+
+        // Act
+        List<ParsedExportLine> lines = [];
+        await foreach (ParsedExportLine line in new TranslationExportParser().ParseLinesAsync(stream, CancellationToken.None))
+        {
+            lines.Add(line);
+        }
+
+        // Assert — the decode failure ends the stream; nothing after it is parseable anyway.
+        lines[^1].Error.ShouldNotBeNull();
+        lines[^1].Error!.Message.ShouldContain("not valid UTF-8");
+        lines.Count(line => line.Error is not null).ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task ParseLinesAsync_WithEmptyStream_ShouldYieldNothing()
+    {
+        // Arrange
+        using MemoryStream stream = new([]);
+
+        // Act
+        List<ParsedExportLine> lines = [];
+        await foreach (ParsedExportLine line in new TranslationExportParser().ParseLinesAsync(stream, CancellationToken.None))
+        {
+            lines.Add(line);
+        }
+
+        // Assert
+        lines.ShouldBeEmpty();
+    }
 }

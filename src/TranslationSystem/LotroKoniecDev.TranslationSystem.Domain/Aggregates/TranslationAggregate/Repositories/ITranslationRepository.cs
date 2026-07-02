@@ -1,6 +1,7 @@
 using LotroKoniecDev.SharedKernel.BuildingBlocks;
 using LotroKoniecDev.SharedKernel.Monads;
 using LotroKoniecDev.TranslationSystem.Domain.Aggregates.TranslationAggregate.Entities;
+using LotroKoniecDev.TranslationSystem.Domain.Aggregates.TranslationAggregate.Services;
 using LotroKoniecDev.TranslationSystem.Domain.Aggregates.TranslationAggregate.ValueObjects;
 using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.GameVersionAggregate;
 using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.TranslationAggregate;
@@ -10,12 +11,19 @@ namespace LotroKoniecDev.TranslationSystem.Domain.Aggregates.TranslationAggregat
 public interface ITranslationRepository : IRepository<Translation, TranslationId>
 {
     /// <summary>
-    /// Loads every stored translation as tracked aggregates for the import diff, which compares
-    /// the full uploaded export against the full stored source state by <c>(FileId, GossipId)</c>
-    /// (spec 0001). Admin-only, infrequent — the whole-set load is acceptable within the
-    /// proven ~780k-row envelope; revisit only if a real perf need appears.
+    /// Streams the whole catalog as untracked <see cref="StoredSourceDigest"/> value rows for the
+    /// import diff (spec 0006): the source triple is hashed row-by-row and the strings discarded,
+    /// so the read's working set is one row regardless of catalog size. The full-catalog scan is
+    /// admin-only and roughly once per game update.
     /// </summary>
-    Task<IReadOnlyList<Translation>> GetAllAsync(CancellationToken cancellationToken);
+    IAsyncEnumerable<StoredSourceDigest> StreamSourceDigestsAsync(CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Loads one chunk of tracked aggregates by id for the import's chunked apply (spec 0006) —
+    /// callers keep chunks small (see <c>ImportSettings.ApplyChunkSize</c>) and clear the change
+    /// tracker between chunks.
+    /// </summary>
+    Task<IReadOnlyList<Translation>> GetByIdsAsync(IReadOnlyList<TranslationId> ids, CancellationToken cancellationToken);
 
     /// <summary>
     /// Loads the single tracked translation for a fragment identity, or <see cref="Maybe{T}.None"/>

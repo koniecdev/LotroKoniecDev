@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Runtime.CompilerServices;
 using System.Text;
 
 namespace LotroKoniecDev.TranslationSystem.API.Parsing;
@@ -28,36 +29,66 @@ internal sealed class TranslationExportParser : ITranslationExportParser
         List<ParsedExportRow> rows = [];
         List<ExportParseError> errors = [];
 
-        using StreamReader reader = new(stream, StrictUtf8, leaveOpen: true);
-
-        int lineNumber = 0;
-        try
+        await foreach (ParsedExportLine line in ParseLinesAsync(stream, cancellationToken))
         {
-            while (await reader.ReadLineAsync(cancellationToken) is { } line)
+            if (line.Error is { } error)
             {
-                lineNumber++;
-
-                if (ShouldSkipLine(line))
-                {
-                    continue;
-                }
-
-                if (TryParseLine(line, out ParsedExportRow? row, out string? error))
-                {
-                    rows.Add(row!);
-                }
-                else
-                {
-                    errors.Add(new ExportParseError(lineNumber, error!));
-                }
+                errors.Add(error);
             }
-        }
-        catch (DecoderFallbackException exception)
-        {
-            errors.Add(new ExportParseError(lineNumber + 1, $"The upload is not valid UTF-8: {exception.Message}"));
+            else
+            {
+                rows.Add(line.Row!);
+            }
         }
 
         return new ParsedExport(rows, errors);
+    }
+
+    public async IAsyncEnumerable<ParsedExportLine> ParseLinesAsync(
+        Stream stream,
+        [EnumeratorCancellation] CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(stream);
+
+        using StreamReader reader = new(stream, StrictUtf8, leaveOpen: true);
+
+        int lineNumber = 0;
+        while (true)
+        {
+            string? line;
+            ExportParseError? decodeError = null;
+            try
+            {
+                line = await reader.ReadLineAsync(cancellationToken);
+            }
+            catch (DecoderFallbackException exception)
+            {
+                line = null;
+                decodeError = new ExportParseError(lineNumber + 1, $"The upload is not valid UTF-8: {exception.Message}");
+            }
+
+            if (decodeError is not null)
+            {
+                yield return ParsedExportLine.ForError(decodeError);
+                yield break;
+            }
+
+            if (line is null)
+            {
+                yield break;
+            }
+
+            lineNumber++;
+
+            if (ShouldSkipLine(line))
+            {
+                continue;
+            }
+
+            yield return TryParseLine(line, out ParsedExportRow? row, out string? error)
+                ? ParsedExportLine.ForRow(row!)
+                : ParsedExportLine.ForError(new ExportParseError(lineNumber, error!));
+        }
     }
 
     private static bool TryParseLine(string line, out ParsedExportRow? row, out string? error)

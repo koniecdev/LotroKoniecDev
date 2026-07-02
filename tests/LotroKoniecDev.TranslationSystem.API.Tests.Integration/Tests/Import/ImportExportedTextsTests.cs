@@ -252,6 +252,67 @@ public sealed class ImportExportedTextsTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Import_DuplicateFragmentKeysFarApart_ShouldReturn422ThroughTheStreamingPath()
+    {
+        // Arrange — the duplicate of row 1 sits thousands of lines later, so the streaming Pass 1
+        // must catch it from the accumulated key map, not line adjacency (spec 0006).
+        GameVersionId versionId = await SeedVersionAsync("48.0");
+        using HttpClient client = AdminClient();
+
+        StringBuilder builder = new();
+        builder.Append(Line(1, "Alpha")).Append('\n');
+        for (int gossipId = 2; gossipId <= 3_000; gossipId++)
+        {
+            builder.Append(Line(gossipId, $"Text {gossipId}")).Append('\n');
+        }
+
+        builder.Append(Line(1, "Alpha duplicate"));
+
+        // Act
+        HttpResponseMessage response = await client.PostAsync(ImportRoute(versionId), TextContent(builder.ToString()));
+
+        // Assert
+        response.StatusCode.ShouldBe(HttpStatusCode.UnprocessableEntity);
+        (await ReadErrorCodeAsync(response)).ShouldBe("Import.DuplicateFragmentKey");
+        (await CountTranslationsAsync()).ShouldBe(0);
+    }
+
+    [Fact]
+    public async Task Import_ChangesSpanningMultipleApplyChunks_ShouldApplyEveryChunk()
+    {
+        // Arrange — a chunk size of 2 forces the 5 reworded rows through 3 apply chunks and the
+        // 3 removed rows through 2 (spec 0006 chunked apply), all inside the one transaction.
+        using WebApplicationFactory<Program> factory = WithApplyChunkSize(2);
+        GameVersionId firstVersion = await SeedVersionAsync("48.0");
+        using HttpClient client = AdminClient(factory);
+        await client.PostAsync(ImportRoute(firstVersion), ExportContent(
+            Line(1, "A"), Line(2, "B"), Line(3, "C"), Line(4, "D"), Line(5, "E"),
+            Line(6, "F"), Line(7, "G"), Line(8, "H")));
+
+        GameVersionId secondVersion = await SeedVersionAsync("48.1");
+
+        // Act — rows 1-5 reworded, rows 6-8 removed (37% removal needs the override).
+        HttpResponseMessage response = await client.PostAsync(
+            $"{ImportRoute(secondVersion)}?allowMassRemoval=true",
+            ExportContent(Line(1, "A2"), Line(2, "B2"), Line(3, "C2"), Line(4, "D2"), Line(5, "E2")));
+        ImportSummary? summary = await response.Content.ReadFromJsonAsync<ImportSummary>();
+
+        // Assert — every chunk landed: all five sources updated, all three removals applied, and
+        // the version still flips to processed after the chunked saves cleared the change tracker.
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        summary.ShouldNotBeNull();
+        summary.SourceChanged.ShouldBe(5);
+        summary.Removed.ShouldBe(3);
+        summary.Unchanged.ShouldBe(0);
+        (await GetTranslationAsync(1))!.Source.Text.ShouldBe("A2");
+        (await GetTranslationAsync(3))!.Source.Text.ShouldBe("C2");
+        (await GetTranslationAsync(5))!.Source.Text.ShouldBe("E2");
+        (await GetTranslationAsync(6))!.IsRemoved.ShouldBeTrue();
+        (await GetTranslationAsync(8))!.IsRemoved.ShouldBeTrue();
+        (await GetVersionStatusAsync(secondVersion)).ShouldBe(GameVersionStatus.Processed);
+    }
+
+    [Fact]
     public async Task Import_WithOctetStreamFilePart_ShouldStillSucceed()
     {
         // Arrange — the endpoint does not gate on the file part's declared MIME type; the `||` parser
@@ -362,7 +423,7 @@ public sealed class ImportExportedTextsTests : IAsyncLifetime
         InvalidOperationException thrown = await Should.ThrowAsync<InvalidOperationException>(() =>
             unitOfWork.ExecuteInTransactionAsync(async transactionToken =>
             {
-                await inserter.InsertAsync(rows, transactionToken);
+                await inserter.InsertAsync(AsStream(rows), transactionToken);
                 throw induced;
             }));
 
@@ -430,7 +491,7 @@ public sealed class ImportExportedTextsTests : IAsyncLifetime
         List<Translation> rows = [NewUntranslated(20, "Twenty")];
 
         // Act
-        await dbContext.ExecuteInTransactionAsync(transactionToken => inserter.InsertAsync(rows, transactionToken));
+        await dbContext.ExecuteInTransactionAsync(transactionToken => inserter.InsertAsync(AsStream(rows), transactionToken));
 
         // Assert — the transient commit fired and the strategy retried (self-check), and both halves
         // of the unit are durable: the COPY'd row AND the tracked version flip survived the retry.
@@ -482,12 +543,31 @@ public sealed class ImportExportedTextsTests : IAsyncLifetime
             GameVersionId.Create(),
             DateTimeOffset.UtcNow).Value;
 
+    // The inserter takes a stream (spec 0006); re-enumerating this iterator restarts it, matching
+    // the retrying execution strategy's re-run semantics.
+    private static async IAsyncEnumerable<Translation> AsStream(IReadOnlyList<Translation> translations)
+    {
+        await Task.Yield();
+        foreach (Translation translation in translations)
+        {
+            yield return translation;
+        }
+    }
+
     private WebApplicationFactory<Program> WithUploadLimit(long maxUploadBytes) =>
         _factory.WithWebHostBuilder(builder =>
             builder.ConfigureAppConfiguration((_, configBuilder) =>
                 configBuilder.AddInMemoryCollection(new Dictionary<string, string?>
                 {
                     ["Import:MaxUploadBytes"] = maxUploadBytes.ToString(CultureInfo.InvariantCulture)
+                })));
+
+    private WebApplicationFactory<Program> WithApplyChunkSize(int applyChunkSize) =>
+        _factory.WithWebHostBuilder(builder =>
+            builder.ConfigureAppConfiguration((_, configBuilder) =>
+                configBuilder.AddInMemoryCollection(new Dictionary<string, string?>
+                {
+                    ["Import:ApplyChunkSize"] = applyChunkSize.ToString(CultureInfo.InvariantCulture)
                 })));
 
     private static async Task<string?> ReadErrorCodeAsync(HttpResponseMessage response)

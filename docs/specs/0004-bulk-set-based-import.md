@@ -75,6 +75,10 @@ case (an empty-DB baseline is *all* added rows, every one `Untranslated` with no
   real re-import proves slow. **When built, the source-change transition stays in C#** (lightweight
   projection → in-memory plan → bulk write), *not* SQL `CASE` — keeps `ApplySourceChange`'s
   conditional status/`PreviousSourceText` logic in one place (resolved Q3; recorded in the ADR).
+  **→ Phase 2 realized by spec 0006** (2026-07-02): the trigger fired early and on *memory*, not
+  re-import latency — the first real 79 MB imports OOM-killed tms-api at the default
+  0.25 vCPU / 0.5Gi — and the streaming two-pass import replaces both the tracked `GetAllAsync`
+  read and the materialized write buffers (transition logic in C#, as resolved here).
 - **Async job / `202 Accepted` + background worker + progress polling (Oś B).** A separate, later
   option gated on whether this perf work alone makes the synchronous request acceptable. It adds
   real infrastructure (job store, worker, polling UI) and is an **ADR-first** architecture change

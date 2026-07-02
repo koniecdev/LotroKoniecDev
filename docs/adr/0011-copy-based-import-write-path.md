@@ -108,3 +108,13 @@ existing import transaction; leave everything else as it is (Phase 1 of spec 000
 transition logic in C# as decided here. Introduce the async job (Oś B) via a separate ADR **if** the
 synchronous request proves insufficient even after this speedup. Until each trigger fires:
 COPY-the-baseline now, optimize-the-rest later.
+
+**Amendment (2026-07-02, spec 0006 / #290):** the extraction trigger fired early, and on *memory*
+rather than re-import latency — the first real 79 MB / 792k-row imports OOM-killed tms-api at the
+default 0.25 vCPU / 0.5Gi (prod with an **empty** catalog; incident bridged by the staging-only
+sizing bump of PR #300). Spec 0006 supersedes the buffered pipeline with a streaming two-pass
+import: Pass 1 streams the upload and a compact hashed catalog projection into a value-row plan
+(the tracked `GetAllAsync` read is removed), Pass 2 re-reads the buffered upload and applies the
+plan in chunks inside the same transaction — and this ADR's `COPY` port takes a **stream**
+(`IAsyncEnumerable<Translation>`) instead of a materialized list. Everything else here stands,
+including the pre-commitment that the source-change transition stays in C#.

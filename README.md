@@ -5,7 +5,7 @@
 > game-patching **CLI** that injects the approved translation back into the game.
 
 ![.NET 10](https://img.shields.io/badge/.NET-10-512BD4?logo=dotnet&logoColor=white)
-![C# 13](https://img.shields.io/badge/C%23-13-239120?logo=csharp&logoColor=white)
+![C# 14](https://img.shields.io/badge/C%23-14-239120?logo=csharp&logoColor=white)
 ![Blazor SSR](https://img.shields.io/badge/Blazor-Static%20SSR-5C2D91?logo=blazor&logoColor=white)
 ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-EF%20Core-4169E1?logo=postgresql&logoColor=white)
 ![OpenIddict](https://img.shields.io/badge/Auth-OpenIddict%20OIDC-FF6F00)
@@ -32,10 +32,10 @@ It is built as **two cooperating products** that share a single versioned file c
    approved Polish file from the TMS, injects it back into the `DAT`, and launches the game.
    *(Section at the bottom.)*
 
-> **For reviewers:** this is a from-scratch, production-deployed **.NET 10** system used to
-> demonstrate Domain-Driven Design, Vertical Slice Architecture, CQRS, a Result-monad error model,
-> a self-hosted OAuth2/OIDC server, Blazor static SSR, reverse-engineered binary-format handling,
-> and full Infrastructure-as-Code + CI/CD on Azure. Architecture notes are in each section and in
+> **Under the hood:** a from-scratch, production-deployed **.NET 10** system built on Domain-Driven
+> Design, Vertical Slice Architecture, CQRS, a Result-monad error model, a self-hosted OAuth2/OIDC
+> server, Blazor static SSR, reverse-engineered binary-format handling, and full
+> Infrastructure-as-Code + CI/CD on Azure. Architecture notes are in each section and in
 > [`docs/`](docs/).
 
 ### How it works — the core loop
@@ -87,7 +87,7 @@ The web application at the heart of the project — where the human translation 
 
 | Area | Choice |
 |---|---|
-| **Language / runtime** | .NET 10, C# 13, ASP.NET Core Minimal APIs |
+| **Language / runtime** | .NET 10, C# 14, ASP.NET Core Minimal APIs |
 | **Application architecture** | **Vertical Slice Architecture** — one feature = endpoint + command/query + handler; **no MediatR** (a small in-house messaging abstraction instead — [ADR-0001](docs/adr)) |
 | **Domain** | **DDD** aggregates + value objects (no primitive obsession); business failures are **values, not exceptions** (a `Result`/`Error` monad) |
 | **Persistence** | **PostgreSQL** + EF Core (Fluent API only); **CQRS** read/write split — queries read POCO read-models, commands mutate aggregates via repositories + unit of work |
@@ -224,6 +224,6 @@ is planned. Backlog and milestones: GitHub issues (`M{milestone}-{nn}` titles).
 
 ## License & disclaimer
 
-Personal portfolio project © Artur Koniec. *The Lord of the Rings Online* and all related names and
+Open-source fan project © Artur Koniec. *The Lord of the Rings Online* and all related names and
 content are trademarks of **Standing Stone Games**; this is an unofficial, non-commercial fan tool,
 not affiliated with or endorsed by SSG or Middle-earth Enterprises.

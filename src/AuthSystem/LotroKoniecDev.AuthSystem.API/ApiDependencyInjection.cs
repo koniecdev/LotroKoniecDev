@@ -11,6 +11,7 @@ using LotroKoniecDev.AuthSystem.API.Features.Auth;
 using LotroKoniecDev.AuthSystem.API.Hateoas.AccountAggregateFactories;
 using LotroKoniecDev.AuthSystem.API.Hateoas.DiscoveryFactories;
 using LotroKoniecDev.AuthSystem.API.Services.Emails;
+using LotroKoniecDev.AuthSystem.API.Services.Maintenance;
 using LotroKoniecDev.AuthSystem.API.Services.Sessions;
 using LotroKoniecDev.AuthSystem.API.Settings;
 using LotroKoniecDev.AuthSystem.Contracts.Features.Auth.Account;
@@ -76,6 +77,10 @@ internal static class ApiDependencyInjection
             services.AddScoped<IAccountConfirmationEmailSender, AccountConfirmationEmailSender>();
 
             services.AddScoped<IUserSessionRevoker, UserSessionRevoker>();
+
+            // PERF-02: reference refresh tokens accumulate one row per refresh and are never
+            // deleted otherwise; prune expired/invalid tokens and authorizations daily.
+            services.AddHostedService<OpenIddictPruneService>();
 
             // Fail-fast startup validation of the OpenIddict server config (ADR-0008 §3, M6-05): the
             // OpenIddictSettingsValidator enforces the production key material / issuer and names the

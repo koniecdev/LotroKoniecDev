@@ -184,7 +184,6 @@ public sealed class E2ETestFixture : IAsyncLifetime
             .WithEnvironment("Auth__Issuer", "http://auth-api:8080")
             .WithEnvironment("Auth__Authority", "http://auth-api:8080")
             .WithEnvironment("Auth__Audience", Audience)
-            .WithEnvironment("Bootstrap__Enabled", "false")
             // Short debounce so the background artifact rebuild (PERF-04) converges fast; the
             // download polls stay meaningful while the suite stays quick.
             .WithEnvironment("TranslationFileRebuild__DebounceWindow", "00:00:00.100")

@@ -3,9 +3,8 @@ namespace LotroKoniecDev.TranslationSystem.API.Parsing;
 internal interface ITranslationExportParser
 {
     /// <summary>
-    /// Parses the whole upload into memory. Kept for the bootstrap seeder's much smaller
-    /// <c>polish.txt</c> (spec 0006) — the import streams via
-    /// <see cref="ParseLinesAsync"/> instead.
+    /// Parses the whole upload into memory in one pass. The import path streams via
+    /// <see cref="ParseLinesAsync"/> instead (spec 0006).
     /// </summary>
     Task<ParsedExport> ParseAsync(Stream stream, CancellationToken cancellationToken);
 

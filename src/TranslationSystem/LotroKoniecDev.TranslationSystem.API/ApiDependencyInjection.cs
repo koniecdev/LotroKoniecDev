@@ -18,7 +18,6 @@ using LotroKoniecDev.TranslationSystem.API.Auth.CurrentUserAccessing;
 using LotroKoniecDev.TranslationSystem.API.Auth.Provisioning;
 using LotroKoniecDev.TranslationSystem.API.ExceptionHandlers;
 using LotroKoniecDev.TranslationSystem.API.Extensions;
-using LotroKoniecDev.TranslationSystem.API.Features.Bootstrap;
 using LotroKoniecDev.TranslationSystem.API.Features.GameVersions;
 using LotroKoniecDev.TranslationSystem.API.Features.Import;
 using LotroKoniecDev.TranslationSystem.API.Features.Progress;
@@ -90,7 +89,6 @@ internal static class ApiDependencyInjection
             services.AddTranslationsFeature();
             services.AddTranslationFilesFeature();
             services.AddGameVersionsFeature();
-            services.AddBootstrapFeature();
 
             return services;
         }
@@ -193,12 +191,6 @@ internal static class ApiDependencyInjection
 
             services.AddScoped<IValidator<DeleteGameVersion.Command>, DeleteGameVersion.Validator>();
             services.AddScoped<ICommandHandler<DeleteGameVersion.Command, Result>, DeleteGameVersion.Handler>();
-        }
-
-        private void AddBootstrapFeature()
-        {
-            services.AddOptions<BootstrapSettings>().BindConfiguration(BootstrapSettings.ConfigurationSection);
-            services.AddScoped<IPolishTranslationSeeder, PolishTranslationSeeder>();
         }
 
         public IServiceCollection AddJwtBearerAuthentication(IWebHostEnvironment environment)

@@ -108,11 +108,17 @@ internal sealed partial class LoginModel : PageModel
 
         await _userManager.ResetAccessFailedCountAsync(user);
 
+        // Carry the Identity security stamp so the auth cookie's OnValidatePrincipal
+        // (SecurityStampCookieValidator) can evict this session the moment the stamp rotates on a
+        // password reset/change/delete — otherwise a still-live cookie could mint fresh tokens (SEC-03).
+        string securityStamp = await _userManager.GetSecurityStampAsync(user);
+
         List<Claim> claims =
         [
             new(ClaimTypes.NameIdentifier, user.Id.ToString()),
             new(ClaimTypes.Name, user.UserName!),
-            new(ClaimTypes.Email, user.Email ?? string.Empty)
+            new(ClaimTypes.Email, user.Email ?? string.Empty),
+            new(_userManager.Options.ClaimsIdentity.SecurityStampClaimType, securityStamp)
         ];
 
         IList<string> roles = await _userManager.GetRolesAsync(user);

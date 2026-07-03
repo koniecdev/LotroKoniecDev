@@ -35,6 +35,18 @@ internal sealed class TranslationRepository : GenericRepository<Translation, Tra
         FROM translation."Translations"
         """;
 
+    /// <summary>
+    /// The bootstrap-seed sibling of <see cref="SourceDigestQuery"/> (PERF-06): it drops the source
+    /// triple and reads the current Polish text instead, so the seed can decide the idempotent
+    /// already-approved case from memory. Same schema-drift caveat — the column list must track
+    /// <c>TranslationConfiguration</c>.
+    /// </summary>
+    private const string CatalogEntryQuery =
+        """
+        SELECT "Id", "FileId", "GossipId", "Status", "TranslatedText", "RemovedInVersion"
+        FROM translation."Translations"
+        """;
+
     public TranslationRepository(ApplicationWriteDbContext db) : base(db)
     {
     }
@@ -73,6 +85,37 @@ internal sealed class TranslationRepository : GenericRepository<Translation, Tra
                 SourceHash.Compute(text, argsOrder, argsId),
                 Enum.Parse<TranslationStatus>(reader.GetString(6)),
                 !reader.IsDBNull(7));
+        }
+    }
+
+    /// <summary>
+    /// The bootstrap-seed twin of <see cref="StreamSourceDigestsAsync"/> (PERF-06): same raw-Npgsql
+    /// streaming — buffered-reader retry would materialize the whole catalog and OOM the constrained
+    /// bootstrap container — reading the current Polish text and status the merge decides on rather
+    /// than the source hash. It forfeits retry for the same reason: it runs before any write, so a
+    /// transient fault just fails the one-time seed and the next start retries it (idempotent).
+    /// </summary>
+    public async IAsyncEnumerable<StoredTranslationEntry> StreamCatalogEntriesAsync(
+        [EnumeratorCancellation] CancellationToken cancellationToken)
+    {
+        NpgsqlConnection connection = (NpgsqlConnection)DbContext.Database.GetDbConnection();
+        if (connection.State != ConnectionState.Open)
+        {
+            await connection.OpenAsync(cancellationToken);
+        }
+
+        await using NpgsqlCommand command = new(CatalogEntryQuery, connection);
+        command.CommandTimeout = (int)SourceDigestReadTimeout.TotalSeconds;
+
+        await using NpgsqlDataReader reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            yield return new StoredTranslationEntry(
+                TranslationId.FromValue(reader.GetGuid(0)),
+                new FragmentKeyValue(reader.GetInt32(1), reader.GetInt64(2)),
+                Enum.Parse<TranslationStatus>(reader.GetString(3)),
+                reader.IsDBNull(4) ? null : reader.GetString(4),
+                !reader.IsDBNull(5));
         }
     }
 

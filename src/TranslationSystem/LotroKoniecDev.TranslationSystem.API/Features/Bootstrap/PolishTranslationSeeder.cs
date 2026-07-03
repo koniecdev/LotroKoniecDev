@@ -3,14 +3,17 @@ using LotroKoniecDev.SharedKernel.StronglyTypedIds;
 using LotroKoniecDev.TranslationSystem.API.Parsing;
 using LotroKoniecDev.TranslationSystem.Domain.Aggregates.TranslationAggregate.Entities;
 using LotroKoniecDev.TranslationSystem.Domain.Aggregates.TranslationAggregate.Repositories;
+using LotroKoniecDev.TranslationSystem.Domain.Aggregates.TranslationAggregate.Services;
 using LotroKoniecDev.TranslationSystem.Domain.Aggregates.TranslationAggregate.ValueObjects;
 using LotroKoniecDev.TranslationSystem.Domain.Aggregates.TranslatorAggregate.Entities;
 using LotroKoniecDev.TranslationSystem.Domain.Aggregates.TranslatorAggregate.Repositories;
 using LotroKoniecDev.TranslationSystem.Domain.Aggregates.TranslatorAggregate.ValueObjects;
 using LotroKoniecDev.TranslationSystem.Persistence.DbContexts.Abstractions;
+using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.TranslationAggregate;
 using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.TranslationAggregate.Enums;
 using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.TranslatorAggregate;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 
 namespace LotroKoniecDev.TranslationSystem.API.Features.Bootstrap;
 
@@ -20,6 +23,9 @@ namespace LotroKoniecDev.TranslationSystem.API.Features.Bootstrap;
 /// and provides+approves the Polish content, stamping a well-known system principal. It is
 /// merge-only — a line with no baseline row is reported, never inserted — and idempotent: an
 /// already-approved identical row is left untouched, so re-running updates and never duplicates.
+/// The whole catalog is read once into an in-memory view and every line is decided from memory
+/// (PERF-06): only the rows that actually change are then reloaded as tracked aggregates in bounded
+/// id-chunks, so the round-trips scale with the changed set, not the file.
 /// </summary>
 internal sealed class PolishTranslationSeeder : IPolishTranslationSeeder
 {
@@ -41,6 +47,7 @@ internal sealed class PolishTranslationSeeder : IPolishTranslationSeeder
     private readonly ITranslatorRepository _translatorRepository;
     private readonly IUnitOfWork _unitOfWork;
     private readonly TimeProvider _timeProvider;
+    private readonly BootstrapSettings _settings;
     private readonly ILogger<PolishTranslationSeeder> _logger;
 
     public PolishTranslationSeeder(
@@ -49,6 +56,7 @@ internal sealed class PolishTranslationSeeder : IPolishTranslationSeeder
         ITranslatorRepository translatorRepository,
         IUnitOfWork unitOfWork,
         TimeProvider timeProvider,
+        IOptions<BootstrapSettings> settings,
         ILogger<PolishTranslationSeeder> logger)
     {
         _parser = parser;
@@ -56,6 +64,7 @@ internal sealed class PolishTranslationSeeder : IPolishTranslationSeeder
         _translatorRepository = translatorRepository;
         _unitOfWork = unitOfWork;
         _timeProvider = timeProvider;
+        _settings = settings.Value;
         _logger = logger;
     }
 
@@ -83,10 +92,16 @@ internal sealed class PolishTranslationSeeder : IPolishTranslationSeeder
 
         TranslatorId systemTranslatorId = systemTranslatorResult.Value;
 
+        // One untracked pass over the whole catalog into an in-memory view keyed by fragment identity
+        // (PERF-06): every polish.txt line is then decided from memory, replacing the per-line
+        // GetByFragmentKeyAsync round-trip (tens of thousands during bootstrap).
+        Dictionary<FragmentKeyValue, StoredTranslationEntry> catalog = await LoadCatalogAsync(cancellationToken);
+
         int approved = 0;
         int alreadyApproved = 0;
         int skippedRemoved = 0;
         List<string> unmatched = [];
+        Dictionary<TranslationId, string> approvalsById = [];
 
         foreach (ParsedExportRow row in parsed.Rows)
         {
@@ -98,46 +113,45 @@ internal sealed class PolishTranslationSeeder : IPolishTranslationSeeder
             }
 
             FragmentKey key = keyResult.Value;
-            Maybe<Translation> existing = await _translationRepository.GetByFragmentKeyAsync(key, cancellationToken);
+            FragmentKeyValue keyValue = FragmentKeyValue.From(key);
 
             // Merge-only (#28): a line without a baseline row is reported, never inserted.
-            if (existing.HasNoValue)
+            if (!catalog.TryGetValue(keyValue, out StoredTranslationEntry entry))
             {
                 unmatched.Add(key.ToString());
                 continue;
             }
 
-            Translation translation = existing.Value;
-
             // A soft-removed row is out of the distributed set and cannot be approved; leave it be.
-            if (translation.IsRemoved)
+            if (entry.IsRemoved)
             {
                 skippedRemoved++;
                 continue;
             }
 
             // Idempotent re-run: an identical already-approved row needs no write.
-            if (translation.Status is TranslationStatus.Approved
-                && string.Equals(translation.TranslatedText, row.Content, StringComparison.Ordinal))
+            if (entry.Status is TranslationStatus.Approved
+                && string.Equals(entry.TranslatedText, row.Content, StringComparison.Ordinal))
             {
                 alreadyApproved++;
                 continue;
             }
 
-            // Any other matched state is (re)written to the seeded Polish and approved under the
-            // system principal. The bootstrap targets a fresh/empty DB (#28), so in practice this only
-            // ever fills Untranslated baseline rows — it does not race a live translator's draft.
-            translation.ProvideTranslation(row.Content, systemTranslatorId, now);
-            Result approveResult = translation.Approve(systemTranslatorId, now);
-            if (approveResult.IsFailure)
-            {
-                return Result.Failure<PolishSeedSummary>(approveResult.Error);
-            }
-
+            // Any other matched state is queued to be (re)written to the seeded Polish and approved
+            // under the system principal (the bootstrap targets a fresh/empty DB (#28), so in practice
+            // this only ever fills Untranslated baseline rows). The in-memory view is advanced so a
+            // later duplicate line for the same key sees this outcome — exactly as the old per-line
+            // loop saw its own tracked mutation — and the last write wins on the persisted row.
             approved++;
+            catalog[keyValue] = entry with { Status = TranslationStatus.Approved, TranslatedText = row.Content };
+            approvalsById[entry.Id] = row.Content;
         }
 
-        await _unitOfWork.SaveChangesAsync(cancellationToken);
+        Result applyResult = await ApplyApprovalsInChunksAsync(approvalsById, systemTranslatorId, now, cancellationToken);
+        if (applyResult.IsFailure)
+        {
+            return Result.Failure<PolishSeedSummary>(applyResult.Error);
+        }
 
         PolishSeedSummary summary = new(approved, alreadyApproved, skippedRemoved, unmatched);
         _logger.LogInformation(
@@ -146,6 +160,72 @@ internal sealed class PolishTranslationSeeder : IPolishTranslationSeeder
             summary.Approved, summary.AlreadyApproved, summary.SkippedRemoved, summary.Unmatched.Count);
 
         return Result.Success(summary);
+    }
+
+    /// <summary>
+    /// Streams the whole catalog once into an in-memory view keyed by fragment identity (PERF-06),
+    /// the single read that replaces the old per-line lookup.
+    /// </summary>
+    private async Task<Dictionary<FragmentKeyValue, StoredTranslationEntry>> LoadCatalogAsync(CancellationToken cancellationToken)
+    {
+        Dictionary<FragmentKeyValue, StoredTranslationEntry> catalog = [];
+        await foreach (StoredTranslationEntry entry in _translationRepository.StreamCatalogEntriesAsync(cancellationToken))
+        {
+            catalog[entry.Key] = entry;
+        }
+
+        return catalog;
+    }
+
+    /// <summary>
+    /// Reloads only the rows the merge changes as tracked aggregates, in bounded id-chunks
+    /// (<see cref="BootstrapSettings.SeedChunkSize"/>), and mutates each through the domain methods
+    /// before saving and clearing the tracker per chunk — so the working set scales with the changed
+    /// set, not the catalog (PERF-06). Each chunk commits on its own; a mid-way failure leaves a
+    /// partial seed the idempotent re-run completes. Unlike the import's chunked apply
+    /// (<c>ExecuteInTransactionAsync</c>), this deliberately skips a wrapping transaction: the seed has
+    /// no bulk-<c>COPY</c> leg to enlist, runs once before the app serves traffic and is idempotent, so
+    /// per-chunk commits keep the <c>Approve</c>-failure path a clean <see cref="Result"/>
+    /// (no throw through a transaction seam) at no real atomicity cost.
+    /// </summary>
+    private async Task<Result> ApplyApprovalsInChunksAsync(
+        Dictionary<TranslationId, string> approvalsById,
+        TranslatorId systemTranslatorId,
+        DateTimeOffset now,
+        CancellationToken cancellationToken)
+    {
+        if (approvalsById.Count == 0)
+        {
+            return Result.Success();
+        }
+
+        List<TranslationId> ids = [.. approvalsById.Keys];
+        for (int offset = 0; offset < ids.Count; offset += _settings.SeedChunkSize)
+        {
+            int chunkSize = Math.Min(_settings.SeedChunkSize, ids.Count - offset);
+            List<TranslationId> chunk = new(chunkSize);
+            for (int index = 0; index < chunkSize; index++)
+            {
+                chunk.Add(ids[offset + index]);
+            }
+
+            IReadOnlyList<Translation> translations = await _translationRepository.GetByIdsAsync(chunk, cancellationToken);
+            foreach (Translation translation in translations)
+            {
+                string translatedText = approvalsById[translation.Id];
+                translation.ProvideTranslation(translatedText, systemTranslatorId, now);
+                Result approveResult = translation.Approve(systemTranslatorId, now);
+                if (approveResult.IsFailure)
+                {
+                    return approveResult;
+                }
+            }
+
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
+            _unitOfWork.ClearChangeTracker();
+        }
+
+        return Result.Success();
     }
 
     /// <summary>

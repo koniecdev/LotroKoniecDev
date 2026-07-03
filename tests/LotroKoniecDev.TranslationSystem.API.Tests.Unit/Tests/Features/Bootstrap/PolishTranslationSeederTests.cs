@@ -4,11 +4,13 @@ using LotroKoniecDev.TranslationSystem.API.Features.Bootstrap;
 using LotroKoniecDev.TranslationSystem.API.Parsing;
 using LotroKoniecDev.TranslationSystem.Domain.Aggregates.TranslationAggregate.Entities;
 using LotroKoniecDev.TranslationSystem.Domain.Aggregates.TranslationAggregate.Repositories;
+using LotroKoniecDev.TranslationSystem.Domain.Aggregates.TranslationAggregate.Services;
 using LotroKoniecDev.TranslationSystem.Domain.Aggregates.TranslationAggregate.ValueObjects;
 using LotroKoniecDev.TranslationSystem.Domain.Aggregates.TranslatorAggregate.Entities;
 using LotroKoniecDev.TranslationSystem.Domain.Aggregates.TranslatorAggregate.Repositories;
 using LotroKoniecDev.TranslationSystem.Persistence.DbContexts.Abstractions;
 using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.GameVersionAggregate;
+using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.TranslationAggregate;
 using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.TranslationAggregate.Enums;
 using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.TranslatorAggregate;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -26,12 +28,18 @@ public sealed class PolishTranslationSeederTests
     private readonly ITranslatorRepository _translatorRepository = Substitute.For<ITranslatorRepository>();
     private readonly IUnitOfWork _unitOfWork = Substitute.For<IUnitOfWork>();
 
+    // The baseline rows the seed sees: the catalog stream projects them, and GetByIdsAsync hands back
+    // the very same tracked instances the assertions inspect.
+    private readonly List<Translation> _baseline = [];
+
     private Translator? _insertedSystemTranslator;
 
     public PolishTranslationSeederTests()
     {
-        _translationRepository.GetByFragmentKeyAsync(Arg.Any<FragmentKey>(), Arg.Any<CancellationToken>())
-            .Returns(Maybe<Translation>.None);
+        _translationRepository.StreamCatalogEntriesAsync(Arg.Any<CancellationToken>())
+            .Returns(_ => CatalogStream([.. _baseline]));
+        _translationRepository.GetByIdsAsync(Arg.Any<IReadOnlyList<TranslationId>>(), Arg.Any<CancellationToken>())
+            .Returns(callInfo => ResolveByIds(callInfo.Arg<IReadOnlyList<TranslationId>>()));
 
         // No system translator yet — the seed provisions one; capture it to assert the stamped FK.
         _translatorRepository.GetByIdentityIdAsync(Arg.Any<SharedKernel.StronglyTypedIds.IdentityId>(), Arg.Any<CancellationToken>())
@@ -40,13 +48,14 @@ public sealed class PolishTranslationSeederTests
             .Do(callInfo => _insertedSystemTranslator = callInfo.Arg<Translator>());
     }
 
-    private PolishTranslationSeeder CreateSeeder()
+    private PolishTranslationSeeder CreateSeeder(int seedChunkSize = 5_000)
         => new(
             new TranslationExportParser(),
             _translationRepository,
             _translatorRepository,
             _unitOfWork,
             TimeProvider.System,
+            Microsoft.Extensions.Options.Options.Create(new BootstrapSettings { SeedChunkSize = seedChunkSize }),
             NullLogger<PolishTranslationSeeder>.Instance);
 
     private static Stream Seed(params string[] lines)
@@ -70,9 +79,26 @@ public sealed class PolishTranslationSeederTests
         return row;
     }
 
-    private void GivenBaseline(Translation row)
-        => _translationRepository.GetByFragmentKeyAsync(row.FragmentKey, Arg.Any<CancellationToken>())
-            .Returns(Maybe<Translation>.From(row));
+    // A polish.txt line resolves to a baseline row (the seed then approves it) — register the row so
+    // both the catalog projection and the chunked tracked-load see the same instance.
+    private void GivenBaseline(Translation row) => _baseline.Add(row);
+
+    private static async IAsyncEnumerable<StoredTranslationEntry> CatalogStream(params Translation[] rows)
+    {
+        await Task.Yield();
+        foreach (Translation row in rows)
+        {
+            yield return new StoredTranslationEntry(
+                row.Id,
+                FragmentKeyValue.From(row.FragmentKey),
+                row.Status,
+                row.TranslatedText,
+                row.IsRemoved);
+        }
+    }
+
+    private IReadOnlyList<Translation> ResolveByIds(IReadOnlyList<TranslationId> ids)
+        => _baseline.Where(row => ids.Contains(row.Id)).ToList();
 
     [Fact]
     public async Task SeedAsync_WhenLineMatchesBaselineRow_ShouldApproveWithSystemTranslatorAttribution()
@@ -208,5 +234,68 @@ public sealed class PolishTranslationSeederTests
         // Assert
         result.IsFailure.ShouldBeTrue();
         result.Error.Code.ShouldBe("Bootstrap.PolishSeedInvalidRow");
+    }
+
+    [Fact]
+    public async Task SeedAsync_WhenChangedRowsSpanMultipleChunks_ShouldReadCatalogOnceAndLoadTrackedRowsInIdChunks()
+    {
+        // Arrange — three baseline rows to approve; a chunk size of two forces two id-chunk loads.
+        Translation row1 = BaselineRow(1);
+        Translation row2 = BaselineRow(2);
+        Translation row3 = BaselineRow(3);
+        GivenBaseline(row1);
+        GivenBaseline(row2);
+        GivenBaseline(row3);
+
+        // Act
+        Result<PolishSeedSummary> result = await CreateSeeder(seedChunkSize: 2)
+            .SeedAsync(Seed(Line(1, "Jeden"), Line(2, "Dwa"), Line(3, "Trzy")), CancellationToken.None);
+
+        // Assert — all three approved, the catalog is read exactly once, and the tracked rows arrive in
+        // two id-chunks (ceil(3/2)) rather than one round-trip per line (PERF-06).
+        result.Value.Approved.ShouldBe(3);
+        row1.Status.ShouldBe(TranslationStatus.Approved);
+        row2.Status.ShouldBe(TranslationStatus.Approved);
+        row3.Status.ShouldBe(TranslationStatus.Approved);
+        _translationRepository.Received(1).StreamCatalogEntriesAsync(Arg.Any<CancellationToken>());
+        await _translationRepository.Received(2).GetByIdsAsync(Arg.Any<IReadOnlyList<TranslationId>>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task SeedAsync_WhenDuplicateKeyWithDifferentContent_ShouldApproveEachLineAndPersistTheLastWrite()
+    {
+        // Arrange — one baseline row; the file repeats its key with two different translations. The
+        // in-memory view is advanced per line, so the second line sees the first as already Approved.
+        Translation row = BaselineRow(1);
+        GivenBaseline(row);
+
+        // Act
+        Result<PolishSeedSummary> result = await CreateSeeder()
+            .SeedAsync(Seed(Line(1, "Pierwsza"), Line(1, "Druga")), CancellationToken.None);
+
+        // Assert — each line counts as an approval (as the old per-line loop did) and the last write wins.
+        result.Value.Approved.ShouldBe(2);
+        result.Value.AlreadyApproved.ShouldBe(0);
+        row.TranslatedText.ShouldBe("Druga");
+        row.Status.ShouldBe(TranslationStatus.Approved);
+    }
+
+    [Fact]
+    public async Task SeedAsync_WhenDuplicateKeyWithIdenticalContent_ShouldApproveOnceAndCountTheRepeatAsAlreadyApproved()
+    {
+        // Arrange — one baseline row; the file repeats its key with the same translation twice.
+        Translation row = BaselineRow(1);
+        GivenBaseline(row);
+
+        // Act
+        Result<PolishSeedSummary> result = await CreateSeeder()
+            .SeedAsync(Seed(Line(1, "Ta sama"), Line(1, "Ta sama")), CancellationToken.None);
+
+        // Assert — the first line approves, the second sees that in-memory approval and is skipped as
+        // idempotent (matching the old loop, whose second lookup returned the just-approved row).
+        result.Value.Approved.ShouldBe(1);
+        result.Value.AlreadyApproved.ShouldBe(1);
+        row.TranslatedText.ShouldBe("Ta sama");
+        row.Status.ShouldBe(TranslationStatus.Approved);
     }
 }

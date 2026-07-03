@@ -26,4 +26,12 @@ internal sealed class BootstrapSettings
 
     /// <summary>Path to the production Polish translations merged onto the baseline as Approved.</summary>
     public string PolishTextPath { get; init; } = "translations/polish.txt";
+
+    /// <summary>
+    /// How many rows the Polish seed's apply pass mutates per chunk (load by id → provide + approve →
+    /// save → clear tracker), bounding the working set no matter how many rows the merge changes
+    /// (PERF-06, mirroring <c>ImportSettings.ApplyChunkSize</c>). Default sits in the same 2–5k band;
+    /// configurable mainly so tests can force chunk boundaries cheaply.
+    /// </summary>
+    public int SeedChunkSize { get; init; } = 5_000;
 }

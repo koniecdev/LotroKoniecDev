@@ -26,7 +26,7 @@ public static class PersistenceDependencyInjection
             services.AddSingleton<IValidator<ConnectionStringSettings>, ConnectionStringSettingsValidator>();
             services.AddOptionsWithFluentValidation<ConnectionStringSettings>(ConnectionStringSettings.ConfigurationSection);
 
-            services.AddDbContext<ApplicationWriteDbContext>((sp, options) =>
+            services.AddDbContextPool<ApplicationWriteDbContext>((sp, options) =>
                 options.UseNpgsql(
                     sp.GetRequiredService<IOptions<ConnectionStringSettings>>().Value.TranslationDatabase,
                     npgsqlOptions =>
@@ -39,7 +39,7 @@ public static class PersistenceDependencyInjection
                         npgsqlOptions.MigrationsHistoryTable("__EFMigrationsHistory", DatabaseSchemas.Translation);
                     }));
 
-            services.AddDbContext<ApplicationReadDbContext>((sp, options) =>
+            services.AddDbContextPool<ApplicationReadDbContext>((sp, options) =>
                 options.UseNpgsql(
                         sp.GetRequiredService<IOptions<ConnectionStringSettings>>().Value.TranslationDatabase,
                         npgsqlOptions =>

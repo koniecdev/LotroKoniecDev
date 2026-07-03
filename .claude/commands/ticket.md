@@ -39,10 +39,23 @@ Work GitHub ticket **#$ARGUMENTS** end-to-end, BRD/spec-driven. Follow this loop
 - **Trivial** (crisp small bug/refactor with unambiguous AC): say a spec is overkill, write a
   3-line inline brief in your reply instead, and proceed.
 
-## 4. Branch
+## 4. Branch — always a fresh feature branch off main; never commit to main
 
-`gh issue develop <n> --checkout` — creates the linked `{n}-{kebab-title}` branch off main.
-(If it exists, just check it out.)
+**Never work on `main` directly, and never lose uncommitted work.** Before cutting the ticket
+branch, get to a clean tree off a fresh `main`:
+
+- **Dirty working copy? Preserve it first — never discard it, never commit it to `main`:**
+  - On `main` (or a detached HEAD): create a salvage branch to hold the work so nothing lands on
+    `main` — `git switch -c salvage/<short-desc>`.
+  - On a feature branch already: keep the changes there (it isn't `main`).
+  - `git add -A` and commit with a logical message, `git push -u origin HEAD`, then open a PR from
+    it — a **draft is fine** (`gh pr create --draft --fill`). The point is only that the work
+    survives and is visible, not that it's finished.
+- **Then** land on a fresh `main` and cut the ticket branch off it:
+  - `git switch main && git pull --ff-only` (ff-only — never a merge commit; nothing should ever
+    have been committed to local `main`).
+  - `gh issue develop <n> --base main --checkout` — creates + checks out the linked
+    `{n}-{kebab-title}` branch off `main`. If it already exists, just check it out.
 
 ## 5. Implement
 
@@ -58,13 +71,16 @@ a non-trivial modeling decision emerges mid-flight. Honor every constraint the s
 - Launch the **`code-reviewer`** agent with the ticket's acceptance criteria; fix what it finds.
   Re-run until clean.
 
-## 7. Close the loop
+## 7. Close the loop — commit logically, push, open the PR
 
 - Mark spec **Status: Implemented** (if one exists).
 - Summarize: files changed, acceptance criteria → how each is met, anything deferred.
-- Offer the PR: `gh pr create` with the title mirroring the ticket title and body containing
-  `Closes #<n>` plus a short what/why/test summary. **Ask before pushing or creating the PR** —
-  never push unprompted.
+- **Commit everything in logical commits** on the ticket branch (`git add -A` if needed) — group
+  by concern, not one dump; leave nothing uncommitted.
+- `git push -u origin HEAD`, then **open the PR** (`gh pr create --fill`) with the title mirroring
+  the ticket title and a body containing `Closes #<n>` plus a short what/why/test summary. Mark it
+  ready once the build + tests + `code-reviewer` gate from step 6 is green; leave it **draft** if
+  anything there is still red — but always push, so the work is never lost.
 
 If at any point the ticket turns out to be mis-scoped (wrong layer, contradicts an ADR or the
 knowledge base), stop and report instead of forcing it — propose the correction as a comment

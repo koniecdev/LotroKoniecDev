@@ -15,6 +15,7 @@ using LotroKoniecDev.AuthSystem.API;
 using LotroKoniecDev.AuthSystem.API.Extensions;
 using LotroKoniecDev.AuthSystem.API.Health;
 using LotroKoniecDev.AuthSystem.API.Middleware;
+using LotroKoniecDev.AuthSystem.API.Services.Sessions;
 using LotroKoniecDev.AuthSystem.API.Settings;
 using LotroKoniecDev.AuthSystem.Persistence.Settings;
 using LotroKoniecDev.Logging.Redaction;
@@ -85,6 +86,11 @@ try
         options.Cookie.HttpOnly = true;
         options.Cookie.SameSite = SameSiteMode.Strict;
         options.Cookie.SecurePolicy = CookieSecurePolicy.Always;
+
+        // Revalidate the Identity security stamp on every request so a password reset/change/delete
+        // (which rotates the stamp) evicts a still-live auth cookie before it can mint fresh tokens
+        // via /connect/authorize (SEC-03, #282).
+        options.Events.OnValidatePrincipal = SecurityStampCookieValidator.ValidatePrincipalAsync;
     });
 
     builder.Services.AddAuthorization();

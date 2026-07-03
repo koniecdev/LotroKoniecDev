@@ -3,6 +3,7 @@ using FluentValidation;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http.Features;
+using Microsoft.Extensions.Caching.Hybrid;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Protocols;
 using Microsoft.IdentityModel.Protocols.OpenIdConnect;
@@ -67,6 +68,22 @@ internal static class ApiDependencyInjection
             // Cross-cutting clock shared by every command handler that stamps timestamps
             // (import diff, translation upsert, …) — registered once at the API root, not per feature.
             services.AddSingleton(TimeProvider.System);
+
+            // L1-only HybridCache (PERF-07): no IDistributedCache is registered, so it falls back to
+            // its in-memory store — the translator-provisioning lookup that runs on every authenticated
+            // request is process-local and tiny, and a distributed backend would add latency for no
+            // gain. Mirrors TheKittySaver's AuthSystem HybridCache setup; the short TTL is set here as
+            // the default and restated at the provisioning call site.
+            services.AddHybridCache(options =>
+            {
+                options.MaximumPayloadBytes = 1024 * 64;
+                options.MaximumKeyLength = 256;
+                options.DefaultEntryOptions = new HybridCacheEntryOptions
+                {
+                    Expiration = TimeSpan.FromMinutes(5),
+                    LocalCacheExpiration = TimeSpan.FromMinutes(5)
+                };
+            });
 
             services.AddImportFeature();
             services.AddProgressFeature();

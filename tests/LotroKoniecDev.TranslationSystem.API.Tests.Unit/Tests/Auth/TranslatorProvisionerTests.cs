@@ -8,6 +8,8 @@ using LotroKoniecDev.TranslationSystem.Domain.Aggregates.TranslatorAggregate.Val
 using LotroKoniecDev.TranslationSystem.Persistence.DbContexts.Abstractions;
 using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.TranslatorAggregate;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Hybrid;
+using Microsoft.Extensions.DependencyInjection;
 using NSubstitute;
 using NSubstitute.ExceptionExtensions;
 
@@ -27,7 +29,20 @@ public sealed class TranslatorProvisionerTests
         => Translator.Create(Identity, DisplayName.Create(displayName).Value, email: null, Now).Value;
 
     private TranslatorProvisioner CreateProvisioner(StubCurrentUserAccessor accessor)
-        => new(accessor, _translatorRepository, _unitOfWork, new FixedTimeProvider(Now));
+        => CreateProvisioner(accessor, CreateHybridCache());
+
+    private TranslatorProvisioner CreateProvisioner(StubCurrentUserAccessor accessor, HybridCache hybridCache)
+        => new(accessor, _translatorRepository, _unitOfWork, new FixedTimeProvider(Now), hybridCache);
+
+    // A fresh in-memory (L1-only) HybridCache per provisioner keeps each test isolated. The default
+    // real implementation is a purely in-process memory store, so the unit test stays pure (no I/O).
+    private static HybridCache CreateHybridCache()
+    {
+        ServiceCollection services = new();
+        services.AddLogging();
+        services.AddHybridCache();
+        return services.BuildServiceProvider().GetRequiredService<HybridCache>();
+    }
 
     private static StubCurrentUserAccessor Accessor(
         ValueMaybe<IdentityId>? identity = null,
@@ -225,6 +240,94 @@ public sealed class TranslatorProvisionerTests
         // Act + Assert
         await Should.ThrowAsync<DbUpdateException>(
             async () => await provisioner.ProvisionCurrentAsync(CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task ProvisionCurrentAsync_WhenCalledTwiceWithUnchangedClaims_ShouldQueryTranslatorsOnlyOnce()
+    {
+        // Arrange — the row already carries the current claims. The first call warms the cache; the
+        // second must resolve from L1 memory without touching the Translators table (PERF-07 steady
+        // state), the behaviour the acceptance criterion pins.
+        Translator existing = Translator.Create(
+            Identity,
+            DisplayName.Create("Aragorn").Value,
+            Email.Create("aragorn@gondor.test").Value,
+            Now).Value;
+        _translatorRepository.GetByIdentityIdAsync(Identity, Arg.Any<CancellationToken>())
+            .Returns(Maybe<Translator>.From(existing));
+        TranslatorProvisioner provisioner = CreateProvisioner(Accessor());
+
+        // Act
+        Result<TranslatorId> first = await provisioner.ProvisionCurrentAsync(CancellationToken.None);
+        Result<TranslatorId> second = await provisioner.ProvisionCurrentAsync(CancellationToken.None);
+
+        // Assert — both resolve the same id and the second call skipped the DB entirely: the Translators
+        // lookup ran exactly once across the two authenticated requests. Nothing observable in the
+        // returned id distinguishes a cache hit from a re-query, so the call count is the only proof.
+        first.IsSuccess.ShouldBeTrue();
+        second.IsSuccess.ShouldBeTrue();
+        second.Value.ShouldBe(first.Value);
+        await _translatorRepository.Received(1).GetByIdentityIdAsync(Identity, Arg.Any<CancellationToken>());
+    }
+
+    [Theory]
+    [InlineData("Strider", "ranger@rivendell.test", "Aragorn", "ranger@rivendell.test")] // display name only
+    [InlineData("Aragorn", "before@gondor.test", "Aragorn", "after@gondor.test")]        // email only
+    [InlineData("Strider", "strider@rangers.test", "Aragorn", "aragorn@gondor.test")]    // both
+    public async Task ProvisionCurrentAsync_WhenAClaimChangesBetweenRequests_ShouldBypassCacheAndRefreshProfile(
+        string firstName, string firstEmail, string secondName, string secondEmail)
+    {
+        // Arrange — one identity, one process-wide cache, two requests. The existing row starts on the
+        // first request's exact claims (so that request only warms the cache), then a later request
+        // changes the display name, the email, or both. Two provisioners sharing a cache model two
+        // scoped requests over the singleton HybridCache; the existing row is returned on every lookup.
+        Translator existing = Translator.Create(
+            Identity,
+            DisplayName.Create(firstName).Value,
+            Email.Create(firstEmail).Value,
+            Now).Value;
+        _translatorRepository.GetByIdentityIdAsync(Identity, Arg.Any<CancellationToken>())
+            .Returns(Maybe<Translator>.From(existing));
+        HybridCache sharedCache = CreateHybridCache();
+        TranslatorProvisioner firstRequest =
+            CreateProvisioner(Accessor(username: firstName, email: firstEmail), sharedCache);
+        TranslatorProvisioner secondRequest =
+            CreateProvisioner(Accessor(username: secondName, email: secondEmail), sharedCache);
+
+        // Act — the first request warms the cache with the first fingerprint; the second presents a
+        // changed fingerprint, so the cached value is bypassed and the profile refreshed.
+        await firstRequest.ProvisionCurrentAsync(CancellationToken.None);
+        Result<TranslatorId> afterChange = await secondRequest.ProvisionCurrentAsync(CancellationToken.None);
+
+        // Assert — the profile converged on the latest claims (existing behaviour preserved). Had the
+        // stale entry been served the refresh would never have run, so the converged state is itself the
+        // proof the changed fingerprint bypassed the cache — whether the name, the email, or both moved.
+        afterChange.IsSuccess.ShouldBeTrue();
+        existing.DisplayName.Value.ShouldBe(secondName);
+        existing.Email.ShouldNotBeNull();
+        existing.Email.Value.ShouldBe(secondEmail);
+    }
+
+    [Fact]
+    public async Task ProvisionCurrentAsync_WhenFirstResolutionThrows_ShouldNotCacheAndRetryOnNextCall()
+    {
+        // Arrange — the first call fails with a non-race DB fault (no committed row to fall back on),
+        // so it throws and must cache nothing; the second call with identical claims must resolve live.
+        _translatorRepository.GetByIdentityIdAsync(Identity, Arg.Any<CancellationToken>())
+            .Returns(Maybe<Translator>.None);
+        _unitOfWork.SaveChangesAsync(Arg.Any<CancellationToken>())
+            .Returns(_ => throw new DbUpdateException("transient failure"), _ => Task.FromResult(1));
+        TranslatorProvisioner provisioner = CreateProvisioner(Accessor());
+
+        // Act — the first call bubbles the fault; the second succeeds against the live row.
+        await Should.ThrowAsync<DbUpdateException>(
+            async () => await provisioner.ProvisionCurrentAsync(CancellationToken.None));
+        Result<TranslatorId> second = await provisioner.ProvisionCurrentAsync(CancellationToken.None);
+
+        // Assert — the failure was never cached: the second call re-ran the full resolution (a fresh
+        // insert attempt), proving no cached entry short-circuited it.
+        second.IsSuccess.ShouldBeTrue();
+        _translatorRepository.Received(2).Insert(Arg.Any<Translator>());
     }
 
     private sealed class FixedTimeProvider : TimeProvider

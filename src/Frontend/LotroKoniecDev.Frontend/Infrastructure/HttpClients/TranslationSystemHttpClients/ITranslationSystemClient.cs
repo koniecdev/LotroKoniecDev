@@ -10,11 +10,6 @@ namespace LotroKoniecDev.Frontend.Infrastructure.HttpClients.TranslationSystemHt
 internal interface ITranslationSystemClient
 {
     /// <summary>
-    /// Calls the anonymous <c>GET /health</c> endpoint to confirm the API is reachable and healthy.
-    /// </summary>
-    Task<ApiResult<HealthStatusResponse>> GetHealthAsync(CancellationToken cancellationToken = default);
-
-    /// <summary>
     /// Fetches the HATEOAS discovery root (<c>GET /</c>) — the entry point pages use to resolve links.
     /// </summary>
     Task<ApiResult<DiscoveryResponse>> GetDiscoveryAsync(CancellationToken cancellationToken = default);

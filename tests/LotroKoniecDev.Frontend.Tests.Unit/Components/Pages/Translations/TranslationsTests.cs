@@ -1,3 +1,4 @@
+using System.Reflection;
 using AngleSharp.Dom;
 using Bunit.TestDoubles;
 using LotroKoniecDev.Frontend.Components.Pages.Translations;
@@ -9,6 +10,7 @@ using LotroKoniecDev.TranslationSystem.Contracts.Hateoas;
 using LotroKoniecDev.TranslationSystem.Contracts.Translations;
 using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.TranslationAggregate;
 using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.TranslationAggregate.Enums;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.Extensions.DependencyInjection;
 using NSubstitute;
 using TranslationsComponent = LotroKoniecDev.Frontend.Components.Pages.Translations.Translations;
@@ -30,6 +32,14 @@ public sealed class TranslationsTests : BunitContext
         Services.AddSingleton(_client);
         Services.AddScoped<TranslationListLoader>();
         AddAuthorization().SetAuthorized("Frodo");
+    }
+
+    [Fact]
+    public void Translations_AreBrowsableAnonymously_ByContract()
+    {
+        // The list is the public read-only face of the catalog (#309) — a regression to [Authorize]
+        // would hide every translation behind the login wall again.
+        typeof(TranslationsComponent).GetCustomAttribute<AllowAnonymousAttribute>().ShouldNotBeNull();
     }
 
     [Fact]

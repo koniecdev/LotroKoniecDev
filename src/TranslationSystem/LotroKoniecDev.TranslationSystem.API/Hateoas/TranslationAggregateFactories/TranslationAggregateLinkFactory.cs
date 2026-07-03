@@ -16,9 +16,21 @@ internal sealed class TranslationAggregateLinkFactory : ITranslationAggregateLin
         _linkFactory = linkFactory;
     }
 
-    public List<LinkDto> CreateTranslationLinks(TranslationId id, TranslationStatus status, bool isRemoved, bool callerIsAdmin)
+    public List<LinkDto> CreateTranslationLinks(
+        TranslationId id,
+        TranslationStatus status,
+        bool isRemoved,
+        bool callerIsTranslator,
+        bool callerIsAdmin)
     {
         List<LinkDto> links = [];
+
+        // Anonymous read-only browsing (#309): every transition — including self, whose target GET
+        // is translator-only — needs authentication, so a non-translator caller gets no links.
+        if (!callerIsTranslator)
+        {
+            return links;
+        }
 
         links.AddIfPresent(_linkFactory.Create(
             endpoint: nameof(GetTranslation),

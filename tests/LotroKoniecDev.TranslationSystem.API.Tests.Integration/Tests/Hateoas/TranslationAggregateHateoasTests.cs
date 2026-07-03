@@ -187,6 +187,26 @@ public sealed class TranslationAggregateHateoasTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task ListTranslations_Anonymously_ItemsCarryNoLinks_ButPagerLinksRemain()
+    {
+        // Arrange — the public read-only list (#309): items must not advertise transitions an
+        // anonymous visitor cannot take (self targets the translator-only detail GET), while the
+        // envelope keeps its pagination navigation, which is plain browsing.
+        Translation row = await SeedAsync(Row(1, "Aragorn", TranslationStatus.Draft));
+
+        // Act
+        PaginationResponse<TranslationListItemResponse> response =
+            await GetHateoasAsync<PaginationResponse<TranslationListItemResponse>>(
+                _factory.CreateClient(), "/api/v1/translations?page=1&pageSize=50");
+
+        // Assert
+        response.Items.First(i => i.Id == row.Id).Links.ShouldBeEmpty();
+        response.Links.ShouldContain(l => l.Rel == Rels.Self && l.Method == "GET");
+        response.Links.ShouldContain(l => l.Rel == Rels.FirstPage);
+        response.Links.ShouldContain(l => l.Rel == Rels.LastPage);
+    }
+
+    [Fact]
     public async Task ListTranslations_AsTranslator_ItemsDoNotAdvertiseApprove()
     {
         // Arrange

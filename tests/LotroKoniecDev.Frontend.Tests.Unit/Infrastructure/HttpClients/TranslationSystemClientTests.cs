@@ -9,32 +9,18 @@ public sealed class TranslationSystemClientTests
     private const string BaseUrl = "https://localhost:5002/";
 
     [Fact]
-    public async Task GetHealthAsync_WhenApiReportsHealthy_ReturnsSuccessWithStatus()
+    public async Task GetApiResultAsync_RequestsTheUriRelativeToTheBaseAddress()
     {
         StubHttpMessageHandler handler = StubHttpMessageHandler.RespondWith(
             HttpStatusCode.OK,
-            """{ "status": "Healthy", "totalDuration": "00:00:00.01", "checks": [] }""");
+            """{ "value": 1 }""");
         ITranslationSystemClient client = CreateClient(handler);
 
-        ApiResult<HealthStatusResponse> result = await client.GetHealthAsync();
-
-        result.IsSuccess.ShouldBeTrue();
-        result.Value.Status.ShouldBe("Healthy");
-    }
-
-    [Fact]
-    public async Task GetHealthAsync_RequestsTheHealthEndpointRelativeToTheBaseAddress()
-    {
-        StubHttpMessageHandler handler = StubHttpMessageHandler.RespondWith(
-            HttpStatusCode.OK,
-            """{ "status": "Healthy" }""");
-        ITranslationSystemClient client = CreateClient(handler);
-
-        await client.GetHealthAsync();
+        await client.GetApiResultAsync<object>("api/v1/anything");
 
         handler.LastRequest.ShouldNotBeNull();
         handler.LastRequest!.Method.ShouldBe(HttpMethod.Get);
-        handler.LastRequest.RequestUri.ShouldBe(new Uri("https://localhost:5002/health"));
+        handler.LastRequest.RequestUri.ShouldBe(new Uri("https://localhost:5002/api/v1/anything"));
     }
 
     [Fact]
@@ -50,14 +36,14 @@ public sealed class TranslationSystemClientTests
     }
 
     [Fact]
-    public async Task GetHealthAsync_WhenApiReturnsServiceUnavailable_ReturnsFailureWithProblemDetails()
+    public async Task GetApiResultAsync_WhenApiReturnsServiceUnavailable_ReturnsFailureWithProblemDetails()
     {
         StubHttpMessageHandler handler = StubHttpMessageHandler.RespondWith(
             HttpStatusCode.ServiceUnavailable,
             """{ "title": "Unhealthy", "status": 503 }""");
         ITranslationSystemClient client = CreateClient(handler);
 
-        ApiResult<HealthStatusResponse> result = await client.GetHealthAsync();
+        ApiResult<object> result = await client.GetApiResultAsync<object>("api/v1/anything");
 
         result.IsFailure.ShouldBeTrue();
         result.ProblemDetails.ShouldNotBeNull();

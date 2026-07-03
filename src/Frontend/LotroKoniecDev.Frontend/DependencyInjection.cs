@@ -3,6 +3,7 @@ using FluentValidation;
 using LotroKoniecDev.Frontend.Components.Pages.Dashboard;
 using LotroKoniecDev.Frontend.Components.Pages.Editor;
 using LotroKoniecDev.Frontend.Components.Pages.GameVersions;
+using LotroKoniecDev.Frontend.Components.Pages.Home;
 using LotroKoniecDev.Frontend.Components.Pages.ImportExport;
 using LotroKoniecDev.Frontend.Components.Pages.Translations;
 using LotroKoniecDev.Frontend.Infrastructure.Auth;
@@ -30,6 +31,7 @@ public static class DependencyInjection
             services.AddScoped<TranslationListLoader>();
             services.AddScoped<TranslationEditorLoader>();
             services.AddScoped<DashboardStatsLoader>();
+            services.AddScoped<HomeProgressLoader>();
             services.AddScoped<ImportExportLoader>();
             services.AddScoped<GameVersionsLoader>();
 

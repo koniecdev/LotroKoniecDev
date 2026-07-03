@@ -27,7 +27,9 @@ namespace LotroKoniecDev.TranslationSystem.API.Features.Translations;
 /// source or Polish translation) and status-filtered, sorted deterministically by
 /// <c>(FileId, GossipId)</c>. Soft-removed rows are excluded; <c>status=NeedsReview</c> is the
 /// "needs re-translation" view (rows a game update invalidated). Reads the POCO read model — never
-/// the write aggregate (CQRS, ADR-0002 amendment).
+/// the write aggregate (CQRS, ADR-0002 amendment). Anonymous callers may browse read-only (#309):
+/// the data is public by nature (game texts + their translations), while every transition stays
+/// authenticated — non-translator callers receive items without any HATEOAS action links.
 /// </summary>
 internal sealed class ListTranslations : IEndpoint
 {
@@ -164,13 +166,14 @@ internal sealed class ListTranslations : IEndpoint
 
                 PaginationResponse<TranslationListItemResponse> response = result.Value;
                 bool callerIsAdmin = user.IsInRole(AuthConstants.Roles.Admin);
+                bool callerIsTranslator = callerIsAdmin || user.IsInRole(AuthConstants.Roles.Translator);
 
                 return HateoasResults.Ok(response, paged =>
                 {
                     foreach (TranslationListItemResponse item in paged.Items)
                     {
                         item.Links = translationLinkFactory.CreateTranslationLinks(
-                            item.Id, item.Status, isRemoved: false, callerIsAdmin);
+                            item.Id, item.Status, isRemoved: false, callerIsTranslator, callerIsAdmin);
                     }
 
                     paged.Links = paginationLinkFactory.CreatePaginationLinks(
@@ -179,7 +182,7 @@ internal sealed class ListTranslations : IEndpoint
             })
             .WithName(nameof(ListTranslations))
             .WithTags("Translations")
-            .RequireAuthorization(AuthorizationPolicies.RequireTranslatorRole)
+            .AllowAnonymous()
             .Produces<PaginationResponse<TranslationListItemResponse>>(StatusCodes.Status200OK)
             .ProducesProblem(StatusCodes.Status400BadRequest);
     }

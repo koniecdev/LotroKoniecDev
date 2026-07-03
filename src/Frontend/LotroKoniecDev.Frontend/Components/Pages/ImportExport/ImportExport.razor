@@ -36,7 +36,8 @@
                 <code class="mono">patch</code> patchera.
             </p>
             <div class="editor-actions">
-                <a class="btn btn-primary" href="@DownloadPath" download="@ImportExportLoader.DownloadFileName">
+                <a class="btn btn-primary" href="@ImportExportEndpointsExtensions.DownloadPath"
+                   download="@ImportExportLoader.DownloadFileName">
                     Pobierz @ImportExportLoader.DownloadFileName
                 </a>
             </div>
@@ -197,9 +198,6 @@
 
 @code
 {
-    /// <summary>The Frontend server route that streams the artifact as a named file download.</summary>
-    private const string DownloadPath = "/import-export/download";
-
     [SupplyParameterFromForm(FormName = "import-export")]
     private ImportFormModel? ImportInput { get; set; }
 

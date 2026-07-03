@@ -4,7 +4,6 @@ namespace LotroKoniecDev.Frontend.Infrastructure.HttpClients.TranslationSystemHt
 
 internal sealed class TranslationSystemClient : ITranslationSystemClient
 {
-    private const string HealthRelativeUri = "health";
     private const string DiscoveryRelativeUri = "";
 
     private readonly HttpClient _httpClient;
@@ -12,11 +11,6 @@ internal sealed class TranslationSystemClient : ITranslationSystemClient
     public TranslationSystemClient(HttpClient httpClient)
     {
         _httpClient = httpClient;
-    }
-
-    public Task<ApiResult<HealthStatusResponse>> GetHealthAsync(CancellationToken cancellationToken = default)
-    {
-        return _httpClient.GetApiResultAsync<HealthStatusResponse>(HealthRelativeUri, cancellationToken);
     }
 
     public Task<ApiResult<DiscoveryResponse>> GetDiscoveryAsync(CancellationToken cancellationToken = default)

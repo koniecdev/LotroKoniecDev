@@ -136,7 +136,7 @@ public sealed class ImportExportTests : BunitContext
         IRenderedComponent<ImportExportComponent> component = RenderPage();
 
         component.FindAll("input[type=file]").ShouldBeEmpty();
-        component.Find(".status-down").TextContent.ShouldContain("Nie udało się wczytać wersji.");
+        component.Find(".error-message").TextContent.ShouldContain("Nie udało się wczytać wersji.");
         component.Find("a[download]").GetAttribute("href").ShouldBe("/import-export/download");
     }
 

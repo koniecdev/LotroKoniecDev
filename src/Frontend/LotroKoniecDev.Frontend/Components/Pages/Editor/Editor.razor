@@ -11,169 +11,190 @@
 @using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.TranslationAggregate
 @inject TranslationEditorLoader Loader
 
-<PageTitle>Edytor tłumaczenia — LotroKoniecDev</PageTitle>
+<PageTitle>Edytor tłumaczenia — lotro-translator.pl</PageTitle>
 
-<section class="page-head">
-    <h1>Edytor tłumaczenia</h1>
-    <p class="lede">
-        Po lewej tekst angielski (do odczytu), po prawej Twoje tłumaczenie. Zachowaj znaczniki
-        <code class="ph-token">@PlaceholderAnalyzer.Placeholder</code> w niezmienionej postaci.
-    </p>
-    <a class="btn btn-ghost btn-sm" href="/translations">← Wróć do listy</a>
+<section class="container page-head">
+    <div>
+        <h1>Edytor tłumaczenia</h1>
+        <p class="lede">
+            Po lewej tekst angielski (do odczytu), po prawej Twoje tłumaczenie. Zachowaj znaczniki
+            <code class="ph-token">@PlaceholderAnalyzer.Placeholder</code> w niezmienionej postaci.
+        </p>
+    </div>
+    <div class="head-actions">
+        <a class="btn btn-ghost" href="/translations">← Wróć do listy</a>
+    </div>
 </section>
 
-@if (_detail is null)
-{
-    @if (_saveProblem is not null && _draftText is not null)
+<section class="container content-wrap">
+    @if (_detail is null)
     {
-        @* Recovery path: the row could not be reloaded AND the save failed in the same request.
-           Surface the error and keep the translator's typed text in a resubmittable form so it is
-           never silently lost (the hidden key fields survived the post). *@
-        <section class="panel">
-            <p class="status-line status-down" role="alert">
-                <span class="dot"></span>@(_saveProblem.Title ?? "Nie udało się zapisać tłumaczenia.")
-            </p>
-        </section>
-        <section class="panel editor-pane">
-            <h2 class="editor-pane-title">Tłumaczenie polskie</h2>
-            <form method="post" @formname="save-translation" @onsubmit="SaveAsync">
-                <AntiforgeryToken/>
-                <input type="hidden" name="FileIdField" value="@FileIdField"/>
-                <input type="hidden" name="GossipIdField" value="@GossipIdField"/>
-                <label class="visually-hidden" for="translated-recovery">Tłumaczenie polskie</label>
-                <textarea id="translated-recovery" name="DraftField" class="editor-textarea mono" rows="8"
-                          placeholder="Wpisz tłumaczenie…">@_draftText</textarea>
-                <div class="editor-actions">
-                    <button type="submit" class="btn btn-primary">Zapisz ponownie</button>
+        @if (_saveProblem is not null && _draftText is not null)
+        {
+            @* Recovery path: the row could not be reloaded AND the save failed in the same request.
+               Surface the error and keep the translator's typed text in a resubmittable form so it is
+               never silently lost (the hidden key fields survived the post). *@
+            <div class="error-message" role="alert">
+                <span class="em-ico" aria-hidden="true">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z"/>
+                        <path d="M12 9v4"/><path d="M12 17h.01"/>
+                    </svg>
+                </span>
+                <div class="em-body">
+                    <span class="t">@(_saveProblem.Title ?? "Nie udało się zapisać tłumaczenia.")</span>
                 </div>
-            </form>
-        </section>
-    }
-    else if (_loadProblem is not null)
-    {
-        <section class="panel">
-            <p class="status-line status-down" role="alert">
-                <span class="dot"></span>@(_loadProblem.Title ?? "Nie udało się wczytać tłumaczenia.")
-            </p>
-        </section>
-    }
-    else
-    {
-        <section class="results-meta">
+            </div>
+            <section class="panel">
+                <header class="panel-head">
+                    <h2>Tłumaczenie polskie</h2>
+                    <span class="panel-aside">Wersja robocza</span>
+                </header>
+                <div class="panel-body">
+                    <form method="post" @formname="save-translation" @onsubmit="SaveAsync">
+                        <AntiforgeryToken/>
+                        <input type="hidden" name="FileIdField" value="@FileIdField"/>
+                        <input type="hidden" name="GossipIdField" value="@GossipIdField"/>
+                        <label class="visually-hidden" for="translated-recovery">Tłumaczenie polskie</label>
+                        <textarea id="translated-recovery" name="DraftField" class="editor-textarea mono" rows="8"
+                                  placeholder="Wpisz tłumaczenie…">@_draftText</textarea>
+                        <div class="editor-actions" style="margin-top: 12px;">
+                            <button type="submit" class="btn btn-primary">Zapisz ponownie</button>
+                        </div>
+                    </form>
+                </div>
+            </section>
+        }
+        else if (_loadProblem is not null)
+        {
+            <div class="error-message" role="alert">
+                <span class="em-ico" aria-hidden="true">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z"/>
+                        <path d="M12 9v4"/><path d="M12 17h.01"/>
+                    </svg>
+                </span>
+                <div class="em-body">
+                    <span class="t">@(_loadProblem.Title ?? "Nie udało się wczytać tłumaczenia.")</span>
+                </div>
+            </div>
+        }
+        else
+        {
             <div class="loading-indicator">
                 <span class="li-spin"></span> Wczytywanie tłumaczenia…
             </div>
-        </section>
+        }
     }
-}
-else
-{
-    TranslationDetailResponse detail = _detail;
-    PlaceholderComparison comparison = PlaceholderAnalyzer.Compare(detail.SourceText, _draftText ?? detail.TranslatedText);
-
-    <section class="results-meta">
-        <span class="count">FileId <strong class="mono">@detail.FileId</strong></span>
-        <span class="count">GossipId <strong class="mono">@detail.GossipId</strong></span>
-        <span class="badge @TranslationStatusDisplay.BadgeClass(detail.Status)">
-            <span class="dot"></span>@TranslationStatusDisplay.Label(detail.Status)
-        </span>
-    </section>
-
-    @if (_saveProblem is not null)
+    else
     {
-        <section class="panel">
-            <p class="status-line status-down" role="alert">
-                <span class="dot"></span>@(_saveProblem.Title ?? "Nie udało się zapisać tłumaczenia.")
-            </p>
-        </section>
-    }
-    else if (_saved)
-    {
-        <section class="panel">
-            <p class="status-line status-ok" role="status">
-                <span class="dot"></span>Tłumaczenie zapisano.
-            </p>
-        </section>
-    }
+        TranslationDetailResponse detail = _detail;
+        PlaceholderComparison comparison = PlaceholderAnalyzer.Compare(detail.SourceText, _draftText ?? detail.TranslatedText);
 
-    @if (_approveProblem is not null)
-    {
-        <section class="panel">
-            <p class="status-line status-down" role="alert">
-                <span class="dot"></span>@(_approveProblem.Title ?? "Nie udało się zatwierdzić tłumaczenia.")
-            </p>
-        </section>
-    }
-    else if (_approved)
-    {
-        <section class="panel">
-            <p class="status-line status-ok" role="status">
-                <span class="dot"></span>Tłumaczenie zatwierdzono i dołączono do dystrybucji.
-            </p>
-        </section>
-    }
+        <div class="results-meta">
+            <span class="count">FileId <strong class="mono">@detail.FileId</strong></span>
+            <span class="count">GossipId <strong class="mono">@detail.GossipId</strong></span>
+            <span class="badge @TranslationStatusDisplay.BadgeClass(detail.Status)">
+                <span class="dot"></span>@TranslationStatusDisplay.Label(detail.Status)
+            </span>
+        </div>
 
-    @if (!comparison.IsMatch)
-    {
-        <section class="panel">
-            <p class="status-line status-warning" role="alert">
-                <span class="dot"></span>
-                Liczba znaczników się nie zgadza: w tekście angielskim @comparison.SourceCount,
-                w tłumaczeniu @comparison.TranslatedCount. Zachowaj każdy znacznik
-                <code class="ph-token">@PlaceholderAnalyzer.Placeholder</code>.
-            </p>
-        </section>
-    }
+        @if (_saveProblem is not null)
+        {
+            <div class="status-message status-error" role="alert">
+                <p>@(_saveProblem.Title ?? "Nie udało się zapisać tłumaczenia.")</p>
+            </div>
+        }
+        else if (_saved)
+        {
+            <div class="status-message status-success" role="status">
+                <p>Tłumaczenie zapisano.</p>
+            </div>
+        }
 
-    <div class="editor-grid">
-        <section class="panel editor-pane">
-            <h2 class="editor-pane-title">Tekst angielski</h2>
-            <div class="editor-source">@RenderHighlighted(detail.SourceText)</div>
+        @if (_approveProblem is not null)
+        {
+            <div class="status-message status-error" role="alert">
+                <p>@(_approveProblem.Title ?? "Nie udało się zatwierdzić tłumaczenia.")</p>
+            </div>
+        }
+        else if (_approved)
+        {
+            <div class="status-message status-success" role="status">
+                <p>Tłumaczenie zatwierdzono i dołączono do dystrybucji.</p>
+            </div>
+        }
 
-            @if (!string.IsNullOrEmpty(detail.PreviousSourceText))
-            {
-                <div class="editor-superseded">
-                    <h3 class="editor-pane-subtitle">Poprzednia wersja angielska (do porównania)</h3>
-                    <div class="editor-source is-superseded">@RenderHighlighted(detail.PreviousSourceText)</div>
+        @if (!comparison.IsMatch)
+        {
+            <div class="status-message status-warning" role="alert">
+                <p>
+                    Liczba znaczników się nie zgadza: w tekście angielskim @comparison.SourceCount,
+                    w tłumaczeniu @comparison.TranslatedCount. Zachowaj każdy znacznik
+                    <code class="ph-token">@PlaceholderAnalyzer.Placeholder</code>.
+                </p>
+            </div>
+        }
+
+        <div class="editor-grid">
+            <section class="panel">
+                <header class="panel-head">
+                    <h2>Tekst angielski</h2>
+                    <span class="panel-aside">Oryginał</span>
+                </header>
+                <div class="panel-body">
+                    <div class="editor-source">@RenderHighlighted(detail.SourceText)</div>
+
+                    @if (!string.IsNullOrEmpty(detail.PreviousSourceText))
+                    {
+                        <div class="editor-superseded">
+                            <h3 class="editor-pane-subtitle">Poprzednia wersja angielska (do porównania)</h3>
+                            <div class="editor-source is-superseded">@RenderHighlighted(detail.PreviousSourceText)</div>
+                        </div>
+                    }
                 </div>
-            }
-        </section>
+            </section>
 
-        <section class="panel editor-pane">
-            <h2 class="editor-pane-title">Tłumaczenie polskie</h2>
+            <section class="panel">
+                <header class="panel-head">
+                    <h2>Tłumaczenie polskie</h2>
+                    <span class="panel-aside">Edycja</span>
+                </header>
+                <div class="panel-body">
+                    @{
+                        LinkDto? upsertLink = detail.Links.FindLink(Rels.Upsert);
+                    }
+                    @if (upsertLink is not null)
+                    {
+                        <form method="post" @formname="save-translation" @onsubmit="SaveAsync">
+                            <AntiforgeryToken/>
+                            <input type="hidden" name="FileIdField" value="@detail.FileId"/>
+                            <input type="hidden" name="GossipIdField" value="@detail.GossipId"/>
+                            <label class="visually-hidden" for="translated">Tłumaczenie polskie</label>
+                            <textarea id="translated" name="DraftField" class="editor-textarea mono" rows="8"
+                                      placeholder="Wpisz tłumaczenie…">@(_draftText ?? detail.TranslatedText)</textarea>
+                            <div class="editor-actions" style="margin-top: 12px;">
+                                <button type="submit" class="btn btn-primary">Zapisz</button>
+                            </div>
+                        </form>
+                    }
+                    else
+                    {
+                        <p class="text-dim">Ten wiersz jest tylko do odczytu.</p>
+                    }
 
-            @{
-                LinkDto? upsertLink = detail.Links.FindLink(Rels.Upsert);
-            }
-            @if (upsertLink is not null)
-            {
-                <form method="post" @formname="save-translation" @onsubmit="SaveAsync">
-                    <AntiforgeryToken/>
-                    <input type="hidden" name="FileIdField" value="@detail.FileId"/>
-                    <input type="hidden" name="GossipIdField" value="@detail.GossipId"/>
-                    <label class="visually-hidden" for="translated">Tłumaczenie polskie</label>
-                    <textarea id="translated" name="DraftField" class="editor-textarea mono" rows="8"
-                              placeholder="Wpisz tłumaczenie…">@(_draftText ?? detail.TranslatedText)</textarea>
-                    <div class="editor-actions">
-                        <button type="submit" class="btn btn-primary">Zapisz</button>
-                    </div>
-                </form>
-            }
-            else
-            {
-                <p class="text-dim">Ten wiersz jest tylko do odczytu.</p>
-            }
-
-            @if (detail.Links.HasLink(Rels.Approve))
-            {
-                <form method="post" @formname="approve-translation" @onsubmit="ApproveAsync" class="editor-approve">
-                    <AntiforgeryToken/>
-                    <button type="submit" class="btn btn-ghost">Zatwierdź</button>
-                </form>
-            }
-        </section>
-    </div>
-}
+                    @if (detail.Links.HasLink(Rels.Approve))
+                    {
+                        <form method="post" @formname="approve-translation" @onsubmit="ApproveAsync" class="editor-approve">
+                            <AntiforgeryToken/>
+                            <button type="submit" class="btn btn-ghost">Zatwierdź</button>
+                        </form>
+                    }
+                </div>
+            </section>
+        </div>
+    }
+</section>
 
 @code
 {

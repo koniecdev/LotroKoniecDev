@@ -10,171 +10,187 @@
 @using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.TranslationAggregate.Enums
 @inject TranslationListLoader Loader
 
-<PageTitle>Tłumaczenia — LotroKoniecDev</PageTitle>
+<PageTitle>Tłumaczenia — lotro-translator.pl</PageTitle>
 
-<section class="page-head">
-    <h1>Tłumaczenia</h1>
-    <p class="lede">Przeglądaj, wyszukuj i filtruj teksty zaimportowane z gry.</p>
+<section class="container page-head">
+    <div>
+        <h1>Tłumaczenia</h1>
+        <p class="lede">Przeglądaj, wyszukuj i filtruj teksty zaimportowane z gry.</p>
+    </div>
 </section>
 
-<section class="panel filters">
-    <form method="get" class="filter-form">
-        <div class="filter-field filter-search">
-            <label for="search">Wyszukaj</label>
-            <input id="search" name="search" type="search" value="@_query.Search"
-                   placeholder="Tekst angielski lub polski…" autocomplete="off"/>
-        </div>
-        <div class="filter-field">
-            <label for="status">Status</label>
-            <select id="status" name="status">
-                <option value="">Wszystkie</option>
-                @foreach (TranslationStatus status in TranslationStatusDisplay.FilterableStatuses)
-                {
-                    <option value="@status" selected="@(_query.Status == status)">
-                        @TranslationStatusDisplay.Label(status)
-                    </option>
-                }
-            </select>
-        </div>
-        <div class="filter-actions">
-            <button type="submit" class="btn btn-primary">Filtruj</button>
-            <a class="btn btn-ghost" href="/translations">Wyczyść</a>
-        </div>
-    </form>
+<section class="filter-wrap">
+    <div class="container">
+        <form class="filter" method="get">
+            <div class="field">
+                <label for="search">Wyszukaj</label>
+                <input id="search" name="search" type="search" value="@_query.Search"
+                       placeholder="Tekst angielski lub polski…" autocomplete="off"/>
+            </div>
+            <div class="field">
+                <label for="status">Status</label>
+                <div class="select-wrap">
+                    <select id="status" name="status">
+                        <option value="">Wszystkie</option>
+                        @foreach (TranslationStatus status in TranslationStatusDisplay.FilterableStatuses)
+                        {
+                            <option value="@status" selected="@(_query.Status == status)">
+                                @TranslationStatusDisplay.Label(status)
+                            </option>
+                        }
+                    </select>
+                    <span class="select-chev" aria-hidden="true">▾</span>
+                </div>
+            </div>
+            <div class="filter-actions">
+                <a class="btn btn-ghost" href="/translations">Wyczyść</a>
+                <button type="submit" class="btn btn-primary">Filtruj</button>
+            </div>
+        </form>
+    </div>
 </section>
 
-@if (_result is null)
-{
-    <section class="results-meta">
+<section class="container content-wrap">
+    @if (_result is null)
+    {
         <div class="loading-indicator">
             <span class="li-spin"></span> Wczytywanie tłumaczeń…
         </div>
-    </section>
-}
-else if (_result.IsFailure)
-{
-    <section class="panel">
-        <p class="status-line status-down" role="alert">
-            <span class="dot"></span>
-            @(_result.ProblemDetails?.Title ?? "Nie udało się wczytać tłumaczeń.")
-        </p>
-    </section>
-}
-else
-{
-    PaginationResponse<TranslationListItemResponse> pageData = _result.Value;
-
-    <section class="results-meta">
-        <span class="count">Znaleziono: <strong>@pageData.TotalCount</strong></span>
-        @if (pageData.TotalPages > 0)
-        {
-            <span class="count">Strona @pageData.Page z @pageData.TotalPages</span>
-        }
-    </section>
-
-    @if (pageData.Items.Count == 0)
+    }
+    else if (_result.IsFailure)
     {
-        <section class="panel">
-            <div class="empty">
-                <h2>Brak wyników</h2>
-                <p>Żadne tłumaczenie nie pasuje do wybranych kryteriów.</p>
+        <div class="error-message" role="alert">
+            <span class="em-ico" aria-hidden="true">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z"/>
+                    <path d="M12 9v4"/><path d="M12 17h.01"/>
+                </svg>
+            </span>
+            <div class="em-body">
+                <span class="t">@(_result.ProblemDetails?.Title ?? "Nie udało się wczytać tłumaczeń.")</span>
             </div>
-        </section>
+        </div>
     }
     else
     {
-        <section class="table-wrap">
-            <table class="data-table">
-                <thead>
-                    <tr>
-                        <th scope="col" class="col-num">FileId</th>
-                        <th scope="col" class="col-num">GossipId</th>
-                        <th scope="col">Tekst angielski</th>
-                        <th scope="col">Tłumaczenie polskie</th>
-                        <th scope="col" class="col-status">Status</th>
-                        <th scope="col" class="col-actions"><span class="visually-hidden">Akcje</span></th>
-                    </tr>
-                </thead>
-                <tbody>
-                    @foreach (TranslationListItemResponse item in pageData.Items)
-                    {
-                        <tr>
-                            <td class="col-num mono">@item.FileId</td>
-                            <td class="col-num mono">@item.GossipId</td>
-                            <td class="col-text">@item.SourceText</td>
-                            <td class="col-text">
-                                @if (string.IsNullOrWhiteSpace(item.TranslatedText))
-                                {
-                                    <span class="text-dim">—</span>
-                                }
-                                else
-                                {
-                                    @item.TranslatedText
-                                }
-                            </td>
-                            <td class="col-status">
-                                <span class="badge @TranslationStatusDisplay.BadgeClass(item.Status)">
-                                    <span class="dot"></span>@TranslationStatusDisplay.Label(item.Status)
-                                </span>
-                            </td>
-                            <td class="col-actions">
-                                @if (item.Links.HasLink(Rels.Upsert))
-                                {
-                                    <a class="btn btn-ghost btn-sm" href="@EditorHref(item)">Edytuj</a>
-                                }
-                            </td>
-                        </tr>
-                    }
-                </tbody>
-            </table>
-        </section>
+        PaginationResponse<TranslationListItemResponse> pageData = _result.Value;
 
-        @* The pager controls' availability is driven by the server's pagination link rels (#158); the
-           user-facing /translations?... URLs stay FE-built via ToPageRelativeUri so they remain clean. *@
-        @if (pageData.Links.HasLink(Rels.PreviousPage) || pageData.Links.HasLink(Rels.NextPage))
+        <div class="results-meta">
+            <span class="count">Znaleziono: <strong>@pageData.TotalCount</strong></span>
+            @if (pageData.TotalPages > 0)
+            {
+                <span class="count">Strona @pageData.Page z @pageData.TotalPages</span>
+            }
+        </div>
+
+        @if (pageData.Items.Count == 0)
         {
-            <nav class="pager" aria-label="Stronicowanie">
-                @if (pageData.Links.HasLink(Rels.FirstPage))
-                {
-                    <a class="btn btn-ghost" href="@_query.ToPageRelativeUri(1)" rel="first">« Pierwsza</a>
-                }
-                else
-                {
-                    <span class="btn btn-ghost is-disabled" aria-disabled="true">« Pierwsza</span>
-                }
+            <div class="empty">
+                <span class="empty-glyph" aria-hidden="true">
+                    <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                        <circle cx="11" cy="11" r="8"/>
+                        <path d="m21 21-4.3-4.3"/>
+                    </svg>
+                </span>
+                <h2>Brak wyników</h2>
+                <p>Żadne tłumaczenie nie pasuje do wybranych kryteriów.</p>
+            </div>
+        }
+        else
+        {
+            <div class="table-wrap">
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th scope="col" class="col-num">FileId</th>
+                            <th scope="col" class="col-num">GossipId</th>
+                            <th scope="col">Tekst angielski</th>
+                            <th scope="col">Tłumaczenie polskie</th>
+                            <th scope="col" class="col-status">Status</th>
+                            <th scope="col" class="col-actions"><span class="visually-hidden">Akcje</span></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (TranslationListItemResponse item in pageData.Items)
+                        {
+                            <tr>
+                                <td class="col-num mono">@item.FileId</td>
+                                <td class="col-num mono">@item.GossipId</td>
+                                <td class="col-text">@item.SourceText</td>
+                                <td class="col-text">
+                                    @if (string.IsNullOrWhiteSpace(item.TranslatedText))
+                                    {
+                                        <span class="text-dim">—</span>
+                                    }
+                                    else
+                                    {
+                                        @item.TranslatedText
+                                    }
+                                </td>
+                                <td class="col-status">
+                                    <span class="badge @TranslationStatusDisplay.BadgeClass(item.Status)">
+                                        <span class="dot"></span>@TranslationStatusDisplay.Label(item.Status)
+                                    </span>
+                                </td>
+                                <td class="col-actions">
+                                    @if (item.Links.HasLink(Rels.Upsert))
+                                    {
+                                        <a class="btn btn-ghost btn-sm" href="@EditorHref(item)">Edytuj</a>
+                                    }
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
 
-                @if (pageData.Links.HasLink(Rels.PreviousPage))
-                {
-                    <a class="btn btn-ghost" href="@_query.ToPageRelativeUri(pageData.Page - 1)" rel="prev">← Poprzednia</a>
-                }
-                else
-                {
-                    <span class="btn btn-ghost is-disabled" aria-disabled="true">← Poprzednia</span>
-                }
+            @* The pager controls' availability is driven by the server's pagination link rels (#158); the
+               user-facing /translations?... URLs stay FE-built via ToPageRelativeUri so they remain clean. *@
+            @if (pageData.Links.HasLink(Rels.PreviousPage) || pageData.Links.HasLink(Rels.NextPage))
+            {
+                <nav class="pager" aria-label="Stronicowanie">
+                    @if (pageData.Links.HasLink(Rels.FirstPage))
+                    {
+                        <a class="btn btn-ghost" href="@_query.ToPageRelativeUri(1)" rel="first">« Pierwsza</a>
+                    }
+                    else
+                    {
+                        <span class="btn btn-ghost is-disabled" aria-disabled="true">« Pierwsza</span>
+                    }
 
-                <span class="pager-status">@pageData.Page / @pageData.TotalPages</span>
+                    @if (pageData.Links.HasLink(Rels.PreviousPage))
+                    {
+                        <a class="btn btn-ghost" href="@_query.ToPageRelativeUri(pageData.Page - 1)" rel="prev">← Poprzednia</a>
+                    }
+                    else
+                    {
+                        <span class="btn btn-ghost is-disabled" aria-disabled="true">← Poprzednia</span>
+                    }
 
-                @if (pageData.Links.HasLink(Rels.NextPage))
-                {
-                    <a class="btn btn-ghost" href="@_query.ToPageRelativeUri(pageData.Page + 1)" rel="next">Następna →</a>
-                }
-                else
-                {
-                    <span class="btn btn-ghost is-disabled" aria-disabled="true">Następna →</span>
-                }
+                    <span class="pager-status">@pageData.Page / @pageData.TotalPages</span>
 
-                @if (pageData.Links.HasLink(Rels.LastPage))
-                {
-                    <a class="btn btn-ghost" href="@_query.ToPageRelativeUri(pageData.TotalPages)" rel="last">Ostatnia »</a>
-                }
-                else
-                {
-                    <span class="btn btn-ghost is-disabled" aria-disabled="true">Ostatnia »</span>
-                }
-            </nav>
+                    @if (pageData.Links.HasLink(Rels.NextPage))
+                    {
+                        <a class="btn btn-ghost" href="@_query.ToPageRelativeUri(pageData.Page + 1)" rel="next">Następna →</a>
+                    }
+                    else
+                    {
+                        <span class="btn btn-ghost is-disabled" aria-disabled="true">Następna →</span>
+                    }
+
+                    @if (pageData.Links.HasLink(Rels.LastPage))
+                    {
+                        <a class="btn btn-ghost" href="@_query.ToPageRelativeUri(pageData.TotalPages)" rel="last">Ostatnia »</a>
+                    }
+                    else
+                    {
+                        <span class="btn btn-ghost is-disabled" aria-disabled="true">Ostatnia »</span>
+                    }
+                </nav>
+            }
         }
     }
-}
+</section>
 
 @code
 {

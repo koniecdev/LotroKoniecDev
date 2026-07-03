@@ -11,124 +11,138 @@
 @using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.GameVersionAggregate
 @inject GameVersionsLoader Loader
 
-<PageTitle>Wersje gry — LotroKoniecDev</PageTitle>
+<PageTitle>Wersje gry — lotro-translator.pl</PageTitle>
 
-<section class="page-head">
-    <h1>Wersje gry</h1>
-    <p class="lede">
-        Przeglądaj wykryte wersje gry LOTRO i ich stan w cyklu aktualizacji. Administrator może ręcznie
-        zarejestrować wersję, gdy odczyt z forum jest niedostępny, oraz usunąć błędnie dodaną, jeszcze
-        nieprzetworzoną wersję.
-    </p>
+<section class="container page-head">
+    <div>
+        <h1>Wersje gry</h1>
+        <p class="lede">
+            Przeglądaj wykryte wersje gry LOTRO i ich stan w cyklu aktualizacji. Administrator może ręcznie
+            zarejestrować wersję, gdy odczyt z forum jest niedostępny, oraz usunąć błędnie dodaną, jeszcze
+            nieprzetworzoną wersję.
+        </p>
+    </div>
 </section>
 
-@if (_versionsProblem is not null)
-{
-    <section class="panel">
-        <p class="status-line status-down" role="alert">
-            <span class="dot"></span>@(_versionsProblem.Title ?? "Nie udało się wczytać listy wersji gry.")
-        </p>
-    </section>
-}
-
-@if (_actionProblem is not null)
-{
-    <section class="panel">
-        <p class="status-line status-down" role="alert">
-            <span class="dot"></span>@(_actionProblem.Detail ?? _actionProblem.Title ?? "Operacja nie powiodła się.")
-        </p>
-    </section>
-}
-else if (_actionMessage is not null)
-{
-    <section class="panel">
-        <p class="status-line status-ok" role="status">
-            <span class="dot"></span>@_actionMessage
-        </p>
-    </section>
-}
-
-@* The register affordance is the collection's admin-only `register` rel (#158) — not a local role check. *@
-@if (_canRegister)
-{
-    <section class="panel">
-        <h2>Zarejestruj wersję ręcznie</h2>
-        <p class="lede">
-            Podaj wersję w notacji LOTRO (np. <code class="mono">48.0</code>). Nowa wersja pojawi się jako
-            nieprzetworzona (operacja administratora).
-        </p>
-        <form method="post" @formname="register-version" @onsubmit="RegisterAsync" class="filter-form">
-            <AntiforgeryToken/>
-            <div class="filter-field filter-search">
-                <label for="new-version">Wersja</label>
-                <input id="new-version" name="RegisterInput.Version" type="text"
-                       maxlength="@MaxVersionLength" placeholder="np. 48.0"
-                       value="@(RegisterInput?.Version)" autocomplete="off"/>
+<section class="container content-wrap">
+    @if (_versionsProblem is not null)
+    {
+        <div class="error-message" role="alert">
+            <span class="em-ico" aria-hidden="true">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z"/>
+                    <path d="M12 9v4"/><path d="M12 17h.01"/>
+                </svg>
+            </span>
+            <div class="em-body">
+                <span class="t">@(_versionsProblem.Title ?? "Nie udało się wczytać listy wersji gry.")</span>
             </div>
-            <div class="filter-actions">
-                <button type="submit" class="btn btn-primary">Zarejestruj</button>
-            </div>
-        </form>
-    </section>
-}
+        </div>
+    }
 
-@if (_versions is null && _versionsProblem is null)
-{
-    <section class="results-meta">
+    @if (_actionProblem is not null)
+    {
+        <div class="status-message status-error" role="alert">
+            <p>@(_actionProblem.Detail ?? _actionProblem.Title ?? "Operacja nie powiodła się.")</p>
+        </div>
+    }
+    else if (_actionMessage is not null)
+    {
+        <div class="status-message status-success" role="status">
+            <p>@_actionMessage</p>
+        </div>
+    }
+
+    @* The register affordance is the collection's admin-only `register` rel (#158) — not a local role check. *@
+    @if (_canRegister)
+    {
+        <section class="panel">
+            <header class="panel-head">
+                <h2>Zarejestruj wersję ręcznie</h2>
+                <span class="panel-aside">Operacja administratora</span>
+            </header>
+            <div class="panel-body">
+                <p class="lede">
+                    Podaj wersję w notacji LOTRO (np. <code class="mono">48.0</code>). Nowa wersja pojawi się jako
+                    nieprzetworzona.
+                </p>
+                <form method="post" @formname="register-version" @onsubmit="RegisterAsync" class="form-row">
+                    <AntiforgeryToken/>
+                    <div class="field">
+                        <label for="new-version">Wersja</label>
+                        <input id="new-version" name="RegisterInput.Version" type="text"
+                               maxlength="@MaxVersionLength" placeholder="np. 48.0"
+                               value="@(RegisterInput?.Version)" autocomplete="off"/>
+                    </div>
+                    <div class="filter-actions">
+                        <button type="submit" class="btn btn-primary">Zarejestruj</button>
+                    </div>
+                </form>
+            </div>
+        </section>
+    }
+
+    @if (_versions is null && _versionsProblem is null)
+    {
         <div class="loading-indicator">
             <span class="li-spin"></span> Wczytywanie wersji gry…
         </div>
-    </section>
-}
-else if (_versions is { Count: 0 })
-{
-    <section class="panel">
+    }
+    else if (_versions is { Count: 0 })
+    {
         <div class="empty">
+            <span class="empty-glyph" aria-hidden="true">
+                <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M12 3v18"/>
+                    <path d="M5 8h14"/>
+                    <path d="M5 8a7 7 0 0 0 14 0"/>
+                </svg>
+            </span>
             <h2>Brak wersji gry</h2>
             <p>Nie wykryto jeszcze żadnej wersji gry.</p>
         </div>
-    </section>
-}
-else if (_versions is not null)
-{
-    <section class="table-wrap">
-        <table class="data-table">
-            <thead>
-                <tr>
-                    <th scope="col">Wersja</th>
-                    <th scope="col">Wykryto</th>
-                    <th scope="col" class="col-status">Status</th>
-                    <th scope="col" class="col-actions"><span class="visually-hidden">Akcje</span></th>
-                </tr>
-            </thead>
-            <tbody>
-                @foreach (GameVersionResponse version in _versions)
-                {
+    }
+    else if (_versions is not null)
+    {
+        <div class="table-wrap">
+            <table class="data-table">
+                <thead>
                     <tr>
-                        <td class="mono">@version.Version</td>
-                        <td>@version.DetectedAt.ToString("yyyy-MM-dd HH:mm 'UTC'", CultureInfo.InvariantCulture)</td>
-                        <td class="col-status">
-                            <span class="badge @GameVersionStatusDisplay.BadgeClass(version.Status)">
-                                <span class="dot"></span>@GameVersionStatusDisplay.Label(version.Status)
-                            </span>
-                        </td>
-                        <td class="col-actions">
-                            @* The `delete` rel is emitted only for an admin on an Unprocessed version (#158). *@
-                            @if (version.Links.HasLink(Rels.Delete))
-                            {
-                                <form method="post" @formname="@DeleteFormName(version.Id)"
-                                      @onsubmit="() => DeleteAsync(version.Id)">
-                                    <AntiforgeryToken/>
-                                    <button type="submit" class="btn btn-ghost btn-sm">Usuń</button>
-                                </form>
-                            }
-                        </td>
+                        <th scope="col">Wersja</th>
+                        <th scope="col">Wykryto</th>
+                        <th scope="col" class="col-status">Status</th>
+                        <th scope="col" class="col-actions"><span class="visually-hidden">Akcje</span></th>
                     </tr>
-                }
-            </tbody>
-        </table>
-    </section>
-}
+                </thead>
+                <tbody>
+                    @foreach (GameVersionResponse version in _versions)
+                    {
+                        <tr>
+                            <td class="mono">@version.Version</td>
+                            <td>@version.DetectedAt.ToString("yyyy-MM-dd HH:mm 'UTC'", CultureInfo.InvariantCulture)</td>
+                            <td class="col-status">
+                                <span class="badge @GameVersionStatusDisplay.BadgeClass(version.Status)">
+                                    <span class="dot"></span>@GameVersionStatusDisplay.Label(version.Status)
+                                </span>
+                            </td>
+                            <td class="col-actions">
+                                @* The `delete` rel is emitted only for an admin on an Unprocessed version (#158). *@
+                                @if (version.Links.HasLink(Rels.Delete))
+                                {
+                                    <form method="post" @formname="@DeleteFormName(version.Id)"
+                                          @onsubmit="() => DeleteAsync(version.Id)">
+                                        <AntiforgeryToken/>
+                                        <button type="submit" class="btn btn-ghost btn-sm">Usuń</button>
+                                    </form>
+                                }
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+</section>
 
 @code
 {

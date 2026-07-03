@@ -11,157 +11,189 @@
 @using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.GameVersionAggregate
 @inject ImportExportLoader Loader
 
-<PageTitle>Import / Eksport — LotroKoniecDev</PageTitle>
+<PageTitle>Import / Eksport — lotro-translator.pl</PageTitle>
 
-<section class="page-head">
-    <h1>Import / Eksport</h1>
-    <p class="lede">
-        Wgraj świeży plik <code class="mono">exported.txt</code> z gry, aby zaktualizować katalog,
-        oraz pobierz gotowy plik <code class="mono">polish.txt</code> do nałożenia łatki.
-    </p>
-</section>
-
-<section class="panel">
-    <h2>Eksport tłumaczenia</h2>
-    <p class="lede">
-        Pobierz aktualny, zatwierdzony plik tłumaczenia. Zapisz go jako
-        <code class="mono">@ImportExportLoader.DownloadFileName</code> i użyj polecenia
-        <code class="mono">patch</code> patchera.
-    </p>
-    <div class="editor-actions">
-        <a class="btn btn-primary" href="@DownloadPath" download="@ImportExportLoader.DownloadFileName">
-            Pobierz @ImportExportLoader.DownloadFileName
-        </a>
+<section class="container page-head">
+    <div>
+        <h1>Import / Eksport</h1>
+        <p class="lede">
+            Wgraj świeży plik <code class="mono">exported.txt</code> z gry, aby zaktualizować katalog,
+            oraz pobierz gotowy plik <code class="mono">polish.txt</code> do nałożenia łatki.
+        </p>
     </div>
 </section>
 
-@* A failed game-versions fetch hides the import panel (its admin-only `register` rel can't be read),
-   so surface the error here — outside the gate — to give an admin feedback rather than silence (#158). *@
-@if (_versionsProblem is not null)
-{
+<section class="container content-wrap">
     <section class="panel">
-        <p class="status-line status-down" role="alert">
-            <span class="dot"></span>@(_versionsProblem.Title ?? "Nie udało się wczytać listy wersji gry.")
-        </p>
+        <header class="panel-head">
+            <h2>Eksport tłumaczenia</h2>
+            <span class="panel-aside">polish.txt</span>
+        </header>
+        <div class="panel-body">
+            <p class="lede">
+                Pobierz aktualny, zatwierdzony plik tłumaczenia. Zapisz go jako
+                <code class="mono">@ImportExportLoader.DownloadFileName</code> i użyj polecenia
+                <code class="mono">patch</code> patchera.
+            </p>
+            <div class="editor-actions">
+                <a class="btn btn-primary" href="@DownloadPath" download="@ImportExportLoader.DownloadFileName">
+                    Pobierz @ImportExportLoader.DownloadFileName
+                </a>
+            </div>
+        </div>
     </section>
-}
 
-@if (_canImport)
-{
-    <section class="panel">
-        <h2>Import eksportu z gry</h2>
-        <p class="lede">
-            Wybierz wersję gry, do której należy plik, a następnie wgraj
-            <code class="mono">exported.txt</code>. Import porówna plik z bieżącym stanem i zaktualizuje
-            teksty (operacja administratora).
-        </p>
-
-        @if (_importProblem is not null)
-        {
-            <p class="status-line status-down" role="alert">
-                <span class="dot"></span>@(_importProblem.Detail ?? _importProblem.Title ?? "Nie udało się zaimportować pliku.")
-            </p>
-        }
-        else if (_summary is not null)
-        {
-            <p class="status-line status-ok" role="status">
-                <span class="dot"></span>Import zakończony powodzeniem.
-            </p>
-        }
-
-        @if (_versions is null && _versionsProblem is null)
-        {
-            <div class="loading-indicator">
-                <span class="li-spin"></span> Wczytywanie wersji gry…
+    @* A failed game-versions fetch hides the import panel (its admin-only `register` rel can't be read),
+       so surface the error here — outside the gate — to give an admin feedback rather than silence (#158). *@
+    @if (_versionsProblem is not null)
+    {
+        <div class="error-message" role="alert">
+            <span class="em-ico" aria-hidden="true">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z"/>
+                    <path d="M12 9v4"/><path d="M12 17h.01"/>
+                </svg>
+            </span>
+            <div class="em-body">
+                <span class="t">@(_versionsProblem.Title ?? "Nie udało się wczytać listy wersji gry.")</span>
             </div>
-        }
-        else if (_versions is { Count: 0 })
-        {
-            <div class="empty">
-                <h2>Brak wersji gry</h2>
-                <p>Najpierw zarejestruj wersję gry, zanim zaimportujesz eksport.</p>
+        </div>
+    }
+
+    @if (_canImport)
+    {
+        <section class="panel">
+            <header class="panel-head">
+                <h2>Import eksportu z gry</h2>
+                <span class="panel-aside">Operacja administratora</span>
+            </header>
+            <div class="panel-body">
+                <p class="lede">
+                    Wybierz wersję gry, do której należy plik, a następnie wgraj
+                    <code class="mono">exported.txt</code>. Import porówna plik z bieżącym stanem i zaktualizuje
+                    teksty.
+                </p>
+
+                @if (_importProblem is not null)
+                {
+                    <p class="status-line status-down" role="alert">
+                        <span class="dot"></span>@(_importProblem.Detail ?? _importProblem.Title ?? "Nie udało się zaimportować pliku.")
+                    </p>
+                }
+                else if (_summary is not null)
+                {
+                    <p class="status-line status-ok" role="status">
+                        <span class="dot"></span>Import zakończony powodzeniem.
+                    </p>
+                }
+
+                @if (_versions is null && _versionsProblem is null)
+                {
+                    <div class="loading-indicator">
+                        <span class="li-spin"></span> Wczytywanie wersji gry…
+                    </div>
+                }
+                else if (_versions is { Count: 0 })
+                {
+                    <div class="empty">
+                        <h2>Brak wersji gry</h2>
+                        <p>Najpierw zarejestruj wersję gry, zanim zaimportujesz eksport.</p>
+                    </div>
+                }
+                else if (_versions is not null)
+                {
+                    @* EditForm in static SSR emits the antiforgery token itself; a manual <AntiforgeryToken/>
+                       here would render __RequestVerificationToken twice and the middleware reads the
+                       comma-joined pair as an invalid token. Plain <form> posts (Editor/NavMenu) still need it. *@
+                    <EditForm Model="ImportInput" OnValidSubmit="ImportAsync"
+                              FormName="import-export" method="post" enctype="multipart/form-data">
+                        <div class="form-row">
+                            <div class="field">
+                                <label for="game-version">Wersja gry</label>
+                                <div class="select-wrap">
+                                    <select id="game-version" name="ImportInput.GameVersionId">
+                                        @foreach (GameVersionResponse version in _versions)
+                                        {
+                                            <option value="@version.Id.Value" selected="@(version.Id.Value == ImportInput?.GameVersionId)">
+                                                @version.Version (@version.Status)
+                                            </option>
+                                        }
+                                    </select>
+                                    <span class="select-chev" aria-hidden="true">▾</span>
+                                </div>
+                            </div>
+                            <div class="field">
+                                <label for="export-file">Plik exported.txt</label>
+                                <input id="export-file" name="ImportInput.File" type="file" accept=".txt"/>
+                            </div>
+                            <div class="field-static">
+                                <label class="checkbox">
+                                    <input id="allow-mass-removal" name="ImportInput.AllowMassRemoval" type="checkbox" value="true"/>
+                                    <span class="box">
+                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                            <path d="M20 6 9 17l-5-5"/>
+                                        </svg>
+                                    </span>
+                                    <span>Zezwól na masowe usuwanie</span>
+                                </label>
+                            </div>
+                            <div class="filter-actions">
+                                <button type="submit" class="btn btn-primary">Importuj</button>
+                            </div>
+                        </div>
+                    </EditForm>
+                }
             </div>
-        }
-        else if (_versions is not null)
-        {
-            @* EditForm in static SSR emits the antiforgery token itself; a manual <AntiforgeryToken/>
-               here would render __RequestVerificationToken twice and the middleware reads the
-               comma-joined pair as an invalid token. Plain <form> posts (Editor/NavMenu) still need it. *@
-            <EditForm Model="ImportInput" OnValidSubmit="ImportAsync"
-                      FormName="import-export" method="post" enctype="multipart/form-data">
-                <div class="filter-form">
-                    <div class="filter-field">
-                        <label for="game-version">Wersja gry</label>
-                        <select id="game-version" name="ImportInput.GameVersionId">
-                            @foreach (GameVersionResponse version in _versions)
-                            {
-                                <option value="@version.Id.Value" selected="@(version.Id.Value == ImportInput?.GameVersionId)">
-                                    @version.Version (@version.Status)
-                                </option>
-                            }
-                        </select>
-                    </div>
-                    <div class="filter-field filter-search">
-                        <label for="export-file">Plik exported.txt</label>
-                        <input id="export-file" name="ImportInput.File" type="file" accept=".txt"/>
-                    </div>
-                    <div class="filter-field">
-                        <label for="allow-mass-removal" class="checkbox-label">
-                            <input id="allow-mass-removal" name="ImportInput.AllowMassRemoval" type="checkbox" value="true"/>
-                            Zezwól na masowe usuwanie
-                        </label>
-                    </div>
-                    <div class="filter-actions">
-                        <button type="submit" class="btn btn-primary">Importuj</button>
-                    </div>
-                </div>
-            </EditForm>
-        }
+        </section>
 
         @if (_summary is not null)
         {
             ImportSummary summary = _summary;
 
-            <section class="stat-grid">
-                <article class="stat-card">
-                    <span class="stat-label">Dodane</span>
-                    <span class="stat-value mono">@summary.Added</span>
+            <section class="stats-grid">
+                <article class="stat-tile">
+                    <span class="num @(summary.Added == 0 ? "zero" : null)">@summary.Added</span>
+                    <span class="lbl">Dodane</span>
                 </article>
-                <article class="stat-card">
-                    <span class="stat-label">Zmieniony angielski</span>
-                    <span class="stat-value mono">@summary.SourceChanged</span>
+                <article class="stat-tile">
+                    <span class="num @(summary.SourceChanged == 0 ? "zero" : null)">@summary.SourceChanged</span>
+                    <span class="lbl">Zmieniony angielski</span>
                 </article>
-                <article class="stat-card">
-                    <span class="stat-label">Unieważnione</span>
-                    <span class="stat-value mono">@summary.Invalidated</span>
+                <article class="stat-tile">
+                    <span class="num @(summary.Invalidated == 0 ? "zero" : null)">@summary.Invalidated</span>
+                    <span class="lbl">Unieważnione</span>
                 </article>
-                <article class="stat-card">
-                    <span class="stat-label">Usunięte</span>
-                    <span class="stat-value mono">@summary.Removed</span>
+                <article class="stat-tile">
+                    <span class="num @(summary.Removed == 0 ? "zero" : null)">@summary.Removed</span>
+                    <span class="lbl">Usunięte</span>
                 </article>
-                <article class="stat-card">
-                    <span class="stat-label">Bez zmian</span>
-                    <span class="stat-value mono">@summary.Unchanged</span>
+                <article class="stat-tile">
+                    <span class="num @(summary.Unchanged == 0 ? "zero" : null)">@summary.Unchanged</span>
+                    <span class="lbl">Bez zmian</span>
                 </article>
             </section>
 
             @if (summary.Warnings.Count > 0)
             {
-                <div class="panel">
-                    <h2>Uwagi</h2>
-                    <ul class="notice-list">
-                        @foreach (string warning in summary.Warnings)
-                        {
-                            <li class="status-line status-warning">
-                                <span class="dot"></span>@warning
-                            </li>
-                        }
-                    </ul>
-                </div>
+                <section class="panel">
+                    <header class="panel-head">
+                        <h2>Uwagi</h2>
+                    </header>
+                    <div class="panel-body">
+                        <ul class="notice-list">
+                            @foreach (string warning in summary.Warnings)
+                            {
+                                <li class="status-line status-warning">
+                                    <span class="dot"></span>@warning
+                                </li>
+                            }
+                        </ul>
+                    </div>
+                </section>
             }
         }
-    </section>
-}
+    }
+</section>
 
 @code
 {

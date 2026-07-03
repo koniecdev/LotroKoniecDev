@@ -28,8 +28,8 @@ public sealed class NavMenuTests : BunitContext
 
         IRenderedComponent<NavMenu> component = RenderNavMenu();
 
-        IElement loginLink = component.Find("a.btn-primary");
-        loginLink.GetAttribute("href").ShouldBe(AuthenticationDependencyInjectionExtensions.LoginPath);
+        IElement loginLink = component.Find($"a[href='{AuthenticationDependencyInjectionExtensions.LoginPath}']");
+        loginLink.ClassList.ShouldContain("nav-link");
         component.FindAll("form").ShouldBeEmpty();
     }
 
@@ -40,12 +40,12 @@ public sealed class NavMenuTests : BunitContext
 
         IRenderedComponent<NavMenu> component = RenderNavMenu();
 
-        component.Find("span.auth-user").TextContent.ShouldBe("Frodo");
+        component.Find("span.nav-user").TextContent.ShouldBe("Frodo");
 
         IElement logoutForm = component.Find("form");
         logoutForm.GetAttribute("method").ShouldBe("post");
         logoutForm.GetAttribute("action").ShouldBe(AuthenticationDependencyInjectionExtensions.LogoutPath);
-        component.FindAll("a.btn-primary").ShouldBeEmpty();
+        component.FindAll($"a[href='{AuthenticationDependencyInjectionExtensions.LoginPath}']").ShouldBeEmpty();
     }
 
     [Fact]
@@ -56,11 +56,16 @@ public sealed class NavMenuTests : BunitContext
         IRenderedComponent<NavMenu> component = RenderNavMenu();
 
         string[] navTargets = component
-            .FindAll("nav.sidebar-nav a")
+            .FindAll("nav.nav-links a")
             .Select(anchor => anchor.GetAttribute("href")!)
             .ToArray();
 
-        navTargets.ShouldBe(["/", "/translations", "/import-export", "/game-versions", "/dashboard"]);
+        // The topbar hosts the auth affordance in the same nav; anonymous renders the login link last.
+        navTargets.ShouldBe(
+        [
+            "/", "/translations", "/import-export", "/game-versions", "/dashboard",
+            AuthenticationDependencyInjectionExtensions.LoginPath
+        ]);
     }
 
     /// <summary>

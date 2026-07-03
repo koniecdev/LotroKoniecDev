@@ -4,18 +4,25 @@
 @using System.Diagnostics
 @using Microsoft.AspNetCore.Authorization
 
-<PageTitle>Błąd — LotroKoniecDev</PageTitle>
+<PageTitle>Błąd — lotro-translator.pl</PageTitle>
 
 <div class="status-stage">
     <div class="status-card status-danger">
+        <div class="status-glyph" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M13 2 3 14h9l-1 8 10-12h-9l1-8z"/>
+            </svg>
+        </div>
         <div class="status-code">500</div>
         <h1>Coś poszło nie tak</h1>
         <p class="status-desc">Wystąpił nieoczekiwany błąd po stronie serwera. Spróbuj ponownie za chwilę.</p>
         @if (!string.IsNullOrEmpty(RequestId))
         {
             <div class="status-detail">
-                <span class="det-k">Identyfikator żądania</span>
-                <code>@RequestId</code>
+                <div class="det-row">
+                    <span class="det-k">Identyfikator żądania</span>
+                    <code>@RequestId</code>
+                </div>
             </div>
         }
         <div class="status-actions">

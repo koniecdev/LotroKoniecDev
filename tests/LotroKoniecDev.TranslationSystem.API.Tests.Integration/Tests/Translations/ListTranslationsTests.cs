@@ -244,13 +244,62 @@ public sealed class ListTranslationsTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task List_WithoutToken_ShouldReturn401()
+    public async Task List_WithoutToken_ShouldServeReadOnlyRows()
     {
+        // Arrange — the list is publicly browsable (#309): anonymous visitors read the catalog.
+        await SeedAsync(Row(1, "Frodo Baggins", TranslationStatus.Draft));
+
         // Act
         HttpResponseMessage response = await _factory.CreateClient().GetAsync("/api/v1/translations");
+        PaginationResponse<TranslationListItemResponse> page =
+            (await response.Content.ReadFromJsonAsync<PaginationResponse<TranslationListItemResponse>>(JsonOptions))!;
 
         // Assert
-        response.StatusCode.ShouldBe(HttpStatusCode.Unauthorized);
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        TranslationListItemResponse item = page.Items.ShouldHaveSingleItem();
+        item.SourceText.ShouldBe("Frodo Baggins");
+        item.TranslatedText.ShouldBe("Polski tekst");
+    }
+
+    [Fact]
+    public async Task List_WithExpiredToken_ShouldServeTheAnonymousReadOnlyView()
+    {
+        // Arrange — AllowAnonymous semantics: a rejected bearer does not 401 here, the caller is
+        // simply served as anonymous — readable rows, no HATEOAS action links (the dead-session
+        // backstop trips on the still-protected pages instead).
+        await SeedAsync(Row(1, "Frodo Baggins", TranslationStatus.Draft));
+        HttpClient client = _factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue(
+            "Bearer", TranslationSystemApiFactory.CreateExpiredAccessToken());
+
+        // Act
+        HttpResponseMessage response = await client.GetAsync("/api/v1/translations");
+        PaginationResponse<TranslationListItemResponse> page =
+            (await response.Content.ReadFromJsonAsync<PaginationResponse<TranslationListItemResponse>>(JsonOptions))!;
+
+        // Assert
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        TranslationListItemResponse item = page.Items.ShouldHaveSingleItem();
+        item.Links.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task List_WithoutToken_ShouldSupportSearchAndStatusFilter()
+    {
+        // Arrange — the read-only public view keeps the full browsing surface, not a crippled subset.
+        await SeedAsync(
+            Row(1, "Frodo Baggins", TranslationStatus.Draft),
+            Row(2, "Samwise Gamgee"));
+
+        // Act
+        HttpResponseMessage response = await _factory.CreateClient()
+            .GetAsync("/api/v1/translations?search=Frodo&status=Draft");
+        PaginationResponse<TranslationListItemResponse> page =
+            (await response.Content.ReadFromJsonAsync<PaginationResponse<TranslationListItemResponse>>(JsonOptions))!;
+
+        // Assert
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        page.Items.ShouldHaveSingleItem().GossipId.ShouldBe(1);
     }
 
     private async Task<PaginationResponse<TranslationListItemResponse>> ListAsync(string queryString)

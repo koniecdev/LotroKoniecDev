@@ -1,0 +1,204 @@
+@page "/"
+@attribute [AllowAnonymous]
+@attribute [StreamRendering]
+@using System.Globalization
+@using Microsoft.AspNetCore.Authorization
+@using LotroKoniecDev.Frontend.Components.Pages.ImportExport
+@using LotroKoniecDev.Frontend.Infrastructure.Auth
+@using LotroKoniecDev.Frontend.Infrastructure.HttpClients
+@using LotroKoniecDev.TranslationSystem.Contracts.Progress
+@inject HomeProgressLoader Loader
+
+<PageTitle>lotro-translator.pl — polskie tłumaczenie LOTRO</PageTitle>
+
+<HeadContent>
+    <meta name="description"
+          content="Społecznościowe polskie tłumaczenie The Lord of the Rings Online: sprawdź postęp prac, przeglądaj tłumaczenia, pobierz spolszczenie albo dołącz i tłumacz z nami."/>
+</HeadContent>
+
+<section class="hero home-hero">
+    <div class="container">
+        <p class="eyebrow">Polskie tłumaczenie LOTRO</p>
+        <h1>Władca Pierścieni Online — <span class="hero-accent">po polsku</span></h1>
+        <p class="lede">
+            Społecznościowy projekt spolszczenia The Lord of the Rings Online: teksty prosto z plików
+            gry, tłumaczenie w przeglądarce z obiegiem zatwierdzania i gotowe spolszczenie do pobrania
+            dla każdego gracza.
+        </p>
+        <div class="hero-actions">
+            <a class="btn btn-primary" href="/translations">Przeglądaj tłumaczenia</a>
+            <a class="btn btn-ghost" href="#dla-graczy">Pobierz spolszczenie</a>
+            <AuthorizeView>
+                <Authorized>
+                    <a class="btn btn-ghost" href="/dashboard">Przejdź do panelu</a>
+                </Authorized>
+                <NotAuthorized>
+                    <a class="btn btn-ghost" href="@AuthenticationDependencyInjectionExtensions.LoginPath">
+                        Dołącz jako tłumacz
+                    </a>
+                </NotAuthorized>
+            </AuthorizeView>
+        </div>
+    </div>
+</section>
+
+<section class="container content-wrap">
+    <section class="panel" id="postep">
+        <header class="panel-head">
+            <h2>Postęp tłumaczenia</h2>
+            @if (_view?.CurrentGameVersion is { } currentVersion)
+            {
+                <span class="panel-aside">Aktualne dla wersji @currentVersion</span>
+            }
+            else
+            {
+                <span class="panel-aside">Na żywo</span>
+            }
+        </header>
+        <div class="panel-body">
+            @if (_result is null)
+            {
+                <div class="loading-indicator">
+                    <span class="li-spin"></span> Wczytywanie postępu…
+                </div>
+            }
+            else if (_view is null)
+            {
+                <p class="status-line status-warning" role="status">
+                    <span class="dot"></span> Statystyki są chwilowo niedostępne — odśwież stronę za chwilę.
+                </p>
+            }
+            else
+            {
+                <div class="progress-hero">
+                    <span class="progress-hero-num">@_view.ApprovedPercent%</span>
+                    <span class="progress-hero-lbl">tekstów gry ma zatwierdzone polskie tłumaczenie</span>
+                </div>
+
+                <div class="progress progress-duo" role="progressbar"
+                     aria-valuenow="@_view.ApprovedPercent" aria-valuemin="0" aria-valuemax="100"
+                     aria-label="Zatwierdzone tłumaczenia">
+                    <div class="progress-bar"
+                         style="width: @_view.ApprovedPercent.ToString(CultureInfo.InvariantCulture)%;"></div>
+                    <div class="progress-bar progress-bar-awaiting"
+                         style="width: @_view.AwaitingApprovalPercent.ToString(CultureInfo.InvariantCulture)%;"></div>
+                </div>
+
+                <p class="progress-caption progress-legend">
+                    <span class="legend-chip">
+                        <span class="dot dot-approved" aria-hidden="true"></span>
+                        Zatwierdzone: <strong>@_view.ApprovedDisplay</strong>
+                    </span>
+                    <span class="legend-chip">
+                        <span class="dot dot-awaiting" aria-hidden="true"></span>
+                        Czeka na zatwierdzenie: <strong>@_view.AwaitingApprovalDisplay</strong>
+                    </span>
+                </p>
+
+                <section class="stats-grid">
+                    <article class="stat-tile">
+                        <span class="num @(_view.Total == 0 ? "zero" : null)">@_view.TotalDisplay</span>
+                        <span class="lbl">Teksty w grze</span>
+                    </article>
+                    <article class="stat-tile">
+                        <span class="num @(_view.Translated == 0 ? "zero" : null)">@_view.TranslatedDisplay</span>
+                        <span class="lbl">Przetłumaczone</span>
+                    </article>
+                    <article class="stat-tile">
+                        <span class="num @(_view.Approved == 0 ? "zero" : "ok")">@_view.ApprovedDisplay</span>
+                        <span class="lbl">Zatwierdzone</span>
+                    </article>
+                </section>
+            }
+        </div>
+    </section>
+
+    <div class="home-duo">
+        <section class="panel" id="dla-graczy">
+            <header class="panel-head">
+                <h2>Dla graczy</h2>
+                <span class="panel-aside">Spolszczenie</span>
+            </header>
+            <div class="panel-body">
+                <ol class="steps">
+                    <li>
+                        <strong>Pobierz patcher</strong> — narzędzie z GitHuba, które wgrywa polskie
+                        teksty prosto do plików gry.
+                    </li>
+                    <li>
+                        <strong>Pobierz plik spolszczenia</strong> — aktualny
+                        <code class="mono">polish.txt</code> ze wszystkimi zatwierdzonymi tłumaczeniami.
+                    </li>
+                    <li>
+                        <strong>Nałóż łatkę i graj</strong> — patcher podmienia teksty i uruchamia grę;
+                        spolszczenie przeżywa aktualizacje LOTRO.
+                    </li>
+                </ol>
+                <div class="editor-actions">
+                    <a class="btn btn-primary" href="@ImportExportEndpointsExtensions.DownloadPath"
+                       download="@ImportExportLoader.DownloadFileName">
+                        Pobierz @ImportExportLoader.DownloadFileName
+                    </a>
+                    <a class="btn btn-ghost" href="@RepositoryUrl" rel="noopener">Patcher na GitHubie</a>
+                </div>
+            </div>
+        </section>
+
+        <section class="panel" id="dla-tlumaczy">
+            <header class="panel-head">
+                <h2>Dla tłumaczy</h2>
+                <span class="panel-aside">Dołącz</span>
+            </header>
+            <div class="panel-body">
+                <ol class="steps">
+                    <li>
+                        <strong>Przeglądaj teksty</strong> — pełna lista z wyszukiwarką i filtrami,
+                        dostępna bez logowania.
+                    </li>
+                    <li>
+                        <strong>Tłumacz w przeglądarce</strong> — edytor obok oryginału pilnuje
+                        placeholderów, niczego nie zepsujesz.
+                    </li>
+                    <li>
+                        <strong>Zatwierdzone trafia do gry</strong> — po akceptacji tłumaczenie ląduje
+                        w pliku spolszczenia dla wszystkich graczy.
+                    </li>
+                </ol>
+                <div class="editor-actions">
+                    <AuthorizeView>
+                        <Authorized>
+                            <a class="btn btn-primary" href="/dashboard">Otwórz panel tłumacza</a>
+                        </Authorized>
+                        <NotAuthorized>
+                            <a class="btn btn-primary" href="@AuthenticationDependencyInjectionExtensions.LoginPath">
+                                Zaloguj się lub załóż konto
+                            </a>
+                        </NotAuthorized>
+                    </AuthorizeView>
+                    <a class="btn btn-ghost" href="/translations">Zobacz listę tekstów</a>
+                </div>
+            </div>
+        </section>
+    </div>
+
+    <section class="home-tech">
+        <p>
+            Projekt open source — .NET 10 · Blazor SSR · PostgreSQL.
+            Kod, patcher i historia zmian: <a href="@RepositoryUrl" rel="noopener">github.com/koniecdev/LotroKoniecDev</a>
+        </p>
+    </section>
+</section>
+
+@code
+{
+    private const string RepositoryUrl = "https://github.com/koniecdev/LotroKoniecDev";
+
+    private ApiResult<PublicProgressResponse>? _result;
+    private HomeProgressView? _view;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _result = await Loader.LoadAsync(CancellationToken.None);
+        _view = _result.IsSuccess ? HomeProgressView.From(_result.Value) : null;
+    }
+}

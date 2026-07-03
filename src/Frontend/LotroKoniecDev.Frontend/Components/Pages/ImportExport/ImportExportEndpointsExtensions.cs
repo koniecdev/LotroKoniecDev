@@ -5,23 +5,24 @@ using Microsoft.AspNetCore.Mvc;
 namespace LotroKoniecDev.Frontend.Components.Pages.ImportExport;
 
 /// <summary>
-/// Maps the artifact download route the import/export page links to (M3-07). The TMS distribution
-/// endpoint serves <c>text/plain</c>, which the typed JSON client cannot stream straight to the
-/// browser as a file — so this server route fetches the raw artifact through the same authenticated
-/// client and re-serves it with a <c>Content-Disposition</c> attachment header named
-/// <c>polish.txt</c>. The route is authorized like the page (translators only); the upstream TMS
-/// endpoint stays anonymous for the CLI/player download.
+/// Maps the artifact download route (M3-07, public since #309). The TMS distribution endpoint serves
+/// <c>text/plain</c>, which the typed JSON client cannot stream straight to the browser as a file —
+/// so this server route fetches the raw artifact through the same client and re-serves it with a
+/// <c>Content-Disposition</c> attachment header named <c>polish.txt</c>. The route is anonymous like
+/// the upstream TMS endpoint (players download the file straight off the landing page); the
+/// import/export page links to the very same route, so one canonical download URL exists.
 /// </summary>
 internal static class ImportExportEndpointsExtensions
 {
-    private const string DownloadPath = "/import-export/download";
+    /// <summary>The public download URL — linked from the landing page and the import/export page.</summary>
+    internal const string DownloadPath = "/download/polish.txt";
 
     extension(IEndpointRouteBuilder endpoints)
     {
         public IEndpointRouteBuilder MapImportExportEndpoints()
         {
             endpoints.MapGet(DownloadPath, DownloadTranslationFileAsync)
-                .RequireAuthorization();
+                .AllowAnonymous();
 
             return endpoints;
         }

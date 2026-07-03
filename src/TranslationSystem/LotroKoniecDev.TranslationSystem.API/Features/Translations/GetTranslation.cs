@@ -95,10 +95,11 @@ internal sealed class GetTranslation : IEndpoint
 
                 QueryResult queryResult = result.Value;
                 bool callerIsAdmin = user.IsInRole(AuthConstants.Roles.Admin);
+                bool callerIsTranslator = callerIsAdmin || user.IsInRole(AuthConstants.Roles.Translator);
 
                 return HateoasResults.Ok(queryResult.Response, r =>
                     r.Links = translationLinkFactory.CreateTranslationLinks(
-                        r.Id, r.Status, queryResult.IsRemoved, callerIsAdmin));
+                        r.Id, r.Status, queryResult.IsRemoved, callerIsTranslator, callerIsAdmin));
             })
             .WithName(nameof(GetTranslation))
             .WithTags("Translations")

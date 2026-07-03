@@ -108,12 +108,13 @@ public sealed class AuthorizationDefaultsTests
     public async Task GetProtectedResource_WithExpiredToken_ShouldReturn401()
     {
         // Arrange — token rejection is enforced on every protected route, not just discovery.
+        // (/api/v1/game-versions: the translations list itself is publicly readable since #309.)
         using HttpClient client = _factory.CreateClient();
         client.DefaultRequestHeaders.Authorization =
             new AuthenticationHeaderValue("Bearer", TranslationSystemApiFactory.CreateExpiredAccessToken());
 
         // Act
-        HttpResponseMessage response = await client.GetAsync("/api/v1/translations");
+        HttpResponseMessage response = await client.GetAsync("/api/v1/game-versions");
 
         // Assert
         response.StatusCode.ShouldBe(HttpStatusCode.Unauthorized);
@@ -128,7 +129,7 @@ public sealed class AuthorizationDefaultsTests
             new AuthenticationHeaderValue("Bearer", TranslationSystemApiFactory.CreateTokenSignedWithUnknownKey());
 
         // Act
-        HttpResponseMessage response = await client.GetAsync("/api/v1/translations");
+        HttpResponseMessage response = await client.GetAsync("/api/v1/game-versions");
 
         // Assert
         response.StatusCode.ShouldBe(HttpStatusCode.Unauthorized);
@@ -144,7 +145,7 @@ public sealed class AuthorizationDefaultsTests
             new AuthenticationHeaderValue("Bearer", TranslationSystemApiFactory.CreateAccessToken("Reviewer"));
 
         // Act
-        HttpResponseMessage response = await client.GetAsync("/api/v1/translations");
+        HttpResponseMessage response = await client.GetAsync("/api/v1/game-versions");
 
         // Assert
         response.StatusCode.ShouldBe(HttpStatusCode.Forbidden);

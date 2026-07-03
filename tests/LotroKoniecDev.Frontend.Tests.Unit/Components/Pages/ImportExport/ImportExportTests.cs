@@ -45,7 +45,7 @@ public sealed class ImportExportTests : BunitContext
         IRenderedComponent<ImportExportComponent> component = RenderPage();
 
         IElement download = component.Find("a[download]");
-        download.GetAttribute("href").ShouldBe("/import-export/download");
+        download.GetAttribute("href").ShouldBe("/download/polish.txt");
         download.GetAttribute("download").ShouldBe(ImportExportLoader.DownloadFileName);
     }
 
@@ -137,7 +137,7 @@ public sealed class ImportExportTests : BunitContext
 
         component.FindAll("input[type=file]").ShouldBeEmpty();
         component.Find(".error-message").TextContent.ShouldContain("Nie udało się wczytać wersji.");
-        component.Find("a[download]").GetAttribute("href").ShouldBe("/import-export/download");
+        component.Find("a[download]").GetAttribute("href").ShouldBe("/download/polish.txt");
     }
 
     private IRenderedComponent<ImportExportComponent> RenderPage() =>

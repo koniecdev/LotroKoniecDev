@@ -20,6 +20,7 @@ using LotroKoniecDev.TranslationSystem.API.Extensions;
 using LotroKoniecDev.TranslationSystem.API.Features.Bootstrap;
 using LotroKoniecDev.TranslationSystem.API.Features.GameVersions;
 using LotroKoniecDev.TranslationSystem.API.Features.Import;
+using LotroKoniecDev.TranslationSystem.API.Features.Progress;
 using LotroKoniecDev.TranslationSystem.API.Features.TranslationFiles;
 using LotroKoniecDev.TranslationSystem.API.Features.Translations;
 using LotroKoniecDev.TranslationSystem.API.Hateoas.DiscoveryFactories;
@@ -30,6 +31,7 @@ using LotroKoniecDev.TranslationSystem.API.Parsing;
 using LotroKoniecDev.TranslationSystem.Contracts.Common;
 using LotroKoniecDev.TranslationSystem.Contracts.GameVersions;
 using LotroKoniecDev.TranslationSystem.Contracts.Import;
+using LotroKoniecDev.TranslationSystem.Contracts.Progress;
 using LotroKoniecDev.TranslationSystem.Contracts.Translations;
 
 namespace LotroKoniecDev.TranslationSystem.API;
@@ -67,6 +69,7 @@ internal static class ApiDependencyInjection
             services.AddSingleton(TimeProvider.System);
 
             services.AddImportFeature();
+            services.AddProgressFeature();
             services.AddTranslationsFeature();
             services.AddTranslationFilesFeature();
             services.AddGameVersionsFeature();
@@ -95,6 +98,13 @@ internal static class ApiDependencyInjection
 
             services.AddScoped<IValidator<ImportExportedTexts.Command>, ImportExportedTexts.Validator>();
             services.AddScoped<ICommandHandler<ImportExportedTexts.Command, Result<ImportSummary>>, ImportExportedTexts.Handler>();
+        }
+
+        private void AddProgressFeature()
+        {
+            services.AddScoped<
+                IQueryHandler<GetPublicProgress.Query, Result<PublicProgressResponse>>,
+                GetPublicProgress.Handler>();
         }
 
         private void AddTranslationsFeature()

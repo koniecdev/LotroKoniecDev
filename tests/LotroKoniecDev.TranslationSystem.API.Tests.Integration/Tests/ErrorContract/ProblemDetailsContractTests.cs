@@ -144,11 +144,11 @@ public sealed class ProblemDetailsContractTests : IAsyncLifetime
     [Fact]
     public async Task ProtectedEndpoint_WithoutToken_ShouldReturn401AsProblemDetailsWithoutErrorCode()
     {
-        // Arrange
+        // Arrange — /api/v1/game-versions: the translations list itself is publicly readable (#309).
         using HttpClient client = _factory.CreateClient();
 
         // Act
-        HttpResponseMessage response = await client.GetAsync("/api/v1/translations");
+        HttpResponseMessage response = await client.GetAsync("/api/v1/game-versions");
         JsonElement problem = await ReadProblemDetailsAsync(response);
 
         // Assert — authentication failures share the problem+json surface, but the domain errorCode

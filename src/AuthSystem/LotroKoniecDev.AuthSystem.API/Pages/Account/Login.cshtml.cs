@@ -10,6 +10,17 @@ namespace LotroKoniecDev.AuthSystem.API.Pages.Account;
 internal sealed partial class LoginModel : PageModel
 {
     /// <summary>
+    /// Single source of truth for every credential-failure branch. Kept identical across
+    /// user-not-found, lockout, wrong-password and unconfirmed-email so no branch ever reveals
+    /// which check failed (anti-enumeration). The activation hint is generic — it neither confirms
+    /// the account exists nor that it is unconfirmed — yet still nudges a brand-new user to finish
+    /// registration.
+    /// </summary>
+    private const string GenericCredentialErrorMessage =
+        "Nieprawidłowa nazwa użytkownika lub hasło. Jeśli konto zostało dopiero co utworzone, " +
+        "dokończ rejestrację, potwierdzając swój adres e-mail — kliknij link aktywacyjny, który do Ciebie wysłaliśmy.";
+
+    /// <summary>
     /// Pre-computed hash for timing-equalization when user is not found.
     /// </summary>
     private static readonly string DummyPasswordHash =
@@ -62,7 +73,7 @@ internal sealed partial class LoginModel : PageModel
             _ = _userManager.PasswordHasher.VerifyHashedPassword(
                 new ApplicationUser(), DummyPasswordHash, Password);
             LogUserNotFound(_logger, Username, HttpContext.Connection.RemoteIpAddress);
-            ErrorMessage = "Nieprawidłowa nazwa użytkownika lub hasło.";
+            ErrorMessage = GenericCredentialErrorMessage;
             return Page();
         }
 
@@ -70,7 +81,7 @@ internal sealed partial class LoginModel : PageModel
         {
             LogAccountLockedOut(_logger, user.Id, HttpContext.Connection.RemoteIpAddress);
             // Use the same generic message to prevent account enumeration
-            ErrorMessage = "Nieprawidłowa nazwa użytkownika lub hasło.";
+            ErrorMessage = GenericCredentialErrorMessage;
             return Page();
         }
 
@@ -80,7 +91,7 @@ internal sealed partial class LoginModel : PageModel
         {
             await _userManager.AccessFailedAsync(user);
             LogWrongPassword(_logger, user.Id, HttpContext.Connection.RemoteIpAddress);
-            ErrorMessage = "Nieprawidłowa nazwa użytkownika lub hasło.";
+            ErrorMessage = GenericCredentialErrorMessage;
             return Page();
         }
 
@@ -91,7 +102,7 @@ internal sealed partial class LoginModel : PageModel
             // CheckPasswordAsync, which does not run PreSignInCheck. Enforce confirmation explicitly.
             // Same generic message as the other branches — never reveal that the account exists but is
             // unconfirmed — and placed after the password hash above so there is no timing oracle.
-            ErrorMessage = "Nieprawidłowa nazwa użytkownika lub hasło.";
+            ErrorMessage = GenericCredentialErrorMessage;
             return Page();
         }
 

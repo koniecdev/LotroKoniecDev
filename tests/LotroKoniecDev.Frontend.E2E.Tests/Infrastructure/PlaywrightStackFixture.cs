@@ -225,7 +225,6 @@ public sealed class PlaywrightStackFixture : IAsyncLifetime
             .WithEnvironment("Auth__Issuer", AuthHttpsOrigin)
             .WithEnvironment("Auth__Authority", AuthHttpsOrigin)
             .WithEnvironment("Auth__Audience", Audience)
-            .WithEnvironment("Bootstrap__Enabled", "false")
             .WithEnvironment("ASPNETCORE_Kestrel__Certificates__Default__Path", "/certs/e2e.crt")
             .WithEnvironment("ASPNETCORE_Kestrel__Certificates__Default__KeyPath", "/certs/e2e.key")
             .WithResourceMapping(Encoding.ASCII.GetBytes(_certPem), "/certs/e2e.crt")

@@ -19,15 +19,6 @@ public interface ITranslationRepository : IRepository<Translation, TranslationId
     IAsyncEnumerable<StoredSourceDigest> StreamSourceDigestsAsync(CancellationToken cancellationToken);
 
     /// <summary>
-    /// Streams the whole catalog as untracked <see cref="StoredTranslationEntry"/> value rows for the
-    /// bootstrap Polish seed (PERF-06): each row's identity, key, status, current Polish text and
-    /// removal flag, so the seed decides every <c>polish.txt</c> line from an in-memory view instead
-    /// of a per-line <see cref="GetByFragmentKeyAsync"/> round-trip. Bootstrap-only, roughly once per
-    /// fresh deployment.
-    /// </summary>
-    IAsyncEnumerable<StoredTranslationEntry> StreamCatalogEntriesAsync(CancellationToken cancellationToken);
-
-    /// <summary>
     /// Loads one chunk of tracked aggregates by id for the import's chunked apply (spec 0006) —
     /// callers keep chunks small (see <c>ImportSettings.ApplyChunkSize</c>) and clear the change
     /// tracker between chunks.

@@ -14,7 +14,7 @@ namespace LotroKoniecDev.TranslationSystem.API.Features.TranslationFiles;
 /// Projects the current Approved set into the precomputed translation file (spec 0001: regenerate
 /// after version processing, approve, and upsert affecting an Approved row), so the distribution
 /// endpoint serves a stored projection without ever building per-request. Invoked by the debounced
-/// background worker (PERF-04, ADR-0021) and synchronously by the startup bootstrap seed.
+/// background worker (PERF-04, ADR-0021).
 /// Single-flight: a process-wide gate serializes concurrent rebuilds, each producing a consistent
 /// snapshot of the Approved set — the gate (like the worker's queue) assumes a single API replica.
 /// Registered as a singleton, so it resolves the scoped EF services through a fresh scope.

@@ -18,20 +18,20 @@
     <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@@400;500;600;700;800&family=JetBrains+Mono:wght@@400;500&display=swap" rel="stylesheet" />
     <style>
         :root {
-            --bg:        oklch(0.16 0.013 165);
-            --bg-2:      oklch(0.20 0.015 165);
-            --surface:   oklch(0.23 0.016 165);
-            --surface-hi:oklch(0.28 0.018 165);
-            --border:    oklch(0.34 0.018 165);
-            --border-hi: oklch(0.44 0.022 165);
+            --bg:        oklch(0.16 0.011 80);
+            --bg-2:      oklch(0.20 0.013 80);
+            --surface:   oklch(0.23 0.014 80);
+            --surface-hi:oklch(0.28 0.016 80);
+            --border:    oklch(0.34 0.016 80);
+            --border-hi: oklch(0.44 0.020 80);
 
-            --text:      oklch(0.96 0.008 160);
-            --text-mute: oklch(0.80 0.012 160);
-            --text-dim:  oklch(0.68 0.014 160);
+            --text:      oklch(0.96 0.008 85);
+            --text-mute: oklch(0.80 0.012 85);
+            --text-dim:  oklch(0.68 0.014 85);
 
-            --accent:     oklch(0.80 0.17 168);
-            --accent-hi:  oklch(0.87 0.18 168);
-            --accent-dim: oklch(0.48 0.10 168);
+            --accent:     oklch(0.78 0.11 84);
+            --accent-hi:  oklch(0.85 0.12 84);
+            --accent-dim: oklch(0.48 0.07 84);
 
             --danger:     oklch(0.65 0.20 25);
             --danger-hi:  oklch(0.76 0.18 25);
@@ -39,7 +39,7 @@
 
             --radius: 14px;
             --radius-sm: 8px;
-            --shadow: 0 1px 0 oklch(0.38 0.014 165 / 0.5) inset, 0 8px 24px -12px rgba(0,0,0,0.55);
+            --shadow: 0 1px 0 oklch(0.38 0.013 80 / 0.5) inset, 0 8px 24px -12px rgba(0,0,0,0.55);
 
             --font-sans: "Manrope", ui-sans-serif, system-ui, -apple-system, "Helvetica Neue", sans-serif;
             --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
@@ -67,8 +67,8 @@
 
         .app {
             background:
-                radial-gradient(1200px 600px at 80% -200px, oklch(0.28 0.06 168 / 0.35), transparent 60%),
-                radial-gradient(900px 500px at -100px 100px, oklch(0.22 0.03 165 / 0.5), transparent 60%);
+                radial-gradient(1200px 600px at 80% -200px, oklch(0.28 0.055 84 / 0.35), transparent 60%),
+                radial-gradient(900px 500px at -100px 100px, oklch(0.22 0.025 80 / 0.5), transparent 60%);
             min-height: 100vh;
             display: flex;
             flex-direction: column;
@@ -97,10 +97,10 @@
             width: 34px; height: 34px;
             border-radius: 9px;
             background: linear-gradient(160deg, var(--accent), var(--accent-dim));
-            color: oklch(0.16 0.012 165);
+            color: oklch(0.16 0.012 80);
             display: grid;
             place-items: center;
-            box-shadow: 0 0 0 1px oklch(0.60 0.08 168 / 0.5) inset;
+            box-shadow: 0 0 0 1px oklch(0.60 0.07 84 / 0.5) inset;
         }
         .brand-mark svg { width: 22px; height: 22px; }
         .brand-accent { color: var(--accent-hi); }
@@ -205,7 +205,7 @@
             gap: 12px;
             padding: 18px 24px;
             border-bottom: 1px solid var(--border);
-            background: linear-gradient(to bottom, oklch(0.25 0.018 165 / 0.6), oklch(0.22 0.016 165 / 0));
+            background: linear-gradient(to bottom, oklch(0.25 0.016 80 / 0.6), oklch(0.22 0.014 80 / 0));
         }
         .auth-panel-head h2 {
             font-size: 16px;
@@ -284,7 +284,7 @@
         .auth-input:focus {
             outline: none;
             border-color: var(--accent);
-            box-shadow: 0 0 0 3px oklch(0.80 0.17 168 / 0.18);
+            box-shadow: 0 0 0 3px oklch(0.78 0.11 84 / 0.18);
         }
         .auth-input.has-trailing { padding-right: 44px; }
 
@@ -334,7 +334,7 @@
         }
         .checkbox .box svg {
             width: 12px; height: 12px;
-            color: oklch(0.15 0.014 165);
+            color: oklch(0.16 0.012 80);
             opacity: 0;
             transform: scale(0.7);
             transition: opacity .12s, transform .12s;
@@ -345,7 +345,7 @@
         }
         .checkbox input:checked ~ .box svg { opacity: 1; transform: scale(1); }
         .checkbox input:focus-visible ~ .box {
-            box-shadow: 0 0 0 3px oklch(0.80 0.17 168 / 0.25);
+            box-shadow: 0 0 0 3px oklch(0.78 0.11 84 / 0.25);
         }
         .checkbox:hover .box { border-color: var(--text-mute); }
 
@@ -363,7 +363,7 @@
         }
         .btn-primary {
             background: var(--accent);
-            color: oklch(0.16 0.012 165);
+            color: oklch(0.16 0.012 80);
             border-color: var(--accent);
         }
         .btn-primary:hover:not([disabled]) { background: var(--accent-hi); border-color: var(--accent-hi); }
@@ -381,8 +381,8 @@
         .auth-submit .spinner-sm {
             width: 14px; height: 14px;
             border-radius: 50%;
-            border: 2px solid oklch(0.15 0.014 165 / 0.35);
-            border-top-color: oklch(0.15 0.014 165);
+            border: 2px solid oklch(0.16 0.012 80 / 0.35);
+            border-top-color: oklch(0.16 0.012 80);
             animation: spin 0.7s linear infinite;
             display: none;
         }
@@ -476,10 +476,8 @@
                 <a href="https://lotro-translator.pl" class="brand">
                     <span class="brand-mark" aria-hidden="true">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
-                            <path d="M4 10 L4 19 L10 19 L10 14 L14 14 L14 19 L20 19 L20 10" />
-                            <path d="M4 10 L12 4 L20 10" />
-                            <circle cx="9"  cy="17" r="0.6" fill="currentColor"/>
-                            <circle cx="11" cy="17" r="0.6" fill="currentColor"/>
+                            <circle cx="12" cy="12" r="8.5"/>
+                            <circle cx="12" cy="12" r="1.1" fill="currentColor"/>
                         </svg>
                     </span>
                     <span>lotro-<span class="brand-accent">translator</span>.pl</span>
@@ -499,29 +497,27 @@
                         <li>
                             <span class="ico">
                                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                                    <circle cx="5.5"  cy="11" r="1.7"/>
-                                    <circle cx="18.5" cy="11" r="1.7"/>
-                                    <circle cx="9"    cy="6.5" r="1.7"/>
-                                    <circle cx="15"   cy="6.5" r="1.7"/>
-                                    <path d="M8.5 14.5C8 17 6 18.2 6 20a2.5 2.5 0 0 0 4.6 1.3c.5-.7 1.3-1 2.4-.6 1.1.4 2.3.6 3 .1A2.5 2.5 0 0 0 18 20c0-1.8-2-3-2.5-5.5-.4-1.7-2.2-2.5-3.5-2.5s-3.1.8-3.5 2.5z"/>
+                                    <path d="M12 20h9"/>
+                                    <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/>
                                 </svg>
                             </span>
                             <span class="copy">
-                                Publikuj ogłoszenia
-                                <span class="sub">Tłumacz teksty gry prosto w przeglądarce</span>
+                                Tłumacz teksty gry
+                                <span class="sub">Edytor z podglądem angielskiego oryginału</span>
                             </span>
                         </li>
                         <li>
                             <span class="ico">
                                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                                    <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
-                                    <rect x="9.5" y="10.5" width="5" height="4" rx="1"/>
-                                    <path d="M10.5 10.5V9.5a1.5 1.5 0 0 1 3 0v1"/>
+                                    <path d="M3 3v18h18"/>
+                                    <path d="M7 15v3"/>
+                                    <path d="M12 10v8"/>
+                                    <path d="M17 6v12"/>
                                 </svg>
                             </span>
                             <span class="copy">
                                 Śledź postęp tłumaczenia
-                                <span class="sub">Pełna lista, zdjęcia, statusy adopcji</span>
+                                <span class="sub">Filtry, statusy i obieg zatwierdzania</span>
                             </span>
                         </li>
                         <li>

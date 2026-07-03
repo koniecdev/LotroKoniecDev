@@ -116,7 +116,7 @@ public sealed class GameVersionsTests : BunitContext
 
         await component.Find("form").SubmitAsync();
 
-        component.Find(".status-down").TextContent.ShouldContain("Podaj wersję");
+        component.Find(".status-message.status-error").TextContent.ShouldContain("Podaj wersję");
         await _client.DidNotReceive().PostApiResultAsync<GameVersionResponse>(
             Arg.Any<string>(), Arg.Any<object>(), Arg.Any<CancellationToken>());
         // A rejected register must not wipe the list (the reload still renders the table).
@@ -136,7 +136,7 @@ public sealed class GameVersionsTests : BunitContext
         await component.Find(".col-actions form").SubmitAsync();
 
         // Behaviour-visible proof the delete ran: the confirmation only renders when the loader succeeded.
-        component.Find(".status-ok").TextContent.ShouldContain("Usunięto");
+        component.Find(".status-message.status-success").TextContent.ShouldContain("Usunięto");
     }
 
     [Fact]
@@ -150,7 +150,7 @@ public sealed class GameVersionsTests : BunitContext
 
         await component.Find(".col-actions form").SubmitAsync();
 
-        component.Find(".status-down").TextContent.ShouldContain("Nie można usunąć");
+        component.Find(".status-message.status-error").TextContent.ShouldContain("Nie można usunąć");
         // The refused delete must not wipe the list (the reload still renders the table).
         component.FindAll("table.data-table").ShouldNotBeEmpty();
     }
@@ -177,7 +177,7 @@ public sealed class GameVersionsTests : BunitContext
 
         IRenderedComponent<GameVersionsComponent> component = RenderPage();
 
-        component.Find(".status-down").TextContent.ShouldContain("Nie udało się wczytać wersji.");
+        component.Find(".error-message").TextContent.ShouldContain("Nie udało się wczytać wersji.");
         component.FindAll("#new-version").ShouldBeEmpty();
         component.FindAll("table.data-table").ShouldBeEmpty();
     }

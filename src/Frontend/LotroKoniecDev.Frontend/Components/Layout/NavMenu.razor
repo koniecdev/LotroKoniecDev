@@ -1,46 +1,36 @@
 @using LotroKoniecDev.Frontend.Infrastructure.Auth
 
-<aside class="sidebar">
-    <div class="sidebar-brand">
+<header class="nav">
+    <div class="container nav-inner">
         <a class="brand" href="/">
-            <span class="brand-mark">LK</span>
-            <span class="brand-text">LotroKoniec<span class="brand-accent">Dev</span></span>
+            <span class="brand-mark" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+                    <circle cx="12" cy="12" r="8.5"/>
+                    <circle cx="12" cy="12" r="1.1" fill="currentColor"/>
+                </svg>
+            </span>
+            <span>lotro-<span class="brand-accent">translator</span>.pl</span>
         </a>
-        <p class="brand-sub">Tłumaczenie LOTRO</p>
-    </div>
 
-    <nav class="sidebar-nav" aria-label="Nawigacja główna">
-        <NavLink class="nav-link" href="/" Match="NavLinkMatch.All">
-            <span class="nav-text">Start</span>
-        </NavLink>
-        <NavLink class="nav-link" href="/translations">
-            <span class="nav-text">Tłumaczenia</span>
-        </NavLink>
-        <NavLink class="nav-link" href="/import-export">
-            <span class="nav-text">Import / Eksport</span>
-        </NavLink>
-        <NavLink class="nav-link" href="/game-versions">
-            <span class="nav-text">Wersje gry</span>
-        </NavLink>
-        <NavLink class="nav-link" href="/dashboard">
-            <span class="nav-text">Panel</span>
-        </NavLink>
-    </nav>
+        <nav class="nav-links" aria-label="Nawigacja główna">
+            <NavLink class="nav-link" href="/" Match="NavLinkMatch.All">Start</NavLink>
+            <NavLink class="nav-link" href="/translations">Tłumaczenia</NavLink>
+            <NavLink class="nav-link" href="/import-export">Import / Eksport</NavLink>
+            <NavLink class="nav-link" href="/game-versions">Wersje gry</NavLink>
+            <NavLink class="nav-link" href="/dashboard">Panel</NavLink>
 
-    <div class="sidebar-auth">
-        <AuthorizeView>
-            <Authorized>
-                <span class="auth-user">@(context.User.Identity?.Name)</span>
-                <form method="post" action="@AuthenticationDependencyInjectionExtensions.LogoutPath">
-                    <AntiforgeryToken/>
-                    <button type="submit" class="btn btn-ghost btn-block">Wyloguj</button>
-                </form>
-            </Authorized>
-            <NotAuthorized>
-                <a class="btn btn-primary btn-block" href="@AuthenticationDependencyInjectionExtensions.LoginPath">
-                    Zaloguj
-                </a>
-            </NotAuthorized>
-        </AuthorizeView>
+            <AuthorizeView>
+                <Authorized>
+                    <span class="nav-user">@(context.User.Identity?.Name)</span>
+                    <form class="nav-logout-form" method="post" action="@AuthenticationDependencyInjectionExtensions.LogoutPath">
+                        <AntiforgeryToken/>
+                        <button type="submit" class="nav-link nav-logout">Wyloguj</button>
+                    </form>
+                </Authorized>
+                <NotAuthorized>
+                    <a class="nav-link" href="@AuthenticationDependencyInjectionExtensions.LoginPath">Zaloguj</a>
+                </NotAuthorized>
+            </AuthorizeView>
+        </nav>
     </div>
-</aside>
+</header>

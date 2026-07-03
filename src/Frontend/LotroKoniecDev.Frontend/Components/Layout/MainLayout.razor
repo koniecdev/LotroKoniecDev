@@ -2,34 +2,38 @@
 @using LotroKoniecDev.Frontend.Infrastructure.Auth.DeadSession
 @inject ISessionExpiryNotice SessionExpiryNotice
 
-<div class="app-shell">
+<div class="app">
     <NavMenu/>
 
-    <div class="app-main">
-        <main class="content">
-            @if (_showSessionExpiredNotice)
-            {
-                <div class="status-message status-warning" role="status">
-                    <p>Twoja sesja wygasła. Zaloguj się ponownie, aby kontynuować.</p>
-                </div>
-            }
+    @if (_showSessionExpiredNotice)
+    {
+        <div class="container" style="padding-top: 16px;">
+            <div class="status-message status-warning" role="status">
+                <p>Twoja sesja wygasła. Zaloguj się ponownie, aby kontynuować.</p>
+            </div>
+        </div>
+    }
 
-            <ErrorBoundary>
-                <ChildContent>
-                    @Body
-                </ChildContent>
-                <ErrorContent>
+    <main>
+        <ErrorBoundary>
+            <ChildContent>
+                @Body
+            </ChildContent>
+            <ErrorContent>
+                <div class="container" style="padding-top: 72px; padding-bottom: 72px;">
                     <div class="status-message status-error" role="alert">
                         <p>Wystąpił nieoczekiwany błąd. Odśwież stronę lub spróbuj ponownie później.</p>
                     </div>
-                </ErrorContent>
-            </ErrorBoundary>
-        </main>
+                </div>
+            </ErrorContent>
+        </ErrorBoundary>
+    </main>
 
-        <footer class="app-footer">
-            <span>© @DateTime.UtcNow.Year LotroKoniecDev — polskie tłumaczenie LOTRO</span>
-        </footer>
-    </div>
+    <footer class="foot">
+        <div class="container">
+            <p>© @DateTime.UtcNow.Year lotro-translator.pl — polskie tłumaczenie The Lord of the Rings Online</p>
+        </div>
+    </footer>
 </div>
 
 @code {

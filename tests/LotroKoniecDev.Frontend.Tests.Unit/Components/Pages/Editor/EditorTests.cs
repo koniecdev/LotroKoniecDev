@@ -95,7 +95,7 @@ public sealed class EditorTests : BunitContext
 
         IRenderedComponent<EditorComponent> component = RenderEditor();
 
-        component.Find(".status-down").TextContent.ShouldContain("Nie znaleziono.");
+        component.Find(".error-message").TextContent.ShouldContain("Nie znaleziono.");
         component.FindAll(".editor-grid").ShouldBeEmpty();
     }
 
@@ -187,7 +187,37 @@ public sealed class EditorTests : BunitContext
 
         // Behaviour-visible proof the upsert href (read from the loaded detail's links) was followed:
         // only a PUT to that exact href is stubbed to succeed, so the confirmation renders iff it was used.
-        component.Find(".status-ok").TextContent.ShouldContain("Tłumaczenie zapisano");
+        component.Find(".status-message.status-success").TextContent.ShouldContain("Tłumaczenie zapisano");
+    }
+
+    [Fact]
+    public async Task Save_WhenSaveFailsAndTheRowCannotBeReloaded_KeepsTheDraftInAResubmittableRecoveryForm()
+    {
+        // The SSR recovery guarantee: when the post's reload AND the PUT fail in the same request, the
+        // translator's typed text must come back in a resubmittable form (hidden key fields + textarea)
+        // instead of vanishing. First GET succeeds (the form renders), every later GET fails (the reload).
+        _client
+            .GetApiResultAsync<TranslationDetailResponse>(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(
+                ApiResult.Success(BuildDetail(sourceText: "Hello.", translatedText: "Cześć.", canEdit: true)),
+                ApiResult.Failure<TranslationDetailResponse>(new() { Title = "Nie znaleziono." }));
+        _client
+            .PutApiResultAsync<TranslationDetailResponse>(Arg.Any<string>(), Arg.Any<object>(), Arg.Any<CancellationToken>())
+            .Returns(ApiResult.Failure<TranslationDetailResponse>(new() { Title = "Zapis odrzucony." }));
+        IRenderedComponent<EditorComponent> component = RenderEditor();
+
+        await component.Find("form").SubmitAsync();
+        // The failed save keeps the draft in component state; the next lifecycle pass re-runs the load,
+        // which now fails — exactly the state a real SSR resubmit request lands in.
+        component.Render();
+
+        component.Find(".error-message").TextContent.ShouldContain("Zapis odrzucony.");
+        IElement recoveryForm = component.Find("form");
+        recoveryForm.QuerySelectorAll("input[type=hidden][name=FileIdField]").Length.ShouldBe(1);
+        recoveryForm.QuerySelectorAll("input[type=hidden][name=GossipIdField]").Length.ShouldBe(1);
+        recoveryForm.QuerySelectorAll("textarea[name=DraftField]").Length.ShouldBe(1);
+        recoveryForm.QuerySelector("button[type=submit]")!.TextContent.ShouldContain("Zapisz ponownie");
+        component.FindAll(".editor-grid").ShouldBeEmpty();
     }
 
     [Fact]
@@ -203,7 +233,7 @@ public sealed class EditorTests : BunitContext
 
         // Behaviour-visible proof the approve link href was followed: only a POST to that exact href is
         // stubbed to succeed, so the success confirmation renders iff the editor used it.
-        component.Find(".status-ok").TextContent.ShouldContain("Tłumaczenie zatwierdzono");
+        component.Find(".status-message.status-success").TextContent.ShouldContain("Tłumaczenie zatwierdzono");
     }
 
     private IRenderedComponent<EditorComponent> RenderEditor() =>

@@ -5,13 +5,14 @@ name: Pull Request Verification
 # author merges their own PRs (loop workflow), so the PR — not a post-merge job — is where
 # main is kept green. The CI workflow re-runs the same suite on main as a backstop.
 #
-# Docs-only PRs (the former deadlock): the main ruleset REQUIRES the "Pull Request Verification"
-# check, but a workflow filtered out by `on.paths-ignore` never reports it — so a docs-only PR
-# could never merge (the workaround was smuggling a non-ignored file into the PR). The workflow
-# therefore ALWAYS triggers and the heavy job self-skips via the `changes` gate below: a job
-# skipped by `if:` reports success to required status checks — GitHub's documented pattern for
-# combining required checks with path filtering. CI (main) keeps its paths-ignore on purpose:
-# a docs-only push must keep triggering no CI and therefore no CD (audit 0001 M2).
+# Non-.NET-only PRs (and the former docs-only deadlock): the main ruleset REQUIRES the "Pull
+# Request Verification" check, but a workflow filtered out by `on.paths-ignore` never reports it —
+# so such a PR could never merge (the old workaround was smuggling a build-relevant file into the
+# PR). The workflow therefore ALWAYS triggers and the heavy job self-skips via the `changes` gate
+# below when nothing in the PR can affect the .NET build/tests/SSR guard: a job skipped by `if:`
+# reports success to required status checks — GitHub's documented pattern for combining required
+# checks with path filtering. CI (main) keeps its own paths-ignore on purpose: a docs-only push
+# must keep triggering no CI and therefore no CD (audit 0001 M2).
 on:
   pull_request:
     branches: ["main"]
@@ -26,7 +27,7 @@ permissions:
 
 jobs:
   changes:
-    name: Detect non-docs changes
+    name: Detect build-relevant changes
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     outputs:
@@ -40,23 +41,37 @@ jobs:
           fetch-depth: 2
           persist-credentials: false
 
-      # Mirrors the ignore list the `on.paths-ignore` used to carry: **/*.md, docs/**, LICENSE,
-      # .gitignore. No untrusted input reaches this script (pure git against the checked-out merge
-      # commit). Fails OPEN (code=true) if the diff cannot be computed — a redundant build beats a
-      # false green.
+      # A PR that changes ONLY files which cannot affect the .NET build, the unit/integration tests
+      # or the SSR-purity guard skips the heavy job below. No untrusted input reaches this script
+      # (pure git against the checked-out merge commit). Fails OPEN (code=true) if the diff cannot be
+      # computed — a redundant build beats a false green.
       - name: Classify changed paths
         id: diff
         run: |
           set -euo pipefail
+          # Inert paths: docs, shell/PowerShell scripts, IaC (infra.yml gates it separately),
+          # Docker (only the flavors we actually ship — a NEW flavor safely triggers a redundant
+          # build until it is listed here, never a false skip) / compose, the .docker/ trust
+          # material, editor/run configs, .env examples, and everything under .github/ (workflows,
+          # issue/PR templates). A PR touching only these cannot break the .NET build, the tests, or
+          # the SSR guard. NEVER add a build input here (.editorconfig, Directory.*.props/.targets,
+          # global.json, nuget.config, test fixtures) — that would be a false green.
+          inert='\.md$|^docs/|^LICENSE$|^\.gitignore$|^\.gitattributes$|\.sh$|\.ps1$|^iac/|(^|/)Dockerfile(\.migrator(\.prod)?|\.tests)?$|^compose[^/]*\.ya?ml$|^\.docker/|^\.github/|^\.run/|^\.vscode/|^\.idea/|(^|/)\.env[^/]*\.example$'
+          # Build-relevant despite matching `inert`: check-ssr-purity.sh is EXECUTED by the build
+          # job, and pr-verify/ci define the .NET gate itself — a change to any of them must run the
+          # gate so it validates its own new definition.
+          force_build='^scripts/check-ssr-purity\.sh$|^\.github/workflows/pr-verify\.yml$|^\.github/workflows/ci\.yml$'
           code=true
           if files="$(git diff --name-only HEAD^1 HEAD)"; then
-            non_docs="$(printf '%s\n' "$files" | grep -vE '\.md$|^docs/|^LICENSE$|^\.gitignore$' || true)"
-            if [ -n "$files" ] && [ -z "$non_docs" ]; then
+            build_relevant="$(printf '%s\n' "$files" | grep -vE "$inert" || true)"
+            forced="$(printf '%s\n' "$files" | grep -E "$force_build" || true)"
+            if [ -n "$files" ] && [ -z "$build_relevant" ] && [ -z "$forced" ]; then
               code=false
             fi
             echo "Changed files:"
             printf '%s\n' "$files" | sed 's/^/  /'
-            echo "Non-docs files: ${non_docs:-<none>}"
+            echo "Build-relevant files: ${build_relevant:-<none>}"
+            echo "Forced-build files:   ${forced:-<none>}"
           else
             echo "::warning::Could not compute the PR diff — running the full gate."
           fi
@@ -65,7 +80,7 @@ jobs:
   build:
     name: Pull Request Verification
     needs: changes
-    # Docs-only PR ⇒ skipped, and a skipped job satisfies the required "Pull Request Verification"
+    # Inert-only PR ⇒ skipped, and a skipped job satisfies the required "Pull Request Verification"
     # status check (see the header comment).
     if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-24.04

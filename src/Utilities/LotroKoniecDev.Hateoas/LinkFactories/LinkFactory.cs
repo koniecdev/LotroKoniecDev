@@ -42,9 +42,9 @@ internal sealed partial class LinkFactory : ILinkFactory
         {
             return new LinkDto(Href: href, Rel: rel, Method: method);
         }
-        
+
         LogHateoasLinksGenerationFailure(_logger, endpoint, rel, method, values);
-        
+
         return null;
     }
 

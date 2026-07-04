@@ -217,7 +217,7 @@ public sealed class E2ETestFixture : IAsyncLifetime
         string exeName = $"{CliProjectName}.exe";
         string exePath = Directory.GetFiles(cliBinDir, exeName, SearchOption.AllDirectories)
             .OrderByDescending(File.GetLastWriteTimeUtc)
-            .FirstOrDefault() 
+            .FirstOrDefault()
             ?? throw new InvalidOperationException(
                 $"CLI exe '{exeName}' not found under {cliBinDir}. Build the CLI first: dotnet build src/Patcher/{CliProjectName}");
 

@@ -61,11 +61,11 @@ internal sealed class SimplifiedGameLaunchingStrategy : IGameLaunchingStrategy
                 Result.Failure<GameLaunchingResponse>(hashResult.Error));
         }
         string currentHash = hashResult.Value;
-        
+
         _logger.LogInformation("Current translation hash: {Hash}", currentHash);
 
         _logger.LogInformation("Step 2: Reading stored version info...");
-        
+
         Result<StoredVersionInfo?> storedResult = _gameVersionFileStore.ReadStoredVersion(command.GameVersionFilePath);
         if (storedResult.IsFailure)
         {
@@ -108,7 +108,7 @@ internal sealed class SimplifiedGameLaunchingStrategy : IGameLaunchingStrategy
                     Result.Failure<GameLaunchingResponse>(
                         DomainErrors.GameLaunch.RepatchFailed(patchResult.Error.Message)));
             }
-            
+
             PatchSummaryResponse patchSummary = patchResult.Value;
 
             translationsApplied = true;
@@ -120,7 +120,7 @@ internal sealed class SimplifiedGameLaunchingStrategy : IGameLaunchingStrategy
 
             // Save new hash + current vnum
             _logger.LogInformation("Reading DAT vnum to save alongside hash...");
-            
+
             Result<DatVersionInfo> vnumResult = _datVersionReader.ReadVersion(command.DatFilePath);
             if (vnumResult.IsFailure)
             {
@@ -129,7 +129,7 @@ internal sealed class SimplifiedGameLaunchingStrategy : IGameLaunchingStrategy
                     Result.Failure<GameLaunchingResponse>(vnumResult.Error));
             }
             DatVersionInfo datVersion = vnumResult.Value;
-            
+
             _logger.LogInformation("DAT vnum: VnumDat={VnumDat}, VnumGame={VnumGame}",
                 datVersion.VnumDatFile, datVersion.VnumGameData);
 

@@ -107,14 +107,14 @@ public sealed partial class RegisterPageTests : EndpointsTestBase
         string confirmPassword,
         bool acceptedPrivacyPolicy = true,
         bool acceptedDataProcessingConsent = true) => new()
-    {
-        ["Username"] = request.Username,
-        ["Email"] = request.Email,
-        ["Password"] = request.Password,
-        ["ConfirmPassword"] = confirmPassword,
-        ["AcceptedPrivacyPolicy"] = acceptedPrivacyPolicy ? "true" : "false",
-        ["AcceptedDataProcessingConsent"] = acceptedDataProcessingConsent ? "true" : "false"
-    };
+        {
+            ["Username"] = request.Username,
+            ["Email"] = request.Email,
+            ["Password"] = request.Password,
+            ["ConfirmPassword"] = confirmPassword,
+            ["AcceptedPrivacyPolicy"] = acceptedPrivacyPolicy ? "true" : "false",
+            ["AcceptedDataProcessingConsent"] = acceptedDataProcessingConsent ? "true" : "false"
+        };
 
     private async Task<HttpResponseMessage> PostToRegisterPageAsync(Dictionary<string, string> formFields)
     {

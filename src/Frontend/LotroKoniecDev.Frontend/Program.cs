@@ -173,7 +173,7 @@ try
 
     app.UseAuthentication();
     app.UseAuthorization();
-    
+
     app.UseAntiforgery();
 
     app.MapStaticAssets();

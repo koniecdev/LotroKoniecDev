@@ -118,7 +118,7 @@ try
     {
         openTelemetryBuilder.UseOtlpExporter();
     }
-    
+
     builder.Services.AddResponseCompression(options =>
     {
         options.EnableForHttps = true;

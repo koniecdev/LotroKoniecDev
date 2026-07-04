@@ -1,0 +1,20 @@
+# Line-ending policy for this cross-platform .NET repo.
+#
+# The repo is developed on macOS/Linux and builds & runs in Linux Docker/CI, so LF
+# is the canonical line ending. Forcing eol=lf on checkout (not just in the index)
+# keeps every working tree consistent with `.editorconfig` (end_of_line = lf) on
+# every platform, including a Windows dev machine, so `dotnet format` never wants to
+# rewrite line endings again.
+
+# Auto-detect text vs binary; normalize text to LF in the repo and check it out as LF everywhere.
+* text=auto eol=lf
+
+# Windows-only patcher wrappers. cmd.exe can mis-parse multi-line parenthesized blocks
+# (e.g. `if errorlevel 1 ( ... )`) with LF-only endings, so these must stay CRLF in the
+# working tree. The blob is still normalized to LF in the repo, keeping diffs clean.
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# Native interop binaries and DAT game files — never apply EOL normalization.
+*.dll binary
+*.dat binary

@@ -7,7 +7,7 @@ internal static class EmailMaskingExtensions
         public string MaskEmail()
         {
             ArgumentException.ThrowIfNullOrWhiteSpace(email);
-            
+
             int atIndex = email.IndexOf('@', StringComparison.Ordinal);
             return atIndex <= 0 ? "***" : string.Concat(email[0].ToString(), "***", email[atIndex..]);
         }

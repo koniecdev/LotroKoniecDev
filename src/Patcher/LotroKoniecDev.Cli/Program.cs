@@ -28,23 +28,23 @@ public sealed class Program
             cancellationTokenSource.Cancel();
             Console.WriteLine("Cancellation requested...");
         };
-        
+
         ServiceCollection services = new();
         services.AddLogging(builder => builder.AddSerilog());
         services.AddApplicationServices();
         services.AddInfrastructureServices();
         services.AddCliServices();
-        
+
         TypeRegistrar typeRegistrar = new(services);
         CommandApp app = new(typeRegistrar);
 
         app.Configure(config =>
         {
             config.SetApplicationName("LotroKoniecDev");
-            
+
             config.AddCommand<ExportCommand>("export")
                   .WithDescription("EXPORT texts from game");
-            
+
             config.AddCommand<PatchCommand>("patch")
                   .WithDescription("PATCH (inject translations)");
 

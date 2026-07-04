@@ -316,17 +316,17 @@ public sealed class OpenIddictSettingsValidatorTests
         string? issuer = ValidIssuer,
         string[]? redirectUris = null,
         string[]? postLogoutRedirectUris = null) => new()
-    {
-        Issuer = issuer!,
-        ApiClientSecret = apiClientSecret!,
-        EncryptionKey = new EncryptionKeySettings { Key = encryptionKey! },
-        SigningKey = new SigningKeySettings { RsaPrivateKeyXml = signingKeyXml! },
-        WebClient = new WebClientSettings
         {
-            RedirectUris = redirectUris ?? ValidRedirectUris,
-            PostLogoutRedirectUris = postLogoutRedirectUris ?? ValidPostLogoutRedirectUris
-        }
-    };
+            Issuer = issuer!,
+            ApiClientSecret = apiClientSecret!,
+            EncryptionKey = new EncryptionKeySettings { Key = encryptionKey! },
+            SigningKey = new SigningKeySettings { RsaPrivateKeyXml = signingKeyXml! },
+            WebClient = new WebClientSettings
+            {
+                RedirectUris = redirectUris ?? ValidRedirectUris,
+                PostLogoutRedirectUris = postLogoutRedirectUris ?? ValidPostLogoutRedirectUris
+            }
+        };
 
     private static OpenIddictSettingsValidator CreateValidator(string environmentName)
         => new(new FakeWebHostEnvironment(environmentName));

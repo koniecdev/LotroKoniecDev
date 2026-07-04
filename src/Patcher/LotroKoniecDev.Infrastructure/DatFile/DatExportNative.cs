@@ -70,7 +70,7 @@ internal static partial class DatExportNative
         out uint datFileId,
         [Out, MarshalAs(UnmanagedType.LPArray, SizeConst = 64)] byte[] datIdStamp,
         [Out, MarshalAs(UnmanagedType.LPArray, SizeConst = 64)] byte[] firstIterGuid);
-    
+
 
     /// <summary>
     /// Retrieves the total number of subfiles present in the specified DAT file.

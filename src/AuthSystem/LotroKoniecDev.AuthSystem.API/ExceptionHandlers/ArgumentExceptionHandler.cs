@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Diagnostics;
 using Microsoft.AspNetCore.Mvc;
 
 namespace LotroKoniecDev.AuthSystem.API.ExceptionHandlers;
+
 internal sealed partial class ArgumentExceptionHandler : IExceptionHandler
 {
     private readonly ILogger<ArgumentExceptionHandler> _logger;

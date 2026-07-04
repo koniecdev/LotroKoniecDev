@@ -22,7 +22,7 @@ internal sealed class ExportCommand : AsyncCommand<ExportCommand.Settings>
         _datPathResolver = datPathResolver;
         _reporter = reporter;
     }
-    
+
     public sealed class Settings : GlobalSettings
     {
         [CommandOption("-d|--dat-file-path")]
@@ -33,7 +33,7 @@ internal sealed class ExportCommand : AsyncCommand<ExportCommand.Settings>
         [Description("Optional output path. Defaults to data/exported.txt")]
         public string? OutputPath { get; init; }
     }
-    
+
     protected override async Task<int> ExecuteAsync(CommandContext context, Settings settings, CancellationToken cancellationToken)
     {
         string? actualDatPath = _datPathResolver.Resolve(settings.DatFilePath);
@@ -41,13 +41,13 @@ internal sealed class ExportCommand : AsyncCommand<ExportCommand.Settings>
         {
             return ExitCodes.FileNotFound;
         }
-        
+
         string actualOutputPath = settings.OutputPath ?? Path.Combine(GlobalSettings.DataDir, "exported.txt");
 
         ExportTextsQuery query = new(
             DatFilePath: actualDatPath,
             OutputPath: actualOutputPath);
-        
+
         try
         {
             Result<ExportSummaryResponse> result = await _exportTextsHandler.Handle(query, cancellationToken);
@@ -65,7 +65,7 @@ internal sealed class ExportCommand : AsyncCommand<ExportCommand.Settings>
             _reporter.Report("Operation cancelled by user.");
             return ExitCodes.OperationCancelled;
         }
-        catch(Exception ex)
+        catch (Exception ex)
         {
             _reporter.Report(ex.ToString());
             return ExitCodes.OperationFailed;

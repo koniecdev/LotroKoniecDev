@@ -542,7 +542,7 @@
                             <h2 id="auth-h">
                                 Logowanie
                             </h2>
-                            <span class="panel-aside">Nazwa użytkownika + hasło</span>
+                            <span class="panel-aside">E-mail + hasło</span>
                         </header>
 
                         <form id="login-form" method="post" asp-route-returnUrl="@Model.ReturnUrl" class="auth-panel-body">
@@ -563,17 +563,17 @@
 
                             <div class="auth-field">
                                 <div class="auth-field-row">
-                                    <label asp-for="Username">Nazwa użytkownika</label>
+                                    <label asp-for="Email">Adres e-mail</label>
                                 </div>
                                 <div class="auth-input-wrap">
                                     <svg class="leading" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                                        <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
-                                        <circle cx="12" cy="7" r="4"/>
+                                        <rect x="3" y="5" width="18" height="14" rx="2"/>
+                                        <path d="m3 7 9 6 9-6"/>
                                     </svg>
-                                    <input asp-for="Username"
-                                           type="text"
+                                    <input asp-for="Email"
+                                           type="email"
                                            class="auth-input"
-                                           placeholder="np. kasia92"
+                                           placeholder="np. kasia@example.com"
                                            autocomplete="username"
                                            required
                                            autofocus />

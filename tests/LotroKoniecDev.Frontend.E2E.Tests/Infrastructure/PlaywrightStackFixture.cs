@@ -73,7 +73,7 @@ public sealed class PlaywrightStackFixture : IAsyncLifetime
     private const string ApiClientSecret = "fe-e2e-api-client-secret-min-32-characters";
     private const string WebClientId = "lotrokoniecdev-web";
 
-    private const string AdminUsername = "fe-e2e-admin";
+    private const string AdminUsername = "fee2eadmin";
     private const string AdminEmail = "fe-e2e-admin@lotro-translator.pl";
     private const string AdminPassword = "FeE2eAdminPass123!";
 

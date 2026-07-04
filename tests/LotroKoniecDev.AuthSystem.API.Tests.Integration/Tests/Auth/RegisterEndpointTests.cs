@@ -36,7 +36,7 @@ public sealed class RegisterEndpointTests : EndpointsTestBase
             await UserFactory.RegisterRandomUserWithRequestAsync(ApiClient, Faker, AccountConfirmationEmailSpy);
 
         RegisterRequest duplicateRequest = new(
-            Faker.Internet.UserName() + Faker.Random.AlphaNumeric(4),
+            Faker.Random.AlphaNumeric(16),
             existingRequest.Email,
             "TestPass1!",
             AcceptedPrivacyPolicy: true,
@@ -48,6 +48,33 @@ public sealed class RegisterEndpointTests : EndpointsTestBase
 
         // Assert
         response.StatusCode.ShouldBe(HttpStatusCode.UnprocessableEntity);
+    }
+
+    [Fact]
+    public async Task Register_ShouldReturnUnprocessableEntity_WhenEmailDiffersOnlyByCase()
+    {
+        // Arrange
+        (RegisterRequest existingRequest, _) =
+            await UserFactory.RegisterRandomUserWithRequestAsync(ApiClient, Faker, AccountConfirmationEmailSpy);
+
+        string caseVariantEmail = existingRequest.Email.ToUpperInvariant();
+        caseVariantEmail.ShouldNotBe(existingRequest.Email);
+
+        RegisterRequest duplicateRequest = new(
+            Faker.Random.AlphaNumeric(16),
+            caseVariantEmail,
+            "TestPass1!",
+            AcceptedPrivacyPolicy: true,
+            AcceptedDataProcessingConsent: true);
+
+        // Act
+        HttpResponseMessage response = await ApiClient.Http.PostAsJsonAsync(
+            new Uri("auth/register", UriKind.Relative), duplicateRequest);
+
+        // Assert
+        response.StatusCode.ShouldBe(HttpStatusCode.UnprocessableEntity);
+        string content = await response.Content.ReadAsStringAsync();
+        content.ShouldContain("Auth.UserAlreadyExistsByEmail");
     }
 
     [Fact]
@@ -73,11 +100,90 @@ public sealed class RegisterEndpointTests : EndpointsTestBase
     }
 
     [Fact]
+    public async Task Register_ShouldReturnUnprocessableEntity_WhenUsernameDiffersOnlyByCase()
+    {
+        // Arrange — Identity normalization makes the handle uniqueness case-insensitive (ADR-0022)
+        (RegisterRequest existingRequest, _) =
+            await UserFactory.RegisterRandomUserWithRequestAsync(ApiClient, Faker, AccountConfirmationEmailSpy);
+
+        string caseVariantUsername = existingRequest.Username.ToUpperInvariant();
+        caseVariantUsername.ShouldNotBe(existingRequest.Username);
+
+        RegisterRequest duplicateRequest = new(
+            caseVariantUsername,
+            Faker.Internet.Email(),
+            "TestPass1!",
+            AcceptedPrivacyPolicy: true,
+            AcceptedDataProcessingConsent: true);
+
+        // Act
+        HttpResponseMessage response = await ApiClient.Http.PostAsJsonAsync(
+            new Uri("auth/register", UriKind.Relative), duplicateRequest);
+
+        // Assert
+        response.StatusCode.ShouldBe(HttpStatusCode.UnprocessableEntity);
+        string content = await response.Content.ReadAsStringAsync();
+        content.ShouldContain("Auth.UserAlreadyExistsByUsername");
+    }
+
+    [Theory]
+    [InlineData("kasia 92")]
+    [InlineData("kasia.92")]
+    [InlineData("kasia_92")]
+    [InlineData("kasia@92")]
+    [InlineData("kaśka92")]
+    [InlineData("kasia-92")]
+    public async Task Register_ShouldReturnBadRequestWithCharsetMessage_WhenUsernameHasIllegalCharacters(
+        string username)
+    {
+        // Arrange
+        RegisterRequest request = new(
+            username,
+            Faker.Internet.Email(),
+            "TestPass1!",
+            AcceptedPrivacyPolicy: true,
+            AcceptedDataProcessingConsent: true);
+
+        // Act
+        HttpResponseMessage response = await ApiClient.Http.PostAsJsonAsync(
+            new Uri("auth/register", UriKind.Relative), request);
+
+        // Assert — the explicit validator message, never Identity's raw English error surfacing late
+        response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        string content = await response.Content.ReadAsStringAsync();
+        content.ShouldContain("Username may contain only letters and digits, without spaces.");
+        content.ShouldContain("RegisterUser.Validation");
+        content.ShouldNotContain("Auth.RegistrationFailed");
+    }
+
+    [Theory]
+    [InlineData("kasia92")]
+    [InlineData("KASIA92")]
+    public async Task Register_ShouldReturnCreated_WhenUsernameIsAlphanumeric(string username)
+    {
+        // Arrange
+        RegisterRequest request = new(
+            username,
+            Faker.Internet.Email(),
+            "TestPass1!",
+            AcceptedPrivacyPolicy: true,
+            AcceptedDataProcessingConsent: true);
+
+        // Act
+        HttpResponseMessage response = await ApiClient.Http.PostAsJsonAsync(
+            new Uri("auth/register", UriKind.Relative), request);
+
+        // Assert
+        await response.EnsureSuccessWithDetailsAsync();
+        response.StatusCode.ShouldBe(HttpStatusCode.Created);
+    }
+
+    [Fact]
     public async Task Register_ShouldReturnBadRequest_WhenPrivacyPolicyNotAccepted()
     {
         // Arrange
         RegisterRequest request = new(
-            Faker.Internet.UserName() + Faker.Random.AlphaNumeric(4),
+            Faker.Random.AlphaNumeric(16),
             Faker.Internet.Email(),
             "TestPass1!",
             AcceptedPrivacyPolicy: false,
@@ -126,7 +232,7 @@ public sealed class RegisterEndpointTests : EndpointsTestBase
         using FormUrlEncodedContent tokenRequest = new(new Dictionary<string, string>
         {
             ["grant_type"] = "password",
-            ["username"] = request.Username,
+            ["username"] = request.Email,
             ["password"] = request.Password,
             ["client_id"] = "lotrokoniecdev-test",
             ["scope"] = "email profile roles api offline_access"

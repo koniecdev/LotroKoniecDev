@@ -95,7 +95,7 @@ public sealed partial class AuthorizationCodeFlowTests : AsyncLifetimeTestBase
 
         Dictionary<string, string> loginFormData = new()
         {
-            ["Username"] = registerRequest.Username,
+            ["Email"] = registerRequest.Email,
             ["Password"] = password,
         };
 
@@ -214,7 +214,7 @@ public sealed partial class AuthorizationCodeFlowTests : AsyncLifetimeTestBase
 
         string html = await response.Content.ReadAsStringAsync();
         html.ShouldContain("Zaloguj się");
-        html.ShouldContain("Nazwa użytkownika");
+        html.ShouldContain("Adres e-mail");
         html.ShouldContain("Hasło");
     }
 
@@ -231,7 +231,7 @@ public sealed partial class AuthorizationCodeFlowTests : AsyncLifetimeTestBase
 
         Dictionary<string, string> loginFormData = new()
         {
-            ["Username"] = "nonexistent_user",
+            ["Email"] = "nonexistent@example.com",
             ["Password"] = "WrongPassword1!"
         };
 
@@ -261,7 +261,7 @@ public sealed partial class AuthorizationCodeFlowTests : AsyncLifetimeTestBase
         // Assert
         response.StatusCode.ShouldBe(HttpStatusCode.OK); // Returns 200 with error message on page
         string html = await response.Content.ReadAsStringAsync();
-        html.ShouldContain("Nieprawidłowa nazwa użytkownika lub hasło");
+        html.ShouldContain("Nieprawidłowy e-mail lub hasło");
     }
 
     [Fact]
@@ -282,7 +282,7 @@ public sealed partial class AuthorizationCodeFlowTests : AsyncLifetimeTestBase
 
         Dictionary<string, string> loginFormData = new()
         {
-            ["Username"] = registerRequest.Username,
+            ["Email"] = registerRequest.Email,
             ["Password"] = password
         };
 
@@ -310,7 +310,7 @@ public sealed partial class AuthorizationCodeFlowTests : AsyncLifetimeTestBase
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
 
         string html = await response.Content.ReadAsStringAsync();
-        html.ShouldContain("Nieprawidłowa nazwa użytkownika lub hasło");
+        html.ShouldContain("Nieprawidłowy e-mail lub hasło");
     }
 
     [Fact]
@@ -445,7 +445,7 @@ public sealed partial class AuthorizationCodeFlowTests : AsyncLifetimeTestBase
 
         Dictionary<string, string> loginFormData = new()
         {
-            ["Username"] = registerRequest.Username,
+            ["Email"] = registerRequest.Email,
             ["Password"] = password,
         };
 

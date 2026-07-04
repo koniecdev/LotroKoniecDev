@@ -45,7 +45,7 @@ public class AuthSystemApiFactory : WebApplicationFactory<Program>, IAsyncLifeti
                 { "OpenIddict:ApiClientSecret", TestApiClientSecret },
                 { "OpenIddict:WebClient:RedirectUris:0", "https://localhost:5001/callback" },
                 { "OpenIddict:WebClient:PostLogoutRedirectUris:0", "https://localhost:5001" },
-                { "AdminUser:Username", "seeded-admin" },
+                { "AdminUser:Username", "seededadmin" },
                 { "AdminUser:Email", "admin@lotro-translator.pl" },
                 { "AdminUser:Password", "AdminTest123!" },
                 // Email identity is no longer baked into base appsettings.json (M6-06); supply it here

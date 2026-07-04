@@ -73,12 +73,15 @@ public sealed class AuthFlowE2ETests : E2ETestBase
         }
     }
 
+    // The stats endpoint stands in for "any protected endpoint": the translations LIST went
+    // deliberately anonymous in #310 (public read-only landing page), which these two probes
+    // originally targeted.
     [Fact]
     public async Task TmsApi_RejectsProtectedEndpoint_WithoutToken()
     {
         TranslationSystemApiClient anonymous = CreateTmsClient();
 
-        HttpResponseMessage response = await anonymous.ListTranslationsRawAsync();
+        HttpResponseMessage response = await anonymous.GetStatsRawAsync();
 
         response.StatusCode.ShouldBe(HttpStatusCode.Unauthorized);
     }
@@ -88,7 +91,7 @@ public sealed class AuthFlowE2ETests : E2ETestBase
     {
         TranslationSystemApiClient client = CreateTmsClient("not-a-real-jwt");
 
-        HttpResponseMessage response = await client.ListTranslationsRawAsync();
+        HttpResponseMessage response = await client.GetStatsRawAsync();
 
         response.StatusCode.ShouldBe(HttpStatusCode.Unauthorized);
     }

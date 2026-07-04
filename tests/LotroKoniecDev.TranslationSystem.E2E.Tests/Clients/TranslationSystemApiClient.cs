@@ -64,6 +64,9 @@ public sealed class TranslationSystemApiClient : IDisposable
     public async Task<HttpResponseMessage> ListTranslationsRawAsync() =>
         await _client.GetAsync(new Uri(TranslationsRoute, UriKind.Relative));
 
+    public async Task<HttpResponseMessage> GetStatsRawAsync() =>
+        await _client.GetAsync(new Uri($"{TranslationsRoute}/stats", UriKind.Relative));
+
     public async Task<TranslationDetailResponse> GetTranslationAsync(Guid id)
     {
         HttpResponseMessage response = await _client.GetAsync(new Uri($"{TranslationsRoute}/{id}", UriKind.Relative));

@@ -26,7 +26,7 @@ public sealed class DeleteAccountEndpointTests : EndpointsTestBase
         (RegisterRequest registerRequest, _) =
             await UserFactory.RegisterRandomUserWithRequestAsync(ApiClient, Faker, AccountConfirmationEmailSpy, password);
 
-        string accessToken = await GetAccessTokenAsync(registerRequest.Username, password);
+        string accessToken = await GetAccessTokenAsync(registerRequest.Email, password);
 
         DeleteAccountRequest deleteRequest = new(password);
 
@@ -50,7 +50,7 @@ public sealed class DeleteAccountEndpointTests : EndpointsTestBase
         (RegisterRequest registerRequest, _) =
             await UserFactory.RegisterRandomUserWithRequestAsync(ApiClient, Faker, AccountConfirmationEmailSpy, password);
 
-        string accessToken = await GetAccessTokenAsync(registerRequest.Username, password);
+        string accessToken = await GetAccessTokenAsync(registerRequest.Email, password);
 
         DeleteAccountRequest deleteRequest = new(password);
 
@@ -64,7 +64,7 @@ public sealed class DeleteAccountEndpointTests : EndpointsTestBase
         using FormUrlEncodedContent tokenRequest = new(new Dictionary<string, string>
         {
             ["grant_type"] = "password",
-            ["username"] = registerRequest.Username,
+            ["username"] = registerRequest.Email,
             ["password"] = password,
             ["client_id"] = "lotrokoniecdev-test",
             ["scope"] = "email profile roles api"
@@ -86,7 +86,7 @@ public sealed class DeleteAccountEndpointTests : EndpointsTestBase
         (RegisterRequest registerRequest, _) =
             await UserFactory.RegisterRandomUserWithRequestAsync(ApiClient, Faker, AccountConfirmationEmailSpy, password);
 
-        string accessToken = await GetAccessTokenAsync(registerRequest.Username, password);
+        string accessToken = await GetAccessTokenAsync(registerRequest.Email, password);
 
         DeleteAccountRequest deleteRequest = new("WrongPassword1!");
 
@@ -125,7 +125,7 @@ public sealed class DeleteAccountEndpointTests : EndpointsTestBase
         (RegisterRequest registerRequest, IdentityId identityId) =
             await UserFactory.RegisterRandomUserWithRequestAsync(ApiClient, Faker, AccountConfirmationEmailSpy, password);
 
-        string accessToken = await GetAccessTokenAsync(registerRequest.Username, password);
+        string accessToken = await GetAccessTokenAsync(registerRequest.Email, password);
 
         DeleteAccountRequest deleteRequest = new(password);
 

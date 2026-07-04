@@ -43,14 +43,14 @@ public abstract class E2ETestBase : IAsyncLifetime
     /// <summary>Logs in the seeded admin (Admin role, email pre-confirmed) via the password grant and returns its access token.</summary>
     protected async Task<string> LoginAsAdminAsync()
     {
-        TokenResponse token = await AuthApi.LoginAsync(E2ETestFixture.AdminUsername, E2ETestFixture.AdminPassword);
+        TokenResponse token = await AuthApi.LoginAsync(E2ETestFixture.AdminEmail, E2ETestFixture.AdminPassword);
         return token.AccessToken;
     }
 
     /// <summary>Registers a fresh user (granted the Translator role, email auto-confirmed) and logs it in.</summary>
     protected async Task<RegisteredTranslator> RegisterAndLoginTranslatorAsync()
     {
-        string username = $"translator_{Faker.Random.AlphaNumeric(10)}";
+        string username = $"translator{Faker.Random.AlphaNumeric(10)}";
         string email = $"{username}@lotro-translator.pl";
 
         RegisterRequest request = new(
@@ -61,7 +61,7 @@ public abstract class E2ETestBase : IAsyncLifetime
             AcceptedDataProcessingConsent: true);
 
         IdentityId identityId = await AuthApi.RegisterAsync(request);
-        TokenResponse token = await AuthApi.LoginAsync(username, TranslatorPassword);
+        TokenResponse token = await AuthApi.LoginAsync(email, TranslatorPassword);
         return new RegisteredTranslator(identityId, username, email, token.AccessToken);
     }
 

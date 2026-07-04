@@ -246,7 +246,7 @@ public sealed class ContentNegotiationTests : EndpointsTestBase
         (RegisterRequest registerRequest, _) = await UserFactory.RegisterRandomUserWithRequestAsync(
             ApiClient, Faker, AccountConfirmationEmailSpy, TestPassword);
 
-        return await GetAccessTokenAsync(registerRequest.Username, TestPassword);
+        return await GetAccessTokenAsync(registerRequest.Email, TestPassword);
     }
 
     private static async Task<JsonNode?> ReadBodyAsJsonNodeAsync(HttpResponseMessage response)

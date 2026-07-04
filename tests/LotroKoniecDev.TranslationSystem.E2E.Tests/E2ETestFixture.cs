@@ -40,7 +40,7 @@ public sealed class E2ETestFixture : IAsyncLifetime
     /// Seeded by auth-api on startup from <c>AdminUser__*</c> config, with <c>EmailConfirmed = true</c> and the
     /// <c>Admin</c> role — so a password-grant login yields a real Admin token without the email-confirmation dance.
     /// </summary>
-    public const string AdminUsername = "e2e-admin";
+    public const string AdminUsername = "e2eadmin";
     public const string AdminEmail = "e2e-admin@lotro-translator.pl";
     public const string AdminPassword = "E2eAdminPass123!";
 

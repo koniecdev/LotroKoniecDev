@@ -20,7 +20,7 @@ public sealed class ChangePasswordEndpointTests : EndpointsTestBase
         (RegisterRequest registerRequest, _) =
             await UserFactory.RegisterRandomUserWithRequestAsync(ApiClient, Faker, AccountConfirmationEmailSpy, currentPassword);
 
-        string accessToken = await GetAccessTokenAsync(registerRequest.Username, currentPassword);
+        string accessToken = await GetAccessTokenAsync(registerRequest.Email, currentPassword);
 
         ChangePasswordRequest changeRequest = new(currentPassword, newPassword);
 
@@ -45,7 +45,7 @@ public sealed class ChangePasswordEndpointTests : EndpointsTestBase
         (RegisterRequest registerRequest, _) =
             await UserFactory.RegisterRandomUserWithRequestAsync(ApiClient, Faker, AccountConfirmationEmailSpy, currentPassword);
 
-        string accessToken = await GetAccessTokenAsync(registerRequest.Username, currentPassword);
+        string accessToken = await GetAccessTokenAsync(registerRequest.Email, currentPassword);
 
         using HttpRequestMessage changeReq = new(HttpMethod.Post, "auth/change-password");
         changeReq.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
@@ -57,7 +57,7 @@ public sealed class ChangePasswordEndpointTests : EndpointsTestBase
         using FormUrlEncodedContent tokenRequest = new(new Dictionary<string, string>
         {
             ["grant_type"] = "password",
-            ["username"] = registerRequest.Username,
+            ["username"] = registerRequest.Email,
             ["password"] = newPassword,
             ["client_id"] = "lotrokoniecdev-test",
             ["scope"] = "email profile roles api"
@@ -83,7 +83,7 @@ public sealed class ChangePasswordEndpointTests : EndpointsTestBase
         using FormUrlEncodedContent loginRequest = new(new Dictionary<string, string>
         {
             ["grant_type"] = "password",
-            ["username"] = registerRequest.Username,
+            ["username"] = registerRequest.Email,
             ["password"] = currentPassword,
             ["client_id"] = "lotrokoniecdev-test",
             ["scope"] = "email profile roles api offline_access"
@@ -130,7 +130,7 @@ public sealed class ChangePasswordEndpointTests : EndpointsTestBase
         (RegisterRequest registerRequest, _) =
             await UserFactory.RegisterRandomUserWithRequestAsync(ApiClient, Faker, AccountConfirmationEmailSpy, currentPassword);
 
-        string accessToken = await GetAccessTokenAsync(registerRequest.Username, currentPassword);
+        string accessToken = await GetAccessTokenAsync(registerRequest.Email, currentPassword);
 
         ChangePasswordRequest changeRequest = new("WrongPassword1!", "NewPass99!");
 
@@ -154,7 +154,7 @@ public sealed class ChangePasswordEndpointTests : EndpointsTestBase
         (RegisterRequest registerRequest, _) =
             await UserFactory.RegisterRandomUserWithRequestAsync(ApiClient, Faker, AccountConfirmationEmailSpy, currentPassword);
 
-        string accessToken = await GetAccessTokenAsync(registerRequest.Username, currentPassword);
+        string accessToken = await GetAccessTokenAsync(registerRequest.Email, currentPassword);
 
         ChangePasswordRequest changeRequest = new(currentPassword, "weak");
 

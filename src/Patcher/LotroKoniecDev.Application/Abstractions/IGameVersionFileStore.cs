@@ -11,7 +11,7 @@ public interface IGameVersionFileStore
     /// Reads the stored version info. Returns null if the file does not exist (first run).
     /// </summary>
     Result<StoredVersionInfo?> ReadStoredVersion(string versionFilePath);
-    
+
     Result SaveVersion(
         string versionFilePath,
         string? forumVersion,

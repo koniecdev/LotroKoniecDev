@@ -121,7 +121,7 @@ public sealed class DatFileHandler : IDatFileHandler, IDatVersionReader
             return Result.Failure<DatVersionInfo>(DomainErrors.DatFile.CannotOpen($"{datFilePath}: {ex.Message}"));
         }
     }
-    
+
     public Dictionary<int, (int Size, int Iteration)> GetAllSubfileSizes(int handle)
     {
         ThrowIfDisposed();

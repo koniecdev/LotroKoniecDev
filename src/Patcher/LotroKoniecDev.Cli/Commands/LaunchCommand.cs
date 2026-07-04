@@ -33,7 +33,7 @@ internal sealed class LaunchCommand : AsyncCommand<LaunchCommand.Settings>
         _reporter = reporter;
         _datPathResolver = datPathResolver;
     }
-    
+
     public sealed class Settings : GlobalSettings
     {
         [CommandArgument(0, "<NAME>")]
@@ -53,7 +53,7 @@ internal sealed class LaunchCommand : AsyncCommand<LaunchCommand.Settings>
         [DefaultValue(false)]
         public bool SkipSync { get; init; }
     }
-    
+
     protected override async Task<int> ExecuteAsync(CommandContext context, Settings settings,
         CancellationToken cancellationToken)
     {
@@ -98,7 +98,7 @@ internal sealed class LaunchCommand : AsyncCommand<LaunchCommand.Settings>
             return ExitCodes.OperationFailed;
         }
     }
-    
+
     private async Task<int?> SyncTranslationFileAsync(Settings settings, CancellationToken cancellationToken)
     {
         string translationsPath = ResolveTranslationsPath(settings.TranslationName);
@@ -123,7 +123,7 @@ internal sealed class LaunchCommand : AsyncCommand<LaunchCommand.Settings>
             _reporter.Report($"Translation file not found: {actualTranslationsPath}");
             return null;
         }
-        
+
         string? datFilePath = _datPathResolver.Resolve(settings.DatFilePath);
         if (datFilePath is null)
         {
@@ -138,7 +138,7 @@ internal sealed class LaunchCommand : AsyncCommand<LaunchCommand.Settings>
         _reporter.Report($"DAT file not found: {datFilePath}");
         return null;
     }
-    
+
     private static string ResolveTranslationsPath(string input)
     {
         return input.Contains(Path.DirectorySeparatorChar) ||

@@ -90,12 +90,12 @@ public sealed class AuthSystemSettingsValidatorTests
         string clientId = "lotrokoniecdev-web",
         string callbackPath = "/callback",
         IReadOnlyList<string>? scopes = null) => new()
-    {
-        BaseUrl = baseUrl,
-        Authority = authority,
-        ClientId = clientId,
-        CallbackPath = callbackPath,
-        SignedOutCallbackPath = "/signout-callback-oidc",
-        Scopes = scopes ?? ["openid", "profile", "api"]
-    };
+        {
+            BaseUrl = baseUrl,
+            Authority = authority,
+            ClientId = clientId,
+            CallbackPath = callbackPath,
+            SignedOutCallbackPath = "/signout-callback-oidc",
+            Scopes = scopes ?? ["openid", "profile", "api"]
+        };
 }

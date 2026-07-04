@@ -13,14 +13,14 @@ internal sealed class DatPathResolver : IDatPathResolver
     {
         _datFileLocator = datFileLocator;
     }
-    
+
     public string? Resolve(string? explicitPath)
     {
         if (!string.IsNullOrWhiteSpace(explicitPath))
         {
             return explicitPath;
         }
-        
+
         Result<IReadOnlyList<DatFileLocation>> result = _datFileLocator.LocateAll(WriteInfo);
 
         if (result.IsFailure)

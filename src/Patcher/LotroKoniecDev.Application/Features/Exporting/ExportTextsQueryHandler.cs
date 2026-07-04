@@ -22,7 +22,7 @@ internal sealed class ExportTextsQueryHandler : IQueryHandler<ExportTextsQuery, 
         _datFileHandler = datFileHandler;
         _progressReporter = progressReporter;
     }
-    
+
     public async ValueTask<Result<ExportSummaryResponse>> Handle(ExportTextsQuery query, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(query);
@@ -44,9 +44,9 @@ internal sealed class ExportTextsQueryHandler : IQueryHandler<ExportTextsQuery, 
         {
             return Result.Failure<ExportSummaryResponse>(openResult.Error);
         }
-        
+
         int handle = openResult.Value;
-        
+
         try
         {
             Dictionary<int, (int Size, int Iteration)> fileSizes = _datFileHandler.GetAllSubfileSizes(handle);
@@ -63,8 +63,8 @@ internal sealed class ExportTextsQueryHandler : IQueryHandler<ExportTextsQuery, 
                 if (!SubFile.IsTextFile(fileId))
                 {
                     continue;
-                }            
-                
+                }
+
                 Result<SubFile> loadResult = _datFileHandler.LoadSubFile(handle, fileId, size);
                 if (loadResult.IsSuccess)
                 {
@@ -107,7 +107,7 @@ internal sealed class ExportTextsQueryHandler : IQueryHandler<ExportTextsQuery, 
                     _progressReporter.Report(new OperationProgress(processedFiles, totalTextFiles));
                 }
             }
-            
+
             return Result.Success(new ExportSummaryResponse(
                 processedFiles,
                 totalFragments,
@@ -122,9 +122,9 @@ internal sealed class ExportTextsQueryHandler : IQueryHandler<ExportTextsQuery, 
         {
             _datFileHandler.Close(handle);
         }
-        
+
     }
-    
+
     private static async Task WriteHeaderAsync(StreamWriter writer)
     {
         await writer.WriteLineAsync("# LOTRO Text Export - Ready for Translation");

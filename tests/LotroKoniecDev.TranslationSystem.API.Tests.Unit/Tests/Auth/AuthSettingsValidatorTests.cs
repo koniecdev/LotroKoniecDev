@@ -91,9 +91,9 @@ public sealed class AuthSettingsValidatorTests
         string issuer = "https://auth.lotro-translator.pl",
         string audience = "lotrokoniecdev-api",
         string? authority = "https://auth.lotro-translator.pl") => new()
-    {
-        Issuer = issuer,
-        Audience = audience,
-        Authority = authority
-    };
+        {
+            Issuer = issuer,
+            Audience = audience,
+            Authority = authority
+        };
 }

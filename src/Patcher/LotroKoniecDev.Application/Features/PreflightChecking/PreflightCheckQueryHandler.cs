@@ -19,7 +19,7 @@ internal sealed class PreflightCheckQueryHandler : IQueryHandler<PreflightCheckQ
         _gameProcessDetector = gameProcessDetector;
         _writeAccessChecker = writeAccessChecker;
     }
-    
+
     public async ValueTask<Result<PreflightReportResponse>> Handle(PreflightCheckQuery query, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(query);
@@ -37,13 +37,13 @@ internal sealed class PreflightCheckQueryHandler : IQueryHandler<PreflightCheckQ
         }
 
         bool isGameRunning = _gameProcessDetector.IsLotroRunning();
-        
+
         string? directory = Path.GetDirectoryName(query.DatFilePath);
         bool hasWriteAccess = directory is not null && _writeAccessChecker.CanWriteTo(directory);
-        
-        Result<GameUpdateCheckSummary> gameUpdateCheckSummaryResult = 
+
+        Result<GameUpdateCheckSummary> gameUpdateCheckSummaryResult =
             await _gameUpdateChecker.CheckForUpdateAsync(query.VersionFilePath);
-        
+
         return Result.Success(new PreflightReportResponse(isGameRunning, hasWriteAccess, gameUpdateCheckSummaryResult));
     }
 }

@@ -43,7 +43,7 @@ public sealed class ConcurrencyEndpointsTests : EndpointsTestBase
             {
                 continue;
             }
-            
+
             ProblemDetails? problemDetails = await response.Content.ReadFromJsonAsync<ProblemDetails>();
             ((int)response.StatusCode).ShouldBeLessThan(500,
                 $"Internal Server Error: {problemDetails?.Detail}");

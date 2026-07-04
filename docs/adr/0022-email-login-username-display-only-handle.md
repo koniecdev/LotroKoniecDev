@@ -47,8 +47,11 @@ uniqueness + charset survive here, so the concept "username" survives with them.
 
 ### 2. The username charset is an explicit decision, enforced in three layers from one constant
 
-`^[a-zA-Z0-9]+$` — ASCII letters + digits only; spaces, `-._@+` and diacritics all rejected;
-`Gandalf`/`gandalf` collide via Identity normalization, as desired. One source of truth —
+`\A[a-zA-Z0-9]+\z` — ASCII letters + digits only; spaces, `-._@+` and diacritics all rejected;
+`Gandalf`/`gandalf` collide via Identity normalization, as desired. The anchors are `\A`/`\z`,
+not `^`/`$`, because .NET's `$` also matches before a trailing `\n` — `"kasia92\n"` would slip
+through the validator and surface as the raw Identity error this ADR abolishes (same anchoring
+style as `EmailConstants`). One source of truth —
 `UsernameConstants` in `SharedKernel/Constants/` (next to `EmailConstants`): `MaxLength = 150`,
 `AllowedCharacters`, `RegexPattern`. Three enforcement layers:
 

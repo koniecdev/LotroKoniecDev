@@ -10,5 +10,7 @@ public static class UsernameConstants
 {
     public const int MaxLength = 150;
     public const string AllowedCharacters = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
-    public const string RegexPattern = "^[a-zA-Z0-9]+$";
+    // \A…\z, not ^…$ — in .NET, $ also matches before a trailing \n, which would let
+    // "kasia92\n" through the validator (same anchoring style as EmailConstants).
+    public const string RegexPattern = @"\A[a-zA-Z0-9]+\z";
 }

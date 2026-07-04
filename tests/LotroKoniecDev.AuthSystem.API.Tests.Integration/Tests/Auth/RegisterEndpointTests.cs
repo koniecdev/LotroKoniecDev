@@ -133,6 +133,8 @@ public sealed class RegisterEndpointTests : EndpointsTestBase
     [InlineData("kasia@92")]
     [InlineData("kaśka92")]
     [InlineData("kasia-92")]
+    [InlineData("kasia92\n")] // .NET's $ matches before a trailing \n — \A…\z anchoring must reject this
+    [InlineData(" kasia92")]
     public async Task Register_ShouldReturnBadRequestWithCharsetMessage_WhenUsernameHasIllegalCharacters(
         string username)
     {

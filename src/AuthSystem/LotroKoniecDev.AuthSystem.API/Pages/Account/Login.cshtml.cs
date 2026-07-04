@@ -68,7 +68,9 @@ internal sealed partial class LoginModel : PageModel
             return Page();
         }
 
-        ApplicationUser? user = await _userManager.FindByEmailAsync(Email);
+        // Trim mirrors the register page's Email.Trim() — a pasted/autofilled trailing space must
+        // not turn a valid login into a not-found.
+        ApplicationUser? user = await _userManager.FindByEmailAsync(Email.Trim());
 
         if (user is null)
         {

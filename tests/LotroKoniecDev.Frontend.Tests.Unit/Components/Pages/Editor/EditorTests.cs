@@ -8,6 +8,7 @@ using LotroKoniecDev.TranslationSystem.Contracts.Hateoas;
 using LotroKoniecDev.TranslationSystem.Contracts.Translations;
 using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.TranslationAggregate;
 using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.TranslationAggregate.Enums;
+using Microsoft.AspNetCore.Components;
 using Microsoft.Extensions.DependencyInjection;
 using NSubstitute;
 using EditorComponent = LotroKoniecDev.Frontend.Components.Pages.Editor.Editor;
@@ -19,8 +20,9 @@ namespace LotroKoniecDev.Frontend.Tests.Unit.Components.Pages.Editor;
 /// locking down the render wiring the pure <see cref="PlaceholderAnalyzer"/> tests cannot reach: that
 /// every <c>&lt;--DO_NOT_TOUCH!--&gt;</c> marker in the English source is wrapped in a highlight span,
 /// and that a placeholder-count mismatch between source and the persisted Polish surfaces the advisory
-/// warning (the M3-04 placeholder validation feature). The authenticated-but-non-approver state keeps
-/// the assertions on the highlighting path.
+/// warning (the M3-04 placeholder validation feature). Also covers the Post-Redirect-Get flow (#321):
+/// a successful save / approve redirects to the row's GET view with a one-shot success flag, while a
+/// failed save stays put so the typed draft survives.
 /// </summary>
 public sealed class EditorTests : BunitContext
 {
@@ -174,20 +176,100 @@ public sealed class EditorTests : BunitContext
     }
 
     [Fact]
-    public async Task Save_WhenSubmitted_FollowsTheUpsertLinkHrefAndConfirms()
+    public async Task Save_WhenSucceeds_RedirectsToTheRowWithASavedFlagFollowingTheUpsertLinkHref()
     {
+        // Post-Redirect-Get (#321): a successful save redirects to the row's GET view so a browser reload
+        // is a safe GET and the fresh load re-derives the approve affordance — no inline render after post.
+        Guid id = Guid.NewGuid();
         StubLoad(BuildDetail(sourceText: "Hello.", translatedText: "Cześć.", canEdit: true));
         _client
             .PutApiResultAsync<TranslationDetailResponse>(SaveHref, Arg.Any<object>(), Arg.Any<CancellationToken>())
             .Returns(ApiResult.Success(BuildDetail("Hello.", "Cześć.", canEdit: true)));
-        IRenderedComponent<EditorComponent> component = RenderEditor();
+        BunitNavigationManager navigation = Navigation();
+        IRenderedComponent<EditorComponent> component = RenderEditor(id);
 
         // The fixture carries the upsert rel but not the approve rel, so the save form is the only form.
         await component.Find("form").SubmitAsync();
 
         // Behaviour-visible proof the upsert href (read from the loaded detail's links) was followed:
-        // only a PUT to that exact href is stubbed to succeed, so the confirmation renders iff it was used.
+        // only a PUT to that exact href is stubbed to succeed, so the redirect happens iff it was used.
+        navigation.Uri.ShouldEndWith($"/editor/{id}?saved=true");
+    }
+
+    [Fact]
+    public void Render_WhenSavedFlagIsInTheQuery_ShowsTheSaveConfirmation()
+    {
+        // The GET side of PRG: the just-saved row is loaded fresh and the one-shot query flag surfaces the
+        // "saved" confirmation, so the translator still gets positive feedback after the redirect.
+        Guid id = Guid.NewGuid();
+        StubLoad(BuildDetail(sourceText: "Hello.", translatedText: "Cześć.", canEdit: true));
+        Navigation().NavigateTo($"/editor/{id}?saved=true");
+
+        IRenderedComponent<EditorComponent> component = RenderEditor(id);
+
         component.Find(".status-message.status-success").TextContent.ShouldContain("Tłumaczenie zapisano");
+    }
+
+    [Fact]
+    public async Task Save_WhenSaveFails_DoesNotRedirectAndShowsTheErrorInline()
+    {
+        // On a rejected save there is deliberately NO redirect, so the error (and the still-mounted save
+        // form the translator can resubmit) stays on screen instead of being lost to a PRG round-trip.
+        // The resubmittable-draft structure itself is pinned by the recovery test below.
+        Guid id = Guid.NewGuid();
+        StubLoad(BuildDetail(sourceText: "Hello.", translatedText: "Cześć.", canEdit: true));
+        _client
+            .PutApiResultAsync<TranslationDetailResponse>(Arg.Any<string>(), Arg.Any<object>(), Arg.Any<CancellationToken>())
+            .Returns(ApiResult.Failure<TranslationDetailResponse>(new() { Title = "Zapis odrzucony." }));
+        BunitNavigationManager navigation = Navigation();
+        string uriBeforeSubmit = navigation.Uri;
+        IRenderedComponent<EditorComponent> component = RenderEditor(id);
+
+        await component.Find("form").SubmitAsync();
+
+        navigation.Uri.ShouldBe(uriBeforeSubmit);
+        component.Find(".status-message.status-error").TextContent.ShouldContain("Zapis odrzucony.");
+        component.FindAll("textarea#translated").Count.ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task Approve_WhenApproveFails_DoesNotRedirectAndShowsTheErrorInline()
+    {
+        // Symmetric to the save-failure path: a rejected approve (API 403 / 409 / 422 / …) must not
+        // redirect, so the reviewer sees the error in place rather than being bounced to a "success" GET.
+        Guid id = Guid.NewGuid();
+        StubLoad(BuildDetail(sourceText: "Hello.", translatedText: "Cześć.", canApprove: true));
+        _client
+            .PostApiResultAsync(Arg.Any<string>(), Arg.Any<object>(), Arg.Any<CancellationToken>())
+            .Returns(ApiResult.Failure(new() { Title = "Zatwierdzenie odrzucone." }));
+        BunitNavigationManager navigation = Navigation();
+        string uriBeforeSubmit = navigation.Uri;
+        IRenderedComponent<EditorComponent> component = RenderEditor(id);
+
+        await component.Find(".editor-approve").SubmitAsync();
+
+        navigation.Uri.ShouldBe(uriBeforeSubmit);
+        component.Find(".status-message.status-error").TextContent.ShouldContain("Zatwierdzenie odrzucone.");
+    }
+
+    [Fact]
+    public async Task Approve_WhenFailsWhileASavedFlagLingers_SuppressesTheStaleSaveBannerAndShowsTheError()
+    {
+        // The lingering-flag guard: the `?saved=true` from an earlier save redirect is still in the URL, so
+        // a failed approve on that page must show ONLY its own error — never the stale "saved" confirmation
+        // next to it.
+        Guid id = Guid.NewGuid();
+        StubLoad(BuildDetail(sourceText: "Hello.", translatedText: "Cześć.", canApprove: true));
+        _client
+            .PostApiResultAsync(Arg.Any<string>(), Arg.Any<object>(), Arg.Any<CancellationToken>())
+            .Returns(ApiResult.Failure(new() { Title = "Zatwierdzenie odrzucone." }));
+        Navigation().NavigateTo($"/editor/{id}?saved=true");
+        IRenderedComponent<EditorComponent> component = RenderEditor(id);
+
+        await component.Find(".editor-approve").SubmitAsync();
+
+        component.Find(".status-message.status-error").TextContent.ShouldContain("Zatwierdzenie odrzucone.");
+        component.Markup.ShouldNotContain("Tłumaczenie zapisano");
     }
 
     [Fact]
@@ -221,23 +303,45 @@ public sealed class EditorTests : BunitContext
     }
 
     [Fact]
-    public async Task Approve_WhenSubmitted_FollowsTheApproveLinkHrefAndConfirms()
+    public async Task Approve_WhenSucceeds_RedirectsToTheRowWithAnApprovedFlagFollowingTheApproveLinkHref()
     {
+        // Post-Redirect-Get (#321): a successful approve redirects to the row's GET view, replacing the
+        // old inline reload and making a browser refresh safe.
+        Guid id = Guid.NewGuid();
         StubLoad(BuildDetail(sourceText: "Hello.", translatedText: "Cześć.", canApprove: true));
         _client
             .PostApiResultAsync(ApproveHref, Arg.Any<object>(), Arg.Any<CancellationToken>())
             .Returns(ApiResult.Success());
-        IRenderedComponent<EditorComponent> component = RenderEditor();
+        BunitNavigationManager navigation = Navigation();
+        IRenderedComponent<EditorComponent> component = RenderEditor(id);
 
         await component.Find(".editor-approve").SubmitAsync();
 
         // Behaviour-visible proof the approve link href was followed: only a POST to that exact href is
-        // stubbed to succeed, so the success confirmation renders iff the editor used it.
+        // stubbed to succeed, so the redirect happens iff the editor used it.
+        navigation.Uri.ShouldEndWith($"/editor/{id}?approved=true");
+    }
+
+    [Fact]
+    public void Render_WhenApprovedFlagIsInTheQuery_ShowsTheApproveConfirmation()
+    {
+        Guid id = Guid.NewGuid();
+        StubLoad(BuildDetail(sourceText: "Hello.", translatedText: "Cześć.", canApprove: true));
+        Navigation().NavigateTo($"/editor/{id}?approved=true");
+
+        IRenderedComponent<EditorComponent> component = RenderEditor(id);
+
         component.Find(".status-message.status-success").TextContent.ShouldContain("Tłumaczenie zatwierdzono");
     }
 
+    private BunitNavigationManager Navigation() =>
+        (BunitNavigationManager)Services.GetRequiredService<NavigationManager>();
+
     private IRenderedComponent<EditorComponent> RenderEditor() =>
-        Render<EditorComponent>(parameters => parameters.Add(component => component.Id, Guid.NewGuid()));
+        RenderEditor(Guid.NewGuid());
+
+    private IRenderedComponent<EditorComponent> RenderEditor(Guid id) =>
+        Render<EditorComponent>(parameters => parameters.Add(component => component.Id, id));
 
     private void StubLoad(TranslationDetailResponse detail)
     {

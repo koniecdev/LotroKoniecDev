@@ -162,6 +162,7 @@ try
             StatusCodes.Status400BadRequest => "/bad-request",
             StatusCodes.Status401Unauthorized or StatusCodes.Status403Forbidden => "/auth/access-denied",
             StatusCodes.Status404NotFound => "/not-found",
+            StatusCodes.Status503ServiceUnavailable => "/auth/login-unavailable",
             _ => "/Error"
         },
         createScopeForStatusCodePages: true);

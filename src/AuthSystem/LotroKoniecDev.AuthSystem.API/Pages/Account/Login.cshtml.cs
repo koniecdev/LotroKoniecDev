@@ -21,7 +21,9 @@ internal sealed partial class LoginModel : PageModel
         "dokończ rejestrację, potwierdzając swój adres e-mail — kliknij link aktywacyjny, który do Ciebie wysłaliśmy.";
 
     /// <summary>
-    /// Pre-computed hash for timing-equalization when user is not found.
+    /// Pre-computed hash for timing-equalization on the credential-failure branches that would
+    /// otherwise skip password hashing — user-not-found and lockout — so their latency matches the
+    /// wrong-password branch and no branch is distinguishable by response time.
     /// </summary>
     private static readonly string DummyPasswordHash =
         new PasswordHasher<ApplicationUser>().HashPassword(new ApplicationUser(), "DummyP@ssw0rd!");
@@ -79,6 +81,10 @@ internal sealed partial class LoginModel : PageModel
 
         if (await _userManager.IsLockedOutAsync(user))
         {
+            // Perform a dummy password hash so the lockout branch's latency matches the not-found
+            // branch — otherwise this early return skips hashing and leaks the locked-out state via timing.
+            _ = _userManager.PasswordHasher.VerifyHashedPassword(
+                new ApplicationUser(), DummyPasswordHash, Password);
             LogAccountLockedOut(_logger, user.Id, HttpContext.Connection.RemoteIpAddress);
             // Use the same generic message to prevent account enumeration
             ErrorMessage = GenericCredentialErrorMessage;

@@ -8,6 +8,7 @@ using LotroKoniecDev.AuthSystem.Domain.Aggregates.ApplicationUsers.Entities;
 using LotroKoniecDev.AuthSystem.Persistence.DbContexts;
 using LotroKoniecDev.AuthSystem.Persistence.Settings;
 using LotroKoniecDev.Options;
+using LotroKoniecDev.SharedKernel.Constants;
 namespace LotroKoniecDev.AuthSystem.Persistence;
 
 public static class PersistenceDependencyInjection
@@ -44,6 +45,7 @@ public static class PersistenceDependencyInjection
                     options.Password.RequireNonAlphanumeric = true;
                     options.Password.RequiredLength = 8;
                     options.User.RequireUniqueEmail = true;
+                    options.User.AllowedUserNameCharacters = UsernameConstants.AllowedCharacters;
                     options.SignIn.RequireConfirmedEmail = true;
                     options.Lockout.DefaultLockoutTimeSpan = TimeSpan.FromMinutes(5);
                     options.Lockout.MaxFailedAccessAttempts = 5;

@@ -1,7 +1,9 @@
+using System.Text.RegularExpressions;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
 using LotroKoniecDev.AuthSystem.API.Features.Auth;
 using LotroKoniecDev.SharedKernel.BuildingBlocks;
+using LotroKoniecDev.SharedKernel.Constants;
 using LotroKoniecDev.SharedKernel.Messaging;
 using LotroKoniecDev.SharedKernel.Monads;
 using LotroKoniecDev.SharedKernel.StronglyTypedIds;
@@ -65,6 +67,14 @@ internal sealed partial class RegisterModel : PageModel
             string.IsNullOrWhiteSpace(Password))
         {
             ErrorMessage = "Wszystkie pola są wymagane.";
+            return Page();
+        }
+
+        // UX-only mirror of the authoritative UsernameConstants rule in RegisterUser.CommandValidator —
+        // without it a charset failure would fall through to the generic (password-hinting) message.
+        if (!UsernameRegex().IsMatch(Username.Trim()))
+        {
+            ErrorMessage = "Nazwa użytkownika może zawierać tylko litery i cyfry, bez spacji.";
             return Page();
         }
 
@@ -135,4 +145,7 @@ internal sealed partial class RegisterModel : PageModel
 
     [LoggerMessage(EventId = EventIds.RegisterCompletedViaUi, Level = LogLevel.Information, Message = "User {UserId} registered via UI")]
     private static partial void LogRegisteredViaUi(ILogger logger, IdentityId userId);
+
+    [GeneratedRegex(UsernameConstants.RegexPattern)]
+    private static partial Regex UsernameRegex();
 }

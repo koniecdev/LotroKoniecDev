@@ -503,15 +503,16 @@
                                 <label asp-for="Username">Nazwa użytkownika</label>
                                 <div class="auth-input-wrap">
                                     <svg class="leading" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
-                                    <input asp-for="Username" type="text" class="auth-input" placeholder="np. kasia92" autocomplete="username" required autofocus />
+                                    <input asp-for="Username" type="text" class="auth-input" placeholder="np. kasia92" autocomplete="nickname" required autofocus />
                                 </div>
+                                <span class="auth-field-help">Tylko litery i cyfry, bez spacji. Ta nazwa będzie widoczna dla innych; logować się będziesz adresem e-mail.</span>
                             </div>
 
                             <div class="auth-field">
                                 <label asp-for="Email">Adres e-mail</label>
                                 <div class="auth-input-wrap">
                                     <svg class="leading" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 7 9 6 9-6"/></svg>
-                                    <input asp-for="Email" type="email" class="auth-input" placeholder="@("ty@example.com")" autocomplete="email" required />
+                                    <input asp-for="Email" type="email" class="auth-input" placeholder="@("ty@example.com")" autocomplete="username" required />
                                 </div>
                             </div>
 

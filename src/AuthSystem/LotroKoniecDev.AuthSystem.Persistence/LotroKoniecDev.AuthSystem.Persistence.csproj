@@ -24,6 +24,7 @@
 
     <ItemGroup>
         <ProjectReference Include="..\LotroKoniecDev.AuthSystem.Domain\LotroKoniecDev.AuthSystem.Domain.csproj" />
+        <ProjectReference Include="..\..\SharedKernel\LotroKoniecDev.SharedKernel\LotroKoniecDev.SharedKernel.csproj" />
         <ProjectReference Include="..\..\Utilities\LotroKoniecDev.Options\LotroKoniecDev.Options.csproj" />
     </ItemGroup>
 

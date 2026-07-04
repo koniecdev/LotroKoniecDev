@@ -17,12 +17,13 @@ public abstract class EndpointsTestBase : AsyncLifetimeTestBase
         ApiClient = new TestApiClient(appFactory.CreateClient(), jsonSerializerOptions);
     }
 
-    protected async Task<string> GetAccessTokenAsync(string username, string password)
+    protected async Task<string> GetAccessTokenAsync(string email, string password)
     {
+        // The OIDC "username" wire key is a protocol constant — it carries the e-mail (ADR-0022).
         using FormUrlEncodedContent tokenRequest = new(new Dictionary<string, string>
         {
             ["grant_type"] = "password",
-            ["username"] = username,
+            ["username"] = email,
             ["password"] = password,
             ["client_id"] = "lotrokoniecdev-test",
             ["scope"] = "email profile roles api"

@@ -21,7 +21,7 @@ public sealed class ConcurrencyEndpointsTests : EndpointsTestBase
 
         RegisterRequest[] requests = Enumerable.Range(0, concurrentRequests)
             .Select(i => new RegisterRequest(
-                Faker.Internet.UserName() + Faker.Random.AlphaNumeric(4) + i,
+                Faker.Random.AlphaNumeric(12) + i,
                 sharedEmail,
                 sharedPassword,
                 AcceptedPrivacyPolicy: true,
@@ -72,7 +72,7 @@ public sealed class ConcurrencyEndpointsTests : EndpointsTestBase
                 using FormUrlEncodedContent tokenRequest = new(new Dictionary<string, string>
                 {
                     ["grant_type"] = "password",
-                    ["username"] = request.Username,
+                    ["username"] = request.Email,
                     ["password"] = password,
                     ["client_id"] = "lotrokoniecdev-test",
                     ["scope"] = "email profile roles api offline_access"
@@ -106,7 +106,7 @@ public sealed class ConcurrencyEndpointsTests : EndpointsTestBase
         using FormUrlEncodedContent loginRequest = new(new Dictionary<string, string>
         {
             ["grant_type"] = "password",
-            ["username"] = request.Username,
+            ["username"] = request.Email,
             ["password"] = password,
             ["client_id"] = "lotrokoniecdev-test",
             ["scope"] = "email profile roles api offline_access"

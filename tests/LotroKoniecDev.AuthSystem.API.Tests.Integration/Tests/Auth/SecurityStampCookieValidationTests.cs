@@ -45,7 +45,7 @@ public sealed partial class SecurityStampCookieValidationTests : AsyncLifetimeTe
         (RegisterRequest registerRequest, _) =
             await UserFactory.RegisterRandomUserWithRequestAsync(ApiClient, Faker, AccountConfirmationEmailSpy, originalPassword);
 
-        List<string> authCookies = await EstablishAuthCookieAsync(registerRequest.Username, originalPassword);
+        List<string> authCookies = await EstablishAuthCookieAsync(registerRequest.Email, originalPassword);
 
         // Baseline — before the stamp changes, the live cookie authenticates /connect/authorize and an
         // authorization code is minted (proves the cookie is genuinely usable, so the post-reset
@@ -65,7 +65,7 @@ public sealed partial class SecurityStampCookieValidationTests : AsyncLifetimeTe
         afterLocation.ShouldContain("/Account/Login");
     }
 
-    private async Task<List<string>> EstablishAuthCookieAsync(string username, string password)
+    private async Task<List<string>> EstablishAuthCookieAsync(string email, string password)
     {
         HttpResponseMessage loginPage = await _noRedirectClient.GetAsync(
             new Uri("/Account/Login", UriKind.Relative));
@@ -76,7 +76,7 @@ public sealed partial class SecurityStampCookieValidationTests : AsyncLifetimeTe
 
         Dictionary<string, string> loginFormData = new()
         {
-            ["Username"] = username,
+            ["Email"] = email,
             ["Password"] = password
         };
 

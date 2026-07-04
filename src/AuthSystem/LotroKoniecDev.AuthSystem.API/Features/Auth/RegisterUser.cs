@@ -27,8 +27,6 @@ internal sealed partial class RegisterUser : IApiEndpoint
 
     internal sealed class CommandValidator : AbstractValidator<Command>
     {
-        private const int UsernameMaxLength = 150;
-
         public CommandValidator()
         {
             RuleFor(x => x.Email)
@@ -40,8 +38,10 @@ internal sealed partial class RegisterUser : IApiEndpoint
 
             RuleFor(x => x.Username)
                 .NotEmpty().WithMessage("Username is required.")
-                .MaximumLength(UsernameMaxLength)
-                    .WithMessage($"Username must not exceed {UsernameMaxLength} characters.");
+                .MaximumLength(UsernameConstants.MaxLength)
+                    .WithMessage($"Username must not exceed {UsernameConstants.MaxLength} characters.")
+                .Matches(UsernameConstants.RegexPattern)
+                    .WithMessage("Username may contain only letters and digits, without spaces.");
 
             RuleFor(x => x.Password).ApplyPasswordRules();
 

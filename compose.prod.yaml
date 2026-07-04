@@ -107,6 +107,7 @@ services:
       Email__Sender: ${Email__Sender}
       Email__Username: ${Email__Username:-}
       Email__Password: ${Email__Password:-}
+      # AUTH_ADMIN_USERNAME must match ^[a-zA-Z0-9]+$ or auth-api fails at startup (ADR-0022).
       AdminUser__Username: ${AUTH_ADMIN_USERNAME:-}
       AdminUser__Email: ${AUTH_ADMIN_EMAIL:-}
       AdminUser__Password: ${AUTH_ADMIN_PASSWORD:-}

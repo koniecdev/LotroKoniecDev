@@ -35,6 +35,10 @@ public sealed class RegisterConfirmLoginLogoutTests : E2ETestBase
         (await Page.GetByRole(AriaRole.Button, new() { Name = Buttons.Logout, Exact = true }).IsVisibleAsync())
             .ShouldBeTrue();
 
+        // The nav greets with the USERNAME (the `name` claim), not the e-mail the user logged in
+        // with — the display-only-handle half of ADR-0022, proven across the whole OIDC loop.
+        (await Page.GetByText(user.Username).IsVisibleAsync()).ShouldBeTrue();
+
         // Log out — the anonymous nav (the login link) returns.
         await AuthActions.LogoutAsync(Page);
         (await Page.GetByRole(AriaRole.Link, new() { Name = Links.Login, Exact = true }).IsVisibleAsync())

@@ -78,7 +78,9 @@ internal sealed class TokenEndpoint : IEndpoint
         UserManager<ApplicationUser> userManager,
         SignInManager<ApplicationUser> signInManager)
     {
-        ApplicationUser? user = await userManager.FindByNameAsync(request.Username!);
+        // The OIDC "username" wire parameter is a protocol constant — semantically it carries
+        // the login identifier, which is the e-mail (ADR-0022).
+        ApplicationUser? user = await userManager.FindByEmailAsync(request.Username!);
 
         if (user is null)
         {
@@ -87,7 +89,7 @@ internal sealed class TokenEndpoint : IEndpoint
                 new ApplicationUser(), DummyPasswordHash, request.Password!);
             return Results.Problem(
                 title: Errors.InvalidGrant,
-                detail: "The username/password combination is invalid.",
+                detail: "The email/password combination is invalid.",
                 statusCode: StatusCodes.Status400BadRequest);
         }
 
@@ -97,7 +99,7 @@ internal sealed class TokenEndpoint : IEndpoint
         {
             return Results.Problem(
                 title: Errors.InvalidGrant,
-                detail: "The username/password combination is invalid.",
+                detail: "The email/password combination is invalid.",
                 statusCode: StatusCodes.Status400BadRequest);
         }
 

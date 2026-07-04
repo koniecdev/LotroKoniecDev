@@ -61,7 +61,7 @@ public sealed class ResetPasswordEndpointTests : EndpointsTestBase
         using FormUrlEncodedContent tokenRequest = new(new Dictionary<string, string>
         {
             ["grant_type"] = "password",
-            ["username"] = registerRequest.Username,
+            ["username"] = registerRequest.Email,
             ["password"] = newPassword,
             ["client_id"] = "lotrokoniecdev-test",
             ["scope"] = "email profile roles api"
@@ -102,7 +102,7 @@ public sealed class ResetPasswordEndpointTests : EndpointsTestBase
         using FormUrlEncodedContent tokenRequest = new(new Dictionary<string, string>
         {
             ["grant_type"] = "password",
-            ["username"] = registerRequest.Username,
+            ["username"] = registerRequest.Email,
             ["password"] = originalPassword,
             ["client_id"] = "lotrokoniecdev-test"
         });
@@ -127,7 +127,7 @@ public sealed class ResetPasswordEndpointTests : EndpointsTestBase
         using FormUrlEncodedContent loginRequest = new(new Dictionary<string, string>
         {
             ["grant_type"] = "password",
-            ["username"] = registerRequest.Username,
+            ["username"] = registerRequest.Email,
             ["password"] = originalPassword,
             ["client_id"] = "lotrokoniecdev-test",
             ["scope"] = "email profile roles api offline_access"

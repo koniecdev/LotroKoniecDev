@@ -72,7 +72,8 @@ Wszystko w jednej transakcji (all-or-nothing, idempotentny re-upload); błędy =
 
 ## 11. Auth (AuthSystem — lift)
 - 🔵 Hasło **8–128** + ≥1 cyfra/mała/wielka/specjalny; Identity `RequiredLength=8` (⚠️ bez górnego limitu na poziomie Identity).
-- 🔵 Email unikalny ≤ 250 regex; Username ≤ 150; Phone **wymagany** ≤ 30. Zgody privacy + data-processing **muszą być true**.
+- 🔵 **E-mail jest loginem** (ADR-0022): unikalny **case-insensitive** ≤ 250 regex (fizycznie: unikalny `EmailIndex` na `NormalizedEmail`). Username = **handle display-only**: unikalny (case-insensitive), `^[a-zA-Z0-9]+$` ≤ 150. Zgody privacy + data-processing **muszą być true**.
+- 🔵 **Logowanie = e-mail + hasło** na każdej ścieżce (strona logowania + password grant, oba `FindByEmailAsync`); username **nigdy nie uwierzytelnia**; claim `name` = username.
 - 🔵 ⚠️ Nowy user ⇒ rola **`Translator`** (role: `Admin`/`Translator`); seedowany admin ⇒ `Admin`.
 - 🔵 Email confirmation **wymagane do logowania**; lockout **5 prób / 5 min**. Tokeny: access **60 min**, refresh **14 dni** (referencyjne, rolling, rewokowalne); email/reset **24 h**.
 - 🔵 Anti-enumeration (Forgot/Resend zawsze sukces; dummy-hash przy braku usera). Produkcja = auth code + **PKCE**, klucze RSA-2048/AES-256 walidowane; password flow tylko w `Testing`.

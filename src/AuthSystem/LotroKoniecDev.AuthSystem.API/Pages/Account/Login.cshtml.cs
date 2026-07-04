@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
+using LotroKoniecDev.AuthSystem.API.Extensions;
 using LotroKoniecDev.AuthSystem.Domain.Aggregates.ApplicationUsers.Entities;
 
 namespace LotroKoniecDev.AuthSystem.API.Pages.Account;
@@ -17,7 +18,7 @@ internal sealed partial class LoginModel : PageModel
     /// registration.
     /// </summary>
     private const string GenericCredentialErrorMessage =
-        "Nieprawidłowa nazwa użytkownika lub hasło. Jeśli konto zostało dopiero co utworzone, " +
+        "Nieprawidłowy e-mail lub hasło. Jeśli konto zostało dopiero co utworzone, " +
         "dokończ rejestrację, potwierdzając swój adres e-mail — kliknij link aktywacyjny, który do Ciebie wysłaliśmy.";
 
     /// <summary>
@@ -40,7 +41,7 @@ internal sealed partial class LoginModel : PageModel
     }
 
     [BindProperty]
-    public string Username { get; set; } = string.Empty;
+    public string Email { get; set; } = string.Empty;
 
     [BindProperty]
     public string Password { get; set; } = string.Empty;
@@ -61,20 +62,22 @@ internal sealed partial class LoginModel : PageModel
     {
         ReturnUrl = returnUrl;
 
-        if (string.IsNullOrWhiteSpace(Username) || string.IsNullOrWhiteSpace(Password))
+        if (string.IsNullOrWhiteSpace(Email) || string.IsNullOrWhiteSpace(Password))
         {
-            ErrorMessage = "Nazwa użytkownika i hasło są wymagane.";
+            ErrorMessage = "Adres e-mail i hasło są wymagane.";
             return Page();
         }
 
-        ApplicationUser? user = await _userManager.FindByNameAsync(Username);
+        // Trim mirrors the register page's Email.Trim() — a pasted/autofilled trailing space must
+        // not turn a valid login into a not-found.
+        ApplicationUser? user = await _userManager.FindByEmailAsync(Email.Trim());
 
         if (user is null)
         {
             // Perform a dummy password hash to prevent timing-based user enumeration
             _ = _userManager.PasswordHasher.VerifyHashedPassword(
                 new ApplicationUser(), DummyPasswordHash, Password);
-            LogUserNotFound(_logger, Username, HttpContext.Connection.RemoteIpAddress);
+            LogUserNotFound(_logger, Email.MaskEmail(), HttpContext.Connection.RemoteIpAddress);
             ErrorMessage = GenericCredentialErrorMessage;
             return Page();
         }
@@ -157,8 +160,8 @@ internal sealed partial class LoginModel : PageModel
         return LocalRedirect("/");
     }
 
-    [LoggerMessage(EventId = EventIds.LoginUserNotFound, Level = LogLevel.Warning, Message = "Failed login: user not found. Username: {Username}, IP: {IP}")]
-    private static partial void LogUserNotFound(ILogger logger, string username, System.Net.IPAddress? ip);
+    [LoggerMessage(EventId = EventIds.LoginUserNotFound, Level = LogLevel.Warning, Message = "Failed login: user not found. Email: {Email}, IP: {IP}")]
+    private static partial void LogUserNotFound(ILogger logger, string email, System.Net.IPAddress? ip);
 
     [LoggerMessage(EventId = EventIds.LoginAccountLockedOut, Level = LogLevel.Warning, Message = "Account locked out. UserId: {UserId}, IP: {IP}")]
     private static partial void LogAccountLockedOut(ILogger logger, Guid userId, System.Net.IPAddress? ip);

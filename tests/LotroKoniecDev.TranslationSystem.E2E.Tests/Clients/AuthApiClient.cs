@@ -34,23 +34,24 @@ public sealed class AuthApiClient : IDisposable
     public async Task<HttpResponseMessage> RegisterRawAsync(RegisterRequest request) =>
         await _client.PostAsJsonAsync("auth/register", request, _jsonOptions);
 
-    public async Task<TokenResponse> LoginAsync(string username, string password)
+    public async Task<TokenResponse> LoginAsync(string email, string password)
     {
-        HttpResponseMessage response = await PostPasswordGrantAsync(username, password);
+        HttpResponseMessage response = await PostPasswordGrantAsync(email, password);
         await response.EnsureSuccessWithDetailsAsync();
         return await response.Content.ReadFromJsonAsync<TokenResponse>(_jsonOptions)
                ?? throw new InvalidOperationException("Null response from the token endpoint.");
     }
 
-    public async Task<HttpResponseMessage> LoginRawAsync(string username, string password) =>
-        await PostPasswordGrantAsync(username, password);
+    public async Task<HttpResponseMessage> LoginRawAsync(string email, string password) =>
+        await PostPasswordGrantAsync(email, password);
 
-    private async Task<HttpResponseMessage> PostPasswordGrantAsync(string username, string password)
+    private async Task<HttpResponseMessage> PostPasswordGrantAsync(string email, string password)
     {
+        // The OIDC "username" wire key is a protocol constant — it carries the e-mail (ADR-0022).
         Dictionary<string, string> parameters = new()
         {
             ["grant_type"] = "password",
-            ["username"] = username,
+            ["username"] = email,
             ["password"] = password,
             ["client_id"] = E2ETestFixture.TestClientId,
             ["scope"] = PasswordGrantScope

@@ -23,7 +23,7 @@ public sealed class TokenEndpointTests : EndpointsTestBase
         using FormUrlEncodedContent tokenRequest = new(new Dictionary<string, string>
         {
             ["grant_type"] = "password",
-            ["username"] = request.Username,
+            ["username"] = request.Email,
             ["password"] = password,
             ["client_id"] = "lotrokoniecdev-test",
             ["scope"] = "email profile roles api offline_access"
@@ -55,7 +55,7 @@ public sealed class TokenEndpointTests : EndpointsTestBase
         using FormUrlEncodedContent tokenRequest = new(new Dictionary<string, string>
         {
             ["grant_type"] = "password",
-            ["username"] = request.Username,
+            ["username"] = request.Email,
             ["password"] = "WrongPassword1!",
             ["client_id"] = "lotrokoniecdev-test"
         });
@@ -75,8 +75,32 @@ public sealed class TokenEndpointTests : EndpointsTestBase
         using FormUrlEncodedContent tokenRequest = new(new Dictionary<string, string>
         {
             ["grant_type"] = "password",
-            ["username"] = "nonexistent_user",
+            ["username"] = "nonexistent@example.com",
             ["password"] = "TestPass1!",
+            ["client_id"] = "lotrokoniecdev-test"
+        });
+
+        // Act
+        HttpResponseMessage response = await ApiClient.Http.PostAsync(
+            new Uri("connect/token", UriKind.Relative), tokenRequest);
+
+        // Assert
+        response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+    }
+
+    [Fact]
+    public async Task PasswordGrant_ShouldReturnBadRequest_WhenIdentifierIsUsernameInsteadOfEmail()
+    {
+        // Arrange — the login identifier is the e-mail (ADR-0022); a valid username must not authenticate
+        const string password = "TestPass1!";
+        (RegisterRequest request, _) =
+            await UserFactory.RegisterRandomUserWithRequestAsync(ApiClient, Faker, AccountConfirmationEmailSpy, password);
+
+        using FormUrlEncodedContent tokenRequest = new(new Dictionary<string, string>
+        {
+            ["grant_type"] = "password",
+            ["username"] = request.Username,
+            ["password"] = password,
             ["client_id"] = "lotrokoniecdev-test"
         });
 
@@ -99,7 +123,7 @@ public sealed class TokenEndpointTests : EndpointsTestBase
         using FormUrlEncodedContent loginRequest = new(new Dictionary<string, string>
         {
             ["grant_type"] = "password",
-            ["username"] = request.Username,
+            ["username"] = request.Email,
             ["password"] = password,
             ["client_id"] = "lotrokoniecdev-test",
             ["scope"] = "email profile roles api offline_access"
@@ -144,7 +168,7 @@ public sealed class TokenEndpointTests : EndpointsTestBase
         using FormUrlEncodedContent loginRequest = new(new Dictionary<string, string>
         {
             ["grant_type"] = "password",
-            ["username"] = request.Username,
+            ["username"] = request.Email,
             ["password"] = password,
             ["client_id"] = "lotrokoniecdev-test",
             ["scope"] = "openid email profile roles api offline_access"
@@ -245,7 +269,7 @@ public sealed class TokenEndpointTests : EndpointsTestBase
         using FormUrlEncodedContent loginRequest = new(new Dictionary<string, string>
         {
             ["grant_type"] = "password",
-            ["username"] = request.Username,
+            ["username"] = request.Email,
             ["password"] = password,
             ["client_id"] = "lotrokoniecdev-test",
             ["scope"] = "email profile roles api offline_access"

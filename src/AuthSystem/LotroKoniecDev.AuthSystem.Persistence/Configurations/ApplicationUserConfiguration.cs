@@ -12,6 +12,14 @@ internal sealed class ApplicationUserConfiguration : IEntityTypeConfiguration<Ap
         builder.HasIndex(u => u.UserName).IsUnique();
         builder.HasIndex(u => u.Email).IsUnique();
 
+        // Identity's base mapping creates this index non-unique. RequireUniqueEmail is app-level
+        // only, and the login path resolves FindByEmailAsync — a case-variant duplicate pair
+        // (Foo@x.com / foo@x.com) would throw there and lock both accounts out (ADR-0022).
+        // The database name must stay "EmailIndex", or the base mapping yields a second index.
+        builder.HasIndex(u => u.NormalizedEmail)
+            .IsUnique()
+            .HasDatabaseName("EmailIndex");
+
         builder.Property(u => u.DataProcessingConsentGiven)
             .HasDefaultValue(false);
 

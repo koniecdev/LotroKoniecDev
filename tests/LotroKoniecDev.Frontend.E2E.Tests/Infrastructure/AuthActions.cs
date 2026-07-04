@@ -48,7 +48,7 @@ internal static class AuthActions
         await page.GotoAsync($"{fixture.FrontendBaseUrl}/");
         await page.GetByRole(AriaRole.Link, new() { Name = Links.Login, Exact = true }).ClickAsync();
 
-        await page.GetByLabel(FieldLabels.Username).FillAsync(user.Username);
+        await page.GetByLabel(FieldLabels.Email).FillAsync(user.Email);
         await page.GetByLabel(FieldLabels.Password, new() { Exact = true }).FillAsync(user.Password);
         await page.GetByRole(AriaRole.Button, new() { Name = Buttons.Login, Exact = true }).ClickAsync();
 

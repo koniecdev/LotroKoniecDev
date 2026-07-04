@@ -235,15 +235,16 @@ Lifted wholesale (OpenIddict + ASP.NET Identity). Pełna narracja: [auth-tutoria
 | # | Invariant | Reguła | Lokalizacja |
 |---|-----------|--------|-------------|
 | INV-11.1 | 🔵 Hasło: **8–128**, ≥1 cyfra/mała/wielka/specjalny | FluentValidation; Identity `RequiredLength=8` (⚠️ bez górnego limitu na poziomie Identity). | `PasswordValidationRules.cs:13-22`, `PersistenceDependencyInjection.cs:41-45` |
-| INV-11.2 | 🔵 Email **unikalny** ≤ 250 regex; Username ≤ 150; Phone **wymagany** ≤ 30 | Walidator rejestracji. | `RegisterUser.cs:36-53` |
+| INV-11.2 | 🔵 **E-mail jest loginem** (ADR-0022): unikalny **case-insensitive** ≤ 250 regex; Username = **handle display-only**: unikalny (case-insensitive), `^[a-zA-Z0-9]+$` ≤ 150 | Walidator rejestracji + `UsernameConstants` + Identity `AllowedUserNameCharacters`; unikalność e-maila fizyczna przez **unikalny `EmailIndex`** na `NormalizedEmail`. | `RegisterUser.cs`, `UsernameConstants.cs`, `PersistenceDependencyInjection.cs`, `ApplicationUserConfiguration.cs` |
 | INV-11.3 | 🔵 Zgody privacy + data-processing **muszą być true** | Inaczej walidacja rejestracji odrzuca. | `RegisterUser.cs:55-59` |
 | INV-11.4 | 🔵 ⚠️ Nowy użytkownik dostaje rolę **`Translator`** | Self-register → `Translator`; seedowany admin → `Admin`. | `RegisterUser.cs:140`, `DatabaseSeederExtensions.cs:101` |
 | INV-11.5 | 🔵 Email confirmation **wymagane do logowania**; lockout **5 prób / 5 min** | `SignIn.RequireConfirmedEmail`, `Lockout.MaxFailedAccessAttempts=5`. | `PersistenceDependencyInjection.cs:47-49` |
 | INV-11.6 | 🔵 Tokeny: access **60 min**, refresh **14 dni** (referencyjne, rolling); email/reset **24 h** | Refresh tokeny w bazie ⇒ rewokowalne; rotacja przy użyciu. | `OpenIddictSettings.cs:16-17`, `:50`, `PersistenceDependencyInjection.cs:58` |
-| INV-11.7 | 🔵 Anti-enumeration | Forgot/Resend zawsze sukces; token endpoint dummy-hash przy braku usera. | `TokenEndpoint.cs:20`, `:85-87` |
+| INV-11.7 | 🔵 Anti-enumeration | Forgot/Resend zawsze sukces; token endpoint i strona logowania dummy-hash przy braku usera (i lockout); gate potwierdzenia e-maila **po** weryfikacji hasła. | `TokenEndpoint.cs:20-21`, `Login.cshtml.cs` |
 | INV-11.8 | 🔵 ⚠️ **Brak sagi rejestracji** | Rejestracja tworzy tylko usera Auth; profil `Translator` powstaje leniwie na pierwszym zapisie TMS (ADR-0002 §7 / ADR-0004). | `RegisterUser.cs:170-173` |
 | INV-11.9 | 🔵 `DeleteAccount` = erasure RODO + **permanentny lockout** | Wymaga hasła; `LockoutEnd = MaxValue`. | `DeleteAccount.cs:120-121`, `:187-191` |
 | INV-11.10 | 🔵 Produkcja: auth code + **PKCE**; klucze RSA-2048 / AES-256 walidowane | Dev/Testing = klucze ephemeralne; password flow tylko w `Testing`. | `OpenIddictExtensions.cs:45`, `:113-157` |
+| INV-11.11 | 🔵 **Logowanie = e-mail + hasło** na każdej ścieżce | Strona logowania i password grant robią `FindByEmailAsync`; username **nigdy nie uwierzytelnia** (charsety loginu i e-maila są rozłączne — username nie zawiera `@`). Claim `name` = username (ADR-0022). | `Login.cshtml.cs`, `TokenEndpoint.cs` |
 
 ---
 

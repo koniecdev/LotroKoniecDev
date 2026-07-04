@@ -36,7 +36,7 @@ public sealed class AccountAggregateHateoasTests : EndpointsTestBase
         // Arrange - confirmed users see self, change-password, delete-account only
         (RegisterRequest registerRequest, _) = await UserFactory.RegisterRandomUserWithRequestAsync(
             ApiClient, Faker, AccountConfirmationEmailSpy, TestPassword);
-        string accessToken = await GetAccessTokenAsync(registerRequest.Username, TestPassword);
+        string accessToken = await GetAccessTokenAsync(registerRequest.Email, TestPassword);
 
         // Act
         AccountDataExportResponse response = await RequestHateoasResponseAsync(accessToken);
@@ -61,7 +61,7 @@ public sealed class AccountAggregateHateoasTests : EndpointsTestBase
         // so the handler sees EmailConfirmed=false and must advertise the resend transition.
         (RegisterRequest registerRequest, _) = await UserFactory.RegisterRandomUserWithRequestAsync(
             ApiClient, Faker, AccountConfirmationEmailSpy, TestPassword);
-        string accessToken = await GetAccessTokenAsync(registerRequest.Username, TestPassword);
+        string accessToken = await GetAccessTokenAsync(registerRequest.Email, TestPassword);
 
         await SetEmailConfirmedAsync(registerRequest.Username, confirmed: false);
 
@@ -82,7 +82,7 @@ public sealed class AccountAggregateHateoasTests : EndpointsTestBase
         // Arrange
         (RegisterRequest registerRequest, _) = await UserFactory.RegisterRandomUserWithRequestAsync(
             ApiClient, Faker, AccountConfirmationEmailSpy, TestPassword);
-        string accessToken = await GetAccessTokenAsync(registerRequest.Username, TestPassword);
+        string accessToken = await GetAccessTokenAsync(registerRequest.Email, TestPassword);
 
         // Act
         AccountDataExportResponse response = await RequestHateoasResponseAsync(accessToken);
@@ -100,7 +100,7 @@ public sealed class AccountAggregateHateoasTests : EndpointsTestBase
         // force clients to guess the base address and break cross-origin consumers.
         (RegisterRequest registerRequest, _) = await UserFactory.RegisterRandomUserWithRequestAsync(
             ApiClient, Faker, AccountConfirmationEmailSpy, TestPassword);
-        string accessToken = await GetAccessTokenAsync(registerRequest.Username, TestPassword);
+        string accessToken = await GetAccessTokenAsync(registerRequest.Email, TestPassword);
 
         // Act
         AccountDataExportResponse response = await RequestHateoasResponseAsync(accessToken);
@@ -124,7 +124,7 @@ public sealed class AccountAggregateHateoasTests : EndpointsTestBase
         // key itself is suppressed from the wire by HateoasJsonTypeInfoModifiers).
         (RegisterRequest registerRequest, _) = await UserFactory.RegisterRandomUserWithRequestAsync(
             ApiClient, Faker, AccountConfirmationEmailSpy, TestPassword);
-        string accessToken = await GetAccessTokenAsync(registerRequest.Username, TestPassword);
+        string accessToken = await GetAccessTokenAsync(registerRequest.Email, TestPassword);
 
         using HttpRequestMessage request = new(HttpMethod.Get, new Uri(DataExportPath, UriKind.Relative));
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);

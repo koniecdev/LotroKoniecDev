@@ -19,7 +19,7 @@ public sealed class ExportAccountDataEndpointTests : EndpointsTestBase
         (RegisterRequest registerRequest, _) =
             await UserFactory.RegisterRandomUserWithRequestAsync(ApiClient, Faker, AccountConfirmationEmailSpy, password);
 
-        string accessToken = await GetAccessTokenAsync(registerRequest.Username, password);
+        string accessToken = await GetAccessTokenAsync(registerRequest.Email, password);
 
         using HttpRequestMessage request = new(HttpMethod.Get, "auth/account/data-export");
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);

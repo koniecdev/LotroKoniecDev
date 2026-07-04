@@ -22,15 +22,35 @@ public sealed partial class LoginPageTests : EndpointsTestBase
         // Act — the correct credentials, but the account is still unconfirmed
         HttpResponseMessage response = await PostToLoginPageAsync(new Dictionary<string, string>
         {
-            ["Username"] = request.Username,
+            ["Email"] = request.Email,
             ["Password"] = request.Password
         });
 
         // Assert — the message guides the user to activate, without ever stating the account exists but is unconfirmed
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
         string html = await response.Content.ReadAsStringAsync();
-        html.ShouldContain("Nieprawidłowa nazwa użytkownika lub hasło");
+        html.ShouldContain("Nieprawidłowy e-mail lub hasło");
         html.ShouldContain("aktywacyjny");
+    }
+
+    [Fact]
+    public async Task LoginPage_ShouldRejectLogin_WhenIdentifierIsUsernameInsteadOfEmail()
+    {
+        // Arrange — a confirmed account; the login identifier is the e-mail (ADR-0022)
+        (RegisterRequest request, _) =
+            await UserFactory.RegisterRandomUserWithRequestAsync(ApiClient, Faker, AccountConfirmationEmailSpy);
+
+        // Act — the valid username with the valid password must behave like any wrong credential
+        HttpResponseMessage response = await PostToLoginPageAsync(new Dictionary<string, string>
+        {
+            ["Email"] = request.Username,
+            ["Password"] = request.Password
+        });
+
+        // Assert
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        string html = await response.Content.ReadAsStringAsync();
+        html.ShouldContain("Nieprawidłowy e-mail lub hasło");
     }
 
     [Fact]
@@ -48,22 +68,22 @@ public sealed partial class LoginPageTests : EndpointsTestBase
         // Act — one probe per credential-failure branch of /Account/Login
         string nonExistentMessage = await PostAndExtractRenderedAlertAsync(new Dictionary<string, string>
         {
-            ["Username"] = "nobody-" + Faker.Random.AlphaNumeric(8),
+            ["Email"] = "nobody-" + Faker.Random.AlphaNumeric(8) + "@example.com",
             ["Password"] = "WhateverPass1!"
         });
         string wrongPasswordMessage = await PostAndExtractRenderedAlertAsync(new Dictionary<string, string>
         {
-            ["Username"] = confirmed.Username,
+            ["Email"] = confirmed.Email,
             ["Password"] = confirmed.Password + "WRONG"
         });
         string unconfirmedMessage = await PostAndExtractRenderedAlertAsync(new Dictionary<string, string>
         {
-            ["Username"] = unconfirmed.Username,
+            ["Email"] = unconfirmed.Email,
             ["Password"] = unconfirmed.Password
         });
         string lockedOutMessage = await PostAndExtractRenderedAlertAsync(new Dictionary<string, string>
         {
-            ["Username"] = lockedOut.Username,
+            ["Email"] = lockedOut.Email,
             ["Password"] = lockedOut.Password // correct password — the lockout branch must still win
         });
 

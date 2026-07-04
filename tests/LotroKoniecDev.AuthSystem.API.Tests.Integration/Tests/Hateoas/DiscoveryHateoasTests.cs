@@ -49,7 +49,7 @@ public sealed class DiscoveryHateoasTests : EndpointsTestBase
         // Arrange
         (RegisterRequest registerRequest, _) = await UserFactory.RegisterRandomUserWithRequestAsync(
             ApiClient, Faker, AccountConfirmationEmailSpy, TestPassword);
-        string accessToken = await GetAccessTokenAsync(registerRequest.Username, TestPassword);
+        string accessToken = await GetAccessTokenAsync(registerRequest.Email, TestPassword);
 
         using HttpRequestMessage request = new(HttpMethod.Get, new Uri("", UriKind.Relative));
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);

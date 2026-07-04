@@ -25,8 +25,8 @@ internal sealed class TestUser
     {
         string suffix = Guid.NewGuid().ToString("N")[..10];
         return new TestUser(
-            username: $"e2e_{suffix}",
-            email: $"e2e_{suffix}@example.com",
+            username: $"e2e{suffix}",
+            email: $"e2e{suffix}@example.com",
             password: "E2ePassw0rd!");
     }
 }

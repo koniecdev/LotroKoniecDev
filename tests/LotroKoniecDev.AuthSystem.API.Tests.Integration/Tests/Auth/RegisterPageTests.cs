@@ -81,6 +81,32 @@ public sealed partial class RegisterPageTests : EndpointsTestBase
         AccountConfirmationEmailSpy.LastEmail.ShouldBeNull();
     }
 
+    [Theory]
+    [InlineData("kasia 92")]
+    [InlineData("kasia.92")]
+    [InlineData("kasia_92")]
+    [InlineData("kasia@92")]
+    [InlineData("kaśka92")]
+    public async Task RegisterPage_ShouldShowCharsetError_WhenUsernameHasIllegalCharacters(string username)
+    {
+        // Arrange
+        AccountConfirmationEmailSpy.Reset();
+        RegisterRequest request = UserFactory.GenerateRandomRegisterRequest(Faker);
+        Dictionary<string, string> form = BuildForm(request, request.Password);
+        form["Username"] = username;
+
+        // Act
+        HttpResponseMessage response = await PostToRegisterPageAsync(form);
+
+        // Assert — the explicit Polish charset rule, never the misleading password hint
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+
+        string html = await response.Content.ReadAsStringAsync();
+        html.ShouldContain("Nazwa użytkownika może zawierać tylko litery i cyfry, bez spacji.");
+        html.ShouldNotContain("hasło spełnia wymagania");
+        AccountConfirmationEmailSpy.LastEmail.ShouldBeNull();
+    }
+
     [Fact]
     public async Task RegisterPage_ShouldShowError_WhenEmailAlreadyExists()
     {

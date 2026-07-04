@@ -28,7 +28,8 @@
 
 ## 1. Słownik na start
 
-- **Authentication (uwierzytelnianie)** — *kim jesteś*. Logowanie loginem + hasłem.
+- **Authentication (uwierzytelnianie)** — *kim jesteś*. Logowanie e-mailem + hasłem (ADR-0022;
+  nazwa użytkownika to unikalny handle wyłącznie do wyświetlania).
 - **Authorization (autoryzacja)** — *co możesz*. Role (`Admin`/`Translator`), scope'y (`api`/`service`).
 - **Authorization Server (AS)** — wydaje tokeny. U nas: **`auth-api`** (OpenIddict + ASP.NET Identity).
 - **Resource Server (RS)** — chroni dane, **waliduje** tokeny. U nas: **`tms-api`** (JwtBearer).
@@ -222,8 +223,9 @@ id tokenie. `sub`/`email`/`name`/`role` idą do obu.
 
 ### 6.5 Register endpoint (custom) — i **brak sagi**
 `POST auth/register` (`RegisterUser.cs`, `AllowAnonymous`, rate-limited):
-1. walidacja (email unikalny/regex ≤250, username ≤150, phone ≤30, hasło 8–128 + złożoność, **obie
-   zgody RODO `true`**);
+1. walidacja (email unikalny/regex ≤250 — **to e-mail jest loginem**, ADR-0022; username: unikalny
+   handle wyłącznie do wyświetlania, `^[a-zA-Z0-9]+$` ≤150 — `UsernameConstants`; hasło 8–128 +
+   złożoność, **obie zgody RODO `true`**);
 2. `userManager.CreateAsync` → przypisanie roli **`Translator`** (`:140`);
 3. wysyłka maila potwierdzającego; gdy mail padnie → **fallback auto-confirm** (`:148-157`);
 4. zwraca **201** z gołym `IdentityId`.

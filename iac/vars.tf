@@ -46,7 +46,12 @@ variable "smtp_sender_email" {
 
 variable "admin_username" {
   type        = string
-  description = "Seeded admin username"
+  description = "Seeded admin username. Letters + digits only (ADR-0022) — Identity's AllowedUserNameCharacters rejects anything else and auth-api fails at startup."
+
+  validation {
+    condition     = var.admin_username == "" || can(regex("^[a-zA-Z0-9]+$", var.admin_username))
+    error_message = "admin_username must match ^[a-zA-Z0-9]+$ (ASCII letters and digits only, no spaces or special characters); empty skips seeding."
+  }
 }
 
 variable "admin_email" {

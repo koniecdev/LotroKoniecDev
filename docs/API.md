@@ -244,10 +244,13 @@ The login/consent UI is server-rendered Razor Pages: `/Account/Login`, `/Account
 | `GET` | `auth/account/data-export` | bearer token | `AccountDataExportResponse` — GDPR export |
 | `GET` | `/` | anonymous | discovery document (links into the auth flows) |
 
-`RegisterRequest`: `{ username, email, password, phoneNumber, acceptedPrivacyPolicy, acceptedDataProcessingConsent }`.
+`RegisterRequest`: `{ username, email, password, acceptedPrivacyPolicy, acceptedDataProcessingConsent }`.
 Both consent flags **must be `true`**. Password rules (`PasswordValidationRules.cs`): **8–128** chars,
-≥1 digit, ≥1 lowercase, ≥1 uppercase, ≥1 special. Email unique, ≤ 250, regex-validated; username ≤ 150;
-phone ≤ 30. Email confirmation is **required to sign in**; lockout is **5 failed attempts / 5 min**.
+≥1 digit, ≥1 lowercase, ≥1 uppercase, ≥1 special. Email unique (case-insensitively, physical via the
+unique `EmailIndex`), ≤ 250, regex-validated — **the e-mail is the login identifier** (ADR-0022).
+Username is a **display-only handle**: unique (case-insensitively), `^[a-zA-Z0-9]+$` (letters + digits
+only — `UsernameConstants`), ≤ 150; it never authenticates. Email confirmation is **required to sign
+in**; lockout is **5 failed attempts / 5 min**.
 
 > **No registration saga.** Registering creates only the AuthSystem user (ADR-0002 §7 / ADR-0004) —
 > the KittySaver `RegisterUser → CreatePerson` saga is deliberately **not** lifted. The TMS

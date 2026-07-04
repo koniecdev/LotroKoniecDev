@@ -97,7 +97,7 @@ Purely optional tuning knobs with safe defaults are omitted (e.g. `OpenIddict:Ac
 | `Email__SenderEmail` | `noreply@lotro-translator.pl` | `no-reply@lotro-translator.pl` | ✅ all | plain | Must be a valid email. |
 | `Email__Sender` | `lotro-translator.pl` | `LOTRO PL` | ✅ all | plain | Display name. |
 | `Email__Username` / `Email__Password` | — | provider credentials | optional¹ | **secret** (Password) | ¹If `Username` is set, `Password` is required. |
-| `AdminUser__Username` / `AdminUser__Email` / `AdminUser__Password` | from `AUTH_ADMIN_*` | from `AUTH_ADMIN_*` | optional | **secret** (Password) | Seeds one admin on first boot; leave blank to skip. |
+| `AdminUser__Username` / `AdminUser__Email` / `AdminUser__Password` | from `AUTH_ADMIN_*` | from `AUTH_ADMIN_*` | optional | **secret** (Password) | Seeds one admin on first boot; leave blank to skip. Username must match `^[a-zA-Z0-9]+$` (ADR-0022) or auth-api fails at startup; the admin logs in **by e-mail**. |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | `http://aspire-dashboard:18889` | OTLP collector URL | optional | plain | Empty = telemetry export disabled. |
 | `OTEL_EXPORTER_OTLP_PROTOCOL` | `grpc` | `grpc` / `http/protobuf` | optional | plain | Defaults to `grpc`. |
 
@@ -208,10 +208,15 @@ boot. The connection-string password is a **secret** — keep it out of git.
 Set all three to seed one usable admin login into the auth DB on first boot; leave blank to skip:
 
 ```
-AUTH_ADMIN_USERNAME=…
+AUTH_ADMIN_USERNAME=…        # letters + digits only (^[a-zA-Z0-9]+$) — ADR-0022
 AUTH_ADMIN_EMAIL=…
 AUTH_ADMIN_PASSWORD=…        # secret
 ```
+
+The username is a display-only handle; the seeded admin **logs in by e-mail + password**. A
+username containing `-`, `.`, `_`, spaces or diacritics fails Identity's
+`AllowedUserNameCharacters` and crashes auth-api at startup (loud, by design) — re-set any such
+deployed `AUTH_ADMIN_USERNAME` value to alphanumeric before rolling this version out.
 
 ## Consistency rules that bite
 

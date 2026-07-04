@@ -26,15 +26,22 @@ cd "$REPO_ROOT"
 SCRIPTS="$REPO_ROOT/scripts/claude"
 
 MAX=0
-EXPLICIT=""
+EXPLICIT_TICKETS=()
 while [ $# -gt 0 ]; do
     case "$1" in
         -n) MAX="${2:?-n needs a number}"; shift 2 ;;
         -h|--help) sed -n '2,20p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
-        [0-9]*) EXPLICIT="$EXPLICIT $1"; shift ;;
+        [0-9]*) EXPLICIT_TICKETS+=("$1"); shift ;;
         *) echo "unknown argument: $1" >&2; exit 1 ;;
     esac
 done
+
+# Explicit-ticket mode is tracked by a flag + index over a real array — not "is the string
+# non-empty". A string list broke two ways: a leading space made the first selection empty
+# (nothing ran), and an exhausted list fell through to drain mode (whole backlog got milled).
+EXPLICIT_MODE=0
+if [ "${#EXPLICIT_TICKETS[@]}" -gt 0 ]; then EXPLICIT_MODE=1; fi
+EXPLICIT_INDEX=0
 
 LIMIT_SLEEP_MIN="${LOOP_LIMIT_SLEEP_MIN:-60}"
 LIMIT_RETRIES="${LOOP_LIMIT_RETRIES:-4}"
@@ -64,12 +71,13 @@ while :; do
         break
     fi
 
-    if [ -n "$EXPLICIT" ]; then
-        next="${EXPLICIT%% *}"
-        next="${next# }"
-        EXPLICIT="${EXPLICIT#*"$next"}"
-        EXPLICIT="${EXPLICIT# }"
-        [ -z "$next" ] && break
+    if [ "$EXPLICIT_MODE" -eq 1 ]; then
+        if [ "$EXPLICIT_INDEX" -ge "${#EXPLICIT_TICKETS[@]}" ]; then
+            echo "[conductor] explicit ticket list drained — done"
+            break
+        fi
+        next="${EXPLICIT_TICKETS[$EXPLICIT_INDEX]}"
+        EXPLICIT_INDEX=$((EXPLICIT_INDEX + 1))
     else
         next="$("$SCRIPTS/next-ticket.sh" --exclude "$attempted" || true)"
         if [ -z "$next" ]; then
@@ -90,6 +98,7 @@ while :; do
         6)
             limit_naps=$((limit_naps + 1))
             count=$((count - 1))
+            [ "$EXPLICIT_MODE" -eq 1 ] && EXPLICIT_INDEX=$((EXPLICIT_INDEX - 1))
             if [ "$limit_naps" -gt "$LIMIT_RETRIES" ]; then
                 echo "[conductor] usage limit persisted after $LIMIT_RETRIES naps — stopping"
                 break
@@ -116,8 +125,14 @@ while :; do
     fi
 done
 
-total_cost="$(jq -s '[.[].total_cost_usd // 0] | add | . * 100 | round / 100' \
-    "$RUN_DIR"/ticket-*.json 2>/dev/null || echo 0)"
+shopt -s nullglob
+ticket_json=( "$RUN_DIR"/ticket-*.json )
+shopt -u nullglob
+if [ "${#ticket_json[@]}" -gt 0 ]; then
+    total_cost="$(jq -s '[.[].total_cost_usd // 0] | add | . * 100 | round / 100' "${ticket_json[@]}" 2>/dev/null || echo 0)"
+else
+    total_cost=0
+fi
 
 echo
 echo "[conductor] done: $merged merged · $queued auto-merge queued · $blocked blocked · $failed failed · \$$total_cost"

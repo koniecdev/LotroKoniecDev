@@ -131,6 +131,44 @@ public sealed class TranslationListLoaderTests
         result.ProblemDetails!.Status.ShouldBe(400);
     }
 
+    [Fact]
+    public async Task BulkApproveAsync_PostsTheSelectedIdsToTheHref_AndReturnsTheSummary()
+    {
+        Guid first = Guid.NewGuid();
+        Guid second = Guid.NewGuid();
+        StubHttpMessageHandler handler = StubHttpMessageHandler.RespondWith(
+            HttpStatusCode.OK,
+            JsonSerializer.Serialize(new BulkApproveTranslationsResponse(2, 2, 0), ApiJsonOptions));
+        TranslationListLoader loader = new(CreateClient(handler));
+
+        ApiResult<BulkApproveTranslationsResponse> result =
+            await loader.BulkApproveAsync("/api/v1/translations/approve", [first, second]);
+
+        result.IsSuccess.ShouldBeTrue();
+        result.Value.Approved.ShouldBe(2);
+        handler.LastRequest!.Method.ShouldBe(HttpMethod.Post);
+        handler.LastRequest.RequestUri!.ToString().ShouldEndWith("/api/v1/translations/approve");
+        handler.LastRequestBody.ShouldNotBeNull();
+        handler.LastRequestBody!.ShouldContain(first.ToString());
+        handler.LastRequestBody.ShouldContain(second.ToString());
+    }
+
+    [Fact]
+    public async Task BulkApproveAsync_WhenApiRejectsTheBatch_ReturnsFailureWithProblemDetails()
+    {
+        StubHttpMessageHandler handler = StubHttpMessageHandler.RespondWith(
+            HttpStatusCode.BadRequest,
+            """{ "title": "Za dużo pozycji", "status": 400 }""");
+        TranslationListLoader loader = new(CreateClient(handler));
+
+        ApiResult<BulkApproveTranslationsResponse> result =
+            await loader.BulkApproveAsync("/api/v1/translations/approve", [Guid.NewGuid()]);
+
+        result.IsFailure.ShouldBeTrue();
+        result.ProblemDetails.ShouldNotBeNull();
+        result.ProblemDetails!.Status.ShouldBe(400);
+    }
+
     private static PaginationResponse<TranslationListItemResponse> EmptyPage() =>
         PageOf([], page: 1, pageSize: 50, totalCount: 0);
 

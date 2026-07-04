@@ -8,6 +8,9 @@ public static class Rels
     public const string Upsert = "upsert";
     public const string Approve = "approve";
 
+    // Translation collection actions
+    public const string BulkApprove = "bulk-approve";
+
     // GameVersion aggregate actions
     public const string Register = "register";
     public const string Delete = "delete";

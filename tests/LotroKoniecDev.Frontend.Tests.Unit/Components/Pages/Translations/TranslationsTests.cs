@@ -11,6 +11,7 @@ using LotroKoniecDev.TranslationSystem.Contracts.Translations;
 using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.TranslationAggregate;
 using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.TranslationAggregate.Enums;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Components;
 using Microsoft.Extensions.DependencyInjection;
 using NSubstitute;
 using TranslationsComponent = LotroKoniecDev.Frontend.Components.Pages.Translations.Translations;
@@ -29,6 +30,7 @@ public sealed class TranslationsTests : BunitContext
 
     public TranslationsTests()
     {
+        Services.AddAntiforgery();
         Services.AddSingleton(_client);
         Services.AddScoped<TranslationListLoader>();
         AddAuthorization().SetAuthorized("Frodo");
@@ -96,16 +98,134 @@ public sealed class TranslationsTests : BunitContext
         component.FindAll("nav.pager").ShouldBeEmpty();
     }
 
+    [Fact]
+    public void Render_WhenCollectionHasBulkApproveRel_ShowsTheCheckboxColumnAndBulkButton()
+    {
+        // An admin's list carries the bulk-approve collection rel and an approvable row: the checkbox
+        // column, a per-row checkbox and the "Zatwierdź zaznaczone" button all appear.
+        StubPage(AdminPageOf(Row(canEdit: true, canApprove: true)));
+
+        IRenderedComponent<TranslationsComponent> component = RenderPage();
+
+        component.FindAll("th.col-check").Count.ShouldBe(1);
+        component.FindAll("input[type=checkbox]").Count.ShouldBe(1);
+        component.FindAll("button[type=submit]").ShouldContain(button => button.TextContent.Contains("Zatwierdź zaznaczone"));
+    }
+
+    [Fact]
+    public void Render_WhenCollectionLacksBulkApproveRel_HidesTheCheckboxColumnAndButton()
+    {
+        // The same approvable row, but no admin collection rel (translator / anonymous): the read-only
+        // list, no checkbox column and no bulk button — server-gated, never role-recomputed.
+        StubPage(SinglePageOf(Row(canEdit: true, canApprove: true)));
+
+        IRenderedComponent<TranslationsComponent> component = RenderPage();
+
+        component.FindAll("th.col-check").ShouldBeEmpty();
+        component.FindAll("input[type=checkbox]").ShouldBeEmpty();
+        component.FindAll("button[type=submit]").Where(button => button.TextContent.Contains("Zatwierdź")).ShouldBeEmpty();
+    }
+
+    [Fact]
+    public void Render_WhenAdminButNoRowIsApprovable_ShowsTheColumnButNoCheckboxOrButton()
+    {
+        // Admin, but the only row is not approvable (e.g. already Approved): the column renders, yet the
+        // row offers no checkbox and there is nothing to approve, so no bulk button.
+        StubPage(AdminPageOf(Row(canEdit: true, canApprove: false)));
+
+        IRenderedComponent<TranslationsComponent> component = RenderPage();
+
+        component.FindAll("th.col-check").Count.ShouldBe(1);
+        component.FindAll("input[type=checkbox]").ShouldBeEmpty();
+        component.FindAll("button[type=submit]").Where(button => button.TextContent.Contains("Zatwierdź")).ShouldBeEmpty();
+    }
+
+    [Fact]
+    public void Render_WhenRowIsApprovable_NamesItsCheckboxAfterTheDictionaryKeyBinding()
+    {
+        // Regression guard for the SSR binding contract (mirrors the ImportExport name guard): the row
+        // checkbox MUST be named SelectedRows[<id>] so Blazor static-SSR maps the checked rows into the
+        // Dictionary<Guid, bool> handler property — a bare or wrong name binds nothing and bulk approve
+        // silently no-ops.
+        TranslationListItemResponse row = Row(canEdit: true, canApprove: true);
+        StubPage(AdminPageOf(row));
+
+        IRenderedComponent<TranslationsComponent> component = RenderPage();
+
+        component.Find("input[type=checkbox]").GetAttribute("name").ShouldBe($"SelectedRows[{row.Id.Value}]");
+    }
+
+    [Fact]
+    public async Task ApproveSelected_WhenNothingIsChecked_ShowsTheSelectPromptAndDoesNotCallTheApi()
+    {
+        StubPage(AdminPageOf(Row(canEdit: true, canApprove: true)));
+        IRenderedComponent<TranslationsComponent> component = RenderPage();
+
+        await component.Find("form[method=post]").SubmitAsync();
+
+        component.Find(".status-message.status-warning").TextContent.ShouldContain("Zaznacz co najmniej jeden wiersz");
+        await _client.DidNotReceive().PostApiResultAsync<BulkApproveTranslationsResponse>(
+            Arg.Any<string>(), Arg.Any<object>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public void Render_WhenApprovedCountIsInTheQuery_ShowsTheSuccessFlashWithSkippedCount()
+    {
+        // The GET side of Post-Redirect-Get (#321/#322): after the bulk-approve redirect the result counts
+        // ride in the query, and the list surfaces the "Zatwierdzono N (Pominięto M)" confirmation with no
+        // per-user server state, so the flash survives the redirect and a reload stays a safe GET.
+        // (The checked-rows → POST → redirect leg itself is exercised at the loader seam — bUnit's
+        // SubmitAsync invokes only @onsubmit and does not model SSR form-data binding — while the
+        // DOM→form-data→dictionary bind belongs to the Playwright E2E suite, not yet populated for this flow.)
+        StubPage(AdminPageOf(Row(canEdit: true, canApprove: true)));
+        Navigation().NavigateTo("/translations?approved=2&skipped=1");
+
+        IRenderedComponent<TranslationsComponent> component = RenderPage();
+
+        string flash = component.Find(".status-message.status-success").TextContent;
+        flash.ShouldContain("Zatwierdzono 2");
+        flash.ShouldContain("Pominięto 1");
+    }
+
+    [Fact]
+    public void Render_WhenApprovedIsZeroInTheQuery_ShowsTheNothingApprovedNoteNotASuccessFlash()
+    {
+        // A well-formed bulk approve that published nothing (every selected row was already approved or went
+        // stale between render and submit) redirects with approved=0: the list must show the "nothing
+        // approved" note, never a success flash — approved:0 is a success response, not an error.
+        StubPage(AdminPageOf(Row(canEdit: true, canApprove: true)));
+        Navigation().NavigateTo("/translations?approved=0");
+
+        IRenderedComponent<TranslationsComponent> component = RenderPage();
+
+        component.FindAll(".status-message.status-success").ShouldBeEmpty();
+        component.Find(".status-message.status-warning").TextContent.ShouldContain("Nie zatwierdzono żadnego");
+    }
+
     private IRenderedComponent<TranslationsComponent> RenderPage() =>
         Render<TranslationsComponent>();
+
+    private BunitNavigationManager Navigation() =>
+        (BunitNavigationManager)Services.GetRequiredService<NavigationManager>();
 
     private void StubPage(PaginationResponse<TranslationListItemResponse> page) =>
         _client
             .GetApiResultAsync<PaginationResponse<TranslationListItemResponse>>(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(ApiResult.Success(page));
 
-    private static TranslationListItemResponse Row(bool canEdit)
+    private static TranslationListItemResponse Row(bool canEdit, bool canApprove = false)
     {
+        List<LinkDto> links = [];
+        if (canEdit)
+        {
+            links.Add(new LinkDto("https://tms.example/api/v1/translations", Rels.Upsert, "PUT"));
+        }
+
+        if (canApprove)
+        {
+            links.Add(new LinkDto("https://tms.example/api/v1/translations/abc/approve", Rels.Approve, "POST"));
+        }
+
         TranslationListItemResponse row = new(
             TranslationId.Create(),
             FileId: 620756992,
@@ -116,7 +236,7 @@ public sealed class TranslationsTests : BunitContext
             Submitter: null,
             UpdatedAt: DateTimeOffset.UnixEpoch)
         {
-            Links = canEdit ? [new LinkDto("https://tms.example/api/v1/translations", Rels.Upsert, "PUT")] : []
+            Links = links
         };
         return row;
     }
@@ -132,6 +252,19 @@ public sealed class TranslationsTests : BunitContext
             PageSize = 50,
             TotalCount = 1
         };
+
+    /// <summary>A page carrying the admin-only <c>bulk-approve</c> collection rel, as the API emits for a reviewer.</summary>
+    private static PaginationResponse<TranslationListItemResponse> AdminPageOf(params TranslationListItemResponse[] rows) =>
+        new()
+        {
+            Items = rows,
+            Page = 1,
+            PageSize = 50,
+            TotalCount = rows.Length,
+            Links = [new LinkDto(BulkApproveHref, Rels.BulkApprove, "POST")]
+        };
+
+    private const string BulkApproveHref = "https://tms.example/api/v1/translations/approve";
 
     private static PaginationResponse<TranslationListItemResponse> MultiPageOf(int page, IReadOnlyCollection<LinkDto> links) =>
         new()

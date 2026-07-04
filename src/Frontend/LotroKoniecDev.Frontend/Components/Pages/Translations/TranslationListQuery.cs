@@ -77,6 +77,21 @@ internal sealed record TranslationListQuery
         return QueryHelpers.AddQueryString(PagePath, parameters);
     }
 
+    /// <summary>
+    /// The page-relative URI for the Post-Redirect-Get target after a bulk approve (#322): this page's own
+    /// route carrying the current filters and page, plus the <c>approved</c>/<c>skipped</c> result counts,
+    /// so the confirmation flash survives the redirect while the active filters stay preserved.
+    /// </summary>
+    public string ToPageRelativeUriWithApprovalResult(int approved, int skipped)
+    {
+        Dictionary<string, string?> parameters = new();
+        AddPagingAndFilterParameters(parameters);
+        parameters["approved"] = approved.ToString(CultureInfo.InvariantCulture);
+        parameters["skipped"] = skipped.ToString(CultureInfo.InvariantCulture);
+
+        return QueryHelpers.AddQueryString(PagePath, parameters);
+    }
+
     private void AddPagingAndFilterParameters(Dictionary<string, string?> parameters, int? page = null)
     {
         parameters["page"] = (page ?? Page).ToString(CultureInfo.InvariantCulture);

@@ -1064,6 +1064,27 @@ code {
     word-break: break-word;
 }
 
+.col-check {
+    width: 1%;
+    white-space: nowrap;
+    text-align: center;
+}
+
+.col-check input[type="checkbox"] {
+    width: 16px;
+    height: 16px;
+    cursor: pointer;
+    accent-color: var(--accent);
+}
+
+.bulk-bar {
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 12px;
+}
+
 /* ───────── Pager ───────── */
 .pager {
     display: flex;

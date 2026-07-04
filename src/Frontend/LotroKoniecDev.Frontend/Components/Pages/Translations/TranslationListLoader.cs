@@ -30,4 +30,23 @@ internal sealed class TranslationListLoader
             query.ToApiRelativeUri(),
             cancellationToken);
     }
+
+    /// <summary>
+    /// Approves several rows at once (#322) by POSTing the selected ids to the collection
+    /// <c>bulk-approve</c> link. <paramref name="bulkApproveHref"/> is the server-advertised URI —
+    /// present only when the API deems the caller a reviewer — never a FE-constructed path.
+    /// </summary>
+    public Task<ApiResult<BulkApproveTranslationsResponse>> BulkApproveAsync(
+        string bulkApproveHref,
+        IReadOnlyList<Guid> ids,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(bulkApproveHref);
+        ArgumentNullException.ThrowIfNull(ids);
+
+        return _client.PostApiResultAsync<BulkApproveTranslationsResponse>(
+            bulkApproveHref,
+            new BulkApproveTranslationsRequest(ids),
+            cancellationToken);
+    }
 }

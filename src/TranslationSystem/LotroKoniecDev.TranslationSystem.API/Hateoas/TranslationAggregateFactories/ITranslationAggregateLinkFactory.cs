@@ -25,4 +25,11 @@ internal interface ITranslationAggregateLinkFactory
         bool isRemoved,
         bool callerIsTranslator,
         bool callerIsAdmin);
+
+    /// <summary>
+    /// Builds the collection-level links for the translation list: today only the admin-only
+    /// <c>bulk-approve</c> action (#322), so a non-admin caller gets an empty list.
+    /// </summary>
+    /// <param name="callerIsAdmin">Whether the caller holds the reviewer (Admin) role (gates <c>bulk-approve</c>).</param>
+    List<LinkDto> CreateCollectionLinks(bool callerIsAdmin);
 }

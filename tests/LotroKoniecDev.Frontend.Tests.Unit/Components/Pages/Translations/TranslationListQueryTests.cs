@@ -181,4 +181,89 @@ public sealed class TranslationListQueryTests
         uri.ShouldContain("approved=2");
         uri.ShouldContain("skipped=1");
     }
+
+    [Fact]
+    public void From_WithoutPageSize_DefaultsToDefaultPageSize()
+    {
+        TranslationListQuery query = TranslationListQuery.From(search: null, status: null, page: 1);
+
+        query.PageSize.ShouldBe(TranslationListQuery.DefaultPageSize);
+    }
+
+    [Theory]
+    [InlineData(25)]
+    [InlineData(50)]
+    [InlineData(100)]
+    public void From_WithSupportedPageSize_UsesItAndSendsItToTheApi(int pageSize)
+    {
+        TranslationListQuery query = TranslationListQuery.From(search: null, status: null, page: 1, pageSize: pageSize);
+
+        query.PageSize.ShouldBe(pageSize);
+        query.ToApiRelativeUri().ShouldContain($"pageSize={pageSize}");
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-5)]
+    [InlineData(7)]
+    [InlineData(99)]
+    [InlineData(101)]
+    [InlineData(1000)]
+    public void From_WithUnsupportedPageSize_SnapsBackToTheDefault(int pageSize)
+    {
+        // The list snaps an out-of-allowlist size back to the default (unlike the API's raw 1–100 clamp),
+        // so the rendered dropdown can always mark a real option selected (#323).
+        TranslationListQuery query = TranslationListQuery.From(search: null, status: null, page: 1, pageSize: pageSize);
+
+        query.PageSize.ShouldBe(TranslationListQuery.DefaultPageSize);
+    }
+
+    [Fact]
+    public void PageSizeOptions_IncludeTheDefault_SoTheDropdownAlwaysHasASelectedOption()
+    {
+        TranslationListQuery.PageSizeOptions.ShouldContain(TranslationListQuery.DefaultPageSize);
+    }
+
+    [Fact]
+    public void ToPageRelativeUri_WithNonDefaultPageSize_PreservesItAcrossPaging()
+    {
+        TranslationListQuery query = TranslationListQuery.From(search: null, status: null, page: 1, pageSize: 100);
+
+        string uri = query.ToPageRelativeUri(3);
+
+        uri.ShouldContain("page=3");
+        uri.ShouldContain("pageSize=100");
+    }
+
+    [Fact]
+    public void ToPageRelativeUri_WithDefaultPageSize_OmitsPageSizeToKeepTheUrlClean()
+    {
+        TranslationListQuery query =
+            TranslationListQuery.From(search: null, status: null, page: 1, pageSize: TranslationListQuery.DefaultPageSize);
+
+        query.ToPageRelativeUri(3).ShouldNotContain("pageSize=");
+    }
+
+    [Fact]
+    public void ToPageRelativeUriWithApprovalResult_WithNonDefaultPageSize_PreservesIt()
+    {
+        // Continuity with the bulk-approve Post-Redirect-Get (#322): approving on a custom page size must
+        // land back on the same-sized page, not silently reset to the default.
+        TranslationListQuery query = TranslationListQuery.From(search: "Bilbo", status: "Draft", page: 2, pageSize: 25);
+
+        string uri = query.ToPageRelativeUriWithApprovalResult(approved: 1, skipped: 0);
+
+        uri.ShouldContain("page=2");
+        uri.ShouldContain("pageSize=25");
+        uri.ShouldContain("approved=1");
+    }
+
+    [Fact]
+    public void ToPageRelativeUriWithApprovalResult_WithDefaultPageSize_OmitsPageSize()
+    {
+        TranslationListQuery query = TranslationListQuery.From(
+            search: "Bilbo", status: "Draft", page: 2, pageSize: TranslationListQuery.DefaultPageSize);
+
+        query.ToPageRelativeUriWithApprovalResult(approved: 1, skipped: 0).ShouldNotContain("pageSize=");
+    }
 }

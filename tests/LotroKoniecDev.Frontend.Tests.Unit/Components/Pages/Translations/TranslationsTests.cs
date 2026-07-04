@@ -202,6 +202,61 @@ public sealed class TranslationsTests : BunitContext
         component.Find(".status-message.status-warning").TextContent.ShouldContain("Nie zatwierdzono żadnego");
     }
 
+    [Fact]
+    public void Render_AlwaysOffersThePageSizeSelectWithEveryOption()
+    {
+        // #323: the fixed page size is now a user-facing control — the select must expose exactly the
+        // allowlisted sizes, in order, so the UI and the query builder can never drift.
+        StubPage(SinglePageOf(Row(canEdit: true)));
+
+        IRenderedComponent<TranslationsComponent> component = RenderPage();
+
+        component.FindAll("#pageSize option")
+            .Select(option => option.GetAttribute("value")!)
+            .ShouldBe(TranslationListQuery.PageSizeOptions.Select(size => size.ToString()));
+    }
+
+    [Fact]
+    public void Render_WhenNoPageSizeInTheQuery_MarksTheDefaultSizeSelected()
+    {
+        StubPage(SinglePageOf(Row(canEdit: true)));
+
+        IRenderedComponent<TranslationsComponent> component = RenderPage();
+
+        component.Find($"#pageSize option[value=\"{TranslationListQuery.DefaultPageSize}\"]")
+            .HasAttribute("selected").ShouldBeTrue();
+    }
+
+    [Fact]
+    public void Render_WhenPageSizeInTheQuery_MarksThatSizeSelected()
+    {
+        // The dropdown reflects the size requested in the query string (what the user picked), never a
+        // locally recomputed value — so it always mirrors the page the caller asked for (#323).
+        StubPage(SinglePageOf(Row(canEdit: true)));
+        Navigation().NavigateTo("/translations?pageSize=100");
+
+        IRenderedComponent<TranslationsComponent> component = RenderPage();
+
+        component.Find("#pageSize option[value=\"100\"]").HasAttribute("selected").ShouldBeTrue();
+        component.Find($"#pageSize option[value=\"{TranslationListQuery.DefaultPageSize}\"]")
+            .HasAttribute("selected").ShouldBeFalse();
+    }
+
+    [Fact]
+    public void Render_WhenPageSizeInTheQueryIsUnsupported_MarksTheDefaultSelectedAndRendersNoBogusOption()
+    {
+        // AC4 (#323): a hand-typed, unsupported size must snap to the default in the UI too — the select
+        // exposes no "7" option and marks the default selected, never left with nothing chosen.
+        StubPage(SinglePageOf(Row(canEdit: true)));
+        Navigation().NavigateTo("/translations?pageSize=7");
+
+        IRenderedComponent<TranslationsComponent> component = RenderPage();
+
+        component.FindAll("#pageSize option[value=\"7\"]").ShouldBeEmpty();
+        component.Find($"#pageSize option[value=\"{TranslationListQuery.DefaultPageSize}\"]")
+            .HasAttribute("selected").ShouldBeTrue();
+    }
+
     private IRenderedComponent<TranslationsComponent> RenderPage() =>
         Render<TranslationsComponent>();
 

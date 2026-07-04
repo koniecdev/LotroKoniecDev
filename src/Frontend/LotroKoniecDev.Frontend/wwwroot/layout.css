@@ -310,10 +310,14 @@ code {
     border-radius: var(--radius);
     padding: 18px;
     display: grid;
-    grid-template-columns: 1fr 1fr auto;
+    grid-template-columns: 1fr 1fr auto auto;
     gap: 14px;
     align-items: end;
     box-shadow: var(--shadow);
+}
+
+.field-page-size .select-wrap select {
+    min-width: 5rem;
 }
 
 .field {

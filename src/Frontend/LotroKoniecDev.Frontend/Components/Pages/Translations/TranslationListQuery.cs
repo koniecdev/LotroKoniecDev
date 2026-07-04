@@ -15,8 +15,15 @@ internal sealed record TranslationListQuery
     /// <summary>The only language the catalog holds today; mirrors the API's single supported language.</summary>
     internal const string Language = "pl";
 
-    /// <summary>Rows per page on the list view. Fixed for now — no user-facing page-size control (YAGNI).</summary>
+    /// <summary>The rows-per-page used when the user has not picked one; must be one of <see cref="PageSizeOptions"/>.</summary>
     internal const int DefaultPageSize = 50;
+
+    /// <summary>
+    /// The user-selectable rows-per-page sizes offered by the list's page-size control (#323). Any other
+    /// requested size (e.g. a hand-typed URL) falls back to <see cref="DefaultPageSize"/>, so the rendered
+    /// dropdown always reflects the size actually in effect. Every value stays within the API's 1–100 clamp.
+    /// </summary>
+    internal static readonly IReadOnlyList<int> PageSizeOptions = [25, 50, 100];
 
     private const string ApiPath = "/api/v1/translations";
     private const string PagePath = "/translations";
@@ -26,7 +33,7 @@ internal sealed record TranslationListQuery
         Search = string.IsNullOrWhiteSpace(search) ? null : search.Trim();
         Status = status;
         Page = Math.Max(page, 1);
-        PageSize = Math.Clamp(pageSize, 1, 100);
+        PageSize = PageSizeOptions.Contains(pageSize) ? pageSize : DefaultPageSize;
     }
 
     public string? Search { get; }
@@ -40,11 +47,12 @@ internal sealed record TranslationListQuery
     /// <summary>
     /// Builds the normalized state from raw query-string inputs: a blank search collapses to
     /// <c>null</c>, an unknown or <see cref="TranslationStatus.Unset"/> status is ignored (treated as
-    /// "all"), and the page is floored at 1.
+    /// "all"), the page is floored at 1, and an absent or unsupported <paramref name="pageSize"/> falls
+    /// back to <see cref="DefaultPageSize"/>.
     /// </summary>
-    public static TranslationListQuery From(string? search, string? status, int page)
+    public static TranslationListQuery From(string? search, string? status, int page, int? pageSize = null)
     {
-        return new TranslationListQuery(search, ParseStatus(status), page, DefaultPageSize);
+        return new TranslationListQuery(search, ParseStatus(status), page, pageSize ?? DefaultPageSize);
     }
 
     /// <summary>
@@ -65,14 +73,16 @@ internal sealed record TranslationListQuery
 
     /// <summary>
     /// The relative URI for this page's own route (<c>/translations</c>) targeting
-    /// <paramref name="page"/> — used to compose pager links. Unlike <see cref="ToApiRelativeUri"/> it
-    /// omits the API-only <c>lang</c>/<c>pageSize</c> so the user-facing URL stays clean, while sharing
-    /// the same encoding path for the <c>search</c>/<c>status</c> filter so the two can never drift.
+    /// <paramref name="page"/> — used to compose pager links. It omits the API-only <c>lang</c> and the
+    /// default <c>pageSize</c> so the user-facing URL stays clean, but carries a non-default page size so
+    /// a chosen size survives paging (#323), while sharing the same encoding path for the
+    /// <c>search</c>/<c>status</c> filter so the two can never drift.
     /// </summary>
     public string ToPageRelativeUri(int page)
     {
         Dictionary<string, string?> parameters = new();
         AddPagingAndFilterParameters(parameters, Math.Max(page, 1));
+        AddNonDefaultPageSize(parameters);
 
         return QueryHelpers.AddQueryString(PagePath, parameters);
     }
@@ -86,6 +96,7 @@ internal sealed record TranslationListQuery
     {
         Dictionary<string, string?> parameters = new();
         AddPagingAndFilterParameters(parameters);
+        AddNonDefaultPageSize(parameters);
         parameters["approved"] = approved.ToString(CultureInfo.InvariantCulture);
         parameters["skipped"] = skipped.ToString(CultureInfo.InvariantCulture);
 
@@ -104,6 +115,19 @@ internal sealed record TranslationListQuery
         if (Status is { } status)
         {
             parameters["status"] = status.ToString();
+        }
+    }
+
+    /// <summary>
+    /// Adds the chosen <c>pageSize</c> to a page-facing URL only when it differs from
+    /// <see cref="DefaultPageSize"/>, so the selected size survives paging and the bulk-approve redirect
+    /// while the default keeps the URL clean — mirroring how <c>search</c>/<c>status</c> appear only when set.
+    /// </summary>
+    private void AddNonDefaultPageSize(Dictionary<string, string?> parameters)
+    {
+        if (PageSize != DefaultPageSize)
+        {
+            parameters["pageSize"] = PageSize.ToString(CultureInfo.InvariantCulture);
         }
     }
 

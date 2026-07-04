@@ -163,4 +163,22 @@ public sealed class TranslationListQueryTests
 
         query.ToPageRelativeUri(requested).ShouldContain($"page={expected}");
     }
+
+    [Fact]
+    public void ToPageRelativeUriWithApprovalResult_PreservesTheActiveFiltersAndPageAndAppendsTheCounts()
+    {
+        // AC #7 (#322): the bulk-approve Post-Redirect-Get target must land back on the current filtered
+        // page with search+status intact, plus the approved/skipped result counts — so a reload is a safe
+        // GET showing the same filtered list with the confirmation flash.
+        TranslationListQuery query = TranslationListQuery.From(search: "Bilbo", status: "Draft", page: 3);
+
+        string uri = query.ToPageRelativeUriWithApprovalResult(approved: 2, skipped: 1);
+
+        uri.ShouldStartWith("/translations?");
+        uri.ShouldContain("page=3");
+        uri.ShouldContain("search=Bilbo");
+        uri.ShouldContain("status=Draft");
+        uri.ShouldContain("approved=2");
+        uri.ShouldContain("skipped=1");
+    }
 }

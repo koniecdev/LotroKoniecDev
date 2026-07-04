@@ -176,8 +176,12 @@ internal sealed class ListTranslations : IEndpoint
                             item.Id, item.Status, isRemoved: false, callerIsTranslator, callerIsAdmin);
                     }
 
-                    paged.Links = paginationLinkFactory.CreatePaginationLinks(
-                        nameof(ListTranslations), paged, new { lang, search, status, sort });
+                    paged.Links =
+                    [
+                        .. paginationLinkFactory.CreatePaginationLinks(
+                            nameof(ListTranslations), paged, new { lang, search, status, sort }),
+                        .. translationLinkFactory.CreateCollectionLinks(callerIsAdmin)
+                    ];
                 });
             })
             .WithName(nameof(ListTranslations))

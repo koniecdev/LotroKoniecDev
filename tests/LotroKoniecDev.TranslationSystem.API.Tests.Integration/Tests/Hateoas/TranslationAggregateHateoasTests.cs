@@ -184,6 +184,9 @@ public sealed class TranslationAggregateHateoasTests : IAsyncLifetime
         response.Links.ShouldContain(l => l.Rel == Rels.Self && l.Method == "GET");
         response.Links.ShouldContain(l => l.Rel == Rels.FirstPage);
         response.Links.ShouldContain(l => l.Rel == Rels.LastPage);
+
+        // Assert — the admin-only bulk-approve collection affordance (#322) drives the FE checkbox toolbar.
+        response.Links.ShouldContain(l => l.Rel == Rels.BulkApprove && l.Method == "POST");
     }
 
     [Fact]
@@ -204,6 +207,8 @@ public sealed class TranslationAggregateHateoasTests : IAsyncLifetime
         response.Links.ShouldContain(l => l.Rel == Rels.Self && l.Method == "GET");
         response.Links.ShouldContain(l => l.Rel == Rels.FirstPage);
         response.Links.ShouldContain(l => l.Rel == Rels.LastPage);
+        // The bulk-approve affordance is reviewer-only, so the anonymous envelope must not carry it.
+        response.Links.ShouldNotContain(l => l.Rel == Rels.BulkApprove);
     }
 
     [Fact]
@@ -222,6 +227,8 @@ public sealed class TranslationAggregateHateoasTests : IAsyncLifetime
         item.Links.ShouldContain(l => l.Rel == Rels.Self);
         item.Links.ShouldContain(l => l.Rel == Rels.Upsert);
         item.Links.ShouldNotContain(l => l.Rel == Rels.Approve);
+        // Bulk approve is reviewer-only: a translator's envelope must not advertise it either.
+        response.Links.ShouldNotContain(l => l.Rel == Rels.BulkApprove);
     }
 
     [Fact]

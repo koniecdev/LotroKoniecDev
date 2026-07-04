@@ -2,13 +2,16 @@
 @attribute [AllowAnonymous]
 @attribute [StreamRendering]
 @using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Mvc
 @using LotroKoniecDev.Frontend.Infrastructure.Hateoas
 @using LotroKoniecDev.Frontend.Infrastructure.HttpClients
+@using LotroKoniecDev.Hateoas.Abstractions
 @using LotroKoniecDev.TranslationSystem.Contracts.Common
 @using LotroKoniecDev.TranslationSystem.Contracts.Hateoas
 @using LotroKoniecDev.TranslationSystem.Contracts.Translations
 @using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.TranslationAggregate.Enums
 @inject TranslationListLoader Loader
+@inject NavigationManager Navigation
 
 <PageTitle>Tłumaczenia — lotro-translator.pl</PageTitle>
 
@@ -75,6 +78,12 @@
     {
         PaginationResponse<TranslationListItemResponse> pageData = _result.Value;
 
+        // The bulk-approve affordance is server-gated: the admin-only `bulk-approve` collection rel
+        // decides the checkbox column, and per-row the item's own `approve` rel decides which rows are
+        // selectable — never a locally recomputed role (#158, #322).
+        bool canBulkApprove = pageData.Links.HasLink(Rels.BulkApprove);
+        bool anyApprovable = canBulkApprove && pageData.Items.Any(item => item.Links.HasLink(Rels.Approve));
+
         <div class="results-meta">
             <span class="count">Znaleziono: <strong>@pageData.TotalCount</strong></span>
             @if (pageData.TotalPages > 0)
@@ -82,6 +91,36 @@
                 <span class="count">Strona @pageData.Page z @pageData.TotalPages</span>
             }
         </div>
+
+        @if (_bulkProblem is not null)
+        {
+            <div class="status-message status-error" role="alert">
+                <p>@(_bulkProblem.Detail ?? _bulkProblem.Title ?? "Nie udało się zatwierdzić tłumaczeń.")</p>
+            </div>
+        }
+        else if (_bulkNotice is not null)
+        {
+            <div class="status-message status-warning" role="status">
+                <p>@_bulkNotice</p>
+            </div>
+        }
+        else if (Approved is { } approvedCount)
+        {
+            @if (approvedCount > 0)
+            {
+                <div class="status-message status-success" role="status">
+                    <p>
+                        Zatwierdzono @approvedCount @TranslationsPlural(approvedCount).@((Skipped ?? 0) > 0 ? $" Pominięto {Skipped}." : "")
+                    </p>
+                </div>
+            }
+            else
+            {
+                <div class="status-message status-warning" role="status">
+                    <p>Nie zatwierdzono żadnego tłumaczenia — wybrane wiersze mogły być już zatwierdzone lub nieaktualne.</p>
+                </div>
+            }
+        }
 
         @if (pageData.Items.Count == 0)
         {
@@ -98,10 +137,16 @@
         }
         else
         {
-            <div class="table-wrap">
+            // One table shared by the admin (wrapped in the bulk-approve form) and the read-only paths,
+            // so the row markup is never duplicated; the checkbox column renders only when selectable.
+            RenderFragment resultsTable = @<div class="table-wrap">
                 <table class="data-table">
                     <thead>
                         <tr>
+                            @if (canBulkApprove)
+                            {
+                                <th scope="col" class="col-check"><span class="visually-hidden">Zaznacz</span></th>
+                            }
                             <th scope="col" class="col-num">FileId</th>
                             <th scope="col" class="col-num">GossipId</th>
                             <th scope="col">Tekst angielski</th>
@@ -114,6 +159,18 @@
                         @foreach (TranslationListItemResponse item in pageData.Items)
                         {
                             <tr>
+                                @if (canBulkApprove)
+                                {
+                                    <td class="col-check">
+                                        @* A checkbox appears only on a row the server marks approvable — the same
+                                           `approve` rel that gates the editor's per-row Zatwierdź. *@
+                                        @if (item.Links.HasLink(Rels.Approve))
+                                        {
+                                            <input type="checkbox" name="SelectedRows[@item.Id.Value]" value="true"
+                                                   aria-label="Zaznacz do zatwierdzenia"/>
+                                        }
+                                    </td>
+                                }
                                 <td class="col-num mono">@item.FileId</td>
                                 <td class="col-num mono">@item.GossipId</td>
                                 <td class="col-text">@item.SourceText</td>
@@ -142,7 +199,25 @@
                         }
                     </tbody>
                 </table>
-            </div>
+            </div>;
+
+            @if (canBulkApprove)
+            {
+                <form method="post" @formname="bulk-approve" @onsubmit="ApproveSelectedAsync">
+                    <AntiforgeryToken/>
+                    @if (anyApprovable)
+                    {
+                        <div class="bulk-bar">
+                            <button type="submit" class="btn btn-primary btn-sm">Zatwierdź zaznaczone</button>
+                        </div>
+                    }
+                    @resultsTable
+                </form>
+            }
+            else
+            {
+                @resultsTable
+            }
 
             @* The pager controls' availability is driven by the server's pagination link rels (#158); the
                user-facing /translations?... URLs stay FE-built via ToPageRelativeUri so they remain clean. *@
@@ -203,8 +278,28 @@
     [SupplyParameterFromQuery]
     private int Page { get; set; }
 
+    /// <summary>
+    /// Post-Redirect-Get result counts carried in the query by the redirect target after a bulk approve,
+    /// so the confirmation survives the redirect with no per-user server state — the page stays SSR-pure
+    /// (#321, #322). Null on a fresh GET (no flash); 0 renders a "nothing approved" note; a positive count
+    /// renders the success flash. They linger on a manual reload, a deliberate, harmless trade-off.
+    /// </summary>
+    [SupplyParameterFromQuery]
+    private int? Approved { get; set; }
+
+    [SupplyParameterFromQuery]
+    private int? Skipped { get; set; }
+
+    // A sparse checkbox selection maps to a dictionary keyed by row id: Blazor static-SSR form binding
+    // reads keyed names (`SelectedRows[<id>]`) — a repeated flat name does NOT bind to a collection —
+    // and only the checked rows post, so every entry that arrives is a selected row.
+    [SupplyParameterFromForm(FormName = "bulk-approve")]
+    private Dictionary<Guid, bool>? SelectedRows { get; set; }
+
     private TranslationListQuery _query = TranslationListQuery.From(null, null, 1);
     private ApiResult<PaginationResponse<TranslationListItemResponse>>? _result;
+    private ProblemDetails? _bulkProblem;
+    private string? _bulkNotice;
 
     protected override async Task OnParametersSetAsync()
     {
@@ -212,6 +307,62 @@
         _result = await Loader.LoadAsync(_query, CancellationToken.None);
     }
 
+    private async Task ApproveSelectedAsync()
+    {
+        _bulkProblem = null;
+        _bulkNotice = null;
+
+        // Link-driven: the API emits the `bulk-approve` collection rel only for a reviewer, so its
+        // presence on the freshly loaded page is the whole gate — no local role recompute.
+        LinkDto? bulkLink = _result is { IsSuccess: true }
+            ? _result.Value.Links.FindLink(Rels.BulkApprove)
+            : null;
+        if (bulkLink is null)
+        {
+            return;
+        }
+
+        Guid[] ids = SelectedRows is null
+            ? []
+            : [.. SelectedRows.Where(pair => pair.Value).Select(pair => pair.Key)];
+        if (ids.Length == 0)
+        {
+            _bulkNotice = "Zaznacz co najmniej jeden wiersz do zatwierdzenia.";
+            return;
+        }
+
+        ApiResult<BulkApproveTranslationsResponse> result =
+            await Loader.BulkApproveAsync(bulkLink.Href, ids, CancellationToken.None);
+        if (result.IsSuccess)
+        {
+            // Post-Redirect-Get (#321, #322): a successful mutation redirects to the list's GET view with
+            // the result counts in the query, so a browser reload is a safe GET (no "resubmit?" prompt),
+            // the fresh load re-derives the server's HATEOAS links (just-approved rows drop their checkbox),
+            // and the confirmation needs no per-user server state. On failure we deliberately do NOT
+            // redirect — the ProblemDetails and the intact pre-approval list stay on screen.
+            Navigation.NavigateTo(
+                _query.ToPageRelativeUriWithApprovalResult(result.Value.Approved, result.Value.Skipped));
+            return;
+        }
+
+        _bulkProblem = result.ProblemDetails;
+    }
+
     private static string EditorHref(TranslationListItemResponse item) =>
         $"/editor/{item.Id.Value}";
+
+    /// <summary>Polish plural of "tłumaczenie" for the approved-count flash (1 / 2-4 / 5+ forms).</summary>
+    private static string TranslationsPlural(int count)
+    {
+        if (count == 1)
+        {
+            return "tłumaczenie";
+        }
+
+        int lastTwo = count % 100;
+        int last = count % 10;
+        return last is >= 2 and <= 4 && lastTwo is < 12 or > 14
+            ? "tłumaczenia"
+            : "tłumaczeń";
+    }
 }

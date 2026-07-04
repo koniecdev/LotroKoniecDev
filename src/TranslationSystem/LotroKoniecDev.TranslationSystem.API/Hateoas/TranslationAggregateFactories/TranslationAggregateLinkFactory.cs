@@ -65,4 +65,21 @@ internal sealed class TranslationAggregateLinkFactory : ITranslationAggregateLin
 
         return links;
     }
+
+    public List<LinkDto> CreateCollectionLinks(bool callerIsAdmin)
+    {
+        List<LinkDto> links = [];
+
+        // The bulk-approve action is reviewer-only (#322): a translator or anonymous caller never
+        // sees the collection affordance, mirroring the per-item approve gate.
+        if (callerIsAdmin)
+        {
+            links.AddIfPresent(_linkFactory.Create(
+                endpoint: nameof(BulkApproveTranslations),
+                rel: Rels.BulkApprove,
+                method: HttpMethods.Post));
+        }
+
+        return links;
+    }
 }

@@ -45,6 +45,18 @@
                     <span class="select-chev" aria-hidden="true">▾</span>
                 </div>
             </div>
+            <div class="field field-page-size">
+                <label for="pageSize">Na stronie</label>
+                <div class="select-wrap">
+                    <select id="pageSize" name="pageSize">
+                        @foreach (int size in TranslationListQuery.PageSizeOptions)
+                        {
+                            <option value="@size" selected="@(_query.PageSize == size)">@size</option>
+                        }
+                    </select>
+                    <span class="select-chev" aria-hidden="true">▾</span>
+                </div>
+            </div>
             <div class="filter-actions">
                 <a class="btn btn-ghost" href="/translations">Wyczyść</a>
                 <button type="submit" class="btn btn-primary">Filtruj</button>
@@ -279,6 +291,14 @@
     private int Page { get; set; }
 
     /// <summary>
+    /// The user-chosen rows-per-page, carried in the query by the filter form's page-size select and the
+    /// pager links (#323). Null on a fresh visit — <see cref="TranslationListQuery.From"/> then falls back
+    /// to <see cref="TranslationListQuery.DefaultPageSize"/>; an unsupported value snaps back to the default.
+    /// </summary>
+    [SupplyParameterFromQuery]
+    private int? PageSize { get; set; }
+
+    /// <summary>
     /// Post-Redirect-Get result counts carried in the query by the redirect target after a bulk approve,
     /// so the confirmation survives the redirect with no per-user server state — the page stays SSR-pure
     /// (#321, #322). Null on a fresh GET (no flash); 0 renders a "nothing approved" note; a positive count
@@ -303,7 +323,7 @@
 
     protected override async Task OnParametersSetAsync()
     {
-        _query = TranslationListQuery.From(Search, Status, Page);
+        _query = TranslationListQuery.From(Search, Status, Page, PageSize);
         _result = await Loader.LoadAsync(_query, CancellationToken.None);
     }
 

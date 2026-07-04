@@ -1,5 +1,6 @@
 @page "/editor/{Id:guid}"
 @attribute [Authorize]
+@using System.Globalization
 @using Microsoft.AspNetCore.Authorization
 @using Microsoft.AspNetCore.Mvc
 @using LotroKoniecDev.Frontend.Components.Pages.Translations
@@ -10,6 +11,7 @@
 @using LotroKoniecDev.TranslationSystem.Contracts.Translations
 @using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.TranslationAggregate
 @inject TranslationEditorLoader Loader
+@inject NavigationManager Navigation
 
 <PageTitle>Edytor tłumaczenia — lotro-translator.pl</PageTitle>
 
@@ -99,13 +101,15 @@
             </span>
         </div>
 
+        @* A success flag lingers in the URL from its redirect; suppress the stale flash when the OTHER
+           action just failed on this render, so a fresh error is never sat next to a stale confirmation. *@
         @if (_saveProblem is not null)
         {
             <div class="status-message status-error" role="alert">
                 <p>@(_saveProblem.Title ?? "Nie udało się zapisać tłumaczenia.")</p>
             </div>
         }
-        else if (_saved)
+        else if (Saved && _approveProblem is null)
         {
             <div class="status-message status-success" role="status">
                 <p>Tłumaczenie zapisano.</p>
@@ -118,7 +122,7 @@
                 <p>@(_approveProblem.Title ?? "Nie udało się zatwierdzić tłumaczenia.")</p>
             </div>
         }
-        else if (_approved)
+        else if (Approved && _saveProblem is null)
         {
             <div class="status-message status-success" role="status">
                 <p>Tłumaczenie zatwierdzono i dołączono do dystrybucji.</p>
@@ -217,13 +221,23 @@
     [SupplyParameterFromForm(FormName = "save-translation")]
     private long GossipIdField { get; set; }
 
+    /// <summary>
+    /// Post-Redirect-Get success flags carried in the query string by the redirect target, so the save /
+    /// approve confirmation survives the redirect without any per-user server state — the page stays
+    /// SSR-pure (#321). They linger on a manual reload of the same URL, which is a deliberate,
+    /// harmless trade-off against the heavier one-shot-cookie flash.
+    /// </summary>
+    [SupplyParameterFromQuery]
+    private bool Saved { get; set; }
+
+    [SupplyParameterFromQuery]
+    private bool Approved { get; set; }
+
     private TranslationDetailResponse? _detail;
     private ProblemDetails? _loadProblem;
     private ProblemDetails? _saveProblem;
     private ProblemDetails? _approveProblem;
     private string? _draftText;
-    private bool _saved;
-    private bool _approved;
 
     protected override async Task OnParametersSetAsync()
     {
@@ -242,7 +256,6 @@
 
     private async Task SaveAsync()
     {
-        _saved = false;
         _saveProblem = null;
         _draftText = DraftField ?? string.Empty;
 
@@ -256,19 +269,19 @@
 
         if (result.IsSuccess)
         {
-            _detail = result.Value;
-            _draftText = null;
-            _saved = true;
+            // Post-Redirect-Get (#321): redirect to the row's GET view so a browser reload becomes a safe
+            // GET (no "resubmit the post?" prompt) and the fresh load re-derives the server's HATEOAS
+            // links — the approve button appears on a just-saved row with no manual refresh. On failure we
+            // deliberately do NOT redirect, so the typed draft and the error stay on screen for recovery.
+            Navigation.NavigateTo(EditorUriWithFlag("saved"));
+            return;
         }
-        else
-        {
-            _saveProblem = result.ProblemDetails;
-        }
+
+        _saveProblem = result.ProblemDetails;
     }
 
     private async Task ApproveAsync()
     {
-        _approved = false;
         _approveProblem = null;
 
         // Link-driven: the API emits the approve rel only for a reviewer on a Draft/NeedsReview row, so
@@ -282,19 +295,23 @@
         ApiResult result = await Loader.ApproveAsync(approveLink.Href, CancellationToken.None);
         if (result.IsSuccess)
         {
-            _approved = true;
+            // Post-Redirect-Get (#321): the redirect's GET reloads the row, so the status badge and the
+            // now-withdrawn approve affordance reflect the approved state — replaces the inline reload and
+            // makes a browser refresh safe.
+            Navigation.NavigateTo(EditorUriWithFlag("approved"));
+            return;
+        }
 
-            ApiResult<TranslationDetailResponse> reload = await Loader.LoadAsync(TranslationId.FromValue(Id), CancellationToken.None);
-            if (reload.IsSuccess)
-            {
-                _detail = reload.Value;
-            }
-        }
-        else
-        {
-            _approveProblem = result.ProblemDetails;
-        }
+        _approveProblem = result.ProblemDetails;
     }
+
+    /// <summary>
+    /// The Post-Redirect-Get target: this row's own GET view carrying a one-shot success flag. Redirecting
+    /// after a successful post turns a browser reload into a safe GET and re-runs the load, so the server's
+    /// fresh HATEOAS links render without a manual refresh — all with no per-user server state (#321).
+    /// </summary>
+    private string EditorUriWithFlag(string successFlag) =>
+        string.Create(CultureInfo.InvariantCulture, $"/editor/{Id}?{successFlag}=true");
 
     private static RenderFragment RenderHighlighted(string text) => builder =>
     {

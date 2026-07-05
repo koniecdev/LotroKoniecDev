@@ -1,0 +1,59 @@
+name: N-1 Backward Compatibility
+
+# Executable proof of the ADR-0023 contract (MIGR-05 / ADR-0024): the PREVIOUS release's
+# integration suites must pass against the NEW (HEAD) schema, because that is exactly what
+# serves production during every deploy's smoke window and after any failed rollout
+# (rollback moves traffic, never schema). scripts/n1-compat.sh generates idempotent schema
+# scripts from the PR merge commit, checks out HEAD^1 (= the main tip being merged into =
+# the deployed release; the repo has no version tags) into a worktree, and runs the old
+# checkout's own *.Tests.Integration.csproj suites with the seam env var set.
+#
+# Deliberately NOT a required check: path-filtered required checks deadlock every PR the
+# filter skips (the pr-verify docs-only lesson). Schema can only change through
+# src/**/Migrations/ (the migrator is the sole schema writer, ADR-0008 §6), so the paths
+# below cover every PR that can break the invariant; everything else is trivially green.
+on:
+  pull_request:
+    branches: ["main"]
+    paths:
+      - 'src/**/Migrations/**'
+      - 'scripts/n1-compat.sh'
+      - '.github/workflows/n1-compat.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: n1-compat-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  n1-compat:
+    name: Previous release on HEAD schema
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+
+    steps:
+      # Full history: the script resolves HEAD^1 and materializes it as a git worktree.
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5.4.0
+        with:
+          dotnet-version: '10.0.100'
+
+      - name: Cache NuGet packages
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ hashFiles('**/Directory.Packages.props', '**/*.csproj') }}
+          restore-keys: |
+            nuget-${{ runner.os }}-
+
+      - name: Run previous release's integration suites against the HEAD schema
+        run: ./scripts/n1-compat.sh

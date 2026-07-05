@@ -165,6 +165,30 @@ jobs:
           img="$MIGRATOR_IMAGE"
           echo "Pinning migrator job to ${img}"
           az containerapp job update -n "$MIGRATOR_JOB" -g "$RESOURCE_GROUP" --image "$img" -o none
+          # MIGR-01 (#336): publish the DB restore point BEFORE the migrator runs — the exact UTC
+          # timestamp an operator PITRs back to if this migration turns out bad (runbook: "Recover
+          # from a bad migration (Neon PITR)"; Neon Free retention is 6 h, so the target must be
+          # findable fast). Emitted pre-start so it survives even a failed/partial migrator run.
+          # Guarded (`|| true` + defaulted redirect): a summary hiccup must never fail the gate itself.
+          # MIGR-04 (#339) will additionally auto-branch Neon at this same point.
+          latest_migration() {
+            ls "$1" | grep -E '^[0-9]{14}_' | grep -v '\.Designer\.cs$' | sed 's/\.cs$//' | sort | tail -1
+          }
+          tms_target=$(latest_migration src/TranslationSystem/LotroKoniecDev.TranslationSystem.Persistence/Migrations || true)
+          auth_target=$(latest_migration src/AuthSystem/LotroKoniecDev.AuthSystem.Persistence/Migrations || true)
+          restore_point=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          {
+            echo "### DB restore point (pre-migration)"
+            echo ""
+            echo "| | |"
+            echo "|---|---|"
+            echo "| Restore point (UTC, captured before migrator start) | \`${restore_point}\` |"
+            echo "| Migrator image | \`${img}\` |"
+            echo "| Target migration — translation | \`${tms_target:-unknown}\` |"
+            echo "| Target migration — auth | \`${auth_target:-unknown}\` |"
+            echo ""
+            echo "Bad migration? Runbook → \"Recover from a bad migration (Neon PITR)\": restore the branch to the timestamp above (6 h retention window)."
+          } >> "${GITHUB_STEP_SUMMARY:-/dev/null}" || true
           echo "Starting migrator job…"
           az containerapp job start -n "$MIGRATOR_JOB" -g "$RESOURCE_GROUP" -o none
           # Poll budget tracks the migrator job's OWN replica timeout (Terraform migrator-job.tf

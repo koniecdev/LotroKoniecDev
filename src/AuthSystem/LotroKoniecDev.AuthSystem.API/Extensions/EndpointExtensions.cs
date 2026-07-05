@@ -48,16 +48,19 @@ internal static class EndpointExtensions
         /// <summary>
         /// Maps endpoints that live at the application root — everything that is a plain
         /// <see cref="IEndpoint"/> but not an <see cref="IApiEndpoint"/>. This covers OpenIddict's
-        /// <c>/connect/*</c> surface.
+        /// <c>/connect/*</c> surface. Mounted directly at the root; grouped only so the brute-force
+        /// rate-limit policy genuinely binds to these endpoints — a group convention reaches only
+        /// endpoints mapped through it.
         /// </summary>
+        /// <param name="routeGroupBuilder">Rate-limited root <see cref="RouteGroupBuilder"/>.</param>
         /// <returns>The <see cref="IApplicationBuilder"/> for further configuration.</returns>
-        public IApplicationBuilder MapRootEndpoints()
+        public IApplicationBuilder MapRootEndpoints(RouteGroupBuilder routeGroupBuilder)
         {
             IEnumerable<IEndpoint> endpoints = app.Services.GetRequiredService<IEnumerable<IEndpoint>>();
 
             foreach (IEndpoint endpoint in endpoints.Where(endpoint => endpoint is not IApiEndpoint))
             {
-                endpoint.MapEndpoint(app);
+                endpoint.MapEndpoint(routeGroupBuilder);
             }
 
             return app;

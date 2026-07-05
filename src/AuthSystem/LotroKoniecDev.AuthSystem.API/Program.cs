@@ -305,15 +305,22 @@ try
         : productionCorsPolicy;
     app.UseCors(corsPolicy);
 
+    // BEFORE authentication: OpenIddict validates /connect/* requests inside the authentication
+    // stage and short-circuits invalid ones (e.g. unknown client_id floods) — a limiter placed
+    // after it would never count exactly the junk traffic it exists to stop. Routing has already
+    // selected the endpoint here, so the per-endpoint policy metadata is visible to the limiter.
+    // Off in Development/Testing so local flows and the test suites never trip the limits;
+    // RateLimiting:ForceEnable lets a test host arm the middleware to observe real 429 rejection.
+    bool rateLimiterOffByEnvironment = app.Environment.IsDevelopment() || app.Environment.IsTesting();
+    if (!rateLimiterOffByEnvironment || app.Configuration.GetValue<bool>("RateLimiting:ForceEnable"))
+    {
+        app.UseRateLimiter();
+    }
+
     app.UseAuthentication();
     app.UseAuthorization();
 
     app.UseAuthorizationLogging();
-
-    if (!app.Environment.IsDevelopment() && !app.Environment.IsTesting())
-    {
-        app.UseRateLimiter();
-    }
 
     if (app.Environment.IsDevelopment())
     {
@@ -338,24 +345,20 @@ try
         ResponseWriter = HealthCheckResponseWriter.WriteResponse
     });
 
-    RouteGroupBuilder endpointsGroup = app.MapGroup("");
-
-    if (!app.Environment.IsDevelopment() && !app.Environment.IsTesting())
-    {
-        endpointsGroup.RequireRateLimiting(rateLimitPolicy);
-    }
+    // Policy metadata is attached unconditionally (matching the per-endpoint RequireRateLimiting
+    // calls in the feature slices); UseRateLimiter above is the single switch deciding enforcement.
+    RouteGroupBuilder endpointsGroup = app.MapGroup("")
+        .RequireRateLimiting(rateLimitPolicy);
 
     app.MapApiEndpoints(endpointsGroup);
 
-    // OpenIddict endpoints are mapped directly at the root (e.g. /connect/token).
-    // Apply rate limiting to auth endpoints to prevent brute force attacks.
-    if (!app.Environment.IsDevelopment() && !app.Environment.IsTesting())
-    {
-        app.MapGroup("/connect")
-            .RequireRateLimiting(authEndpointRateLimitPolicy);
-    }
+    // OpenIddict's /connect/* endpoints live at the root and are mapped THROUGH this group — a
+    // group convention binds only to endpoints mapped through it, so this is what actually arms
+    // the brute-force limiter on /connect/token (a bare MapGroup("/connect") never engaged it).
+    RouteGroupBuilder rootEndpointsGroup = app.MapGroup("")
+        .RequireRateLimiting(authEndpointRateLimitPolicy);
 
-    app.MapRootEndpoints();
+    app.MapRootEndpoints(rootEndpointsGroup);
 
     app.MapRazorPages();
 

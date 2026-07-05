@@ -116,8 +116,12 @@ Content-Type: multipart/form-data          # the import upload only
 ### 2.4 Rate limiting
 
 In non-dev/test, `tms-api` applies a **fixed-window 100 requests/minute per IP** policy across the
-endpoint group; over-limit returns **429** (`Program.cs:119`). `auth-api`'s `auth/register` carries
-its own `auth-endpoint-limit` policy.
+endpoint group; over-limit returns **429** (`Program.cs:119`). `auth-api` rate-limits per IP: the
+OpenIddict `/connect/*` endpoints and the sensitive account endpoints (`auth/register`,
+confirm/reset/change-password, delete/export) carry the `auth-endpoint-limit` policy (10/min),
+forgot-password and resend-confirmation carry stricter 3/15 min policies, and the remaining API
+endpoints fall under the generic 20/min policy (health probes and the OpenIddict discovery/JWKS
+documents are deliberately unlimited).
 
 ---
 

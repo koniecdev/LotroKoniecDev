@@ -57,10 +57,11 @@ jobs:
           # the SSR guard. NEVER add a build input here (.editorconfig, Directory.*.props/.targets,
           # global.json, nuget.config, test fixtures) — that would be a false green.
           inert='\.md$|^docs/|^LICENSE$|^\.gitignore$|^\.gitattributes$|\.sh$|\.ps1$|^iac/|(^|/)Dockerfile(\.migrator(\.prod)?|\.tests)?$|^compose[^/]*\.ya?ml$|^\.docker/|^\.github/|^\.run/|^\.vscode/|^\.idea/|(^|/)\.env[^/]*\.example$'
-          # Build-relevant despite matching `inert`: check-ssr-purity.sh is EXECUTED by the build
-          # job, and pr-verify/ci define the .NET gate itself — a change to any of them must run the
-          # gate so it validates its own new definition.
-          force_build='^scripts/check-ssr-purity\.sh$|^\.github/workflows/pr-verify\.yml$|^\.github/workflows/ci\.yml$'
+          # Build-relevant despite matching `inert`: check-ssr-purity.sh and the migration-safety
+          # guard + its self-test are EXECUTED by the build job (the .ps1 twin runs through the
+          # self-test's pwsh leg), and pr-verify/ci define the .NET gate itself — a change to any
+          # of them must run the gate so it validates its own new definition.
+          force_build='^scripts/check-ssr-purity\.sh$|^scripts/check-migration-safety\.(sh|ps1)$|^scripts/tests/check-migration-safety\.tests\.sh$|^\.github/workflows/pr-verify\.yml$|^\.github/workflows/ci\.yml$'
           code=true
           if files="$(git diff --name-only HEAD^1 HEAD)"; then
             build_relevant="$(printf '%s\n' "$files" | grep -vE "$inert" || true)"
@@ -90,12 +91,25 @@ jobs:
       - name: Checkout
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
+          # fetch-depth: 2 brings the PR merge commit plus both parents, so the migration-safety
+          # guard can diff newly-added files against HEAD^1 (the base tip).
+          fetch-depth: 2
           persist-credentials: false
 
       # Fast, dependency-free gate: the Frontend must stay Static SSR. Runs before
       # the .NET setup so a stray @rendermode/@onclick fails in seconds, not minutes.
       - name: Pure-SSR guard
         run: ./scripts/check-ssr-purity.sh
+
+      # Schema analog of the SSR gate (ADR-0023 / MIGR-03): a newly-added destructive
+      # migration fails in seconds unless it carries the in-file acknowledgment marker
+      # (MIGRATION-SAFETY: acknowledged). The self-test runs first so the guard itself
+      # can never rot green.
+      - name: Migration-safety guard self-test
+        run: ./scripts/tests/check-migration-safety.tests.sh
+
+      - name: Migration-safety guard
+        run: ./scripts/check-migration-safety.sh HEAD^1
 
       - name: Setup .NET
         uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5.4.0

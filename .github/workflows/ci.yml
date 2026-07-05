@@ -30,11 +30,24 @@ jobs:
       - name: Checkout
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
+          # fetch-depth: 2 brings the pushed commit plus its parent, so the migration-safety
+          # guard can diff newly-added files against HEAD^1. Main is squash-merge-only, so a
+          # push is normally one commit; a rare multi-commit direct push gets only its last
+          # commit scanned here — pr-verify is the enforcement, this job is the backstop.
+          fetch-depth: 2
           persist-credentials: false
 
       # Same Static-SSR gate as pr-verify — backstops direct pushes to main.
       - name: Pure-SSR guard
         run: ./scripts/check-ssr-purity.sh
+
+      # Same migration-safety gate as pr-verify (ADR-0023 / MIGR-03) — backstops direct
+      # pushes to main.
+      - name: Migration-safety guard self-test
+        run: ./scripts/tests/check-migration-safety.tests.sh
+
+      - name: Migration-safety guard
+        run: ./scripts/check-migration-safety.sh HEAD^1
 
       - name: Setup .NET
         uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5.4.0

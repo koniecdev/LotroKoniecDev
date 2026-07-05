@@ -18,7 +18,7 @@
 - [Consistency rules that bite](#consistency-rules-that-bite) — issuer / redirect / authority / CORS
 - [Bringing the stack up](#bringing-the-stack-up)
 - [Continuous deployment (CI/CD)](#continuous-deployment-cicd) — build-once → auto staging → gated prod promotion, and the one-time operator setup
-- [Database migrations](#database-migrations) — strategy, running them, and recovering from a bad migration (Neon PITR)
+- [Database migrations](#database-migrations) — strategy, running them, and recovering from a bad migration (Neon PITR + the MIGR-04 auto-snapshot)
 - [Post-deploy smoke test](#post-deploy-smoke-test) — one command verifies a deployed environment end-to-end
 - [Observability](#observability) — where cloud traces + logs land, and the metrics caveat
 - [Monitoring & alerting](#monitoring--alerting) — the Azure Monitor alerts and what each one means
@@ -367,7 +367,7 @@ arrive as `TF_VAR_*`. See [Staging bring-up](#staging-bring-up) for the full ord
 
 #### Staging bring-up
 
-First-time sequence for the `staging` environment. Prerequisite: complete the [one-time operator setup](#one-time-operator-setup) steps 1–7 (federated credential `gh-env-staging`, `Contributor` on `rg-lotrotms-staging-polc-001`, GitHub `staging` environment with env-scoped variables).
+First-time sequence for the `staging` environment. Prerequisite: complete the [one-time operator setup](#one-time-operator-setup-your-azure--github) steps 1–7 (federated credential `gh-env-staging`, `Contributor` on `rg-lotrotms-staging-polc-001`, GitHub `staging` environment with env-scoped variables).
 
 > ⚠️ **Staging shares the production ACA Environment** (ADR-0018). The "Azure for Students" subscription
 > permits only **one Container Apps Environment in the whole subscription**, so `env/staging.tfvars` sets
@@ -484,8 +484,9 @@ so a bad release never serves users. To revert a release *after* it was promoted
 its provenance) and approve, or — for an
 instant manual revert — shift traffic back to the still-present previous revision:
 `az containerapp ingress traffic set -n <app> -g <rg> --revision-weight <prev>=100 <candidate>=0`.
-DB migrations are forward-only — roll the schema forward, not back (ADR-0008 §6); snapshot the DBs
-before a risky release.
+DB migrations are forward-only — roll the schema forward, not back (ADR-0023); a bad migration is
+recovered by a Neon restore — the deploy's pre-migration auto-snapshot or PITR, see
+[Restore from the auto-snapshot](#restore-from-the-auto-snapshot-migr-04).
 
 ### One-time operator setup (your Azure + GitHub)
 
@@ -571,11 +572,28 @@ only**, no app secrets (those live in Key Vault, step 4):
 | `TMS_APP` | `lotrotms-tms-api-staging` | `lotrotms-tms-api-prod` |
 | `FRONTEND_APP` | `lotrotms-frontend-staging` | `lotrotms-frontend-prod` |
 | `MIGRATOR_JOB` | `lotrotms-migrator-staging` | `lotrotms-migrator-prod` |
+| `NEON_PROJECT_ID` *(optional — MIGR-04 snapshot leg)* | `holy-mode-18368797` | `empty-voice-65414159` |
 | `AUTH_URL` | `https://auth.staging.lotro-translator.pl` | `https://auth.lotro-translator.pl` |
 | `TMS_URL` | `https://tms.staging.lotro-translator.pl` | `https://tms.lotro-translator.pl` |
 | `FRONTEND_URL` | `https://staging.lotro-translator.pl` | `https://lotro-translator.pl` |
 
-And the env-scoped **secret** `SMOKE_CLIENT_SECRET` on each environment: set it to that environment's `SEED_OPENIDDICT_API_CLIENT_SECRET` (the value seeded into the environment's Key Vault in step 4 / [Staging bring-up](#staging-bring-up)).
+And the env-scoped **secrets** on each environment:
+
+- `SMOKE_CLIENT_SECRET` — that environment's `SEED_OPENIDDICT_API_CLIENT_SECRET` (the value seeded
+  into the environment's Key Vault in step 4 / [Staging bring-up](#staging-bring-up)).
+- `NEON_API_KEY` *(optional — MIGR-04 snapshot leg)* — a **project-scoped** organization API key
+  for that environment's Neon project (least privilege: single project, member-level, no org
+  actions). Mint it via the Neon API — the response's `key` field is shown once; the account-level
+  key used below is any org API key with permission to create keys:
+
+  ```bash
+  curl -sf -X POST -H "Authorization: Bearer $NEON_ACCOUNT_API_KEY" -H "Content-Type: application/json" \
+    "https://console.neon.tech/api/v2/organizations/<org_id>/api_keys" \
+    -d '{"key_name": "ci-neon-snapshot-<env>", "project_id": "<that env's NEON_PROJECT_ID>"}'
+  ```
+
+  Leave `NEON_API_KEY`/`NEON_PROJECT_ID` unset and the deploy skips the snapshot leg cleanly — see
+  [Restore from the auto-snapshot](#restore-from-the-auto-snapshot-migr-04).
 
 **7. GitHub repo Variables** (non-secret): `SMTP_SENDER_EMAIL`, `ADMIN_USERNAME`, `ADMIN_EMAIL`.
 
@@ -610,7 +628,8 @@ the APIs serve traffic — never from inside the application at startup. The rul
 - **Forward-only (ADR-0023).** There is no automated rollback step. EF down-migrations exist but are
   not run by this job; a bad migration is rolled forward with a new migration (the repo has zero
   production users — breaking changes are free; ADR-0002). The recovery valve for a logically-bad
-  migration is a Neon point-in-time restore — see
+  migration is a Neon restore — the deploy's pre-migration auto-snapshot (MIGR-04) or a
+  point-in-time restore — see
   [Recover from a bad migration (Neon PITR)](#recover-from-a-bad-migration-neon-pitr).
 
 ### Inputs (environment variables)
@@ -718,13 +737,14 @@ console under *Account → API keys*; list calls need `?org_id=…`):
 **a bad migration (or any data corruption) noticed more than 6 hours after the fact is
 unrecoverable.** The blast radius today is a DB whose content is re-creatable by hand (re-import
 `exported.txt`, re-seed the admin — zero production users, ADR-0002), which is why the window is
-accepted. Revisit triggers — whichever fires first:
+accepted. Revisit trigger: **the first real translators start contributing** (their edits are
+*not* re-creatable) → add a nightly `pg_dump` (encrypted — this repo is public, so world-readable
+GitHub artifacts are out — to a private Azure Blob container), or raise the Neon plan.
 
-- **the first real translators start contributing** (their edits are *not* re-creatable) → add a
-  nightly `pg_dump` (encrypted — this repo is public, so world-readable GitHub artifacts are out —
-  to a private Azure Blob container), or raise the Neon plan;
-- **MIGR-04 (#339)** lands and auto-branches Neon right before every migrator run, which caps the
-  bad-migration case (though not general corruption) regardless of the 6 h window.
+**MIGR-04 (#339) is in place** (2026-07): every configured deploy auto-branches Neon right before
+the migrator runs, which caps the **bad-migration** case regardless of the 6 h window — see
+[Restore from the auto-snapshot](#restore-from-the-auto-snapshot-migr-04). General data corruption
+(not tied to a migrator run) is still bound by the 6 h window above.
 
 #### Procedure
 
@@ -734,7 +754,10 @@ guarantees. Time matters: **the restore point must still be inside the 6 h reten
 
 **0. Find the restore point.** The deploy run's step summary prints a **"DB restore point
 (pre-migration)"** table — the UTC timestamp captured immediately *before* the migrator job started,
-plus the target migration per context. Fallback for older runs: the log timestamp of the
+plus the target migration per context. Since MIGR-04 the same table also names the **auto-snapshot
+branch**; when it shows one, prefer
+[Restore from the auto-snapshot](#restore-from-the-auto-snapshot-migr-04) — no timestamp math, no
+6 h pressure. Fallback for older runs: the log timestamp of the
 "Run migrations (gate …)" step in the GitHub Actions run.
 
 **1. Park traffic on the last-good app revision first.** After the restore the schema is
@@ -757,7 +780,9 @@ az containerapp revision deactivate -n <app> -g <resource-group> --revision <bad
 (When the rollout fails by itself, the pipeline's "Roll back on failure" step already does this —
 then only steps 2–4 remain.)
 
-**2. Restore the Neon branch to just before the migrator ran.** Substitute the project + branch IDs
+**2. Restore the Neon branch to just before the migrator ran.** (If step 0 surfaced an
+auto-snapshot branch, [restore from it](#restore-from-the-auto-snapshot-migr-04) instead of from
+history.) Substitute the project + branch IDs
 from the table above and the step-0 timestamp:
 
 ```bash
@@ -797,6 +822,58 @@ safety branch — its id is in the restore call's response, or in `GET /projects
 curl -sf -X DELETE -H "Authorization: Bearer $NEON_API_KEY" \
   "https://console.neon.tech/api/v2/projects/<project_id>/branches/<preserved_branch_id>"
 ```
+
+#### Restore from the auto-snapshot (MIGR-04)
+
+Since MIGR-04 (#339), every deploy with the Neon leg configured creates a **pre-migration snapshot
+branch** in that environment's Neon project — right after pinning the migrator image, right before
+starting the migrator job:
+
+- **Shape:** `migr04-pre-<short-sha>-<utc-ts>` (e.g. `migr04-pre-eb1363e-20260705T160102Z`),
+  branched from the project's **default branch head** (the create-branch API's documented default
+  when `parent_id` is omitted), with **no compute endpoint** — it costs no compute, only pinned
+  history/storage.
+- **Where it is recorded:** the run summary's "DB restore point (pre-migration)" table — name + id.
+- **Why it exists next to PITR:** a branch head never expires. PITR history lasts 6 h on the Free
+  plan; the snapshot stays restorable however late the bad migration is noticed.
+- **Configuration (per GitHub environment; optional):** env-scoped secret `NEON_API_KEY`
+  (project-scoped key) + variable `NEON_PROJECT_ID` — see
+  [operator setup step 6](#one-time-operator-setup-your-azure--github). When either is missing the
+  deploy logs `Neon snapshot skipped (not configured)` and proceeds; a Neon API error logs a
+  warning and proceeds too. **The snapshot is a net, not a gate** (ADR-0023 does not make it
+  mandatory; the ambient MIGR-01 PITR net still applies) — the deploy never fails because of it.
+
+**Retention — decided with MIGR-04: at most ONE snapshot branch per project.** Right before
+creating the new snapshot, the deploy deletes every older `migr04-pre-*` branch in that project.
+Rationale: both Free-plan projects sit at ~75 % of the 0.5 GB storage cap (plus a 10-branch cap),
+every branch pins history, and by the time deploy N+1 runs, deploy N's migration has already
+proven itself in service — its snapshot is dead weight. Consequence, stated plainly: **the
+snapshot protects the latest deploy only**; an older bad migration falls back to
+[PITR](#recover-from-a-bad-migration-neon-pitr) (≤ 6 h) or the accepted risk boundary above.
+
+**Restore procedure** — identical to the [PITR procedure](#procedure) except step 2: restore the
+default branch **from the snapshot branch's head** instead of from its own history. Semantics
+verified against the Neon Branch Restore API: `source_timestamp`/`source_lsn` omitted ⇒ the source
+is *"restored to head"*, which for the snapshot **is** the pre-migration state; and
+`preserve_under_name` is **required** here because the restored branch has children (the snapshot
+itself is one):
+
+```bash
+curl -sf -X POST -H "Authorization: Bearer $NEON_API_KEY" -H "Content-Type: application/json" \
+  "https://console.neon.tech/api/v2/projects/<project_id>/branches/<default_branch_id>/restore" \
+  -d '{
+    "source_branch_id": "<snapshot branch id from the run summary, br-…>",
+    "preserve_under_name": "pre-restore-<yyyymmdd-hhmm>"
+  }'
+```
+
+- The current (post-migration) head is parked as the `pre-restore-*` branch — the undo — and the
+  branch's existing children (including the snapshot) are re-parented under it.
+- Steps 0–1 (find the restore point, park traffic on the last-good app revision) and 3–4 (verify,
+  roll forward) are unchanged from the [PITR procedure](#procedure).
+- Cleanup order matters: delete the `migr04-pre-*` branch **before** the `pre-restore-*` branch —
+  Neon refuses to delete a branch that still has children. If a later deploy's retention sweep
+  warns it could not delete an old snapshot, finish this cleanup by hand.
 
 #### Rehearsal (staging drill)
 

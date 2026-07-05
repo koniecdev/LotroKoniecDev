@@ -338,7 +338,8 @@ file_id||gossip_id||translated_text||args_order||args_id||approved
 - **Migrations are forward-only and N-1 backward-compatible (ADR-0023).** The deploy gate commits
   the schema **before** traffic moves, and rollback reverts code, never schema — so the
   currently-running app revision must survive every migration. Never rely on `Down()` outside
-  local dev; recovery is roll-forward or a Neon PITR restore (runbook). Destructive operations
+  local dev; recovery is roll-forward or a Neon restore — PITR or the MIGR-04 pre-migration
+  auto-snapshot branch (runbook). Destructive operations
   (drop/rename a column or table, change a type, add `NOT NULL`, tighten a constraint / unique
   index over existing data) ship as **expand → backfill → contract across ≥ 2 deploys**; a
   deliberate destructive step carries an in-file `MIGRATION-SAFETY: acknowledged — <reason>`

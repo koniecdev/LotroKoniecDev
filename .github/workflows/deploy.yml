@@ -160,6 +160,13 @@ jobs:
       # R6 gate: run the migrator to completion BEFORE rolling the APIs. A non-Succeeded execution
       # fails the job, so the apps are never rolled onto an un-migrated schema (no half-migrated serving).
       - name: Run migrations (gate — rollout blocked unless this succeeds)
+        env:
+          SHORT_SHA: ${{ inputs.short_sha }}
+          # Env-scoped per environment (runbook "One-time operator setup" step 6): a PROJECT-scoped
+          # Neon API key + that environment's Neon project id. Unset (fork, fresh environment) ⇒ the
+          # MIGR-04 snapshot leg below skips cleanly.
+          NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
+          NEON_PROJECT_ID: ${{ vars.NEON_PROJECT_ID }}
         run: |
           set -euo pipefail
           img="$MIGRATOR_IMAGE"
@@ -170,12 +177,53 @@ jobs:
           # from a bad migration (Neon PITR)"; Neon Free retention is 6 h, so the target must be
           # findable fast). Emitted pre-start so it survives even a failed/partial migrator run.
           # Guarded (`|| true` + defaulted redirect): a summary hiccup must never fail the gate itself.
-          # MIGR-04 (#339) will additionally auto-branch Neon at this same point.
           latest_migration() {
             ls "$1" | grep -E '^[0-9]{14}_' | grep -v '\.Designer\.cs$' | sed 's/\.cs$//' | sort | tail -1
           }
           tms_target=$(latest_migration src/TranslationSystem/LotroKoniecDev.TranslationSystem.Persistence/Migrations || true)
           auth_target=$(latest_migration src/AuthSystem/LotroKoniecDev.AuthSystem.Persistence/Migrations || true)
+          # MIGR-04 (#339): auto-branch Neon at this same point — a snapshot branch whose HEAD is the
+          # pre-migration state. A branch head never expires, so unlike the 6 h PITR history this
+          # restore source stays valid however late a bad migration is noticed (runbook: "Restore
+          # from the auto-snapshot"). The snapshot is a safety NET, not a gate: an unconfigured
+          # environment skips the leg cleanly, and no Neon API failure may fail this step (every
+          # call below is guarded). Retention — decided in the runbook alongside the restore path:
+          # max ONE snapshot branch per project (both Free-plan projects sit near the storage cap,
+          # and the previous deploy's snapshot guards a migration that already proved good), so
+          # older migr04-pre-* branches are deleted BEFORE the new one is created.
+          neon_api="https://console.neon.tech/api/v2"
+          snapshot_row="skipped (not configured)"
+          if [ -n "${NEON_API_KEY:-}" ] && [ -n "${NEON_PROJECT_ID:-}" ]; then
+            snapshot_name="migr04-pre-${SHORT_SHA}-$(date -u +%Y%m%dT%H%M%SZ)"
+            if branches_json=$(curl -fsS --max-time 30 -H "Authorization: Bearer $NEON_API_KEY" \
+                  "${neon_api}/projects/${NEON_PROJECT_ID}/branches"); then
+              printf '%s' "$branches_json" \
+                | jq -r '.branches[] | select(.name | startswith("migr04-pre-")) | .id' \
+                | while IFS= read -r old_id; do
+                    [ -n "$old_id" ] || continue
+                    echo "Neon: deleting previous snapshot branch ${old_id} (retention: max 1 per project)"
+                    curl -fsS --max-time 30 -X DELETE -H "Authorization: Bearer $NEON_API_KEY" \
+                      "${neon_api}/projects/${NEON_PROJECT_ID}/branches/${old_id}" -o /dev/null \
+                      || echo "::warning::Neon: could not delete old snapshot branch ${old_id} (non-blocking)"
+                  done \
+                || echo "::warning::Neon: retention sweep did not complete (non-blocking)"
+            else
+              echo "::warning::Neon: could not list branches for the retention sweep (non-blocking)"
+            fi
+            if create_json=$(curl -fsS --max-time 30 -X POST \
+                  -H "Authorization: Bearer $NEON_API_KEY" -H "Content-Type: application/json" \
+                  -d "{\"branch\": {\"name\": \"${snapshot_name}\"}}" \
+                  "${neon_api}/projects/${NEON_PROJECT_ID}/branches"); then
+              snapshot_id=$(printf '%s' "$create_json" | jq -r '.branch.id' 2>/dev/null || echo unknown)
+              snapshot_row="\`${snapshot_name}\` (\`${snapshot_id}\`)"
+              echo "Neon: created pre-migration snapshot branch ${snapshot_name} (${snapshot_id})"
+            else
+              snapshot_row="creation failed (non-blocking — see the deploy log)"
+              echo "::warning::Neon: snapshot branch creation failed (non-blocking — the ambient 6 h PITR window still applies)"
+            fi
+          else
+            echo "Neon snapshot skipped (not configured)"
+          fi
           restore_point=$(date -u +%Y-%m-%dT%H:%M:%SZ)
           {
             echo "### DB restore point (pre-migration)"
@@ -183,11 +231,12 @@ jobs:
             echo "| | |"
             echo "|---|---|"
             echo "| Restore point (UTC, captured before migrator start) | \`${restore_point}\` |"
+            echo "| Neon snapshot branch (durable restore source) | ${snapshot_row} |"
             echo "| Migrator image | \`${img}\` |"
             echo "| Target migration — translation | \`${tms_target:-unknown}\` |"
             echo "| Target migration — auth | \`${auth_target:-unknown}\` |"
             echo ""
-            echo "Bad migration? Runbook → \"Recover from a bad migration (Neon PITR)\": restore the branch to the timestamp above (6 h retention window)."
+            echo "Bad migration? Runbook → \"Restore from the auto-snapshot\" (works past the 6 h window when the snapshot row above is a branch) or \"Recover from a bad migration (Neon PITR)\" (restore to the timestamp above, 6 h retention)."
           } >> "${GITHUB_STEP_SUMMARY:-/dev/null}" || true
           echo "Starting migrator job…"
           az containerapp job start -n "$MIGRATOR_JOB" -g "$RESOURCE_GROUP" -o none

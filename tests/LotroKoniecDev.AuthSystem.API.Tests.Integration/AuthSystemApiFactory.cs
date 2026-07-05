@@ -120,6 +120,10 @@ public class AuthSystemApiFactory : WebApplicationFactory<Program>, IAsyncLifeti
         await _postgresContainer.StartAsync();
         _connectionString = _postgresContainer.GetConnectionString();
 
+        // N-1 compat runs (ADR-0024) pre-apply the HEAD schema here; the seeder's MigrateAsync
+        // then no-ops and this suite exercises its (older) code against the newer schema.
+        await N1CompatSchemaSeam.ApplyIfConfiguredAsync(_postgresContainer, "auth.sql");
+
         // Accessing Services triggers host startup.
         // The seeder is skipped in Testing environment, so we seed explicitly
         // using the test host's services (which have the correct connection string).

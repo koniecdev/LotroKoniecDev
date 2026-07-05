@@ -167,9 +167,10 @@ scripts/claude/work-ticket.sh 123                      # one ticket, one fresh h
 # LOOP_EFFORT / LOOP_PERMISSION_MODE / LOOP_UNSAFE=1 · full manual: docs/claude-loop.md
 
 # TMS — EF Core migrations (write context owns them; --connection makes it work without appsettings/live DB)
+# dotnet-ef is a pinned local tool (dotnet tool restore). No --startup-project: it would equal
+# --project, and dotnet-ef 10.0.9 mis-parses the pair when both carry the identical value.
 dotnet ef migrations add <Name> \
   --project src/TranslationSystem/LotroKoniecDev.TranslationSystem.Persistence \
-  --startup-project src/TranslationSystem/LotroKoniecDev.TranslationSystem.Persistence \
   --context ApplicationWriteDbContext \
   -- --connection "Host=localhost;Database=lotro_translation;Username=postgres;Password=changeme"
 
@@ -341,7 +342,10 @@ file_id||gossip_id||translated_text||args_order||args_id||approved
   (drop/rename a column or table, change a type, add `NOT NULL`, tighten a constraint / unique
   index over existing data) ship as **expand → backfill → contract across ≥ 2 deploys**; a
   deliberate destructive step carries an in-file `MIGRATION-SAFETY: acknowledged — <reason>`
-  comment (CI gate: #338 / MIGR-03).
+  comment (CI gate: #338 / MIGR-03). Migration-touching PRs additionally run the executable
+  N-1 proof: the previous release's integration suites against the HEAD schema
+  (`n1-compat.yml` / `scripts/n1-compat.sh` — ADR-0024; the factories' seam is
+  `N1_COMPAT_SCHEMA_SCRIPTS_DIR`, inert in normal test runs).
 - **Right-size the design — YAGNI by default.** Before proposing an abstraction, cache, config
   knob, queue, or new infra, check it solves a **real, present** need from the current
   spec/ticket — not a hypothetical future. Pick the simple path and note the trade-off in one line.

@@ -170,7 +170,9 @@ with the recovery procedure, not here.
 - `Down()` methods become permanently dead code for shared environments (still generated, never
   executed there).
 - Until MIGR-05 lands, N-1 compatibility is asserted by rule + lint, not proven by a test.
-  Accepted: post-mvp, proportional to zero users.
+  Accepted: post-mvp, proportional to zero users. *(Closed 2026-07-05: ADR-0024 / #340 adds the
+  executable proof — the previous release's integration suites against the HEAD schema, on every
+  migration-touching PR.)*
 - Nothing restores data automatically — the net is a documented manual procedure. Accepted at
   this scale.
 

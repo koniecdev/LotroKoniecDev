@@ -137,6 +137,18 @@ checkboxes + state panels (`register-success`, `confirm-email-success`). **Requi
 name** (`...E2E.Tests`) — runs via `e2e.yml` (the `e2e-frontend` job) or a local `dotnet test`. Compiled by the
 solution build, so the zero-warning gate covers it.
 
+## N-1 schema seam (integration factories — ADR-0024)
+
+Both API integration factories carry `N1CompatSchemaSeam` (twin copies — keep in sync): when
+`N1_COMPAT_SCHEMA_SCRIPTS_DIR` is set, the factory applies a pre-generated idempotent HEAD schema
+script (`translation.sql` / `auth.sql`) to its fresh PostgreSQL container before its own
+`MigrateAsync()` (which then no-ops), so the suite exercises **its** code against a **newer**
+schema. Only `scripts/n1-compat.sh` (the MIGR-05 N-1 proof, `n1-compat.yml`) sets the variable —
+normal test runs are untouched. Every misconfiguration throws; keep `TRUNCATE … CASCADE` in test
+resets (a plain TRUNCATE breaks once a newer schema adds a referencing child table). A new
+integration suite with its own DbContext must adopt the seam (new script file name + the same
+apply call) to be covered.
+
 ## Conventions
 
 - Test class naming: `{ClassUnderTest}Tests`

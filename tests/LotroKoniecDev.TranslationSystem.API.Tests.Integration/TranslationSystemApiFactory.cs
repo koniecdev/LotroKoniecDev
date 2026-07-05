@@ -177,6 +177,10 @@ public class TranslationSystemApiFactory : WebApplicationFactory<Program>, IAsyn
         await _postgresContainer.StartAsync();
         _connectionString = _postgresContainer.GetConnectionString();
 
+        // N-1 compat runs (ADR-0024) pre-apply the HEAD schema here; MigrateAsync below then
+        // no-ops and this suite exercises its (older) code against the newer schema.
+        await N1CompatSchemaSeam.ApplyIfConfiguredAsync(_postgresContainer, "translation.sql");
+
         // Accessing Services triggers host startup; the compose migrator owns migrations in
         // deployed environments, so tests apply them explicitly against the container.
         using IServiceScope scope = Services.CreateScope();

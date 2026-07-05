@@ -96,12 +96,23 @@ a self-hosted Postgres (named volume) as the default so the parity stack is self
 pointing at a managed instance (Azure Database for PostgreSQL / AWS RDS / Aiven) is a single env
 change. No HA/backup topology is committed now — that belongs to the deferred provider decision.
 
+> **Superseded (2026-07-05, ADR-0023 / #337):** the provider decision has since landed — prod and
+> staging run on **Neon** (ADR-0014, ADR-0018), whose history retention (PITR) + instant branching
+> is the de-facto backup topology; MIGR-01 (#336) verifies it and documents the recovery procedure
+> in the runbook.
+
 ### 6. Images are published to GHCR; migrations run as a pre-deploy job
 
 CD builds and pushes the four images to **GHCR**, tagged by commit SHA + semver (M6-09). Schema
 changes apply via `dotnet ef migrations bundle` executed as a pre-deploy job / init step that the
 APIs depend on; a failed migration blocks API startup, so there is never half-migrated serving
 (M6-10). The dev compose migrator is kept as-is.
+
+> **Amendment (2026-07-05, ADR-0023 / #337):** later docs (ADR-0012 §4/§5, ADR-0014, the runbook)
+> cite this section for a "forward-only" migration discipline it never actually defined — it only
+> specifies the pre-deploy bundle job. That contract (forward-only, N-1 backward-compatible,
+> expand → backfill → contract, plus its enforcement and recovery net) is now formally
+> **ADR-0023**.
 
 ### 7. The Frontend is containerized for production only
 

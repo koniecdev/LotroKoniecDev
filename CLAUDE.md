@@ -334,6 +334,14 @@ file_id||gossip_id||translated_text||args_order||args_id||approved
   tracking). Switch to `OwnsOne` only when the property requires a DB index — `ComplexProperty`
   cannot be indexed in EF Core 10 (limitation removed in EF Core 11). With `OwnsOne`, define
   `HasColumnName` explicitly and put `HasIndex` inside the owned builder.
+- **Migrations are forward-only and N-1 backward-compatible (ADR-0023).** The deploy gate commits
+  the schema **before** traffic moves, and rollback reverts code, never schema — so the
+  currently-running app revision must survive every migration. Never rely on `Down()` outside
+  local dev; recovery is roll-forward or a Neon PITR restore (runbook). Destructive operations
+  (drop/rename a column or table, change a type, add `NOT NULL`, tighten a constraint / unique
+  index over existing data) ship as **expand → backfill → contract across ≥ 2 deploys**; a
+  deliberate destructive step carries an in-file `MIGRATION-SAFETY: acknowledged — <reason>`
+  comment (CI gate: #338 / MIGR-03).
 - **Right-size the design — YAGNI by default.** Before proposing an abstraction, cache, config
   knob, queue, or new infra, check it solves a **real, present** need from the current
   spec/ticket — not a hypothetical future. Pick the simple path and note the trade-off in one line.

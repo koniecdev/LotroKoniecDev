@@ -54,6 +54,10 @@ origin** (the revision serving 100% of traffic), plus an `azurerm_monitor_metric
 | tms | `${tms_origin}/health/ready` | 200 | 1 |
 | frontend | `${apex_origin}/` | 200–399 (Static-SSR home) | 1 |
 
+> Narrowed by ADR-0025 (2026-07-05): `/health/ready` is DB-free (the probe runs zero checks), so
+> these web tests assert HTTP + TLS liveness of the public origin — not database health. The
+> database is proven by the deploy smoke (legs 2/4) and per-request telemetry.
+
 **This is what makes the fix architectural, not a threshold tweak:** a candidate revision is
 reachable *only* through its private `<app>---cd-candidate.<domain>` label FQDN and takes **0%**
 public traffic during smoke, so an external probe of the public origin **cannot observe it**. The

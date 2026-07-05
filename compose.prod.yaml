@@ -220,7 +220,7 @@ services:
 
   # --- Optional local infra (NOT started by default — opt in with --profile) ---
   # Real deployments point Email__* / OTEL_EXPORTER_OTLP_ENDPOINT at managed services via .env.prod.
-  # For an all-local parity run, enable these to satisfy the SMTP /health/ready probe + view traces:
+  # For an all-local parity run, enable these to satisfy the SMTP leg of the deep auth /health + view traces:
   #   docker compose -f compose.prod.yaml --env-file .env.prod --profile local-smtp --profile local-otel up
   # (set Email__Host=mailpit, Email__Port=1025, Email__Mode=None, OTEL_EXPORTER_OTLP_ENDPOINT=http://aspire-dashboard:18889)
   mailpit:

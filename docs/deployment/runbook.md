@@ -31,8 +31,8 @@ one TLS-terminating ingress:
 
 | Service | Image (`ghcr.io/koniecdev/…`) | Listens | Health | Persists |
 |---|---|---|---|---|
-| **auth-api** | `lotrokoniecdev-auth-api` | `:8080` (HTTP) | `/health/live`, `/health/ready` (DB + SMTP) | Data Protection keyring → `/keys` |
-| **tms-api** | `lotrokoniecdev-tms-api` | `:8080` (HTTP) | `/health` (anon), `/health/live`, `/health/ready` (DB) | translation artifacts (read-only mount) |
+| **auth-api** | `lotrokoniecdev-auth-api` | `:8080` (HTTP) | `/health` (deep: DB + SMTP), `/health/live`, `/health/ready` (probe — runs no checks, ADR-0025) | Data Protection keyring → `/keys` |
+| **tms-api** | `lotrokoniecdev-tms-api` | `:8080` (HTTP) | `/health` (deep: DB), `/health/live`, `/health/ready` (probe — runs no checks, ADR-0025) | translation artifacts (read-only mount) |
 | **frontend** | `lotrokoniecdev-frontend` | `:8080` (HTTP) | — | Data Protection keyring → `/keys` |
 | **migrator** | `lotrokoniecdev-migrator` | one-shot (exits 0) | exit code | — |
 | _ingress_ | any TLS-terminating reverse proxy | `:443` | — | — |
@@ -301,13 +301,13 @@ It bootstraps `.env.prod` (with freshly generated OpenIddict secrets), the local
 `*.lotro.test` hosts mapping, then runs `docker compose -f compose.prod.yaml up`. Verify:
 
 ```bash
-curl --cacert .docker/prod-https/rootCA.crt https://auth.lotro.test/health/ready
-curl --cacert .docker/prod-https/rootCA.crt https://tms.lotro.test/health/ready
+curl --cacert .docker/prod-https/rootCA.crt https://auth.lotro.test/health
+curl --cacert .docker/prod-https/rootCA.crt https://tms.lotro.test/health
 # browser OIDC login: https://app.lotro.test
 ```
 
-For an all-local run (no external SMTP/OTLP), add the profiles so the auth `/health/ready` SMTP probe
-passes and traces are viewable, and set `Email__Host=mailpit` / `Email__Port=1025` / `Email__Mode=None`
+For an all-local run (no external SMTP/OTLP), add the profiles so the SMTP leg of the deep auth
+`/health` passes and traces are viewable, and set `Email__Host=mailpit` / `Email__Port=1025` / `Email__Mode=None`
 + `OTEL_EXPORTER_OTLP_ENDPOINT=http://aspire-dashboard:18889` in `.env.prod`:
 
 ```bash
@@ -330,7 +330,7 @@ the provider-specific walkthrough is deferred until the provider is chosen):
    ([Database migrations](#database-migrations)). A non-zero exit blocks the rollout.
 4. **Roll out** auth-api, tms-api, frontend on the **same image tag** as the migrator. Mount the DP
    keyring volumes; point the ingress at each app's `:8080`.
-5. **Verify**: `/health/ready` green on both APIs, a full browser OIDC login, and the
+5. **Verify**: the deep `/health` green on both APIs (DB; + SMTP on auth), a full browser OIDC login, and the
    [post-deploy smoke test](#post-deploy-smoke-test) (one command — health + auth token + token
    acceptance + file distribution).
 

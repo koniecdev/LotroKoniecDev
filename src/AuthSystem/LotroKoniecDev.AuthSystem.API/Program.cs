@@ -188,13 +188,17 @@ try
 
     builder.Services
         .AddHealthChecks()
+        // The db check is deliberately NOT tagged "ready": ACA probes /health/ready every few
+        // seconds, and a DB ping there keeps the scale-to-zero Neon compute awake 24/7 (a suspended
+        // database is normal operation, not unreadiness — ADR-0025). The check stays reachable on
+        // demand via the full /health; deploys prove the DB through the smoke's real endpoints.
         .AddNpgSql(
             connectionStringFactory: sp => sp.GetRequiredService<IOptions<ConnectionStringSettings>>().Value.AuthDatabase,
             name: "authdb",
-            tags: ["db", "postgres", "ready"])
-        // SMTP is intentionally NOT tagged "ready": a Brevo outage must not pull the whole auth
-        // service out of the ingress rotation — login and token issuance work without mail. Only the
-        // database gates readiness; mail failures surface in logs and via "resend confirmation".
+            tags: ["db", "postgres"])
+        // SMTP is likewise NOT tagged "ready": a Brevo outage must not pull the whole auth service
+        // out of the ingress rotation — login and token issuance work without mail. Mail failures
+        // surface in logs, via "resend confirmation", and on the full /health.
         .AddCheck<SmtpHealthCheck>(
             "smtp",
             tags: ["smtp"]);
@@ -316,6 +320,11 @@ try
         app.MapOpenApi();
         app.MapScalarApiReference();
     }
+
+    app.MapHealthChecks("/health", new HealthCheckOptions
+    {
+        ResponseWriter = HealthCheckResponseWriter.WriteResponse
+    });
 
     app.MapHealthChecks("/health/live", new HealthCheckOptions
     {

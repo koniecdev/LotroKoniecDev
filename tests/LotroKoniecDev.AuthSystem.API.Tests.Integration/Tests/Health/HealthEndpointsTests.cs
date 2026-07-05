@@ -1,17 +1,17 @@
-namespace LotroKoniecDev.TranslationSystem.API.Tests.Integration.Tests.Health;
+namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Tests.Health;
 
-[Collection("TranslationApi")]
+[Collection("AuthApi")]
 public sealed class HealthEndpointsTests
 {
-    private readonly TranslationSystemApiFactory _factory;
+    private readonly AuthSystemApiFactory _factory;
 
-    public HealthEndpointsTests(TranslationSystemApiFactory factory)
+    public HealthEndpointsTests(AuthSystemApiFactory factory)
     {
         _factory = factory;
     }
 
     [Fact]
-    public async Task GetHealth_WithoutToken_ShouldReturn200AndHealthy()
+    public async Task GetHealth_WithoutToken_ShouldSurfaceDbAndSmtpChecks()
     {
         // Arrange
         using HttpClient client = _factory.CreateClient();
@@ -20,10 +20,11 @@ public sealed class HealthEndpointsTests
         HttpResponseMessage response = await client.GetAsync("/health");
         string body = await response.Content.ReadAsStringAsync();
 
-        // Assert
-        response.StatusCode.ShouldBe(HttpStatusCode.OK);
-        body.ShouldContain("Healthy");
-        body.ShouldContain("translationdb");
+        // Assert — Testing points SMTP at a dead port, so the full report is Unhealthy (503) by
+        // design; what this test pins is that the db + smtp checks stay reachable on demand here.
+        response.StatusCode.ShouldBe(HttpStatusCode.ServiceUnavailable);
+        body.ShouldContain("authdb");
+        body.ShouldContain("smtp");
     }
 
     [Fact]
@@ -52,6 +53,6 @@ public sealed class HealthEndpointsTests
         // Assert — ACA probes this path every few seconds; it must never touch Postgres (ADR-0025).
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
         body.ShouldContain("\"status\": \"Healthy\"");
-        body.ShouldNotContain("translationdb");
+        body.ShouldNotContain("authdb");
     }
 }

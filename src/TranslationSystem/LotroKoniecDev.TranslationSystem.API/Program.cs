@@ -148,10 +148,14 @@ try
 
     builder.Services
         .AddHealthChecks()
+        // The db check is deliberately NOT tagged "ready": ACA probes /health/ready every few
+        // seconds, and a DB ping there keeps the scale-to-zero Neon compute awake 24/7 (a suspended
+        // database is normal operation, not unreadiness — ADR-0025). The check stays reachable on
+        // demand via the full /health; deploys prove the DB through the smoke's real endpoints.
         .AddNpgSql(
             connectionStringFactory: sp => sp.GetRequiredService<IOptions<ConnectionStringSettings>>().Value.TranslationDatabase,
             name: "translationdb",
-            tags: ["db", "postgres", "ready"]);
+            tags: ["db", "postgres"]);
 
     const string rateLimitPolicy = "fixed-by-ip";
 

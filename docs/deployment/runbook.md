@@ -18,7 +18,7 @@
 - [Consistency rules that bite](#consistency-rules-that-bite) — issuer / redirect / authority / CORS
 - [Bringing the stack up](#bringing-the-stack-up)
 - [Continuous deployment (CI/CD)](#continuous-deployment-cicd) — build-once → auto staging → gated prod promotion, and the one-time operator setup
-- [Database migrations](#database-migrations)
+- [Database migrations](#database-migrations) — strategy, running them, and recovering from a bad migration (Neon PITR)
 - [Post-deploy smoke test](#post-deploy-smoke-test) — one command verifies a deployed environment end-to-end
 - [Observability](#observability) — where cloud traces + logs land, and the metrics caveat
 - [Monitoring & alerting](#monitoring--alerting) — the Azure Monitor alerts and what each one means
@@ -349,7 +349,7 @@ cd iac
 terraform init -reconfigure -backend-config=backend-config/prod.hcl
 terraform apply                                    # CI does this behind the production gate
 
-# staging (separate state blob, separate Key Vault + Neon branch — see prerequisites):
+# staging (separate state blob, separate Key Vault + Neon project — see prerequisites):
 terraform init -reconfigure -backend-config=backend-config/staging.hcl
 terraform apply -var-file=env/staging.tfvars
 ```
@@ -361,7 +361,7 @@ group and every resource name — so the only env-specific edits live in `env/st
 
 **Before the first staging apply** (out-of-band — they are Terraform *data sources*, ADR-0017 §7):
 seed a **separate** `lotrotms-kv-staging` Key Vault with freshly generated secrets (never the prod
-vault — audit §C5), a `lotrotms-aca-staging` identity, and a Neon `staging` branch (audit §H13); the
+vault — audit §C5), a `lotrotms-aca-staging` identity, and a separate staging Neon project (audit §H13); the
 secret-free required inputs (`subscription_id`, `smtp_sender_email`, `admin_username`, `admin_email`)
 arrive as `TF_VAR_*`. See [Staging bring-up](#staging-bring-up) for the full ordered first-time sequence.
 
@@ -567,10 +567,10 @@ only**, no app secrets (those live in Key Vault, step 4):
 | Variable | `staging` | `production` |
 |---|---|---|
 | `RESOURCE_GROUP` | `rg-lotrotms-staging-polc-001` | `rg-lotrotms-prod-polc-001` |
-| `AUTH_APP` | `lotrotms-auth-api-staging` | `lotrotms-auth-api` |
-| `TMS_APP` | `lotrotms-tms-api-staging` | `lotrotms-tms-api` |
-| `FRONTEND_APP` | `lotrotms-frontend-staging` | `lotrotms-frontend` |
-| `MIGRATOR_JOB` | `lotrotms-migrator-staging` | `lotrotms-migrator` |
+| `AUTH_APP` | `lotrotms-auth-api-staging` | `lotrotms-auth-api-prod` |
+| `TMS_APP` | `lotrotms-tms-api-staging` | `lotrotms-tms-api-prod` |
+| `FRONTEND_APP` | `lotrotms-frontend-staging` | `lotrotms-frontend-prod` |
+| `MIGRATOR_JOB` | `lotrotms-migrator-staging` | `lotrotms-migrator-prod` |
 | `AUTH_URL` | `https://auth.staging.lotro-translator.pl` | `https://auth.lotro-translator.pl` |
 | `TMS_URL` | `https://tms.staging.lotro-translator.pl` | `https://tms.lotro-translator.pl` |
 | `FRONTEND_URL` | `https://staging.lotro-translator.pl` | `https://lotro-translator.pl` |
@@ -607,10 +607,11 @@ the APIs serve traffic — never from inside the application at startup. The rul
   failed migration blocks API startup (compose: `depends_on: condition:
   service_completed_successfully`; ACA: a Job the revision waits on; ECS: an `essential` init task /
   a gated pipeline step).
-- **Forward-only.** There is no automated rollback step. EF down-migrations exist but are not run by
-  this job; a bad migration is rolled forward with a new migration (the repo has zero production
-  users — breaking changes are free; ADR-0002). Take a database snapshot before applying in a real
-  environment.
+- **Forward-only (ADR-0023).** There is no automated rollback step. EF down-migrations exist but are
+  not run by this job; a bad migration is rolled forward with a new migration (the repo has zero
+  production users — breaking changes are free; ADR-0002). The recovery valve for a logically-bad
+  migration is a Neon point-in-time restore — see
+  [Recover from a bad migration (Neon PITR)](#recover-from-a-bad-migration-neon-pitr).
 
 ### Inputs (environment variables)
 
@@ -678,6 +679,131 @@ psql "$ConnectionStrings__TranslationDatabase" -c 'SELECT "MigrationId" FROM tra
 # applied Auth migrations
 psql "$ConnectionStrings__AuthDatabase"        -c 'SELECT "MigrationId" FROM authsystem."__EFMigrationsHistory" ORDER BY "MigrationId";'
 ```
+
+### Recover from a bad migration (Neon PITR)
+
+Forward-only (ADR-0023) means a logically-bad or data-corrupting migration is **never** undone by a
+down-migration in a real environment: the deploy's migrator gate commits the schema *before* any
+traffic moves, and the pipeline's failure path rolls back **app code only**. The real safety valve
+is the database's own history: both real environments run on Neon (prod — ADR-0014; staging — a
+separate Neon project, ADR-0018), and Neon keeps continuous page history that supports an instant
+point-in-time restore of a branch to any moment inside the retention window.
+
+The topology below was read live via the Neon API on **2026-07-05** (`GET /projects`,
+`GET /projects/{id}/branches` — auth: `Authorization: Bearer $NEON_API_KEY`, key minted in the Neon
+console under *Account → API keys*; list calls need `?org_id=…`):
+
+| Environment | Neon project | Branch (single, default) | History retention |
+|---|---|---|---|
+| production | `lotro-translator-prod` (`empty-voice-65414159`) | `production` (`br-jolly-river-as0a1b99`) | **6 h** (21600 s) |
+| staging | `lotro-translator-staging` (`holy-mode-18368797`) | `production` (`br-sweet-band-as9xg1ut`) | **6 h** (21600 s) |
+
+- **6 hours is the Free-plan ceiling** — a longer window requires a paid Neon plan (Launch: up to
+  7 days; Scale: up to 30 days — at the time of writing). Re-verify the live value anytime:
+
+  ```bash
+  curl -s -H "Authorization: Bearer $NEON_API_KEY" \
+    https://console.neon.tech/api/v2/projects/<project_id> | jq .project.history_retention_seconds
+  ```
+
+- **A branch restore is branch-wide.** `lotro_translation` and `lotro_auth` live on the same branch,
+  so they always rewind **together** — which is exactly right for "undo the migrator run", since the
+  one migrator job migrates both contexts.
+- **Executor: the maintainer.** Single-operator project — needs a Neon API key (or the Neon console
+  UI) plus `az` CLI access to the environment's resource group for the traffic steps.
+
+#### Risk boundary — the accepted backup posture (MIGR-01, 2026-07)
+
+**Neon-PITR-only; no off-platform logical backup is scheduled.** Consequence, stated plainly:
+**a bad migration (or any data corruption) noticed more than 6 hours after the fact is
+unrecoverable.** The blast radius today is a DB whose content is re-creatable by hand (re-import
+`exported.txt`, re-seed the admin — zero production users, ADR-0002), which is why the window is
+accepted. Revisit triggers — whichever fires first:
+
+- **the first real translators start contributing** (their edits are *not* re-creatable) → add a
+  nightly `pg_dump` (encrypted — this repo is public, so world-readable GitHub artifacts are out —
+  to a private Azure Blob container), or raise the Neon plan;
+- **MIGR-04 (#339)** lands and auto-branches Neon right before every migrator run, which caps the
+  bad-migration case (though not general corruption) regardless of the 6 h window.
+
+#### Procedure
+
+Scenario: the migrator gate ran a migration that is *executionally* fine but *logically* wrong —
+dropped or corrupted data, or broke the serving revision past what N-1 compatibility (ADR-0023)
+guarantees. Time matters: **the restore point must still be inside the 6 h retention window.**
+
+**0. Find the restore point.** The deploy run's step summary prints a **"DB restore point
+(pre-migration)"** table — the UTC timestamp captured immediately *before* the migrator job started,
+plus the target migration per context. Fallback for older runs: the log timestamp of the
+"Run migrations (gate …)" step in the GitHub Actions run.
+
+**1. Park traffic on the last-good app revision first.** After the restore the schema is
+pre-migration again, and only the previous release's code is guaranteed against it (N-1 holds one
+step back — *new* code on the *old* schema is exactly the combination nothing proves). If the
+rollout already promoted the candidate — the bad migration usually surfaces *after* a green
+deploy — steer 100% of traffic back to the previously-serving revision, per app
+(`lotrotms-auth-api-prod`, `lotrotms-tms-api-prod`, `lotrotms-frontend-prod`; the staging twins
+end in `-staging` — Terraform names every app `lotrotms-…-<env_id>`):
+
+```bash
+az containerapp revision list -n <app> -g <resource-group> \
+  --query "[].{name:name,active:properties.active,traffic:properties.trafficWeight,created:properties.createdTime}" -o table
+# Promote deactivates the previous revision (min-replicas reclaim) — re-activate it BEFORE steering traffic:
+az containerapp revision activate -n <app> -g <resource-group> --revision <previous-revision>
+az containerapp ingress traffic set -n <app> -g <resource-group> --revision-weight <previous-revision>=100
+az containerapp revision deactivate -n <app> -g <resource-group> --revision <bad-revision>
+```
+
+(When the rollout fails by itself, the pipeline's "Roll back on failure" step already does this —
+then only steps 2–4 remain.)
+
+**2. Restore the Neon branch to just before the migrator ran.** Substitute the project + branch IDs
+from the table above and the step-0 timestamp:
+
+```bash
+curl -sf -X POST -H "Authorization: Bearer $NEON_API_KEY" -H "Content-Type: application/json" \
+  "https://console.neon.tech/api/v2/projects/<project_id>/branches/<branch_id>/restore" \
+  -d '{
+    "source_branch_id": "<branch_id>",
+    "source_timestamp": "<step-0 restore point, RFC 3339, e.g. 2026-07-05T14:03:00Z>",
+    "preserve_under_name": "pre-restore-<yyyymmdd-hhmm>"
+  }'
+```
+
+- `source_branch_id` is the **same branch** (a restore into its own history); in that mode
+  `preserve_under_name` is **mandatory** and is also the undo: Neon parks the current
+  (post-migration) head as a branch under that name, so the restore itself is reversible and any
+  post-migration writes stay salvageable from it.
+- Console-UI alternative: project → *Branches* → `production` → **Restore** → *From this branch's
+  history* → pick the timestamp (the preserve branch is created automatically).
+- The restore is near-instant (copy-on-write). Active connections drop once; the apps' Npgsql
+  pools reconnect on the next request.
+
+**3. Verify.** Run the [Verifying](#verifying) queries — the bad migration's row must be **gone**
+from that context's `__EFMigrationsHistory` (the restore rewinds schema, data and history together,
+so they can never drift apart) — then smoke the environment:
+
+```bash
+SMOKE_CLIENT_SECRET="<that environment's OpenIddict API client secret>" scripts/smoke.sh \
+  --auth-url <auth-url> --tms-url <tms-url> --frontend-url <frontend-url>
+```
+
+**4. Roll forward.** Fix the migration in a new commit and let the normal pipeline redeploy — the
+migrator gate re-applies from the rewound history. Once confident, delete the `pre-restore-*`
+safety branch — its id is in the restore call's response, or in `GET /projects/<project_id>/branches`
+(Free-plan projects cap the branch count — 10 at the time of writing):
+
+```bash
+curl -sf -X DELETE -H "Authorization: Bearer $NEON_API_KEY" \
+  "https://console.neon.tech/api/v2/projects/<project_id>/branches/<preserved_branch_id>"
+```
+
+#### Rehearsal (staging drill)
+
+Steps 2–4 can be rehearsed on staging at any time, without a deploy: restore the staging branch to
+five minutes ago (a data no-op while staging is idle), check the [Verifying](#verifying) output is
+unchanged, then delete the preserved branch. Do **not** run it while manual QA is in progress —
+the restore drops connections and rewinds anything written after the restore point.
 
 ## Post-deploy smoke test
 

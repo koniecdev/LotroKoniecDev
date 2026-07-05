@@ -93,6 +93,13 @@ docs, a docs-only push runs no CI and therefore triggers no CD (incidentally clo
 never rolled onto an un-migrated schema — no half-migrated serving. Forward-only (ADR-0008 §6;
 snapshot before applying in a real environment).
 
+**Amendment (2026-07-05, ADR-0023 / MIGR-02 #337):** the closing parenthetical above was
+aspirational — ADR-0008 §6 defines the pre-deploy bundle job, not a migration discipline, and
+nothing took a snapshot. The migration-safety contract (forward-only, N-1 backward-compatible,
+expand → backfill → contract) now lives in **ADR-0023**; the recovery net is Neon PITR via the
+runbook "Recover from a bad migration" procedure (MIGR-01 #336) and the best-effort pre-migration
+branch snapshot (MIGR-04 #339).
+
 ### 5. Post-deploy smoke is wired into the deploy
 
 `smoke.yml` becomes `workflow_call`-able; `deploy-prod` invokes it after a cold-start-tolerant
@@ -183,7 +190,8 @@ Terraform. `infra.yml` needs the TF inputs, so the `iac/terraform.tfvars` values
   candidate that passed smoke, with automatic rollback on failure.
 - **TF secrets now also live in GitHub** (besides the laptop). Accepted: scoped repo secrets,
   masked, never in git; the alternative (manual local apply forever) is worse.
-- **Forward-only migrations** (no automated rollback) — unchanged from ADR-0008 §6.
+- **Forward-only migrations** (no automated rollback) — unchanged from ADR-0008 §6; since
+  formalized as the N-1 / expand → contract contract in **ADR-0023**.
 - **Release availability now depends on Sigstore** (Fulcio/Rekor) + the GHCR attestation store (audit
   0001 H9): signing/attestation run in the build's critical path (not `continue-on-error`) and the
   deploy verify gate fails closed, so a Sigstore/GHCR outage blocks publishing or deploying until it

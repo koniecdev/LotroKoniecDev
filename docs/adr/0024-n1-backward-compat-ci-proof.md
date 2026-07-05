@@ -87,16 +87,19 @@ old-style), and after applying verifies every parsed id is actually present in t
 Each failure mode is a thrown exception — a seam misconfiguration reads as a red job, never as a
 quietly-vacuous green one.
 
-Bootstrap and regression are told apart by *which side* lacks the seam: the job fails if the
-marker is missing from the **HEAD** checkout (the seam is a contract; removing it silences the
-proof — that must be red), and reports-and-passes if it is missing from the **previous release**
-(genuine pre-seam history; a one-time window that closes at the first post-seam merge, loudly
-noted in the run summary).
+Bootstrap and regression are told apart by *which side* lacks the seam: the job fails (exit 2)
+if the **HEAD** checkout is missing either the marker in the seam files or the
+`ApplyIfConfiguredAsync` call in the factories (the seam is a contract; removing the file *or*
+orphaning it as dead code silences the proof — both must be red), and reports-and-passes if the
+marker is missing from the **previous release** (genuine pre-seam history; a one-time window
+that closes at the first post-seam merge, loudly noted in the run summary).
 
 ### 4. Scope the trigger to what can break the invariant: migration-touching PRs, plus manual dispatch
 
 A separate workflow (`n1-compat.yml`), triggered by `pull_request` path-filtered to
-`src/**/Migrations/**` plus the job's own definition files, and by `workflow_dispatch`. It is
+`src/**/Migrations/**` plus the proof's own load-bearing files (the workflow, the script, the
+seam twins and their factory call sites — so a seam regression reds on the PR that introduces
+it, not one migration-PR later), and by `workflow_dispatch`. It is
 deliberately **not** a required check (Context: the path-filter deadlock) and deliberately absent
 from the push-to-`main` backstop — the heaviest guard in the migration family runs only where a
 schema change can actually enter (main is PR-only), keeping its cost at zero for the overwhelming
@@ -142,7 +145,9 @@ itself, and the twins exist for developer-workflow gates (`check-ssr-purity`,
   the merge gate for migrations remains MIGR-03 + review, with this job as the loud alarm.
 - The seam code (~one small class) is twin-copied into both integration test projects — the
   repo's test projects stay self-contained (no shared test library exists to host it). Marked as
-  twins; drift is caught by the HEAD-side marker assert only if renamed, by review otherwise.
+  twins; removal of a seam file or a factory call site is red (the script asserts both on every
+  run, and the workflow triggers on changes to any of them); subtler drift between the twins is
+  caught by review.
 - New integration suites with their own DbContext must adopt the seam (a new script file name +
   the same apply call) to be covered — recorded here as the extension point.
 
@@ -194,7 +199,8 @@ solely to serve this job. Decision 1 names the single line to revisit if tags ev
   argument ref) → bootstrap detect → build + run the old integration suites with
   `N1_COMPAT_SCHEMA_SCRIPTS_DIR` set.
 - `.github/workflows/n1-compat.yml` — thin caller; `pull_request` paths
-  `src/**/Migrations/**`, `scripts/n1-compat.sh`, itself; `workflow_dispatch`.
+  `src/**/Migrations/**`, `scripts/n1-compat.sh`, itself, the seam twins and the two factory
+  files; `workflow_dispatch`.
 - `.config/dotnet-tools.json` — pinned `dotnet-ef`.
 - ADR-0023 — dated note on the closed trade-off; `CLAUDE.md` migrations rule + `tests/CLAUDE.md`
   gain one-line pointers.

@@ -38,9 +38,16 @@ set -euo pipefail
 
 CODE_REF="${1:-HEAD^1}"
 SEAM_MARKER='N1_COMPAT_SCHEMA_SCRIPTS_DIR'
+SEAM_CALL='N1CompatSchemaSeam.ApplyIfConfiguredAsync'
 SEAM_FILES=(
   "tests/LotroKoniecDev.TranslationSystem.API.Tests.Integration/N1CompatSchemaSeam.cs"
   "tests/LotroKoniecDev.AuthSystem.API.Tests.Integration/N1CompatSchemaSeam.cs"
+)
+# The factories must keep CALLING the seam — a removed call site (seam file intact) would make
+# every future run silently vacuous: the old suite would migrate its own old schema and pass.
+SEAM_CALL_SITES=(
+  "tests/LotroKoniecDev.TranslationSystem.API.Tests.Integration/TranslationSystemApiFactory.cs"
+  "tests/LotroKoniecDev.AuthSystem.API.Tests.Integration/AuthSystemApiFactory.cs"
 )
 # Never used to connect: script generation is offline, but the design-time factories require a
 # syntactically valid connection string (same mechanism as Dockerfile.migrator / apply-migrations.sh).
@@ -83,11 +90,20 @@ canonical_tmp_dir() {
   (cd "$dir" && pwd -P)
 }
 
-# --- 0. The seam must exist in the CURRENT tree — losing it silences the proof forever. -------
+# --- 0. The seam must exist AND be called in the CURRENT tree — losing either silences the ----
+# --- proof forever (the old suite would just migrate its own old schema and pass). ------------
 for seam_file in "${SEAM_FILES[@]}"; do
   if ! grep -q "$SEAM_MARKER" "$seam_file" 2>/dev/null; then
     echo "ERROR: '$seam_file' no longer carries the $SEAM_MARKER seam." >&2
     echo "The N-1 job cannot prove anything without it (ADR-0024 §3). Restore the seam or update this script." >&2
+    exit 2
+  fi
+done
+
+for factory_file in "${SEAM_CALL_SITES[@]}"; do
+  if ! grep -qF "$SEAM_CALL" "$factory_file" 2>/dev/null; then
+    echo "ERROR: '$factory_file' no longer calls $SEAM_CALL." >&2
+    echo "Without the call the seam is dead code and every N-1 run is vacuous green (ADR-0024 §3). Restore the call or update this script." >&2
     exit 2
   fi
 done
@@ -100,7 +116,9 @@ prev_sha="$(git rev-parse --verify --quiet "${CODE_REF}^{commit}")" || {
 # --- 1. Generate the HEAD schema as idempotent scripts, one per context. ----------------------
 schema_dir="$(canonical_tmp_dir)"
 echo "== Generating idempotent schema scripts from the current tree =="
-dotnet tool restore >/dev/null
+# `|| exit 2` on the generation phase keeps the exit-code contract honest: an infra failure here
+# is "cannot run", never the exit-1 "backward-incompatible migration" verdict.
+dotnet tool restore >/dev/null || exit 2
 
 # No --startup-project here: it equals --project, and dotnet-ef 10.0.9's parser mis-reads the
 # pair when both carry the identical value ("Unable to retrieve project metadata"); omitting it
@@ -108,13 +126,13 @@ dotnet tool restore >/dev/null
 dotnet ef migrations script --idempotent --output "$schema_dir/translation.sql" \
   --project src/TranslationSystem/LotroKoniecDev.TranslationSystem.Persistence \
   --context ApplicationWriteDbContext \
-  -- --connection "$DESIGN_TIME_CONNECTION"
+  -- --connection "$DESIGN_TIME_CONNECTION" || exit 2
 
 dotnet ef migrations script --idempotent --output "$schema_dir/auth.sql" \
   --project src/AuthSystem/LotroKoniecDev.AuthSystem.Persistence \
   --startup-project src/AuthSystem/LotroKoniecDev.AuthSystem.API \
   --context AuthDbContext \
-  -- --connection "$DESIGN_TIME_CONNECTION"
+  -- --connection "$DESIGN_TIME_CONNECTION" || exit 2
 
 for script in translation auth; do
   migration_count="$(grep -c "INSERT INTO.*\"__EFMigrationsHistory\"" "$schema_dir/$script.sql" || true)"
@@ -129,7 +147,7 @@ done
 worktree_parent="$(canonical_tmp_dir)"
 worktree_dir="$worktree_parent/n1-prev"
 echo "== Previous release: $prev_sha ($(git log -1 --format=%s "$prev_sha")) =="
-git worktree add --detach --quiet "$worktree_dir" "$prev_sha"
+git worktree add --detach --quiet "$worktree_dir" "$prev_sha" || exit 2
 
 if ! grep -rq "$SEAM_MARKER" "$worktree_dir/tests" --include="*.cs" 2>/dev/null; then
   say "N-1 compat: BOOTSTRAP — previous release $prev_sha predates the $SEAM_MARKER seam (ADR-0024); nothing it can prove yet. The window closes at the first post-seam merge."
@@ -156,7 +174,7 @@ if [ "$suites" -eq 0 ]; then
 fi
 
 if [ "$status" -ne 0 ]; then
-  say "N-1 compat: RED — the previous release ($prev_sha) fails on the current schema. A migration in this change is backward-incompatible (ADR-0023): ship it as expand → backfill → contract, or fix the breaking DDL."
+  say "N-1 compat: RED — the previous release ($prev_sha) fails on the current schema. A migration in this change is backward-incompatible (ADR-0023): ship it as expand → backfill → contract, or fix the breaking DDL. (If the old suite failed to build or start rather than failing tests, it's an infra problem — check the log above.)"
   exit 1
 fi
 

@@ -19,6 +19,12 @@ on:
       - 'src/**/Migrations/**'
       - 'scripts/n1-compat.sh'
       - '.github/workflows/n1-compat.yml'
+      # The proof's own load-bearing parts: a PR touching the seam or its factory call sites
+      # must run the job so a removed/renamed seam reds on THAT PR (the script's step 0
+      # asserts both), not one migration-PR later.
+      - 'tests/**/N1CompatSchemaSeam.cs'
+      - 'tests/LotroKoniecDev.TranslationSystem.API.Tests.Integration/TranslationSystemApiFactory.cs'
+      - 'tests/LotroKoniecDev.AuthSystem.API.Tests.Integration/AuthSystemApiFactory.cs'
   workflow_dispatch:
 
 concurrency:

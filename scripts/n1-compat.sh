@@ -120,6 +120,12 @@ echo "== Generating idempotent schema scripts from the current tree =="
 # is "cannot run", never the exit-1 "backward-incompatible migration" verdict.
 dotnet tool restore >/dev/null || exit 2
 
+# Explicit restore first: dotnet-ef's project-metadata query (msbuild /t:ResolvePackageAssets)
+# does NOT implicit-restore, so on a fresh checkout (CI, clean clone) it dies with NETSDK1004
+# "Assets file ... project.assets.json not found". Same two startup projects as Dockerfile.migrator.
+dotnet restore src/TranslationSystem/LotroKoniecDev.TranslationSystem.Persistence/LotroKoniecDev.TranslationSystem.Persistence.csproj || exit 2
+dotnet restore src/AuthSystem/LotroKoniecDev.AuthSystem.API/LotroKoniecDev.AuthSystem.API.csproj || exit 2
+
 # No --startup-project here: it equals --project, and dotnet-ef 10.0.9's parser mis-reads the
 # pair when both carry the identical value ("Unable to retrieve project metadata"); omitting it
 # makes the startup project default to --project, which is exactly what we want.

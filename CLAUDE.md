@@ -200,7 +200,7 @@ scripts/up-prod.sh | up-prod.ps1                       # recommended boot — bo
                                                        #   *.lotro.test vhosts to loopback (idempotent; admin only the
                                                        #   first time), then up. Args pass through (e.g. --build, -d).
 docker compose -f compose.prod.yaml --env-file .env.prod up --build      # raw command (after the bootstraps + a manual hosts entry)
-docker compose -f compose.prod.yaml --env-file .env.prod --profile local-smtp --profile local-otel up  # + mailpit + aspire (all-local; needed for green auth /health/ready)
+docker compose -f compose.prod.yaml --env-file .env.prod --profile local-smtp --profile local-otel up  # + mailpit + aspire (all-local; needed for a green deep auth /health)
 docker compose -f compose.prod.yaml --env-file .env.prod down            # add -v to drop prod volumes (fresh DB/keys)
 # up-prod.{sh,ps1} runs both one-time bootstraps for you: gen-openiddict-keys (3 secrets → .env.prod) +
 #   init-prod-https (local CA → .docker/prod-https/). It also auto-maps the hosts file (cross-platform:

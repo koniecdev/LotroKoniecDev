@@ -51,9 +51,12 @@ public class AuthSystemApiFactory : WebApplicationFactory<Program>, IAsyncLifeti
                 // Email identity is no longer baked into base appsettings.json (M6-06); supply it here
                 // so the unconditional EmailOptionsValidator passes at startup (the senders themselves
                 // are replaced with spies below, so these values are never used to send mail).
+                // The port is a deliberately dead one so SmtpHealthCheck is deterministically
+                // Unhealthy — the full /health test must not flip when a local mailpit (:1025) runs.
                 { "Email:SenderEmail", "noreply@lotro-translator.pl" },
                 { "Email:Sender", "lotro-translator.pl" },
                 { "Email:Host", "localhost" },
+                { "Email:Port", "59999" },
             });
         });
 

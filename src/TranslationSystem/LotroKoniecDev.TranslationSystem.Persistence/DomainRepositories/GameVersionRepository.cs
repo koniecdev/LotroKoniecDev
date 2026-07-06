@@ -3,6 +3,7 @@ using LotroKoniecDev.TranslationSystem.Domain.Aggregates.GameVersionAggregate.Re
 using LotroKoniecDev.TranslationSystem.Domain.Aggregates.GameVersionAggregate.ValueObjects;
 using LotroKoniecDev.TranslationSystem.Persistence.DbContexts.WriteDbContexts;
 using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.GameVersionAggregate;
+using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.GameVersionAggregate.Enums;
 using Microsoft.EntityFrameworkCore;
 
 namespace LotroKoniecDev.TranslationSystem.Persistence.DomainRepositories;
@@ -21,5 +22,17 @@ internal sealed class GameVersionRepository : GenericRepository<GameVersion, Gam
             .AnyAsync(gameVersion => gameVersion.LotroNotationVersion.Value == version.Value, cancellationToken);
 
         return exists;
+    }
+
+    public async Task<IReadOnlyList<GameVersion>> GetUnprocessedDetectedBeforeAsync(
+        DateTimeOffset detectedAt,
+        CancellationToken cancellationToken)
+    {
+        List<GameVersion> versions = await DbContext.GameVersions
+            .Where(gameVersion =>
+                gameVersion.Status == GameVersionStatus.Unprocessed && gameVersion.DetectedAt < detectedAt)
+            .ToListAsync(cancellationToken);
+
+        return versions;
     }
 }

@@ -97,7 +97,11 @@ internal sealed class ListTranslations : IEndpoint
                 ? filtered
                     .OrderBy(translation => translation.FileId)
                     .ThenBy(translation => translation.GossipId)
-                : filtered.ApplyMultipleSorting(query.Sort, GetSortProperty);
+                : filtered.ApplyMultipleSorting(
+                    query.Sort,
+                    GetSortProperty,
+                    translation => translation.FileId,
+                    translation => translation.GossipId);
 
             List<TranslationListItemResponse> items = await ordered
                 .ApplyPagination(query.Page, query.PageSize)

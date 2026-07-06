@@ -234,6 +234,48 @@ public sealed class ListTranslationsTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task List_WithTiedSortKey_WalksEveryPageWithoutDuplicatesOrGaps()
+    {
+        // Arrange — five rows sharing one Status (Untranslated) and one UpdatedAt (a baseline import
+        // stamps every row the same timestamp), seeded out of key order. Sorting only by the tied
+        // Status leaves the tie order to PostgreSQL unless a unique final key pins it, so paging can
+        // repeat a row on one page and drop it from another.
+        await SeedAsync(Row(5, "e"), Row(3, "c"), Row(1, "a"), Row(4, "d"), Row(2, "b"));
+
+        // Act — walk every page of the tied sort.
+        List<long> walked = [];
+        PaginationResponse<TranslationListItemResponse> pageResult;
+        int page = 0;
+        do
+        {
+            pageResult = await ListAsync($"?sort=status&page={++page}&pageSize=2");
+            walked.AddRange(pageResult.Items.Select(item => item.GossipId));
+        }
+        while (pageResult.HasNextPage);
+
+        // Assert — the union of pages is the full set with no repeats, in the unique tiebreaker order.
+        walked.ShouldBe([1L, 2L, 3L, 4L, 5L]);
+    }
+
+    [Fact]
+    public async Task List_WithTiedSortKey_EndsWithTheUniqueTiebreaker()
+    {
+        // Arrange — every row shares one UpdatedAt (a baseline import's single timestamp), seeded out
+        // of (FileId, GossipId) order. Sorting by the tied submittedAt alone leaves no defined order.
+        await SeedAsync(
+            Row(1, "x", fileId: 200),
+            Row(2, "y", fileId: 100),
+            Row(1, "z", fileId: 100));
+
+        // Act
+        PaginationResponse<TranslationListItemResponse> resultPage = await ListAsync("?sort=submittedAt");
+
+        // Assert — the tie resolves to the unique (FileId, GossipId) key, ascending.
+        resultPage.Items.Select(item => (item.FileId, item.GossipId))
+            .ShouldBe([(100, 1L), (100, 2L), (200, 1L)]);
+    }
+
+    [Fact]
     public async Task List_WithUnsupportedLanguage_ShouldReturn400()
     {
         // Act

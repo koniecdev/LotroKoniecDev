@@ -150,4 +150,27 @@ public sealed class AuthorizationDefaultsTests
         // Assert
         response.StatusCode.ShouldBe(HttpStatusCode.Forbidden);
     }
+
+    [Theory]
+    [InlineData("PUT", "/api/v1/translations")]
+    [InlineData("GET", "/api/v1/translations/11111111-1111-1111-1111-111111111111")]
+    [InlineData("GET", "/api/v1/translations/stats")]
+    [InlineData("GET", "/api/v1/game-versions/11111111-1111-1111-1111-111111111111")]
+    public async Task TranslatorGatedEndpoint_WithUnrecognizedRole_ShouldReturn403(string method, string route)
+    {
+        // Arrange — the same unrecognized-role token as above, sent at each translator-gated
+        // route so every endpoint's own RequireTranslatorRole binding is proven, not just the
+        // policy definition. Authorization short-circuits before the endpoint runs, so the write
+        // route needs no request body.
+        using HttpClient client = _factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization =
+            new AuthenticationHeaderValue("Bearer", TranslationSystemApiFactory.CreateAccessToken("Reviewer"));
+        using HttpRequestMessage request = new(new HttpMethod(method), route);
+
+        // Act
+        HttpResponseMessage response = await client.SendAsync(request);
+
+        // Assert
+        response.StatusCode.ShouldBe(HttpStatusCode.Forbidden);
+    }
 }

@@ -38,6 +38,10 @@ public sealed class ImportExportedTextsHandlerTests
         _translationRepository.GetByIdsAsync(Arg.Any<IReadOnlyList<TranslationId>>(), Arg.Any<CancellationToken>())
             .Returns([]);
 
+        // No stacked older versions by default; the supersede tests override this per case.
+        _gameVersionRepository.GetUnprocessedDetectedBeforeAsync(Arg.Any<DateTimeOffset>(), Arg.Any<CancellationToken>())
+            .Returns([]);
+
         // The transaction seam runs its operation for real against the stubbed boundaries, so the
         // success path still exercises the COPY + SaveChanges orchestration the handler wraps.
         _unitOfWork.ExecuteInTransactionAsync(Arg.Any<Func<CancellationToken, Task>>(), Arg.Any<CancellationToken>())
@@ -76,6 +80,9 @@ public sealed class ImportExportedTextsHandlerTests
 
     private static GameVersion UnprocessedVersion()
         => GameVersion.Create(LotroNotationVersion.Create("48.0").Value, new DateTimeOffset(2026, 6, 13, 0, 0, 0, TimeSpan.Zero)).Value;
+
+    private static GameVersion OlderUnprocessedVersion(string version, DateTimeOffset detectedAt)
+        => GameVersion.Create(LotroNotationVersion.Create(version).Value, detectedAt).Value;
 
     private static Translation ExistingRow(int gossipId, string text)
         => Translation.CreateUntranslated(
@@ -300,5 +307,45 @@ public sealed class ImportExportedTextsHandlerTests
         result.IsSuccess.ShouldBeTrue();
         result.Value.Added.ShouldBe(2);
         gameVersion.Status.ShouldBe(GameVersionStatus.Processed);
+    }
+
+    [Fact]
+    public async Task Handle_WhenOlderUnprocessedVersionsExist_ShouldMarkThemSupersededAndWarn()
+    {
+        // Arrange — the target is processed while two older versions are still unprocessed. The
+        // stub keys on the target's DetectedAt, so this also pins that the handler queries with the
+        // processed version's timestamp (a wrong argument falls through to the default empty stub).
+        GameVersion target = UnprocessedVersion();
+        GivenVersion(target);
+        GameVersion olderA = OlderUnprocessedVersion("47.2", new DateTimeOffset(2026, 6, 1, 0, 0, 0, TimeSpan.Zero));
+        GameVersion olderB = OlderUnprocessedVersion("47.3", new DateTimeOffset(2026, 6, 5, 0, 0, 0, TimeSpan.Zero));
+        _gameVersionRepository.GetUnprocessedDetectedBeforeAsync(target.DetectedAt, Arg.Any<CancellationToken>())
+            .Returns([olderA, olderB]);
+
+        // Act
+        Result<ImportSummary> result = await CreateHandler().Handle(
+            Command(VersionId, Export(Line(1, "A"))), CancellationToken.None);
+
+        // Assert
+        result.IsSuccess.ShouldBeTrue();
+        target.Status.ShouldBe(GameVersionStatus.Processed);
+        olderA.Status.ShouldBe(GameVersionStatus.Superseded);
+        olderB.Status.ShouldBe(GameVersionStatus.Superseded);
+        result.Value.Warnings.ShouldContain(warning => warning.Contains("2 older unprocessed version"));
+    }
+
+    [Fact]
+    public async Task Handle_WhenNoOlderUnprocessedVersions_ShouldNotEmitSupersedeWarning()
+    {
+        // Arrange — the default stub returns no older versions, so a plain baseline import warns nothing.
+        GivenVersion(UnprocessedVersion());
+
+        // Act
+        Result<ImportSummary> result = await CreateHandler().Handle(
+            Command(VersionId, Export(Line(1, "A"))), CancellationToken.None);
+
+        // Assert
+        result.IsSuccess.ShouldBeTrue();
+        result.Value.Warnings.ShouldNotContain(warning => warning.Contains("superseded"));
     }
 }

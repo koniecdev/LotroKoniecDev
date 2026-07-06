@@ -179,8 +179,9 @@ internal sealed class ImportExportedTexts : IEndpoint
             // execution strategy and is re-entrant: every pass re-seeks the buffered upload and
             // reloads its chunks, and no tracked state survives into a retry.
             passStopwatch.Restart();
+            int supersededVersions = 0;
             await _unitOfWork.ExecuteInTransactionAsync(
-                transactionToken => ApplyPlanAsync(plan, command, now, transactionToken),
+                async transactionToken => supersededVersions = await ApplyPlanAsync(plan, command, now, transactionToken),
                 cancellationToken);
             long applyPassMilliseconds = passStopwatch.ElapsedMilliseconds;
 
@@ -199,7 +200,7 @@ internal sealed class ImportExportedTexts : IEndpoint
             // (PERF-04): the O(N) rebuild runs debounced in the background on the host lifetime.
             _rebuildScheduler.Schedule(SupportedLanguages.Polish);
 
-            return Result.Success(BuildSummary(plan));
+            return Result.Success(BuildSummary(plan, supersededVersions));
         }
 
         private async Task<Result<Dictionary<FragmentKeyValue, SourceHash>>> BuildIncomingMapAsync(
@@ -264,7 +265,7 @@ internal sealed class ImportExportedTexts : IEndpoint
             return Result.Success(incomingByKey);
         }
 
-        private async Task ApplyPlanAsync(
+        private async Task<int> ApplyPlanAsync(
             TranslationDiffPlan plan,
             Command command,
             DateTimeOffset now,
@@ -304,12 +305,34 @@ internal sealed class ImportExportedTexts : IEndpoint
             // now is an invariant break, not a business outcome.
             Maybe<GameVersion> gameVersionMaybe =
                 await _gameVersionRepository.GetByIdAsync(command.GameVersionId, cancellationToken);
-            Result markProcessedResult = gameVersionMaybe.Value.MarkAsProcessed();
+            GameVersion processedVersion = gameVersionMaybe.Value;
+            Result markProcessedResult = processedVersion.MarkAsProcessed();
             if (markProcessedResult.IsFailure)
             {
                 throw new InvalidOperationException(
                     $"The game version refused MarkAsProcessed inside the apply transaction after passing the pre-check: {markProcessedResult.Error.Message}");
             }
+
+            // Stacked older versions never get their own upload (spec 0001): processing the newest
+            // supersedes every still-unprocessed version detected before it, committed with the same
+            // final save (all-or-nothing with the diff). This is what arms the stale-export guard — a
+            // later import against one of them then fails MarkAsProcessed with
+            // SupersededCannotBeProcessed instead of rewinding the catalog backwards. The rows are all
+            // Unprocessed (repository filter), so MarkSuperseded can only fail on an invariant break,
+            // handled like the flip above.
+            IReadOnlyList<GameVersion> olderUnprocessedVersions =
+                await _gameVersionRepository.GetUnprocessedDetectedBeforeAsync(processedVersion.DetectedAt, cancellationToken);
+            foreach (GameVersion olderVersion in olderUnprocessedVersions)
+            {
+                Result markSupersededResult = olderVersion.MarkSuperseded();
+                if (markSupersededResult.IsFailure)
+                {
+                    throw new InvalidOperationException(
+                        $"An unprocessed game version refused MarkSuperseded inside the apply transaction: {markSupersededResult.Error.Message}");
+                }
+            }
+
+            return olderUnprocessedVersions.Count;
         }
 
         private async IAsyncEnumerable<Translation> StreamAddedRowsAsync(
@@ -426,12 +449,17 @@ internal sealed class ImportExportedTexts : IEndpoint
             }
         }
 
-        private static ImportSummary BuildSummary(TranslationDiffPlan plan)
+        private static ImportSummary BuildSummary(TranslationDiffPlan plan, int supersededVersions)
         {
             List<string> warnings = [];
             if (plan.RestoredIds.Count > 0)
             {
                 warnings.Add($"{plan.RestoredIds.Count} previously-removed row(s) re-added with an unchanged source and restored.");
+            }
+
+            if (supersededVersions > 0)
+            {
+                warnings.Add($"{supersededVersions} older unprocessed version(s) marked superseded — they will never receive their own upload.");
             }
 
             return new ImportSummary(

@@ -154,6 +154,74 @@ public sealed class ImportExportedTextsTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Import_WhileOlderVersionUnprocessed_ShouldSupersedeItInTheSameTransaction()
+    {
+        // Arrange — the admin skips the older still-unprocessed version and uploads only the newer one
+        // (spec 0001, stacked versions). Detected-at is set explicitly so "older" is unambiguous.
+        GameVersionId olderVersion = await SeedVersionAsync("48.0", new DateTimeOffset(2026, 6, 1, 0, 0, 0, TimeSpan.Zero));
+        GameVersionId newerVersion = await SeedVersionAsync("48.1", new DateTimeOffset(2026, 6, 8, 0, 0, 0, TimeSpan.Zero));
+        using HttpClient client = AdminClient();
+
+        // Act
+        HttpResponseMessage response = await client.PostAsync(
+            ImportRoute(newerVersion), ExportContent(Line(1, "Alpha"), Line(2, "Beta")));
+        ImportSummary? summary = await response.Content.ReadFromJsonAsync<ImportSummary>();
+
+        // Assert — the newer version processed, the older one superseded in the same commit, and the
+        // admin is told what was skipped.
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        summary.ShouldNotBeNull();
+        (await GetVersionStatusAsync(newerVersion)).ShouldBe(GameVersionStatus.Processed);
+        (await GetVersionStatusAsync(olderVersion)).ShouldBe(GameVersionStatus.Superseded);
+        summary.Warnings.ShouldContain(warning => warning.Contains("1 older unprocessed version"));
+    }
+
+    [Fact]
+    public async Task Import_AgainstASupersededVersion_ShouldReturn422AndPersistNothing()
+    {
+        // Arrange — process the newer version, which supersedes the older one. Then attempt a fresh
+        // (stale) import against that now-superseded older version. The upload is identical to the
+        // catalog so the mass-removal guard cannot fire first — the supersede guard is what rejects it.
+        GameVersionId olderVersion = await SeedVersionAsync("48.0", new DateTimeOffset(2026, 6, 1, 0, 0, 0, TimeSpan.Zero));
+        GameVersionId newerVersion = await SeedVersionAsync("48.1", new DateTimeOffset(2026, 6, 8, 0, 0, 0, TimeSpan.Zero));
+        using HttpClient client = AdminClient();
+        await client.PostAsync(ImportRoute(newerVersion), ExportContent(Line(1, "Alpha"), Line(2, "Beta")));
+
+        // Act
+        HttpResponseMessage response = await client.PostAsync(
+            ImportRoute(olderVersion), ExportContent(Line(1, "Alpha"), Line(2, "Beta")));
+
+        // Assert — rejected with the supersede error and nothing changed: the older version stays
+        // superseded, the newer stays processed, and the catalog is untouched.
+        response.StatusCode.ShouldBe(HttpStatusCode.UnprocessableEntity);
+        (await ReadErrorCodeAsync(response)).ShouldBe("GameVersionEntity.SupersededCannotBeProcessed");
+        (await GetVersionStatusAsync(olderVersion)).ShouldBe(GameVersionStatus.Superseded);
+        (await GetVersionStatusAsync(newerVersion)).ShouldBe(GameVersionStatus.Processed);
+        (await CountTranslationsAsync()).ShouldBe(2);
+    }
+
+    [Fact]
+    public async Task Import_WhileANewerVersionIsUnprocessed_ShouldLeaveTheNewerVersionUnprocessed()
+    {
+        // Arrange — three stacked unprocessed versions; the admin uploads only the middle one. Only
+        // versions detected before it are superseded; a version detected after it stays pending.
+        GameVersionId olderVersion = await SeedVersionAsync("48.0", new DateTimeOffset(2026, 6, 1, 0, 0, 0, TimeSpan.Zero));
+        GameVersionId targetVersion = await SeedVersionAsync("48.1", new DateTimeOffset(2026, 6, 8, 0, 0, 0, TimeSpan.Zero));
+        GameVersionId newerVersion = await SeedVersionAsync("48.2", new DateTimeOffset(2026, 6, 15, 0, 0, 0, TimeSpan.Zero));
+        using HttpClient client = AdminClient();
+
+        // Act
+        HttpResponseMessage response = await client.PostAsync(
+            ImportRoute(targetVersion), ExportContent(Line(1, "Alpha")));
+
+        // Assert
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        (await GetVersionStatusAsync(targetVersion)).ShouldBe(GameVersionStatus.Processed);
+        (await GetVersionStatusAsync(olderVersion)).ShouldBe(GameVersionStatus.Superseded);
+        (await GetVersionStatusAsync(newerVersion)).ShouldBe(GameVersionStatus.Unprocessed);
+    }
+
+    [Fact]
     public async Task Import_TruncatedFile_ShouldReturn422()
     {
         // Arrange
@@ -602,11 +670,13 @@ public sealed class ImportExportedTextsTests : IAsyncLifetime
         return client;
     }
 
-    private async Task<GameVersionId> SeedVersionAsync(string version)
+    private Task<GameVersionId> SeedVersionAsync(string version) => SeedVersionAsync(version, DateTimeOffset.UtcNow);
+
+    private async Task<GameVersionId> SeedVersionAsync(string version, DateTimeOffset detectedAt)
     {
         using IServiceScope scope = _factory.Services.CreateScope();
         ApplicationWriteDbContext dbContext = scope.ServiceProvider.GetRequiredService<ApplicationWriteDbContext>();
-        GameVersion gameVersion = GameVersion.Create(LotroNotationVersion.Create(version).Value, DateTimeOffset.UtcNow).Value;
+        GameVersion gameVersion = GameVersion.Create(LotroNotationVersion.Create(version).Value, detectedAt).Value;
         dbContext.GameVersions.Add(gameVersion);
         await dbContext.SaveChangesAsync();
         return gameVersion.Id;

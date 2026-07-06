@@ -23,7 +23,9 @@ namespace LotroKoniecDev.TranslationSystem.API.Tests.Integration.Tests.Concurren
 /// identity: parallel upsert of the same fragment, and double-approve of the same row. Both exercise
 /// the lazy-provisioning first-write race (ADR-0004), and approve additionally floods the artifact
 /// rebuild scheduler (PERF-04: the burst coalesces into a debounced background rebuild) — none of
-/// which may surface a 500.
+/// which may surface a 500. With the xmin optimistic-concurrency token (AUDIT-EF-01) the racing
+/// writers no longer silently overwrite each other: at least one commits and the rest resolve as
+/// clean 409 conflicts. The token itself is proven deterministically in TranslationConcurrencyTokenTests.
 /// </summary>
 [Collection("TranslationApi")]
 public sealed class ConcurrencyEndpointsTests : IAsyncLifetime
@@ -58,7 +60,7 @@ public sealed class ConcurrencyEndpointsTests : IAsyncLifetime
     public Task DisposeAsync() => Task.CompletedTask;
 
     [Fact]
-    public async Task ConcurrentUpsert_SameFragmentByOneNewIdentity_ShouldAllSucceedAndProvisionExactlyOneTranslator()
+    public async Task ConcurrentUpsert_SameFragmentByOneNewIdentity_ShouldSerializeToWinnersAndProvisionExactlyOneTranslator()
     {
         // Arrange — one untranslated row and a single never-before-seen identity firing every write,
         // so the lazy-provisioning insert races with itself.
@@ -71,20 +73,25 @@ public sealed class ConcurrencyEndpointsTests : IAsyncLifetime
             .ToArray();
         HttpResponseMessage[] responses = await Task.WhenAll(tasks);
 
-        // Assert — no request faults; last-write-wins leaves a single coherent Draft row; the unique
-        // identity index plus the first-write-race re-read converge on exactly one Translator.
+        // Assert — the xmin token (AUDIT-EF-01) serializes the racing writers instead of letting them
+        // silently overwrite each other: at least one commits and every loser is a clean 409 (never a
+        // 500). The row settles Draft, and the unique identity index plus the first-write-race re-read
+        // still converge on exactly one Translator.
         foreach (HttpResponseMessage response in responses)
         {
             ((int)response.StatusCode).ShouldBeLessThan(500, $"Unexpected server error: {response.StatusCode}");
         }
 
-        responses.Count(response => response.StatusCode == HttpStatusCode.OK).ShouldBe(ConcurrentRequests);
+        responses.Count(response => response.StatusCode == HttpStatusCode.OK).ShouldBeGreaterThanOrEqualTo(1);
+        responses
+            .Where(response => response.StatusCode != HttpStatusCode.OK)
+            .ShouldAllBe(response => response.StatusCode == HttpStatusCode.Conflict);
         (await GetStatusAsync(gossipId: 1)).ShouldBe(TranslationStatus.Draft);
         (await CountTranslatorsAsync()).ShouldBe(1);
     }
 
     [Fact]
-    public async Task ConcurrentApprove_SameDraftRow_ShouldAllSucceedAndEndApproved()
+    public async Task ConcurrentApprove_SameDraftRow_ShouldSerializeToWinnersAndEndApproved()
     {
         // Arrange — a single draft row, every approve fired by one admin identity in parallel.
         Guid id = await SeedDraftRowAsync(gossipId: 2, polish: "Witaj");
@@ -96,16 +103,19 @@ public sealed class ConcurrencyEndpointsTests : IAsyncLifetime
             .ToArray();
         HttpResponseMessage[] responses = await Task.WhenAll(tasks);
 
-        // Assert — approve is idempotent (no "already approved" guard) and the artifact rebuilds are
-        // scheduled, debounced signals (PERF-04), so every concurrent approve publishes; the row
-        // settles Approved and the admin approver is provisioned once (the seeded submitter is the
-        // only other Translator).
+        // Assert — the xmin token (AUDIT-EF-01) serializes the racing approves rather than letting each
+        // blindly re-stamp the row: at least one publishes and every loser is a clean 409 (never a 500).
+        // The row settles Approved and the admin approver is provisioned once (the seeded submitter is
+        // the only other Translator).
         foreach (HttpResponseMessage response in responses)
         {
             ((int)response.StatusCode).ShouldBeLessThan(500, $"Unexpected server error: {response.StatusCode}");
         }
 
-        responses.Count(response => response.StatusCode == HttpStatusCode.NoContent).ShouldBe(ConcurrentRequests);
+        responses.Count(response => response.StatusCode == HttpStatusCode.NoContent).ShouldBeGreaterThanOrEqualTo(1);
+        responses
+            .Where(response => response.StatusCode != HttpStatusCode.NoContent)
+            .ShouldAllBe(response => response.StatusCode == HttpStatusCode.Conflict);
         (await GetStatusAsync(gossipId: 2)).ShouldBe(TranslationStatus.Approved);
         (await CountTranslatorsAsync()).ShouldBe(2);
     }

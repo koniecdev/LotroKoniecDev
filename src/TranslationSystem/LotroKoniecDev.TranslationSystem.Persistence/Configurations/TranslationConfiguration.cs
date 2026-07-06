@@ -9,9 +9,24 @@ namespace LotroKoniecDev.TranslationSystem.Persistence.Configurations;
 
 internal sealed class TranslationConfiguration : IEntityTypeConfiguration<Translation>
 {
+    private const string ConcurrencyTokenColumn = "xmin";
+    private const string ConcurrencyTokenType = "xid";
+
     public void Configure(EntityTypeBuilder<Translation> builder)
     {
         builder.ToTable("Translations");
+
+        // PostgreSQL's xmin system column is a free optimistic-concurrency token (AUDIT-EF-01),
+        // mapped as a shadow property exactly as TheKittySaver's AuditableEntityConfiguration does:
+        // a stale approve/upsert whose row a concurrent import already changed now fails the version
+        // check instead of silently reversing the invalidation, and DbUpdateConcurrencyExceptionHandler
+        // maps that to 409. xmin already exists on every row, so the migration adds no physical column.
+        // HasColumnType is required here — "xid" is a PostgreSQL system type with no convention mapping.
+        builder.Property<uint>(ConcurrencyTokenColumn)
+            .HasColumnName(ConcurrencyTokenColumn)
+            .HasColumnType(ConcurrencyTokenType)
+            .ValueGeneratedOnAddOrUpdate()
+            .IsConcurrencyToken();
 
         builder.Property(translation => translation.Id)
             .ValueGeneratedNever();

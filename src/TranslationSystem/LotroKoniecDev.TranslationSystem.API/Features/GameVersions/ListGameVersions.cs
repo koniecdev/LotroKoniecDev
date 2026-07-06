@@ -41,7 +41,10 @@ internal sealed class ListGameVersions : IEndpoint
         {
             IQueryable<GameVersionReadModel> ordered = string.IsNullOrWhiteSpace(query.Sort)
                 ? _readDbContext.GameVersions.OrderByDescending(gameVersion => gameVersion.DetectedAt)
-                : _readDbContext.GameVersions.ApplyMultipleSorting(query.Sort, GetSortProperty);
+                : _readDbContext.GameVersions.ApplyMultipleSorting(
+                    query.Sort,
+                    GetSortProperty,
+                    gameVersion => gameVersion.Id);
 
             List<GameVersionResponse> items = await ordered
                 .Select(gameVersion => new GameVersionResponse(

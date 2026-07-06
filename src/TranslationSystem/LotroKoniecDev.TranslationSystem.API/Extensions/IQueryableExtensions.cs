@@ -16,15 +16,21 @@ internal static class IQueryableExtensions
             return query;
         }
 
+        /// <summary>
+        /// Orders <paramref name="query"/> by the user's <c>?sort=</c> keys, then always appends the
+        /// unique <paramref name="tiebreaker"/>(s). The final unique key is mandatory: a paginated list
+        /// ordered only by non-unique keys has no defined tie order, so PostgreSQL may hand back a
+        /// different order per page — silently repeating a row on one page and dropping it from another.
+        /// When the sort parses to nothing (empty or malformed), the tiebreaker becomes the primary
+        /// order, so the result is always totally ordered. A unique key's direction is irrelevant, so
+        /// tiebreakers always ascend.
+        /// </summary>
         public IQueryable<TAggregate> ApplyMultipleSorting(
             string sort,
-            Func<string, Expression<Func<TAggregate, object>>> propertySelector)
+            Func<string, Expression<Func<TAggregate, object>>> propertySelector,
+            Expression<Func<TAggregate, object>> tiebreaker,
+            params Expression<Func<TAggregate, object>>[] additionalTiebreakers)
         {
-            if (string.IsNullOrEmpty(sort))
-            {
-                return query;
-            }
-
             List<SortItem> sortItems = SortParser.Parse(sort).ToList();
 
             for (int i = 0; i < sortItems.Count; i++)
@@ -32,17 +38,16 @@ internal static class IQueryableExtensions
                 SortItem sortItem = sortItems[i];
                 Expression<Func<TAggregate, object>> sortExpression = propertySelector(sortItem.PropertyName);
 
-                if (i == 0)
-                {
-                    query = query.ApplySorting(
-                        sortExpression,
-                        sortItem.Operand is SortOperand.Asc);
-                    continue;
-                }
+                query = i == 0
+                    ? query.ApplySorting(sortExpression, sortItem.Operand is SortOperand.Asc)
+                    : query.ApplyThenSorting(sortExpression, sortItem.Operand is SortOperand.Asc);
+            }
 
-                query = query.ApplyThenSorting(
-                    sortExpression,
-                    sortItem.Operand is SortOperand.Asc);
+            foreach (Expression<Func<TAggregate, object>> uniqueKey in additionalTiebreakers.Prepend(tiebreaker))
+            {
+                query = query is IOrderedQueryable<TAggregate> orderedQuery
+                    ? orderedQuery.ThenBy(uniqueKey)
+                    : query.OrderBy(uniqueKey);
             }
 
             return query;

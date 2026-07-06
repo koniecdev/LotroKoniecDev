@@ -536,9 +536,13 @@ runs, env knobs, triage, troubleshooting): **`docs/claude-loop.md`**.
   entry bulk approve → artifact contains the rows (E2E).
 - **Post-MVP backlog (deliberately cut from MVP):** glossary, `TranslationHistory`, bulk
   operations, keyboard shortcuts, AI review, Discord notifications, public API versioning,
-  crowdsourced game-version reports, per-language roles, Companion data auto-fetch from GitHub,
-  TMS→Companion `labels/pl` reverse export. (The former "LOTRO Companion XML context import +
-  quest browser" items were promoted to M7.)
+  crowdsourced game-version reports, per-language roles, Companion data auto-fetch from GitHub.
+  (The former "LOTRO Companion XML context import + quest browser" items were promoted to M7.)
+  **Epic TP-00 (#377)** parks the post-M7 productivity/ecosystem pack with its evidence:
+  TM-lite duplicate propagation (45% of corpus measured), Companion reference labels (named
+  `${PLAYER}` placeholders + RU/DE/FR reference panel), per-patch worklist, launch sentinel
+  (DAT-repair gap), lotro-data version watcher, glossary seed, quest arcs, `labels/pl` reverse
+  export — promotion order on the epic; TP-01/TP-10 are `/spec`-first.
 
 ## Proactive command use
 

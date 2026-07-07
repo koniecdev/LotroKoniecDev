@@ -12,6 +12,7 @@
 #   caffeinate -is scripts/claude/backlog-loop.sh   # overnight on macOS (blocks sleep)
 #
 # Env (all forwarded to work-ticket.sh): LOOP_EFFORT (default max), LOOP_MODEL (default opus),
+#   LOOP_CONFIG_DIR (default ~/.claude-account1 — which account runs the loop),
 #   LOOP_PERMISSION_MODE (default auto), LOOP_UNSAFE, LOOP_MAX_BUDGET_USD,
 #   LOOP_TICKET_TIMEOUT_MIN, LOOP_CHECKS_TIMEOUT_MIN, LOOP_SKIP_LABELS. Loop-only:
 #   LOOP_LIMIT_SLEEP_MIN (default 60), LOOP_LIMIT_RETRIES (default 4),

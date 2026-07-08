@@ -43,7 +43,7 @@ COPY --from=publish /app/publish .
 # (host-default location), so this directory is unused there.
 USER root
 RUN mkdir -p /keys && chown app:app /keys
-USER app
+USER $APP_UID
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
     CMD curl -f http://localhost:8080/health/live || exit 1

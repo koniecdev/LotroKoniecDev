@@ -24,7 +24,14 @@ RUN dotnet restore "src/Frontend/LotroKoniecDev.Frontend/LotroKoniecDev.Frontend
 ARG CACHEBUST=0
 COPY . .
 WORKDIR "/src/src/Frontend/LotroKoniecDev.Frontend"
-RUN dotnet build "./LotroKoniecDev.Frontend.csproj" -c $BUILD_CONFIGURATION -o /app/build --no-restore
+
+# No `--no-restore` here, unlike the API images (ADR-0028, amended). `blazor.web.js` lives in the
+# implicit `Microsoft.AspNetCore.App.Internal.Assets` package, which the SDK references only once it
+# sees `.razor` files — that is, after `COPY . .`, never during the `.csproj`-only restore above. With
+# `--no-restore` the build cannot fetch it and still exits 0, emitting a static-web-assets manifest
+# with no `_framework/*`; `MapStaticAssets()` then 404s every asset at runtime. `publish` below keeps
+# `--no-restore`: by then this build has restored the full graph.
+RUN dotnet build "./LotroKoniecDev.Frontend.csproj" -c $BUILD_CONFIGURATION -o /app/build
 
 FROM build AS publish
 ARG BUILD_CONFIGURATION=Release

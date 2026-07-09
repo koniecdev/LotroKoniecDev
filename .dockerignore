@@ -1,4 +1,11 @@
-﻿**/.dockerignore
+﻿# Generated / agent-local trees. No image build reads them, but the app Dockerfiles end their build
+# stage with `COPY . .`, so anything left here is both shipped to the daemon and hashed into that
+# layer's cache key — an agent worktree or a DAT export would silently invalidate every compile.
+.claude
+data
+logs
+
+**/.dockerignore
 **/.env
 **/appsettings.Local.json
 **/.git

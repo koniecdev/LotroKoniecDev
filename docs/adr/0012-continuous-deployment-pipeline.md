@@ -148,6 +148,11 @@ fixed here:
    > **Scoped by ADR-0020 (2026-07-01):** R8's `min_replicas = 1` stands for **prod**; staging runs
    > `min_replicas = 0` (`var.app_min_replicas`) — there the readiness warm-up above is the
    > load-bearing mechanism, not insurance.
+   >
+   > **Reversed by ADR-0027 (2026-07-09):** prod also runs `min_replicas = 0`. Its warm replica is now
+   > a **schedule** (`var.app_warm_window`, a KEDA cron rule) rather than a floor, so the readiness
+   > warm-up above is load-bearing in every environment. R8's serving argument was premised on real
+   > users; with none, an always-warm prod only burned the student credit.
 
 ### 6. Infra is also CI-managed, behind the same gate
 

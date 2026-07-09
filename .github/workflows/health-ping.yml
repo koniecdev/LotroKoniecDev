@@ -1,0 +1,93 @@
+name: Health ping (prod)
+
+# The daily availability check for production (ADR-0027). It replaces the three Application Insights
+# standard web tests, which billed per execution AND — probing every 15 minutes from three regions —
+# would have kept the scale-to-zero apps awake all night, cancelling the warm window's whole saving.
+#
+# This runs on free GitHub-hosted minutes once a day, a little before the warm window opens, and it
+# deliberately hits the apps while they are still asleep: the run therefore proves BOTH that the
+# platform is healthy and that a cold start from zero replicas actually serves traffic — the exact
+# path a visitor takes outside the warm window.
+#
+# Failure notification is GitHub's own: a failed scheduled run emails the user whose commit last
+# touched this file. No Azure action group, no cost.
+#
+# Cron is UTC. 03:00 UTC = 05:00 Europe/Warsaw in summer (CEST), 04:00 in winter (CET) — close enough
+# for a "tell me in the morning if it died overnight" signal, and it lands before the 07:00 warm window
+# so the probe, not a visitor, pays the first cold start of the day.
+
+on:
+  schedule:
+    - cron: "0 3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: health-ping
+  cancel-in-progress: false
+
+jobs:
+  ping:
+    name: probe the public origins
+    # Never run on a fork: the origins below belong to this deployment only.
+    if: github.repository == 'koniecdev/LotroKoniecDev'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Probe auth, tms and the frontend
+        run: |
+          set -uo pipefail
+
+          # The public origins of the prod environment (iac/locals.tf derives these from
+          # var.public_base_domain = "lotro-translator.pl").
+          #
+          # The APIs are probed on /health, not /health/ready: ADR-0025 deliberately leaves the
+          # Postgres check OUT of the readiness tag so the ACA probes cannot keep the scale-to-zero
+          # Neon compute awake, and names the full /health as the on-demand deep check. Once a day is
+          # exactly that occasion — this is the only probe that proves the database is reachable.
+          # auth's /health also covers SMTP, so a red run here can legitimately mean "Brevo is down",
+          # not "the site is down"; the response body below says which check failed.
+          #
+          # The Static-SSR frontend exposes /health/live but nothing deep, so '/' is its liveness.
+          probe() {
+            name="$1"; url="$2"; lo="$3"; hi="$4"
+            code=000
+            echo "::group::${name} → ${url}"
+            for attempt in $(seq 1 20); do
+              code=$(curl -sS -o /tmp/probe-body.txt -w '%{http_code}' --max-time 60 "$url" || echo 000)
+              echo "  attempt ${attempt}: HTTP ${code}"
+              if [ "$code" -ge "$lo" ] 2>/dev/null && [ "$code" -le "$hi" ] 2>/dev/null; then
+                echo "::endgroup::"
+                printf -- '- OK **%s** — HTTP %s (after %s attempt(s))\n' "$name" "$code" "$attempt" >> "$GITHUB_STEP_SUMMARY"
+                return 0
+              fi
+              # A measured cold start from zero replicas is ~45-60 s (auth's own is ~31 s and dominates
+              # the chain), so a single attempt must out-wait it: --max-time 60 above, 20 x 10 s here.
+              sleep 10
+            done
+            echo "  last response body:"
+            head -c 2000 /tmp/probe-body.txt || true
+            echo
+            echo "::endgroup::"
+            echo "::error::${name} is unhealthy (last HTTP ${code}): ${url}"
+            {
+              printf -- '- FAIL **%s** — HTTP %s at `%s`\n\n' "$name" "$code" "$url"
+              printf -- '```\n%s\n```\n' "$(head -c 1000 /tmp/probe-body.txt)"
+            } >> "$GITHUB_STEP_SUMMARY"
+            return 1
+          }
+
+          echo '## Prod health ping' >> "$GITHUB_STEP_SUMMARY"
+
+          failed=0
+          probe auth     "https://auth.lotro-translator.pl/health" 200 200 || failed=1
+          probe tms      "https://tms.lotro-translator.pl/health"  200 200 || failed=1
+          probe frontend "https://lotro-translator.pl/"            200 399 || failed=1
+
+          if [ "$failed" -ne 0 ]; then
+            echo "::error::Production health ping failed — see the job summary."
+            exit 1
+          fi
+          echo "All three origins are healthy."

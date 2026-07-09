@@ -1,5 +1,10 @@
 # ADR-0019: Symptom-based alerting — external synthetic SLO probe replaces the log-based auth check
 
+> **Superseded in part by ADR-0027 (2026-07-09):** the three standard web tests and their availability
+> alerts are removed. An external probe of the public origin wakes a scaled-to-zero app, so it cannot
+> coexist with the warm window. The symptom-based *principle* stands; the instrument is now a daily
+> GitHub Actions cron (`.github/workflows/health-ping.yml`).
+
 **Status:** Accepted
 **Date:** 2026-07-01
 **Decision-makers:** Solo maintainer

@@ -21,5 +21,10 @@ aca_environment_resource_group = "rg-lotrotms-prod-polc-001"
 # Scale-to-zero (ADR-0020 FinOps): staging serves no steady traffic — no synthetic probes (staging
 # creates no monitoring, ADR-0018/M6-22) and no users between rollouts/QA — so three always-on
 # 0.25 vCPU / 0.5 GiB replicas were pure idle spend (~$15-18/month). First request after idle pays a
-# cold start (~10-20 s incl. Neon wake); accepted for QA. Prod stays at 1 (ADR-0012 R8).
+# cold start (~10-20 s incl. Neon wake); accepted for QA. Prod is now 0 too (ADR-0027) — it buys its
+# warm replica from a schedule instead of a floor.
 app_min_replicas = 0
+
+# No warm window on staging (ADR-0027): nobody is looking at it outside a rollout or a QA session,
+# and both wake it through the http_scale_rule. Prod keeps the default schedule.
+app_warm_window = null

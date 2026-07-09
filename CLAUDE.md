@@ -357,14 +357,24 @@ file_id||gossip_id||translated_text||args_order||args_id||approved
   `@rendermode`, `StateHasChanged`, or `AddInteractive*`. `scripts/check-ssr-purity.sh` (with a
   `.ps1` twin for local Windows devs) gates this in **both** `pr-verify` and `ci`, before
   `setup-dotnet`. Genuinely need interactivity? That's an ADR-first architecture change.
-- **Docker restore layers are loud and gated (ADR-0028).** Every Dockerfile that lists `.csproj`
-  files must COPY the **full transitive closure** of the projects it restores. `dotnet restore`
-  treats a missing project file as `Skipping project … because it was not found` and still
-  **exits 0**, so a stale list silently caches an incomplete restore layer. Two defenses, both
-  required: image builds run `dotnet build`/`publish` with **`--no-restore`**, turning the gap into
-  a hard `NETSDK1004`; and `scripts/check-dockerfile-restore-graph.sh` (with a `.ps1` twin) gates
-  it in **both** `pr-verify` and `ci`, because those workflows build no images and `cd` runs only
-  after the merge. A new project must join every Dockerfile whose restore graph reaches it.
+- **Docker restore layers are loud and gated (ADR-0028, amended).** Every Dockerfile that lists
+  `.csproj` files must COPY the **full transitive closure** of the projects it restores.
+  `dotnet restore` treats a missing project file as `Skipping project … because it was not found`
+  and still **exits 0**, so a stale list silently caches an incomplete restore layer. Two defenses:
+  image builds run `dotnet build`/`publish` with **`--no-restore`**, turning the gap into a hard
+  `NETSDK1004`; and `scripts/check-dockerfile-restore-graph.sh` (with a `.ps1` twin) gates it in
+  **both** `pr-verify` and `ci`, because those workflows build no images and `cd` runs only after
+  the merge. A new project must join every Dockerfile whose restore graph reaches it.
+  **The Blazor exception (#414):** the frontend image's `dotnet build` runs **without**
+  `--no-restore`. `blazor.web.js` ships in `Microsoft.AspNetCore.App.Internal.Assets`, which the SDK
+  references only once it sees `.razor` files — never during the `.csproj`-only restore — so
+  `--no-restore` there silently emits a static-web-assets manifest with no `_framework/*` and every
+  asset 404s at runtime. Never add the flag back to that `dotnet build`; `publish` keeps it.
+- **`GET / -> 200` never proves the Blazor frontend works.** A `[StreamRendering]` page returns 200
+  with its spinner frame before it fetches anything. The signature of a healthy image is the
+  **fingerprint**: `@Assets[]` renders `_framework/blazor.web.<hash>.js` only when `MapStaticAssets`
+  resolved its manifest. `scripts/smoke.{sh,ps1}` leg 2 asserts exactly that, and CD smokes the
+  0%-traffic candidate before any traffic shift.
 - **Git is rebase-based, and branches are never deleted.** Integrate a feature branch off `main`
   with `git rebase main` — never `git merge main`; no merge commits in feature branches (remote
   `main` is squash-only, so history stays linear). After a PR's squash commit lands on `main`,

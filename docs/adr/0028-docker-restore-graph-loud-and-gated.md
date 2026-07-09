@@ -1,6 +1,6 @@
 # ADR-0028: Make an incomplete Docker restore graph loud, and gate it before merge
 
-**Status:** Accepted
+**Status:** Accepted (amended 2026-07-09 — see "Amendment: the Blazor exception")
 **Date:** 2026-07-09
 **Decision-makers:** Solo maintainer
 **Related:** ADR-0008 (cloud-agnostic deployment; the four images this governs), ADR-0012 (CD —
@@ -86,7 +86,69 @@ deliberate trade, made affordable by the two layers above.
   keeps this cost bounded: if the guard's static model ever misjudges, the real toolchain still
   fails the build.
 
+## Amendment: the Blazor exception (2026-07-09, same day — #414)
+
+Layer 1 is wrong for the frontend image, and shipped a broken staging deploy within hours of this
+ADR landing. `dotnet build --no-restore` is now removed from
+`src/Frontend/LotroKoniecDev.Frontend/Dockerfile`. `dotnet publish --no-restore` stays there, and
+both flags stay on the three non-Blazor images.
+
+`blazor.web.js` is not part of the SDK image. It ships in the NuGet package
+`Microsoft.AspNetCore.App.Internal.Assets`, which the Razor SDK references **only once it can see
+`.razor` files**. The `.csproj`-only restore layer runs before `COPY . .`, so at that moment the
+project does not look like a Blazor app and the package never enters the NuGet cache. With
+`--no-restore`, `dotnet build` cannot fetch it, and — this is the part that matters — **does not
+fail**. It emits a static-web-assets publish manifest with 10 endpoints instead of 30 and no
+`_framework/*`, and exits 0. At runtime `MapStaticAssets()` maps nothing: every static file 404s,
+and pages carrying `[StreamRendering]` return HTTP 200 with their spinner frame that the missing
+`blazor.web.js` never replaces.
+
+Isolated by building the same Dockerfile four ways:
+
+| `dotnet build` | `dotnet publish` | restore scope | endpoints | `blazor.web.js` |
+|---|---|---|---|---|
+| `--no-restore` | `--no-restore` | `.csproj` only | 10 | missing |
+| restore | restore | `.csproj` only | 30 | present |
+| restore | `--no-restore` | `.csproj` only | 30 | present |
+| `--no-restore` | `--no-restore` | full tree | 30 | present |
+
+The original Decision claimed layer 1 "needs no model of the toolchain and cannot drift from it."
+That is true of the `ProjectReference` graph and false of the package graph: the `.csproj`-first
+layer is not merely an *incomplete* restore, it is a restore of a *different project* — one with no
+Razor components. The `.dockerignore` argument above (`**/obj` is excluded, so `COPY . .` cannot
+clobber the restore layer) is sound and irrelevant; the missing artifact is a package, not `obj/`.
+
+**Consequences.** The frontend keeps its `.csproj` COPY list and its restore layer for cache
+warmth; `dotnet build` re-restores, which is fast because packages are cached and is the only step
+that can discover the Blazor ones. The frontend therefore loses layer 1's `NETSDK1004` backstop.
+Layer 2 — `scripts/check-dockerfile-restore-graph.sh` in `pr-verify` and `ci` — is untouched and
+remains the pre-merge gate this ADR was written for; it is unaffected by this class of bug either
+way, because the restore *graph* was always complete.
+
+Loudness is restored where it protects a user rather than a build: `scripts/smoke.{sh,ps1}` gain a
+leg asserting that the rendered home page carries a fingerprinted
+`_framework/blazor.web.<hash>.js` and that the URL returns 200. `@Assets[]` emits the fingerprint
+only when it resolved the manifest, so an unfingerprinted `src` is an exact, cheap signature of
+this failure. The candidate is smoked before any traffic shift (ADR-0012), so an image built this
+way can no longer reach a user. Verified red against the broken image and green against the fixed
+one, both run as containers.
+
+The wider lesson, now a house rule: `GET / -> 200` never proves a Blazor SSR frontend works. The
+old smoke leg passed on a completely broken deploy.
+
 ## Alternatives Considered
+
+**Restore after `COPY . .`, keeping `--no-restore` — rejected.** It also produces a correct image
+(row 4 above) and keeps layer 1 loud. It costs the frontend's restore layer: every C# edit
+re-downloads the package graph, which is exactly the regression `Dockerfile.migrator` was moved
+*away* from in this same ADR. Trading a warm cache for a backstop that layer 2 already covers is
+the wrong side of the trade.
+
+**Pin `Microsoft.AspNetCore.App.Internal.Assets` as an explicit `PackageReference` — rejected.**
+It would let the `.csproj`-only restore fetch it and keep `--no-restore` everywhere. The package is
+an SDK implementation detail with no compatibility contract, and its version must track the SDK's;
+pinning it under CPM invites a silent version skew on every SDK bump, in the exact place where a
+skew is invisible. Revisit only if the SDK ever documents it.
 
 **`COPY --parents src/**/*.csproj ./` — rejected.** One line per Dockerfile, no list, no guard.
 It requires a `# syntax=docker/dockerfile:1.7-labs` frontend directive, which pulls an unpinned,
@@ -124,3 +186,4 @@ today. This is the alternative to revisit first if the guard ever becomes a main
 - CLAUDE.md → house rule "Docker restore layers are gated"
 - ADR-0024 (twin-script precedent), ADR-0023 (rule + pre-merge gate precedent)
 - #136 (added `TranslationSystem.Projections`; the TMS API image never learned about it)
+- #414 (the Blazor exception; `scripts/smoke.sh` / `scripts/smoke.ps1` leg 2)

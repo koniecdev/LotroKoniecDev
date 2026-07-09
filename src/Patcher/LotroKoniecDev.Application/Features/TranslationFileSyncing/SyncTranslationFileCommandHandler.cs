@@ -46,8 +46,14 @@ internal sealed class SyncTranslationFileCommandHandler
             // The launch must never block on the network (spec 0001 Q5): a failed fetch falls back to
             // the local translation file. Whether one actually exists is the launch path's concern
             // (it reports a missing file), not the sync's — so the network stays strictly best-effort.
-            return Result.Success(new TranslationFileSyncResponse(
-                TranslationFileSyncOutcome.OfflineUsedCache, fetchResult.Error.Message));
+            // A rejected download (integrity check, AUDIT-SEC-01) gets its own outcome so the report
+            // says the file was refused, not that the server was unreachable.
+            TranslationFileSyncOutcome outcome =
+                fetchResult.Error.Code == DomainErrors.TranslationFileSync.IntegrityCheckFailedCode
+                    ? TranslationFileSyncOutcome.IntegrityCheckFailedUsedCache
+                    : TranslationFileSyncOutcome.OfflineUsedCache;
+
+            return Result.Success(new TranslationFileSyncResponse(outcome, fetchResult.Error.Message));
         }
 
         TranslationFileFetchResult fetch = fetchResult.Value;

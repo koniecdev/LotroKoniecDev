@@ -60,6 +60,8 @@ internal sealed class PrecomputedTranslationFileProjector : IPrecomputedTranslat
                 .ToListAsync(cancellationToken);
 
             string content = serializer.Serialize(rows);
+            // Hex SHA-256 of the UTF-8 body is a cross-context contract: it ships as the distribution
+            // ETag and the patcher rejects a download that does not hash-match it (AUDIT-SEC-01/#391).
             string contentHash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(content)));
             DateTimeOffset now = timeProvider.GetUtcNow();
 

@@ -227,6 +227,10 @@ For every row of the uploaded export, compared against the stored source state b
   + ETag, 304/unreachable → keep the cached file and proceed. Configurable API base URL; the
   manual `patch <name>` path stays untouched. Additive slice + its launch-flow wiring are the
   sole sanctioned freeze exception (ADR-0002 amendment).
+  *Amendment (AUDIT-SEC-01 / #391, 2026-07-09):* the base URL must be `https` (plain `http` only
+  for localhost), and a 200 body is saved only if it hash-matches the ETag — which **is** the hex
+  SHA-256 of the file's UTF-8 bytes (cross-context contract, guarded by tests on both sides). A
+  failed check is treated like unreachable: keep the cached file and proceed, launch never blocks.
 - **Files:** the `||` format is consumed/produced unchanged — this spec triggers **no** ADR-gated
   format change. Golden fixtures + round-trip tests on both sides stay the drift guard.
 - **Editor loop:** #98–#101 (list/get/upsert/approve) operate on the same Translation rows;

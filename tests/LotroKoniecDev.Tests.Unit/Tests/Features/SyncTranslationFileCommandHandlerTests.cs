@@ -45,6 +45,61 @@ public sealed class SyncTranslationFileCommandHandlerTests
         await _downloader.DidNotReceive().FetchAsync(Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<CancellationToken>());
     }
 
+    [Theory]
+    [InlineData("http://tms.example.com")]
+    [InlineData("http://192.168.1.10:5002")]
+    [InlineData("HTTP://tms.example.com")]
+    [InlineData("http://localhost.evil.com")]
+    public async Task Handle_PlainHttpNonLocalhostUrl_ShouldReturnValidationErrorAndNotFetch(string baseUrl)
+    {
+        // Act — plain http hands the file to an on-path attacker (AUDIT-SEC-01), so it is rejected.
+        Result<TranslationFileSyncResponse> result =
+            await _sut.Handle(new SyncTranslationFileCommand(baseUrl, FilePath), CancellationToken.None);
+
+        // Assert
+        result.IsFailure.ShouldBeTrue();
+        result.Error.Type.ShouldBe(ErrorType.Validation);
+        await _downloader.DidNotReceive().FetchAsync(Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<CancellationToken>());
+    }
+
+    [Theory]
+    [InlineData("https://tms.example.com")]
+    [InlineData("http://localhost:5002")]
+    [InlineData("http://127.0.0.1:5002")]
+    [InlineData("http://[::1]:5002")]
+    public async Task Handle_HttpsOrLoopbackHttpUrl_ShouldPassValidationAndFetch(string baseUrl)
+    {
+        // Arrange — loopback has no network hop, so the localhost dev exception keeps plain http.
+        _downloader.FetchAsync(baseUrl, Arg.Any<string?>(), Arg.Any<CancellationToken>())
+            .Returns(Result.Success(TranslationFileFetchResult.NotModified()));
+
+        // Act
+        Result<TranslationFileSyncResponse> result =
+            await _sut.Handle(new SyncTranslationFileCommand(baseUrl, FilePath), CancellationToken.None);
+
+        // Assert — reaching the UpToDate outcome proves validation passed and the fetch ran.
+        result.IsSuccess.ShouldBeTrue();
+        result.Value.Outcome.ShouldBe(TranslationFileSyncOutcome.UpToDate);
+    }
+
+    [Fact]
+    public async Task Handle_WhenDownloadFailsTheIntegrityCheck_ShouldRejectItAndContinueWithLocalFile()
+    {
+        // Arrange — a tampered/corrupted download is rejected by the downloader (AUDIT-SEC-01); the
+        // sync must fall back to the cached file and never save the rejected content.
+        _downloader.FetchAsync(BaseUrl, Arg.Any<string?>(), Arg.Any<CancellationToken>())
+            .Returns(Result.Failure<TranslationFileFetchResult>(
+                DomainErrors.TranslationFileSync.IntegrityCheckFailed("hash mismatch")));
+
+        // Act
+        Result<TranslationFileSyncResponse> result = await _sut.Handle(Command(), CancellationToken.None);
+
+        // Assert
+        result.IsSuccess.ShouldBeTrue();
+        result.Value.Outcome.ShouldBe(TranslationFileSyncOutcome.IntegrityCheckFailedUsedCache);
+        _cache.DidNotReceive().Save(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>());
+    }
+
     [Fact]
     public async Task Handle_WhenServerReturnsNewFile_ShouldSaveItAndReportUpdated()
     {

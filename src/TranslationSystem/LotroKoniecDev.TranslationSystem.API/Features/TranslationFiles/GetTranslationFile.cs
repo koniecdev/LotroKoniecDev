@@ -20,6 +20,9 @@ namespace LotroKoniecDev.TranslationSystem.API.Features.TranslationFiles;
 /// hash-only lookup (PERF-01/#286): the multi-MB <c>Content</c> column is TOASTed by PostgreSQL,
 /// so a revalidation that never reads it stays O(1) regardless of artifact size — content is
 /// fetched only when the client's validator no longer matches.
+/// The ETag doubles as the integrity hash (AUDIT-SEC-01/#391): the patcher recomputes the hex
+/// SHA-256 of the downloaded UTF-8 body and rejects the file on mismatch, so the hash algorithm
+/// and the strong-ETag format are a cross-context contract — change them only with the patcher.
 /// </summary>
 internal sealed class GetTranslationFile : IEndpoint
 {

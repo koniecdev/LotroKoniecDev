@@ -24,11 +24,11 @@ RUN dotnet restore "src/Frontend/LotroKoniecDev.Frontend/LotroKoniecDev.Frontend
 ARG CACHEBUST=0
 COPY . .
 WORKDIR "/src/src/Frontend/LotroKoniecDev.Frontend"
-RUN dotnet build "./LotroKoniecDev.Frontend.csproj" -c $BUILD_CONFIGURATION -o /app/build
+RUN dotnet build "./LotroKoniecDev.Frontend.csproj" -c $BUILD_CONFIGURATION -o /app/build --no-restore
 
 FROM build AS publish
 ARG BUILD_CONFIGURATION=Release
-RUN dotnet publish "./LotroKoniecDev.Frontend.csproj" -c $BUILD_CONFIGURATION -o /app/publish /p:UseAppHost=false
+RUN dotnet publish "./LotroKoniecDev.Frontend.csproj" -c $BUILD_CONFIGURATION -o /app/publish /p:UseAppHost=false --no-restore
 
 FROM base AS final
 WORKDIR /app

@@ -30,11 +30,11 @@ RUN dotnet restore "src/TranslationSystem/LotroKoniecDev.TranslationSystem.API/L
 ARG CACHEBUST=0
 COPY . .
 WORKDIR "/src/src/TranslationSystem/LotroKoniecDev.TranslationSystem.API"
-RUN dotnet build "./LotroKoniecDev.TranslationSystem.API.csproj" -c $BUILD_CONFIGURATION -o /app/build
+RUN dotnet build "./LotroKoniecDev.TranslationSystem.API.csproj" -c $BUILD_CONFIGURATION -o /app/build --no-restore
 
 FROM build AS publish
 ARG BUILD_CONFIGURATION=Release
-RUN dotnet publish "./LotroKoniecDev.TranslationSystem.API.csproj" -c $BUILD_CONFIGURATION -o /app/publish /p:UseAppHost=false
+RUN dotnet publish "./LotroKoniecDev.TranslationSystem.API.csproj" -c $BUILD_CONFIGURATION -o /app/publish /p:UseAppHost=false --no-restore
 
 FROM base AS final
 WORKDIR /app

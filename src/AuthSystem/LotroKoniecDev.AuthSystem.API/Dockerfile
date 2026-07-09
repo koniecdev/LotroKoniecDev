@@ -27,11 +27,11 @@ RUN dotnet restore "src/AuthSystem/LotroKoniecDev.AuthSystem.API/LotroKoniecDev.
 ARG CACHEBUST=0
 COPY . .
 WORKDIR "/src/src/AuthSystem/LotroKoniecDev.AuthSystem.API"
-RUN dotnet build "./LotroKoniecDev.AuthSystem.API.csproj" -c $BUILD_CONFIGURATION -o /app/build
+RUN dotnet build "./LotroKoniecDev.AuthSystem.API.csproj" -c $BUILD_CONFIGURATION -o /app/build --no-restore
 
 FROM build AS publish
 ARG BUILD_CONFIGURATION=Release
-RUN dotnet publish "./LotroKoniecDev.AuthSystem.API.csproj" -c $BUILD_CONFIGURATION -o /app/publish /p:UseAppHost=false
+RUN dotnet publish "./LotroKoniecDev.AuthSystem.API.csproj" -c $BUILD_CONFIGURATION -o /app/publish /p:UseAppHost=false --no-restore
 
 FROM base AS final
 WORKDIR /app

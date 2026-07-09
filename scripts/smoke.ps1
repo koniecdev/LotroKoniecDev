@@ -6,23 +6,29 @@
 .DESCRIPTION
     One command that gives a green/red signal that a deployed environment came up correctly, without
     manual clicking. Run it after every deploy (staging or production), or against the local
-    prod-parity / dev stack. It exercises the four legs that actually break on a deploy:
+    prod-parity / dev stack. It exercises the five legs that actually break on a deploy:
 
       1. Health      auth-api + tms-api /health/ready return 200; the frontend root responds (it has
                      no /health endpoint — it is a Static-SSR app, so "the page serves" is liveness).
-      2. Auth token  a client-credentials token round-trip against auth-api's /connect/token — the
+      2. FE assets   the frontend image actually shipped its static web assets. "The page serves" is
+                     NOT enough: a [StreamRendering] page returns 200 with its spinner frame before it
+                     fetches anything, so an image whose static-web-assets manifest lost _framework/*
+                     passes leg 1 while every asset 404s and the browser spins forever (#414). The
+                     fingerprint in blazor.web.<hash>.js is the tell — @Assets[] emits it only when it
+                     resolved the manifest, so an unfingerprinted src means the manifest is empty.
+      3. Auth token  a client-credentials token round-trip against auth-api's /connect/token — the
                      only non-interactive OIDC grant available in staging/production (the web client
                      needs a browser; the password-flow client is seeded only in Testing).
-      3. Token accept tms-api ACCEPTS that token: an anonymous call to a protected read is 401, and
+      4. Token accept tms-api ACCEPTS that token: an anonymous call to a protected read is 401, and
                      the same call WITH the bearer token is NOT 401 (it is 403 — the service account
                      has no role; every TMS endpoint is role-gated). 401-with-a-valid-token is the
                      classic "works locally, breaks on staging" issuer/audience/JWKS mismatch
                      (runbook -> "Consistency rules that bite"), so 403-vs-401 is the high-value check.
-      4. Distribution the public translation-file endpoint serves the artifact with an ETag and
+      5. Distribution the public translation-file endpoint serves the artifact with an ETag and
                      honours If-None-Match with a 304 (the CLI/player relies on this; spec 0001).
 
     Clear pass/fail per check; NON-ZERO exit on any failure (exit 1). Usage/config problems exit 2.
-    A not-yet-seeded environment (no artifact built) WARNS on leg 4 rather than failing. Keep in
+    A not-yet-seeded environment (no artifact built) WARNS on leg 5 rather than failing. Keep in
     sync with smoke.sh. Requires PowerShell 7+ (for -SkipHttpErrorCheck).
 
 .EXAMPLE
@@ -122,7 +128,7 @@ Write-Host "  frontend = $FrontendUrl"
 if ($Insecure) { Write-Host "  (TLS verification disabled: -Insecure)" }
 Write-Host ""
 
-Write-Host "[1/4] Health"
+Write-Host "[1/5] Health"
 $code = Get-Status "$AuthUrl/health/ready"
 if ($code -eq 200) { Add-Pass "auth /health/ready -> 200" } else { Add-Fail "auth /health/ready -> $code (expected 200)" }
 $code = Get-Status "$TmsUrl/health/ready"
@@ -132,7 +138,24 @@ $code = Get-Status "$FrontendUrl/"
 if ($code -ge 200 -and $code -lt 400) { Add-Pass "frontend / -> $code (serving)" } else { Add-Fail "frontend / -> $code (expected 2xx/3xx)" }
 Write-Host ""
 
-Write-Host "[2/4] OIDC token round-trip (client_credentials)"
+Write-Host "[2/5] Frontend static web assets (#414)"
+$homeHtml = ''
+try { $homeHtml = (Invoke-Smoke -Url "$FrontendUrl/").Content } catch { $homeHtml = '' }
+if ($null -eq $homeHtml) { $homeHtml = '' }
+# @Assets["_framework/blazor.web.js"] renders a fingerprinted src ONLY when MapStaticAssets resolved
+# the publish manifest. A bare `blazor.web.js` means the manifest shipped empty.
+$assetMatch = [regex]::Match($homeHtml, '_framework/blazor\.web\.[A-Za-z0-9]+\.js')
+if (-not $assetMatch.Success) {
+    Add-Fail "frontend / has no fingerprinted _framework/blazor.web.<hash>.js (image built without its static web assets)"
+} else {
+    $assetPath = $assetMatch.Value
+    Add-Pass "frontend / references $assetPath (manifest resolved)"
+    $code = Get-Status "$FrontendUrl/$assetPath"
+    if ($code -eq 200) { Add-Pass "frontend /$assetPath -> 200" } else { Add-Fail "frontend /$assetPath -> $code (expected 200)" }
+}
+Write-Host ""
+
+Write-Host "[3/5] OIDC token round-trip (client_credentials)"
 $token = $null
 $tokenCode = 0
 try {
@@ -152,7 +175,7 @@ if ($tokenCode -eq 200 -and $token) {
 }
 Write-Host ""
 
-Write-Host "[3/4] Token accepted by tms-api (authenticated read)"
+Write-Host "[4/5] Token accepted by tms-api (authenticated read)"
 $anonCode = Get-Status "$TmsUrl/api/v1/game-versions"
 if ($anonCode -eq 401) { Add-Pass "GET tms/api/v1/game-versions (no token) -> 401 (protected)" }
 else { Add-Fail "GET tms/api/v1/game-versions (no token) -> $anonCode (expected 401)" }
@@ -168,7 +191,7 @@ if ($token) {
 }
 Write-Host ""
 
-Write-Host "[4/4] Translation-file distribution (ETag / 304)"
+Write-Host "[5/5] Translation-file distribution (ETag / 304)"
 $fileCode = 0
 $etag = $null
 try {

@@ -3,23 +3,29 @@
 # environment came up correctly, without manual clicking — run it after every deploy (staging or
 # production), or against the local prod-parity / dev stack.
 #
-# It exercises the four legs that actually break on a deploy:
+# It exercises the five legs that actually break on a deploy:
 #   1. Health      — auth-api + tms-api /health/ready return 200; the frontend root responds (it has
 #                    no /health endpoint — it is a Static-SSR app, so "the page serves" is liveness).
-#   2. Auth token  — a client-credentials token round-trip against auth-api's /connect/token. This is
+#   2. FE assets   — the frontend image actually shipped its static web assets. "The page serves" is
+#                    NOT enough: a [StreamRendering] page returns 200 with its spinner frame before it
+#                    fetches anything, so an image whose static-web-assets manifest lost `_framework/*`
+#                    passes leg 1 while every asset 404s and the browser spins forever (#414). The
+#                    fingerprint in `blazor.web.<hash>.js` is the tell — `@Assets[]` emits it only when
+#                    it resolved the manifest, so an unfingerprinted src means the manifest is empty.
+#   3. Auth token  — a client-credentials token round-trip against auth-api's /connect/token. This is
 #                    the only non-interactive OIDC grant available in staging/production (the web
 #                    client needs a browser; the password-flow client is seeded only in Testing).
-#   3. Token accept — tms-api ACCEPTS that token: an anonymous call to a protected read is 401, and
+#   4. Token accept — tms-api ACCEPTS that token: an anonymous call to a protected read is 401, and
 #                    the same call WITH the bearer token is NOT 401 (it is 403 — the service account
 #                    has no role; every TMS endpoint is role-gated). 401-with-a-valid-token is the
 #                    classic "works locally, breaks on staging" issuer/audience/JWKS mismatch
 #                    (runbook → "Consistency rules that bite", rule #1), so distinguishing 403 from
 #                    401 is the high-value check, not reading any particular row.
-#   4. Distribution — the public translation-file endpoint serves the artifact with an ETag and
+#   5. Distribution — the public translation-file endpoint serves the artifact with an ETag and
 #                    honours If-None-Match with a 304 (the CLI/player relies on this; spec 0001).
 #
 # Clear pass/fail per check; NON-ZERO exit on any failure (exit 1). Usage / configuration problems
-# exit 2. A not-yet-seeded environment (no translation artifact built) WARNS on leg 4 rather than
+# exit 2. A not-yet-seeded environment (no translation artifact built) WARNS on leg 5 rather than
 # failing — a correctly deployed but empty environment is still "up". Keep in sync with smoke.ps1.
 
 set -euo pipefail
@@ -150,7 +156,7 @@ echo "  frontend = $FRONTEND_URL"
 [ "$INSECURE" = "1" ] && echo "  (TLS verification disabled: --insecure)"
 echo
 
-echo "[1/4] Health"
+echo "[1/5] Health"
 code="$(get_status "$AUTH_URL/health/ready")"
 [ "$code" = "200" ] && pass "auth /health/ready -> 200" || fail "auth /health/ready -> $code (expected 200)"
 code="$(get_status "$TMS_URL/health/ready")"
@@ -165,7 +171,21 @@ else
 fi
 echo
 
-echo "[2/4] OIDC token round-trip (client_credentials)"
+echo "[2/5] Frontend static web assets (#414)"
+home_html="$(curl -s --max-time "$TIMEOUT" $TLS_FLAG "$FRONTEND_URL/" 2>/dev/null || true)"
+# `@Assets["_framework/blazor.web.js"]` renders a fingerprinted src ONLY when MapStaticAssets
+# resolved the publish manifest. A bare `blazor.web.js` means the manifest shipped empty.
+asset_path="$(printf '%s' "$home_html" | grep -oE '_framework/blazor\.web\.[A-Za-z0-9]+\.js' | head -n 1 || true)"
+if [ -z "$asset_path" ]; then
+    fail "frontend / has no fingerprinted _framework/blazor.web.<hash>.js (image built without its static web assets)"
+else
+    pass "frontend / references $asset_path (manifest resolved)"
+    code="$(get_status "$FRONTEND_URL/$asset_path")"
+    [ "$code" = "200" ] && pass "frontend /$asset_path -> 200" || fail "frontend /$asset_path -> $code (expected 200)"
+fi
+echo
+
+echo "[3/5] OIDC token round-trip (client_credentials)"
 TOKEN=""
 token_out="$(curl -s --max-time "$TIMEOUT" $TLS_FLAG \
     -X POST "$AUTH_URL/connect/token" \
@@ -186,7 +206,7 @@ else
 fi
 echo
 
-echo "[3/4] Token accepted by tms-api (authenticated read)"
+echo "[4/5] Token accepted by tms-api (authenticated read)"
 # Reads are role-gated; a client-credentials token has no role, so the value here is proving the
 # token is VALIDATED (403), not that it is rejected (401). Pair with an anonymous call (must 401)
 # so the check also proves the endpoint is genuinely protected.
@@ -205,7 +225,7 @@ else
 fi
 echo
 
-echo "[4/4] Translation-file distribution (ETag / 304)"
+echo "[5/5] Translation-file distribution (ETag / 304)"
 : > "$HDR_FILE"
 file_code="$(curl -s -o /dev/null -D "$HDR_FILE" -w '%{http_code}' --max-time "$TIMEOUT" $TLS_FLAG "$TMS_URL/api/v1/translation-files/$LANG_CODE" 2>/dev/null)" || file_code="000"
 if [ "$file_code" = "200" ]; then

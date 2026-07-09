@@ -84,6 +84,9 @@ EOF
 }
 
 # Join Dockerfile continuation lines so a `RUN a && \` / `    b` pair reads as one command.
+# A no-op on today's Dockerfiles (every restore root shares a line with `dotnet restore`), kept
+# because without it a root wrapped onto a bare continuation line is silently dropped from the
+# closure and the guard passes vacuously — the very failure mode it exists to catch.
 join_continuations() {
     awk '{
         cur = $0

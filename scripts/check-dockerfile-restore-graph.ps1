@@ -86,7 +86,9 @@ function Get-RestoreClosure {
 }
 
 function Join-Continuation {
-    # A `RUN a && \` / `    b` pair must read as one command before we scan it.
+    # A `RUN a && \` / `    b` pair must read as one command before we scan it. A no-op on today's
+    # Dockerfiles, kept because a restore root wrapped onto a bare continuation line would otherwise
+    # drop out of the closure and the guard would pass vacuously.
     # AllowEmptyString: a Mandatory string[] otherwise rejects the blank lines every Dockerfile has.
     param(
         [Parameter(Mandatory)]

@@ -1190,7 +1190,7 @@ containerized-OIDC problem dissolves in real production too.
 
 | Workflow | When | What it guards |
 |---|---|---|
-| `pr-verify` | every PR | **the merge gate**: SSR-purity check → migration-safety check → Release build with **zero warnings** (warnings are errors repo-wide) → unit tests → integration tests (real PostgreSQL) |
+| `pr-verify` | every PR | **the merge gate**: SSR-purity check → Docker restore-graph check → migration-safety check → Release build with **zero warnings** (warnings are errors repo-wide) → unit tests → integration tests (real PostgreSQL) |
 | `ci` | push to main | the same checks post-merge |
 | `cd` | after CI succeeds | build 4 images once → security-scan (Trivy, fails on fixable HIGH/CRITICAL) → sign (cosign, keyless) + provenance + SBOM → auto-deploy **staging** → wait for human approval → deploy **production** |
 | `deploy` | reusable | the health-gated rollout described below |

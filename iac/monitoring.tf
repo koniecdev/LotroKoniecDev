@@ -4,15 +4,16 @@
 #
 # Most alerts deliberately stand on signals that ALREADY exist — ACA platform metrics
 # (Microsoft.App/containerApps) and the Log Analytics workspace the apps already stream console logs
-# to. The availability SLO + auth latency added in ADR-0019 additionally read Application Insights
-# (the synthetic web tests + the OTel-reconstructed request metrics, observability.tf). Everything is
-# parametrized by var.env_id so a future staging inherits alerting for free.
+# to. The auth latency alert additionally reads Application Insights (the OTel-reconstructed request
+# metrics, observability.tf). The external availability SLO that used to live here was retired by
+# ADR-0027 — see the comment above the auth_role_name local. Everything is parametrized by var.env_id
+# so a future staging inherits alerting for free.
 #
 # Delivery is EMAIL ONLY (owner decision): one action group with a single email receiver
 # (var.admin_email). No SMS, no webhook. Every alert below references that action group.
 #
-# Plan-on-PR caveat: Terraform `plan` does not validate metric names, log-table schemas, KQL, the
-# web-test geo codes, or the auth cloud_RoleName against the live Azure catalog — those are checked
+# Plan-on-PR caveat: Terraform `plan` does not validate metric names, log-table schemas, KQL, or the
+# auth cloud_RoleName against the live Azure catalog — those are checked
 # server-side at `apply` (or observed only once telemetry flows). The metric names used here
 # (RestartCount / Requests / UsageNanoCores / WorkingSetBytes / KeyVault Availability / requests-
 # duration) and the log tables (ContainerAppConsoleLogs_CL / Operation) are the documented
@@ -156,7 +157,7 @@ resource "azurerm_monitor_metric_alert" "http_server_errors" {
 }
 
 # Sustained CPU saturation (>80% of the 0.25-vCPU limit over 15 minutes). Informational: at
-# min=max=1 replica there is no horizontal headroom, so this is a capacity signal — investigate or
+# max_replicas = 1 there is no horizontal headroom, so this is a capacity signal — investigate or
 # raise the CPU request before it throttles.
 resource "azurerm_monitor_metric_alert" "cpu_saturation" {
   for_each            = local.create_env ? local.monitored_container_apps : {}
@@ -335,117 +336,24 @@ resource "azurerm_monitor_scheduled_query_rules_alert_v2" "law_daily_cap" {
 }
 
 # ---------------------------------------------------------------------------------------------------
-# External synthetic availability — the platform's real SLO (ADR-0019). This REPLACES the former
-# log-based auth_availability, which fired on EVERY deploy: that rule matched ContainerAppSystemLogs_CL
-# by app NAME (not revision), so a health-gated candidate revision (0% traffic, still starting → a few
-# transient /health/ready misses until its Npgsql pool connects) tripped a Sev0 while users were served
-# the whole time by the previous, healthy revision.
+# The synthetic availability probes of ADR-0019 (three azurerm_application_insights_standard_web_test +
+# their location-availability alerts) were REMOVED here by ADR-0027, and the removal is not a cost tweak
+# but a correctness one: an external probe hitting the public origin every 15 minutes from three regions
+# is itself a request, so it would wake a scaled-to-zero app around the clock and cancel the very saving
+# the warm window exists to make. A probe cannot both watch an app and let it sleep.
 #
-# A standard web test probes each app's PUBLIC origin from multiple regions. The public origin only
-# ever resolves to the revision serving 100% of traffic — a 0%-traffic candidate is reachable solely via
-# its private <app>---cd-candidate label FQDN — so a deploy CANNOT trip these. The false-positive class
-# is eliminated by construction, not by threshold tuning. This is exactly the synthetic probe audit 0001
-# §C3 named as the correct instrument, deferred only for want of an App Insights resource + a public-
-# origin variable; both now exist (ADR-0016 / ADR-0017).
+# The replacement lives outside Azure: .github/workflows/health-ping.yml probes the same three public
+# origins once a day, just before the warm window opens, on free GitHub-hosted minutes. It costs nothing,
+# wakes the apps once, and a failed run emails the owner. The trade is deliberate — detection latency
+# goes from ~20 minutes to ~24 hours, which is the right shape for a pre-release platform with zero users
+# whose real requirement is "tell me in the morning if it died overnight". Restore the web tests (git
+# history) the day real users arrive: at that point an always-warm prod is justified anyway, and the
+# probe/warm-window conflict dissolves.
 locals {
   # cloud_RoleName as the apps tag it via OTel (service.name = IHostEnvironment.ApplicationName = the
   # entry-assembly name; each Program.cs ConfigureResource). Scopes the auth latency alert below.
   # Confirm against live App Insights on first apply (managed OTel agent → AI role-name mapping).
   auth_role_name = "LotroKoniecDev.AuthSystem.API"
-
-  # Probe locations (Azure Monitor availability population tags): West Europe (Amsterdam), North Europe
-  # (Dublin), France Central (Paris) — EU-centric, closest to the Poland Central deployment.
-  availability_test_geo_locations = ["emea-nl-ams-azr", "emea-gb-db3-azr", "emea-fr-pra-edge"]
-
-  # One entry per user-facing app: its public origin, the status it must return, and the alert severity.
-  # auth is Sev0 (token-issuance SPOF = platform outage); tms + frontend are Sev1 (degraded, not a total
-  # outage). expected_status_code 0 = "any code < 400" — the Static-SSR frontend has no /health endpoint,
-  # so a 2xx/3xx on '/' is its liveness.
-  availability_web_tests = {
-    "auth"     = { url = "${local.auth_origin}/health/ready", expected_status_code = 200, severity = 0 }
-    "tms"      = { url = "${local.tms_origin}/health/ready", expected_status_code = 200, severity = 1 }
-    "frontend" = { url = "${local.apex_origin}/", expected_status_code = 0, severity = 1 }
-  }
-}
-
-# The web tests. Standard tests (classic ping tests are Microsoft-retired) run from the geo locations
-# above every 15 minutes, validating the status code + the SSL certificate's remaining lifetime. The
-# 7-day SSL threshold is a free, low-noise cert-expiry guard: the ACA managed cert auto-renews well
-# before 7 days, so a trip means auto-renew has failed — a real imminent outage, correctly escalated.
-#
-# Cadence is a cost knob (ADR-0020): standard tests bill $0.0006 PER EXECUTION, so 3 tests × 3
-# locations × every 300 s ≈ 77.8k executions ≈ $47/month — the single largest line item on the
-# student subscription, dwarfing the apps' compute. 900 s cuts that to ≈ $15.6/month (and cuts the
-# probes' own request-telemetry ingestion 3×) at the price of ~15-20 min worst-case detection —
-# acceptable pre-release with zero users. When real users arrive, drop auth (the Sev0 SPOF) back to
-# 300 (+$10/month) and leave tms/frontend at 900.
-resource "azurerm_application_insights_standard_web_test" "availability" {
-  for_each                = local.create_env ? local.availability_web_tests : {}
-  name                    = "lotrotms-webtest-${each.key}-${var.env_id}"
-  resource_group_name     = azurerm_resource_group.main.name
-  location                = azurerm_resource_group.main.location
-  application_insights_id = azurerm_application_insights.app_insights[0].id
-  geo_locations           = local.availability_test_geo_locations
-  frequency               = 900
-  timeout                 = 30
-  enabled                 = true
-  retry_enabled           = true
-  description             = "External synthetic availability probe of ${each.key} at its public origin (ADR-0019)."
-
-  request {
-    url                      = each.value.url
-    follow_redirects_enabled = true
-  }
-
-  validation_rules {
-    expected_status_code        = each.value.expected_status_code
-    ssl_check_enabled           = true
-    ssl_cert_remaining_lifetime = 7
-  }
-
-  tags = {
-    environment = var.env_id
-    src         = var.src_key
-    project     = "lotrotms"
-  }
-}
-
-# Availability alert per web test. Durability is GEOGRAPHIC, not temporal: the alert fires only when at
-# least 2 of the 3 locations fail in the window — rejecting a single-location network blip WITHOUT the
-# detection delay a "wait N consecutive windows" debounce would add to a real Sev0. A
-# location-availability criterion needs BOTH the web test id and the App Insights component id in scopes.
-# The window must be wide enough to hold results from ≥2 locations at the 900 s cadence (ADR-0020):
-# PT30M holds ~2 results per location; the former PT5M would often hold ≤1 result TOTAL, so the
-# 2-location quorum could never be reached and the alert would go silent — widening it is correctness,
-# not tuning.
-resource "azurerm_monitor_metric_alert" "availability" {
-  for_each            = local.create_env ? local.availability_web_tests : {}
-  name                = "lotrotms-slo-availability-${each.key}-${var.env_id}"
-  resource_group_name = azurerm_resource_group.main.name
-  scopes = [
-    azurerm_application_insights_standard_web_test.availability[each.key].id,
-    azurerm_application_insights.app_insights[0].id,
-  ]
-  description = "SLO: ${each.key} unreachable at its public origin from multiple regions. Fires by email."
-  severity    = each.value.severity
-  frequency   = "PT1M"
-  window_size = "PT30M"
-
-  application_insights_web_test_location_availability_criteria {
-    web_test_id           = azurerm_application_insights_standard_web_test.availability[each.key].id
-    component_id          = azurerm_application_insights.app_insights[0].id
-    failed_location_count = 2
-  }
-
-  action {
-    action_group_id = azurerm_monitor_action_group.alerts[0].id
-  }
-
-  tags = {
-    environment = var.env_id
-    src         = var.src_key
-    project     = "lotrotms"
-  }
 }
 
 # Key Vault availability (audit 0001 §M14). KV is the secret-resolution SPOF — every app + the migrator

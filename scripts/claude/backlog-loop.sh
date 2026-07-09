@@ -14,8 +14,10 @@
 # Env (all forwarded to work-ticket.sh): LOOP_EFFORT (default max), LOOP_MODEL (default opus),
 #   LOOP_CONFIG_DIR (default ~/.claude-account1 — which account runs the loop),
 #   LOOP_PERMISSION_MODE (default auto), LOOP_UNSAFE, LOOP_MAX_BUDGET_USD,
-#   LOOP_TICKET_TIMEOUT_MIN, LOOP_CHECKS_TIMEOUT_MIN, LOOP_SKIP_LABELS. Loop-only:
-#   LOOP_LIMIT_SLEEP_MIN (default 60), LOOP_LIMIT_RETRIES (default 4),
+#   LOOP_TICKET_TIMEOUT_MIN, LOOP_CHECKS_TIMEOUT_MIN, LOOP_SKIP_LABELS,
+#   LOOP_TRUSTED_ASSOCIATIONS / LOOP_TRUSTED_LOGINS / LOOP_TRUST_GATE (the provenance gate —
+#   ADR-0026; it also fires on explicitly-named tickets, which never touch the picker).
+#   Loop-only: LOOP_LIMIT_SLEEP_MIN (default 60), LOOP_LIMIT_RETRIES (default 4),
 #   LOOP_MAX_CONSECUTIVE_FAILURES (default 2).
 #
 # Raw per-ticket session logs land in logs/claude-loop/<timestamp>/ (debugging only);
@@ -62,7 +64,7 @@ gh label create loop-blocked --color D93F0B \
     --description "claude-loop: needs human input" --force >/dev/null 2>&1 || true
 
 attempted=""
-merged=0 blocked=0 failed=0 queued=0 count=0
+merged=0 blocked=0 failed=0 queued=0 untrusted=0 count=0
 consecutive_failures=0
 limit_naps=0
 
@@ -111,6 +113,12 @@ while :; do
         0) merged=$((merged + 1)); consecutive_failures=0 ;;
         7) queued=$((queued + 1)); consecutive_failures=0 ;;
         2) blocked=$((blocked + 1)); consecutive_failures=0 ;;
+        11)
+            # Refused before any session started: the ticket carries untrusted text. Not a
+            # systemic failure — skip it and keep draining (drain mode never selects one anyway).
+            untrusted=$((untrusted + 1)); consecutive_failures=0
+            echo "[conductor] #$next refused by the provenance gate — skipping"
+            ;;
         10)
             echo "[conductor] dirty working copy — stopping (nothing was touched)"
             exit 10
@@ -136,7 +144,7 @@ else
 fi
 
 echo
-echo "[conductor] done: $merged merged · $queued auto-merge queued · $blocked blocked · $failed failed · \$$total_cost"
+echo "[conductor] done: $merged merged · $queued auto-merge queued · $blocked blocked · $failed failed · $untrusted untrusted · \$$total_cost"
 [ "$blocked" -gt 0 ] && echo "[conductor] blocked tickets carry your questions as issue comments: gh issue list --label loop-blocked"
 echo "[conductor] raw session logs: $RUN_DIR"
 

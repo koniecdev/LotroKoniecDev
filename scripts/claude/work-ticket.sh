@@ -21,15 +21,21 @@
 #   LOOP_MAX_BUDGET_USD     optional per-ticket API budget cap
 #   LOOP_TICKET_TIMEOUT_MIN wall-clock kill switch per ticket (default: 90)
 #   LOOP_CHECKS_TIMEOUT_MIN how long to wait for pr-verify before queueing auto-merge (default: 30)
+#   LOOP_TRUSTED_ASSOCIATIONS / LOOP_TRUSTED_LOGINS / LOOP_TRUST_GATE — see issue-trust.sh
 #
-# Exit codes: 0 merged · 2 blocked · 3 error · 4 timeout · 5 checks failed / merge failed
-#             6 usage limit hit · 7 auto-merge queued (checks still running) · 10 dirty working copy
+# Exit codes: 0 merged · 2 blocked · 3 error (incl. a provenance gate that could not reach the API)
+#             4 timeout · 5 checks failed / merge failed · 6 usage limit hit
+#             7 auto-merge queued (checks still running) · 10 dirty working copy
+#             11 issue refused by the provenance gate (untrusted author or commenter)
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$REPO_ROOT"
 
 ISSUE="${1:?usage: work-ticket.sh <issue-number> [run-dir]}"
+case "$ISSUE" in
+    ''|*[!0-9]*) echo "work-ticket: not an issue number: '$ISSUE'" >&2; exit 3 ;;
+esac
 RUN_DIR="${2:-$REPO_ROOT/logs/claude-loop/adhoc-$(date +%Y%m%d-%H%M%S)}"
 mkdir -p "$RUN_DIR"
 
@@ -51,6 +57,23 @@ done
 log() { echo "[loop] #$ISSUE $(date +%H:%M:%S) $*"; }
 
 meta() { echo "$1=$2" >> "$META"; }
+
+# ── Provenance gate: only maintainer-written issue text may become the worker's task ───────────
+# This is the enforcement point, not next-ticket.sh: the picker merely *selects*, whereas the
+# untrusted text reaches the LLM here. Explicit ticket numbers (backlog-loop.sh 123) and direct
+# invocations skip the picker entirely, so the gate has to live in front of the session (ADR-0026).
+trust_rc=0
+"$REPO_ROOT/scripts/claude/issue-trust.sh" "$ISSUE" || trust_rc=$?
+if [ "$trust_rc" -eq 1 ]; then
+    log "REFUSED by the provenance gate — untrusted writer (see above); no session spawned"
+    exit 11
+fi
+if [ "$trust_rc" -ne 0 ]; then
+    # An unreadable API is systemic, not a property of this ticket: report it as a session error
+    # so the conductor's circuit breaker stops the run instead of "skipping" the whole backlog.
+    log "provenance gate could not verify #$ISSUE (rc=$trust_rc) — treating as an error"
+    exit 3
+fi
 
 # Stash (never delete) anything a failed/blocked session left behind, and return to main.
 salvage() {

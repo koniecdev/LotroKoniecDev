@@ -73,12 +73,38 @@ variable "aca_environment_resource_group" {
 
 variable "app_min_replicas" {
   type        = number
-  description = "min_replicas for the three container apps. Prod keeps the default 1 (ADR-0012 R8 — a warm replica per revision, no cold starts). Staging sets 0 (ADR-0020 FinOps): scale-to-zero between rollouts/QA — the health-gated rollout stays valid because deploy.yml's readiness polls wake the candidates and warm the public auth origin before smoke."
-  default     = 1
+  description = "min_replicas for the three container apps. Every environment now defaults to 0 (ADR-0027): prod's warm replica is no longer a floor but a SCHEDULE (var.app_warm_window), and staging has run at 0 since ADR-0020. The health-gated rollout stays valid at 0 because deploy.yml's readiness polls wake the candidates and warm the public auth origin before smoke."
+  default     = 0
 
   validation {
     condition     = var.app_min_replicas >= 0 && var.app_min_replicas <= 1
     error_message = "app_min_replicas must be 0 or 1 (max_replicas is fixed at 1)."
+  }
+}
+
+variable "app_warm_window" {
+  type = object({
+    timezone = string
+    start    = string
+    end      = string
+  })
+  nullable    = true
+  description = "Daily window during which a KEDA cron scale rule holds one warm replica per app (ADR-0027). Outside it the apps fall back to app_min_replicas and an explicit http_scale_rule wakes them on the first request. `timezone` is an IANA name (KEDA handles DST); `start`/`end` are 5-field cron expressions. Prod keeps the default — the hours a recruiter opens the CV link. Set to null (staging) for pure scale-to-zero with no schedule."
+
+  default = {
+    timezone = "Europe/Warsaw"
+    start    = "0 7 * * *"
+    end      = "0 22 * * *"
+  }
+
+  validation {
+    condition     = var.app_warm_window == null || try(trimspace(var.app_warm_window.start) != trimspace(var.app_warm_window.end), false)
+    error_message = "app_warm_window.start and app_warm_window.end must differ — KEDA's cron scaler rejects an identical start/end."
+  }
+
+  validation {
+    condition     = var.app_warm_window == null || try(length(split(" ", trimspace(var.app_warm_window.start))) == 5 && length(split(" ", trimspace(var.app_warm_window.end))) == 5, false)
+    error_message = "app_warm_window.start and app_warm_window.end must be 5-field cron expressions (minute hour day-of-month month day-of-week)."
   }
 }
 

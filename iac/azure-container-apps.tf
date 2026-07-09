@@ -63,14 +63,44 @@ resource "azurerm_container_app" "auth_api" {
   }
 
   template {
-    # Prod keeps one warm replica per revision (audit 0001 M3 / ADR-0012 R8): no cold starts, and the
-    # health-gated rollout's 0%-traffic candidate stays smokeable while the previous revision stays
-    # warm for cross-revision token validation. Staging runs 0 (ADR-0020 FinOps): scale-to-zero
-    # between rollouts/QA — deploy.yml's readiness polls wake the candidates and warm the public auth
-    # origin before smoke, so the rollout holds at min 0. The CD rollout still deactivates superseded
-    # revisions so a warm minimum never accumulates idle replicas.
+    # ADR-0027 replaces the always-warm floor of ADR-0012 R8 with a SCHEDULE. min_replicas is 0 in
+    # every environment; prod's warm replica now comes from the cron rule below, so the apps hold a
+    # replica only during the hours a recruiter opens the CV link and cost nothing overnight. The
+    # health-gated rollout stays valid at 0: deploy.yml's readiness polls (60×10s) wake the
+    # 0%-traffic candidate and warm the public auth origin before smoke, and the rollout still
+    # deactivates superseded revisions so no idle replica accumulates.
     min_replicas = var.app_min_replicas
     max_replicas = 1
+
+    # The platform's implicit HTTP scale rule exists ONLY while no rule is declared ("If you don't
+    # create a scale rule, the default scale rule is applied" — Azure "Scaling in Container Apps").
+    # Declaring the cron rule below therefore REPLACES it, and an app sitting at zero replicas would
+    # be left with no trigger to start on: a request outside the warm window would reach nothing.
+    # This rule is the 0→1 activation that keeps off-hours a cold start, never an outage.
+    http_scale_rule {
+      name                = "http"
+      concurrent_requests = "10"
+    }
+
+    # Warm window (ADR-0027). KEDA evaluates every scaler and takes max(metrics), so inside the
+    # window this rule acts as a dynamic minimum of one replica; outside it the app returns to
+    # min_replicas after the platform's 300 s cool-down. Staging passes null and runs pure
+    # scale-to-zero (ADR-0020), which is why the rule is a dynamic block rather than a literal.
+    dynamic "custom_scale_rule" {
+      for_each = var.app_warm_window == null ? [] : [var.app_warm_window]
+
+      content {
+        name             = "warm-window"
+        custom_rule_type = "cron"
+
+        metadata = {
+          timezone        = custom_scale_rule.value.timezone
+          start           = custom_scale_rule.value.start
+          end             = custom_scale_rule.value.end
+          desiredReplicas = "1"
+        }
+      }
+    }
 
     container {
       name   = "auth-api"
@@ -261,14 +291,44 @@ resource "azurerm_container_app" "tms_api" {
   }
 
   template {
-    # Prod keeps one warm replica per revision (audit 0001 M3 / ADR-0012 R8): no cold starts, and the
-    # health-gated rollout's 0%-traffic candidate stays smokeable while the previous revision stays
-    # warm for cross-revision token validation. Staging runs 0 (ADR-0020 FinOps): scale-to-zero
-    # between rollouts/QA — deploy.yml's readiness polls wake the candidates and warm the public auth
-    # origin before smoke, so the rollout holds at min 0. The CD rollout still deactivates superseded
-    # revisions so a warm minimum never accumulates idle replicas.
+    # ADR-0027 replaces the always-warm floor of ADR-0012 R8 with a SCHEDULE. min_replicas is 0 in
+    # every environment; prod's warm replica now comes from the cron rule below, so the apps hold a
+    # replica only during the hours a recruiter opens the CV link and cost nothing overnight. The
+    # health-gated rollout stays valid at 0: deploy.yml's readiness polls (60×10s) wake the
+    # 0%-traffic candidate and warm the public auth origin before smoke, and the rollout still
+    # deactivates superseded revisions so no idle replica accumulates.
     min_replicas = var.app_min_replicas
     max_replicas = 1
+
+    # The platform's implicit HTTP scale rule exists ONLY while no rule is declared ("If you don't
+    # create a scale rule, the default scale rule is applied" — Azure "Scaling in Container Apps").
+    # Declaring the cron rule below therefore REPLACES it, and an app sitting at zero replicas would
+    # be left with no trigger to start on: a request outside the warm window would reach nothing.
+    # This rule is the 0→1 activation that keeps off-hours a cold start, never an outage.
+    http_scale_rule {
+      name                = "http"
+      concurrent_requests = "10"
+    }
+
+    # Warm window (ADR-0027). KEDA evaluates every scaler and takes max(metrics), so inside the
+    # window this rule acts as a dynamic minimum of one replica; outside it the app returns to
+    # min_replicas after the platform's 300 s cool-down. Staging passes null and runs pure
+    # scale-to-zero (ADR-0020), which is why the rule is a dynamic block rather than a literal.
+    dynamic "custom_scale_rule" {
+      for_each = var.app_warm_window == null ? [] : [var.app_warm_window]
+
+      content {
+        name             = "warm-window"
+        custom_rule_type = "cron"
+
+        metadata = {
+          timezone        = custom_scale_rule.value.timezone
+          start           = custom_scale_rule.value.start
+          end             = custom_scale_rule.value.end
+          desiredReplicas = "1"
+        }
+      }
+    }
 
     container {
       name  = "tms-api"
@@ -389,14 +449,44 @@ resource "azurerm_container_app" "frontend" {
   }
 
   template {
-    # Prod keeps one warm replica per revision (audit 0001 M3 / ADR-0012 R8): no cold starts, and the
-    # health-gated rollout's 0%-traffic candidate stays smokeable while the previous revision stays
-    # warm for cross-revision token validation. Staging runs 0 (ADR-0020 FinOps): scale-to-zero
-    # between rollouts/QA — deploy.yml's readiness polls wake the candidates and warm the public auth
-    # origin before smoke, so the rollout holds at min 0. The CD rollout still deactivates superseded
-    # revisions so a warm minimum never accumulates idle replicas.
+    # ADR-0027 replaces the always-warm floor of ADR-0012 R8 with a SCHEDULE. min_replicas is 0 in
+    # every environment; prod's warm replica now comes from the cron rule below, so the apps hold a
+    # replica only during the hours a recruiter opens the CV link and cost nothing overnight. The
+    # health-gated rollout stays valid at 0: deploy.yml's readiness polls (60×10s) wake the
+    # 0%-traffic candidate and warm the public auth origin before smoke, and the rollout still
+    # deactivates superseded revisions so no idle replica accumulates.
     min_replicas = var.app_min_replicas
     max_replicas = 1
+
+    # The platform's implicit HTTP scale rule exists ONLY while no rule is declared ("If you don't
+    # create a scale rule, the default scale rule is applied" — Azure "Scaling in Container Apps").
+    # Declaring the cron rule below therefore REPLACES it, and an app sitting at zero replicas would
+    # be left with no trigger to start on: a request outside the warm window would reach nothing.
+    # This rule is the 0→1 activation that keeps off-hours a cold start, never an outage.
+    http_scale_rule {
+      name                = "http"
+      concurrent_requests = "10"
+    }
+
+    # Warm window (ADR-0027). KEDA evaluates every scaler and takes max(metrics), so inside the
+    # window this rule acts as a dynamic minimum of one replica; outside it the app returns to
+    # min_replicas after the platform's 300 s cool-down. Staging passes null and runs pure
+    # scale-to-zero (ADR-0020), which is why the rule is a dynamic block rather than a literal.
+    dynamic "custom_scale_rule" {
+      for_each = var.app_warm_window == null ? [] : [var.app_warm_window]
+
+      content {
+        name             = "warm-window"
+        custom_rule_type = "cron"
+
+        metadata = {
+          timezone        = custom_scale_rule.value.timezone
+          start           = custom_scale_rule.value.start
+          end             = custom_scale_rule.value.end
+          desiredReplicas = "1"
+        }
+      }
+    }
 
     container {
       name   = "frontend"

@@ -1040,8 +1040,10 @@ Prod runs `min_replicas = 0` and buys its warm replica from a **schedule**
 ([ADR-0027](../adr/0027-scheduled-warm-window-and-daily-health-ping.md)): a KEDA `cron` scale rule
 holds one replica per app during `var.app_warm_window` (default **07:00–22:00 Europe/Warsaw, daily**;
 KEDA handles DST from the IANA name). Outside it the apps scale to zero and the explicit
-`http_scale_rule` wakes them on the first request — **off-hours is a cold start (~10–30 s incl. the
-Neon wake), never an outage.** Staging sets `app_warm_window = null` and never schedules a replica.
+`http_scale_rule` wakes them on the first request — **off-hours is a cold start, never an outage.**
+Measured on the live stack with every app at zero: the first page load takes **~43 s** (auth's own cold
+start is ~31 s of it and dominates the chain, because the frontend blocks on OIDC discovery); once warm
+the same page serves in **0.21 s**. Staging sets `app_warm_window = null` and never schedules a replica.
 
 Change the window in **one place**, `iac/vars.tf`:
 

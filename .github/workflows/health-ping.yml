@@ -56,14 +56,15 @@ jobs:
             code=000
             echo "::group::${name} → ${url}"
             for attempt in $(seq 1 20); do
-              code=$(curl -sS -o /tmp/probe-body.txt -w '%{http_code}' --max-time 30 "$url" || echo 000)
+              code=$(curl -sS -o /tmp/probe-body.txt -w '%{http_code}' --max-time 60 "$url" || echo 000)
               echo "  attempt ${attempt}: HTTP ${code}"
               if [ "$code" -ge "$lo" ] 2>/dev/null && [ "$code" -le "$hi" ] 2>/dev/null; then
                 echo "::endgroup::"
                 printf -- '- OK **%s** — HTTP %s (after %s attempt(s))\n' "$name" "$code" "$attempt" >> "$GITHUB_STEP_SUMMARY"
                 return 0
               fi
-              # A cold start from zero replicas takes ~10-30 s; 20 x 10 s is a generous budget for it.
+              # A measured cold start from zero replicas is ~45-60 s (auth's own is ~31 s and dominates
+              # the chain), so a single attempt must out-wait it: --max-time 60 above, 20 x 10 s here.
               sleep 10
             done
             echo "  last response body:"

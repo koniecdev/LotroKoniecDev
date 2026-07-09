@@ -78,7 +78,19 @@ app at zero replicas with only a cron rule would have no trigger to start on, an
 the warm window would reach nothing — a silent nightly outage instead of a cold start. The explicit
 `http_scale_rule` (`concurrent_requests = 10`) is the 0→1 activation; `max_replicas = 1` caps it.
 
-**Off-hours is therefore a cold start (~10–30 s, including the Neon wake), never an outage.**
+**Off-hours is therefore a cold start, never an outage.** Measured on the live stack at 04:15 Warsaw,
+all three apps at zero replicas:
+
+| request | result |
+|---|---|
+| first hit on `https://lotro-translator.pl/` | **200 in 42.8 s** (TTFB 11.9 s) |
+| same page while everything is warm | **200 in 0.21 s** |
+| `auth` cold start alone | **31.4 s** |
+| `tms` / frontend cold start alone | ~11 s |
+
+The chain compounds: the frontend cold-starts, then blocks on OIDC discovery against a still-cold auth.
+**Auth's ~31 s dominates**, so it — not the frontend — is what to optimise if this ever needs to be
+faster. Warming only the frontend would buy nothing, which is why the cron rule covers all three apps.
 
 ### 3. The Azure web tests are deleted; a daily GitHub Actions cron replaces them
 
@@ -109,8 +121,10 @@ reachable.
 
 - **Outage detection latency goes from ~20 minutes to ~24 hours.** Accepted: zero users, and the
   5xx / restart / log-spike metric alerts still fire on their own cadences for serving-path failures.
-- **A visitor outside 07:00–22:00 pays a cold start**, and the chain compounds (frontend cold → auth
-  cold on OIDC discovery). This is the explicit price of the credit lasting the month.
+- **A visitor outside 07:00–22:00 waits ~43 s for the first page** (measured, above) — noticeably worse
+  than the 10–30 s this ADR first assumed before the stack was measured. This is the explicit price of
+  the credit lasting the month. If it ever costs a real opportunity, the window is one line, and auth's
+  31 s cold start is the thing to attack.
 - **The SSL-expiry guard and the App Insights availability record are lost** with the web tests. The
   ACA managed certificate auto-renews; losing the guard is a real, accepted reduction in cover.
 - **A red morning run can mean "Brevo is down", not "the site is down"** — auth's deep `/health`

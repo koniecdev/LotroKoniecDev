@@ -1,5 +1,7 @@
 using System.Net.Http.Headers;
+using System.Security.Cryptography;
 using System.Text;
+using LotroKoniecDev.Application.Features.TranslationFileSyncing;
 using LotroKoniecDev.Application.Parsers;
 using LotroKoniecDev.SharedKernel.Authorization;
 using LotroKoniecDev.SharedKernel.StronglyTypedIds;
@@ -220,6 +222,25 @@ public sealed class GetTranslationFileTests : IAsyncLifetime
 
         // Assert
         response.StatusCode.ShouldBe(HttpStatusCode.NotFound);
+    }
+
+    [Fact]
+    public async Task Get_ETagIsTheSha256OfTheBody_SoThePatcherIntegrityCheckAcceptsIt()
+    {
+        // Arrange
+        await SeedAsync(gossipId: 1, polish: "Zażółć gęślą jaźń", status: SeedStatus.Approved);
+        await RebuildAsync();
+
+        // Act
+        HttpResponseMessage response = await _factory.CreateClient().GetAsync(Route);
+        string body = await response.Content.ReadAsStringAsync();
+
+        // Assert — the patcher rejects any download whose body does not hash-match the ETag
+        // (AUDIT-SEC-01/#391), so the strong ETag must stay the hex SHA-256 of the UTF-8 body with
+        // nothing (e.g. a BOM) added in transit. Verified with the patcher's own integrity check.
+        response.Headers.ETag!.IsWeak.ShouldBeFalse();
+        response.Headers.ETag.Tag.ShouldBe($"\"{Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(body)))}\"");
+        TranslationFileContentIntegrity.Matches(body, response.Headers.ETag.ToString()).ShouldBeTrue();
     }
 
     [Fact]

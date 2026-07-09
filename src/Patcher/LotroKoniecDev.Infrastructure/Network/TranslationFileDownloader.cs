@@ -1,5 +1,6 @@
 using System.Net;
 using LotroKoniecDev.Application.Abstractions;
+using LotroKoniecDev.Application.Features.TranslationFileSyncing;
 using LotroKoniecDev.Domain.Core.Errors;
 using LotroKoniecDev.Domain.Core.Monads;
 
@@ -8,6 +9,9 @@ namespace LotroKoniecDev.Infrastructure.Network;
 /// <summary>
 /// Downloads the Polish translation file from the TMS distribution endpoint over HTTP with a
 /// conditional <c>If-None-Match</c> request, so an unchanged file returns 304 rather than its bytes.
+/// A downloaded body is accepted only when it hash-matches the server's ETag
+/// (<see cref="TranslationFileContentIntegrity"/>) — a corrupted or tampered file is rejected here,
+/// and the sync falls back to the cached copy (AUDIT-SEC-01 / #391).
 /// </summary>
 public sealed class TranslationFileDownloader : ITranslationFileDownloader
 {
@@ -44,6 +48,13 @@ public sealed class TranslationFileDownloader : ITranslationFileDownloader
 
             string content = await response.Content.ReadAsStringAsync(cancellationToken);
             string eTag = response.Headers.ETag?.ToString() ?? string.Empty;
+
+            if (!TranslationFileContentIntegrity.Matches(content, eTag))
+            {
+                return Result.Failure<TranslationFileFetchResult>(DomainErrors.TranslationFileSync.IntegrityCheckFailed(
+                    "the response body does not match the server's ETag content hash."));
+            }
+
             return Result.Success(TranslationFileFetchResult.Modified(content, eTag));
         }
         catch (HttpRequestException ex)

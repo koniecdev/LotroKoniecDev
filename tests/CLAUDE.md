@@ -83,7 +83,9 @@ the suite runs on macOS too).
 
 ## Infrastructure Tests (LotroKoniecDev.Tests.Infrastructure)
 
-Tests that touch real infrastructure adapters (today: `GameLauncherTests`). Grows in M2
+Tests that touch real infrastructure adapters (today: `GameLauncherTests` and
+`TranslationFileDownloaderTests` — the latter drives the downloader's integrity enforcement
+point over an in-memory stub `HttpMessageHandler`, no real network). Grows in M2
 (PostgreSQL + EF Core) and whenever file-content verification is needed — asserting on real file
 output belongs here, never in `Tests.Unit`. Targets `net10.0-windows`: builds everywhere,
 **runs on Windows only** (on macOS the run aborts — expected).

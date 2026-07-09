@@ -484,8 +484,11 @@ hygiene), and one ticket = one fresh context (cost + quality).** Different rules
 
 **The loop is a SCRIPT, not a session — `scripts/claude/backlog-loop.sh` (the conductor).**
 Deterministic bash picks the next ready ticket (`next-ticket.sh`: priority labels + the
-`Depends on #X` gate + skip rules for qa/post-mvp/Windows-only work) and runs it to completion in
-a **fresh headless process** (`work-ticket.sh` → `claude -p "/work-ticket <n>"`). The per-ticket
+`Depends on #X` gate + skip rules for qa/post-mvp/audit/Windows-only work) and runs it to completion in
+a **fresh headless process** (`work-ticket.sh` → `claude -p "/work-ticket <n>"`). This repo is
+public, so **only maintainer-written tickets may drive the loop**: `issue-trust.sh` refuses any
+issue whose author *or any commenter* lacks write access, fails closed, and is enforced in front of
+the session — naming a ticket explicitly cannot bypass it (ADR-0026). The per-ticket
 session does the whole slice — spec weight, branch, implement, tests, `code-reviewer` gate,
 commit → push → PR — then **dies**; the runner judges only its final `STATUS: DONE|BLOCKED` block,
 waits for pr-verify, squash-merges (**never `--delete-branch`** — branches are kept), syncs main,

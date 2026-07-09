@@ -17,7 +17,8 @@ name: CD
 #                    staging→prod promotion of the artifact that just passed staging. The full
 #                    health-gated rollout lives in deploy.yml: verify provenance → migrate → deploy
 #                    candidates at 0% traffic → readiness (incl. frontend) + warm the auth origin →
-#                    smoke the candidate → promote to 100% → smoke → roll back on any failure.
+#                    smoke the candidate → promote to 100% + sweep superseded revisions → smoke →
+#                    roll back on any failure → assert exactly one active revision per app.
 #
 # The deployment unit is an immutable per-commit image (`sha-<short>`); the rolling tag is owned by
 # THIS pipeline (`az containerapp update`), not Terraform — the ACA resources ignore image + traffic
@@ -26,8 +27,14 @@ name: CD
 # Health-gated rollout (audit 0001 H7): traffic NEVER jumps onto an unverified revision. Each app is
 # deployed as a candidate revision receiving 0% production traffic, reachable only through a private
 # `<app>---cd-candidate.<env-domain>` label FQDN. The candidate is smoked first; only then is 100% of
-# traffic shifted onto it. The previous revision is kept (0% traffic, scales to zero) so any failure
-# rolls straight back to it — no window where users hit a bad revision.
+# traffic shifted onto it. During the rollout the previous revision keeps serving, and any failure
+# steers traffic straight back to it (the in-job rollback re-activates it first) — no window where
+# users hit a bad revision. After a green promotion EVERY other active revision is deactivated and
+# the rollout ends by asserting exactly one active revision per app (#407 / ADR-0029): an active
+# superseded revision is a paid warm replica inside the ADR-0027 warm window, and one such orphan
+# once probed Postgres for 8 days from a 0%-traffic replica, holding Neon awake while a deployed fix
+# ran dark behind it. Rolling back AFTER the job is `az containerapp revision activate` + a traffic
+# shift — one cold start (runbook: "Roll back a completed deploy").
 #
 # Why ONE job per environment (not a job per phase): the Azure OIDC federated credential trusts only a
 # specific environment subject (gh-env-production / gh-env-staging), so a job WITHOUT that `environment:`

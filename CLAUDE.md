@@ -127,6 +127,7 @@ A KittySaver slice is one file: `internal sealed class <Action> : IEndpoint` con
 | Make a non-trivial architectural/modeling decision | skim `docs/adr/`, then **write a new ADR** (`/adr`); anchors: 0001 (no mediator), 0002 (TMS pivot + freeze/unfreeze amendments), 0008 (cloud-agnostic deployment + env strategy — M6), 0009 (browser E2E via Testcontainers + Playwright) |
 | Deploy/operate the stack, or set env vars per environment | `docs/deployment/runbook.md` — env-var matrix (service × environment), secret generation, the issuer/redirect/authority/CORS gotchas, bring-up sequence + DB migrations |
 | Touch the update lifecycle (GameVersion, import diff, invalidation, distribution, CLI sync) | `docs/specs/0001-game-update-lifecycle-and-translation-invalidation.md` — the agreed domain spec |
+| Touch the game-content catalog (CatalogEntry/TextSlot, Companion zip import, catalog browser, memberships) | `docs/specs/0008-game-content-catalog-layer.md` (agreed) + `docs/knowledge-base/lotro-companion-data-model.md` (the verified `key:<FileId>:<GossipId>` join — never join on text). Naming rule: **never "entity"** in this layer (DDD-Entity misconception) |
 | Implement a feature whose business rules are fuzzy | **`/spec`** first (seed → questions → agreed spec in `docs/specs/`) |
 | Review a finished change | the **`code-reviewer`** agent |
 | Understand the backlog / milestones | `gh issue list` (being re-cut post-pivot) + Roadmap digest below |
@@ -522,9 +523,26 @@ runs, env knobs, triage, troubleshooting): **`docs/claude-loop.md`**.
   browser, authenticated.
 - **M4 — WPF player app** (later): GUI over the patcher handlers + the same TMS auto-download
   the CLI ships in M2-20.
-- **Post-MVP backlog (deliberately cut from MVP):** LOTRO Companion XML context import, glossary,
-  quest browser, `TranslationHistory`, bulk operations, keyboard shortcuts, AI review, Discord
-  notifications, public API versioning, crowdsourced game-version reports, per-language roles.
+- **M7 — Game-content catalog (spec 0008, agreed 2026-07-06; epic #362).** LOTRO Companion's
+  lore XML imported as a catalog lens over the flat rows: catalog entries (quest/deed +
+  registry-driven long tail incl. items) with role-tagged text slots joined **by
+  `(FileId, GossipId)` keys, never text** (verified —
+  `docs/knowledge-base/lotro-companion-data-model.md`); admin zip import (replace-per-kind, COPY
+  idiom), catalog browser + per-entry/per-category Approved-based progress, atomic quest
+  translation UX (entry page + editor context + entry bulk approve), translation→entry
+  memberships. The lens never mutates translations and never triggers the artifact. Naming rule:
+  **CatalogEntry, never "entity"** (DDD-Entity misconception — user decision 2026-07-06).
+  **DoD:** import fixture → browse `/catalog` → translate a whole quest via editor context →
+  entry bulk approve → artifact contains the rows (E2E).
+- **Post-MVP backlog (deliberately cut from MVP):** glossary, `TranslationHistory`, bulk
+  operations, keyboard shortcuts, AI review, Discord notifications, public API versioning,
+  crowdsourced game-version reports, per-language roles, Companion data auto-fetch from GitHub.
+  (The former "LOTRO Companion XML context import + quest browser" items were promoted to M7.)
+  **Epic TP-00 (#377)** parks the post-M7 productivity/ecosystem pack with its evidence:
+  TM-lite duplicate propagation (45% of corpus measured), Companion reference labels (named
+  `${PLAYER}` placeholders + RU/DE/FR reference panel), per-patch worklist, launch sentinel
+  (DAT-repair gap), lotro-data version watcher, glossary seed, quest arcs, `labels/pl` reverse
+  export — promotion order on the epic; TP-01/TP-10 are `/spec`-first.
 
 ## Proactive command use
 

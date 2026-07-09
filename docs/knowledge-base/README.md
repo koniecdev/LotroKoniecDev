@@ -22,6 +22,13 @@ Detailed analysis: [russian-project.md](russian-project.md)
 - Desktop launcher (Elanor, C# WPF) uses `-disablePatch -nosplash -skiprawdownload` flags on TurbineLauncher.exe
 - NinjaMark: metadata in DAT subfile `620750000`, format `Ru&{version}&{date}&{subscribed}`, detects if official launcher overwrote translations
 
+### LOTRO Companion Data Model — the `(FileId, GossipId)` join (feeds spec 0008)
+Detailed analysis: [lotro-companion-data-model.md](lotro-companion-data-model.md)
+- Their published XML stores every translatable game-object field as the literal token `key:<FileId>:<GossipId>` — **deterministic, zero-heuristic join** with our `Translations` identity, proven three ways (their labels ⇔ our export; structural tokens ⇔ live 48.7 export; locale-stable keys)
+- Records keyed by DID (`1879xxxxxx`); quests (14,974) + deeds (5,394) ≈ 215k token refs with semantic roles (name/description/objective N/dialog/progress); our TMS layer is named **Catalog** (never "entity")
+- `lotro-data` GitHub repo **is** the live dataset (updated within days of each patch); labels not needed — our English comes from our own export
+- Caveats: subset coverage, join on keys never text (`${PLAYER}` vs `<--DO_NOT_TOUCH!-->`), version skew tolerated as dangling refs, no LICENSE (attribution = courtesy decision)
+
 ### DAT Protection: NOT NEEDED — Translations Survive Updates (incl. MAJOR)
 Detailed analysis: [dat-protection.md](dat-protection.md)
 - **PROVEN by 7 independent tests** including updates 47.2→48.0 (2026-04-23) and 48.0→48.7 (2026-06-25)

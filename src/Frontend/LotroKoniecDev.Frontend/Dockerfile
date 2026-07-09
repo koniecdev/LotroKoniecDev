@@ -44,7 +44,10 @@ USER root
 RUN mkdir -p /keys && chown app:app /keys
 USER $APP_UID
 
+# Probe the same liveness endpoint the cloud probes hit (iac/azure-container-apps.tf), not `/`:
+# the root path runs the whole OIDC + antiforgery pipeline, so it reports on far more than "this
+# process is alive" and a redirect there passes `curl -f` without proving anything.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-    CMD curl -f http://localhost:8080/ || exit 1
+    CMD curl -f http://localhost:8080/health/live || exit 1
 
 ENTRYPOINT ["dotnet", "LotroKoniecDev.Frontend.dll"]

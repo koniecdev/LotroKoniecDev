@@ -27,7 +27,8 @@ The only LLM context that ever exists is one sharp per-ticket session.
 |---|---|
 | `scripts/claude/backlog-loop.sh` | the conductor — serial loop, lock, stop conditions, console totals |
 | `scripts/claude/next-ticket.sh` | deterministic picker: priority labels + `Depends on #X` gate + skip rules |
-| `scripts/claude/work-ticket.sh` | one ticket: fresh headless session → judge `STATUS:` → wait for pr-verify → squash-merge → sync main |
+| `scripts/claude/issue-trust.sh` | the provenance gate: refuses an issue written by anyone without write access (ADR-0026) |
+| `scripts/claude/work-ticket.sh` | one ticket: provenance gate → fresh headless session → judge `STATUS:` → wait for pr-verify → squash-merge → sync main |
 | `.claude/commands/work-ticket.md` | the per-ticket discipline prompt (the old `ticket-worker` agent, promoted to a slash command) |
 | `.claude/commands/backlog.md` | `/backlog` in an interactive session = launch the script in background + report the roll-up |
 
@@ -60,15 +61,35 @@ to the loop.
 
 ## What "ready" means (the picker)
 
-Open issue, not `[Epic]`/`[Tracking]`, none of the skip labels, and every `Depends on #X` in the
-body already CLOSED (a ticket is closed by its merged PR, so closed = merged). Order: `critical` >
-`high` > `medium` > `low` > unlabeled, then lowest number first.
+Open issue, not `[Epic]`/`[Tracking]`, none of the skip labels, **written only by trusted
+maintainers** (see the provenance gate below), and every `Depends on #X` in the body already CLOSED
+(a ticket is closed by its merged PR, so closed = merged). Order: `critical` > `high` > `medium` >
+`low` > unlabeled, then lowest number first — but priority never outranks provenance.
 
 Default exclusions (all overridable via env):
 
 - labels `loop-blocked`, `qa` (manual/human passes), `post-mvp` (deliberately cut from MVP),
+  `audit` (audit findings are triaged by a human — name one explicitly to work it),
 - titles matching `^M4-` (the WPF milestone is Windows-only — it cannot build on the macOS host),
 - issue `#85` (M2-18 forum watcher — deferred post-MVP; work it only by naming it explicitly).
+
+## The provenance gate (ADR-0026)
+
+This repo is **public**: anyone can open an issue or comment on one, and `/work-ticket` reads the
+title, body *and comments* as its instructions before the loop auto-merges the result. So every
+path into the worker asks `issue-trust.sh` first:
+
+> An issue is trusted only when its author **and every one of its commenters** has an
+> `author_association` of `OWNER` / `MEMBER` / `COLLABORATOR` (i.e. write access), or a login
+> listed in `LOOP_TRUSTED_LOGINS`.
+
+It **fails closed** — a missing association or any GitHub API failure refuses the ticket. The gate
+runs inside `work-ticket.sh`, not just the picker, so `backlog-loop.sh 123` and a bare
+`work-ticket.sh 123` are gated too; a refused ticket exits `11` and no session is ever spawned.
+A gate that cannot *reach* the API is systemic rather than a property of the ticket, so it surfaces
+as the ordinary error exit `3` and the conductor's circuit breaker stops the run.
+A stranger's harmless "+1" comment will therefore park a ticket: read it yourself, then run that
+one ticket with `LOOP_TRUST_GATE=0`, or add the commenter to `LOOP_TRUSTED_LOGINS`.
 
 ## Knobs (env vars)
 
@@ -82,9 +103,12 @@ Default exclusions (all overridable via env):
 | `LOOP_MAX_BUDGET_USD` | (none) | optional per-ticket API budget cap |
 | `LOOP_TICKET_TIMEOUT_MIN` | `90` | wall-clock kill switch per ticket; leftovers are stashed |
 | `LOOP_CHECKS_TIMEOUT_MIN` | `30` | wait for pr-verify before falling back to `--auto` merge |
-| `LOOP_SKIP_LABELS` | `loop-blocked,qa,post-mvp` | picker label exclusions |
+| `LOOP_SKIP_LABELS` | `loop-blocked,qa,post-mvp,audit` | picker label exclusions |
 | `LOOP_SKIP_TITLES` | `^M4-` | picker title-regex exclusion |
 | `LOOP_SKIP_ISSUES` | `85` | picker number exclusions |
+| `LOOP_TRUSTED_ASSOCIATIONS` | `OWNER,MEMBER,COLLABORATOR` | provenance gate: associations that carry write access |
+| `LOOP_TRUSTED_LOGINS` | (none) | provenance gate: extra logins (a second maintainer account, a bot) |
+| `LOOP_TRUST_GATE` | `1` | `0` = skip the provenance gate **for the whole run** (you read the issue *and* its comments yourself) — use it only on a single explicitly-named ticket |
 | `LOOP_LIMIT_SLEEP_MIN` | `60` | nap length when the usage limit is hit |
 | `LOOP_LIMIT_RETRIES` | `4` | max naps before giving up |
 | `LOOP_MAX_CONSECUTIVE_FAILURES` | `2` | systemic-failure circuit breaker |
@@ -114,9 +138,14 @@ Per-ticket outcomes:
   `claude-loop salvage #<n>` (`git stash list`), main is restored. Two consecutive failures stop
   the whole loop (something systemic).
 - **usage limit** — the loop naps (`LOOP_LIMIT_SLEEP_MIN`) and retries the same ticket.
+- **untrusted** — the ticket failed the provenance gate; it is skipped without spawning a session
+  and without counting toward the failure circuit breaker (drain mode never selects one anyway).
 
 ## Safety model
 
+- **Only maintainer-written text becomes a task** — the provenance gate above, enforced in front of
+  the session so no invocation path bypasses it. Self-tested by
+  `scripts/tests/claude-loop-provenance.tests.sh`, which runs in `pr-verify` and `ci`.
 - The runner **refuses a dirty working copy** and never deletes work — anything left behind is
   stashed, never reset.
 - The worker session may commit/push/PR (that authorization is the point of loop mode) but **never
@@ -135,6 +164,11 @@ Per-ticket outcomes:
   mid-run crash.
 - **Checks keep timing out** — raise `LOOP_CHECKS_TIMEOUT_MIN`; pr-verify runs the integration
   suite and can be slow on cold runners.
-- **The picker returns nothing but issues exist** — they're excluded (labels/titles/deps); run
-  `LOOP_SKIP_LABELS= LOOP_SKIP_TITLES= LOOP_SKIP_ISSUES= scripts/claude/next-ticket.sh` to see the
-  unfiltered choice, then fix labels/deps on GitHub.
+- **The picker returns nothing but issues exist** — they're excluded (labels/titles/deps/provenance);
+  run `LOOP_SKIP_LABELS= LOOP_SKIP_TITLES= LOOP_SKIP_ISSUES= scripts/claude/next-ticket.sh` to see the
+  unfiltered choice (its stderr names every ticket the provenance gate refused), then fix
+  labels/deps on GitHub.
+- **`REFUSED … has author_association …`** — the provenance gate did its job. Read the issue and its
+  comments; then either run that ticket once with `LOOP_TRUST_GATE=0`, add the writer to
+  `LOOP_TRUSTED_LOGINS`, or leave it for a human. `cannot read … (fail-closed)` instead means `gh`
+  is unauthenticated or rate-limited — fix the API access, don't disable the gate.

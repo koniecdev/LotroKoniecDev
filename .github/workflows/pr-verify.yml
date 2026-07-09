@@ -57,13 +57,15 @@ jobs:
           # the SSR guard. NEVER add a build input here (.editorconfig, Directory.*.props/.targets,
           # global.json, nuget.config, test fixtures) — that would be a false green.
           inert='\.md$|^docs/|^LICENSE$|^\.gitignore$|^\.gitattributes$|\.sh$|\.ps1$|^iac/|(^|/)Dockerfile(\.migrator(\.prod)?|\.tests)?$|^compose[^/]*\.ya?ml$|^\.docker/|^\.github/|^\.run/|^\.vscode/|^\.idea/|(^|/)\.env[^/]*\.example$'
-          # Build-relevant despite matching `inert`: check-ssr-purity.sh and the migration-safety
-          # guard + its self-test are EXECUTED by the build job (the .ps1 twin runs through the
-          # self-test's pwsh leg), and pr-verify/ci define the .NET gate itself — a change to any
-          # of them must run the gate so it validates its own new definition. Dockerfiles join them
-          # because the restore-graph guard now reads them: a Dockerfile-only PR that drops a
-          # COPY ["…csproj"] line must still face the gate that catches it.
-          force_build='^scripts/check-ssr-purity\.sh$|^scripts/check-migration-safety\.(sh|ps1)$|^scripts/tests/check-migration-safety\.tests\.sh$|^scripts/check-dockerfile-restore-graph\.(sh|ps1)$|(^|/)Dockerfile(\.migrator(\.prod)?|\.tests)?$|^\.github/workflows/pr-verify\.yml$|^\.github/workflows/ci\.yml$'
+          # Build-relevant despite matching `inert`: check-ssr-purity.sh, the migration-safety
+          # guard + its self-test, the Docker restore-graph guard, and the backlog loop's
+          # provenance gate + its self-test are EXECUTED by the build job (the .ps1 twins run
+          # through the migration self-test's pwsh leg), and pr-verify/ci define the .NET gate
+          # itself — a change to any of them must run the gate so it validates its own new
+          # definition. Dockerfiles join them because the restore-graph guard now reads them: a
+          # Dockerfile-only PR that drops a COPY ["…csproj"] line must still face the gate that
+          # catches it.
+          force_build='^scripts/check-ssr-purity\.sh$|^scripts/check-migration-safety\.(sh|ps1)$|^scripts/tests/check-migration-safety\.tests\.sh$|^scripts/check-dockerfile-restore-graph\.(sh|ps1)$|^scripts/claude/(issue-trust|next-ticket|work-ticket)\.sh$|^scripts/tests/claude-loop-provenance\.tests\.sh$|(^|/)Dockerfile(\.migrator(\.prod)?|\.tests)?$|^\.github/workflows/pr-verify\.yml$|^\.github/workflows/ci\.yml$'
           code=true
           if files="$(git diff --name-only HEAD^1 HEAD)"; then
             build_relevant="$(printf '%s\n' "$files" | grep -vE "$inert" || true)"
@@ -118,6 +120,13 @@ jobs:
 
       - name: Migration-safety guard
         run: ./scripts/check-migration-safety.sh HEAD^1
+
+      # The backlog loop's issue-provenance gate (ADR-0026) is what keeps attacker-authored text
+      # on this public repo from becoming the task of an agent that auto-merges to main. It runs
+      # on the maintainer's machine, never in CI — this offline self-test is the only thing that
+      # stops it rotting green.
+      - name: Backlog-loop provenance gate self-test
+        run: ./scripts/tests/claude-loop-provenance.tests.sh
 
       - name: Setup .NET
         uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5.4.0

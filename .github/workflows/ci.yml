@@ -53,6 +53,10 @@ jobs:
       - name: Migration-safety guard
         run: ./scripts/check-migration-safety.sh HEAD^1
 
+      # Same provenance-gate self-test as pr-verify (ADR-0026) — backstops direct pushes to main.
+      - name: Backlog-loop provenance gate self-test
+        run: ./scripts/tests/claude-loop-provenance.tests.sh
+
       - name: Setup .NET
         uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5.4.0
         with:

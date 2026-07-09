@@ -83,17 +83,22 @@ EOF
     return 0
 }
 
-# Join Dockerfile continuation lines so a `RUN a && \` / `    b` pair reads as one command.
-# A no-op on today's Dockerfiles (every restore root shares a line with `dotnet restore`), kept
-# because without it a root wrapped onto a bare continuation line is silently dropped from the
-# closure and the guard passes vacuously — the very failure mode it exists to catch.
+# Strip comments, then join Dockerfile continuation lines so a `RUN a && \` / `    b` pair reads as
+# one command — the order Docker itself uses. Comments must go first or the guard fails OPEN: a
+# commented-out `# dotnet restore Foo.csproj` would inject a phantom restore root, satisfying the
+# "this Dockerfile restores something" check for a Dockerfile that restores nothing. The COPY
+# extraction already ignores comments (it anchors on `^COPY`), so the two must agree.
+#
+# The continuation join is a no-op on today's Dockerfiles (every restore root shares a line with
+# `dotnet restore`), kept because without it a root wrapped onto a bare continuation line drops out
+# of the closure and the guard passes vacuously — the very failure mode it exists to catch.
 join_continuations() {
-    awk '{
+    { grep -vE '^[[:space:]]*#' "$1" || true; } | awk '{
         cur = $0
         if (cur ~ /\\$/) { sub(/\\$/, "", cur); buf = buf cur; next }
         print buf cur
         buf = ""
-    } END { if (buf != "") print buf }' "$1"
+    } END { if (buf != "") print buf }'
 }
 
 fail=0

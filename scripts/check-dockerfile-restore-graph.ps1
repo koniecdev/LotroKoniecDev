@@ -86,9 +86,15 @@ function Get-RestoreClosure {
 }
 
 function Join-Continuation {
-    # A `RUN a && \` / `    b` pair must read as one command before we scan it. A no-op on today's
-    # Dockerfiles, kept because a restore root wrapped onto a bare continuation line would otherwise
-    # drop out of the closure and the guard would pass vacuously.
+    # Strip comments, then join `RUN a && \` / `    b` pairs into one command — the order Docker
+    # itself uses. Comments must go first or the guard fails OPEN: a commented-out
+    # `# dotnet restore Foo.csproj` would inject a phantom restore root, satisfying the "this
+    # Dockerfile restores something" check for a Dockerfile that restores nothing. The COPY
+    # extraction already ignores comments (it anchors on ^COPY), so the two must agree.
+    #
+    # The continuation join is a no-op on today's Dockerfiles, kept because a restore root wrapped
+    # onto a bare continuation line would otherwise drop out of the closure and the guard would
+    # pass vacuously.
     # AllowEmptyString: a Mandatory string[] otherwise rejects the blank lines every Dockerfile has.
     param(
         [Parameter(Mandatory)]
@@ -100,6 +106,7 @@ function Join-Continuation {
     $joined = @()
     $buffer = ''
     foreach ($line in $Lines) {
+        if ($line -match '^\s*#') { continue }
         if ($line -match '\\$') { $buffer += $line -replace '\\$', ''; continue }
         $joined += ($buffer + $line)
         $buffer = ''

@@ -13,6 +13,17 @@ name: Pull Request Verification
 # reports success to required status checks — GitHub's documented pattern for combining required
 # checks with path filtering. CI (main) keeps its own paths-ignore on purpose: a docs-only push
 # must keep triggering no CI and therefore no CD (audit 0001 M2).
+#
+# Container images (CI-01 / #403): Dockerfiles stay `inert` for the .NET job — that classification
+# is literally right, a Dockerfile change cannot break `dotnet build`, the test suites or the SSR
+# guard (they sit in `force_build` only so the restore-graph guard re-checks their COPY lists).
+# But the shipped images used to be built for the first time in cd.yml, AFTER the merge — so a
+# Dependabot base-image digest bump could land on main without the image ever having been built or
+# scanned, and a fixable HIGH/CRITICAL in the new base surfaced only once main was already
+# un-deployable. The `changes` job therefore emits a second output, `images`, and the `images` job
+# below builds all four shipped images with `push: false` and Trivy-scans them ON the PR. cd.yml
+# keeps its own post-push scan of the exact published digest before cosign signs it; the PR scan is
+# an earlier, additional gate, not a replacement.
 on:
   pull_request:
     branches: ["main"]
@@ -32,6 +43,7 @@ jobs:
     timeout-minutes: 5
     outputs:
       code: ${{ steps.diff.outputs.code }}
+      images: ${{ steps.diff.outputs.images }}
     steps:
       # fetch-depth: 2 brings the PR merge commit plus both parents, so HEAD^1 (the base tip)
       # is diffable without full history.
@@ -66,21 +78,33 @@ jobs:
           # Dockerfile-only PR that drops a COPY ["…csproj"] line must still face the gate that
           # catches it.
           force_build='^scripts/check-ssr-purity\.sh$|^scripts/check-migration-safety\.(sh|ps1)$|^scripts/tests/check-migration-safety\.tests\.sh$|^scripts/check-dockerfile-restore-graph\.(sh|ps1)$|^scripts/claude/(issue-trust|next-ticket|work-ticket)\.sh$|^scripts/tests/claude-loop-provenance\.tests\.sh$|(^|/)Dockerfile(\.migrator(\.prod)?|\.tests)?$|^\.github/workflows/pr-verify\.yml$|^\.github/workflows/ci\.yml$'
+          # Image-build inputs (CI-01 / #403): ANY Dockerfile flavor (a dev-only flavor costs a
+          # redundant image build, never a false skip), the build-context filter (.dockerignore),
+          # and this workflow itself — a change to the image job's definition must build the images
+          # so it validates itself. Fails open like `code` (images=true) if the diff is missing.
+          image_inputs='(^|/)Dockerfile[^/]*$|(^|/)\.dockerignore$|^\.github/workflows/pr-verify\.yml$'
           code=true
+          images=true
           if files="$(git diff --name-only HEAD^1 HEAD)"; then
             build_relevant="$(printf '%s\n' "$files" | grep -vE "$inert" || true)"
             forced="$(printf '%s\n' "$files" | grep -E "$force_build" || true)"
+            image_relevant="$(printf '%s\n' "$files" | grep -E "$image_inputs" || true)"
             if [ -n "$files" ] && [ -z "$build_relevant" ] && [ -z "$forced" ]; then
               code=false
+            fi
+            if [ -n "$files" ] && [ -z "$image_relevant" ]; then
+              images=false
             fi
             echo "Changed files:"
             printf '%s\n' "$files" | sed 's/^/  /'
             echo "Build-relevant files: ${build_relevant:-<none>}"
             echo "Forced-build files:   ${forced:-<none>}"
+            echo "Image-relevant files: ${image_relevant:-<none>}"
           else
             echo "::warning::Could not compute the PR diff — running the full gate."
           fi
           printf 'code=%s\n' "$code" >> "$GITHUB_OUTPUT"
+          printf 'images=%s\n' "$images" >> "$GITHUB_OUTPUT"
 
   build:
     name: Pull Request Verification
@@ -184,3 +208,73 @@ jobs:
             echo "::error::No *.Tests.Integration projects found — refusing to report a false green."
             exit 1
           fi
+
+  # Packaging gate (CI-01 / #403): build the four SHIPPED images (cd.yml's exact matrix) on the PRs
+  # that can change them — Dockerfile/.dockerignore edits, incl. Dependabot base-image digest bumps —
+  # so a base that breaks `dotnet publish` inside the container or carries a fixable HIGH/CRITICAL
+  # goes red BEFORE the merge, not in cd.yml after it. Skipped by `if:` (never `on.paths`) for the
+  # same required-check reason as the .NET job above. Nothing is pushed and no registry credentials
+  # are involved, so the job also works on Dependabot PRs (read-only token, zero secrets).
+  images:
+    name: Build & scan image (${{ matrix.image }})
+    needs: changes
+    if: needs.changes.outputs.images == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    strategy:
+      # Surface every image's result even if one fails — a bad base usually breaks several at once.
+      fail-fast: false
+      matrix:
+        include:
+          - image: lotrokoniecdev-auth-api
+            dockerfile: src/AuthSystem/LotroKoniecDev.AuthSystem.API/Dockerfile
+          - image: lotrokoniecdev-tms-api
+            dockerfile: src/TranslationSystem/LotroKoniecDev.TranslationSystem.API/Dockerfile
+          - image: lotrokoniecdev-frontend
+            dockerfile: src/Frontend/LotroKoniecDev.Frontend/Dockerfile
+          - image: lotrokoniecdev-migrator
+            dockerfile: Dockerfile.migrator.prod
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
+
+      # Same build-args and gha cache scopes as cd.yml's build-and-push, so this build reads the
+      # layer cache CD warmed on main (base-branch caches are readable from PRs) and an unchanged
+      # restore layer costs seconds. push: false + load: true — the image lands only in the runner's
+      # local Docker daemon, for the scan below. provenance/sbom are off: the docker exporter cannot
+      # carry attestation manifests; cd.yml attaches both on the real push.
+      - name: Build image (local only, never pushed)
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        with:
+          context: .
+          file: ${{ matrix.dockerfile }}
+          push: false
+          load: true
+          platforms: linux/amd64
+          tags: ${{ matrix.image }}:pr-local
+          build-args: |
+            BUILD_CONFIGURATION=Release
+          cache-from: type=gha,scope=${{ matrix.image }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.image }},ignore-error=true
+          provenance: false
+          sbom: false
+
+      # Same gate as cd.yml's post-push scan (severity / ignore-unfixed / exit-code), but against
+      # the LOCAL image ref — no TRIVY_USERNAME/TRIVY_PASSWORD, nothing was pushed. cd.yml keeps its
+      # own scan of the exact published digest right before cosign signs it; this one just moves the
+      # red X onto the PR.
+      - name: Scan image for vulnerabilities (Trivy — fail HIGH/CRITICAL)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: image
+          image-ref: ${{ matrix.image }}:pr-local
+          format: table
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: '1'

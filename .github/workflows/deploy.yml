@@ -334,13 +334,12 @@ jobs:
           deploy_candidate tms "$TMS_APP" "$TMS_API_IMAGE"
           deploy_candidate frontend "$FRONTEND_APP" "$FRONTEND_IMAGE"
 
-      # Readiness against the CANDIDATE revisions before the gated smoke. With prod's min_replicas=1
-      # every revision (incl. the 0%-traffic candidate) keeps a live replica, so this is a short wait
-      # for the new replica to pass its probes. On staging (min_replicas=0, ADR-0020) these polls ARE
+      # Readiness against the CANDIDATE revisions before the gated smoke. With min_replicas=0
+      # everywhere (ADR-0027 — prod's warm replica is a cron schedule, not a floor) these polls ARE
       # the scale-from-zero warm-up — the 60×10s budget absorbs the cold start — and the final poll
       # wakes the previous auth revision serving the public origin (which the candidate tms validates
-      # tokens against); on prod that revision is already warm and the poll is cheap insurance.
-      # Frontend: Static-SSR, no /health → 2xx/3xx on '/'.
+      # tokens against); inside prod's warm window the replicas are already up and the polls are
+      # cheap insurance. Frontend: Static-SSR, no /health → 2xx/3xx on '/'.
       - name: Wait for candidate readiness (incl. frontend) + warm the auth origin
         run: |
           set -euo pipefail
@@ -382,8 +381,14 @@ jobs:
             --timeout 30
 
       # The "→ 100%" leg: a green candidate smoke shifts production traffic onto the candidate, then
-      # deactivates the previous revision (with min_replicas=1 it would otherwise hold an idle replica).
-      # A failed post-promotion smoke re-activates it and steers traffic back (the rollback step).
+      # deactivates EVERY other active revision — not just prev (#407 / ADR-0029). Terraform applies
+      # mint their own revisions (auto-numbered, 0% traffic, never in the traffic config), and a
+      # previously-leaked revision may still be active; each active revision buys a warm replica
+      # inside the ADR-0027 warm window, and one such orphan held a DB-probing replica for 8 days
+      # (#407). The match is BY EXCLUSION against the promoted candidate, never a name pattern.
+      # Each deactivation is best-effort (a cleanup hiccup must not fail a healthy deploy here) —
+      # the post-rollout assertion below is the loud gate. A failed post-promotion smoke
+      # re-activates prev and steers traffic back (the rollback step).
       - name: Promote the candidate to 100% traffic
         run: |
           set -euo pipefail
@@ -396,9 +401,16 @@ jobs:
             # candidate; the next rollout recreates it on the next candidate.
             az containerapp revision label remove -n "$app" -g "$RESOURCE_GROUP" \
               --label "$CANDIDATE_LABEL" -o none || true
-            # With min_replicas=1 a kept-active prev would hold a replica forever; deactivate it to
-            # reclaim it. The failure-rollback step re-activates prev before sending traffic back.
-            az containerapp revision deactivate -n "$app" -g "$RESOURCE_GROUP" --revision "$prev" -o none || true
+            # Sweep: deactivate every active revision that is not the promoted candidate. Revision
+            # names are DNS labels (no whitespace), so plain word-splitting is safe here.
+            superseded="$(az containerapp revision list -n "$app" -g "$RESOURCE_GROUP" --all \
+              --query "[?properties.active && name != '${candidate}'].name" -o tsv | tr -d '\r' \
+              || echo '')"
+            for rev in $superseded; do
+              echo "  deactivating superseded revision: ${rev}"
+              az containerapp revision deactivate -n "$app" -g "$RESOURCE_GROUP" --revision "$rev" -o none \
+                || echo "::warning::${app}: could not deactivate ${rev} — the post-rollout assertion will fail if it is still active"
+            done
             echo "::endgroup::"
           }
           promote "$AUTH_APP" "$AUTH_PREV" "$AUTH_CANDIDATE"
@@ -431,7 +443,7 @@ jobs:
             if [ -z "$candidate" ]; then echo "  ${app}: no candidate created — nothing to roll back"; return 0; fi
             echo "::group::Roll back ${app} → ${prev}"
             if [ -n "$prev" ]; then
-              # Promote may have deactivated prev (min_replicas=1 reclaim) — re-activate before traffic.
+              # Promote's sweep may have deactivated prev (ADR-0029) — re-activate before traffic.
               az containerapp revision activate -n "$app" -g "$RESOURCE_GROUP" --revision "$prev" -o none || true
               az containerapp ingress traffic set -n "$app" -g "$RESOURCE_GROUP" \
                 --revision-weight "${prev}=100" "${candidate}=0" -o none || true
@@ -444,3 +456,37 @@ jobs:
           roll_back "$TMS_APP" "${TMS_PREV:-}" "${TMS_CANDIDATE:-}"
           roll_back "$FRONTEND_APP" "${FRONTEND_PREV:-}" "${FRONTEND_CANDIDATE:-}"
           echo "::error::Rollout failed — production traffic restored to the previous revisions; candidates deactivated."
+
+      # Post-rollout invariant (#407 / ADR-0029): exactly ONE active revision per app — the promoted
+      # candidate, at 100% traffic. This is the loud gate behind the best-effort sweep above: a
+      # leaked active revision buys a warm replica inside the ADR-0027 warm window, and once kept a
+      # DB-probing replica alive for 8 days while a deployed fix ran dark behind it (#346/#407).
+      # Deliberately placed AFTER the failure-rollback step: when this step runs, that step was
+      # already evaluated (and skipped), so a red assertion fails the pipeline WITHOUT reverting
+      # traffic — a leftover revision is a cost defect, not a serving defect, and the promoted
+      # revision has already passed both smokes.
+      - name: Assert exactly one active revision per app (post-rollout invariant)
+        run: |
+          set -euo pipefail
+          assert_single() {
+            app="$1"; candidate="$2"
+            active="$(az containerapp revision list -n "$app" -g "$RESOURCE_GROUP" --all \
+                        --query "[?properties.active].name" -o tsv | tr -d '\r')"
+            count="$(printf '%s\n' "$active" | grep -c . || true)"
+            if [ "$count" -ne 1 ] || [ "$active" != "$candidate" ]; then
+              echo "::error::${app}: expected exactly one active revision (${candidate}); active now: $(printf '%s' "$active" | tr '\n' ' ')"
+              return 1
+            fi
+            weight="$(az containerapp ingress traffic show -n "$app" -g "$RESOURCE_GROUP" \
+                        --query "[?revisionName == '${candidate}'].weight | [0]" -o tsv | tr -d '\r')"
+            if [ "$weight" != "100" ]; then
+              echo "::error::${app}: promoted revision ${candidate} holds ${weight:-0}% of traffic, expected 100."
+              return 1
+            fi
+            echo "${app}: single active revision ${candidate} at 100% traffic — OK"
+          }
+          fail=0
+          assert_single "$AUTH_APP" "$AUTH_CANDIDATE" || fail=1
+          assert_single "$TMS_APP" "$TMS_CANDIDATE" || fail=1
+          assert_single "$FRONTEND_APP" "$FRONTEND_CANDIDATE" || fail=1
+          exit "$fail"

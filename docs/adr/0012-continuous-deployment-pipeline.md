@@ -153,6 +153,13 @@ fixed here:
    > a **schedule** (`var.app_warm_window`, a KEDA cron rule) rather than a floor, so the readiness
    > warm-up above is load-bearing in every environment. R8's serving argument was premised on real
    > users; with none, an always-warm prod only burned the student credit.
+   >
+   > **Extended by ADR-0029 / #407 (2026-07-09):** deactivating only *the* superseded revision proved
+   > insufficient — Terraform applies mint revisions the traffic config never names, and a silently
+   > failed deactivation went unnoticed for 8 days while a leaked 0%-traffic replica held Neon awake.
+   > Promote now sweeps **every** active non-promoted revision, and the rollout ends with a hard
+   > assertion: exactly one active revision per app, at 100% traffic. Rolling back a *completed*
+   > deploy is `revision activate` + a traffic shift — one cold start.
 
 ### 6. Infra is also CI-managed, behind the same gate
 

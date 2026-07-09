@@ -464,7 +464,7 @@ Ongoing delivery to the live Azure environment is automated (ADR-0012). Four wor
 |---|---|---|
 | `cd.yml` → `build-and-push` | push to main, `v*` tag | builds the 4 images, **scans each with Trivy (fails on a fixable HIGH/CRITICAL)**, then pushes to GHCR **signed (cosign keyless) + attested (SLSA provenance + SBOM)** — `:sha-<short>`, `:latest` on main, semver on tags (audit 0001 H9 + H1) |
 | `cd.yml` → `deploy-staging` | push to main / dispatch, `STAGING_ENABLED == true`, **auto** (no approval) | identical health-gated rollout as `deploy-prod` targeting the `staging` environment; runs automatically after `build-and-push` (audit 0001 H10, ADR-0018) |
-| `cd.yml` → `deploy-prod` | push to main / dispatch, `STAGING_ENABLED == true`, **behind the `production` approval gate**, `needs: deploy-staging` | the whole health-gated rollout in ONE job (every Azure step shares the approved environment's OIDC identity): **pin every image tag to its immutable digest, then verify the digest's signed provenance** (`gh attestation verify`, fail-closed; every subsequent `az` step ships the digest, so a tag moved mid-rollout changes nothing) → OIDC login → migrator to success (**gate**) → deploy each app as a **candidate at 0% traffic** (`--revision-suffix`, labelled `cd-candidate`) → readiness (incl. frontend) + warm the auth origin → **smoke the candidate** inline (`scripts/smoke.sh`) → **promote** 100% traffic + deactivate the previous revision → **smoke production** → **roll back on any failure** (restore traffic to the previous revision, deactivate the candidate) — audit 0001 H7 |
+| `cd.yml` → `deploy-prod` | push to main / dispatch, `STAGING_ENABLED == true`, **behind the `production` approval gate**, `needs: deploy-staging` | the whole health-gated rollout in ONE job (every Azure step shares the approved environment's OIDC identity): **pin every image tag to its immutable digest, then verify the digest's signed provenance** (`gh attestation verify`, fail-closed; every subsequent `az` step ships the digest, so a tag moved mid-rollout changes nothing) → OIDC login → migrator to success (**gate**) → deploy each app as a **candidate at 0% traffic** (`--revision-suffix`, labelled `cd-candidate`) → readiness (incl. frontend) + warm the auth origin → **smoke the candidate** inline (`scripts/smoke.sh`) → **promote** 100% traffic + **sweep every superseded revision** (deactivate all active revisions except the promoted one — Terraform-minted ones included; #407/ADR-0029) → **smoke production** → **roll back on any failure** (restore traffic to the previous revision, deactivate the candidate) → **assert exactly one active revision per app** at 100% traffic (fails the run without touching traffic — the sweep's loud gate) — audit 0001 H7 |
 | `infra.yml` | PR / push to `iac/**`, dispatch | **`plan`** (prod + staging matrix) on PRs (preview in run summary); `apply-staging` (**auto**) → `apply-prod` (**gated**) on main |
 
 **The two-stage promotion model.** When `STAGING_ENABLED=true`, every merge to main builds once and **automatically deploys to staging** (no approval needed — `deploy-staging` is auto). The same `sha-<short>` then **waits at the `production` environment** for a human to approve. Clicking *Approve* (GitHub → the run → *Review deployments* → *Approve*) **is** the staging→prod promotion: the identical image that passed staging is what production receives. Test on staging first; approve when ready.
@@ -479,11 +479,28 @@ image built since that change has one; an older pre-H9 tag must be rebuilt from 
 **Roll back.** A *failed* rollout rolls back **automatically** (audit 0001 H7): the health-gated
 pipeline shifts traffic only after the candidate passes smoke, and on any failure the rollback step
 (in `deploy-prod`) restores 100% of traffic to the previous revision and deactivates the candidate —
-so a bad release never serves users. To revert a release *after* it was promoted, either re-run *CD* via dispatch with
-`image_tag` = the previous good `sha-<short>` (the rollout re-pins it to its digest and re-verifies
-its provenance) and approve, or — for an
-instant manual revert — shift traffic back to the still-present previous revision:
-`az containerapp ingress traffic set -n <app> -g <rg> --revision-weight <prev>=100 <candidate>=0`.
+so a bad release never serves users.
+
+**Roll back a completed deploy.** After a green rollout the previous revision is **deactivated, not
+kept warm** (#407 / ADR-0029 — an active 0%-traffic revision is a paid replica inside the warm
+window), so a manual revert is *activate → shift → deactivate*, and costs **one cold start** (~43 s
+worst case, measured in ADR-0027):
+
+```bash
+az containerapp revision list -n <app> -g <rg> --all \
+  --query "[].{name:name,active:properties.active,created:properties.createdTime}" -o table
+az containerapp revision activate -n <app> -g <rg> --revision <previous-good-revision>
+az containerapp ingress traffic set -n <app> -g <rg> \
+  --revision-weight <previous-good-revision>=100 <bad-revision>=0
+az containerapp revision deactivate -n <app> -g <rg> --revision <bad-revision>
+```
+
+The end state must satisfy the ADR-0029 invariant — exactly one active revision at 100% traffic.
+Alternatively re-run *CD* via dispatch with `image_tag` = the previous good `sha-<short>` (the
+rollout re-pins it to its digest and re-verifies its provenance) and approve — slower, but it
+exercises the full health-gated path and re-asserts the invariant for you. Rehearse the manual path
+against **staging** (same commands, staging RG/app names) before you ever need it on prod.
+
 DB migrations are forward-only — roll the schema forward, not back (ADR-0023); a bad migration is
 recovered by a Neon restore — the deploy's pre-migration auto-snapshot or PITR, see
 [Restore from the auto-snapshot](#restore-from-the-auto-snapshot-migr-04).
@@ -1071,6 +1088,14 @@ az containerapp replica list -n lotrotms-frontend-prod -g rg-lotrotms-prod-polc-
 > az containerapp ingress traffic set -n <app> -g <rg> --revision-weight <new>=100 <old>=0
 > az containerapp revision deactivate -n <app> -g <rg> --revision <old>
 > ```
+>
+> Forgetting the by-hand promotion no longer leaks forever: the next `deploy.yml` rollout sweeps
+> **every** active revision except the one it promotes (Terraform-minted ones included) and then
+> asserts exactly one active revision per app (#407 / ADR-0029). Until that next deploy, though, the
+> orphan revision holds a paid warm replica inside the warm window — the 2026-07-09 incident burned
+> 86 of 100 Neon CU-hours exactly this way — so promote or deactivate it promptly. An apply can
+> never interleave *mid*-rollout: `infra.yml` apply and `deploy.yml` share the per-environment
+> mutation lock (`prod-mutation` / `staging-mutation`).
 
 Availability is checked once a day by [`.github/workflows/health-ping.yml`](../../.github/workflows/health-ping.yml)
 (03:00 UTC — just before the window opens, so the probe pays the day's first cold start, not a visitor).

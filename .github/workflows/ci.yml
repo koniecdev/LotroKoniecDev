@@ -41,6 +41,10 @@ jobs:
       - name: Pure-SSR guard
         run: ./scripts/check-ssr-purity.sh
 
+      # Same restore-graph gate as pr-verify — backstops direct pushes to main.
+      - name: Docker restore-graph guard
+        run: ./scripts/check-dockerfile-restore-graph.sh
+
       # Same migration-safety gate as pr-verify (ADR-0023 / MIGR-03) — backstops direct
       # pushes to main.
       - name: Migration-safety guard self-test

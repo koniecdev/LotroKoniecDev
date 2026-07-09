@@ -356,6 +356,12 @@ file_id||gossip_id||translated_text||args_order||args_id||approved
   `@rendermode`, `StateHasChanged`, or `AddInteractive*`. `scripts/check-ssr-purity.sh` (with a
   `.ps1` twin for local Windows devs) gates this in **both** `pr-verify` and `ci`, before
   `setup-dotnet`. Genuinely need interactivity? That's an ADR-first architecture change.
+- **Docker restore layers are gated.** Every Dockerfile that lists `.csproj` files must COPY the
+  **full transitive closure** of the projects it restores. `dotnet restore` treats a missing
+  project file as `Skipping project … because it was not found` and still **exits 0**, so a stale
+  list silently caches an incomplete restore layer and pushes the gap into `dotnet build`.
+  `scripts/check-dockerfile-restore-graph.sh` (with a `.ps1` twin) enforces it in **both**
+  `pr-verify` and `ci`. A new project must join every Dockerfile whose restore graph reaches it.
 - **Git is rebase-based, and branches are never deleted.** Integrate a feature branch off `main`
   with `git rebase main` — never `git merge main`; no merge commits in feature branches (remote
   `main` is squash-only, so history stays linear). After a PR's squash commit lands on `main`,

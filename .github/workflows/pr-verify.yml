@@ -60,8 +60,10 @@ jobs:
           # Build-relevant despite matching `inert`: check-ssr-purity.sh and the migration-safety
           # guard + its self-test are EXECUTED by the build job (the .ps1 twin runs through the
           # self-test's pwsh leg), and pr-verify/ci define the .NET gate itself — a change to any
-          # of them must run the gate so it validates its own new definition.
-          force_build='^scripts/check-ssr-purity\.sh$|^scripts/check-migration-safety\.(sh|ps1)$|^scripts/tests/check-migration-safety\.tests\.sh$|^\.github/workflows/pr-verify\.yml$|^\.github/workflows/ci\.yml$'
+          # of them must run the gate so it validates its own new definition. Dockerfiles join them
+          # because the restore-graph guard now reads them: a Dockerfile-only PR that drops a
+          # COPY ["…csproj"] line must still face the gate that catches it.
+          force_build='^scripts/check-ssr-purity\.sh$|^scripts/check-migration-safety\.(sh|ps1)$|^scripts/tests/check-migration-safety\.tests\.sh$|^scripts/check-dockerfile-restore-graph\.(sh|ps1)$|(^|/)Dockerfile(\.migrator(\.prod)?|\.tests)?$|^\.github/workflows/pr-verify\.yml$|^\.github/workflows/ci\.yml$'
           code=true
           if files="$(git diff --name-only HEAD^1 HEAD)"; then
             build_relevant="$(printf '%s\n' "$files" | grep -vE "$inert" || true)"
@@ -100,6 +102,12 @@ jobs:
       # the .NET setup so a stray @rendermode/@onclick fails in seconds, not minutes.
       - name: Pure-SSR guard
         run: ./scripts/check-ssr-purity.sh
+
+      # Build-cache analog of the SSR gate: every Dockerfile must COPY the full transitive
+      # .csproj closure it restores. `dotnet restore` SKIPS a missing project file and still
+      # exits 0, so a stale COPY list degrades the restore layer silently and stays green.
+      - name: Docker restore-graph guard
+        run: ./scripts/check-dockerfile-restore-graph.sh
 
       # Schema analog of the SSR gate (ADR-0023 / MIGR-03): a newly-added destructive
       # migration fails in seconds unless it carries the in-file acknowledgment marker

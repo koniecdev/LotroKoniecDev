@@ -14,6 +14,16 @@ updates:
       nuget-minor-patch:
         patterns: ["*"]
         update-types: ["minor", "patch"]
+    ignore:
+      # Microsoft.OpenApi 3.x cannot build on ASP.NET Core 10. Microsoft.AspNetCore.OpenApi 10.0.9
+      # (the whole 10.x line) depends on Microsoft.OpenApi 2.0.0, and its bundled XmlCommentGenerator
+      # emits `mediaType.Example = …` — a property 3.x turned read-only on IOpenApiMediaType, so the
+      # generated file fails with CS0200 in both API projects (PR #390). The only reason dependabot
+      # sees Microsoft.OpenApi at all is the direct 2.x pin that forces the GHSA-v5pm-xwqc-g5wc fix
+      # into the graph. Drop this ignore when the apps move to .NET 11 (its preview OpenApi packages
+      # are the first built against 3.x). Minor/patch 2.x updates still flow through the group above.
+      - dependency-name: "Microsoft.OpenApi"
+        update-types: ["version-update:semver-major"]
 
   # GitHub Actions referenced across every workflow.
   - package-ecosystem: "github-actions"

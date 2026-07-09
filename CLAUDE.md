@@ -164,7 +164,7 @@ scripts/claude/backlog-loop.sh 123 130                 # exactly these tickets, 
 caffeinate -is scripts/claude/backlog-loop.sh          # overnight run on macOS (blocks sleep)
 scripts/claude/next-ticket.sh                          # print the next READY ticket (priority + deps)
 scripts/claude/work-ticket.sh 123                      # one ticket, one fresh headless session
-# defaults: opus (1M ctx) · effort max · permission-mode auto — override via LOOP_MODEL /
+# defaults: fable (Fable 5) · effort xhigh · permission-mode auto — override via LOOP_MODEL /
 # LOOP_EFFORT / LOOP_PERMISSION_MODE / LOOP_UNSAFE=1 · full manual: docs/claude-loop.md
 
 # TMS — EF Core migrations (write context owns them; --connection makes it work without appsettings/live DB)
@@ -351,11 +351,12 @@ file_id||gossip_id||translated_text||args_order||args_id||approved
 - **Right-size the design — YAGNI by default.** Before proposing an abstraction, cache, config
   knob, queue, or new infra, check it solves a **real, present** need from the current
   spec/ticket — not a hypothetical future. Pick the simple path and note the trade-off in one line.
-- **Agent fan-out is budgeted; reviews always run on Opus 4.8 at max effort.** Hard cap: **max 4
-  subagents in parallel**, no chained waves by default; a small diff gets reviewed **inline, zero
-  agents**. The `code-reviewer` agent, `/code-review` and `/security-review` always run with
-  **model Opus 4.8 + effort max** — never Fable 5 — unless the prompt for that run explicitly
-  says otherwise. Applies to interactive sessions and loop-mode workers alike.
+- **Agent fan-out is budgeted; reviews run on Fable 5 at high effort** (temporary switch
+  2026-07-09; previous standing rule was Opus 4.8 + effort max). Hard cap: **max 4 subagents in
+  parallel**, no chained waves by default; a small diff gets reviewed **inline, zero agents**.
+  The `code-reviewer` agent, `/code-review` and `/security-review` run with **model Fable 5 +
+  effort high** unless the prompt for that run explicitly says otherwise. Applies to interactive
+  sessions and loop-mode workers alike.
 - **Frontend is Static SSR — enforced, not just documented.** No WebAssembly, no SignalR circuit,
   no per-user server state; forms post via `<form method="post" @formname @onsubmit>` (the SSR
   `@onsubmit` special-case) or `<EditForm OnValidSubmit>` — never interactive `@on*` handlers,

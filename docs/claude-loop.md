@@ -95,8 +95,8 @@ one ticket with `LOOP_TRUST_GATE=0`, or add the commenter to `LOOP_TRUSTED_LOGIN
 
 | Var | Default | Meaning |
 |---|---|---|
-| `LOOP_EFFORT` | `max` | claude effort per ticket |
-| `LOOP_MODEL` | `opus` | Opus 4.8 — its 1M-token context window is native (no `[1m]` variant, no long-context premium) |
+| `LOOP_EFFORT` | `xhigh` | claude effort per ticket |
+| `LOOP_MODEL` | `fable` | Fable 5 (temporary switch 2026-07-09; previously `opus` — Opus 4.8 with its native 1M-token context window) |
 | `LOOP_PERMISSION_MODE` | `auto` | headless permission mode |
 | `LOOP_ALLOWED_TOOLS` | git/gh/dotnet/scripts | loop-scoped Bash allowlist passed via `--allowedTools` |
 | `LOOP_UNSAFE` | `0` | `1` = `--dangerously-skip-permissions` (full overnight autonomy) |

@@ -8,9 +8,9 @@
 #
 # Usage: work-ticket.sh <issue-number> [run-dir]
 # Env:
-#   LOOP_EFFORT             claude effort level (default: max)
-#   LOOP_MODEL              model (default: opus — Opus 4.8; its 1M-token context window is
-#                           native/standard, no [1m] variant or long-context premium involved)
+#   LOOP_EFFORT             claude effort level (default: xhigh)
+#   LOOP_MODEL              model (default: fable — Fable 5; temporary switch 2026-07-09,
+#                           previously opus — Opus 4.8 with its native 1M-token context window)
 #   LOOP_CONFIG_DIR         Claude config dir = which account runs the loop
 #                           (default: ~/.claude-account1)
 #   LOOP_PERMISSION_MODE    default: auto, plus a loop-scoped --allowedTools Bash allowlist
@@ -39,8 +39,8 @@ esac
 RUN_DIR="${2:-$REPO_ROOT/logs/claude-loop/adhoc-$(date +%Y%m%d-%H%M%S)}"
 mkdir -p "$RUN_DIR"
 
-EFFORT="${LOOP_EFFORT:-max}"
-MODEL="${LOOP_MODEL:-opus}"
+EFFORT="${LOOP_EFFORT:-xhigh}"
+MODEL="${LOOP_MODEL:-fable}"
 export CLAUDE_CONFIG_DIR="${LOOP_CONFIG_DIR:-$HOME/.claude-account1}"
 PERMISSION_MODE="${LOOP_PERMISSION_MODE:-auto}"
 TIMEOUT_MIN="${LOOP_TICKET_TIMEOUT_MIN:-90}"

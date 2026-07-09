@@ -1,5 +1,11 @@
 # ADR-0020: FinOps right-sizing — staging scales to zero, SLO probe cadence drops to 15 min
 
+> **Superseded in part by ADR-0027 (2026-07-09):** §1 (staging scale-to-zero) stands and is extended to
+> prod. §2 (probe cadence) is void — the web tests are gone. This ADR's rejection of a "free
+> GitHub-Actions cron probe" is **overturned**: it was argued against an always-warm prod, where a
+> probe costs only money. Against a scale-to-zero prod a 15-minute external probe holds the apps awake
+> and destroys the saving, which makes the cheap probe the only coherent one.
+
 **Status:** Accepted
 **Date:** 2026-07-01
 **Decision-makers:** Solo maintainer

@@ -985,19 +985,22 @@ the traces**. Adding a metrics destination is deferred until there is a real nee
 
 ## Monitoring & alerting
 
-Defined as code in [`iac/monitoring.tf`](../../iac/monitoring.tf) (audit 0001 §C3; the availability
-SLO reworked in [ADR-0019](../adr/0019-symptom-based-external-slo-probe.md)). Every alert
+Defined as code in [`iac/monitoring.tf`](../../iac/monitoring.tf) (audit 0001 §C3). Every alert
 **fires by email** to `var.admin_email` through a single Azure Monitor action group
 (`lotrotmsag<env_id>`) — **email only, no SMS**. Most alerts stand on signals that already exist (ACA
-platform metrics + the Log Analytics workspace the apps stream console logs to); the availability SLO
-and the auth latency alert additionally read **Application Insights** (synthetic web tests + the
-OTel-reconstructed request metrics). Everything is parametrized by `var.env_id`, so a future staging
-inherits the same alerting.
+platform metrics + the Log Analytics workspace the apps stream console logs to); the auth latency
+alert additionally reads **Application Insights** (the OTel-reconstructed request metrics).
+Everything is parametrized by `var.env_id`, so a future staging inherits the same alerting.
+
+> **The external availability SLO of [ADR-0019](../adr/0019-symptom-based-external-slo-probe.md) is
+> gone** ([ADR-0027](../adr/0027-scheduled-warm-window-and-daily-health-ping.md)). Prod now scales to
+> zero outside its warm window, and an Application Insights web test hitting the public origin every
+> 15 minutes would wake the apps around the clock. Availability is checked once a day instead, by
+> [`.github/workflows/health-ping.yml`](../../.github/workflows/health-ping.yml) — see
+> "Warm window & the daily health ping" below.
 
 | Alert | Source | Fires when | Severity |
 |---|---|---|---|
-| **Availability SLO — auth** | AI standard web test (public origin) | `https://auth.<domain>/health/ready` is unreachable from **≥2 of 3 regions** — auth is the token-issuance SPOF, so this is the platform's SLO | 0 Critical |
-| **Availability — tms / frontend** | AI standard web tests | `tms/health/ready` or the frontend home is unreachable from **≥2 of 3 regions** | 1 Error |
 | **Replica restart** | metric `RestartCount` | any of the three apps restarts a replica (crash-loop signal: OOM, failed readiness, unhandled crash). Sensitive by design (`> 0`); stays active for the affected revision and auto-mitigates on a clean revision | 1 Error |
 | **HTTP 5xx spike** | metric `Requests` (`statusCodeCategory = 5xx`) | an app returns more than 5 server errors in 5 minutes. 4xx is intentionally not alerted (auth 401/400 are normal control flow) | 1 Error |
 | **Key Vault availability** | metric `Microsoft.KeyVault/vaults` `Availability` | the vault's availability drops below 99% over 15 minutes — KV is the secret-resolution SPOF (every revision resolves its secrets at start) | 1 Error |
@@ -1005,17 +1008,10 @@ inherits the same alerting.
 | **Memory saturation** | metric `WorkingSetBytes` | an app sustains >80% of its 0.5 GiB limit for 15 minutes (OOM precursor) | 2 Warning |
 | **Auth latency** | AI `requests/duration` (auth role) | auth server response time averages **>2 s over 15 minutes** — a leading indicator before readiness fails | 2 Warning |
 | **LAW daily cap reached** | LAW `Operation` table | the workspace's daily ingestion cap (`daily_quota_gb` in `azure-law.tf`) is hit and **log collection has stopped** — a blind spot exactly during an error storm | 2 Warning |
-| **CPU saturation** | metric `UsageNanoCores` | an app sustains >80% of its 0.25 vCPU limit for 15 minutes (capacity signal; no horizontal headroom at min=max=1 replica) | 3 Informational |
+| **CPU saturation** | metric `UsageNanoCores` | an app sustains >80% of its 0.25 vCPU limit for 15 minutes (capacity signal; no horizontal headroom at `max_replicas = 1`) | 3 Informational |
 
 Notes for the operator:
 
-- **The availability SLO is deploy-safe by construction.** The standard web tests probe each app's
-  **public origin** — which only ever resolves to the revision serving 100% of traffic. A health-gated
-  rollout's candidate revision takes 0% traffic and is reachable only via its private
-  `<app>---cd-candidate` label FQDN, so **a deploy cannot trip these**. This is the fix for the old
-  log-based `auth_availability`, which paged Sev0 on every release (it matched the app name, not the
-  serving revision). Durability is geographic — **≥2 of 3 locations** (West Europe, North Europe,
-  France Central) must fail — so a single-region blip is rejected without delaying a real outage.
 - The metric alerts are fanned out **per app** (a `for_each` over auth-api / tms-api / frontend),
   one single-scope rule each — the universally-supported shape (Azure does not allow multi-resource
   metric alerts for Container Apps). The alert name carries the app key, e.g.
@@ -1023,25 +1019,67 @@ Notes for the operator:
 - The two log (scheduled-query) alerts set `skip_query_validation = true`, because the
   `*_CL` tables only exist once the apps have emitted those records — a fresh environment can
   provision the alerts before any logs flow.
-- **Confirm-at-apply, not at plan.** The web-test geo codes, the auth alert's `cloud/roleName`
-  (= the app's OTel `service.name` = its entry-assembly name `LotroKoniecDev.AuthSystem.API`), and
-  the App Insights / KV metric names are only validated server-side. If an availability or latency
+- **Confirm-at-apply, not at plan.** The auth alert's `cloud/roleName`
+  (= the app's OTel `service.name` = its entry-assembly name `LotroKoniecDev.AuthSystem.API`) and
+  the App Insights / KV metric names are only validated server-side. If the latency
   alert shows **no data**, verify those against live App Insights after the first apply.
 
 **Responding to an alert:**
 
 | Alert | First moves |
 |---|---|
-| Availability SLO (auth/tms/frontend) | Hit the public origin yourself: `curl -sS -o /dev/null -w '%{http_code}' https://auth.<domain>/health/ready`. If it's down, check ACA revision health + the traffic split (`az containerapp ingress traffic show`) — a bad revision live means the rollout's auto-rollback (`deploy.yml`) did not fire; steer traffic back with `az containerapp ingress traffic set --revision-weight <prev>=100`. If the origin is up, suspect DNS/cert/regional network. |
+| Health ping failed (GitHub Actions) | Read the run's job summary — it names the failing origin and prints the `/health` response body, so an unhealthy `authdb` / `smtp` check is distinguishable from a dead site. Then hit it yourself: `curl -sS -o /dev/null -w '%{http_code}' https://auth.<domain>/health` (allow ~30 s: outside the warm window this is a cold start). If it stays down, check ACA revision health + the traffic split (`az containerapp ingress traffic show`) — a bad revision live means the rollout's auto-rollback (`deploy.yml`) did not fire; steer traffic back with `az containerapp ingress traffic set --revision-weight <prev>=100`. If the origin is up, suspect DNS/cert. |
 | Key Vault availability | Portal → the vault → check for throttling / an Azure KV incident; confirm the `lotrotms-aca-<env_id>` identity still has *Key Vault Secrets User*; new revisions cannot boot without secret resolution. |
 | Auth latency | App Insights → Performance for the auth role; check the DB (Neon) latency and the sibling CPU/memory saturation alerts. Leading indicator — investigate before it becomes a 5xx / readiness failure. |
 | Replica restart / 5xx / log error spike | App Insights logs + `az containerapp logs show` for the named app; correlate with a recent deploy. |
-| CPU / memory saturation | Capacity signal at min=max=1 replica: inspect the workload, then raise the request or replica ceiling in `azure-container-apps.tf`. |
+| CPU / memory saturation | Capacity signal at `max_replicas = 1`: inspect the workload, then raise the request or replica ceiling in `azure-container-apps.tf`. |
 
-**Silencing during planned disruptive work.** Routine deploys need **no** suppression (the availability
-SLO is deploy-safe by construction). For genuinely disruptive planned work (e.g. a migration with
-downtime), add a temporary **alert processing rule** rather than editing Terraform — scope it to the
-resource group for the maintenance window, then delete it:
+### Warm window & the daily health ping
+
+Prod runs `min_replicas = 0` and buys its warm replica from a **schedule**
+([ADR-0027](../adr/0027-scheduled-warm-window-and-daily-health-ping.md)): a KEDA `cron` scale rule
+holds one replica per app during `var.app_warm_window` (default **07:00–22:00 Europe/Warsaw, daily**;
+KEDA handles DST from the IANA name). Outside it the apps scale to zero and the explicit
+`http_scale_rule` wakes them on the first request — **off-hours is a cold start (~10–30 s incl. the
+Neon wake), never an outage.** Staging sets `app_warm_window = null` and never schedules a replica.
+
+Change the window in **one place**, `iac/vars.tf`:
+
+```hcl
+# widen it (recruiter season)          # or make it weekday-only (cheapest)
+start = "0 6 * * *"                    start = "0 8 * * 1-5"
+end   = "0 23 * * *"                   end   = "0 20 * * 1-5"
+```
+
+Verify the live scale config and the current replica count:
+
+```bash
+az containerapp show -n lotrotms-frontend-prod -g rg-lotrotms-prod-polc-001 \
+  --query 'properties.template.scale' -o json          # minReplicas 0 + the http + cron rules
+az containerapp replica list -n lotrotms-frontend-prod -g rg-lotrotms-prod-polc-001 -o table
+```
+
+> **A `terraform apply` alone does not take effect.** Scale rules live in `template`, the apps run
+> `revision_mode = "Multiple"`, and `ingress[0].traffic_weight` is under `lifecycle.ignore_changes`.
+> Changing a scale rule therefore mints a **new revision at 0% traffic** while the old one keeps
+> serving with its old scale config. Either deploy normally (`deploy.yml` promotes and deactivates), or
+> promote by hand:
+>
+> ```bash
+> az containerapp ingress traffic set -n <app> -g <rg> --revision-weight <new>=100 <old>=0
+> az containerapp revision deactivate -n <app> -g <rg> --revision <old>
+> ```
+
+Availability is checked once a day by [`.github/workflows/health-ping.yml`](../../.github/workflows/health-ping.yml)
+(03:00 UTC — just before the window opens, so the probe pays the day's first cold start, not a visitor).
+It probes `auth`/`tms` on the **deep** `/health` (database included — `/health/ready` is DB-free by
+ADR-0025) and the frontend on `/`. A failed run emails the last committer of the workflow file. Trigger
+it on demand with `gh workflow run health-ping.yml`.
+
+**Silencing during planned disruptive work.** Routine deploys need **no** suppression (every alert is
+scoped to a serving signal, and the candidate revision takes 0% traffic). For genuinely disruptive
+planned work (e.g. a migration with downtime), add a temporary **alert processing rule** rather than
+editing Terraform — scope it to the resource group for the maintenance window, then delete it:
 
 ```bash
 az monitor alert-processing-rule create \

@@ -9,6 +9,8 @@ namespace LotroKoniecDev.Domain.Models;
 /// </summary>
 public sealed class SubFile
 {
+    private const int MinEncodedFragmentSize = 17; // FragmentId (8) + piece count (4) + arg-ref count (4) + arg-string-group count (1)
+
     public int FileId { get; private set; }
     public int Version { get; set; }
     public byte[] Unknown1 { get; private set; } = new byte[4];
@@ -54,6 +56,7 @@ public sealed class SubFile
         Unknown2 = reader.ReadByte();
 
         int numFragments = VarLenEncoder.Read(reader);
+        BinaryBoundsGuard.EnsureCountFits(reader, numFragments, MinEncodedFragmentSize, "fragment");
 
         for (int i = 0; i < numFragments; i++)
         {

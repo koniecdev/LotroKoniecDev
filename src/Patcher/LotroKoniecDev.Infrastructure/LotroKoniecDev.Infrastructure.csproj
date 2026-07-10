@@ -14,6 +14,10 @@
     </ItemGroup>
 
     <ItemGroup>
+        <InternalsVisibleTo Include="LotroKoniecDev.Tests.Infrastructure" />
+    </ItemGroup>
+
+    <ItemGroup>
         <ProjectReference Include="..\LotroKoniecDev.Domain\LotroKoniecDev.Domain.csproj"/>
         <ProjectReference Include="..\LotroKoniecDev.Application\LotroKoniecDev.Application.csproj"/>
     </ItemGroup>

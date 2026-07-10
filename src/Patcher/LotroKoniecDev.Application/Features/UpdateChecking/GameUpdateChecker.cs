@@ -65,10 +65,21 @@ public sealed partial class GameUpdateChecker : IGameUpdateChecker
     /// </summary>
     private static string? ParseLatestVersion(string htmlContent)
     {
-        Match match = VersionRegex().Match(htmlContent);
-        return match.Success ? match.Groups[1].Value : null;
+        try
+        {
+            Match match = VersionRegex().Match(htmlContent);
+            return match.Success ? match.Groups[1].Value : null;
+        }
+        catch (RegexMatchTimeoutException)
+        {
+            // A timed-out match on third-party HTML is treated as "could not parse" — the caller
+            // already handles a null version gracefully.
+            return null;
+        }
     }
 
-    [GeneratedRegex(@"Update\s+(\d+(?:\.\d+)*)\s+Release\s+Notes", RegexOptions.IgnoreCase)]
+    // The pattern is linear, so it is not ReDoS-prone today; the timeout is a guardrail against
+    // future edits to a regex that runs on third-party HTML (AUDIT-SEC-07 / #397).
+    [GeneratedRegex(@"Update\s+(\d+(?:\.\d+)*)\s+Release\s+Notes", RegexOptions.IgnoreCase, matchTimeoutMilliseconds: 1000)]
     private static partial Regex VersionRegex();
 }

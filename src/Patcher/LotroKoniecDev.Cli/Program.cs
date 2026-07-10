@@ -4,6 +4,7 @@ using LotroKoniecDev.Infrastructure;
 using LotroKoniecDev.Cli.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection;
 using Serilog;
+using Serilog.Events;
 using Spectre.Console.Cli;
 
 namespace LotroKoniecDev.Cli;
@@ -12,10 +13,13 @@ public sealed class Program
 {
     private static async Task<int> Main(string[] args)
     {
-        string logFilePath = Path.Combine(GlobalSettings.DataDir, "launch_test.log");
+        // The file sink stays at Debug on purpose: it is the diagnostic trail users attach to bug
+        // reports (full paths included — the log never leaves the local machine unless shared).
+        // The console stays at Information so CLI output remains readable (AUDIT-SEC-07 / #397).
+        string logFilePath = Path.Combine(GlobalSettings.DataDir, "patcher.log");
         Log.Logger = new LoggerConfiguration()
             .MinimumLevel.Debug()
-            .WriteTo.Console()
+            .WriteTo.Console(restrictedToMinimumLevel: LogEventLevel.Information)
             .WriteTo.File(logFilePath,
                 outputTemplate: "{Timestamp:HH:mm:ss.fff} [{Level:u3}] {Message:lj}{NewLine}{Exception}")
             .CreateLogger();

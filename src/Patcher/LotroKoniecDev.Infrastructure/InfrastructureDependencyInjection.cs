@@ -33,6 +33,10 @@ public static class InfrastructureDependencyInjection
             HttpClient client = new();
             client.DefaultRequestHeaders.UserAgent.ParseAdd("LotroKoniecDev/1.0");
             client.Timeout = TimeSpan.FromSeconds(10);
+            // Defense in depth (AUDIT-SEC-04 / #394): any future caller buffering a response
+            // through the default completion option is still capped; today's callers enforce
+            // their own tighter caps via BoundedResponseReader.
+            client.MaxResponseContentBufferSize = TranslationFileDownloader.MaxResponseContentBytes;
             return client;
         });
         services.AddSingleton<IForumPageFetcher, ForumPageFetcher>();

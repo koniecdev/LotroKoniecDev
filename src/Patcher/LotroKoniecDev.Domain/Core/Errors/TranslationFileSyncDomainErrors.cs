@@ -8,8 +8,14 @@ public static partial class DomainErrors
     {
         public const string IntegrityCheckFailedCode = "TranslationFileSync.IntegrityCheckFailed";
 
+        public const string ResponseTooLargeCode = "TranslationFileSync.ResponseTooLarge";
+
         public static Error NetworkError(string message) =>
             IoError("TranslationFileSync", "NetworkError", message);
+
+        public static Error ResponseTooLarge(long maxResponseBytes) =>
+            Error.IoError(ResponseTooLargeCode,
+                $"The response body exceeds the maximum allowed size of {maxResponseBytes} bytes.");
 
         public static Error CacheWriteError(string path, string message) =>
             IoError("TranslationFileSync", "CacheWriteError", $"'{path}': {message}");

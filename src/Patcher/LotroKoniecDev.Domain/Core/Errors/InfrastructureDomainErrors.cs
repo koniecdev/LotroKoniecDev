@@ -49,8 +49,14 @@ public static partial class DomainErrors
 
     public static class GameUpdateCheck
     {
+        public const string ResponseTooLargeCode = "GameUpdateCheck.ResponseTooLarge";
+
         public static Error NetworkError(string message) =>
             IoError("GameUpdateCheck", "NetworkError", message);
+
+        public static Error ResponseTooLarge(long maxResponseBytes) =>
+            Error.IoError(ResponseTooLargeCode,
+                $"The response body exceeds the maximum allowed size of {maxResponseBytes} bytes.");
 
         public static Error VersionNotFoundInPage =>
             OperationFailed("GameUpdateCheck",

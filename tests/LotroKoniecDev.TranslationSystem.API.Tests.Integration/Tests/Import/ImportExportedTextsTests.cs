@@ -480,11 +480,12 @@ public sealed class ImportExportedTextsTests : IAsyncLifetime
         // a failure anywhere in that transaction must discard the COPY'd rows too (spec 0001 all-or-
         // nothing). This pins the connection-enlistment the ADR-0011 atomicity design relies on:
         // COPY the rows successfully, then throw before the commit.
+        GameVersionId versionId = await SeedVersionAsync("48.0");
         using IServiceScope scope = _factory.Services.CreateScope();
         IBulkTranslationInserter inserter = scope.ServiceProvider.GetRequiredService<IBulkTranslationInserter>();
         IUnitOfWork unitOfWork = scope.ServiceProvider.GetRequiredService<IUnitOfWork>();
 
-        List<Translation> rows = [NewUntranslated(10, "Ten"), NewUntranslated(11, "Eleven")];
+        List<Translation> rows = [NewUntranslated(10, "Ten", versionId), NewUntranslated(11, "Eleven", versionId)];
         InvalidOperationException induced = new("induced mid-transaction failure");
 
         // Act
@@ -556,7 +557,7 @@ public sealed class ImportExportedTextsTests : IAsyncLifetime
         // A tracked mutation (mark the version processed) plus a COPY, enlisted as one unit.
         GameVersion version = await dbContext.GameVersions.SingleAsync(row => row.Id == versionId);
         version.MarkAsProcessed();
-        List<Translation> rows = [NewUntranslated(20, "Twenty")];
+        List<Translation> rows = [NewUntranslated(20, "Twenty", versionId)];
 
         // Act
         await dbContext.ExecuteInTransactionAsync(transactionToken => inserter.InsertAsync(AsStream(rows), transactionToken));
@@ -604,11 +605,13 @@ public sealed class ImportExportedTextsTests : IAsyncLifetime
         return TextContent(builder.ToString());
     }
 
-    private static Translation NewUntranslated(int gossipId, string text)
+    // The pointer must reference a seeded GameVersion row — the version pointer columns carry
+    // FKs (#355), and production COPY'd rows are always stamped from a live version anyway.
+    private static Translation NewUntranslated(int gossipId, string text, GameVersionId versionId)
         => Translation.CreateUntranslated(
             FragmentKey.Create(FileId, gossipId).Value,
             TranslationSource.Create(text, argsOrder: null, argsId: null).Value,
-            GameVersionId.Create(),
+            versionId,
             DateTimeOffset.UtcNow).Value;
 
     // The inserter takes a stream (spec 0006); re-enumerating this iterator restarts it, matching

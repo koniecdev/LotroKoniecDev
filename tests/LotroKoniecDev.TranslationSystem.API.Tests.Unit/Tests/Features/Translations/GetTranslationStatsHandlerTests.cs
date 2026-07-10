@@ -7,6 +7,7 @@ using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.GameVersionAggregat
 using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.TranslationAggregate;
 using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.TranslationAggregate.Enums;
 using LotroKoniecDev.TranslationSystem.ReadModels.Aggregates.TranslationAggregate;
+using Microsoft.Extensions.Caching.Hybrid;
 
 namespace LotroKoniecDev.TranslationSystem.API.Tests.Unit.Tests.Features.Translations;
 
@@ -89,9 +90,59 @@ public sealed class GetTranslationStatsHandlerTests
         stats.Remaining.ShouldBe(3);
     }
 
+    [Fact]
+    public async Task Handle_SecondCallWithinTtl_ShouldServeCountersFromCacheWithoutRequerying()
+    {
+        // Arrange — two handlers share one cache but read different catalogs: a second database
+        // read would surface the grown catalog, so identical counters prove the cache served it.
+        HybridCache hybridCache = TestHybridCache.Create();
+        Given(1, TranslationStatus.Approved);
+        GetTranslationStats.Handler first = new(TestReadScopeFactory.Create(new FakeReadDbContext(_readModels)), hybridCache);
+        Given(2, TranslationStatus.Draft);
+        GetTranslationStats.Handler second = new(TestReadScopeFactory.Create(new FakeReadDbContext(_readModels)), hybridCache);
+
+        // Act
+        Result<TranslationStatsResponse> initial =
+            await first.Handle(new GetTranslationStats.Query(), CancellationToken.None);
+        Result<TranslationStatsResponse> cached =
+            await second.Handle(new GetTranslationStats.Query(), CancellationToken.None);
+
+        // Assert
+        initial.IsSuccess.ShouldBeTrue();
+        cached.IsSuccess.ShouldBeTrue();
+        cached.Value.ShouldBe(initial.Value);
+        cached.Value.Total.ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task Handle_AfterTheEntryExpires_ShouldRecomputeCountersFromTheLiveCatalog()
+    {
+        // Arrange — eviction is the state HybridCache reaches once the TTL lapses (the expiry timer
+        // itself is HybridCache's contract); the handler must then recompute, not hold on.
+        HybridCache hybridCache = TestHybridCache.Create();
+        Given(1, TranslationStatus.Approved);
+        GetTranslationStats.Handler first = new(TestReadScopeFactory.Create(new FakeReadDbContext(_readModels)), hybridCache);
+        Given(2, TranslationStatus.Draft);
+        GetTranslationStats.Handler second = new(TestReadScopeFactory.Create(new FakeReadDbContext(_readModels)), hybridCache);
+        Result<TranslationStatsResponse> initial =
+            await first.Handle(new GetTranslationStats.Query(), CancellationToken.None);
+        initial.Value.Total.ShouldBe(1);
+
+        // Act
+        await hybridCache.RemoveAsync(GetTranslationStats.CounterCacheKey);
+        Result<TranslationStatsResponse> refreshed =
+            await second.Handle(new GetTranslationStats.Query(), CancellationToken.None);
+
+        // Assert
+        refreshed.IsSuccess.ShouldBeTrue();
+        refreshed.Value.Total.ShouldBe(2);
+        refreshed.Value.Translated.ShouldBe(2);
+        refreshed.Value.Approved.ShouldBe(1);
+    }
+
     private async Task<TranslationStatsResponse> HandleAsync()
     {
-        GetTranslationStats.Handler handler = new(new FakeReadDbContext(_readModels));
+        GetTranslationStats.Handler handler = new(TestReadScopeFactory.Create(new FakeReadDbContext(_readModels)), TestHybridCache.Create());
 
         Result<TranslationStatsResponse> result =
             await handler.Handle(new GetTranslationStats.Query(), CancellationToken.None);

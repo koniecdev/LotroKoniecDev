@@ -7,6 +7,7 @@ using LotroKoniecDev.TranslationSystem.Contracts.Translations;
 using LotroKoniecDev.TranslationSystem.Persistence.DbContexts.ReadDbContexts;
 using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.TranslationAggregate.Enums;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Hybrid;
 
 namespace LotroKoniecDev.TranslationSystem.API.Features.Translations;
 
@@ -16,23 +17,67 @@ namespace LotroKoniecDev.TranslationSystem.API.Features.Translations;
 /// amendment) — with a single grouped count per <see cref="TranslationStatus"/>, then buckets in
 /// memory, so it stays one cheap round-trip regardless of catalog size. Counters only, by design
 /// (YAGNI — not analytics).
+///
+/// Served from a short-TTL <see cref="HybridCache"/> entry (AUDIT-EF-04/#354) under its own key —
+/// deliberately not shared with <see cref="Progress.GetPublicProgress"/>: the slices stay
+/// independent and their responses differ; the cost is one extra grouped scan per TTL window.
 /// </summary>
 internal sealed class GetTranslationStats : IEndpoint
 {
+    /// <summary>
+    /// One entry for the whole dashboard — the counters are catalog-wide, not per user. Internal so
+    /// the integration-test reset can evict it alongside its TRUNCATE.
+    /// </summary>
+    internal const string CounterCacheKey = "translation-stats";
+
     internal sealed record Query : IQuery<Result<TranslationStatsResponse>>;
 
     internal sealed class Handler : IQueryHandler<Query, Result<TranslationStatsResponse>>
     {
-        private readonly IApplicationReadDbContext _readDbContext;
-
-        public Handler(IApplicationReadDbContext readDbContext)
+        /// <summary>
+        /// Bounded staleness on counters is fine (same philosophy as the ADR-0021 debounce); 30 s
+        /// keeps the dashboard responsive after an approve while deduplicating request bursts.
+        /// </summary>
+        private static readonly HybridCacheEntryOptions CounterTtlEntryOptions = new()
         {
-            _readDbContext = readDbContext;
+            Expiration = TimeSpan.FromSeconds(30),
+            LocalCacheExpiration = TimeSpan.FromSeconds(30)
+        };
+
+        private readonly IServiceScopeFactory _serviceScopeFactory;
+        private readonly HybridCache _hybridCache;
+
+        public Handler(IServiceScopeFactory serviceScopeFactory, HybridCache hybridCache)
+        {
+            _serviceScopeFactory = serviceScopeFactory;
+            _hybridCache = hybridCache;
         }
 
         public async ValueTask<Result<TranslationStatsResponse>> Handle(Query query, CancellationToken cancellationToken)
         {
-            Dictionary<TranslationStatus, int> countByStatus = await _readDbContext.Translations
+            TranslationStatsResponse stats = await _hybridCache.GetOrCreateAsync(
+                CounterCacheKey,
+                this,
+                static (self, ct) => self.ComputeStatsAsync(ct),
+                CounterTtlEntryOptions,
+                cancellationToken: cancellationToken);
+
+            return Result.Success(stats);
+        }
+
+        /// <summary>
+        /// Computes on its OWN scope, never the calling request's: HybridCache runs ONE factory for
+        /// all concurrently joined callers, and the initiating request can abort — disposing its
+        /// request-scoped read context — while others stay joined. A fresh scope keeps the shared
+        /// computation alive for the survivors instead of faulting them with a disposed context.
+        /// </summary>
+        private async ValueTask<TranslationStatsResponse> ComputeStatsAsync(CancellationToken cancellationToken)
+        {
+            await using AsyncServiceScope scope = _serviceScopeFactory.CreateAsyncScope();
+            IApplicationReadDbContext readDbContext =
+                scope.ServiceProvider.GetRequiredService<IApplicationReadDbContext>();
+
+            Dictionary<TranslationStatus, int> countByStatus = await readDbContext.Translations
                 .Where(translation => translation.RemovedInVersion == null)
                 .GroupBy(translation => translation.Status)
                 .Select(group => new { Status = group.Key, Count = group.Count() })
@@ -51,13 +96,11 @@ internal sealed class GetTranslationStats : IEndpoint
                 + approved
                 + countByStatus.GetValueOrDefault(TranslationStatus.NeedsReview);
 
-            TranslationStatsResponse stats = new(
+            return new TranslationStatsResponse(
                 Total: total,
                 Translated: translated,
                 Approved: approved,
                 Remaining: total - approved);
-
-            return Result.Success(stats);
         }
     }
 

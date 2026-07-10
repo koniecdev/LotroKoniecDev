@@ -125,6 +125,23 @@ public sealed class GetTranslationStatsTests : IAsyncLifetime
         response.StatusCode.ShouldBe(HttpStatusCode.Unauthorized);
     }
 
+    [Fact]
+    public async Task Stats_RepeatedWithinTtl_ShouldNotRerunTheCounterQuery()
+    {
+        // Arrange — the first call populates the server-side cache (AUDIT-EF-04/#354).
+        await SeedAsync(Row(1, "a", TranslationStatus.Approved), Row(2, "b"));
+        TranslationStatsResponse first = await StatsAsync();
+        _factory.ReadContextSqlRecorder.Clear();
+
+        // Act
+        TranslationStatsResponse second = await StatsAsync();
+
+        // Assert — served entirely from the cache: identical payload and zero read-context SQL
+        // (translator provisioning touches only the write context, so the read stream stays clean).
+        second.ShouldBe(first);
+        _factory.ReadContextSqlRecorder.Commands.ShouldBeEmpty();
+    }
+
     private async Task<TranslationStatsResponse> StatsAsync()
     {
         HttpResponseMessage response = await TranslatorClient().GetAsync("/api/v1/translations/stats");

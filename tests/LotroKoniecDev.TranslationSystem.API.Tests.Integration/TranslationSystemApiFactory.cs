@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Hybrid;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -10,7 +11,9 @@ using Microsoft.IdentityModel.JsonWebTokens;
 using Microsoft.IdentityModel.Tokens;
 using Testcontainers.PostgreSql;
 using LotroKoniecDev.SharedKernel.Authorization;
+using LotroKoniecDev.TranslationSystem.API.Features.Progress;
 using LotroKoniecDev.TranslationSystem.API.Features.TranslationFiles;
+using LotroKoniecDev.TranslationSystem.API.Features.Translations;
 using LotroKoniecDev.TranslationSystem.Persistence.DbContexts.ReadDbContexts;
 using LotroKoniecDev.TranslationSystem.Persistence.DbContexts.WriteDbContexts;
 
@@ -95,11 +98,16 @@ public class TranslationSystemApiFactory : WebApplicationFactory<Program>, IAsyn
     /// (PERF-04, ADR-0021), then truncates the given tables. The quiesce is fused into the reset —
     /// never an opt-in pairing — because a rebuild still in flight from the previous class's writes
     /// would re-materialize an artifact row right after the TRUNCATE and poison assertions such as
-    /// the "no artifact yet" 404.
+    /// the "no artifact yet" 404. Evicting the counter-cache entries (AUDIT-EF-04/#354) is fused in
+    /// for the same reason: a cached snapshot outlives the TRUNCATE and would leak the previous
+    /// test's counters into the next one.
     /// </summary>
     public async Task ResetDatabaseAsync(string truncateSql)
     {
         await WaitForArtifactRebuildQuiesceAsync();
+
+        HybridCache hybridCache = Services.GetRequiredService<HybridCache>();
+        await hybridCache.RemoveAsync([GetPublicProgress.CounterCacheKey, GetTranslationStats.CounterCacheKey]);
 
         using IServiceScope scope = Services.CreateScope();
         ApplicationWriteDbContext dbContext = scope.ServiceProvider.GetRequiredService<ApplicationWriteDbContext>();

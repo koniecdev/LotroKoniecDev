@@ -9,7 +9,6 @@ using LotroKoniecDev.TranslationSystem.Persistence.DbContexts.Abstractions;
 using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.TranslatorAggregate;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Hybrid;
-using Microsoft.Extensions.DependencyInjection;
 using NSubstitute;
 using NSubstitute.ExceptionExtensions;
 
@@ -29,20 +28,10 @@ public sealed class TranslatorProvisionerTests
         => Translator.Create(Identity, DisplayName.Create(displayName).Value, email: null, Now).Value;
 
     private TranslatorProvisioner CreateProvisioner(StubCurrentUserAccessor accessor)
-        => CreateProvisioner(accessor, CreateHybridCache());
+        => CreateProvisioner(accessor, TestHybridCache.Create());
 
     private TranslatorProvisioner CreateProvisioner(StubCurrentUserAccessor accessor, HybridCache hybridCache)
         => new(accessor, _translatorRepository, _unitOfWork, new FixedTimeProvider(Now), hybridCache);
-
-    // A fresh in-memory (L1-only) HybridCache per provisioner keeps each test isolated. The default
-    // real implementation is a purely in-process memory store, so the unit test stays pure (no I/O).
-    private static HybridCache CreateHybridCache()
-    {
-        ServiceCollection services = new();
-        services.AddLogging();
-        services.AddHybridCache();
-        return services.BuildServiceProvider().GetRequiredService<HybridCache>();
-    }
 
     private static StubCurrentUserAccessor Accessor(
         ValueMaybe<IdentityId>? identity = null,
@@ -288,7 +277,7 @@ public sealed class TranslatorProvisionerTests
             Now).Value;
         _translatorRepository.GetByIdentityIdAsync(Identity, Arg.Any<CancellationToken>())
             .Returns(Maybe<Translator>.From(existing));
-        HybridCache sharedCache = CreateHybridCache();
+        HybridCache sharedCache = TestHybridCache.Create();
         TranslatorProvisioner firstRequest =
             CreateProvisioner(Accessor(username: firstName, email: firstEmail), sharedCache);
         TranslatorProvisioner secondRequest =

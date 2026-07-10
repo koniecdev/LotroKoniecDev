@@ -1,10 +1,14 @@
 using LotroKoniecDev.Frontend.Infrastructure.Auth;
 using LotroKoniecDev.Frontend.Settings;
+using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authentication.OpenIdConnect;
 using Microsoft.AspNetCore.DataProtection;
+using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Protocols.OpenIdConnect;
+using NSubstitute;
 
 namespace LotroKoniecDev.Frontend.Tests.Unit.Infrastructure.Auth;
 
@@ -26,7 +30,50 @@ public sealed class AuthenticationDependencyInjectionExtensionsTests
         options.UsePkce.ShouldBeTrue();
     }
 
+    [Theory]
+    [InlineData("Production")]
+    [InlineData("Staging")]
+    [InlineData("Testing")]
+    public void AddFrontendAuthentication_CookieOptions_NonDevelopmentEnvironment_RequiresSecureCookieUnconditionally(
+        string environmentName)
+    {
+        CookieAuthenticationOptions options = ResolveConfiguredCookieOptions(environmentName);
+
+        options.Cookie.SecurePolicy.ShouldBe(CookieSecurePolicy.Always);
+    }
+
+    [Fact]
+    public void AddFrontendAuthentication_CookieOptions_DevelopmentEnvironment_UsesSameAsRequest()
+    {
+        CookieAuthenticationOptions options = ResolveConfiguredCookieOptions("Development");
+
+        options.Cookie.SecurePolicy.ShouldBe(CookieSecurePolicy.SameAsRequest);
+    }
+
     private static OpenIdConnectOptions ResolveConfiguredOidcOptions()
+    {
+        ServiceCollection services = CreateFrontendAuthenticationServices();
+        using ServiceProvider provider = services.BuildServiceProvider();
+
+        return provider
+            .GetRequiredService<IOptionsMonitor<OpenIdConnectOptions>>()
+            .Get(OpenIdConnectDefaults.AuthenticationScheme);
+    }
+
+    private static CookieAuthenticationOptions ResolveConfiguredCookieOptions(string environmentName)
+    {
+        ServiceCollection services = CreateFrontendAuthenticationServices();
+        IHostEnvironment environment = Substitute.For<IHostEnvironment>();
+        environment.EnvironmentName.Returns(environmentName);
+        services.AddSingleton(environment);
+        using ServiceProvider provider = services.BuildServiceProvider();
+
+        return provider
+            .GetRequiredService<IOptionsMonitor<CookieAuthenticationOptions>>()
+            .Get(CookieAuthenticationDefaults.AuthenticationScheme);
+    }
+
+    private static ServiceCollection CreateFrontendAuthenticationServices()
     {
         ServiceCollection services = new();
         services.AddLogging();
@@ -41,10 +88,7 @@ public sealed class AuthenticationDependencyInjectionExtensionsTests
             Scopes = ["openid", "email", "profile"],
         }));
         services.AddFrontendAuthentication();
-        using ServiceProvider provider = services.BuildServiceProvider();
 
-        return provider
-            .GetRequiredService<IOptionsMonitor<OpenIdConnectOptions>>()
-            .Get(OpenIdConnectDefaults.AuthenticationScheme);
+        return services;
     }
 }

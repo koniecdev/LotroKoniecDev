@@ -63,7 +63,7 @@ internal static class AuthenticationDependencyInjectionExtensions
                     options.Cookie.Name = ".lotrokoniecdev.auth";
                     options.Cookie.HttpOnly = true;
                     options.Cookie.SameSite = SameSiteMode.Lax;
-                    options.Cookie.SecurePolicy = CookieSecurePolicy.SameAsRequest;
+                    // SecurePolicy is environment-dependent — set in ConfigureCookieSecurePolicy below.
                     // Lock path so SignIn/SignOut cookies always match — without this, a future code path
                     // that signs in under a non-root PathBase would produce a cookie that /auth/logout
                     // (PathBase="") cannot delete.
@@ -77,6 +77,9 @@ internal static class AuthenticationDependencyInjectionExtensions
                 })
                 .AddOpenIdConnect();
 
+            services.AddOptions<CookieAuthenticationOptions>(CookieAuthenticationDefaults.AuthenticationScheme)
+                .Configure<IHostEnvironment>(ConfigureCookieSecurePolicy);
+
             services.AddOptions<OpenIdConnectOptions>(OpenIdConnectDefaults.AuthenticationScheme)
                 .Configure<IOptions<AuthSystemSettings>>(ConfigureOpenIdConnect);
 
@@ -89,6 +92,23 @@ internal static class AuthenticationDependencyInjectionExtensions
         CookieTokenRefresher refresher = context.HttpContext
             .RequestServices.GetRequiredService<CookieTokenRefresher>();
         return refresher.ValidateAsync(context);
+    }
+
+    /// <summary>
+    /// AUDIT-SEC-10 (#400): outside Development the session cookie is unconditionally <c>Secure</c>.
+    /// <see cref="CookieSecurePolicy.SameAsRequest"/> would tie the flag to <c>Request.Scheme</c>,
+    /// which behind the TLS-terminating proxy is derived from <c>X-Forwarded-Proto</c> — a single
+    /// scheme mismatch would write the cookie without <c>Secure</c> and let the browser send it over
+    /// plain HTTP. Development keeps <see cref="CookieSecurePolicy.SameAsRequest"/> so a plain-HTTP
+    /// local run still produces a cookie the browser accepts.
+    /// </summary>
+    private static void ConfigureCookieSecurePolicy(
+        CookieAuthenticationOptions options,
+        IHostEnvironment environment)
+    {
+        options.Cookie.SecurePolicy = environment.IsDevelopment()
+            ? CookieSecurePolicy.SameAsRequest
+            : CookieSecurePolicy.Always;
     }
 
     private static void ConfigureOpenIdConnect(

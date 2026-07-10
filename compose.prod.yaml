@@ -87,6 +87,9 @@ services:
     environment:
       ASPNETCORE_ENVIRONMENT: Production
       ASPNETCORE_URLS: "http://+:8080"
+      # Trust X-Forwarded-* only from the pinned stack subnet (the Caddy hop) — #399. Keep in
+      # lockstep with the ipam subnet at the bottom of this file.
+      ForwardedHeaders__KnownNetworks__0: "10.60.0.0/24"
       ConnectionStrings__AuthDatabase: ${ConnectionStrings__AuthDatabase}
       # Public issuer served by the proxy — stamped into every token's 'iss'; reachable identically
       # from the browser (front-channel) and the Frontend container (back-channel) through the proxy.
@@ -132,6 +135,9 @@ services:
     environment:
       ASPNETCORE_ENVIRONMENT: Production
       ASPNETCORE_URLS: "http://+:8080"
+      # Trust X-Forwarded-* only from the pinned stack subnet (the Caddy hop) — #399. Keep in
+      # lockstep with the ipam subnet at the bottom of this file.
+      ForwardedHeaders__KnownNetworks__0: "10.60.0.0/24"
       ConnectionStrings__TranslationDatabase: ${ConnectionStrings__TranslationDatabase}
       # In Production OpenIddict rejects plain HTTP, so tms-api fetches OIDC metadata + JWKS through
       # the proxy over https (why it trusts the local CA via the entrypoint above). Issuer = the public
@@ -170,6 +176,9 @@ services:
     environment:
       ASPNETCORE_ENVIRONMENT: Production
       ASPNETCORE_URLS: "http://+:8080"
+      # Trust X-Forwarded-* only from the pinned stack subnet (the Caddy hop) — #399. Keep in
+      # lockstep with the ipam subnet at the bottom of this file.
+      ForwardedHeaders__KnownNetworks__0: "10.60.0.0/24"
       # OIDC RP: a single Authority (the proxy origin) drives the browser /authorize redirect AND the
       # container's discovery/token/userinfo back-channel — both resolve to the proxy (browser via
       # hosts file, container via the proxy's network aliases below).
@@ -244,3 +253,13 @@ volumes:
   lotrokoniecdev-prod-auth-keys:
   lotrokoniecdev-prod-frontend-keys:
   lotrokoniecdev-prod-caddy-data:
+
+networks:
+  # Pinned subnet so the apps can restrict forwarded-header trust to the in-stack Caddy hop via
+  # ForwardedHeaders__KnownNetworks__0 above (#399). 10.60.0.0/24 sits outside Docker's default
+  # auto-pool (172.17-31.x), so it cannot collide with the auto-assigned dev-stack network; if it
+  # ever clashes with something host-local, change it here and in the three env vars in lockstep.
+  default:
+    ipam:
+      config:
+        - subnet: 10.60.0.0/24

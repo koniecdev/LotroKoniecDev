@@ -66,7 +66,8 @@ jobs:
           # build until it is listed here, never a false skip) / compose, the .docker/ trust
           # material, editor/run configs, .env examples, and everything under .github/ (workflows,
           # issue/PR templates). A PR touching only these cannot break the .NET build, the tests, or
-          # the SSR guard. NEVER add a build input here (.editorconfig, Directory.*.props/.targets,
+          # the SSR guard. Workflow files are not unchecked, though: actionlint.yml (CI-02 / #404)
+          # parses .github/workflows/** on every PR. NEVER add a build input here (.editorconfig, Directory.*.props/.targets,
           # global.json, nuget.config, test fixtures) — that would be a false green.
           inert='\.md$|^docs/|^LICENSE$|^\.gitignore$|^\.gitattributes$|\.sh$|\.ps1$|^iac/|(^|/)Dockerfile(\.migrator(\.prod)?|\.tests)?$|^compose[^/]*\.ya?ml$|^\.docker/|^\.github/|^\.run/|^\.vscode/|^\.idea/|(^|/)\.env[^/]*\.example$'
           # Build-relevant despite matching `inert`: check-ssr-purity.sh, the migration-safety

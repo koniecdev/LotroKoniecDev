@@ -1,0 +1,59 @@
+name: Actionlint
+
+# Why this exists (CI-02 / #404): pr-verify classifies everything under .github/ as inert and its
+# force_build rescues only pr-verify.yml + ci.yml, so every OTHER workflow file used to merge with
+# no pre-merge check parsing it. PR #388 (Dependabot's github-actions group) changed cd.yml,
+# codeql.yml and deploy.yml and merged with "Pull Request Verification" skipped — and cd.yml /
+# deploy.yml cannot run on a PR by design (workflow_run / workflow_call), so the first execution
+# of a bumped deploy-path action was the real CD run on main. What CAN run pre-merge is the
+# parser: actionlint validates action inputs, expressions, needs: references, event names, and
+# (via the runner image's shellcheck) every run: block. It needs no secrets, so it also runs on
+# Dependabot's read-only-token PRs.
+#
+# Deadlock-proofing: the workflow always triggers and the job always reports — never on.paths
+# (a paths-filtered required check never reports on non-matching PRs and would deadlock them, the
+# exact trap pr-verify's changes gate escapes). Linting every workflow takes seconds, so unlike
+# pr-verify's heavy .NET job there is nothing worth a diff classifier here — and a path
+# classifier rotting green is precisely what let #388 through, so not having one is the point.
+#
+# The binary is a pinned install (version + SHA-256), the accepted alternative to a SHA-pinned
+# action (audit 0001 H6: no mutable tags on anything executed in CI).
+
+on:
+  pull_request:
+    branches: ["main"]
+
+# A new push to the same PR cancels the in-progress run instead of paying for both.
+concurrency:
+  group: actionlint-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  actionlint:
+    name: Actionlint
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Install actionlint (pinned, checksum-verified)
+        run: |
+          set -euo pipefail
+          version='1.7.12'
+          sha256='8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8'
+          curl -fsSL --retry 3 -o actionlint.tar.gz \
+            "https://github.com/rhysd/actionlint/releases/download/v${version}/actionlint_${version}_linux_amd64.tar.gz"
+          echo "${sha256}  actionlint.tar.gz" | sha256sum -c -
+          tar -xzf actionlint.tar.gz actionlint
+          # run: blocks are checked by the runner image's shellcheck — record the version so a
+          # finding that appears without a workflow change is attributable to an image update.
+          shellcheck --version
+
+      - name: Run actionlint
+        run: ./actionlint -color

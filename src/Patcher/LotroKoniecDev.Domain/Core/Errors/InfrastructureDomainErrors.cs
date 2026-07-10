@@ -29,11 +29,16 @@ public static partial class DomainErrors
 
     public static class GameLaunch
     {
+        public const string UntrustedLauncherCode = "GameLaunch.UntrustedLauncher";
+
         public static Error GameAlreadyRunning =>
             OperationFailed("GameLaunch", "LOTRO is already running. Close the game before launching.");
 
         public static Error LauncherNotFound(string path) =>
             NotFound("GameLaunch", $"LotroLauncher.exe at '{path}'");
+
+        public static Error UntrustedLauncher(string path, string reason) =>
+            Error.Failure(UntrustedLauncherCode, $"Refusing to launch '{path}': {reason}.");
 
         public static Error LaunchFailed(string message) =>
             OperationFailed("GameLaunch", message);

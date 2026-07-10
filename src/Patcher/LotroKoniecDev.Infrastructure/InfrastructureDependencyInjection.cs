@@ -23,6 +23,7 @@ public static class InfrastructureDependencyInjection
         services.AddScoped<DatFileHandler>();
         services.AddScoped<IDatFileHandler>(sp => sp.GetRequiredService<DatFileHandler>());
         services.AddScoped<IDatVersionReader>(sp => sp.GetRequiredService<DatFileHandler>());
+        services.AddSingleton<ILauncherSignatureVerifier, AuthenticodeLauncherSignatureVerifier>();
         services.AddSingleton<IGameLauncher, GameLauncher>();
         services.AddSingleton<IDatFileLocator, DatFileLocator>();
         services.AddSingleton<IGameProcessDetector, GameProcessDetector>();

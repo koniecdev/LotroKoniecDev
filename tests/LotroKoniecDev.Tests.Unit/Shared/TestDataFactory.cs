@@ -1,4 +1,5 @@
 using System.Text;
+using LotroKoniecDev.Domain.Core.Utilities;
 
 namespace LotroKoniecDev.Tests.Unit.Shared;
 
@@ -65,6 +66,23 @@ internal static class TestDataFactory
         }
 
         writer.Write((byte)0); // numArgStringGroups
+
+        return stream.ToArray();
+    }
+
+    /// <summary>
+    /// Creates binary SubFile data that declares <paramref name="declaredFragmentCount"/> fragments
+    /// but contains no fragment data — an impossible count used to exercise parser bounds checks.
+    /// </summary>
+    internal static byte[] CreateTextSubFileDataWithImpossibleFragmentCount(int fileId, int declaredFragmentCount)
+    {
+        using MemoryStream stream = new();
+        using BinaryWriter writer = new(stream);
+
+        writer.Write(fileId);
+        writer.Write(new byte[4]); // Unknown1
+        writer.Write((byte)0); // Unknown2
+        VarLenEncoder.Write(writer, declaredFragmentCount); // numFragments (varlen)
 
         return stream.ToArray();
     }

@@ -1,4 +1,5 @@
 using System.Text;
+using LotroKoniecDev.Domain.Core.Utilities;
 using LotroKoniecDev.Domain.Models;
 
 namespace LotroKoniecDev.Tests.Unit.Tests.Models;
@@ -399,5 +400,176 @@ public sealed class FragmentTests
         reparsed.ArgRefs.Count.ShouldBe(1);
         reparsed.ArgStrings.Count.ShouldBe(1);
         reparsed.ArgStrings[0].ShouldBe(new[] { "Alpha", "Beta" });
+    }
+
+    [Theory]
+    [InlineData(int.MaxValue)]
+    [InlineData(1000)]
+    [InlineData(-1)]
+    public void Parse_ImpossiblePieceCount_ShouldThrowInvalidDataException(int declaredPieces)
+    {
+        // Arrange — declares more pieces than the remaining bytes could ever hold
+        Fragment fragment = new();
+        using MemoryStream stream = new();
+        using BinaryWriter writer = new(stream);
+
+        writer.Write((ulong)100);
+        writer.Write(declaredPieces);
+
+        stream.Position = 0;
+        using BinaryReader reader = new(stream);
+
+        // Act
+        Action action = () => fragment.Parse(reader);
+
+        // Assert
+        action.ShouldThrow<InvalidDataException>();
+    }
+
+    [Fact]
+    public void Parse_PieceLengthExceedingRemainingBytes_ShouldThrowInvalidDataException()
+    {
+        // Arrange — the piece declares 300 characters (600 bytes) but only 4 bytes follow
+        Fragment fragment = new();
+        using MemoryStream stream = new();
+        using BinaryWriter writer = new(stream);
+
+        writer.Write((ulong)100);
+        writer.Write(1); // Num pieces = 1
+        VarLenEncoder.Write(writer, 300);
+        writer.Write(Encoding.Unicode.GetBytes("Hi"));
+
+        stream.Position = 0;
+        using BinaryReader reader = new(stream);
+
+        // Act
+        Action action = () => fragment.Parse(reader);
+
+        // Assert
+        action.ShouldThrow<InvalidDataException>();
+    }
+
+    [Theory]
+    [InlineData(int.MaxValue)]
+    [InlineData(1000)]
+    [InlineData(-1)]
+    public void Parse_ImpossibleArgRefCount_ShouldThrowInvalidDataException(int declaredArgRefs)
+    {
+        // Arrange — a valid empty piece list, then an arg-ref count with no data behind it
+        Fragment fragment = new();
+        using MemoryStream stream = new();
+        using BinaryWriter writer = new(stream);
+
+        writer.Write((ulong)100);
+        writer.Write(0); // Num pieces
+        writer.Write(declaredArgRefs);
+
+        stream.Position = 0;
+        using BinaryReader reader = new(stream);
+
+        // Act
+        Action action = () => fragment.Parse(reader);
+
+        // Assert
+        action.ShouldThrow<InvalidDataException>();
+    }
+
+    [Fact]
+    public void Parse_ArgRefCountLargerThanRemainingBytes_ShouldThrowInvalidDataException()
+    {
+        // Arrange — declares 2 arg refs (8 bytes) but only one 4-byte ref is present
+        Fragment fragment = new();
+        using MemoryStream stream = new();
+        using BinaryWriter writer = new(stream);
+
+        writer.Write((ulong)100);
+        writer.Write(0); // Num pieces
+        writer.Write(2); // Num arg refs = 2
+        writer.Write(new byte[] { 0x01, 0x02, 0x03, 0x04 });
+
+        stream.Position = 0;
+        using BinaryReader reader = new(stream);
+
+        // Act
+        Action action = () => fragment.Parse(reader);
+
+        // Assert
+        action.ShouldThrow<InvalidDataException>();
+    }
+
+    [Fact]
+    public void Parse_ArgStringGroupCountExceedingRemainingBytes_ShouldThrowInvalidDataException()
+    {
+        // Arrange — declares 255 arg string groups with no group data behind the count
+        Fragment fragment = new();
+        using MemoryStream stream = new();
+        using BinaryWriter writer = new(stream);
+
+        writer.Write((ulong)100);
+        writer.Write(0); // Num pieces
+        writer.Write(0); // Num arg refs
+        writer.Write((byte)255);
+
+        stream.Position = 0;
+        using BinaryReader reader = new(stream);
+
+        // Act
+        Action action = () => fragment.Parse(reader);
+
+        // Assert
+        action.ShouldThrow<InvalidDataException>();
+    }
+
+    [Theory]
+    [InlineData(int.MaxValue)]
+    [InlineData(1000)]
+    [InlineData(-1)]
+    public void Parse_ImpossibleArgStringCount_ShouldThrowInvalidDataException(int declaredStrings)
+    {
+        // Arrange — one arg string group whose string count cannot fit in the remaining bytes
+        Fragment fragment = new();
+        using MemoryStream stream = new();
+        using BinaryWriter writer = new(stream);
+
+        writer.Write((ulong)100);
+        writer.Write(0); // Num pieces
+        writer.Write(0); // Num arg refs
+        writer.Write((byte)1); // 1 arg string group
+        writer.Write(declaredStrings);
+
+        stream.Position = 0;
+        using BinaryReader reader = new(stream);
+
+        // Act
+        Action action = () => fragment.Parse(reader);
+
+        // Assert
+        action.ShouldThrow<InvalidDataException>();
+    }
+
+    [Fact]
+    public void Parse_ArgStringLengthExceedingRemainingBytes_ShouldThrowInvalidDataException()
+    {
+        // Arrange — the arg string declares 300 characters (600 bytes) but only 4 bytes follow
+        Fragment fragment = new();
+        using MemoryStream stream = new();
+        using BinaryWriter writer = new(stream);
+
+        writer.Write((ulong)100);
+        writer.Write(0); // Num pieces
+        writer.Write(0); // Num arg refs
+        writer.Write((byte)1); // 1 arg string group
+        writer.Write(1); // group has 1 string
+        VarLenEncoder.Write(writer, 300);
+        writer.Write(Encoding.Unicode.GetBytes("Hi"));
+
+        stream.Position = 0;
+        using BinaryReader reader = new(stream);
+
+        // Act
+        Action action = () => fragment.Parse(reader);
+
+        // Assert
+        action.ShouldThrow<InvalidDataException>();
     }
 }

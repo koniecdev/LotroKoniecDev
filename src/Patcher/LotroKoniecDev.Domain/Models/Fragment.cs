@@ -9,6 +9,11 @@ namespace LotroKoniecDev.Domain.Models;
 /// </summary>
 public sealed class Fragment
 {
+    private const int BytesPerUtf16Char = 2;
+    private const int ArgRefSize = 4;
+    private const int MinEncodedPieceSize = 1; // a zero-length piece still carries its VarLen length byte
+    private const int MinEncodedArgStringSize = 1; // a zero-length argument string still carries its VarLen length byte
+    private const int MinEncodedArgStringGroupSize = 4; // an empty group still carries its string-count int
 
     public ulong FragmentId { get; private set; }
     public List<string> Pieces { get; set; } = [];
@@ -88,11 +93,13 @@ public sealed class Fragment
     private void ReadPieces(BinaryReader reader)
     {
         int numPieces = reader.ReadInt32();
+        BinaryBoundsGuard.EnsureCountFits(reader, numPieces, MinEncodedPieceSize, "piece");
 
         for (int i = 0; i < numPieces; i++)
         {
             int pieceSize = VarLenEncoder.Read(reader);
-            byte[] bytes = reader.ReadBytes(pieceSize * 2); // UTF-16LE (2 bytes per char)
+            BinaryBoundsGuard.EnsureCountFits(reader, pieceSize, BytesPerUtf16Char, "piece character");
+            byte[] bytes = reader.ReadBytes(pieceSize * BytesPerUtf16Char);
             Pieces.Add(Encoding.Unicode.GetString(bytes));
         }
     }
@@ -100,26 +107,30 @@ public sealed class Fragment
     private void ReadArgRefs(BinaryReader reader)
     {
         int numArgRefs = reader.ReadInt32();
+        BinaryBoundsGuard.EnsureCountFits(reader, numArgRefs, ArgRefSize, "argument reference");
 
         for (int i = 0; i < numArgRefs; i++)
         {
-            ArgRefs.Add(reader.ReadBytes(4));
+            ArgRefs.Add(reader.ReadBytes(ArgRefSize));
         }
     }
 
     private void ReadArgStrings(BinaryReader reader)
     {
         int numArgStringGroups = reader.ReadByte();
+        BinaryBoundsGuard.EnsureCountFits(reader, numArgStringGroups, MinEncodedArgStringGroupSize, "argument string group");
 
         for (int i = 0; i < numArgStringGroups; i++)
         {
             List<string> group = new List<string>();
             int numStrings = reader.ReadInt32();
+            BinaryBoundsGuard.EnsureCountFits(reader, numStrings, MinEncodedArgStringSize, "argument string");
 
             for (int j = 0; j < numStrings; j++)
             {
                 int strSize = VarLenEncoder.Read(reader);
-                byte[] bytes = reader.ReadBytes(strSize * 2);
+                BinaryBoundsGuard.EnsureCountFits(reader, strSize, BytesPerUtf16Char, "argument string character");
+                byte[] bytes = reader.ReadBytes(strSize * BytesPerUtf16Char);
                 group.Add(Encoding.Unicode.GetString(bytes));
             }
 

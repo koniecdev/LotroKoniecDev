@@ -1,5 +1,6 @@
 using System.Text;
 using LotroKoniecDev.Domain.Models;
+using LotroKoniecDev.Tests.Unit.Shared;
 
 namespace LotroKoniecDev.Tests.Unit.Tests.Models;
 
@@ -189,5 +190,50 @@ public sealed class SubFileTests
         reparsedSubFile.Parse(serialized);
         reparsedSubFile.FragmentCount.ShouldBe(1);
         reparsedSubFile.Fragments[12345UL].GetFullText().ShouldBe("Test");
+    }
+
+    [Theory]
+    [InlineData(0x7FFF)] // VarLen maximum
+    [InlineData(1)]
+    public void Parse_ImpossibleFragmentCount_ShouldThrowInvalidDataException(int declaredFragments)
+    {
+        // Arrange — declares fragments with no fragment data behind the count
+        SubFile subFile = new();
+        byte[] data = TestDataFactory.CreateTextSubFileDataWithImpossibleFragmentCount(0x25000001, declaredFragments);
+
+        // Act
+        Action action = () => subFile.Parse(data);
+
+        // Assert
+        action.ShouldThrow<InvalidDataException>();
+    }
+
+    [Fact]
+    public void Parse_FragmentCountLargerThanRemainingData_ShouldThrowInvalidDataException()
+    {
+        // Arrange — declares 2 fragments but contains only one
+        SubFile subFile = new();
+        using MemoryStream stream = new();
+        using BinaryWriter writer = new(stream);
+
+        writer.Write(0x25000001); // File ID (text file)
+        writer.Write(new byte[4]); // Unknown1
+        writer.Write((byte)0);     // Unknown2
+        writer.Write((byte)2);     // Num fragments = 2
+
+        writer.Write((ulong)12345); // Fragment ID
+        writer.Write(1);             // Num pieces = 1
+        writer.Write((byte)4);       // Piece length = 4 (VarLen single byte)
+        writer.Write(Encoding.Unicode.GetBytes("Test"));
+        writer.Write(0);             // Num arg refs = 0
+        writer.Write((byte)0);       // Num arg string groups = 0
+
+        byte[] data = stream.ToArray();
+
+        // Act
+        Action action = () => subFile.Parse(data);
+
+        // Assert
+        action.ShouldThrow<InvalidDataException>();
     }
 }

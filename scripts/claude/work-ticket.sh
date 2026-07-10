@@ -13,6 +13,9 @@
 #                           previously opus — Opus 4.8 with its native 1M-token context window)
 #   LOOP_CONFIG_DIR         Claude config dir = which account runs the loop
 #                           (default: ~/.claude-account1)
+#   LOOP_GH_USER            gh account whose token backs the loop's gh write calls — PR merge,
+#                           labels, issue comments (default: koniecdev, the repo owner); an
+#                           existing GH_TOKEN in the environment wins
 #   LOOP_PERMISSION_MODE    default: auto, plus a loop-scoped --allowedTools Bash allowlist
 #                           (git/gh/dotnet/scripts — see LOOP_ALLOWED_TOOLS below); this does NOT
 #                           widen permissions of your interactive sessions
@@ -57,6 +60,19 @@ done
 log() { echo "[loop] #$ISSUE $(date +%H:%M:%S) $*"; }
 
 meta() { echo "$1=$2" >> "$META"; }
+
+# ── gh identity: write calls must not depend on the machine's ACTIVE gh account ────────────────
+# The merge gate, labels and issue comments need write access, but the active gh account here is
+# often the EMU work account, which GitHub bars from writing outside its enterprise ("Enterprise
+# Managed User cannot access this content"). Mint the owner's token unless the caller set one.
+if [ -z "${GH_TOKEN:-}" ]; then
+    owner_token="$(gh auth token --user "${LOOP_GH_USER:-koniecdev}" 2>/dev/null || true)"
+    if [ -n "$owner_token" ]; then
+        export GH_TOKEN="$owner_token"
+    else
+        log "no gh token for '${LOOP_GH_USER:-koniecdev}' — gh write calls will use the active gh account"
+    fi
+fi
 
 # ── Provenance gate: only maintainer-written issue text may become the worker's task ───────────
 # This is the enforcement point, not next-ticket.sh: the picker merely *selects*, whereas the
@@ -142,8 +158,12 @@ meta turns "$turns"
 meta minutes "$elapsed_min"
 
 # ── Usage-limit / hard-error detection ─────────────────────────────────────────────────────────
+# The CLI reports plan/rate limits as api_error_status 429 in the result JSON regardless of the
+# message wording ("usage limit", "session limit", …) — trust that first; the wording grep stays
+# as the fallback for stderr-only failures where no result JSON was written.
+api_error_status="$(jq -r '.api_error_status // 0' "$OUT" 2>/dev/null || echo 0)"
 combined="$result $(tail -c 2000 "$ERR" 2>/dev/null || true)"
-if echo "$combined" | grep -qiE 'usage limit|rate.?limit|overloaded|quota'; then
+if [ "$api_error_status" = "429" ] || echo "$combined" | grep -qiE 'usage limit|session limit|rate.?limit|overloaded|quota'; then
     meta outcome limit
     salvage
     log "USAGE LIMIT hit — the conductor will sleep and retry"

@@ -1,3 +1,4 @@
+using LotroKoniecDev.TranslationSystem.Domain.Aggregates.GameVersionAggregate.Entities;
 using LotroKoniecDev.TranslationSystem.Domain.Aggregates.TranslationAggregate.Entities;
 using LotroKoniecDev.TranslationSystem.Domain.Aggregates.TranslationAggregate.ValueObjects;
 using LotroKoniecDev.TranslationSystem.Domain.Aggregates.TranslatorAggregate.Entities;
@@ -95,6 +96,36 @@ internal sealed class TranslationConfiguration : IEntityTypeConfiguration<Transl
         builder.HasOne<Translator>()
             .WithMany()
             .HasForeignKey(translation => translation.ApprovedById)
+            .OnDelete(DeleteBehavior.Restrict);
+
+        // The version pointers are id-only references to GameVersions (AUDIT-EF-05), mirroring the
+        // Translator FKs above. Convention gives each FK the index the DeleteGameVersion reference
+        // guard scans on (AnyReferencesGameVersionAsync ORs all three columns), and Restrict is the
+        // database backstop for that guard's check-then-act window — a concurrent import stamping
+        // the version between the check and the delete fails the delete instead of leaving
+        // dangling pointers.
+        builder.Property(translation => translation.IntroducedInVersion)
+            .HasColumnName(nameof(Translation.IntroducedInVersion));
+
+        builder.HasOne<GameVersion>()
+            .WithMany()
+            .HasForeignKey(translation => translation.IntroducedInVersion)
+            .OnDelete(DeleteBehavior.Restrict);
+
+        builder.Property(translation => translation.LastSourceChangeInVersion)
+            .HasColumnName(nameof(Translation.LastSourceChangeInVersion));
+
+        builder.HasOne<GameVersion>()
+            .WithMany()
+            .HasForeignKey(translation => translation.LastSourceChangeInVersion)
+            .OnDelete(DeleteBehavior.Restrict);
+
+        builder.Property(translation => translation.RemovedInVersion)
+            .HasColumnName(nameof(Translation.RemovedInVersion));
+
+        builder.HasOne<GameVersion>()
+            .WithMany()
+            .HasForeignKey(translation => translation.RemovedInVersion)
             .OnDelete(DeleteBehavior.Restrict);
 
         // Get-only property — EF Core convention skips it without an explicit mapping.

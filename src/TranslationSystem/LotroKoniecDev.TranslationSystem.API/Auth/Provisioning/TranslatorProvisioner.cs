@@ -45,21 +45,18 @@ internal sealed class TranslatorProvisioner : ITranslatorProvisioner
     };
 
     private readonly ICurrentUserAccessor _currentUserAccessor;
-    private readonly ITranslatorRepository _translatorRepository;
-    private readonly IUnitOfWork _unitOfWork;
+    private readonly IServiceScopeFactory _serviceScopeFactory;
     private readonly TimeProvider _timeProvider;
     private readonly HybridCache _hybridCache;
 
     public TranslatorProvisioner(
         ICurrentUserAccessor currentUserAccessor,
-        ITranslatorRepository translatorRepository,
-        IUnitOfWork unitOfWork,
+        IServiceScopeFactory serviceScopeFactory,
         TimeProvider timeProvider,
         HybridCache hybridCache)
     {
         _currentUserAccessor = currentUserAccessor;
-        _translatorRepository = translatorRepository;
-        _unitOfWork = unitOfWork;
+        _serviceScopeFactory = serviceScopeFactory;
         _timeProvider = timeProvider;
         _hybridCache = hybridCache;
     }
@@ -160,7 +157,12 @@ internal sealed class TranslatorProvisioner : ITranslatorProvisioner
     /// <summary>
     /// The authoritative database resolution: returns the existing translator's id (refreshing its
     /// profile only when the claims actually changed) or creates a new row, re-reading the committed
-    /// row on a concurrent first-write race.
+    /// row on a concurrent first-write race. Runs the whole get-or-create write on its OWN scope,
+    /// never the calling request's (#435, mirroring #354): HybridCache runs ONE factory for all
+    /// concurrently joined callers, and the initiating request can abort — disposing its request
+    /// scope — while others stay joined. A fresh scope keeps the shared resolution alive for the
+    /// survivors instead of faulting them with a disposed context, and owning the unit of work here
+    /// means nothing this method tracks or saves ever leaks into a caller's pending changes.
     /// </summary>
     private async ValueTask<Result<TranslatorId>> ResolveAsync(
         IdentityId identityId,
@@ -168,9 +170,14 @@ internal sealed class TranslatorProvisioner : ITranslatorProvisioner
         Email? email,
         CancellationToken cancellationToken)
     {
+        await using AsyncServiceScope scope = _serviceScopeFactory.CreateAsyncScope();
+        ITranslatorRepository translatorRepository =
+            scope.ServiceProvider.GetRequiredService<ITranslatorRepository>();
+        IUnitOfWork unitOfWork = scope.ServiceProvider.GetRequiredService<IUnitOfWork>();
+
         DateTimeOffset now = _timeProvider.GetUtcNow();
 
-        Maybe<Translator> existing = await _translatorRepository.GetByIdentityIdAsync(identityId, cancellationToken);
+        Maybe<Translator> existing = await translatorRepository.GetByIdentityIdAsync(identityId, cancellationToken);
         if (existing.HasValue)
         {
             Translator translator = existing.Value;
@@ -182,7 +189,7 @@ internal sealed class TranslatorProvisioner : ITranslatorProvisioner
             if (claimsChanged)
             {
                 translator.RefreshProfile(displayName, email);
-                await _unitOfWork.SaveChangesAsync(cancellationToken);
+                await unitOfWork.SaveChangesAsync(cancellationToken);
             }
 
             return Result.Success(translator.Id);
@@ -194,29 +201,30 @@ internal sealed class TranslatorProvisioner : ITranslatorProvisioner
             return Result.Failure<TranslatorId>(createResult.Error);
         }
 
-        _translatorRepository.Insert(createResult.Value);
+        translatorRepository.Insert(createResult.Value);
 
         try
         {
-            await _unitOfWork.SaveChangesAsync(cancellationToken);
+            await unitOfWork.SaveChangesAsync(cancellationToken);
             return Result.Success(createResult.Value.Id);
         }
         catch (DbUpdateException)
         {
             // Concurrent first-write race: another request inserted the row between our read and save.
-            // Drop our rejected insert from change tracking first — otherwise the retry below, and the
-            // caller's shared unit of work, would re-attempt the row the unique index already rejected
-            // — then re-read the committed row and refresh it.
-            _translatorRepository.Detach(createResult.Value);
+            // Drop our rejected insert from change tracking first — otherwise the retry below would
+            // re-attempt the row the unique index already rejected — then re-read the committed row
+            // and refresh it. The unit of work is owned by this scope, so the rejected insert can
+            // never re-fire on a caller's save.
+            translatorRepository.Detach(createResult.Value);
 
-            Maybe<Translator> raced = await _translatorRepository.GetByIdentityIdAsync(identityId, cancellationToken);
+            Maybe<Translator> raced = await translatorRepository.GetByIdentityIdAsync(identityId, cancellationToken);
             if (raced.HasNoValue)
             {
                 throw;
             }
 
             raced.Value.RefreshProfile(displayName, email);
-            await _unitOfWork.SaveChangesAsync(cancellationToken);
+            await unitOfWork.SaveChangesAsync(cancellationToken);
             return Result.Success(raced.Value.Id);
         }
     }

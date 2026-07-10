@@ -16,8 +16,8 @@ public interface ITranslatorRepository : IRepository<Translator, TranslatorId>
 
     /// <summary>
     /// Drops a not-yet-committed translator from change tracking. Used to discard the losing insert
-    /// after a concurrent first-write race (ADR-0004) so neither the retry nor the caller's shared
-    /// unit of work re-attempts the row the unique index already rejected.
+    /// after a concurrent first-write race (ADR-0004) so the provisioner's retry does not re-attempt
+    /// the row the unique index already rejected.
     /// </summary>
     void Detach(Translator translator);
 }

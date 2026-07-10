@@ -31,7 +31,11 @@ public sealed class TranslatorProvisionerTests
         => CreateProvisioner(accessor, TestHybridCache.Create());
 
     private TranslatorProvisioner CreateProvisioner(StubCurrentUserAccessor accessor, HybridCache hybridCache)
-        => new(accessor, _translatorRepository, _unitOfWork, new FixedTimeProvider(Now), hybridCache);
+        => new(
+            accessor,
+            TestWriteScopeFactory.Create(_translatorRepository, _unitOfWork),
+            new FixedTimeProvider(Now),
+            hybridCache);
 
     private static StubCurrentUserAccessor Accessor(
         ValueMaybe<IdentityId>? identity = null,
@@ -317,6 +321,93 @@ public sealed class TranslatorProvisionerTests
         // insert attempt), proving no cached entry short-circuited it.
         second.IsSuccess.ShouldBeTrue();
         _translatorRepository.Received(2).Insert(Arg.Any<Translator>());
+    }
+
+    [Fact]
+    public async Task ProvisionCurrentAsync_WhenConcurrentRequestsRaceOnAColdCache_ShouldShareOneResolution()
+    {
+        // Arrange — two scoped requests of the same identity hit a cold shared cache concurrently:
+        // HybridCache's stampede protection must funnel both through ONE authoritative resolution.
+        // The repository blocks inside the factory until the gate opens, pinning the overlap.
+        Translator existing = Translator.Create(
+            Identity,
+            DisplayName.Create("Aragorn").Value,
+            Email.Create("aragorn@gondor.test").Value,
+            Now).Value;
+        TaskCompletionSource resolutionStarted = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        TaskCompletionSource resolutionGate = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        _translatorRepository.GetByIdentityIdAsync(Identity, Arg.Any<CancellationToken>())
+            .Returns(async _ =>
+            {
+                resolutionStarted.TrySetResult();
+                await resolutionGate.Task;
+                return Maybe<Translator>.From(existing);
+            });
+        HybridCache sharedCache = TestHybridCache.Create();
+        TranslatorProvisioner firstRequest = CreateProvisioner(Accessor(), sharedCache);
+        TranslatorProvisioner secondRequest = CreateProvisioner(Accessor(), sharedCache);
+
+        // Act — the first request enters the factory and blocks; the second arrives while it is in
+        // flight; then the gate releases the shared resolution for both.
+        Task<Result<TranslatorId>> first = firstRequest.ProvisionCurrentAsync(CancellationToken.None).AsTask();
+        await resolutionStarted.Task;
+        Task<Result<TranslatorId>> second = secondRequest.ProvisionCurrentAsync(CancellationToken.None).AsTask();
+        resolutionGate.SetResult();
+        Result<TranslatorId> firstResult = await first;
+        Result<TranslatorId> secondResult = await second;
+
+        // Assert — both callers resolve the same id off a single Translators lookup; nothing in the
+        // returned ids distinguishes a shared factory from two racing ones, so the call count is the
+        // only proof the resolution was deduplicated.
+        firstResult.IsSuccess.ShouldBeTrue();
+        secondResult.IsSuccess.ShouldBeTrue();
+        firstResult.Value.ShouldBe(existing.Id);
+        secondResult.Value.ShouldBe(existing.Id);
+        await _translatorRepository.Received(1).GetByIdentityIdAsync(Identity, Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task ProvisionCurrentAsync_WhenInitiatingRequestAbortsWhileAnotherIsJoined_ShouldResolveTheSurvivor()
+    {
+        // Arrange — the #435 scenario: the request that started the shared factory aborts while a
+        // second request of the same identity is joined to it. The resolution must not depend on
+        // anything the aborted request owned, so the survivor still gets the id, never a fault.
+        Translator existing = Translator.Create(
+            Identity,
+            DisplayName.Create("Aragorn").Value,
+            Email.Create("aragorn@gondor.test").Value,
+            Now).Value;
+        TaskCompletionSource resolutionStarted = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        TaskCompletionSource resolutionGate = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        _translatorRepository.GetByIdentityIdAsync(Identity, Arg.Any<CancellationToken>())
+            .Returns(async _ =>
+            {
+                resolutionStarted.TrySetResult();
+                await resolutionGate.Task;
+                return Maybe<Translator>.From(existing);
+            });
+        HybridCache sharedCache = TestHybridCache.Create();
+        TranslatorProvisioner firstRequest = CreateProvisioner(Accessor(), sharedCache);
+        TranslatorProvisioner secondRequest = CreateProvisioner(Accessor(), sharedCache);
+        using CancellationTokenSource initiatingRequestAborted = new();
+
+        // Act — the initiating request enters the factory and blocks, the survivor joins the
+        // in-flight resolution, then the initiator aborts BEFORE the gate opens: its own call
+        // surfaces the cancellation while the shared factory keeps running for the survivor.
+        Task<Result<TranslatorId>> initiating =
+            firstRequest.ProvisionCurrentAsync(initiatingRequestAborted.Token).AsTask();
+        await resolutionStarted.Task;
+        Task<Result<TranslatorId>> survivor = secondRequest.ProvisionCurrentAsync(CancellationToken.None).AsTask();
+        initiatingRequestAborted.Cancel();
+        await Should.ThrowAsync<OperationCanceledException>(async () => await initiating);
+        resolutionGate.SetResult();
+        Result<TranslatorId> survivorResult = await survivor;
+
+        // Assert — the survivor resolves off the single shared lookup the aborted initiator started:
+        // the call count proves it consumed that factory's result rather than re-running its own.
+        survivorResult.IsSuccess.ShouldBeTrue();
+        survivorResult.Value.ShouldBe(existing.Id);
+        await _translatorRepository.Received(1).GetByIdentityIdAsync(Identity, Arg.Any<CancellationToken>());
     }
 
     private sealed class FixedTimeProvider : TimeProvider

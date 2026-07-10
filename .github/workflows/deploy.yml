@@ -123,8 +123,7 @@ jobs:
             "TMS_API_IMAGE lotrokoniecdev-tms-api" \
             "FRONTEND_IMAGE lotrokoniecdev-frontend" \
             "MIGRATOR_IMAGE lotrokoniecdev-migrator"; do
-            set -- $pair
-            var="$1"; image="$2"
+            var="${pair%% *}"; image="${pair#* }"
             ref="${REGISTRY}/${IMAGE_NAMESPACE}/${image}:${TAG}"
             digest="$(docker buildx imagetools inspect "$ref" --format '{{.Manifest.Digest}}')"
             case "$digest" in
@@ -178,7 +177,7 @@ jobs:
           # findable fast). Emitted pre-start so it survives even a failed/partial migrator run.
           # Guarded (`|| true` + defaulted redirect): a summary hiccup must never fail the gate itself.
           latest_migration() {
-            ls "$1" | grep -E '^[0-9]{14}_' | grep -v '\.Designer\.cs$' | sed 's/\.cs$//' | sort | tail -1
+            find "$1" -mindepth 1 -maxdepth 1 -printf '%f\n' | grep -E '^[0-9]{14}_' | grep -v '\.Designer\.cs$' | sed 's/\.cs$//' | sort | tail -1
           }
           tms_target=$(latest_migration src/TranslationSystem/LotroKoniecDev.TranslationSystem.Persistence/Migrations || true)
           auth_target=$(latest_migration src/AuthSystem/LotroKoniecDev.AuthSystem.Persistence/Migrations || true)

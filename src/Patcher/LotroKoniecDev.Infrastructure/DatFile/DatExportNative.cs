@@ -1,6 +1,11 @@
 using System.Runtime.InteropServices;
 using System.Runtime.CompilerServices;
 
+// Restricts native DLL resolution to the assembly directory and OS-safe directories, so the
+// Windows loader never probes the current working directory or %PATH% — a planted datexport.dll
+// would otherwise be loaded with admin rights via the elevated .bat wrappers (DLL planting).
+[assembly: DefaultDllImportSearchPaths(DllImportSearchPath.AssemblyDirectory | DllImportSearchPath.SafeDirectories)]
+
 namespace LotroKoniecDev.Infrastructure.DatFile;
 
 /// <summary>

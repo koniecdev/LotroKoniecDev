@@ -12,6 +12,11 @@ internal sealed class StubHttpMessageHandler : HttpMessageHandler
         _response = response;
     }
 
+    public HttpRequestMessage? LastRequest { get; private set; }
+
     protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
-        => Task.FromResult(_response);
+    {
+        LastRequest = request;
+        return Task.FromResult(_response);
+    }
 }

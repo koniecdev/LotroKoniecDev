@@ -1,4 +1,5 @@
 using System.Net;
+using System.Net.Http.Headers;
 using LotroKoniecDev.Application.Abstractions;
 using LotroKoniecDev.Application.Features.TranslationFileSyncing;
 using LotroKoniecDev.Domain.Core.Errors;
@@ -39,10 +40,13 @@ public sealed class TranslationFileDownloader : ITranslationFileDownloader
         {
             Uri requestUri = new($"{baseUrl.TrimEnd('/')}/{TranslationFileRoute}", UriKind.Absolute);
             using HttpRequestMessage request = new(HttpMethod.Get, requestUri);
-            if (!string.IsNullOrEmpty(currentETag))
+            // The stored value comes from an on-disk sidecar file, so it goes through the typed
+            // header API instead of TryAddWithoutValidation (AUDIT-SEC-07 / #397). A value that no
+            // longer parses as an ETag is simply dropped — the fetch degrades to a full download.
+            if (!string.IsNullOrEmpty(currentETag)
+                && EntityTagHeaderValue.TryParse(currentETag, out EntityTagHeaderValue? cachedETag))
             {
-                // The stored value is the server's quoted ETag; send it verbatim.
-                request.Headers.TryAddWithoutValidation("If-None-Match", currentETag);
+                request.Headers.IfNoneMatch.Add(cachedETag);
             }
 
             // ResponseHeadersRead keeps HttpClient from buffering the whole body before the size

@@ -147,6 +147,48 @@ public sealed class TranslationFileDownloaderTests
     }
 
     [Fact]
+    public async Task FetchAsync_WellFormedCachedETag_ShouldSendItAsTheIfNoneMatchHeader()
+    {
+        // Arrange — the sidecar value parses as an ETag, so the conditional header goes out
+        // through the typed API (AUDIT-SEC-07 / #397).
+        using HttpResponseMessage response = OkResponse(Content, $"\"{ContentHash}\"");
+        StubHttpMessageHandler handler = new(response);
+        using HttpClient httpClient = new(handler);
+        TranslationFileDownloader sut = new(httpClient);
+
+        // Act
+        Result<TranslationFileFetchResult> result = await sut.FetchAsync(BaseUrl, "\"cached-etag\"", CancellationToken.None);
+
+        // Assert
+        result.IsSuccess.ShouldBeTrue();
+        handler.LastRequest.ShouldNotBeNull();
+        handler.LastRequest.Headers.IfNoneMatch.Single().Tag.ShouldBe("\"cached-etag\"");
+    }
+
+    [Theory]
+    [InlineData("\"etag\"\r\nX-Injected: attack")]
+    [InlineData("etag-without-quotes")]
+    public async Task FetchAsync_MalformedCachedETag_ShouldFetchTheFullFileWithoutTheConditionalHeader(string malformedETag)
+    {
+        // Arrange — a sidecar value that no longer parses as an ETag (tampering or corruption)
+        // must never reach the wire; the fetch degrades to a full download (AUDIT-SEC-07 / #397).
+        using HttpResponseMessage response = OkResponse(Content, $"\"{ContentHash}\"");
+        StubHttpMessageHandler handler = new(response);
+        using HttpClient httpClient = new(handler);
+        TranslationFileDownloader sut = new(httpClient);
+
+        // Act
+        Result<TranslationFileFetchResult> result = await sut.FetchAsync(BaseUrl, malformedETag, CancellationToken.None);
+
+        // Assert
+        result.IsSuccess.ShouldBeTrue();
+        result.Value.IsModified.ShouldBeTrue();
+        result.Value.Content.ShouldBe(Content);
+        handler.LastRequest.ShouldNotBeNull();
+        handler.LastRequest.Headers.IfNoneMatch.ShouldBeEmpty();
+    }
+
+    [Fact]
     public async Task FetchAsync_NotModifiedResponse_ShouldReportTheCachedCopyCurrentWithoutAnyCheck()
     {
         // Arrange — a 304 carries no body, so there is nothing to verify.

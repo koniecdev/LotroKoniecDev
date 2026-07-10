@@ -103,6 +103,7 @@ one ticket with `LOOP_TRUST_GATE=0`, or add the commenter to `LOOP_TRUSTED_LOGIN
 | `LOOP_MAX_BUDGET_USD` | (none) | optional per-ticket API budget cap |
 | `LOOP_TICKET_TIMEOUT_MIN` | `90` | wall-clock kill switch per ticket; leftovers are stashed |
 | `LOOP_CHECKS_TIMEOUT_MIN` | `30` | wait for pr-verify before falling back to `--auto` merge |
+| `LOOP_GH_USER` | `koniecdev` | gh account whose token backs the loop's gh write calls (PR merge, labels, issue comments); an existing `GH_TOKEN` in the environment wins |
 | `LOOP_SKIP_LABELS` | `loop-blocked,qa,post-mvp,audit` | picker label exclusions |
 | `LOOP_SKIP_TITLES` | `^M4-` | picker title-regex exclusion |
 | `LOOP_SKIP_ISSUES` | `85` | picker number exclusions |

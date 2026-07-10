@@ -142,8 +142,12 @@ meta turns "$turns"
 meta minutes "$elapsed_min"
 
 # ── Usage-limit / hard-error detection ─────────────────────────────────────────────────────────
+# The CLI reports plan/rate limits as api_error_status 429 in the result JSON regardless of the
+# message wording ("usage limit", "session limit", …) — trust that first; the wording grep stays
+# as the fallback for stderr-only failures where no result JSON was written.
+api_error_status="$(jq -r '.api_error_status // 0' "$OUT" 2>/dev/null || echo 0)"
 combined="$result $(tail -c 2000 "$ERR" 2>/dev/null || true)"
-if echo "$combined" | grep -qiE 'usage limit|rate.?limit|overloaded|quota'; then
+if [ "$api_error_status" = "429" ] || echo "$combined" | grep -qiE 'usage limit|session limit|rate.?limit|overloaded|quota'; then
     meta outcome limit
     salvage
     log "USAGE LIMIT hit — the conductor will sleep and retry"

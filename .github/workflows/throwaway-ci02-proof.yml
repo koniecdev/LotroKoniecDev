@@ -1,0 +1,15 @@
+# THROWAWAY (CI-02 / #404 acceptance proof) — deliberately broken workflow to show the
+# Actionlint PR check fails on: a bad needs: reference, an unknown with: input, and an
+# invalid expression. Removed by the next commit.
+name: Throwaway CI-02 proof
+on:
+  pull_request:
+jobs:
+  broken:
+    runs-on: ubuntu-24.04
+    needs: no-such-job
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          no-such-input: true
+      - run: echo "${{ toJson( }}"

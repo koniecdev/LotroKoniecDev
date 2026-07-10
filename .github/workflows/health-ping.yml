@@ -72,6 +72,9 @@ jobs:
             echo
             echo "::endgroup::"
             echo "::error::${name} is unhealthy (last HTTP ${code}): ${url}"
+            # The backticks in the printf formats are markdown for the job summary,
+            # not command substitution — nothing here is meant to expand.
+            # shellcheck disable=SC2016
             {
               printf -- '- FAIL **%s** — HTTP %s at `%s`\n\n' "$name" "$code" "$url"
               printf -- '```\n%s\n```\n' "$(head -c 1000 /tmp/probe-body.txt)"

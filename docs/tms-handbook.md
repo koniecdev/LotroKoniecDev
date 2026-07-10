@@ -1049,7 +1049,7 @@ hook). Wanting interactivity means writing an ADR first.
 
 | Route | Who | What it does |
 |---|---|---|
-| `/` | public | Landing page with a live progress meter (approved / awaiting / total) and download links |
+| `/` | public | Landing page with a progress meter (approved / awaiting / total; served from a 30 s server-side snapshot — AUDIT-EF-04/#354) and download links |
 | `/translations` | public | Searchable, filterable, paginated list; per-row Edit link; admin sees bulk-approve checkboxes |
 | `/editor/{id}` | logged in | Side-by-side editor: English (and previous English for NeedsReview) vs Polish; placeholder highlighting and mismatch warning; Save + Approve |
 | `/dashboard` | logged in | Progress tiles: total / translated / approved / remaining |

@@ -144,6 +144,23 @@ public sealed class GetPublicProgressTests : IAsyncLifetime
         progress.CurrentGameVersion.ShouldBeNull();
     }
 
+    [Fact]
+    public async Task Progress_RepeatedWithinTtl_ShouldNotRerunTheCounterQueries()
+    {
+        // Arrange — the first call populates the server-side cache (AUDIT-EF-04/#354).
+        await SeedAsync(Row(1, "a", TranslationStatus.Approved), Row(2, "b"));
+        PublicProgressResponse first = await ProgressAsync();
+        _factory.ReadContextSqlRecorder.Clear();
+
+        // Act
+        PublicProgressResponse second = await ProgressAsync();
+
+        // Assert — served entirely from the cache: identical payload and zero read-context SQL
+        // (the recorded command stream is the only seam that can prove "no second query").
+        second.ShouldBe(first);
+        _factory.ReadContextSqlRecorder.Commands.ShouldBeEmpty();
+    }
+
     /// <summary>Anonymous by construction: the shared helper never attaches a bearer token.</summary>
     private async Task<PublicProgressResponse> ProgressAsync()
     {

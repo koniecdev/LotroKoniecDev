@@ -11,20 +11,25 @@ using NSubstitute;
 namespace LotroKoniecDev.TranslationSystem.API.Tests.Unit.Shared;
 
 /// <summary>
-/// A pure in-memory <see cref="IApplicationReadDbContext"/> double for unit-testing the write
-/// handlers' read-back projection: only the <see cref="Translations"/> set is populated (the only
-/// one the write handlers read). EF Core's async operators run via <see cref="TestAsyncQueryProvider{T}"/>.
+/// A pure in-memory <see cref="IApplicationReadDbContext"/> double for unit-testing read-side
+/// handlers: <see cref="Translations"/> is always populated, <see cref="GameVersions"/> optionally
+/// (the public progress snapshot reads both). EF Core's async operators run via
+/// <see cref="TestAsyncQueryProvider{T}"/>.
 /// </summary>
 internal sealed class FakeReadDbContext : IApplicationReadDbContext
 {
     private readonly List<TranslationReadModel> _translations;
+    private readonly List<GameVersionReadModel> _gameVersions;
 
-    public FakeReadDbContext(IEnumerable<TranslationReadModel> translations)
+    public FakeReadDbContext(
+        IEnumerable<TranslationReadModel> translations,
+        IEnumerable<GameVersionReadModel>? gameVersions = null)
     {
         _translations = [.. translations];
+        _gameVersions = [.. gameVersions ?? []];
     }
 
-    public DbSet<GameVersionReadModel> GameVersions => BuildSet(new List<GameVersionReadModel>());
+    public DbSet<GameVersionReadModel> GameVersions => BuildSet(_gameVersions);
 
     public DbSet<TranslationReadModel> Translations => BuildSet(_translations);
 

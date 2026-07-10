@@ -5,6 +5,7 @@ using LotroKoniecDev.Application.Abstractions;
 using LotroKoniecDev.Domain.Core.Errors;
 using LotroKoniecDev.Domain.Core.Monads;
 using LotroKoniecDev.Infrastructure.Network;
+using LotroKoniecDev.Tests.Infrastructure.Shared;
 
 namespace LotroKoniecDev.Tests.Infrastructure.Tests;
 
@@ -90,6 +91,62 @@ public sealed class TranslationFileDownloaderTests
     }
 
     [Fact]
+    public async Task FetchAsync_ResponseDeclaringABodyOverTheSizeCap_ShouldRejectTheDownload()
+    {
+        // Arrange — a Content-Length above the cap (AUDIT-SEC-04 / #394) must be refused up front,
+        // before any body byte is read.
+        using HttpResponseMessage response = OkResponse(Content, $"\"{ContentHash}\"");
+        response.Content.Headers.ContentLength = TranslationFileDownloader.MaxResponseContentBytes + 1;
+        using HttpClient httpClient = new(new StubHttpMessageHandler(response));
+        TranslationFileDownloader sut = new(httpClient);
+
+        // Act
+        Result<TranslationFileFetchResult> result = await sut.FetchAsync(BaseUrl, null, CancellationToken.None);
+
+        // Assert
+        result.IsFailure.ShouldBeTrue();
+        result.Error.Code.ShouldBe(DomainErrors.TranslationFileSync.ResponseTooLargeCode);
+    }
+
+    [Fact]
+    public async Task FetchAsync_UndeclaredBodyStreamingPastTheSizeCap_ShouldRejectTheDownload()
+    {
+        // Arrange — no Content-Length (chunked-style), the body itself overruns the cap while
+        // streaming: the buffer limit must cut it off instead of growing without bound.
+        using HttpResponseMessage response = new(HttpStatusCode.OK)
+        {
+            Content = new UndeclaredLengthContent(TranslationFileDownloader.MaxResponseContentBytes + 1)
+        };
+        using HttpClient httpClient = new(new StubHttpMessageHandler(response));
+        TranslationFileDownloader sut = new(httpClient);
+
+        // Act
+        Result<TranslationFileFetchResult> result = await sut.FetchAsync(BaseUrl, null, CancellationToken.None);
+
+        // Assert
+        result.IsFailure.ShouldBeTrue();
+        result.Error.Code.ShouldBe(DomainErrors.TranslationFileSync.ResponseTooLargeCode);
+    }
+
+    [Fact]
+    public async Task FetchAsync_BodyThatStallsPastTheClientTimeout_ShouldFailAsTimedOutInsteadOfHanging()
+    {
+        // Arrange — ResponseHeadersRead moves the body read out of HttpClient.Timeout's scope;
+        // the downloader must re-apply the timeout itself or a stalling server hangs the launch.
+        using HttpResponseMessage response = new(HttpStatusCode.OK) { Content = new StallingContent() };
+        using HttpClient httpClient = new(new StubHttpMessageHandler(response));
+        httpClient.Timeout = TimeSpan.FromMilliseconds(250);
+        TranslationFileDownloader sut = new(httpClient);
+
+        // Act
+        Result<TranslationFileFetchResult> result = await sut.FetchAsync(BaseUrl, null, CancellationToken.None);
+
+        // Assert
+        result.IsFailure.ShouldBeTrue();
+        result.Error.Code.ShouldBe("TranslationFileSync.NetworkError");
+    }
+
+    [Fact]
     public async Task FetchAsync_NotModifiedResponse_ShouldReportTheCachedCopyCurrentWithoutAnyCheck()
     {
         // Arrange — a 304 carries no body, so there is nothing to verify.
@@ -118,18 +175,5 @@ public sealed class TranslationFileDownloaderTests
         }
 
         return response;
-    }
-
-    private sealed class StubHttpMessageHandler : HttpMessageHandler
-    {
-        private readonly HttpResponseMessage _response;
-
-        public StubHttpMessageHandler(HttpResponseMessage response)
-        {
-            _response = response;
-        }
-
-        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
-            => Task.FromResult(_response);
     }
 }

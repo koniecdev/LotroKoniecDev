@@ -15,6 +15,14 @@ namespace LotroKoniecDev.Infrastructure.Network;
 /// </summary>
 public sealed class TranslationFileDownloader : ITranslationFileDownloader
 {
+    /// <summary>
+    /// Hard cap on the downloaded body size (AUDIT-SEC-04 / #394). The full English export of the
+    /// game's text corpus measures ~82 MB in the same <c>||</c> format, and a complete Polish
+    /// translation file is the same order of magnitude, so 128 MiB leaves comfortable headroom
+    /// while a hostile or misbehaving server can no longer exhaust process memory.
+    /// </summary>
+    public const long MaxResponseContentBytes = 128 * 1024 * 1024;
+
     private const string TranslationFileRoute = "api/v1/translation-files/pl";
 
     private readonly HttpClient _httpClient;
@@ -37,7 +45,14 @@ public sealed class TranslationFileDownloader : ITranslationFileDownloader
                 request.Headers.TryAddWithoutValidation("If-None-Match", currentETag);
             }
 
-            using HttpResponseMessage response = await _httpClient.SendAsync(request, cancellationToken);
+            // ResponseHeadersRead keeps HttpClient from buffering the whole body before the size
+            // cap can run, which also moves the body read out of HttpClient.Timeout's scope — so
+            // the timeout is re-applied around the entire fetch via a linked token.
+            using CancellationTokenSource timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            timeoutCts.CancelAfter(_httpClient.Timeout);
+
+            using HttpResponseMessage response = await _httpClient.SendAsync(
+                request, HttpCompletionOption.ResponseHeadersRead, timeoutCts.Token);
 
             if (response.StatusCode == HttpStatusCode.NotModified)
             {
@@ -46,7 +61,15 @@ public sealed class TranslationFileDownloader : ITranslationFileDownloader
 
             response.EnsureSuccessStatusCode();
 
-            string content = await response.Content.ReadAsStringAsync(cancellationToken);
+            Maybe<string> body = await BoundedResponseReader.TryReadAsStringAsync(
+                response.Content, MaxResponseContentBytes, timeoutCts.Token);
+            if (body.HasNoValue)
+            {
+                return Result.Failure<TranslationFileFetchResult>(
+                    DomainErrors.TranslationFileSync.ResponseTooLarge(MaxResponseContentBytes));
+            }
+
+            string content = body.Value;
             string eTag = response.Headers.ETag?.ToString() ?? string.Empty;
 
             if (!TranslationFileContentIntegrity.Matches(content, eTag))
@@ -61,7 +84,7 @@ public sealed class TranslationFileDownloader : ITranslationFileDownloader
         {
             return Result.Failure<TranslationFileFetchResult>(DomainErrors.TranslationFileSync.NetworkError(ex.Message));
         }
-        catch (TaskCanceledException)
+        catch (OperationCanceledException)
         {
             return Result.Failure<TranslationFileFetchResult>(DomainErrors.TranslationFileSync.NetworkError("The request timed out."));
         }

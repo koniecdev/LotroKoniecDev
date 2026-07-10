@@ -90,6 +90,7 @@ Purely optional tuning knobs with safe defaults are omitted (e.g. `OpenIddict:Ac
 | `OpenIddict__WebClient__RedirectUris__0` | `https://localhost:7017/callback` | `https://lotro-translator.pl/callback` | ✅ non-dev | plain | MUST equal the Frontend callback (its public origin + `AuthSystem__CallbackPath`). |
 | `OpenIddict__WebClient__PostLogoutRedirectUris__0` | `https://localhost:7017` | `https://lotro-translator.pl` | ✅ non-dev | plain | Frontend post-logout return URL. |
 | `Cors__AllowedOrigins__0` | — (AllowAnyOrigin) | `https://lotro-translator.pl` | ✅ non-dev | plain | Bare origin = Frontend public URL. Lowercase, no port-if-default, no path/slash. |
+| `ForwardedHeaders__KnownNetworks__0` | — (dev skips `UseForwardedHeaders`) | proxy subnet CIDR, or unset on ACA | optional | plain | Restricts `X-Forwarded-*` trust to the proxy hop (#399). `compose.prod.yaml` sets `10.60.0.0/24`; unset = trust every upstream (`ForwardLimit=1`) — safe only while `:8080` is never published. Malformed CIDR aborts boot. |
 | `DataProtection__KeyRingPath` | — (host default) | `/keys` | ✅ non-dev | plain | Persistent, replica-shared volume; else logins/antiforgery/reset links break on deploy/scale. |
 | `Email__Host` | `mailpit` | `smtp.sendgrid.net` | ✅ all | plain | SMTP host. Validated on start (every environment). |
 | `Email__Port` | `1025` | `587` | ✅ all | plain | 1–65535. |
@@ -112,6 +113,7 @@ Purely optional tuning knobs with safe defaults are omitted (e.g. `OpenIddict:Ac
 | `Auth__Authority` | — (unset → falls back to `Issuer`, `https://localhost:5003`) | `https://auth.lotro-translator.pl` | optional² | plain | Back-channel for OIDC metadata + JWKS. ²Unset → falls back to `Issuer`; the dev host run relies on that fallback to reach the host auth Kestrel. Prod: must be `https` (OpenIddict rejects plain HTTP) and reachable from the container. |
 | `Auth__Audience` | `lotrokoniecdev-api` | `lotrokoniecdev-api` | ✅ all | plain | Default in base `appsettings.json`. |
 | `Cors__AllowedOrigins__0` | — (AllowAnyOrigin) | `https://lotro-translator.pl` | ✅ non-dev | plain | Bare origin = Frontend public URL. |
+| `ForwardedHeaders__KnownNetworks__0` | — (dev skips `UseForwardedHeaders`) | proxy subnet CIDR, or unset on ACA | optional | plain | Restricts `X-Forwarded-*` trust to the proxy hop (#399). See the auth-api row. |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` / `OTEL_EXPORTER_OTLP_PROTOCOL` | aspire / `grpc` | collector / `grpc` | optional | plain | Empty endpoint = export disabled. |
 | `Bootstrap__Enabled` | `false` | `false` | optional | plain | One-time DB seed of the first export (spec 0001). Off by default. |
 | `Bootstrap__GameVersion` / `Bootstrap__ExportedTextPath` / `Bootstrap__PolishTextPath` | — / — / `/app/translations/polish.txt` | as needed | optional | plain | Only consulted when `Bootstrap__Enabled=true`. |
@@ -134,6 +136,7 @@ Staging/Production.
 | `AuthSystem__Scopes` | `openid,email,profile,roles,api,offline_access` | same | ✅ all | plain | At least one scope. |
 | `TranslationSystem__BaseUrl` | `https://localhost:5002/` | `https://tms.lotro-translator.pl/` | ✅ all | plain | TMS API origin (trailing slash). |
 | `DataProtection__KeyRingPath` | — (host default) | `/keys` | ✅ non-dev | plain | Persistent, replica-shared volume (ADR-0005); else antiforgery + auth cookies break on deploy/scale. |
+| `ForwardedHeaders__KnownNetworks__0` | — (dev skips `UseForwardedHeaders`) | proxy subnet CIDR, or unset on ACA | optional | plain | Restricts `X-Forwarded-*` trust to the proxy hop (#399). See the auth-api row. |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` / `OTEL_EXPORTER_OTLP_PROTOCOL` | — | collector / `grpc` | optional | plain | Empty endpoint = export disabled. |
 
 ### migrator
@@ -254,10 +257,14 @@ The cross-service settings that are individually valid but break the system when
 
 5. **Behind a TLS-terminating ingress, forwarded headers are load-bearing.** The ingress MUST send
    `X-Forwarded-Proto` (and Host); all three apps read them (`UseForwardedHeaders`, M6-02) to
-   reconstruct the `https` scheme used for `iss`, `redirect_uri`, and `Secure` cookies. The containers
-   trust **all** upstream proxies (`KnownProxies`/`KnownIPNetworks` cleared) — safe **only** because
-   they are never reachable except through the ingress, so **do not expose `:8080` publicly**. In prod
-   the apps serve HTTP only; the proxy owns TLS.
+   reconstruct the `https` scheme used for `iss`, `redirect_uri`, and `Secure` cookies. Trust is
+   scoped per environment (#399): where the proxy subnet is knowable, set
+   `ForwardedHeaders__KnownNetworks__n` to its CIDR(s) — `compose.prod.yaml` pins its network to
+   `10.60.0.0/24` and sets the variable for all three apps; a malformed CIDR aborts boot. Where the
+   ingress hop has no stable IP (ACA), leave it unset — the apps then trust every upstream with an
+   explicit `ForwardLimit = 1`, which is safe **only** under the recorded invariant that the
+   container port is never reachable except through the ingress, so **do not expose `:8080`
+   publicly**. In prod the apps serve HTTP only; the proxy owns TLS.
 
 6. **The Data Protection keyring must be persistent and shared.** auth-api + frontend need
    `DataProtection__KeyRingPath` pointing at a persistent, replica-shared volume (`/keys`). An

@@ -131,17 +131,41 @@ try
     // container receives plain HTTP with X-Forwarded-* headers. Honour them so Request.Scheme is
     // https — OAuth redirects, scheme-derived HATEOAS hrefs, Secure cookies, and UseHttpsRedirection
     // all depend on it. (The OpenIddict token/discovery `iss` is NOT scheme-derived: it is pinned
-    // from OpenIddictSettings.Issuer, so it stays correct regardless of these headers.) The ingress
-    // hop has no stable IP, so KnownIPNetworks/KnownProxies are cleared (every upstream proxy is
-    // trusted), which is safe only because the container is never exposed directly: it is always
-    // reached through the ingress that sets these headers (ADR-0008).
+    // from OpenIddictSettings.Issuer, so it stays correct regardless of these headers.)
+    //
+    // Trust policy (#399): where the proxy subnet is knowable, ForwardedHeaders:KnownNetworks
+    // restricts trust to those CIDRs (compose.prod.yaml pins the Caddy network and sets it); where
+    // the ingress hop has no stable IP (ACA), the list stays empty — every upstream is trusted —
+    // which is safe only under the recorded invariant that the container port is NEVER published
+    // directly: ACA ingress is the sole route (iac/) and compose.prod.yaml uses expose:, not ports:.
+    // ForwardLimit = 1 is explicit either way: exactly one proxy hop sets these headers, so only
+    // the right-most X-Forwarded-* entry (the ingress-observed client) is ever applied. A malformed
+    // CIDR — or a knob that is set yet yields no entries (e.g. a scalar value missing the __0
+    // index) — aborts boot here (fail-fast, ADR-0008 §3 spirit), never silently widens trust.
+    IConfigurationSection trustedProxyNetworksSection =
+        builder.Configuration.GetSection("ForwardedHeaders:KnownNetworks");
+    System.Net.IPNetwork[] trustedProxyNetworks = (trustedProxyNetworksSection.Get<string[]>() ?? [])
+        .Select(cidr => System.Net.IPNetwork.Parse(cidr))
+        .ToArray();
+    if (trustedProxyNetworksSection.Exists() && trustedProxyNetworks.Length == 0)
+    {
+        throw new InvalidOperationException(
+            "ForwardedHeaders:KnownNetworks is set but yielded no networks - "
+            + "expected indexed CIDR values (ForwardedHeaders__KnownNetworks__0).");
+    }
+
     builder.Services.Configure<ForwardedHeadersOptions>(options =>
     {
         options.ForwardedHeaders = ForwardedHeaders.XForwardedFor
                                    | ForwardedHeaders.XForwardedProto
                                    | ForwardedHeaders.XForwardedHost;
+        options.ForwardLimit = 1;
         options.KnownIPNetworks.Clear();
         options.KnownProxies.Clear();
+        foreach (System.Net.IPNetwork trustedProxyNetwork in trustedProxyNetworks)
+        {
+            options.KnownIPNetworks.Add(trustedProxyNetwork);
+        }
     });
 
     builder.Services.Configure<RouteHandlerOptions>(options =>

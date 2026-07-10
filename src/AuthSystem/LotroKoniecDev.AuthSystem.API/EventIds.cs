@@ -53,8 +53,7 @@ internal static class EventIds
     public const int ResetPasswordFailed = 2290;
     public const int ResetPasswordSecurityStampFailed = 2291;
 
-    // Token Revocation (2300–2309)
-    public const int TokenRevoked = 2300;
+    // Token Revocation (2300–2309) — 2300 (TokenRevoked) retired with the dead RevokeEndpoint (#349)
     public const int UserSessionsRevoked = 2301;
     public const int UserSessionsRevocationFailed = 2302;
 

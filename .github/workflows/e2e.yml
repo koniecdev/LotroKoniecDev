@@ -6,11 +6,27 @@ name: E2E
 #   - e2e-frontend: additionally builds the Frontend image, boots the whole browser-facing stack (+ Mailpit +
 #                   the official Testcontainers Playwright browser), and drives the register→confirm→login→
 #                   logout loop in a real headless Chromium (ADR-0009).
-# Manual only — never on push/PR — so they cost nothing routinely. Both projects are named `...E2E.Tests`
-# (not `*.Tests.Unit`/`*.Tests.Integration`), so pr-verify/ci skip them by convention.
-# Run from the Actions tab or `gh workflow run e2e.yml`.
+# Both projects are named `...E2E.Tests` (not `*.Tests.Unit`/`*.Tests.Integration`), so pr-verify/ci skip
+# them by convention, and the suite runs automatically in exactly ONE place: Dependabot PRs whose diff
+# touches `Directory.Packages.props`, `.config/dotnet-tools.json` or a `Dockerfile*` (CI-03 / #405).
+# A weekly dependency bump is precisely the moment "does the whole thing still work end to end" is being
+# asked, and on a base-image bump the fixtures rebuild the images themselves — exercising the new base
+# deeper than a build-and-scan can reach. Everywhere else it stays manual (workflow_dispatch, any ref):
+# human PRs never run it (job-level actor gate below), a github-actions bump has nothing for E2E to
+# exercise (paths filter), and it is deliberately NOT in the main ruleset's required checks — it is a
+# signal the author reads before merging, not a gate, so a browser flake cannot block a security patch.
+# The suite references no repository secrets, so it passes with Dependabot's read-only GITHUB_TOKEN.
+# On pull_request the concurrency group resolves to `e2e-refs/pull/<n>/merge`, so a Dependabot rebase
+# force-push cancels the in-flight run instead of queueing a second.
+# Manual run: Actions tab or `gh workflow run e2e.yml`.
 on:
   workflow_dispatch:
+  pull_request:
+    paths:
+      - 'Directory.Packages.props'
+      - '.config/dotnet-tools.json'
+      - 'Dockerfile*'
+      - '**/Dockerfile*'
 
 concurrency:
   group: e2e-${{ github.ref }}
@@ -22,6 +38,8 @@ permissions:
 jobs:
   e2e:
     name: E2E (full stack via Testcontainers)
+    # Dependabot-only on pull_request; a bare actor gate would also skip manual dispatches.
+    if: github.event_name != 'pull_request' || github.actor == 'dependabot[bot]'
     runs-on: ubuntu-24.04
     timeout-minutes: 40
 
@@ -57,6 +75,8 @@ jobs:
 
   e2e-frontend:
     name: E2E Frontend (browser via Testcontainers + Playwright)
+    # Dependabot-only on pull_request; a bare actor gate would also skip manual dispatches.
+    if: github.event_name != 'pull_request' || github.actor == 'dependabot[bot]'
     runs-on: ubuntu-24.04
     timeout-minutes: 50
 

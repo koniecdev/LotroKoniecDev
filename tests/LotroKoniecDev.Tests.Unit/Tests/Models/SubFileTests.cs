@@ -236,4 +236,32 @@ public sealed class SubFileTests
         // Assert
         action.ShouldThrow<InvalidDataException>();
     }
+
+    [Fact]
+    public void Parse_FragmentAtExactStructuralMinimum_ShouldParse()
+    {
+        // Arrange — one fragment with no pieces, arg refs or arg string groups (17 bytes exactly),
+        // proving the bounds check is not off-by-one against the structural minimum
+        SubFile subFile = new();
+        using MemoryStream stream = new();
+        using BinaryWriter writer = new(stream);
+
+        writer.Write(0x25000001); // File ID (text file)
+        writer.Write(new byte[4]); // Unknown1
+        writer.Write((byte)0);     // Unknown2
+        writer.Write((byte)1);     // Num fragments = 1
+        writer.Write((ulong)7);    // Fragment ID
+        writer.Write(0);           // Num pieces
+        writer.Write(0);           // Num arg refs
+        writer.Write((byte)0);     // Num arg string groups
+
+        byte[] data = stream.ToArray();
+
+        // Act
+        subFile.Parse(data);
+
+        // Assert
+        subFile.FragmentCount.ShouldBe(1);
+        subFile.Fragments.ShouldContainKey(7UL);
+    }
 }

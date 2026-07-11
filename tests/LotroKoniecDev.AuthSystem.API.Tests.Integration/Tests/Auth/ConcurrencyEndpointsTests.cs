@@ -25,7 +25,8 @@ public sealed class ConcurrencyEndpointsTests : EndpointsTestBase
                 sharedEmail,
                 sharedPassword,
                 AcceptedPrivacyPolicy: true,
-                AcceptedDataProcessingConsent: true))
+                AcceptedDataProcessingConsent: true,
+                AcceptedTermsOfService: true))
             .ToArray();
 
         // Act

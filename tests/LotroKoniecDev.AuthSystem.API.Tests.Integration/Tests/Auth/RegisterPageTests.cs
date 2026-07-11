@@ -81,6 +81,43 @@ public sealed partial class RegisterPageTests : EndpointsTestBase
         AccountConfirmationEmailSpy.LastEmail.ShouldBeNull();
     }
 
+    [Fact]
+    public async Task RegisterPage_ShouldShowError_WhenTermsOfServiceNotAccepted()
+    {
+        // Arrange
+        AccountConfirmationEmailSpy.Reset();
+        RegisterRequest request = UserFactory.GenerateRandomRegisterRequest(Faker);
+
+        // Act
+        HttpResponseMessage response = await PostToRegisterPageAsync(
+            BuildForm(request, request.Password, acceptedTermsOfService: false));
+
+        // Assert
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+
+        string html = await response.Content.ReadAsStringAsync();
+        html.ShouldContain("Musisz zaakceptować regulamin serwisu");
+        AccountConfirmationEmailSpy.LastEmail.ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task RegisterPage_ShouldRenderTermsConsentWithLink_WhenAccessed()
+    {
+        // Act
+        HttpResponseMessage response = await ApiClient.Http.GetAsync(
+            new Uri("/Account/Register", UriKind.Relative));
+
+        // Assert
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+
+        string html = await response.Content.ReadAsStringAsync();
+        html.ShouldContain("register-accept-terms");
+        // The frontend terms URL derives from the web client's first post-logout redirect URI
+        // (AuthSystemApiFactory configures https://localhost:5001) — a regression to the linkless
+        // fallback would ship a consent checkbox referencing terms the registrant cannot open.
+        html.ShouldContain("""<a href="https://localhost:5001/regulamin" target="_blank" rel="noopener">regulamin serwisu</a>""");
+    }
+
     [Theory]
     [InlineData("kasia 92")]
     [InlineData("kasia.92")]
@@ -132,14 +169,16 @@ public sealed partial class RegisterPageTests : EndpointsTestBase
         RegisterRequest request,
         string confirmPassword,
         bool acceptedPrivacyPolicy = true,
-        bool acceptedDataProcessingConsent = true) => new()
+        bool acceptedDataProcessingConsent = true,
+        bool acceptedTermsOfService = true) => new()
         {
             ["Username"] = request.Username,
             ["Email"] = request.Email,
             ["Password"] = request.Password,
             ["ConfirmPassword"] = confirmPassword,
             ["AcceptedPrivacyPolicy"] = acceptedPrivacyPolicy ? "true" : "false",
-            ["AcceptedDataProcessingConsent"] = acceptedDataProcessingConsent ? "true" : "false"
+            ["AcceptedDataProcessingConsent"] = acceptedDataProcessingConsent ? "true" : "false",
+            ["AcceptedTermsOfService"] = acceptedTermsOfService ? "true" : "false"
         };
 
     private async Task<HttpResponseMessage> PostToRegisterPageAsync(Dictionary<string, string> formFields)

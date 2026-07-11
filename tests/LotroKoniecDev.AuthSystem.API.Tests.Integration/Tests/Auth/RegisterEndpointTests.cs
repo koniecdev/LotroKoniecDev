@@ -40,7 +40,8 @@ public sealed class RegisterEndpointTests : EndpointsTestBase
             existingRequest.Email,
             "TestPass1!",
             AcceptedPrivacyPolicy: true,
-            AcceptedDataProcessingConsent: true);
+            AcceptedDataProcessingConsent: true,
+            AcceptedTermsOfService: true);
 
         // Act
         HttpResponseMessage response = await ApiClient.Http.PostAsJsonAsync(
@@ -65,7 +66,8 @@ public sealed class RegisterEndpointTests : EndpointsTestBase
             caseVariantEmail,
             "TestPass1!",
             AcceptedPrivacyPolicy: true,
-            AcceptedDataProcessingConsent: true);
+            AcceptedDataProcessingConsent: true,
+            AcceptedTermsOfService: true);
 
         // Act
         HttpResponseMessage response = await ApiClient.Http.PostAsJsonAsync(
@@ -89,7 +91,8 @@ public sealed class RegisterEndpointTests : EndpointsTestBase
             Faker.Internet.Email(),
             "TestPass1!",
             AcceptedPrivacyPolicy: true,
-            AcceptedDataProcessingConsent: true);
+            AcceptedDataProcessingConsent: true,
+            AcceptedTermsOfService: true);
 
         // Act
         HttpResponseMessage response = await ApiClient.Http.PostAsJsonAsync(
@@ -114,7 +117,8 @@ public sealed class RegisterEndpointTests : EndpointsTestBase
             Faker.Internet.Email(),
             "TestPass1!",
             AcceptedPrivacyPolicy: true,
-            AcceptedDataProcessingConsent: true);
+            AcceptedDataProcessingConsent: true,
+            AcceptedTermsOfService: true);
 
         // Act
         HttpResponseMessage response = await ApiClient.Http.PostAsJsonAsync(
@@ -144,7 +148,8 @@ public sealed class RegisterEndpointTests : EndpointsTestBase
             Faker.Internet.Email(),
             "TestPass1!",
             AcceptedPrivacyPolicy: true,
-            AcceptedDataProcessingConsent: true);
+            AcceptedDataProcessingConsent: true,
+            AcceptedTermsOfService: true);
 
         // Act
         HttpResponseMessage response = await ApiClient.Http.PostAsJsonAsync(
@@ -169,7 +174,8 @@ public sealed class RegisterEndpointTests : EndpointsTestBase
             Faker.Internet.Email(),
             "TestPass1!",
             AcceptedPrivacyPolicy: true,
-            AcceptedDataProcessingConsent: true);
+            AcceptedDataProcessingConsent: true,
+            AcceptedTermsOfService: true);
 
         // Act
         HttpResponseMessage response = await ApiClient.Http.PostAsJsonAsync(
@@ -189,7 +195,8 @@ public sealed class RegisterEndpointTests : EndpointsTestBase
             Faker.Internet.Email(),
             "TestPass1!",
             AcceptedPrivacyPolicy: false,
-            AcceptedDataProcessingConsent: true);
+            AcceptedDataProcessingConsent: true,
+            AcceptedTermsOfService: true);
 
         // Act
         HttpResponseMessage response = await ApiClient.Http.PostAsJsonAsync(
@@ -197,6 +204,28 @@ public sealed class RegisterEndpointTests : EndpointsTestBase
 
         // Assert
         response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+    }
+
+    [Fact]
+    public async Task Register_ShouldReturnBadRequest_WhenTermsOfServiceNotAccepted()
+    {
+        // Arrange
+        RegisterRequest request = new(
+            Faker.Random.AlphaNumeric(16),
+            Faker.Internet.Email(),
+            "TestPass1!",
+            AcceptedPrivacyPolicy: true,
+            AcceptedDataProcessingConsent: true,
+            AcceptedTermsOfService: false);
+
+        // Act
+        HttpResponseMessage response = await ApiClient.Http.PostAsJsonAsync(
+            new Uri("auth/register", UriKind.Relative), request);
+
+        // Assert
+        response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        string content = await response.Content.ReadAsStringAsync();
+        content.ShouldContain("You must accept the terms of service to register.");
     }
 
     [Fact]

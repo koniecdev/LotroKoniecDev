@@ -49,6 +49,8 @@ public sealed class AccountDeletionFinalizerTests : EndpointsTestBase
         user.DataProcessingConsentDate.ShouldBeNull();
         user.PrivacyPolicyAccepted.ShouldBeFalse();
         user.PrivacyPolicyAcceptedDate.ShouldBeNull();
+        user.TermsOfServiceAccepted.ShouldBeFalse();
+        user.TermsOfServiceAcceptedDate.ShouldBeNull();
         user.LockoutEnabled.ShouldBeTrue();
         user.LockoutEnd.ShouldBe(DateTimeOffset.MaxValue);
 

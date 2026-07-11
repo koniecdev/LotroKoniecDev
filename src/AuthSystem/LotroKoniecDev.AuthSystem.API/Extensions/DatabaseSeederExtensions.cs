@@ -88,7 +88,9 @@ internal static class DatabaseSeederExtensions
             DataProcessingConsentGiven = true,
             DataProcessingConsentDate = timeProvider.GetUtcNow(),
             PrivacyPolicyAccepted = true,
-            PrivacyPolicyAcceptedDate = timeProvider.GetUtcNow()
+            PrivacyPolicyAcceptedDate = timeProvider.GetUtcNow(),
+            TermsOfServiceAccepted = true,
+            TermsOfServiceAcceptedDate = timeProvider.GetUtcNow()
         };
 
         IdentityResult createResult = await userManager.CreateAsync(admin, password);

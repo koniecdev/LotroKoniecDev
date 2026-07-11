@@ -26,6 +26,7 @@ internal static class AuthActions
         await page.GetByLabel(FieldLabels.ConfirmPassword).FillAsync(user.Password);
         await page.GetByTestId(TestIds.RegisterAcceptPrivacy).CheckViaLabelAsync();
         await page.GetByTestId(TestIds.RegisterAcceptDataProcessing).CheckViaLabelAsync();
+        await page.GetByTestId(TestIds.RegisterAcceptTerms).CheckViaLabelAsync();
         await page.GetByRole(AriaRole.Button, new() { Name = Buttons.Register, Exact = true }).ClickAsync();
 
         await page.GetByTestId(TestIds.RegisterSuccess).WaitForAsync(LongWait);

@@ -550,6 +550,21 @@
                                     <span class="box" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg></span>
                                     <span>Wyrażam zgodę na przetwarzanie moich danych osobowych w celu prowadzenia konta.</span>
                                 </label>
+                                <label class="checkbox">
+                                    <input asp-for="AcceptedTermsOfService" type="checkbox" data-testid="register-accept-terms" />
+                                    <span class="box" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg></span>
+                                    <span>
+                                        Akceptuję
+                                        @if (Model.TermsOfServiceUrl is not null)
+                                        {
+                                            <a href="@Model.TermsOfServiceUrl" target="_blank" rel="noopener">regulamin serwisu</a>
+                                        }
+                                        else
+                                        {
+                                            <text>regulamin serwisu</text>
+                                        }, w tym licencję na wkład tłumaczeniowy.
+                                    </span>
+                                </label>
                             </div>
 
                             <div class="auth-actions">

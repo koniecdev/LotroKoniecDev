@@ -54,6 +54,8 @@ internal sealed partial class ExportAccountData : IApiEndpoint
                     appUser.DataProcessingConsentDate,
                     appUser.PrivacyPolicyAccepted,
                     appUser.PrivacyPolicyAcceptedDate,
+                    appUser.TermsOfServiceAccepted,
+                    appUser.TermsOfServiceAcceptedDate,
                     appUser.DeletionScheduledAt),
                 IsComplete: true);
 

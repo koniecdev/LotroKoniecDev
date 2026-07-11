@@ -58,7 +58,8 @@ public abstract class E2ETestBase : IAsyncLifetime
             email,
             TranslatorPassword,
             AcceptedPrivacyPolicy: true,
-            AcceptedDataProcessingConsent: true);
+            AcceptedDataProcessingConsent: true,
+            AcceptedTermsOfService: true);
 
         IdentityId identityId = await AuthApi.RegisterAsync(request);
         TokenResponse token = await AuthApi.LoginAsync(email, TranslatorPassword);

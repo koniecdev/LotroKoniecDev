@@ -15,7 +15,8 @@ internal static class UserFactory
         faker.Internet.Email(),
         password ?? DefaultPassword,
         AcceptedPrivacyPolicy: true,
-        AcceptedDataProcessingConsent: true);
+        AcceptedDataProcessingConsent: true,
+        AcceptedTermsOfService: true);
 
     public static async Task<IdentityId> RegisterRandomUserAsync(
         TestApiClient apiClient,

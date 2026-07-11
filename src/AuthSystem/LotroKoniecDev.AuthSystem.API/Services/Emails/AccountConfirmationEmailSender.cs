@@ -1,6 +1,5 @@
 using System.Net;
 using Microsoft.Extensions.Logging;
-using LotroKoniecDev.AuthSystem.API.Extensions;
 using LotroKoniecDev.AuthSystem.Infrastructure.Emails;
 using LotroKoniecDev.SharedKernel.Monads;
 
@@ -22,7 +21,7 @@ internal sealed class AccountConfirmationEmailSender : IAccountConfirmationEmail
         _logger = logger;
     }
 
-    public async Task<Result> SendEmailConfirmationAsync(string email, string confirmationToken, CancellationToken cancellationToken)
+    public async Task<Result> SendEmailConfirmationAsync(Guid userId, string email, string confirmationToken, CancellationToken cancellationToken)
     {
         string rawLink = _emailVerificationLinkFactory.Create(email, confirmationToken);
         string link = WebUtility.HtmlEncode(rawLink);
@@ -33,7 +32,7 @@ internal sealed class AccountConfirmationEmailSender : IAccountConfirmationEmail
         using IDisposable? scope = _logger.BeginScope(new Dictionary<string, object?>
         {
             ["EmailOperation"] = "AccountConfirmation",
-            ["Recipient"] = email.MaskEmail()
+            ["RecipientUserId"] = userId
         });
 
         return await _emailService

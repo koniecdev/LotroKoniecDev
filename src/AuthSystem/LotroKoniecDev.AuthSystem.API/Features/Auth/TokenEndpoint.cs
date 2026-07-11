@@ -93,6 +93,27 @@ internal sealed class TokenEndpoint : IEndpoint
                 statusCode: StatusCodes.Status400BadRequest);
         }
 
+        // A deletion-scheduled account is also locked out, so this gate must run before the
+        // lockout-aware sign-in check. The specific error is revealed only after the password
+        // is verified, keeping the endpoint unusable for account-state probing.
+        if (user.DeletionScheduledAt is not null)
+        {
+            bool deletionScheduledPasswordValid = await userManager.CheckPasswordAsync(user, request.Password!);
+            if (!deletionScheduledPasswordValid)
+            {
+                await userManager.AccessFailedAsync(user);
+                return Results.Problem(
+                    title: Errors.InvalidGrant,
+                    detail: "The email/password combination is invalid.",
+                    statusCode: StatusCodes.Status400BadRequest);
+            }
+
+            return Results.Problem(
+                title: Errors.InvalidGrant,
+                detail: "account_deletion_scheduled",
+                statusCode: StatusCodes.Status400BadRequest);
+        }
+
         SignInResult result = await signInManager.CheckPasswordSignInAsync(user, request.Password!, lockoutOnFailure: true);
 
         if (result.IsLockedOut || !result.Succeeded)
@@ -130,6 +151,17 @@ internal sealed class TokenEndpoint : IEndpoint
         ApplicationUser? user = await userManager.FindByIdAsync(userId);
 
         if (user is null)
+        {
+            return Results.Problem(
+                title: Errors.InvalidGrant,
+                detail: "The refresh token is no longer valid.",
+                statusCode: StatusCodes.Status400BadRequest);
+        }
+
+        // Refresh tokens are revoked when GDPR deletion is scheduled, but revocation is
+        // best-effort — this gate guarantees a locked or deletion-scheduled account can
+        // never refresh its way back to a usable access token.
+        if (user.DeletionScheduledAt is not null || await userManager.IsLockedOutAsync(user))
         {
             return Results.Problem(
                 title: Errors.InvalidGrant,

@@ -90,10 +90,10 @@ internal sealed partial class ResendEmailConfirmation : IApiEndpoint
             string token = await _userManager.GenerateEmailConfirmationTokenAsync(user);
 
             Result emailResult = await _accountConfirmationEmailSender.SendEmailConfirmationAsync(
-                command.Email, token, cancellationToken);
+                user.Id, command.Email, token, cancellationToken);
             if (emailResult.IsFailure)
             {
-                LogResendEmailFailed(_logger, maskedEmail, emailResult.Error.Message);
+                LogResendEmailFailed(_logger, user.Id, emailResult.Error.Message);
             }
 
             return Result.Success(); //anti-enumeration pattern
@@ -105,8 +105,8 @@ internal sealed partial class ResendEmailConfirmation : IApiEndpoint
         [LoggerMessage(EventId = EventIds.ResendConfirmAlreadyConfirmed, Level = LogLevel.Information, Message = "Email confirmation resend requested for already confirmed email {Email}")]
         private static partial void LogResendAlreadyConfirmed(ILogger logger, string email);
 
-        [LoggerMessage(EventId = EventIds.ResendConfirmEmailFailed, Level = LogLevel.Error, Message = "Failed to send confirmation email to {Email}: {Error}")]
-        private static partial void LogResendEmailFailed(ILogger logger, string email, string error);
+        [LoggerMessage(EventId = EventIds.ResendConfirmEmailFailed, Level = LogLevel.Error, Message = "Failed to send confirmation email for user {UserId}: {Error}")]
+        private static partial void LogResendEmailFailed(ILogger logger, Guid userId, string error);
     }
 
     public void MapEndpoint(IEndpointRouteBuilder endpointRouteBuilder)

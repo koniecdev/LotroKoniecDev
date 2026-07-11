@@ -14,7 +14,7 @@ internal sealed class AccountAggregateLinkFactory : IAccountAggregateLinkFactory
         _linkFactory = linkFactory;
     }
 
-    public List<LinkDto> CreateAccountLinks(bool isEmailConfirmed)
+    public List<LinkDto> CreateAccountLinks(bool isEmailConfirmed, bool isDeletionScheduled)
     {
         List<LinkDto> links = [];
 
@@ -23,6 +23,19 @@ internal sealed class AccountAggregateLinkFactory : IAccountAggregateLinkFactory
             endpoint: nameof(ExportAccountData),
             rel: Rels.Self,
             method: HttpMethods.Get));
+
+        // While deletion is scheduled the account is locked; the only meaningful
+        // transition is cancelling the deletion (via the emailed one-time token),
+        // so the normal account rels are suppressed as dead ends.
+        if (isDeletionScheduled)
+        {
+            links.AddIfPresent(_linkFactory.Create(
+                endpoint: nameof(CancelAccountDeletion),
+                rel: Rels.CancelDeletion,
+                method: HttpMethods.Post));
+
+            return links;
+        }
 
         // Always-available state transitions for an authenticated, active account
         links.AddIfPresent(_linkFactory.Create(

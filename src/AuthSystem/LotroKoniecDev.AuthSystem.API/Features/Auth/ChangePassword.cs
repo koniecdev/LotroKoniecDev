@@ -69,6 +69,14 @@ internal sealed partial class ChangePassword : IApiEndpoint
                 return Result.Failure(AuthErrors.UserNotFound);
             }
 
+            // A still-valid pre-schedule access token must not mutate auth state during the
+            // grace window: the security-stamp rotation below would kill the emailed cancel
+            // link — the account's only recovery path while it is locked out (ADR-0031).
+            if (user.DeletionScheduledAt is not null)
+            {
+                return Result.Failure(AuthErrors.DeletionAlreadyScheduled);
+            }
+
             IdentityResult identityResult = await _userManager.ChangePasswordAsync(
                 user,
                 command.CurrentPassword,
@@ -136,6 +144,7 @@ internal sealed partial class ChangePassword : IApiEndpoint
             .Produces(StatusCodes.Status200OK)
             .ProducesProblem(StatusCodes.Status400BadRequest)
             .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status422UnprocessableEntity)
             .ProducesProblem(StatusCodes.Status429TooManyRequests);
     }
 }

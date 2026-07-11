@@ -59,4 +59,25 @@ internal static class AuthErrors
         new("Auth.AccountDeletionFailed",
             details,
             TypeOfError.Failure);
+
+    public static Error DeletionAlreadyScheduled =>
+        new("Auth.DeletionAlreadyScheduled",
+            "Account deletion is already scheduled.",
+            TypeOfError.DataConflict);
+
+    public static Error DeletionSchedulingFailed =>
+        new("Auth.DeletionSchedulingFailed",
+            "Account deletion could not be scheduled. Your account remains unchanged. " +
+            "Please try again later or contact support.",
+            TypeOfError.Failure);
+
+    public static Error InvalidCancelDeletionToken =>
+        new("Auth.InvalidCancelDeletionToken",
+            "The cancellation link is invalid or has expired.",
+            TypeOfError.Validation);
+
+    public static Error CancelDeletionFailed(string details) =>
+        new("Auth.CancelDeletionFailed",
+            details,
+            TypeOfError.Failure);
 }

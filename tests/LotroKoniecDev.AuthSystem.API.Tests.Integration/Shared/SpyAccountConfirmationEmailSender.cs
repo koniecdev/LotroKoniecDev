@@ -15,7 +15,7 @@ public sealed class SpyAccountConfirmationEmailSender : IAccountConfirmationEmai
     public int CallCount => Volatile.Read(ref _callCount);
     public bool ShouldFail { get; set; }
 
-    public Task<Result> SendEmailConfirmationAsync(string email, string confirmationToken, CancellationToken cancellationToken)
+    public Task<Result> SendEmailConfirmationAsync(Guid userId, string email, string confirmationToken, CancellationToken cancellationToken)
     {
         LastEmail = email;
         LastConfirmationToken = confirmationToken;

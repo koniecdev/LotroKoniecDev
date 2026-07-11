@@ -53,7 +53,8 @@ internal sealed partial class ExportAccountData : IApiEndpoint
                     appUser.DataProcessingConsentGiven,
                     appUser.DataProcessingConsentDate,
                     appUser.PrivacyPolicyAccepted,
-                    appUser.PrivacyPolicyAcceptedDate),
+                    appUser.PrivacyPolicyAcceptedDate,
+                    appUser.DeletionScheduledAt),
                 IsComplete: true);
 
             LogGdprExportCompleted(_logger, appUser.Id);
@@ -94,7 +95,8 @@ internal sealed partial class ExportAccountData : IApiEndpoint
                 return HateoasResults.Ok(queryResult.Value, r =>
                 {
                     r.Links = accountAggregateLinkFactory.CreateAccountLinks(
-                        isEmailConfirmed: r.AuthData.EmailConfirmed);
+                        isEmailConfirmed: r.AuthData.EmailConfirmed,
+                        isDeletionScheduled: r.AuthData.DeletionScheduledAt is not null);
                 });
             })
             .RequireAuthorization()

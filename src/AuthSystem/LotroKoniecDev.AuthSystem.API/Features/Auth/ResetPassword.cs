@@ -83,6 +83,14 @@ internal sealed partial class ResetPassword : IApiEndpoint
                 return Result.Failure(AuthErrors.InvalidPasswordResetToken);
             }
 
+            // While GDPR deletion is scheduled, only the emailed cancel-deletion link may
+            // restore the account. The generic invalid-token error prevents state probing.
+            if (user.DeletionScheduledAt is not null)
+            {
+                LogPasswordResetBlockedDeletionScheduled(_logger, user.Id);
+                return Result.Failure(AuthErrors.InvalidPasswordResetToken);
+            }
+
             IdentityResult identityResult = await _userManager.ResetPasswordAsync(user, command.Token, command.NewPassword);
 
             if (!identityResult.Succeeded)
@@ -113,6 +121,9 @@ internal sealed partial class ResetPassword : IApiEndpoint
 
         [LoggerMessage(EventId = EventIds.ResetPasswordSecurityStampFailed, Level = LogLevel.Error, Message = "Failed to update security stamp for user {UserId} after password change")]
         private static partial void LogSecurityStampUpdateFailed(ILogger logger, Guid userId);
+
+        [LoggerMessage(EventId = EventIds.ResetPasswordDeletionScheduled, Level = LogLevel.Warning, Message = "Password reset blocked for user {UserId}: account deletion is scheduled")]
+        private static partial void LogPasswordResetBlockedDeletionScheduled(ILogger logger, Guid userId);
     }
 
     public void MapEndpoint(IEndpointRouteBuilder endpointRouteBuilder)

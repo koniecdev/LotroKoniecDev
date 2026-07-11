@@ -6,6 +6,7 @@ using Microsoft.Extensions.Options;
 using LotroKoniecDev.AuthSystem.Domain.Aggregates.ApplicationRoles.Entities;
 using LotroKoniecDev.AuthSystem.Domain.Aggregates.ApplicationUsers.Entities;
 using LotroKoniecDev.AuthSystem.Persistence.DbContexts;
+using LotroKoniecDev.AuthSystem.Persistence.Identity;
 using LotroKoniecDev.AuthSystem.Persistence.Settings;
 using LotroKoniecDev.Options;
 using LotroKoniecDev.SharedKernel.Constants;
@@ -53,6 +54,8 @@ public static class PersistenceDependencyInjection
                 .AddRoles<ApplicationRole>()
                 .AddSignInManager()
                 .AddDefaultTokenProviders()
+                .AddTokenProvider<AccountDeletionCancellationTokenProvider>(
+                    AccountDeletionCancellationTokenProvider.ProviderName)
                 .AddEntityFrameworkStores<AuthDbContext>();
 
             services.Configure<DataProtectionTokenProviderOptions>(options =>

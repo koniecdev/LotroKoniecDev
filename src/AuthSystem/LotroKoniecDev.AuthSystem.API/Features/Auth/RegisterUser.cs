@@ -139,11 +139,10 @@ internal sealed partial class RegisterUser : IApiEndpoint
 
                 string emailToken = await _userManager.GenerateEmailConfirmationTokenAsync(user);
                 Result emailResult = await _accountConfirmationEmailSender.SendEmailConfirmationAsync(
-                    command.Email, emailToken, cancellationToken);
+                    user.Id, command.Email, emailToken, cancellationToken);
                 if (emailResult.IsFailure)
                 {
-                    string maskedEmail = command.Email.MaskEmail();
-                    LogConfirmationEmailFailed(_logger, maskedEmail, emailResult.Error.Message);
+                    LogConfirmationEmailFailed(_logger, user.Id, emailResult.Error.Message);
 
                     await _userManager.ConfirmEmailAsync(user, emailToken);
                 }
@@ -165,8 +164,8 @@ internal sealed partial class RegisterUser : IApiEndpoint
             return IdentityId.Create(user.Id);
         }
 
-        [LoggerMessage(EventId = EventIds.RegisterEmailFallback, Level = LogLevel.Warning, Message = "Failed to send confirmation email to {Email}: {Error}. Auto-confirming account as fallback")]
-        private static partial void LogConfirmationEmailFailed(ILogger logger, string email, string error);
+        [LoggerMessage(EventId = EventIds.RegisterEmailFallback, Level = LogLevel.Warning, Message = "Failed to send confirmation email for user {UserId}: {Error}. Auto-confirming account as fallback")]
+        private static partial void LogConfirmationEmailFailed(ILogger logger, Guid userId, string error);
 
         [LoggerMessage(EventId = EventIds.RegisterConcurrentRace, Level = LogLevel.Warning, Message = "Concurrent registration race condition for email {Email}")]
         private static partial void LogConcurrentRegistration(ILogger logger, Exception exception, string email);

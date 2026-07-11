@@ -29,6 +29,15 @@ internal static class EventIds
     public const int GdprErasureArtifactsCleanupFailed = 2228;
     public const int GdprErasureEmergencyLockout = 2229;
     public const int GdprErasureEmergencyLockoutFailed = 2230;
+    public const int GdprDeletionScheduled = 2231;
+    public const int GdprDeletionCancelled = 2232;
+    public const int GdprDeletionFinalized = 2233;
+    public const int GdprCancelTokenInvalid = 2234;
+    public const int GdprDeletionScheduledEmailFailed = 2235;
+    public const int GdprDeletionCancelledEmailFailed = 2236;
+    public const int GdprDeletionScheduleUnwound = 2237;
+    public const int GdprDeletionFinalizerRunFailed = 2238;
+    public const int GdprDeletionFinalizerUserFailed = 2239;
 
     // Data Export (2240–2249)
     public const int ExportDataCompleted = 2241;
@@ -73,6 +82,20 @@ internal static class EventIds
     public const int LoginWrongPassword = 2622;
     public const int LoginSuccessful = 2623;
     public const int LoginEmailNotConfirmed = 2624;
+    public const int LoginDeletionScheduled = 2625;
     public const int PasswordResetCompletedViaUi = 2630;
     public const int RegisterCompletedViaUi = 2640;
+    public const int DeletionCancelledViaUi = 2650;
+
+    // GDPR Deletion Scheduling internals (2700–2709)
+    public const int GdprDeletionSchedulingUpdateFailed = 2700;
+    public const int GdprDeletionScheduleUnwindFailed = 2701;
+    public const int GdprDeletionScheduleUnwindException = 2702;
+    public const int GdprDeletionScheduleStampFailed = 2703;
+    public const int GdprDeletionScheduleArtifactRevocationFailed = 2704;
+    public const int GdprDeletionCancelStampFailed = 2705;
+
+    // Forgot/Reset Password deletion-window gates (2710–2719)
+    public const int ForgotPasswordDeletionScheduled = 2710;
+    public const int ResetPasswordDeletionScheduled = 2711;
 }

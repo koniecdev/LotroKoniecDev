@@ -80,6 +80,16 @@ internal sealed partial class ResetPasswordModel : PageModel
             return Page();
         }
 
+        // While GDPR deletion is scheduled, only the emailed cancel-deletion link may
+        // restore the account. The generic invalid-token message prevents state probing.
+        if (user.DeletionScheduledAt is not null)
+        {
+            LogPasswordResetBlockedDeletionScheduled(_logger, user.Id);
+            TokenInvalid = true;
+            ErrorMessage = "Link do resetu hasła jest nieprawidłowy lub wygasł.";
+            return Page();
+        }
+
         IdentityResult result = await _userManager.ResetPasswordAsync(user, Token, NewPassword);
 
         if (!result.Succeeded)
@@ -106,4 +116,7 @@ internal sealed partial class ResetPasswordModel : PageModel
 
     [LoggerMessage(EventId = EventIds.PasswordResetCompletedViaUi, Level = LogLevel.Information, Message = "Password reset completed via UI for user {UserId}. Tokens and authorizations revoked.")]
     private static partial void LogPasswordResetCompleted(ILogger logger, Guid userId);
+
+    [LoggerMessage(EventId = EventIds.ResetPasswordDeletionScheduled, Level = LogLevel.Warning, Message = "Password reset blocked for user {UserId}: account deletion is scheduled")]
+    private static partial void LogPasswordResetBlockedDeletionScheduled(ILogger logger, Guid userId);
 }

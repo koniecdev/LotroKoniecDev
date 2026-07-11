@@ -19,4 +19,5 @@ public sealed record AuthDataExportDto(
     bool DataProcessingConsentGiven,
     DateTimeOffset? DataProcessingConsentDate,
     bool PrivacyPolicyAccepted,
-    DateTimeOffset? PrivacyPolicyAcceptedDate);
+    DateTimeOffset? PrivacyPolicyAcceptedDate,
+    DateTimeOffset? DeletionScheduledAt);

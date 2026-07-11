@@ -17,5 +17,9 @@ internal interface IAccountAggregateLinkFactory
     /// Whether the user's email has already been confirmed. Drives the
     /// visibility of the <c>resend-email-confirmation</c> state transition.
     /// </param>
-    List<LinkDto> CreateAccountLinks(bool isEmailConfirmed);
+    /// <param name="isDeletionScheduled">
+    /// Whether GDPR deletion is scheduled for the account. While scheduled,
+    /// the only advertised transition is <c>cancel-deletion</c> (ADR-0031).
+    /// </param>
+    List<LinkDto> CreateAccountLinks(bool isEmailConfirmed, bool isDeletionScheduled);
 }

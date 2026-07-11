@@ -57,7 +57,7 @@ internal sealed partial class ForgotPasswordModel : PageModel
         else
         {
             string token = await _userManager.GeneratePasswordResetTokenAsync(user);
-            await _emailSender.SendPasswordResetEmailAsync(Email, token, HttpContext.RequestAborted);
+            await _emailSender.SendPasswordResetEmailAsync(user.Id, Email, token, HttpContext.RequestAborted);
             LogPasswordResetTokenGenerated(_logger, user.Id);
         }
 

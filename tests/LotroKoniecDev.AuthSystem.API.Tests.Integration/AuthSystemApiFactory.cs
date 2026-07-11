@@ -89,6 +89,18 @@ public class AuthSystemApiFactory : WebApplicationFactory<Program>, IAsyncLifeti
             services.AddSingleton<IAccountConfirmationEmailSender>(sp =>
                 sp.GetRequiredService<SpyAccountConfirmationEmailSender>());
 
+            // Replace deletion email sender with spy for capturing cancel tokens in tests
+            ServiceDescriptor? existingDeletionSender = services
+                .FirstOrDefault(d => d.ServiceType == typeof(IAccountDeletionEmailSender));
+            if (existingDeletionSender is not null)
+            {
+                services.Remove(existingDeletionSender);
+            }
+
+            services.AddSingleton<SpyAccountDeletionEmailSender>();
+            services.AddSingleton<IAccountDeletionEmailSender>(sp =>
+                sp.GetRequiredService<SpyAccountDeletionEmailSender>());
+
             // Replace AuthDbContext to use the test connection string directly
             ServiceDescriptor? dbContextDescriptor = services
                 .FirstOrDefault(d => d.ServiceType == typeof(DbContextOptions<AuthDbContext>));

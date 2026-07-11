@@ -4,5 +4,5 @@ namespace LotroKoniecDev.AuthSystem.API.Services.Emails;
 
 internal interface IPasswordResetEmailSender
 {
-    Task<Result> SendPasswordResetEmailAsync(string email, string resetToken, CancellationToken cancellationToken);
+    Task<Result> SendPasswordResetEmailAsync(Guid userId, string email, string resetToken, CancellationToken cancellationToken);
 }

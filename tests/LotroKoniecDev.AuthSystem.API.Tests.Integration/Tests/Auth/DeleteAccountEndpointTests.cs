@@ -1,6 +1,7 @@
 using System.Net.Http.Headers;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using LotroKoniecDev.AuthSystem.API.Features.Auth;
 using LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared;
 using LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared.Bases;
 using LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared.Factories;
@@ -8,104 +9,176 @@ using LotroKoniecDev.AuthSystem.Contracts.Features.Auth.Account;
 using LotroKoniecDev.AuthSystem.Contracts.Features.Auth.Register;
 using LotroKoniecDev.AuthSystem.Domain.Aggregates.ApplicationUsers.Entities;
 using LotroKoniecDev.AuthSystem.Persistence.DbContexts;
-using LotroKoniecDev.SharedKernel.Constants;
 using LotroKoniecDev.SharedKernel.StronglyTypedIds;
 
 namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Tests.Auth;
 
 public sealed class DeleteAccountEndpointTests : EndpointsTestBase
 {
+    private const string TestPassword = "TestPass1!";
+
     public DeleteAccountEndpointTests(AuthSystemApiFactory appFactory) : base(appFactory) { }
 
     [Fact]
-    public async Task DeleteAccount_ShouldReturnNoContent_WhenPasswordIsCorrect()
+    public async Task DeleteAccount_ShouldReturnNoContentWithSchedulingHeaders_WhenPasswordIsCorrect()
     {
         // Arrange
-        const string password = "TestPass1!";
-
         (RegisterRequest registerRequest, _) =
-            await UserFactory.RegisterRandomUserWithRequestAsync(ApiClient, Faker, AccountConfirmationEmailSpy, password);
+            await UserFactory.RegisterRandomUserWithRequestAsync(ApiClient, Faker, AccountConfirmationEmailSpy, TestPassword);
 
-        string accessToken = await GetAccessTokenAsync(registerRequest.Email, password);
-
-        DeleteAccountRequest deleteRequest = new(password);
-
-        using HttpRequestMessage request = new(HttpMethod.Post, "auth/account/delete");
-        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
-        request.Content = JsonContent.Create(deleteRequest);
+        string accessToken = await GetAccessTokenAsync(registerRequest.Email, TestPassword);
 
         // Act
-        HttpResponseMessage response = await ApiClient.Http.SendAsync(request);
+        HttpResponseMessage response = await SendDeleteRequestAsync(accessToken, TestPassword);
 
         // Assert
         response.StatusCode.ShouldBe(HttpStatusCode.NoContent);
+
+        response.Headers.TryGetValues(DeleteAccount.DeletionScheduledAtHeader, out IEnumerable<string>? scheduledAtValues)
+            .ShouldBeTrue($"the {DeleteAccount.DeletionScheduledAtHeader} header must be present");
+        response.Headers.TryGetValues(DeleteAccount.DeletionFinalizesAtHeader, out IEnumerable<string>? finalizesAtValues)
+            .ShouldBeTrue($"the {DeleteAccount.DeletionFinalizesAtHeader} header must be present");
+
+        string? scheduledAtHeader = scheduledAtValues!.SingleOrDefault();
+        string? finalizesAtHeader = finalizesAtValues!.SingleOrDefault();
+
+        scheduledAtHeader.ShouldNotBeNullOrWhiteSpace();
+        finalizesAtHeader.ShouldNotBeNullOrWhiteSpace();
+
+        DateTimeOffset scheduledAt = DateTimeOffset.Parse(scheduledAtHeader, System.Globalization.CultureInfo.InvariantCulture);
+        DateTimeOffset finalizesAt = DateTimeOffset.Parse(finalizesAtHeader, System.Globalization.CultureInfo.InvariantCulture);
+        (finalizesAt - scheduledAt).ShouldBe(TimeSpan.FromDays(14));
     }
 
     [Fact]
-    public async Task DeleteAccount_ShouldPreventLogin_AfterDeletion()
+    public async Task DeleteAccount_ShouldScheduleDeletionAndLockAccount_WithoutAnonymizingData()
     {
         // Arrange
-        const string password = "TestPass1!";
+        (RegisterRequest registerRequest, IdentityId identityId) =
+            await UserFactory.RegisterRandomUserWithRequestAsync(ApiClient, Faker, AccountConfirmationEmailSpy, TestPassword);
 
+        string accessToken = await GetAccessTokenAsync(registerRequest.Email, TestPassword);
+
+        // Act
+        HttpResponseMessage response = await SendDeleteRequestAsync(accessToken, TestPassword);
+
+        // Assert
+        response.StatusCode.ShouldBe(HttpStatusCode.NoContent);
+
+        ApplicationUser user = await GetUserAsync(identityId.Value);
+
+        user.DeletionScheduledAt.ShouldNotBeNull();
+        user.LockoutEnabled.ShouldBeTrue();
+        user.LockoutEnd.ShouldBe(user.DeletionScheduledAt.Value.AddDays(14));
+
+        // Data stays intact during the grace window — only the finalizer anonymizes.
+        user.Email.ShouldBe(registerRequest.Email);
+        user.UserName.ShouldBe(registerRequest.Username);
+        user.PasswordHash.ShouldNotBeNull();
+    }
+
+    [Fact]
+    public async Task DeleteAccount_ShouldSendCancellationEmail_WhenScheduling()
+    {
+        // Arrange
         (RegisterRequest registerRequest, _) =
-            await UserFactory.RegisterRandomUserWithRequestAsync(ApiClient, Faker, AccountConfirmationEmailSpy, password);
+            await UserFactory.RegisterRandomUserWithRequestAsync(ApiClient, Faker, AccountConfirmationEmailSpy, TestPassword);
 
-        string accessToken = await GetAccessTokenAsync(registerRequest.Email, password);
+        string accessToken = await GetAccessTokenAsync(registerRequest.Email, TestPassword);
 
-        DeleteAccountRequest deleteRequest = new(password);
+        // Act
+        HttpResponseMessage response = await SendDeleteRequestAsync(accessToken, TestPassword);
 
-        using HttpRequestMessage deleteReq = new(HttpMethod.Post, "auth/account/delete");
-        deleteReq.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
-        deleteReq.Content = JsonContent.Create(deleteRequest);
+        // Assert
+        response.StatusCode.ShouldBe(HttpStatusCode.NoContent);
+        AccountDeletionEmailSpy.ScheduledCallCount.ShouldBe(1);
+        AccountDeletionEmailSpy.LastScheduledEmail.ShouldBe(registerRequest.Email);
+        AccountDeletionEmailSpy.LastCancelToken.ShouldNotBeNullOrWhiteSpace();
+    }
 
-        await ApiClient.Http.SendAsync(deleteReq);
+    [Fact]
+    public async Task DeleteAccount_ShouldPreventLogin_DuringGraceWindow()
+    {
+        // Arrange
+        (RegisterRequest registerRequest, _) =
+            await UserFactory.RegisterRandomUserWithRequestAsync(ApiClient, Faker, AccountConfirmationEmailSpy, TestPassword);
 
-        // Act — try to login with old credentials
-        using FormUrlEncodedContent tokenRequest = new(new Dictionary<string, string>
-        {
-            ["grant_type"] = "password",
-            ["username"] = registerRequest.Email,
-            ["password"] = password,
-            ["client_id"] = "lotrokoniecdev-test",
-            ["scope"] = "email profile roles api"
-        });
+        string accessToken = await GetAccessTokenAsync(registerRequest.Email, TestPassword);
+        await SendDeleteRequestAsync(accessToken, TestPassword);
 
-        HttpResponseMessage loginResponse = await ApiClient.Http.PostAsync(
-            new Uri("connect/token", UriKind.Relative), tokenRequest);
+        // Act — try to login with the (still correct) credentials
+        HttpResponseMessage loginResponse = await RequestTokenAsync(registerRequest.Email, TestPassword);
 
-        // Assert — login should fail (user anonymized + locked)
+        // Assert — the dedicated error lets clients show the "scheduled for deletion" state
         loginResponse.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        string body = await loginResponse.Content.ReadAsStringAsync();
+        body.ShouldContain("account_deletion_scheduled");
+    }
+
+    [Fact]
+    public async Task DeleteAccount_ShouldReturnGenericLoginError_WhenPasswordIsWrongDuringGraceWindow()
+    {
+        // Arrange
+        (RegisterRequest registerRequest, _) =
+            await UserFactory.RegisterRandomUserWithRequestAsync(ApiClient, Faker, AccountConfirmationEmailSpy, TestPassword);
+
+        string accessToken = await GetAccessTokenAsync(registerRequest.Email, TestPassword);
+        await SendDeleteRequestAsync(accessToken, TestPassword);
+
+        // Act — wrong password must not reveal that deletion is scheduled
+        HttpResponseMessage loginResponse = await RequestTokenAsync(registerRequest.Email, "WrongPassword1!");
+
+        // Assert
+        loginResponse.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        string body = await loginResponse.Content.ReadAsStringAsync();
+        body.ShouldNotContain("account_deletion_scheduled");
+    }
+
+    [Fact]
+    public async Task DeleteAccount_ShouldReturnUnprocessableEntity_WhenAlreadyScheduled()
+    {
+        // Arrange
+        (RegisterRequest registerRequest, _) =
+            await UserFactory.RegisterRandomUserWithRequestAsync(ApiClient, Faker, AccountConfirmationEmailSpy, TestPassword);
+
+        string accessToken = await GetAccessTokenAsync(registerRequest.Email, TestPassword);
+        HttpResponseMessage firstResponse = await SendDeleteRequestAsync(accessToken, TestPassword);
+        firstResponse.StatusCode.ShouldBe(HttpStatusCode.NoContent);
+
+        // Act — the JWT is self-contained, so it stays usable within its lifetime
+        HttpResponseMessage secondResponse = await SendDeleteRequestAsync(accessToken, TestPassword);
+
+        // Assert
+        secondResponse.StatusCode.ShouldBe(HttpStatusCode.UnprocessableEntity);
+        string body = await secondResponse.Content.ReadAsStringAsync();
+        body.ShouldContain("Auth.DeletionAlreadyScheduled");
+        AccountDeletionEmailSpy.ScheduledCallCount.ShouldBe(1);
     }
 
     [Fact]
     public async Task DeleteAccount_ShouldReturnBadRequest_WhenPasswordIsWrong()
     {
         // Arrange
-        const string password = "TestPass1!";
+        (RegisterRequest registerRequest, IdentityId identityId) =
+            await UserFactory.RegisterRandomUserWithRequestAsync(ApiClient, Faker, AccountConfirmationEmailSpy, TestPassword);
 
-        (RegisterRequest registerRequest, _) =
-            await UserFactory.RegisterRandomUserWithRequestAsync(ApiClient, Faker, AccountConfirmationEmailSpy, password);
-
-        string accessToken = await GetAccessTokenAsync(registerRequest.Email, password);
-
-        DeleteAccountRequest deleteRequest = new("WrongPassword1!");
-
-        using HttpRequestMessage request = new(HttpMethod.Post, "auth/account/delete");
-        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
-        request.Content = JsonContent.Create(deleteRequest);
+        string accessToken = await GetAccessTokenAsync(registerRequest.Email, TestPassword);
 
         // Act
-        HttpResponseMessage response = await ApiClient.Http.SendAsync(request);
+        HttpResponseMessage response = await SendDeleteRequestAsync(accessToken, "WrongPassword1!");
 
         // Assert
         response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+
+        ApplicationUser user = await GetUserAsync(identityId.Value);
+        user.DeletionScheduledAt.ShouldBeNull();
     }
 
     [Fact]
     public async Task DeleteAccount_ShouldReturnUnauthorized_WhenNotAuthenticated()
     {
         // Arrange
-        DeleteAccountRequest deleteRequest = new("TestPass1!");
+        DeleteAccountRequest deleteRequest = new(TestPassword);
 
         // Act
         using HttpRequestMessage request = new(HttpMethod.Post, "auth/account/delete");
@@ -117,64 +190,68 @@ public sealed class DeleteAccountEndpointTests : EndpointsTestBase
     }
 
     [Fact]
-    public async Task DeleteAccount_ShouldAnonymizeUserData_WhenAccountIsDeleted()
+    public async Task DeleteAccount_ShouldUnwindSchedule_WhenCancellationEmailFails()
     {
         // Arrange
-        const string password = "TestPass1!";
-
         (RegisterRequest registerRequest, IdentityId identityId) =
-            await UserFactory.RegisterRandomUserWithRequestAsync(ApiClient, Faker, AccountConfirmationEmailSpy, password);
+            await UserFactory.RegisterRandomUserWithRequestAsync(ApiClient, Faker, AccountConfirmationEmailSpy, TestPassword);
 
-        string accessToken = await GetAccessTokenAsync(registerRequest.Email, password);
+        string accessToken = await GetAccessTokenAsync(registerRequest.Email, TestPassword);
 
+        AccountDeletionEmailSpy.ShouldFailScheduledEmail = true;
+
+        try
+        {
+            // Act
+            HttpResponseMessage response = await SendDeleteRequestAsync(accessToken, TestPassword);
+
+            // Assert — without the emailed cancel link the owner couldn't cancel,
+            // so the schedule is rolled back and the account stays usable.
+            response.StatusCode.ShouldBe(HttpStatusCode.InternalServerError);
+            string body = await response.Content.ReadAsStringAsync();
+            body.ShouldContain("Auth.DeletionSchedulingFailed");
+
+            ApplicationUser user = await GetUserAsync(identityId.Value);
+            user.DeletionScheduledAt.ShouldBeNull();
+
+            HttpResponseMessage loginResponse = await RequestTokenAsync(registerRequest.Email, TestPassword);
+            loginResponse.StatusCode.ShouldBe(HttpStatusCode.OK);
+        }
+        finally
+        {
+            AccountDeletionEmailSpy.ShouldFailScheduledEmail = false;
+        }
+    }
+
+    private async Task<HttpResponseMessage> SendDeleteRequestAsync(string accessToken, string password)
+    {
         DeleteAccountRequest deleteRequest = new(password);
 
         using HttpRequestMessage request = new(HttpMethod.Post, "auth/account/delete");
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
         request.Content = JsonContent.Create(deleteRequest);
 
-        // Act
-        HttpResponseMessage response = await ApiClient.Http.SendAsync(request);
-
-        // Assert — deletion succeeded
-        response.StatusCode.ShouldBe(HttpStatusCode.NoContent);
-
-        // Assert — verify anonymization in database
-        await using AsyncServiceScope scope = Factory.Services.CreateAsyncScope();
-        AuthDbContext db = scope.ServiceProvider.GetRequiredService<AuthDbContext>();
-
-        ApplicationUser user = await db.Users.FirstAsync(u => u.Id == identityId.Value);
-
-        // PII fields should be anonymized
-        user.UserName.ShouldNotBe(registerRequest.Username);
-        user.Email.ShouldEndWith(AnonymizationConstants.EmailDomain);
-        user.Email.ShouldStartWith(AnonymizationConstants.EmailPrefix);
-        user.PhoneNumber.ShouldBeNull();
-        user.PasswordHash.ShouldBeNull();
-
-        // Consent flags should be cleared
-        user.DataProcessingConsentGiven.ShouldBeFalse();
-        user.DataProcessingConsentDate.ShouldBeNull();
-        user.PrivacyPolicyAccepted.ShouldBeFalse();
-        user.PrivacyPolicyAcceptedDate.ShouldBeNull();
-
-        // Security fields should be reset
-        user.EmailConfirmed.ShouldBeFalse();
-        user.PhoneNumberConfirmed.ShouldBeFalse();
-        user.TwoFactorEnabled.ShouldBeFalse();
-        user.AccessFailedCount.ShouldBe(0);
-
-        // Account should be permanently locked
-        user.LockoutEnabled.ShouldBeTrue();
-        user.LockoutEnd.ShouldBe(DateTimeOffset.MaxValue);
-
-        // Roles should be removed
-        bool hasRoles = await db.UserRoles.AnyAsync(ur => ur.UserId == identityId.Value);
-        hasRoles.ShouldBeFalse();
-
-        // Claims should be removed
-        bool hasClaims = await db.UserClaims.AnyAsync(uc => uc.UserId == identityId.Value);
-        hasClaims.ShouldBeFalse();
+        return await ApiClient.Http.SendAsync(request);
     }
 
+    private async Task<HttpResponseMessage> RequestTokenAsync(string email, string password)
+    {
+        using FormUrlEncodedContent tokenRequest = new(new Dictionary<string, string>
+        {
+            ["grant_type"] = "password",
+            ["username"] = email,
+            ["password"] = password,
+            ["client_id"] = "lotrokoniecdev-test",
+            ["scope"] = "email profile roles api"
+        });
+
+        return await ApiClient.Http.PostAsync(new Uri("connect/token", UriKind.Relative), tokenRequest);
+    }
+
+    private async Task<ApplicationUser> GetUserAsync(Guid userId)
+    {
+        await using AsyncServiceScope scope = Factory.Services.CreateAsyncScope();
+        AuthDbContext db = scope.ServiceProvider.GetRequiredService<AuthDbContext>();
+        return await db.Users.AsNoTracking().FirstAsync(u => u.Id == userId);
+    }
 }

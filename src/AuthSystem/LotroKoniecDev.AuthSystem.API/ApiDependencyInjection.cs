@@ -5,16 +5,19 @@ using System.Text.Unicode;
 using FluentValidation;
 using Microsoft.Extensions.Options;
 using Microsoft.Extensions.WebEncoders;
+using LotroKoniecDev.AuthSystem.API.BackgroundServices;
 using LotroKoniecDev.AuthSystem.API.ExceptionHandlers;
 using LotroKoniecDev.AuthSystem.API.Extensions;
 using LotroKoniecDev.AuthSystem.API.Features.Auth;
 using LotroKoniecDev.AuthSystem.API.Hateoas.AccountAggregateFactories;
 using LotroKoniecDev.AuthSystem.API.Hateoas.DiscoveryFactories;
 using LotroKoniecDev.AuthSystem.API.Services.Emails;
+using LotroKoniecDev.AuthSystem.API.Services.Gdpr;
 using LotroKoniecDev.AuthSystem.API.Services.Maintenance;
 using LotroKoniecDev.AuthSystem.API.Services.Sessions;
 using LotroKoniecDev.AuthSystem.API.Settings;
 using LotroKoniecDev.AuthSystem.Contracts.Features.Auth.Account;
+using LotroKoniecDev.AuthSystem.Persistence.Identity;
 using LotroKoniecDev.Hateoas;
 using LotroKoniecDev.SharedKernel.Messaging;
 using LotroKoniecDev.SharedKernel.Monads;
@@ -62,9 +65,10 @@ internal static class ApiDependencyInjection
 
             services.AddValidatorsFromAssembly(Assembly.GetExecutingAssembly(), includeInternalTypes: true);
 
+            services.AddScoped<ICommandHandler<CancelAccountDeletion.Command, Result<CancelAccountDeletion.CancelledDeletion>>, CancelAccountDeletion.Handler>();
             services.AddScoped<ICommandHandler<ChangePassword.Command, Result>, ChangePassword.Handler>();
             services.AddScoped<ICommandHandler<ConfirmEmail.Command, Result>, ConfirmEmail.Handler>();
-            services.AddScoped<ICommandHandler<DeleteAccount.Command, Result>, DeleteAccount.Handler>();
+            services.AddScoped<ICommandHandler<DeleteAccount.Command, Result<DeleteAccount.ScheduledDeletion>>, DeleteAccount.Handler>();
             services.AddScoped<IQueryHandler<ExportAccountData.Query, Result<AccountDataExportResponse>>, ExportAccountData.Handler>();
             services.AddScoped<ICommandHandler<ForgotPassword.Command, Result>, ForgotPassword.Handler>();
             services.AddScoped<ICommandHandler<RegisterUser.Command, Result<IdentityId>>, RegisterUser.Handler>();
@@ -73,8 +77,14 @@ internal static class ApiDependencyInjection
 
             services.AddScoped<IEmailVerificationLinkFactory, EmailVerificationLinkFactory>();
             services.AddScoped<IPasswordResetLinkFactory, PasswordResetLinkFactory>();
+            services.AddScoped<ICancelDeletionLinkFactory, CancelDeletionLinkFactory>();
             services.AddScoped<IPasswordResetEmailSender, PasswordResetEmailSender>();
             services.AddScoped<IAccountConfirmationEmailSender, AccountConfirmationEmailSender>();
+            services.AddScoped<IAccountDeletionEmailSender, AccountDeletionEmailSender>();
+
+            services.AddScoped<IAccountErasureService, AccountErasureService>();
+            services.AddScoped<IAccountDeletionFinalizer, AccountDeletionFinalizer>();
+            services.AddHostedService<AccountDeletionFinalizerHostedService>();
 
             services.AddScoped<IUserSessionRevoker, UserSessionRevoker>();
 
@@ -92,6 +102,20 @@ internal static class ApiDependencyInjection
                 .ValidateOnStart();
 
             services.AddSingleton<IValidateOptions<OpenIddictSettings>, OpenIddictSettingsValidator>();
+
+            services.AddOptions<GdprSettings>()
+                .BindConfiguration(GdprSettings.ConfigurationSection)
+                .ValidateOnStart();
+
+            services.AddSingleton<IValidateOptions<GdprSettings>, GdprSettingsValidator>();
+
+            // The cancel-deletion token must stay valid for the whole grace period,
+            // unlike the 24h default token lifespan.
+            services.AddOptions<AccountDeletionCancellationTokenProviderOptions>()
+                .Configure<IOptions<GdprSettings>>((options, gdprSettings) =>
+                {
+                    options.TokenLifespan = gdprSettings.Value.DeletionGracePeriod;
+                });
 
             return services;
         }

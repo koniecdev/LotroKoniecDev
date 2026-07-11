@@ -77,6 +77,22 @@ internal sealed class AuthorizeEndpoint : IEndpoint
                 [OpenIddictServerAspNetCoreDefaults.AuthenticationScheme]);
         }
 
+        // A live session cookie must not keep minting tokens for an account that is
+        // locked out or sitting in the GDPR deletion grace window (ADR-0031) — the
+        // session is terminated and the client is sent back through the login page.
+        if (user.DeletionScheduledAt is not null || await userManager.IsLockedOutAsync(user))
+        {
+            await httpContext.SignOutAsync(IdentityConstants.ApplicationScheme);
+
+            return Results.Forbid(
+                new AuthenticationProperties(new Dictionary<string, string?>
+                {
+                    [OpenIddictServerAspNetCoreConstants.Properties.Error] = Errors.LoginRequired,
+                    [OpenIddictServerAspNetCoreConstants.Properties.ErrorDescription] = "The user account is no longer valid."
+                }),
+                [OpenIddictServerAspNetCoreDefaults.AuthenticationScheme]);
+        }
+
         ClaimsIdentity identity = new(
             authenticationType: OpenIddictServerAspNetCoreDefaults.AuthenticationScheme,
             nameType: Claims.Name,

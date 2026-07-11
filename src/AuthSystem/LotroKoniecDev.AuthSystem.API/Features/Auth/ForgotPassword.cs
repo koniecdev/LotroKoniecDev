@@ -78,6 +78,15 @@ internal sealed partial class ForgotPassword : IApiEndpoint
                 return Result.Success();
             }
 
+            // While GDPR deletion is scheduled, the emailed cancel-deletion link is the only
+            // recovery path — a password reset would neither unlock the account nor stop the
+            // deletion. Pretend success so account state can't be probed.
+            if (user.DeletionScheduledAt is not null)
+            {
+                LogPasswordResetSkippedDeletionScheduled(_logger, user.Id);
+                return Result.Success();
+            }
+
             string token = await _userManager.GeneratePasswordResetTokenAsync(user);
 
             Result emailResult = await _emailSender.SendPasswordResetEmailAsync(command.Email, token, cancellationToken);
@@ -95,6 +104,9 @@ internal sealed partial class ForgotPassword : IApiEndpoint
 
         [LoggerMessage(EventId = EventIds.ForgotPasswordEmailFailed, Level = LogLevel.Error, Message = "Failed to send password reset email to {Email}: {Error}")]
         private static partial void LogPasswordResetEmailFailed(ILogger logger, string email, string error);
+
+        [LoggerMessage(EventId = EventIds.ForgotPasswordDeletionScheduled, Level = LogLevel.Information, Message = "Password reset skipped for user {UserId}: account deletion is scheduled")]
+        private static partial void LogPasswordResetSkippedDeletionScheduled(ILogger logger, Guid userId);
     }
 
     public void MapEndpoint(IEndpointRouteBuilder endpointRouteBuilder)

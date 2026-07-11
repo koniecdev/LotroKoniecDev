@@ -1,9 +1,12 @@
+using System.Globalization;
 using System.Security.Claims;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
+using Microsoft.Extensions.Options;
 using LotroKoniecDev.AuthSystem.API.Extensions;
+using LotroKoniecDev.AuthSystem.API.Settings;
 using LotroKoniecDev.AuthSystem.Domain.Aggregates.ApplicationUsers.Entities;
 
 namespace LotroKoniecDev.AuthSystem.API.Pages.Account;
@@ -30,13 +33,16 @@ internal sealed partial class LoginModel : PageModel
         new PasswordHasher<ApplicationUser>().HashPassword(new ApplicationUser(), "DummyP@ssw0rd!");
 
     private readonly UserManager<ApplicationUser> _userManager;
+    private readonly GdprSettings _gdprSettings;
     private readonly ILogger<LoginModel> _logger;
 
     public LoginModel(
         UserManager<ApplicationUser> userManager,
+        IOptions<GdprSettings> gdprSettings,
         ILogger<LoginModel> logger)
     {
         _userManager = userManager;
+        _gdprSettings = gdprSettings.Value;
         _logger = logger;
     }
 
@@ -79,6 +85,28 @@ internal sealed partial class LoginModel : PageModel
                 new ApplicationUser(), DummyPasswordHash, Password);
             LogUserNotFound(_logger, Email.MaskEmail(), HttpContext.Connection.RemoteIpAddress);
             ErrorMessage = GenericCredentialErrorMessage;
+            return Page();
+        }
+
+        // A deletion-scheduled account is also locked out, so this branch must run first.
+        // The specific message is revealed only after the password is verified — with a
+        // wrong password the caller gets the same generic error as everywhere else.
+        if (user.DeletionScheduledAt is not null)
+        {
+            bool deletionScheduledPasswordValid = await _userManager.CheckPasswordAsync(user, Password);
+            if (!deletionScheduledPasswordValid)
+            {
+                await _userManager.AccessFailedAsync(user);
+                LogWrongPassword(_logger, user.Id, HttpContext.Connection.RemoteIpAddress);
+                ErrorMessage = GenericCredentialErrorMessage;
+                return Page();
+            }
+
+            LogDeletionScheduled(_logger, user.Id, HttpContext.Connection.RemoteIpAddress);
+            DateTimeOffset deletionDate = user.DeletionScheduledAt.Value + _gdprSettings.DeletionGracePeriod;
+            ErrorMessage =
+                $"Twoje konto jest zaplanowane do usunięcia dnia {deletionDate.ToPolandTime().ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)}. " +
+                "Jeśli chcesz je zachować, kliknij w link anulujący usunięcie, który wysłaliśmy na Twój adres e-mail.";
             return Page();
         }
 
@@ -174,4 +202,7 @@ internal sealed partial class LoginModel : PageModel
 
     [LoggerMessage(EventId = EventIds.LoginSuccessful, Level = LogLevel.Information, Message = "User {UserId} logged in successfully")]
     private static partial void LogUserLoggedIn(ILogger logger, Guid userId);
+
+    [LoggerMessage(EventId = EventIds.LoginDeletionScheduled, Level = LogLevel.Information, Message = "Login blocked: account deletion is scheduled. UserId: {UserId}, IP: {IP}")]
+    private static partial void LogDeletionScheduled(ILogger logger, Guid userId, System.Net.IPAddress? ip);
 }

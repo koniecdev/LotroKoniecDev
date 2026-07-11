@@ -29,5 +29,11 @@ internal sealed class ApplicationUserConfiguration : IEntityTypeConfiguration<Ap
             .HasDefaultValue(false);
 
         builder.Property(u => u.PrivacyPolicyAcceptedDate);
+
+        builder.Property(u => u.DeletionScheduledAt);
+
+        // Partial index: the deletion finalizer polls only the handful of rows with a schedule set.
+        builder.HasIndex(u => u.DeletionScheduledAt)
+            .HasFilter($"\"{nameof(ApplicationUser.DeletionScheduledAt)}\" IS NOT NULL");
     }
 }

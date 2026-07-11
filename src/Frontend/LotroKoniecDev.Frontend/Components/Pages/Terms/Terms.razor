@@ -1,0 +1,264 @@
+@page "/regulamin"
+@page "/terms"
+@attribute [AllowAnonymous]
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.Extensions.Options
+@using LotroKoniecDev.Frontend.Settings
+@inject IOptions<AuthSystemSettings> AuthSystemOptions
+
+<PageTitle>Regulamin — lotro-translator.pl</PageTitle>
+
+<HeadContent>
+    <meta name="description"
+          content="Regulamin serwisu lotro-translator.pl — zasady korzystania z platformy polskiego tłumaczenia The Lord of the Rings Online, licencja na wkład tłumaczeniowy i status projektu fanowskiego."/>
+</HeadContent>
+
+<section class="container page-head">
+    <div>
+        <p class="eyebrow">Dokument prawny</p>
+        <h1>Regulamin serwisu</h1>
+        <p class="lede">
+            Zasady korzystania z platformy lotro-translator.pl.
+            Ostatnia aktualizacja: <span class="mono">12 lipca 2026 r.</span>
+        </p>
+    </div>
+</section>
+
+<section class="container content-wrap">
+    <div class="legal-grid">
+        <article class="panel legal-doc">
+            <div class="panel-body">
+                <p class="legal-lede">
+                    Niniejszy regulamin określa zasady korzystania z serwisu lotro-translator.pl —
+                    społecznościowej, niekomercyjnej platformy polskiego tłumaczenia gry
+                    The Lord of the Rings Online. Rejestrując konto, akceptujesz postanowienia
+                    regulaminu, w tym licencję na wkład tłumaczeniowy opisaną w §&nbsp;5.
+                </p>
+
+                <section class="legal-sec" id="postanowienia-ogolne">
+                    <h2>§ 1. Postanowienia ogólne</h2>
+                    <ol>
+                        <li>
+                            Serwis lotro-translator.pl (dalej: <strong>Serwis</strong>) jest prowadzony przez
+                            społeczność lotro-translator.pl (dalej: <strong>Operator</strong>) — niekomercyjny,
+                            fanowski projekt polskiego tłumaczenia gry The Lord of the Rings Online.
+                            Kontakt z Operatorem: <a href="mailto:koniecdev@gmail.com">koniecdev@gmail.com</a>.
+                        </li>
+                        <li>
+                            Gra The Lord of the Rings Online, jej treści, znaki towarowe i pozostała własność
+                            intelektualna należą do Standing Stone Games LLC oraz Middle-earth Enterprises.
+                            <strong>Serwis nie jest powiązany ze Standing Stone Games, Middle-earth Enterprises
+                            ani żadnym oficjalnym podmiotem związanym z grą, nie jest przez nie wspierany ani
+                            autoryzowany.</strong>
+                        </li>
+                        <li>
+                            Serwis działa niekomercyjnie: korzystanie z niego jest bezpłatne, a Operator nie
+                            czerpie przychodów z tłumaczenia ani z jego dystrybucji.
+                        </li>
+                        <li>
+                            Korzystanie z Serwisu — w tym założenie konta i wnoszenie wkładu tłumaczeniowego —
+                            oznacza akceptację niniejszego regulaminu.
+                        </li>
+                    </ol>
+                </section>
+
+                <section class="legal-sec" id="definicje">
+                    <h2>§ 2. Definicje</h2>
+                    <ol>
+                        <li><strong>Gra</strong> — The Lord of the Rings Online.</li>
+                        <li><strong>Użytkownik</strong> — każda osoba korzystająca z Serwisu.</li>
+                        <li>
+                            <strong>Tłumacz</strong> — Użytkownik posiadający konto w Serwisie, wnoszący wkład
+                            tłumaczeniowy.
+                        </li>
+                        <li>
+                            <strong>Wkład tłumaczeniowy</strong> — teksty tłumaczeń, ich poprawki i inne treści
+                            wprowadzone przez Tłumacza do Serwisu.
+                        </li>
+                        <li>
+                            <strong>Plik spolszczenia</strong> — generowany przez Serwis plik z tłumaczeniami
+                            (<span class="mono">polish.txt</span>), udostępniany graczom do pobrania i do
+                            automatycznego pobierania przez narzędzia instalujące spolszczenie.
+                        </li>
+                    </ol>
+                </section>
+
+                <section class="legal-sec" id="zasady-korzystania">
+                    <h2>§ 3. Zasady korzystania z Serwisu</h2>
+                    <ol>
+                        <li>
+                            Serwis służy do wspólnego tłumaczenia tekstów Gry na język polski: przeglądania
+                            tekstów, proponowania tłumaczeń, ich weryfikacji i zatwierdzania oraz pobierania
+                            pliku spolszczenia.
+                        </li>
+                        <li>
+                            Niedozwolone jest: wprowadzanie treści bezprawnych, obraźliwych lub naruszających
+                            prawa osób trzecich (w tym treści skopiowanych z cudzych tłumaczeń bez uprawnienia),
+                            celowe wprowadzanie tłumaczeń błędnych lub szkodliwych, zautomatyzowane masowe
+                            pobieranie treści Serwisu poza udostępnionym plikiem spolszczenia, a także działania
+                            zakłócające pracę Serwisu lub próby nieuprawnionego dostępu.
+                        </li>
+                        <li>
+                            Obieg redakcyjny (w tym zatwierdzanie tłumaczeń, ich edycja i unieważnianie po
+                            aktualizacjach Gry) pozostaje w gestii Operatora i osób pełniących role redakcyjne.
+                            Wniesienie wkładu nie gwarantuje jego publikacji w pliku spolszczenia.
+                        </li>
+                        <li>
+                            Operator może ograniczyć lub zablokować konto naruszające regulamin; o ile to możliwe,
+                            wcześniej wezwie Użytkownika do zaprzestania naruszeń.
+                        </li>
+                    </ol>
+                </section>
+
+                <section class="legal-sec" id="konta">
+                    <h2>§ 4. Konta</h2>
+                    <ol>
+                        <li>
+                            Założenie konta wymaga podania nazwy użytkownika, adresu e-mail i hasła oraz
+                            potwierdzenia adresu e-mail. Konto jest osobiste — nie udostępniaj danych logowania
+                            innym osobom.
+                        </li>
+                        <li>
+                            Konto można usunąć samodzielnie w sekcji „Moje konto”. Usunięcie następuje po
+                            14-dniowym okresie ochronnym, w którym można je anulować linkiem otrzymanym
+                            e-mailem; szczegóły opisuje polityka prywatności.
+                        </li>
+                        <li>
+                            Po usunięciu konta dane osobowe są nieodwracalnie anonimizowane, a wkład
+                            tłumaczeniowy pozostaje w Serwisie w formie zanonimizowanej — na zasadach licencji
+                            z §&nbsp;5.
+                        </li>
+                    </ol>
+                </section>
+
+                <section class="legal-sec" id="licencja">
+                    <h2>§ 5. Licencja na wkład tłumaczeniowy</h2>
+                    <ol>
+                        <li>
+                            Tłumacz oświadcza, że wkład tłumaczeniowy jest wynikiem jego własnej pracy i nie
+                            narusza praw osób trzecich.
+                        </li>
+                        <li>
+                            Z chwilą wprowadzenia wkładu tłumaczeniowego do Serwisu Tłumacz udziela Operatorowi
+                            <strong>niewyłącznej, nieodpłatnej, nieograniczonej czasowo i terytorialnie oraz
+                            nieodwołalnej</strong> licencji na korzystanie z tego wkładu w zakresie:
+                            <ul>
+                                <li>utrwalania i przechowywania w infrastrukturze Serwisu,</li>
+                                <li>
+                                    opracowania — redakcji, korekty, modyfikacji i łączenia z wkładem innych
+                                    Tłumaczy w ramach obiegu weryfikacji,
+                                </li>
+                                <li>
+                                    włączania do pliku spolszczenia (<span class="mono">polish.txt</span>) i jego
+                                    rozpowszechniania, w tym publicznego udostępniania przez API Serwisu oraz
+                                    narzędzia instalujące spolszczenie,
+                                </li>
+                                <li>
+                                    udzielania dalszych licencji (sublicencji) graczom — w zakresie niezbędnym do
+                                    pobrania spolszczenia i korzystania z niego w Grze.
+                                </li>
+                            </ul>
+                        </li>
+                        <li>
+                            <strong>Licencja pozostaje w mocy po usunięciu konta.</strong> Wkład tłumaczeniowy
+                            pozostaje wówczas w Serwisie i w pliku spolszczenia w formie zanonimizowanej —
+                            bez możliwości powiązania go z osobą Tłumacza.
+                        </li>
+                        <li>
+                            Tłumaczenie jest dziełem zbiorowym społeczności i jest rozpowszechniane bez
+                            oznaczania autorstwa poszczególnych fragmentów. Tłumacz zobowiązuje się nie
+                            wykonywać wobec Operatora i graczy autorskiego prawa osobistego do oznaczania
+                            wkładu swoim autorstwem oraz upoważnia Operatora do udostępniania wkładu
+                            anonimowo.
+                        </li>
+                        <li>
+                            Licencja jest nieodpłatna — Tłumaczowi nie przysługuje wynagrodzenie za korzystanie
+                            z wkładu przez Operatora ani graczy.
+                        </li>
+                    </ol>
+                </section>
+
+                <section class="legal-sec" id="dane-osobowe">
+                    <h2>§ 6. Dane osobowe</h2>
+                    <p>
+                        Zasady przetwarzania danych osobowych — w tym prawa Użytkownika, okresy retencji oraz
+                        przebieg usuwania konta — opisuje odrębna
+                        <a href="@PrivacyPolicyUrl" target="_blank" rel="noopener">polityka prywatności</a>.
+                        W razie rozbieżności w sprawach danych osobowych pierwszeństwo ma polityka prywatności.
+                    </p>
+                </section>
+
+                <section class="legal-sec" id="odpowiedzialnosc">
+                    <h2>§ 7. Odpowiedzialność, reklamacje i kontakt</h2>
+                    <ol>
+                        <li>
+                            Serwis i plik spolszczenia są udostępniane bezpłatnie, w stanie „tak jak są”
+                            (as&nbsp;is). Operator dokłada starań, aby Serwis działał poprawnie, ale nie
+                            gwarantuje nieprzerwanej dostępności ani wolności tłumaczenia od błędów i nie
+                            odpowiada za skutki użycia spolszczenia w Grze.
+                        </li>
+                        <li>
+                            Korzystanie ze spolszczenia odbywa się na własną odpowiedzialność Użytkownika,
+                            z poszanowaniem regulaminu Gry.
+                        </li>
+                        <li>
+                            Reklamacje i zgłoszenia dotyczące działania Serwisu kieruj na adres
+                            <a href="mailto:koniecdev@gmail.com">koniecdev@gmail.com</a>. Odpowiadamy bez
+                            zbędnej zwłoki, najpóźniej w terminie 14 dni.
+                        </li>
+                        <li>
+                            Postanowienia regulaminu nie wyłączają ani nie ograniczają praw, które przysługują
+                            konsumentom na mocy bezwzględnie obowiązujących przepisów prawa.
+                        </li>
+                    </ol>
+                </section>
+
+                <section class="legal-sec" id="postanowienia-koncowe">
+                    <h2>§ 8. Postanowienia końcowe</h2>
+                    <ol>
+                        <li>
+                            Operator może zmienić regulamin z ważnych przyczyn, w szczególności przy zmianie
+                            przepisów prawa, funkcji Serwisu lub zasad dystrybucji spolszczenia. O istotnych
+                            zmianach zarejestrowani Użytkownicy zostaną powiadomieni e-mailem co najmniej
+                            <strong>14 dni</strong> przed ich wejściem w życie. Użytkownik, który nie akceptuje
+                            zmian, może w tym czasie usunąć konto.
+                        </li>
+                        <li>
+                            Aktualna treść regulaminu jest zawsze dostępna pod adresem
+                            <span class="mono">lotro-translator.pl/regulamin</span> wraz z datą ostatniej
+                            aktualizacji.
+                        </li>
+                        <li>Prawem właściwym dla regulaminu jest prawo polskie.</li>
+                        <li>
+                            Jeżeli którekolwiek postanowienie regulaminu okaże się nieważne lub bezskuteczne,
+                            pozostałe postanowienia pozostają w mocy.
+                        </li>
+                    </ol>
+                </section>
+            </div>
+        </article>
+
+        <aside class="legal-side">
+            <div class="panel">
+                <div class="panel-head"><h2>Spis treści</h2></div>
+                <div class="panel-body">
+                    <nav class="legal-toc" aria-label="Spis treści regulaminu">
+                        <a href="#postanowienia-ogolne">§ 1. Postanowienia ogólne</a>
+                        <a href="#definicje">§ 2. Definicje</a>
+                        <a href="#zasady-korzystania">§ 3. Zasady korzystania z Serwisu</a>
+                        <a href="#konta">§ 4. Konta</a>
+                        <a href="#licencja">§ 5. Licencja na wkład tłumaczeniowy</a>
+                        <a href="#dane-osobowe">§ 6. Dane osobowe</a>
+                        <a href="#odpowiedzialnosc">§ 7. Odpowiedzialność, reklamacje i kontakt</a>
+                        <a href="#postanowienia-koncowe">§ 8. Postanowienia końcowe</a>
+                    </nav>
+                </div>
+            </div>
+        </aside>
+    </div>
+</section>
+
+@code {
+    private string PrivacyPolicyUrl =>
+        $"{AuthSystemOptions.Value.BaseUrl.TrimEnd('/')}/Account/PrivacyPolicy";
+}

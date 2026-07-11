@@ -142,6 +142,20 @@
                             }
                         </dd>
                     </div>
+                    <div class="dl-row">
+                        <dt><a href="/regulamin">Regulamin serwisu</a></dt>
+                        <dd>
+                            @if (auth.TermsOfServiceAccepted)
+                            {
+                                <span class="badge badge-success"><span class="dot"></span>Zaakceptowany</span>
+                                <span class="mono dim">@FormatDateTime(auth.TermsOfServiceAcceptedDate)</span>
+                            }
+                            else
+                            {
+                                <span class="badge badge-neutral">Brak akceptacji</span>
+                            }
+                        </dd>
+                    </div>
                 </dl>
             </div>
         </section>

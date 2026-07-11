@@ -60,6 +60,8 @@ internal sealed partial class AccountErasureService : IAccountErasureService
             user.DataProcessingConsentDate = null;
             user.PrivacyPolicyAccepted = false;
             user.PrivacyPolicyAcceptedDate = null;
+            user.TermsOfServiceAccepted = false;
+            user.TermsOfServiceAcceptedDate = null;
 
             // The permanent lockout rides in the SAME update as the anonymization marker.
             // The finalizer selects pending work by the marker alone, so a user must never

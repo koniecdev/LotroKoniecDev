@@ -38,6 +38,8 @@ public sealed class ExportAccountDataEndpointTests : EndpointsTestBase
         authData.GetProperty("email").GetString().ShouldBe(registerRequest.Email);
         authData.GetProperty("dataProcessingConsentGiven").GetBoolean().ShouldBeTrue();
         authData.GetProperty("privacyPolicyAccepted").GetBoolean().ShouldBeTrue();
+        authData.GetProperty("termsOfServiceAccepted").GetBoolean().ShouldBeTrue();
+        authData.GetProperty("termsOfServiceAcceptedDate").ValueKind.ShouldNotBe(JsonValueKind.Null);
         authData.GetProperty("emailConfirmed").GetBoolean().ShouldBeTrue();
         authData.GetProperty("roles").GetArrayLength().ShouldBeGreaterThan(0);
 

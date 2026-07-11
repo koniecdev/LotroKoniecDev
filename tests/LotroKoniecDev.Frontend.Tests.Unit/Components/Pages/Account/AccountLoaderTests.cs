@@ -168,7 +168,8 @@ public sealed class AccountLoaderTests
     internal static AccountDataExportResponse CreateEnvelope(
         IReadOnlyList<string>? roles = null,
         DateTimeOffset? deletionScheduledAt = null,
-        List<LinkDto>? links = null)
+        List<LinkDto>? links = null,
+        bool termsOfServiceAccepted = true)
     {
         return new AccountDataExportResponse(
             new AuthDataExportDto(
@@ -182,6 +183,8 @@ public sealed class AccountLoaderTests
                 new DateTimeOffset(2026, 6, 1, 12, 0, 0, TimeSpan.Zero),
                 PrivacyPolicyAccepted: true,
                 new DateTimeOffset(2026, 6, 1, 12, 0, 0, TimeSpan.Zero),
+                termsOfServiceAccepted,
+                termsOfServiceAccepted ? new DateTimeOffset(2026, 6, 1, 12, 0, 0, TimeSpan.Zero) : null,
                 deletionScheduledAt),
             IsComplete: true)
         {

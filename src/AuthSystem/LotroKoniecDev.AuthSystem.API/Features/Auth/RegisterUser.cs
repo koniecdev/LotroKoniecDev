@@ -23,7 +23,8 @@ internal sealed partial class RegisterUser : IApiEndpoint
         string Email,
         string Password,
         bool AcceptedPrivacyPolicy,
-        bool AcceptedDataProcessingConsent) : ICommand<Result<IdentityId>>;
+        bool AcceptedDataProcessingConsent,
+        bool AcceptedTermsOfService) : ICommand<Result<IdentityId>>;
 
     internal sealed class CommandValidator : AbstractValidator<Command>
     {
@@ -50,6 +51,9 @@ internal sealed partial class RegisterUser : IApiEndpoint
 
             RuleFor(x => x.AcceptedDataProcessingConsent)
                 .Equal(true).WithMessage("You must consent to data processing to register.");
+
+            RuleFor(x => x.AcceptedTermsOfService)
+                .Equal(true).WithMessage("You must accept the terms of service to register.");
         }
     }
 
@@ -108,7 +112,9 @@ internal sealed partial class RegisterUser : IApiEndpoint
                     DataProcessingConsentGiven = command.AcceptedDataProcessingConsent,
                     DataProcessingConsentDate = command.AcceptedDataProcessingConsent ? _timeProvider.GetUtcNow() : null,
                     PrivacyPolicyAccepted = command.AcceptedPrivacyPolicy,
-                    PrivacyPolicyAcceptedDate = command.AcceptedPrivacyPolicy ? _timeProvider.GetUtcNow() : null
+                    PrivacyPolicyAcceptedDate = command.AcceptedPrivacyPolicy ? _timeProvider.GetUtcNow() : null,
+                    TermsOfServiceAccepted = command.AcceptedTermsOfService,
+                    TermsOfServiceAcceptedDate = command.AcceptedTermsOfService ? _timeProvider.GetUtcNow() : null
                 };
 
                 IdentityResult result = await _userManager.CreateAsync(user, command.Password);
@@ -183,7 +189,8 @@ internal sealed partial class RegisterUser : IApiEndpoint
                     request.Email,
                     request.Password,
                     request.AcceptedPrivacyPolicy,
-                    request.AcceptedDataProcessingConsent);
+                    request.AcceptedDataProcessingConsent,
+                    request.AcceptedTermsOfService);
 
                 Result<IdentityId> commandResult = await handler.Handle(command, cancellationToken);
 

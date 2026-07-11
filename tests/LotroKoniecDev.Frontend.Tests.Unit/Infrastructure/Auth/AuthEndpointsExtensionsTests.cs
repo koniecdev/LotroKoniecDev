@@ -1,7 +1,10 @@
 using LotroKoniecDev.Frontend.Infrastructure.Auth;
+using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authentication.OpenIdConnect;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Http.HttpResults;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Protocols;
@@ -93,6 +96,51 @@ public sealed class AuthEndpointsExtensionsTests
             NullLoggerFactory.Instance);
 
         result.ShouldBeOfType<ChallengeHttpResult>();
+    }
+
+    [Fact]
+    public async Task LocalSignOutAsync_SignsOutTheCookieAndRedirectsToTheLocalReturnUrl()
+    {
+        IAuthenticationService authenticationService = Substitute.For<IAuthenticationService>();
+        HttpContext context = CreateContextWith(authenticationService);
+
+        IResult result = await AuthEndpointsExtensions.LocalSignOutAsync(
+            context,
+            "/account/deletion-scheduled?until=2026-07-25T10%3A00%3A00Z");
+
+        RedirectHttpResult redirect = result.ShouldBeOfType<RedirectHttpResult>();
+        redirect.Url.ShouldBe("/account/deletion-scheduled?until=2026-07-25T10%3A00%3A00Z");
+        // Cookie sign-out is invisible in the return value — the .Received() is the only observable proof.
+        await authenticationService.Received(1).SignOutAsync(
+            context,
+            CookieAuthenticationDefaults.AuthenticationScheme,
+            Arg.Any<AuthenticationProperties?>());
+    }
+
+    [Theory]
+    [InlineData("https://evil.example.com/harvest")]
+    [InlineData("//evil.example.com")]
+    [InlineData("/\\evil.example.com")]
+    [InlineData("")]
+    [InlineData(null)]
+    public async Task LocalSignOutAsync_WhenReturnUrlIsNotLocal_RedirectsHome(string? returnUrl)
+    {
+        HttpContext context = CreateContextWith(Substitute.For<IAuthenticationService>());
+
+        IResult result = await AuthEndpointsExtensions.LocalSignOutAsync(context, returnUrl);
+
+        RedirectHttpResult redirect = result.ShouldBeOfType<RedirectHttpResult>();
+        redirect.Url.ShouldBe("/");
+    }
+
+    private static HttpContext CreateContextWith(IAuthenticationService authenticationService)
+    {
+        ServiceCollection services = new();
+        services.AddSingleton(authenticationService);
+        return new DefaultHttpContext
+        {
+            RequestServices = services.BuildServiceProvider()
+        };
     }
 
     private static IOptionsMonitor<OpenIdConnectOptions> CreateOptionsMonitor(

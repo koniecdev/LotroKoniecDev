@@ -1,0 +1,212 @@
+@page "/account"
+@attribute [Authorize]
+@attribute [StreamRendering]
+@using System.Globalization
+@using Microsoft.AspNetCore.Authorization
+@using LotroKoniecDev.AuthSystem.Contracts.Features.Auth.Account
+@using LotroKoniecDev.AuthSystem.Contracts.Hateoas
+@using LotroKoniecDev.Frontend.Infrastructure.Hateoas
+@using LotroKoniecDev.Frontend.Infrastructure.HttpClients
+@using LotroKoniecDev.SharedKernel.Authorization
+@inject AccountLoader Loader
+
+<PageTitle>Moje konto — lotro-translator.pl</PageTitle>
+
+<section class="container page-head">
+    <div>
+        <h1>Moje konto</h1>
+        <p class="lede">Twoje dane, zgody oraz operacje na koncie — zgodnie z polityką prywatności.</p>
+    </div>
+</section>
+
+<section class="container content-wrap">
+    @if (_result is null)
+    {
+        <div class="loading-indicator">
+            <span class="li-spin"></span> Wczytywanie danych konta…
+        </div>
+    }
+    else if (_result.IsUnauthorized)
+    {
+        <RedirectToLogin/>
+    }
+    else if (_result.IsFailure)
+    {
+        <div class="error-message" role="alert">
+            <span class="em-ico" aria-hidden="true">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z"/>
+                    <path d="M12 9v4"/><path d="M12 17h.01"/>
+                </svg>
+            </span>
+            <div class="em-body">
+                <span class="t">@(_result.ProblemDetails?.Title ?? "Nie udało się wczytać danych konta.")</span>
+                @if (!string.IsNullOrWhiteSpace(_result.ProblemDetails?.Detail))
+                {
+                    <span class="s">@_result.ProblemDetails!.Detail</span>
+                }
+            </div>
+        </div>
+    }
+    else
+    {
+        AuthDataExportDto auth = _result.Value.AuthData;
+
+        @if (auth.DeletionScheduledAt is not null)
+        {
+            <div class="status-message status-warning" role="status">
+                <p>
+                    Usunięcie tego konta zostało zaplanowane (@FormatDateTime(auth.DeletionScheduledAt.Value)).
+                    Możesz je anulować wyłącznie przez link wysłany na Twój adres e-mail.
+                </p>
+            </div>
+        }
+
+        <section class="panel">
+            <header class="panel-head">
+                <h2>Dane konta</h2>
+                <span class="panel-aside">Konto logowania</span>
+            </header>
+            <div class="panel-body">
+                <dl class="dl-rows">
+                    <div class="dl-row">
+                        <dt>Nazwa użytkownika</dt>
+                        <dd><span class="mono">@auth.Username</span></dd>
+                    </div>
+                    <div class="dl-row">
+                        <dt>E-mail</dt>
+                        <dd>
+                            <span class="mono">@auth.Email</span>
+                            @if (auth.EmailConfirmed)
+                            {
+                                <span class="badge badge-success"><span class="dot"></span>Potwierdzony</span>
+                            }
+                            else
+                            {
+                                <span class="badge badge-neutral">Niepotwierdzony</span>
+                            }
+                        </dd>
+                    </div>
+                    <div class="dl-row">
+                        <dt>Role</dt>
+                        <dd>
+                            @if (auth.Roles.Count == 0)
+                            {
+                                <span class="badge badge-neutral">Brak ról</span>
+                            }
+                            else
+                            {
+                                @foreach (string role in auth.Roles)
+                                {
+                                    <span class="badge badge-neutral">@RoleLabel(role)</span>
+                                }
+                            }
+                        </dd>
+                    </div>
+                </dl>
+            </div>
+        </section>
+
+        <section class="panel">
+            <header class="panel-head">
+                <h2>Zgody</h2>
+                <span class="panel-aside">RODO</span>
+            </header>
+            <div class="panel-body">
+                <dl class="dl-rows">
+                    <div class="dl-row">
+                        <dt>Polityka prywatności</dt>
+                        <dd>
+                            @if (auth.PrivacyPolicyAccepted)
+                            {
+                                <span class="badge badge-success"><span class="dot"></span>Zaakceptowana</span>
+                                <span class="mono dim">@FormatDateTime(auth.PrivacyPolicyAcceptedDate)</span>
+                            }
+                            else
+                            {
+                                <span class="badge badge-neutral">Brak akceptacji</span>
+                            }
+                        </dd>
+                    </div>
+                    <div class="dl-row">
+                        <dt>Przetwarzanie danych</dt>
+                        <dd>
+                            @if (auth.DataProcessingConsentGiven)
+                            {
+                                <span class="badge badge-success"><span class="dot"></span>Wyrażona</span>
+                                <span class="mono dim">@FormatDateTime(auth.DataProcessingConsentDate)</span>
+                            }
+                            else
+                            {
+                                <span class="badge badge-neutral">Brak zgody</span>
+                            }
+                        </dd>
+                    </div>
+                </dl>
+            </div>
+        </section>
+
+        <section class="panel">
+            <header class="panel-head">
+                <h2>Operacje</h2>
+                <span class="panel-aside">Eksport i usunięcie konta</span>
+            </header>
+            <div class="panel-body">
+                <div class="action-list">
+                    <a class="action-row" href="@AccountEndpointsExtensions.ExportDownloadPath" download data-testid="account-export">
+                        <span class="copy">
+                            <span class="t">Pobierz moje dane</span>
+                            <span class="s">Kopia wszystkich danych Twojego konta w pliku JSON.</span>
+                        </span>
+                        <span class="chev" aria-hidden="true">›</span>
+                    </a>
+
+                    @* Affordances come from the API's HATEOAS links, never from local role checks. *@
+                    @if (_result.Value.Links.HasLink(Rels.ChangePassword))
+                    {
+                        <a class="action-row" href="/account/change-password" data-testid="account-change-password">
+                            <span class="copy">
+                                <span class="t">Zmień hasło</span>
+                                <span class="s">Ustaw nowe hasło, podając obecne.</span>
+                            </span>
+                            <span class="chev" aria-hidden="true">›</span>
+                        </a>
+                    }
+
+                    @if (_result.Value.Links.HasLink(Rels.DeleteAccount))
+                    {
+                        <a class="action-row danger" href="/account/delete" data-testid="account-delete">
+                            <span class="copy">
+                                <span class="t">Usuń konto</span>
+                                <span class="s">Usunięcie z 14-dniowym okresem na anulowanie.</span>
+                            </span>
+                            <span class="chev" aria-hidden="true">›</span>
+                        </a>
+                    }
+                </div>
+            </div>
+        </section>
+    }
+</section>
+
+@code
+{
+    private ApiResult<AccountDataExportResponse>? _result;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _result = await Loader.LoadExportAsync(CancellationToken.None);
+    }
+
+    private static string RoleLabel(string role) => role switch
+    {
+        AuthConstants.Roles.Admin => "Administrator",
+        AuthConstants.Roles.Translator => "Tłumacz",
+        _ => role
+    };
+
+    private static string FormatDateTime(DateTimeOffset? value) =>
+        value is null
+            ? string.Empty
+            : value.Value.ToString("yyyy-MM-dd HH:mm 'UTC'", CultureInfo.InvariantCulture);
+}

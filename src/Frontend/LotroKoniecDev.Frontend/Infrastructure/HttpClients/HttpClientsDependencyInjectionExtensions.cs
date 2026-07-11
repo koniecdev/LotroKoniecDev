@@ -1,3 +1,4 @@
+using LotroKoniecDev.Frontend.Infrastructure.HttpClients.AuthSystemHttpClients;
 using LotroKoniecDev.Frontend.Infrastructure.HttpClients.TranslationSystemHttpClients;
 using LotroKoniecDev.Frontend.Settings;
 using Microsoft.Extensions.Http.Resilience;
@@ -33,6 +34,23 @@ public static class HttpClientsDependencyInjectionExtensions
                 .SetHandlerLifetime(Timeout.InfiniteTimeSpan)
                 .AddHttpMessageHandler<TranslationContentNegotiationAndAuthDelegatingHandler>()
                 .AddResilienceHandler("TranslationSystemResilience", ConfigureResiliencePipeline);
+
+            services.AddTransient<AuthContentNegotiationAndAuthDelegatingHandler>();
+
+            services.AddHttpClient<IAuthSystemClient, AuthSystemClient>((sp, client) =>
+                {
+                    AuthSystemSettings settings = sp
+                        .GetRequiredService<IOptions<AuthSystemSettings>>().Value;
+                    client.BaseAddress = new Uri(settings.BaseUrl);
+                    client.Timeout = Timeout.InfiniteTimeSpan;
+                })
+                .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler
+                {
+                    PooledConnectionLifetime = TimeSpan.FromMinutes(15)
+                })
+                .SetHandlerLifetime(Timeout.InfiniteTimeSpan)
+                .AddHttpMessageHandler<AuthContentNegotiationAndAuthDelegatingHandler>()
+                .AddResilienceHandler("AuthSystemResilience", ConfigureResiliencePipeline);
 
             return services;
         }

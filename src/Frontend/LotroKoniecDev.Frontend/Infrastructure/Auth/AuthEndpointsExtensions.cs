@@ -35,6 +35,10 @@ internal static class AuthEndpointsExtensions
                 AuthenticationDependencyInjectionExtensions.LogoutPath,
                 LogoutAsync);
 
+            endpoints.MapPost(
+                AuthenticationDependencyInjectionExtensions.LocalSignOutPath,
+                LocalSignOutAsync);
+
             return endpoints;
         }
     }
@@ -77,6 +81,21 @@ internal static class AuthEndpointsExtensions
         return Results.Challenge(
             new AuthenticationProperties { RedirectUri = redirectUri },
             [OpenIdConnectDefaults.AuthenticationScheme]);
+    }
+
+    /// <summary>
+    /// Cookie-only sign-out for flows where the upstream IdP session is already dead — e.g. account
+    /// deletion was just scheduled, so the auth server has locked the account and revoked its tokens.
+    /// The regular <see cref="LogoutAsync"/> round-trips through OIDC end-session and always lands on
+    /// the registered post-logout URI (home); this variant skips the dead round-trip and lands on the
+    /// given local page instead (the anonymous "deletion scheduled" info page).
+    /// </summary>
+    internal static async Task<IResult> LocalSignOutAsync(HttpContext context, string? returnUrl)
+    {
+        await context.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
+
+        string redirect = IsLocalUrl(returnUrl) ? returnUrl! : "/";
+        return Results.Redirect(redirect);
     }
 
     private static async Task<IResult> LogoutAsync(

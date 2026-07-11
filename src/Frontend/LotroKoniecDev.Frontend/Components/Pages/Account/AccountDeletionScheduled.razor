@@ -1,0 +1,72 @@
+@page "/account/deletion-scheduled"
+@using System.Globalization
+
+<PageTitle>Usunięcie konta zaplanowane — lotro-translator.pl</PageTitle>
+
+<section class="container page-head">
+    <div>
+        <h1>Usunięcie konta zaplanowane</h1>
+        <p class="lede">Twoje konto zostało zablokowane i czeka na trwałe usunięcie.</p>
+    </div>
+</section>
+
+<section class="container content-wrap">
+    <div class="status-message status-warning" role="status">
+        <p data-testid="deletion-date-line">@_deletionDateLine</p>
+    </div>
+
+    <section class="panel">
+        <header class="panel-head">
+            <h2>Co dalej?</h2>
+            <span class="panel-aside">14-dniowy okres na anulowanie</span>
+        </header>
+        <div class="panel-body">
+            <ul class="consequence-list">
+                <li>Konto jest zablokowane — nie zalogujesz się do czasu anulowania usunięcia.</li>
+                <li>Na Twój adres e-mail wysłaliśmy link anulujący usunięcie. To jedyny sposób, aby je cofnąć.</li>
+                <li>Po anulowaniu obecne hasło przestaje działać — ustawisz nowe w procesie resetu.</li>
+                <li>Po upływie terminu dane konta zostaną trwale usunięte.</li>
+            </ul>
+            <a class="btn btn-primary" href="/">Wróć na stronę główną</a>
+        </div>
+    </section>
+</section>
+
+@code
+{
+    [SupplyParameterFromQuery(Name = "until")]
+    public string? Until { get; set; }
+
+    // Static SSR renders on the server, whose local zone is UTC in containers — the visitor's
+    // timezone is unknowable here, so the deadline is shown in the product's home timezone.
+    private static readonly TimeZoneInfo PolandTimeZone =
+        TimeZoneInfo.FindSystemTimeZoneById("Europe/Warsaw");
+
+    private string? _deletionDateLine;
+
+    protected override void OnInitialized()
+    {
+        _deletionDateLine = BuildDeletionDateLine(Until);
+    }
+
+    /// <summary>
+    /// The <c>until</c> query value comes from the <c>X-Deletion-Finalizes-At</c> response header
+    /// ("O"-format ISO-8601), but the URL is user-visible and tamperable, so the date is parsed
+    /// defensively and the copy falls back to the generic 14-day phrasing when it does not parse.
+    /// </summary>
+    internal static string BuildDeletionDateLine(string? until)
+    {
+        if (DateTimeOffset.TryParse(
+                until,
+                CultureInfo.InvariantCulture,
+                DateTimeStyles.RoundtripKind,
+                out DateTimeOffset finalizesAt))
+        {
+            string formattedDate = TimeZoneInfo.ConvertTime(finalizesAt, PolandTimeZone)
+                .ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture);
+            return $"Konto zostanie trwale usunięte {formattedDate} (czasu polskiego).";
+        }
+
+        return "Konto zostanie trwale usunięte po upływie 14 dni od zgłoszenia.";
+    }
+}

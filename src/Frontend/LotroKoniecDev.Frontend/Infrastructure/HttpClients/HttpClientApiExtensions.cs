@@ -50,9 +50,7 @@ internal static class HttpClientApiExtensions
                     return ApiResult.Success(content);
                 }
 
-                ProblemDetails problem = JsonSerializer.Deserialize<ProblemDetails>(content, JsonOptions)
-                                         ?? throw new JsonException("Failed to deserialize ProblemDetails");
-                return ApiResult.Failure<string>(problem);
+                return ApiResult.Failure<string>(ParseProblemDetails(content, response));
             }
             catch (Exception ex) when (IsTransportFailure(ex))
             {
@@ -78,6 +76,37 @@ internal static class HttpClientApiExtensions
             using HttpRequestMessage request = new(HttpMethod.Post, new Uri(uri, UriKind.RelativeOrAbsolute));
             request.Content = JsonContent.Create(body, body.GetType(), options: JsonOptions);
             return await SendForApiResultAsync<T>(httpClient, request, cancellationToken);
+        }
+
+        /// <summary>
+        /// For endpoints whose success payload travels in response headers rather than a body
+        /// (e.g. <c>204</c> + <c>X-Deletion-Finalizes-At</c> on account-deletion scheduling). Behaves
+        /// exactly like the body-less <c>PostApiResultAsync</c> on failure — a <c>ProblemDetails</c>
+        /// keeps the monad path intact.
+        /// </summary>
+        public async Task<ApiResult<ApiResponseHeaders>> PostForHeadersApiResultAsync(
+            string uri,
+            object body,
+            CancellationToken cancellationToken = default)
+        {
+            using HttpRequestMessage request = new(HttpMethod.Post, new Uri(uri, UriKind.RelativeOrAbsolute));
+            request.Content = JsonContent.Create(body, body.GetType(), options: JsonOptions);
+            try
+            {
+                using HttpResponseMessage response = await httpClient.SendAsync(request, cancellationToken);
+
+                if (response.IsSuccessStatusCode)
+                {
+                    return ApiResult.Success(ApiResponseHeaders.From(response.Headers));
+                }
+
+                string content = await response.Content.ReadAsStringAsync(cancellationToken);
+                return ApiResult.Failure<ApiResponseHeaders>(ParseProblemDetails(content, response));
+            }
+            catch (Exception ex) when (IsTransportFailure(ex))
+            {
+                return ApiResult.Failure<ApiResponseHeaders>(MapTransportFailureToProblemDetails(ex));
+            }
         }
 
         public async Task<ApiResult> PutApiResultAsync(
@@ -177,9 +206,7 @@ internal static class HttpClientApiExtensions
                 return ApiResult.Success(value);
             }
 
-            ProblemDetails problem = JsonSerializer.Deserialize<ProblemDetails>(content, JsonOptions)
-                                     ?? throw new JsonException("Failed to deserialize ProblemDetails");
-            return ApiResult.Failure<T>(problem);
+            return ApiResult.Failure<T>(ParseProblemDetails(content, response));
         }
         catch (Exception ex) when (IsTransportFailure(ex))
         {
@@ -202,14 +229,46 @@ internal static class HttpClientApiExtensions
             }
 
             string content = await response.Content.ReadAsStringAsync(cancellationToken);
-            ProblemDetails problem = JsonSerializer.Deserialize<ProblemDetails>(content, JsonOptions)
-                                     ?? throw new JsonException("Failed to deserialize ProblemDetails");
-            return ApiResult.Failure(problem);
+            return ApiResult.Failure(ParseProblemDetails(content, response));
         }
         catch (Exception ex) when (IsTransportFailure(ex))
         {
             return ApiResult.Failure(MapTransportFailureToProblemDetails(ex));
         }
+    }
+
+    /// <summary>
+    /// Deserializes the API's error body into <see cref="ProblemDetails"/>. Not every error carries
+    /// one — a bare <c>401</c> from the JWT bearer challenge has an empty body — so an empty or
+    /// malformed body is synthesized into a generic <see cref="ProblemDetails"/> that still carries
+    /// the real status code, keeping classifications like <c>IsUnauthorized</c> intact instead of
+    /// crashing the SSR page on a <see cref="JsonException"/>.
+    /// </summary>
+    private static ProblemDetails ParseProblemDetails(string content, HttpResponseMessage response)
+    {
+        if (!string.IsNullOrWhiteSpace(content))
+        {
+            try
+            {
+                ProblemDetails? problem = JsonSerializer.Deserialize<ProblemDetails>(content, JsonOptions);
+                if (problem is not null)
+                {
+                    problem.Status ??= (int)response.StatusCode;
+                    return problem;
+                }
+            }
+            catch (JsonException)
+            {
+                // Fall through to the synthesized ProblemDetails below.
+            }
+        }
+
+        return new ProblemDetails
+        {
+            Title = "Żądanie nie powiodło się",
+            Detail = "Serwer odrzucił żądanie bez szczegółów błędu.",
+            Status = (int)response.StatusCode
+        };
     }
 
     /// <summary>

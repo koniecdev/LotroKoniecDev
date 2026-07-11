@@ -2,6 +2,7 @@ using System.Globalization;
 using Microsoft.AspNetCore.HttpOverrides;
 using LotroKoniecDev.Frontend;
 using LotroKoniecDev.Frontend.Components;
+using LotroKoniecDev.Frontend.Components.Pages.Account;
 using LotroKoniecDev.Frontend.Components.Pages.ImportExport;
 using LotroKoniecDev.Frontend.Infrastructure.Auth;
 using LotroKoniecDev.Frontend.Infrastructure.Errors;
@@ -208,6 +209,7 @@ try
 
     app.MapAuthEndpoints();
     app.MapImportExportEndpoints();
+    app.MapAccountEndpoints();
     app.MapRazorComponents<App>();
 
     await app.RunAsync();

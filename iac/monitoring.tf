@@ -43,6 +43,23 @@ locals {
   memory_saturation_bytes   = floor(local.container_memory_bytes * 0.8)            # 429,496,729 bytes (80% of 0.5 GiB)
   http_server_error_floor   = 5                                                    # 5xx responses in a 5-minute window before the request alert fires
   log_error_spike_threshold = 10                                                   # Error/Fatal log entries (per app) in 5 minutes = an error storm
+
+  # Daily cold-start suppression window (the alert processing rule at the end of this file). Derived
+  # from var.app_warm_window.start (5-field cron: minute hour …) so moving the warm window moves the
+  # suppression with it — minute-of-day arithmetic, wrapping across midnight. 5 minutes of lead-in,
+  # 35 minutes of tail: the observed noise fires within ~3 minutes of the wake-up and auto-resolves
+  # within ~20 (2026-07-11: fired 05:03 UTC, resolved 05:10/05:19).
+  warm_start_minute_of_day            = var.app_warm_window == null ? 0 : tonumber(split(" ", trimspace(var.app_warm_window.start))[1]) * 60 + tonumber(split(" ", trimspace(var.app_warm_window.start))[0])
+  cold_start_suppression_from_minute  = (local.warm_start_minute_of_day + 1435) % 1440
+  cold_start_suppression_until_minute = (local.warm_start_minute_of_day + 35) % 1440
+  cold_start_suppression_start_time   = format("%02d:%02d:00", floor(local.cold_start_suppression_from_minute / 60), local.cold_start_suppression_from_minute % 60)
+  cold_start_suppression_end_time     = format("%02d:%02d:00", floor(local.cold_start_suppression_until_minute / 60), local.cold_start_suppression_until_minute % 60)
+
+  # Alert processing rules take a WINDOWS time-zone id, unlike KEDA's IANA name in app_warm_window.
+  # Extend this map if the warm window ever moves to another zone — lookup fails loudly on a miss.
+  windows_time_zone_by_iana = {
+    "Europe/Warsaw" = "Central European Standard Time"
+  }
 }
 
 # ---------------------------------------------------------------------------------------------------
@@ -440,4 +457,54 @@ moved {
 moved {
   from = azurerm_monitor_scheduled_query_rules_alert_v2.law_daily_cap
   to   = azurerm_monitor_scheduled_query_rules_alert_v2.law_daily_cap[0]
+}
+
+# ---------------------------------------------------------------------------------------------------
+# Alert processing rule — mute the daily cold-start false positives (#448, owner decision 2026-07-11).
+# ADR-0027's warm-up cron wakes the scaled-to-zero apps every morning at app_warm_window.start, and
+# the wake-up itself trips two alerts within minutes: auth-api restarts a replica once during its
+# cold start (known, open investigation) and tms-api's warm-up burst crosses the 80% CPU threshold.
+# Both auto-resolve, so the owner got four e-mails a day carrying zero information. This rule
+# suppresses NOTIFICATIONS for exactly those two alert rules in a short daily window around the
+# wake-up (the alerts still fire and stay visible in the portal); everything else — 5xx, memory,
+# log-error spike, the other apps' restart alerts — keeps e-mailing even inside the window.
+#
+# Accepted trade-off: processing rules apply at FIRE time and the replica-restart alert
+# auto-mitigates only when a fresh revision resets RestartCount, so a REAL auth-api crash-loop that
+# starts inside the window would fire once, be suppressed, and never re-notify. The unsuppressed 5xx
+# and log-error-spike alerts plus the daily health-ping cover that gap — the right shape for a
+# pre-release platform with zero users.
+resource "azurerm_monitor_alert_processing_rule_suppression" "cold_start_noise" {
+  count               = local.create_env && var.app_warm_window != null ? 1 : 0
+  name                = "lotrotms-apr-cold-start-noise-${var.env_id}"
+  resource_group_name = azurerm_resource_group.main.name
+  scopes              = [azurerm_resource_group.main.id]
+  description         = "Suppress the known warm-up cold-start alert noise (auth-api replica restart + tms-api CPU burst) around the daily ADR-0027 wake-up."
+
+  condition {
+    alert_rule_id {
+      operator = "Equals"
+      values = [
+        azurerm_monitor_metric_alert.replica_restart["auth-api"].id,
+        azurerm_monitor_metric_alert.cpu_saturation["tms-api"].id,
+      ]
+    }
+  }
+
+  schedule {
+    time_zone = local.windows_time_zone_by_iana[var.app_warm_window.timezone]
+
+    recurrence {
+      daily {
+        start_time = local.cold_start_suppression_start_time
+        end_time   = local.cold_start_suppression_end_time
+      }
+    }
+  }
+
+  tags = {
+    environment = var.env_id
+    src         = var.src_key
+    project     = "lotrotms"
+  }
 }

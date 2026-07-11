@@ -1,6 +1,6 @@
 # Spec 0009: Frontend "Moje konto" — GDPR self-service (export, delete, change password)
 
-- **Status:** Agreed
+- **Status:** Implemented
 - **Date:** 2026-07-11
 - **Author:** koniecdev
 - **Ticket:** #457 (LEGAL-02) — part of the legal & GDPR pack (epic #459)

@@ -16,6 +16,7 @@ public sealed class AccountGdprSelfServiceTests : E2ETestBase
 {
     private const string DeletionScheduledSubject = "Zaplanowano usunięcie konta";
     private const string CancelDeletionLinkPath = "/Account/CancelDeletion";
+    private static readonly string ChangedPassword = ComposePassword("Ch4nged");
     private static readonly string NewPassword = ComposePassword("N3w");
     private static readonly TimeSpan MailTimeout = TimeSpan.FromSeconds(45);
     private static readonly LocatorWaitForOptions LongWait = new() { Timeout = 30_000 };
@@ -45,10 +46,36 @@ public sealed class AccountGdprSelfServiceTests : E2ETestBase
         download.SuggestedFilename.ShouldStartWith("lotro-translator-moje-dane-");
         download.SuggestedFilename.ShouldEndWith(".json");
 
+        // Change password — a wrong current password renders the API error; the correct one changes
+        // it for real (the old password stops working: every later login uses the changed one).
+        await Page.GetByTestId("account-change-password").ClickAsync();
+        await Page.Locator("#current-password").WaitForAsync(LongWait);
+        await Page.Locator("#current-password").FillAsync("Wr0ng-Current!");
+        await Page.Locator("#new-password").FillAsync(ChangedPassword);
+        await Page.Locator("#repeat-password").FillAsync(ChangedPassword);
+        await Page.GetByTestId("change-password-submit").ClickAsync();
+        await Page.Locator(".error-message").WaitForAsync(LongWait);
+
+        await Page.Locator("#current-password").FillAsync(user.Password);
+        await Page.Locator("#new-password").FillAsync(ChangedPassword);
+        await Page.Locator("#repeat-password").FillAsync(ChangedPassword);
+        await Page.GetByTestId("change-password-submit").ClickAsync();
+        await Page.GetByText("Hasło zostało zmienione.").WaitForAsync(LongWait);
+
+        // The changed password is proven the honest way: fresh login through the FE OIDC loop.
+        await AuthActions.LogoutAsync(Page);
+        await Page.GetByRole(AriaRole.Link, new() { Name = Links.Login, Exact = true }).ClickAsync();
+        await Page.GetByLabel(FieldLabels.Email).FillAsync(user.Email);
+        await Page.GetByLabel(FieldLabels.Password, new() { Exact = true }).FillAsync(ChangedPassword);
+        await Page.GetByRole(AriaRole.Button, new() { Name = Buttons.Login, Exact = true }).ClickAsync();
+        await Page.GetByRole(AriaRole.Button, new() { Name = Buttons.Logout, Exact = true }).WaitForAsync(LongWait);
+        await Page.GetByTestId("nav-account").ClickAsync();
+        await Page.GetByTestId("account-delete").WaitForAsync(LongWait);
+
         // Delete page — a wrong confirmation phrase is rejected client-side; nothing is scheduled.
         await Page.GetByTestId("account-delete").ClickAsync();
         await Page.Locator("#delete-password").WaitForAsync(LongWait);
-        await Page.Locator("#delete-password").FillAsync(user.Password);
+        await Page.Locator("#delete-password").FillAsync(ChangedPassword);
         await Page.Locator("#delete-confirm").FillAsync("USUN");
         await Page.GetByTestId("delete-submit").ClickAsync();
         await Page.GetByText("Nieprawidłowe potwierdzenie").WaitForAsync(LongWait);
@@ -56,7 +83,7 @@ public sealed class AccountGdprSelfServiceTests : E2ETestBase
         // The correct phrase schedules the deletion; the success state hands over to the local
         // sign-out, landing on the anonymous confirmation page with the REAL finalization date
         // (from the X-Deletion-Finalizes-At header), not the generic fallback.
-        await Page.Locator("#delete-password").FillAsync(user.Password);
+        await Page.Locator("#delete-password").FillAsync(ChangedPassword);
         await Page.Locator("#delete-confirm").FillAsync("USUWAM");
         await Page.GetByTestId("delete-submit").ClickAsync();
         await Page.GetByRole(AriaRole.Button, new() { Name = "Przejdź dalej", Exact = true }).ClickAsync();
@@ -67,10 +94,11 @@ public sealed class AccountGdprSelfServiceTests : E2ETestBase
         (await Page.GetByRole(AriaRole.Link, new() { Name = Links.Login, Exact = true }).IsVisibleAsync())
             .ShouldBeTrue();
 
-        // The account is locked for the whole grace window — login fails on the auth page.
+        // The account is locked for the whole grace window — even the correct (changed) password
+        // fails on the auth login page.
         await Page.GetByRole(AriaRole.Link, new() { Name = Links.Login, Exact = true }).ClickAsync();
         await Page.GetByLabel(FieldLabels.Email).FillAsync(user.Email);
-        await Page.GetByLabel(FieldLabels.Password, new() { Exact = true }).FillAsync(user.Password);
+        await Page.GetByLabel(FieldLabels.Password, new() { Exact = true }).FillAsync(ChangedPassword);
         await Page.GetByRole(AriaRole.Button, new() { Name = Buttons.Login, Exact = true }).ClickAsync();
         await Page.GetByRole(AriaRole.Alert).WaitForAsync(LongWait);
 

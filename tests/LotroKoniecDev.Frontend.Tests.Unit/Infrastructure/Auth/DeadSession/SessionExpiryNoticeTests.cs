@@ -71,6 +71,48 @@ public sealed class SessionExpiryNoticeTests
     }
 
     [Fact]
+    public void Raise_WhenRequestIsHttps_MarksTheCookieSecure()
+    {
+        DefaultHttpContext httpContext = new();
+        httpContext.Request.IsHttps = true;
+        SessionExpiryNotice notice = CreateNotice(httpContext);
+
+        notice.Raise();
+
+        httpContext.Response.Headers.SetCookie
+            .ToString()
+            .ShouldContain("secure", Case.Insensitive);
+    }
+
+    [Fact]
+    public void Raise_WhenRequestIsPlainHttp_LeavesTheCookieNonSecure()
+    {
+        DefaultHttpContext httpContext = new();
+        SessionExpiryNotice notice = CreateNotice(httpContext);
+
+        notice.Raise();
+
+        string setCookie = httpContext.Response.Headers.SetCookie.ToString();
+        setCookie.ShouldContain(SessionExpiryNotice.CookieName);
+        setCookie.ShouldNotContain("secure", Case.Insensitive);
+    }
+
+    [Fact]
+    public void Consume_WhenRequestIsHttps_EmitsSecureCookieDeletion()
+    {
+        DefaultHttpContext httpContext = new();
+        httpContext.Request.IsHttps = true;
+        httpContext.Request.Headers.Cookie = $"{SessionExpiryNotice.CookieName}=1";
+        SessionExpiryNotice notice = CreateNotice(httpContext);
+
+        notice.Consume();
+
+        httpContext.Response.Headers.SetCookie
+            .ToString()
+            .ShouldContain("secure", Case.Insensitive);
+    }
+
+    [Fact]
     public void Raise_WhenHttpContextIsNull_DoesNotThrow()
     {
         IHttpContextAccessor accessor = Substitute.For<IHttpContextAccessor>();

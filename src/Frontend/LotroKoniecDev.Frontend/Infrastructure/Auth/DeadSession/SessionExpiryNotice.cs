@@ -26,7 +26,7 @@ internal sealed class SessionExpiryNotice : ISessionExpiryNotice
             return;
         }
 
-        httpContext.Response.Cookies.Append(CookieName, CookieValue, BuildOptions());
+        httpContext.Response.Cookies.Append(CookieName, CookieValue, BuildOptions(httpContext.Request.IsHttps));
     }
 
     public bool Consume()
@@ -45,28 +45,31 @@ internal sealed class SessionExpiryNotice : ISessionExpiryNotice
 
         if (!httpContext.Response.HasStarted)
         {
-            httpContext.Response.Cookies.Delete(CookieName, BuildDeleteOptions());
+            httpContext.Response.Cookies.Delete(CookieName, BuildDeleteOptions(httpContext.Request.IsHttps));
         }
 
         return true;
     }
 
     // Path "/" mirrors the auth + antiforgery cookies so the post-redirect read on any path finds it.
-    // HttpOnly because no client JS reads it. Secure is intentionally left at its default so the marker
-    // round-trips over both http and https dev origins — it carries no sensitive value, only a one-shot
+    // HttpOnly because no client JS reads it. Secure mirrors the request scheme: set on HTTPS (the dev
+    // https profile, prod behind the proxy via forwarded headers) and omitted on the plain-http dev
+    // profile so the marker still round-trips there — it carries no sensitive value, only a one-shot
     // "show the banner" flag.
-    private static CookieOptions BuildOptions() => new()
+    private static CookieOptions BuildOptions(bool isHttps) => new()
     {
         Path = "/",
         HttpOnly = true,
+        Secure = isHttps,
         SameSite = SameSiteMode.Lax,
         MaxAge = CookieLifetime,
         IsEssential = true
     };
 
-    private static CookieOptions BuildDeleteOptions() => new()
+    private static CookieOptions BuildDeleteOptions(bool isHttps) => new()
     {
         Path = "/",
+        Secure = isHttps,
         SameSite = SameSiteMode.Lax
     };
 }

@@ -4,16 +4,24 @@
 > mapped to the concrete service on Azure and AWS — so the provider choice is *informed, not
 > guessed* (ADR-0008 §8). Provider-neutral by design: nothing here commits the repo to a cloud.
 >
+> 🟢 **Status (2026-07): the provider was chosen and the contract is delivered.** Production and
+> staging run on **Azure Container Apps** (ADR-0012 CD pipeline, ADR-0018 staging + two-stage
+> promotion) with **Neon** Postgres (ADR-0014). This document stays the provider-neutral contract
+> that would carry a future re-platform; the per-requirement delivery record is in
+> [Where each requirement is satisfied](#where-each-requirement-is-satisfied-2026-07).
+>
 > **Scope.** *What* the platform must offer and *which* managed service supplies it on each cloud,
 > plus a neutral decision aid. This is the layer **above** the [runbook](runbook.md) — the runbook
 > says *how* to configure each service (the env-var matrix, secret generation, the bring-up
 > sequence); this document says *what capabilities the host must have* before any of that applies.
-> The provider-specific click-by-click walkthrough is **deliberately deferred** until the provider
-> is chosen (see [Out of scope](#out-of-scope--deferred)).
+> The provider-specific walkthrough this doc once deferred was authored and executed —
+> [`azure-supabase-bring-up-plan.md`](azure-supabase-bring-up-plan.md) (historical; DB layer since
+> moved to Neon per [`neon-migration-plan.md`](neon-migration-plan.md) + ADR-0014).
 
 ## Contents
 
 - [The platform contract](#the-platform-contract) — the host-capability requirements
+- [Where each requirement is satisfied](#where-each-requirement-is-satisfied-2026-07) — the delivery record
 - [Requirement → Azure ⇄ AWS mapping](#requirement--azure--aws-mapping)
 - [Decision aid](#decision-aid) — neutral per-cloud pros/cons for *this* app
 - [Out of scope / deferred](#out-of-scope--deferred)
@@ -37,7 +45,7 @@ reproduce them.
 | **R5** | **Postgres reachable over SSL**, hosting **two databases** (`lotro_translation`, `lotro_auth`) | The app knows only a connection string + `Ssl Mode=Require`. Swapping self-hosted → managed is a single env change per context. | ADR-0008 §5; runbook *databases* |
 | **R6** | **A pre-deploy migration job** — run a one-shot image to completion **before** the APIs serve, and **gate API rollout on its success** | The `migrator` image applies both contexts' bundles idempotently and fail-fast; gating on success means there is never half-migrated serving. Forward-only (ADR-0023) — the deploy takes a pre-migration Neon snapshot automatically (MIGR-04), with PITR as the ambient net. | ADR-0008 §6; M6-10; runbook *database migrations* |
 | **R7** | **Environment-variable injection** for all non-secret runtime config (12-factor) | No `appsettings.*` carries an environment-specific URL or secret (M6-06). Plain values in app config, secrets per R3. | ADR-0008 §2/§3 |
-| **R8** | **≥1 always-on replica** for each of the three web apps; the migrator is one-shot | Auth/OIDC and the DP keyring make a warm replica the sane floor. **Scaling past 1 replica requires the shared keyring of R4** (otherwise replicas disagree on keys). | ticket M6-12; R4 |
+| **R8** | **A controllable replica floor** for each of the three web apps (scale-to-zero + wake-on-request is allowed and used); the migrator is one-shot | Originally "≥1 always-on replica"; superseded by ADR-0020/0027 — every environment now runs `min_replicas = 0` (staging always; prod buys a warm replica from a **schedule**, waking on the first off-hours request). Scale-to-zero is safe *because* R4 persists the keyring and ADR-0025 keeps the readiness probe DB-free. **Scaling past 1 replica requires the shared keyring of R4** (otherwise replicas disagree on keys). | ADR-0020; ADR-0025; ADR-0027; R4 |
 | **R9** | **Outbound network (egress)** to: SMTP (auth email), the OTLP collector (telemetry), an external **managed Postgres** if used, and the **LOTRO forum** (the forum watcher — deferred, M2-18/#85 — but the allowance is forward-looking). | The app has **no cloud-provider SDK**; telemetry leaves only via OTLP, mail only via SMTP. *(The inverse — translation-file distribution — is **inbound** to tms-api over the public ingress of R1, not egress; spec 0001 / M2-20.)* | ADR-0008 §2; spec 0001 |
 | **R10** | **OTLP telemetry ingestion** endpoint reachable from the apps (`OTEL_EXPORTER_OTLP_ENDPOINT`) | Serilog → OTLP and OpenTelemetry `UseOtlpExporter` are vendor-neutral; empty endpoint disables export (optional, but the platform should offer a collector). | ADR-0008 *context*; runbook matrix |
 | **R11** | **The container floor** the images already meet: non-root (`USER app`), a `HEALTHCHECK` (the **APIs** serve + probe `/health/live` & `/health/ready`; the **frontend** probes `/`), **structured JSON logs to stdout**, registry pull from GHCR | The platform must run non-root images, gate readiness on the APIs' `/health/ready` (and may observe each image's `HEALTHCHECK`), and collect stdout. | ADR-0008 §2; Dockerfiles; runbook |
@@ -52,6 +60,28 @@ fetch). In a real cloud the public ingress origin resolves from inside the clust
 so no split-horizon DNS is needed — but the platform must not block intra-cluster egress to that
 public origin (this is what `compose.prod.yaml` reproduces with Caddy network aliases). Full rules:
 runbook *[Consistency rules that bite](runbook.md#consistency-rules-that-bite)*.
+
+## Where each requirement is satisfied (2026-07)
+
+The delivery record: how the live Azure environments (prod + staging) satisfy each requirement, and
+the decision that governs it. Operator detail lives in the [runbook](runbook.md).
+
+| Req | Satisfied by (live) | Governing record |
+|---|---|---|
+| R1 | ACA managed ingress + managed certs, one origin per app: `lotro-translator.pl` / `auth.` / `tms.` (staging: `*.staging.lotro-translator.pl`) | ADR-0012; runbook *Staging bring-up* |
+| R2 | ACA ingress sends `X-Forwarded-*`; app-side trust is scoped per environment (`ForwardedHeaders__KnownNetworks`, unset on ACA under the never-expose-`:8080` invariant) | #399; runbook rule 5 |
+| R3 | Azure **Key Vault** per environment is the single source of truth for the 8 app secrets, read at runtime via the `lotrotms-aca-<env>` managed identity (versionless URIs; seeded/rotated by `scripts/seed-keyvault.{sh,ps1}`) | ADR-0013 |
+| R4 | Azure Files shares (`auth-keys` / `frontend-keys` on storage account `lotrotmskeys<env_id>`) mounted at `/keys`; `prevent_destroy` on the storage (`iac/storage.tf`) | ADR-0005; M6-04 |
+| R5 | **Neon** Postgres — one project per environment, two databases on the direct endpoint, `Ssl Mode=Require` | ADR-0014; ADR-0018 |
+| R6 | The migrator runs as an ACA **Job** gating the health-gated rollout (reusable `deploy.yml`); forward-only + N-1-compatible with an executable CI proof, a pre-migration Neon snapshot branch per deploy, and Neon PITR as the ambient net | ADR-0023/0024; MIGR-01/MIGR-04; runbook *Database migrations* |
+| R7 | ACA `env` blocks in `iac/azure-container-apps.tf`; all URLs derived from `var.public_base_domain` / `var.env_id` | ADR-0017 |
+| R8 | `min_replicas = 0` everywhere; prod holds a warm replica on a KEDA cron **schedule** (07:00–22:00 Europe/Warsaw) and wakes on request off-hours; availability checked by the daily health ping; exactly one active revision per app after each rollout | ADR-0020; ADR-0025; ADR-0027; ADR-0029 |
+| R9 | ACA managed egress: SMTP → Brevo (`smtp-relay.brevo.com:587`), DB → Neon. The forum-watcher egress stays forward-looking — the watcher is still deferred (#85; game-version export stays manual per ADR-0030) | ADR-0014; ADR-0030 |
+| R10 | The ACA **managed OpenTelemetry agent** injects `OTEL_EXPORTER_OTLP_ENDPOINT` and ships traces + logs to workspace-based Application Insights (metrics are *not* delivered — see the runbook's metrics caveat) | ADR-0016; runbook *Observability* |
+| R11 | Public GHCR images, Trivy-gated, cosign-signed + SLSA-attested (verified fail-closed at deploy); non-root; stdout JSON → Log Analytics | ADR-0012 (as amended, audit 0001 H1/H9); `cd.yml` |
+
+The external SLO probe of ADR-0019 was retired by ADR-0027 (it would keep the scale-to-zero apps
+awake); the daily `health-ping.yml` replaced it.
 
 ## Requirement → Azure ⇄ AWS mapping
 
@@ -82,6 +112,10 @@ point (R4 persistent storage).
 
 ## Decision aid
 
+> *Kept as the record of the analysis; the decision has since been made — Azure (executed per the
+> bring-up plan; ADR-0012 and successors). Note the cost-shape row predates ADR-0020/0027: the
+> "warm-replica floor" it assumes was later replaced by scale-to-zero + a scheduled warm window.*
+
 Neutral by request: both clouds **satisfy every requirement** above. The table states each cloud's
 factual edge on the dimensions that matter for *this* app; it deliberately **does not recommend** a
 provider — the maintainer weighs cost, operational fit, and familiarity and picks. Nothing in the
@@ -105,15 +139,21 @@ the maintainer.
 
 ## Out of scope / deferred
 
+*(As written for M6-12; status updates in brackets.)*
+
 - **The provider-specific deploy walkthrough** (click-by-click bring-up on the chosen cloud) and any
   **IaC template** are produced **only after the provider is chosen** (ADR-0008 §8: "the first
-  deploy is human-driven"; no AI-generated IaC operated without understanding). A **follow-up ticket
-  for that walkthrough is to be created post-decision** — it is not part of M6-12 and is not created
-  now.
+  deploy is human-driven"; no AI-generated IaC operated without understanding).
+  *[Done: the walkthrough was authored and executed —
+  [`azure-supabase-bring-up-plan.md`](azure-supabase-bring-up-plan.md) — and the IaC lives in
+  `iac/` (parametrized per environment, ADR-0017).]*
 - **HA / backup topology** for Postgres is not committed here (ADR-0008 §5) — it belongs to the
   provider decision; the parity stack's self-hosted Postgres is a parity tool, not production-grade.
+  *[Since decided: Neon-PITR-only with a per-deploy pre-migration snapshot branch; the accepted risk
+  boundary is stated plainly in the runbook (MIGR-01/MIGR-04).]*
 - **The forum-watcher egress (R9)** is forward-looking: the watcher itself is deferred (M2-18 /
   #85). The egress allowance is documented so the chosen platform isn't configured to block it later.
+  *[Still deferred — ADR-0030 keeps the game-version export manual.]*
 
 ## See also
 
@@ -127,3 +167,8 @@ the maintainer.
   the pre-deploy migrator gate).
 - [`.github/workflows/cd.yml`](../../.github/workflows/cd.yml) — publishes the four GHCR images that
   are the deployment unit (R11).
+- [ADR-0012](../adr/0012-continuous-deployment-pipeline.md) /
+  [ADR-0014](../adr/0014-production-database-on-neon.md) /
+  [ADR-0017](../adr/0017-per-environment-iac-parametrization.md) /
+  [ADR-0018](../adr/0018-staging-environment-and-two-stage-promotion.md) — the decisions that
+  delivered this contract on Azure (CD, Neon, per-env IaC, staging + promotion).

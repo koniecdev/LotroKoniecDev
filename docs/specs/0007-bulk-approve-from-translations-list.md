@@ -1,6 +1,6 @@
 # Spec 0007: Bulk approve from the translations list (admin)
 
-- **Status:** Agreed
+- **Status:** Implemented (2026-07-04, #329 — `BulkApproveTranslations` slice + admin checkbox column on `/translations`)
 - **Date:** 2026-07-04
 - **Author:** koniecdev
 - **Ticket:** #322 (Feature: Bulk approve for admin)

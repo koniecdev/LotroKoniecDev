@@ -1,6 +1,6 @@
 # Spec 0005: Game versions management UI (Frontend) + guarded delete
 
-- **Status:** Agreed
+- **Status:** Implemented (2026-06-28, #216 — `/game-versions` page: list/register/delete + guarded API DELETE)
 - **Date:** 2026-06-28
 - **Author:** koniecdev
 - **Ticket:** #209 (FE — CRUD UI for managing GameVersion)

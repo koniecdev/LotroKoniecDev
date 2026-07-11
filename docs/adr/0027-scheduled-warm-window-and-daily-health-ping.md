@@ -1,6 +1,6 @@
 # ADR-0027: Prod buys its warm replica from a schedule, not a floor — and the availability probe moves out of Azure
 
-**Status:** Accepted
+**Status:** Accepted (ops-amended 2026-07-11 — #450 moved the daily ping from 03:00 to 06:40 UTC after observed GitHub cron delays; #449 suppressed the warm-up cold-start alert noise)
 **Date:** 2026-07-09
 **Decision-makers:** Solo maintainer
 **Related:** ADR-0012 §5 R8 (**reversed** — prod `min_replicas = 1`), ADR-0019 (external synthetic

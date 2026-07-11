@@ -6,15 +6,16 @@
 
 ## What this is
 
-A **LOTRO Polish translation platform** on **.NET 10 / C# 13** — **two bounded contexts in one
-repo**, integrating through a file contract:
+A **LOTRO Polish translation platform** on **.NET 10 / C# 14** (`Directory.Build.props` is
+authoritative) — **two bounded contexts in one repo**, integrating through a file contract:
 
 1. **Patcher** (shipped, **stable**) — CLI that exports English texts from the game's binary DAT
    file (`export`), injects `||`-format Polish translations back (`patch`), and launches the game
    (`launch`). A WPF player app (M4) will reuse its Application handlers.
-2. **TMS — Translation Management System** (M2/M3, in progress) — PostgreSQL + Web API + Blazor
-   SSR + self-hosted OpenIddict auth: translators import the CLI export, edit with review
-   workflow, and export `polish.txt` back for patching.
+2. **TMS — Translation Management System** (built — M2 backend + M3 frontend delivered, deployed
+   via the M6 pipeline) — PostgreSQL + Web API + Blazor SSR + self-hosted OpenIddict auth:
+   translators import the CLI export, edit with review workflow, and export `polish.txt` back
+   for patching.
 
 **Architectural identity:** every TMS pattern is lifted **1:1 from TheKittySaver**
 (`~/RiderProjects/TheKittySaver` — the canonical reference for Vertical Slice Architecture, DDD
@@ -23,36 +24,45 @@ domain, Result monad, the OpenIddict auth server, Docker/compose, testing discip
 every lifted slice is de-mediatorized on entry (recipe below). `Mediator`/`MediatR` packages are
 forbidden — never add them back.
 
-## Project status — pre-release, no users
+## Project status — deployed, pre-launch (no real users yet)
 
-Active development, zero production users. **Breaking changes are free** — no back-compat shims,
-no deprecation windows. M1 (patcher) is done and empirically proven. Current milestone: **M2 —
-TMS backend** (ADR-0002 + the agreed spec 0001 record the pivot and the update-lifecycle domain).
-Live backlog: `gh issue list`,
-**but** issues are being re-cut after the 2026-06 architecture pivot — where an old issue body
-conflicts with this file (MediatR, one shared Application for all UIs, auth postponed to M5),
-**this file wins**; align the ticket before coding.
+Active development. **Done:** M1 (patcher, empirically proven), **M2 — TMS backend** (all slices
+incl. CLI auto-download M2-20; the one exception: the forum watcher **M2-18 / #85 is still open**
+— game-version registration stays manual per ADR-0030), **M3 — Blazor SSR frontend** (manual
+QA pass QA-FE / #275 still open), **M6 — cloud deployment** (CD to Azure Container Apps + Neon,
+staging + prod — ADRs 0008–0029). **Open fronts:** M7 game-content catalog (epic #362, spec 0008
+agreed, not started), LEGAL/GDPR pack (epic #459), QA-FE manual pass (#275), M4 WPF player app,
+post-MVP TP backlog (epic #377).
+
+No real users yet, so **API/code breaking changes are free** — no back-compat shims, no
+deprecation windows. The one exception is the **database schema**: the stack is deployed with
+zero-downtime CD, so migrations follow ADR-0023 (forward-only, N-1 backward-compatible,
+expand→backfill→contract) regardless of user count. Live backlog: `gh issue list`; where an
+issue body conflicts with this file, **this file wins** — align the ticket before coding.
 
 ## Architecture — two bounded contexts, one file contract
 
 ```
 src/
-  Patcher/LotroKoniecDev.{Primitives,Domain,Application,Infrastructure,Cli}               ← PATCHER (exists, stable)
-  SharedKernel/LotroKoniecDev.SharedKernel                                                ← M2 (lift; TMS-side only)
-  TranslationSystem/LotroKoniecDev.TranslationSystem.{Primitives,Domain,ReadModels,ReadModels.EntityFramework,Persistence,Contracts,API} ← M2 (new)
-  AuthSystem/LotroKoniecDev.AuthSystem.{API,Domain,Infrastructure,Persistence,Contracts}  ← M2 (lift)
-  Frontend/LotroKoniecDev.Frontend                                                        ← M3 (Blazor SSR, OIDC RP)
-  Utilities/…                                                                             ← M2 (lift only what's used)
+  Patcher/LotroKoniecDev.{Primitives,Domain,Application,Infrastructure,Cli}               ← PATCHER (stable)
+  SharedKernel/LotroKoniecDev.SharedKernel                                                ← TMS-side building blocks (lifted)
+  TranslationSystem/LotroKoniecDev.TranslationSystem.{Primitives,Domain,ReadModels,ReadModels.EntityFramework,Projections,Persistence,Contracts,API}
+  AuthSystem/LotroKoniecDev.AuthSystem.{API,Domain,Infrastructure,Persistence,Contracts}  ← self-hosted OpenIddict (lifted)
+  Frontend/LotroKoniecDev.Frontend                                                        ← Blazor Static SSR, OIDC RP
+  Utilities/LotroKoniecDev.{Hateoas,Hateoas.Abstractions,Logging,Options}
 ```
+
+(`TranslationSystem.Projections` is the in-house precomputed-translation-file store behind the
+distribution endpoint — not part of the KittySaver lift map below.)
 
 **The contexts share a data contract, not code: the `||` translation file.** CLI `export` →
 `exported.txt` → TMS import; TMS export → `polish.txt` → CLI `patch`. Each context owns its own
 parser/serializer; **golden fixture files + round-trip tests on both sides** guard against format
 drift, and the format itself changes only via ADR. The TMS never references `datexport.dll`/DAT
-code (it runs in Linux Docker); the patcher never touches the DB (it runs on a Windows gaming
-box). Distribution is HTTP, not integration: the CLI launch flow auto-downloads the current
-translation file from the TMS API (ETag-cached; M2-20), and the WPF app (M4) is a GUI over the
-same patcher handlers + download.
+code (it runs in Linux containers — Azure Container Apps in prod); the patcher never touches the
+DB (it runs on a Windows gaming box). Distribution is HTTP, not integration: the CLI launch flow
+auto-downloads the current translation file from the TMS API (ETag-cached; M2-20), and the WPF
+app (M4) is a GUI over the same patcher handlers + download.
 
 ### Patcher — stable (shipped & empirically proven)
 
@@ -78,6 +88,10 @@ inside the lifted SharedKernel); consolidating that duplication is an opt-in cle
 mandate. The DAT/`||` file format still changes only via ADR + updated golden fixtures.
 
 ### TMS — the KittySaver lift map
+
+The lift itself is **done** — every row below exists in the repo. The map stays as the pattern
+reference: a **new** TMS slice mirrors the nearest existing sibling slice in this repo first,
+and falls back to the KittySaver original (+ the de-mediatorization recipe) when no sibling fits.
 
 | Building… | Mirror from `~/RiderProjects/TheKittySaver` | Lift notes |
 |---|---|---|
@@ -119,8 +133,8 @@ A KittySaver slice is one file: `internal sealed class <Action> : IEndpoint` con
 
 | You're about to… | Read first |
 |---|---|
-| Build/change a **TMS slice** | the nearest sibling slice in TheKittySaver (`AdoptionSystem.API/Features/…`) — mirror it, then apply the de-mediatorization recipe |
-| Work a GitHub ticket end-to-end | run **`/ticket <number>`** (mind the pivot-supersedes rule in Project status) |
+| Build/change a **TMS slice** | the nearest existing sibling slice in `TranslationSystem.API/Features/…`; no fitting sibling → the KittySaver original (`AdoptionSystem.API/Features/…`) + the de-mediatorization recipe |
+| Work a GitHub ticket end-to-end | run **`/ticket <number>`** (mind the this-file-wins rule in Project status) |
 | Run the backlog autonomously (Loop mode) | **`/backlog`** → `scripts/claude/backlog-loop.sh` — one fresh headless session per ticket; manual: `docs/claude-loop.md` |
 | Touch DAT binary parsing / writing / native interop | delegate to the **`dat-format-expert`** agent |
 | Re-investigate update behavior, vnum, translation survival, launch flow | **don't** — empirically settled in `docs/knowledge-base/` (start at its README) |
@@ -130,7 +144,7 @@ A KittySaver slice is one file: `internal sealed class <Action> : IEndpoint` con
 | Touch the game-content catalog (CatalogEntry/TextSlot, Companion zip import, catalog browser, memberships) | `docs/specs/0008-game-content-catalog-layer.md` (agreed) + `docs/knowledge-base/lotro-companion-data-model.md` (the verified `key:<FileId>:<GossipId>` join — never join on text). Naming rule: **never "entity"** in this layer (DDD-Entity misconception) |
 | Implement a feature whose business rules are fuzzy | **`/spec`** first (seed → questions → agreed spec in `docs/specs/`) |
 | Review a finished change | the **`code-reviewer`** agent |
-| Understand the backlog / milestones | `gh issue list` (being re-cut post-pivot) + Roadmap digest below |
+| Understand the backlog / milestones | `gh issue list` + Roadmap digest below |
 | Compare with the Russian sister project | `docs/RUSSIAN_PROJECT_RESEARCH.md` + `docs/knowledge-base/russian-project.md` |
 
 ## Commands
@@ -458,12 +472,14 @@ structure.
   Assert. One reason to fail per test.
 - **Tooling: xUnit + Shouldly + NSubstitute only.** Naming: `MethodName_Scenario_ExpectedResult`.
 - Platform honesty: tests must pass on macOS AND Windows — `Path.Combine`, never hardcoded `C:\`.
-- **TMS test projects mirror KittySaver naming:**
-  `tests/LotroKoniecDev.TranslationSystem.Domain.Tests.Unit` (pure),
-  `tests/LotroKoniecDev.TranslationSystem.API.Tests.Integration` (real PostgreSQL — never in a
-  Unit project), Frontend unit tests in M3, and `tests/LotroKoniecDev.Frontend.E2E.Tests` (Playwright
-  browser stack via Testcontainers — ADR-0009; Docker-required, off the PR gate by name). Patcher test
-  projects stay exactly as they are.
+- **TMS test projects mirror KittySaver naming.** Unit (pure):
+  `TranslationSystem.Domain.Tests.Unit`, `TranslationSystem.API.Tests.Unit`,
+  `SharedKernel.Tests.Unit`, `Logging.Tests.Unit`, `Frontend.Tests.Unit`. Integration (real
+  PostgreSQL — never in a Unit project): `TranslationSystem.API.Tests.Integration`,
+  `AuthSystem.API.Tests.Integration`. Browser/E2E (Testcontainers + Playwright — ADR-0009;
+  Docker-required, off the PR gate by name): `TranslationSystem.E2E.Tests`,
+  `Frontend.E2E.Tests`. All under `tests/LotroKoniecDev.<name>`. Patcher test projects
+  (`Tests.Unit`, `Tests.Infrastructure`, `Tests.E2E`) stay exactly as they are.
 
 ## Workflow (the loop that compounds)
 
@@ -529,27 +545,27 @@ is waived for the duration of the loop. A single wholesale lift (e.g. the AuthSy
 files sitting uncommitted at once, or two tickets sharing one context. Full manual (overnight
 runs, env knobs, triage, troubleshooting): **`docs/claude-loop.md`**.
 
-## Roadmap (digest — details land as re-cut GitHub issues)
+## Roadmap (digest — details live as GitHub issues; `gh issue list`)
 
-- **M2 — TMS backend (core loop + update lifecycle — spec 0001).** ADR-0002 (record this pivot)
-  → SharedKernel lift → AuthSystem lift → TranslationSystem
-  (Primitives/Domain/ReadModels(+EF)/Persistence/Contracts/API) with exactly these slices: version-bound import of `exported.txt` + diff/invalidation (upload),
-  list translations (search/filter/paginate, incl. `NeedsReview`), get one, upsert, approve
-  (clears invalidation + regenerates the artifact), translation-file distribution (pre-built
-  artifact + ETag/304, `GET /translation-files/{lang}`), GameVersion endpoints, forum watcher
-  (creates unprocessed `GameVersion`) → compose (postgres + migrator + auth-api + tms-api; M6-14
-  later demoted the dev stack to infra-only + host Kestrels — ADR-0006 amendment) →
-  integration tests → CLI auto-download (M2-20).
-  **DoD:** the full loop works: CLI `export` → TMS import (diff) → edit/approve → CLI `launch`
-  auto-downloads → `patch` → texts visible in game; a simulated game update invalidates changed
-  rows and the distributed file excludes them.
-- **M3 — Frontend (Blazor SSR).** Lifted OIDC infra; pages: translation list, side-by-side
-  editor with `<--DO_NOT_TOUCH!-->` placeholder validation, approve flow, import/export,
-  mini-dashboard (progress counters). **DoD:** a translator completes the whole loop in the
-  browser, authenticated.
-- **M4 — WPF player app** (later): GUI over the patcher handlers + the same TMS auto-download
-  the CLI ships in M2-20.
-- **M7 — Game-content catalog (spec 0008, agreed 2026-07-06; epic #362).** LOTRO Companion's
+- **M2 — TMS backend — DONE** (core loop + update lifecycle — spec 0001): version-bound import
+  of `exported.txt` + diff/invalidation, list/get/upsert/approve translations (approve clears
+  invalidation + regenerates the artifact), translation-file distribution (pre-built artifact +
+  ETag/304, `GET /translation-files/{lang}`), GameVersion endpoints, CLI auto-download (M2-20 —
+  `Features/TranslationFileSyncing` + `UpdateChecking`). **One leftover: the forum watcher
+  (M2-18 / #85) is still open** — game-version registration is manual for now (ADR-0030 keeps
+  the export→import pipeline manual too).
+- **M3 — Frontend (Blazor Static SSR) — DONE** (manual QA pass **QA-FE / #275 still open**):
+  lifted OIDC infra; pages: dashboard, translation list, editor with `<--DO_NOT_TOUCH!-->`
+  placeholder validation + approve flow, import/export, game-versions admin.
+- **M6 — Cloud deployment — DONE:** CD to Azure Container Apps + Neon Postgres, staging + prod
+  two-stage promotion, Key Vault secrets, scale-to-zero + warm window + daily health ping,
+  external SLO probe (ADRs 0008–0029; ops details in `docs/deployment/runbook.md`).
+- **M4 — WPF player app** (not started; #41–#46): GUI over the patcher handlers + the same TMS
+  auto-download the CLI ships in M2-20.
+- **LEGAL — GDPR/compliance pack (epic #459, cut 2026-07-11):** two-phase account deletion,
+  data export, ToS + privacy policy, cookie banner, self-hosted fonts.
+- **M7 — Game-content catalog — NEXT UP (spec 0008, agreed 2026-07-06; epic #362, tickets
+  #363–#375 cut, not started).** LOTRO Companion's
   lore XML imported as a catalog lens over the flat rows: catalog entries (quest/deed +
   registry-driven long tail incl. items) with role-tagged text slots joined **by
   `(FileId, GossipId)` keys, never text** (verified —

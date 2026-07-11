@@ -5,8 +5,9 @@
 > istniejącej dokumentacji. **Kod jest źródłem prawdy** — przy rozbieżności czytaj kod i popraw ten
 > dokument. Lokalizacje podane jako `plik:linia`.
 >
-> Zakres: tylko kontekst **TMS** (`src/TranslationSystem/**`). Patcher (`src/LotroKoniecDev.*`) jest
-> zamrożony i ma własny, prostszy model — tutaj go nie opisujemy.
+> Zakres: tylko kontekst **TMS** (`src/TranslationSystem/**`). Patcher (`src/Patcher/**`) jest
+> stabilny (wydany i udowodniony empirycznie; ADR-0002 aneks 2026-06-25 — już nie „zamrożony") i ma
+> własny, prostszy model — tutaj go nie opisujemy.
 
 ## Spis treści
 
@@ -29,7 +30,7 @@
 
 ## Przegląd architektury
 
-TMS to jeden z **dwóch bounded contextów** w repo (drugim jest zamrożony patcher CLI). Konteksty nie
+TMS to jeden z **dwóch bounded contextów** w repo (drugim jest stabilny patcher CLI). Konteksty nie
 mają wzajemnych referencji projektowych — łączy je **wyłącznie kontrakt pliku** `||` (format
 tłumaczeń). TMS jest podniesiony 1:1 z referencyjnego `TheKittySaver` (Vertical Slice Architecture,
 domena DDD, monada `Result`, serwer OpenIddict), z **jednym odstępstwem na całe repo: brak mediatora
@@ -113,7 +114,8 @@ wierszy przy każdym patchu (spec 0001).
 
 `src/TranslationSystem/…Domain/Aggregates/GameVersionAggregate/Entities/GameVersion.cs`
 
-Wersja gry wykryta na forum (release notes lotro.com) lub zarejestrowana ręcznie. Identyfikator wersji
+Wersja gry zarejestrowana ręcznie przez admina (watcher forum — M2-18/#85 — wciąż niezaimplementowany;
+rejestracja ręczna pozostaje kanoniczną ścieżką, por. ADR-0030). Identyfikator wersji
 treści to `LotroNotationVersion` (VO w postaci kanonicznej). Status: `Unprocessed → Processed`, z boczną
 ścieżką `Superseded`.
 
@@ -126,11 +128,14 @@ treści to `LotroNotationVersion` (VO w postaci kanonicznej). Status: `Unprocess
 **Zachowania** (zwracają `Result` — bronią przejść stanu):
 
 - `MarkAsProcessed()` — `Superseded` nigdy nie może być przetworzony; w przeciwnym razie → `Processed`
-  (`GameVersion.cs:26`).
+  (re-upload do już przetworzonej wersji jest legalny i idempotentny) (`GameVersion.cs:26`).
 - `MarkSuperseded()` — `Processed` nie może być cofnięty do `Superseded` (przetworzona praca nigdy nie
   jest cofana); spiętrzone nieprzetworzone wersje są masowo oznaczane, gdy nowsza zostaje przetworzona
   (`GameVersion.cs:40`).
-- `Create(version, detectedAt)` — fabryka; powstaje jako `Unprocessed` (`GameVersion.cs:52`).
+- `EnsureCanBeDeleted()` — guard kasowania (#209): tylko wersja `Unprocessed` może zostać usunięta;
+  przetworzona/superseded jest wpleciona w cykl aktualizacji. Cross-agregatowy warunek „żadne
+  tłumaczenie jej nie referuje" zostaje w handlerze `DeleteGameVersion` (`GameVersion.cs:58`).
+- `Create(version, detectedAt)` — fabryka; powstaje jako `Unprocessed` (`GameVersion.cs:68`).
 
 ### 3. Translator (ADR-0004)
 
@@ -139,8 +144,11 @@ treści to `LotroNotationVersion` (VO w postaci kanonicznej). Status: `Unprocess
 Lokalna dla TMS projekcja uwierzytelnionego użytkownika edytującego tłumaczenia — chudy odpowiednik
 KittySaverowego `Person`. Trzyma czytelną tożsamość renderowaną w edytorze (`DisplayName`, opcjonalny
 `Email`) kluczowaną przez cross-contextowy `IdentityId` (id użytkownika z AuthSystem). **Prowizjonowany
-leniwie i idempotentnie** przy pierwszym uwierzytelnionym zapisie (szczegóły w
-[auth-tutorial.md](auth-tutorial.md) i ADR-0004).
+leniwie i idempotentnie** przy **pierwszym uwierzytelnionym żądaniu** (middleware
+`TranslatorProvisioningMiddleware`; ADR-0004 z aneksem 2026-06-24 — wcześniej dopiero przy pierwszym
+zapisie); handlery zapisu dodatkowo prowizjonują autorytatywnie przed stemplowaniem FK. Rozwiązanie
+tożsamość → `TranslatorId` jest cache'owane (L1 `HybridCache`, TTL 5 min, fingerprint claimów —
+PERF-07). Szczegóły w [auth-tutorial.md](auth-tutorial.md) i ADR-0004.
 
 | Właściwość | Typ | Rola |
 |---|---|---|
@@ -229,9 +237,12 @@ uporządkowane) i serializują się do JSON jako **goły string GUID**.
 
 `src/TranslationSystem/…Domain/Aggregates/TranslationAggregate/Services/TranslationDiffService.cs`
 
-Czysta funkcja (`static`) diffująca wgrany `exported.txt` względem zapisanego stanu źródeł, kluczowana
-po `FragmentKey` po całym pliku. Produkuje `TranslationDiffPlan` **bez dotykania bazy** — handler
-importu realizuje plan w swojej transakcji po przejściu guarda truncacji (`TranslationDiffService.cs:16`).
+Czysty diff (`static class`, `ComputePlanAsync`) wgranego `exported.txt` względem zapisanego stanu
+źródeł, kluczowany po tożsamości fragmentu po całym pliku — od spec 0006 **strumieniowo i na wierszach
+wartości**: upload przychodzi jako mapa klucz→hash (`FragmentKeyValue`→`SourceHash`), katalog płynie
+jako strumień `StoredSourceDigest`, a źródła porównują się hash-do-hasha, więc serwis nie trzyma ani
+stringów źródeł, ani agregatów. Produkuje `TranslationDiffPlan` **bez dotykania bazy** — handler
+importu realizuje plan w swojej transakcji po przejściu guarda truncacji (`TranslationDiffService.cs:22`).
 Pięć wyników:
 
 | Wynik | Warunek | Akcja |
@@ -244,9 +255,9 @@ Pięć wyników:
 
 `TranslationDiffPlan` (`…/Services/TranslationDiffPlan.cs`) liczy też `RemovedFraction` —
 ułamek aktywnych wierszy, które upload by usunął; **0 dla baseline importu** (brak aktywnych wierszy),
-więc guard truncacji nigdy nie tripuje na pierwszym wczytaniu (`TranslationDiffPlan.cs:54`). `HasPolish`
+więc guard truncacji nigdy nie tripuje na pierwszym wczytaniu (`TranslationDiffPlan.cs:44-45`). `HasPolish`
 (`Draft`/`Approved`/`NeedsReview`) decyduje, czy zmiana źródła liczy się jako unieważnienie
-(`TranslationDiffService.cs:80`).
+(`TranslationDiffService.cs:85-86`).
 
 ---
 
@@ -256,16 +267,22 @@ więc guard truncacji nigdy nie tripuje na pierwszym wczytaniu (`TranslationDiff
 
 Gotowy do dystrybucji plik `polish.txt` (Approved + nieunieważnione + nieusunięte wiersze, posortowane
 po `FileId` potem `GossipId`), serwowany przez `GET /api/v1/translation-files/{lang}` z content-hash
-ETag i regenerowany przy każdym zapisie zmieniającym zbiór dystrybucji.
+ETag (hex SHA-256 — pełni też rolę hasha integralności dla patchera, AUDIT-SEC-01) i regenerowany po
+każdym zapisie zmieniającym zbiór dystrybucji.
 
 **Świadomie NIE jest agregatem (ADR-0007 „read projections are not aggregates").** To `Entity`, nie
 `AggregateRoot` — nie broni żadnego invariantu, jest wyprowadzony i regenerowalny. Stąd:
 
-- żyje w osobnym projekcie `TranslationSystem.Projections` (Domain nie referuje Projections);
-- persystowany przez dedykowany port `IPrecomputedTranslationFileStore` (`GetByLanguageAsync` + `Insert`),
-  **nie** `IRepository` — repozytoria pozostają tylko-agregatowe;
-- przebudowywany przez `IPrecomputedTranslationFileProjector` po commicie wyzwalającego zapisu,
-  single-flight, we własnej transakcji.
+- żyje w osobnym projekcie `TranslationSystem.Projections` (Domain nie referuje Projections); typ jest
+  niemutowalny — istnieje, by wstawić pierwszy wiersz per język;
+- persystowany przez dedykowany port `IPrecomputedTranslationFileStore` (`TryRefreshAsync` —
+  set-based `UPDATE` w miejscu, nigdy nie materializuje poprzedniego multi-MB contentu (PERF-04) —
+  + `Insert`), **nie** `IRepository` — repozytoria pozostają tylko-agregatowe; implementacja w
+  `…Persistence/Projections/PrecomputedTranslationFileStore.cs`;
+- przebudowywany przez `IPrecomputedTranslationFileProjector` **w tle, z debounce** (PERF-04,
+  ADR-0021): handler zapisu tylko sygnalizuje `ITranslationFileRebuildScheduler.Schedule(...)` po
+  commicie, a hostowany worker koalescuje sygnały (okno domyślnie 2 s) i odpala jedną, single-flight
+  przebudowę — odpowiedź nie czeka, więc pobranie może chwilowo „gonić" commit.
 
 Strona odczytu (`PrecomputedTranslationFileReadModel`) i typ zapisu **dual-mapują na tę samą fizyczną
 tabelę** `TranslationArtifacts` (nazwa fizyczna zachowana po refaktorze typu — ADR-0007).
@@ -282,8 +299,9 @@ tabelę** `TranslationArtifacts` (nazwa fizyczna zachowana po refaktorze typu �
 - `IUnitOfWork` (`…Persistence/DbContexts/Abstractions/IUnitOfWork.cs`) = punkt commitu;
   implementuje go `ApplicationWriteDbContext`.
 - `IPrecomputedTranslationFileStore` — osobny **Store** (nie repozytorium) dla projekcji
-  (`…Projections/PrecomputedTranslationFileStore.cs`). Współistnienie `Store` i `Repository` jest
-  zamierzone (ADR-0007), nie niespójnością.
+  (interfejs w `…Projections/IPrecomputedTranslationFileStore.cs`, implementacja w
+  `…Persistence/Projections/PrecomputedTranslationFileStore.cs`). Współistnienie `Store` i
+  `Repository` jest zamierzone (ADR-0007), nie niespójnością.
 
 ---
 
@@ -347,4 +365,7 @@ src/TranslationSystem/
 - **Value Object + strongly-typed ID** — brak prymitywnej obsesji.
 - **Result/Maybe monad** — błędy jako wartości.
 - **Materialized read projection (ADR-0007)** — projekcja ≠ agregat; `Store` ≠ `Repository`.
-- **Lazy idempotent provisioning (ADR-0004)** — tożsamość tłumacza tworzona przy pierwszym zapisie.
+- **Debounced background rebuild (ADR-0021)** — zapis sygnalizuje, hostowany worker koalescuje i
+  przebudowuje artefakt w tle.
+- **Lazy idempotent provisioning (ADR-0004, aneks 2026-06-24)** — tożsamość tłumacza tworzona przy
+  pierwszym uwierzytelnionym żądaniu (middleware), z cache'owanym rozwiązaniem tożsamości.

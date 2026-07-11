@@ -1,6 +1,6 @@
 # ADR-0012: Continuous deployment pipeline (automated ACA rollout + GitHub approval gate + IaC in CI)
 
-**Status:** Accepted
+**Status:** Accepted (amended repeatedly — audit 0001 C2/H7/H9; §8 secrets superseded by ADR-0013; §4 migration wording by ADR-0023/#337; §5 R8 reversed by ADR-0027; the H7 rollout extended by ADR-0029/#407 — see the in-body notes)
 **Date:** 2026-06-28
 **Decision-makers:** Solo maintainer
 **Related:** ADR-0008 (cloud-agnostic deployment & environment strategy — **superseded** here on its

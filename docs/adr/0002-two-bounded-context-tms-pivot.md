@@ -1,6 +1,6 @@
 # ADR-0002: Two bounded contexts — TMS lifted from TheKittySaver, patcher frozen (later lifted)
 
-**Status:** Accepted
+**Status:** Accepted (amended 2026-06-11 spec 0001 · 2026-06-12 ReadModels/Primitives lifts · 2026-06-14 ADR-0004 · 2026-06-25 the patcher freeze is lifted — see the in-body amendment notes)
 **Date:** 2026-06-11
 **Decision-makers:** Solo maintainer
 **Related:** whole-repo architecture (both contexts), ticket #90 (M2-01), PR #89 (CLAUDE.md pivot + planning-doc removal), ADR-0001 (no mediator)

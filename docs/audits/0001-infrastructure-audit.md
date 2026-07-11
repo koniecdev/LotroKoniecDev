@@ -9,8 +9,42 @@
 > czytana przez API. Każdy finding ma dowód `plik:linia`. Kluczowe tezy zweryfikowane bezpośrednio.
 > Wszystkie ścieżki/linie odnoszą się do drzewa repo na dzień audytu.
 
-**Status:** Informacyjny (raport, nie decyzja — decyzje wynikłe trafią do ADR)
+**Status:** Informacyjny (raport, nie decyzja — decyzje wynikłe trafiły do ADR); **zapis historyczny
+na dzień 2026-06-29 — findingów nie aktualizuje się; stan napraw niżej w addendum**
 **Data:** 2026-06-29
+
+> ### Addendum 2026-07-11 — co zostało od tego czasu naprawione (zweryfikowane w repo)
+>
+> Raport poniżej pozostaje nietknięty (stan na 2026-06-29). Poniższe rozwiązania zweryfikowano w
+> kodzie/historii gita; findingi bez wpisu pozostają w mocy lub są nieweryfikowalne z repo.
+>
+> | Finding | Status | Dowód |
+> |---|---|---|
+> | C2 (testy nie bramkują deployu) | ✅ naprawione | `cd.yml` — trigger `workflow_run` na CI + job `gate` (deploy tylko po zielonym CI, pin `head_sha`) |
+> | C3 (zero alertów) | ✅ naprawione | `iac/monitoring.tf` — action group + alerty (runbook §Monitoring); LAW cap 0.16→0.5 GB (#411, domyka też M9) |
+> | C4 (migracje bez snapshotu/restore) | ✅ naprawione | MIGR-01 (#344, PITR udokumentowany), MIGR-04 (#345, auto-snapshot branch per deploy), ADR-0023/0024 (forward-only N-1 + dowód CI) |
+> | C5 + H4 (staging na prodowych sekretach/kluczach) | ✅ naprawione | osobny `lotrotms-kv-staging` + świeże sekrety + osobny `env_id`/keyring — ADR-0017/0018, runbook §Staging bring-up |
+> | H1 (brak security-scanningu) | ✅ naprawione | NuGetAudit (`Directory.Build.props:16-18`), CodeQL (`codeql.yml`), Trivy w `cd.yml` (+ na PR, CI-01 #421), Dependabot (`.github/dependabot.yml`) |
+> | H2 + H5 (IaC nie multi-env, jeden klucz stanu) | ✅ naprawione | ADR-0017 — `var.public_base_domain` + nazwy z `env_id`, `iac/backend-config/{prod,staging}.hcl`, `iac/env/staging.tfvars` |
+> | H3 (OTel podłączony do niczego) | ✅ naprawione | ADR-0016 — managed OTel agent ACA → workspace-based App Insights (`iac/observability.tf`) |
+> | H6 (ruchome tagi akcji/obrazów) | ✅ naprawione | `uses:` przypięte do SHA (`cd.yml` i in.), obrazy bazowe po digestcie (`Dockerfile.migrator.prod` `@sha256:…`) |
+> | H7 (rollout bez health-gate/rollbacku) | ✅ naprawione | reusable `deploy.yml` — kandydat 0% + smoke + promote + rollback; sweep + invariant jednej aktywnej rewizji (#419 CD-01, ADR-0029) |
+> | H8 (forwarded-headers ufa wszystkim) | ✅ naprawione | AUDIT-SEC-09 (#430) + #399 — `ForwardedHeaders__KnownNetworks` per env, `ForwardLimit=1` |
+> | H9 (brak provenance/SBOM/podpisu) | ✅ naprawione | `cd.yml` — cosign keyless + SLSA provenance + SBOM; weryfikacja fail-closed przy deployu |
+> | H10 (brak modelu promocji) | ✅ naprawione | ADR-0018 — staging + dwustopniowa promocja tego samego obrazu |
+> | H11 (brak `prevent_destroy`) | ✅ naprawione | `iac/storage.tf:12`, `iac/azure-law.tf:26` |
+> | H12 (brak polityki backup/PITR) | ✅ naprawione | runbook — retencja Neon (6 h), granica ryzyka MIGR-01, procedury restore |
+> | H13 (Neon branching nieużywany) | ✅ zaadresowane inaczej | staging = **osobny projekt** Neon (ADR-0018, twardsza izolacja niż branch); branching użyty do snapshotów MIGR-04 |
+> | M2 (CD bez `paths-ignore`) | ✅ naprawione | CD odpalane przez `workflow_run` CI; docs-only push nie uruchamia CI → ani CD |
+> | M3 (`min_replicas=0` vs ADR) | ✅ rozstrzygnięte | scale-to-zero jest celowe — ADR-0020/0027 (okno warm + daily health ping; ADR-0019 probe wycofany) |
+> | M12 (apply ∥ rollout) | ✅ naprawione | wspólny lock `prod-mutation`/`staging-mutation` (`deploy.yml` + `infra.yml`) |
+> | M15 (`required_version`) | ✅ naprawione | `iac/setup.tf:4` `required_version = "~> 1.15"` |
+> | M16 (`AnalysisLevel=latest`) | ✅ naprawione | `Directory.Build.props:10` `AnalysisLevel=10.0` |
+> | L8 (cookie `SameAsRequest`) | ✅ naprawione | AUDIT-SEC-10 (#431) |
+> | „brak zewnętrznego probe'u" (M-skrót) | ✅ → wycofane świadomie | ADR-0019 (probe) → ADR-0027 (retired na rzecz daily `health-ping.yml`, scale-to-zero) |
+> | C1 (`pr-verify` nie jest required status) | ❓ nieweryfikowalne z repo | stan rulesetu GitHub — do sprawdzenia `gh api .../rulesets`; residual ryzyka i tak zdjęty przez bramkę C2 w CD |
+> | H14 (brak `global.json`/lockfile) | ❌ wciąż otwarte | brak `global.json` i `packages.lock.json` w repo (2026-07-11) |
+> | Supabase teardown (M-skrót, Phase 6 planu) | ❓ nieweryfikowalne z repo | akcja operatora poza repo |
 **Zakres:** `.github/workflows/*` · `iac/*` · `compose*.yaml` · `Dockerfile*` · `scripts/*` · `docs/adr/{0005,0008,0012,0013,0014}` · `docs/deployment/*` · bootstrap `Program.cs` (auth/tms/frontend)
 **Powiązane:** ADR-0008 (deployment cloud-agnostic + strategia env), ADR-0012 (CD pipeline), ADR-0013 (Key Vault = źródło prawdy), ADR-0014 (DB na Neon), ADR-0005 (persystencja kluczy Data Protection), `docs/deployment/runbook.md` (matryca env-var)
 

@@ -1,5 +1,9 @@
 # Russian LOTRO Translation Project - Deep Analysis
 
+> Distilled digest of the full raw research record in
+> [`../RUSSIAN_PROJECT_RESEARCH.md`](../RUSSIAN_PROJECT_RESEARCH.md) (dated 2026-02-09) — start
+> here; go to the raw record for timelines, API endpoint reconstructions, and source links.
+
 ## Components
 
 | Component | Role | Tech |

@@ -12,6 +12,23 @@ dotnet test tests/LotroKoniecDev.Frontend.E2E.Tests          # browser stack via
 dotnet test --filter "FullyQualifiedName~Fragment"     # filter by name
 ```
 
+Full project inventory (12 projects):
+
+| Project | Kind | Needs |
+|---|---|---|
+| `LotroKoniecDev.Tests.Unit` | patcher unit | nothing (pure) |
+| `LotroKoniecDev.SharedKernel.Tests.Unit` | SharedKernel unit (monads, BuildingBlocks, Ensure, strongly-typed IDs) | nothing (pure); Stryker target |
+| `LotroKoniecDev.Logging.Tests.Unit` | `Utilities/Logging` redaction unit | nothing (pure) |
+| `LotroKoniecDev.TranslationSystem.Domain.Tests.Unit` | TMS domain unit | nothing (pure); Stryker target |
+| `LotroKoniecDev.TranslationSystem.API.Tests.Unit` | TMS handler/auth/endpoint unit (fake read-DbContext, stub accessor/provisioner) | nothing (pure) |
+| `LotroKoniecDev.Frontend.Tests.Unit` | Blazor SSR component + infrastructure unit (bUnit-style) | nothing (pure) |
+| `LotroKoniecDev.TranslationSystem.API.Tests.Integration` | in-process API against real PostgreSQL (Testcontainers; forged test tokens) | Docker |
+| `LotroKoniecDev.AuthSystem.API.Tests.Integration` | in-process auth-api against real PostgreSQL (Testcontainers) | Docker |
+| `LotroKoniecDev.TranslationSystem.E2E.Tests` | real-process TMS stack over HTTP | Docker (3 images) |
+| `LotroKoniecDev.Frontend.E2E.Tests` | Playwright browser stack | Docker (4 images + browser) |
+| `LotroKoniecDev.Tests.Infrastructure` | patcher real-infrastructure adapters | Windows to run |
+| `LotroKoniecDev.Tests.E2E` | patcher CLI full pipeline | Windows + real DAT (else skipped) |
+
 > **Heads-up on bare `dotnet test`:** the TMS real-process E2E suite runs whenever the whole solution is
 > tested and **requires a running Docker daemon** (it builds the auth/tms/migrator images and boots the
 > stack). It is off the PR/CI gate by name (below); target a specific project when you don't have Docker.
@@ -59,6 +76,7 @@ Tests/
     Utilities/
       VarLenEncoderTests.cs   Encode/decode roundtrip for various ranges
   Extensions/
+    DatFileHandlerExtensionsTests.cs  LoadSubFile guards against corrupt subfile data
     ResultExtensionsTests.cs  Map, Bind, OnSuccess, OnFailure, Match, Combine
   Features/
     ExportTextsQueryHandlerTests.cs    Export handler (mocked IDatFileHandler) + validation guards
@@ -66,6 +84,8 @@ Tests/
     GameLaunchingCommandHandlerTests.cs Launch handler + SimplifiedGameLaunchingStrategy branches
     PreflightCheckQueryHandlerTests.cs Preflight checks (process, write access, update check)
     PatchingServiceTests.cs            Patch orchestration (mocked IDatFileHandler + ITranslationParser)
+    SyncTranslationFileCommandHandlerTests.cs TMS file sync (HTTPS-only URL guard, integrity rejection, ETag/304, offline fallback)
+    TranslationFileContentIntegrityTests.cs   Downloaded-file SHA-256/ETag integrity check (AUDIT-SEC-01)
     VersionBaselineServiceTests.cs     Version baseline persistence rules
     GameUpdateCheckerTests.cs          Forum scraping + version comparison (mocked fetcher + store)
   Models/
@@ -84,11 +104,12 @@ the suite runs on macOS too).
 ## Infrastructure Tests (LotroKoniecDev.Tests.Infrastructure)
 
 Tests that touch real infrastructure adapters (today: `GameLauncherTests`,
+`AuthenticodeLauncherSignatureVerifierTests`, `DatExportNativeTests`,
 `TranslationFileDownloaderTests` and `ForumPageFetcherTests` — the network ones drive the
 adapters' integrity, response-size-cap and timeout enforcement points over an in-memory stub
-`HttpMessageHandler`, no real network). Grows in M2
-(PostgreSQL + EF Core) and whenever file-content verification is needed — asserting on real file
-output belongs here, never in `Tests.Unit`. Targets `net10.0-windows`: builds everywhere,
+`HttpMessageHandler`, no real network). This project is patcher-side only — TMS
+PostgreSQL/EF Core coverage lives in the `*.Tests.Integration` projects. Asserting on real
+file output belongs here, never in `Tests.Unit`. Targets `net10.0-windows`: builds everywhere,
 **runs on Windows only** (on macOS the run aborts — expected).
 
 ## E2E Tests (LotroKoniecDev.Tests.E2E)
@@ -113,9 +134,10 @@ layer the in-process `*.Tests.Integration` suite fakes by forging HS256 tokens.
 - `UpdateCycleE2ETests` — a later import reword's an approved row's source → invalidated + dropped from the file.
 
 **Requires Docker; off the PR gate by name** — the project is `...E2E.Tests` (not `*.Tests.Unit` /
-`*.Tests.Integration`), so the `pr-verify.yml`/`ci.yml` test-discovery globs skip it. It runs only via
-`.github/workflows/e2e.yml` (`workflow_dispatch`) or a local `dotnet test` of the project. It IS compiled by the
-solution build, so the zero-warning gate still covers it.
+`*.Tests.Integration`), so the `pr-verify.yml`/`ci.yml` test-discovery globs skip it. It runs via
+`.github/workflows/e2e.yml` (`workflow_dispatch`, plus PRs touching `Directory.Packages.props`,
+`.config/dotnet-tools.json` or any Dockerfile — CI-03/#433, so Dependabot bumps exercise it) or a local
+`dotnet test` of the project. It IS compiled by the solution build, so the zero-warning gate still covers it.
 
 ## Frontend Browser E2E Tests (LotroKoniecDev.Frontend.E2E.Tests)
 
@@ -137,7 +159,8 @@ download). NuGet-only (no `ProjectReference`) — it drives everything over HTTP
 
 Locators follow Playwright's guidance: `GetByRole`/`GetByLabel` first, `data-testid` only for the consent
 checkboxes + state panels (`register-success`, `confirm-email-success`). **Requires Docker; off the PR gate by
-name** (`...E2E.Tests`) — runs via `e2e.yml` (the `e2e-frontend` job) or a local `dotnet test`. Compiled by the
+name** (`...E2E.Tests`) — runs via `e2e.yml` (the `e2e-frontend` job; `workflow_dispatch` or PRs touching
+package/Dockerfile dependency manifests — CI-03/#433) or a local `dotnet test`. Compiled by the
 solution build, so the zero-warning gate covers it.
 
 ## N-1 schema seam (integration factories — ADR-0024)

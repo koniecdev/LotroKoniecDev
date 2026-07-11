@@ -53,10 +53,10 @@ Algorytm i id klucza:
 ```json
 { "alg": "RS256", "typ": "JWT", "kid": "signing-key-current" }
 ```
-`kid` (`OpenIddictExtensions.cs:155`) wskazuje, którym kluczem RSA podpisano — ważne przy rotacji.
+`kid` (`OpenIddictExtensions.cs:159`) wskazuje, którym kluczem RSA podpisano — ważne przy rotacji.
 
 ### 2.2 Payload
-Claimy. U nas access token niesie m.in. (`TokenEndpoint.cs:195-203`):
+Claimy. U nas access token niesie m.in. (`TokenEndpoint.cs:197-207`):
 ```json
 {
   "sub": "0190f3a2-....",        // id usera (IdentityId) — jedyna referencja cross-context
@@ -70,7 +70,7 @@ Claimy. U nas access token niesie m.in. (`TokenEndpoint.cs:195-203`):
 }
 ```
 Kluczowe: `sub` to `IdentityId`, `role` napędza autoryzację w `tms-api`. **`MapInboundClaims` jest
-wyłączony** po obu stronach (`ApiDependencyInjection.cs:168`), więc claimy zostają surowymi typami
+wyłączony** po obu stronach (`ApiDependencyInjection.cs:228`), więc claimy zostają surowymi typami
 OpenIddict (`sub`/`name`/`email`/`role`), a nie mapują się na długie `ClaimTypes.*`.
 
 ### 2.3 Signature
@@ -179,8 +179,8 @@ OpenIddict ma trzy części, wszystkie włączone w `OpenIddictExtensions.cs:17-
 ## 6. AuthSystem — Authorization Server krok po kroku
 
 ### 6.1 ASP.NET Core Identity (baza userów)
-`AddIdentityCore<ApplicationUser>` (`PersistenceDependencyInjection.cs:39`). `ApplicationUser`
-rozszerza `IdentityUser<Guid>` o zgody RODO (`ApplicationUser.cs`). Reguły (`:41-49`):
+`AddIdentityCore<ApplicationUser>` (`PersistenceDependencyInjection.cs:40`). `ApplicationUser`
+rozszerza `IdentityUser<Guid>` o zgody RODO (`ApplicationUser.cs`). Reguły (`:44-51`):
 - hasło: digit + lowercase + uppercase + non-alphanumeric, `RequiredLength = 8`;
 - `User.RequireUniqueEmail = true`;
 - `SignIn.RequireConfirmedEmail = true` — **bez potwierdzenia maila nie zalogujesz się**;
@@ -199,14 +199,14 @@ Tokeny email-confirmation/reset żyją 24 h (`DataProtectionTokenProviderOptions
 - `DisableAccessTokenEncryption()` — access token podpisany, nieszyfrowany (standardowa walidacja JWT).
 
 ### 6.3 Klucze kryptograficzne
-`OpenIddictExtensions.cs:66-72` + `ConfigureOpenIddictServerSettings` (`:97-195`):
+`OpenIddictExtensions.cs:66-72` + `ConfigureOpenIddictServerSettings` (`:97-199`):
 - **Dev/Testing** → `AddEphemeralSigningKey()` + `AddEphemeralEncryptionKey()` — efemeryczne, generowane
   per start (restart = nowe klucze, stare tokeny tracą ważność — i to jest OK lokalnie).
 - **Produkcja** → z konfiguracji:
-  - **Signing** = RSA (min **2048** bit, walidowane `:149`), publiczna połówka idzie w JWKS;
-  - **Encryption** = symetryczny AES (min **256** bit, `:123`) — do auth codes / refresh tokenów,
+  - **Signing** = RSA (min **2048** bit, walidowane `:152-156`), publiczna połówka idzie w JWKS;
+  - **Encryption** = symetryczny AES (min **256** bit, `:126`) — do auth codes / refresh tokenów,
     nie wystawiany w JWKS;
-  - **rotacja**: opcjonalny `PreviousRsaPrivateKeyXml` (`:172-193`) — tokeny podpisane starym kluczem
+  - **rotacja**: opcjonalny `PreviousRsaPrivateKeyXml` (`:176-197`) — tokeny podpisane starym kluczem
     zostają ważne w oknie rotacji (`kid` = `signing-key-previous`).
 
 ### 6.4 Endpointy OpenIddict
@@ -219,7 +219,7 @@ Tokeny email-confirmation/reset żyją 24 h (`DataProtectionTokenProviderOptions
 | `connect/revoke` | — middleware OpenIddict | rewokacja pojedynczego tokena; OpenIddict nie ma dla niej passthrough, więc obsługuje ją sam — trasa w `MiddlewareServedEndpoints.cs` niesie wyłącznie metadane rate-limit (#349) |
 | `connect/introspect` | — middleware OpenIddict | introspekcja tokena (RFC 7662) dla confidential clients; jak wyżej — trasa w `MiddlewareServedEndpoints.cs` tylko pod rate-limit (#349) |
 
-`TokenEndpoint.cs:147-154` ustawia **destinations** — które claimy lądują w access tokenie, a które w
+`TokenEndpoint.cs:149-158` ustawia **destinations** — które claimy lądują w access tokenie, a które w
 id tokenie. `sub`/`email`/`name`/`role` idą do obu.
 
 ### 6.5 Register endpoint (custom) — i **brak sagi**
@@ -227,17 +227,17 @@ id tokenie. `sub`/`email`/`name`/`role` idą do obu.
 1. walidacja (email unikalny/regex ≤250 — **to e-mail jest loginem**, ADR-0022; username: unikalny
    handle wyłącznie do wyświetlania, `^[a-zA-Z0-9]+$` ≤150 — `UsernameConstants`; hasło 8–128 +
    złożoność, **obie zgody RODO `true`**);
-2. `userManager.CreateAsync` → przypisanie roli **`Translator`** (`:140`);
-3. wysyłka maila potwierdzającego; gdy mail padnie → **fallback auto-confirm** (`:148-157`);
+2. `userManager.CreateAsync` → przypisanie roli **`Translator`** (`:133`);
+3. wysyłka maila potwierdzającego; gdy mail padnie → **fallback auto-confirm** (`:141-157`);
 4. zwraca **201** z gołym `IdentityId`.
 
-**Kluczowe (`RegisterUser.cs:170-173`):** *brak* cross-contextowej sagi `RegisterUser→CreatePerson`
+**Kluczowe (`RegisterUser.cs:162-164`):** *brak* cross-contextowej sagi `RegisterUser→CreatePerson`
 (świadomy non-lift KittySavera). Profil tłumacza w TMS powstaje **leniwie** przy pierwszym
-uwierzytelnionym zapisie (§7.3, ADR-0004). To największa różnica od KittySavera — i świetny temat na
+uwierzytelnionym żądaniu (§7.3, ADR-0004). To największa różnica od KittySavera — i świetny temat na
 rozmowę („dlaczego rozdzieliliście rejestrację od profilu domenowego").
 
 ### 6.6 Skąd się biorą roles i scopes w tokenie
-- **roles**: z `userManager.GetRolesAsync(user)` przy wydawaniu tokena (`TokenEndpoint.cs:199`,
+- **roles**: z `userManager.GetRolesAsync(user)` przy wydawaniu tokena (`TokenEndpoint.cs:146`,
   `AuthorizeEndpoint.cs:89`), wstawiane jako claimy `role`.
 - **scopes**: z requestu klienta (`request.GetScopes()`), ograniczone permissionami klienta seedowanymi
   w bazie. `SetResources(AuthConstants.ClientIds.Api)` ustawia `aud` na `lotrokoniecdev-api`.
@@ -249,17 +249,17 @@ Role seedowane (`DatabaseSeederExtensions.cs:37`): **`Admin`** i **`Translator`*
 ## 7. TranslationSystem — Resource Server + leniwe prowizjonowanie
 
 ### 7.1 Konfiguracja JwtBearer
-`ApiDependencyInjection.cs:141-187`. Standardowy `AddJwtBearer` (nie OpenIddict validation — prościej):
+`ApiDependencyInjection.cs:201-247`. Standardowy `AddJwtBearer` (nie OpenIddict validation — prościej):
 - `Authority = EffectiveAuthority` (issuer lub osobne Authority dla Dockera);
 - `Audience = "lotrokoniecdev-api"`;
 - `TokenValidationParameters`: waliduje issuer + audience + lifetime + signing key;
 - `NameClaimType = "name"`, `RoleClaimType = "role"`, `MapInboundClaims = false`;
 - **klucze z JWKS**: `ConfigurationManager` ciągnie `{authority}/.well-known/openid-configuration`
-  (`:183`) — `tms-api` nie zna klucza prywatnego, tylko publiczny przez JWKS.
-- `RequireHttpsMetadata` wyłączone w dev/test i dla wewnętrznego `http://`.
+  (`:243`) — `tms-api` nie zna klucza prywatnego, tylko publiczny przez JWKS.
+- `RequireHttpsMetadata` wyłączone w dev/test i dla wewnętrznego `http://` (`:224`).
 
 ### 7.2 Authorization Policies
-`ApiDependencyInjection.cs:198-219`:
+`ApiDependencyInjection.cs:258-278`:
 
 | Policy | Reguła |
 |---|---|
@@ -267,7 +267,7 @@ Role seedowane (`DatabaseSeederExtensions.cs:37`): **`Admin`** i **`Translator`*
 | `RequireAdminRole` | rola `Admin` |
 | `RequireTranslatorRole` | rola `Admin` **lub** `Translator` |
 | `RequireAuthenticatedUser` | uwierzytelniony |
-| `ApiScope` / `RequireServiceScope` | claim `scope` zawiera `api` / `service` (`HasScope`, `:221`) |
+| `ApiScope` / `RequireServiceScope` | claim `scope` zawiera `api` / `service` (`HasScope`, `:281`) |
 
 Endpointy są **autoryzowane domyślnie** — anonim dostaje 401. Publiczne (download pliku, health) jawnie
 `AllowAnonymous`.
@@ -276,19 +276,30 @@ Endpointy są **autoryzowane domyślnie** — anonim dostaje 401. Publiczne (dow
 
 To serce różnicy od KittySavera. `tms-api` potrzebuje **lokalnej** tożsamości tłumacza (`Translator`),
 by renderować „submitted by / approved by <name>" dla *innych* tłumaczy — czego JWT bieżącego usera nie
-rozwiąże. Zamiast sagi przy rejestracji: **first-touch w handlerach zapisu**.
+rozwiąże. Zamiast sagi przy rejestracji: **get-or-create przy pierwszym uwierzytelnionym żądaniu**.
 
-`TranslatorProvisioner.ProvisionCurrentAsync` (`TranslatorProvisioner.cs:40`):
-1. czyta `IdentityId` z claimu `sub` (`CurrentUserAccessor.cs:27`); brak → `Forbidden`;
+`TranslatorProvisioner.ProvisionCurrentAsync` (`TranslatorProvisioner.cs:64`):
+1. czyta `IdentityId` z claimu `sub` (`CurrentUserAccessor.cs:31`); brak → `Forbidden`;
 2. buduje `DisplayName` z claimu `name` (fallback `email`) + opcjonalny `Email`;
 3. **get-or-create** po `IdentityId`: istnieje → `RefreshProfile` (zbiega nazwę po przemianowaniu);
    nie istnieje → `Create` + insert;
 4. **wyścig pierwszego zapisu**: `DbUpdateException` (unikalny indeks `Translators.IdentityId`) ⇒ odpina
-   swój insert, re-czyta zacommitowany wiersz, refreshuje (`:86-103`).
+   swój insert, re-czyta zacommitowany wiersz, refreshuje (`:211-226`).
 
-Wołane jako **pierwszy krok** handlerów zapisu, które stemplują `TranslatorId` — upsert
-(`UpsertTranslation.cs:115`) i approve (`ApproveTranslation.cs:86`). Odczyty (lista/detal) **nie**
-prowizjonują — join read-modelu rozwiązuje nazwy bez tworzenia wiersza widza.
+Wynik siedzi w `HybridCache` pod krótkim TTL, kluczowany fingerprintem claimów `name`+`email`
+(PERF-07, #437) — steady state nie kosztuje zapytania do bazy; zmiana claimów zmienia fingerprint i
+odświeża wiersz.
+
+Dwa punkty wywołania (ADR-0004 z poprawką 2026-06-24):
+
+- **eager**: `TranslatorProvisioningMiddleware` (za `UseAuthorization`) prowizjonuje każdego
+  uwierzytelnionego callera już przy pierwszym żądaniu — best-effort (porażka `Result` jest logowana
+  i pomijana, odczyty nie zależą od prowizjonowania);
+- **autorytatywnie**: handlery zapisu, które stemplują `TranslatorId` — upsert
+  (`UpsertTranslation.cs:116`), approve (`ApproveTranslation.cs:87`) i bulk approve
+  (`BulkApproveTranslations.cs`) — tu porażka wraca jako błąd do klienta.
+
+Join read-modelu rozwiązuje cudze nazwy z wierszy `Translator`, bez sięgania do Auth.
 
 > Łańcuch referencji: `Translation.SubmittedById/ApprovedById → Translator.Id`, a
 > `Translator.IdentityId → user Auth`. Znormalizowany wiersz `Translator` zamiast denormalizowanej
@@ -297,10 +308,10 @@ prowizjonują — join read-modelu rozwiązuje nazwy bez tworzenia wiersza widza
 ### 7.4 Użycie w endpointach
 ```csharp
 endpointRouteBuilder.MapPost("/api/v1/translations/{id:guid}/approve", /* … */)
-    .RequireAuthorization(AuthorizationPolicies.RequireAdminRole);   // ApproveTranslation.cs:122
+    .RequireAuthorization(AuthorizationPolicies.RequireAdminRole);   // ApproveTranslation.cs:112
 ```
 `ClaimsPrincipal user` w delegacie + `user.IsInRole(AuthConstants.Roles.Admin)` kształtuje też linki
-HATEOAS (np. `approve` widoczne tylko dla admina) — `ListTranslations.cs:137`.
+HATEOAS (np. `approve` widoczne tylko dla admina) — `ListTranslations.cs:172`.
 
 ---
 
@@ -316,8 +327,8 @@ Po zalogowaniu user nosi **cookie**, nie token w przeglądarce; tokeny (access/r
 zaszyfrowanej sesji po stronie serwera (`SaveTokens = true`).
 
 ### 8.2 Konfiguracja OIDC
-`AuthenticationDependencyInjectionExtensions.cs:94-130`:
-- `Authority = settings.Authority` (`auth-api`), `ClientId = "lotrokoniecdev-web"`;
+`AuthenticationDependencyInjectionExtensions.cs:114-150`:
+- `Authority = settings.Authority` (`auth-api`), `ClientId = settings.ClientId` (`lotrokoniecdev-web`);
 - `ResponseType = code`, `UsePkce = true`, `SaveTokens = true`;
 - `GetClaimsFromUserInfoEndpoint = true` — dociąga claimy z `connect/userinfo`;
 - `MapInboundClaims = false`, `NameClaimType = "name"`, `RoleClaimType = "role"`;
@@ -350,7 +361,7 @@ sesji) + nagłówek `Accept` HATEOAS do każdego wywołania `tms-api`. Frontend 
 ## 9. Service-to-service (client credentials)
 
 Gdy `auth-api` musi zawołać `tms-api` bez usera (albo dowolna usługa-do-usługi): grant
-**client_credentials** klienta `lotrokoniecdev-api` (confidential, sekret). `TokenEndpoint.cs:161-183`
+**client_credentials** klienta `lotrokoniecdev-api` (confidential, sekret). `TokenEndpoint.cs:163-185`
 buduje `ClaimsIdentity` z `sub = client_id`, scope'ami z requestu i `aud = lotrokoniecdev-api`. Po
 stronie `tms-api` taki token przechodzi policy `RequireServiceScope` (scope `service`) — gdyby slice
 tego wymagał (dziś żaden nie wymaga, ale infrastruktura jest gotowa).
@@ -374,26 +385,28 @@ ogranicza replay. Logout rewokuje wszystkie (`LogoutEndpoint.cs:25-28`).
 `SignOutAsync`. Po logoucie żaden refresh token usera nie zadziała.
 
 ### 10.4 Timing attack mitigation
-`TokenEndpoint.cs:20`, `:85-87`: gdy user nie istnieje, i tak liczony jest **dummy hash**, by czas
+`TokenEndpoint.cs:20`, `:87-89`: gdy user nie istnieje, i tak liczony jest **dummy hash**, by czas
 odpowiedzi nie zdradzał „user not found" vs „złe hasło" (anti-enumeration). Forgot/Resend password
 zawsze zwracają sukces (ten sam wzorzec).
 
 ### 10.5 HTTPS i metadata
-Produkcja: `RequireHttpsMetadata = true` (`ApiDependencyInjection.cs:158`), JWKS/discovery tylko po
+Produkcja: `RequireHttpsMetadata = true` (`ApiDependencyInjection.cs:224`), JWKS/discovery tylko po
 HTTPS. Dev/test i wewnętrzne `http://…:8080` (compose) wyłączają wymóg.
 
 ### 10.6 Cookie security
-`.lotrokoniecdev.auth`: `HttpOnly` (JS nie czyta), `SameSite=Lax` (anti-CSRF), `SecurePolicy`
-zależny od żądania, `Path=/` (sign-in/out zawsze trafiają w to samo cookie). 8 h sliding.
+`.lotrokoniecdev.auth`: `HttpOnly` (JS nie czyta), `SameSite=Lax` (anti-CSRF), `SecurePolicy` =
+`Always` poza Development (za proxy TLS terminuje przed appką, więc `SameAsRequest` gubił flagę
+`Secure` — AUDIT-SEC-10/#400; w Development zostaje `SameAsRequest`), `Path=/` (sign-in/out zawsze
+trafiają w to samo cookie). 8 h sliding.
 
 ### 10.7 Wymaganie zgody RODO przy rejestracji
-`RegisterUser.cs:55-59`: `acceptedPrivacyPolicy` i `acceptedDataProcessingConsent` **muszą być `true`**,
+`RegisterUser.cs:48-52`: `acceptedPrivacyPolicy` i `acceptedDataProcessingConsent` **muszą być `true`**,
 data zgody stemplowana na `ApplicationUser`. `DeleteAccount` = erasure RODO + permanentny lockout;
 `auth/account/data-export` = eksport danych.
 
 ### 10.8 Walidacja kluczy w produkcji
 `ConfigureOpenIddictServerSettings`: RSA min 2048 bit, AES min 256 bit, czytelne wyjątki przy złym
-formacie base64/XML (`OpenIddictExtensions.cs:123`, `:149`). `OpenIddictSettingsValidator` egzekwuje
+formacie base64/XML (`OpenIddictExtensions.cs:126`, `:152-156`). `OpenIddictSettingsValidator` egzekwuje
 ustawienia tylko w produkcji.
 
 ---
@@ -404,8 +417,8 @@ ustawienia tylko w produkcji.
 > „Mam self-hosted OAuth2/OIDC oparty o OpenIddict + ASP.NET Identity (`auth-api`). Frontend Blazor SSR
 > to OIDC relying party — loguje usera przez authorization code + PKCE, trzyma tokeny w sesji za cookie.
 > API translacji (`tms-api`) to resource server: waliduje podpisany JWT przez JWKS i autoryzuje po
-> rolach. Profil tłumacza w domenie powstaje **leniwie** przy pierwszym zapisie, nie sagą przy
-> rejestracji — czysty rozdział bounded contextów."
+> rolach. Profil tłumacza w domenie powstaje **leniwie** przy pierwszym uwierzytelnionym żądaniu, nie
+> sagą przy rejestracji — czysty rozdział bounded contextów."
 
 ### Wersja 2-minutowa
 Dorzuć: reference rolling refresh tokeny (rewokacja przy logoucie), `MapInboundClaims=false` (surowe
@@ -453,9 +466,10 @@ user* może.
 klucza prywatnego nie da się przepodpisać.
 
 **Q: Co to lazy provisioning i czemu zamiast sagi?** — Rejestracja tworzy tylko usera Auth; lokalny
-`Translator` w TMS powstaje przy pierwszym zapisie (get-or-create idempotentny po `IdentityId`,
-unikalny indeks chroni przed wyścigiem). Zero runtime coupling read-path → Auth; bounded contexty
-rozdzielone (ADR-0004).
+`Translator` w TMS powstaje przy pierwszym uwierzytelnionym żądaniu (middleware best-effort +
+autorytatywnie w handlerach zapisu; get-or-create idempotentny po `IdentityId`, unikalny indeks
+chroni przed wyścigiem). Zero runtime coupling read-path → Auth; bounded contexty rozdzielone
+(ADR-0004 z poprawką).
 
 **Q: Co jak AuthSystem padnie?** — Nowe logowania/refreshe padają, ale już-wydane access tokeny działają
 do `exp` (stateless). `tms-api` cache'uje JWKS, więc walidacja istniejących tokenów przeżywa krótką
@@ -476,6 +490,7 @@ niedostępność `auth-api`.
 | Identity (hasło/lockout/email) | `AuthSystem.Persistence/PersistenceDependencyInjection.cs` |
 | JwtBearer + policies (RS) | `TranslationSystem.API/ApiDependencyInjection.cs` |
 | Leniwe prowizjonowanie | `TranslationSystem.API/Auth/Provisioning/TranslatorProvisioner.cs` |
+| Prowizjonowanie eager (middleware) | `TranslationSystem.API/Middleware/TranslatorProvisioningMiddleware.cs` |
 | Odczyt tożsamości z tokena | `TranslationSystem.API/Auth/CurrentUserAccessing/CurrentUserAccessor.cs` |
 | OIDC RP (cookie + OIDC) | `Frontend/Infrastructure/Auth/AuthenticationDependencyInjectionExtensions.cs` |
 | Login/logout RP | `Frontend/Infrastructure/Auth/AuthEndpointsExtensions.cs` |

@@ -75,13 +75,14 @@ The web application at the heart of the project — where the human translation 
 - **Translate** in a **side-by-side editor**: read-only English on the left, the Polish translation
   on the right, with live validation of the `<--DO_NOT_TOUCH!-->` argument placeholders (so dynamic
   values like player names or item counts are never broken).
-- **Review & approve**: approving a translation publishes it into the distributed file; changed
-  English re-opens a row for review.
+- **Review & approve** (single rows or a bulk selection): approving a translation publishes it into
+  the distributed file; changed English re-opens a row for review.
 - **Track game versions**: the catalog is bound to a LOTRO version; admins register versions
   manually *(automatic detection from the official forum is on the roadmap)*.
 - **Export / download** the approved `polish.txt` in one click — the same artifact the Patcher CLI
   pulls automatically (served with `ETag`/`304` caching).
-- See a **progress dashboard**, behind **authentication with roles** (translator / admin).
+- See a **progress dashboard**, behind **authentication with roles** (translator / admin); a public
+  landing-page snapshot exposes the aggregate counters anonymously.
 
 ### Architecture & engineering
 
@@ -182,8 +183,9 @@ automatic `.backup` of the `DAT`), and maps failures to clear exit codes.
 
 ```bash
 export.bat                 # game DAT  → data/exported.txt
-patch.bat polish           # translations/polish.txt → game DAT
-LotroKoniecDev.exe launch polish   # hash-check → patch if changed → launch the game
+patch.bat polish           # translations/polish.txt → game DAT (self-elevates)
+lotro.bat polish           # launch: hash-check → patch if changed → start the game
+# equivalent: dotnet run --project src/Patcher/LotroKoniecDev.Cli -- launch polish
 ```
 
 `patch.bat <name>` resolves `translations/<name>.txt`; you can also pass an explicit translation
@@ -218,9 +220,12 @@ format requires an ADR and updated golden fixtures in **both** the Patcher and t
 ## Project status & roadmap
 
 Pre-release, actively developed. The Patcher (**M1**) is shipped and proven on live game updates. The
-TMS backend (**M2**) and the Blazor frontend (**M3**) are built and **deployed** (see the live link
-above). A native **WPF desktop player** (M4) — a GUI over the same patcher engine and TMS download —
-is planned. Backlog and milestones: GitHub issues (`M{milestone}-{nn}` titles).
+TMS backend (**M2**, minus the forum watcher — game versions are registered manually for now), the
+Blazor frontend (**M3**) and the cloud deployment (**M6** — Azure Container Apps + Neon Postgres,
+staging → production promotion) are built and **deployed** (see the live link above). Next up: a
+**game-content catalog** layer over the flat rows (M7 — spec agreed, in the backlog) and a native
+**WPF desktop player** (M4) — a GUI over the same patcher engine and TMS download. Backlog and
+milestones: GitHub issues (`M{milestone}-{nn}` titles).
 
 ## License & disclaimer
 

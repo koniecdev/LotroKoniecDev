@@ -5,8 +5,8 @@
 > team member in a day, or to prepare for an interview where you must explain and defend every
 > design decision.
 >
-> Facts in this handbook come from the **code** (checked on 2026-07-06). When an older document
-> disagrees with this one, trust the code first, then this handbook.
+> Facts in this handbook come from the **code** (checked on 2026-07-06; re-audited 2026-07-11).
+> When an older document disagrees with this one, trust the code first, then this handbook.
 
 ---
 
@@ -29,8 +29,8 @@ The handbook goes **bottom to top**. Each part builds on the one before it:
 | 11. CI/CD and production | Pipelines, cloud, money |
 | 12. Defend the design | Interview questions and strong answers |
 | 13. Glossary | Every term, A to Z |
-| Appendix A | All 25 architecture decisions (ADRs), each in a few sentences |
-| Appendix B | All 7 feature specifications (specs), each in a few sentences |
+| Appendix A | All 30 architecture decisions (ADRs), each in a few sentences |
+| Appendix B | All 8 feature specifications (specs), each in a few sentences |
 
 **Shortcuts for different readers:**
 
@@ -102,7 +102,7 @@ special tests ("parity tests") make sure the two parsers always agree.
 
 ### 1.3 Where the project stands today
 
-- The **patcher is finished and proven**. Seven live tests against real game updates confirmed
+- The **patcher is finished and proven**. Eight live tests against real game updates confirmed
   that it works and — an important discovery — that **translations survive game updates**
   (details in Part 12, question 17).
 - The **TMS backend is built**: import, editor endpoints, approval, file distribution, auth.
@@ -220,7 +220,8 @@ duplicate checks would silently fail.
 official LOTRO release-notes forum (the forum title is the only reliable version signal — the
 DAT file's internal version number never changes; see Part 12, question 17). The watcher is
 **deliberately postponed** (post-MVP). Today an admin registers a version manually on the
-`/game-versions` page.
+`/game-versions` page — and producing the fresh export stays a manual, now-unelevated ceremony
+too (the unattended-VM idea was considered and deferred with written revisit triggers, ADR-0030).
 
 ### 2.4 What happens on a game update (the heart of the domain)
 
@@ -865,8 +866,11 @@ replica** (a documented blocker to revisit before scaling out).
 cache; 200 → save new file + ETag; network down → use the cached file and continue** — a launch
 is never blocked by the server); refuse to run if the game is already open; hash the local
 translation file and compare with the last patched hash; **re-patch only if it changed**; start
-the game's official launcher and exit. (Today the CLI's default TMS URL is empty until the
-public URL is considered stable, so sync runs when `--tms-url` is passed.)
+the game's official launcher and exit. Two hardening rules on the sync (AUDIT-SEC-01): the TMS
+URL must be **HTTPS** (plain HTTP only for loopback — the file is about to be written into the
+game), and the downloaded content's SHA-256 must **match the ETag** or the download is rejected
+and the cached file is used. (Today the CLI's default TMS URL is empty until the public URL is
+considered stable, so sync runs when `--tms-url` is passed.)
 
 The frontend also re-serves the same artifact at `/download/polish.txt` for humans who want the
 file from the website.
@@ -916,8 +920,10 @@ correct because one migrator run migrates both).
 - **Indexes:** unique `(FileId, GossipId)`; unique version; unique `IdentityId` on Translators
   (the provisioning idempotency key); unique `Language` on artifacts; **trigram GIN indexes**
   (PostgreSQL `pg_trgm` extension) on both `SourceText` and `TranslatedText` — these make the
-  `%term%` contains-search fast, which a normal B-tree index cannot do; and a partial index on
-  `Status` filtered to non-removed rows (the only rows lists ever show).
+  `%term%` contains-search fast, which a normal B-tree index cannot do; a partial index on
+  `Status` filtered to non-removed rows (the only rows lists ever show); and real foreign keys
+  (with their indexes) on the three GameVersion pointer columns of `Translations`
+  (`IntroducedInVersion` / `LastSourceChangeInVersion` / `RemovedInVersion` — AUDIT-EF-05).
 - **`xmin` concurrency token** — see Part 5.5; zero physical schema cost.
 
 ### 6.3 Migrations — forward-only, N-1 compatible
@@ -1186,19 +1192,21 @@ containerized-OIDC problem dissolves in real production too.
 
 ## Part 11 — CI/CD and production
 
-### 11.1 The pipelines (GitHub Actions, 11 workflows)
+### 11.1 The pipelines (GitHub Actions, 13 workflows)
 
 | Workflow | When | What it guards |
 |---|---|---|
-| `pr-verify` | every PR | **the merge gate**: SSR-purity check → Docker restore-graph check → migration-safety check → Release build with **zero warnings** (warnings are errors repo-wide) → unit tests → integration tests (real PostgreSQL) |
+| `pr-verify` | every PR | **the merge gate**: SSR-purity check → Docker restore-graph check → migration-safety check (+ its self-test) → backlog-loop provenance-gate self-test → Release build with **zero warnings** (warnings are errors repo-wide) → unit tests → integration tests (real PostgreSQL); plus a build-and-Trivy-scan of each image |
 | `ci` | push to main | the same checks post-merge |
 | `cd` | after CI succeeds | build 4 images once → security-scan (Trivy, fails on fixable HIGH/CRITICAL) → sign (cosign, keyless) + provenance + SBOM → auto-deploy **staging** → wait for human approval → deploy **production** |
 | `deploy` | reusable | the health-gated rollout described below |
 | `n1-compat` | PRs touching migrations | previous release's integration tests against the new schema (Part 6.3) |
 | `mutation-test` | PRs touching Domain/SharedKernel | Stryker, break at 67% |
-| `e2e` | manual | full-stack and browser E2E suites |
+| `e2e` | manual + PRs touching package/Docker dependency manifests (so Dependabot bumps exercise it) | full-stack and browser E2E suites |
 | `smoke` | after deploys | health + a real OIDC token round-trip + file distribution |
+| `health-ping` | daily cron | probes the three public origins once a day (deep `/health`), paying the day's first cold start before the warm window opens (ADR-0027) |
 | `codeql`, `gitleaks` | PRs/pushes/schedule | static security analysis; secret scanning |
+| `actionlint` | every PR | lints `.github/workflows/` so workflow-only PRs cannot merge unparsed |
 | `infra` | changes under `iac/` | Terraform fmt/validate/plan on PRs; gated apply on main |
 
 ### 11.2 How a release reaches production
@@ -1212,9 +1220,12 @@ containerized-OIDC problem dissolves in real production too.
 5. Each deploy runs the same choreography: pin tags to digests → run the **migrator job**
    (with a Neon snapshot branch taken just before — a durable restore point) → start the new
    revision at **0% traffic** → poll readiness → run smoke tests against the candidate →
-   flip traffic to 100% and deactivate the old revision → smoke again.
-   **Any failure → automatic rollback** to the previous revision; a bad release never serves
-   users. Rollback moves *code only* — never the schema (that is why N-1 compatibility exists).
+   flip traffic to 100% and **deactivate every superseded revision** (exactly one active
+   revision per app — a leaked 0%-traffic revision once kept probing the database for days;
+   ADR-0029) → smoke again.
+   **Any failure → automatic rollback** to the previous revision (re-activated first, so the
+   rollback pays a cold start); a bad release never serves users. Rollback moves *code only* —
+   never the schema (that is why N-1 compatibility exists).
 
 ### 11.3 The production platform
 
@@ -1234,11 +1245,15 @@ containerized-OIDC problem dissolves in real production too.
   branches. Accepted risk (zero users): no off-platform backups yet; the revisit trigger is
   the first real translators.
 - **Telemetry**: the apps emit vendor-neutral OpenTelemetry; the platform's managed OTel agent
-  ships it to Application Insights with zero app-code change (ADR-0016). Alerting is
-  **symptom-based**: external synthetic probes hit the public URLs from three regions and alert
-  on quorum failure (ADR-0019) — measuring what users feel, not what logs say.
-- **FinOps on a student subscription** (ADRs 0020, 0025): staging scales to zero replicas;
-  probe cadence 15 minutes; and readiness probes are deliberately **DB-free** — the
+  ships it to Application Insights with zero app-code change (ADR-0016). Alerting was
+  **symptom-based** — external synthetic probes from three regions (ADR-0019) — until a cost
+  review: the probes were both a top cost line and self-defeating against scale-to-zero (a probe
+  is a request; a request wakes the app). ADR-0027 deleted the Azure web tests; a **daily
+  GitHub Actions health ping** (`health-ping.yml`, deep `/health`) is now the availability check.
+- **FinOps on a student subscription** (ADRs 0020, 0025, 0027, 0029): everything scales to
+  **zero replicas**; production gets its single warm replica from a **scheduled warm window**
+  (a KEDA cron rule, 07:00–22:00 Europe/Warsaw — off-hours requests pay a cold start of ~40 s
+  for the full chain, never an outage); and readiness probes are deliberately **DB-free** — the
   always-on readiness ping was keeping the "scale-to-zero" database awake 98% of the time. The
   platform polling your health endpoint every few seconds is a hidden client of everything that
   endpoint touches.
@@ -1365,21 +1380,23 @@ convention. Opt-in via a vendor media type keeps plain JSON clean for ordinary c
 *(spec 0002)*
 
 **17. How do you *know* translations survive game updates?**
-Empirically. Seven live tests across real updates (including major 47.2→48.0 and 48.0→48.7)
-verified through four independent channels each time: in-game text, export presence, diff
-content (0 Polish matches in changed hunks), and launch logs. Root cause understood: the
-launcher patches the DAT in chunks, touching only changed offsets. Also proven: the DAT's
-internal version number is *useless* as a content signal (unchanged across years of updates) —
-the forum release-notes title is the only reliable version source. These findings killed
+Empirically. Eight live tests across real updates (including major 47.2→48.0, 48.0→48.7 and
+the 48.8 cycle) verified through four independent channels each time: in-game text, export
+presence, diff content (0 Polish matches in changed hunks), and launch logs. Root cause
+understood: the launcher patches the DAT in chunks, touching only changed offsets. Also proven:
+the DAT's internal version number is *useless* as a content signal (unchanged across years of
+updates) — the forum release-notes title is the only reliable version source. These findings killed
 whole planned features (file protection, vnum triggers, re-patch-after-update) — recorded in
 `docs/knowledge-base/` so nobody re-invents them. *(Lesson: measure before building.)*
 
 **18. What are the known limits, and when do they bite?**
 Consciously accepted, each with a written trigger: single API replica (in-process rebuild
 queue) — bites at horizontal scale; no off-platform DB backups beyond Neon PITR + snapshot
-branches — revisit at first real users; ~15–30 min worst-case outage detection (probe economy);
-artifact content stored in a DB row — fine at ~10 MB, revisit if it grows; forum watcher manual
-for now. Knowing *where the cliff is* is part of the design.
+branches — revisit at first real users; outage detection is a **once-a-day** health ping and
+off-hours requests pay a ~40 s cold start (probe/replica economy, ADR-0027) — revisit at first
+real users; artifact content stored in a DB row — fine at ~10 MB, revisit if it grows;
+version registration and the export upload stay manual (ADR-0030). Knowing *where the cliff is*
+is part of the design.
 
 ---
 
@@ -1387,7 +1404,7 @@ for now. Knowing *where the cliff is* is part of the design.
 
 | Term | Meaning |
 |---|---|
-| **ADR** | Architecture Decision Record — a short document: context, decision, consequences. The project has 25 (Appendix A). |
+| **ADR** | Architecture Decision Record — a short document: context, decision, consequences. The project has 30 (Appendix A). |
 | **Aggregate** | A small cluster of domain data changed only through methods on its root object, which enforce the business rules. |
 | **Artifact** | The pre-built `||` file with all approved translations, served to patchers. |
 | **Bounded context** | A self-contained model world with its own language and code. Here: the patcher and the TMS. |
@@ -1562,6 +1579,38 @@ for operators and smoke tests. Why: the platform's frequent readiness ping kept 
 scale-to-zero database awake ~98% of the time and was about to exhaust the free plan. Accepted:
 a broken connection string passes readiness — the deploy smoke gate catches it instead.
 
+**ADR-0026 — Only maintainer-written issues may drive the autonomous loop.**
+What: the backlog loop refuses any GitHub issue whose author *or any commenter* lacks write
+access (`scripts/claude/issue-trust.sh`, fail-closed, enforced in front of every session). Why:
+the repo is public and the loop auto-merges the result — untrusted issue text would be a
+prompt-injection channel straight to `main`.
+
+**ADR-0027 — Prod's warm replica comes from a schedule; the availability probe leaves Azure.**
+What: `min_replicas = 0` everywhere; production keeps one warm replica only inside a KEDA cron
+window (07:00–22:00 Europe/Warsaw); the three-region Azure web tests are deleted, replaced by a
+daily GitHub Actions health ping. Why: six always-on replicas served zero users and the probes
+themselves kept scale-to-zero apps awake — the credit was ~10 days from exhaustion. Accepted:
+off-hours requests pay a ~40 s cold start; outage detection is daily.
+
+**ADR-0028 — Docker restore layers are loud and gated.**
+What: every Dockerfile must COPY the full transitive closure of the projects it restores;
+builds run with `--no-restore` so a gap becomes a hard error, and a CI script gate
+(`check-dockerfile-restore-graph`) runs on every PR. Why: `dotnet restore` silently skips
+missing project files (exit 0), caching an incomplete restore layer. One exception: the
+frontend image's `dotnet build` keeps restore on, or the SDK drops `blazor.web.js`.
+
+**ADR-0029 — Exactly one active revision per app.**
+What: the rollout's promote step deactivates *every* superseded revision (not just the one
+holding traffic) and fails loudly if it cannot; rollback re-activates the previous revision and
+pays a cold start. Why: a leaked 0%-traffic revision with an old image probed the database every
+30 s for 8 days — invisible, and it held the "scale-to-zero" promise open.
+
+**ADR-0030 — The game-version export stays manual; the VM runner is deferred.**
+What: producing `exported.txt` after a game update remains a manual admin task; the unattended
+Windows-VM runner idea is parked (prerequisites unconfirmed, no cheap KVM host, zero users hurt
+by the staleness window). The manual pipeline was instrumented instead — notably the patcher's
+read paths no longer demand elevation. Why: YAGNI with a written revisit trigger.
+
 ---
 
 ## Appendix B — every spec in brief
@@ -1621,6 +1670,14 @@ stale row never blocks the batch; already-approved rows are no-ops (approver not
 One transaction, one debounced rebuild (only if something was approved), Post-Redirect-Get with
 a result flash. Cross-page "select all" is explicitly out (needs client-side JavaScript, which
 Static SSR forbids).
+
+**Spec 0008 — Game-content catalog (Agreed; milestone M7 — not yet implemented).**
+Imports LOTRO Companion's lore XML as a **catalog lens** over the flat rows: catalog entries
+(quests, deeds, … — never called "entities", to avoid the DDD collision) with role-tagged text
+slots, joined to translations **by `(FileId, GossipId)` keys, never by text** (the
+`key:<FileId>:<GossipId>` tokens in Companion's data — empirically verified). A translator picks
+*a quest* and translates all its texts as one unit, with per-entry and per-category progress.
+The lens never mutates translations and never triggers the artifact rebuild.
 
 ---
 

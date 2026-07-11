@@ -1,5 +1,11 @@
 # Project Strategy: OSS + Controlled Translations
 
+> **Status note (2026-07-11):** point-in-time strategy snapshot; the direction stands. Two details
+> have since been superseded: "MediatR handlers" → in-house handler interfaces (ADR-0001, no
+> mediator), and "two-source crowdsource+vnum update detection" → forum-only detection (spec 0001;
+> see [update-detection-strategy.md](update-detection-strategy.md)). The web platform (M3) has
+> shipped; placeholder validation landed in the editor (`PlaceholderAnalyzer`).
+
 ## Decision: Open Source Code, Controlled Translations
 
 ### Code (patcher + web app): OSS on GitHub

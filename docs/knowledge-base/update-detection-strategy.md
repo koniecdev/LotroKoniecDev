@@ -11,6 +11,11 @@ type: project
 > `PreviousSourceText`), pre-built ETag-cached distribution artifact, CLI auto-download (M2-20).
 > The Core Insight below and the admin upload→diff flow remain valid and are codified there;
 > crowdsourced reports stay post-MVP (#84/#31).
+>
+> **Update (2026-07-11, ADR-0030):** the "Admin flow after confirmed update" stays the one fully
+> manual link — the VM/unattended export runner is deferred with named reconsider triggers, the
+> forum watcher (#85, still open) gains an e-mail alert, and the export read path is de-elevated.
+> See [`docs/adr/0030-game-version-export-stays-manual-vm-runner-deferred.md`](../adr/0030-game-version-export-stays-manual-vm-runner-deferred.md).
 
 ## Core Insight: Re-patching After Game Update is WRONG
 

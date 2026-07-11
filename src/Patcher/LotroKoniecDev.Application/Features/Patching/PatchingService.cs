@@ -3,6 +3,7 @@ using LotroKoniecDev.Application.Abstractions.DatFilesServices;
 using LotroKoniecDev.Application.Extensions;
 using LotroKoniecDev.Domain.Core.Errors;
 using LotroKoniecDev.Domain.Models;
+using LotroKoniecDev.Primitives.Enums;
 
 namespace LotroKoniecDev.Application.Features.Patching;
 
@@ -41,7 +42,7 @@ internal sealed class PatchingService : IPatchingService
             return Result.Failure<PatchSummaryResponse>(DomainErrors.Translation.NoTranslations);
         }
 
-        Result<int> datFileOpenResult = _datFileHandler.Open(datFilePath);
+        Result<int> datFileOpenResult = _datFileHandler.Open(datFilePath, DatFileAccess.ReadWrite);
 
         if (datFileOpenResult.IsFailure)
         {

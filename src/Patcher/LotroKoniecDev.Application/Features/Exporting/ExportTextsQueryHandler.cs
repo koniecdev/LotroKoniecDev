@@ -6,6 +6,7 @@ using LotroKoniecDev.Domain.Core.BuildingBlocks;
 using LotroKoniecDev.Domain.Core.Errors;
 using LotroKoniecDev.Domain.Models;
 using LotroKoniecDev.Primitives.Constants;
+using LotroKoniecDev.Primitives.Enums;
 
 namespace LotroKoniecDev.Application.Features.Exporting;
 
@@ -39,7 +40,7 @@ internal sealed class ExportTextsQueryHandler : IQueryHandler<ExportTextsQuery, 
                 Error.Validation($"{nameof(ExportTextsQuery)}.Validation", "OutputPath must not be empty."));
         }
 
-        Result<int> openResult = _datFileHandler.Open(query.DatFilePath);
+        Result<int> openResult = _datFileHandler.Open(query.DatFilePath, DatFileAccess.Read);
         if (openResult.IsFailure)
         {
             return Result.Failure<ExportSummaryResponse>(openResult.Error);

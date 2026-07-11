@@ -1,3 +1,5 @@
+using LotroKoniecDev.Primitives.Enums;
+
 namespace LotroKoniecDev.Application.Abstractions.DatFilesServices;
 
 /// <summary>
@@ -9,8 +11,9 @@ public interface IDatFileHandler : IDisposable
     /// Opens a DAT file and returns the file handle.
     /// </summary>
     /// <param name="datFilePath">Path to the DAT file.</param>
+    /// <param name="access">The native open mode: read-only or read-write.</param>
     /// <returns>Result containing the file handle or an error.</returns>
-    Result<int> Open(string datFilePath);
+    Result<int> Open(string datFilePath, DatFileAccess access);
 
     /// <summary>
     /// Gets sizes and iterations of all subfiles in the DAT archive.

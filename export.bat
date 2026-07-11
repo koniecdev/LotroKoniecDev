@@ -2,17 +2,12 @@
 setlocal
 cd /d "%~dp0"
 
-rem AUDIT-SEC-06: user arguments must never be re-parsed by an elevated shell. They cross
-rem the elevation boundary as an environment variable (inherited by the elevated instance),
-rem and delayed expansion below inserts them after cmd parsing, so metacharacters stay literal.
-if not "%~1"=="--elevated" set "LOTRO_WRAPPER_ARGS=%*"
-
-net session >nul 2>&1
-if errorlevel 1 (
-    echo Requesting administrator privileges...
-    powershell -NoProfile -Command "Start-Process -FilePath '%~f0' -ArgumentList '--elevated' -Verb RunAs"
-    exit /b
-)
+rem Export opens the DAT read-only (#443 Option A, native flag 2), so no elevation here.
+rem If a live-DAT export ever fails with DatFile.CannotOpen, run it from an elevated shell
+rem and report on #443 — that would disprove the read-only-flag assumption.
+rem Delayed expansion below inserts user arguments after cmd parsing, so metacharacters
+rem stay literal (AUDIT-SEC-06 hardening, kept even without the elevation boundary).
+set "LOTRO_WRAPPER_ARGS=%*"
 
 dotnet build src\Patcher\LotroKoniecDev.Cli -v:minimal -nologo
 if errorlevel 1 exit /b 1

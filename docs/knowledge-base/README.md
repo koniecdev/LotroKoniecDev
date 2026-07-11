@@ -51,6 +51,13 @@ Detailed analysis: [live-test-2026-06-25.md](live-test-2026-06-25.md) · committ
 - datexport.dll READ + WRITE confirmed on 48.7 DAT schema; vnum 112/3 unchanged (4th cycle); forum-fetcher independently returned "48.7"
 - DAT grew by exactly +1 MiB = one allocation block (reinforces chunk-based model)
 
+### Live Test — 2026-07-11 (48.8) — first real-world AUDIT-SEC run
+Detailed analysis: [live-test-2026-07-11.md](live-test-2026-07-11.md)
+- All 7 AUDIT-SEC PRs (#422-429) validated on real Windows for the first time: 42/42 Infrastructure + 23/23 E2E on a main worktree
+- AUDIT-SEC-02 (launcher Authenticode) + AUDIT-SEC-03 (restricted DLL search path) confirmed by a live SKIP launch and a forced live PATCH (8/8, 0 warnings) against the real signed launcher and production DAT
+- Live forum fetch returned 48.8 while vnum stayed 112/3 — 5th unchanged cycle
+- `launch`'s SKIP path never refreshes the stored ForumVersion — only a standalone `patch` does (code-verified); the manual export→import gap is decided in #443 + ADR-0030
+
 ### Live Test — Chunk Patches 2026-03-16..22
 Detailed analysis: [live-test-2026-03-16.md](live-test-2026-03-16.md)
 - 5 chunk-patch tests, all simplified-flow branches verified

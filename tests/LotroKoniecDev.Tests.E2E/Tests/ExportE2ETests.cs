@@ -97,4 +97,39 @@ public sealed class ExportE2ETests
             minimalExpectedLines,
             $"Real DAT export should produce way more than {minimalExpectedLines} of text fragments");
     }
+
+    /// <summary>
+    /// Option A (#443) feasibility gate on real Windows: a read-only DAT copy is the faithful
+    /// proxy for a non-elevated export of the live Program Files DAT, so the read-only open
+    /// path must succeed without write access to the file.
+    /// </summary>
+    [SkippableFact]
+    public async Task Export_ShouldExitWithZero_WhenDatCopyIsReadOnly()
+    {
+        Skip.If(!_fixture.IsDatFileAvailable, "DAT file not found in TestData/");
+
+        //Arrange
+        string tempDatPath = _fixture.CreateTempDatCopy();
+        string outputPath = Path.Combine(Path.GetDirectoryName(tempDatPath)!, "readonly_export.txt");
+        File.SetAttributes(tempDatPath, File.GetAttributes(tempDatPath) | FileAttributes.ReadOnly);
+
+        try
+        {
+            //Act
+            CliResult result = await _fixture.RunCliAsync(
+                $"export -d \"{tempDatPath}\" -o \"{outputPath}\"");
+
+            //Assert
+            result.ExitCode.ShouldBe((int)CliExitCode.Success, $"stderr: {result.Stderr}");
+            File.Exists(outputPath).ShouldBeTrue("Export file should exist");
+            int dataLineCount = File.ReadLines(outputPath)
+                .Count(l => !string.IsNullOrWhiteSpace(l) && !l.TrimStart().StartsWith('#'));
+            dataLineCount.ShouldBeGreaterThan(0,
+                "Read-only export should produce data lines beyond the header");
+        }
+        finally
+        {
+            File.SetAttributes(tempDatPath, File.GetAttributes(tempDatPath) & ~FileAttributes.ReadOnly);
+        }
+    }
 }

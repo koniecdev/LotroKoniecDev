@@ -13,7 +13,7 @@ public sealed class SpyPasswordResetEmailSender : IPasswordResetEmailSender
     public string? LastResetToken { get; private set; }
     public int CallCount => Volatile.Read(ref _callCount);
 
-    public Task<Result> SendPasswordResetEmailAsync(string email, string resetToken, CancellationToken cancellationToken)
+    public Task<Result> SendPasswordResetEmailAsync(Guid userId, string email, string resetToken, CancellationToken cancellationToken)
     {
         LastEmail = email;
         LastResetToken = resetToken;

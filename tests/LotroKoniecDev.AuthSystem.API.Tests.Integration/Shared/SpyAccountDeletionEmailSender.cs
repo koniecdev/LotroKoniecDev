@@ -20,6 +20,7 @@ public sealed class SpyAccountDeletionEmailSender : IAccountDeletionEmailSender
     public bool ShouldFailScheduledEmail { get; set; }
 
     public Task<Result> SendDeletionScheduledEmailAsync(
+        Guid userId,
         string email,
         string cancelToken,
         DateTimeOffset finalizesAt,
@@ -35,7 +36,7 @@ public sealed class SpyAccountDeletionEmailSender : IAccountDeletionEmailSender
             : Task.FromResult(Result.Success());
     }
 
-    public Task<Result> SendDeletionCancelledEmailAsync(string email, CancellationToken cancellationToken)
+    public Task<Result> SendDeletionCancelledEmailAsync(Guid userId, string email, CancellationToken cancellationToken)
     {
         LastCancelledEmail = email;
         Interlocked.Increment(ref _cancelledCallCount);

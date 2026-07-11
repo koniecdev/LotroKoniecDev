@@ -136,7 +136,7 @@ internal sealed partial class CancelAccountDeletion : IApiEndpoint
             string passwordResetToken = await _userManager.GeneratePasswordResetTokenAsync(user);
 
             Result emailResult = await _emailSender.SendDeletionCancelledEmailAsync(
-                user.Email!, cancellationToken);
+                user.Id, user.Email!, cancellationToken);
             if (emailResult.IsFailure)
             {
                 LogCancelledEmailFailed(_logger, user.Id, emailResult.Error.Message);

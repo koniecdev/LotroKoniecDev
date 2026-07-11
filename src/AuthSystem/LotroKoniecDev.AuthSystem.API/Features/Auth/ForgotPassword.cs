@@ -89,11 +89,10 @@ internal sealed partial class ForgotPassword : IApiEndpoint
 
             string token = await _userManager.GeneratePasswordResetTokenAsync(user);
 
-            Result emailResult = await _emailSender.SendPasswordResetEmailAsync(command.Email, token, cancellationToken);
+            Result emailResult = await _emailSender.SendPasswordResetEmailAsync(user.Id, command.Email, token, cancellationToken);
             if (emailResult.IsFailure)
             {
-                string maskedEmail = command.Email.MaskEmail();
-                LogPasswordResetEmailFailed(_logger, maskedEmail, emailResult.Error.Message);
+                LogPasswordResetEmailFailed(_logger, user.Id, emailResult.Error.Message);
             }
 
             return Result.Success();
@@ -102,8 +101,8 @@ internal sealed partial class ForgotPassword : IApiEndpoint
         [LoggerMessage(EventId = EventIds.ForgotPasswordNonExistent, Level = LogLevel.Information, Message = "Password reset requested for non-existent email {Email}")]
         private static partial void LogPasswordResetNonExistent(ILogger logger, string email);
 
-        [LoggerMessage(EventId = EventIds.ForgotPasswordEmailFailed, Level = LogLevel.Error, Message = "Failed to send password reset email to {Email}: {Error}")]
-        private static partial void LogPasswordResetEmailFailed(ILogger logger, string email, string error);
+        [LoggerMessage(EventId = EventIds.ForgotPasswordEmailFailed, Level = LogLevel.Error, Message = "Failed to send password reset email for user {UserId}: {Error}")]
+        private static partial void LogPasswordResetEmailFailed(ILogger logger, Guid userId, string error);
 
         [LoggerMessage(EventId = EventIds.ForgotPasswordDeletionScheduled, Level = LogLevel.Information, Message = "Password reset skipped for user {UserId}: account deletion is scheduled")]
         private static partial void LogPasswordResetSkippedDeletionScheduled(ILogger logger, Guid userId);

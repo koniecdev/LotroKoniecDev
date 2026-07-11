@@ -23,6 +23,7 @@ internal sealed class AccountDeletionEmailSender : IAccountDeletionEmailSender
     }
 
     public async Task<Result> SendDeletionScheduledEmailAsync(
+        Guid userId,
         string email,
         string cancelToken,
         DateTimeOffset finalizesAt,
@@ -42,7 +43,7 @@ internal sealed class AccountDeletionEmailSender : IAccountDeletionEmailSender
         using IDisposable? scope = _logger.BeginScope(new Dictionary<string, object?>
         {
             ["EmailOperation"] = "AccountDeletionScheduled",
-            ["Recipient"] = email.MaskEmail()
+            ["RecipientUserId"] = userId
         });
 
         return await _emailService
@@ -55,6 +56,7 @@ internal sealed class AccountDeletionEmailSender : IAccountDeletionEmailSender
     }
 
     public async Task<Result> SendDeletionCancelledEmailAsync(
+        Guid userId,
         string email,
         CancellationToken cancellationToken)
     {
@@ -66,7 +68,7 @@ internal sealed class AccountDeletionEmailSender : IAccountDeletionEmailSender
         using IDisposable? scope = _logger.BeginScope(new Dictionary<string, object?>
         {
             ["EmailOperation"] = "AccountDeletionCancelled",
-            ["Recipient"] = email.MaskEmail()
+            ["RecipientUserId"] = userId
         });
 
         return await _emailService

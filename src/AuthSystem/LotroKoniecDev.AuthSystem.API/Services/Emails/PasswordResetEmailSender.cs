@@ -1,6 +1,5 @@
 using System.Net;
 using Microsoft.Extensions.Logging;
-using LotroKoniecDev.AuthSystem.API.Extensions;
 using LotroKoniecDev.AuthSystem.Infrastructure.Emails;
 using LotroKoniecDev.SharedKernel.Monads;
 
@@ -22,7 +21,7 @@ internal sealed class PasswordResetEmailSender : IPasswordResetEmailSender
         _logger = logger;
     }
 
-    public async Task<Result> SendPasswordResetEmailAsync(string email, string resetToken, CancellationToken cancellationToken)
+    public async Task<Result> SendPasswordResetEmailAsync(Guid userId, string email, string resetToken, CancellationToken cancellationToken)
     {
         string rawLink = _passwordResetLinkFactory.Create(email, resetToken);
         string link = WebUtility.HtmlEncode(rawLink);
@@ -33,7 +32,7 @@ internal sealed class PasswordResetEmailSender : IPasswordResetEmailSender
         using IDisposable? scope = _logger.BeginScope(new Dictionary<string, object?>
         {
             ["EmailOperation"] = "PasswordReset",
-            ["Recipient"] = email.MaskEmail()
+            ["RecipientUserId"] = userId
         });
 
         return await _emailService

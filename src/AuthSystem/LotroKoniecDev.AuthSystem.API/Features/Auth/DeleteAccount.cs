@@ -141,7 +141,7 @@ internal sealed partial class DeleteAccount : IApiEndpoint
                 AccountDeletionCancellationTokenProvider.CancelDeletionPurpose);
 
             Result emailResult = await _emailSender.SendDeletionScheduledEmailAsync(
-                email, cancelToken, finalizesAt, cancellationToken);
+                user.Id, email, cancelToken, finalizesAt, cancellationToken);
             if (emailResult.IsFailure)
             {
                 // Without the emailed link the owner has no way to cancel, so the schedule

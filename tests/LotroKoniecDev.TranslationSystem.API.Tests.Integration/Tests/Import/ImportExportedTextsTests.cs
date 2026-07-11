@@ -149,6 +149,13 @@ public sealed class ImportExportedTextsTests : IAsyncLifetime
         await client.PostAsync($"{ImportRoute(secondVersion)}?allowMassRemoval=true", ExportContent(Line(2, "Beta")));
         (await GetTranslationAsync(1))!.IsRemoved.ShouldBeTrue();
 
+        // Wait for the removal's debounced rebuild to drop the row from the artifact, so the final
+        // poll strictly witnesses re-entry instead of a stale pre-removal artifact.
+        await TranslationFileDownloadPolling.DownloadWhenConvergedAsync(
+            _factory.CreateClient(),
+            "/api/v1/translation-files/pl",
+            (candidate, content) => candidate.IsSuccessStatusCode && !content.Contains($"{FileId}||1||"));
+
         GameVersionId thirdVersion = await SeedVersionAsync("48.2");
 
         // Act

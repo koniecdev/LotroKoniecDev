@@ -4,21 +4,22 @@ name: Health ping (prod)
 # standard web tests, which billed per execution AND — probing every 15 minutes from three regions —
 # would have kept the scale-to-zero apps awake all night, cancelling the warm window's whole saving.
 #
-# This runs on free GitHub-hosted minutes once a day, a little before the warm window opens, and it
-# deliberately hits the apps while they are still asleep: the run therefore proves BOTH that the
-# platform is healthy and that a cold start from zero replicas actually serves traffic — the exact
-# path a visitor takes outside the warm window.
+# This runs on free GitHub-hosted minutes once a day, INSIDE the warm window (owner decision
+# 2026-07-11) — a plain "tell me in the morning if it died overnight" check against the already-warm
+# apps. It originally ran before the window to also prove the cold-start-from-zero path, but that was
+# fiction in practice: GitHub delays scheduled crons by up to hours (observed runs at 05:32–06:35 UTC
+# for a 03:00 cron), so the probe was landing after the 07:00 warm-up anyway. The retry loop below
+# still out-waits a full cold start, so the run stays green even if it ever fires outside the window.
 #
 # Failure notification is GitHub's own: a failed scheduled run emails the user whose commit last
 # touched this file. No Azure action group, no cost.
 #
-# Cron is UTC. 03:00 UTC = 05:00 Europe/Warsaw in summer (CEST), 04:00 in winter (CET) — close enough
-# for a "tell me in the morning if it died overnight" signal, and it lands before the 07:00 warm window
-# so the probe, not a visitor, pays the first cold start of the day.
+# Cron is UTC. 06:40 UTC = 08:40 Europe/Warsaw in summer (CEST), 07:40 in winter (CET) — both inside
+# the 07:00–22:00 warm window, and GitHub's cron delay only pushes it deeper into the window.
 
 on:
   schedule:
-    - cron: "0 3 * * *"
+    - cron: "40 6 * * *"
   workflow_dispatch:
 
 permissions:

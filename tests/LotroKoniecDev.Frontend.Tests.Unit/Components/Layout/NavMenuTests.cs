@@ -49,6 +49,29 @@ public sealed class NavMenuTests : BunitContext
     }
 
     [Fact]
+    public void Render_WhenAuthenticated_ShowsTheMojeKontoLink()
+    {
+        // The privacy policy promises the self-service section under exactly this name (LEGAL-02).
+        AddAuthorization().SetAuthorized("Frodo");
+
+        IRenderedComponent<NavMenu> component = RenderNavMenu();
+
+        IElement accountLink = component.Find("[data-testid=nav-account]");
+        accountLink.GetAttribute("href").ShouldBe("/account");
+        accountLink.TextContent.Trim().ShouldBe("Moje konto");
+    }
+
+    [Fact]
+    public void Render_WhenAnonymous_DoesNotShowTheMojeKontoLink()
+    {
+        AddAuthorization().SetNotAuthorized();
+
+        IRenderedComponent<NavMenu> component = RenderNavMenu();
+
+        component.FindAll("[data-testid=nav-account]").ShouldBeEmpty();
+    }
+
+    [Fact]
     public void Render_Always_ShowsTheCoreNavigationLinksInOrder()
     {
         AddAuthorization().SetNotAuthorized();

@@ -38,6 +38,26 @@ internal sealed class StubHttpMessageHandler : HttpMessageHandler
         return new StubHttpMessageHandler(_ => throw exception);
     }
 
+    /// <summary>
+    /// A body-less response carrying custom headers — for endpoints whose success payload travels in
+    /// response headers (e.g. <c>204</c> + <c>X-Deletion-Finalizes-At</c>).
+    /// </summary>
+    public static StubHttpMessageHandler RespondWithHeaders(
+        HttpStatusCode statusCode,
+        IReadOnlyDictionary<string, string> headers)
+    {
+        return new StubHttpMessageHandler(_ =>
+        {
+            HttpResponseMessage response = new(statusCode);
+            foreach (KeyValuePair<string, string> header in headers)
+            {
+                response.Headers.TryAddWithoutValidation(header.Key, header.Value);
+            }
+
+            return response;
+        });
+    }
+
     protected override async Task<HttpResponseMessage> SendAsync(
         HttpRequestMessage request,
         CancellationToken cancellationToken)

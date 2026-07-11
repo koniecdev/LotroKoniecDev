@@ -81,6 +81,103 @@ public sealed class HttpClientApiExtensionsTests
         result.ProblemDetails!.Status.ShouldBe(503);
     }
 
+    [Fact]
+    public async Task PostForHeadersApiResultAsync_OnSuccess_CapturesTheResponseHeaders()
+    {
+        HttpClient httpClient = CreateClient(StubHttpMessageHandler.RespondWithHeaders(
+            HttpStatusCode.NoContent,
+            new Dictionary<string, string>
+            {
+                ["X-Deletion-Scheduled-At"] = "2026-07-11T10:00:00.0000000+00:00",
+                ["X-Deletion-Finalizes-At"] = "2026-07-25T10:00:00.0000000+00:00"
+            }));
+
+        ApiResult<ApiResponseHeaders> result = await httpClient.PostForHeadersApiResultAsync(
+            "auth/account/delete",
+            new { Password = "x" });
+
+        result.IsSuccess.ShouldBeTrue();
+        result.Value.GetValueOrDefault("X-Deletion-Finalizes-At").ShouldBe("2026-07-25T10:00:00.0000000+00:00");
+        // Header names are case-insensitive per RFC 9110 — the capture must honor that.
+        result.Value.GetValueOrDefault("x-deletion-scheduled-at").ShouldBe("2026-07-11T10:00:00.0000000+00:00");
+        result.Value.GetValueOrDefault("X-Missing").ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task PostForHeadersApiResultAsync_WhenApiReturnsProblem_MapsToFailureWithProblemDetails()
+    {
+        HttpClient httpClient = CreateClient(StubHttpMessageHandler.RespondWith(
+            HttpStatusCode.UnprocessableEntity,
+            """{ "title": "Nieprawidłowe hasło", "status": 422 }"""));
+
+        ApiResult<ApiResponseHeaders> result = await httpClient.PostForHeadersApiResultAsync(
+            "auth/account/delete",
+            new { Password = "x" });
+
+        result.IsFailure.ShouldBeTrue();
+        result.ProblemDetails!.Status.ShouldBe(422);
+    }
+
+    [Fact]
+    public async Task PostForHeadersApiResultAsync_WhenTransportFails_MapsToServiceUnavailableProblem()
+    {
+        HttpClient httpClient = CreateClient(
+            StubHttpMessageHandler.Throw(new HttpRequestException("connection refused")));
+
+        ApiResult<ApiResponseHeaders> result = await httpClient.PostForHeadersApiResultAsync(
+            "auth/account/delete",
+            new { Password = "x" });
+
+        result.IsFailure.ShouldBeTrue();
+        result.ProblemDetails!.Status.ShouldBe(503);
+    }
+
+    [Fact]
+    public async Task GetApiResultAsync_WhenErrorBodyIsEmpty_SynthesizesAProblemCarryingTheStatusCode()
+    {
+        // A bare 401 from the JWT bearer challenge has no body — the seam must not crash on the empty
+        // JSON and must keep the status so IsUnauthorized classification works.
+        HttpClient httpClient = CreateClient(StubHttpMessageHandler.RespondWith(
+            HttpStatusCode.Unauthorized,
+            string.Empty));
+
+        ApiResult<string> result = await httpClient.GetApiResultAsync<string>("auth/account/data-export");
+
+        result.IsFailure.ShouldBeTrue();
+        result.ProblemDetails!.Status.ShouldBe(401);
+        result.IsUnauthorized.ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task GetApiResultAsync_WhenErrorBodyIsNotJson_SynthesizesAProblemCarryingTheStatusCode()
+    {
+        HttpClient httpClient = CreateClient(StubHttpMessageHandler.RespondWith(
+            HttpStatusCode.Forbidden,
+            "<html>Forbidden</html>"));
+
+        ApiResult<string> result = await httpClient.GetApiResultAsync<string>("auth/account/data-export");
+
+        result.IsFailure.ShouldBeTrue();
+        result.ProblemDetails!.Status.ShouldBe(403);
+        result.IsForbidden.ShouldBeTrue();
+        result.IsUnauthorized.ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task GetApiResultAsync_WhenProblemBodyLacksAStatus_BackfillsItFromTheResponse()
+    {
+        HttpClient httpClient = CreateClient(StubHttpMessageHandler.RespondWith(
+            HttpStatusCode.Unauthorized,
+            """{ "title": "Brak autoryzacji" }"""));
+
+        ApiResult<string> result = await httpClient.GetApiResultAsync<string>("auth/account/data-export");
+
+        result.IsFailure.ShouldBeTrue();
+        result.ProblemDetails!.Title.ShouldBe("Brak autoryzacji");
+        result.ProblemDetails.Status.ShouldBe(401);
+        result.IsUnauthorized.ShouldBeTrue();
+    }
+
     private static HttpClient CreateClient(StubHttpMessageHandler handler)
     {
         return new HttpClient(handler)

@@ -33,6 +33,7 @@
     </ItemGroup>
 
     <ItemGroup>
+        <ProjectReference Include="..\..\AuthSystem\LotroKoniecDev.AuthSystem.Contracts\LotroKoniecDev.AuthSystem.Contracts.csproj" />
         <ProjectReference Include="..\..\TranslationSystem\LotroKoniecDev.TranslationSystem.Contracts\LotroKoniecDev.TranslationSystem.Contracts.csproj" />
         <ProjectReference Include="..\..\Utilities\LotroKoniecDev.Hateoas.Abstractions\LotroKoniecDev.Hateoas.Abstractions.csproj" />
         <ProjectReference Include="..\..\Utilities\LotroKoniecDev.Logging\LotroKoniecDev.Logging.csproj" />

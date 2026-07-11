@@ -63,7 +63,8 @@ player's patcher downloads a translation file that never shows outdated text in 
 ## Out of scope
 
 - **Automating game updates on a VM to regenerate exports** — explicitly rejected (cost); the
-  admin's own LOTRO install + manual upload is the pipeline.
+  admin's own LOTRO install + manual upload is the pipeline. *(Re-examined 2026-07-11 via #443 —
+  rejection upheld; ADR-0030 records the instrumented-manual decision and the reconsider triggers.)*
 - Crowdsourced game-version reports & two-source confirmation (#84, #31) — post-MVP as labeled;
   the forum is the sole detection source for now.
 - `TranslationHistory` / full audit trail of content changes (#50, post-MVP). This spec stores at

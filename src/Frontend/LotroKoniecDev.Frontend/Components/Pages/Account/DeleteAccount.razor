@@ -1,0 +1,248 @@
+@page "/account/delete"
+@attribute [Authorize]
+@attribute [StreamRendering]
+@using Microsoft.AspNetCore.Authorization
+@using LotroKoniecDev.AuthSystem.Contracts.Features.Auth.Account
+@using LotroKoniecDev.AuthSystem.Contracts.Hateoas
+@using LotroKoniecDev.Frontend.Infrastructure.Auth
+@using LotroKoniecDev.Frontend.Infrastructure.Hateoas
+@using LotroKoniecDev.Frontend.Infrastructure.HttpClients
+@using LotroKoniecDev.Hateoas.Abstractions
+@inject AccountLoader Loader
+
+<PageTitle>Usuń konto — lotro-translator.pl</PageTitle>
+
+<section class="container page-head">
+    <div>
+        <h1>Usuń konto</h1>
+        <p class="lede">Usunięcie konta z 14-dniowym okresem na anulowanie.</p>
+    </div>
+</section>
+
+<section class="container content-wrap">
+    @if (_scheduled)
+    {
+        <div class="status-message status-success" role="status">
+            <p>
+                Usunięcie konta zostało zaplanowane. Na Twój adres e-mail wysłaliśmy link,
+                którym możesz je anulować w ciągu 14 dni.
+            </p>
+        </div>
+
+        @* The upstream session is already dead (account locked, tokens revoked), so the button goes
+           through the local-only sign-out and lands on the anonymous confirmation page. No inline
+           auto-submit script — the CSP is locked to script-src 'self'. *@
+        <form method="post" action="@SignOutFormAction()" data-testid="post-delete-signout">
+            <AntiforgeryToken/>
+            <button type="submit" class="btn btn-primary">Przejdź dalej</button>
+        </form>
+    }
+    else if (_loadResult is null)
+    {
+        <div class="loading-indicator">
+            <span class="li-spin"></span> Wczytywanie…
+        </div>
+    }
+    else if (_loadResult.IsUnauthorized)
+    {
+        <RedirectToLogin/>
+    }
+    else if (_loadResult.IsFailure)
+    {
+        <div class="error-message" role="alert">
+            <span class="em-ico" aria-hidden="true">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z"/>
+                    <path d="M12 9v4"/><path d="M12 17h.01"/>
+                </svg>
+            </span>
+            <div class="em-body">
+                <span class="t">@(_loadResult.ProblemDetails?.Title ?? "Nie udało się wczytać danych konta.")</span>
+            </div>
+        </div>
+    }
+    else if (_deleteLink is null)
+    {
+        @if (_loadResult.Value.AuthData.DeletionScheduledAt is not null)
+        {
+            <div class="status-message status-warning" role="status">
+                <p>
+                    Usunięcie tego konta jest już zaplanowane. Możesz je anulować wyłącznie przez link
+                    wysłany na Twój adres e-mail.
+                </p>
+            </div>
+        }
+        else
+        {
+            <div class="status-message status-warning" role="status">
+                <p>Usunięcie konta jest w tej chwili niedostępne. Spróbuj ponownie później.</p>
+            </div>
+        }
+        <a class="btn btn-ghost" href="/account">Wróć do konta</a>
+    }
+    else
+    {
+        <section class="panel panel-danger">
+            <header class="panel-head">
+                <h2>Zaplanuj usunięcie konta</h2>
+                <span class="panel-aside">Operacja odwracalna przez 14 dni</span>
+            </header>
+            <div class="panel-body">
+                <ul class="consequence-list">
+                    <li>Konto zostanie natychmiast zablokowane, a wszystkie sesje wylogowane.</li>
+                    <li>Po 14 dniach dane konta zostaną trwale usunięte.</li>
+                    <li>Anulować możesz wyłącznie linkiem wysłanym na Twój adres e-mail.</li>
+                    <li>Po anulowaniu konieczne będzie ustawienie nowego hasła.</li>
+                </ul>
+
+                @if (_submitProblem is not null)
+                {
+                    <div class="error-message" role="alert">
+                        <span class="em-ico" aria-hidden="true">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z"/>
+                                <path d="M12 9v4"/><path d="M12 17h.01"/>
+                            </svg>
+                        </span>
+                        <div class="em-body">
+                            <span class="t">@_submitProblem.Title</span>
+                            @if (!string.IsNullOrWhiteSpace(_submitProblem.Detail))
+                            {
+                                <span class="s">@_submitProblem.Detail</span>
+                            }
+                        </div>
+                    </div>
+                }
+
+                <form method="post" @formname="delete-account" @onsubmit="DeleteAsync" class="stacked-form">
+                    <AntiforgeryToken/>
+                    <div class="field">
+                        <label for="delete-password">
+                            Hasło
+                        </label>
+                        <input id="delete-password" name="DeleteInput.Password" type="password"
+                               autocomplete="current-password" placeholder="Twoje obecne hasło"/>
+                    </div>
+                    <div class="field">
+                        <label for="delete-confirm">Potwierdzenie</label>
+                        <input id="delete-confirm" name="DeleteInput.ConfirmPhrase" type="text"
+                               autocomplete="off" placeholder="@ConfirmPhrase" class="mono"
+                               value="@(DeleteInput?.ConfirmPhrase)"/>
+                        <p class="field-hint">Wpisz <strong class="mono">@ConfirmPhrase</strong>, aby potwierdzić.</p>
+                    </div>
+                    <div class="form-actions">
+                        <a class="btn btn-ghost" href="/account">Anuluj</a>
+                        <button type="submit" class="btn btn-danger" data-testid="delete-submit">Usuń konto</button>
+                    </div>
+                </form>
+            </div>
+        </section>
+    }
+</section>
+
+@code
+{
+    /// <summary>
+    /// The expected confirmation phrase. Compared ordinally in the handler — the server never sees
+    /// it; it is a purely client-side "are you sure" friction, mirroring TheKittySaver.
+    /// </summary>
+    internal const string ConfirmPhrase = "USUWAM";
+
+    /// <summary>
+    /// Response-header name from the auth API's <c>DeleteAccount</c> endpoint. The constant lives in
+    /// an internal API type (not shared via Contracts), so the FE mirrors the literal.
+    /// </summary>
+    internal const string DeletionFinalizesAtHeader = "X-Deletion-Finalizes-At";
+
+    [SupplyParameterFromForm(FormName = "delete-account")]
+    private DeleteFormModel? DeleteInput { get; set; }
+
+    private ApiResult<AccountDataExportResponse>? _loadResult;
+    private LinkDto? _deleteLink;
+    private Microsoft.AspNetCore.Mvc.ProblemDetails? _submitProblem;
+    private bool _scheduled;
+    private string? _finalizesAt;
+
+    protected override async Task OnInitializedAsync()
+    {
+        // A property initializer is rejected for a [SupplyParameterFromForm] model (BL0008), so seed it
+        // here instead.
+        DeleteInput ??= new DeleteFormModel();
+
+        _loadResult = await Loader.LoadExportAsync(CancellationToken.None);
+        if (_loadResult.IsSuccess)
+        {
+            _deleteLink = _loadResult.Value.Links.FindLink(Rels.DeleteAccount);
+        }
+    }
+
+    private async Task DeleteAsync()
+    {
+        _submitProblem = null;
+
+        if (_deleteLink is null)
+        {
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(DeleteInput?.Password))
+        {
+            _submitProblem = new Microsoft.AspNetCore.Mvc.ProblemDetails
+            {
+                Title = "Hasło jest wymagane",
+                Detail = "Podaj obecne hasło, aby potwierdzić usunięcie konta."
+            };
+            return;
+        }
+
+        if (!string.Equals(DeleteInput.ConfirmPhrase, ConfirmPhrase, StringComparison.Ordinal))
+        {
+            _submitProblem = new Microsoft.AspNetCore.Mvc.ProblemDetails
+            {
+                Title = "Nieprawidłowe potwierdzenie",
+                Detail = $"Wpisz {ConfirmPhrase} w polu potwierdzenia, aby kontynuować."
+            };
+            return;
+        }
+
+        ApiResult<ApiResponseHeaders> result = await Loader.ScheduleDeletionAsync(
+            _deleteLink.Href,
+            DeleteInput.Password,
+            CancellationToken.None);
+
+        if (result.IsSuccess)
+        {
+            _finalizesAt = result.Value.GetValueOrDefault(DeletionFinalizesAtHeader);
+            _scheduled = true;
+            return;
+        }
+
+        _submitProblem = result.ProblemDetails ?? new Microsoft.AspNetCore.Mvc.ProblemDetails
+        {
+            Title = "Nie udało się zaplanować usunięcia konta."
+        };
+    }
+
+    /// <summary>
+    /// The sign-out form's action: the local-only cookie sign-out with the anonymous confirmation
+    /// page as the return target, carrying the finalization date from the response header.
+    /// </summary>
+    private string SignOutFormAction()
+    {
+        string infoPageUrl = "/account/deletion-scheduled";
+        if (!string.IsNullOrWhiteSpace(_finalizesAt))
+        {
+            infoPageUrl = $"{infoPageUrl}?until={Uri.EscapeDataString(_finalizesAt)}";
+        }
+
+        return $"{AuthenticationDependencyInjectionExtensions.LocalSignOutPath}" +
+               $"?returnUrl={Uri.EscapeDataString(infoPageUrl)}";
+    }
+
+    public sealed class DeleteFormModel
+    {
+        public string? Password { get; set; }
+
+        public string? ConfirmPhrase { get; set; }
+    }
+}

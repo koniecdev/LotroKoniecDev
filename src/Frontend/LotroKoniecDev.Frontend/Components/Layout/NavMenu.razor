@@ -21,6 +21,8 @@
 
             <AuthorizeView>
                 <Authorized>
+                    @* The privacy policy promises the self-service section under this exact name. *@
+                    <NavLink class="nav-link" href="/account" data-testid="nav-account">Moje konto</NavLink>
                     <span class="nav-user">@(context.User.Identity?.Name)</span>
                     <form class="nav-logout-form" method="post" action="@AuthenticationDependencyInjectionExtensions.LogoutPath">
                         <AntiforgeryToken/>

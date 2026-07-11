@@ -1628,3 +1628,142 @@ code {
         text-align: left;
     }
 }
+
+/* ───────── Account (Moje konto) ───────── */
+.dl-rows {
+    display: flex;
+    flex-direction: column;
+}
+
+.dl-row {
+    display: grid;
+    grid-template-columns: 220px 1fr;
+    gap: 12px;
+    padding: 12px 0;
+    border-bottom: 1px solid var(--border);
+    align-items: baseline;
+}
+
+.dl-row:last-child {
+    border-bottom: none;
+}
+
+.dl-row dt {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--text-mute);
+}
+
+.dl-row dd {
+    margin: 0;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+}
+
+.dl-row .dim {
+    color: var(--text-dim);
+    font-size: 12px;
+}
+
+.action-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.action-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 14px;
+    padding: 14px 16px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--surface);
+    text-decoration: none;
+    color: var(--text);
+    transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.action-row:hover {
+    border-color: var(--border-hi);
+    background: var(--surface-hi);
+}
+
+.action-row .copy {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+}
+
+.action-row .copy .t {
+    font-weight: 600;
+}
+
+.action-row .copy .s {
+    color: var(--text-mute);
+    font-size: 13px;
+}
+
+.action-row .chev {
+    color: var(--text-dim);
+    font-size: 20px;
+    line-height: 1;
+}
+
+.action-row.danger {
+    border-color: var(--danger-dim);
+}
+
+.action-row.danger .copy .t {
+    color: var(--danger-hi);
+}
+
+.action-row.danger:hover {
+    background: var(--danger-soft);
+    border-color: var(--danger);
+}
+
+.consequence-list {
+    list-style: disc;
+    padding-left: 20px;
+    margin: 0 0 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    color: var(--text-mute);
+}
+
+.stacked-form {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    max-width: 440px;
+}
+
+.field-hint {
+    color: var(--text-dim);
+    font-size: 12px;
+    margin: 0;
+}
+
+.form-actions {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+}
+
+.panel-danger {
+    border-color: var(--danger-dim);
+}
+
+@media (max-width: 640px) {
+    .dl-row {
+        grid-template-columns: 1fr;
+        gap: 4px;
+    }
+}

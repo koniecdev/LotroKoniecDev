@@ -8,7 +8,8 @@
 #
 # Usage: work-ticket.sh <issue-number> [run-dir]
 # Env:
-#   LOOP_EFFORT             claude effort level (default: xhigh)
+#   LOOP_EFFORT             claude effort level (default: high — reviews inside the session run
+#                           at xhigh via the code-reviewer agent definition)
 #   LOOP_MODEL              model (default: fable — Fable 5; temporary switch 2026-07-09,
 #                           previously opus — Opus 4.8 with its native 1M-token context window)
 #   LOOP_CONFIG_DIR         Claude config dir = which account runs the loop
@@ -27,7 +28,7 @@
 #   LOOP_TRUSTED_ASSOCIATIONS / LOOP_TRUSTED_LOGINS / LOOP_TRUST_GATE — see issue-trust.sh
 #
 # Exit codes: 0 merged · 2 blocked · 3 error (incl. a provenance gate that could not reach the API)
-#             4 timeout · 5 checks failed / merge failed · 6 usage limit hit
+#             4 timeout · 5 checks failed / open CodeQL alerts / merge failed · 6 usage limit hit
 #             7 auto-merge queued (checks still running) · 10 dirty working copy
 #             11 issue refused by the provenance gate (untrusted author or commenter)
 set -euo pipefail
@@ -42,7 +43,7 @@ esac
 RUN_DIR="${2:-$REPO_ROOT/logs/claude-loop/adhoc-$(date +%Y%m%d-%H%M%S)}"
 mkdir -p "$RUN_DIR"
 
-EFFORT="${LOOP_EFFORT:-xhigh}"
+EFFORT="${LOOP_EFFORT:-high}"
 MODEL="${LOOP_MODEL:-fable}"
 export CLAUDE_CONFIG_DIR="${LOOP_CONFIG_DIR:-$HOME/.claude-account1}"
 PERMISSION_MODE="${LOOP_PERMISSION_MODE:-auto}"
@@ -91,11 +92,19 @@ if [ "$trust_rc" -ne 0 ]; then
     exit 3
 fi
 
-# Stash (never delete) anything a failed/blocked session left behind, and return to main.
+# Commit (never delete, never stash) anything a failed/blocked session left behind: leftovers
+# become ordinary named git history on a dedicated `loop-salvage/<issue>-<timestamp>` branch,
+# cut from wherever the session got to (so partial commits on the ticket branch stay reachable
+# from it too). Then return to main.
 salvage() {
     if [ -n "$(git status --porcelain)" ]; then
-        git stash push --include-untracked -m "claude-loop salvage #$ISSUE $(date +%F-%H%M)" >/dev/null 2>&1 || true
-        log "leftover changes stashed (git stash list | grep 'salvage #$ISSUE')"
+        salvage_branch="loop-salvage/$ISSUE-$(date +%Y%m%d-%H%M%S)"
+        git checkout -b "$salvage_branch" --quiet 2>/dev/null || true
+        git add -A >/dev/null 2>&1 || true
+        git commit --quiet --no-verify \
+            -m "claude-loop: salvage uncommitted work for #$ISSUE" \
+            -m "Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>" >/dev/null 2>&1 || true
+        log "leftover changes committed on branch $salvage_branch"
     fi
     git checkout main --quiet 2>/dev/null || true
 }
@@ -246,6 +255,27 @@ while :; do
     fi
     sleep 45
 done
+
+# ── CodeQL gate: every code-scanning finding must be handled BEFORE merge ──────────────────────
+# Green `gh pr checks` does NOT cover this — the CodeQL check succeeds even when it uploads
+# alerts. Query the PR's open alerts directly and fail CLOSED: an unreadable API refuses to
+# merge blind (same philosophy as the provenance gate). Docs-only PRs skip CodeQL and simply
+# return an empty list here.
+alerts="$(gh api "repos/{owner}/{repo}/code-scanning/alerts?ref=refs/pull/$pr_num/merge&state=open&per_page=100" \
+    --jq '[.[] | "- \(.rule.id) (\(.rule.severity)) \(.most_recent_instance.location.path):\(.most_recent_instance.location.start_line)"] | join("\n")' \
+    2>/dev/null)" || {
+    meta outcome codeql-unverifiable
+    salvage
+    log "could not read code-scanning alerts for PR #$pr_num — refusing to merge blind"
+    exit 5
+}
+if [ -n "$alerts" ]; then
+    meta outcome codeql-alerts
+    gh pr comment "$pr_num" --body "$(printf '🤖 **claude-loop: merge refused — open CodeQL alerts on this PR.** Fix each one (or dismiss it with a stated reason) before merging:\n\n%s' "$alerts")" >/dev/null 2>&1 || true
+    salvage
+    log "open CodeQL alerts on PR #$pr_num — merge refused, PR left open for triage"
+    exit 5
+fi
 
 if ! gh pr merge "$pr_num" --squash; then
     meta outcome merge-failed

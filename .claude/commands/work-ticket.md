@@ -50,6 +50,13 @@ push → `gh pr create` (the interactive "ask before pushing" rule is waived). Y
    line: after APPROVE, commit (message references the ticket, ends with the `Co-Authored-By:`
    footer), push, `gh pr create --fill --body "Closes #$ARGUMENTS"`. Never report DONE while work
    is only staged. Do NOT merge.
+8. **CodeQL — clear every finding before you finish.** Wait for the PR's `CodeQL` check to
+   complete (`gh pr checks <pr> --watch --fail-fast` or poll; docs-only diffs skip it), then list
+   the PR's open alerts:
+   `gh api "repos/{owner}/{repo}/code-scanning/alerts?ref=refs/pull/<pr>/merge&state=open"`.
+   Fix every alert and push again (re-check after the re-run); dismissal instead of a fix is
+   allowed only with a real stated reason. The conductor's merge gate refuses any PR with open
+   alerts, so leaving one means the ticket ends in triage, not in a merge.
 
 ## Scope & safety
 

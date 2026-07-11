@@ -11,13 +11,15 @@
 #   scripts/claude/backlog-loop.sh 123 130      # exactly these tickets, in this order
 #   caffeinate -is scripts/claude/backlog-loop.sh   # overnight on macOS (blocks sleep)
 #
-# Env (all forwarded to work-ticket.sh): LOOP_EFFORT (default xhigh), LOOP_MODEL (default fable),
+# Env (all forwarded to work-ticket.sh): LOOP_EFFORT (default high; reviews run at xhigh via the
+#   code-reviewer agent definition), LOOP_MODEL (default fable),
 #   LOOP_CONFIG_DIR (default ~/.claude-account1 — which account runs the loop),
 #   LOOP_PERMISSION_MODE (default auto), LOOP_UNSAFE, LOOP_MAX_BUDGET_USD,
 #   LOOP_TICKET_TIMEOUT_MIN, LOOP_CHECKS_TIMEOUT_MIN, LOOP_SKIP_LABELS,
 #   LOOP_TRUSTED_ASSOCIATIONS / LOOP_TRUSTED_LOGINS / LOOP_TRUST_GATE (the provenance gate —
 #   ADR-0026; it also fires on explicitly-named tickets, which never touch the picker).
-#   Loop-only: LOOP_LIMIT_SLEEP_MIN (default 60), LOOP_LIMIT_RETRIES (default 4),
+#   Loop-only: LOOP_LIMIT_SLEEP_MIN (default 60), LOOP_LIMIT_RETRIES (default 8 — a limit hit at
+#   the start of a 5h usage window needs up to ~5h of naps to outlive it),
 #   LOOP_MAX_CONSECUTIVE_FAILURES (default 2).
 #
 # Raw per-ticket session logs land in logs/claude-loop/<timestamp>/ (debugging only);
@@ -47,7 +49,7 @@ if [ "${#EXPLICIT_TICKETS[@]}" -gt 0 ]; then EXPLICIT_MODE=1; fi
 EXPLICIT_INDEX=0
 
 LIMIT_SLEEP_MIN="${LOOP_LIMIT_SLEEP_MIN:-60}"
-LIMIT_RETRIES="${LOOP_LIMIT_RETRIES:-4}"
+LIMIT_RETRIES="${LOOP_LIMIT_RETRIES:-8}"
 MAX_FAILURES="${LOOP_MAX_CONSECUTIVE_FAILURES:-2}"
 
 LOCK="$REPO_ROOT/.claude/backlog-loop.lock"

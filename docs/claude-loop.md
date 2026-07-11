@@ -95,13 +95,13 @@ one ticket with `LOOP_TRUST_GATE=0`, or add the commenter to `LOOP_TRUSTED_LOGIN
 
 | Var | Default | Meaning |
 |---|---|---|
-| `LOOP_EFFORT` | `xhigh` | claude effort per ticket |
+| `LOOP_EFFORT` | `high` | claude effort per ticket (reviews inside the session run at `xhigh` via the `code-reviewer` agent definition) |
 | `LOOP_MODEL` | `fable` | Fable 5 (temporary switch 2026-07-09; previously `opus` — Opus 4.8 with its native 1M-token context window) |
 | `LOOP_PERMISSION_MODE` | `auto` | headless permission mode |
 | `LOOP_ALLOWED_TOOLS` | git/gh/dotnet/scripts | loop-scoped Bash allowlist passed via `--allowedTools` |
 | `LOOP_UNSAFE` | `0` | `1` = `--dangerously-skip-permissions` (full overnight autonomy) |
 | `LOOP_MAX_BUDGET_USD` | (none) | optional per-ticket API budget cap |
-| `LOOP_TICKET_TIMEOUT_MIN` | `90` | wall-clock kill switch per ticket; leftovers are stashed |
+| `LOOP_TICKET_TIMEOUT_MIN` | `90` | wall-clock kill switch per ticket; leftovers are committed on a `loop-salvage/…` branch |
 | `LOOP_CHECKS_TIMEOUT_MIN` | `30` | wait for pr-verify before falling back to `--auto` merge |
 | `LOOP_GH_USER` | `koniecdev` | gh account whose token backs the loop's gh write calls (PR merge, labels, issue comments); an existing `GH_TOKEN` in the environment wins |
 | `LOOP_SKIP_LABELS` | `loop-blocked,qa,post-mvp,audit` | picker label exclusions |
@@ -111,7 +111,7 @@ one ticket with `LOOP_TRUST_GATE=0`, or add the commenter to `LOOP_TRUSTED_LOGIN
 | `LOOP_TRUSTED_LOGINS` | (none) | provenance gate: extra logins (a second maintainer account, a bot) |
 | `LOOP_TRUST_GATE` | `1` | `0` = skip the provenance gate **for the whole run** (you read the issue *and* its comments yourself) — use it only on a single explicitly-named ticket |
 | `LOOP_LIMIT_SLEEP_MIN` | `60` | nap length when the usage limit is hit |
-| `LOOP_LIMIT_RETRIES` | `4` | max naps before giving up |
+| `LOOP_LIMIT_RETRIES` | `8` | max naps before giving up (a limit hit at the start of a 5h usage window needs up to ~5h of naps) |
 | `LOOP_MAX_CONSECUTIVE_FAILURES` | `2` | systemic-failure circuit breaker |
 
 Example overnight run with a hard per-ticket budget:
@@ -135,9 +135,12 @@ Per-ticket outcomes:
   The ticket gets the `loop-blocked` label and the exact questions as an issue comment. Triage:
   `gh issue list --label loop-blocked` → answer in a comment → remove the label → the loop can
   pick it up again.
-- **failed / timeout** — session error or kill switch; leftovers are stashed as
-  `claude-loop salvage #<n>` (`git stash list`), main is restored. Two consecutive failures stop
-  the whole loop (something systemic).
+- **failed / timeout** — session error or kill switch; leftovers are committed on a dedicated
+  `loop-salvage/<n>-<timestamp>` branch (never stash — ordinary named git history), main is
+  restored. Two consecutive failures stop the whole loop (something systemic).
+- **codeql-alerts** — required checks passed but the PR carries open code-scanning alerts; the
+  merge is refused, the alerts are posted as a PR comment, and the PR is left open for triage
+  (an unreadable code-scanning API also refuses — fail closed).
 - **usage limit** — the loop naps (`LOOP_LIMIT_SLEEP_MIN`) and retries the same ticket.
 - **untrusted** — the ticket failed the provenance gate; it is skipped without spawning a session
   and without counting toward the failure circuit breaker (drain mode never selects one anyway).
@@ -148,9 +151,11 @@ Per-ticket outcomes:
   the session so no invocation path bypasses it. Self-tested by
   `scripts/tests/claude-loop-provenance.tests.sh`, which runs in `pr-verify` and `ci`.
 - The runner **refuses a dirty working copy** and never deletes work — anything left behind is
-  stashed, never reset.
+  committed on a dedicated `loop-salvage/<n>-<timestamp>` branch, never stashed, never reset.
 - The worker session may commit/push/PR (that authorization is the point of loop mode) but **never
-  merges**; the runner merges only after required checks pass, and never with `--delete-branch`.
+  merges**; the runner merges only after required checks pass **and the PR has zero open CodeQL
+  alerts** (the worker is instructed to clear them; the runner enforces it), and never with
+  `--delete-branch`.
 - Business decisions are never invented: they come back as BLOCKED questions on the issue.
 - Default permission mode is `auto` plus a loop-scoped git/gh/dotnet/scripts `--allowedTools`
   allowlist (interactive sessions are unaffected). `LOOP_UNSAFE=1` trades that for

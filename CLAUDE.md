@@ -164,7 +164,7 @@ scripts/claude/backlog-loop.sh 123 130                 # exactly these tickets, 
 caffeinate -is scripts/claude/backlog-loop.sh          # overnight run on macOS (blocks sleep)
 scripts/claude/next-ticket.sh                          # print the next READY ticket (priority + deps)
 scripts/claude/work-ticket.sh 123                      # one ticket, one fresh headless session
-# defaults: fable (Fable 5) · effort xhigh · permission-mode auto — override via LOOP_MODEL /
+# defaults: fable (Fable 5) · effort high (reviews at xhigh) · permission-mode auto — override via LOOP_MODEL /
 # LOOP_EFFORT / LOOP_PERMISSION_MODE / LOOP_UNSAFE=1 · full manual: docs/claude-loop.md
 
 # TMS — EF Core migrations (write context owns them; --connection makes it work without appsettings/live DB)
@@ -351,12 +351,13 @@ file_id||gossip_id||translated_text||args_order||args_id||approved
 - **Right-size the design — YAGNI by default.** Before proposing an abstraction, cache, config
   knob, queue, or new infra, check it solves a **real, present** need from the current
   spec/ticket — not a hypothetical future. Pick the simple path and note the trade-off in one line.
-- **Agent fan-out is budgeted; reviews run on Fable 5 at high effort** (temporary switch
-  2026-07-09; previous standing rule was Opus 4.8 + effort max). Hard cap: **max 4 subagents in
-  parallel**, no chained waves by default; a small diff gets reviewed **inline, zero agents**.
-  The `code-reviewer` agent, `/code-review` and `/security-review` run with **model Fable 5 +
-  effort high** unless the prompt for that run explicitly says otherwise. Applies to interactive
-  sessions and loop-mode workers alike.
+- **Agent fan-out is budgeted; reviews run on Fable 5 at xhigh effort, everything else at high**
+  (2026-07-11; supersedes the 2026-07-09 all-xhigh switch; previous standing rule was Opus 4.8 +
+  effort max). Hard cap: **max 4 subagents in parallel**, no chained waves by default; a small
+  diff gets reviewed **inline, zero agents**. The `code-reviewer` agent, `/code-review` and
+  `/security-review` run with **model Fable 5 + effort xhigh**; loop-mode worker sessions run at
+  **effort high** (`LOOP_EFFORT` default) — unless the prompt for that run explicitly says
+  otherwise. Applies to interactive sessions and loop-mode workers alike.
 - **Frontend is Static SSR — enforced, not just documented.** No WebAssembly, no SignalR circuit,
   no per-user server state; forms post via `<form method="post" @formname @onsubmit>` (the SSR
   `@onsubmit` special-case) or `<EditForm OnValidSubmit>` — never interactive `@on*` handlers,
@@ -477,7 +478,11 @@ structure.
    diff (**`/security-review`** for anything touching native interop, file protection, or auth).
    **Green build + zero warnings + clean review = "done" — not before.**
 5. **PR closes the ticket.** Title mirrors the ticket; body contains `Closes #<n>`.
-   Ask before pushing.
+   Ask before pushing. **No merge with open CodeQL alerts:** green checks are not enough — the
+   CodeQL check succeeds even when it uploads findings. Before any merge (interactive or loop),
+   list `gh api "repos/{owner}/{repo}/code-scanning/alerts?ref=refs/pull/<n>/merge&state=open"`
+   and fix every alert (dismiss only with a stated reason); the loop's merge gate enforces this
+   mechanically.
 6. **Feed the flywheel.** Reusable correction → persist it: agent lesson →
    `.claude/agent-memory/<agent>/`; global rule → **this file**; real decision → new ADR;
    empirical DAT/update finding → `docs/knowledge-base/` (dated). The same mistake made twice
@@ -507,9 +512,11 @@ deliberately serial.)
 
 **Git hygiene — fully close each ticket before the next; never let two tickets' work share an
 uncommitted working copy.** The runner enforces it mechanically: it refuses to start on a dirty
-working copy, runs strictly serially, stashes (never deletes) anything a failed or blocked run
-leaves behind (`claude-loop salvage #<n>`), and returns to a freshly-pulled main between tickets.
-The worker (`/work-ticket`) never merges — the runner owns the merge gate. BLOCKED tickets get the
+working copy, runs strictly serially, commits (never deletes, never stashes) anything a failed or blocked run
+leaves behind on a dedicated `loop-salvage/<n>-<timestamp>` branch, and returns to a
+freshly-pulled main between tickets. The worker (`/work-ticket`) never merges — the runner owns
+the merge gate, and that gate also refuses any PR with **open CodeQL alerts** (fail closed; the
+worker clears them first, see §5). BLOCKED tickets get the
 `loop-blocked` label plus the open questions posted as an issue comment — triage is
 `gh issue list --label loop-blocked` (raw per-ticket session logs stay in
 `logs/claude-loop/<run>/` for debugging only). Business questions are **extracted for the user,

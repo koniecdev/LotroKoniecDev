@@ -45,6 +45,21 @@ public sealed class AccountTests : BunitContext
         component.Markup.ShouldContain("frodo@shire.me");
         component.Markup.ShouldContain("Tłumacz");
         component.Markup.ShouldContain("2026-06-01 12:00 UTC");
+        component.Markup.ShouldContain("Regulamin serwisu");
+        component.Markup.ShouldContain("Zaakceptowany");
+    }
+
+    [Fact]
+    public void Render_WhenTermsNotAccepted_ShowsTheGrandfatheredConsentState()
+    {
+        // Accounts registered before the terms shipped are grandfathered (spec 0010) — the row
+        // must render the neutral state, never a fake acceptance.
+        StubExport(AccountLoaderTests.CreateEnvelope(termsOfServiceAccepted: false));
+
+        IRenderedComponent<AccountComponent> component = Render<AccountComponent>();
+
+        component.Markup.ShouldContain("Regulamin serwisu");
+        component.Markup.ShouldContain("Brak akceptacji");
     }
 
     [Fact]

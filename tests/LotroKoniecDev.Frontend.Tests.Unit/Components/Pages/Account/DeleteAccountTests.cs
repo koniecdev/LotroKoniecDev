@@ -2,6 +2,7 @@ using AngleSharp.Dom;
 using LotroKoniecDev.AuthSystem.Contracts.Features.Auth.Account;
 using LotroKoniecDev.AuthSystem.Contracts.Hateoas;
 using LotroKoniecDev.Frontend.Components.Pages.Account;
+using LotroKoniecDev.Frontend.Components.Shared;
 using LotroKoniecDev.Frontend.Infrastructure.Discovery;
 using LotroKoniecDev.Frontend.Infrastructure.HttpClients;
 using LotroKoniecDev.Frontend.Infrastructure.HttpClients.AuthSystemHttpClients;
@@ -86,6 +87,24 @@ public sealed class DeleteAccountTests : BunitContext
 
         component.Markup.ShouldContain("niedostępne");
         component.FindAll("input[type=password]").ShouldBeEmpty();
+    }
+
+    [Fact]
+    public void Render_WhenTheLoadIsUnauthorized_RedirectsToLoginInsteadOfTheErrorPanel()
+    {
+        _discoveryCache.GetAuthSystemDiscoveryAsync(Arg.Any<CancellationToken>())
+            .Returns(ApiResult.Success(new AuthDiscoveryResponse("LotroKoniecDev.AuthSystem")
+            {
+                Links = [new LinkDto("auth/account/data-export", Rels.ExportAccountData, "GET")]
+            }));
+        _client.GetApiResultAsync<AccountDataExportResponse>(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(ApiResult.Failure<AccountDataExportResponse>(
+                new Microsoft.AspNetCore.Mvc.ProblemDetails { Title = "Unauthorized", Status = 401 }));
+
+        IRenderedComponent<DeleteAccountComponent> component = Render<DeleteAccountComponent>();
+
+        component.FindComponents<RedirectToLogin>().ShouldHaveSingleItem();
+        component.FindAll(".error-message").ShouldBeEmpty();
     }
 
     private void StubExport(AccountDataExportResponse envelope)

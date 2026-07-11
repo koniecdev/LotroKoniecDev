@@ -143,8 +143,8 @@
 @code
 {
     /// <summary>
-    /// The expected confirmation phrase. Compared ordinally in the handler — the server never sees
-    /// it; it is a purely client-side "are you sure" friction, mirroring TheKittySaver.
+    /// The expected confirmation phrase. Compared ordinally in the SSR form handler — the auth API
+    /// never sees it; it is "are you sure" friction on the frontend, mirroring TheKittySaver.
     /// </summary>
     internal const string ConfirmPhrase = "USUWAM";
 
@@ -214,6 +214,16 @@
         {
             _finalizesAt = result.Value.GetValueOrDefault(DeletionFinalizesAtHeader);
             _scheduled = true;
+            return;
+        }
+
+        if (result.IsUnauthorized)
+        {
+            _submitProblem = new Microsoft.AspNetCore.Mvc.ProblemDetails
+            {
+                Title = "Sesja wygasła",
+                Detail = "Zaloguj się ponownie, aby usunąć konto."
+            };
             return;
         }
 

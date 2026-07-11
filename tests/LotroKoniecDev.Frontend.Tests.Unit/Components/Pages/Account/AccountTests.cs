@@ -3,6 +3,7 @@ using AngleSharp.Dom;
 using LotroKoniecDev.AuthSystem.Contracts.Features.Auth.Account;
 using LotroKoniecDev.AuthSystem.Contracts.Hateoas;
 using LotroKoniecDev.Frontend.Components.Pages.Account;
+using LotroKoniecDev.Frontend.Components.Shared;
 using LotroKoniecDev.Frontend.Infrastructure.Discovery;
 using LotroKoniecDev.Frontend.Infrastructure.HttpClients;
 using LotroKoniecDev.Frontend.Infrastructure.HttpClients.AuthSystemHttpClients;
@@ -118,6 +119,35 @@ public sealed class AccountTests : BunitContext
         IRenderedComponent<AccountComponent> component = Render<AccountComponent>();
 
         component.Find(".error-message .t").TextContent.ShouldBe("Nie udało się wczytać danych konta");
+    }
+
+    [Fact]
+    public void Render_WhenTheLoadIsUnauthorized_RedirectsToLoginInsteadOfTheErrorPanel()
+    {
+        // The branch order is load-bearing: IsUnauthorized must win over the generic failure panel,
+        // or an expired session dead-ends on an error box instead of bouncing through login.
+        StubUnauthorizedExport();
+
+        IRenderedComponent<AccountComponent> component = Render<AccountComponent>();
+
+        component.FindComponents<RedirectToLogin>().ShouldHaveSingleItem();
+        component.FindAll(".error-message").ShouldBeEmpty();
+    }
+
+    private void StubUnauthorizedExport()
+    {
+        AuthDiscoveryResponse discovery = new("LotroKoniecDev.AuthSystem")
+        {
+            Links = [new LinkDto("auth/account/data-export", Rels.ExportAccountData, "GET")]
+        };
+        _discoveryCache.GetAuthSystemDiscoveryAsync(Arg.Any<CancellationToken>())
+            .Returns(ApiResult.Success(discovery));
+        _client.GetApiResultAsync<AccountDataExportResponse>(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(ApiResult.Failure<AccountDataExportResponse>(new ProblemDetails
+            {
+                Title = "Unauthorized",
+                Status = 401
+            }));
     }
 
     private void StubExport(AccountDataExportResponse envelope)

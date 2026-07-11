@@ -90,8 +90,18 @@ internal sealed class DiscoveryCache : IDiscoveryCache
             // links AND mark the session dead so the next OnValidatePrincipal signs the cookie out
             // cleanly; the [Authorize] account pages then bounce through login instead of erroring.
             await MarkSessionDeadAsync(cancellationToken);
-            AuthDiscoveryResponse anonymous = await GetOrCreateAuthAsync(AnonymousSuffix, cancellationToken);
-            return ApiResult.Success(anonymous);
+
+            try
+            {
+                AuthDiscoveryResponse anonymous = await GetOrCreateAuthAsync(AnonymousSuffix, cancellationToken);
+                return ApiResult.Success(anonymous);
+            }
+            catch (DiscoveryUnavailableException ex) when (ex.ProblemDetails is not null)
+            {
+                // The API died between the two calls — keep errors-as-values instead of letting the
+                // sentinel escape and 500 the page.
+                return ApiResult.Failure<AuthDiscoveryResponse>(ex.ProblemDetails);
+            }
         }
     }
 

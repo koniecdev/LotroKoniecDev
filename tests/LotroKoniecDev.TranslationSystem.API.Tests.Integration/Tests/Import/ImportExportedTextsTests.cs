@@ -44,7 +44,8 @@ public sealed class ImportExportedTextsTests : IAsyncLifetime
     public async Task InitializeAsync()
     {
         await _factory.ResetDatabaseAsync(
-            "TRUNCATE translation.\"Translations\", translation.\"GameVersions\", translation.\"Translators\" CASCADE;");
+            "TRUNCATE translation.\"Translations\", translation.\"GameVersions\", translation.\"Translators\", "
+            + "translation.\"TranslationArtifacts\" CASCADE;");
     }
 
     public Task DisposeAsync() => Task.CompletedTask;
@@ -130,6 +131,104 @@ public sealed class ImportExportedTextsTests : IAsyncLifetime
 
         (await GetTranslationAsync(3))!.IsRemoved.ShouldBeTrue();
         (await GetTranslationAsync(4)).ShouldNotBeNull();
+    }
+
+    [Fact]
+    public async Task Import_ReAddedRemovedRowWithIdenticalSource_ShouldRestoreApprovedStatusAndDistributeItAgain()
+    {
+        // Arrange — approve Polish for row 1, remove it in the next version, then a third version
+        // re-adds the identical English source (spec 0001: re-adding a removed pair with an
+        // unchanged source restores the previous status, including Approved).
+        GameVersionId firstVersion = await SeedVersionAsync("48.0");
+        using HttpClient client = AdminClient();
+        await client.PostAsync(ImportRoute(firstVersion), ExportContent(Line(1, "Alpha"), Line(2, "Beta")));
+        await AttachPolishAsync(gossipId: 1, polish: "Alfa");
+        await ApprovePolishAsync(gossipId: 1);
+
+        GameVersionId secondVersion = await SeedVersionAsync("48.1");
+        await client.PostAsync($"{ImportRoute(secondVersion)}?allowMassRemoval=true", ExportContent(Line(2, "Beta")));
+        (await GetTranslationAsync(1))!.IsRemoved.ShouldBeTrue();
+
+        // Wait for the removal's debounced rebuild to drop the row from the artifact, so the final
+        // poll strictly witnesses re-entry instead of a stale pre-removal artifact.
+        await TranslationFileDownloadPolling.DownloadWhenConvergedAsync(
+            _factory.CreateClient(),
+            "/api/v1/translation-files/pl",
+            (candidate, content) => candidate.IsSuccessStatusCode && !content.Contains($"{FileId}||1||"));
+
+        GameVersionId thirdVersion = await SeedVersionAsync("48.2");
+
+        // Act
+        HttpResponseMessage response = await client.PostAsync(
+            ImportRoute(thirdVersion), ExportContent(Line(1, "Alpha"), Line(2, "Beta")));
+        ImportSummary? summary = await response.Content.ReadFromJsonAsync<ImportSummary>();
+
+        // Assert — the restore leg is the only outcome: every counter stays put and the row is
+        // reported through the warning, with its Approved status and Polish intact.
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        summary.ShouldNotBeNull();
+        summary.Added.ShouldBe(0);
+        summary.SourceChanged.ShouldBe(0);
+        summary.Invalidated.ShouldBe(0);
+        summary.Removed.ShouldBe(0);
+        summary.Unchanged.ShouldBe(1);
+        summary.Warnings.ShouldContain(warning => warning.Contains("1 previously-removed row"));
+
+        Translation? restored = await GetTranslationAsync(1);
+        restored!.IsRemoved.ShouldBeFalse();
+        restored.Status.ShouldBe(TranslationStatus.Approved);
+        restored.TranslatedText.ShouldBe("Alfa");
+
+        // The still-Approved row re-enters the distributed file once the debounced background
+        // rebuild scheduled by the import converges (PERF-04).
+        (HttpResponseMessage download, string file) = await TranslationFileDownloadPolling.DownloadWhenConvergedAsync(
+            _factory.CreateClient(),
+            "/api/v1/translation-files/pl",
+            (candidate, content) => candidate.IsSuccessStatusCode && content.Contains($"{FileId}||1||Alfa||NULL||NULL||1"));
+        download.StatusCode.ShouldBe(HttpStatusCode.OK);
+        file.ShouldContain($"{FileId}||1||Alfa||NULL||NULL||1");
+    }
+
+    [Fact]
+    public async Task Import_ReAddedRemovedRowWithChangedSource_ShouldClearRemovalAndInvalidate()
+    {
+        // Arrange — same removal setup, but the third version re-adds row 1 with a reworded source
+        // (spec 0001: a changed-source re-add lands as NeedsReview with PreviousSourceText set).
+        GameVersionId firstVersion = await SeedVersionAsync("48.0");
+        using HttpClient client = AdminClient();
+        await client.PostAsync(ImportRoute(firstVersion), ExportContent(Line(1, "Alpha"), Line(2, "Beta")));
+        await AttachPolishAsync(gossipId: 1, polish: "Alfa");
+        await ApprovePolishAsync(gossipId: 1);
+
+        GameVersionId secondVersion = await SeedVersionAsync("48.1");
+        await client.PostAsync($"{ImportRoute(secondVersion)}?allowMassRemoval=true", ExportContent(Line(2, "Beta")));
+        (await GetTranslationAsync(1))!.IsRemoved.ShouldBeTrue();
+
+        GameVersionId thirdVersion = await SeedVersionAsync("48.2");
+
+        // Act
+        HttpResponseMessage response = await client.PostAsync(
+            ImportRoute(thirdVersion), ExportContent(Line(1, "Alpha reworded"), Line(2, "Beta")));
+        ImportSummary? summary = await response.Content.ReadFromJsonAsync<ImportSummary>();
+
+        // Assert — the changed-source re-add routes through the source-change leg (counted, never
+        // warned as a restore): removal cleared, the Polish invalidated for review against the kept
+        // previous English.
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        summary.ShouldNotBeNull();
+        summary.Added.ShouldBe(0);
+        summary.SourceChanged.ShouldBe(1);
+        summary.Invalidated.ShouldBe(1);
+        summary.Removed.ShouldBe(0);
+        summary.Unchanged.ShouldBe(1);
+        summary.Warnings.ShouldNotContain(warning => warning.Contains("previously-removed"));
+
+        Translation? reAdded = await GetTranslationAsync(1);
+        reAdded!.IsRemoved.ShouldBeFalse();
+        reAdded.Status.ShouldBe(TranslationStatus.NeedsReview);
+        reAdded.PreviousSourceText.ShouldBe("Alpha");
+        reAdded.Source.Text.ShouldBe("Alpha reworded");
+        reAdded.TranslatedText.ShouldBe("Alfa");
     }
 
     [Fact]
@@ -699,6 +798,18 @@ public sealed class ImportExportedTextsTests : IAsyncLifetime
         Translation translation = await dbContext.Translations
             .SingleAsync(row => row.FragmentKey.FileId == FileId && row.FragmentKey.GossipId == gossipId);
         translation.ProvideTranslation(polish, submitter.Id, DateTimeOffset.UtcNow);
+        await dbContext.SaveChangesAsync();
+    }
+
+    private async Task ApprovePolishAsync(int gossipId)
+    {
+        using IServiceScope scope = _factory.Services.CreateScope();
+        ApplicationWriteDbContext dbContext = scope.ServiceProvider.GetRequiredService<ApplicationWriteDbContext>();
+
+        Translator approver = await dbContext.Translators.FirstAsync();
+        Translation translation = await dbContext.Translations
+            .SingleAsync(row => row.FragmentKey.FileId == FileId && row.FragmentKey.GossipId == gossipId);
+        translation.Approve(approver.Id, DateTimeOffset.UtcNow);
         await dbContext.SaveChangesAsync();
     }
 

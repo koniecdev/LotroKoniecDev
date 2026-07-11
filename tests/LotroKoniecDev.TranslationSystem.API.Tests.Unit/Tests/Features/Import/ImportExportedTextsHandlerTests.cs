@@ -335,6 +335,33 @@ public sealed class ImportExportedTextsHandlerTests
     }
 
     [Fact]
+    public async Task Handle_WhenRemovedKeyReappearsWithIdenticalSource_ShouldRestoreTheRowAndWarn()
+    {
+        // Arrange — the stored digest is soft-removed and the upload carries the identical source,
+        // so the plan's only outcome is the restore leg (spec 0001 re-add).
+        GivenVersion(UnprocessedVersion());
+        Translation removed = ExistingRow(1, "A");
+        removed.MarkRemoved(VersionId, new DateTimeOffset(2026, 6, 10, 0, 0, 0, TimeSpan.Zero));
+        GivenExisting(removed);
+        _translationRepository.GetByIdsAsync(
+                Arg.Is<IReadOnlyList<TranslationId>>(ids => ids.Contains(removed.Id)),
+                Arg.Any<CancellationToken>())
+            .Returns([removed]);
+
+        // Act
+        Result<ImportSummary> result = await CreateHandler().Handle(
+            Command(VersionId, Export(Line(1, "A"))), CancellationToken.None);
+
+        // Assert — the handler applied the plan's restored ids (removal cleared, nothing counted
+        // elsewhere) and surfaced the restore through the summary warnings.
+        result.IsSuccess.ShouldBeTrue();
+        removed.IsRemoved.ShouldBeFalse();
+        result.Value.Added.ShouldBe(0);
+        result.Value.Unchanged.ShouldBe(0);
+        result.Value.Warnings.ShouldContain(warning => warning.Contains("1 previously-removed row"));
+    }
+
+    [Fact]
     public async Task Handle_WhenNoOlderUnprocessedVersions_ShouldNotEmitSupersedeWarning()
     {
         // Arrange — the default stub returns no older versions, so a plain baseline import warns nothing.

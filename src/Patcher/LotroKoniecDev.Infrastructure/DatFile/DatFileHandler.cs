@@ -3,6 +3,7 @@ using LotroKoniecDev.Application.Abstractions.DatFilesServices;
 using LotroKoniecDev.Domain.Core.Errors;
 using LotroKoniecDev.Domain.Core.Monads;
 using LotroKoniecDev.Domain.Models;
+using LotroKoniecDev.Primitives.Enums;
 
 namespace LotroKoniecDev.Infrastructure.DatFile;
 
@@ -19,11 +20,12 @@ public sealed class DatFileHandler : IDatFileHandler, IDatVersionReader
     /// Opens a LOTRO DAT file given its file path and returns a handle to the open file.
     /// </summary>
     /// <param name="datFilePath">The file path to the DAT file to be opened. It must not be null, empty, or whitespace.</param>
+    /// <param name="access">The native open mode: read-only opens work without write permission on the file.</param>
     /// <returns>
     /// A <see cref="Result{TValue}"/> containing the handle to the opened DAT file if the operation is successful;
     /// otherwise, a failure result with an error message describing why the file could not be opened.
     /// </returns>
-    public Result<int> Open(string datFilePath)
+    public Result<int> Open(string datFilePath, DatFileAccess access)
     {
         ThrowIfDisposed();
         ArgumentException.ThrowIfNullOrWhiteSpace(datFilePath);
@@ -37,12 +39,18 @@ public sealed class DatFileHandler : IDatFileHandler, IDatVersionReader
         byte[] datIdStamp = new byte[64];
         byte[] firstIterGuid = new byte[64];
 
+        uint openFlags = access switch
+        {
+            DatFileAccess.ReadWrite => DatExportNative.OpenFlagsReadWrite,
+            _ => DatExportNative.OpenFlagsRead
+        };
+
         try
         {
             int result = DatExportNative.OpenDatFileEx2(
                 requestedHandle,
                 datFilePath,
-                DatExportNative.OpenFlagsReadWrite,
+                openFlags,
                 out _,
                 out _,
                 out _,
@@ -74,6 +82,9 @@ public sealed class DatFileHandler : IDatFileHandler, IDatVersionReader
         }
     }
 
+    /// <summary>
+    /// Reads the DAT and game-data version numbers, opening the file read-only and closing it immediately.
+    /// </summary>
     public Result<DatVersionInfo> ReadVersion(string datFilePath)
     {
         ThrowIfDisposed();
@@ -93,7 +104,7 @@ public sealed class DatFileHandler : IDatFileHandler, IDatVersionReader
             int result = DatExportNative.OpenDatFileEx2(
                 requestedHandle,
                 datFilePath,
-                DatExportNative.OpenFlagsReadWrite,
+                DatExportNative.OpenFlagsRead,
                 out _,
                 out _,
                 out int vnumDatFile,

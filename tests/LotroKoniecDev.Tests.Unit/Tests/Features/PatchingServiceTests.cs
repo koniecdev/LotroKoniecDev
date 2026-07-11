@@ -30,7 +30,7 @@ public sealed class PatchingServiceTests
 
     private void SetupAllPassingDefaults()
     {
-        _datFileHandler.Open(Arg.Any<string>()).Returns(Result.Success(DatHandle));
+        _datFileHandler.Open(Arg.Any<string>(), DatFileAccess.ReadWrite).Returns(Result.Success(DatHandle));
         _datFileHandler.GetAllSubfileSizes(DatHandle).Returns(new Dictionary<int, (int, int)>
         {
             { TextFileId, (100, 1) }
@@ -121,7 +121,7 @@ public sealed class PatchingServiceTests
         SetupTranslations(CreateTranslation());
 
         Error openError = new("DatFile.CannotOpen", "Locked", ErrorType.IoError);
-        _datFileHandler.Open(Arg.Any<string>()).Returns(Result.Failure<int>(openError));
+        _datFileHandler.Open(Arg.Any<string>(), DatFileAccess.ReadWrite).Returns(Result.Failure<int>(openError));
 
         // Act
         Result<PatchSummaryResponse> result = _sut.ApplyTranslations("/translations/polish.txt", "/game/client_local_English.dat");
@@ -389,7 +389,7 @@ public sealed class PatchingServiceTests
         byte[] subFileData = TestDataFactory.CreateTextSubFileDataWithArgs(
             TextFileId, FragmentId1, ["Part1", "Part2", "Part3"], argRefs);
 
-        _datFileHandler.Open(Arg.Any<string>()).Returns(Result.Success(DatHandle));
+        _datFileHandler.Open(Arg.Any<string>(), DatFileAccess.ReadWrite).Returns(Result.Success(DatHandle));
         _datFileHandler.GetAllSubfileSizes(DatHandle).Returns(new Dictionary<int, (int, int)>
         {
             { TextFileId, (subFileData.Length, 1) }
@@ -440,7 +440,7 @@ public sealed class PatchingServiceTests
                 return Result.Success<IReadOnlyList<Translation>>(new List<Translation> { CreateTranslation() });
             });
 
-        _datFileHandler.Open(Arg.Any<string>())
+        _datFileHandler.Open(Arg.Any<string>(), DatFileAccess.ReadWrite)
             .Returns(_ =>
             {
                 callOrder.Add("open_dat");

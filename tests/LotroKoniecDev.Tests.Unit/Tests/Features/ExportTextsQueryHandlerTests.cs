@@ -48,7 +48,7 @@ public sealed class ExportTextsQueryHandlerTests : IDisposable
         result.IsFailure.ShouldBeTrue();
         result.Error.Type.ShouldBe(ErrorType.Validation);
         result.Error.Code.ShouldBe("ExportTextsQuery.Validation");
-        _mockHandler.DidNotReceive().Open(Arg.Any<string>());
+        _mockHandler.DidNotReceive().Open(Arg.Any<string>(), Arg.Any<DatFileAccess>());
     }
 
     [Fact]
@@ -57,7 +57,7 @@ public sealed class ExportTextsQueryHandlerTests : IDisposable
         // Arrange
         string outputPath = Path.Combine(_tempDir, "output.txt");
 
-        _mockHandler.Open("test.dat").Returns(Result.Success(0));
+        _mockHandler.Open("test.dat", DatFileAccess.Read).Returns(Result.Success(0));
         _mockHandler.GetAllSubfileSizes(0).Returns(new Dictionary<int, (int, int)>
         {
             { 0x25000001, (100, 1) }
@@ -83,7 +83,7 @@ public sealed class ExportTextsQueryHandlerTests : IDisposable
         // Arrange
         string outputPath = Path.Combine(_tempDir, "output.txt");
         Error error = new("DatFile.CannotOpen", "Cannot open", ErrorType.IoError);
-        _mockHandler.Open("test.dat").Returns(Result.Failure<int>(error));
+        _mockHandler.Open("test.dat", DatFileAccess.Read).Returns(Result.Failure<int>(error));
 
         ExportTextsQuery query = new("test.dat", outputPath);
 
@@ -109,7 +109,7 @@ public sealed class ExportTextsQueryHandlerTests : IDisposable
         // Arrange
         string outputPath = Path.Combine(_tempDir, "output.txt");
 
-        _mockHandler.Open("test.dat").Returns(Result.Success(0));
+        _mockHandler.Open("test.dat", DatFileAccess.Read).Returns(Result.Success(0));
         _mockHandler.GetAllSubfileSizes(0).Returns(new Dictionary<int, (int, int)>
         {
             { 0x25000001, (100, 1) },
@@ -139,7 +139,7 @@ public sealed class ExportTextsQueryHandlerTests : IDisposable
         string outputPath = Path.Combine(_tempDir, "output.txt");
         Error loadError = new("SubFile.ParseError", "Corrupted", ErrorType.IoError);
 
-        _mockHandler.Open("test.dat").Returns(Result.Success(0));
+        _mockHandler.Open("test.dat", DatFileAccess.Read).Returns(Result.Success(0));
         _mockHandler.GetAllSubfileSizes(0).Returns(new Dictionary<int, (int, int)>
         {
             { 0x25000001, (100, 1) },
@@ -167,7 +167,7 @@ public sealed class ExportTextsQueryHandlerTests : IDisposable
         // Arrange
         string outputPath = Path.Combine(_tempDir, "output.txt");
 
-        _mockHandler.Open("test.dat").Returns(Result.Success(42));
+        _mockHandler.Open("test.dat", DatFileAccess.Read).Returns(Result.Success(42));
         _mockHandler.GetAllSubfileSizes(42)
             .Throws(new InvalidOperationException("Simulated failure"));
 

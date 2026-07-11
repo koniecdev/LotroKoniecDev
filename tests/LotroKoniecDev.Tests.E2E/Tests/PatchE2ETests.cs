@@ -1,3 +1,5 @@
+using System.Security.Cryptography;
+
 namespace LotroKoniecDev.Tests.E2E.Tests;
 
 [Collection("E2E")]
@@ -115,5 +117,49 @@ public sealed class PatchE2ETests
         //Assert — should resolve "polish" → "translations/polish.txt" and succeed
         result.ExitCode.ShouldBe((int)CliExitCode.Success,
             $"Short name 'polish' should resolve to translations/polish.txt. stdout: {result.Stdout}");
+    }
+
+    /// <summary>
+    /// Option A (#443) feasibility gate on real Windows: the read-write open path must still
+    /// genuinely demand write access — patching a read-only DAT copy fails without changing a byte.
+    /// </summary>
+    [SkippableFact]
+    public async Task Patch_ShouldFailAndLeaveDatUnchanged_WhenDatCopyIsReadOnly()
+    {
+        Skip.If(!_fixture.IsDatFileAvailable, "DAT file not found in TestData/");
+
+        //Arrange
+        string tempDatPath = _fixture.CreateTempDatCopy();
+        string tempDir = Path.GetDirectoryName(tempDatPath)!;
+        File.SetAttributes(tempDatPath, File.GetAttributes(tempDatPath) | FileAttributes.ReadOnly);
+        byte[] hashBefore = await ComputeFileHashAsync(tempDatPath);
+
+        try
+        {
+            //Act
+            CliResult result = await _fixture.RunCliAsync(
+                $"patch \"{_fixture.TranslationsPolishPath}\" -d \"{tempDatPath}\"");
+
+            //Assert
+            result.ExitCode.ShouldNotBe((int)CliExitCode.Success,
+                "Patching a read-only DAT should fail because the read-write open demands write access");
+            byte[] hashAfter = await ComputeFileHashAsync(tempDatPath);
+            hashAfter.ShouldBe(hashBefore, "A failed patch must not change a single byte of the DAT");
+        }
+        finally
+        {
+            // The .backup copy inherits ReadOnly via File.Copy — clear the attribute on every
+            // file so the fixture's temp-dir cleanup does not fail on Windows.
+            foreach (string file in Directory.GetFiles(tempDir))
+            {
+                File.SetAttributes(file, File.GetAttributes(file) & ~FileAttributes.ReadOnly);
+            }
+        }
+    }
+
+    private static async Task<byte[]> ComputeFileHashAsync(string filePath)
+    {
+        await using FileStream stream = File.OpenRead(filePath);
+        return await SHA256.HashDataAsync(stream);
     }
 }

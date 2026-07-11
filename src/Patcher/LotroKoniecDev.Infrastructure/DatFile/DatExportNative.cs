@@ -22,6 +22,11 @@ internal static partial class DatExportNative
     public const uint OpenFlagsReadWrite = 130;
 
     /// <summary>
+    /// Flags for opening DAT files read-only: Read (2).
+    /// </summary>
+    public const uint OpenFlagsRead = 2;
+
+    /// <summary>
     /// Opens a specified DAT file with extended configurations and retrieves detailed metadata about the file.
     /// This method establishes a connection to a DAT file, preparing it for reading and writing operations along with metadata extraction.
     /// </summary>

@@ -77,6 +77,35 @@ public sealed class AccountAggregateHateoasTests : EndpointsTestBase
     }
 
     [Fact]
+    public async Task ExportAccountData_ShouldExposeOnlyCancelDeletionTransition_WhenDeletionIsScheduled()
+    {
+        // Arrange - schedule GDPR deletion; the self-contained JWT stays valid within
+        // its lifetime, so the aggregate remains readable during the grace window and
+        // must advertise cancel-deletion as the only meaningful transition.
+        (RegisterRequest registerRequest, _) = await UserFactory.RegisterRandomUserWithRequestAsync(
+            ApiClient, Faker, AccountConfirmationEmailSpy, TestPassword);
+        string accessToken = await GetAccessTokenAsync(registerRequest.Email, TestPassword);
+
+        using HttpRequestMessage deleteRequest = new(HttpMethod.Post, "auth/account/delete");
+        deleteRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+        deleteRequest.Content = JsonContent.Create(new DeleteAccountRequest(TestPassword));
+        HttpResponseMessage deleteResponse = await ApiClient.Http.SendAsync(deleteRequest);
+        deleteResponse.StatusCode.ShouldBe(HttpStatusCode.NoContent);
+
+        // Act
+        AccountDataExportResponse response = await RequestHateoasResponseAsync(accessToken);
+
+        // Assert
+        response.AuthData.DeletionScheduledAt.ShouldNotBeNull();
+        response.Links.Count.ShouldBe(2);
+        response.Links.ShouldContain(l => l.Rel == Rels.Self && l.Method == "GET");
+        response.Links.ShouldContain(l => l.Rel == Rels.CancelDeletion && l.Method == "POST");
+        response.Links.ShouldNotContain(
+            l => l.Rel == Rels.ChangePassword || l.Rel == Rels.DeleteAccount,
+            "a deletion-scheduled account must not advertise dead transitions");
+    }
+
+    [Fact]
     public async Task ExportAccountData_SelfLink_ShouldPointAtDataExportEndpoint()
     {
         // Arrange

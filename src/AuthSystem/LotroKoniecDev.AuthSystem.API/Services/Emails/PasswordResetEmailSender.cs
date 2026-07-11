@@ -1,5 +1,6 @@
 using System.Net;
 using Microsoft.Extensions.Logging;
+using LotroKoniecDev.AuthSystem.API.Extensions;
 using LotroKoniecDev.AuthSystem.Infrastructure.Emails;
 using LotroKoniecDev.SharedKernel.Monads;
 
@@ -32,7 +33,7 @@ internal sealed class PasswordResetEmailSender : IPasswordResetEmailSender
         using IDisposable? scope = _logger.BeginScope(new Dictionary<string, object?>
         {
             ["EmailOperation"] = "PasswordReset",
-            ["Recipient"] = email
+            ["Recipient"] = email.MaskEmail()
         });
 
         return await _emailService

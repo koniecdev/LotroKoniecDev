@@ -56,6 +56,15 @@ owner inputs — this phase is not loopable). Order matters; DNS early (ACME nee
 
 TheKittySaver: twin epic in its repo after LOTRO prod is live — same recipe, `/opt/tks`,
 uratujkota.pl vhosts appended to the same Caddy (slots pre-commented in #488's Caddyfile).
+**One extra must-have LOTRO doesn't have: TKS stores cat gallery photos + announcement
+thumbnails in Azure Blob** (`Infrastructure/FileStorage/AzureBlob/`, provisioned by its
+`iac/storage.tf`; read links via `IImageReadLinkFactory`). The seam is interface + connection
+string (`AzureBlobFileStorageRegistration` takes `ConnectionString`/`ServiceUri`), so the
+decided path is a **fresh storage account on the owner's personal (pay-as-you-go) Azure
+account** — config-only swap, cents/month at portfolio scale. Existing blobs on the dead
+student subscription are test/seed data (retained ~90 days, recoverable only if the sub
+revives) — plan for re-seed, don't block on recovery. The same personal storage account also
+takes the nightly `pg_dump` backups + encrypted env copies (Neon free = 6 h PITR only).
 
 ## Secrets — source of truth and how to remint
 

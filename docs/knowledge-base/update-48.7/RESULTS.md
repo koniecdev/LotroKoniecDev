@@ -3,6 +3,7 @@
 **Data:** 2026-06-25
 **Operator:** Claude (automated) + user (in-game verification + update trigger)
 **Status:** ✅ **ALL TESTS PASSED — simplified flow validated across a second live update (SKIP-path branch)**
+**Redaction note:** quest-text content in this folder redacted to synthetic equivalents 2026-07 (LEGAL-08); the empirical result is unaffected.
 
 ## Verdict
 
@@ -48,8 +49,8 @@ chunki (w tym nasze translacje) pozostały nietknięte.
 
 | # | FileId | GossipId | Content | 48.0 line → 48.7 line |
 |---|--------|----------|---------|----------------------|
-| 1 | 620871150 | 218649169 | `'Mamy trop…Szlak czerwonych kwiatów` | 255033 → 255044 |
-| 2 | 620759036 | 218649169 | `'PL - We cannot allow the Dourhands…` | 19821 → 19821 |
+| 1 | 620871150 | 218649169 | `'Mamy znak…Szare ćmy wznoszą się rzędem` | 255033 → 255044 |
+| 2 | 620759036 | 218649169 | `'PL - We cannot let the old warden…` | 19821 → 19821 |
 | 3 | 620757435 | 225138404 | `Wejdź do Śródziemia` | 7063 → 7063 |
 | 4 | 620757027 | 9795381 | `Kliknij tutaj aby wybrać swój tytuł` | 3798 → 3798 |
 | 5 | 620861331 | 228870261 | `Ekwipunek` | 227819 → 227830 |
@@ -123,7 +124,7 @@ client_local_English.48.7.write-test.dat  — WRITE path test result (patched 48
 client_local_English.48.7.write-test.dat.backup — auto-backup created by patch command
 export-48.0.txt                           — pre-update full export (78.6 MB, 792,500 fragments)
 export-48.7.txt                           — post-update full export (78.7 MB, 793,659 fragments)
-diff-48.0-vs-48.7.txt                      — full unified diff (131 KB, 204 hunks)
+diff-48.0-vs-48.7.txt                      — full unified diff (131 KB, 204 hunks; repo copy removed 2026-07 — verbatim game text, LEGAL-08; stats preserved above)
 polish-pre-48.7.txt                        — polish.txt snapshot (hash 40b613a2…)
 version-file-pre-48.7.txt                  — "48|112|3|<hash>" (pre-update, restored after WRITE-test)
 ```

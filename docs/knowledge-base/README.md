@@ -73,7 +73,7 @@ Detailed analysis: [vnum-observations.md](vnum-observations.md)
 ### DAT Export Diffs
 Detailed analysis: [dat-export-diff-2026-03-22.md](dat-export-diff-2026-03-22.md)
 - 47.1→47.2: ~5000 lines, skill rewording
-- 47.2→48.0: [update-48.0/diff-47.2-vs-48.0.txt](update-48.0/diff-47.2-vs-48.0.txt) — 587 hunks, +4,231 fragments, new region
+- 47.2→48.0: 587 hunks, +4,231 fragments, new region — stats in [update-48.0/RESULTS.md](update-48.0/RESULTS.md); the raw diff lives in the gitignored `intel/` (repo copy removed 2026-07, LEGAL-08 — verbatim game text)
 
 ### LOTRO Update History
 Detailed analysis: [lotro-update-history.md](lotro-update-history.md)
@@ -115,7 +115,7 @@ only the irreplaceable text artifacts are preserved here:
 |------|-----------|
 | [`BASELINE.md`](update-48.0/BASELINE.md) | Pre-update 47.2 snapshot: DAT hash, export stats, the 8 translation pairs |
 | [`RESULTS.md`](update-48.0/RESULTS.md) | Full 47.2→48.0 test results, metrics, verdict |
-| [`diff-47.2-vs-48.0.txt`](update-48.0/diff-47.2-vs-48.0.txt) | Unified diff of the two full exports (587 hunks) — the only surviving record of exactly what changed |
+| `diff-47.2-vs-48.0.txt` | Unified diff of the two full exports (587 hunks) — repo copy removed 2026-07 (LEGAL-08, verbatim game text); survives only in the gitignored `intel/update-48.0/`, stats preserved in `RESULTS.md` |
 | [`launch-during-update.log`](update-48.0/launch-during-update.log) | Serilog of the launch flow during the update |
 | `polish-pre-48.txt` | `polish.txt` snapshot at test time |
 | `version-file-pre-48.txt` / `version-file-post-48.txt` | Version file before/after the run |
@@ -131,7 +131,7 @@ Same shape as `update-48.0/`. The 1.76 GB DAT backups + 78 MB full exports live 
 |------|-----------|
 | [`BASELINE.md`](update-48.7/BASELINE.md) | Pre-update 48.0 snapshot: DAT hash, export stats, the 8 translation pairs |
 | [`RESULTS.md`](update-48.7/RESULTS.md) | Full 48.0→48.7 results, metrics, verdict |
-| [`diff-48.0-vs-48.7.txt`](update-48.7/diff-48.0-vs-48.7.txt) | Unified diff of the two full exports (131 KB, 204 hunks) |
+| `diff-48.0-vs-48.7.txt` | Unified diff of the two full exports (131 KB, 204 hunks) — repo copy removed 2026-07 (LEGAL-08, verbatim game text); survives only in the gitignored `intel/update-48.7/`, stats preserved in `RESULTS.md` |
 | `polish-pre-48.7.txt` | `polish.txt` snapshot at test time |
 | `version-file-pre-48.7.txt` | `48|112|3|<hash>` before the run |
 

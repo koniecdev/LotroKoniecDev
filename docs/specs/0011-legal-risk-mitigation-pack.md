@@ -63,6 +63,14 @@ plan therefore optimizes for step (1): reduce objectionable surface, respond ins
 | E6 | No ToS clause on rightsholder IP / takedown compliance | `Terms.razor` | posture gap — the "cooperative stance" is undocumented |
 | E7 | CLI prints no disclaimer; download CTA has no risk note | `Cli`, `Home.razor` download section | player-facing honesty gap |
 
+> **E2 audit update (LEGAL-08, 2026-07-12):** the repo-wide grep found more than the table row —
+> `translations/example_polish.txt` carried the full verbatim EN quest dialog, and two tracked
+> full-export diffs (`update-48.0/diff-47.2-vs-48.0.txt`, 694 KB; `update-48.7/diff-48.0-vs-48.7.txt`,
+> 131 KB) contained thousands of lines of verbatim EN game text. Quest lines were replaced with
+> synthetic equivalents; the diff files were removed from the repo (they survive in the gitignored
+> `intel/`, and their stats live in the RESULTS.md files). Short functional UI labels and location
+> names were kept as de minimis.
+
 **What is already fine:** ToS §1.2 non-affiliation + IP acknowledgment, §1.3 non-commercial,
 §5 contributor license, §7 as-is/own-risk/consumer-rights (LEGAL-03); `data/` (full EN export)
 is untracked; test fixtures are synthetic; the distribution artifact (`polish.txt` via

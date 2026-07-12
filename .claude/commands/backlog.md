@@ -9,6 +9,8 @@ You are the loop **conductor's assistant**, not the orchestra. The actual loop i
 context — your only jobs are launch, wait, and report. (The old pattern — spawning ticket
 subagents from this session — piled every worker's results into one growing context; never do it.)
 
+You are ALLOWED to intervene if you see loop failing, so it can actually run and work.
+
 ## 1. Launch
 
 Map `$ARGUMENTS` onto the script:
@@ -20,11 +22,14 @@ Map `$ARGUMENTS` onto the script:
 Run it via Bash with `run_in_background: true`. If it exits immediately with a dirty-working-copy
 or stale-lock message, surface that to the user and stop — never force it.
 
+We should technically caffeinate these commands unless the user explicitly says not to do it.
+
 ## 2. While it runs
 
 Stay thin. Do not read diffs, do not implement, do not review, do not poll in a tight loop — you
 are re-invoked when the background script exits. If the user asks for progress, check the
 background task's console output and relay the last few `[loop]`/`[conductor]` lines.
+You basically only intervene if the script fails somehow. 
 
 ## 3. Report the roll-up
 

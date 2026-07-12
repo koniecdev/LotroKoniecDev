@@ -45,12 +45,14 @@ public sealed class SecurityHeadersMiddlewareTests
     }
 
     [Fact]
-    public void BuildContentSecurityPolicy_AllowsTheGoogleFontsOriginsTheLayoutDependsOn()
+    public void BuildContentSecurityPolicy_AdmitsNoThirdPartyStyleOrFontOrigins()
     {
         string policy = SecurityHeadersMiddleware.BuildContentSecurityPolicy(AuthAuthority);
 
-        policy.ShouldContain("style-src 'self' 'unsafe-inline' https://fonts.googleapis.com");
-        policy.ShouldContain("font-src 'self' https://fonts.gstatic.com");
+        policy.ShouldContain("style-src 'self' 'unsafe-inline'");
+        policy.ShouldContain("font-src 'self'");
+        policy.ShouldNotContain("fonts.googleapis.com");
+        policy.ShouldNotContain("fonts.gstatic.com");
     }
 
     [Fact]

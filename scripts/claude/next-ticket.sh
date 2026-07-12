@@ -12,8 +12,8 @@
 #                           (default: loop-blocked,qa,post-mvp,audit — qa passes are manual/human,
 #                           post-mvp is deliberately cut from MVP per CLAUDE.md, and audit findings
 #                           are triaged by a human first: name one explicitly to work it)
-#        LOOP_SKIP_TITLES   regex over titles to exclude (default: ^M4- — the WPF milestone is
-#                           Windows-only and can't build on the macOS loop host)
+#        LOOP_SKIP_TITLES   regex over titles to exclude (default: ^M4- — the desktop-app milestone
+#                           targets the Windows patcher runtime; its E2E can't run on the macOS host)
 #        LOOP_SKIP_ISSUES   space-separated numbers to exclude (default: 85 — the M2-18 forum
 #                           watcher is deferred post-MVP; work it only by naming it explicitly)
 #        see issue-trust.sh for the provenance knobs (LOOP_TRUSTED_ASSOCIATIONS / _LOGINS,

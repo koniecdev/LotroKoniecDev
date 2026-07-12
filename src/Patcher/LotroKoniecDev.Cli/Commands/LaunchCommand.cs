@@ -57,6 +57,8 @@ internal sealed class LaunchCommand : AsyncCommand<LaunchCommand.Settings>
     protected override async Task<int> ExecuteAsync(CommandContext context, Settings settings,
         CancellationToken cancellationToken)
     {
+        ConsoleWriter.WriteNotice(RiskNotice.Text);
+
         // Auto-download the current translation file before launch (spec 0001 Q5, freeze exception):
         // skipped when disabled or no TMS URL is configured. Never blocks launch on the network — an
         // offline server with a cached file proceeds; only "offline + nothing cached" aborts here.

@@ -56,7 +56,7 @@ Algorytm i id klucza:
 `kid` (`OpenIddictExtensions.cs:159`) wskazuje, którym kluczem RSA podpisano — ważne przy rotacji.
 
 ### 2.2 Payload
-Claimy. U nas access token niesie m.in. (`TokenEndpoint.cs:197-207`):
+Claimy. U nas access token niesie m.in. (`TokenEndpoint.cs:229-234`):
 ```json
 {
   "sub": "0190f3a2-....",        // id usera (IdentityId) — jedyna referencja cross-context
@@ -150,7 +150,7 @@ back-channel idzie po `https://localhost:5003` (tms-api: fallback `Auth:Authorit
 tokenie i metadanych OIDC `iss` jest zawsze browser-facing (`https://localhost:5003/`).
 
 ### 4.2 Klienci OAuth zarejestrowani w bazie
-Seedowani na starcie (`DatabaseSeederExtensions.cs:109`), id z `AuthConstants.ClientIds`:
+Seedowani na starcie (`DatabaseSeederExtensions.cs:111`), id z `AuthConstants.ClientIds`:
 
 | `client_id` | Typ | Grants | Sekret | Uwagi |
 |---|---|---|---|---|
@@ -179,7 +179,7 @@ OpenIddict ma trzy części, wszystkie włączone w `OpenIddictExtensions.cs:17-
 ## 6. AuthSystem — Authorization Server krok po kroku
 
 ### 6.1 ASP.NET Core Identity (baza userów)
-`AddIdentityCore<ApplicationUser>` (`PersistenceDependencyInjection.cs:40`). `ApplicationUser`
+`AddIdentityCore<ApplicationUser>` (`PersistenceDependencyInjection.cs:41`). `ApplicationUser`
 rozszerza `IdentityUser<Guid>` o zgody RODO (`ApplicationUser.cs`). Reguły (`:44-51`):
 - hasło: digit + lowercase + uppercase + non-alphanumeric, `RequiredLength = 8`;
 - `User.RequireUniqueEmail = true`;
@@ -219,26 +219,27 @@ Tokeny email-confirmation/reset żyją 24 h (`DataProtectionTokenProviderOptions
 | `connect/revoke` | — middleware OpenIddict | rewokacja pojedynczego tokena; OpenIddict nie ma dla niej passthrough, więc obsługuje ją sam — trasa w `MiddlewareServedEndpoints.cs` niesie wyłącznie metadane rate-limit (#349) |
 | `connect/introspect` | — middleware OpenIddict | introspekcja tokena (RFC 7662) dla confidential clients; jak wyżej — trasa w `MiddlewareServedEndpoints.cs` tylko pod rate-limit (#349) |
 
-`TokenEndpoint.cs:149-158` ustawia **destinations** — które claimy lądują w access tokenie, a które w
-id tokenie. `sub`/`email`/`name`/`role` idą do obu.
+`TokenEndpoint.cs:239-244` (współdzielony `CreateClaimsIdentityAsync`; refresh grant powiela
+switch inline w `:181-187`) ustawia **destinations** — które claimy lądują w access tokenie, a
+które w id tokenie. `sub`/`email`/`name`/`role` idą do obu.
 
 ### 6.5 Register endpoint (custom) — i **brak sagi**
 `POST auth/register` (`RegisterUser.cs`, `AllowAnonymous`, rate-limited):
 1. walidacja (email unikalny/regex ≤250 — **to e-mail jest loginem**, ADR-0022; username: unikalny
    handle wyłącznie do wyświetlania, `^[a-zA-Z0-9]+$` ≤150 — `UsernameConstants`; hasło 8–128 +
-   złożoność, **obie zgody RODO `true`**);
-2. `userManager.CreateAsync` → przypisanie roli **`Translator`** (`:133`);
-3. wysyłka maila potwierdzającego; gdy mail padnie → **fallback auto-confirm** (`:141-157`);
+   złożoność, **wszystkie trzy zgody `true`** — privacy, data-processing i ToS od LEGAL-03);
+2. `userManager.CreateAsync` → przypisanie roli **`Translator`** (`:138-139`);
+3. wysyłka maila potwierdzającego; gdy mail padnie → **fallback auto-confirm** (`:146-155`);
 4. zwraca **201** z gołym `IdentityId`.
 
-**Kluczowe (`RegisterUser.cs:162-164`):** *brak* cross-contextowej sagi `RegisterUser→CreatePerson`
+**Kluczowe (`RegisterUser.cs:168-169`):** *brak* cross-contextowej sagi `RegisterUser→CreatePerson`
 (świadomy non-lift KittySavera). Profil tłumacza w TMS powstaje **leniwie** przy pierwszym
 uwierzytelnionym żądaniu (§7.3, ADR-0004). To największa różnica od KittySavera — i świetny temat na
 rozmowę („dlaczego rozdzieliliście rejestrację od profilu domenowego").
 
 ### 6.6 Skąd się biorą roles i scopes w tokenie
-- **roles**: z `userManager.GetRolesAsync(user)` przy wydawaniu tokena (`TokenEndpoint.cs:146`,
-  `AuthorizeEndpoint.cs:89`), wstawiane jako claimy `role`.
+- **roles**: z `userManager.GetRolesAsync(user)` przy wydawaniu tokena (`TokenEndpoint.cs:178`,
+  `:233`, `AuthorizeEndpoint.cs:105`), wstawiane jako claimy `role`.
 - **scopes**: z requestu klienta (`request.GetScopes()`), ograniczone permissionami klienta seedowanymi
   w bazie. `SetResources(AuthConstants.ClientIds.Api)` ustawia `aud` na `lotrokoniecdev-api`.
 
@@ -361,7 +362,7 @@ sesji) + nagłówek `Accept` HATEOAS do każdego wywołania `tms-api`. Frontend 
 ## 9. Service-to-service (client credentials)
 
 Gdy `auth-api` musi zawołać `tms-api` bez usera (albo dowolna usługa-do-usługi): grant
-**client_credentials** klienta `lotrokoniecdev-api` (confidential, sekret). `TokenEndpoint.cs:163-185`
+**client_credentials** klienta `lotrokoniecdev-api` (confidential, sekret). `TokenEndpoint.cs:195-217`
 buduje `ClaimsIdentity` z `sub = client_id`, scope'ami z requestu i `aud = lotrokoniecdev-api`. Po
 stronie `tms-api` taki token przechodzi policy `RequireServiceScope` (scope `service`) — gdyby slice
 tego wymagał (dziś żaden nie wymaga, ale infrastruktura jest gotowa).
@@ -399,9 +400,12 @@ HTTPS. Dev/test i wewnętrzne `http://…:8080` (compose) wyłączają wymóg.
 `Secure` — AUDIT-SEC-10/#400; w Development zostaje `SameAsRequest`), `Path=/` (sign-in/out zawsze
 trafiają w to samo cookie). 8 h sliding.
 
-### 10.7 Wymaganie zgody RODO przy rejestracji
-`RegisterUser.cs:48-52`: `acceptedPrivacyPolicy` i `acceptedDataProcessingConsent` **muszą być `true`**,
-data zgody stemplowana na `ApplicationUser`. `DeleteAccount` = erasure RODO + permanentny lockout;
+### 10.7 Wymaganie zgód RODO przy rejestracji i kasowanie konta
+`RegisterUser.cs:49-57`: `acceptedPrivacyPolicy`, `acceptedDataProcessingConsent` i (od LEGAL-03)
+`acceptedTermsOfService` **muszą być `true`**, data każdej zgody stemplowana na `ApplicationUser`.
+`DeleteAccount` **planuje** kasowanie RODO z 14-dniowym oknem anulowania (ADR-0031): konto
+zablokowane na czas okna, sesje i tokeny rewokowane, jednorazowy link anulowania mailem;
+erasure wykonuje finalizer po upływie okna, a anulowanie wymusza reset hasła.
 `auth/account/data-export` = eksport danych.
 
 ### 10.8 Walidacja kluczy w produkcji

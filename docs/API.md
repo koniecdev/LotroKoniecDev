@@ -66,7 +66,7 @@ signed JWTs — `OpenIddictExtensions.cs:64`) and exposes the public signing key
 | `client_credentials` | service-to-service (`lotrokoniecdev-api`) | always |
 | `password` | integration / E2E tests only | **Testing environment only** |
 
-OAuth clients seeded at startup (`DatabaseSeederExtensions.cs:109`):
+OAuth clients seeded at startup (`DatabaseSeederExtensions.cs:111`):
 
 | `client_id` | Type | Grants | Notes |
 |---|---|---|---|
@@ -75,7 +75,7 @@ OAuth clients seeded at startup (`DatabaseSeederExtensions.cs:109`):
 | `lotrokoniecdev-test` | public | password, refresh | seeded only in `Testing` |
 
 Token lifetimes (`OpenIddictSettings.cs`): access **60 min**, refresh **14 days**. Email-confirmation
-and password-reset tokens live **24 h** (`PersistenceDependencyInjection.cs:60`). Dev/Testing use
+and password-reset tokens live **24 h** (`PersistenceDependencyInjection.cs:63`). Dev/Testing use
 **ephemeral** signing keys; production supplies an RSA-2048 signing key (public half via JWKS) and a
 ≥256-bit symmetric encryption key via config, with one-previous-key rotation support.
 
@@ -106,7 +106,7 @@ idempotently provisions the caller's TMS `Translator` profile (ADR-0004, amended
 stamping attribution.
 
 **Roles** (`AuthConstants.Roles`): `Admin` (reviewer — approves, imports, registers versions) and
-`Translator` (edits Polish). A self-registered user gets **`Translator`** (`RegisterUser.cs:133`);
+`Translator` (edits Polish). A self-registered user gets **`Translator`** (`RegisterUser.cs:138-139`);
 the seeded admin gets `Admin`. **Scopes** (`AuthConstants.Scopes`): `api`, `service` (plus the OIDC
 `openid email profile roles offline_access`).
 
@@ -125,7 +125,8 @@ Content-Type: multipart/form-data          # the import upload only
 In non-dev/test, `tms-api` applies a **fixed-window 100 requests/minute per IP** policy across the
 endpoint group; over-limit returns **429** (`Program.cs:187-199`). `auth-api` rate-limits per IP: the
 OpenIddict `/connect/*` endpoints and the sensitive account endpoints (`auth/register`,
-confirm/reset/change-password, delete/export) carry the `auth-endpoint-limit` policy (10/min),
+confirm/reset/change-password, delete/cancel-deletion/export) carry the `auth-endpoint-limit`
+policy (10/min),
 forgot-password and resend-confirmation carry stricter 3/15 min policies, and the remaining API
 endpoints fall under the generic 20/min policy (health probes and the OpenIddict discovery/JWKS
 documents are deliberately unlimited).
@@ -246,8 +247,10 @@ always appended so pagination order is total. Without `sort`, translations order
 | `GET` | `/.well-known/openid-configuration` | anonymous | OIDC discovery document |
 | `GET` | `/.well-known/jwks` | anonymous | JSON Web Key Set (public signing key) |
 
-The login/consent UI is server-rendered Razor Pages: `/Account/Login`, `/Account/ConfirmEmail`,
-`/Account/ForgotPassword`, `/Account/ResetPassword`, `/Account/PrivacyPolicy`.
+The login/consent UI is server-rendered Razor Pages: `/Account/Login`, `/Account/Register`,
+`/Account/ConfirmEmail`, `/Account/ResendConfirmation`, `/Account/ForgotPassword`,
+`/Account/ResetPassword`, `/Account/PrivacyPolicy`, `/Account/CancelDeletion` (the emailed
+cancellation link's landing page — LEGAL-01).
 
 ### 7.2 Account & credential endpoints (`auth/*`)
 
@@ -259,12 +262,14 @@ The login/consent UI is server-rendered Razor Pages: `/Account/Login`, `/Account
 | `POST` | `auth/forgot-password` | anonymous | `ForgotPasswordRequest` (anti-enumeration: always succeeds) |
 | `POST` | `auth/reset-password` | anonymous | `ResetPasswordRequest { email, token, newPassword }` |
 | `POST` | `auth/change-password` | bearer token | `ChangePasswordRequest { currentPassword, newPassword }` |
-| `POST` | `auth/account/delete` | bearer token | `DeleteAccountRequest { password }` — GDPR erasure + permanent lockout |
+| `POST` | `auth/account/delete` | bearer token | `DeleteAccountRequest { password }` — **schedules** GDPR deletion (ADR-0031): 14-day grace window, account locked for the window, sessions + refresh tokens revoked, one-time cancellation link emailed → **204** + `X-Deletion-Scheduled-At` / `X-Deletion-Finalizes-At` headers; erasure runs in the finalizer only after the window elapses |
+| `POST` | `auth/account/cancel-deletion` | anonymous (emailed one-time token), rate-limited | `CancelAccountDeletionRequest { email, token }` → **200** `CancelAccountDeletionResponse { passwordResetToken }` — unlocks the account and forces a password reset (the pre-deletion password may be the attacker's) |
 | `GET` | `auth/account/data-export` | bearer token | `AccountDataExportResponse` — GDPR export |
 | `GET` | `/` | anonymous | discovery document (links into the auth flows) |
 
-`RegisterRequest`: `{ username, email, password, acceptedPrivacyPolicy, acceptedDataProcessingConsent }`.
-Both consent flags **must be `true`**. Password rules (`PasswordValidationRules.cs`): **8–128** chars,
+`RegisterRequest`: `{ username, email, password, acceptedPrivacyPolicy, acceptedDataProcessingConsent,
+acceptedTermsOfService }`. All three consent flags **must be `true`** (the ToS flag landed with
+LEGAL-03; acceptance + timestamp are persisted and surface in the data export). Password rules (`PasswordValidationRules.cs`): **8–128** chars,
 ≥1 digit, ≥1 lowercase, ≥1 uppercase, ≥1 special. Email unique (case-insensitively, physical via the
 unique `EmailIndex`), ≤ 250, regex-validated — **the e-mail is the login identifier** (ADR-0022).
 Username is a **display-only handle**: unique (case-insensitively), `^[a-zA-Z0-9]+$` (letters + digits
@@ -501,7 +506,9 @@ Sent only with `Accept: application/vnd.dev-lotrokoniecdev.hateoas.json`.
 ### 10.2 `auth-api` rels (`AuthSystem.Contracts/Hateoas/Rels.cs`)
 
 `self`, `register`, `forgot-password`, `export-account-data` (discovery); `change-password`,
-`delete-account`, `resend-email-confirmation` (account aggregate).
+`delete-account`, `resend-email-confirmation` (account aggregate). While a deletion is scheduled
+the account aggregate suppresses the normal rels and emits only `cancel-deletion`
+(POST `auth/account/cancel-deletion`) — every other transition is a dead end on a locked account.
 
 ---
 

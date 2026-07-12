@@ -29,8 +29,8 @@ The handbook goes **bottom to top**. Each part builds on the one before it:
 | 11. CI/CD and production | Pipelines, cloud, money |
 | 12. Defend the design | Interview questions and strong answers |
 | 13. Glossary | Every term, A to Z |
-| Appendix A | All 30 architecture decisions (ADRs), each in a few sentences |
-| Appendix B | All 8 feature specifications (specs), each in a few sentences |
+| Appendix A | All 31 architecture decisions (ADRs), each in a few sentences |
+| Appendix B | All 10 feature specifications (specs), each in a few sentences |
 
 **Shortcuts for different readers:**
 
@@ -998,8 +998,13 @@ consciously; Part 12, question 10.
 - **Username is a display-only handle**: unique, ASCII letters and digits only, enforced from
   one shared constant in three layers (validator, register page, Identity options). Emails must
   contain `@`, usernames cannot — the two identifier spaces cannot collide.
-- Passwords: 8–128 chars with complexity; registration requires both GDPR consents; users can
-  export their data and delete their account (erasure + permanent lockout).
+- Passwords: 8–128 chars with complexity; registration requires all three consents (privacy
+  policy, data processing, and — since LEGAL-03 — terms of service); users can export their
+  data and delete their account. Deletion is **two-phase** (ADR-0031): the request schedules
+  erasure behind a 14-day cancellation window — the account is locked, sessions and tokens are
+  revoked, and a one-time cancel link is emailed; only after the window does the background
+  finalizer anonymize the account and lock it permanently. Cancelling restores the account but
+  forces a password reset, since the deletion request may have come from a stolen password.
 - Registration sends a Polish confirmation email (through mailpit in dev). If the email
   *cannot be sent*, the account is auto-confirmed as a fallback — a pragmatic pre-release
   choice: better a user without a confirmed email than a user locked out by an SMTP outage.
@@ -1404,7 +1409,7 @@ is part of the design.
 
 | Term | Meaning |
 |---|---|
-| **ADR** | Architecture Decision Record — a short document: context, decision, consequences. The project has 30 (Appendix A). |
+| **ADR** | Architecture Decision Record — a short document: context, decision, consequences. The project has 31 (Appendix A). |
 | **Aggregate** | A small cluster of domain data changed only through methods on its root object, which enforce the business rules. |
 | **Artifact** | The pre-built `||` file with all approved translations, served to patchers. |
 | **Bounded context** | A self-contained model world with its own language and code. Here: the patcher and the TMS. |
@@ -1611,6 +1616,15 @@ Windows-VM runner idea is parked (prerequisites unconfirmed, no cheap KVM host, 
 by the staleness window). The manual pipeline was instrumented instead — notably the patcher's
 read paths no longer demand elevation. Why: YAGNI with a written revisit trigger.
 
+**ADR-0031 — GDPR account deletion runs through a 14-day grace period.**
+What: `DeleteAccount` no longer erases immediately — it schedules deletion, locks the account
+for a 14-day window (capped at 30 by options validation, inside GDPR Art. 12(3)'s one month),
+revokes sessions and tokens, and emails a one-time cancel link; a background finalizer performs
+the actual anonymization after the window, and cancelling forces a password reset. Why: with
+password-only confirmation, one credential-stuffing hit could irreversibly erase an account;
+the industry-standard grace window gives the legitimate owner a recovery path (ported from
+TKS ADR-0017).
+
 ---
 
 ## Appendix B — every spec in brief
@@ -1649,7 +1663,7 @@ per-row. Every spec-0001 rule preserved byte-for-byte; "unchanged" writes nothin
 timestamps prove it); plus a subtle retry-safety fix so a flaky commit cannot silently drop the
 diff. Budget: full baseline < 10 s in integration tests.
 
-**Spec 0005 — Game-versions management UI (Agreed).**
+**Spec 0005 — Game-versions management UI (Implemented).**
 A `/game-versions` page: list for every translator; admin-only manual register (for when the
 forum is down or the watcher does not exist yet) and admin-only guarded delete — only
 Unprocessed, never-referenced versions can go, enforced server-side; the UI shows buttons only
@@ -1663,7 +1677,7 @@ a streamed compact catalog projection) then apply (COPY for adds fed as a stream
 whole file or catalog in memory. Includes the EF-retry-buffering discovery (that one query uses
 a raw data reader) and reverted the temporary 4 GB container bridge.
 
-**Spec 0007 — Bulk approve from the list (Agreed).**
+**Spec 0007 — Bulk approve from the list (Implemented).**
 Checkboxes on the translations list; an admin approves up to 100 rows (one page) in one POST.
 Best-effort semantics: approve everything still approvable, count the rest as skipped — one
 stale row never blocks the batch; already-approved rows are no-ops (approver not re-stamped).
@@ -1678,6 +1692,21 @@ slots, joined to translations **by `(FileId, GossipId)` keys, never by text** (t
 `key:<FileId>:<GossipId>` tokens in Companion's data — empirically verified). A translator picks
 *a quest* and translates all its texts as one unit, with per-entry and per-category progress.
 The lens never mutates translations and never triggers the artifact rebuild.
+
+**Spec 0009 — Frontend "Moje konto": GDPR self-service (Implemented).**
+The privacy policy promises translators self-service export and deletion "w sekcji Moje konto" —
+LEGAL-01 shipped the whole backend, this spec builds the browser UX on top: view account data,
+download the full JSON data export, change password, and schedule account deletion with the
+exact finalization date shown; cancellation stays on the auth-side page driven by the emailed
+one-time token.
+
+**Spec 0010 — Terms of service (Implemented).**
+The service ran at lotro-translator.pl with no ToS anywhere. Two gaps made it critical: LOTRO is
+Standing Stone Games / Middle-earth Enterprises IP, so the platform must state its
+non-commercial, non-affiliated fan-project status; and the LEGAL-01 erasure design deliberately
+keeps translation contributions (anonymized) after account deletion — defensible only with an
+explicit contribution license, which the ToS now grants. Registration requires accepting it
+(the third consent flag).
 
 ---
 

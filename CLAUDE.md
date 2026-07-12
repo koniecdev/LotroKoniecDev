@@ -27,12 +27,14 @@ forbidden — never add them back.
 ## Project status — deployed, pre-launch (no real users yet)
 
 Active development. **Done:** M1 (patcher, empirically proven), **M2 — TMS backend** (all slices
-incl. CLI auto-download M2-20; the one exception: the forum watcher **M2-18 / #85 is still open**
-— game-version registration stays manual per ADR-0030), **M3 — Blazor SSR frontend** (manual
+incl. CLI auto-download M2-20; the forum watcher M2-18 / #85 was **deliberately cut to post-MVP**
+— owner decision 2026-06, recorded in ADR-0030; game-version registration stays manual, and
+neither the loop nor a contributor should pick #85 up), **M3 — Blazor SSR frontend** (manual
 QA pass QA-FE / #275 still open), **M6 — cloud deployment** (CD to Azure Container Apps + Neon,
 staging + prod — ADRs 0008–0029). **Open fronts:** M7 game-content catalog (epic #362, spec 0008
-agreed, not started), LEGAL/GDPR pack (epic #459), QA-FE manual pass (#275), M4 WPF player app,
-post-MVP TP backlog (epic #377).
+agreed, not started), LEGAL/GDPR pack (epic #459 — 01/02/03 landed, incl. the two-phase account
+deletion of ADR-0031; 04–07 open), QA-FE manual pass (#275), M4 WPF player app, post-MVP TP
+backlog (epic #377).
 
 No real users yet, so **API/code breaking changes are free** — no back-compat shims, no
 deprecation windows. The one exception is the **database schema**: the stack is deployed with
@@ -384,8 +386,9 @@ file_id||gossip_id||translated_text||args_order||args_id||approved
   and still **exits 0**, so a stale list silently caches an incomplete restore layer. Two defenses:
   image builds run `dotnet build`/`publish` with **`--no-restore`**, turning the gap into a hard
   `NETSDK1004`; and `scripts/check-dockerfile-restore-graph.sh` (with a `.ps1` twin) gates it in
-  **both** `pr-verify` and `ci`, because those workflows build no images and `cd` runs only after
-  the merge. A new project must join every Dockerfile whose restore graph reaches it.
+  **both** `pr-verify` and `ci` — `ci` builds no images, and pr-verify's image job (CI-01 / #403)
+  fires only on Dockerfile/.dockerignore/workflow edits, never on the project-graph changes that
+  actually stale a COPY list. A new project must join every Dockerfile whose restore graph reaches it.
   **The Blazor exception (#414):** the frontend image's `dotnet build` runs **without**
   `--no-restore`. `blazor.web.js` ships in `Microsoft.AspNetCore.App.Internal.Assets`, which the SDK
   references only once it sees `.razor` files — never during the `.csproj`-only restore — so
@@ -551,12 +554,13 @@ runs, env knobs, triage, troubleshooting): **`docs/claude-loop.md`**.
   of `exported.txt` + diff/invalidation, list/get/upsert/approve translations (approve clears
   invalidation + regenerates the artifact), translation-file distribution (pre-built artifact +
   ETag/304, `GET /translation-files/{lang}`), GameVersion endpoints, CLI auto-download (M2-20 —
-  `Features/TranslationFileSyncing` + `UpdateChecking`). **One leftover: the forum watcher
-  (M2-18 / #85) is still open** — game-version registration is manual for now (ADR-0030 keeps
-  the export→import pipeline manual too).
+  `Features/TranslationFileSyncing` + `UpdateChecking`). **The forum watcher (M2-18 / #85) is
+  deliberately post-MVP** — owner decision (2026-06, ADR-0030): game-version registration stays
+  manual, like the export→import pipeline. Don't work #85 without an explicit owner go-ahead.
 - **M3 — Frontend (Blazor Static SSR) — DONE** (manual QA pass **QA-FE / #275 still open**):
   lifted OIDC infra; pages: dashboard, translation list, editor with `<--DO_NOT_TOUCH!-->`
-  placeholder validation + approve flow, import/export, game-versions admin.
+  placeholder validation + approve flow, import/export, game-versions admin, "Moje konto"
+  (data export + account-deletion UX — LEGAL-02) and terms of service (LEGAL-03).
 - **M6 — Cloud deployment — DONE:** CD to Azure Container Apps + Neon Postgres, staging + prod
   two-stage promotion, Key Vault secrets, scale-to-zero + warm window + daily health ping,
   external SLO probe (ADRs 0008–0029; ops details in `docs/deployment/runbook.md`).

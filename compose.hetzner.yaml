@@ -128,6 +128,12 @@ services:
       DOMAIN_AUTH: ${DOMAIN_AUTH}
       DOMAIN_TMS: ${DOMAIN_TMS}
       ACME_EMAIL: ${ACME_EMAIL}
+      # TheKittySaver hostnames (its stack lives in /opt/tks and joins THIS network; this Caddy
+      # terminates TLS for it). Optional: a box without TKS keeps the *.localhost defaults —
+      # internal cert, no ACME, requests just 502.
+      TKS_DOMAIN_APP: ${TKS_DOMAIN_APP:-tks-app.localhost}
+      TKS_DOMAIN_AUTH: ${TKS_DOMAIN_AUTH:-tks-auth.localhost}
+      TKS_DOMAIN_API: ${TKS_DOMAIN_API:-tks-api.localhost}
     volumes:
       - ./.docker/hetzner/Caddyfile:/etc/caddy/Caddyfile:ro
       # /data holds the ACME account + issued certificates — losing it re-issues on next start
@@ -142,6 +148,10 @@ services:
           - ${DOMAIN_APP}
           - ${DOMAIN_AUTH}
           - ${DOMAIN_TMS}
+          # TKS in-stack back-channel: its containers resolve the public origins to this proxy.
+          - ${TKS_DOMAIN_APP:-tks-app.localhost}
+          - ${TKS_DOMAIN_AUTH:-tks-auth.localhost}
+          - ${TKS_DOMAIN_API:-tks-api.localhost}
     depends_on:
       auth-api:
         condition: service_healthy

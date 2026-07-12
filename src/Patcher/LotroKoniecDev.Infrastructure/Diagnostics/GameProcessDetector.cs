@@ -4,7 +4,7 @@ using Microsoft.Extensions.Logging;
 
 namespace LotroKoniecDev.Infrastructure.Diagnostics;
 
-public sealed class GameProcessDetector : IGameProcessDetector
+public sealed partial class GameProcessDetector : IGameProcessDetector
 {
     private static readonly string[] AllLotroProcessNames =
     [
@@ -45,8 +45,11 @@ public sealed class GameProcessDetector : IGameProcessDetector
         }
         catch (Exception ex)
         {
-            _logger.LogDebug(ex, "Failed to check for running LOTRO processes");
+            LogGameProcessCheckFailed(_logger, ex);
             return false;
         }
     }
+
+    [LoggerMessage(EventId = EventIds.GameProcessCheckFailed, Level = LogLevel.Debug, Message = "Failed to check for running LOTRO processes")]
+    private static partial void LogGameProcessCheckFailed(ILogger logger, Exception exception);
 }

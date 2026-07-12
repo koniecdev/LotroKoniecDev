@@ -10,7 +10,7 @@ namespace LotroKoniecDev.AuthSystem.API.Extensions;
 /// <c>RunAsync</c> and the container restarts. Worst case (4 attempts × ~20 s open timeout +
 /// 3 × 5 s delay ≈ 95 s) stays well under the 300 s ACA startup-probe budget.
 /// </summary>
-internal static class ColdStartRetry
+internal static partial class ColdStartRetry
 {
     internal const int DefaultMaxAttempts = 4;
     internal static readonly TimeSpan DefaultDelayBetweenAttempts = TimeSpan.FromSeconds(5);
@@ -36,12 +36,7 @@ internal static class ColdStartRetry
             }
             catch (Exception exception) when (attempt < maxAttempts && IsTransientDatabaseFailure(exception))
             {
-                logger.LogWarning(
-                    exception,
-                    "Transient database failure on startup attempt {Attempt}/{MaxAttempts}; retrying in {DelaySeconds}s",
-                    attempt,
-                    maxAttempts,
-                    delay.TotalSeconds);
+                LogTransientStartupFailure(logger, exception, attempt, maxAttempts, delay.TotalSeconds);
 
                 await Task.Delay(delay);
             }
@@ -62,4 +57,7 @@ internal static class ColdStartRetry
 
         return false;
     }
+
+    [LoggerMessage(EventId = EventIds.StartupTransientDatabaseFailure, Level = LogLevel.Warning, Message = "Transient database failure on startup attempt {Attempt}/{MaxAttempts}; retrying in {DelaySeconds}s")]
+    private static partial void LogTransientStartupFailure(ILogger logger, Exception exception, int attempt, int maxAttempts, double delaySeconds);
 }

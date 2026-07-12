@@ -4,6 +4,9 @@ using Microsoft.Extensions.Logging;
 namespace LotroKoniecDev.Logging.TimedOperations;
 
 #pragma warning disable CA2254 // Message template is composed at runtime by design (timer utility)
+#pragma warning disable CA1848 // LoggerMessage needs a compile-time template; this utility's template
+                               // is composed per operation, and a per-instance Define would re-parse
+                               // the template on every operation — slower than the plain Log call
 
 public sealed class TimedOperation : IDisposable
 {

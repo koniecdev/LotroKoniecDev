@@ -7,7 +7,7 @@ using Microsoft.Extensions.Logging;
 
 namespace LotroKoniecDev.Application.Features.GameLaunching;
 
-internal sealed class SimplifiedGameLaunchingStrategy : IGameLaunchingStrategy
+internal sealed partial class SimplifiedGameLaunchingStrategy : IGameLaunchingStrategy
 {
     private readonly IGameProcessDetector _gameProcessDetector;
     private readonly IFileHasher _fileHasher;
@@ -38,45 +38,45 @@ internal sealed class SimplifiedGameLaunchingStrategy : IGameLaunchingStrategy
     public ValueTask<Result<GameLaunchingResponse>> ExecuteAsync(
         GameLaunchingCommand command, CancellationToken cancellationToken)
     {
-        _logger.LogInformation("=== SIMPLIFIED LAUNCH START ===");
-        _logger.LogInformation("DatFilePath: {DatFilePath}", command.DatFilePath);
-        _logger.LogInformation("TranslationFilePath: {TranslationFilePath}", command.TranslationFilePath);
-        _logger.LogInformation("GameVersionFilePath: {GameVersionFilePath}", command.GameVersionFilePath);
+        LogLaunchStarted(_logger);
+        LogDatFilePath(_logger, command.DatFilePath);
+        LogTranslationFilePath(_logger, command.TranslationFilePath);
+        LogGameVersionFilePath(_logger, command.GameVersionFilePath);
 
         // 1. Is the game already running?
         if (_gameProcessDetector.IsLotroRunning())
         {
-            _logger.LogWarning("BLOCKED: LOTRO already running");
+            LogBlockedGameAlreadyRunning(_logger);
             return ValueTask.FromResult(
                 Result.Failure<GameLaunchingResponse>(DomainErrors.GameLaunch.GameAlreadyRunning));
         }
 
         // 2. Has the translation file changed since last apply?
-        _logger.LogInformation("Step 1: Computing translation file hash...");
+        LogComputingTranslationHash(_logger);
         Result<string> hashResult = _fileHasher.ComputeHash(command.TranslationFilePath);
         if (hashResult.IsFailure)
         {
-            _logger.LogError("ComputeHash FAILED: {Error}", hashResult.Error.Message);
+            LogComputeHashFailed(_logger, hashResult.Error.Message);
             return ValueTask.FromResult(
                 Result.Failure<GameLaunchingResponse>(hashResult.Error));
         }
         string currentHash = hashResult.Value;
 
-        _logger.LogInformation("Current translation hash: {Hash}", currentHash);
+        LogCurrentTranslationHash(_logger, currentHash);
 
-        _logger.LogInformation("Step 2: Reading stored version info...");
+        LogReadingStoredVersion(_logger);
 
         Result<StoredVersionInfo?> storedResult = _gameVersionFileStore.ReadStoredVersion(command.GameVersionFilePath);
         if (storedResult.IsFailure)
         {
-            _logger.LogError("ReadStoredVersion FAILED: {Error}", storedResult.Error.Message);
+            LogReadStoredVersionFailed(_logger, storedResult.Error.Message);
             return ValueTask.FromResult(
                 Result.Failure<GameLaunchingResponse>(storedResult.Error));
         }
         StoredVersionInfo? storedInfo = storedResult.Value;
 
-        _logger.LogInformation(
-            "Stored info: ForumVersion={Forum}, VnumDat={VnumDat}, VnumGame={VnumGame}, Hash={Hash}",
+        LogStoredVersionInfo(
+            _logger,
             storedInfo?.ForumVersion ?? "(null)",
             storedInfo?.VnumDatFile?.ToString() ?? "(null)",
             storedInfo?.VnumGameData?.ToString() ?? "(null)",
@@ -85,7 +85,8 @@ internal sealed class SimplifiedGameLaunchingStrategy : IGameLaunchingStrategy
         bool translationChanged = storedResult.Value?.TranslationFileHash is null
             || !string.Equals(currentHash, storedResult.Value.TranslationFileHash, StringComparison.Ordinal);
 
-        _logger.LogInformation("Translation changed? {Changed} (stored hash null={IsNull}, match={Match})",
+        LogTranslationChangeEvaluated(
+            _logger,
             translationChanged,
             storedInfo?.TranslationFileHash is null,
             storedInfo?.TranslationFileHash is not null
@@ -97,13 +98,13 @@ internal sealed class SimplifiedGameLaunchingStrategy : IGameLaunchingStrategy
 
         if (translationChanged)
         {
-            _logger.LogInformation(">>> PATCHING: Translation file changed — applying patch");
+            LogPatchingTranslationChanged(_logger);
 
             Result<PatchSummaryResponse> patchResult =
                 _patchingService.ApplyTranslations(command.TranslationFilePath, command.DatFilePath);
             if (patchResult.IsFailure)
             {
-                _logger.LogError("ApplyTranslations FAILED: {Error}", patchResult.Error.Message);
+                LogApplyTranslationsFailed(_logger, patchResult.Error.Message);
                 return ValueTask.FromResult(
                     Result.Failure<GameLaunchingResponse>(
                         DomainErrors.GameLaunch.RepatchFailed(patchResult.Error.Message)));
@@ -115,23 +116,21 @@ internal sealed class SimplifiedGameLaunchingStrategy : IGameLaunchingStrategy
             appliedCount = patchSummary.AppliedTranslations;
             skippedCount = patchSummary.SkippedTranslations;
 
-            _logger.LogInformation("Patched translations: {Applied} applied, {Skipped} skipped",
-                appliedCount, skippedCount);
+            LogTranslationsPatched(_logger, appliedCount, skippedCount);
 
             // Save new hash + current vnum
-            _logger.LogInformation("Reading DAT vnum to save alongside hash...");
+            LogReadingDatVnum(_logger);
 
             Result<DatVersionInfo> vnumResult = _datVersionReader.ReadVersion(command.DatFilePath);
             if (vnumResult.IsFailure)
             {
-                _logger.LogError("ReadVersion FAILED: {Error}", vnumResult.Error.Message);
+                LogReadVersionFailed(_logger, vnumResult.Error.Message);
                 return ValueTask.FromResult(
                     Result.Failure<GameLaunchingResponse>(vnumResult.Error));
             }
             DatVersionInfo datVersion = vnumResult.Value;
 
-            _logger.LogInformation("DAT vnum: VnumDat={VnumDat}, VnumGame={VnumGame}",
-                datVersion.VnumDatFile, datVersion.VnumGameData);
+            LogDatVnumRead(_logger, datVersion.VnumDatFile, datVersion.VnumGameData);
 
             Result saveResult = _gameVersionFileStore.SaveVersion(
                 command.GameVersionFilePath,
@@ -141,29 +140,29 @@ internal sealed class SimplifiedGameLaunchingStrategy : IGameLaunchingStrategy
                 currentHash);
             if (saveResult.IsFailure)
             {
-                _logger.LogError("SaveVersion FAILED: {Error}", saveResult.Error.Message);
+                LogSaveVersionFailed(_logger, saveResult.Error.Message);
                 return ValueTask.FromResult(
                     Result.Failure<GameLaunchingResponse>(saveResult.Error));
             }
-            _logger.LogInformation("Version saved OK");
+            LogVersionSaved(_logger);
         }
         else
         {
-            _logger.LogInformation(">>> SKIP: Translation file unchanged — skipping patch");
+            LogSkippedTranslationUnchanged(_logger);
         }
 
         // 3. Launch (fire-and-forget)
-        _logger.LogInformation("Step 3: Launching game (fire-and-forget)...");
+        LogStartingGame(_logger);
         Result launchResult = _gameLauncher.Launch(command.DatFilePath);
         if (launchResult.IsFailure)
         {
-            _logger.LogError("Launch FAILED: {Error}", launchResult.Error.Message);
+            LogGameLaunchFailed(_logger, launchResult.Error.Message);
             return ValueTask.FromResult(
                 Result.Failure<GameLaunchingResponse>(launchResult.Error));
         }
 
-        _logger.LogInformation("Launcher started OK (fire-and-forget, not waiting for exit)");
-        _logger.LogInformation("=== SIMPLIFIED LAUNCH END ===");
+        LogLauncherStarted(_logger);
+        LogLaunchEnded(_logger);
 
         GameLaunchingResponse response = new(
             ForumVersion: null,
@@ -175,4 +174,79 @@ internal sealed class SimplifiedGameLaunchingStrategy : IGameLaunchingStrategy
 
         return ValueTask.FromResult(Result.Success(response));
     }
+
+    [LoggerMessage(EventId = EventIds.LaunchStarted, Level = LogLevel.Information, Message = "=== SIMPLIFIED LAUNCH START ===")]
+    private static partial void LogLaunchStarted(ILogger logger);
+
+    [LoggerMessage(EventId = EventIds.LaunchDatFilePath, Level = LogLevel.Information, Message = "DatFilePath: {DatFilePath}")]
+    private static partial void LogDatFilePath(ILogger logger, string datFilePath);
+
+    [LoggerMessage(EventId = EventIds.LaunchTranslationFilePath, Level = LogLevel.Information, Message = "TranslationFilePath: {TranslationFilePath}")]
+    private static partial void LogTranslationFilePath(ILogger logger, string translationFilePath);
+
+    [LoggerMessage(EventId = EventIds.LaunchGameVersionFilePath, Level = LogLevel.Information, Message = "GameVersionFilePath: {GameVersionFilePath}")]
+    private static partial void LogGameVersionFilePath(ILogger logger, string gameVersionFilePath);
+
+    [LoggerMessage(EventId = EventIds.LaunchBlockedGameAlreadyRunning, Level = LogLevel.Warning, Message = "BLOCKED: LOTRO already running")]
+    private static partial void LogBlockedGameAlreadyRunning(ILogger logger);
+
+    [LoggerMessage(EventId = EventIds.LaunchComputingTranslationHash, Level = LogLevel.Information, Message = "Step 1: Computing translation file hash...")]
+    private static partial void LogComputingTranslationHash(ILogger logger);
+
+    [LoggerMessage(EventId = EventIds.LaunchComputeHashFailed, Level = LogLevel.Error, Message = "ComputeHash FAILED: {Error}")]
+    private static partial void LogComputeHashFailed(ILogger logger, string error);
+
+    [LoggerMessage(EventId = EventIds.LaunchCurrentTranslationHash, Level = LogLevel.Information, Message = "Current translation hash: {Hash}")]
+    private static partial void LogCurrentTranslationHash(ILogger logger, string hash);
+
+    [LoggerMessage(EventId = EventIds.LaunchReadingStoredVersion, Level = LogLevel.Information, Message = "Step 2: Reading stored version info...")]
+    private static partial void LogReadingStoredVersion(ILogger logger);
+
+    [LoggerMessage(EventId = EventIds.LaunchReadStoredVersionFailed, Level = LogLevel.Error, Message = "ReadStoredVersion FAILED: {Error}")]
+    private static partial void LogReadStoredVersionFailed(ILogger logger, string error);
+
+    [LoggerMessage(EventId = EventIds.LaunchStoredVersionInfo, Level = LogLevel.Information, Message = "Stored info: ForumVersion={Forum}, VnumDat={VnumDat}, VnumGame={VnumGame}, Hash={Hash}")]
+    private static partial void LogStoredVersionInfo(ILogger logger, string forum, string vnumDat, string vnumGame, string hash);
+
+    [LoggerMessage(EventId = EventIds.LaunchTranslationChangeEvaluated, Level = LogLevel.Information, Message = "Translation changed? {Changed} (stored hash null={IsNull}, match={Match})")]
+    private static partial void LogTranslationChangeEvaluated(ILogger logger, bool changed, bool isNull, bool match);
+
+    [LoggerMessage(EventId = EventIds.LaunchPatchingTranslationChanged, Level = LogLevel.Information, Message = ">>> PATCHING: Translation file changed — applying patch")]
+    private static partial void LogPatchingTranslationChanged(ILogger logger);
+
+    [LoggerMessage(EventId = EventIds.LaunchApplyTranslationsFailed, Level = LogLevel.Error, Message = "ApplyTranslations FAILED: {Error}")]
+    private static partial void LogApplyTranslationsFailed(ILogger logger, string error);
+
+    [LoggerMessage(EventId = EventIds.LaunchTranslationsPatched, Level = LogLevel.Information, Message = "Patched translations: {Applied} applied, {Skipped} skipped")]
+    private static partial void LogTranslationsPatched(ILogger logger, int applied, int skipped);
+
+    [LoggerMessage(EventId = EventIds.LaunchReadingDatVnum, Level = LogLevel.Information, Message = "Reading DAT vnum to save alongside hash...")]
+    private static partial void LogReadingDatVnum(ILogger logger);
+
+    [LoggerMessage(EventId = EventIds.LaunchReadVersionFailed, Level = LogLevel.Error, Message = "ReadVersion FAILED: {Error}")]
+    private static partial void LogReadVersionFailed(ILogger logger, string error);
+
+    [LoggerMessage(EventId = EventIds.LaunchDatVnumRead, Level = LogLevel.Information, Message = "DAT vnum: VnumDat={VnumDat}, VnumGame={VnumGame}")]
+    private static partial void LogDatVnumRead(ILogger logger, int vnumDat, int vnumGame);
+
+    [LoggerMessage(EventId = EventIds.LaunchSaveVersionFailed, Level = LogLevel.Error, Message = "SaveVersion FAILED: {Error}")]
+    private static partial void LogSaveVersionFailed(ILogger logger, string error);
+
+    [LoggerMessage(EventId = EventIds.LaunchVersionSaved, Level = LogLevel.Information, Message = "Version saved OK")]
+    private static partial void LogVersionSaved(ILogger logger);
+
+    [LoggerMessage(EventId = EventIds.LaunchSkippedTranslationUnchanged, Level = LogLevel.Information, Message = ">>> SKIP: Translation file unchanged — skipping patch")]
+    private static partial void LogSkippedTranslationUnchanged(ILogger logger);
+
+    [LoggerMessage(EventId = EventIds.LaunchStartingGame, Level = LogLevel.Information, Message = "Step 3: Launching game (fire-and-forget)...")]
+    private static partial void LogStartingGame(ILogger logger);
+
+    [LoggerMessage(EventId = EventIds.LaunchGameLaunchFailed, Level = LogLevel.Error, Message = "Launch FAILED: {Error}")]
+    private static partial void LogGameLaunchFailed(ILogger logger, string error);
+
+    [LoggerMessage(EventId = EventIds.LaunchLauncherStarted, Level = LogLevel.Information, Message = "Launcher started OK (fire-and-forget, not waiting for exit)")]
+    private static partial void LogLauncherStarted(ILogger logger);
+
+    [LoggerMessage(EventId = EventIds.LaunchEnded, Level = LogLevel.Information, Message = "=== SIMPLIFIED LAUNCH END ===")]
+    private static partial void LogLaunchEnded(ILogger logger);
 }

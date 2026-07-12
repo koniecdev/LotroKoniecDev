@@ -45,14 +45,14 @@ public sealed partial class GameUpdateChecker : IGameUpdateChecker
         Result<string> fetchResult = await _forumPageFetcher.FetchReleaseNotesPageAsync();
         if (fetchResult.IsFailure)
         {
-            _logger.LogWarning("Forum fetch failed: {Error}", fetchResult.Error.Message);
+            LogForumFetchFailed(_logger, fetchResult.Error.Message);
             return Result.Success(new GameUpdateCheckSummary(null, storedInfo));
         }
 
         string? forumVersion = ParseLatestVersion(fetchResult.Value);
         if (forumVersion is null)
         {
-            _logger.LogWarning("Could not parse version from forum page");
+            LogForumVersionParseFailed(_logger);
             return Result.Success(new GameUpdateCheckSummary(null, storedInfo));
         }
 
@@ -82,4 +82,10 @@ public sealed partial class GameUpdateChecker : IGameUpdateChecker
     // future edits to a regex that runs on third-party HTML (AUDIT-SEC-07 / #397).
     [GeneratedRegex(@"Update\s+(\d+(?:\.\d+)*)\s+Release\s+Notes", RegexOptions.IgnoreCase, matchTimeoutMilliseconds: 1000)]
     private static partial Regex VersionRegex();
+
+    [LoggerMessage(EventId = EventIds.ForumFetchFailed, Level = LogLevel.Warning, Message = "Forum fetch failed: {Error}")]
+    private static partial void LogForumFetchFailed(ILogger logger, string error);
+
+    [LoggerMessage(EventId = EventIds.ForumVersionParseFailed, Level = LogLevel.Warning, Message = "Could not parse version from forum page")]
+    private static partial void LogForumVersionParseFailed(ILogger logger);
 }

@@ -68,6 +68,12 @@ takes the nightly `pg_dump` backups + encrypted env copies (Neon free = 6 h PITR
 
 ## Secrets — source of truth and how to remint
 
+> **Superseded by `docs/deployment/hetzner-runbook.md` §Secrets and env vars** (HETZ-03/#489), which
+> carries the full per-variable matrix, the rotation commands and the create-if-missing reseed traps.
+> The table below stays as the plan's summary. **The Key Vault shortcut was tried and is dead:**
+> `secret list` returns the names, `secret show` is `Forbidden` while the subscription is disabled —
+> no value is recoverable, everything was re-minted. Don't retry it.
+
 | Secret | Source | How |
 |---|---|---|
 | `ConnectionStrings__*` (TMS + Auth, prod + staging) | Neon | owner mints fresh in Neon console (or API; project/branch IDs in memory `neon-pitr-topology`). Prefer fresh over recovering KV copies. |

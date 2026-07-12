@@ -477,7 +477,8 @@ structure.
 - Platform honesty: tests must pass on macOS AND Windows — `Path.Combine`, never hardcoded `C:\`.
 - **TMS test projects mirror KittySaver naming.** Unit (pure):
   `TranslationSystem.Domain.Tests.Unit`, `TranslationSystem.API.Tests.Unit`,
-  `SharedKernel.Tests.Unit`, `Logging.Tests.Unit`, `Frontend.Tests.Unit`. Integration (real
+  `AuthSystem.API.Tests.Unit`, `SharedKernel.Tests.Unit`, `Logging.Tests.Unit`,
+  `Frontend.Tests.Unit`. Integration (real
   PostgreSQL — never in a Unit project): `TranslationSystem.API.Tests.Integration`,
   `AuthSystem.API.Tests.Integration`. Browser/E2E (Testcontainers + Playwright — ADR-0009;
   Docker-required, off the PR gate by name): `TranslationSystem.E2E.Tests`,

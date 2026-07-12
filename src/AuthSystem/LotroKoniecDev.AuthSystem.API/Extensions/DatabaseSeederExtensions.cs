@@ -20,14 +20,25 @@ internal static class DatabaseSeederExtensions
 
     internal static async Task SeedAuthDatabaseAsync(IServiceProvider services, IWebHostEnvironment environment)
     {
-        using IServiceScope scope = services.CreateScope();
+        ILogger logger = services.GetRequiredService<ILoggerFactory>()
+            .CreateLogger(typeof(DatabaseSeederExtensions));
 
-        AuthDbContext dbContext = scope.ServiceProvider.GetRequiredService<AuthDbContext>();
-        await dbContext.Database.MigrateAsync();
+        // The whole seed is idempotent, so replaying it after a transient failure is safe. Each
+        // attempt gets a fresh scope (and thus a fresh AuthDbContext) — a context that failed
+        // mid-migration must not be reused.
+        await ColdStartRetry.ExecuteAsync(
+            async () =>
+            {
+                using IServiceScope scope = services.CreateScope();
 
-        await SeedRolesAsync(scope.ServiceProvider);
-        await SeedAdminUserAsync(scope.ServiceProvider);
-        await SeedOAuthApplicationsAsync(scope.ServiceProvider, environment);
+                AuthDbContext dbContext = scope.ServiceProvider.GetRequiredService<AuthDbContext>();
+                await dbContext.Database.MigrateAsync();
+
+                await SeedRolesAsync(scope.ServiceProvider);
+                await SeedAdminUserAsync(scope.ServiceProvider);
+                await SeedOAuthApplicationsAsync(scope.ServiceProvider, environment);
+            },
+            logger);
     }
 
     private static async Task SeedRolesAsync(IServiceProvider serviceProvider)

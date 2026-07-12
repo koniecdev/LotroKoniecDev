@@ -113,6 +113,7 @@
     <Project Path="tests/LotroKoniecDev.TranslationSystem.E2E.Tests/LotroKoniecDev.TranslationSystem.E2E.Tests.csproj" />
   </Folder>
   <Folder Name="/tests/AuthSystem/">
+    <Project Path="tests/LotroKoniecDev.AuthSystem.API.Tests.Unit/LotroKoniecDev.AuthSystem.API.Tests.Unit.csproj" />
     <Project Path="tests/LotroKoniecDev.AuthSystem.API.Tests.Integration/LotroKoniecDev.AuthSystem.API.Tests.Integration.csproj" />
   </Folder>
   <Folder Name="/tests/Frontend/">

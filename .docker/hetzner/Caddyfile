@@ -24,15 +24,18 @@
 	reverse_proxy tms-api:8080
 }
 
-# --- TheKittySaver slots (twin epic in its repo; uncomment when its stack joins this box) ---
-# The TKS containers must attach to a network this Caddy can reach (docs: hetzner migration plan).
-#
-# uratujkota.pl {
-# 	reverse_proxy tks-frontend:8080
-# }
-# auth.uratujkota.pl {
-# 	reverse_proxy tks-auth-api:8080
-# }
-# api.uratujkota.pl {
-# 	reverse_proxy tks-api:8080
-# }
+# --- TheKittySaver (its stack lives in /opt/tks and joins THIS stack's network; this Caddy
+# terminates TLS for its hostnames too). The TKS_DOMAIN_* values come from the per-box env
+# file; a box without the TKS stack keeps the compose defaults (*.localhost — internal cert,
+# no ACME, requests just 502) so this file stays valid everywhere.
+{$TKS_DOMAIN_APP} {
+	reverse_proxy tks-frontend:8080
+}
+
+{$TKS_DOMAIN_AUTH} {
+	reverse_proxy tks-auth-api:8080
+}
+
+{$TKS_DOMAIN_API} {
+	reverse_proxy tks-adoption-api:8080
+}

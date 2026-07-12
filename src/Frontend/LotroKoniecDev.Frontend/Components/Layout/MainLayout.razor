@@ -1,6 +1,9 @@
 @inherits LayoutComponentBase
 @using LotroKoniecDev.Frontend.Infrastructure.Auth.DeadSession
+@using LotroKoniecDev.Frontend.Settings
+@using Microsoft.Extensions.Options
 @inject ISessionExpiryNotice SessionExpiryNotice
+@inject IOptions<AuthSystemSettings> AuthSystemOptions
 
 <div class="app">
     <NavMenu/>
@@ -34,6 +37,7 @@
             <p>© @DateTime.UtcNow.Year lotro-translator.pl — polskie tłumaczenie The Lord of the Rings Online</p>
             <p class="foot-links">
                 <a href="/regulamin">Regulamin</a>
+                <a href="@PrivacyPolicyUrl" target="_blank" rel="noopener">Polityka prywatności</a>
             </p>
         </div>
     </footer>
@@ -43,6 +47,9 @@
 
 @code {
     private bool _showSessionExpiredNotice;
+
+    private string PrivacyPolicyUrl =>
+        $"{AuthSystemOptions.Value.BaseUrl.TrimEnd('/')}/Account/PrivacyPolicy";
 
     // One-shot: consumed at render time (no JS, no interactivity). Clearing the marker here means the
     // banner shows exactly once after a forced logout and is gone on the next navigation.

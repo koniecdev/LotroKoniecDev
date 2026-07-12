@@ -61,6 +61,18 @@ public sealed class MainLayoutTests : BunitContext
     }
 
     [Fact]
+    public void Render_Footer_ShowsTheNonAffiliationTrademarkLine()
+    {
+        IRenderedComponent<MainLayout> component = RenderMainLayout();
+
+        IElement legalLine = component.Find("footer .foot-legal");
+        legalLine.TextContent.ShouldBe(
+            "Nieoficjalny, niekomercyjny projekt fanowski — niepowiązany ze Standing Stone Games " +
+            "ani Middle-earth Enterprises. The Lord of the Rings Online™ oraz nazwy postaci, " +
+            "przedmiotów, wydarzeń i miejsc są znakami towarowymi Middle-earth Enterprises, LLC.");
+    }
+
+    [Fact]
     public void Render_Body_IsRenderedInsideMain()
     {
         IRenderedComponent<MainLayout> component = RenderMainLayout();

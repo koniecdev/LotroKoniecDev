@@ -8,8 +8,14 @@ using LotroKoniecDev.Frontend.Components.Pages.Account;
 using LotroKoniecDev.Frontend.Infrastructure.Discovery;
 using LotroKoniecDev.Frontend.Infrastructure.HttpClients;
 using LotroKoniecDev.Frontend.Infrastructure.HttpClients.AuthSystemHttpClients;
+using LotroKoniecDev.Frontend.Infrastructure.HttpClients.TranslationSystemHttpClients;
 using LotroKoniecDev.Frontend.Tests.Unit.Infrastructure.HttpClients;
 using LotroKoniecDev.Hateoas.Abstractions;
+using LotroKoniecDev.SharedKernel.StronglyTypedIds;
+using LotroKoniecDev.TranslationSystem.Contracts.Translators;
+using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.TranslationAggregate;
+using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.TranslationAggregate.Enums;
+using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.TranslatorAggregate;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.Mvc;
@@ -20,12 +26,14 @@ namespace LotroKoniecDev.Frontend.Tests.Unit.Components.Pages.Account;
 
 /// <summary>
 /// Drives the GDPR export download route's request delegate directly (no web host): on success it must
-/// re-serve the auth export envelope as an indented camelCase JSON file attachment, and on failure it
-/// must surface the upstream problem (or the defensive 502 fallback).
+/// compose the auth leg with the TMS contribution leg (ADR-0032) into an indented camelCase JSON file
+/// attachment, on an auth-leg failure it must surface the upstream problem (or the defensive 502
+/// fallback), and on a TMS-leg failure it must still serve the file with <c>isComplete: false</c>.
 /// </summary>
 public sealed class AccountEndpointsExtensionsTests
 {
     private const string BaseUrl = "https://localhost:5003/";
+    private const string TmsBaseUrl = "https://localhost:5002/";
     private const string ExportHref = "auth/account/data-export";
 
     private static readonly JsonSerializerOptions ApiJsonOptions = new(JsonSerializerDefaults.Web)
@@ -40,7 +48,8 @@ public sealed class AccountEndpointsExtensionsTests
     {
         AccountLoader loader = CreateLoaderReturning(AccountLoaderTests.CreateEnvelope());
 
-        IResult result = await AccountEndpointsExtensions.DownloadAccountExportAsync(loader, CancellationToken.None);
+        IResult result = await AccountEndpointsExtensions.DownloadAccountExportAsync(
+            loader, CreateTmsClientReturningContribution(), CancellationToken.None);
 
         FileContentHttpResult file = result.ShouldBeOfType<FileContentHttpResult>();
         file.ContentType.ShouldBe("application/json");
@@ -49,17 +58,100 @@ public sealed class AccountEndpointsExtensionsTests
     }
 
     [Fact]
-    public async Task DownloadAccountExportAsync_OnSuccess_SerializesTheEnvelopeAsIndentedCamelCaseJson()
+    public async Task DownloadAccountExportAsync_OnSuccess_SerializesTheComposedDocumentAsIndentedCamelCaseJson()
     {
         AccountLoader loader = CreateLoaderReturning(AccountLoaderTests.CreateEnvelope());
 
-        IResult result = await AccountEndpointsExtensions.DownloadAccountExportAsync(loader, CancellationToken.None);
+        IResult result = await AccountEndpointsExtensions.DownloadAccountExportAsync(
+            loader, CreateTmsClientReturningContribution(), CancellationToken.None);
 
         FileContentHttpResult file = result.ShouldBeOfType<FileContentHttpResult>();
         string json = Encoding.UTF8.GetString(file.FileContents.ToArray());
         json.ShouldContain("\"username\": \"frodo\"");
         json.ShouldContain("\"email\": \"frodo@shire.me\"");
         json.ShouldContain("\"isComplete\": true");
+    }
+
+    [Fact]
+    public async Task DownloadAccountExportAsync_WhenTmsLegSucceeds_TheFileCarriesTheContributionData()
+    {
+        AccountLoader loader = CreateLoaderReturning(AccountLoaderTests.CreateEnvelope());
+
+        IResult result = await AccountEndpointsExtensions.DownloadAccountExportAsync(
+            loader, CreateTmsClientReturningContribution(), CancellationToken.None);
+
+        FileContentHttpResult file = result.ShouldBeOfType<FileContentHttpResult>();
+        string json = Encoding.UTF8.GetString(file.FileContents.ToArray());
+        json.ShouldContain("\"displayName\": \"Frodo Baggins\"");
+        json.ShouldContain("\"submittedTotal\": 2");
+        json.ShouldContain("\"approvedTotal\": 1");
+        json.ShouldContain("\"status\": \"Draft\"");
+    }
+
+    [Fact]
+    public async Task DownloadAccountExportAsync_WhenTmsLegFails_StillServesTheAuthDataWithIsCompleteFalse()
+    {
+        AccountLoader loader = CreateLoaderReturning(AccountLoaderTests.CreateEnvelope());
+        ITranslationSystemClient tmsClient = CreateTmsClient(StubHttpMessageHandler.RespondWith(
+            HttpStatusCode.ServiceUnavailable,
+            """{ "title": "Usługa chwilowo niedostępna", "status": 503 }"""));
+
+        IResult result = await AccountEndpointsExtensions.DownloadAccountExportAsync(
+            loader, tmsClient, CancellationToken.None);
+
+        FileContentHttpResult file = result.ShouldBeOfType<FileContentHttpResult>();
+        string json = Encoding.UTF8.GetString(file.FileContents.ToArray());
+        json.ShouldContain("\"username\": \"frodo\"");
+        json.ShouldContain("\"translationData\": null");
+        json.ShouldContain("\"isComplete\": false");
+    }
+
+    [Fact]
+    public async Task DownloadAccountExportAsync_WhenTmsLegFails_TheFileNameStaysTheExportAttachment()
+    {
+        AccountLoader loader = CreateLoaderReturning(AccountLoaderTests.CreateEnvelope());
+        ITranslationSystemClient tmsClient = CreateTmsClient(StubHttpMessageHandler.RespondWith(
+            HttpStatusCode.InternalServerError,
+            """{ "title": "Błąd serwera", "status": 500 }"""));
+
+        IResult result = await AccountEndpointsExtensions.DownloadAccountExportAsync(
+            loader, tmsClient, CancellationToken.None);
+
+        FileContentHttpResult file = result.ShouldBeOfType<FileContentHttpResult>();
+        file.ContentType.ShouldBe("application/json");
+        file.FileDownloadName!.ShouldStartWith("lotro-translator-moje-dane-");
+    }
+
+    [Fact]
+    public async Task DownloadAccountExportAsync_WhenTmsReturnsAMalformedBody_StillServesTheFileWithIsCompleteFalse()
+    {
+        AccountLoader loader = CreateLoaderReturning(AccountLoaderTests.CreateEnvelope());
+        ITranslationSystemClient tmsClient = CreateTmsClient(
+            StubHttpMessageHandler.RespondWith(HttpStatusCode.OK, "this is not json"));
+
+        IResult result = await AccountEndpointsExtensions.DownloadAccountExportAsync(
+            loader, tmsClient, CancellationToken.None);
+
+        FileContentHttpResult file = result.ShouldBeOfType<FileContentHttpResult>();
+        string json = Encoding.UTF8.GetString(file.FileContents.ToArray());
+        json.ShouldContain("\"translationData\": null");
+        json.ShouldContain("\"isComplete\": false");
+    }
+
+    [Fact]
+    public async Task DownloadAccountExportAsync_WhenTmsReturnsAnEmptyBody_StillServesTheFileWithIsCompleteFalse()
+    {
+        AccountLoader loader = CreateLoaderReturning(AccountLoaderTests.CreateEnvelope());
+        ITranslationSystemClient tmsClient = CreateTmsClient(
+            StubHttpMessageHandler.RespondWith(HttpStatusCode.OK, string.Empty));
+
+        IResult result = await AccountEndpointsExtensions.DownloadAccountExportAsync(
+            loader, tmsClient, CancellationToken.None);
+
+        FileContentHttpResult file = result.ShouldBeOfType<FileContentHttpResult>();
+        string json = Encoding.UTF8.GetString(file.FileContents.ToArray());
+        json.ShouldContain("\"translationData\": null");
+        json.ShouldContain("\"isComplete\": false");
     }
 
     [Fact]
@@ -72,7 +164,8 @@ public sealed class AccountEndpointsExtensionsTests
                 HttpStatusCode.NotFound,
                 """{ "title": "Nie znaleziono użytkownika", "status": 404 }""")));
 
-        IResult result = await AccountEndpointsExtensions.DownloadAccountExportAsync(loader, CancellationToken.None);
+        IResult result = await AccountEndpointsExtensions.DownloadAccountExportAsync(
+            loader, CreateTmsClientReturningContribution(), CancellationToken.None);
 
         ProblemHttpResult problem = result.ShouldBeOfType<ProblemHttpResult>();
         problem.ProblemDetails.Status.ShouldBe(404);
@@ -91,7 +184,8 @@ public sealed class AccountEndpointsExtensionsTests
             _discoveryCache,
             CreateClient(StubHttpMessageHandler.RespondWith(HttpStatusCode.OK, "{}")));
 
-        IResult result = await AccountEndpointsExtensions.DownloadAccountExportAsync(loader, CancellationToken.None);
+        IResult result = await AccountEndpointsExtensions.DownloadAccountExportAsync(
+            loader, CreateTmsClientReturningContribution(), CancellationToken.None);
 
         ProblemHttpResult problem = result.ShouldBeOfType<ProblemHttpResult>();
         problem.ProblemDetails.Status.ShouldBe(503);
@@ -124,5 +218,42 @@ public sealed class AccountEndpointsExtensionsTests
             BaseAddress = new Uri(BaseUrl)
         };
         return new AuthSystemClient(httpClient);
+    }
+
+    private static ITranslationSystemClient CreateTmsClientReturningContribution()
+        => CreateTmsClient(StubHttpMessageHandler.RespondWith(
+            HttpStatusCode.OK,
+            JsonSerializer.Serialize(CreateContribution(), ApiJsonOptions)));
+
+    private static ITranslationSystemClient CreateTmsClient(StubHttpMessageHandler handler)
+    {
+        HttpClient httpClient = new(handler)
+        {
+            BaseAddress = new Uri(TmsBaseUrl)
+        };
+        return new TranslationSystemClient(httpClient);
+    }
+
+    private static TranslatorDataExportResponse CreateContribution()
+    {
+        TranslatorId translatorId = TranslatorId.Create();
+        ContributionRowDto draftRow = new(TranslationId.Create(), 620756992, 1001, TranslationStatus.Draft);
+        ContributionRowDto approvedRow = new(TranslationId.Create(), 620756992, 1002, TranslationStatus.Approved);
+
+        return new TranslatorDataExportResponse(
+            new TranslatorProfileExportDto(
+                translatorId,
+                IdentityId.Create(),
+                "Frodo Baggins",
+                "frodo@shire.me",
+                new DateTimeOffset(2026, 6, 1, 12, 0, 0, TimeSpan.Zero)),
+            new ContributionSummaryDto(
+                SubmittedTotal: 2,
+                SubmittedDraft: 1,
+                SubmittedApproved: 1,
+                SubmittedNeedsReview: 0,
+                ApprovedTotal: 1,
+                SubmittedRows: [draftRow, approvedRow],
+                ApprovedRows: [approvedRow]));
     }
 }

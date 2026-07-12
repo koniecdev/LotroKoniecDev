@@ -14,8 +14,8 @@
 # hostnames to the in-stack Caddy, so one OIDC Authority serves the browser front-channel and the
 # container back-channel — same origin, real certificate, no hairpin dependency.
 #
-# Bring-up on a box (as root, files in /opt/lotro):
-#   docker login ghcr.io -u <gh-user> --password-stdin   # read:packages PAT, once
+# Bring-up on a box (as the deploy user, files in /opt/lotro; scripts/hetzner/bootstrap.sh has
+# already done the one-time `docker login ghcr.io` as deploy with a read:packages PAT):
 #   docker compose -f compose.hetzner.yaml pull
 #   docker compose -f compose.hetzner.yaml up -d
 #   docker compose -f compose.hetzner.yaml logs -f migrator caddy

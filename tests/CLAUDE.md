@@ -12,7 +12,7 @@ dotnet test tests/LotroKoniecDev.Frontend.E2E.Tests          # browser stack via
 dotnet test --filter "FullyQualifiedName~Fragment"     # filter by name
 ```
 
-Full project inventory (12 projects):
+Full project inventory (13 projects):
 
 | Project | Kind | Needs |
 |---|---|---|
@@ -22,6 +22,7 @@ Full project inventory (12 projects):
 | `LotroKoniecDev.TranslationSystem.Domain.Tests.Unit` | TMS domain unit | nothing (pure); Stryker target |
 | `LotroKoniecDev.TranslationSystem.API.Tests.Unit` | TMS handler/auth/endpoint unit (fake read-DbContext, stub accessor/provisioner) | nothing (pure) |
 | `LotroKoniecDev.Frontend.Tests.Unit` | Blazor SSR component + infrastructure unit (bUnit-style) | nothing (pure) |
+| `LotroKoniecDev.AuthSystem.API.Tests.Unit` | auth-api unit (cold-start seed retry policy) | nothing (pure) |
 | `LotroKoniecDev.TranslationSystem.API.Tests.Integration` | in-process API against real PostgreSQL (Testcontainers; forged test tokens) | Docker |
 | `LotroKoniecDev.AuthSystem.API.Tests.Integration` | in-process auth-api against real PostgreSQL (Testcontainers) | Docker |
 | `LotroKoniecDev.TranslationSystem.E2E.Tests` | real-process TMS stack over HTTP | Docker (3 images) |

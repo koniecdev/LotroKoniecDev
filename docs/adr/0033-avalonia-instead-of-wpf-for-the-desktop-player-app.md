@@ -84,6 +84,11 @@ re-titled and re-aligned (M4-06 "WPF tests" becomes headless UI tests via `Avalo
 - Third-party OSS dependency instead of a Microsoft-shipped framework — smaller ecosystem, fewer
   Stack Overflow answers, own release cadence. Accepted: Avalonia is the de-facto standard for
   cross-platform .NET desktop and is actively funded.
+- Licensing (verified 2026-07): the framework is **MIT** — free for any app, and AvaloniaUI states
+  the core's MIT license is contractually protected. Only the optional **Accelerate** dev tooling
+  (VS extension, DevTools, Parcel previewer) is commercially licensed, with a free Community
+  Edition; none of it ships in the app. This repo builds with the MIT NuGet packages only
+  (Rider's previewer is the independent OSS AvaloniaRider plugin), so no exposure.
 - No Windows-native look & feel out of the box (Fluent theme approximates it). Irrelevant for a
   two-button utility.
 - "Runs under Proton" is asserted from Avalonia's Skia rendering and the Russian precedent, not

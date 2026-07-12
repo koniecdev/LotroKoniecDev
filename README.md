@@ -229,6 +229,11 @@ milestones: GitHub issues (`M{milestone}-{nn}` titles).
 
 ## License & disclaimer
 
-Open-source fan project © Artur Koniec. *The Lord of the Rings Online* and all related names and
-content are trademarks of **Standing Stone Games**; this is an unofficial, non-commercial fan tool,
-not affiliated with or endorsed by SSG or Middle-earth Enterprises.
+The code of this project is licensed under the [MIT License](LICENSE) © Artur Koniec. MIT covers
+**our code only** — bundled third-party binaries (notably `datexport.dll`) and any game content are
+**not** covered; see [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md) for details.
+
+This is an unofficial, non-commercial fan project, not affiliated with or endorsed by Standing
+Stone Games or Middle-earth Enterprises. Standing Stone Games and its marks are trademarks of
+**Daybreak Game Company LLC**. *The Lord of the Rings Online* and the characters, items, events and
+places therein are trademarks of **Middle-earth Enterprises, LLC**, used under license.

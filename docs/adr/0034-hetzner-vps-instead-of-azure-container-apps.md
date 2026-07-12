@@ -47,6 +47,17 @@ trigger is explicit: real player traffic on lotro-translator.pl, not a hypotheti
 is rejected as the "cheapest" option — see Context; amd64 over ARM (CAX) because the images are
 amd64 and multi-arch buildx is pure added surface.
 
+> **Amendment (2026-07-12, bring-up day):** the CX32 in Falkenstein was unavailable at checkout,
+> so the fleet is **two CX23 boxes in Nuremberg** instead — `lotro-prod` (167.233.159.221, backups
+> on) hosts BOTH prods, `lotro-staging` (91.98.74.228, no backups) hosts BOTH stagings. This
+> **splits prod from staging by machine rather than deferring the split to real-user traffic**, and
+> each box is 4 GB (CX23), not the 8 GB this section argued for — the "4 GB is a lie waiting to
+> OOM" concern from Context now applies per box (~8–9 containers on prod), so the prod box watches
+> memory and adds a swapfile if needed (see the runbook). The single-file / two-compose-projects
+> design of §2 is unchanged; each box simply runs one project. The boxes run **Ubuntu 26.04 LTS**
+> (image availability), not 24.04 — `scripts/hetzner/bootstrap.sh` (HETZ-01) is verified on both.
+> Server facts, IPs and the (re)provisioning recipe live in `docs/deployment/hetzner-runbook.md`.
+
 ### 2. `compose.hetzner.yaml` derived from `compose.prod.yaml`, minus the laptop-isms
 
 The Hetzner stack is the parity stack with three deletions and one swap: **delete** the local CA
@@ -69,12 +80,13 @@ binding regardless (the migrator still runs before the new app containers).
 
 ### 4. Secrets live in git-ignored env files on the server
 
-`/opt/lotro/.env.hetzner.{prod,staging}`, assembled once from: fresh Neon connection strings,
-regenerated OpenIddict keys (invalidates sessions — free pre-launch), Brevo SMTP key and admin
-seeds from the owner. `.env.hetzner.example` in-repo documents every variable; the runbook maps
-each to its source of truth and rotation command. No vault service replaces Key Vault — for a
-solo-maintainer single box, an 0600 env file plus the existing GitGuardian/gitleaks gates is the
-right-sized answer (YAGNI).
+One `/opt/lotro/.env` per box (`chmod 600`; prod holds the prod secrets, staging the staging
+ones — the per-box file is what compose auto-loads and what `COMPOSE_PROJECT_NAME` in it selects),
+assembled once from: fresh Neon connection strings, regenerated OpenIddict keys (invalidates
+sessions — free pre-launch), Brevo SMTP key and admin seeds from the owner. `.env.hetzner.example`
+in-repo documents every variable; the runbook maps each to its source of truth and rotation
+command. No vault service replaces Key Vault — for a solo-maintainer box, an 0600 env file plus
+the existing GitGuardian/gitleaks gates is the right-sized answer (YAGNI).
 
 ### 5. LotroKoniecDev owns the server-level infra; TheKittySaver mounts alongside
 

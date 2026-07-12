@@ -4,12 +4,19 @@ name: CI
 # to catch anything that slipped past PR verification — direct pushes to main, or a PR that
 # went green against an older main. The integration suite spins up postgres:17-alpine via
 # Testcontainers; the ubuntu runner has Docker preinstalled.
+#
+# Unlike pr-verify, this workflow does NOT self-skip its .NET steps via scripts/ci/classify-changes.sh:
+# CD is triggered by THIS workflow concluding `success` (cd.yml, workflow_run), so "CI was green"
+# must keep meaning "the build and both suites actually ran on this commit". Cheap-change filtering
+# lives in `paths-ignore` instead — a push that matches it triggers no CI and therefore no CD, which
+# is the intended behavior for content that ships nothing (docs, agent config).
 on:
   push:
     branches: ["main"]
     paths-ignore:
       - '**/*.md'
       - 'docs/**'
+      - '.claude/**'
       - 'LICENSE'
       - '.gitignore'
 

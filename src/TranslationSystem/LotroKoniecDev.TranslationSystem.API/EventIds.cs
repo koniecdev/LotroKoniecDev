@@ -12,6 +12,9 @@ internal static class EventIds
     public const int ValidationFailure = 1140;
     public const int UnhandledException = 1150;
 
+    // Import (1200–1299)
+    public const int ImportPassesCompleted = 1200;
+
     // Middleware (1300–1399)
     public const int UnauthorizedAccessAttempt = 1300;
     public const int ForbiddenAccessAttempt = 1301;

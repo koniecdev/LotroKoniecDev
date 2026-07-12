@@ -37,7 +37,7 @@ namespace LotroKoniecDev.TranslationSystem.API.Features.Import;
 /// <c>COPY</c>, everything else mutates aggregates in bounded chunks, and the version flips to
 /// processed with the last save (all-or-nothing, idempotent re-upload).
 /// </summary>
-internal sealed class ImportExportedTexts : IEndpoint
+internal sealed partial class ImportExportedTexts : IEndpoint
 {
     /// <summary>
     /// <paramref name="FileStream"/> must be seekable — the import reads it once per pass. The
@@ -60,7 +60,7 @@ internal sealed class ImportExportedTexts : IEndpoint
         }
     }
 
-    internal sealed class Handler : ICommandHandler<Command, Result<ImportSummary>>
+    internal sealed partial class Handler : ICommandHandler<Command, Result<ImportSummary>>
     {
         /// <summary>
         /// An all-garbage 79 MB upload is rejected either way; the cap only bounds how many line
@@ -187,10 +187,8 @@ internal sealed class ImportExportedTexts : IEndpoint
 
             // Pass durations are the "Oś B" (async-import) trigger data (spec 0006): watching them
             // grow toward the request budget on staging/prod is what would justify that ADR.
-            _logger.LogInformation(
-                "Import passes for {IncomingRows} incoming row(s): upload pass {UploadPassMs} ms, "
-                + "diff pass {DiffPassMs} ms, apply pass {ApplyPassMs} ms "
-                + "(added {Added}, source-changed {SourceChanged}, removed {Removed}, restored {Restored}).",
+            LogImportPasses(
+                _logger,
                 incomingCount, uploadPassMilliseconds, diffPassMilliseconds, applyPassMilliseconds,
                 plan.AddedCount, plan.SourceChangedByKey.Count, plan.RemovedIds.Count, plan.RestoredIds.Count);
 
@@ -470,6 +468,9 @@ internal sealed class ImportExportedTexts : IEndpoint
                 Unchanged: plan.UnchangedCount,
                 Warnings: warnings);
         }
+
+        [LoggerMessage(EventId = EventIds.ImportPassesCompleted, Level = LogLevel.Information, Message = "Import passes for {IncomingRows} incoming row(s): upload pass {UploadPassMs} ms, diff pass {DiffPassMs} ms, apply pass {ApplyPassMs} ms (added {Added}, source-changed {SourceChanged}, removed {Removed}, restored {Restored}).")]
+        private static partial void LogImportPasses(ILogger logger, int incomingRows, long uploadPassMs, long diffPassMs, long applyPassMs, int added, int sourceChanged, int removed, int restored);
     }
 
     public void MapEndpoint(IEndpointRouteBuilder endpointRouteBuilder)

@@ -70,6 +70,9 @@ internal static class EventIds
     public const int OpenIddictPruneCompleted = 2310;
     public const int OpenIddictPruneFailed = 2311;
 
+    // Startup (2350–2359)
+    public const int StartupTransientDatabaseFailure = 2350;
+
     // Middleware (2400–2499)
     public const int UnauthorizedAccessAttempt = 2400;
     public const int ForbiddenAccessAttempt = 2401;

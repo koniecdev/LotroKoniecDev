@@ -160,11 +160,16 @@ Per-ticket outcomes:
 - Default permission mode is `auto` plus a loop-scoped git/gh/dotnet/scripts `--allowedTools`
   allowlist (interactive sessions are unaffected). `LOOP_UNSAFE=1` trades that for
   zero-friction full autonomy — your call per run.
-- One loop at a time via `.claude/backlog-loop.lock`; a crashed run's lock is removed manually.
+- One loop at a time via `.claude/backlog-loop.lock`. The lock records its owner PID, so a crashed
+  run's lock is **reclaimed automatically** by the next conductor — a dead run can no longer block
+  the loop forever (it once ate a whole scheduled night). A lock whose owner is still alive is
+  still refused, and a refused *start* now fires the same macOS notification a finished run does,
+  so a scheduled loop can never fail silently into a log file.
 
 ## Troubleshooting
 
-- **"another loop appears to be running"** — stale lock after a crash: `rm -rf .claude/backlog-loop.lock`.
+- **"another loop is running (pid N)"** — a live conductor owns the lock; `ps -p N` to see it. A
+  *stale* lock (owner dead) is reclaimed automatically, so this message means a real second loop.
 - **Ticket ended `error` with no STATUS block** — read `logs/claude-loop/<run>/ticket-<n>.json`
   (`.result` field) and `.stderr`; usually a permission denial (extend `LOOP_ALLOWED_TOOLS`) or a
   mid-run crash.

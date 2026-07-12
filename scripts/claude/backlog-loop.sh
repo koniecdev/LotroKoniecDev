@@ -52,12 +52,48 @@ LIMIT_SLEEP_MIN="${LOOP_LIMIT_SLEEP_MIN:-60}"
 LIMIT_RETRIES="${LOOP_LIMIT_RETRIES:-8}"
 MAX_FAILURES="${LOOP_MAX_CONSECUTIVE_FAILURES:-2}"
 
+notify() {
+    command -v osascript >/dev/null 2>&1 && osascript -e \
+        "display notification \"$2\" with title \"$1\"" >/dev/null 2>&1 || true
+}
+
+# A bare mkdir mutex is not enough. A conductor killed without running its EXIT trap (terminal
+# closed, SIGKILL, power loss) leaves the directory behind, and every later run then refuses to
+# start — for a scheduled overnight run, silently into a log nobody reads. So the lock records its
+# owner and a lock whose owner is gone is reclaimed instead of blocking the loop forever.
 LOCK="$REPO_ROOT/.claude/backlog-loop.lock"
+LOCK_OWNER="$LOCK/pid"
+
+lock_owner_alive() {
+    local pid
+    pid="$(cat "$LOCK_OWNER" 2>/dev/null || true)"
+    [ -n "$pid" ] || return 1
+    kill -0 "$pid" 2>/dev/null || return 1
+    # The PID may have been recycled by an unrelated process — only a live conductor counts.
+    ps -p "$pid" -o command= 2>/dev/null | grep -q 'backlog-loop.sh'
+}
+
 if ! mkdir "$LOCK" 2>/dev/null; then
-    echo "another loop appears to be running — remove $LOCK if it is stale" >&2
-    exit 1
+    if lock_owner_alive; then
+        message="another loop is running (pid $(cat "$LOCK_OWNER" 2>/dev/null)) — refusing to start a second one"
+        echo "$message" >&2
+        notify "Claude backlog loop did NOT start" "$message"
+        exit 1
+    fi
+    echo "[conductor] stale lock (owner gone) — reclaiming $LOCK" >&2
+    # mv is atomic, so if two conductors race to reclaim, only one wins and the loser's mkdir fails.
+    if mv "$LOCK" "$LOCK.stale.$$" 2>/dev/null; then
+        rm -rf "$LOCK.stale.$$"
+    fi
+    if ! mkdir "$LOCK" 2>/dev/null; then
+        message="lost the race to reclaim the stale lock — another conductor got there first"
+        echo "$message" >&2
+        notify "Claude backlog loop did NOT start" "$message"
+        exit 1
+    fi
 fi
-trap 'rm -rf "$LOCK"' EXIT INT TERM
+echo "$$" > "$LOCK_OWNER"
+trap 'rm -rf "$LOCK"' EXIT INT TERM HUP
 
 RUN_DIR="$REPO_ROOT/logs/claude-loop/$(date +%Y%m%d-%H%M%S)"
 mkdir -p "$RUN_DIR"
@@ -123,6 +159,7 @@ while :; do
             ;;
         10)
             echo "[conductor] dirty working copy — stopping (nothing was touched)"
+            notify "Claude backlog loop stopped" "dirty working copy — nothing was touched"
             exit 10
             ;;
         *) failed=$((failed + 1)); consecutive_failures=$((consecutive_failures + 1)) ;;
@@ -150,6 +187,4 @@ echo "[conductor] done: $merged merged · $queued auto-merge queued · $blocked 
 [ "$blocked" -gt 0 ] && echo "[conductor] blocked tickets carry your questions as issue comments: gh issue list --label loop-blocked"
 echo "[conductor] raw session logs: $RUN_DIR"
 
-command -v osascript >/dev/null 2>&1 && osascript -e \
-    "display notification \"$merged merged, $blocked blocked, $failed failed (\$$total_cost)\" with title \"Claude backlog loop finished\"" \
-    >/dev/null 2>&1 || true
+notify "Claude backlog loop finished" "$merged merged, $blocked blocked, $failed failed (\$$total_cost)"

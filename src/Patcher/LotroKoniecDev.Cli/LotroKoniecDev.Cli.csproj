@@ -27,4 +27,9 @@
         <ProjectReference Include="..\LotroKoniecDev.Infrastructure\LotroKoniecDev.Infrastructure.csproj" />
     </ItemGroup>
 
+    <!-- LEGAL-12 (spec 0011): the player-facing risk NOTICE ships next to the published exe -->
+    <ItemGroup>
+        <None Include="..\..\..\NOTICE" Link="NOTICE" CopyToPublishDirectory="PreserveNewest" />
+    </ItemGroup>
+
 </Project>

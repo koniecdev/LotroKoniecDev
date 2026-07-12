@@ -1,9 +1,14 @@
+using Spectre.Console;
+
 namespace LotroKoniecDev.Cli;
 
 internal static class ConsoleWriter
 {
     public static void WriteInfo(string message) =>
         Console.WriteLine(message);
+
+    public static void WriteNotice(string message) =>
+        AnsiConsole.MarkupLine($"[dim]{Markup.Escape(message)}[/]");
 
     public static void WriteSuccess(string message)
     {

@@ -176,7 +176,7 @@ the public repo or platform hands a rightsholder an easy, high-value grievance.
       the official 2026 trademark ownership line.
 - [ ] Every frontend page renders the footer non-affiliation/trademark line (SSR-pure, no new
       interactivity; `check-ssr-purity` green).
-- [ ] ToS shows the new IP/takedown §, TOC updated, changelog date bumped.
+- [x] ToS shows the new IP/takedown §, TOC updated, changelog date bumped. (#477)
 - [ ] Home download CTA and CLI `patch`/`launch` output carry the agreed one-liner; CLI exit
       codes and all existing patcher tests unchanged.
 - [ ] `docs/legal/takedown-playbook.md` exists with the 48 h acknowledge flow + reply template.

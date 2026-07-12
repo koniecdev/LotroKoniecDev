@@ -5,8 +5,8 @@ namespace LotroKoniecDev.Frontend.Infrastructure.Security;
 
 /// <summary>
 /// Stamps the browser-facing security response headers on every response (audit #0001 / M6): a
-/// Content-Security-Policy locked to <c>'self'</c> plus the auth origin and the Google Fonts hosts the
-/// layout loads, <c>X-Content-Type-Options: nosniff</c>, <c>Referrer-Policy: no-referrer</c>, and
+/// Content-Security-Policy locked to <c>'self'</c> plus the auth origin,
+/// <c>X-Content-Type-Options: nosniff</c>, <c>Referrer-Policy: no-referrer</c>, and
 /// <c>X-Frame-Options: DENY</c> alongside the CSP <c>frame-ancestors 'none'</c>. The header set is
 /// computed once from configuration and written via <see cref="HttpResponse.OnStarting"/> so it also
 /// reaches re-executed error/status-code responses. Only registered outside Development, mirroring
@@ -51,9 +51,10 @@ internal sealed class SecurityHeadersMiddleware
     /// <summary>
     /// Builds the CSP. <c>script-src</c> stays at <c>'self'</c> (Blazor's <c>blazor.web.js</c> and
     /// streaming updates are external/markup, never inline script); <c>style-src</c> needs
-    /// <c>'unsafe-inline'</c> for the dynamic inline <c>style</c> width on the dashboard progress bar
-    /// and the Google Fonts stylesheet; the auth origin is admitted for <c>connect-src</c>/
-    /// <c>form-action</c> so the OIDC login flow is not blocked.
+    /// <c>'unsafe-inline'</c> for the dynamic inline <c>style</c> width on the dashboard progress
+    /// bar; fonts are self-hosted (LEGAL-06), so <c>font-src</c> stays at <c>'self'</c>; the auth
+    /// origin is admitted for <c>connect-src</c>/<c>form-action</c> so the OIDC login flow is not
+    /// blocked.
     /// </summary>
     internal static string BuildContentSecurityPolicy(string authOrigin) => string.Join("; ",
     [
@@ -63,8 +64,8 @@ internal sealed class SecurityHeadersMiddleware
         "frame-ancestors 'none'",
         "img-src 'self' data:",
         "script-src 'self'",
-        "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
-        "font-src 'self' https://fonts.gstatic.com",
+        "style-src 'self' 'unsafe-inline'",
+        "font-src 'self'",
         $"connect-src 'self' {authOrigin}",
         $"form-action 'self' {authOrigin}"
     ]);

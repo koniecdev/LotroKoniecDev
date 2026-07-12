@@ -386,6 +386,10 @@ try
 
     app.MapRazorPages();
 
+    // Serves the self-hosted web fonts referenced by the hosted account pages (LEGAL-06); sets its
+    // own Cache-Control (ETag revalidation), so GlobalNoCacheMiddleware leaves these responses alone.
+    app.MapStaticAssets();
+
     // Seed is idempotent - checks for existing data before inserting.
     // In integration tests, the seed may be called twice (here and in test setup) which is safe.
     await app.SeedAuthDatabaseAsync();

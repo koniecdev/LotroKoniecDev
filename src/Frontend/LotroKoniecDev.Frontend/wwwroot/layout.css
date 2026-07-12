@@ -1503,6 +1503,15 @@ code {
     color: var(--accent-hi);
 }
 
+/* .foot p wins on specificity (margin: 0), hence !important — same idiom as .foot-links */
+.foot-legal {
+    margin-top: 14px !important;
+    margin-left: auto !important;
+    margin-right: auto !important;
+    max-width: 720px;
+    line-height: 1.6;
+}
+
 /* ───────── Cookie consent bar ───────── */
 .cookie-bar {
     position: fixed;

@@ -66,7 +66,7 @@ signed JWTs — `OpenIddictExtensions.cs:64`) and exposes the public signing key
 | `client_credentials` | service-to-service (`lotrokoniecdev-api`) | always |
 | `password` | integration / E2E tests only | **Testing environment only** |
 
-OAuth clients seeded at startup (`DatabaseSeederExtensions.cs:109`):
+OAuth clients seeded at startup (`DatabaseSeederExtensions.cs:111`):
 
 | `client_id` | Type | Grants | Notes |
 |---|---|---|---|
@@ -75,31 +75,38 @@ OAuth clients seeded at startup (`DatabaseSeederExtensions.cs:109`):
 | `lotrokoniecdev-test` | public | password, refresh | seeded only in `Testing` |
 
 Token lifetimes (`OpenIddictSettings.cs`): access **60 min**, refresh **14 days**. Email-confirmation
-and password-reset tokens live **24 h** (`PersistenceDependencyInjection.cs:58`). Dev/Testing use
+and password-reset tokens live **24 h** (`PersistenceDependencyInjection.cs:63`). Dev/Testing use
 **ephemeral** signing keys; production supplies an RSA-2048 signing key (public half via JWKS) and a
 ≥256-bit symmetric encryption key via config, with one-previous-key rotation support.
 
 ### 2.2 Authorization — `tms-api` (JwtBearer)
 
-`tms-api` validates bearer tokens against the `auth-api` issuer (`ApiDependencyInjection.cs:141`):
+`tms-api` validates bearer tokens against the `auth-api` issuer (`ApiDependencyInjection.cs:215`):
 issuer, audience, lifetime and signing key are all validated; signing keys are pulled from
 `{authority}/.well-known/openid-configuration`. `MapInboundClaims` is **off**, so claims arrive as
 the raw OpenIddict types (`sub`, `name`, `email`, `role`). `NameClaimType=name`, `RoleClaimType=role`.
 
 **Endpoints are authorized by default.** A fallback policy requires an authenticated user, so any
 endpoint without explicit metadata returns **401** to anonymous callers; public endpoints opt out
-with `AllowAnonymous` (`ApiDependencyInjection.cs:198`).
+with `AllowAnonymous` (`ApiDependencyInjection.cs:258-279`).
 
 | Policy | Rule | Applied to |
 |---|---|---|
 | (fallback) | authenticated user | every endpoint without explicit metadata (e.g. `GET /`) |
-| `RequireTranslatorRole` | role `Admin` **or** `Translator` | all reads + translation upsert |
-| `RequireAdminRole` | role `Admin` | approve, register game version, import |
+| `RequireTranslatorRole` | role `Admin` **or** `Translator` | detail/stats reads, game-version reads + translation upsert |
+| `RequireAdminRole` | role `Admin` | approve, bulk approve, register/delete game version, import |
 | `RequireAuthenticatedUser` | authenticated user | available, currently unused by a slice |
 | `ApiScope` / `RequireServiceScope` | `scope` contains `api` / `service` | available for service paths |
 
+Anonymous by explicit opt-out: `GET /translation-files/{lang}`, `GET /api/v1/progress` and — since
+#309, the data being public game texts — the **read-only translations list** `GET /api/v1/translations`.
+Every state transition stays authenticated. On every authenticated request a middleware lazily and
+idempotently provisions the caller's TMS `Translator` profile (ADR-0004, amended 2026-06-24 —
+`TranslatorProvisioningMiddleware.cs`); write handlers additionally provision authoritatively before
+stamping attribution.
+
 **Roles** (`AuthConstants.Roles`): `Admin` (reviewer — approves, imports, registers versions) and
-`Translator` (edits Polish). A self-registered user gets **`Translator`** (`RegisterUser.cs:140`);
+`Translator` (edits Polish). A self-registered user gets **`Translator`** (`RegisterUser.cs:138-139`);
 the seeded admin gets `Admin`. **Scopes** (`AuthConstants.Scopes`): `api`, `service` (plus the OIDC
 `openid email profile roles offline_access`).
 
@@ -116,9 +123,10 @@ Content-Type: multipart/form-data          # the import upload only
 ### 2.4 Rate limiting
 
 In non-dev/test, `tms-api` applies a **fixed-window 100 requests/minute per IP** policy across the
-endpoint group; over-limit returns **429** (`Program.cs:119`). `auth-api` rate-limits per IP: the
+endpoint group; over-limit returns **429** (`Program.cs:187-199`). `auth-api` rate-limits per IP: the
 OpenIddict `/connect/*` endpoints and the sensitive account endpoints (`auth/register`,
-confirm/reset/change-password, delete/export) carry the `auth-endpoint-limit` policy (10/min),
+confirm/reset/change-password, delete/cancel-deletion/export) carry the `auth-endpoint-limit`
+policy (10/min),
 forgot-password and resend-confirmation carry stricter 3/15 min policies, and the remaining API
 endpoints fall under the generic 20/min policy (health probes and the OpenIddict discovery/JWKS
 documents are deliberately unlimited).
@@ -211,8 +219,16 @@ Paginated lists return a `PaginationResponse<T>`:
 
 `page` defaults to `1` (clamped to ≥ 1); `pageSize` defaults to `50` and is **clamped to 1–100**
 server-side. Unpaged collections (game versions — few rows ever exist) return a `CollectionResponse<T>`
-(`{ items, links }`) instead. There is **no** generic multi-field `sort` parameter — each list slice
-sorts deterministically (translations by `(FileId, GossipId)`, game versions by `DetectedAt` desc).
+(`{ items, links }`) instead.
+
+Both list endpoints accept an optional multi-field **`?sort=`** parameter
+(`SortParser.cs` / `IQueryableExtensions.ApplyMultipleSorting`): comma-separated keys, each optionally
+suffixed `:asc`/`:desc` (default ascending), e.g. `?sort=status:desc,fileId`. Supported keys —
+translations: `fileId`, `gossipId`, `status`, `submittedAt` (orders by `UpdatedAt`); game versions:
+`version`, `detectedAt`, `status`. `status`/`version` sort by the stored **string**, not semantically;
+an unknown key degrades to the slice's primary default instead of failing, and a unique tiebreaker is
+always appended so pagination order is total. Without `sort`, translations order by
+`(FileId, GossipId)` and game versions by `DetectedAt` desc.
 
 ---
 
@@ -231,8 +247,10 @@ sorts deterministically (translations by `(FileId, GossipId)`, game versions by 
 | `GET` | `/.well-known/openid-configuration` | anonymous | OIDC discovery document |
 | `GET` | `/.well-known/jwks` | anonymous | JSON Web Key Set (public signing key) |
 
-The login/consent UI is server-rendered Razor Pages: `/Account/Login`, `/Account/ConfirmEmail`,
-`/Account/ForgotPassword`, `/Account/ResetPassword`, `/Account/PrivacyPolicy`.
+The login/consent UI is server-rendered Razor Pages: `/Account/Login`, `/Account/Register`,
+`/Account/ConfirmEmail`, `/Account/ResendConfirmation`, `/Account/ForgotPassword`,
+`/Account/ResetPassword`, `/Account/PrivacyPolicy`, `/Account/CancelDeletion` (the emailed
+cancellation link's landing page — LEGAL-01).
 
 ### 7.2 Account & credential endpoints (`auth/*`)
 
@@ -244,12 +262,14 @@ The login/consent UI is server-rendered Razor Pages: `/Account/Login`, `/Account
 | `POST` | `auth/forgot-password` | anonymous | `ForgotPasswordRequest` (anti-enumeration: always succeeds) |
 | `POST` | `auth/reset-password` | anonymous | `ResetPasswordRequest { email, token, newPassword }` |
 | `POST` | `auth/change-password` | bearer token | `ChangePasswordRequest { currentPassword, newPassword }` |
-| `POST` | `auth/account/delete` | bearer token | `DeleteAccountRequest { password }` — GDPR erasure + permanent lockout |
+| `POST` | `auth/account/delete` | bearer token | `DeleteAccountRequest { password }` — **schedules** GDPR deletion (ADR-0031): 14-day grace window, account locked for the window, sessions + refresh tokens revoked, one-time cancellation link emailed → **204** + `X-Deletion-Scheduled-At` / `X-Deletion-Finalizes-At` headers; erasure runs in the finalizer only after the window elapses |
+| `POST` | `auth/account/cancel-deletion` | anonymous (emailed one-time token), rate-limited | `CancelAccountDeletionRequest { email, token }` → **200** `CancelAccountDeletionResponse { passwordResetToken }` — unlocks the account and forces a password reset (the pre-deletion password may be the attacker's) |
 | `GET` | `auth/account/data-export` | bearer token | `AccountDataExportResponse` — GDPR export |
 | `GET` | `/` | anonymous | discovery document (links into the auth flows) |
 
-`RegisterRequest`: `{ username, email, password, acceptedPrivacyPolicy, acceptedDataProcessingConsent }`.
-Both consent flags **must be `true`**. Password rules (`PasswordValidationRules.cs`): **8–128** chars,
+`RegisterRequest`: `{ username, email, password, acceptedPrivacyPolicy, acceptedDataProcessingConsent,
+acceptedTermsOfService }`. All three consent flags **must be `true`** (the ToS flag landed with
+LEGAL-03; acceptance + timestamp are persisted and surface in the data export). Password rules (`PasswordValidationRules.cs`): **8–128** chars,
 ≥1 digit, ≥1 lowercase, ≥1 uppercase, ≥1 special. Email unique (case-insensitively, physical via the
 unique `EmailIndex`), ≤ 250, regex-validated — **the e-mail is the login identifier** (ADR-0022).
 Username is a **display-only handle**: unique (case-insensitively), `^[a-zA-Z0-9]+$` (letters + digits
@@ -258,13 +278,15 @@ in**; lockout is **5 failed attempts / 5 min**.
 
 > **No registration saga.** Registering creates only the AuthSystem user (ADR-0002 §7 / ADR-0004) —
 > the KittySaver `RegisterUser → CreatePerson` saga is deliberately **not** lifted. The TMS
-> `Translator` profile is provisioned lazily on the first authenticated write to `tms-api` (§8.4).
+> `Translator` profile is provisioned lazily and idempotently on the caller's first authenticated
+> request to `tms-api` (§2.2).
 
 ---
 
 ## 8. TranslationSystem endpoints (`tms-api`)
 
-All routes are under `/api/v1` unless noted. All require a bearer token except `GET /translation-files/{lang}`.
+All routes are under `/api/v1` unless noted. All require a bearer token except
+`GET /translation-files/{lang}`, `GET /progress` and the read-only `GET /translations` list.
 
 ### 8.0 Discovery
 
@@ -276,23 +298,30 @@ All routes are under `/api/v1` unless noted. All require a bearer token except `
 
 | Method | Route | Policy | Result |
 |---|---|---|---|
-| `GET` | `/api/v1/game-versions` | `RequireTranslatorRole` | **200** `CollectionResponse<GameVersionResponse>`, newest-first |
+| `GET` | `/api/v1/game-versions` | `RequireTranslatorRole` | **200** `CollectionResponse<GameVersionResponse>`, newest-first (optional `?sort=`, §6) |
 | `GET` | `/api/v1/game-versions/{id:guid}` | `RequireTranslatorRole` | **200** `GameVersionResponse` · **404** |
 | `POST` | `/api/v1/game-versions` | `RequireAdminRole` | **201** `GameVersionResponse` (`Location: /api/v1/game-versions/{id}`) · **400** · **422** (version already registered) |
-| `POST` | `/api/v1/game-versions/{id:guid}/import` | `RequireAdminRole` | **200** `ImportSummary` · **404** (unknown version) · **422** (parse/empty/duplicate/mass-removal) — see §8.3 |
+| `DELETE` | `/api/v1/game-versions/{id:guid}` | `RequireAdminRole` | **204** · **400** · **404** · **422** — see below |
+| `POST` | `/api/v1/game-versions/{id:guid}/import` | `RequireAdminRole` | **200** `ImportSummary` · **404** (unknown version) · **413** (upload too large) · **422** (parse/empty/duplicate/mass-removal/superseded) — see §8.3 |
 
 `GameVersionResponse`: `{ id, version, detectedAt, status }`. `RegisterGameVersionRequest`:
 `{ version }` (dotted notation, e.g. `"48.0"`, ≤ 12 chars; canonicalized — `48` = `48.0`).
+
+**`DELETE /game-versions/{id}`** (#209) removes a manually-registered version that was added by
+mistake. The guard is strict: only an `Unprocessed` version with **no translation referencing it**
+may be deleted — otherwise **422** (`GameVersionEntity.OnlyUnprocessedCanBeDeleted` /
+`GameVersionEntity.CannotDeleteReferencedVersion`); an unknown id is **404**.
 
 ### 8.2 Translations
 
 | Method | Route | Policy | Result |
 |---|---|---|---|
-| `GET` | `/api/v1/translations` | `RequireTranslatorRole` | **200** `PaginationResponse<TranslationListItemResponse>` · **400** (unsupported lang) |
+| `GET` | `/api/v1/translations` | **anonymous** (read-only browse, #309) | **200** `PaginationResponse<TranslationListItemResponse>` · **400** (unsupported lang) |
 | `GET` | `/api/v1/translations/stats` | `RequireTranslatorRole` | **200** `TranslationStatsResponse` |
 | `GET` | `/api/v1/translations/{id:guid}` | `RequireTranslatorRole` | **200** `TranslationDetailResponse` · **404** |
 | `PUT` | `/api/v1/translations` | `RequireTranslatorRole` | **200** `TranslationDetailResponse` · **400** · **403** · **404** · **422** |
 | `POST` | `/api/v1/translations/{id:guid}/approve` | `RequireAdminRole` | **204** · **400** · **403** · **404** · **422** |
+| `POST` | `/api/v1/translations/approve` | `RequireAdminRole` | **200** `BulkApproveTranslationsResponse` · **400** · **403** — see below |
 
 **`GET /translations`** query parameters:
 
@@ -303,8 +332,10 @@ All routes are under `/api/v1` unless noted. All require a bearer token except `
 | `status` | `TranslationStatus`? | — | filter; `NeedsReview` is the "needs re-translation" view |
 | `page` | int | `1` | clamped ≥ 1 |
 | `pageSize` | int | `50` | clamped 1–100 |
+| `sort` | string? | — | multi-field sort, §6 (`fileId`, `gossipId`, `status`, `submittedAt`) |
 
-Soft-removed rows are always excluded. Sorted by `(FileId, GossipId)`.
+Soft-removed rows are always excluded. Default order `(FileId, GossipId)`. The list is anonymous
+(the data is public game text); anonymous callers get items without any HATEOAS action links.
 
 **`PUT /translations`** body `UpsertTranslationRequest`: `{ fileId, gossipId, translatedText }`. Creates
 or replaces the Polish content of the row keyed by `(fileId, gossipId)` — the row must already exist
@@ -315,7 +346,16 @@ or replaces the Polish content of the row keyed by `(fileId, gossipId)` — the 
 
 **`POST /translations/{id}/approve`** (reviewer only): a row with no Polish → **422**
 (`CannotApproveWithoutTranslation`), a soft-removed row → **422** (`CannotApproveRemoved`), unknown
-id → **404**, success → **204**. Re-builds the distributed file.
+id → **404**, success → **204**. Schedules a debounced background rebuild of the distributed file
+(PERF-04, ADR-0021) — the response does not wait for it, so a download may briefly trail the commit.
+
+**`POST /translations/approve`** — bulk approve (#322), body `BulkApproveTranslationsRequest`:
+`{ ids: [guid, ...] }` (1–100 distinct ids; the list's max page size). Best-effort: every requested
+row that is *still* approvable (a non-removed `Draft`/`NeedsReview` row) is approved, the rest are
+silently skipped — a single stale row never fails the batch, and no per-row 404/422 is returned.
+Response `BulkApproveTranslationsResponse`: `{ requested, approved, skipped }` with
+`approved + skipped == requested`. One debounced artifact rebuild is scheduled only when at least
+one row was approved.
 
 `TranslationDetailResponse` (the side-by-side editor):
 
@@ -340,18 +380,27 @@ after a game update invalidated the row (non-null only while `NeedsReview`).
 
 `TranslationStatsResponse` (mini-dashboard): `{ total, translated, approved, remaining }` over the
 active (non-removed) catalog — `translated` = rows carrying Polish (Draft + Approved + NeedsReview),
-`remaining` = `total - approved`.
+`remaining` = `total - approved`. Served from a **30 s server-side cache** (`HybridCache`,
+AUDIT-EF-04) — counters may lag a write by up to the TTL.
 
 ### 8.3 Import (`POST /game-versions/{id}/import`)
 
 Version-bound upload of a fresh `exported.txt` (spec 0001), **admin-only**, `multipart/form-data`:
 
-- form field `file` — the `||`-format export;
+- form field `file` — the `||`-format export (size-capped: **256 MB** default via
+  `ImportUploadLimits.MaxUploadBytes`, configurable `Import:MaxUploadBytes`; over the cap → **413**);
 - query `allowMassRemoval` (default `false`) — override the safety guard.
 
-The handler parses, diffs against the stored source state by `(FileId, GossipId)`, applies the five
-outcomes (added / source-changed / removed / restored / unchanged), flips the version to `Processed`,
-all in one transaction, then rebuilds the distributed file. Response `ImportSummary`:
+The handler streams the upload in **two passes** (spec 0006): pass 1 validates and diffs the file
+against the stored source state by `(FileId, GossipId)` hash-to-hash without writing anything (so the
+mass-removal guard runs on the full plan first); pass 2 applies the five outcomes (added — binary
+`COPY` — / source-changed / removed / restored / unchanged) and flips the version to `Processed` in
+**one atomic transaction**. Processing the newest version also marks every older still-`Unprocessed`
+version `Superseded` in the same transaction — a later import against one of them fails with
+`GameVersionEntity.SupersededCannotBeProcessed` (**422**) instead of rewinding the catalog. After the
+commit a debounced background rebuild of the distributed file is scheduled (ADR-0021). Re-upload to
+an already `Processed` version is allowed and idempotent. Response `ImportSummary` (warnings report
+restored rows and superseded versions):
 
 ```json
 { "added": 12, "sourceChanged": 3, "invalidated": 2, "removed": 0, "unchanged": 4810, "warnings": [] }
@@ -366,6 +415,7 @@ Failure modes (all **422 `DataConflict`** unless noted):
 | `Import.InvalidRow` | a row has an invalid `(FileId, GossipId)` or source |
 | `Import.DuplicateFragmentKey` | two rows share one fragment key |
 | `Import.MassRemovalBlocked` | the upload would remove > **20%** of active rows without `allowMassRemoval=true` |
+| `GameVersionEntity.SupersededCannotBeProcessed` | the target version was superseded by a newer processed one |
 | `GameVersionEntity.NotFound` | unknown version id (**404**) |
 
 ### 8.4 Translation-file distribution (`GET /translation-files/{lang}`)
@@ -374,11 +424,17 @@ Failure modes (all **422 `DataConflict`** unless noted):
 |---|---|---|---|
 | `GET` | `/api/v1/translation-files/{lang}` | **anonymous** | **200** `text/plain` (the `||` file) · **304** · **404** |
 
-The **only anonymous** domain endpoint — the CLI/player downloads the pre-built Polish file here.
-Served from a stored, regenerate-on-write artifact (never built per request). Supports HTTP caching:
+The CLI/player downloads the pre-built Polish file here. Served from a stored artifact that a
+**debounced background worker** regenerates after every write changing the distributed set (PERF-04,
+ADR-0021) — never built per request, so a download may briefly trail a commit. Supports HTTP caching:
 
-- the response carries a strong **`ETag`** = the content hash, plus `Cache-Control: private, no-cache`;
-- send **`If-None-Match: "<etag>"`** (or `*`) to get **304 Not Modified** when unchanged;
+- the response carries a strong **`ETag`** = the content hash (hex SHA-256 of the UTF-8 body), plus
+  `Cache-Control: private, no-cache`;
+- send **`If-None-Match: "<etag>"`** (or `*`) to get **304 Not Modified** when unchanged — the 304
+  decision is a hash-only lookup that never reads the multi-MB content (PERF-01);
+- the ETag doubles as the **integrity hash** (AUDIT-SEC-01): the patcher recomputes the SHA-256 of
+  the downloaded body and rejects the file on mismatch — the hash algorithm and strong-ETag format
+  are a cross-context contract;
 - `lang` must be `polish` (anything else → **400**); no artifact built yet → **404**
   (`TranslationFiles.NotFound`).
 
@@ -386,6 +442,17 @@ The file holds **Approved + non-invalidated + non-removed** rows, sorted by `Fil
 byte-compatible with the patcher's writer (the `args_order||args_id||approved` columns, approved always
 `1`, CRLF terminators). See the [translation file contract](../CLAUDE.md) and
 [DOMAIN.md §projection](DOMAIN.md#projekcja-precomputedtranslationfile).
+
+### 8.5 Public progress (`GET /progress`)
+
+| Method | Route | Auth | 200 |
+|---|---|---|---|
+| `GET` | `/api/v1/progress` | **anonymous** | `PublicProgressResponse` |
+
+The landing page's public snapshot (#309): `{ total, translated, approved, currentGameVersion }` over
+the active catalog — the same bucketing as `/translations/stats` — plus the newest **Processed** game
+version's dotted notation (`null` until a first import completes). Deliberately a separate frozen
+public contract, aggregate counters only; served from a **30 s server-side cache** (`HybridCache`).
 
 ---
 
@@ -396,20 +463,24 @@ byte-compatible with the patcher's writer (the `args_order||args_id||approved` c
 1. Frontend redirects to `connect/authorize` (auth code + PKCE); user signs in at `/Account/Login`.
 2. `connect/token` returns the access token; the cookie session stores it (`SaveTokens`).
 3. `GET /api/v1/translations?status=Untranslated` → pick a row → `GET /api/v1/translations/{id}`.
-4. `PUT /api/v1/translations { fileId, gossipId, translatedText }` → row becomes `Draft`; the **first**
-   such write lazily provisions the caller's `Translator` profile (ADR-0004).
+4. `PUT /api/v1/translations { fileId, gossipId, translatedText }` → row becomes `Draft`. (The
+   caller's `Translator` profile was already provisioned lazily on their first authenticated request
+   — ADR-0004 as amended; the write handler re-verifies it before stamping attribution.)
 
 ### 9.2 Reviewer approves & the file ships
 
 1. `GET /api/v1/translations?status=Draft` (or `NeedsReview`).
-2. `POST /api/v1/translations/{id}/approve` (Admin) → **204**; the distributed file is regenerated.
+2. `POST /api/v1/translations/{id}/approve` (Admin) → **204** — or select up to 100 rows and
+   `POST /api/v1/translations/approve { ids }` in one action; a debounced background rebuild of the
+   distributed file follows.
 3. The CLI `launch` flow does `GET /api/v1/translation-files/polish` with `If-None-Match` → patches
-   only when the ETag changed.
+   only when the ETag changed (and verifies the body against the ETag hash).
 
 ### 9.3 A game update lands
 
-1. CLI `export` → `exported.txt`. Admin: `POST /api/v1/game-versions { version }` (or the forum watcher
-   creates it), then `POST /api/v1/game-versions/{id}/import` with the file.
+1. CLI `export` → `exported.txt`. Admin: `POST /api/v1/game-versions { version }` (manual — the forum
+   watcher, M2-18/#85, is not implemented yet), then `POST /api/v1/game-versions/{id}/import` with
+   the file.
 2. The diff invalidates source-changed rows that carried Polish (→ `NeedsReview`, superseded English
    frozen) and soft-removes vanished rows; the rebuilt file excludes both.
 3. Translators work the `NeedsReview` queue; approve re-admits rows to the file.
@@ -424,29 +495,37 @@ Sent only with `Accept: application/vnd.dev-lotrokoniecdev.hateoas.json`.
 
 | rel | Method | Target | Appears when |
 |---|---|---|---|
-| `self` | GET | the resource / list page | always |
-| `upsert` | PUT | `/api/v1/translations` | translation not soft-removed |
-| `approve` | POST | `/api/v1/translations/{id}/approve` | caller is `Admin` **and** status ∈ {Draft, NeedsReview} |
+| `self` | GET | the resource / list page | always — except on a translation for an **anonymous** caller (every advertised transition, incl. the detail `self`, requires auth) |
+| `upsert` | PUT | `/api/v1/translations` | caller is `Translator`/`Admin`, translation not soft-removed |
+| `approve` | POST | `/api/v1/translations/{id}/approve` | caller is `Admin` **and** status ∈ {Draft, NeedsReview}, not removed |
+| `bulk-approve` | POST | `/api/v1/translations/approve` | on the translations collection, caller is `Admin` |
 | `register` | POST | `/api/v1/game-versions` | on the game-versions collection, caller is `Admin` |
+| `delete` | DELETE | `/api/v1/game-versions/{id}` | caller is `Admin` **and** the version is `Unprocessed` |
 | `first-page` / `previous-page` / `next-page` / `last-page` | GET | the list page | the target page exists |
 
 ### 10.2 `auth-api` rels (`AuthSystem.Contracts/Hateoas/Rels.cs`)
 
 `self`, `register`, `forgot-password`, `export-account-data` (discovery); `change-password`,
-`delete-account`, `resend-email-confirmation` (account aggregate).
+`delete-account`, `resend-email-confirmation` (account aggregate). While a deletion is scheduled
+the account aggregate suppresses the normal rels and emits only `cancel-deletion`
+(POST `auth/account/cancel-deletion`) — every other transition is a dead end on a locked account.
 
 ---
 
 ## 11. Quick conventions checklist
 
 - **Base paths**: `tms-api` domain under `/api/v1`; `auth-api` under `connect/*` + `auth/*`.
-- **Auth**: bearer token on every `tms-api` call except `GET /translation-files/{lang}` and health.
-- **Roles**: `Translator` reads + upserts; `Admin` also approves / imports / registers versions.
+- **Auth**: bearer token on every `tms-api` call except `GET /translation-files/{lang}`,
+  `GET /progress`, the read-only `GET /translations` list, and health.
+- **Roles**: `Translator` reads + upserts; `Admin` also approves (single + bulk) / imports /
+  registers & deletes versions.
 - **IDs**: bare GUID strings (GUID v7). **Enums**: strings.
 - **Errors**: RFC 7807 `ProblemDetails`; branch on the `errorCode` extension, not `detail`.
 - **Links**: opt in with the vendor `Accept`; they're state/role-aware — drive the UI off rels.
-- **Pagination**: `pageSize` clamped 1–100; lists self-sort (no generic `sort` param).
-- **Distribution**: respect `ETag` / `If-None-Match` on the translation-file download.
+- **Pagination**: `pageSize` clamped 1–100; deterministic default order + optional multi-field
+  `?sort=key:asc,key2:desc` (§6).
+- **Distribution**: respect `ETag` / `If-None-Match` on the translation-file download; the ETag is
+  also the SHA-256 integrity hash of the body.
 
 ---
 
@@ -457,4 +536,6 @@ Sent only with `Accept: application/vnd.dev-lotrokoniecdev.hateoas.json`.
 - [auth-tutorial.md](auth-tutorial.md) — the auth story end-to-end (JWT, OAuth2/OIDC, OpenIddict, JwtBearer, lazy provisioning).
 - `docs/specs/0001-game-update-lifecycle-and-translation-invalidation.md` — the update-lifecycle domain spec.
 - `docs/specs/0002-hateoas-hypermedia-on-tms-endpoints.md` — the HATEOAS content-negotiation contract.
-- `docs/adr/` — 0001 (no mediator), 0002 (TMS pivot), 0003 (read projections / version canonical form), 0004 (translator + lazy provisioning), 0006 (frontend not containerized).
+- `docs/adr/` — 0001 (no mediator), 0002 (TMS pivot), 0003 (version canonical form), 0004 (translator
+  + lazy provisioning), 0006 (dev stack: infra-only compose + host Kestrels), 0007 (read projections
+  are not aggregates), 0021 (debounced background artifact rebuild).

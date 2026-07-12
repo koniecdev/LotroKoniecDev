@@ -1,6 +1,6 @@
 # ADR-0008: Cloud-agnostic deployment & environment strategy (staging + production)
 
-**Status:** Accepted
+**Status:** Accepted (its "no IaC / human-driven first deploy / provider undecided" stance superseded by ADR-0012, 2026-06-28; §6 migration wording amended 2026-07-05 by ADR-0023/#337 — see the in-body note)
 **Date:** 2026-06-19
 **Decision-makers:** Solo maintainer
 **Related:** ADR-0002 (TMS pivot + KittySaver 1:1 lift), ADR-0005 (Frontend Data Protection key

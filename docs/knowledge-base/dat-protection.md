@@ -6,6 +6,10 @@ originSessionId: fcf33c21-a957-445f-bc57-c8ea7814f1b6
 ---
 # DAT Protection Status: NOT NEEDED
 
+> **Addendum (2026-07-11):** an 8th confirmation — resident translations survived the 48.7→48.8
+> cycle untouched (SKIP path, hash match) and a forced live `patch` (8/8, 0 warnings) confirmed
+> the WRITE path on the 48.8 DAT. See [live-test-2026-07-11.md](live-test-2026-07-11.md).
+
 ## The original assumption (WRONG)
 
 We assumed LOTRO's official launcher overwrites DAT files on update, wiping translations. This drove the entire Legacy launch flow with attrib +R protection, process monitoring, and game client killing. **Wrong.**

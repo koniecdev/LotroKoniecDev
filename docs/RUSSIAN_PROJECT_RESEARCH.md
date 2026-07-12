@@ -1,5 +1,12 @@
 # Badanie projektu rosyjskiej rusyfikacji LOTRO (translate.lotros.ru)
 
+> **Raw point-in-time research record (2026-02-09)** — the distilled, cross-referenced digest lives in
+> [`knowledge-base/russian-project.md`](knowledge-base/russian-project.md). Claims here about *our*
+> project reflect pre-pivot plans since superseded: `attrib +R` DAT protection proved unnecessary
+> ([`knowledge-base/dat-protection.md`](knowledge-base/dat-protection.md)), vnum-based detection is
+> dead ([`knowledge-base/vnum-observations.md`](knowledge-base/vnum-observations.md)), and
+> MediatR/MSSQL gave way to in-house handlers + PostgreSQL (ADR-0001, ADR-0002).
+
 Badanie przeprowadzone: 2026-02-09
 Zrodla: GitHub, git.endevir.ru, Steam Community, translate.lotros.ru, lotro-mindon.ru, pikabu.ru
 

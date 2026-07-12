@@ -1,5 +1,14 @@
 # Prod DB migration: Supabase → Neon — Plan
 
+> 🟢 **Historical — executed 2026-06/07; superseded by the runbook + ADR-0014.** The migration is
+> done: production (and, since ADR-0018, a separate staging project) runs on Neon; ADR-0014 is
+> Accepted; the runbook's *Database migrations* section carries the living Neon topology, PITR
+> recovery and MIGR-04 snapshot procedures; Phase 7 (compose Postgres 17→18) also landed
+> (`postgres:18-alpine` in both compose files). **Do not re-run the commands below** — Phase 3/4
+> would rotate the live Key Vault secrets and re-roll prod. The one leg this repo cannot verify is
+> Phase 6 (Supabase teardown, an off-repo operator action — flagged still-pending in audit 0001,
+> 2026-06-29). Kept because ADR-0014 links it as the execution record.
+
 > **Next-session execution plan.** Moves the production database off two free Supabase projects onto
 > a single **Neon** project (Postgres **18**), with **zero data loss risk** — prod has no users and
 > only the auto-seeded admin (re-created on `auth-api` startup from Key Vault). Mirrors the style of

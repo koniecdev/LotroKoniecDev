@@ -7,8 +7,12 @@
 > **Scope:** the full configuration surface and bring-up of the four service images across
 > environments — the environment-variable matrix, secret generation, the consistency rules that bite,
 > the bring-up sequence, and database migrations. The platform requirements + Azure⇄AWS service
-> mapping live in [`target-requirements.md`](target-requirements.md) (M6-12); the only deferred
-> piece is the provider-specific deploy walkthrough, authored once the provider is chosen.
+> mapping live in [`target-requirements.md`](target-requirements.md) (M6-12). The provider **has
+> been chosen and executed**: the live environments run on Azure Container Apps + Neon (ADR-0012,
+> ADR-0014, ADR-0018) — see [Continuous deployment (CI/CD)](#continuous-deployment-cicd); the
+> historical bring-up walkthrough is
+> [`azure-supabase-bring-up-plan.md`](azure-supabase-bring-up-plan.md) (executed; DB layer since
+> replaced by Neon per [`neon-migration-plan.md`](neon-migration-plan.md)).
 
 ## Contents
 
@@ -92,14 +96,14 @@ Purely optional tuning knobs with safe defaults are omitted (e.g. `OpenIddict:Ac
 | `Cors__AllowedOrigins__0` | — (AllowAnyOrigin) | `https://lotro-translator.pl` | ✅ non-dev | plain | Bare origin = Frontend public URL. Lowercase, no port-if-default, no path/slash. |
 | `ForwardedHeaders__KnownNetworks__0` | — (dev skips `UseForwardedHeaders`) | proxy subnet CIDR, or unset on ACA | optional | plain | Restricts `X-Forwarded-*` trust to the proxy hop (#399). `compose.prod.yaml` sets `10.60.0.0/24`; unset = trust every upstream (`ForwardLimit=1`) — safe only while `:8080` is never published. Malformed CIDR aborts boot. |
 | `DataProtection__KeyRingPath` | — (host default) | `/keys` | ✅ non-dev | plain | Persistent, replica-shared volume; else logins/antiforgery/reset links break on deploy/scale. |
-| `Email__Host` | `mailpit` | `smtp.sendgrid.net` | ✅ all | plain | SMTP host. Validated on start (every environment). |
+| `Email__Host` | `localhost` (the compose mailpit, published on `:1025`) | `smtp-relay.brevo.com` | ✅ all | plain | SMTP host. Validated on start (every environment). |
 | `Email__Port` | `1025` | `587` | ✅ all | plain | 1–65535. |
 | `Email__Mode` | `None` | `StartTls` | ✅ all | plain | One of `None` / `StartTls` / `TLS`. |
 | `Email__SenderEmail` | `noreply@lotro-translator.pl` | `no-reply@lotro-translator.pl` | ✅ all | plain | Must be a valid email. |
 | `Email__Sender` | `lotro-translator.pl` | `LOTRO PL` | ✅ all | plain | Display name. |
 | `Email__Username` / `Email__Password` | — | provider credentials | optional¹ | **secret** (Password) | ¹If `Username` is set, `Password` is required. |
 | `AdminUser__Username` / `AdminUser__Email` / `AdminUser__Password` | from `AUTH_ADMIN_*` | from `AUTH_ADMIN_*` | optional | **secret** (Password) | Seeds one admin on first boot; leave blank to skip. Username must match `^[a-zA-Z0-9]+$` (ADR-0022) or auth-api fails at startup; the admin logs in **by e-mail**. |
-| `OTEL_EXPORTER_OTLP_ENDPOINT` | `http://aspire-dashboard:18889` | OTLP collector URL | optional | plain | Empty = telemetry export disabled. |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | `http://localhost:4317` (launchSettings → the compose aspire-dashboard) | — (injected by the ACA managed OTel agent, ADR-0016) | optional | plain | Empty = telemetry export disabled. |
 | `OTEL_EXPORTER_OTLP_PROTOCOL` | `grpc` | `grpc` / `http/protobuf` | optional | plain | Defaults to `grpc`. |
 
 ### tms-api
@@ -114,7 +118,7 @@ Purely optional tuning knobs with safe defaults are omitted (e.g. `OpenIddict:Ac
 | `Auth__Audience` | `lotrokoniecdev-api` | `lotrokoniecdev-api` | ✅ all | plain | Default in base `appsettings.json`. |
 | `Cors__AllowedOrigins__0` | — (AllowAnyOrigin) | `https://lotro-translator.pl` | ✅ non-dev | plain | Bare origin = Frontend public URL. |
 | `ForwardedHeaders__KnownNetworks__0` | — (dev skips `UseForwardedHeaders`) | proxy subnet CIDR, or unset on ACA | optional | plain | Restricts `X-Forwarded-*` trust to the proxy hop (#399). See the auth-api row. |
-| `OTEL_EXPORTER_OTLP_ENDPOINT` / `OTEL_EXPORTER_OTLP_PROTOCOL` | aspire / `grpc` | collector / `grpc` | optional | plain | Empty endpoint = export disabled. |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` / `OTEL_EXPORTER_OTLP_PROTOCOL` | `http://localhost:4317` / `grpc` (launchSettings) | — (ACA managed OTel agent, ADR-0016) | optional | plain | Empty endpoint = export disabled. |
 | `Bootstrap__Enabled` | `false` | `false` | optional | plain | One-time DB seed of the first export (spec 0001). Off by default. |
 | `Bootstrap__GameVersion` / `Bootstrap__ExportedTextPath` / `Bootstrap__PolishTextPath` | — / — / `/app/translations/polish.txt` | as needed | optional | plain | Only consulted when `Bootstrap__Enabled=true`. |
 
@@ -137,7 +141,7 @@ Staging/Production.
 | `TranslationSystem__BaseUrl` | `https://localhost:5002/` | `https://tms.lotro-translator.pl/` | ✅ all | plain | TMS API origin (trailing slash). |
 | `DataProtection__KeyRingPath` | — (host default) | `/keys` | ✅ non-dev | plain | Persistent, replica-shared volume (ADR-0005); else antiforgery + auth cookies break on deploy/scale. |
 | `ForwardedHeaders__KnownNetworks__0` | — (dev skips `UseForwardedHeaders`) | proxy subnet CIDR, or unset on ACA | optional | plain | Restricts `X-Forwarded-*` trust to the proxy hop (#399). See the auth-api row. |
-| `OTEL_EXPORTER_OTLP_ENDPOINT` / `OTEL_EXPORTER_OTLP_PROTOCOL` | — | collector / `grpc` | optional | plain | Empty endpoint = export disabled. |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` / `OTEL_EXPORTER_OTLP_PROTOCOL` | `http://localhost:4317` / `grpc` (launchSettings) | — (ACA managed OTel agent, ADR-0016) | optional | plain | Empty endpoint = export disabled. |
 
 ### migrator
 
@@ -325,7 +329,8 @@ docker compose -f compose.prod.yaml --env-file .env.prod --profile local-smtp --
 
 Provider-neutral sequence — anything that runs an OCI image behind a TLS ingress (platform
 requirements + the Azure⇄AWS service mapping are in [`target-requirements.md`](target-requirements.md);
-the provider-specific walkthrough is deferred until the provider is chosen):
+the Azure-specific first bring-up was executed per
+[`azure-supabase-bring-up-plan.md`](azure-supabase-bring-up-plan.md), now historical):
 
 1. **Provision** Postgres (two databases — see [Generating secrets](#generating-secrets)) and a TLS
    ingress holding a publicly-trusted cert.
@@ -465,16 +470,17 @@ SMOKE_CLIENT_SECRET="$SEED_OPENIDDICT_API_CLIENT_SECRET" scripts/smoke.sh \
 
 ## Continuous deployment (CI/CD)
 
-Ongoing delivery to the live Azure environment is automated (ADR-0012). Four workflows (with `STAGING_ENABLED=true`):
+Ongoing delivery to the live Azure environment is automated (ADR-0012). The jobs (with `STAGING_ENABLED=true`):
 
 | Workflow | Trigger | What it does |
 |---|---|---|
-| `cd.yml` → `build-and-push` | push to main, `v*` tag | builds the 4 images, **scans each with Trivy (fails on a fixable HIGH/CRITICAL)**, then pushes to GHCR **signed (cosign keyless) + attested (SLSA provenance + SBOM)** — `:sha-<short>`, `:latest` on main, semver on tags (audit 0001 H9 + H1) |
-| `cd.yml` → `deploy-staging` | push to main / dispatch, `STAGING_ENABLED == true`, **auto** (no approval) | identical health-gated rollout as `deploy-prod` targeting the `staging` environment; runs automatically after `build-and-push` (audit 0001 H10, ADR-0018) |
-| `cd.yml` → `deploy-prod` | push to main / dispatch, `STAGING_ENABLED == true`, **behind the `production` approval gate**, `needs: deploy-staging` | the whole health-gated rollout in ONE job (every Azure step shares the approved environment's OIDC identity): **pin every image tag to its immutable digest, then verify the digest's signed provenance** (`gh attestation verify`, fail-closed; every subsequent `az` step ships the digest, so a tag moved mid-rollout changes nothing) → OIDC login → migrator to success (**gate**) → deploy each app as a **candidate at 0% traffic** (`--revision-suffix`, labelled `cd-candidate`) → readiness (incl. frontend) + warm the auth origin → **smoke the candidate** inline (`scripts/smoke.sh`) → **promote** 100% traffic + **sweep every superseded revision** (deactivate all active revisions except the promoted one — Terraform-minted ones included; #407/ADR-0029) → **smoke production** → **roll back on any failure** (restore traffic to the previous revision, deactivate the candidate) → **assert exactly one active revision per app** at 100% traffic (fails the run without touching traffic — the sweep's loud gate) — audit 0001 H7 |
-| `infra.yml` | PR / push to `iac/**`, dispatch | **`plan`** (prod + staging matrix) on PRs (preview in run summary); `apply-staging` (**auto**) → `apply-prod` (**gated**) on main |
+| `cd.yml` → `gate` | CI finishing on main (`workflow_run`), `v*` tag, dispatch | the **CI-success gate** (audit 0001 C2): a push to main no longer triggers CD directly — CD fires when the CI workflow completes, proceeds only on a green CI, and pins the exact tested commit (`head_sha`) for build + rollout. Dispatch / `v*` tags pass through ungated. Docs-only pushes run no CI, so they trigger no CD (audit 0001 M2). |
+| `cd.yml` → `build-and-push` | after a passing `gate` | builds the 4 images, **scans each with Trivy (fails on a fixable HIGH/CRITICAL)**, then pushes to GHCR **signed (cosign keyless) + attested (SLSA provenance + SBOM)** — `:sha-<short>`, `:latest` on main, semver on tags (audit 0001 H9 + H1) |
+| `cd.yml` → `deploy-staging` | after `build-and-push`, `STAGING_ENABLED == true`, **auto** (no approval) | calls the reusable [`deploy.yml`](../../.github/workflows/deploy.yml) under `environment: staging` — the identical health-gated rollout as `deploy-prod` (audit 0001 H10, ADR-0018) |
+| `cd.yml` → `deploy-prod` | after `deploy-staging`, `STAGING_ENABLED == true`, **behind the `production` approval gate** | calls the SAME reusable `deploy.yml` under `environment: production`. The whole health-gated rollout runs in ONE job (every Azure step shares the approved environment's OIDC identity): **pin every image tag to its immutable digest, then verify the digest's signed provenance** (`gh attestation verify`, fail-closed; every subsequent `az` step ships the digest, so a tag moved mid-rollout changes nothing) → OIDC login → **Neon pre-migration snapshot branch** (MIGR-04; skipped cleanly when unconfigured) → migrator to success (**gate**) → deploy each app as a **candidate at 0% traffic** (`--revision-suffix`, labelled `cd-candidate`) → readiness (incl. frontend) + warm the auth origin → **smoke the candidate** inline (`scripts/smoke.sh`) → **promote** 100% traffic + **sweep every superseded revision** (deactivate all active revisions except the promoted one — Terraform-minted ones included; #407/ADR-0029) → **smoke production** → **roll back on any failure** (restore traffic to the previous revision, deactivate the candidate) → **assert exactly one active revision per app** at 100% traffic (fails the run without touching traffic — the sweep's loud gate) — audit 0001 H7 |
+| `infra.yml` | PR / push to `iac/**`, dispatch | **`plan`** (prod + staging matrix) on PRs (preview in run summary); `apply-staging` (**auto**) → `apply-prod` (**gated**) on main. Shares the per-environment mutation lock (`prod-mutation` / `staging-mutation`) with the rollout, so an apply can never interleave mid-rollout (audit 0001 M12). |
 
-**The two-stage promotion model.** When `STAGING_ENABLED=true`, every merge to main builds once and **automatically deploys to staging** (no approval needed — `deploy-staging` is auto). The same `sha-<short>` then **waits at the `production` environment** for a human to approve. Clicking *Approve* (GitHub → the run → *Review deployments* → *Approve*) **is** the staging→prod promotion: the identical image that passed staging is what production receives. Test on staging first; approve when ready.
+**The two-stage promotion model.** When `STAGING_ENABLED=true`, every merge to main **with a green CI** builds once and **automatically deploys to staging** (no approval needed — `deploy-staging` is auto). The same `sha-<short>` then **waits at the `production` environment** for a human to approve. Clicking *Approve* (GitHub → the run → *Review deployments* → *Approve*) **is** the staging→prod promotion: the identical image that passed staging is what production receives. Test on staging first; approve when ready.
 
 **The `STAGING_ENABLED` master switch** (repo Variable): `false` (or unset) = staging jobs are skipped and `deploy-prod` reverts to a direct single gate (the pre-staging behavior); `true` = staging auto-deploys and prod is gated behind a green staging (`needs: deploy-staging`). Pairs with `CD_ENABLED`: both must be `true` for the full two-stage flow; `CD_ENABLED=false` stops all Azure-touching jobs regardless of `STAGING_ENABLED`.
 
@@ -485,7 +491,7 @@ image built since that change has one; an older pre-H9 tag must be rebuilt from 
 
 **Roll back.** A *failed* rollout rolls back **automatically** (audit 0001 H7): the health-gated
 pipeline shifts traffic only after the candidate passes smoke, and on any failure the rollback step
-(in `deploy-prod`) restores 100% of traffic to the previous revision and deactivates the candidate —
+(in the reusable `deploy.yml` rollout) restores 100% of traffic to the previous revision and deactivates the candidate —
 so a bad release never serves users.
 
 **Roll back a completed deploy.** After a green rollout the previous revision is **deactivated, not
@@ -1052,7 +1058,7 @@ Notes for the operator:
 
 | Alert | First moves |
 |---|---|
-| Health ping failed (GitHub Actions) | Read the run's job summary — it names the failing origin and prints the `/health` response body, so an unhealthy `authdb` / `smtp` check is distinguishable from a dead site. Then hit it yourself: `curl -sS -o /dev/null -w '%{http_code}' https://auth.<domain>/health` (allow ~30 s: outside the warm window this is a cold start). If it stays down, check ACA revision health + the traffic split (`az containerapp ingress traffic show`) — a bad revision live means the rollout's auto-rollback (`deploy.yml`) did not fire; steer traffic back with `az containerapp ingress traffic set --revision-weight <prev>=100`. If the origin is up, suspect DNS/cert. |
+| Health ping failed (GitHub Actions) | Read the run's job summary — it names the failing origin and prints the `/health` response body, so an unhealthy `authdb` / `smtp` check is distinguishable from a dead site. Then hit it yourself: `curl -sS -o /dev/null -w '%{http_code}' https://auth.<domain>/health` (allow up to ~60 s: outside the warm window this is a cold start — measured ~43 s worst case, ADR-0027). If it stays down, check ACA revision health + the traffic split (`az containerapp ingress traffic show`) — a bad revision live means the rollout's auto-rollback (`deploy.yml`) did not fire; steer traffic back with `az containerapp ingress traffic set --revision-weight <prev>=100`. If the origin is up, suspect DNS/cert. |
 | Key Vault availability | Portal → the vault → check for throttling / an Azure KV incident; confirm the `lotrotms-aca-<env_id>` identity still has *Key Vault Secrets User*; new revisions cannot boot without secret resolution. |
 | Auth latency | App Insights → Performance for the auth role; check the DB (Neon) latency and the sibling CPU/memory saturation alerts. Leading indicator — investigate before it becomes a 5xx / readiness failure. |
 | Replica restart / 5xx / log error spike | App Insights logs + `az containerapp logs show` for the named app; correlate with a recent deploy. |
@@ -1105,10 +1111,26 @@ az containerapp replica list -n lotrotms-frontend-prod -g rg-lotrotms-prod-polc-
 > mutation lock (`prod-mutation` / `staging-mutation`).
 
 Availability is checked once a day by [`.github/workflows/health-ping.yml`](../../.github/workflows/health-ping.yml)
-(03:00 UTC — just before the window opens, so the probe pays the day's first cold start, not a visitor).
+(**06:40 UTC** = 08:40 Europe/Warsaw in summer — **inside** the warm window, #450 / owner decision
+2026-07-11: a plain "tell me in the morning if it died overnight" check against the already-warm apps.
+It originally ran at 03:00 to also prove the cold-start path, but GitHub delays scheduled crons by up
+to hours, so the probe was landing after the 07:00 warm-up anyway; the retry loop still out-waits a
+full cold start if it ever fires outside the window).
 It probes `auth`/`tms` on the **deep** `/health` (database included — `/health/ready` is DB-free by
 ADR-0025) and the frontend on `/`. A failed run emails the last committer of the workflow file. Trigger
 it on demand with `gh workflow run health-ping.yml`.
+
+**The daily wake-up noise is muted by a standing alert processing rule** (#449, owner decision
+2026-07-11; `iac/monitoring.tf`, `azurerm_monitor_alert_processing_rule_suppression.cold_start_noise`).
+ADR-0027's warm-up cron trips two known false positives within minutes of the wake-up — auth-api
+restarts a replica once during its cold start, and tms-api's warm-up burst crosses the 80% CPU
+threshold — both auto-resolving. The rule suppresses **notifications only** (the alerts still fire and
+stay visible in the portal) for exactly those two alert rules, in a short daily window derived from
+`var.app_warm_window.start` (5 min lead-in, 35 min tail — it moves with the warm window). Everything
+else — 5xx, memory, log-error spike, the other apps' restart alerts — keeps e-mailing even inside the
+window. Accepted trade-off: a *real* auth-api crash-loop starting inside the window would fire once,
+be suppressed, and not re-notify; the unsuppressed 5xx/log-error alerts plus the daily health ping
+cover that gap.
 
 **Silencing during planned disruptive work.** Routine deploys need **no** suppression (every alert is
 scoped to a serving signal, and the candidate revision takes 0% traffic). For genuinely disruptive

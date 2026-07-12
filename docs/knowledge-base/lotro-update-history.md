@@ -6,6 +6,10 @@ originSessionId: fcf33c21-a957-445f-bc57-c8ea7814f1b6
 ---
 # LOTRO Update History (observed)
 
+> **Addendum (2026-07-11):** → **48.8** observed (forum fetch returned "48.8"; vnum 112/3 unchanged,
+> 5th cycle; resident translations survived 48.7 → 48.8). Tested on the first real-world AUDIT-SEC
+> run — see [live-test-2026-07-11.md](live-test-2026-07-11.md).
+
 ## Known versions
 
 ```

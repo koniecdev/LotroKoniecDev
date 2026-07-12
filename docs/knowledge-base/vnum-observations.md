@@ -6,6 +6,9 @@ originSessionId: fcf33c21-a957-445f-bc57-c8ea7814f1b6
 ---
 # DAT Vnum Observations
 
+> **Addendum (2026-07-11):** 5th cycle confirmed — 48.7 → **48.8**, vnum still **112/3** while a
+> live forum fetch returned "48.8". See [live-test-2026-07-11.md](live-test-2026-07-11.md).
+
 ## Measured values across observed updates
 
 | Date | Game version | VnumDatFile | VnumGameData | DAT modified? |

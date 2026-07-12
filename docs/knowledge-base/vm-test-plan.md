@@ -4,6 +4,13 @@ description: Plan to use friend's outdated (~2 years) LOTRO installation for VM-
 type: project
 ---
 
+> **Status note (2026-07-11):** this plan was never executed — it remains an unexecuted option for
+> a mega-update survival test. Separately, the idea of a VM as an *unattended export runner* for
+> the update pipeline was evaluated and **deferred** in
+> [`docs/adr/0030-game-version-export-stays-manual-vm-runner-deferred.md`](../adr/0030-game-version-export-stays-manual-vm-runner-deferred.md)
+> (reconsider triggers listed there — including the unconfirmed GPU-less patching / silent-launcher
+> / licensing prerequisites this plan would also face).
+
 ## Test Resource: Friend's 2-Year-Old LOTRO
 
 User has a friend with LOTRO not updated for ~2 years. The friend has been asked not to launch the game yet. This gives us:

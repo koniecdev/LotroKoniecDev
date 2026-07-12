@@ -38,7 +38,9 @@ SKIP_DOCKER_BUILD=true dotnet test tests/LotroKoniecDev.Frontend.E2E.Tests
 ```
 
 No Docker → the suite fails fast (it cannot boot the stack); it is **off the PR/CI gate by name**
-(`*.E2E.Tests`), running only via `.github/workflows/e2e.yml` (`workflow_dispatch`) or a local run.
+(`*.E2E.Tests`), running via `.github/workflows/e2e.yml` — `workflow_dispatch`, or automatically on PRs
+that touch `Directory.Packages.props`, `.config/dotnet-tools.json` or any Dockerfile (CI-03/#433) — or a
+local run.
 
 ## Locator strategy
 

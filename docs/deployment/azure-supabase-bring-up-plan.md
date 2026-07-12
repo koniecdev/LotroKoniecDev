@@ -1,8 +1,17 @@
 # TMS on Azure Container Apps + Supabase — Bring-up Plan
 
+> 🟢 **Historical — executed 2026-06; superseded by the runbook + later ADRs.** This was the
+> one-time first bring-up. Do not operate from it — the living operator doc is
+> [`runbook.md`](runbook.md). Since-executed supersessions beyond the DB banner below:
+> **staging exists** (the "one environment only" constraint is superseded by ADR-0018 + ADR-0017
+> per-env IaC), **`min_replicas` is 0** with a scheduled warm window (the `min_replicas = 1` / R8
+> floor here is superseded by ADR-0020/0027), the **Supabase keepalive (Phase 8) was never
+> implemented** and is moot on Neon, and ongoing deploys are the CI-gated two-stage promotion
+> (ADR-0012 as amended, ADR-0018). Kept because ADR-0012/ADR-0014 link it as the execution record.
+
 > **⚠️ Superseded for the database layer (2026-06-29):** prod Postgres moved to **Neon** — see
 > `docs/deployment/neon-migration-plan.md` and ADR-0014. The ACA / Key Vault / CD mechanics below
-> still hold; only the Supabase-specific DB steps (Phase 0.3, 4.2, 5.3, 8) are obsolete.
+> still hold for history; only the Supabase-specific DB steps (Phase 0.3, 4.2, 5.3, 8) are obsolete.
 
 > 🟢 **Status: executed.** The infra in `iac/` is live: RG `rg-lotrotms-prod-polc-001`, domain
 > **`lotro-translator.pl`** (`auth.` / `tms.` / apex), DB on Supabase. **Ongoing deploys are now

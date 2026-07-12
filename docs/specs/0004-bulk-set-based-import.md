@@ -1,6 +1,6 @@
 # Spec 0004: Bulk / set-based exported.txt import
 
-- **Status:** Implemented (2026-07-01)
+- **Status:** Implemented (2026-07-01; Phase 2 realized by spec 0006, 2026-07-02 — see the note under "Out of scope")
 - **Date:** 2026-06-28
 - **Author:** ticket-worker
 - **Ticket:** #214 (follow-up to #208)

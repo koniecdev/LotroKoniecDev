@@ -98,6 +98,7 @@ one ticket with `LOOP_TRUST_GATE=0`, or add the commenter to `LOOP_TRUSTED_LOGIN
 | `LOOP_EFFORT` | `high` | claude effort per ticket (reviews inside the session run at `xhigh` via the `code-reviewer` agent definition) |
 | `LOOP_MODEL` | `fable` | Fable 5 (temporary switch 2026-07-09; previously `opus` — Opus 4.8 with its native 1M-token context window) |
 | `LOOP_PERMISSION_MODE` | `auto` | headless permission mode |
+| `LOOP_CONFIG_DIR` | `~/.claude-account1` | Claude config dir = which account runs the loop (exported as `CLAUDE_CONFIG_DIR`) |
 | `LOOP_ALLOWED_TOOLS` | git/gh/dotnet/scripts | loop-scoped Bash allowlist passed via `--allowedTools` |
 | `LOOP_UNSAFE` | `0` | `1` = `--dangerously-skip-permissions` (full overnight autonomy) |
 | `LOOP_MAX_BUDGET_USD` | (none) | optional per-ticket API budget cap |

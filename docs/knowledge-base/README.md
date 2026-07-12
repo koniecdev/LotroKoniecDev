@@ -31,7 +31,7 @@ Detailed analysis: [lotro-companion-data-model.md](lotro-companion-data-model.md
 
 ### DAT Protection: NOT NEEDED — Translations Survive Updates (incl. MAJOR)
 Detailed analysis: [dat-protection.md](dat-protection.md)
-- **PROVEN by 7 independent tests** including updates 47.2→48.0 (2026-04-23) and 48.0→48.7 (2026-06-25)
+- **PROVEN by 8 independent tests** including updates 47.2→48.0 (2026-04-23), 48.0→48.7 (2026-06-25) and 48.7→48.8 (2026-07-11)
 - Launcher uses chunk-based patching — our fragments sit in untouched chunks → byte-for-byte intact
 - `attrib +R` protection is unnecessary; legacy `HandleUpdatePath` is actively harmful; vnum-trigger is dead
 - Simplified flow (hash-based patch + fire-and-forget) is fully validated
@@ -66,7 +66,7 @@ Detailed analysis: [live-test-2026-03-16.md](live-test-2026-03-16.md)
 
 ### DAT Vnum — definitively schema-version, not content-version
 Detailed analysis: [vnum-observations.md](vnum-observations.md)
-- Vnum 112/3 unchanged across 45.x → 47.x → **48.0 major** — 3 full cycles, zero movement
+- Vnum 112/3 unchanged across 45.x → 47.x → **48.0 major** → 48.7 → 48.8 — 5 cycles, zero movement (latest: [live-test-2026-07-11.md](live-test-2026-07-11.md))
 - Vnum = DAT binary schema version, NOT content version — any vnum-triggered logic is dead
 - Forum version ("48.0") is the reliable content identifier
 
@@ -77,7 +77,7 @@ Detailed analysis: [dat-export-diff-2026-03-22.md](dat-export-diff-2026-03-22.md
 
 ### LOTRO Update History
 Detailed analysis: [lotro-update-history.md](lotro-update-history.md)
-- 45.1 → 45.4.1 → 46 → 46.1 → 47 (major) → 47.1 → 47.1.1 → 47.2 → 48.0 (major, 2026-04-23)
+- 45.1 → 45.4.1 → 46 → 46.1 → 47 (major) → 47.1 → 47.1.1 → 47.2 → 48.0 (major, 2026-04-23) → 48.7 (2026-06-25) → 48.8 (observed 2026-07-11)
 - 48.0 content: Hatokáli Fells, Rhûn expansion, Deluxe housing, Edit UI feature
 
 ### Game Update Detection & Translation Versioning
@@ -87,19 +87,21 @@ Detailed analysis: [update-detection-strategy.md](update-detection-strategy.md)
 - Target model superseded by `docs/specs/0001-game-update-lifecycle-and-translation-invalidation.md`
   (forum-only `GameVersion` lifecycle + status-based invalidation); the core insight stands
 - Simplified flow is CORRECT as MVP — hash-based trigger naturally evolves into the API model
+- Automation of the manual export→upload ceremony re-examined 2026-07-11: `docs/adr/0030` (stays manual, VM runner deferred, #85 gains an e-mail alert)
 
 ### VM Test Plan (Friend's 2-Year-Old LOTRO)
 Detailed analysis: [vm-test-plan.md](vm-test-plan.md)
 - Friend has ~2-year-old LOTRO — potential goldmine for testing a pre-45 version jump
 - VM approach: copy his files → snapshot → infinite test attempts
 - No registry needed (zero LOTRO registry entries on user's PC)
+- Never executed; the separate VM-as-unattended-export-runner idea was deferred in ADR-0030 (2026-07-11)
 
 ### Project Strategy Decisions
 Detailed analysis: [project-strategy.md](project-strategy.md)
 - OSS code (patcher), controlled translations (web platform with review)
 - Glossary/style guide critical for consistency (e.g., Tolkien proper nouns)
 - Web platform (M3) = for translators; WPF app (M4) = for gamers
-- Three presentation layers (CLI + Web + WPF), one set of MediatR handlers
+- Three presentation layers (CLI + Web + WPF) over shared handlers — the file's "MediatR" wording predates ADR-0001 (no mediator; in-house handler interfaces)
 
 ---
 
@@ -130,16 +132,18 @@ Same shape as `update-48.0/`. The 1.76 GB DAT backups + 78 MB full exports live 
 | [`BASELINE.md`](update-48.7/BASELINE.md) | Pre-update 48.0 snapshot: DAT hash, export stats, the 8 translation pairs |
 | [`RESULTS.md`](update-48.7/RESULTS.md) | Full 48.0→48.7 results, metrics, verdict |
 | [`diff-48.0-vs-48.7.txt`](update-48.7/diff-48.0-vs-48.7.txt) | Unified diff of the two full exports (131 KB, 204 hunks) |
-| [`launch-during-update.log`](update-48.7/launch-during-update.log) | SKIP-path launch flow during the update |
 | `polish-pre-48.7.txt` | `polish.txt` snapshot at test time |
 | `version-file-pre-48.7.txt` | `48|112|3|<hash>` before the run |
+
+No separate launch log was committed for 48.7 — the SKIP-path launch timeline is captured inside
+[`RESULTS.md`](update-48.7/RESULTS.md) ("Launch log timeline"); raw logs live in the gitignored `intel/update-48.7/`.
 
 ---
 
 ## Related committed docs (broader context)
 
 - [`../../CLAUDE.md`](../../CLAUDE.md) — project memory: architecture, roadmap digest, house rules (live backlog: `gh issue list`)
-- [`../RUSSIAN_PROJECT_RESEARCH.md`](../RUSSIAN_PROJECT_RESEARCH.md) — full Russian-project analysis
+- [`../RUSSIAN_PROJECT_RESEARCH.md`](../RUSSIAN_PROJECT_RESEARCH.md) — full raw Russian-project research (dated 2026-02-09; [russian-project.md](russian-project.md) is its distilled digest)
 
 Earlier raw launch-flow reconstructions (the pre-knowledge-base `LIVE_TEST_RESULTS.md`) were
 distilled into [`live-test-2026-03-16.md`](live-test-2026-03-16.md) and the dated files above.

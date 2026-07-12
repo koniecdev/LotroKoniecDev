@@ -1,6 +1,6 @@
 # Spec 0001: Game-update lifecycle — GameVersion, import diff, translation invalidation, distribution
 
-- **Status:** Agreed
+- **Status:** Implemented except the forum watcher — #85 (M2-18) is still open (Post-MVP/Backlog; e-mail-alert scope added by ADR-0030, 2026-07-11). Delivered: version-bound import + diff/invalidation (`Features/Import/ImportExportedTexts`), GameVersion endpoints (`Features/GameVersions/`), ETag-cached distribution (`Features/TranslationFiles/GetTranslationFile`), CLI auto-download (M2-20, patcher `Features/TranslationFileSyncing/`)
 - **Date:** 2026-06-11 (drafted and agreed same day — all six extracted decisions resolved by the user)
 - **Author:** Artur Koniec (domain brain dump) — structured against code + knowledge base by Claude
 - **Ticket:** re-cuts #93 (M2-04 Domain), #97 (M2-08 import), #100 (M2-11 upsert), #101 (M2-12 approve),

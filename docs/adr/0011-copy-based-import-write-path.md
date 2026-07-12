@@ -1,6 +1,6 @@
 # ADR-0011: Npgsql COPY for the import added-rows write path
 
-**Status:** Accepted
+**Status:** Accepted (amended 2026-07-02 — spec 0006/#290 supersedes the buffered pipeline with the streaming two-pass import; the COPY port now takes a stream — see the amendment note at the end)
 **Date:** 2026-06-28
 **Decision-makers:** Solo maintainer
 **Related:** spec 0004 (bulk/set-based import — this decision's spec), spec 0001 (import lifecycle + the five diff outcomes), #208 / spec 0003 (lifted the upload cap — this is its performance follow-up), ADR-0001 (slim SRP handlers), ADR-0007 (a non-repository persistence `Store` port precedent)

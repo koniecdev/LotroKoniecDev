@@ -70,7 +70,8 @@ Default exclusions (all overridable via env):
 
 - labels `loop-blocked`, `qa` (manual/human passes), `post-mvp` (deliberately cut from MVP),
   `audit` (audit findings are triaged by a human — name one explicitly to work it),
-- titles matching `^M4-` (the WPF milestone is Windows-only — it cannot build on the macOS host),
+- titles matching `^M4-` (the desktop-app milestone — Avalonia per ADR-0033 — targets the Windows
+  patcher runtime; its E2E criterion cannot run on the macOS host),
 - issue `#85` (M2-18 forum watcher — deferred post-MVP; work it only by naming it explicitly).
 
 ## The provenance gate (ADR-0026)

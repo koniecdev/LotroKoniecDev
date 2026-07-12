@@ -11,7 +11,7 @@ authoritative) — **two bounded contexts in one repo**, integrating through a f
 
 1. **Patcher** (shipped, **stable**) — CLI that exports English texts from the game's binary DAT
    file (`export`), injects `||`-format Polish translations back (`patch`), and launches the game
-   (`launch`). A WPF player app (M4) will reuse its Application handlers.
+   (`launch`). An Avalonia player app (M4, ADR-0033) will reuse its Application handlers.
 2. **TMS — Translation Management System** (built — M2 backend + M3 frontend delivered, deployed
    via the M6 pipeline) — PostgreSQL + Web API + Blazor SSR + self-hosted OpenIddict auth:
    translators import the CLI export, edit with review workflow, and export `polish.txt` back
@@ -33,7 +33,8 @@ neither the loop nor a contributor should pick #85 up), **M3 — Blazor SSR fron
 QA pass QA-FE / #275 still open), **M6 — cloud deployment** (CD to Azure Container Apps + Neon,
 staging + prod — ADRs 0008–0029). **Open fronts:** M7 game-content catalog (epic #362, spec 0008
 agreed, not started), LEGAL/GDPR pack (epic #459 — 01/02/03 landed, incl. the two-phase account
-deletion of ADR-0031; 04–07 open), QA-FE manual pass (#275), M4 WPF player app, post-MVP TP
+deletion of ADR-0031; 04–07 open), QA-FE manual pass (#275), M4 desktop player app (Avalonia —
+ADR-0033), post-MVP TP
 backlog (epic #377).
 
 No real users yet, so **API/code breaking changes are free** — no back-compat shims, no
@@ -63,8 +64,8 @@ parser/serializer; **golden fixture files + round-trip tests on both sides** gua
 drift, and the format itself changes only via ADR. The TMS never references `datexport.dll`/DAT
 code (it runs in Linux containers — Azure Container Apps in prod); the patcher never touches the
 DB (it runs on a Windows gaming box). Distribution is HTTP, not integration: the CLI launch flow
-auto-downloads the current translation file from the TMS API (ETag-cached; M2-20), and the WPF
-app (M4) is a GUI over the same patcher handlers + download.
+auto-downloads the current translation file from the TMS API (ETag-cached; M2-20), and the
+Avalonia app (M4) is a GUI over the same patcher handlers + download.
 
 ### Patcher — stable (shipped & empirically proven)
 
@@ -565,8 +566,10 @@ runs, env knobs, triage, troubleshooting): **`docs/claude-loop.md`**.
 - **M6 — Cloud deployment — DONE:** CD to Azure Container Apps + Neon Postgres, staging + prod
   two-stage promotion, Key Vault secrets, scale-to-zero + warm window + daily health ping,
   external SLO probe (ADRs 0008–0029; ops details in `docs/deployment/runbook.md`).
-- **M4 — WPF player app** (not started; #41–#46): GUI over the patcher handlers + the same TMS
-  auto-download the CLI ships in M2-20.
+- **M4 — desktop player app (Avalonia — ADR-0033)** (not started; #41–#46): GUI over the patcher
+  handlers + the same TMS auto-download the CLI ships in M2-20. MVP is Windows-only, but the
+  framework choice keeps the Steam Deck/Proton path open (WPF was dropped — it's the one .NET UI
+  framework that closes it; the Russian project's Elanor→Qt rewrite is the cautionary tale).
 - **LEGAL — GDPR/compliance pack (epic #459, cut 2026-07-11):** two-phase account deletion,
   data export, ToS + privacy policy, cookie banner, self-hosted fonts.
 - **M7 — Game-content catalog — NEXT UP (spec 0008, agreed 2026-07-06; epic #362, tickets

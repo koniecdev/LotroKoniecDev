@@ -58,7 +58,8 @@ player's patcher downloads a translation file that never shows outdated text in 
 - CLI auto-download (decided): the end user manually downloads **only the CLI itself** — `launch`
   fetches the current translation file from the distribution endpoint, caches it locally, and
   refreshes it automatically whenever the artifact changes. Additive patcher slice sanctioned by
-  the ADR-0002 freeze amendment; ticket M2-20. The WPF app (M4) wraps the same flow in a GUI.
+  the ADR-0002 freeze amendment; ticket M2-20. The desktop app (M4, Avalonia — ADR-0033) wraps the
+  same flow in a GUI.
 
 ## Out of scope
 
@@ -301,8 +302,8 @@ For every row of the uploaded export, compared against the stored source state b
   override.
 - **Q5 — Who downloads:** the CLI is the end-user client — the only thing a player downloads
   manually is the CLI itself; `launch` auto-downloads, caches and refreshes the translation file
-  (ETag). Additive patcher slice (M2-20) sanctioned via the ADR-0002 freeze amendment; the WPF
-  app (M4) is a GUI over the same flow.
+  (ETag). Additive patcher slice (M2-20) sanctioned via the ADR-0002 freeze amendment; the
+  desktop app (M4, Avalonia — ADR-0033) is a GUI over the same flow.
 - **Q6 — Invalidation modeling:** single status enum `Untranslated | Draft | Approved |
   NeedsReview`; no parallel bool.
 

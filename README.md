@@ -223,8 +223,8 @@ Pre-release, actively developed. The Patcher (**M1**) is shipped and proven on l
 TMS backend (**M2**, minus the forum watcher — game versions are registered manually for now), the
 Blazor frontend (**M3**) and the cloud deployment (**M6** — Azure Container Apps + Neon Postgres,
 staging → production promotion) are built and **deployed** (see the live link above). Next up: a
-**game-content catalog** layer over the flat rows (M7 — spec agreed, in the backlog) and a native
-**WPF desktop player** (M4) — a GUI over the same patcher engine and TMS download. Backlog and
+**game-content catalog** layer over the flat rows (M7 — spec agreed, in the backlog) and a
+**desktop player app** (M4, Avalonia) — a GUI over the same patcher engine and TMS download. Backlog and
 milestones: GitHub issues (`M{milestone}-{nn}` titles).
 
 ## License & disclaimer

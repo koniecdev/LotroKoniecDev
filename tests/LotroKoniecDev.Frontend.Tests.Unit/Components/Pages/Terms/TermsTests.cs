@@ -71,12 +71,41 @@ public sealed class TermsTests : BunitContext
     }
 
     [Fact]
+    public void Render_GeneralSection_NamesTheOperator()
+    {
+        // UŚUDE art. 5 identification duty + the §5 contributor license grantee (LEGAL-11 / spec
+        // 0011 Q5): the Operator must be a named natural person, not the non-entity "społeczność".
+        IRenderedComponent<TermsComponent> component = Render<TermsComponent>();
+
+        IElement generalSection = component.Find("#postanowienia-ogolne");
+        generalSection.TextContent.ShouldContain("Artur Koniec");
+        generalSection.TextContent.ShouldContain("koniecdev@gmail.com");
+    }
+
+    [Fact]
+    public void Render_IpSection_StatesTakedownComplianceAndPolishOnlyPublishedFile()
+    {
+        // The "published file contains only community Polish text, never the English source"
+        // property is load-bearing (spec 0011 E6) — changing it is ADR-worthy, so a wording
+        // regression here must fail loudly.
+        IRenderedComponent<TermsComponent> component = Render<TermsComponent>();
+
+        IElement ipSection = component.Find("#wlasnosc-intelektualna");
+        ipSection.TextContent.ShouldContain("Standing Stone Games");
+        ipSection.TextContent.ShouldContain("Middle-earth Enterprises");
+        ipSection.TextContent.ShouldContain("wyłącznie polskie teksty");
+        ipSection.TextContent.ShouldContain("nigdy angielskie teksty źródłowe");
+        ipSection.TextContent.ShouldContain("niezwłocznie");
+        ipSection.TextContent.ShouldContain("koniecdev@gmail.com");
+    }
+
+    [Fact]
     public void Render_TableOfContents_LinksEverySection()
     {
         IRenderedComponent<TermsComponent> component = Render<TermsComponent>();
 
         IReadOnlyList<IElement> tocLinks = component.FindAll(".legal-toc a");
-        tocLinks.Count.ShouldBe(8);
+        tocLinks.Count.ShouldBe(9);
         foreach (IElement tocLink in tocLinks)
         {
             string anchor = tocLink.GetAttribute("href")!.TrimStart('#');

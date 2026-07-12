@@ -3,6 +3,7 @@
 **Data:** 2026-04-23
 **Operator:** Claude (automated) + user (in-game verification + update trigger)
 **Status:** ✅ **ALL TESTS PASSED — simplified flow fully validated across first major update**
+**Redaction note:** quest-text content in this folder redacted to synthetic equivalents 2026-07 (LEGAL-08); the empirical result is unaffected.
 
 ## Verdict
 
@@ -114,7 +115,7 @@ client_local_English.48.0.write-test.dat — WRITE path test result (patched 48.
 client_local_English.48.0.write-test.dat.backup — auto-backup created by patch command
 export-47.2.txt                        — pre-update full export (82MB, 788k fragments)
 export-48.0.txt                        — post-update full export (82.5MB, 792k fragments)
-diff-47.2-vs-48.0.txt                  — full unified diff (700KB)
+diff-47.2-vs-48.0.txt                  — full unified diff (700KB; repo copy removed 2026-07 — verbatim game text, LEGAL-08; stats preserved above)
 polish-pre-48.txt                      — polish.txt snapshot (identical to current)
 version-file-pre-48.txt                — "47|112|3" (pre-hash-format)
 version-file-post-48.txt               — "47|112|3|<hash>" (post-launch save)

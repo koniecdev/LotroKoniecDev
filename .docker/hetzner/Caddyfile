@@ -1,0 +1,38 @@
+# Reverse proxy for the Hetzner deployment stack (compose.hetzner.yaml, ADR-0034).
+#
+# Same one-origin-per-app topology as the parity stack, but with REAL certificates: Caddy does
+# ACME (Let's Encrypt) for the three public hostnames, which it can only do once the DNS A
+# records point at this box — DNS first, ACME self-heals on retry (migration plan gotchas).
+# TLS terminates here; the apps get plain HTTP on :8080 with X-Forwarded-* set (M6-02).
+#
+# The domains come from the per-box env file via compose (DOMAIN_APP/DOMAIN_AUTH/DOMAIN_TMS),
+# so this one file serves prod and staging unchanged.
+
+{
+	email {$ACME_EMAIL}
+}
+
+{$DOMAIN_APP} {
+	reverse_proxy frontend:8080
+}
+
+{$DOMAIN_AUTH} {
+	reverse_proxy auth-api:8080
+}
+
+{$DOMAIN_TMS} {
+	reverse_proxy tms-api:8080
+}
+
+# --- TheKittySaver slots (twin epic in its repo; uncomment when its stack joins this box) ---
+# The TKS containers must attach to a network this Caddy can reach (docs: hetzner migration plan).
+#
+# uratujkota.pl {
+# 	reverse_proxy tks-frontend:8080
+# }
+# auth.uratujkota.pl {
+# 	reverse_proxy tks-auth-api:8080
+# }
+# api.uratujkota.pl {
+# 	reverse_proxy tks-api:8080
+# }

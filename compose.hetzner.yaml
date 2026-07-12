@@ -1,0 +1,166 @@
+# Hetzner deployment stack (ADR-0034, epic #486). One file serves BOTH environments: the same
+# topology runs on lotro-prod and lotro-staging, differentiated ONLY by the env file next to it
+# (/opt/lotro/.env on each box — template: .env.hetzner.example). No build: images come from GHCR
+# (built + tested by cd.yml), so the box never needs the SDK or the repo.
+#
+# Differences from compose.prod.yaml (the laptop parity stack — which stays untouched):
+#   * images pulled from ghcr.io instead of built locally
+#   * no postgres service — the DB is Neon (managed, TLS with a publicly-trusted cert)
+#   * no trust-ca-entrypoint shim and no local-CA mounts: Caddy holds REAL Let's Encrypt certs,
+#     so .NET containers trust the auth origin natively (the shim was parity-stack-only by design)
+#   * Caddyfile lives in .docker/hetzner/ and does ACME against the real domains
+#
+# The network-alias trick is kept: the Frontend/tms containers resolve the PUBLIC auth/tms
+# hostnames to the in-stack Caddy, so one OIDC Authority serves the browser front-channel and the
+# container back-channel — same origin, real certificate, no hairpin dependency.
+#
+# Bring-up on a box (as root, files in /opt/lotro):
+#   docker login ghcr.io -u <gh-user> --password-stdin   # read:packages PAT, once
+#   docker compose -f compose.hetzner.yaml pull
+#   docker compose -f compose.hetzner.yaml up -d
+#   docker compose -f compose.hetzner.yaml logs -f migrator caddy
+
+services:
+  migrator:
+    image: ghcr.io/${IMAGE_NAMESPACE:-koniecdev}/lotrokoniecdev-migrator:${IMAGE_TAG:-latest}
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ConnectionStrings__TranslationDatabase: ${ConnectionStrings__TranslationDatabase}
+      ConnectionStrings__AuthDatabase: ${ConnectionStrings__AuthDatabase}
+    restart: "no"
+
+  auth-api:
+    image: ghcr.io/${IMAGE_NAMESPACE:-koniecdev}/lotrokoniecdev-auth-api:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+    expose:
+      - "8080"
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ASPNETCORE_URLS: "http://+:8080"
+      # Trust X-Forwarded-* only from the pinned stack subnet (the Caddy hop) — #399. Keep in
+      # lockstep with the ipam subnet at the bottom of this file.
+      ForwardedHeaders__KnownNetworks__0: "10.60.0.0/24"
+      ConnectionStrings__AuthDatabase: ${ConnectionStrings__AuthDatabase}
+      OpenIddict__Issuer: "https://${DOMAIN_AUTH}"
+      OpenIddict__SigningKey__RsaPrivateKeyXml: ${OpenIddict__SigningKey__RsaPrivateKeyXml}
+      OpenIddict__EncryptionKey__Key: ${OpenIddict__EncryptionKey__Key}
+      OpenIddict__ApiClientSecret: ${OpenIddict__ApiClientSecret}
+      OpenIddict__WebClient__RedirectUris__0: "https://${DOMAIN_APP}/callback"
+      OpenIddict__WebClient__PostLogoutRedirectUris__0: "https://${DOMAIN_APP}"
+      Cors__AllowedOrigins__0: "https://${DOMAIN_APP}"
+      DataProtection__KeyRingPath: "/keys"
+      Email__Host: ${Email__Host}
+      Email__Port: ${Email__Port}
+      Email__Mode: ${Email__Mode}
+      Email__SenderEmail: ${Email__SenderEmail}
+      Email__Sender: ${Email__Sender}
+      Email__Username: ${Email__Username:-}
+      Email__Password: ${Email__Password:-}
+      # AUTH_ADMIN_USERNAME must match ^[a-zA-Z0-9]+$ or auth-api fails at startup (ADR-0022).
+      AdminUser__Username: ${AUTH_ADMIN_USERNAME:-}
+      AdminUser__Email: ${AUTH_ADMIN_EMAIL:-}
+      AdminUser__Password: ${AUTH_ADMIN_PASSWORD:-}
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
+      OTEL_EXPORTER_OTLP_PROTOCOL: grpc
+    volumes:
+      - auth-keys:/keys
+    depends_on:
+      migrator:
+        condition: service_completed_successfully
+
+  tms-api:
+    image: ghcr.io/${IMAGE_NAMESPACE:-koniecdev}/lotrokoniecdev-tms-api:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+    expose:
+      - "8080"
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ASPNETCORE_URLS: "http://+:8080"
+      ForwardedHeaders__KnownNetworks__0: "10.60.0.0/24"
+      ConnectionStrings__TranslationDatabase: ${ConnectionStrings__TranslationDatabase}
+      # Issuer = the public origin the tokens carry; Authority = where OIDC metadata + JWKS are
+      # fetched. Both resolve to the in-stack Caddy via its network aliases below, serving the
+      # real LE certificate — so back-channel and browser share one origin (M6-08 topology).
+      Auth__Issuer: "https://${DOMAIN_AUTH}"
+      Auth__Authority: "https://${DOMAIN_AUTH}"
+      Auth__Audience: lotrokoniecdev-api
+      Cors__AllowedOrigins__0: "https://${DOMAIN_APP}"
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
+      OTEL_EXPORTER_OTLP_PROTOCOL: grpc
+      Bootstrap__Enabled: "false"
+    depends_on:
+      migrator:
+        condition: service_completed_successfully
+      auth-api:
+        condition: service_healthy
+
+  frontend:
+    image: ghcr.io/${IMAGE_NAMESPACE:-koniecdev}/lotrokoniecdev-frontend:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+    expose:
+      - "8080"
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ASPNETCORE_URLS: "http://+:8080"
+      ForwardedHeaders__KnownNetworks__0: "10.60.0.0/24"
+      AuthSystem__Authority: "https://${DOMAIN_AUTH}"
+      AuthSystem__BaseUrl: "https://${DOMAIN_AUTH}/"
+      TranslationSystem__BaseUrl: "https://${DOMAIN_TMS}/"
+      DataProtection__KeyRingPath: "/keys"
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
+      OTEL_EXPORTER_OTLP_PROTOCOL: grpc
+    volumes:
+      - frontend-keys:/keys
+    depends_on:
+      auth-api:
+        condition: service_healthy
+      tms-api:
+        condition: service_healthy
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      DOMAIN_APP: ${DOMAIN_APP}
+      DOMAIN_AUTH: ${DOMAIN_AUTH}
+      DOMAIN_TMS: ${DOMAIN_TMS}
+      ACME_EMAIL: ${ACME_EMAIL}
+    volumes:
+      - ./.docker/hetzner/Caddyfile:/etc/caddy/Caddyfile:ro
+      # /data holds the ACME account + issued certificates — losing it re-issues on next start
+      # (fine, but rate-limited), so keep it a named volume.
+      - caddy-data:/data
+      - caddy-config:/config
+    networks:
+      default:
+        # In-stack containers resolve the public hostnames to this proxy (see the comment at the
+        # top of the file). Compose interpolates the per-env domains from the env file.
+        aliases:
+          - ${DOMAIN_APP}
+          - ${DOMAIN_AUTH}
+          - ${DOMAIN_TMS}
+    depends_on:
+      auth-api:
+        condition: service_healthy
+      tms-api:
+        condition: service_healthy
+      frontend:
+        condition: service_started
+
+volumes:
+  auth-keys:
+  frontend-keys:
+  caddy-data:
+  caddy-config:
+
+networks:
+  # Pinned subnet so the apps can restrict forwarded-header trust to the in-stack Caddy hop via
+  # ForwardedHeaders__KnownNetworks__0 above (#399). When the TheKittySaver stack joins the same
+  # box it picks its own subnet (e.g. 10.61.0.0/24) — never reuse this one.
+  default:
+    ipam:
+      config:
+        - subnet: 10.60.0.0/24

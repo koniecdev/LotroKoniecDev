@@ -177,8 +177,8 @@ the public repo or platform hands a rightsholder an easy, high-value grievance.
 - [ ] Every frontend page renders the footer non-affiliation/trademark line (SSR-pure, no new
       interactivity; `check-ssr-purity` green).
 - [x] ToS shows the new IP/takedown §, TOC updated, changelog date bumped. (#477)
-- [ ] Home download CTA and CLI `patch`/`launch` output carry the agreed one-liner; CLI exit
-      codes and all existing patcher tests unchanged.
+- [x] Home download CTA and CLI `patch`/`launch` output carry the agreed one-liner; CLI exit
+      codes and all existing patcher tests unchanged. (#478)
 - [ ] `docs/legal/takedown-playbook.md` exists with the 48 h acknowledge flow + reply template.
 - [ ] Q2's conscious accept (public EN corpus stays anonymous) and Q4's no-outreach stance are
       recorded here and require no code change; nothing in this pack touches endpoint auth.

@@ -12,21 +12,25 @@ namespace LotroKoniecDev.TranslationSystem.API.Tests.Unit.Shared;
 
 /// <summary>
 /// A pure in-memory <see cref="IApplicationReadDbContext"/> double for unit-testing read-side
-/// handlers: <see cref="Translations"/> is always populated, <see cref="GameVersions"/> optionally
-/// (the public progress snapshot reads both). EF Core's async operators run via
+/// handlers: <see cref="Translations"/> is always populated, <see cref="GameVersions"/> and
+/// <see cref="Translators"/> optionally (the public progress snapshot reads the former, the GDPR
+/// contribution export reads the latter). EF Core's async operators run via
 /// <see cref="TestAsyncQueryProvider{T}"/>.
 /// </summary>
 internal sealed class FakeReadDbContext : IApplicationReadDbContext
 {
     private readonly List<TranslationReadModel> _translations;
     private readonly List<GameVersionReadModel> _gameVersions;
+    private readonly List<TranslatorReadModel> _translators;
 
     public FakeReadDbContext(
         IEnumerable<TranslationReadModel> translations,
-        IEnumerable<GameVersionReadModel>? gameVersions = null)
+        IEnumerable<GameVersionReadModel>? gameVersions = null,
+        IEnumerable<TranslatorReadModel>? translators = null)
     {
         _translations = [.. translations];
         _gameVersions = [.. gameVersions ?? []];
+        _translators = [.. translators ?? []];
     }
 
     public DbSet<GameVersionReadModel> GameVersions => BuildSet(_gameVersions);
@@ -35,7 +39,7 @@ internal sealed class FakeReadDbContext : IApplicationReadDbContext
 
     public DbSet<PrecomputedTranslationFileReadModel> PrecomputedTranslationFiles => BuildSet(new List<PrecomputedTranslationFileReadModel>());
 
-    public DbSet<TranslatorReadModel> Translators => BuildSet(new List<TranslatorReadModel>());
+    public DbSet<TranslatorReadModel> Translators => BuildSet(_translators);
 
     private static DbSet<T> BuildSet<T>(List<T> source) where T : class
     {

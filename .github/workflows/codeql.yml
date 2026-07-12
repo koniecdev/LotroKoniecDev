@@ -4,19 +4,31 @@ name: CodeQL
 # default branch (to seed the code-scanning baseline), plus a weekly scheduled scan so newly
 # published query packs catch latent issues. C# uses build-mode "none" — CodeQL analyses the
 # source directly, so the job needs no .NET SDK, restore, or compile step.
+#
+# paths-ignore mirrors that scope: this scan reads C# source and nothing else, so a change confined
+# to shell/PowerShell scripts, agent config (.claude/) or docs cannot produce or clear a C# alert.
+# It is NOT a required check (unlike "Pull Request Verification"), so filtering it out of a PR
+# cannot deadlock the merge — but the merge gate still refuses any PR with open CodeQL alerts, and
+# alerts raised by an earlier run stay open regardless of what this PR touches.
 on:
   pull_request:
     branches: ["main"]
     paths-ignore:
       - '**/*.md'
+      - '**/*.sh'
+      - '**/*.ps1'
       - 'docs/**'
+      - '.claude/**'
       - 'LICENSE'
       - '.gitignore'
   push:
     branches: ["main"]
     paths-ignore:
       - '**/*.md'
+      - '**/*.sh'
+      - '**/*.ps1'
       - 'docs/**'
+      - '.claude/**'
       - 'LICENSE'
       - '.gitignore'
   schedule:

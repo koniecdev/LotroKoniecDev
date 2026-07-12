@@ -396,6 +396,18 @@ file_id||gossip_id||translated_text||args_order||args_id||approved
   references only once it sees `.razor` files — never during the `.csproj`-only restore — so
   `--no-restore` there silently emits a static-web-assets manifest with no `_framework/*` and every
   asset 404s at runtime. Never add the flag back to that `dotnet build`; `publish` keeps it.
+- **CI runs what the diff can actually break — nothing more (`scripts/ci/classify-changes.sh`).**
+  Every PR gets three **independent** verdicts: `code` (restore + Release build + unit + integration
+  tests), `guards` (the cheap bash gates CI *executes*: SSR purity, Dockerfile restore graph,
+  migration safety, loop provenance) and `images`. Keep them independent — collapsing "CI executes
+  this script" into "run the whole .NET gate" is what made a `.claude/` + docs + loop-scripts PR pay
+  for a full Release build and both suites. The failure mode that matters is the other direction:
+  putting a **build input** (`.editorconfig`, `Directory.*.props`, `global.json`, a fixture) into the
+  inert list buys a silent false green, so `scripts/tests/classify-changes.tests.sh` pins both
+  directions and runs **unconditionally** in the `changes` job, before any verdict is trusted.
+  `ci.yml` (main) deliberately does **not** self-skip its .NET steps — CD is triggered by CI
+  concluding success, so "CI was green" must keep meaning the build and both suites really ran; it
+  filters cheap content with `paths-ignore` instead (no CI ⇒ no CD).
 - **`GET / -> 200` never proves the Blazor frontend works.** A `[StreamRendering]` page returns 200
   with its spinner frame before it fetches anything. The signature of a healthy image is the
   **fingerprint**: `@Assets[]` renders `_framework/blazor.web.<hash>.js` only when `MapStaticAssets`

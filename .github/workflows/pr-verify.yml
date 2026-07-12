@@ -14,16 +14,25 @@ name: Pull Request Verification
 # checks with path filtering. CI (main) keeps its own paths-ignore on purpose: a docs-only push
 # must keep triggering no CI and therefore no CD (audit 0001 M2).
 #
-# Container images (CI-01 / #403): Dockerfiles stay `inert` for the .NET job — that classification
-# is literally right, a Dockerfile change cannot break `dotnet build`, the test suites or the SSR
-# guard (they sit in `force_build` only so the restore-graph guard re-checks their COPY lists).
-# But the shipped images used to be built for the first time in cd.yml, AFTER the merge — so a
-# Dependabot base-image digest bump could land on main without the image ever having been built or
-# scanned, and a fixable HIGH/CRITICAL in the new base surfaced only once main was already
-# un-deployable. The `changes` job therefore emits a second output, `images`, and the `images` job
-# below builds all four shipped images with `push: false` and Trivy-scans them ON the PR. cd.yml
-# keeps its own post-push scan of the exact published digest before cosign signs it; the PR scan is
-# an earlier, additional gate, not a replacement.
+# What runs is decided by scripts/ci/classify-changes.sh, which returns THREE independent verdicts —
+# `code` (the .NET gate: restore + Release build + unit + integration tests), `guards` (the cheap
+# bash gates CI executes) and `images` — because they have three different sets of inputs. The
+# earlier single `force_build` verdict conflated the first two: a change to a script that CI merely
+# EXECUTES (e.g. scripts/claude/work-ticket.sh, which the provenance self-test drives) forced the
+# whole .NET gate, so PR #497 — .claude/ + docs + two loop scripts, not one line of C# — paid for a
+# full Release build and both test suites. Now such a PR runs the guard steps only, in seconds, and
+# the .NET steps are skipped by their step-level `if:` — the job (and therefore the required check)
+# still reports. The classifier's self-test runs UNCONDITIONALLY in `changes`, before any verdict is
+# trusted: a classifier that mis-classifies real source as inert would skip the build silently, and
+# nothing else in the pipeline would notice.
+#
+# Container images (CI-01 / #403): the shipped images used to be built for the first time in cd.yml,
+# AFTER the merge — so a Dependabot base-image digest bump could land on main without the image ever
+# having been built or scanned, and a fixable HIGH/CRITICAL in the new base surfaced only once main
+# was already un-deployable. The `images` job below therefore builds all four shipped images with
+# `push: false` and Trivy-scans them ON the PR. cd.yml keeps its own post-push scan of the exact
+# published digest before cosign signs it; the PR scan is an earlier, additional gate, not a
+# replacement.
 on:
   pull_request:
     branches: ["main"]
@@ -43,6 +52,7 @@ jobs:
     timeout-minutes: 5
     outputs:
       code: ${{ steps.diff.outputs.code }}
+      guards: ${{ steps.diff.outputs.guards }}
       images: ${{ steps.diff.outputs.images }}
     steps:
       # fetch-depth: 2 brings the PR merge commit plus both parents, so HEAD^1 (the base tip)
@@ -53,66 +63,25 @@ jobs:
           fetch-depth: 2
           persist-credentials: false
 
-      # A PR that changes ONLY files which cannot affect the .NET build, the unit/integration tests
-      # or the SSR-purity guard skips the heavy job below. No untrusted input reaches this script
-      # (pure git against the checked-out merge commit). Fails OPEN (code=true) if the diff cannot be
-      # computed — a redundant build beats a false green.
+      # The classifier below decides what runs, so it is the one guard nothing else backstops:
+      # its self-test runs first, always, whatever the diff says. Pure bash, ~1 second.
+      - name: Change-classifier self-test
+        run: ./scripts/tests/classify-changes.tests.sh
+
+      # Three verdicts (code / guards / images) from the PR's own diff. No untrusted input reaches
+      # it — pure git against the checked-out merge commit. Fails OPEN (everything true) if the diff
+      # cannot be computed: a redundant build beats a false green.
       - name: Classify changed paths
         id: diff
-        run: |
-          set -euo pipefail
-          # Inert paths: docs, shell/PowerShell scripts, IaC (infra.yml gates it separately),
-          # Docker (only the flavors we actually ship — a NEW flavor safely triggers a redundant
-          # build until it is listed here, never a false skip) / compose, the .docker/ trust
-          # material, editor/run configs, .env examples, and everything under .github/ (workflows,
-          # issue/PR templates). A PR touching only these cannot break the .NET build, the tests, or
-          # the SSR guard. Workflow files are not unchecked, though: actionlint.yml (CI-02 / #404)
-          # parses .github/workflows/** on every PR. NEVER add a build input here (.editorconfig, Directory.*.props/.targets,
-          # global.json, nuget.config, test fixtures) — that would be a false green.
-          inert='\.md$|^docs/|^LICENSE$|^\.gitignore$|^\.gitattributes$|\.sh$|\.ps1$|^iac/|(^|/)Dockerfile(\.migrator(\.prod)?|\.tests)?$|^compose[^/]*\.ya?ml$|^\.docker/|^\.github/|^\.run/|^\.vscode/|^\.idea/|(^|/)\.env[^/]*\.example$'
-          # Build-relevant despite matching `inert`: check-ssr-purity.sh, the migration-safety
-          # guard + its self-test, the Docker restore-graph guard, and the backlog loop's
-          # provenance gate + its self-test are EXECUTED by the build job (the .ps1 twins run
-          # through the migration self-test's pwsh leg), and pr-verify/ci define the .NET gate
-          # itself — a change to any of them must run the gate so it validates its own new
-          # definition. Dockerfiles join them because the restore-graph guard now reads them: a
-          # Dockerfile-only PR that drops a COPY ["…csproj"] line must still face the gate that
-          # catches it.
-          force_build='^scripts/check-ssr-purity\.sh$|^scripts/check-migration-safety\.(sh|ps1)$|^scripts/tests/check-migration-safety\.tests\.sh$|^scripts/check-dockerfile-restore-graph\.(sh|ps1)$|^scripts/claude/(issue-trust|next-ticket|work-ticket)\.sh$|^scripts/tests/claude-loop-provenance\.tests\.sh$|(^|/)Dockerfile(\.migrator(\.prod)?|\.tests)?$|^\.github/workflows/pr-verify\.yml$|^\.github/workflows/ci\.yml$'
-          # Image-build inputs (CI-01 / #403): ANY Dockerfile flavor (a dev-only flavor costs a
-          # redundant image build, never a false skip), the build-context filter (.dockerignore),
-          # and this workflow itself — a change to the image job's definition must build the images
-          # so it validates itself. Fails open like `code` (images=true) if the diff is missing.
-          image_inputs='(^|/)Dockerfile[^/]*$|(^|/)\.dockerignore$|^\.github/workflows/pr-verify\.yml$'
-          code=true
-          images=true
-          if files="$(git diff --name-only HEAD^1 HEAD)"; then
-            build_relevant="$(printf '%s\n' "$files" | grep -vE "$inert" || true)"
-            forced="$(printf '%s\n' "$files" | grep -E "$force_build" || true)"
-            image_relevant="$(printf '%s\n' "$files" | grep -E "$image_inputs" || true)"
-            if [ -n "$files" ] && [ -z "$build_relevant" ] && [ -z "$forced" ]; then
-              code=false
-            fi
-            if [ -n "$files" ] && [ -z "$image_relevant" ]; then
-              images=false
-            fi
-            echo "Changed files:"
-            printf '%s\n' "$files" | sed 's/^/  /'
-            echo "Build-relevant files: ${build_relevant:-<none>}"
-            echo "Forced-build files:   ${forced:-<none>}"
-            echo "Image-relevant files: ${image_relevant:-<none>}"
-          else
-            echo "::warning::Could not compute the PR diff — running the full gate."
-          fi
-          printf 'code=%s\n' "$code" >> "$GITHUB_OUTPUT"
-          printf 'images=%s\n' "$images" >> "$GITHUB_OUTPUT"
+        run: ./scripts/ci/classify-changes.sh HEAD^1
 
   build:
     name: Pull Request Verification
     needs: changes
     # Inert-only PR ⇒ skipped, and a skipped job satisfies the required "Pull Request Verification"
-    # status check (see the header comment).
-    if: needs.changes.outputs.code == 'true'
+    # status check (see the header comment). A guards-only PR still runs the job — the bash gates
+    # below execute unconditionally, while every .NET step carries `if: …outputs.code == 'true'`.
+    if: needs.changes.outputs.code == 'true' || needs.changes.outputs.guards == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 20
 
@@ -153,12 +122,16 @@ jobs:
       - name: Backlog-loop provenance gate self-test
         run: ./scripts/tests/claude-loop-provenance.tests.sh
 
+      # Everything below is the .NET gate: it runs only when the PR can actually affect it. A PR
+      # that merely edits a script CI executes (or a Dockerfile) stops here, green, in seconds.
       - name: Setup .NET
+        if: needs.changes.outputs.code == 'true'
         uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5.4.0
         with:
           dotnet-version: '10.0.100'
 
       - name: Cache NuGet packages
+        if: needs.changes.outputs.code == 'true'
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.nuget/packages
@@ -167,10 +140,12 @@ jobs:
             nuget-${{ runner.os }}-
 
       - name: Restore
+        if: needs.changes.outputs.code == 'true'
         run: dotnet restore
 
       # TreatWarningsAsErrors is repo-wide — a single warning fails this build.
       - name: Build
+        if: needs.changes.outputs.code == 'true'
         run: dotnet build --configuration Release --no-restore
 
       # Solution-wide `dotnet test` can't host the patcher's x86 native-interop suite
@@ -179,6 +154,7 @@ jobs:
       # automatically; the Windows-only ones (.Tests.Infrastructure / .Tests.E2E) are
       # excluded by name.
       - name: Run Unit Tests
+        if: needs.changes.outputs.code == 'true'
         run: |
           set -euo pipefail
           found=0
@@ -196,6 +172,7 @@ jobs:
       # Real PostgreSQL via Testcontainers (currently AuthSystem.API.Tests.Integration;
       # the TranslationSystem.API suite joins by the same convention when M2-15 lands).
       - name: Run Integration Tests
+        if: needs.changes.outputs.code == 'true'
         run: |
           set -euo pipefail
           found=0

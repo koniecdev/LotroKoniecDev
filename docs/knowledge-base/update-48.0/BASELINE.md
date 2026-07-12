@@ -3,6 +3,7 @@
 **Captured:** 2026-04-23
 **Operator:** Claude (automated)
 **Context:** Pierwszy major update (48.0 just released) od czasu walidacji simplified flow.
+**Redaction note:** quest-text content in this folder redacted to synthetic equivalents 2026-07 (LEGAL-08); the empirical result is unaffected.
 
 ## Live DAT state (pre-update)
 
@@ -46,8 +47,8 @@ data/last_known_game_version.txt (8 bytes): 47|112|3
 
 | # | FileId | GossipId | Content (first 80 chars) |
 |---|--------|----------|--------------------------|
-| 1 | 620871150 | 218649169 | `'Mamy trop, <--DO_NOT_TOUCH!-->! Szlak czerwonych kwiatów...` |
-| 2 | 620759036 | 218649169 | `'PL - We cannot allow the Dourhands to resurrect...` (incomplete tr.) |
+| 1 | 620871150 | 218649169 | `'Mamy znak, <--DO_NOT_TOUCH!-->! Szare ćmy wznoszą się rzędem...` |
+| 2 | 620759036 | 218649169 | `'PL - We cannot let the old warden rouse...` (incomplete tr.) |
 | 3 | 620757435 | 225138404 | `Wejdź do Śródziemia` |
 | 4 | 620757027 | 9795381 | `Kliknij tutaj aby wybrać swój tytuł` |
 | 5 | 620861331 | 228870261 | `Ekwipunek` |
@@ -77,7 +78,7 @@ Potrzebne od ciebie, zanim uruchomisz update:
    - „Pokaż wszystkie" — filtr/dropdown w UI
    - „Stylizacje" — sekcja Wardrobe/Cosmetic
    - „Ekwipunek" — inventory / slot UI
-   - Quest dialog „Mamy trop..." (FileId 620871150) — trzeba znaleźć questline
+   - Quest dialog „Mamy znak..." (FileId 620871150) — trzeba znaleźć questline
    - Quest dialog „'PL - We cannot..." (FileId 620759036) — jw.
 
    Nazwy plików: `ingame-47.2/<shortname>.png` w `intel/update-48.0/ingame-47.2/`

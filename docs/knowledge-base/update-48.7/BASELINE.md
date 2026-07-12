@@ -3,6 +3,7 @@
 **Captured:** 2026-06-25
 **Operator:** Claude (automated)
 **Context:** Druga major-update walidacja simplified flow. Live DAT na 48.0; test survivalu translacji przez update 48.0 → 48.7.
+**Redaction note:** quest-text content in this folder redacted to synthetic equivalents 2026-07 (LEGAL-08); the empirical result is unaffected.
 
 ## Live DAT state (pre-update)
 
@@ -54,8 +55,8 @@ brak re-patchu, brak zapisu DAT). Translacje są fizycznie obecne w live DAT (8/
 
 | # | FileId | GossipId | Content (first 60 chars) | Export line |
 |---|--------|----------|--------------------------|-------------|
-| 1 | 620871150 | 218649169 | `'Mamy trop, <--DO_NOT_TOUCH!-->! Szlak czerwonych kwiatów…` | 255033 |
-| 2 | 620759036 | 218649169 | `'PL - We cannot allow the Dourhands to resurrect…` (partial tr.) | 19821 |
+| 1 | 620871150 | 218649169 | `'Mamy znak, <--DO_NOT_TOUCH!-->! Szare ćmy wznoszą się rzędem…` | 255033 |
+| 2 | 620759036 | 218649169 | `'PL - We cannot let the old warden rouse…` (partial tr.) | 19821 |
 | 3 | 620757435 | 225138404 | `Wejdź do Śródziemia` | 7063 |
 | 4 | 620757027 | 9795381 | `Kliknij tutaj aby wybrać swój tytuł` | 3798 |
 | 5 | 620861331 | 228870261 | `Ekwipunek` | 227819 |

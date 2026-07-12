@@ -34,6 +34,10 @@ public sealed class AccountGdprSelfServiceTests : E2ETestBase
         await AuthActions.ConfirmEmailAsync(Page, Fixture, user);
         await AuthActions.LoginAsync(Page, Fixture, user);
 
+        // Accept the cookie banner up front — its fixed bottom bar would otherwise cover the
+        // submit buttons of the change-password/delete forms this flow clicks (LEGAL-04).
+        await AuthActions.AcceptCookieBannerAsync(Page);
+
         // The nav offers "Moje konto" (the privacy-policy wording) and it lands on the account page
         // showing the live auth data.
         await Page.GetByTestId("nav-account").ClickAsync();

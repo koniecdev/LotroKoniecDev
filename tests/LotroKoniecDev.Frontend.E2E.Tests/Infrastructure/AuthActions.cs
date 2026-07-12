@@ -56,6 +56,18 @@ internal static class AuthActions
         await page.GetByRole(AriaRole.Button, new() { Name = Buttons.Logout, Exact = true }).WaitForAsync(LongWait);
     }
 
+    /// <summary>
+    /// Accepts the LEGAL-04 cookie banner so its fixed bottom overlay never covers the controls a
+    /// flow clicks lower on the page. Call once after the first Frontend page load of a fresh
+    /// browser context.
+    /// </summary>
+    public static async Task AcceptCookieBannerAsync(IPage page)
+    {
+        await page.GetByRole(AriaRole.Button, new() { Name = "Akceptuję", Exact = true }).ClickAsync();
+        await page.GetByRole(AriaRole.Region, new() { Name = "Informacja o plikach cookie" })
+            .WaitForAsync(new LocatorWaitForOptions { State = WaitForSelectorState.Detached, Timeout = 30_000 });
+    }
+
     public static async Task LogoutAsync(IPage page)
     {
         await page.GetByRole(AriaRole.Button, new() { Name = Buttons.Logout, Exact = true }).ClickAsync();

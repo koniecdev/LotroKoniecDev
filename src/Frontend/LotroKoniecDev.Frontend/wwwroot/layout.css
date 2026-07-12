@@ -8,8 +8,8 @@
      warning 85 (≈ gold)    → orange 60 (kept distinct from the accent)
      success (mint = accent) → green 150 (decoupled: approved ≠ accent)
      danger 25              → unchanged
-   Cat-only sections (photo slider, wizard, gallery, cookie bar, legacy
-   block) are deliberately not ported.
+   Cat-only sections (photo slider, wizard, gallery, legacy block) are
+   deliberately not ported; the cookie bar arrived with LEGAL-04.
    ═════════════════════════════════════════════════════════════════════ */
 
 /* ───────── Tokens ───────── */
@@ -1501,6 +1501,80 @@ code {
 
 .foot-links a:hover {
     color: var(--accent-hi);
+}
+
+/* ───────── Cookie consent bar ───────── */
+.cookie-bar {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 60;
+    border-top: 1px solid var(--border-hi);
+    background: oklch(0.20 0.013 80 / 0.94);
+    backdrop-filter: blur(14px) saturate(140%);
+    box-shadow: 0 -8px 24px -14px rgba(0, 0, 0, 0.6);
+}
+
+.cookie-bar-inner {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 18px;
+    padding-top: 14px;
+    padding-bottom: 14px;
+    flex-wrap: wrap;
+}
+
+.cookie-bar-copy {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    min-width: 0;
+    flex: 1 1 420px;
+}
+
+.cookie-bar-ico {
+    flex: 0 0 auto;
+    display: inline-flex;
+    color: var(--accent);
+}
+
+.cookie-bar-text {
+    margin: 0;
+    font-size: 13.5px;
+    line-height: 1.5;
+    color: var(--text-mute);
+}
+
+.cookie-bar-text a {
+    color: var(--accent-hi);
+    text-decoration: underline;
+    text-underline-offset: 2px;
+}
+
+.cookie-bar-text a:hover {
+    color: var(--accent);
+}
+
+.cookie-bar-form {
+    flex: 0 0 auto;
+}
+
+.cookie-bar-form .btn {
+    white-space: nowrap;
+}
+
+@media (max-width: 640px) {
+    .cookie-bar-inner {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 12px;
+    }
+
+    .cookie-bar-form .btn {
+        width: 100%;
+    }
 }
 
 /* ───────── Utilities ───────── */

@@ -1,0 +1,60 @@
+@using Microsoft.AspNetCore.Http
+@using Microsoft.Extensions.Options
+@using LotroKoniecDev.Frontend.Infrastructure.CookieConsent
+@using LotroKoniecDev.Frontend.Settings
+@inject IOptions<AuthSystemSettings> AuthSystemOptions
+@inject IHttpContextAccessor HttpContextAccessor
+
+@if (!_accepted)
+{
+    <div class="cookie-bar" role="region" aria-label="Informacja o plikach cookie">
+        <div class="container cookie-bar-inner">
+            <div class="cookie-bar-copy">
+                <span class="cookie-bar-ico" aria-hidden="true">
+                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M12 2a10 10 0 1 0 10 10 4 4 0 0 1-5-5 4 4 0 0 1-5-5Z"/>
+                        <path d="M8.5 8.5h.01M15 9.5h.01M9.5 15h.01M14 14.5h.01"/>
+                    </svg>
+                </span>
+                <p class="cookie-bar-text">
+                    Używamy wyłącznie niezbędnych plików cookie, koniecznych do bezpiecznego działania
+                    serwisu — nie stosujemy śledzenia ani reklam. Szczegóły znajdziesz w
+                    <a href="@PrivacyPolicyCookiesUrl" target="_blank" rel="noopener">polityce prywatności</a>.
+                </p>
+            </div>
+            <form class="cookie-bar-form" method="post" action="@CookieConsentEndpointsExtensions.AcceptPath">
+                <AntiforgeryToken/>
+                <input type="hidden" name="returnPath" value="@CurrentPath()"/>
+                <button type="submit" class="btn btn-primary">Akceptuję</button>
+            </form>
+        </div>
+    </div>
+}
+
+@code {
+    private bool _accepted;
+
+    private string PrivacyPolicyCookiesUrl =>
+        $"{AuthSystemOptions.Value.BaseUrl.TrimEnd('/')}/Account/PrivacyPolicy#cookies";
+
+    // Server-side, one-shot decision (no JS, no interactivity): the banner is hidden the moment
+    // the consent cookie is present on the request. HttpOnly does not affect this server read.
+    protected override void OnInitialized()
+    {
+        string? cookieValue = HttpContextAccessor.HttpContext?.Request.Cookies[CookieConsentCookie.Name];
+        _accepted = CookieConsentCookie.IsAccepted(cookieValue);
+    }
+
+    private string CurrentPath()
+    {
+        HttpContext? httpContext = HttpContextAccessor.HttpContext;
+        if (httpContext is null)
+        {
+            return "/";
+        }
+
+        string path = httpContext.Request.Path.HasValue ? httpContext.Request.Path.Value! : "/";
+        string queryString = httpContext.Request.QueryString.Value ?? string.Empty;
+        return $"{path}{queryString}";
+    }
+}

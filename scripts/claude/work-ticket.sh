@@ -8,9 +8,11 @@
 #
 # Usage: work-ticket.sh <issue-number> [run-dir]
 # Env:
-#   LOOP_EFFORT             claude effort level (default: high — reviews inside the session run
-#                           at xhigh via the code-reviewer agent definition)
-#   LOOP_MODEL              model (default: fable — Fable 5; re-enabled 2026-07-13 after a
+#   LOOP_EFFORT             claude effort level (default: the worker effort from
+#                           ~/.claude/model-policy.env when present, else high — reviews inside
+#                           the session run at xhigh via the code-reviewer agent definition)
+#   LOOP_MODEL              model (default: the worker model from ~/.claude/model-policy.env
+#                           when present, else fable — Fable 5; re-enabled 2026-07-13 after a
 #                           same-day Opus revert)
 #   LOOP_CONFIG_DIR         Claude config dir = which account runs the loop
 #                           (default: ~/.claude-account1)
@@ -43,8 +45,14 @@ esac
 RUN_DIR="${2:-$REPO_ROOT/logs/claude-loop/adhoc-$(date +%Y%m%d-%H%M%S)}"
 mkdir -p "$RUN_DIR"
 
-EFFORT="${LOOP_EFFORT:-high}"
-MODEL="${LOOP_MODEL:-fable}"
+# Central per-role model/effort policy (maintainer's machine); explicit LOOP_* env still wins,
+# and the hardcoded fallbacks keep a fresh clone self-contained.
+if [ -f "$HOME/.claude/model-policy.env" ]; then
+    # shellcheck disable=SC1091
+    . "$HOME/.claude/model-policy.env"
+fi
+EFFORT="${LOOP_EFFORT:-${MODEL_POLICY_WORKER_EFFORT:-high}}"
+MODEL="${LOOP_MODEL:-${MODEL_POLICY_WORKER_MODEL:-fable}}"
 export CLAUDE_CONFIG_DIR="${LOOP_CONFIG_DIR:-$HOME/.claude-account1}"
 PERMISSION_MODE="${LOOP_PERMISSION_MODE:-auto}"
 TIMEOUT_MIN="${LOOP_TICKET_TIMEOUT_MIN:-90}"

@@ -551,12 +551,21 @@ been cut over already — stop here.
    ```
 
 3. **Recreate the TKS stack onto `${project}_tks`** (its compose change is the twin ticket,
-   koniecdev/TheKittySaver#295):
+   koniecdev/TheKittySaver#295). Ship its new `compose.hetzner.yaml`, point `LOTRO_NETWORK` at THIS
+   box's network, then recreate — compose cannot move a running container between networks:
 
    ```bash
+   # from a TheKittySaver checkout on main:
+   scp compose.hetzner.yaml lotro-prod:/opt/tks/compose.hetzner.yaml
+
+   ssh lotro-prod
+   sed -i 's|^LOTRO_NETWORK=.*|LOTRO_NETWORK=lotro-prod_tks|' /opt/tks/.env   # staging: lotro-staging_tks
    cd /opt/tks
-   docker compose down          # NEVER -v: that would drop its DB/keyring volumes
-   docker compose up -d
+   # -f is NOT optional: the file is compose.hetzner.yaml, so a bare `docker compose` dies with
+   # "no configuration file provided: not found".
+   docker compose -f compose.hetzner.yaml pull    # the new images carry the Caddy-only trust wiring
+   docker compose -f compose.hetzner.yaml down    # NEVER -v: that would drop its DB/keyring volumes
+   docker compose -f compose.hetzner.yaml up -d
    ```
 
 4. **Verify both sites from outside the box** — ours with the [smoke test](#post-deploy-smoke-test),
@@ -1057,6 +1066,16 @@ Recovery = **new VPS → `bootstrap.sh` → scp stack files → restore/re-mint 
 
 ## Gotchas
 
+- **`/opt/lotro` belongs to `deploy` — never write into it as `root`.** CD ssh's in as `deploy` and
+  **overwrites** `compose.hetzner.yaml`, `.docker/hetzner/Caddyfile` and `deploy.sh` on every rollout.
+  A file that a hand-run `scp` left **root-owned** is not writable by `deploy` (the directory being
+  deploy-owned does not help — `scp` truncates the existing file, it does not unlink it), so the next
+  CD run dies in *"Sync the stack files to the box"* and the rollout never starts. This is not
+  theoretical: it failed the #507 production rollout on 2026-07-13. If you must stage files by hand,
+  `scp` as `deploy` — or `chown -R deploy:deploy /opt/lotro` afterwards. The same applies to `deploy.sh`
+  itself: run it **as `deploy`** (`sudo -u deploy env IMAGE_TAG=… bash /opt/lotro/deploy.sh`), because
+  its final step rewrites `.env`, and a root-owned `.env` locks CD out of the box for good.
+  (`/opt/tks` has no CD and is root-owned — that one is fine to touch as root.)
 - **The bootstrap Docker leg adopts the box's engine, it does not install one.** The live pair runs
   **Ubuntu's** `docker.io` + `containerd` + `docker-compose-v2`, not Docker's `docker-ce` stack — and
   the two CONFLICT. An unguarded `apt-get install docker-ce containerd.io` on such a box is an engine

@@ -1,6 +1,6 @@
 # ADR-0027: Prod buys its warm replica from a schedule, not a floor — and the availability probe moves out of Azure
 
-**Status:** Accepted (ops-amended 2026-07-11 — #450 moved the daily ping from 03:00 to 06:40 UTC after observed GitHub cron delays; #449 suppressed the warm-up cold-start alert noise)
+**Status:** **Partly obsolete by platform** (ADR-0034, 2026-07-13 / #492). The **warm window is gone** — it was a KEDA cron scale rule on a scale-to-zero ACA app, and the Hetzner boxes run 24/7, so there is nothing to warm and no cold start to schedule around; the #449 alert-suppression rule died with Azure Monitor too. **The daily health ping survives** (`.github/workflows/health-ping.yml`) and is now the *only* availability signal, re-justified as a plain "tell me in the morning if it died overnight" check that also proves the (still scale-to-zero) Neon database is reachable. Previously: Accepted (ops-amended 2026-07-11 — #450 moved the daily ping from 03:00 to 06:40 UTC after observed GitHub cron delays; #449 suppressed the warm-up cold-start alert noise)
 **Date:** 2026-07-09
 **Decision-makers:** Solo maintainer
 **Related:** ADR-0012 §5 R8 (**reversed** — prod `min_replicas = 1`), ADR-0019 (external synthetic

@@ -5,7 +5,8 @@
 > team member in a day, or to prepare for an interview where you must explain and defend every
 > design decision.
 >
-> Facts in this handbook come from the **code** (checked on 2026-07-06; re-audited 2026-07-11).
+> Facts in this handbook come from the **code** (checked on 2026-07-06; re-audited 2026-07-11;
+> deployment chapter rewritten 2026-07-13 for the Hetzner move — ADR-0034).
 > When an older document disagrees with this one, trust the code first, then this handbook.
 
 ---
@@ -108,8 +109,9 @@ special tests ("parity tests") make sure the two parsers always agree.
 - The **TMS backend is built**: import, editor endpoints, approval, file distribution, auth.
 - The **frontend is built**: home page, translation list, side-by-side editor, dashboard,
   game-version management, import/export page.
-- The system **deploys automatically to Azure** (staging first, then production after a human
-  approves). The public site is `https://lotro-translator.pl`.
+- The system **deploys automatically to a Hetzner VPS** (staging first, then production after a
+  human approves). The public site is `https://lotro-translator.pl`. It ran on Azure Container
+  Apps until 2026-07-12, when the subscription died — ADR-0034.
 - There are **no production users yet**. This matters: breaking changes are still cheap, and
   several cost/risk decisions (Part 11) are made for a zero-user world on purpose.
 
@@ -1209,10 +1211,9 @@ containerized-OIDC problem dissolves in real production too.
 | `mutation-test` | PRs touching Domain/SharedKernel | Stryker, break at 67% |
 | `e2e` | manual + PRs touching package/Docker dependency manifests (so Dependabot bumps exercise it) | full-stack and browser E2E suites |
 | `smoke` | after deploys | health + a real OIDC token round-trip + file distribution |
-| `health-ping` | daily cron | probes the three public origins once a day (deep `/health`), paying the day's first cold start before the warm window opens (ADR-0027) |
+| `health-ping` | daily cron | probes the three public origins once a day (deep `/health`) — the only availability signal, and the one check that proves the (scale-to-zero) Neon database is reachable |
 | `codeql`, `gitleaks` | PRs/pushes/schedule | static security analysis; secret scanning |
 | `actionlint` | every PR | lints `.github/workflows/` so workflow-only PRs cannot merge unparsed |
-| `infra` | changes under `iac/` | Terraform fmt/validate/plan on PRs; gated apply on main |
 
 ### 11.2 How a release reaches production
 
@@ -1234,32 +1235,37 @@ containerized-OIDC problem dissolves in real production too.
 
 ### 11.3 The production platform
 
-- **Azure Container Apps** (region `polandcentral`), described entirely in **Terraform**
-  (`iac/`). Apps ignore image/traffic in Terraform — the pipeline owns *what runs*, Terraform
-  owns *what exists*. Separate state files per environment, so a staging apply can never touch
-  prod.
-- **App code is cloud-agnostic** (ADR-0008): plain containers, HTTP on :8080, non-root, JSON
-  logs to stdout, all configuration via environment variables, health endpoints. Azure-specific
-  wiring lives only in infrastructure. Moving providers = re-pointing images and env vars.
-- **Secrets** live in **Azure Key Vault** only; apps read them at runtime through a managed
-  identity (ADR-0013). Terraform state and GitHub never hold secret values. Database secrets
-  rotate = the provider swap story (moving Supabase → Neon was literally rotating two
-  connection strings — ADR-0014).
-- **Databases on Neon** (serverless Postgres): scale-to-zero when idle, ~sub-second cold
-  start, 6-hour point-in-time restore on the free plan, plus the pre-migration snapshot
-  branches. Accepted risk (zero users): no off-platform backups yet; the revisit trigger is
-  the first real translators.
-- **Telemetry**: the apps emit vendor-neutral OpenTelemetry; the platform's managed OTel agent
-  ships it to Application Insights with zero app-code change (ADR-0016). Alerting was
-  **symptom-based** — external synthetic probes from three regions (ADR-0019) — until a cost
-  review: the probes were both a top cost line and self-defeating against scale-to-zero (a probe
-  is a request; a request wakes the app). ADR-0027 deleted the Azure web tests; a **daily
-  GitHub Actions health ping** (`health-ping.yml`, deep `/health`) is now the availability check.
-- **FinOps on a student subscription** (ADRs 0020, 0025, 0027, 0029): everything scales to
-  **zero replicas**; production gets its single warm replica from a **scheduled warm window**
-  (a KEDA cron rule, 07:00–22:00 Europe/Warsaw — off-hours requests pay a cold start of ~40 s
-  for the full chain, never an outage); and readiness probes are deliberately **DB-free** — the
-  always-on readiness ping was keeping the "scale-to-zero" database awake 98% of the time. The
+- **A Hetzner VPS running `docker compose` behind Caddy** (ADR-0034). Two CX23 boxes: one carries
+  both prods, one carries both stagings — **one box = one environment**, and the box's single
+  `chmod 600` `/opt/lotro/.env` is what makes it prod or staging. Caddy terminates TLS with
+  automatic Let's Encrypt certs, one vhost per app; only Caddy publishes ports, so the apps are
+  reachable *only* through the proxy. There is **no IaC**: the "infrastructure" is a box, a compose
+  file and an env file.
+- **App code is cloud-agnostic** (ADR-0008): plain containers, HTTP on :8080, non-root, JSON logs
+  to stdout, all configuration via environment variables, health endpoints. That neutrality is not
+  theoretical — it is what made the Azure→Hetzner move a matter of re-pointing images and env vars,
+  with **zero application-code changes**, in a day.
+- **Secrets** live in the box's `/opt/lotro/.env` (`chmod 600`, owner `deploy`), never in git.
+  Previously they lived in Azure Key Vault (ADR-0013) — and the migration produced the lesson:
+  with the subscription disabled, Key Vault still served secret *names* but refused every *value*,
+  so **nothing was recoverable**. Every secret was re-minted. The keeps-you-honest property is that
+  they *could* be: no secret in this system is irreplaceable, only inconvenient.
+- **Databases on Neon** (serverless Postgres) — unchanged by the move, which is why nothing was
+  lost: scale-to-zero when idle, 6-hour point-in-time restore on the free plan, plus the
+  pre-migration snapshot branches every deploy cuts. Accepted risk (zero users): no off-platform
+  backups yet; the revisit trigger is the first real translators.
+- **Telemetry: honestly, a gap right now.** The apps still emit vendor-neutral OpenTelemetry and
+  `OTEL_EXPORTER_OTLP_ENDPOINT` is still wired, but the sink died with the subscription —
+  Application Insights, the Log Analytics workspace and every Azure Monitor alert rule are gone
+  (ADR-0016 and the alerting ADRs are obsolete-by-platform). Today the only availability signal is
+  the **daily GitHub Actions health ping** plus the post-deploy smoke. A real telemetry sink is a
+  deliberate later decision — accepted on purpose for a pre-launch, zero-user system.
+- **FinOps — the decision that outranked all the tuning.** ADRs 0020/0025/0027/0029 squeezed a
+  free student subscription with scale-to-zero, a scheduled warm window and a revision sweep; the
+  credits ran out anyway. A flat-price €4-ish box removes the entire problem class structurally:
+  no replicas to schedule, no revisions to sweep, no cold starts to hide. The one FinOps ruling
+  that **survives** is ADR-0025 (readiness probes stay **DB-free**) — because Neon still scales to
+  zero, and an always-on readiness ping would keep the database awake 98% of the time. The
   platform polling your health endpoint every few seconds is a hidden client of everything that
   endpoint touches.
 
@@ -1510,13 +1516,13 @@ What: bulk-insert added rows through Npgsql's binary COPY behind a port, inside 
 transaction. Why: per-row EF inserts made a full import take ~3 minutes; the added-rows path
 has no business logic to lose. Amended by spec 0006: COPY now consumes a stream, not a list.
 
-**ADR-0012 — The continuous deployment pipeline.**
+**ADR-0012 — The continuous deployment pipeline.** *(Rollout target superseded by ADR-0034 — the pipeline shape stands; the last hop is now ssh + `docker compose`.)*
 What: merge → one immutable image per commit → gated deploy to Azure Container Apps; Terraform
 owns infrastructure shape; the pipeline owns which image runs; keyless OIDC auth to Azure.
 Why: the previous setup silently never rolled out new code. Heavily amended as the pipeline
 matured (scan/sign/attest, health-gated 0%→100% rollout, CI-must-pass).
 
-**ADR-0013 — Key Vault is the single source of truth for production secrets.**
+**ADR-0013 — Key Vault is the single source of truth for production secrets.** *(Obsolete by platform — ADR-0034.)*
 What: the 8 prod secrets live only in Azure Key Vault; apps read them at runtime via managed
 identity; Terraform wires references without seeing values. Why: secrets previously sat in
 three places (disk, TF state, GitHub) — three leak surfaces and three rotation chores.
@@ -1531,12 +1537,12 @@ What: the Playwright browser-image tag is computed from the resolved NuGet packa
 instead of a hard-coded string. Why: Dependabot bumped the package, the hidden string did not
 follow, and the E2E suite broke on a protocol mismatch. Rule: one source of truth per version.
 
-**ADR-0016 — Cloud telemetry via the platform's managed OpenTelemetry agent.**
+**ADR-0016 — Cloud telemetry via the platform's managed OpenTelemetry agent.** *(Obsolete by platform — ADR-0034; no sink today.)*
 What: enable Azure Container Apps' built-in OTel agent so existing vendor-neutral telemetry
 lands in Application Insights with zero app-code change. Why: the apps already emitted clean
 telemetry, but nothing exported it — production was nearly blind.
 
-**ADR-0017 — Parametrized infrastructure per environment.**
+**ADR-0017 — Parametrized infrastructure per environment.** *(Obsolete by platform — ADR-0034; there is no IaC left.)*
 What: one Terraform root, parametrized by `env_id` and one base-domain variable; separate state
 file per environment; no premature module extraction. Why: "two environments" was promised but
 the Terraform was hard-coded to one.
@@ -1547,12 +1553,12 @@ production. Why: prod doubled as QA. Reality bite: the subscription allows one C
 environment, so staging shares prod's environment while keeping its own DB, secrets, identity
 and domain.
 
-**ADR-0019 — Symptom-based alerting via external probes.**
+**ADR-0019 — Symptom-based alerting via external probes.** *(Obsolete by platform — ADR-0034; the Azure alerting stack is gone.)*
 What: synthetic web tests hit the public URLs from three regions; alert on quorum failure;
 plus Key Vault and auth-latency alerts. Why: the previous log-based alert fired a false Sev0 on
 *every healthy deploy* — alert fatigue that would mask a real outage.
 
-**ADR-0020 — FinOps right-sizing.**
+**ADR-0020 — FinOps right-sizing.** *(Obsolete by platform — ADR-0034; a flat-price box removes the problem class.)*
 What: staging scales to zero replicas; probe cadence drops 5→15 minutes. Why: a cost review
 found the two biggest line items were probes (~$47/month) and idle staging — not the product.
 Accepted: slower worst-case detection, cold starts on staging.
@@ -1578,7 +1584,7 @@ What: on migration PRs, CI checks out the *previous release* and runs its integr
 against the *new* schema in a fresh container. Why: ADR-0023 was a rule and a text scan;
 nothing actually executed old-code-on-new-schema until this.
 
-**ADR-0025 — Readiness probes must not touch the database.**
+**ADR-0025 — Readiness probes must not touch the database.** *(Still binds — Neon still scales to zero.)*
 What: `/health/ready` only proves the app serves HTTP; the deep `/health` (DB + SMTP) stays
 for operators and smoke tests. Why: the platform's frequent readiness ping kept the
 scale-to-zero database awake ~98% of the time and was about to exhaust the free plan. Accepted:
@@ -1590,7 +1596,7 @@ access (`scripts/claude/issue-trust.sh`, fail-closed, enforced in front of every
 the repo is public and the loop auto-merges the result — untrusted issue text would be a
 prompt-injection channel straight to `main`.
 
-**ADR-0027 — Prod's warm replica comes from a schedule; the availability probe leaves Azure.**
+**ADR-0027 — Prod's warm replica comes from a schedule; the availability probe leaves Azure.** *(Partly obsolete — the warm window died with Azure (ADR-0034); the daily ping survives as the only availability signal.)*
 What: `min_replicas = 0` everywhere; production keeps one warm replica only inside a KEDA cron
 window (07:00–22:00 Europe/Warsaw); the three-region Azure web tests are deleted, replaced by a
 daily GitHub Actions health ping. Why: six always-on replicas served zero users and the probes
@@ -1604,7 +1610,7 @@ builds run with `--no-restore` so a gap becomes a hard error, and a CI script ga
 missing project files (exit 0), caching an incomplete restore layer. One exception: the
 frontend image's `dotnet build` keeps restore on, or the SDK drops `blazor.web.js`.
 
-**ADR-0029 — Exactly one active revision per app.**
+**ADR-0029 — Exactly one active revision per app.** *(Obsolete by platform — ADR-0034; there are no revisions.)*
 What: the rollout's promote step deactivates *every* superseded revision (not just the one
 holding traffic) and fails loudly if it cannot; rollback re-activates the previous revision and
 pays a cold start. Why: a leaked 0%-traffic revision with an old image probed the database every
@@ -1624,6 +1630,18 @@ the actual anonymization after the window, and cancelling forces a password rese
 password-only confirmation, one credential-stuffing hit could irreversibly erase an account;
 the industry-standard grace window gives the legitimate owner a recovery path (ported from
 TKS ADR-0017).
+
+**ADR-0034 — A single Hetzner VPS instead of Azure Container Apps.**
+What: on 2026-07-12 the Azure for Students subscription was disabled — credits exhausted, renewal
+refused — and both prods went dark. Prod + staging moved to Hetzner boxes running `docker compose`
+behind Caddy; Neon stayed the database, GHCR stayed the registry, and CD's last hop became ssh +
+`docker compose` instead of an ACA revision rollout. Why: the app code was already cloud-agnostic
+(ADR-0008), so the move cost **zero application changes** — and a flat-price box structurally
+deletes the whole FinOps problem class the ADRs above had been fighting (scale-to-zero, warm
+windows, revision sweeps). Accepted: no blue/green (a 4 GB box cannot hold a second live set, so a
+deploy costs seconds of downtime, guarded by a migration gate + automatic rollback); observability
+shrank to logs + a daily health ping until a real sink is chosen; the box is now a thing to patch.
+Retired with it: the Terraform root, Key Vault, and ADRs 0013/0016/0017/0020/0027/0029.
 
 ---
 

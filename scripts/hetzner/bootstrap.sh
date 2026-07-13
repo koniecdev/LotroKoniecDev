@@ -24,7 +24,7 @@
 #     GHCR_USER/GHCR_TOKEN env or an interactive prompt — never stored in this script or the repo
 #
 # Deliberately NO .ps1 twin: the script-twins rule covers cross-platform dev machines; this runs
-# only on the Linux server. Operator docs: docs/deployment/hetzner-runbook.md.
+# only on the Linux server. Operator docs: docs/deployment/runbook.md.
 
 set -euo pipefail
 
@@ -228,4 +228,4 @@ fi
 echo "docker + fail2ban + unattended-upgrades: active"
 echo
 echo "Bootstrap complete. Next: land the stack files in /opt/lotro and bring it up"
-echo "(docs/deployment/hetzner-runbook.md)."
+echo "(docs/deployment/runbook.md)."

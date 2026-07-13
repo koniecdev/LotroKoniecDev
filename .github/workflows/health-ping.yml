@@ -1,21 +1,21 @@
 name: Health ping (prod)
 
-# The daily availability check for production (ADR-0027). It replaces the three Application Insights
-# standard web tests, which billed per execution AND — probing every 15 minutes from three regions —
-# would have kept the scale-to-zero apps awake all night, cancelling the warm window's whole saving.
+# The daily availability check for production. The probe itself stands (ADR-0027); the warm-window
+# premise it was designed around died with Azure Container Apps (ADR-0034 / #492), and so did the
+# Application Insights web tests it replaced.
 #
-# This runs on free GitHub-hosted minutes once a day, INSIDE the warm window (owner decision
-# 2026-07-11) — a plain "tell me in the morning if it died overnight" check against the already-warm
-# apps. It originally ran before the window to also prove the cold-start-from-zero path, but that was
-# fiction in practice: GitHub delays scheduled crons by up to hours (observed runs at 05:32–06:35 UTC
-# for a 03:00 cron), so the probe was landing after the 07:00 warm-up anyway. The retry loop below
-# still out-waits a full cold start, so the run stays green even if it ever fires outside the window.
+# The apps now run 24/7 on the Hetzner box, so this is no longer about warming anything up: it is a
+# plain "tell me in the morning if it died overnight" check against the public origins, covering the
+# containers, Caddy's TLS, and — through the deep /health below — the Neon database, which DOES still
+# scale to zero. It runs on free GitHub-hosted minutes once a day; the retry loop below out-waits a
+# Neon resume, so a suspended database wakes rather than reds the run.
 #
 # Failure notification is GitHub's own: a failed scheduled run emails the user whose commit last
-# touched this file. No Azure action group, no cost.
+# touched this file. No paid alerting.
 #
-# Cron is UTC. 06:40 UTC = 08:40 Europe/Warsaw in summer (CEST), 07:40 in winter (CET) — both inside
-# the 07:00–22:00 warm window, and GitHub's cron delay only pushes it deeper into the window.
+# Cron is UTC. 06:40 UTC = 08:40 Europe/Warsaw in summer (CEST), 07:40 in winter (CET) — a morning
+# signal. GitHub delays scheduled crons by up to hours; with no warm window left to land inside, that
+# only shifts when the mail arrives.
 
 on:
   schedule:
@@ -41,13 +41,14 @@ jobs:
         run: |
           set -uo pipefail
 
-          # The public origins of the prod environment (iac/locals.tf derives these from
-          # var.public_base_domain = "lotro-translator.pl").
+          # The public origins of the prod environment (the Caddy vhosts in
+          # .docker/hetzner/Caddyfile, driven by the domains in /opt/lotro/.env on the prod box).
           #
           # The APIs are probed on /health, not /health/ready: ADR-0025 deliberately leaves the
-          # Postgres check OUT of the readiness tag so the ACA probes cannot keep the scale-to-zero
-          # Neon compute awake, and names the full /health as the on-demand deep check. Once a day is
-          # exactly that occasion — this is the only probe that proves the database is reachable.
+          # Postgres check OUT of the readiness tag so the container probes cannot keep the
+          # scale-to-zero Neon compute awake — that ruling outlives Azure, because Neon still
+          # suspends — and names the full /health as the on-demand deep check. Once a day is exactly
+          # that occasion — this is the only probe that proves the database is reachable.
           # auth's /health also covers SMTP, so a red run here can legitimately mean "Brevo is down",
           # not "the site is down"; the response body below says which check failed.
           #

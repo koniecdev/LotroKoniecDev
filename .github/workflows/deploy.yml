@@ -5,7 +5,7 @@ name: Deploy (reusable rollout)
 # deploy-staging (auto) and deploy-prod (gated promotion) — so the same rollout serves both, and the
 # ADR-0018 two-stage promotion survives the platform change untouched: only the transport is new.
 #
-# Topology (docs/deployment/hetzner-runbook.md): ONE BOX PER ENVIRONMENT — `lotro-prod` and
+# Topology (docs/deployment/runbook.md): ONE BOX PER ENVIRONMENT — `lotro-prod` and
 # `lotro-staging` — each running the same `compose.hetzner.yaml` out of /opt/lotro against its own
 # `.env`. The box a job targets comes from the environment-scoped var HETZNER_HOST; there is no
 # `--env-file` / `-p` juggling (the single-CX32 shape the ticket was written against; the fleet that
@@ -119,7 +119,7 @@ jobs:
           [ -n "${FRONTEND_URL:-}" ] || missing="${missing} vars.FRONTEND_URL"
           if [ -n "$missing" ]; then
             echo "::error::Environment '${ENVIRONMENT}' is not wired for ssh deploys — missing:${missing}"
-            echo "See docs/deployment/hetzner-runbook.md → 'Continuous deployment (CD over ssh)'."
+            echo "See docs/deployment/runbook.md → 'Continuous deployment (CD over ssh)'."
             exit 1
           fi
           echo "Target: ${HETZNER_USER}@${HETZNER_HOST}:${STACK_DIR}"

@@ -30,8 +30,9 @@ Active development. **Done:** M1 (patcher, empirically proven), **M2 — TMS bac
 incl. CLI auto-download M2-20; the forum watcher M2-18 / #85 was **deliberately cut to post-MVP**
 — owner decision 2026-06, recorded in ADR-0030; game-version registration stays manual, and
 neither the loop nor a contributor should pick #85 up), **M3 — Blazor SSR frontend** (manual
-QA pass QA-FE / #275 still open), **M6 — cloud deployment** (CD to Azure Container Apps + Neon,
-staging + prod — ADRs 0008–0029). **Open fronts:** M7 game-content catalog (epic #362, spec 0008
+QA pass QA-FE / #275 still open), **M6 — deployment** (CD over ssh to a Hetzner VPS + Neon,
+staging + prod — ADRs 0008–0029, hosting moved off Azure by ADR-0034). **Open fronts:** M7
+game-content catalog (epic #362, spec 0008
 agreed, not started), LEGAL/GDPR pack (epic #459 — 01/02/03 landed, incl. the two-phase account
 deletion of ADR-0031; 04–07 open), QA-FE manual pass (#275), M4 desktop player app (Avalonia —
 ADR-0033), post-MVP TP
@@ -62,7 +63,7 @@ distribution endpoint — not part of the KittySaver lift map below.)
 `exported.txt` → TMS import; TMS export → `polish.txt` → CLI `patch`. Each context owns its own
 parser/serializer; **golden fixture files + round-trip tests on both sides** guard against format
 drift, and the format itself changes only via ADR. The TMS never references `datexport.dll`/DAT
-code (it runs in Linux containers — Azure Container Apps in prod); the patcher never touches the
+code (it runs in Linux containers — Docker Compose on a Hetzner VPS in prod); the patcher never touches the
 DB (it runs on a Windows gaming box). Distribution is HTTP, not integration: the CLI launch flow
 auto-downloads the current translation file from the TMS API (ETag-cached; M2-20), and the
 Avalonia app (M4) is a GUI over the same patcher handlers + download.
@@ -576,9 +577,11 @@ runs, env knobs, triage, troubleshooting): **`docs/claude-loop.md`**.
   lifted OIDC infra; pages: dashboard, translation list, editor with `<--DO_NOT_TOUCH!-->`
   placeholder validation + approve flow, import/export, game-versions admin, "Moje konto"
   (data export + account-deletion UX — LEGAL-02) and terms of service (LEGAL-03).
-- **M6 — Cloud deployment — DONE:** CD to Azure Container Apps + Neon Postgres, staging + prod
-  two-stage promotion, Key Vault secrets, scale-to-zero + warm window + daily health ping,
-  external SLO probe (ADRs 0008–0029; ops details in `docs/deployment/runbook.md`).
+- **M6 — Deployment — DONE:** CD over ssh + `docker compose` to a **Hetzner VPS** (Caddy ingress,
+  Let's Encrypt TLS) + Neon Postgres, staging + prod two-stage promotion, secrets in a `chmod 600`
+  `/opt/lotro/.env` per box, daily health ping (ADRs 0008–0029 for the pipeline; **ADR-0034** moved
+  the hosting off Azure Container Apps on 2026-07-12, retiring the Terraform IaC, Key Vault, warm
+  window and revision sweep with it — epic #486). Ops details: `docs/deployment/runbook.md`.
 - **M4 — desktop player app (Avalonia — ADR-0033)** (not started; #41–#46): GUI over the patcher
   handlers + the same TMS auto-download the CLI ships in M2-20. MVP is Windows-only, but the
   framework choice keeps the Steam Deck/Proton path open (WPF was dropped — it's the one .NET UI

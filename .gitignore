@@ -510,7 +510,9 @@ intel/
 # Stryker.NET mutation testing output
 StrykerOutput/
 
-# Lokalne katalogi z plikami providerów
+# Terraform — the IaC itself was retired with Azure (ADR-0034 / #492), so nothing here is tracked
+# any more. These rules stay as a net: leftover local artifacts (iac/.terraform/, iac/tfplan) must
+# never be swept into a commit by `git add -A` — a plan file can embed secrets in plaintext.
 **/.terraform/*
 
 *.tfstate
@@ -521,12 +523,7 @@ crash.*.log
 
 *.tfvars
 *.tfvars.json
-# Exception: per-environment NON-secret override files under iac/env/ are tracked (ADR-0017) — they
-# carry only env_id / public_base_domain / Key Vault + identity NAMES. Real secrets come from Key
-# Vault (ADR-0013) + TF_VAR_*, never from a tfvars; gitleaks + GitGuardian still gate any slip.
-!iac/env/*.tfvars
 
-# Terraform plan output (may embed secrets in plaintext)
 *.tfplan
 tfplan
 

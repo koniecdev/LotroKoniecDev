@@ -4,10 +4,14 @@
 > mapped to the concrete service on Azure and AWS — so the provider choice is *informed, not
 > guessed* (ADR-0008 §8). Provider-neutral by design: nothing here commits the repo to a cloud.
 >
-> 🟢 **Status (2026-07): the provider was chosen and the contract is delivered.** Production and
-> staging run on **Azure Container Apps** (ADR-0012 CD pipeline, ADR-0018 staging + two-stage
-> promotion) with **Neon** Postgres (ADR-0014). This document stays the provider-neutral contract
-> that would carry a future re-platform; the per-requirement delivery record is in
+> 🟢 **Status (2026-07-13): the contract is delivered — and it has now carried a re-platform.**
+> Production and staging ran on **Azure Container Apps** until 2026-07-12; when that subscription
+> died they moved to a **Hetzner VPS** running `docker compose` behind Caddy (**ADR-0034**) with
+> **zero application-code changes** — which is exactly what this document existed to make possible.
+> **Neon** Postgres (ADR-0014) and the two-stage staging→prod promotion (ADR-0018) carried over
+> unchanged. The Azure⇄AWS mapping below is kept as the provider-neutral contract; read it as
+> "what any host must provide", not as a description of where the system runs. Operating it today:
+> [`runbook.md`](runbook.md). The per-requirement delivery record is in
 > [Where each requirement is satisfied](#where-each-requirement-is-satisfied-2026-07).
 >
 > **Scope.** *What* the platform must offer and *which* managed service supplies it on each cloud,

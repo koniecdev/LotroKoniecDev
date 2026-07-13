@@ -1,6 +1,6 @@
 # ADR-0013: Azure Key Vault is the single source of truth for prod secrets (managed-identity references, no plaintext on disk / in state / in CI)
 
-**Status:** Accepted
+**Status:** **Obsolete by platform** (ADR-0034, 2026-07-13 / #492 — Azure Key Vault is gone with the subscription; prod secrets now live in a `chmod 600` `/opt/lotro/.env` per Hetzner box. The *principle* — one source of truth, no plaintext in git/state/CI — still holds; the instrument does not. `scripts/seed-keyvault.{sh,ps1}` and `iac/keyvault.tf` are removed.) Previously: Accepted
 **Date:** 2026-06-29
 **Decision-makers:** Solo maintainer
 **Related:** ADR-0012 (continuous deployment — **supersedes its §8** "app secrets stay in ACA; TF

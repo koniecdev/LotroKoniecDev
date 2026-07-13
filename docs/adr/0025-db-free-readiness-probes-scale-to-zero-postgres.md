@@ -1,6 +1,6 @@
 # ADR-0025: DB-free readiness probes — health checks must not keep the scale-to-zero database awake
 
-**Status:** Accepted
+**Status:** Accepted — and it **survives** the move off Azure (ADR-0034, 2026-07-13 / #492). The ACA probe wiring it cites (`iac/azure-container-apps.tf`) is gone, but the ruling binds unchanged: **Neon still scales to zero**, so readiness must stay DB-free (the container healthchecks and CD now play the role the ACA probes did), and the deep `/health` remains the on-demand check the daily ping uses.
 **Date:** 2026-07-05
 **Decision-makers:** Solo maintainer
 **Related:** ADR-0012 (health-gated rollout; prod `min_replicas = 1`), ADR-0014 (Neon adoption),

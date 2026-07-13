@@ -1,6 +1,6 @@
 # ADR-0029: Exactly one active revision per app — the rollout sweeps superseded revisions, rollback pays a cold start
 
-**Status:** Accepted
+**Status:** **Obsolete by platform** (ADR-0034, 2026-07-13 / #492 — ACA revisions no longer exist, so there is nothing to sweep and no 0%-traffic candidate to keep warm. The Hetzner rollout recreates containers in place; a rollback is "redeploy the previous image tag". The *concern* this ADR encoded — an orphaned revision quietly burning compute — is what the flat-price box removes structurally.) Previously: Accepted
 **Date:** 2026-07-09
 **Decision-makers:** Solo maintainer
 **Related:** deployment pipeline (`.github/workflows/deploy.yml`, `cd.yml`, `infra.yml`), ticket #407 (CD-01),

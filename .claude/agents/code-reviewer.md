@@ -2,7 +2,7 @@
 name: code-reviewer
 description: Use this agent to review code changes against ticket acceptance criteria, find regressions, architecture violations, audit for unhandled edge cases (anti-happy-path gate), and verify test coverage. Invoke after implementing a feature or before creating a PR.
 tools: Read, Grep, Glob, Bash
-model: opus
+model: fable
 effort: xhigh
 ---
 

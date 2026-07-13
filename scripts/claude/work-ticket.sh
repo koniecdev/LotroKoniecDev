@@ -10,8 +10,8 @@
 # Env:
 #   LOOP_EFFORT             claude effort level (default: high — reviews inside the session run
 #                           at xhigh via the code-reviewer agent definition)
-#   LOOP_MODEL              model (default: opus — Opus 4.8 with its native 1M-token context
-#                           window; the 2026-07-09→11 Fable 5 experiment was reverted 2026-07-13)
+#   LOOP_MODEL              model (default: fable — Fable 5; re-enabled 2026-07-13 after a
+#                           same-day Opus revert)
 #   LOOP_CONFIG_DIR         Claude config dir = which account runs the loop
 #                           (default: ~/.claude-account1)
 #   LOOP_GH_USER            gh account whose token backs the loop's gh write calls — PR merge,
@@ -44,7 +44,7 @@ RUN_DIR="${2:-$REPO_ROOT/logs/claude-loop/adhoc-$(date +%Y%m%d-%H%M%S)}"
 mkdir -p "$RUN_DIR"
 
 EFFORT="${LOOP_EFFORT:-high}"
-MODEL="${LOOP_MODEL:-opus}"
+MODEL="${LOOP_MODEL:-fable}"
 export CLAUDE_CONFIG_DIR="${LOOP_CONFIG_DIR:-$HOME/.claude-account1}"
 PERMISSION_MODE="${LOOP_PERMISSION_MODE:-auto}"
 TIMEOUT_MIN="${LOOP_TICKET_TIMEOUT_MIN:-90}"
@@ -103,7 +103,7 @@ salvage() {
         git add -A >/dev/null 2>&1 || true
         git commit --quiet --no-verify \
             -m "claude-loop: salvage uncommitted work for #$ISSUE" \
-            -m "Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>" >/dev/null 2>&1 || true
+            -m "Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>" >/dev/null 2>&1 || true
         log "leftover changes committed on branch $salvage_branch"
     fi
     git checkout main --quiet 2>/dev/null || true

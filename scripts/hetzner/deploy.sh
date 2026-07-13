@@ -111,15 +111,20 @@ compose config --quiet
 # undetected until the reload at the end of this script — or, worse, until the next reboot. Validate
 # it up front, while nothing has been touched: the running Caddy keeps serving its current config.
 #
-# It MUST go through `compose run` (not a bare `docker run --env-file .env`): the Caddyfile's
+# It MUST go through compose (not a bare `docker run --env-file .env`): the Caddyfile's
 # {$TKS_DOMAIN_*} placeholders are fed by compose's `${TKS_DOMAIN_APP:-tks-app.localhost}` defaults,
 # which live in compose.hetzner.yaml and NOT in .env — a box without the TheKittySaver stack leaves
 # those variables empty, and an empty site key makes Caddy read the block as a misplaced global
 # options block ("server block without any key…"). Only the composed environment renders the same
-# file Caddy will actually run. The doubled `caddy caddy` is deliberate: the first is the service,
-# the second is the binary (the image's entrypoint is not the caddy binary).
+# file Caddy will actually run.
+#
+# …but it must NOT be `compose run caddy`: since #506 that service pins static IPs (10.60.0.100 /
+# 10.61.0.100), and a one-off container built from it re-claims the very addresses the RUNNING Caddy
+# holds — "failed to set up container networking: Address already in use" on every deploy after the
+# first. `caddy-validate` is the same image + Caddyfile + environment (a YAML anchor keeps the env in
+# lockstep) with no network and its own profile, so it can never collide with the live proxy.
 log "Validating the Caddyfile"
-compose run --rm --no-deps caddy caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
+compose --profile validate run --rm --no-deps caddy-validate
 
 log "Pulling images from GHCR"
 compose pull --quiet

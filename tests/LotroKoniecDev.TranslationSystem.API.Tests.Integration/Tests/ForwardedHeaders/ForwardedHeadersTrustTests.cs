@@ -33,6 +33,11 @@ namespace LotroKoniecDev.TranslationSystem.API.Tests.Integration.Tests.Forwarded
 public sealed class ForwardedHeadersTrustTests : IAsyncLifetime
 {
     private const string TrustedProxyCidr = "10.60.0.0/24";
+    /// <summary>
+    /// The value the deployed stack actually sets (#506): Caddy's pinned static IP, not its subnet.
+    /// Must stay in lockstep with <c>ForwardedHeaders__KnownNetworks__0</c> in compose.hetzner.yaml.
+    /// </summary>
+    private const string CaddyOnlyCidr = "10.60.0.100/32";
     private const string Route = "/api/v1/game-versions";
     private static readonly DateTimeOffset Now = new(2026, 7, 10, 0, 0, 0, TimeSpan.Zero);
     private static readonly JsonSerializerOptions JsonOptions =
@@ -91,6 +96,47 @@ public sealed class ForwardedHeadersTrustTests : IAsyncLifetime
         LinkDto selfLink = response.Links.ShouldHaveSingleItem();
         Uri.TryCreate(selfLink.Href, UriKind.Absolute, out Uri? uri).ShouldBeTrue();
         uri!.Scheme.ShouldBe("https", "the self link must honour the trusted proxy's X-Forwarded-Proto");
+    }
+
+    [Fact]
+    public async Task GetResource_ForwardedProtoFromCaddysPinnedIp_BuildsHttpsLinks()
+    {
+        // Arrange — the boundary the boxes actually run since #506: a single /32, and the peer IS it.
+        GameVersionId id = await SeedAsync("48.2");
+        using WebApplicationFactory<Program> factory =
+            FactoryWithKnownNetworks(CaddyOnlyCidr, peerAddress: "10.60.0.100");
+        using HttpClient client = TranslatorClient(factory);
+        using HttpRequestMessage request = HateoasRequest($"{Route}/{id.Value}");
+        request.Headers.Add("X-Forwarded-Proto", "https");
+
+        // Act
+        GameVersionResponse response = await SendHateoasAsync<GameVersionResponse>(client, request);
+
+        // Assert — narrowing the CIDR to a host address must not break the real ingress hop.
+        LinkDto selfLink = response.Links.ShouldHaveSingleItem();
+        Uri.TryCreate(selfLink.Href, UriKind.Absolute, out Uri? uri).ShouldBeTrue();
+        uri!.Scheme.ShouldBe("https", "the self link must honour X-Forwarded-Proto from Caddy's pinned IP");
+    }
+
+    [Fact]
+    public async Task GetResource_SpoofedForwardedProtoFromNeighbourInCaddysSubnet_KeepsHttpLinks()
+    {
+        // Arrange — 10.60.0.101 shares Caddy's /24 but is outside its /32. This is the whole point of
+        // #506: a co-tenant container on the box would have been BELIEVED under the old /24 trust.
+        GameVersionId id = await SeedAsync("48.3");
+        using WebApplicationFactory<Program> factory =
+            FactoryWithKnownNetworks(CaddyOnlyCidr, peerAddress: "10.60.0.101");
+        using HttpClient client = TranslatorClient(factory);
+        using HttpRequestMessage request = HateoasRequest($"{Route}/{id.Value}");
+        request.Headers.Add("X-Forwarded-Proto", "https");
+
+        // Act
+        GameVersionResponse response = await SendHateoasAsync<GameVersionResponse>(client, request);
+
+        // Assert — same subnet is NOT enough; only Caddy's exact address is trusted.
+        LinkDto selfLink = response.Links.ShouldHaveSingleItem();
+        Uri.TryCreate(selfLink.Href, UriKind.Absolute, out Uri? uri).ShouldBeTrue();
+        uri!.Scheme.ShouldBe("http", "a /32 must not honour X-Forwarded-Proto from a same-subnet neighbour");
     }
 
     [Fact]

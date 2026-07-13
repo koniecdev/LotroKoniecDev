@@ -21,7 +21,7 @@
 - [Environment variable matrix](#environment-variable-matrix) — the single source of truth, per service × environment
 - [Secrets](#secrets) — where they live, how to generate them, how to rotate them
 - [Consistency rules that bite](#consistency-rules-that-bite) — issuer / redirect / authority / CORS
-- [Bringing the stack up](#bringing-the-stack-up) — dev, prod-parity, and (re)provisioning a box
+- [Bringing the stack up](#bringing-the-stack-up) — dev, prod-parity, (re)provisioning a box, and the one-time network cutover
 - [Continuous deployment (CD over ssh)](#continuous-deployment-cd-over-ssh) — build-once → auto staging → gated prod promotion
 - [Database migrations](#database-migrations) — strategy, running them, and recovering from a bad migration (Neon PITR + the MIGR-04 auto-snapshot)
 - [Post-deploy smoke test](#post-deploy-smoke-test) — one command verifies a deployed environment end-to-end
@@ -516,6 +516,52 @@ docker compose -f compose.prod.yaml --env-file .env.prod --profile local-smtp --
    remember `GET / -> 200` proves nothing; smoke's fingerprint leg is the real check.
 6. **Add swap on the prod box** and re-pin the CD host key (`ssh-keyscan`) — see
    [Gotchas](#gotchas) and [One-time setup per environment](#one-time-setup-per-environment).
+
+### One-time: cutting a live box over to the two segregated networks (#506)
+
+Both stacks are already running on these boxes, so #506 is a **migration of a live box**, not a fresh
+bring-up. The lotro deploy recreates our containers on the new topology and creates `${project}_tks`;
+the TKS containers keep running meanwhile, but on the old network and **without** the Caddy aliases
+they need — so they must be recreated straight after (compose cannot move a running container between
+networks). Do the whole sequence on **staging first**, prod only once staging is verified. A short TKS
+outage is expected and acceptable pre-launch.
+
+**Pre-flight** — record what you are changing, as `deploy` (`lotro-prod` shown; staging is
+`lotro-staging`):
+
+```bash
+docker network ls                                     # today: ONE shared network, both stacks on it
+docker network inspect lotro-prod_default \
+  --format '{{range .Containers}}{{.Name}} {{.IPv4Address}}{{"\n"}}{{end}}'
+```
+
+Everything that is **not** ours in that list (every `tks-*` container) is exactly what this change
+fences off. If Caddy already sits at `10.60.0.100` and a `lotro-prod_tks` network exists, the box has
+been cut over already — stop here.
+
+1. **Deploy lotro.** CD does it on merge; by hand: `IMAGE_TAG=<tag> bash /opt/lotro/deploy.sh`.
+2. **Verify the boundary before touching TKS** — Caddy must hold both pinned addresses, and nothing
+   but our four containers may remain on `10.60.0.0/24`:
+
+   ```bash
+   docker inspect lotro-prod-caddy-1 \
+     --format '{{range $n,$c := .NetworkSettings.Networks}}{{$n}} {{$c.IPAddress}}{{"\n"}}{{end}}'
+   docker network inspect lotro-prod_default \
+     --format '{{range .Containers}}{{.Name}}{{"\n"}}{{end}}'
+   ```
+
+3. **Recreate the TKS stack onto `${project}_tks`** (its compose change is the twin ticket,
+   koniecdev/TheKittySaver#295):
+
+   ```bash
+   cd /opt/tks
+   docker compose down          # NEVER -v: that would drop its DB/keyring volumes
+   docker compose up -d
+   ```
+
+4. **Verify both sites from outside the box** — ours with the [smoke test](#post-deploy-smoke-test),
+   TKS by loading its public origin. A 502 on TKS means its containers did not land on
+   `${project}_tks` (or lost their `tks-` service-key prefix) — Caddy itself is fine; re-check step 3.
 
 ## Continuous deployment (CD over ssh)
 

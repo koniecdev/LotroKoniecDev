@@ -28,6 +28,11 @@ namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Tests.ForwardedHeaders
 public sealed class ForwardedHeadersTrustTests
 {
     private const string TrustedProxyCidr = "10.60.0.0/24";
+    /// <summary>
+    /// The value the deployed stack actually sets (#506): Caddy's pinned static IP, not its subnet.
+    /// Must stay in lockstep with <c>ForwardedHeaders__KnownNetworks__0</c> in compose.hetzner.yaml.
+    /// </summary>
+    private const string CaddyOnlyCidr = "10.60.0.100/32";
 
     private readonly AuthSystemApiFactory _appFactory;
 
@@ -75,6 +80,49 @@ public sealed class ForwardedHeadersTrustTests
         {
             Uri.TryCreate(link.Href, UriKind.Absolute, out Uri? uri).ShouldBeTrue();
             uri!.Scheme.ShouldBe("https", $"href for rel='{link.Rel}' must honour the trusted proxy's X-Forwarded-Proto");
+        }
+    }
+
+    [Fact]
+    public async Task Discovery_ForwardedProtoFromCaddysPinnedIp_BuildsHttpsLinks()
+    {
+        // Arrange — the boundary the boxes actually run since #506: a single /32, and the peer IS it.
+        using WebApplicationFactory<Program> factory =
+            FactoryWithKnownNetworks(CaddyOnlyCidr, peerAddress: "10.60.0.100");
+        using HttpRequestMessage request = HateoasRequest();
+        request.Headers.Add("X-Forwarded-Proto", "https");
+
+        // Act
+        DiscoveryResponse response = await SendDiscoveryAsync(factory, request);
+
+        // Assert — narrowing the CIDR to a host address must not break the real ingress hop.
+        response.Links.ShouldNotBeEmpty();
+        foreach (LinkDto link in response.Links)
+        {
+            Uri.TryCreate(link.Href, UriKind.Absolute, out Uri? uri).ShouldBeTrue();
+            uri!.Scheme.ShouldBe("https", $"href for rel='{link.Rel}' must honour X-Forwarded-Proto from Caddy's pinned IP");
+        }
+    }
+
+    [Fact]
+    public async Task Discovery_SpoofedForwardedProtoFromNeighbourInCaddysSubnet_KeepsHttpLinks()
+    {
+        // Arrange — 10.60.0.101 shares Caddy's /24 but is outside its /32. This is the whole point of
+        // #506: a co-tenant container on the box would have been BELIEVED under the old /24 trust.
+        using WebApplicationFactory<Program> factory =
+            FactoryWithKnownNetworks(CaddyOnlyCidr, peerAddress: "10.60.0.101");
+        using HttpRequestMessage request = HateoasRequest();
+        request.Headers.Add("X-Forwarded-Proto", "https");
+
+        // Act
+        DiscoveryResponse response = await SendDiscoveryAsync(factory, request);
+
+        // Assert — same subnet is NOT enough; only Caddy's exact address is trusted.
+        response.Links.ShouldNotBeEmpty();
+        foreach (LinkDto link in response.Links)
+        {
+            Uri.TryCreate(link.Href, UriKind.Absolute, out Uri? uri).ShouldBeTrue();
+            uri!.Scheme.ShouldBe("http", $"href for rel='{link.Rel}' must ignore a same-subnet neighbour's X-Forwarded-Proto");
         }
     }
 

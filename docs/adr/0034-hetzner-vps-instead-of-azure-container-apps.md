@@ -160,7 +160,9 @@ machinery (ADR-0025) for hand-rolled backups on the same failure domain as the a
 - Changed: `cd.yml`/`deploy.yml` (ssh deploy legs), `docs/deployment/runbook.md` (rewritten),
   `CLAUDE.md` (M6 section), ADR-0027/0029 status lines
 - Retired: `iac/` Azure resources, `seed-keyvault.{sh,ps1}`, `infra.yml`, local-CA mounts in the
-  Hetzner stack (parity stack keeps them)
+  Hetzner stack (parity stack keeps them). The Terraform root and the Key Vault seeders are not
+  deleted but **entombed** in `docs/deployment/azure-graveyard/` (read-only, never runnable) — the
+  `iac/<file>` references throughout ADRs 0013/0016/0017/0019/0020/0027/0029 resolve there
 - Execution: epic #486, tickets #487–#492; owner-assisted bring-up is #491;
   plan: `docs/deployment/hetzner-migration-plan.md`
 

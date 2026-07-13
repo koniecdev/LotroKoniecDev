@@ -1058,8 +1058,11 @@ Key Vault secrets, Log Analytics + Application Insights, scale-to-zero with a sc
 The Azure for Students subscription was disabled that day — credits exhausted, renewal refused — and
 both prods went dark. [ADR-0034](../adr/0034-hetzner-vps-instead-of-azure-container-apps.md) records
 the decision to move; [`hetzner-migration-plan.md`](hetzner-migration-plan.md) is the executed
-playbook; epic #486 tracked it. The Terraform root, the Key Vault seeders and the ACA-specific
-workflow legs were removed from the repo by #492 — git history keeps them.
+playbook; epic #486 tracked it. The ACA-specific workflow legs were removed from the repo by #492.
+The Terraform root and the Key Vault seeders were taken out of the build but **kept as a read-only
+tombstone** in [`azure-graveyard/`](azure-graveyard/README.md) — the ADRs of the Azure era argue
+about those files line-by-line, so they stay readable. Nothing in there is runnable: the
+subscription is disabled and the Terraform state died with it.
 
 **Recorded so nobody retries it:** with the subscription disabled, Key Vault serves secret *metadata*
 but refuses every *value* read (`az keyvault secret list` works and returns the 8 names;

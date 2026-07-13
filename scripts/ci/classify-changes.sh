@@ -15,7 +15,7 @@
 #
 # Verdict rules:
 #   * A file is INERT unless it can affect one of the three gates. Everything under docs/, .claude/,
-#     .github/, .idea/, .run/, .vscode/, .docker/, iac/, every *.md / *.sh / *.ps1 / compose file,
+#     .github/, .idea/, .run/, .vscode/, .docker/, every *.md / *.sh / *.ps1 / compose file,
 #     the Dockerfiles and .dockerignore.
 #   * code    = any NON-inert file (fail-safe default: an unrecognized path IS a build input), plus
 #               pr-verify.yml / ci.yml — they define the .NET gate, so a change to one must run the
@@ -40,7 +40,7 @@
 # CI-only (Linux runners), so unlike the check-*.sh guards this one has no .ps1 twin.
 set -euo pipefail
 
-INERT='\.md$|^docs/|^LICENSE$|^\.gitignore$|^\.gitattributes$|\.sh$|\.ps1$|^iac/|(^|/)Dockerfile[^/]*$|(^|/)\.dockerignore$|^compose[^/]*\.ya?ml$|^\.docker/|^\.github/|^\.claude/|^\.run/|^\.vscode/|^\.idea/|(^|/)\.env[^/]*\.example$'
+INERT='\.md$|^docs/|^LICENSE$|^\.gitignore$|^\.gitattributes$|\.sh$|\.ps1$|(^|/)Dockerfile[^/]*$|(^|/)\.dockerignore$|^compose[^/]*\.ya?ml$|^\.docker/|^\.github/|^\.claude/|^\.run/|^\.vscode/|^\.idea/|(^|/)\.env[^/]*\.example$'
 
 # Executed or read by the guard steps of pr-verify/ci. The .ps1 twins are here because the
 # migration-safety self-test runs its pwsh leg; the Dockerfiles because the restore-graph guard

@@ -1,23 +1,42 @@
 name: Deploy (reusable rollout)
 
-# Reusable health-gated ACA rollout (ADR-0018). cd.yml calls this ONCE PER ENVIRONMENT —
-# deploy-staging (auto) and deploy-prod (gated promotion) — so the same rollout serves both. The whole
-# rollout stays in ONE job so every Azure step shares the approved environment's OIDC federated identity
-# (the ADR-0012 "one job" constraint, now applied per environment); a job without the right
-# environment: cannot azure/login under that environment's federated credential.
+# Reusable rollout over ssh to a Hetzner box (ADR-0034, ticket #490 — it replaced the Azure Container
+# Apps rollout when the student subscription died). cd.yml calls this ONCE PER ENVIRONMENT —
+# deploy-staging (auto) and deploy-prod (gated promotion) — so the same rollout serves both, and the
+# ADR-0018 two-stage promotion survives the platform change untouched: only the transport is new.
 #
-# Env-specific targets come from environment-scoped GitHub vars (RESOURCE_GROUP, *_APP, *_URL,
-# MIGRATOR_JOB) selected by the environment: this job runs under; secrets arrive via `secrets: inherit`
-# from the caller (AZURE_*, SMOKE_CLIENT_SECRET, GITHUB_TOKEN). The rollout body is the audit 0001 H7
-# health-gated rollout + H9 provenance verify, hardened to deploy BY DIGEST: the requested tag is
-# resolved to its immutable digest once, provenance is verified against that digest, and every az
-# mutation ships the digest ref — a GHCR tag moved between verify and rollout (or re-pulled on a
-# replica restart) can neither bypass the gate nor change what runs.
+# Topology (docs/deployment/hetzner-runbook.md): ONE BOX PER ENVIRONMENT — `lotro-prod` and
+# `lotro-staging` — each running the same `compose.hetzner.yaml` out of /opt/lotro against its own
+# `.env`. The box a job targets comes from the environment-scoped var HETZNER_HOST; there is no
+# `--env-file` / `-p` juggling (the single-CX32 shape the ticket was written against; the fleet that
+# was actually bought is two CX23s, so one box IS one environment).
+#
+# The rollout:
+#   1. resolve the tag to DIGESTS and verify each image's build provenance (audit 0001 H9) — an image
+#      this CD did not build, scan and attest never reaches a box.
+#   2. publish the pre-migration restore point + cut the Neon snapshot branch (MIGR-01/MIGR-04) — the
+#      migrator is about to run, and ADR-0023's recovery story is roll-forward or restore, never Down().
+#   3. snapshot the box's live config, scp the stack files (compose + Caddyfile + deploy.sh) so the
+#      box's config IS the deployed commit, then run scripts/hetzner/deploy.sh over ssh: validate →
+#      pull → assert the pulled digests are the attested ones → run the migrator as a GATE → `up -d`
+#      → reload Caddy → pin the tag in .env.
+#   4. wait for the public origins to answer, smoke them (scripts/smoke.sh — the fingerprint leg,
+#      because `GET / -> 200` proves nothing), and roll the box back — images AND config — if anything
+#      above went red.
+#
+# What is deliberately GONE versus the ACA rollout: the 0%-traffic candidate revision, its label FQDN
+# smoke and the one-active-revision sweep. A 4 GB box cannot hold a second live set of three apps, so
+# `up -d` recreates containers in place — a few seconds of downtime per app, and the smoke necessarily
+# runs AFTER traffic is already on the new containers. The compensating controls are the migration
+# gate (deploy.sh runs the migrator as its own one-off container BEFORE any app container is
+# recreated, so a bad migration leaves the previous release serving and is a no-op for the site) and
+# the automatic rollback below. Pre-launch, with no users, that trade is the right one; a real
+# blue/green would need a second box or a bigger one.
 on:
   workflow_call:
     inputs:
       environment:
-        description: 'Target GitHub Environment (staging | production) — selects vars/secrets, the OIDC federated credential, and the approval gate.'
+        description: 'Target GitHub Environment (staging | production) — selects vars/secrets and the approval gate.'
         required: true
         type: string
       deploy_sha:
@@ -35,48 +54,46 @@ on:
         default: ''
 
 permissions:
-  contents: read # checkout (scripts/)
-  id-token: write # Azure OIDC federation — short-lived token, no stored client secret
-  packages: read # pull image manifest + provenance attestation from GHCR for the verify gate (H9)
+  contents: read # checkout (scripts/, compose.hetzner.yaml, the Caddyfile)
+  packages: read # pull image manifests + provenance attestations from GHCR for the verify gate (H9)
 
 env:
   REGISTRY: ghcr.io
   IMAGE_NAMESPACE: ${{ github.repository_owner }}
-  # Label that gives the 0%-traffic candidate a private FQDN for smoke (health-gated rollout).
-  CANDIDATE_LABEL: cd-candidate
+  # Every stack file lives here on the box, owned by the deploy user (runbook → "Filesystem layout").
+  STACK_DIR: /opt/lotro
 
 jobs:
   deploy:
-    name: Deploy to ${{ inputs.environment }} (ACA)
+    name: Deploy to ${{ inputs.environment }} (Hetzner)
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    timeout-minutes: 30
     # The environment carries the protection rules: `production` has the required-reviewer gate (this is
-    # the staging→prod promotion approval); `staging` has none (auto). The environment also selects the
-    # env-scoped vars/secrets and the matching Azure federated credential (gh-env-<environment>).
+    # the staging→prod promotion approval); `staging` has none (auto). It also selects the env-scoped
+    # vars/secrets — crucially HETZNER_HOST, which is what makes this job target one box or the other.
     environment:
       name: ${{ inputs.environment }}
       url: ${{ vars.FRONTEND_URL }}
-    # Per-environment mutation lock. `prod-mutation` is SHARED with infra.yml apply-prod (serialize app
-    # rollout vs terraform apply, audit 0001 M12); `staging-mutation` is the staging twin. Never cancel a
-    # rollout in progress; queue instead.
+    # Per-environment rollout lock: never cancel a roll in progress (a half-rolled box is worse than a
+    # queued deploy) — queue instead.
     concurrency:
       group: ${{ inputs.environment == 'production' && 'prod-mutation' || 'staging-mutation' }}
       cancel-in-progress: false
-    # Env-specific ACA targets + public origins, from the environment-scoped GitHub vars (non-secret).
-    # The rollout step bodies below reference these exactly as the former inline deploy-prod did.
+    # Never interpolate ${{ }} into a run: body — every value a step reads arrives through the
+    # environment (repo convention; it is also what keeps a free-text dispatch input out of shell).
     env:
-      RESOURCE_GROUP: ${{ vars.RESOURCE_GROUP }}
-      AUTH_APP: ${{ vars.AUTH_APP }}
-      TMS_APP: ${{ vars.TMS_APP }}
-      FRONTEND_APP: ${{ vars.FRONTEND_APP }}
+      ENVIRONMENT: ${{ inputs.environment }}
+      DEPLOY_SHA: ${{ inputs.deploy_sha }}
+      HETZNER_HOST: ${{ vars.HETZNER_HOST }}
+      HETZNER_USER: ${{ vars.HETZNER_USER || 'deploy' }}
+      HETZNER_SSH_KNOWN_HOSTS: ${{ vars.HETZNER_SSH_KNOWN_HOSTS }}
       AUTH_URL: ${{ vars.AUTH_URL }}
       TMS_URL: ${{ vars.TMS_URL }}
       FRONTEND_URL: ${{ vars.FRONTEND_URL }}
-      MIGRATOR_JOB: ${{ vars.MIGRATOR_JOB }}
 
     steps:
-      # Build the EXACT commit the gate pinned (the commit CI tested), so any repo file this job reads
-      # (scripts/) matches the image being rolled, not main's tip.
+      # Check out the EXACT commit the gate pinned (the commit CI tested), so the stack files and the
+      # deploy script this job ships to the box match the images being rolled — not main's tip.
       - name: Checkout
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
@@ -84,8 +101,32 @@ jobs:
           # No later step does authenticated git — don't leave the workflow token in .git/config.
           persist-credentials: false
 
-      # The gate's short_sha / image_tag input are trusted (hex SHA / dispatch input). The default tag is
-      # the gate's pinned commit, byte-identical to the sha-<short> build-and-push published for it.
+      # Fail closed and EARLY on an unconfigured environment. Every one of these is set once, by hand,
+      # per environment (runbook → "Continuous deployment (CD over ssh)"). A missing host key var in
+      # particular must never degrade into StrictHostKeyChecking=no: that would hand the deploy key and
+      # the whole box to whoever answers on that IP.
+      - name: Check the environment is wired for ssh deploys
+        env:
+          SSH_KEY: ${{ secrets.HETZNER_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          missing=""
+          [ -n "${HETZNER_HOST:-}" ] || missing="${missing} vars.HETZNER_HOST"
+          [ -n "${HETZNER_SSH_KNOWN_HOSTS:-}" ] || missing="${missing} vars.HETZNER_SSH_KNOWN_HOSTS"
+          [ -n "${SSH_KEY:-}" ] || missing="${missing} secrets.HETZNER_SSH_KEY"
+          [ -n "${AUTH_URL:-}" ] || missing="${missing} vars.AUTH_URL"
+          [ -n "${TMS_URL:-}" ] || missing="${missing} vars.TMS_URL"
+          [ -n "${FRONTEND_URL:-}" ] || missing="${missing} vars.FRONTEND_URL"
+          if [ -n "$missing" ]; then
+            echo "::error::Environment '${ENVIRONMENT}' is not wired for ssh deploys — missing:${missing}"
+            echo "See docs/deployment/hetzner-runbook.md → 'Continuous deployment (CD over ssh)'."
+            exit 1
+          fi
+          echo "Target: ${HETZNER_USER}@${HETZNER_HOST}:${STACK_DIR}"
+
+      # The gate's short_sha is trusted (hex). The dispatch image_tag input is NOT — it is free text a
+      # human typed, and it ends up inside a remote shell command below, so constrain it to what a GHCR
+      # tag may actually contain before it can go anywhere near ssh.
       - name: Resolve image tag
         id: tag
         env:
@@ -98,14 +139,18 @@ jobs:
           else
             tag="sha-${GATE_SHORT_SHA}"
           fi
+          case "$tag" in
+            *[!A-Za-z0-9._-]* | '')
+              echo "::error::Refusing image tag '${tag}' — a GHCR tag is [A-Za-z0-9._-] only."
+              exit 1
+              ;;
+          esac
           printf 'tag=%s\n' "$tag" >> "$GITHUB_OUTPUT"
           printf 'Deploying image tag: %s\n' "$tag"
 
-      # GHCR tags are MUTABLE; digests are not. Resolve the requested tag to its digest ONCE, up front,
-      # and let the provenance verify AND every az mutation below bind to that digest — the H9 gate and
-      # the rollout can never disagree about the bytes being shipped, and a replica-restart re-pull can
-      # never fetch different content than what was verified. Read-only login: resolving a manifest
-      # needs packages: read, nothing more.
+      # GHCR tags are MUTABLE; digests are not. Resolve the requested tag to its digest ONCE, verify the
+      # provenance of THAT digest, and hand the digests to the box so deploy.sh can assert the bytes it
+      # pulled are the very ones verified here. A tag moved mid-rollout is then inert end to end.
       - name: Log in to GHCR (read-only — digest resolution)
         uses: docker/login-action@af1e73f918a031802d376d3c8bbc3fe56130a9b0 # v4.4.0
         with:
@@ -118,78 +163,58 @@ jobs:
           TAG: ${{ steps.tag.outputs.tag }}
         run: |
           set -euo pipefail
-          for pair in \
-            "AUTH_API_IMAGE lotrokoniecdev-auth-api" \
-            "TMS_API_IMAGE lotrokoniecdev-tms-api" \
-            "FRONTEND_IMAGE lotrokoniecdev-frontend" \
-            "MIGRATOR_IMAGE lotrokoniecdev-migrator"; do
-            var="${pair%% *}"; image="${pair#* }"
-            ref="${REGISTRY}/${IMAGE_NAMESPACE}/${image}:${TAG}"
+          digests=""
+          for image in \
+            lotrokoniecdev-migrator \
+            lotrokoniecdev-auth-api \
+            lotrokoniecdev-tms-api \
+            lotrokoniecdev-frontend; do
+            repo="${REGISTRY}/${IMAGE_NAMESPACE}/${image}"
+            ref="${repo}:${TAG}"
             digest="$(docker buildx imagetools inspect "$ref" --format '{{.Manifest.Digest}}')"
             case "$digest" in
               sha256:*) ;;
               *) echo "::error::Could not resolve a digest for ${ref} (got '${digest:-<empty>}')"; exit 1 ;;
             esac
-            printf '%s=%s@%s\n' "$var" "${REGISTRY}/${IMAGE_NAMESPACE}/${image}" "$digest" >> "$GITHUB_ENV"
+            digests="${digests}${digests:+ }${repo}@${digest}"
             printf '%s -> %s\n' "$ref" "$digest"
           done
+          printf 'EXPECTED_DIGESTS=%s\n' "$digests" >> "$GITHUB_ENV"
 
-      # Supply-chain gate BEFORE any mutation (audit 0001 H9). Every image about to be deployed must carry
-      # a build-provenance attestation signed by THIS repo's CD. A foreign, tampered or never-built-by-us
-      # image fails closed here, before the migrator runs or any traffic moves. Verification binds to the
-      # DIGESTS pinned above — the exact bytes every az step below ships — so a tag moved mid-job is inert.
+      # Supply-chain gate BEFORE anything touches the box (audit 0001 H9). Every image about to run must
+      # carry a build-provenance attestation signed by THIS repo's CD. A foreign, tampered or
+      # never-built-by-us image fails closed here — before the migrator runs.
       - name: Verify image provenance (fail closed before rollout)
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          for ref in "$AUTH_API_IMAGE" "$TMS_API_IMAGE" "$FRONTEND_IMAGE" "$MIGRATOR_IMAGE"; do
+          for ref in $EXPECTED_DIGESTS; do
             echo "::group::Verify provenance — ${ref}"
             gh attestation verify "oci://${ref}" --repo "$GITHUB_REPOSITORY"
             echo "::endgroup::"
           done
 
-      - name: Azure login (OIDC)
-        uses: azure/login@532459ea530d8321f2fb9bb10d1e0bcf23869a43 # v3.0.0
-        with:
-          client-id: ${{ secrets.AZURE_CLIENT_ID }}
-          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
-          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-
-      # R6 gate: run the migrator to completion BEFORE rolling the APIs. A non-Succeeded execution
-      # fails the job, so the apps are never rolled onto an un-migrated schema (no half-migrated serving).
-      - name: Run migrations (gate — rollout blocked unless this succeeds)
+      # MIGR-01 (#336) + MIGR-04 (#339): the migrator runs inside the `up -d` below, so publish the
+      # restore point and cut the durable Neon snapshot branch FIRST. ADR-0023 recovery is roll-forward
+      # or restore — never Down() — and Neon Free keeps only 6 h of PITR, so a branch (whose head never
+      # expires) is what makes a late-noticed bad migration recoverable. This is a safety NET, not a
+      # gate: an unconfigured environment skips it cleanly and no Neon API hiccup may fail the deploy.
+      - name: Publish the pre-migration restore point (Neon snapshot)
         env:
           SHORT_SHA: ${{ inputs.short_sha }}
-          # Env-scoped per environment (runbook "One-time operator setup" step 6): a PROJECT-scoped
-          # Neon API key + that environment's Neon project id. Unset (fork, fresh environment) ⇒ the
-          # MIGR-04 snapshot leg below skips cleanly.
           NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
           NEON_PROJECT_ID: ${{ vars.NEON_PROJECT_ID }}
         run: |
           set -euo pipefail
-          img="$MIGRATOR_IMAGE"
-          echo "Pinning migrator job to ${img}"
-          az containerapp job update -n "$MIGRATOR_JOB" -g "$RESOURCE_GROUP" --image "$img" -o none
-          # MIGR-01 (#336): publish the DB restore point BEFORE the migrator runs — the exact UTC
-          # timestamp an operator PITRs back to if this migration turns out bad (runbook: "Recover
-          # from a bad migration (Neon PITR)"; Neon Free retention is 6 h, so the target must be
-          # findable fast). Emitted pre-start so it survives even a failed/partial migrator run.
-          # Guarded (`|| true` + defaulted redirect): a summary hiccup must never fail the gate itself.
           latest_migration() {
             find "$1" -mindepth 1 -maxdepth 1 -printf '%f\n' | grep -E '^[0-9]{14}_' | grep -v '\.Designer\.cs$' | sed 's/\.cs$//' | sort | tail -1
           }
           tms_target=$(latest_migration src/TranslationSystem/LotroKoniecDev.TranslationSystem.Persistence/Migrations || true)
           auth_target=$(latest_migration src/AuthSystem/LotroKoniecDev.AuthSystem.Persistence/Migrations || true)
-          # MIGR-04 (#339): auto-branch Neon at this same point — a snapshot branch whose HEAD is the
-          # pre-migration state. A branch head never expires, so unlike the 6 h PITR history this
-          # restore source stays valid however late a bad migration is noticed (runbook: "Restore
-          # from the auto-snapshot"). The snapshot is a safety NET, not a gate: an unconfigured
-          # environment skips the leg cleanly, and no Neon API failure may fail this step (every
-          # call below is guarded). Retention — decided in the runbook alongside the restore path:
-          # max ONE snapshot branch per project (both Free-plan projects sit near the storage cap,
-          # and the previous deploy's snapshot guards a migration that already proved good), so
-          # older migr04-pre-* branches are deleted BEFORE the new one is created.
+          # Retention: max ONE snapshot branch per project (both Free-plan projects sit near the storage
+          # cap, and the previous deploy's snapshot guards a migration that already proved good), so the
+          # old migr04-pre-* branches go BEFORE the new one is cut.
           neon_api="https://console.neon.tech/api/v2"
           snapshot_row="skipped (not configured)"
           if [ -n "${NEON_API_KEY:-}" ] && [ -n "${NEON_PROJECT_ID:-}" ]; then
@@ -229,117 +254,107 @@ jobs:
             echo ""
             echo "| | |"
             echo "|---|---|"
-            echo "| Restore point (UTC, captured before migrator start) | \`${restore_point}\` |"
+            echo "| Restore point (UTC, captured before the migrator runs) | \`${restore_point}\` |"
             echo "| Neon snapshot branch (durable restore source) | ${snapshot_row} |"
-            echo "| Migrator image | \`${img}\` |"
             echo "| Target migration — translation | \`${tms_target:-unknown}\` |"
             echo "| Target migration — auth | \`${auth_target:-unknown}\` |"
             echo ""
             echo "Bad migration? Runbook → \"Restore from the auto-snapshot\" (works past the 6 h window when the snapshot row above is a branch) or \"Recover from a bad migration (Neon PITR)\" (restore to the timestamp above, 6 h retention)."
           } >> "${GITHUB_STEP_SUMMARY:-/dev/null}" || true
-          echo "Starting migrator job…"
-          az containerapp job start -n "$MIGRATOR_JOB" -g "$RESOURCE_GROUP" -o none
-          # Poll budget tracks the migrator job's OWN replica timeout (Terraform migrator-job.tf
-          # replica_timeout_in_seconds) instead of a hardcoded count, so the two can never drift
-          # (audit 0001 M13): a budget shorter than the job timeout would falsely fail a slow-but-
-          # valid migration the job itself still permits. We poll a margin PAST that timeout so the
-          # job reaches a terminal status (Failed/Degraded on timeout) before we give up — our loop
-          # is never the first to quit. Fall back to 1800s if the query yields no positive integer.
-          echo "Waiting for the latest execution to complete…"
-          poll_interval=15
-          replica_timeout=$(az containerapp job show -n "$MIGRATOR_JOB" -g "$RESOURCE_GROUP" \
-            --query "properties.configuration.replicaTimeout" -o tsv 2>/dev/null | tr -d '\r' || true)
-          case "$replica_timeout" in '' | *[!0-9]*) replica_timeout=1800 ;; esac
-          poll_attempts=$(( (replica_timeout + 120 + poll_interval - 1) / poll_interval ))
-          echo "Polling up to ${poll_attempts}×${poll_interval}s (job replica timeout ${replica_timeout}s + margin)."
-          status=""
-          for _ in $(seq 1 "$poll_attempts"); do
-            status=$(az containerapp job execution list -n "$MIGRATOR_JOB" -g "$RESOURCE_GROUP" \
-              --query "sort_by([],&properties.startTime)[-1].properties.status" -o tsv 2>/dev/null || true)
-            echo "  migrator status: ${status:-<pending>}"
-            case "$status" in
-              Succeeded) break ;;
-              Failed | Degraded | Canceled) echo "::error::Migration job ended: ${status}"; exit 1 ;;
-            esac
-            sleep "$poll_interval"
-          done
-          if [ "$status" != "Succeeded" ]; then
-            echo "::error::Migration job did not succeed within the time budget (status=${status:-none})."
-            exit 1
-          fi
-          echo "Migrations applied."
 
-      # Health-gated rollout (ADR-0012 §5 amendment, audit 0001 H7). Multiple-revision mode: deploy each
-      # app as a NEW revision receiving 0% production traffic, reachable only via a private label FQDN.
-      # The candidate is smoked BEFORE any traffic shift, so a bad release never serves a user.
-      - name: Deploy candidate revisions (0% traffic) and label them for smoke
-        id: rollout
+      # Host-key pinning is the whole security of this transport: the key comes from the env var, and an
+      # unknown host key aborts the connection (StrictHostKeyChecking=yes) rather than trusting on first
+      # use. The ssh config keeps every later step down to `ssh box` / `scp … box:` with no flag soup.
+      - name: Configure ssh to the box
         env:
-          SHORT_SHA: ${{ inputs.short_sha }}
-          RUN_ID: ${{ github.run_id }}
-          RUN_ATTEMPT: ${{ github.run_attempt }}
+          SSH_KEY: ${{ secrets.HETZNER_SSH_KEY }}
         run: |
           set -euo pipefail
-          # DNS-safe, unique-per-attempt revision suffix: starts with a letter, [a-z0-9-] only, no '--'.
-          suffix="c${SHORT_SHA}-${RUN_ID}-${RUN_ATTEMPT}"
-          deploy_candidate() {
-            prefix="$1"; app="$2"; img="$3"
-            echo "::group::Deploy candidate for ${app} (${img})"
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/id_deploy
+          chmod 600 ~/.ssh/id_deploy
+          printf '%s\n' "$HETZNER_SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 644 ~/.ssh/known_hosts
+          {
+            echo "Host box"
+            echo "  HostName ${HETZNER_HOST}"
+            echo "  User ${HETZNER_USER}"
+            echo "  IdentityFile ~/.ssh/id_deploy"
+            echo "  IdentitiesOnly yes"
+            echo "  StrictHostKeyChecking yes"
+            echo "  UserKnownHostsFile ~/.ssh/known_hosts"
+            echo "  ConnectTimeout 15"
+            echo "  ServerAliveInterval 30"
+          } > ~/.ssh/config
+          chmod 600 ~/.ssh/config
+          ssh box 'echo "ssh OK as $(id -un) on $(hostname)"; docker compose version'
 
-            # The revision currently serving production traffic — the rollback anchor; it keeps 100%
-            # of traffic throughout smoke. Highest-weight entry = production; a null name means the
-            # bootstrap latest_revision weight (first rollout) → fall back to the single live revision.
-            prev="$(az containerapp ingress traffic show -n "$app" -g "$RESOURCE_GROUP" \
-                      --query "reverse(sort_by(@, &weight))[0].revisionName" -o tsv 2>/dev/null | tr -d '\r' || true)"
-            if [ -z "$prev" ] || [ "$prev" = "null" ]; then
-              prev="$(az containerapp show -n "$app" -g "$RESOURCE_GROUP" \
-                        --query properties.latestReadyRevisionName -o tsv | tr -d '\r')"
-            fi
-            echo "  previous (production) revision: ${prev}"
+      # The box's config must BE the deployed commit — otherwise a Caddyfile or compose change would
+      # land in git and never reach the server (the failure mode the runbook's "scp again" recovery
+      # step exists for). The box `.env` is NEVER touched from here: it holds the environment's secrets
+      # and lives only on the box (HETZ-03).
+      - name: Sync the stack files to the box
+        run: |
+          set -euo pipefail
+          # Snapshot the config that is LIVE right now, before overwriting it. The deploy unit is
+          # images + compose file + Caddyfile, so the rollback unit must be too: rolling only the
+          # image tag back would leave this commit's (possibly broken) Caddyfile on the box, armed to
+          # take the proxy down at the next reload or reboot. The rollback step restores from here.
+          # SC2029 (every ssh line here): the RUNNER must expand ${STACK_DIR} into the remote command
+          # — the box has no such variable. Intentional.
+          # shellcheck disable=SC2029
+          ssh box "
+            set -e
+            mkdir -p ${STACK_DIR}/.docker/hetzner ${STACK_DIR}/.previous/.docker/hetzner
+            cd ${STACK_DIR}
+            for f in compose.hetzner.yaml .docker/hetzner/Caddyfile deploy.sh; do
+              [ -f \"\$f\" ] && cp -p \"\$f\" \".previous/\$f\" || true
+            done
+          "
+          scp compose.hetzner.yaml "box:${STACK_DIR}/compose.hetzner.yaml"
+          scp .docker/hetzner/Caddyfile "box:${STACK_DIR}/.docker/hetzner/Caddyfile"
+          scp scripts/hetzner/deploy.sh "box:${STACK_DIR}/deploy.sh"
+          # shellcheck disable=SC2029
+          ssh box "chmod 755 ${STACK_DIR}/deploy.sh"
 
-            # Pin 100% to the current revision so the new one is created at 0% (also converts any
-            # bootstrap latest_revision weight to the name-pinned weight the pipeline controls).
-            az containerapp ingress traffic set -n "$app" -g "$RESOURCE_GROUP" \
-              --revision-weight "${prev}=100" -o none
+      # The rollout itself (scripts/hetzner/deploy.sh, on the box): pin the tag in .env → pull → assert
+      # the pulled digests are the attested ones → `up -d`, where the one-shot migrator gates the apps →
+      # reload Caddy. PREVIOUS_IMAGE_TAG is printed by the script BEFORE it changes anything, so the
+      # rollback step below has its target even when the roll dies half-way.
+      - name: Deploy (pull → migrate → up)
+        id: rollout
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          set -euo pipefail
+          rc=0
+          # SC2029: the RUNNER must expand the tag/digests/stack dir into the remote command — that is
+          # the point (the box knows none of them). Both values are validated above: TAG is
+          # [A-Za-z0-9._-] only and EXPECTED_DIGESTS is built here from resolved sha256 digests.
+          # shellcheck disable=SC2029
+          ssh box "IMAGE_TAG='${TAG}' EXPECTED_DIGESTS='${EXPECTED_DIGESTS}' bash ${STACK_DIR}/deploy.sh" \
+            2>&1 | tee deploy-output.log || rc=$?
+          # The previous tag is read off the box's .env, so treat it as data, not as trusted input: it
+          # goes back into a remote command in the rollback step. Anything that is not a legal image tag
+          # is dropped (no PREVIOUS_IMAGE_TAG ⇒ no automatic rollback, and the job still fails loudly).
+          previous="$(sed -n 's/^PREVIOUS_IMAGE_TAG=//p' deploy-output.log | head -1 | tr -d '\r')"
+          case "$previous" in
+            '' | *[!A-Za-z0-9._-]*)
+              [ -z "$previous" ] || echo "::warning::Ignoring an unusable previous image tag from the box .env — automatic rollback is disabled for this run."
+              ;;
+            *) printf 'PREVIOUS_IMAGE_TAG=%s\n' "$previous" >> "$GITHUB_ENV" ;;
+          esac
+          exit "$rc"
 
-            # Create the candidate from the tested image — 0% traffic in multiple-revision mode.
-            az containerapp update -n "$app" -g "$RESOURCE_GROUP" \
-              --image "$img" --revision-suffix "$suffix" -o none
-            candidate="${app}--${suffix}"
-            echo "  candidate revision: ${candidate}"
-
-            # Label gives the candidate a private FQDN for smoke WITHOUT taking production traffic.
-            az containerapp revision label add -n "$app" -g "$RESOURCE_GROUP" \
-              --label "$CANDIDATE_LABEL" --revision "$candidate" --yes -o none
-
-            # Candidate label FQDN = <app>---<label>.<envDefaultDomain>; derive the domain from the
-            # app's own default FQDN (<app>.<envDefaultDomain>) so no environment name is hardcoded.
-            app_fqdn="$(az containerapp show -n "$app" -g "$RESOURCE_GROUP" \
-                          --query properties.configuration.ingress.fqdn -o tsv | tr -d '\r')"
-            domain="${app_fqdn#*.}"
-            candidate_url="https://${app}---${CANDIDATE_LABEL}.${domain}"
-            echo "  candidate URL: ${candidate_url}"
-            echo "::endgroup::"
-
-            # Expose to later steps (readiness, smoke, promote, the failure-rollback) via the job env.
-            uc="$(printf '%s' "$prefix" | tr '[:lower:]' '[:upper:]')"
-            {
-              printf '%s_PREV=%s\n' "$uc" "$prev"
-              printf '%s_CANDIDATE=%s\n' "$uc" "$candidate"
-              printf '%s_CANDIDATE_URL=%s\n' "$uc" "$candidate_url"
-            } >> "$GITHUB_ENV"
-          }
-          deploy_candidate auth "$AUTH_APP" "$AUTH_API_IMAGE"
-          deploy_candidate tms "$TMS_APP" "$TMS_API_IMAGE"
-          deploy_candidate frontend "$FRONTEND_APP" "$FRONTEND_IMAGE"
-
-      # Readiness against the CANDIDATE revisions before the gated smoke. With min_replicas=0
-      # everywhere (ADR-0027 — prod's warm replica is a cron schedule, not a floor) these polls ARE
-      # the scale-from-zero warm-up — the 60×10s budget absorbs the cold start — and the final poll
-      # wakes the previous auth revision serving the public origin (which the candidate tms validates
-      # tokens against); inside prod's warm window the replicas are already up and the polls are
-      # cheap insurance. Frontend: Static-SSR, no /health → 2xx/3xx on '/'.
-      - name: Wait for candidate readiness (incl. frontend) + warm the auth origin
+      # Readiness BEFORE smoke — the ACA rollout had this and dropping it would make green deploys
+      # flap. `up -d` returns as soon as auth/tms report healthy and the frontend/Caddy are merely
+      # *started*: the Static-SSR frontend is a cold .NET app at that moment, and `scripts/smoke.sh`
+      # fires single-shot curls (its --timeout is per-request; it has no retry loop). Without this
+      # budget the very first request could time out on a perfectly good release — and the rollback
+      # step below would then dutifully roll it back. Polls the PUBLIC origins, so it also exercises
+      # Caddy's routing and its certificate.
+      - name: Wait for the environment to come up
         run: |
           set -euo pipefail
           poll() {
@@ -351,74 +366,24 @@ jobs:
               if [ "$code" -ge "$lo" ] 2>/dev/null && [ "$code" -le "$hi" ] 2>/dev/null; then
                 echo "::endgroup::"; return 0
               fi
-              sleep 10
+              sleep 5
             done
             echo "::endgroup::"
             echo "::error::${name} did not become ready: ${url}"
             return 1
           }
-          poll auth-candidate     "${AUTH_CANDIDATE_URL}/health/ready" 200 200
-          poll tms-candidate      "${TMS_CANDIDATE_URL}/health/ready" 200 200
-          poll frontend-candidate "${FRONTEND_CANDIDATE_URL}/" 200 399
-          # Wake the previous auth revision serving the public origin (cross-revision JWKS validation).
-          poll auth-origin        "${AUTH_URL}/.well-known/openid-configuration" 200 200
+          poll auth     "${AUTH_URL}/health/ready" 200 200
+          poll tms      "${TMS_URL}/health/ready" 200 200
+          # The Static-SSR frontend has no deep health endpoint — "the page serves" is its liveness.
+          poll frontend "${FRONTEND_URL}/" 200 399
 
-      # Smoke the 0%-traffic CANDIDATE via its private label FQDNs BEFORE any traffic shift (audit
-      # 0001 H7). Runs inline so it shares this job's already-approved environment + Azure OIDC identity
-      # with the promote/rollback steps. A red smoke trips the failure-rollback step below.
+      # The real gate on this platform. There is no 0%-traffic candidate to smoke first, so this runs
+      # against the LIVE public origins right after the containers were replaced — and a red result
+      # rolls the box back. `GET / -> 200` proves nothing (house rule): smoke's fingerprint leg is what
+      # actually catches a frontend image whose static assets did not ship (#414).
       # The client secret rides ONLY in the env (smoke.sh reads SMOKE_CLIENT_SECRET natively) — as an
-      # argv it would be visible to every process on the runner (ps/procfs) for the script's lifetime.
-      - name: Smoke the candidate (pre-promotion gate)
-        env:
-          SMOKE_CLIENT_SECRET: ${{ secrets.SMOKE_CLIENT_SECRET }}
-        run: |
-          set -euo pipefail
-          ./scripts/smoke.sh \
-            --auth-url "$AUTH_CANDIDATE_URL" \
-            --tms-url "$TMS_CANDIDATE_URL" \
-            --frontend-url "$FRONTEND_CANDIDATE_URL" \
-            --timeout 30
-
-      # The "→ 100%" leg: a green candidate smoke shifts production traffic onto the candidate, then
-      # deactivates EVERY other active revision — not just prev (#407 / ADR-0029). Terraform applies
-      # mint their own revisions (auto-numbered, 0% traffic, never in the traffic config), and a
-      # previously-leaked revision may still be active; each active revision buys a warm replica
-      # inside the ADR-0027 warm window, and one such orphan held a DB-probing replica for 8 days
-      # (#407). The match is BY EXCLUSION against the promoted candidate, never a name pattern.
-      # Each deactivation is best-effort (a cleanup hiccup must not fail a healthy deploy here) —
-      # the post-rollout assertion below is the loud gate. A failed post-promotion smoke
-      # re-activates prev and steers traffic back (the rollback step).
-      - name: Promote the candidate to 100% traffic
-        run: |
-          set -euo pipefail
-          promote() {
-            app="$1"; prev="$2"; candidate="$3"
-            echo "::group::Promote ${app}: ${candidate} → 100% (was ${prev})"
-            az containerapp ingress traffic set -n "$app" -g "$RESOURCE_GROUP" \
-              --revision-weight "${prev}=0" "${candidate}=100" -o none
-            # The candidate label has done its job (smoke) — drop it so production isn't tagged as a
-            # candidate; the next rollout recreates it on the next candidate.
-            az containerapp revision label remove -n "$app" -g "$RESOURCE_GROUP" \
-              --label "$CANDIDATE_LABEL" -o none || true
-            # Sweep: deactivate every active revision that is not the promoted candidate. Revision
-            # names are DNS labels (no whitespace), so plain word-splitting is safe here.
-            superseded="$(az containerapp revision list -n "$app" -g "$RESOURCE_GROUP" --all \
-              --query "[?properties.active && name != '${candidate}'].name" -o tsv | tr -d '\r' \
-              || echo '')"
-            for rev in $superseded; do
-              echo "  deactivating superseded revision: ${rev}"
-              az containerapp revision deactivate -n "$app" -g "$RESOURCE_GROUP" --revision "$rev" -o none \
-                || echo "::warning::${app}: could not deactivate ${rev} — the post-rollout assertion will fail if it is still active"
-            done
-            echo "::endgroup::"
-          }
-          promote "$AUTH_APP" "$AUTH_PREV" "$AUTH_CANDIDATE"
-          promote "$TMS_APP" "$TMS_PREV" "$TMS_CANDIDATE"
-          promote "$FRONTEND_APP" "$FRONTEND_PREV" "$FRONTEND_CANDIDATE"
-
-      # Final confirmation on the REAL production origins after the shift (custom domain + cert +
-      # routing — legs a candidate label FQDN can't exercise). A red here trips the rollback step.
-      - name: Smoke production (post-promotion)
+      # argv it would be visible to every process on the runner for the script's lifetime.
+      - name: Smoke the deployed environment
         env:
           SMOKE_CLIENT_SECRET: ${{ secrets.SMOKE_CLIENT_SECRET }}
         run: |
@@ -426,66 +391,62 @@ jobs:
           ./scripts/smoke.sh \
             --auth-url "$AUTH_URL" \
             --tms-url "$TMS_URL" \
-            --frontend-url "$FRONTEND_URL"
+            --frontend-url "$FRONTEND_URL" \
+            --timeout 30
 
-      # Auto-rollback (audit 0001 H7). Runs if ANY step above failed once candidates exist. Restores
-      # 100% of traffic to the previous revision and deactivates the candidate — safe in every phase
-      # (pre-promotion: traffic never moved → idempotent; post-promotion: forced back to prev). The job
-      # still fails (the original error stands); this step only repairs traffic. The revision names come
-      # from the job env the rollout step wrote ('' ⇒ that app never got a candidate ⇒ skip it).
-      - name: Roll back on failure
-        if: failure()
+      # Auto-rollback — restore the WHOLE previous deploy unit, not just its images: the config this
+      # job scp'd is put back from the .previous/ snapshot first (a broken Caddyfile in this commit
+      # would otherwise survive the rollback and re-break the re-run), then the previous deploy.sh is
+      # re-run with the previous tag.
+      #
+      # Note it does NOT re-pass EXPECTED_DIGESTS: those digests belong to the image tag that just
+      # failed. The tag we roll BACK to was itself provenance-verified when it was deployed, and the
+      # box very likely still has its layers — the residual risk (someone re-points an OLD sha- tag in
+      # GHCR between then and now) needs registry write access, at which point the rollback is not the
+      # weakest link.
+      #
+      # Reached only when deploy.sh had already started (it prints PREVIOUS_IMAGE_TAG before touching
+      # anything); an earlier gate failing means the box was never touched, so there is nothing to
+      # undo. Note that deploy.sh now aborts a bad migration BEFORE recreating any app container, so
+      # the common "migration failed" case never gets here — the site simply never went down.
+      # The job still fails; this only restores service.
+      - name: Roll back to the previous tag on failure
+        if: failure() && env.PREVIOUS_IMAGE_TAG != ''
         run: |
           set -euo pipefail
-          roll_back() {
-            app="$1"; prev="$2"; candidate="$3"
-            if [ -z "$candidate" ]; then echo "  ${app}: no candidate created — nothing to roll back"; return 0; fi
-            echo "::group::Roll back ${app} → ${prev}"
-            if [ -n "$prev" ]; then
-              # Promote's sweep may have deactivated prev (ADR-0029) — re-activate before traffic.
-              az containerapp revision activate -n "$app" -g "$RESOURCE_GROUP" --revision "$prev" -o none || true
-              az containerapp ingress traffic set -n "$app" -g "$RESOURCE_GROUP" \
-                --revision-weight "${prev}=100" "${candidate}=0" -o none || true
-            fi
-            az containerapp revision deactivate -n "$app" -g "$RESOURCE_GROUP" --revision "$candidate" -o none || true
-            az containerapp revision label remove -n "$app" -g "$RESOURCE_GROUP" --label "$CANDIDATE_LABEL" -o none || true
-            echo "::endgroup::"
-          }
-          roll_back "$AUTH_APP" "${AUTH_PREV:-}" "${AUTH_CANDIDATE:-}"
-          roll_back "$TMS_APP" "${TMS_PREV:-}" "${TMS_CANDIDATE:-}"
-          roll_back "$FRONTEND_APP" "${FRONTEND_PREV:-}" "${FRONTEND_CANDIDATE:-}"
-          echo "::error::Rollout failed — production traffic restored to the previous revisions; candidates deactivated."
+          echo "::error::Rollout or smoke failed — rolling ${HETZNER_HOST} back to ${PREVIOUS_IMAGE_TAG}."
+          # SC2029: the RUNNER must expand the tag + stack dir into the remote command (the tag was
+          # validated at capture time in the deploy step above). Intentional.
+          # shellcheck disable=SC2029
+          ssh box "
+            set -e
+            cd ${STACK_DIR}
+            for f in compose.hetzner.yaml .docker/hetzner/Caddyfile deploy.sh; do
+              [ -f \".previous/\$f\" ] && cp -p \".previous/\$f\" \"\$f\" || true
+            done
+            IMAGE_TAG='${PREVIOUS_IMAGE_TAG}' bash ${STACK_DIR}/deploy.sh
+          "
+          {
+            echo "### ⏮️ Rolled back"
+            echo ""
+            echo "\`${ENVIRONMENT}\` was rolled back to image tag \`${PREVIOUS_IMAGE_TAG}\` after a failed rollout/smoke."
+          } >> "${GITHUB_STEP_SUMMARY:-/dev/null}" || true
 
-      # Post-rollout invariant (#407 / ADR-0029): exactly ONE active revision per app — the promoted
-      # candidate, at 100% traffic. This is the loud gate behind the best-effort sweep above: a
-      # leaked active revision buys a warm replica inside the ADR-0027 warm window, and once kept a
-      # DB-probing replica alive for 8 days while a deployed fix ran dark behind it (#346/#407).
-      # Deliberately placed AFTER the failure-rollback step: when this step runs, that step was
-      # already evaluated (and skipped), so a red assertion fails the pipeline WITHOUT reverting
-      # traffic — a leftover revision is a cost defect, not a serving defect, and the promoted
-      # revision has already passed both smokes.
-      - name: Assert exactly one active revision per app (post-rollout invariant)
+      - name: Summarize the rollout
+        if: success()
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
         run: |
           set -euo pipefail
-          assert_single() {
-            app="$1"; candidate="$2"
-            active="$(az containerapp revision list -n "$app" -g "$RESOURCE_GROUP" --all \
-                        --query "[?properties.active].name" -o tsv | tr -d '\r')"
-            count="$(printf '%s\n' "$active" | grep -c . || true)"
-            if [ "$count" -ne 1 ] || [ "$active" != "$candidate" ]; then
-              echo "::error::${app}: expected exactly one active revision (${candidate}); active now: $(printf '%s' "$active" | tr '\n' ' ')"
-              return 1
-            fi
-            weight="$(az containerapp ingress traffic show -n "$app" -g "$RESOURCE_GROUP" \
-                        --query "[?revisionName == '${candidate}'].weight | [0]" -o tsv | tr -d '\r')"
-            if [ "$weight" != "100" ]; then
-              echo "::error::${app}: promoted revision ${candidate} holds ${weight:-0}% of traffic, expected 100."
-              return 1
-            fi
-            echo "${app}: single active revision ${candidate} at 100% traffic — OK"
-          }
-          fail=0
-          assert_single "$AUTH_APP" "$AUTH_CANDIDATE" || fail=1
-          assert_single "$TMS_APP" "$TMS_CANDIDATE" || fail=1
-          assert_single "$FRONTEND_APP" "$FRONTEND_CANDIDATE" || fail=1
-          exit "$fail"
+          {
+            echo "### ✅ Deployed to ${ENVIRONMENT}"
+            echo ""
+            echo "| | |"
+            echo "|---|---|"
+            echo "| Box | \`${HETZNER_USER}@${HETZNER_HOST}\` |"
+            echo "| Image tag | \`${TAG}\` |"
+            echo "| Commit | \`${DEPLOY_SHA}\` |"
+            echo "| Frontend | ${FRONTEND_URL} |"
+            echo ""
+            echo "Smoke green on the public origins (health, FE fingerprint, OIDC token, token accepted, distribution)."
+          } >> "${GITHUB_STEP_SUMMARY:-/dev/null}" || true

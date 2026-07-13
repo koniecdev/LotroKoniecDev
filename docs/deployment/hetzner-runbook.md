@@ -9,10 +9,10 @@
 > `lotro-staging` hosts BOTH stagings. Everything the ADR/plan says about "the VPS" applies to
 > each box of the pair.
 >
-> Scope today: **server provisioning + facts** (HETZ-01/#487) and the **secrets matrix**
-> (HETZ-03/#489). The CD-over-ssh pipeline (HETZ-04/#490) extends this file when it lands. Until
-> HETZ-06/#492 retires the Azure content, `docs/deployment/runbook.md` remains the reference for the
-> OIDC/issuer gotchas — those are platform-independent and still binding.
+> Scope today: **server provisioning + facts** (HETZ-01/#487), the **secrets matrix** (HETZ-03/#489)
+> and **CD over ssh** (HETZ-04/#490). Until HETZ-06/#492 retires the Azure content,
+> `docs/deployment/runbook.md` remains the reference for the OIDC/issuer gotchas — those are
+> platform-independent and still binding.
 
 ## Server facts
 
@@ -71,7 +71,7 @@ The tracked template carrying every key with placeholder values is **`.env.hetzn
 | `AUTH_ADMIN_PASSWORD` (+ `AUTH_ADMIN_USERNAME`, `AUTH_ADMIN_EMAIL`) | auth-api → `AdminUser__*` seeder | **owner-chosen** | Seeded **only when missing**, so editing `.env` never rotates a live admin — see the reseed traps. `AUTH_ADMIN_USERNAME` must match `^[a-zA-Z0-9]+$` (ADR-0022) or auth-api fails at startup. |
 | `SMOKE_CLIENT_SECRET` *(GitHub secret, per environment — **not** a box var)* | `scripts/smoke.sh`, CD (#490) | == `OpenIddict__ApiClientSecret` of that env | `gh secret set SMOKE_CLIENT_SECRET --env <staging\|production> --body "$VALUE"` — **never `--body -`**: gh takes `-` literally and the candidate smoke then 401s. |
 | GHCR pull token *(not an env var — `docker login` state in `/home/deploy/.docker/config.json`)* | `docker compose pull` | **GitHub PAT**, scope `read:packages` **only** | Re-run `scripts/hetzner/bootstrap.sh` (its login leg prompts for user + PAT on a TTY). |
-| Deploy ssh key | CD over ssh (#490) | generated for CD | Lands with HETZ-04 — the `deploy` user's key, never `root`'s. |
+| `HETZNER_SSH_KEY` *(GitHub secret, per environment — **not** a box var)* | CD over ssh (`deploy.yml`) | generated for CD — one key per box | The `deploy` user's key, never `root`'s. Mint + install + pin the host key: §Continuous deployment (CD over ssh). |
 
 Not secrets, but they decide which environment a box *is* — full list with placeholders in
 `.env.hetzner.example`: `COMPOSE_PROJECT_NAME` (`lotro-prod` \| `lotro-staging`), `IMAGE_NAMESPACE`,
@@ -182,6 +182,128 @@ lived in the vaults) retires with the rest of the Azure surface in #492.
 
    Then `scripts/smoke.sh` against the public origins from an external network — remember
    `GET / -> 200` proves nothing (house rule); smoke's fingerprint leg is the real check.
+
+## Continuous deployment (CD over ssh)
+
+Merging to `main` deploys. The chain is unchanged from the Azure era except for its last hop
+(ADR-0018 two-stage promotion, ADR-0034 transport):
+
+```
+CI green on main → cd.yml gate (pins the tested commit)
+                 → build + Trivy-scan + cosign-sign + attest the 4 images → GHCR :sha-<short>
+                 → deploy-staging   (AUTOMATIC — no gate)      → lotro-staging box
+                 → deploy-prod      (required reviewer — the promotion click) → lotro-prod box
+```
+
+`deploy.yml` is the reusable rollout, run once per environment. On the runner it resolves the tag to
+**digests**, verifies each image's build provenance (fails closed), cuts the Neon pre-migration
+snapshot branch (MIGR-04) and publishes the restore point. Then it ssh'es to **that environment's
+box** (`vars.HETZNER_HOST` — one box IS one environment), snapshots the live config into
+`/opt/lotro/.previous/`, scp's `compose.hetzner.yaml`, the Caddyfile and `scripts/hetzner/deploy.sh`
+into `/opt/lotro`, and runs the script:
+
+1. validates the composed config **and the Caddyfile** — a typo aborts here, while the running Caddy
+   is still serving its current config;
+2. `pull`, then asserts the pulled digests are the ones whose provenance CD just verified (GHCR tags
+   are mutable — this closes the gap between the gate and what actually starts);
+3. **the migration gate:** runs the migrator as its own one-off container (`compose run --rm
+   --no-deps migrator`) and proceeds only on exit 0. A bad migration therefore aborts the roll with
+   the **previous release still serving** — it is a no-op for the live site;
+4. `up -d` — only now are the app containers recreated, onto an already-migrated schema;
+5. reloads Caddy (its Caddyfile is a bind mount — compose does not notice content changes);
+6. pins `IMAGE_TAG` in the box `.env` **last, on success only**, so the file always describes what is
+   actually running and a later bare `docker compose up -d` re-asserts it.
+
+Finally the runner waits for the public origins to answer, then smokes them. Red smoke ⇒ the box is
+rolled back automatically — **images and config** (from `.previous/`) — and the job fails.
+
+> ⚠️ **Never fold the migration gate back into `up -d`.** `compose.hetzner.yaml` does declare
+> `depends_on: { migrator: { condition: service_completed_successfully } }`, and it is tempting to
+> let that be the gate. It is not: the condition gates the **start** of the apps, not their
+> **creation**. `compose up` recreates every changed service first (and every deploy changes the
+> image tag), so the old app containers are destroyed *before* the migrator runs — a failed migration
+> then leaves the apps `created`-but-never-started and the site **down**, serving 502s through the
+> surviving Caddy. Verified against Docker 29.6.1 (#490). Running the migrator as its own container
+> first is what makes the "old release keeps serving" property real.
+
+**A rollback reverts code, never schema** (ADR-0023). Re-deploying the previous tag re-runs the
+*older* migrator, which only applies pending migrations — it never reverts one — so the old app comes
+back up against the **new** schema. That is safe precisely because every migration is N-1
+backward-compatible; it is also why a bad *migration* is not a rollback case at all but a
+roll-forward or a restore (§Disaster recovery, and the MIGR-04 snapshot the deploy just cut).
+
+**There is no blue/green.** A 4 GB box cannot hold a second live set of three apps, so containers are
+recreated in place: a deploy costs a few seconds of downtime per app, and the smoke necessarily runs
+after the new containers are live (the ACA rollout could smoke a 0%-traffic candidate first). The
+migration gate + the automatic rollback are what replace it. Recreating Caddy also blips
+TheKittySaver, which it proxies.
+
+### One-time setup per environment
+
+CD fails closed with an explicit "not wired for ssh deploys" error until each environment
+(`staging`, `production`) carries these. Values for the boxes are in §Server facts.
+
+| Kind | Name | Value |
+|---|---|---|
+| var | `HETZNER_HOST` | the box IP — staging `91.98.74.228`, production `167.233.159.221` |
+| var | `HETZNER_SSH_KNOWN_HOSTS` | `ssh-keyscan` output for that IP (host-key pinning — see below) |
+| var | `HETZNER_USER` | optional; defaults to `deploy` |
+| var | `AUTH_URL` / `TMS_URL` / `FRONTEND_URL` | the environment's public origins (smoke targets; unchanged from the ACA era) |
+| var | `NEON_PROJECT_ID` | that environment's Neon project (MIGR-04 snapshot; unset ⇒ the snapshot leg skips) |
+| secret | `HETZNER_SSH_KEY` | the CD deploy **private** key for that box (below) |
+| secret | `SMOKE_CLIENT_SECRET` | `= OpenIddict__ApiClientSecret` from that box's `.env` |
+| secret | `NEON_API_KEY` | project-scoped Neon key (MIGR-04) |
+
+Repo-level `CD_ENABLED=true` arms the deploy jobs at all; `STAGING_ENABLED=true` arms the staging leg
+(ADR-0018).
+
+**Mint a CD deploy key per box** — one key per environment, so a staging compromise cannot touch prod.
+It is the `deploy` user's key, never `root`'s:
+
+```bash
+ssh-keygen -t ed25519 -N '' -C 'github-cd-staging' -f ./cd-staging      # no passphrase: CD is non-interactive
+ssh-copy-id -i ./cd-staging.pub deploy@91.98.74.228                     # or append the .pub to /home/deploy/.ssh/authorized_keys
+gh secret set HETZNER_SSH_KEY --env staging < ./cd-staging              # the PRIVATE key
+gh variable set HETZNER_HOST --env staging --body '91.98.74.228'
+gh variable set HETZNER_SSH_KNOWN_HOSTS --env staging --body "$(ssh-keyscan -t ed25519 91.98.74.228)"
+rm ./cd-staging ./cd-staging.pub                                        # GitHub + the box now hold the only copies
+```
+
+Repeat for `production` with the prod IP and `--env production`. Then delete the local private key —
+losing it costs one re-mint, and a copy lying around is a spare key to prod.
+
+**Host-key pinning is not optional.** `HETZNER_SSH_KNOWN_HOSTS` is why CD runs with
+`StrictHostKeyChecking=yes`; without it the deploy would trust whoever answers on that IP and hand
+them the deploy key. Re-provisioning a box changes its host key — re-run the `ssh-keyscan` line above
+or every deploy fails at the ssh step (that failure is the pin working, not a bug).
+
+`.github/workflows/*` pushes need the koniecdev token (memory `github-push-koniecdev-account`).
+
+### Deploy or roll back by hand
+
+The same script CD runs, so a hand-run and a CD run leave the box in identical states:
+
+```bash
+ssh deploy@<box>
+IMAGE_TAG=sha-1a2b3c4 bash /opt/lotro/deploy.sh    # roll to a specific commit's images
+IMAGE_TAG=latest      bash /opt/lotro/deploy.sh    # roll to the tip of main
+```
+
+Rolling back = deploying the previous tag. The tag currently live is the `IMAGE_TAG` line in
+`/opt/lotro/.env` (written only on a successful roll, so it never lies), and every CD run prints the
+one it replaced (`PREVIOUS_IMAGE_TAG=…` in the job log, plus the deployed tag in the run summary).
+GHCR keeps every `sha-<short>`, so any commit that ever built is still deployable. The config that
+was live before the last deploy sits in `/opt/lotro/.previous/` — restore those three files first if
+you are undoing a compose/Caddyfile change, not just an image change.
+
+Two edges worth knowing. The **first** CD run on a box rolls back to `latest` (that is what the
+hand bring-up left in `.env`), which is a moving tag — fine there, because `latest` still points at
+the release that was running. And `deploy.sh` prunes unused images older than 14 days
+(`PRUNE_UNUSED_OLDER_THAN`), so a tag older than that may need a fresh `docker pull` on the box;
+GHCR still has it.
+
+Re-running CD for a commit: **Actions → CD → Run workflow**, optionally with an explicit `image_tag`.
+It still passes the staging→prod gate.
 
 ## Disaster recovery
 

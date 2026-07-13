@@ -1,8 +1,9 @@
 name: CD
 
 # Continuous delivery + deployment for the TMS (ADR-0012, amended 2026-06-29 audit 0001 C2,
-# 2026-06-30 audit 0001 H7 — health-gated rollout, 2026-06-30 audit 0001 H9 + H1 — supply-chain
-# hardening: Trivy image gate + cosign signing + SLSA provenance/SBOM, verified before rollout).
+# 2026-06-30 audit 0001 H9 + H1 — supply-chain hardening: Trivy image gate + cosign signing + SLSA
+# provenance/SBOM, verified before rollout; 2026-07-13 ADR-0034 / #490 — the rollout target moved
+# from Azure Container Apps to the Hetzner boxes and the transport became ssh + docker compose).
 #
 #   gate           → CI-success gate. CD is TRIGGERED BY the CI workflow finishing (workflow_run); it
 #                    proceeds only when CI concluded `success` on main, and pins the exact tested
@@ -14,36 +15,29 @@ name: CD
 #                    active once vars.STAGING_ENABLED is on (ADR-0018).
 #   deploy-prod    → calls the SAME reusable deploy.yml under environment: production — GATED by the
 #                    required-reviewer rule AND needs: deploy-staging, so the approval IS the
-#                    staging→prod promotion of the artifact that just passed staging. The full
-#                    health-gated rollout lives in deploy.yml: verify provenance → migrate → deploy
-#                    candidates at 0% traffic → readiness (incl. frontend) + warm the auth origin →
-#                    smoke the candidate → promote to 100% + sweep superseded revisions → smoke →
-#                    roll back on any failure → assert exactly one active revision per app.
+#                    staging→prod promotion of the artifact that just passed staging. The rollout
+#                    itself lives in deploy.yml: verify provenance → cut the Neon pre-migration
+#                    snapshot → ssh to the environment's box → pull + assert the attested digests →
+#                    run the migrator as a GATE → `up -d` → smoke the public origins → roll images
+#                    AND config back to the previous deploy on any failure.
 #
-# The deployment unit is an immutable per-commit image (`sha-<short>`); the rolling tag is owned by
-# THIS pipeline (`az containerapp update`), not Terraform — the ACA resources ignore image + traffic
-# drift (iac/, lifecycle.ignore_changes). `latest` still tracks the tip of main for humans by hand.
+# The deployment unit is an immutable per-commit image (`sha-<short>`), and the environment a job
+# targets is ONE BOX (`lotro-staging` or `lotro-prod`, env-scoped var HETZNER_HOST) running
+# compose.hetzner.yaml out of /opt/lotro. `latest` still tracks the tip of main for humans by hand.
 #
-# Health-gated rollout (audit 0001 H7): traffic NEVER jumps onto an unverified revision. Each app is
-# deployed as a candidate revision receiving 0% production traffic, reachable only through a private
-# `<app>---cd-candidate.<env-domain>` label FQDN. The candidate is smoked first; only then is 100% of
-# traffic shifted onto it. During the rollout the previous revision keeps serving, and any failure
-# steers traffic straight back to it (the in-job rollback re-activates it first) — no window where
-# users hit a bad revision. After a green promotion EVERY other active revision is deactivated and
-# the rollout ends by asserting exactly one active revision per app (#407 / ADR-0029): an active
-# superseded revision is a paid warm replica inside the ADR-0027 warm window, and one such orphan
-# once probed Postgres for 8 days from a 0%-traffic replica, holding Neon awake while a deployed fix
-# ran dark behind it. Rolling back AFTER the job is `az containerapp revision activate` + a traffic
-# shift — one cold start (runbook: "Roll back a completed deploy").
+# NOTE — there is no 0%-traffic candidate any more. The ACA health-gated rollout (audit 0001 H7)
+# could smoke a candidate revision before shifting traffic; a 4 GB VPS cannot hold a second live set
+# of three apps, so compose recreates containers in place and the smoke necessarily runs after they
+# are live. What replaces it: the migration gate (deploy.sh runs the migrator as its OWN one-off
+# container before any app container is recreated — a bad migration leaves the previous release
+# serving) plus an automatic rollback of images AND config. Rationale and the discarded alternatives:
+# deploy.yml's header + ADR-0034.
 #
-# Why ONE job per environment (not a job per phase): the Azure OIDC federated credential trusts only a
-# specific environment subject (gh-env-production / gh-env-staging), so a job WITHOUT that `environment:`
-# cannot `azure/login` (the first cut split promote/rollback into separate jobs and they failed login).
-# Every Azure-mutating step therefore lives in the single reusable deploy.yml job, run once per
-# environment — that gives them a working identity and keeps each rollout to ONE approval, with the
-# candidate smoke run inline (`scripts/smoke.sh`) before the
-# traffic shift. The cross-revision token check also needs the previous auth revision awake
-# (min_replicas=0 ⇒ it scales to zero with no users), so readiness warms the public auth origin first.
+# Why ONE job per environment (not a job per phase): the `environment:` is what selects the box
+# (HETZNER_HOST), its ssh key and its approval gate — so the whole rollout for an environment runs in
+# a single job under that environment, and each rollout costs exactly ONE approval. (Under ACA the
+# same shape was forced by the Azure OIDC federated credential, which trusted only a specific
+# environment subject; the constraint is gone, the shape stays because it is still the right one.)
 #
 # Supply-chain hardening (audit 0001 H9 + the H1 image-scanning leg — the dependency/SAST legs already
 # ship as NuGetAudit + CodeQL + Dependabot). Each image is scanned by Trivy and a fixable HIGH/CRITICAL
@@ -93,15 +87,15 @@ permissions:
 env:
   REGISTRY: ghcr.io
   IMAGE_NAMESPACE: ${{ github.repository_owner }}
-  # Per-environment ACA targets + public origins (RESOURCE_GROUP, *_APP, *_URL, MIGRATOR_JOB) and the
-  # candidate label now live in environment-scoped GitHub vars (production / staging) and are consumed by
-  # the reusable .github/workflows/deploy.yml — selected by the environment: each deploy job runs under
-  # (ADR-0018). Only the build-time, env-agnostic values stay here.
+  # Per-environment deploy targets (HETZNER_HOST / HETZNER_SSH_KNOWN_HOSTS + the *_URL public origins)
+  # live in environment-scoped GitHub vars (production / staging) and are consumed by the reusable
+  # .github/workflows/deploy.yml — selected by the environment: each deploy job runs under (ADR-0018).
+  # Only the build-time, env-agnostic values stay here.
 
 jobs:
   # CI-success gate (audit 0001 C2). Reached via workflow_run, this decides whether the deploy
   # candidate may proceed AND pins the exact commit CI tested (head_sha) for build + rollout — so the
-  # image content, its `sha-<short>` tag and the deployed revision are all the same tested commit,
+  # image content, its `sha-<short>` tag and the containers that end up running are all the same tested commit,
   # never main's tip if it raced ahead (which would otherwise re-open C2 under a push race). Manual
   # dispatch / v* tag publishes pass through ungated. workflow_run fields are read via env, never
   # interpolated into run: (the SHA is trusted hex, head_branch is allowlisted to main by the trigger).
@@ -275,8 +269,8 @@ jobs:
           # Attach build attestations to the image in GHCR (audit 0001 H9): SLSA provenance (build
           # inputs/invocation) + an SPDX SBOM (package inventory for CVE triage). These ride along as
           # OCI referrer manifests, so the push is an image INDEX — the linux/amd64 runtime manifest
-          # plus two `unknown/unknown` attestation manifests. ACA/containerd platform-match the amd64
-          # entry and ignore the attestation manifests, so the rollout pull is unchanged.
+          # plus two `unknown/unknown` attestation manifests. The box's Docker engine platform-matches
+          # the amd64 entry and ignores the attestation manifests, so the rollout pull is unchanged.
           provenance: true
           sbom: true
 
@@ -335,7 +329,6 @@ jobs:
       && (github.event_name == 'workflow_run' || github.event_name == 'workflow_dispatch')
     permissions:
       contents: read
-      id-token: write
       packages: read
     uses: ./.github/workflows/deploy.yml
     with:
@@ -364,7 +357,6 @@ jobs:
       && (github.event_name == 'workflow_run' || github.event_name == 'workflow_dispatch')
     permissions:
       contents: read
-      id-token: write
       packages: read
     uses: ./.github/workflows/deploy.yml
     with:

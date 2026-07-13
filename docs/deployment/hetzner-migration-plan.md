@@ -47,7 +47,7 @@ owner inputs — this phase is not loopable). Order matters; DNS early (ACME nee
 
 | Phase | Ticket | Content |
 |---|---|---|
-| 1 | #487 | bootstrap.sh idempotent + hetzner-runbook.md server section |
+| 1 | #487 | bootstrap.sh idempotent + runbook.md server section |
 | 2 | #488 | compose.hetzner.yaml + Caddyfile + .env.hetzner.example, PR-quality |
 | 3 | #489 | secrets matrix documented; KV read attempt recorded |
 | 4 | #490 | CD over ssh (staging auto, prod gated env), smoke in-pipeline, Azure legs disabled |
@@ -68,7 +68,7 @@ takes the nightly `pg_dump` backups + encrypted env copies (Neon free = 6 h PITR
 
 ## Secrets — source of truth and how to remint
 
-> **Superseded by `docs/deployment/hetzner-runbook.md` §Secrets and env vars** (HETZ-03/#489), which
+> **Superseded by `docs/deployment/runbook.md` §Secrets** (HETZ-03/#489), which
 > carries the full per-variable matrix, the rotation commands and the create-if-missing reseed traps.
 > The table below stays as the plan's summary. **The Key Vault shortcut was tried and is dead:**
 > `secret list` returns the names, `secret show` is `Forbidden` while the subscription is disabled —

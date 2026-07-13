@@ -56,7 +56,7 @@ amd64 and multi-arch buildx is pure added surface.
 > memory and adds a swapfile if needed (see the runbook). The single-file / two-compose-projects
 > design of §2 is unchanged; each box simply runs one project. The boxes run **Ubuntu 26.04 LTS**
 > (image availability), not 24.04 — `scripts/hetzner/bootstrap.sh` (HETZ-01) is verified on both.
-> Server facts, IPs and the (re)provisioning recipe live in `docs/deployment/hetzner-runbook.md`.
+> Server facts, IPs and the (re)provisioning recipe live in `docs/deployment/runbook.md`.
 
 ### 2. `compose.hetzner.yaml` derived from `compose.prod.yaml`, minus the laptop-isms
 
@@ -156,7 +156,7 @@ machinery (ADR-0025) for hand-rolled backups on the same failure domain as the a
 
 - New: `scripts/hetzner/bootstrap.sh` (no `.ps1` twin — runs on the server, the twins rule
   covers dev machines), `compose.hetzner.yaml`, `.docker/hetzner/Caddyfile`,
-  `.env.hetzner.example`, `docs/deployment/hetzner-runbook.md`
+  `.env.hetzner.example`, `docs/deployment/runbook.md`
 - Changed: `cd.yml`/`deploy.yml` (ssh deploy legs), `docs/deployment/runbook.md` (rewritten),
   `CLAUDE.md` (M6 section), ADR-0027/0029 status lines
 - Retired: `iac/` Azure resources, `seed-keyvault.{sh,ps1}`, `infra.yml`, local-CA mounts in the

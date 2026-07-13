@@ -2,7 +2,7 @@
 # Roll the /opt/lotro stack to a given GHCR image tag. Runs ON a Hetzner box as the `deploy` user
 # (ADR-0034, epic #486, ticket #490) — CD (.github/workflows/deploy.yml) scp's this file next to the
 # stack and drives it over ssh, and an operator runs the very same command by hand to deploy or roll
-# back (docs/deployment/hetzner-runbook.md → "Continuous deployment (CD over ssh)").
+# back (docs/deployment/runbook.md → "Continuous deployment (CD over ssh)").
 #
 #   IMAGE_TAG=sha-1a2b3c4 bash /opt/lotro/deploy.sh
 #

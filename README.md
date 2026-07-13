@@ -10,8 +10,8 @@
 ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-EF%20Core-4169E1?logo=postgresql&logoColor=white)
 ![OpenIddict](https://img.shields.io/badge/Auth-OpenIddict%20OIDC-FF6F00)
 ![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?logo=docker&logoColor=white)
-![Terraform](https://img.shields.io/badge/IaC-Terraform-7B42BC?logo=terraform&logoColor=white)
-![Azure](https://img.shields.io/badge/Cloud-Azure%20Container%20Apps-0078D4?logo=microsoftazure&logoColor=white)
+![Caddy](https://img.shields.io/badge/Ingress-Caddy%20%2B%20Let's%20Encrypt-1F88C0?logo=caddy&logoColor=white)
+![Hetzner](https://img.shields.io/badge/Hosting-Hetzner%20VPS-D50C2D?logo=hetzner&logoColor=white)
 
 **🔗 Live:** https://lotro-translator.pl &nbsp;·&nbsp; **Staging:** https://staging.lotro-translator.pl
 
@@ -34,8 +34,8 @@ It is built as **two cooperating products** that share a single versioned file c
 
 > **Under the hood:** a from-scratch, production-deployed **.NET 10** system built on Domain-Driven
 > Design, Vertical Slice Architecture, CQRS, a Result-monad error model, a self-hosted OAuth2/OIDC
-> server, Blazor static SSR, reverse-engineered binary-format handling, and full
-> Infrastructure-as-Code + CI/CD on Azure. Architecture notes are in each section and in
+> server, Blazor static SSR, reverse-engineered binary-format handling, and a containerized
+> CI/CD pipeline that deploys itself. Architecture notes are in each section and in
 > [`docs/`](docs/).
 
 ### How it works — the core loop
@@ -95,7 +95,7 @@ The web application at the heart of the project — where the human translation 
 | **Authentication** | self-hosted **OpenIddict** authorization server (OAuth2 / OIDC, authorization-code + PKCE, refresh tokens, JWKS); the API is a JWT-bearer resource server; translators are provisioned lazily on first authenticated request |
 | **Frontend** | **Blazor static SSR** (no WebAssembly, no SignalR circuit) as an **OIDC relying party** with silent token refresh; a **HATEOAS**-driven UI where the server's link relations decide which actions a user sees |
 | **Bounded contexts** | TMS and Patcher integrate **only** through the versioned `\|\|` translation-file contract — round-trip-tested against golden fixtures on both sides, so the format can never drift unnoticed |
-| **Observability & ops** | Serilog + OpenTelemetry; **Docker**; **Terraform** IaC; **GitHub Actions** CI/CD to **Azure Container Apps** with a gated **staging → production** promotion |
+| **Observability & ops** | Serilog + OpenTelemetry; **Docker Compose** behind a **Caddy** reverse proxy (automatic Let's Encrypt TLS); **GitHub Actions** CI/CD that ships signed, provenance-attested images to a **Hetzner VPS** over ssh, with a gated **staging → production** promotion. The stack ran on **Terraform**-provisioned **Azure Container Apps** until 2026-07 ([ADR-0034](docs/adr/0034-hetzner-vps-instead-of-azure-container-apps.md) records why it moved) |
 | **Quality gates** | zero-warning builds (`TreatWarningsAsErrors`), ADR-driven decisions, spec-first features, secret scanning (pre-commit gitleaks + CI + GitGuardian), and a layered test suite (unit · integration on real PostgreSQL · Playwright browser E2E) |
 
 ### Repository layout
@@ -221,8 +221,9 @@ format requires an ADR and updated golden fixtures in **both** the Patcher and t
 
 Pre-release, actively developed. The Patcher (**M1**) is shipped and proven on live game updates. The
 TMS backend (**M2**, minus the forum watcher — game versions are registered manually for now), the
-Blazor frontend (**M3**) and the cloud deployment (**M6** — Azure Container Apps + Neon Postgres,
-staging → production promotion) are built and **deployed** (see the live link above). Next up: a
+Blazor frontend (**M3**) and the deployment pipeline (**M6** — Docker Compose on a Hetzner VPS +
+Neon Postgres, staging → production promotion) are built and **deployed** (see the live link above).
+Next up: a
 **game-content catalog** layer over the flat rows (M7 — spec agreed, in the backlog) and a
 **desktop player app** (M4, Avalonia) — a GUI over the same patcher engine and TMS download. Backlog and
 milestones: GitHub issues (`M{milestone}-{nn}` titles).

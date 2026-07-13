@@ -6,7 +6,7 @@
 > probe costs only money. Against a scale-to-zero prod a 15-minute external probe holds the apps awake
 > and destroys the saving, which makes the cheap probe the only coherent one.
 
-**Status:** Accepted
+**Status:** **Obsolete by platform** (ADR-0034, 2026-07-13 / #492 — §1's scale-to-zero was an ACA lever and is gone: the Hetzner boxes run 24/7 at a flat monthly price, so app-tier FinOps is no longer a tuning problem. §2 was already void. What survives is the cost *pressure* that drove this ADR — it is what ultimately moved the whole stack off Azure. **Neon** still scales to zero, so ADR-0025 still binds.) Previously: Accepted
 **Date:** 2026-07-01
 **Decision-makers:** Solo maintainer
 **Related:** ADR-0012 §5 follow-up (min_replicas 0→1, R8), ADR-0018 (staging in the shared prod

@@ -1,6 +1,6 @@
 # ADR-0016: Cloud telemetry via the ACA managed OpenTelemetry agent → Application Insights
 
-**Status:** Accepted
+**Status:** **Obsolete by platform** (ADR-0034, 2026-07-13 / #492 — the ACA managed OTel agent, Application Insights and the Log Analytics workspace are gone with the subscription. The apps still emit vendor-neutral OTLP and `OTEL_EXPORTER_OTLP_ENDPOINT` is still wired, but there is **no telemetry sink today**; a real one is a later, deliberate decision — see the runbook's "Observability & monitoring".) Previously: Accepted
 **Date:** 2026-06-30
 **Decision-makers:** Solo maintainer
 **Related:** observability / `iac/` (`observability.tf`, `setup.tf`); ADR-0008 (cloud-agnostic

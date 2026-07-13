@@ -1,6 +1,6 @@
 # ADR-0017: Per-environment IaC parametrization (Rank 2 — parametrized flat root + per-env state key)
 
-**Status:** Accepted
+**Status:** **Obsolete by platform** (ADR-0034, 2026-07-13 / #492 — there is no IaC left to parametrize: the Terraform root `iac/` is removed and an environment is now one Hetzner box + its `/opt/lotro/.env`. The per-environment *split* survives in a different instrument — GitHub environments carrying `HETZNER_HOST` + that box's secrets, ADR-0018.) Previously: Accepted
 **Date:** 2026-06-30
 **Decision-makers:** Solo maintainer
 **Related:** IaC (`iac/`); audit 0001 §H2 (RG + URL literals), §H5 (flat root + monolithic state

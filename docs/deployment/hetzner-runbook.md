@@ -79,6 +79,38 @@ Not secrets, but they decide which environment a box *is* — full list with pla
 TheKittySaver vhosts), `Email__Host` / `Email__Port` / `Email__Mode` / `Email__SenderEmail` /
 `Email__Sender`, and `OTEL_EXPORTER_OTLP_ENDPOINT` (empty = exporter off).
 
+### E-mail deliverability — the sender must be one Brevo is authorised to send as
+
+`Email__SenderEmail` is not a free-text label. It must be either Brevo's verified **single sender**
+(today: `koniecdev@gmail.com`) or an address on a domain **authenticated in Brevo** — i.e. one whose
+DKIM + SPF records are published in DNS. Any other value fails in the one way no alarm can see:
+
+1. Brevo's relay **accepts** the message, so `IEmailService.SendAsync` returns success.
+2. The deep auth `/health` SMTP check stays **green** — it only proves connect + authenticate.
+3. The receiver (Gmail, etc.) sees mail claiming a domain with no SPF and no aligned DKIM, and
+   **silently drops it** — it does not even reach spam.
+4. `RegisterUser` auto-confirms a user only when the send **fails** (`RegisterUser.cs`, the
+   `emailResult.IsFailure` branch). A send that "succeeded" skips that net, so every new account is
+   stranded at *"potwierdź adres e-mail"* and **nobody can log in**.
+
+This shipped to **both** prods during the Hetzner cutover (#491): `.env.hetzner.example` seeded
+`no-reply@lotro-translator.pl`, and `lotro-translator.pl` has **no SPF, DKIM or DMARC records at
+all** (`dig +short TXT lotro-translator.pl` returns nothing). Fixed by pointing both boxes at the
+verified single sender.
+
+**The only check that works is an end-to-end one** — register a real account and read a real inbox;
+`smoke.sh` cannot cover this, and neither can a health probe:
+
+```bash
+dig +short TXT lotro-translator.pl            # SPF/DKIM/DMARC present at all? (today: nothing)
+# then actually register on the env and confirm the mail lands (Gmail plus-addressing works:
+# koniecdev+check@gmail.com), because only delivery proves delivery.
+```
+
+To move off the personal-gmail sender, authenticate the domain in Brevo (Senders → Domains → add
+`lotro-translator.pl`, publish the DKIM + SPF records it prints, add a DMARC record), *then* switch
+`Email__SenderEmail` to `no-reply@lotro-translator.pl` — and re-run the registration check above.
+
 Two pieces of credential-ish material live **outside** `.env` and outside the DB: the
 `auth-keys` and `frontend-keys` **Data Protection keyring volumes**. They are not minted from
 anywhere — losing a volume simply invalidates every auth cookie and OIDC correlation state

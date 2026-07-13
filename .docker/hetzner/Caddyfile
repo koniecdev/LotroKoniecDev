@@ -24,8 +24,10 @@
 	reverse_proxy tms-api:8080
 }
 
-# --- TheKittySaver (its stack lives in /opt/tks and joins THIS stack's network; this Caddy
-# terminates TLS for its hostnames too). The TKS_DOMAIN_* values come from the per-box env
+# --- TheKittySaver (its stack lives in /opt/tks and joins the segregated `${project}_tks` network
+# this Caddy also sits on — #506; this Caddy terminates TLS for its hostnames too). Caddy resolves
+# these `tks-*` keys via the tks network and our own `frontend`/`auth-api`/`tms-api` via the default
+# network, so the two stacks share only Caddy. The TKS_DOMAIN_* values come from the per-box env
 # file; a box without the TKS stack keeps the compose defaults (*.localhost — internal cert,
 # no ACME, requests just 502) so this file stays valid everywhere.
 {$TKS_DOMAIN_APP} {

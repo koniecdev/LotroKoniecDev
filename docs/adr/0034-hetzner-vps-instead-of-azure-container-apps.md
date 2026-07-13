@@ -1,6 +1,6 @@
 # ADR-0034: Single Hetzner VPS instead of Azure Container Apps
 
-**Status:** Accepted
+**Status:** Accepted (amended 2026-07-13 — see "Amendment: two segregated networks per box")
 **Date:** 2026-07-12
 **Decision-makers:** Solo maintainer
 **Related:** deployment (all of `iac/`, `compose.prod.yaml`, CD workflows), epic #486 (HETZ-01..06:
@@ -165,6 +165,35 @@ machinery (ADR-0025) for hand-rolled backups on the same failure domain as the a
   `iac/<file>` references throughout ADRs 0013/0016/0017/0019/0020/0027/0029 resolve there
 - Execution: epic #486, tickets #487–#492; owner-assisted bring-up is #491;
   plan: `docs/deployment/hetzner-migration-plan.md`
+
+## Amendment: two segregated networks per box — Caddy is the only shared trust boundary (2026-07-13, #506)
+
+§5 put the guest TheKittySaver stack "behind the same Caddy" but never stated the trust boundary
+between the two stacks, and the first implementation made them share **one** Docker network
+(`lotro-{env}_default`, `10.60.0.0/24`): TKS joined ours as `external` so the shared Caddy could
+reach it. That co-tenancy had two consequences the post-migration security review (2026-07-13)
+flagged: (1) **cross-stack pivot** — a TKS container sat inside our
+`ForwardedHeaders__KnownNetworks__0` and could reach `auth-api:8080` / `tms-api:8080` /
+`frontend:8080` directly, bypassing Caddy (and vice versa); (2) **header spoofing** — any container
+on the network could set `X-Forwarded-*` and be believed, because trust was scoped to the whole
+`/24`, not to the proxy.
+
+The trust boundary is now explicit and enforced by topology: **Caddy is the only component the two
+stacks share.** Each box runs two networks — `default` (`10.60.0.0/24`, our stack alone) and `tks`
+(`10.61.0.0/24`, `name: ${COMPOSE_PROJECT_NAME}_tks`, the guest stack alone). Caddy is the sole
+container on both, pinned to a static IP on each (`10.60.0.100` / `10.61.0.100`); the `TKS_DOMAIN_*`
+back-channel aliases move onto the `tks` network. The apps narrow
+`ForwardedHeaders__KnownNetworks__0` from the `/24` to Caddy's `10.60.0.100/32`, so a forged
+`X-Forwarded-*` from any non-Caddy container is no longer honoured, and no TKS container can address
+our apps at all (it is off `10.60.0.0/24` entirely). The static-IP↔KnownNetworks lockstep the
+existing subnet comment already mandated now extends to the exact host address.
+
+This is a `compose.hetzner.yaml` + docs change only; `compose.prod.yaml` (the laptop parity stack,
+which never co-tenants TKS) is untouched. The guest side is the twin ticket
+koniecdev/TheKittySaver#295 (re-point its `external` network from `${project}_default` to
+`${project}_tks`); deploying this ADR re-creates the lotro stack with the new topology, so the TKS
+stack must be re-pointed and re-upped (`down` + `up -d` in `/opt/tks`) right after the lotro deploy
+on each box — see the runbook's bring-up notes.
 
 ## References
 

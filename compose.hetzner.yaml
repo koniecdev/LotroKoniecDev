@@ -14,6 +14,11 @@
 # hostnames to the in-stack Caddy, so one OIDC Authority serves the browser front-channel and the
 # container back-channel — same origin, real certificate, no hairpin dependency.
 #
+# Two segregated networks per box (#506, ADR-0034 amendment): our stack sits alone on `default`
+# (10.60.0.0/24); the guest TheKittySaver stack sits alone on `tks` (10.61.0.0/24). Caddy is the
+# ONLY shared component — it holds a pinned static IP on each network, and the apps trust
+# X-Forwarded-* from that single /32 only. See the `networks:` block at the bottom.
+#
 # Bring-up on a box (as the deploy user, files in /opt/lotro; scripts/hetzner/bootstrap.sh has
 # already done the one-time `docker login ghcr.io` as deploy with a read:packages PAT):
 #   docker compose -f compose.hetzner.yaml pull
@@ -37,9 +42,10 @@ services:
     environment:
       ASPNETCORE_ENVIRONMENT: Production
       ASPNETCORE_URLS: "http://+:8080"
-      # Trust X-Forwarded-* only from the pinned stack subnet (the Caddy hop) — #399. Keep in
-      # lockstep with the ipam subnet at the bottom of this file.
-      ForwardedHeaders__KnownNetworks__0: "10.60.0.0/24"
+      # Trust X-Forwarded-* only from Caddy's pinned static IP (the sole ingress hop) — #399,
+      # narrowed to a /32 by #506 so no other container on the network can spoof headers. Keep in
+      # lockstep with caddy's ipv4_address on the default network at the bottom of this file.
+      ForwardedHeaders__KnownNetworks__0: "10.60.0.100/32"
       ConnectionStrings__AuthDatabase: ${ConnectionStrings__AuthDatabase}
       OpenIddict__Issuer: "https://${DOMAIN_AUTH}"
       OpenIddict__SigningKey__RsaPrivateKeyXml: ${OpenIddict__SigningKey__RsaPrivateKeyXml}
@@ -76,7 +82,8 @@ services:
     environment:
       ASPNETCORE_ENVIRONMENT: Production
       ASPNETCORE_URLS: "http://+:8080"
-      ForwardedHeaders__KnownNetworks__0: "10.60.0.0/24"
+      # See the auth-api note: trust X-Forwarded-* only from Caddy's /32 (#399, #506).
+      ForwardedHeaders__KnownNetworks__0: "10.60.0.100/32"
       ConnectionStrings__TranslationDatabase: ${ConnectionStrings__TranslationDatabase}
       # Issuer = the public origin the tokens carry; Authority = where OIDC metadata + JWKS are
       # fetched. Both resolve to the in-stack Caddy via its network aliases below, serving the
@@ -102,7 +109,8 @@ services:
     environment:
       ASPNETCORE_ENVIRONMENT: Production
       ASPNETCORE_URLS: "http://+:8080"
-      ForwardedHeaders__KnownNetworks__0: "10.60.0.0/24"
+      # See the auth-api note: trust X-Forwarded-* only from Caddy's /32 (#399, #506).
+      ForwardedHeaders__KnownNetworks__0: "10.60.0.100/32"
       AuthSystem__Authority: "https://${DOMAIN_AUTH}"
       AuthSystem__BaseUrl: "https://${DOMAIN_AUTH}/"
       TranslationSystem__BaseUrl: "https://${DOMAIN_TMS}/"
@@ -141,14 +149,26 @@ services:
       - caddy-data:/data
       - caddy-config:/config
     networks:
+      # Caddy is the ONLY component on both networks — the single shared trust boundary between the
+      # LotroKoniecDev stack (default) and the guest TheKittySaver stack (tks). It holds a pinned
+      # static IP on each so the apps can trust X-Forwarded-* from exactly that hop (#506).
       default:
-        # In-stack containers resolve the public hostnames to this proxy (see the comment at the
-        # top of the file). Compose interpolates the per-env domains from the env file.
+        # Static so ForwardedHeaders__KnownNetworks__0 can pin it to a /32 (#506). Keep in lockstep
+        # with the KnownNetworks values on auth-api/tms-api/frontend above.
+        ipv4_address: 10.60.0.100
+        # LotroKoniecDev in-stack containers resolve OUR public hostnames to this proxy (see the
+        # comment at the top of the file). Compose interpolates the per-env domains from the env file.
         aliases:
           - ${DOMAIN_APP}
           - ${DOMAIN_AUTH}
           - ${DOMAIN_TMS}
-          # TKS in-stack back-channel: its containers resolve the public origins to this proxy.
+      tks:
+        # Static IP on the segregated TKS network — the only address the guest stack shares with us.
+        ipv4_address: 10.61.0.100
+        # TKS in-stack back-channel: the guest stack's containers (which join THIS network as
+        # external — twin ticket koniecdev/TheKittySaver#295) resolve their public origins to this
+        # proxy. Moved here from the default network by #506 so the two stacks no longer share one.
+        aliases:
           - ${TKS_DOMAIN_APP:-tks-app.localhost}
           - ${TKS_DOMAIN_AUTH:-tks-auth.localhost}
           - ${TKS_DOMAIN_API:-tks-api.localhost}
@@ -167,10 +187,23 @@ volumes:
   caddy-config:
 
 networks:
-  # Pinned subnet so the apps can restrict forwarded-header trust to the in-stack Caddy hop via
-  # ForwardedHeaders__KnownNetworks__0 above (#399). When the TheKittySaver stack joins the same
-  # box it picks its own subnet (e.g. 10.61.0.0/24) — never reuse this one.
+  # Two segregated networks per box (#506). Caddy is the only container on both; nothing else
+  # crosses. Pinned subnets so the apps can restrict forwarded-header trust to Caddy's static /32
+  # via ForwardedHeaders__KnownNetworks__0 above (#399).
+  #
+  # default (10.60.0.0/24): the LotroKoniecDev stack — auth-api, tms-api, frontend, migrator, Caddy.
+  #   Caddy sits at 10.60.0.100 (the value the /32 KnownNetworks pins).
   default:
     ipam:
       config:
         - subnet: 10.60.0.0/24
+  # tks (10.61.0.0/24): the shared boundary for the guest TheKittySaver stack. Only Caddy lives here
+  # (at 10.61.0.100); the TKS stack joins it as `external` (twin ticket koniecdev/TheKittySaver#295)
+  # instead of joining our default network. This keeps TKS containers OFF 10.60.0.0/24 — they can no
+  # longer reach our apps directly nor spoof X-Forwarded-* into them. `name:` mirrors the compose
+  # `${project}_default` convention so the guest can reference `${COMPOSE_PROJECT_NAME}_tks`.
+  tks:
+    name: ${COMPOSE_PROJECT_NAME}_tks
+    ipam:
+      config:
+        - subnet: 10.61.0.0/24

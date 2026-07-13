@@ -510,9 +510,10 @@ intel/
 # Stryker.NET mutation testing output
 StrykerOutput/
 
-# Terraform — the IaC itself was retired with Azure (ADR-0034 / #492), so nothing here is tracked
-# any more. These rules stay as a net: leftover local artifacts (iac/.terraform/, iac/tfplan) must
-# never be swept into a commit by `git add -A` — a plan file can embed secrets in plaintext.
+# Terraform — the IaC itself was retired with Azure (ADR-0034 / #492); the only Terraform left in
+# the repo is the dead, never-to-be-applied copy under docs/deployment/azure-graveyard/. These rules
+# stay as a net: leftover local artifacts (.terraform/, tfplan) must never be swept into a commit by
+# `git add -A` — a plan file can embed secrets in plaintext.
 **/.terraform/*
 
 *.tfstate
@@ -523,6 +524,9 @@ crash.*.log
 
 *.tfvars
 *.tfvars.json
+# Exception: the graveyard's staging overrides. They are part of the tombstone, not live config, and
+# carry no secrets by design (ADR-0017 — env_id / public domain / Key Vault + identity NAMES only).
+!docs/deployment/azure-graveyard/**/*.tfvars
 
 *.tfplan
 tfplan

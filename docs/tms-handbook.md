@@ -1641,7 +1641,9 @@ deletes the whole FinOps problem class the ADRs above had been fighting (scale-t
 windows, revision sweeps). Accepted: no blue/green (a 4 GB box cannot hold a second live set, so a
 deploy costs seconds of downtime, guarded by a migration gate + automatic rollback); observability
 shrank to logs + a daily health ping until a real sink is chosen; the box is now a thing to patch.
-Retired with it: the Terraform root, Key Vault, and ADRs 0013/0016/0017/0020/0027/0029.
+Retired with it: the Terraform root, Key Vault, and ADRs 0013/0016/0017/0020/0027/0029 — the
+Terraform and the Key Vault seeders survive as a read-only tombstone in
+`docs/deployment/azure-graveyard/`, so the `iac/*.tf` those ADRs argue about can still be opened.
 
 ---
 

@@ -21,7 +21,7 @@
 - [Environment variable matrix](#environment-variable-matrix) — the single source of truth, per service × environment
 - [Secrets](#secrets) — where they live, how to generate them, how to rotate them
 - [Consistency rules that bite](#consistency-rules-that-bite) — issuer / redirect / authority / CORS
-- [Bringing the stack up](#bringing-the-stack-up) — dev, prod-parity, and (re)provisioning a box
+- [Bringing the stack up](#bringing-the-stack-up) — dev, prod-parity, (re)provisioning a box, and the one-time network cutover
 - [Continuous deployment (CD over ssh)](#continuous-deployment-cd-over-ssh) — build-once → auto staging → gated prod promotion
 - [Database migrations](#database-migrations) — strategy, running them, and recovering from a bad migration (Neon PITR + the MIGR-04 auto-snapshot)
 - [Post-deploy smoke test](#post-deploy-smoke-test) — one command verifies a deployed environment end-to-end
@@ -51,6 +51,7 @@ staging.
 | Registry | `deploy` is `docker login`-ed to **ghcr.io** with a **read-only** (`read:packages`) PAT |
 | DB | none on the box — **Neon** is the database for prod AND staging (ADR-0034 §2) |
 | Ingress | **Caddy**, one vhost per app, automatic Let's Encrypt certificates |
+| Networks | **Two segregated Docker networks per box** (#506): `${project}_default` (`10.60.0.0/24`, our stack) and `${project}_tks` (`10.61.0.0/24`, the guest TheKittySaver stack). **Caddy is the only container on both** (static IPs `10.60.0.100` / `10.61.0.100`); nothing else crosses. The apps trust `X-Forwarded-*` from Caddy's `10.60.0.100/32` only — keep that /32 in lockstep with Caddy's `ipv4_address`. |
 
 Images are `linux/amd64` only (no multi-arch buildx) — the box is amd64 on purpose; never "fix" a
 pull error by enabling emulation.
@@ -132,7 +133,7 @@ Purely optional tuning knobs with safe defaults are omitted (e.g. `OpenIddict:Ac
 | `OpenIddict__WebClient__RedirectUris__0` | `https://localhost:7017/callback` | `https://lotro-translator.pl/callback` | ✅ non-dev | plain | MUST equal the Frontend callback (its public origin + `AuthSystem__CallbackPath`). Written to the DB **only at client creation** — see the reseed traps. |
 | `OpenIddict__WebClient__PostLogoutRedirectUris__0` | `https://localhost:7017` | `https://lotro-translator.pl` | ✅ non-dev | plain | Frontend post-logout return URL. |
 | `Cors__AllowedOrigins__0` | — (AllowAnyOrigin) | `https://lotro-translator.pl` | ✅ non-dev | plain | Bare origin = Frontend public URL. Lowercase, no port-if-default, no path/slash. |
-| `ForwardedHeaders__KnownNetworks__0` | — (dev skips `UseForwardedHeaders`) | `10.60.0.0/24` (the Caddy network) | optional | plain | Restricts `X-Forwarded-*` trust to the proxy hop (#399). Both deployed stacks set it. Malformed CIDR aborts boot. |
+| `ForwardedHeaders__KnownNetworks__0` | — (dev skips `UseForwardedHeaders`) | `10.60.0.100/32` (Caddy's pinned static IP) | optional | plain | Restricts `X-Forwarded-*` trust to Caddy's exact host address, not the whole subnet (#399, narrowed to a /32 by #506). Keep in lockstep with Caddy's `ipv4_address` on the default network in `compose.hetzner.yaml`. Both deployed stacks set it. Malformed CIDR aborts boot. |
 | `DataProtection__KeyRingPath` | — (host default) | `/keys` | ✅ non-dev | plain | Persistent volume (`auth-keys`); else logins/antiforgery/reset links break on every deploy. |
 | `Email__Host` | `localhost` (the compose mailpit, published on `:1025`) | `smtp-relay.brevo.com` | ✅ all | plain | SMTP host. Validated on start (every environment). |
 | `Email__Port` | `1025` | `587` | ✅ all | plain | 1–65535. |
@@ -155,7 +156,7 @@ Purely optional tuning knobs with safe defaults are omitted (e.g. `OpenIddict:Ac
 | `Auth__Authority` | — (unset → falls back to `Issuer`) | `https://auth.lotro-translator.pl` | optional² | plain | Back-channel for OIDC metadata + JWKS. ²Unset → falls back to `Issuer`; the dev host run relies on that fallback. Prod: must be `https` (OpenIddict rejects plain HTTP) and reachable from the container — i.e. the **public Caddy origin**, never `http://auth-api:8080`. |
 | `Auth__Audience` | `lotrokoniecdev-api` | `lotrokoniecdev-api` | ✅ all | plain | Default in base `appsettings.json`. |
 | `Cors__AllowedOrigins__0` | — (AllowAnyOrigin) | `https://lotro-translator.pl` | ✅ non-dev | plain | Bare origin = Frontend public URL. |
-| `ForwardedHeaders__KnownNetworks__0` | — (dev skips `UseForwardedHeaders`) | `10.60.0.0/24` (the Caddy network) | optional | plain | See the auth-api row. |
+| `ForwardedHeaders__KnownNetworks__0` | — (dev skips `UseForwardedHeaders`) | `10.60.0.100/32` (Caddy's pinned static IP) | optional | plain | See the auth-api row. |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` / `OTEL_EXPORTER_OTLP_PROTOCOL` | `http://localhost:4317` / `grpc` (launchSettings) | — (empty: no sink today) | optional | plain | Empty endpoint = export disabled. |
 | `Bootstrap__Enabled` | `false` | `false` | optional | plain | One-time DB seed of the first export (spec 0001). Off by default. |
 | `Bootstrap__GameVersion` / `Bootstrap__ExportedTextPath` / `Bootstrap__PolishTextPath` | — / — / `/app/translations/polish.txt` | as needed | optional | plain | Only consulted when `Bootstrap__Enabled=true`. |
@@ -178,7 +179,7 @@ Staging/Production.
 | `AuthSystem__Scopes` | `openid,email,profile,roles,api,offline_access` | same | ✅ all | plain | At least one scope. |
 | `TranslationSystem__BaseUrl` | `https://localhost:5002/` | `https://tms.lotro-translator.pl/` | ✅ all | plain | TMS API origin (trailing slash). |
 | `DataProtection__KeyRingPath` | — (host default) | `/keys` | ✅ non-dev | plain | Persistent volume (`frontend-keys`, ADR-0005); else antiforgery + auth cookies break on deploy. |
-| `ForwardedHeaders__KnownNetworks__0` | — (dev skips `UseForwardedHeaders`) | `10.60.0.0/24` (the Caddy network) | optional | plain | See the auth-api row. |
+| `ForwardedHeaders__KnownNetworks__0` | — (dev skips `UseForwardedHeaders`) | `10.60.0.100/32` (Caddy's pinned static IP) | optional | plain | See the auth-api row. |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` / `OTEL_EXPORTER_OTLP_PROTOCOL` | `http://localhost:4317` / `grpc` (launchSettings) | — (empty: no sink today) | optional | plain | Empty endpoint = export disabled. |
 
 ### migrator
@@ -403,9 +404,13 @@ The cross-service settings that are individually valid but break the system when
 
 5. **Behind the TLS-terminating proxy, forwarded headers are load-bearing.** Caddy MUST send
    `X-Forwarded-Proto` (and Host); all three apps read them (`UseForwardedHeaders`) to reconstruct the
-   `https` scheme used for `iss`, `redirect_uri`, and `Secure` cookies. Trust is scoped to the proxy's
-   subnet (#399): `ForwardedHeaders__KnownNetworks__0` = `10.60.0.0/24`, set for all three apps in
-   both `compose.hetzner.yaml` and `compose.prod.yaml`; a malformed CIDR aborts boot. Leaving it
+   `https` scheme used for `iss`, `redirect_uri`, and `Secure` cookies. Trust is scoped to Caddy's
+   exact host address (#399, narrowed from the `/24` to a `/32` by #506):
+   `ForwardedHeaders__KnownNetworks__0` = `10.60.0.100/32` in `compose.hetzner.yaml`
+   (`compose.prod.yaml` keeps the `/24` — it has no co-tenant stack to fence off), set for all three
+   apps; a malformed CIDR aborts boot. That value MUST stay in lockstep with Caddy's `ipv4_address`
+   on the default network (see [Topology](#topology)); moving Caddy's pinned IP without updating all
+   three apps silently drops forwarded-header trust and breaks `https` reconstruction. Leaving it
    unset trusts every upstream (with an explicit `ForwardLimit = 1`), which is safe **only** while the
    container port is unreachable except through the proxy — so **never publish `:8080`**. In prod the
    apps serve HTTP only; Caddy owns TLS.
@@ -511,6 +516,52 @@ docker compose -f compose.prod.yaml --env-file .env.prod --profile local-smtp --
    remember `GET / -> 200` proves nothing; smoke's fingerprint leg is the real check.
 6. **Add swap on the prod box** and re-pin the CD host key (`ssh-keyscan`) — see
    [Gotchas](#gotchas) and [One-time setup per environment](#one-time-setup-per-environment).
+
+### One-time: cutting a live box over to the two segregated networks (#506)
+
+Both stacks are already running on these boxes, so #506 is a **migration of a live box**, not a fresh
+bring-up. The lotro deploy recreates our containers on the new topology and creates `${project}_tks`;
+the TKS containers keep running meanwhile, but on the old network and **without** the Caddy aliases
+they need — so they must be recreated straight after (compose cannot move a running container between
+networks). Do the whole sequence on **staging first**, prod only once staging is verified. A short TKS
+outage is expected and acceptable pre-launch.
+
+**Pre-flight** — record what you are changing, as `deploy` (`lotro-prod` shown; staging is
+`lotro-staging`):
+
+```bash
+docker network ls                                     # today: ONE shared network, both stacks on it
+docker network inspect lotro-prod_default \
+  --format '{{range .Containers}}{{.Name}} {{.IPv4Address}}{{"\n"}}{{end}}'
+```
+
+Everything that is **not** ours in that list (every `tks-*` container) is exactly what this change
+fences off. If Caddy already sits at `10.60.0.100` and a `lotro-prod_tks` network exists, the box has
+been cut over already — stop here.
+
+1. **Deploy lotro.** CD does it on merge; by hand: `IMAGE_TAG=<tag> bash /opt/lotro/deploy.sh`.
+2. **Verify the boundary before touching TKS** — Caddy must hold both pinned addresses, and nothing
+   but our four containers may remain on `10.60.0.0/24`:
+
+   ```bash
+   docker inspect lotro-prod-caddy-1 \
+     --format '{{range $n,$c := .NetworkSettings.Networks}}{{$n}} {{$c.IPAddress}}{{"\n"}}{{end}}'
+   docker network inspect lotro-prod_default \
+     --format '{{range .Containers}}{{.Name}}{{"\n"}}{{end}}'
+   ```
+
+3. **Recreate the TKS stack onto `${project}_tks`** (its compose change is the twin ticket,
+   koniecdev/TheKittySaver#295):
+
+   ```bash
+   cd /opt/tks
+   docker compose down          # NEVER -v: that would drop its DB/keyring volumes
+   docker compose up -d
+   ```
+
+4. **Verify both sites from outside the box** — ours with the [smoke test](#post-deploy-smoke-test),
+   TKS by loading its public origin. A 502 on TKS means its containers did not land on
+   `${project}_tks` (or lost their `tks-` service-key prefix) — Caddy itself is fine; re-check step 3.
 
 ## Continuous deployment (CD over ssh)
 
@@ -1014,14 +1065,26 @@ Recovery = **new VPS → `bootstrap.sh` → scp stack files → restore/re-mint 
   `docker` + `docker compose` and installs `docker-ce` only when the box has no engine at all (fixed
   2026-07-13, #502). Do not "simplify" that guard away; the engine's vendor is irrelevant to us, its
   presence is not.
-- **Compose service KEYS must be globally unique on the shared network.** Compose registers the
-  service key itself as a Docker DNS alias on top of `container_name` — a guest stack (TKS) whose
-  compose also says `frontend:`/`auth-api:` collides with ours, and Caddy's
-  `reverse_proxy frontend:8080` then round-robins into the WRONG stack (2026-07-12 prod incident:
-  lotro-translator.pl served uratujkota.pl). Every TKS service key carries the `tks-` prefix; any new
-  stack joining this network must prefix its keys the same way. Detection:
+- **Two segregated networks per box; Caddy is the only shared component (#506).** Our stack lives
+  alone on `${project}_default` (`10.60.0.0/24`); the guest TheKittySaver stack lives alone on
+  `${project}_tks` (`10.61.0.0/24`, which our `compose.hetzner.yaml` defines and TKS joins as
+  `external` — its twin ticket koniecdev/TheKittySaver#295). Caddy sits on both at pinned static IPs
+  (`10.60.0.100` / `10.61.0.100`) and is the ONLY container that crosses. This fences off the
+  cross-stack pivot and the header-spoof that one shared network allowed (see the ADR-0034
+  amendment). **Coordinated bring-up:** deploying this topology change **re-creates the lotro stack**,
+  so the TKS containers keep running but lose the Caddy-side aliases on the old network — the TKS
+  stack must be re-pointed to `${project}_tks` and re-upped (`down` + `up -d` in `/opt/tks`) **right
+  after** the lotro deploy on each box (**staging first, then prod**; brief TKS downtime is fine
+  pre-launch).
+- **Compose service KEYS must still be globally unique per network.** Compose registers the service
+  key itself as a Docker DNS alias on top of `container_name`. Before #506 both stacks shared one
+  network, so a guest whose compose also said `frontend:`/`auth-api:` collided with ours and Caddy's
+  `reverse_proxy frontend:8080` round-robined into the WRONG stack (2026-07-12 prod incident:
+  lotro-translator.pl served uratujkota.pl). Segmentation removes that cross-stack collision, but the
+  `tks-` prefix on every TKS service key stays the rule — Caddy resolves `reverse_proxy tks-frontend:8080`
+  on the `tks` network, and the public-hostname aliases must remain unique there. Detection:
   `docker inspect -f '{{range $k,$v := .NetworkSettings.Networks}}{{$v.Aliases}}{{end}}' <ctr>` — no
-  alias may appear on two containers.
+  alias may appear on two containers of the same network.
 - **Docker bypasses ufw for published ports** (it programs iptables directly). Our stacks publish only
   Caddy's 80/443 — which ufw allows anyway. Never publish another service's port "just to debug";
   exec into the network instead

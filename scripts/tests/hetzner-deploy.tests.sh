@@ -18,6 +18,7 @@
 set -euo pipefail
 
 SCRIPTS_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+REPO_ROOT="$(cd "$SCRIPTS_DIR/.." && pwd)"
 DEPLOY_SH="$SCRIPTS_DIR/hetzner/deploy.sh"
 TMP_ROOT="$(mktemp -d)"
 trap 'rm -rf "$TMP_ROOT"' EXIT
@@ -82,23 +83,27 @@ install_stub_docker() {
 printf '%s\n' "$*" >> "$STUB_LOG"
 
 if [ "$1" = compose ]; then
-    # docker compose -f <file> <verb> …
+    # docker compose [global flags] <verb> … — walk past `compose` and any global flag (`-f <file>`,
+    # `--profile <name>`, …) to find the verb. Flag-tolerant on purpose: the Caddyfile gate passes
+    # `--profile validate`, and a parser that mistook a flag for the verb would silently stop faking
+    # that step's outcome, which would make the failure cases below assert nothing.
     verb=""
-    seen_file=0
+    skip_next=0
     for arg in "$@"; do
+        if [ "$skip_next" = 1 ]; then skip_next=0; continue; fi
         case "$arg" in
             compose) continue ;;
-            -f) seen_file=1; continue ;;
-            *) if [ "$seen_file" = 1 ]; then seen_file=2; continue; fi
-               verb="$arg"; break ;;
+            -f | --file | -p | --project-name | --profile | --env-file) skip_next=1; continue ;;
+            -*) continue ;;
+            *) verb="$arg"; break ;;
         esac
     done
     case "$verb" in
         pull) [ -z "${STUB_PULL_FAIL:-}" ] || { echo 'stub: pull failed' >&2; exit 1; } ;;
         run)
             # Two distinct `compose run` calls — tell them apart by what they run:
-            #   `run --rm --no-deps caddy caddy validate …`  → the Caddyfile check
-            #   `run --rm --no-deps migrator`                → the migration gate
+            #   `--profile validate run --rm --no-deps caddy-validate`  → the Caddyfile check
+            #   `run --rm --no-deps migrator`                           → the migration gate
             case "$*" in
                 *validate*) [ -z "${STUB_CADDY_INVALID:-}" ] || { echo 'stub: Caddyfile invalid' >&2; exit 1; } ;;
                 *migrator*) [ -z "${STUB_MIGRATE_FAIL:-}" ] || { echo 'stub: migration failed' >&2; exit 1; } ;;
@@ -147,6 +152,31 @@ called() { grep -qF -- "$1" "$TMP_ROOT/calls.log"; }
 # Line number of the first docker call containing $1 (0 = never called).
 call_line() { grep -nF -- "$1" "$TMP_ROOT/calls.log" | head -1 | cut -d: -f1; }
 
+# Service keys that pin a static ipv4_address in the REAL compose.hetzner.yaml (service keys are the
+# only two-space-indented bare keys under `services:`).
+pinned_ip_services() {
+    awk '
+        /^services:/ { in_services = 1; next }
+        /^[^[:space:]#]/ { in_services = 0 }
+        in_services && /^  [A-Za-z0-9_.-]+:[[:space:]]*$/ { svc = $1; sub(/:$/, "", svc); next }
+        in_services && /ipv4_address:/ && svc != "" { print svc }
+    ' "$REPO_ROOT/compose.hetzner.yaml" | sort -u
+}
+
+# The service every recorded `compose … run …` call targets (the first non-flag word after `run`).
+run_targets() {
+    awk '{
+        seen = 0
+        for (i = 1; i <= NF; i++) {
+            if ($i == "run") { seen = 1; continue }
+            if (!seen) continue
+            if ($i ~ /^-/) continue
+            print $i
+            break
+        }
+    }' "$TMP_ROOT/calls.log"
+}
+
 install_stub_docker
 
 # --- Input validation: a bad tag must die before it can reach compose or a remote shell -----------
@@ -182,7 +212,7 @@ run_deploy "$stack" IMAGE_TAG=sha-abc1234 EXPECTED_DIGESTS="$(expected_digests "
 grep -q 'PREVIOUS_IMAGE_TAG=sha-0000000' <<<"$LAST_OUTPUT" || fail 'the previous tag was not printed for the rollback path'
 [ "$(env_tag "$stack")" = 'sha-abc1234' ] || fail 'IMAGE_TAG was not pinned in .env' "$(cat "$stack/.env")"
 grep -q 'supersecret' "$stack/.env" || fail 'rewriting .env dropped the other variables'
-called 'caddy validate' || fail 'the Caddyfile was never validated'
+called 'run --rm --no-deps caddy-validate' || fail 'the Caddyfile was never validated'
 called 'pull' || fail 'images were never pulled'
 called 'run --rm --no-deps migrator' || fail 'the migration gate never ran'
 called 'up -d --remove-orphans' || fail 'containers were never rolled'
@@ -199,6 +229,22 @@ up_at="$(call_line 'up -d --remove-orphans')"
 [ "$gate_at" -lt "$up_at" ] \
     || fail 'the migrator must run BEFORE up -d recreates the apps' "gate at call #$gate_at, up -d at call #$up_at"
 pass 'the migrator gate runs strictly BEFORE up -d recreates any app container'
+
+CASE='one-off gates vs static IPs'
+# THE regression test for the #506 review finding. `compose run <svc>` builds the one-off container
+# from the FULL service definition — static `ipv4_address` included — so targeting a service whose IP
+# the LIVE container already holds dies with "failed to set up container networking: Address already
+# in use" (reproduced on Docker 29.6.1, the engine the boxes run). It bites on the SECOND deploy, not
+# the first, which is precisely the failure a green first roll cannot reveal. Invariant: no service
+# that pins an IP in the real compose.hetzner.yaml may ever be a `compose run` target.
+pinned="$(pinned_ip_services)"
+[ -n "$pinned" ] || fail 'expected compose.hetzner.yaml to pin at least one static ipv4_address (Caddy)'
+for svc in $pinned; do
+    run_targets | grep -qxF "$svc" && fail \
+        "deploy.sh builds a one-off container from '$svc', which pins a static ipv4_address" \
+        "the running container already holds that address — every deploy after the first would die with 'Address already in use'"
+done
+pass "no one-off container is built from a static-IP service ($(echo "$pinned" | tr '\n' ' '))"
 
 CASE='.env mode'
 # SC2012: the path is ours and has no exotic characters; `ls -l` is the one mode probe whose output

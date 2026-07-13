@@ -369,12 +369,14 @@ file_id||gossip_id||translated_text||args_order||args_id||approved
 - **Right-size the design — YAGNI by default.** Before proposing an abstraction, cache, config
   knob, queue, or new infra, check it solves a **real, present** need from the current
   spec/ticket — not a hypothetical future. Pick the simple path and note the trade-off in one line.
-- **Agent fan-out is budgeted; reviews run on Fable 5 at xhigh effort, everything else at high**
-  (2026-07-13; re-enabled Fable 5 after the same-day Opus revert #497 — the xhigh-reviews /
-  high-everything-else effort split is unchanged; original Fable switch 2026-07-09→11). Hard cap:
+- **Agent fan-out is budgeted; reviews run on Opus 4.8 at xhigh effort, everything else at high**
+  (2026-07-13: reviews moved to Opus 4.8 for now via the central model policy; loop workers stay
+  on Fable 5 at high — history: Fable switch 2026-07-09→11, same-day Opus revert #497, Fable
+  re-enable #503). Hard cap:
   **max 4 subagents in parallel**, no chained waves by default; a small diff gets reviewed
-  **inline, zero agents**. The `code-reviewer` agent, `/code-review` and `/security-review` run
-  with **model Fable 5 + effort xhigh**; loop-mode worker sessions run at **effort high**
+  **inline, zero agents**. The `code-reviewer` agent runs with **model Opus 4.8 + effort xhigh**;
+  `/code-review` and `/security-review` follow the session model/effort; loop-mode worker
+  sessions run at **effort high**
   (`LOOP_EFFORT` default) — unless the prompt for that run explicitly says otherwise. Applies to
   interactive sessions and loop-mode workers alike. The concrete values live in agent frontmatter
   and in the loop scripts' fallback defaults; on the maintainer's machine both are driven by the

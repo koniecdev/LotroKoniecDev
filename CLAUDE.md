@@ -376,7 +376,11 @@ file_id||gossip_id||translated_text||args_order||args_id||approved
   **inline, zero agents**. The `code-reviewer` agent, `/code-review` and `/security-review` run
   with **model Fable 5 + effort xhigh**; loop-mode worker sessions run at **effort high**
   (`LOOP_EFFORT` default) — unless the prompt for that run explicitly says otherwise. Applies to
-  interactive sessions and loop-mode workers alike.
+  interactive sessions and loop-mode workers alike. The concrete values live in agent frontmatter
+  and in the loop scripts' fallback defaults; on the maintainer's machine both are driven by the
+  central `~/.claude/model-policy.env` (frontmatter stamped via `apply-model-policy.sh`, loop
+  scripts source it at runtime — fresh clones just use the committed values). If this prose and
+  the frontmatter ever disagree, the frontmatter wins.
 - **Frontend is Static SSR — enforced, not just documented.** No WebAssembly, no SignalR circuit,
   no per-user server state; forms post via `<form method="post" @formname @onsubmit>` (the SSR
   `@onsubmit` special-case) or `<EditForm OnValidSubmit>` — never interactive `@on*` handlers,

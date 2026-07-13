@@ -200,6 +200,20 @@ lived in the vaults) retires with the rest of the Azure surface in #492.
    `/etc/ssh/sshd_config.d/00-hardening.conf` and `/etc/fail2ban/jail.local` against what the
    script writes — bootstrap **overwrites** them (converges to the repo version), so any extra
    hand-tuned directive there is discarded. Fold anything worth keeping into the script first.
+
+   **The Docker leg adopts, it does not install** (fixed 2026-07-13, wiring CD to the live pair).
+   The live pair runs **Ubuntu's** `docker.io` + `containerd` + `docker-compose-v2`, not Docker's
+   `docker-ce` stack — and the two CONFLICT. An unguarded `apt-get install docker-ce containerd.io`
+   on such a box is an engine **swap**: apt removes the running engine, dockerd restarts, and every
+   container on the host goes with it — *both* stacks, `/opt/lotro` **and** `/opt/tks`. So the
+   script now probes for `docker` + `docker compose` and installs `docker-ce` only when the box has
+   no engine at all. Do not "simplify" that guard away; the engine's vendor is irrelevant to us,
+   its presence is not.
+
+   **The GHCR login is optional today** — the four images are **public** packages, so `deploy`
+   pulls them anonymously and the PAT prompt can be skipped (the script warns and carries on). It
+   stays in the script because the login is what a *private* package would need; if you ever flip
+   the packages to private, that prompt is suddenly load-bearing.
 4. **Stack files:** copy `compose.hetzner.yaml` + `.docker/hetzner/` to `/opt/lotro/` (as
    `deploy`), assemble the box's `.env` from `.env.hetzner.example` (every variable, its source of
    truth and its rotation command: §Secrets and env vars above), `chmod 600` it.
@@ -272,7 +286,14 @@ TheKittySaver, which it proxies.
 
 ### One-time setup per environment
 
-CD fails closed with an explicit "not wired for ssh deploys" error until each environment
+**Precondition — the box needs a `deploy` user that owns the stack.** CD connects as `deploy` and
+scp's over `/opt/lotro`, so a box brought up by hand as root is not deployable: there is no `deploy`
+to log in as, and even once created it cannot read the root-owned `0600` `.env` nor overwrite the
+root-owned stack files. `bootstrap.sh` provisions the user *and* converges the ownership of
+`/opt/lotro` + `/opt/tks` recursively — that is the fix, not a `chown` by hand. (The Phase-0 pair
+was brought up inline without it; CD could not run until the user existed — 2026-07-13.)
+
+CD then fails closed with an explicit "not wired for ssh deploys" error until each environment
 (`staging`, `production`) carries these. Values for the boxes are in §Server facts.
 
 | Kind | Name | Value |
@@ -288,6 +309,15 @@ CD fails closed with an explicit "not wired for ssh deploys" error until each en
 
 Repo-level `CD_ENABLED=true` arms the deploy jobs at all; `STAGING_ENABLED=true` arms the staging leg
 (ADR-0018).
+
+> ⚠️ **A stale `SMOKE_CLIENT_SECRET` looks exactly like a broken deploy.** It is the one value here
+> that lives in *two* places — the box `.env` and the GitHub secret — and nothing reconciles them. Roll
+> the OpenIddict keys on a box (HETZ-03 did, for both) without re-setting the secret and CD still
+> deploys perfectly: images pull, the migration gate passes, the containers come up — and then smoke's
+> `client_credentials` leg **401s**, CD judges the rollout red and **automatically rolls it back**. The
+> log accuses the release; the fault is the secret. Whenever you rotate `OpenIddict__ApiClientSecret`,
+> re-set this in the same breath. There is no `SMOKE_CLIENT_SECRET` on `production` at env level ⇒ it
+> silently falls back to the **repo-level** secret, which is an Azure-era leftover — set it per env.
 
 **Mint a CD deploy key per box** — one key per environment, so a staging compromise cannot touch prod.
 It is the `deploy` user's key, never `root`'s:

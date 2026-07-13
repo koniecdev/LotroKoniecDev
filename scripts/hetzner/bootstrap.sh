@@ -11,7 +11,8 @@
 #   ssh root@<ip> 'GHCR_USER=<user> GHCR_TOKEN=<pat> bash -s' < scripts/hetzner/bootstrap.sh
 #
 # What it sets up:
-#   * Docker Engine + compose plugin (official Docker apt repo — Ubuntu's docker.io is stale)
+#   * Docker Engine + compose plugin — ADOPTS whatever working engine the box already has, and
+#     installs docker-ce from Docker's apt repo only when there is none (see the leg below)
 #   * ufw: deny incoming except 22/80/443, allow outgoing
 #   * fail2ban with the systemd backend (24.04 ships no /var/log/auth.log without rsyslog)
 #   * unattended-upgrades (security patches apply themselves)
@@ -73,19 +74,38 @@ apt-get update -q
 # Upgrades are unattended-upgrades' job (security) or a deliberate operator action.
 apt-get install -qy --no-upgrade ca-certificates curl ufw fail2ban unattended-upgrades python3-systemd
 
-log "Docker Engine + compose plugin (official Docker apt repo)"
-install -m 0755 -d /etc/apt/keyrings
-if [ ! -f /etc/apt/keyrings/docker.asc ]; then
-    curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
-    chmod a+r /etc/apt/keyrings/docker.asc
-fi
-if write_file /etc/apt/sources.list.d/docker.list 0644 <<EOF
+log "Docker Engine + compose plugin"
+# ADOPT an engine that is already there; install docker-ce ONLY on a box that has none.
+#
+# The live CX23 pair (and any box provisioned from Ubuntu's own archive) runs docker.io +
+# containerd + docker-compose-v2. Those packages CONFLICT with Docker's docker-ce stack, so
+# `apt-get install docker-ce containerd.io …` on such a box is not an install — it is an engine
+# SWAP: apt removes the running docker.io/containerd and dockerd restarts, bouncing every container
+# on the host (BOTH compose stacks — /opt/lotro and /opt/tks). `--no-upgrade` does not save us
+# here; it only skips packages that are already installed, and docker-ce is not one of them.
+#
+# The script needs an engine and the compose plugin — not a specific vendor's packaging of them.
+# So: probe for the capability, and touch apt only when the capability is missing. This is what
+# makes the "safe to re-run on the hand-hardened Phase-0 boxes" promise in the header actually true.
+# Found the hard way on 2026-07-13, wiring CD to the live pair (#491 follow-up).
+if command -v docker > /dev/null 2>&1 && docker compose version > /dev/null 2>&1; then
+    echo "Engine + compose plugin already present ($(docker --version)) — adopting it."
+    echo "NOT installing docker-ce: it conflicts with Ubuntu's docker.io and the swap would restart every container."
+else
+    echo "No Docker engine (or no compose plugin) — installing docker-ce from Docker's apt repo."
+    install -m 0755 -d /etc/apt/keyrings
+    if [ ! -f /etc/apt/keyrings/docker.asc ]; then
+        curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
+        chmod a+r /etc/apt/keyrings/docker.asc
+    fi
+    if write_file /etc/apt/sources.list.d/docker.list 0644 <<EOF
 deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu ${CODENAME} stable
 EOF
-then
-    apt-get update -q
+    then
+        apt-get update -q
+    fi
+    apt-get install -qy --no-upgrade docker-ce docker-ce-cli containerd.io docker-compose-plugin
 fi
-apt-get install -qy --no-upgrade docker-ce docker-ce-cli containerd.io docker-compose-plugin
 systemctl enable --now docker
 
 log "deploy user (docker group, key-only ssh, locked password)"
@@ -107,7 +127,14 @@ if [ ! -s /home/deploy/.ssh/authorized_keys ]; then
 fi
 
 log "stack directories (/opt/lotro for LotroKoniecDev, /opt/tks for TheKittySaver — ADR-0034 §5)"
+# -R, not just `install -d`: on a box where the stack was landed BEFORE the deploy user existed (the
+# Phase-0 pair — root scp'd the files in by hand), `install -d` chowns only the directory and leaves
+# every file inside it root-owned. Bootstrap then reports success while CD still cannot deploy: `.env`
+# is 0600 root, so deploy cannot read it (no compose run at all), and scp of compose.hetzner.yaml /
+# the Caddyfile / deploy.sh cannot truncate a root-owned file in a deploy-owned directory. Converging
+# the CONTENTS is what makes the deploy user real. Modes are left alone — only ownership moves.
 install -d -m 0755 -o deploy -g deploy /opt/lotro /opt/tks
+chown -R deploy:deploy /opt/lotro /opt/tks
 
 log "sshd hardening (PasswordAuthentication no)"
 # Lockout guard: never disable password auth on a box where NO key-based path exists (a box

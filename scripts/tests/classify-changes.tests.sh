@@ -68,7 +68,7 @@ echo '── inert: nothing runs ───────────────�
 expect 'code=false guards=false images=false' 'agent config under .claude/'   '.claude/agents/code-reviewer.md' '.claude/settings.json'
 expect 'code=false guards=false images=false' 'project memory + docs'         'CLAUDE.md' 'docs/claude-loop.md'
 expect 'code=false guards=false images=false' 'the loop conductor script'     'scripts/claude/backlog-loop.sh'
-expect 'code=false guards=false images=false' 'IaC (infra.yml gates it)'      'iac/main.tf'
+expect 'code=false guards=false images=false' 'retired Azure IaC (HETZ-06)'   'iac/main.tf'
 expect 'code=false guards=false images=false' 'another workflow'              '.github/workflows/codeql.yml'
 expect 'code=false guards=false images=false' 'the dev compose stack'         'compose.yaml'
 expect 'code=false guards=false images=false' 'an env example'                '.env.example'
@@ -80,6 +80,8 @@ expect 'code=false guards=true images=false' 'the provenance gate itself'       
 expect 'code=false guards=true images=false' 'the SSR-purity guard'                       'scripts/check-ssr-purity.sh'
 expect 'code=false guards=true images=false' 'the migration-safety guard'                 'scripts/check-migration-safety.sh'
 expect 'code=false guards=true images=false' 'a guard self-test'                          'scripts/tests/check-migration-safety.tests.sh'
+expect 'code=false guards=true images=false' 'the script CD runs on a prod box'           'scripts/hetzner/deploy.sh'
+expect 'code=false guards=true images=false' 'the rollout self-test'                      'scripts/tests/hetzner-deploy.tests.sh'
 
 echo
 echo '── images ───────────────────────────────────────────────────────────────────────────────────'

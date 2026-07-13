@@ -64,6 +64,11 @@ jobs:
       - name: Backlog-loop provenance gate self-test
         run: ./scripts/tests/claude-loop-provenance.tests.sh
 
+      # Same Hetzner rollout self-test as pr-verify (HETZ-04) — CD is triggered by THIS workflow
+      # concluding success, so the script CD is about to run on a prod box gets checked here too.
+      - name: Hetzner deploy script self-test
+        run: ./scripts/tests/hetzner-deploy.tests.sh
+
       - name: Setup .NET
         uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5.4.0
         with:

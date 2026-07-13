@@ -122,6 +122,13 @@ jobs:
       - name: Backlog-loop provenance gate self-test
         run: ./scripts/tests/claude-loop-provenance.tests.sh
 
+      # The Hetzner rollout script (HETZ-04) runs on a PROD box, driven by CD over ssh, and its real
+      # inputs (Docker daemon, GHCR, Neon) exist nowhere in CI. This suite stubs `docker` and pins the
+      # behavior CD leans on — above all that a pulled image which is not the digest CD attested
+      # aborts the roll before any container starts.
+      - name: Hetzner deploy script self-test
+        run: ./scripts/tests/hetzner-deploy.tests.sh
+
       # Everything below is the .NET gate: it runs only when the PR can actually affect it. A PR
       # that merely edits a script CI executes (or a Dockerfile) stops here, green, in seconds.
       - name: Setup .NET

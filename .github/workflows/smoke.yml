@@ -3,7 +3,8 @@ name: Smoke test
 # Post-deploy smoke test (M6-13). Two entry points:
 #   * workflow_call    — kept for future callers; the CD rollout does NOT call it — deploy.yml runs
 #                        scripts/smoke.sh INLINE so the smoke shares the rollout job's approved
-#                        environment + Azure OIDC identity (cd.yml's "one job per environment" note).
+#                        environment (and can therefore roll the box back on a red result — see
+#                        cd.yml's "one job per environment" note).
 #   * workflow_dispatch — manual on-demand run against any environment (enter the three URLs).
 #
 # It gives a green/red signal that auth-api + tms-api + frontend came up correctly: health, an OIDC

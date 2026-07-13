@@ -127,17 +127,18 @@ try
         options.MimeTypes = ResponseCompressionDefaults.MimeTypes;
     });
 
-    // Behind a cloud ingress (ACA / ALB / any reverse proxy) TLS terminates at the proxy and the
-    // container receives plain HTTP with X-Forwarded-* headers. Honour them so Request.Scheme is
-    // https — OAuth redirects, scheme-derived HATEOAS hrefs, Secure cookies, and UseHttpsRedirection
-    // all depend on it. (The OpenIddict token/discovery `iss` is NOT scheme-derived: it is pinned
-    // from OpenIddictSettings.Issuer, so it stays correct regardless of these headers.)
+    // Behind the reverse proxy TLS terminates at the proxy and the container receives plain HTTP
+    // with X-Forwarded-* headers. Honour them so Request.Scheme is https — OAuth redirects,
+    // scheme-derived HATEOAS hrefs, Secure cookies, and UseHttpsRedirection all depend on it. (The
+    // OpenIddict token/discovery `iss` is NOT scheme-derived: it is pinned from
+    // OpenIddictSettings.Issuer, so it stays correct regardless of these headers.)
     //
-    // Trust policy (#399): where the proxy subnet is knowable, ForwardedHeaders:KnownNetworks
-    // restricts trust to those CIDRs (compose.prod.yaml pins the Caddy network and sets it); where
-    // the ingress hop has no stable IP (ACA), the list stays empty — every upstream is trusted —
-    // which is safe only under the recorded invariant that the container port is NEVER published
-    // directly: ACA ingress is the sole route (iac/) and compose.prod.yaml uses expose:, not ports:.
+    // Trust policy (#399): ForwardedHeaders:KnownNetworks restricts trust to the proxy's CIDR, and
+    // every deployed stack pins it — compose.hetzner.yaml (the Hetzner boxes) and compose.prod.yaml
+    // (the local parity stack) both set the Caddy network. An empty list trusts EVERY upstream; that
+    // fallback is safe only under the recorded invariant that the container port is never published
+    // directly (both stacks use expose:, not ports: — Caddy is the sole route), and since the move
+    // off ACA (ADR-0034) no environment relies on it.
     // ForwardLimit = 1 is explicit either way: exactly one proxy hop sets these headers, so only
     // the right-most X-Forwarded-* entry (the ingress-observed client) is ever applied. A malformed
     // CIDR — or a knob that is set yet yields no entries (e.g. a scalar value missing the __0

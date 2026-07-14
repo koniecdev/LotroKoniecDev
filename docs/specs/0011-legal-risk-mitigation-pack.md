@@ -1,6 +1,6 @@
 # Spec 0011: Legal-risk mitigation pack (IP/ToS exposure towards SSG + player-facing disclaimers)
 
-- **Status:** Agreed
+- **Status:** Implemented (LEGAL-08…13 delivered — #474–#479; playbook landed last, 2026-07-14)
 - **Date:** 2026-07-12
 - **Author:** Artur Koniec (research + drafting: Claude)
 - **Ticket:** #474–#479 (LEGAL-08…LEGAL-13) under epic #459
@@ -170,19 +170,20 @@ the public repo or platform hands a rightsholder an easy, high-value grievance.
 
 ## Acceptance criteria
 
-- [ ] No verbatim LOTRO text (EN or translated-from-real-quest PL) remains anywhere in the
-      repo HEAD (`grep` audit documented in the PR).
-- [ ] `LICENSE` + `THIRD-PARTY-NOTICES.md` exist; README section consistent with them and with
-      the official 2026 trademark ownership line.
-- [ ] Every frontend page renders the footer non-affiliation/trademark line (SSR-pure, no new
-      interactivity; `check-ssr-purity` green).
+- [x] No verbatim LOTRO text (EN or translated-from-real-quest PL) remains anywhere in the
+      repo HEAD (`grep` audit documented in the PR). (#474)
+- [x] `LICENSE` + `THIRD-PARTY-NOTICES.md` exist; README section consistent with them and with
+      the official 2026 trademark ownership line. (#475)
+- [x] Every frontend page renders the footer non-affiliation/trademark line (SSR-pure, no new
+      interactivity; `check-ssr-purity` green). (#476)
 - [x] ToS shows the new IP/takedown §, TOC updated, changelog date bumped. (#477)
 - [x] Home download CTA and CLI `patch`/`launch` output carry the agreed one-liner; CLI exit
       codes and all existing patcher tests unchanged. (#478)
-- [ ] `docs/legal/takedown-playbook.md` exists with the 48 h acknowledge flow + reply template.
-- [ ] Q2's conscious accept (public EN corpus stays anonymous) and Q4's no-outreach stance are
+- [x] `docs/legal/takedown-playbook.md` exists with the 48 h acknowledge flow + reply template.
+      (#479)
+- [x] Q2's conscious accept (public EN corpus stays anonymous) and Q4's no-outreach stance are
       recorded here and require no code change; nothing in this pack touches endpoint auth.
-- [ ] Zero warnings; existing tests green with assertions untouched.
+- [x] Zero warnings; existing tests green with assertions untouched.
 
 ## Open questions
 

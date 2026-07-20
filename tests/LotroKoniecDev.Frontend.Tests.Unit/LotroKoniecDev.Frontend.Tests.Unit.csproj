@@ -9,6 +9,9 @@
 
     <ItemGroup>
         <PackageReference Include="bunit" />
+        <!-- Direct pin forces the patched AngleSharp (advisory GHSA-pgww-w46g-26qg) over the vulnerable
+             1.4.0 pulled transitively by bunit; version lives in Directory.Packages.props. -->
+        <PackageReference Include="AngleSharp" />
         <PackageReference Include="coverlet.collector">
             <PrivateAssets>all</PrivateAssets>
             <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>

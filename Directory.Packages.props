@@ -11,6 +11,10 @@
          which carries advisory GHSA-v5pm-xwqc-g5wc (circular-schema stack overflow). Pin the first patched
          2.x release; the API projects reference it directly to force the fixed version into the graph. -->
     <PackageVersion Include="Microsoft.OpenApi" Version="2.10.0" />
+    <!-- Security override: bunit 2.7.2 transitively pulls AngleSharp 1.4.0, which carries advisory
+         GHSA-pgww-w46g-26qg. Pin the first patched 1.x release; Frontend.Tests.Unit references it
+         directly to force the fixed version into the graph. -->
+    <PackageVersion Include="AngleSharp" Version="1.5.2" />
     <PackageVersion Include="Microsoft.AspNetCore.Authentication.OpenIdConnect" Version="10.0.9" />
     <PackageVersion Include="Microsoft.Extensions.Caching.Hybrid" Version="10.7.0" />
     <PackageVersion Include="Microsoft.Extensions.Http.Resilience" Version="10.7.0" />

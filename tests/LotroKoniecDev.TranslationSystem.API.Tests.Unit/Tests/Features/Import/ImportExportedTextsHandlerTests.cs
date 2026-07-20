@@ -44,8 +44,10 @@ public sealed class ImportExportedTextsHandlerTests
 
         // The transaction seam runs its operation for real against the stubbed boundaries, so the
         // success path still exercises the COPY + SaveChanges orchestration the handler wraps.
+        // NSubstitute 6 annotates CallInfo.Arg<T>() as possibly-null; the captured delegate is
+        // always present here because the stub only ever runs against a real call.
         _unitOfWork.ExecuteInTransactionAsync(Arg.Any<Func<CancellationToken, Task>>(), Arg.Any<CancellationToken>())
-            .Returns(callInfo => callInfo.Arg<Func<CancellationToken, Task>>().Invoke(callInfo.Arg<CancellationToken>()));
+            .Returns(callInfo => callInfo.Arg<Func<CancellationToken, Task>>()!.Invoke(callInfo.Arg<CancellationToken>()));
     }
 
     private ImportExportedTexts.Handler CreateHandler(double maxRemovedFraction = 0.20)
@@ -344,7 +346,7 @@ public sealed class ImportExportedTextsHandlerTests
         removed.MarkRemoved(VersionId, new DateTimeOffset(2026, 6, 10, 0, 0, 0, TimeSpan.Zero));
         GivenExisting(removed);
         _translationRepository.GetByIdsAsync(
-                Arg.Is<IReadOnlyList<TranslationId>>(ids => ids.Contains(removed.Id)),
+                Arg.Is<IReadOnlyList<TranslationId>>(ids => ids!.Contains(removed.Id)),
                 Arg.Any<CancellationToken>())
             .Returns([removed]);
 

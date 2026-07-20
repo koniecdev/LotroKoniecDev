@@ -100,7 +100,9 @@ public sealed class BadHttpRequestExceptionHandlerTests
         IProblemDetailsService problemDetailsService = Substitute.For<IProblemDetailsService>();
         problemDetailsService
             .When(service => service.WriteAsync(Arg.Any<ProblemDetailsContext>()))
-            .Do(call => captured = call.Arg<ProblemDetailsContext>().ProblemDetails);
+            // NSubstitute 6 annotates CallInfo.Arg<T>() as possibly-null; safe here since the
+            // captured call always matches the stubbed WriteAsync invocation above.
+            .Do(call => captured = call.Arg<ProblemDetailsContext>()!.ProblemDetails);
 
         // Production environment so the handler keeps its clean ProblemDetails rather than enriching it
         // with the raw exception message / stack trace (which it does only in Development/Testing).

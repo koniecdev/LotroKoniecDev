@@ -1557,7 +1557,7 @@ code {
     align-items: center;
     gap: 12px;
     min-width: 0;
-    flex: 1 1 420px;
+    flex: 1 1 max-content;
 }
 
 .cookie-bar-ico {

@@ -205,7 +205,7 @@ jobs:
       # workflow_run, the default checkout ref (github.sha) is the default branch's HEAD, which a
       # later push could have moved past the tested commit; pinning deploy_sha keeps build == tested.
       - name: Checkout
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ needs.gate.outputs.deploy_sha }}
           # No later step does authenticated git — don't leave the workflow token (which in THIS job

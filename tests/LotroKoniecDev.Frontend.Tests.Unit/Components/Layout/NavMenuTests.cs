@@ -72,7 +72,7 @@ public sealed class NavMenuTests : BunitContext
     }
 
     [Fact]
-    public void Render_Always_ShowsTheCoreNavigationLinksInOrder()
+    public void Render_WhenAnonymous_ShowsOnlyThePublicNavigationLinksInOrder()
     {
         AddAuthorization().SetNotAuthorized();
 
@@ -83,11 +83,30 @@ public sealed class NavMenuTests : BunitContext
             .Select(anchor => anchor.GetAttribute("href")!)
             .ToArray();
 
-        // The topbar hosts the auth affordance in the same nav; anonymous renders the login link last.
+        // The [Authorize]-gated pages stay hidden from anonymous visitors (#523);
+        // the topbar hosts the auth affordance in the same nav, so the login link renders last.
         navTargets.ShouldBe(
         [
-            "/", "/translations", "/import-export", "/game-versions", "/dashboard",
+            "/", "/translations",
             AuthenticationDependencyInjectionExtensions.LoginPath
+        ]);
+    }
+
+    [Fact]
+    public void Render_WhenAuthenticated_ShowsTheAuthGatedNavigationLinksInOrder()
+    {
+        AddAuthorization().SetAuthorized("Frodo");
+
+        IRenderedComponent<NavMenu> component = RenderNavMenu();
+
+        string[] navTargets = component
+            .FindAll("nav.nav-links a")
+            .Select(anchor => anchor.GetAttribute("href")!)
+            .ToArray();
+
+        navTargets.ShouldBe(
+        [
+            "/", "/translations", "/import-export", "/game-versions", "/dashboard", "/account"
         ]);
     }
 

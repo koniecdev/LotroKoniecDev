@@ -12,15 +12,22 @@ name: Deploy (reusable rollout)
 # was actually bought is two CX23s, so one box IS one environment).
 #
 # The rollout:
-#   1. resolve the tag to DIGESTS and verify each image's build provenance (audit 0001 H9) — an image
+#   1. (prod only — #534) prove the promotion against the release ACTUALLY serving: resolve the last
+#      successful `production` deployment's sha (cross-checked against the IMAGE_TAG the box pins,
+#      which also stands in when the API cannot answer) and, when the span since it touches
+#      Migrations/, run the ADR-0024 N-1 proof against THAT baseline. Prod promotion
+#      is batched, so the PR-time HEAD^1 proof covers the previous MERGE, not the previous DEPLOY —
+#      an expand + its contract riding one approved batch is green per step and still breaks the
+#      serving release. RED aborts here, before GHCR, Neon or the box is touched.
+#   2. resolve the tag to DIGESTS and verify each image's build provenance (audit 0001 H9) — an image
 #      this CD did not build, scan and attest never reaches a box.
-#   2. publish the pre-migration restore point + cut the Neon snapshot branch (MIGR-01/MIGR-04) — the
+#   3. publish the pre-migration restore point + cut the Neon snapshot branch (MIGR-01/MIGR-04) — the
 #      migrator is about to run, and ADR-0023's recovery story is roll-forward or restore, never Down().
-#   3. snapshot the box's live config, scp the stack files (compose + Caddyfile + deploy.sh) so the
+#   4. snapshot the box's live config, scp the stack files (compose + Caddyfile + deploy.sh) so the
 #      box's config IS the deployed commit, then run scripts/hetzner/deploy.sh over ssh: validate →
 #      pull → assert the pulled digests are the attested ones → run the migrator as a GATE → `up -d`
 #      → reload Caddy → pin the tag in .env.
-#   4. wait for the public origins to answer, smoke them (scripts/smoke.sh — the fingerprint leg,
+#   5. wait for the public origins to answer, smoke them (scripts/smoke.sh — the fingerprint leg,
 #      because `GET / -> 200` proves nothing), and roll the box back — images AND config — if anything
 #      above went red.
 #
@@ -56,6 +63,7 @@ on:
 permissions:
   contents: read # checkout (scripts/, compose.hetzner.yaml, the Caddyfile)
   packages: read # pull image manifests + provenance attestations from GHCR for the verify gate (H9)
+  deployments: read # prod N-1 promotion gate (#534): read the last successful deployment's sha
 
 env:
   REGISTRY: ghcr.io
@@ -67,7 +75,11 @@ jobs:
   deploy:
     name: Deploy to ${{ inputs.environment }} (Hetzner)
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    # Prod gets double the budget: a migration-touching promotion runs the full N-1 proof (old
+    # release build + both integration suites — n1-compat.yml gives that 30 min on its own)
+    # before the rollout even starts. Staging keeps the tight budget — a hung roll holds the
+    # per-environment mutation lock, and nothing extra runs there.
+    timeout-minutes: ${{ inputs.environment == 'production' && 60 || 30 }}
     # The environment carries the protection rules: `production` has the required-reviewer gate (this is
     # the staging→prod promotion approval); `staging` has none (auto). It also selects the env-scoped
     # vars/secrets — crucially HETZNER_HOST, which is what makes this job target one box or the other.
@@ -90,6 +102,10 @@ jobs:
       AUTH_URL: ${{ vars.AUTH_URL }}
       TMS_URL: ${{ vars.TMS_URL }}
       FRONTEND_URL: ${{ vars.FRONTEND_URL }}
+      # Is the artifact about to roll the one THIS checkout describes? Only then can the N-1
+      # promotion gate below reason about it. One definition, read by both of its steps — two
+      # copies of this expression is one edit away from a gate that neither runs nor warns.
+      PROVABLE_TAG: ${{ inputs.image_tag == '' || inputs.image_tag == format('sha-{0}', inputs.short_sha) }}
 
     steps:
       # Check out the EXACT commit the gate pinned (the commit CI tested), so the stack files and the
@@ -98,6 +114,10 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ inputs.deploy_sha }}
+          # Full history: the prod N-1 promotion gate (#534) resolves the serving release's sha,
+          # diffs the promotion span against it, and materializes it as a git worktree
+          # (scripts/n1-compat.sh). Shallow would blind all three.
+          fetch-depth: 0
           # No later step does authenticated git — don't leave the workflow token in .git/config.
           persist-credentials: false
 
@@ -123,6 +143,96 @@ jobs:
             exit 1
           fi
           echo "Target: ${HETZNER_USER}@${HETZNER_HOST}:${STACK_DIR}"
+
+      # Host-key pinning is the whole security of this transport: the key comes from the env var, and an
+      # unknown host key aborts the connection (StrictHostKeyChecking=yes) rather than trusting on first
+      # use. The ssh config keeps every later step down to `ssh box` / `scp … box:` with no flag soup.
+      # Runs BEFORE the N-1 promotion gate so the gate can read the pinned IMAGE_TAG — the ground
+      # truth it cross-checks the deployment record against, and its only source when the API cannot
+      # answer. Read-only: nothing here (or in the gate) mutates the box.
+      - name: Configure ssh to the box
+        env:
+          SSH_KEY: ${{ secrets.HETZNER_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/id_deploy
+          chmod 600 ~/.ssh/id_deploy
+          printf '%s\n' "$HETZNER_SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 644 ~/.ssh/known_hosts
+          {
+            echo "Host box"
+            echo "  HostName ${HETZNER_HOST}"
+            echo "  User ${HETZNER_USER}"
+            echo "  IdentityFile ~/.ssh/id_deploy"
+            echo "  IdentitiesOnly yes"
+            echo "  StrictHostKeyChecking yes"
+            echo "  UserKnownHostsFile ~/.ssh/known_hosts"
+            echo "  ConnectTimeout 15"
+            echo "  ServerAliveInterval 30"
+          } > ~/.ssh/config
+          chmod 600 ~/.ssh/config
+          ssh box 'echo "ssh OK as $(id -un) on $(hostname)"; docker compose version'
+
+      # ── Prod N-1 promotion gate (#534) — after the approval, before anything touches the box ──
+      # Batched promotion breaks "previous merge == previous deploy": the PR-time proof
+      # (n1-compat.yml) covers HEAD^1, but ADR-0023's expand → backfill → contract "across ≥ 2
+      # deploys" is a property of DEPLOYS — an expand and its contract can ride ONE approved batch
+      # with every per-step check green while the release still serving breaks on the contract.
+      # Batch diffs are deliberately not inspected by hand, so this gate is mechanical and fails
+      # CLOSED, like MIGR-03 and the cd-janitor. scripts/ci/resolve-prod-baseline.sh resolves the
+      # serving sha (deployments API, cross-checked against — and when they disagree widened to —
+      # the IMAGE_TAG the box actually pins) and classifies the span; only a migration-touching span
+      # pays for the proof below. Bootstrap (nothing serving yet) is a loud skip. A manual image_tag
+      # override deploys an artifact this checkout cannot reason about — the gate steps aside with a
+      # warning (dispatch is the runbook's human-driven emergency hatch; the failure mode this gate
+      # closes is the UNATTENDED batch).
+      - name: Resolve the serving release & the promotion's migration span
+        id: n1gate
+        if: inputs.environment == 'production' && env.PROVABLE_TAG == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CANDIDATE_SHA: ${{ inputs.deploy_sha }}
+        run: ./scripts/ci/resolve-prod-baseline.sh
+
+      # The override also poisons the NEXT promotion's baseline: the deployment record this run
+      # creates names the run's sha, not the tag being rolled, so the record ends up claiming a
+      # commit the box never served. The resolver's box cross-check is what catches that — see the
+      # runbook's "Deploy a specific image tag by hand" note.
+      - name: N-1 promotion gate stepped aside (manual tag override)
+        if: inputs.environment == 'production' && env.PROVABLE_TAG != 'true'
+        env:
+          INPUT_IMAGE_TAG: ${{ inputs.image_tag }}
+        run: |
+          set -euo pipefail
+          echo "::warning::N-1 promotion gate skipped — manual image_tag override ('${INPUT_IMAGE_TAG}') deploys an artifact this checkout cannot prove. Runbook territory: verify schema compatibility yourself before approving."
+
+      - name: Setup .NET (N-1 proof)
+        if: steps.n1gate.outputs.mode == 'proof'
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: '10.0.100'
+
+      - name: Cache NuGet packages (N-1 proof)
+        if: steps.n1gate.outputs.mode == 'proof'
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ hashFiles('**/Directory.Packages.props', '**/*.csproj', '.config/dotnet-tools.json') }}
+          restore-keys: |
+            nuget-${{ runner.os }}-
+
+      # The existing ADR-0024 seam, pointed at the serving release instead of HEAD^1. RED means this
+      # batch's schema breaks the code prod is running RIGHT NOW — approving it anyway guarantees the
+      # outage the smoke window would otherwise merely risk, and rollback cannot help (schema is
+      # forward-only). The wrapper is what keeps that verdict apart from "the proof could not run":
+      # both block, but only one of them is fixed by promoting in smaller steps.
+      - name: Prove the serving release against the candidate schema (ADR-0024)
+        if: steps.n1gate.outputs.mode == 'proof'
+        env:
+          BASELINE_SHA: ${{ steps.n1gate.outputs.baseline }}
+        run: ./scripts/ci/n1-promotion-gate.sh
 
       # The gate's short_sha is trusted (hex). The dispatch image_tag input is NOT — it is free text a
       # human typed, and it ends up inside a remote shell command below, so constrain it to what a GHCR
@@ -261,34 +371,6 @@ jobs:
             echo ""
             echo "Bad migration? Runbook → \"Restore from the auto-snapshot\" (works past the 6 h window when the snapshot row above is a branch) or \"Recover from a bad migration (Neon PITR)\" (restore to the timestamp above, 6 h retention)."
           } >> "${GITHUB_STEP_SUMMARY:-/dev/null}" || true
-
-      # Host-key pinning is the whole security of this transport: the key comes from the env var, and an
-      # unknown host key aborts the connection (StrictHostKeyChecking=yes) rather than trusting on first
-      # use. The ssh config keeps every later step down to `ssh box` / `scp … box:` with no flag soup.
-      - name: Configure ssh to the box
-        env:
-          SSH_KEY: ${{ secrets.HETZNER_SSH_KEY }}
-        run: |
-          set -euo pipefail
-          mkdir -p ~/.ssh
-          chmod 700 ~/.ssh
-          printf '%s\n' "$SSH_KEY" > ~/.ssh/id_deploy
-          chmod 600 ~/.ssh/id_deploy
-          printf '%s\n' "$HETZNER_SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
-          chmod 644 ~/.ssh/known_hosts
-          {
-            echo "Host box"
-            echo "  HostName ${HETZNER_HOST}"
-            echo "  User ${HETZNER_USER}"
-            echo "  IdentityFile ~/.ssh/id_deploy"
-            echo "  IdentitiesOnly yes"
-            echo "  StrictHostKeyChecking yes"
-            echo "  UserKnownHostsFile ~/.ssh/known_hosts"
-            echo "  ConnectTimeout 15"
-            echo "  ServerAliveInterval 30"
-          } > ~/.ssh/config
-          chmod 600 ~/.ssh/config
-          ssh box 'echo "ssh OK as $(id -un) on $(hostname)"; docker compose version'
 
       # The box's config must BE the deployed commit — otherwise a Caddyfile or compose change would
       # land in git and never reach the server (the failure mode the runbook's "scp again" recovery

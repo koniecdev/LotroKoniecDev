@@ -16,10 +16,12 @@ name: CD
 #   deploy-prod    → calls the SAME reusable deploy.yml under environment: production — GATED by the
 #                    required-reviewer rule AND needs: deploy-staging, so the approval IS the
 #                    staging→prod promotion of the artifact that just passed staging. The rollout
-#                    itself lives in deploy.yml: verify provenance → cut the Neon pre-migration
-#                    snapshot → ssh to the environment's box → pull + assert the attested digests →
-#                    run the migrator as a GATE → `up -d` → smoke the public origins → roll images
-#                    AND config back to the previous deploy on any failure.
+#                    itself lives in deploy.yml: N-1 promotion gate (#534 — prove the batch's
+#                    migration span against the sha ACTUALLY serving on prod, because batched
+#                    promotion makes "previous deploy" ≠ "previous merge") → verify provenance →
+#                    cut the Neon pre-migration snapshot → ssh to the environment's box → pull +
+#                    assert the attested digests → run the migrator as a GATE → `up -d` → smoke the
+#                    public origins → roll images AND config back to the previous deploy on any failure.
 #
 # The deployment unit is an immutable per-commit image (`sha-<short>`), and the environment a job
 # targets is ONE BOX (`lotro-staging` or `lotro-prod`, env-scoped var HETZNER_HOST) running
@@ -327,9 +329,13 @@ jobs:
       && vars.STAGING_ENABLED == 'true'
       && needs.gate.outputs.proceed == 'true'
       && (github.event_name == 'workflow_run' || github.event_name == 'workflow_dispatch')
+    # deployments: read — deploy.yml declares it for the prod N-1 promotion gate (#534), and a
+    # called workflow may only downgrade its caller's grant, so every caller must grant it (the
+    # staging leg never queries it — its gate steps are prod-only).
     permissions:
       contents: read
       packages: read
+      deployments: read
     uses: ./.github/workflows/deploy.yml
     with:
       environment: staging
@@ -358,6 +364,7 @@ jobs:
     permissions:
       contents: read
       packages: read
+      deployments: read # the N-1 promotion gate resolves the last successful prod deployment (#534)
     uses: ./.github/workflows/deploy.yml
     with:
       environment: production

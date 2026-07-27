@@ -215,3 +215,64 @@ solely to serve this job. Decision 1 names the single line to revisit if tags ev
 - `Dockerfile.migrator`, `scripts/apply-migrations.sh` — project/startup/context pairs and the
   `-- --connection` design-time mechanism
 - EF Core docs — idempotent migration scripts; `__EFMigrationsHistory` semantics
+
+## Amendment: the deploy-time leg — prove against the sha actually serving on prod (2026-07-27, #534)
+
+Prod promotion is now **batched** (owner decision 2026-07-27, discussion on CD #180): staging
+deploys every push to `main`, prod ships every Nth candidate behind the approval gate, and batch
+diffs are deliberately **not** inspected by hand. That breaks the assumption Decision 1 was built
+on — under batching, "previous merge" (`HEAD^1`, what the PR-time job proves) and "previous
+deploy" (what the box is serving) diverge. An expand and its contract can ride one approved batch
+with every per-step proof green while the release still serving breaks on the contract step;
+ADR-0023's "across ≥ 2 deploys" is a property of *deploys*, so the gate must run at *promotion*
+time.
+
+The prod leg of `deploy.yml` therefore re-runs this proof against the serving release, after the
+approval and before GHCR, Neon or any *change* to the box (the gate itself reads the box, over the
+ssh transport configured one step earlier):
+
+- `scripts/ci/resolve-prod-baseline.sh` resolves the baseline — the newest `production`
+  deployment that ever reached a `success` status (the *history*, not the latest status: GitHub
+  re-marks old successes `inactive`, and a latest-status read would false-bootstrap every mature
+  promotion). Fail closed — an unresolvable baseline blocks the promotion.
+- The `IMAGE_TAG` pinned in the box `.env` is both the fallback when the API cannot name a baseline
+  **and a cross-check when it can**. A deployment record carries the sha of the workflow *run*, not
+  of the artifact that was rolled, so a manual `image_tag` deploy leaves a `success` record naming a
+  commit the box never served — and the next unattended promotion would compute its span from that
+  commit, hiding every migration in between. On disagreement the resolver takes the **older** commit
+  (the wider span), and an unorderable pair (unrelated histories) fails closed. The cross-check never
+  blocks on its own: an unreadable box warns and keeps the API's answer.
+- **Why the API is the primary source even though the box is the ground truth.** `deploy.sh` writes
+  `IMAGE_TAG` last and only on success, and a rollback re-runs it with the previous tag, so the box
+  cannot claim a *newer* commit than what serves — it is the more truthful signal, and the widening
+  cross-check above already gives it the final say whenever the two differ. What it cannot do is
+  answer reliably in every legal case: a version-tag deploy pins an image tag git cannot resolve on
+  its own (`cd.yml` publishes `{{version}}`, so `v1.2.3` → `1.2.3`; the resolver retries with the `v`
+  put back, but the class of such gaps is open), and it can go silent when a `.env` is restored or
+  reprovisioned without the line. A source that hard-fails or goes quiet on a legal deploy must not
+  be the one every promotion depends on — so it decides, but it does not lead.
+- **Bootstrap is the only fail-open verdict, so it takes TWO agreeing signals:** the API positively
+  establishing that no deployment here ever reached `success`, **and** a box pinning no `IMAGE_TAG`.
+  Neither alone is enough. A window that lists deployments *without* a `success` is what a promotion
+  pause longer than that window looks like on a mature environment (measured 2026-07-27: 100 records
+  ≈ 25 days, and every superseded candidate lands as `error`) — it resolves from the box instead. An
+  empty deployment history is not proof either: a stack rolled by hand on the box leaves no record
+  here, so the box is asked first. And a silent box whose history the API could not be read at all
+  fails closed — one unverified signal must not license the verdict that lets a batch through
+  unproven. The first-ever deploy still skips loudly: both signals genuinely agree there.
+- A span (`<baseline>..<candidate>`) with no `Migrations/` files skips in seconds; a pre-seam
+  baseline (§ Bootstrap above) is a loud skip.
+- Otherwise `scripts/ci/n1-promotion-gate.sh` runs the existing seam, `scripts/n1-compat.sh
+  <baseline>`, and keeps its two failures apart — because they demand opposite fixes. Exit 1 (the
+  serving release cannot live on this schema) aborts with the resolution: promote in smaller steps —
+  approve a candidate containing only the expand, let it serve, then promote the contract. Exit 2
+  (the proof never ran: restore, script generation, worktree, missing seam) aborts as **unjudged**,
+  pointing at the infra failure. Collapsing the two would send the approver to split a healthy
+  batch, or to the `image_tag` dispatch that skips this gate.
+- A manual `image_tag` dispatch override deploys an artifact the checkout cannot reason about;
+  the gate steps aside with a warning (the failure mode this closes is the unattended batch).
+
+The PR-time `HEAD^1` job stays exactly as decided above — fast feedback next to the change; the
+deploy-time leg is the real guarantee. The staging leg stays ungated: staging deploys every push,
+so `HEAD^1` semantics still match it. Tests: `scripts/tests/resolve-prod-baseline.tests.sh` and
+`scripts/tests/n1-promotion-gate.tests.sh` (guards job, next to the other bash gates).

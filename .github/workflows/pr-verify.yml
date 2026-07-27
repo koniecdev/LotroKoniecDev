@@ -129,6 +129,22 @@ jobs:
       - name: Hetzner deploy script self-test
         run: ./scripts/tests/hetzner-deploy.tests.sh
 
+      # The prod-promotion N-1 gate (#534) runs inside CD's prod leg, where its real inputs (the
+      # deployments API, the box .env, a schema) exist nowhere in CI — so both halves get a stubbed
+      # suite here. The resolver's cases pin the properties the safety story rests on: an
+      # unresolvable baseline fails CLOSED, the bootstrap skip stays reachable ONLY while nothing is
+      # serving, and a baseline the box contradicts widens to the older commit instead of trusting a
+      # deployment record that names the workflow run rather than the rolled artifact.
+      - name: Prod-baseline resolution self-test
+        run: ./scripts/tests/resolve-prod-baseline.tests.sh
+
+      # The verdict mapping is its own gate: n1-compat.sh's exit 1 (schema proven incompatible) and
+      # exit 2 (the proof never ran) both block the promotion but demand OPPOSITE fixes, and the
+      # runbook tells the approver not to retry a RED. Collapsing them would send them to split a
+      # healthy batch — or to the image_tag dispatch, which skips the gate entirely.
+      - name: N-1 promotion gate verdict self-test
+        run: ./scripts/tests/n1-promotion-gate.tests.sh
+
       # Everything below is the .NET gate: it runs only when the PR can actually affect it. A PR
       # that merely edits a script CI executes (or a Dockerfile) stops here, green, in seconds.
       - name: Setup .NET

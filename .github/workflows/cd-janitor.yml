@@ -1,0 +1,94 @@
+name: CD janitor (expire stale deploy candidates)
+
+# Cancels CD runs that have sat in `waiting` (the `production` environment approval gate in cd.yml)
+# for more than 24 hours (#527).
+#
+# Why: the prod gate pins the tested commit (head_sha), so approving a days-old run deploys a
+# days-old SHA — surprising and easy to do by accident. Unapproved runs also pile up until GitHub
+# expires them after 30 days, and their multi-day wall clock makes run-duration stats and the
+# Actions list unreadable. Approval wait is unbilled, so this is pure hygiene, not cost.
+#
+# A cancelled candidate is never lost work: the same commit can still be deployed on demand via
+# cd.yml's workflow_dispatch, and every newer green-CI commit produces a fresh candidate anyway.
+#
+# Cutoff is measured from startedAt, not createdAt — a re-run of an old run resets startedAt, so a
+# deliberately re-run candidate gets a fresh 24 h window instead of being culled immediately.
+#
+# Cron is UTC and deliberately off-hour (GitHub delays on-the-hour crons the most). Exact timing is
+# irrelevant here — anything roughly nightly keeps the queue clean.
+
+on:
+  schedule:
+    - cron: "25 4 * * *"
+  workflow_dispatch:
+
+# Least privilege: cancelling runs is the whole job. actions: write covers both the list and the
+# cancel; nothing here touches the repo contents.
+permissions:
+  actions: write
+
+concurrency:
+  group: cd-janitor
+  cancel-in-progress: false
+
+jobs:
+  expire:
+    name: cancel CD runs waiting > 24 h
+    # Never run on a fork: it would cull the fork owner's own deploy candidates.
+    if: github.repository == 'koniecdev/LotroKoniecDev'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Cancel stale waiting CD runs
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+
+          cutoff="$(date -u -d '24 hours ago' +%Y-%m-%dT%H:%M:%SZ)"
+          echo "Cutoff (UTC): runs started before ${cutoff} are stale."
+
+          # ISO-8601 UTC timestamps compare correctly as strings, so jq needs no date parsing.
+          stale="$(gh run list --workflow cd.yml --status waiting --limit 100 \
+            --json databaseId,startedAt,headSha,url \
+            | jq -r --arg cutoff "$cutoff" \
+              '.[] | select(.startedAt < $cutoff) | "\(.databaseId)\t\(.startedAt)\t\(.headSha[0:7])\t\(.url)"')"
+
+          echo '## CD janitor' >> "$GITHUB_STEP_SUMMARY"
+
+          if [ -z "$stale" ]; then
+            echo "No CD run has been waiting for more than 24 h."
+            echo 'No stale deploy candidates — nothing cancelled.' >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          failed=0
+          # The backticks in the printf formats below are markdown for the job summary,
+          # not command substitution — nothing there is meant to expand.
+          # shellcheck disable=SC2016
+          while IFS=$'\t' read -r run_id started_at short_sha url; do
+            # Re-check right before cancelling: the run may have been approved (now in_progress)
+            # or completed since the list above — cancelling a rollout mid-flight is the one thing
+            # this janitor must never do.
+            # `|| echo unknown` keeps one vanished run (deleted since listing) from aborting the
+            # whole sweep under set -e; 'unknown' falls into the skip branch below.
+            status="$(gh run view "$run_id" --json status --jq .status || echo unknown)"
+            if [ "$status" != "waiting" ]; then
+              echo "Skipping run ${run_id} — status changed to '${status}' since listing."
+              printf -- '- SKIP run [%s](%s) — no longer waiting (now `%s`)\n' \
+                "$run_id" "$url" "$status" >> "$GITHUB_STEP_SUMMARY"
+              continue
+            fi
+            if gh run cancel "$run_id"; then
+              echo "Cancelled run ${run_id} (sha ${short_sha}, waiting since ${started_at})."
+              printf -- '- CANCELLED run [%s](%s) — sha `%s`, waiting since %s\n' \
+                "$run_id" "$url" "$short_sha" "$started_at" >> "$GITHUB_STEP_SUMMARY"
+            else
+              echo "::error::Failed to cancel run ${run_id}: ${url}"
+              printf -- '- FAIL could not cancel run [%s](%s)\n' "$run_id" "$url" >> "$GITHUB_STEP_SUMMARY"
+              failed=1
+            fi
+          done <<< "$stale"
+
+          exit "$failed"

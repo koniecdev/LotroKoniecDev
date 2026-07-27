@@ -599,6 +599,13 @@ staging→prod promotion: the identical image that passed staging is what produc
 **The switches** (repo Variables): `CD_ENABLED=true` arms the deploy jobs at all; `STAGING_ENABLED=true`
 arms the staging leg and makes prod wait on it (ADR-0018).
 
+**Stale candidates expire after 24 h.** The gate pins the tested commit, so approving a days-old
+run would deploy a days-old SHA. [`cd-janitor.yml`](../../.github/workflows/cd-janitor.yml) (#527)
+cancels any CD run left `waiting` at the `production` gate for more than 24 hours (nightly cron,
+04:25 UTC; on demand: `gh workflow run cd-janitor.yml`). Nothing is lost — every newer green-CI
+merge produces a fresh candidate, and any older commit can still be deployed explicitly via
+`cd.yml`'s `workflow_dispatch`.
+
 ### What `deploy.yml` does
 
 On the runner it resolves the tag to **digests**, verifies each image's build provenance (fails

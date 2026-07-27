@@ -81,6 +81,10 @@ expect 'code=false guards=true images=false' 'the migration-safety guard'       
 expect 'code=false guards=true images=false' 'a guard self-test'                          'scripts/tests/check-migration-safety.tests.sh'
 expect 'code=false guards=true images=false' 'the script CD runs on a prod box'           'scripts/hetzner/deploy.sh'
 expect 'code=false guards=true images=false' 'the rollout self-test'                      'scripts/tests/hetzner-deploy.tests.sh'
+expect 'code=false guards=true images=false' 'the prod N-1 promotion gate resolver'       'scripts/ci/resolve-prod-baseline.sh'
+expect 'code=false guards=true images=false' 'the resolver self-test'                     'scripts/tests/resolve-prod-baseline.tests.sh'
+expect 'code=false guards=true images=false' 'the promotion gate verdict mapping'         'scripts/ci/n1-promotion-gate.sh'
+expect 'code=false guards=true images=false' 'the verdict-mapping self-test'              'scripts/tests/n1-promotion-gate.tests.sh'
 
 echo
 echo '── images ───────────────────────────────────────────────────────────────────────────────────'

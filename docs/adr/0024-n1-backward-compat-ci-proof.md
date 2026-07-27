@@ -235,18 +235,31 @@ ssh transport configured one step earlier):
   deployment that ever reached a `success` status (the *history*, not the latest status: GitHub
   re-marks old successes `inactive`, and a latest-status read would false-bootstrap every mature
   promotion). Fail closed — an unresolvable baseline blocks the promotion.
-- The `IMAGE_TAG` pinned in the box `.env` is both the fallback when the API cannot answer **and a
-  cross-check when it can**. A deployment record carries the sha of the workflow *run*, not of the
-  artifact that was rolled, so a manual `image_tag` deploy leaves a `success` record naming a commit
-  the box never served — and the next unattended promotion would compute its span from that commit,
-  hiding every migration in between. On disagreement the resolver takes the **older** commit (the
-  wider span), and an unorderable pair (unrelated histories) fails closed. The cross-check never
+- The `IMAGE_TAG` pinned in the box `.env` is both the fallback when the API cannot name a baseline
+  **and a cross-check when it can**. A deployment record carries the sha of the workflow *run*, not
+  of the artifact that was rolled, so a manual `image_tag` deploy leaves a `success` record naming a
+  commit the box never served — and the next unattended promotion would compute its span from that
+  commit, hiding every migration in between. On disagreement the resolver takes the **older** commit
+  (the wider span), and an unorderable pair (unrelated histories) fails closed. The cross-check never
   blocks on its own: an unreadable box warns and keeps the API's answer.
-- **Bootstrap is the only fail-open verdict, so it is reserved for "nothing is serving":** no
-  deployment record at all, or no `IMAGE_TAG` on the box. A window that lists deployments *without*
-  a `success` is not that — on a mature environment every superseded candidate lands as `error`, so
-  a promotion pause longer than the API window (measured 2026-07-27: 100 records ≈ 25 days) takes
-  exactly that shape — and it resolves from the box instead of skipping.
+- **Why the API is the primary source even though the box is the ground truth.** `deploy.sh` writes
+  `IMAGE_TAG` last and only on success, and a rollback re-runs it with the previous tag, so the box
+  cannot claim a *newer* commit than what serves — it is the more truthful signal, and the widening
+  cross-check above already gives it the final say whenever the two differ. What it cannot do is
+  answer reliably in every legal case: a version-tag deploy pins an image tag git cannot resolve on
+  its own (`cd.yml` publishes `{{version}}`, so `v1.2.3` → `1.2.3`; the resolver retries with the `v`
+  put back, but the class of such gaps is open), and it can go silent when a `.env` is restored or
+  reprovisioned without the line. A source that hard-fails or goes quiet on a legal deploy must not
+  be the one every promotion depends on — so it decides, but it does not lead.
+- **Bootstrap is the only fail-open verdict, so it takes TWO agreeing signals:** the API positively
+  establishing that no deployment here ever reached `success`, **and** a box pinning no `IMAGE_TAG`.
+  Neither alone is enough. A window that lists deployments *without* a `success` is what a promotion
+  pause longer than that window looks like on a mature environment (measured 2026-07-27: 100 records
+  ≈ 25 days, and every superseded candidate lands as `error`) — it resolves from the box instead. An
+  empty deployment history is not proof either: a stack rolled by hand on the box leaves no record
+  here, so the box is asked first. And a silent box whose history the API could not be read at all
+  fails closed — one unverified signal must not license the verdict that lets a batch through
+  unproven. The first-ever deploy still skips loudly: both signals genuinely agree there.
 - A span (`<baseline>..<candidate>`) with no `Migrations/` files skips in seconds; a pre-seam
   baseline (§ Bootstrap above) is a loud skip.
 - Otherwise `scripts/ci/n1-promotion-gate.sh` runs the existing seam, `scripts/n1-compat.sh

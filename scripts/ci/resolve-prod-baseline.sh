@@ -21,9 +21,16 @@
 #      false-bootstrap on a mature environment. A run that failed and rolled back never reached
 #      `success` and is skipped; the in-flight run's own record is `in_progress` and is skipped
 #      too, so re-promoting a sha that already served resolves to itself (empty span, fast skip).
-#   2. The box — the IMAGE_TAG scripts/hetzner/deploy.sh pins in the box .env after every successful
-#      roll (`sha-<short>` → commit, `v*` tag → commit). Consulted when the API cannot answer, AND
-#      as a cross-check when it can (step 3).
+#   2. The box — the IMAGE_TAG scripts/hetzner/deploy.sh pins in the box .env (`sha-<short>` →
+#      commit, a version tag → commit). Consulted when the API cannot name a baseline, AND as a
+#      cross-check when it can (step 3). deploy.sh writes that line LAST and only on success, and a
+#      rollback re-runs deploy.sh with the previous tag, so the file describes what is really
+#      running: the box cannot claim a NEWER commit than what serves. What it can do is go silent (a
+#      .env restored or reprovisioned without the line) — which is why its silence alone is not
+#      allowed to bootstrap, see below. It is the fallback rather than the primary source because a
+#      version-tag deploy pins an image tag git cannot resolve on its own (cd.yml publishes
+#      {{version}}, i.e. v1.2.3 → 1.2.3), and a source that hard-fails on a legal deploy must not be
+#      the one every promotion depends on.
 #   3. Cross-check. A deployment record carries the sha of the workflow RUN, not of the artifact
 #      that was rolled: a `workflow_dispatch` with an explicit image_tag rolls one commit while its
 #      record (and its `success`) names another. The box .env is the ground truth, so when the two
@@ -32,11 +39,12 @@
 #      The cross-check is hardening on top of a resolved baseline and never blocks on its own — an
 #      unreadable box warns and keeps the API's answer (ssh already proved itself one step earlier).
 #
-# The single fail-OPEN verdict is bootstrap, so it stays reserved for "nothing is serving": either
-# the environment has no deployment record at all, or the box pins no tag. A window that lists
-# deployments without a `success` is NOT that — on a mature environment every superseded candidate
-# lands as `error`, so a promotion pause longer than the API window (measured 2026-07-27: 100
-# records ≈ 25 days) takes exactly that shape — and it routes to the box instead of skipping.
+# Bootstrap is the single fail-OPEN verdict, so it takes TWO agreeing signals: the API must
+# positively establish that no deployment here ever reached `success`, AND the box must pin no
+# IMAGE_TAG. Neither alone is enough — an API window without a `success` is what a promotion pause
+# longer than that window looks like on a mature environment (measured 2026-07-27: 100 records ≈ 25
+# days, and every superseded candidate lands as `error`), and a silent box can be a .env that lost
+# its line while the containers keep serving. Everything else that cannot resolve fails closed.
 #
 # Verdicts (stdout `key=value` + $GITHUB_OUTPUT when set; human detail on stderr):
 #   mode=proof  baseline=<sha>   — Migrations/ files inside <baseline>..<candidate>: run the proof.
@@ -132,22 +140,40 @@ resolve_via_box() {
         sha-*) ref="${tag#sha-}" ;;
         *)     ref="$tag" ;;
     esac
-    if ! sha="$(git rev-parse --verify --quiet "${ref}^{commit}")"; then
-        log "ERROR: cannot resolve the box-pinned IMAGE_TAG '${tag}' to a commit (tried '${ref}^{commit}')."
-        log "Refusing to guess what is serving (fail closed)."
-        return 2
-    fi
-    printf '%s\n' "$sha"
+    # `v$ref` too: cd.yml publishes version images through `type=semver,pattern={{version}}`, which
+    # strips the leading v (git tag v1.2.3 → image 1.2.3), so the tag a version deploy pins is not
+    # a ref git can see until the v goes back on.
+    for candidate in "$ref" "v${ref}"; do
+        if sha="$(git rev-parse --verify --quiet "${candidate}^{commit}")"; then
+            printf '%s\n' "$sha"
+            return 0
+        fi
+    done
+    log "ERROR: cannot resolve the box-pinned IMAGE_TAG '${tag}' to a commit (tried '${ref}' and 'v${ref}')."
+    log "Refusing to guess what is serving (fail closed)."
+    return 2
 }
 
 # Sets $baseline + $baseline_source from the box, or exits (bootstrap skip / fail closed).
-# $1 = why the API leg could not answer, for the bootstrap message.
+# $1 = why the API leg could not name a baseline, for the message.
+# $2 = 'corroborated' when the API positively established that nothing ever deployed successfully
+#      here; 'unconfirmed' when it simply could not be asked. Only a corroborated silence may
+#      bootstrap: "the box pins no IMAGE_TAG" is strong evidence (deploy.sh writes that line last
+#      and only on success) but not proof — a .env that lost the line looks identical to a box that
+#      never rolled, and bootstrap is the one verdict that lets a batch through unproven.
 use_box_leg() {
     local box_rc=0
     baseline="$(resolve_via_box)" || box_rc=$?
     case "$box_rc" in
         0) baseline_source="IMAGE_TAG pinned in the box .env" ;;
-        3) bootstrap_skip "${1} and the box pins no IMAGE_TAG yet (first-ever deploy)." ;;
+        3)
+            if [ "$2" = 'corroborated' ]; then
+                bootstrap_skip "${1}, and the box pins no IMAGE_TAG either."
+            fi
+            log "ERROR: the box pins no IMAGE_TAG, but ${1} — so nothing has CONFIRMED that this environment is empty, and one unverified signal is not enough to skip the proof (fail closed)."
+            log "Check what the box is running (${STACK_DIR}/.env, docker compose ps). If this really is the first-ever deploy here, dispatch cd.yml with an explicit image_tag — that path bypasses this gate by design."
+            exit 2
+            ;;
         *) exit 2 ;;
     esac
 }
@@ -212,15 +238,16 @@ case "$api_rc" in
         baseline_source="last successful '${DEPLOY_ENVIRONMENT}' deployment (GitHub deployments API)"
         ;;
     3)
-        bootstrap_skip "no '${DEPLOY_ENVIRONMENT}' deployment is on record at all."
+        log "No '${DEPLOY_ENVIRONMENT}' deployment is on record at all — asking the box what it serves before calling this a bootstrap (a stack rolled by hand on the box leaves no record here)."
+        use_box_leg "no '${DEPLOY_ENVIRONMENT}' deployment is on record at all" corroborated
         ;;
     4)
         log "WARNING: the deployments API is unusable — resolving from the IMAGE_TAG pinned on the box instead."
-        use_box_leg "the deployments API is unusable"
+        use_box_leg "the deployments API could not be read at all" unconfirmed
         ;;
     5)
         log "WARNING: the API lists '${DEPLOY_ENVIRONMENT}' deployments but none ever reached 'success' — that is what a promotion pause longer than the API window looks like, NOT an empty history. Resolving from the IMAGE_TAG pinned on the box instead."
-        use_box_leg "no '${DEPLOY_ENVIRONMENT}' deployment on record ever reached 'success'"
+        use_box_leg "no '${DEPLOY_ENVIRONMENT}' deployment on record ever reached 'success'" corroborated
         ;;
     *)
         exit 2

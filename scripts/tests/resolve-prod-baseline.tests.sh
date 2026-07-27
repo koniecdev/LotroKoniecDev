@@ -12,10 +12,11 @@
 #     deployment succeeds, so a resolver that only reads the LATEST status would find no success on
 #     a mature environment and false-bootstrap: the one skip that must stay reserved for a genuinely
 #     empty history would fire on every promotion.
-#   * The bootstrap skip is the ONLY fail-open verdict, so it must be unreachable while anything is
-#     serving. An API window that lists deployments but no `success` (the shape a promotion pause
-#     longer than the 100-record window takes on a mature environment) must resolve from the box,
-#     never skip: only "the box pins nothing either" earns the bootstrap.
+#   * The bootstrap skip is the ONLY fail-open verdict, so it takes TWO agreeing signals: the API
+#     positively establishing that nothing here ever reached `success`, AND a box pinning no tag.
+#     An API window listing deployments without a `success` is what a promotion pause longer than
+#     that window looks like on a mature environment; a silent box can be a .env that lost its line
+#     while the containers keep serving. Either signal alone resolves or fails closed, never skips.
 #   * The span must never be NARROWER than reality. The API records the sha of the workflow RUN, so
 #     a manual `image_tag` deploy leaves a record naming a commit the box never served; when the
 #     box disagrees, the resolver takes the OLDER of the two (the wider span) and an unorderable
@@ -216,13 +217,33 @@ run_resolve CANDIDATE_SHA="$C3"
 verdict 'mode=skip' || fail 'baseline == candidate must skip (empty span)'
 pass 're-promoting the sha already serving is an empty span — skip'
 
-CASE='bootstrap: no deployments'
+CASE='bootstrap: no deployments, box pins nothing'
 deployments_json '[]'
 run_resolve CANDIDATE_SHA="$C3"
 [ "$LAST_STATUS" -eq 0 ] || fail 'the first-ever prod deploy must NOT fail' "status $LAST_STATUS"
 verdict 'mode=skip' || fail 'expected the bootstrap skip'
 grep -q 'BOOTSTRAP' <<<"$LAST_OUTPUT" || fail 'the bootstrap skip must be loud'
-pass 'an empty deployment history is a loud bootstrap skip, never a failure'
+pass 'an empty history plus a box pinning nothing is a loud bootstrap skip, never a failure'
+
+CASE='no deployment record, but the box is serving'
+# A stack rolled by hand on the box (runbook territory) leaves no record here. The empty history
+# alone would bootstrap-skip a box that is very much serving, so the box gets asked first.
+deployments_json '[]'
+run_resolve CANDIDATE_SHA="$C3" STUB_BOX_TAG="sha-$short_c1"
+[ "$LAST_STATUS" -eq 0 ] || fail 'expected the box to answer' "status $LAST_STATUS"
+verdict "baseline=$C1" || fail 'a box pinning a tag outranks an empty deployment history'
+if grep -q 'BOOTSTRAP' <<<"$LAST_OUTPUT"; then fail 'a serving box must never read as bootstrap'; fi
+pass 'an empty history with a serving box resolves from the box, not bootstrap'
+
+CASE='version-tag deploy'
+# cd.yml publishes version images as {{version}} — git tag v1.2.3 becomes image tag 1.2.3 — so the
+# box pins a string git cannot resolve until the v goes back on.
+git -C "$FIXTURE" tag 'v9.9.9' "$C2"
+deployments_json '[]'
+run_resolve CANDIDATE_SHA="$C3" STUB_BOX_TAG='9.9.9'
+[ "$LAST_STATUS" -eq 0 ] || fail 'a version-tag deploy must resolve, not fail closed' "status $LAST_STATUS"
+verdict "baseline=$C2" || fail 'the image tag 9.9.9 must resolve through the git tag v9.9.9'
+pass 'a box-pinned version tag resolves through its v-prefixed git tag'
 
 CASE='bootstrap: no success yet, box pins nothing'
 deployments_json "[{\"id\": 60, \"sha\": \"$C2\"}]"
@@ -340,12 +361,15 @@ verdict "baseline=$C2" || fail "expected the box-pinned sha-$short_c2 to resolve
 verdict 'mode=proof' || fail 'the migration span must demand the proof'
 pass "a dead API falls back to the box IMAGE_TAG (sha-$short_c2 → baseline)"
 
-CASE='fallback: nothing pinned'
+CASE='fallback: nothing pinned and the API cannot confirm it'
+# A silent box is strong evidence that nothing ever rolled (deploy.sh writes IMAGE_TAG last and only
+# on success) — but not proof: a .env restored without the line looks identical while the containers
+# keep serving. With the API unreadable nothing corroborates it, so this must NOT take the one
+# fail-open verdict.
 run_resolve CANDIDATE_SHA="$C3" STUB_GH_FAIL=1
-[ "$LAST_STATUS" -eq 0 ] || fail 'first-ever deploy with a dead API must NOT fail' "status $LAST_STATUS"
-verdict 'mode=skip' || fail 'expected the bootstrap skip'
-grep -q 'BOOTSTRAP' <<<"$LAST_OUTPUT" || fail 'the bootstrap skip must be loud'
-pass 'a box with no IMAGE_TAG pinned is the first-ever deploy — loud bootstrap skip'
+[ "$LAST_STATUS" -eq 2 ] || fail 'an uncorroborated silent box must fail closed, not bootstrap' "got $LAST_STATUS"
+if grep -q 'BOOTSTRAP' <<<"$LAST_OUTPUT"; then fail 'bootstrap needs the API to confirm the history is empty'; fi
+pass 'a silent box with an unreadable API fails closed — bootstrap needs two agreeing signals'
 
 CASE='fallback: unresolvable tag'
 run_resolve CANDIDATE_SHA="$C3" STUB_GH_FAIL=1 STUB_BOX_TAG='sha-deadbee'

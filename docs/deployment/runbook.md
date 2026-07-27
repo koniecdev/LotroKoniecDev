@@ -626,10 +626,15 @@ two different fixes:
   split the batch, and do not reach for the `image_tag` dispatch: it skips the gate entirely, so
   nothing would be proven at all.
 
-Migration-free promotions skip in seconds; nothing-serving-yet skips loudly; an unresolvable baseline
-fails closed. A manual `image_tag` dispatch bypasses the gate with a warning — that path is yours to
-verify, and note that the deployment record it leaves behind names the *run's* sha rather than the
-tag you rolled, which is exactly what the box cross-check exists to catch on the promotion after it.
+Migration-free promotions skip in seconds. An unresolvable baseline fails closed. The
+nothing-serving-yet skip needs **two agreeing signals** — no `production` deployment on record ever
+reached `success`, *and* the box pins no `IMAGE_TAG` — because it is the one verdict that lets a batch
+through unproven; a silent box the API cannot corroborate therefore blocks instead of skipping (check
+`/opt/lotro/.env` and `docker compose ps`; if it truly is the first deploy here, dispatch with an
+explicit `image_tag`, which bypasses the gate by design). A manual `image_tag` dispatch bypasses the
+gate with a warning — that path is yours to verify, and note that the deployment record it leaves
+behind names the *run's* sha rather than the tag you rolled, which is exactly what the box
+cross-check exists to catch on the promotion after it.
 
 On the runner it resolves the tag to **digests**, verifies each image's build provenance (fails
 closed), cuts the Neon pre-migration snapshot branch (MIGR-04) and publishes the restore point. Then

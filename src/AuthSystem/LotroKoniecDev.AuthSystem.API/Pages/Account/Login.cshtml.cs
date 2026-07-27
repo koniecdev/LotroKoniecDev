@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
 using Microsoft.Extensions.Options;
+using LotroKoniecDev.AuthSystem.API.Common;
 using LotroKoniecDev.AuthSystem.API.Extensions;
 using LotroKoniecDev.AuthSystem.API.Settings;
 using LotroKoniecDev.AuthSystem.Domain.Aggregates.ApplicationUsers.Entities;
@@ -55,18 +56,24 @@ internal sealed partial class LoginModel : PageModel
     [BindProperty]
     public bool RememberMe { get; set; }
 
+    /// <summary>
+    /// The local continuation captured from the OIDC flow (e.g. the <c>/connect/authorize</c> URL the
+    /// user was bounced from), carried through the form so a successful login resumes it. Reflected
+    /// into the page and used as the redirect target only after passing
+    /// <see cref="LocalReturnUrl.Sanitize"/>, which blocks open redirects.
+    /// </summary>
     public string? ReturnUrl { get; set; }
 
     public string? ErrorMessage { get; set; }
 
     public void OnGet(string? returnUrl = null)
     {
-        ReturnUrl = returnUrl;
+        ReturnUrl = LocalReturnUrl.Sanitize(returnUrl);
     }
 
     public async Task<IActionResult> OnPostAsync(string? returnUrl = null)
     {
-        ReturnUrl = returnUrl;
+        ReturnUrl = LocalReturnUrl.Sanitize(returnUrl);
 
         if (string.IsNullOrWhiteSpace(Email) || string.IsNullOrWhiteSpace(Password))
         {
@@ -180,12 +187,7 @@ internal sealed partial class LoginModel : PageModel
 
         LogUserLoggedIn(_logger, user.Id);
 
-        if (!string.IsNullOrEmpty(returnUrl) && Url.IsLocalUrl(returnUrl))
-        {
-            return LocalRedirect(returnUrl);
-        }
-
-        return LocalRedirect("/");
+        return LocalRedirect(ReturnUrl ?? "/");
     }
 
     [LoggerMessage(EventId = EventIds.LoginUserNotFound, Level = LogLevel.Warning, Message = "Failed login: user not found. Email: {Email}, IP: {IP}")]

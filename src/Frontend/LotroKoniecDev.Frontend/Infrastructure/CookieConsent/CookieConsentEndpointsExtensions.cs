@@ -1,3 +1,5 @@
+using LotroKoniecDev.Frontend.Infrastructure.Security;
+
 namespace LotroKoniecDev.Frontend.Infrastructure.CookieConsent;
 
 /// <summary>
@@ -32,16 +34,7 @@ internal static class CookieConsentEndpointsExtensions
             "true",
             CookieConsentCookie.BuildOptions(context.Request.IsHttps));
 
-        string safeReturn = IsLocalPath(returnPath) ? returnPath : "/";
+        string safeReturn = LocalReturnUrl.Sanitize(returnPath) ?? "/";
         return Results.Redirect(safeReturn);
     }
-
-    // Control characters are rejected because the WHATWG URL parser strips ASCII tab/newline —
-    // "/\t/evil.example" would reach the browser as the protocol-relative "//evil.example"
-    // (mirrors ASP.NET Core's UrlHelper.IsLocalUrl hardening).
-    private static bool IsLocalPath(string path) =>
-        path.StartsWith('/')
-        && !path.StartsWith("//", StringComparison.Ordinal)
-        && !path.StartsWith("/\\", StringComparison.Ordinal)
-        && !path.Any(char.IsControl);
 }

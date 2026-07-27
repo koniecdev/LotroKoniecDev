@@ -612,6 +612,25 @@ merge produces a fresh candidate, and any older commit can still be deployed exp
 
 ### What `deploy.yml` does
 
+**Prod leg only, first (#534 — the N-1 promotion gate):** promotion is batched, so the sha the
+approval replaces is the last *deployed* one, not the last *merged* one. The job resolves the sha
+actually serving (last successful `production` deployment via the API, cross-checked against the
+box-pinned `IMAGE_TAG`, which also stands in when the API cannot answer) and, when the span since it
+touches `Migrations/`, re-runs the ADR-0024 proof against that baseline. Two different red verdicts,
+two different fixes:
+
+- **`RED` — the batch's schema breaks the release prod is running right now. Do not retry:** approve
+  a candidate containing only the expand, let it serve, then promote the contract.
+- **`COULD NOT RUN` — the proof itself failed to build, generate or start, so the batch is
+  UNJUDGED,** not proven bad. Fix the infra failure named in the log and re-run the job. Do **not**
+  split the batch, and do not reach for the `image_tag` dispatch: it skips the gate entirely, so
+  nothing would be proven at all.
+
+Migration-free promotions skip in seconds; nothing-serving-yet skips loudly; an unresolvable baseline
+fails closed. A manual `image_tag` dispatch bypasses the gate with a warning — that path is yours to
+verify, and note that the deployment record it leaves behind names the *run's* sha rather than the
+tag you rolled, which is exactly what the box cross-check exists to catch on the promotion after it.
+
 On the runner it resolves the tag to **digests**, verifies each image's build provenance (fails
 closed), cuts the Neon pre-migration snapshot branch (MIGR-04) and publishes the restore point. Then
 it ssh'es to **that environment's box** (`vars.HETZNER_HOST` — one box IS one environment), snapshots

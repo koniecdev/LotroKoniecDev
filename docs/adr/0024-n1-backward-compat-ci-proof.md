@@ -215,3 +215,51 @@ solely to serve this job. Decision 1 names the single line to revisit if tags ev
 - `Dockerfile.migrator`, `scripts/apply-migrations.sh` — project/startup/context pairs and the
   `-- --connection` design-time mechanism
 - EF Core docs — idempotent migration scripts; `__EFMigrationsHistory` semantics
+
+## Amendment: the deploy-time leg — prove against the sha actually serving on prod (2026-07-27, #534)
+
+Prod promotion is now **batched** (owner decision 2026-07-27, discussion on CD #180): staging
+deploys every push to `main`, prod ships every Nth candidate behind the approval gate, and batch
+diffs are deliberately **not** inspected by hand. That breaks the assumption Decision 1 was built
+on — under batching, "previous merge" (`HEAD^1`, what the PR-time job proves) and "previous
+deploy" (what the box is serving) diverge. An expand and its contract can ride one approved batch
+with every per-step proof green while the release still serving breaks on the contract step;
+ADR-0023's "across ≥ 2 deploys" is a property of *deploys*, so the gate must run at *promotion*
+time.
+
+The prod leg of `deploy.yml` therefore re-runs this proof against the serving release, after the
+approval and before GHCR, Neon or any *change* to the box (the gate itself reads the box, over the
+ssh transport configured one step earlier):
+
+- `scripts/ci/resolve-prod-baseline.sh` resolves the baseline — the newest `production`
+  deployment that ever reached a `success` status (the *history*, not the latest status: GitHub
+  re-marks old successes `inactive`, and a latest-status read would false-bootstrap every mature
+  promotion). Fail closed — an unresolvable baseline blocks the promotion.
+- The `IMAGE_TAG` pinned in the box `.env` is both the fallback when the API cannot answer **and a
+  cross-check when it can**. A deployment record carries the sha of the workflow *run*, not of the
+  artifact that was rolled, so a manual `image_tag` deploy leaves a `success` record naming a commit
+  the box never served — and the next unattended promotion would compute its span from that commit,
+  hiding every migration in between. On disagreement the resolver takes the **older** commit (the
+  wider span), and an unorderable pair (unrelated histories) fails closed. The cross-check never
+  blocks on its own: an unreadable box warns and keeps the API's answer.
+- **Bootstrap is the only fail-open verdict, so it is reserved for "nothing is serving":** no
+  deployment record at all, or no `IMAGE_TAG` on the box. A window that lists deployments *without*
+  a `success` is not that — on a mature environment every superseded candidate lands as `error`, so
+  a promotion pause longer than the API window (measured 2026-07-27: 100 records ≈ 25 days) takes
+  exactly that shape — and it resolves from the box instead of skipping.
+- A span (`<baseline>..<candidate>`) with no `Migrations/` files skips in seconds; a pre-seam
+  baseline (§ Bootstrap above) is a loud skip.
+- Otherwise `scripts/ci/n1-promotion-gate.sh` runs the existing seam, `scripts/n1-compat.sh
+  <baseline>`, and keeps its two failures apart — because they demand opposite fixes. Exit 1 (the
+  serving release cannot live on this schema) aborts with the resolution: promote in smaller steps —
+  approve a candidate containing only the expand, let it serve, then promote the contract. Exit 2
+  (the proof never ran: restore, script generation, worktree, missing seam) aborts as **unjudged**,
+  pointing at the infra failure. Collapsing the two would send the approver to split a healthy
+  batch, or to the `image_tag` dispatch that skips this gate.
+- A manual `image_tag` dispatch override deploys an artifact the checkout cannot reason about;
+  the gate steps aside with a warning (the failure mode this closes is the unattended batch).
+
+The PR-time `HEAD^1` job stays exactly as decided above — fast feedback next to the change; the
+deploy-time leg is the real guarantee. The staging leg stays ungated: staging deploys every push,
+so `HEAD^1` semantics still match it. Tests: `scripts/tests/resolve-prod-baseline.tests.sh` and
+`scripts/tests/n1-promotion-gate.tests.sh` (guards job, next to the other bash gates).

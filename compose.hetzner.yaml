@@ -41,6 +41,10 @@ x-caddy-environment: &caddy-environment
   TKS_DOMAIN_APP: ${TKS_DOMAIN_APP:-tks-app.localhost}
   TKS_DOMAIN_AUTH: ${TKS_DOMAIN_AUTH:-tks-auth.localhost}
   TKS_DOMAIN_API: ${TKS_DOMAIN_API:-tks-api.localhost}
+  # SEO crawler control (#531): the Caddyfile stamps this on every LOTRO vhost response as
+  # X-Robots-Tag. Prod leaves it unset (`all` = explicit no-op); the staging box sets
+  # `noindex, nofollow` so the public staging trio never gets indexed as duplicate content.
+  XROBOTS: ${XROBOTS:-all}
 
 services:
   migrator:

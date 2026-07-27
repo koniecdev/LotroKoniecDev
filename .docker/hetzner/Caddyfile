@@ -12,15 +12,27 @@
 	email {$ACME_EMAIL}
 }
 
+# SEO crawler control (#531): every LOTRO vhost stamps X-Robots-Tag from the per-box XROBOTS env
+# var — prod keeps the `all` default (an explicit no-op), the staging box sets `noindex, nofollow`
+# in /opt/lotro/.env so the deliberately-public staging trio never gets indexed as duplicate
+# content of prod. Deliberately NOT imported into the TKS vhosts below: TKS stamps the header
+# app-side (koniecdev/TheKittySaver#390), and a Caddy-level set would override it.
+(seo_headers) {
+	header X-Robots-Tag "{$XROBOTS:all}"
+}
+
 {$DOMAIN_APP} {
+	import seo_headers
 	reverse_proxy frontend:8080
 }
 
 {$DOMAIN_AUTH} {
+	import seo_headers
 	reverse_proxy auth-api:8080
 }
 
 {$DOMAIN_TMS} {
+	import seo_headers
 	reverse_proxy tms-api:8080
 }
 

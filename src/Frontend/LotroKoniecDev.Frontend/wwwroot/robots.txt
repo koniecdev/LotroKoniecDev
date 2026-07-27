@@ -1,0 +1,13 @@
+# One file serves prod AND staging (identical-image promotion, ADR-0018): allow-all with the
+# authenticated areas crawl-blocked. Staging's noindex comes from the Caddy-level X-Robots-Tag
+# (#531), which crawlers only see when the pages stay crawlable — so no Disallow: / here.
+# Deliberately NO Sitemap: line — staging must not advertise one, and nothing public is worth
+# a sitemap yet (revisit when the M7 catalog browser goes public).
+User-agent: *
+Disallow: /dashboard
+Disallow: /translations
+Disallow: /editor/
+Disallow: /import-export
+Disallow: /game-versions
+Disallow: /account
+Disallow: /auth/

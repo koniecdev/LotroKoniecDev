@@ -198,7 +198,11 @@ for the full strategy):
 These decide **which environment a box is** — full list with placeholders in `.env.hetzner.example`:
 `COMPOSE_PROJECT_NAME` (`lotro-prod` | `lotro-staging`), `IMAGE_NAMESPACE`, `IMAGE_TAG`,
 `DOMAIN_APP` / `DOMAIN_AUTH` / `DOMAIN_TMS`, `ACME_EMAIL`, `TKS_DOMAIN_*` (the guest TheKittySaver
-vhosts).
+vhosts), `XROBOTS` (SEO crawler control, #531 — Caddy stamps it as `X-Robots-Tag` on every LOTRO
+vhost response; prod leaves it unset → `all` (explicit no-op), the **staging box sets
+`XROBOTS="noindex, nofollow"`** so the deliberately-public staging trio never gets indexed as
+duplicate content of prod. The TKS vhosts are excluded on purpose — TKS stamps the header
+app-side, koniecdev/TheKittySaver#390).
 
 ## Secrets
 

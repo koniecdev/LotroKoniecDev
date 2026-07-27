@@ -1212,7 +1212,8 @@ containerized-OIDC problem dissolves in real production too.
 | `e2e` | manual + PRs touching package/Docker dependency manifests (so Dependabot bumps exercise it) | full-stack and browser E2E suites |
 | `smoke` | after deploys | health + a real OIDC token round-trip + file distribution |
 | `health-ping` | daily cron | probes the three public origins once a day (deep `/health`) — the only availability signal, and the one check that proves the (scale-to-zero) Neon database is reachable |
-| `codeql`, `gitleaks` | PRs/pushes/schedule | static security analysis; secret scanning |
+| `codeql` | PRs + weekly schedule (no push — squash-merged code was already scanned on the PR, #526) | static security analysis |
+| `gitleaks` | PRs/pushes | secret scanning |
 | `actionlint` | every PR | lints `.github/workflows/` so workflow-only PRs cannot merge unparsed |
 
 ### 11.2 How a release reaches production

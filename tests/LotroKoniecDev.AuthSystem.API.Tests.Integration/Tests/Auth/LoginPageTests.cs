@@ -11,6 +11,12 @@ namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Tests.Auth;
 
 public sealed partial class LoginPageTests : EndpointsTestBase
 {
+    /// <summary>
+    /// Where a sign-in without a usable continuation has to land: the frontend's own login route,
+    /// derived from the web client origin this host is configured with.
+    /// </summary>
+    private const string ExpectedFrontendLoginUrl = AuthSystemApiFactory.TestFrontendAppRoot + "/auth/login";
+
     public LoginPageTests(AuthSystemApiFactory appFactory) : base(appFactory) { }
 
     [Fact]
@@ -96,7 +102,7 @@ public sealed partial class LoginPageTests : EndpointsTestBase
     }
 
     /// <summary>
-    /// Every off-site target collapses to the home page instead of being carried into the
+    /// Every off-site target collapses to the configured frontend instead of being carried into the
     /// <c>Location</c> header. The <c>%09</c> case earns its own row: a prefix-only guard calls it
     /// local, and handing it to <c>LocalRedirect</c> fails the executor's own check — so without the
     /// control-character screen a successful login ends in an unhandled 500 rather than a redirect.
@@ -106,7 +112,7 @@ public sealed partial class LoginPageTests : EndpointsTestBase
     [InlineData("//evil.example")]
     [InlineData("/\\evil.example")]
     [InlineData("https://evil.example/harvest")]
-    public async Task LoginPage_ShouldRedirectHome_WhenReturnUrlIsNotLocal(string returnUrl)
+    public async Task LoginPage_ShouldRedirectToTheFrontend_WhenReturnUrlIsNotLocal(string returnUrl)
     {
         // Arrange — a confirmed account, so the login itself succeeds and reaches the redirect
         (RegisterRequest request, _) =
@@ -121,10 +127,36 @@ public sealed partial class LoginPageTests : EndpointsTestBase
             },
             returnUrl);
 
-        // Assert — the off-site target is dropped, never reflected into the Location header
+        // Assert — the off-site target is dropped; the fallback comes from configuration, not the query
         response.StatusCode.ShouldBe(HttpStatusCode.Found);
         response.Headers.Location.ShouldNotBeNull();
-        response.Headers.Location!.OriginalString.ShouldBe("/");
+        response.Headers.Location!.OriginalString.ShouldBe(ExpectedFrontendLoginUrl);
+    }
+
+    /// <summary>
+    /// The reset-password and confirm-email pages send the user to a bare <c>/Account/Login</c>, so a
+    /// successful sign-in has no continuation to resume. This host's root serves the discovery JSON,
+    /// which dead-ends the browser — the fallback has to leave for the frontend's login route, where
+    /// the cookie just issued completes the OIDC challenge silently.
+    /// </summary>
+    [Fact]
+    public async Task LoginPage_ShouldRedirectToTheFrontend_WhenThereIsNoReturnUrl()
+    {
+        // Arrange — a confirmed account, mirroring a user who just reset their password
+        (RegisterRequest request, _) =
+            await UserFactory.RegisterRandomUserWithRequestAsync(ApiClient, Faker, AccountConfirmationEmailSpy);
+
+        // Act
+        HttpResponseMessage response = await PostToLoginPageAsync(new Dictionary<string, string>
+        {
+            ["Email"] = request.Email,
+            ["Password"] = request.Password
+        });
+
+        // Assert
+        response.StatusCode.ShouldBe(HttpStatusCode.Found);
+        response.Headers.Location.ShouldNotBeNull();
+        response.Headers.Location!.OriginalString.ShouldBe(ExpectedFrontendLoginUrl);
     }
 
     [Fact]

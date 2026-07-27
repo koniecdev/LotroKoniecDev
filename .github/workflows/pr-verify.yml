@@ -142,7 +142,7 @@ jobs:
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.nuget/packages
-          key: nuget-${{ runner.os }}-${{ hashFiles('**/Directory.Packages.props', '**/*.csproj') }}
+          key: nuget-${{ runner.os }}-${{ hashFiles('**/Directory.Packages.props', '**/*.csproj', '.config/dotnet-tools.json') }}
           restore-keys: |
             nuget-${{ runner.os }}-
 
@@ -159,7 +159,8 @@ jobs:
       # (LotroKoniecDev.Tests.Infrastructure) on the Linux runner, so target the
       # cross-platform test projects by naming convention. New suites are picked up
       # automatically; the Windows-only ones (.Tests.Infrastructure / .Tests.E2E) are
-      # excluded by name.
+      # excluded by name. The same name-based selection scopes the coverage report (CI-04):
+      # only the suites that actually run here feed it — E2E projects never do.
       - name: Run Unit Tests
         if: needs.changes.outputs.code == 'true'
         run: |
@@ -168,7 +169,8 @@ jobs:
           while IFS= read -r proj; do
             found=1
             echo "::group::$(basename "$proj")"
-            dotnet test "$proj" --configuration Release --no-build --logger "console;verbosity=minimal"
+            dotnet test "$proj" --configuration Release --no-build --logger "console;verbosity=minimal" \
+              --collect "XPlat Code Coverage" --results-directory coverage-results
             echo "::endgroup::"
           done < <(find tests -name '*.Tests.Unit.csproj' | sort)
           if [ "$found" -eq 0 ]; then
@@ -186,13 +188,38 @@ jobs:
           while IFS= read -r proj; do
             found=1
             echo "::group::$(basename "$proj")"
-            dotnet test "$proj" --configuration Release --no-build --logger "console;verbosity=minimal"
+            dotnet test "$proj" --configuration Release --no-build --logger "console;verbosity=minimal" \
+              --collect "XPlat Code Coverage" --results-directory coverage-results
             echo "::endgroup::"
           done < <(find tests -name '*.Tests.Integration.csproj' | sort)
           if [ "$found" -eq 0 ]; then
             echo "::error::No *.Tests.Integration projects found — refusing to report a false green."
             exit 1
           fi
+
+      # Coverage is a REPORT, not a gate (CI-04 / #525) — deliberate decision, do not add a
+      # threshold "while at it". Coverage measures executed code, not verified behavior; the
+      # enforced quality signal stays the Stryker mutation score (mutation-test.yml, break: 67).
+      # This report is a map of where tests are thin and where the Stryker scope could expand.
+      # No step here fails because of a coverage number.
+      - name: Coverage report (report-only, never a gate)
+        if: needs.changes.outputs.code == 'true'
+        run: |
+          set -euo pipefail
+          dotnet tool restore
+          dotnet reportgenerator \
+            -reports:"coverage-results/**/coverage.cobertura.xml" \
+            -targetdir:"coverage-report" \
+            -reporttypes:"Html;MarkdownSummaryGithub"
+          cat coverage-report/SummaryGithub.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload coverage report
+        if: needs.changes.outputs.code == 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: coverage-report-pr-${{ github.event.pull_request.number }}-${{ github.run_number }}
+          path: coverage-report/
+          retention-days: 14
 
   # Packaging gate (CI-01 / #403): build the four SHIPPED images (cd.yml's exact matrix) on the PRs
   # that can change them — Dockerfile/.dockerignore edits, incl. Dependabot base-image digest bumps —

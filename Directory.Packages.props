@@ -14,7 +14,7 @@
     <!-- Security override: bunit 2.7.2 transitively pulls AngleSharp 1.4.0, which carries advisory
          GHSA-pgww-w46g-26qg. Pin the first patched 1.x release; Frontend.Tests.Unit references it
          directly to force the fixed version into the graph. -->
-    <PackageVersion Include="AngleSharp" Version="1.5.2" />
+    <PackageVersion Include="AngleSharp" Version="1.6.0" />
     <!-- Security override: OpenIddict.*.DataProtection 7.5.0 transitively pulls System.Security.Cryptography.Xml
          10.0.7, which carries CVE-2026-50648 (GHSA-23rf-6693-g89p and four sibling advisories, all fixed in
          10.0.10). Pin the patched release; the AuthSystem test projects reference it directly to force the fixed
@@ -67,7 +67,7 @@
     <PackageVersion Include="OpenTelemetry.Exporter.OpenTelemetryProtocol" Version="1.17.0" />
     <PackageVersion Include="OpenTelemetry.Instrumentation.Runtime" Version="1.17.0" />
     <PackageVersion Include="Shouldly" Version="4.3.0" />
-    <PackageVersion Include="bunit" Version="2.7.2" />
+    <PackageVersion Include="bunit" Version="2.8.6" />
     <PackageVersion Include="Spectre.Console" Version="0.57.2" />
     <PackageVersion Include="Spectre.Console.Cli" Version="0.55.0" />
     <PackageVersion Include="xunit" Version="2.9.3" />

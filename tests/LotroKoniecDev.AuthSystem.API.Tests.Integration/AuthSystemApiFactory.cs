@@ -28,6 +28,13 @@ public class AuthSystemApiFactory : WebApplicationFactory<Program>, IAsyncLifeti
 
     public const string TestApiClientSecret = "integration-test-secret-32-chars!";
 
+    /// <summary>
+    /// Origin of the web client this host is configured with. It doubles as the frontend origin the
+    /// login page falls back to when a sign-in carries no continuation, so tests assert against it
+    /// instead of repeating the literal.
+    /// </summary>
+    public const string TestFrontendAppRoot = "https://localhost:5001";
+
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         builder.UseEnvironment("Testing");
@@ -43,8 +50,8 @@ public class AuthSystemApiFactory : WebApplicationFactory<Program>, IAsyncLifeti
                 { "OpenIddict:EncryptionKey:Key", "RGV2RW5jcnlwdGlvbktleTMyQnl0ZXNMb25nMTIzNDU=" },
                 { "OpenIddict:SigningKey:Key", "RGV2U2lnbmluZ0tleTMyQnl0ZXNMb25nRW5vdWdoMTI=" },
                 { "OpenIddict:ApiClientSecret", TestApiClientSecret },
-                { "OpenIddict:WebClient:RedirectUris:0", "https://localhost:5001/callback" },
-                { "OpenIddict:WebClient:PostLogoutRedirectUris:0", "https://localhost:5001" },
+                { "OpenIddict:WebClient:RedirectUris:0", TestFrontendAppRoot + "/callback" },
+                { "OpenIddict:WebClient:PostLogoutRedirectUris:0", TestFrontendAppRoot },
                 { "AdminUser:Username", "seededadmin" },
                 { "AdminUser:Email", "admin@lotro-translator.pl" },
                 { "AdminUser:Password", "AdminTest123!" },

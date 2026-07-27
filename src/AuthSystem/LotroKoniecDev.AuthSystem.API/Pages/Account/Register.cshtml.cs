@@ -15,6 +15,12 @@ namespace LotroKoniecDev.AuthSystem.API.Pages.Account;
 
 internal sealed partial class RegisterModel : PageModel
 {
+    /// <summary>
+    /// The frontend's terms-of-service route; mirrors a page owned by the other context, so a rename
+    /// there has to be repeated here.
+    /// </summary>
+    private const string TermsOfServicePath = "/regulamin";
+
     private readonly ICommandHandler<RegisterUser.Command, Result<IdentityId>> _registerUserHandler;
     private readonly IOptions<OpenIddictSettings> _openIddictSettings;
     private readonly ILogger<RegisterModel> _logger;
@@ -53,16 +59,12 @@ internal sealed partial class RegisterModel : PageModel
     public bool IsRegistered { get; set; }
 
     /// <summary>
-    /// Absolute URL of the terms-of-service page on the frontend, derived from the web client's
-    /// first post-logout redirect URI (the app root) so no separate frontend-origin setting is
-    /// needed. Null when the client is not configured (e.g. a bare test host) — the register page
-    /// then renders the consent label without a link.
+    /// Absolute URL of the terms-of-service page on the frontend. Null when the web client is not
+    /// configured (e.g. a bare test host) — the register page then renders the consent label without
+    /// a link.
     /// </summary>
     public string? TermsOfServiceUrl =>
-        _openIddictSettings.Value.WebClient.PostLogoutRedirectUris is [string appRoot, ..]
-        && Uri.TryCreate(appRoot, UriKind.Absolute, out Uri? appRootUri)
-            ? new Uri(appRootUri, "/regulamin").ToString()
-            : null;
+        FrontendUrl.For(_openIddictSettings.Value.WebClient, TermsOfServicePath);
 
     public string? ErrorMessage { get; set; }
 

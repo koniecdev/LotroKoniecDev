@@ -48,9 +48,36 @@ public sealed class LoginModelTests
         sut.ReturnUrl.ShouldBe(expected);
     }
 
-    private static LoginModel CreateSut() =>
+    /// <summary>
+    /// The sign-in falls back to this URL when it carries no local continuation, so it must point at
+    /// the frontend's own login route — this host's root serves the API discovery JSON and dead-ends a
+    /// browser arriving from the reset-password or confirm-email pages. The URL-building rules
+    /// themselves are pinned by <c>FrontendUrlTests</c>.
+    /// </summary>
+    [Fact]
+    public void FrontendLoginUrl_PointsAtTheFrontendLoginRoute()
+    {
+        LoginModel sut = CreateSut("https://lotro-translator.pl");
+
+        sut.FrontendLoginUrl.ShouldBe("https://lotro-translator.pl/auth/login");
+    }
+
+    [Fact]
+    public void FrontendLoginUrl_IsNull_WhenTheWebClientHasNoConfiguredUri()
+    {
+        LoginModel sut = CreateSut();
+
+        sut.FrontendLoginUrl.ShouldBeNull();
+    }
+
+    private static LoginModel CreateSut(params string[] postLogoutRedirectUris) =>
         new(
             CreateUserManager(),
+            Microsoft.Extensions.Options.Options.Create(new OpenIddictSettings
+            {
+                Issuer = "https://auth.localhost",
+                WebClient = new WebClientSettings { PostLogoutRedirectUris = postLogoutRedirectUris }
+            }),
             Microsoft.Extensions.Options.Options.Create(new GdprSettings()),
             NullLogger<LoginModel>.Instance);
 

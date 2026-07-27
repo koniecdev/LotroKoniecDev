@@ -33,16 +33,28 @@ internal sealed partial class LoginModel : PageModel
     private static readonly string DummyPasswordHash =
         new PasswordHasher<ApplicationUser>().HashPassword(new ApplicationUser(), "DummyP@ssw0rd!");
 
+    /// <summary>
+    /// The frontend's own login route, which turns the freshly issued auth cookie into an application
+    /// session through a silent OIDC challenge. Mirrors the Frontend's
+    /// <c>AuthenticationDependencyInjectionExtensions.LoginPath</c>; the two contexts share no code, so
+    /// a rename there has to be repeated here (same arrangement as the register page's
+    /// <c>/regulamin</c> link).
+    /// </summary>
+    private const string FrontendLoginPath = "/auth/login";
+
     private readonly UserManager<ApplicationUser> _userManager;
+    private readonly IOptions<OpenIddictSettings> _openIddictSettings;
     private readonly GdprSettings _gdprSettings;
     private readonly ILogger<LoginModel> _logger;
 
     public LoginModel(
         UserManager<ApplicationUser> userManager,
+        IOptions<OpenIddictSettings> openIddictSettings,
         IOptions<GdprSettings> gdprSettings,
         ILogger<LoginModel> logger)
     {
         _userManager = userManager;
+        _openIddictSettings = openIddictSettings;
         _gdprSettings = gdprSettings.Value;
         _logger = logger;
     }
@@ -63,6 +75,16 @@ internal sealed partial class LoginModel : PageModel
     /// <see cref="LocalReturnUrl.Sanitize"/>, which blocks open redirects.
     /// </summary>
     public string? ReturnUrl { get; set; }
+
+    /// <summary>
+    /// Absolute URL of the frontend's login route. Only ever the fallback for a sign-in that carries no
+    /// local continuation: this host's own root answers with the API discovery JSON, which dead-ends a
+    /// browser arriving from the reset-password or confirm-email pages. The target comes from trusted
+    /// configuration, never from the request. Null when the web client is not configured (e.g. a bare
+    /// test host) — the sign-in then falls back to the local root.
+    /// </summary>
+    public string? FrontendLoginUrl =>
+        FrontendUrl.For(_openIddictSettings.Value.WebClient, FrontendLoginPath);
 
     public string? ErrorMessage { get; set; }
 
@@ -187,7 +209,14 @@ internal sealed partial class LoginModel : PageModel
 
         LogUserLoggedIn(_logger, user.Id);
 
-        return LocalRedirect(ReturnUrl ?? "/");
+        if (ReturnUrl is not null)
+        {
+            return LocalRedirect(ReturnUrl);
+        }
+
+        return FrontendLoginUrl is { } frontendLoginUrl
+            ? Redirect(frontendLoginUrl)
+            : LocalRedirect("/");
     }
 
     [LoggerMessage(EventId = EventIds.LoginUserNotFound, Level = LogLevel.Warning, Message = "Failed login: user not found. Email: {Email}, IP: {IP}")]

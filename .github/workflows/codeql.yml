@@ -1,9 +1,11 @@
 name: CodeQL
 
-# Static analysis (SAST) for the C# codebase (audit #0001 / H1). Runs on every PR and on the
-# default branch (to seed the code-scanning baseline), plus a weekly scheduled scan so newly
-# published query packs catch latent issues. C# uses build-mode "none" — CodeQL analyses the
-# source directly, so the job needs no .NET SDK, restore, or compile step.
+# Static analysis (SAST) for the C# codebase (audit #0001 / H1). Runs on every PR, plus a weekly
+# scheduled scan that refreshes the default-branch code-scanning baseline and lets newly published
+# query packs catch latent issues. There is deliberately NO push trigger: main only receives
+# squash-merged PRs that were already scanned, so a push scan would analyse the same code twice
+# (#526 — CodeQL was ~40% of this repo's Actions compute). C# uses build-mode "none" — CodeQL
+# analyses the source directly, so the job needs no .NET SDK, restore, or compile step.
 #
 # paths-ignore mirrors that scope: this scan reads C# source and nothing else, so a change confined
 # to shell/PowerShell scripts, agent config (.claude/) or docs cannot produce or clear a C# alert.
@@ -12,16 +14,6 @@ name: CodeQL
 # alerts raised by an earlier run stay open regardless of what this PR touches.
 on:
   pull_request:
-    branches: ["main"]
-    paths-ignore:
-      - '**/*.md'
-      - '**/*.sh'
-      - '**/*.ps1'
-      - 'docs/**'
-      - '.claude/**'
-      - 'LICENSE'
-      - '.gitignore'
-  push:
     branches: ["main"]
     paths-ignore:
       - '**/*.md'

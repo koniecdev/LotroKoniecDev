@@ -2,6 +2,7 @@ using System.Text.RegularExpressions;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
 using Microsoft.Extensions.Options;
+using LotroKoniecDev.AuthSystem.API.Common;
 using LotroKoniecDev.AuthSystem.API.Features.Auth;
 using LotroKoniecDev.AuthSystem.API.Settings;
 using LotroKoniecDev.SharedKernel.BuildingBlocks;
@@ -69,19 +70,19 @@ internal sealed partial class RegisterModel : PageModel
     /// The local OIDC continuation captured from the login flow (e.g. the <c>/connect/authorize</c>
     /// URL the user was bounced from). Carried verbatim into the post-registration login link so a
     /// registration detour resumes the interrupted authorization once the account is confirmed and
-    /// signed in. Reflected into the page only after passing <see cref="SanitizeReturnUrl"/> to block
-    /// open redirects.
+    /// signed in. Reflected into the page only after passing <see cref="LocalReturnUrl.Sanitize"/> to
+    /// block open redirects.
     /// </summary>
     public string? ReturnUrl { get; set; }
 
     public void OnGet(string? returnUrl = null)
     {
-        ReturnUrl = SanitizeReturnUrl(returnUrl);
+        ReturnUrl = LocalReturnUrl.Sanitize(returnUrl);
     }
 
     public async Task<IActionResult> OnPostAsync(string? returnUrl, CancellationToken cancellationToken)
     {
-        ReturnUrl = SanitizeReturnUrl(returnUrl);
+        ReturnUrl = LocalReturnUrl.Sanitize(returnUrl);
 
         if (string.IsNullOrWhiteSpace(Username) || string.IsNullOrWhiteSpace(Email) ||
             string.IsNullOrWhiteSpace(Password))
@@ -143,14 +144,6 @@ internal sealed partial class RegisterModel : PageModel
         IsRegistered = true;
         return Page();
     }
-
-    /// <summary>
-    /// Keeps only a safe, same-site <paramref name="returnUrl"/>: a non-local value (an absolute or
-    /// protocol-relative URL) is dropped so it can never be reflected into a link and turned into an
-    /// open redirect. Mirrors the login page's <see cref="IUrlHelper.IsLocalUrl"/> guard.
-    /// </summary>
-    private string? SanitizeReturnUrl(string? returnUrl) =>
-        !string.IsNullOrEmpty(returnUrl) && Url.IsLocalUrl(returnUrl) ? returnUrl : null;
 
     /// <summary>
     /// Maps the authoritative handler error onto a friendly Polish message. The required-field,

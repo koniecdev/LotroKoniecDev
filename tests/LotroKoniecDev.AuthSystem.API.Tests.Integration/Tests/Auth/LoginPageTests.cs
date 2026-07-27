@@ -1,5 +1,6 @@
 using System.Text.RegularExpressions;
 using Microsoft.AspNetCore.Identity;
+using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.DependencyInjection;
 using LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared.Bases;
 using LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared.Factories;
@@ -94,6 +95,61 @@ public sealed partial class LoginPageTests : EndpointsTestBase
         lockedOutMessage.ShouldBe(nonExistentMessage);
     }
 
+    /// <summary>
+    /// Every off-site target collapses to the home page instead of being carried into the
+    /// <c>Location</c> header. The <c>%09</c> case earns its own row: a prefix-only guard calls it
+    /// local, and handing it to <c>LocalRedirect</c> fails the executor's own check — so without the
+    /// control-character screen a successful login ends in an unhandled 500 rather than a redirect.
+    /// </summary>
+    [Theory]
+    [InlineData("/\t/evil.example")]
+    [InlineData("//evil.example")]
+    [InlineData("/\\evil.example")]
+    [InlineData("https://evil.example/harvest")]
+    public async Task LoginPage_ShouldRedirectHome_WhenReturnUrlIsNotLocal(string returnUrl)
+    {
+        // Arrange — a confirmed account, so the login itself succeeds and reaches the redirect
+        (RegisterRequest request, _) =
+            await UserFactory.RegisterRandomUserWithRequestAsync(ApiClient, Faker, AccountConfirmationEmailSpy);
+
+        // Act
+        HttpResponseMessage response = await PostToLoginPageAsync(
+            new Dictionary<string, string>
+            {
+                ["Email"] = request.Email,
+                ["Password"] = request.Password
+            },
+            returnUrl);
+
+        // Assert — the off-site target is dropped, never reflected into the Location header
+        response.StatusCode.ShouldBe(HttpStatusCode.Found);
+        response.Headers.Location.ShouldNotBeNull();
+        response.Headers.Location!.OriginalString.ShouldBe("/");
+    }
+
+    [Fact]
+    public async Task LoginPage_ShouldResumeTheContinuation_WhenReturnUrlIsLocal()
+    {
+        // Arrange — the interrupted authorization the login flow is expected to resume
+        const string continuation = "/connect/authorize?client_id=lotrokoniecdev-test&response_type=code";
+        (RegisterRequest request, _) =
+            await UserFactory.RegisterRandomUserWithRequestAsync(ApiClient, Faker, AccountConfirmationEmailSpy);
+
+        // Act
+        HttpResponseMessage response = await PostToLoginPageAsync(
+            new Dictionary<string, string>
+            {
+                ["Email"] = request.Email,
+                ["Password"] = request.Password
+            },
+            continuation);
+
+        // Assert — hardening must not break the flow it protects
+        response.StatusCode.ShouldBe(HttpStatusCode.Found);
+        response.Headers.Location.ShouldNotBeNull();
+        response.Headers.Location!.OriginalString.ShouldBe(continuation);
+    }
+
     private async Task LockOutAsync(string username)
     {
         await using AsyncServiceScope scope = Factory.Services.CreateAsyncScope();
@@ -118,9 +174,21 @@ public sealed partial class LoginPageTests : EndpointsTestBase
         return match.Groups[1].Value.Trim();
     }
 
-    private async Task<HttpResponseMessage> PostToLoginPageAsync(Dictionary<string, string> formFields)
+    /// <summary>
+    /// Posts credentials to the login page, optionally carrying an OIDC continuation in the query
+    /// string. Both legs run on one non-redirecting client — it must be the same client so its cookie
+    /// container carries the antiforgery cookie from the GET into the POST, and non-redirecting so
+    /// the sign-in redirect target stays observable as a <c>Location</c> header instead of being
+    /// followed away.
+    /// </summary>
+    private async Task<HttpResponseMessage> PostToLoginPageAsync(
+        Dictionary<string, string> formFields,
+        string? returnUrl = null)
     {
-        HttpResponseMessage pageResponse = await ApiClient.Http.GetAsync(
+        using HttpClient browser = Factory.CreateClient(
+            new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
+
+        HttpResponseMessage pageResponse = await browser.GetAsync(
             new Uri("/Account/Login", UriKind.Relative));
         pageResponse.StatusCode.ShouldBe(HttpStatusCode.OK);
 
@@ -131,19 +199,15 @@ public sealed partial class LoginPageTests : EndpointsTestBase
             formFields["__RequestVerificationToken"] = antiForgeryToken;
         }
 
+        string postUrl = returnUrl is null
+            ? "/Account/Login"
+            : $"/Account/Login?returnUrl={Uri.EscapeDataString(returnUrl)}";
+
         using FormUrlEncodedContent content = new(formFields);
-        using HttpRequestMessage request = new(HttpMethod.Post, "/Account/Login");
+        using HttpRequestMessage request = new(HttpMethod.Post, postUrl);
         request.Content = content;
 
-        if (pageResponse.Headers.TryGetValues("Set-Cookie", out IEnumerable<string>? cookies))
-        {
-            foreach (string cookie in cookies)
-            {
-                request.Headers.Add("Cookie", cookie.Split(';')[0]);
-            }
-        }
-
-        return await ApiClient.Http.SendAsync(request);
+        return await browser.SendAsync(request);
     }
 
     private static string? ExtractAntiForgeryToken(string html)

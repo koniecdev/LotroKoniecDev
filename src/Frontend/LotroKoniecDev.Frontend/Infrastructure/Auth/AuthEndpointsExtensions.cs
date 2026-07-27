@@ -1,3 +1,4 @@
+using LotroKoniecDev.Frontend.Infrastructure.Security;
 using LotroKoniecDev.Frontend.Settings;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
@@ -58,7 +59,7 @@ internal static class AuthEndpointsExtensions
         IOptionsMonitor<OpenIdConnectOptions> openIdConnectOptionsMonitor,
         ILoggerFactory loggerFactory)
     {
-        string redirectUri = IsLocalUrl(returnUrl) ? returnUrl! : "/";
+        string redirectUri = LocalReturnUrl.Sanitize(returnUrl) ?? "/";
 
         IConfigurationManager<OpenIdConnectConfiguration>? configurationManager = openIdConnectOptionsMonitor
             .Get(OpenIdConnectDefaults.AuthenticationScheme)
@@ -94,7 +95,7 @@ internal static class AuthEndpointsExtensions
     {
         await context.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
 
-        string redirect = IsLocalUrl(returnUrl) ? returnUrl! : "/";
+        string redirect = LocalReturnUrl.Sanitize(returnUrl) ?? "/";
         return Results.Redirect(redirect);
     }
 
@@ -118,13 +119,5 @@ internal static class AuthEndpointsExtensions
         }
 
         return Results.Redirect(endSessionUrl);
-    }
-
-    private static bool IsLocalUrl(string? url)
-    {
-        return !string.IsNullOrWhiteSpace(url)
-               && url.StartsWith('/')
-               && !url.StartsWith("//", StringComparison.Ordinal)
-               && !url.StartsWith("/\\", StringComparison.Ordinal);
     }
 }

@@ -68,6 +68,10 @@ public sealed class AuthEndpointsExtensionsTests
     [InlineData("https://evil.example.com/harvest", "/")]
     [InlineData("//evil.example.com", "/")]
     [InlineData("/\\evil.example.com", "/")]
+    // Browsers strip ASCII tab/newline, so this would resolve to the protocol-relative
+    // "//evil.example.com" once the challenge's RedirectUri reaches the address bar.
+    [InlineData("/\t/evil.example.com", "/")]
+    [InlineData("/\r\n/evil.example.com", "/")]
     [InlineData("", "/")]
     [InlineData(null, "/")]
     public async Task LoginAsync_WhenAuthorityReachable_SanitizesReturnUrlToALocalRedirect(
@@ -121,6 +125,8 @@ public sealed class AuthEndpointsExtensionsTests
     [InlineData("https://evil.example.com/harvest")]
     [InlineData("//evil.example.com")]
     [InlineData("/\\evil.example.com")]
+    [InlineData("/\t/evil.example.com")]
+    [InlineData("/\r\n/evil.example.com")]
     [InlineData("")]
     [InlineData(null)]
     public async Task LocalSignOutAsync_WhenReturnUrlIsNotLocal_RedirectsHome(string? returnUrl)

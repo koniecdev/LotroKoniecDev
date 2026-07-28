@@ -25,11 +25,10 @@ internal sealed partial class EmailService : IEmailService
     public async Task<Result> SendAsync(
         string receiverEmail,
         string subject,
-        string body,
-        bool isBodyHtml = true,
+        EmailBody body,
         CancellationToken cancellationToken = default)
     {
-        using MimeMessage message = BuildMessage(receiverEmail, subject, body, isBodyHtml);
+        using MimeMessage message = BuildMessage(receiverEmail, subject, body);
         SecureSocketOptions secureOptions = MapSecurityMode(_options.Mode);
 
         Exception? lastTransientError = null;
@@ -80,7 +79,7 @@ internal sealed partial class EmailService : IEmailService
             lastTransientError?.Message ?? "Email send failed after retries."));
     }
 
-    private MimeMessage BuildMessage(string receiverEmail, string subject, string body, bool isBodyHtml)
+    private MimeMessage BuildMessage(string receiverEmail, string subject, EmailBody body)
     {
         MimeMessage message = new();
         message.From.Add(new MailboxAddress(_options.Sender, _options.SenderEmail));
@@ -88,8 +87,8 @@ internal sealed partial class EmailService : IEmailService
         message.Subject = subject;
         message.Body = new BodyBuilder
         {
-            HtmlBody = isBodyHtml ? body : null,
-            TextBody = isBodyHtml ? null : body
+            HtmlBody = body.Html,
+            TextBody = body.PlainText
         }.ToMessageBody();
         return message;
     }

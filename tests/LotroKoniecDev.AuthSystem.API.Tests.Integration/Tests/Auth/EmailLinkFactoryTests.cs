@@ -88,7 +88,9 @@ public sealed class EmailLinkFactoryTests : EndpointsTestBase
         // Assert
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
         emailServiceSpy.LastBody.ShouldNotBeNull();
-        emailServiceSpy.LastBody.ShouldContain($"{ConfiguredIssuerOrigin}/Account/ResetPassword");
-        emailServiceSpy.LastBody.ShouldNotContain(forgedHost);
+        emailServiceSpy.LastBody.Html.ShouldContain($"{ConfiguredIssuerOrigin}/Account/ResetPassword");
+        emailServiceSpy.LastBody.Html.ShouldNotContain(forgedHost);
+        emailServiceSpy.LastBody.PlainText.ShouldContain($"{ConfiguredIssuerOrigin}/Account/ResetPassword");
+        emailServiceSpy.LastBody.PlainText.ShouldNotContain(forgedHost);
     }
 }

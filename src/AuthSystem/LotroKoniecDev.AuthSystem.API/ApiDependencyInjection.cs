@@ -12,6 +12,7 @@ using LotroKoniecDev.AuthSystem.API.Features.Auth;
 using LotroKoniecDev.AuthSystem.API.Hateoas.AccountAggregateFactories;
 using LotroKoniecDev.AuthSystem.API.Hateoas.DiscoveryFactories;
 using LotroKoniecDev.AuthSystem.API.Services.Emails;
+using LotroKoniecDev.AuthSystem.API.Services.Emails.Templates;
 using LotroKoniecDev.AuthSystem.API.Services.Gdpr;
 using LotroKoniecDev.AuthSystem.API.Services.Maintenance;
 using LotroKoniecDev.AuthSystem.API.Services.Sessions;
@@ -78,6 +79,7 @@ internal static class ApiDependencyInjection
             services.AddScoped<IEmailVerificationLinkFactory, EmailVerificationLinkFactory>();
             services.AddScoped<IPasswordResetLinkFactory, PasswordResetLinkFactory>();
             services.AddScoped<ICancelDeletionLinkFactory, CancelDeletionLinkFactory>();
+            services.AddSingleton<IEmailTemplateRenderer, EmailTemplateRenderer>();
             services.AddScoped<IPasswordResetEmailSender, PasswordResetEmailSender>();
             services.AddScoped<IAccountConfirmationEmailSender, AccountConfirmationEmailSender>();
             services.AddScoped<IAccountDeletionEmailSender, AccountDeletionEmailSender>();

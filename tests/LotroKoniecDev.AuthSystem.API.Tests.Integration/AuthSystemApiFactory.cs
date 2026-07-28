@@ -64,6 +64,11 @@ public class AuthSystemApiFactory : WebApplicationFactory<Program>, IAsyncLifeti
                 { "Email:Sender", "lotro-translator.pl" },
                 { "Email:Host", "localhost" },
                 { "Email:Port", "59999" },
+                // No broker in this suite; the values only have to satisfy the unconditional
+                // RabbitMqOptionsValidator at startup — nothing connects to them.
+                { "RabbitMq:Host", "localhost" },
+                { "RabbitMq:Username", "rabbitmq" },
+                { "RabbitMq:Password", "changeme" },
             });
         });
 

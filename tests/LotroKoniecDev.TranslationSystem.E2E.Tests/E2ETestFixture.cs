@@ -168,6 +168,11 @@ public sealed class E2ETestFixture : IAsyncLifetime
             .WithEnvironment("Email__Sender", "lotro-translator.pl")
             .WithEnvironment("Email__Host", "localhost")
             .WithEnvironment("Email__Port", "2525")
+            // No broker in this network either — the values only have to satisfy the unconditional
+            // RabbitMqOptionsValidator at startup.
+            .WithEnvironment("RabbitMq__Host", "localhost")
+            .WithEnvironment("RabbitMq__Username", "rabbitmq")
+            .WithEnvironment("RabbitMq__Password", "changeme")
             .WithWaitStrategy(Wait.ForUnixContainer()
                 .UntilHttpRequestIsSucceeded(request => request.ForPath("/health/live").ForPort(8080)))
             .Build();

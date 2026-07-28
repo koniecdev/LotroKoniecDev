@@ -198,6 +198,11 @@ public sealed class PlaywrightStackFixture : IAsyncLifetime
             .WithEnvironment("Email__Host", "mailpit")
             .WithEnvironment("Email__Port", MailpitSmtpPort.ToString(CultureInfo.InvariantCulture))
             .WithEnvironment("Email__Mode", "None")
+            // No broker in this network — the values only have to satisfy the unconditional
+            // RabbitMqOptionsValidator at startup.
+            .WithEnvironment("RabbitMq__Host", "localhost")
+            .WithEnvironment("RabbitMq__Username", "rabbitmq")
+            .WithEnvironment("RabbitMq__Password", "changeme")
             .WithEnvironment("ASPNETCORE_Kestrel__Certificates__Default__Path", "/certs/e2e.crt")
             .WithEnvironment("ASPNETCORE_Kestrel__Certificates__Default__KeyPath", "/certs/e2e.key")
             .WithResourceMapping(Encoding.ASCII.GetBytes(_certPem), "/certs/e2e.crt")

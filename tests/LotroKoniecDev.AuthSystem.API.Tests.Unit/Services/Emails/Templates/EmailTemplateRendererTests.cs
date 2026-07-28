@@ -1,10 +1,23 @@
 using LotroKoniecDev.AuthSystem.API.Services.Emails.Templates;
+using LotroKoniecDev.AuthSystem.API.Settings;
 using LotroKoniecDev.AuthSystem.Infrastructure.Emails;
 
 namespace LotroKoniecDev.AuthSystem.API.Tests.Unit.Services.Emails.Templates;
 
 public sealed class EmailTemplateRendererTests
 {
+    private const string AppRoot = "https://lotro-translator.pl";
+
+    private static EmailTemplateRenderer BuildRenderer(string? appRoot = AppRoot) =>
+        new(Microsoft.Extensions.Options.Options.Create(new OpenIddictSettings
+        {
+            Issuer = "https://auth.lotro-translator.pl",
+            WebClient = new WebClientSettings
+            {
+                PostLogoutRedirectUris = appRoot is null ? [] : [appRoot]
+            }
+        }));
+
     private static EmailTemplateModel BuildModel(
         EmailCallToAction? callToAction = null,
         string? securityNote = null,
@@ -23,7 +36,7 @@ public sealed class EmailTemplateRendererTests
     public void Render_AnyModel_PutsHeadingAndParagraphsInBothBodies()
     {
         // Arrange
-        EmailTemplateRenderer renderer = new();
+        EmailTemplateRenderer renderer = BuildRenderer();
         EmailTemplateModel model = BuildModel(heading: "Potwierdź swoje konto", paragraphs: ["Dziękujemy za rejestrację."]);
 
         // Act
@@ -40,7 +53,7 @@ public sealed class EmailTemplateRendererTests
     public void Render_ModelWithCallToAction_RendersTheLabelAsAnHtmlLink()
     {
         // Arrange
-        EmailTemplateRenderer renderer = new();
+        EmailTemplateRenderer renderer = BuildRenderer();
         EmailTemplateModel model = BuildModel(
             new EmailCallToAction("Ustaw nowe hasło", "https://auth.lotro-translator.pl/Account/ResetPassword"));
 
@@ -56,7 +69,7 @@ public sealed class EmailTemplateRendererTests
     public void Render_CallToActionUrlWithQueryParameters_EscapesAmpersandsInHtmlOnly()
     {
         // Arrange
-        EmailTemplateRenderer renderer = new();
+        EmailTemplateRenderer renderer = BuildRenderer();
         const string url = "https://auth.lotro-translator.pl/Account/ResetPassword?email=a%40b.pl&token=CfDJ8A";
         EmailTemplateModel model = BuildModel(new EmailCallToAction("Ustaw nowe hasło", url));
 
@@ -73,7 +86,7 @@ public sealed class EmailTemplateRendererTests
     public void Render_CallToAction_RepeatsTheUrlAsCopyablePlainText()
     {
         // Arrange
-        EmailTemplateRenderer renderer = new();
+        EmailTemplateRenderer renderer = BuildRenderer();
         const string url = "https://auth.lotro-translator.pl/Account/ConfirmEmail?token=abc";
         EmailTemplateModel model = BuildModel(new EmailCallToAction("Potwierdź konto", url));
 
@@ -86,26 +99,87 @@ public sealed class EmailTemplateRendererTests
     }
 
     [Fact]
-    public void Render_ModelWithoutCallToAction_RendersNoLink()
+    public void Render_ModelWithoutCallToAction_RendersNoButtonOrFallbackLink()
     {
         // Arrange
-        EmailTemplateRenderer renderer = new();
+        EmailTemplateRenderer renderer = BuildRenderer();
         EmailTemplateModel model = BuildModel(callToAction: null);
 
         // Act
         EmailBody body = renderer.Render(model);
 
         // Assert
-        body.Html.ShouldNotContain("<a href=");
+        body.Html.ShouldNotContain("class=\"cta\"");
         body.Html.ShouldNotContain("Jeśli przycisk nie działa");
         body.PlainText.ShouldNotContain("http");
+    }
+
+    [Fact]
+    public void Render_Always_OverridesTheClientDefaultLinkColour()
+    {
+        // Arrange
+        EmailTemplateRenderer renderer = BuildRenderer();
+        EmailTemplateModel model = BuildModel();
+
+        // Act
+        EmailBody body = renderer.Render(model);
+
+        // Assert
+        body.Html.ShouldContain("a{color:#d9b160 !important;}");
+        body.Html.ShouldContain("a[x-apple-data-detectors]{color:#d9b160 !important;}");
+    }
+
+    [Fact]
+    public void Render_CallToAction_ExemptsTheButtonFromTheGoldOverride()
+    {
+        // Arrange
+        EmailTemplateRenderer renderer = BuildRenderer();
+        EmailTemplateModel model = BuildModel(
+            new EmailCallToAction("Ustaw nowe hasło", "https://auth.lotro-translator.pl/Account/ResetPassword"));
+
+        // Act
+        EmailBody body = renderer.Render(model);
+
+        // Assert
+        body.Html.ShouldContain("a.cta,a.cta:visited,a.cta:hover{color:#100d08 !important;");
+        body.Html.ShouldContain("<a class=\"cta\"");
+    }
+
+    [Fact]
+    public void Render_ConfiguredWebClient_TurnsTheBrandIntoAGoldLink()
+    {
+        // Arrange
+        EmailTemplateRenderer renderer = BuildRenderer(AppRoot);
+        EmailTemplateModel model = BuildModel();
+
+        // Act
+        EmailBody body = renderer.Render(model);
+
+        // Assert
+        body.Html.ShouldContain($"<a class=\"brand\" href=\"{AppRoot}/\" style=\"color:#d9b160;");
+        body.Html.ShouldContain(EmailBranding.Name);
+    }
+
+    [Fact]
+    public void Render_UnconfiguredWebClient_LeavesTheBrandAsPlainText()
+    {
+        // Arrange
+        EmailTemplateRenderer renderer = BuildRenderer(appRoot: null);
+        EmailTemplateModel model = BuildModel();
+
+        // Act
+        EmailBody body = renderer.Render(model);
+
+        // Assert
+        body.Html.ShouldNotContain("class=\"brand\"");
+        body.Html.ShouldContain(EmailBranding.Name);
     }
 
     [Fact]
     public void Render_MarkupInModelText_IsHtmlEncodedButLeftRawInPlainText()
     {
         // Arrange
-        EmailTemplateRenderer renderer = new();
+        EmailTemplateRenderer renderer = BuildRenderer();
         EmailTemplateModel model = BuildModel(
             heading: "<script>alert(1)</script>",
             paragraphs: ["Tekst z <b>znacznikiem</b>"]);
@@ -124,7 +198,7 @@ public sealed class EmailTemplateRendererTests
     public void Render_MarkupInCallToAction_IsHtmlEncoded()
     {
         // Arrange
-        EmailTemplateRenderer renderer = new();
+        EmailTemplateRenderer renderer = BuildRenderer();
         EmailTemplateModel model = BuildModel(
             new EmailCallToAction("\"><script>alert(1)</script>", "https://auth.lotro-translator.pl/\"><script>"));
 
@@ -141,7 +215,7 @@ public sealed class EmailTemplateRendererTests
     public void Render_ModelWithSecurityNote_ShowsItInBothBodies()
     {
         // Arrange
-        EmailTemplateRenderer renderer = new();
+        EmailTemplateRenderer renderer = BuildRenderer();
         const string note = "Jeśli to nie Ty prosiłeś(-aś) o reset hasła, zignoruj tę wiadomość.";
         EmailTemplateModel model = BuildModel(securityNote: note);
 
@@ -157,7 +231,7 @@ public sealed class EmailTemplateRendererTests
     public void Render_ModelWithoutSecurityNote_OmitsTheNoteSection()
     {
         // Arrange
-        EmailTemplateRenderer renderer = new();
+        EmailTemplateRenderer renderer = BuildRenderer();
         EmailTemplateModel model = BuildModel(securityNote: null);
 
         // Act
@@ -171,7 +245,7 @@ public sealed class EmailTemplateRendererTests
     public void Render_AnyModel_BrandsBothBodiesAndHidesThePreheader()
     {
         // Arrange
-        EmailTemplateRenderer renderer = new();
+        EmailTemplateRenderer renderer = BuildRenderer();
         EmailTemplateModel model = BuildModel();
 
         // Act

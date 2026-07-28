@@ -4,6 +4,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using LotroKoniecDev.AuthSystem.Domain.Aggregates.ApplicationRoles.Entities;
 using LotroKoniecDev.AuthSystem.Domain.Aggregates.ApplicationUsers.Entities;
+using LotroKoniecDev.AuthSystem.Persistence.Outbox;
 
 namespace LotroKoniecDev.AuthSystem.Persistence.DbContexts;
 
@@ -12,6 +13,8 @@ public sealed class AuthDbContext : IdentityDbContext<ApplicationUser, Applicati
     public AuthDbContext(DbContextOptions<AuthDbContext> options) : base(options)
     {
     }
+
+    public DbSet<OutboxMessage> OutboxMessages => Set<OutboxMessage>();
 
     protected override void ConfigureConventions(ModelConfigurationBuilder configurationBuilder)
     {

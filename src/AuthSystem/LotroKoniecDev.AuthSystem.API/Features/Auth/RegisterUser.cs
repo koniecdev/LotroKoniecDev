@@ -1,3 +1,4 @@
+using System.Text.Json;
 using FluentValidation;
 using FluentValidation.Results;
 using Microsoft.AspNetCore.Identity;
@@ -5,14 +6,17 @@ using Microsoft.EntityFrameworkCore;
 using LotroKoniecDev.AuthSystem.API.ApiErrors;
 using LotroKoniecDev.AuthSystem.API.Common;
 using LotroKoniecDev.AuthSystem.API.Extensions;
-using LotroKoniecDev.AuthSystem.API.Services.Emails;
+using LotroKoniecDev.AuthSystem.API.Outbox;
 using LotroKoniecDev.AuthSystem.Contracts.Features.Auth.Register;
 using LotroKoniecDev.AuthSystem.Domain.Aggregates.ApplicationUsers.Entities;
+using LotroKoniecDev.AuthSystem.Persistence.DbContexts;
+using LotroKoniecDev.AuthSystem.Persistence.Outbox;
 using LotroKoniecDev.SharedKernel.Authorization;
 using LotroKoniecDev.SharedKernel.Constants;
 using LotroKoniecDev.SharedKernel.Messaging;
 using LotroKoniecDev.SharedKernel.Monads;
 using LotroKoniecDev.SharedKernel.StronglyTypedIds;
+using Microsoft.EntityFrameworkCore.Storage;
 
 namespace LotroKoniecDev.AuthSystem.API.Features.Auth;
 
@@ -60,23 +64,23 @@ internal sealed partial class RegisterUser : IApiEndpoint
     internal sealed partial class Handler : ICommandHandler<Command, Result<IdentityId>>
     {
         private readonly UserManager<ApplicationUser> _userManager;
-        private readonly IAccountConfirmationEmailSender _accountConfirmationEmailSender;
         private readonly TimeProvider _timeProvider;
         private readonly IValidator<Command> _validator;
         private readonly ILogger<Handler> _logger;
+        private readonly AuthDbContext _db;
 
         public Handler(
             UserManager<ApplicationUser> userManager,
-            IAccountConfirmationEmailSender accountConfirmationEmailSender,
             TimeProvider timeProvider,
             IValidator<Command> validator,
-            ILogger<Handler> logger)
+            ILogger<Handler> logger,
+            AuthDbContext db)
         {
             _userManager = userManager;
-            _accountConfirmationEmailSender = accountConfirmationEmailSender;
             _timeProvider = timeProvider;
             _validator = validator;
             _logger = logger;
+            _db = db;
         }
 
         public async ValueTask<Result<IdentityId>> Handle(
@@ -89,7 +93,24 @@ internal sealed partial class RegisterUser : IApiEndpoint
                 return Result.Failure<IdentityId>(validationResult.ToValidationError(nameof(RegisterUser)));
             }
 
-            ApplicationUser user;
+            // The context enables EnableRetryOnFailure, so EF refuses a user-initiated transaction
+            // unless the whole unit of work runs inside an execution strategy — a retry has to be
+            // able to replay begin-to-commit, not a single statement inside it.
+            IExecutionStrategy executionStrategy = _db.Database.CreateExecutionStrategy();
+
+            return await executionStrategy.ExecuteAsync(async () => await RegisterAsync(command, cancellationToken));
+        }
+
+        private async Task<Result<IdentityId>> RegisterAsync(
+            Command command,
+            CancellationToken cancellationToken)
+        {
+            // A retried attempt starts from a rolled-back transaction while the tracker still holds
+            // the previous attempt's entities as Added — replaying without a reset would insert twice.
+            _db.ChangeTracker.Clear();
+
+            await using IDbContextTransaction transaction =
+                await _db.Database.BeginTransactionAsync(cancellationToken);
 
             try
             {
@@ -105,7 +126,7 @@ internal sealed partial class RegisterUser : IApiEndpoint
                     return Result.Failure<IdentityId>(AuthErrors.UserAlreadyExistsByUsername);
                 }
 
-                user = new()
+                ApplicationUser user = new()
                 {
                     UserName = command.Username,
                     Email = command.Email,
@@ -143,35 +164,32 @@ internal sealed partial class RegisterUser : IApiEndpoint
                         string.Join(", ", roleIdentityResult.Errors.Select(e => e.Description))));
                 }
 
-                string emailToken = await _userManager.GenerateEmailConfirmationTokenAsync(user);
-                Result emailResult = await _accountConfirmationEmailSender.SendEmailConfirmationAsync(
-                    user.Id, command.Email, emailToken, cancellationToken);
-                if (emailResult.IsFailure)
-                {
-                    LogConfirmationEmailFailed(_logger, user.Id, emailResult.Error.Message);
+                EmailConfirmationRequested emailConfirmationRequested = new(user.Id);
+                OutboxMessage outboxMessage = OutboxMessage.Create(
+                    type: nameof(EmailConfirmationRequested),
+                    payload: JsonSerializer.Serialize(emailConfirmationRequested),
+                    occurredOn: _timeProvider.GetUtcNow());
 
-                    await _userManager.ConfirmEmailAsync(user, emailToken);
-                }
+                _db.OutboxMessages.Add(outboxMessage);
+                await _db.SaveChangesAsync(cancellationToken);
+
+                await transaction.CommitAsync(cancellationToken);
+
+                // No cross-context profile creation here (the KittySaver RegisterUser->CreatePerson
+                // saga is deliberately not lifted): the translator profile is provisioned lazily and
+                // idempotently on the first authenticated TranslationSystem request (ADR-0002 §7).
+                return IdentityId.Create(user.Id);
             }
             catch (Exception ex) when (ex is DbUpdateException or InvalidOperationException)
             {
                 // DbUpdateException: unique constraint race condition on CreateAsync.
                 // InvalidOperationException: "Sequence contains more than one element" from
-                //   FindByEmailAsync when duplicate users exist concurrently — can happen in
-                //   pre-checks or ConfirmEmailAsync's internal validation.
+                //   FindByEmailAsync when duplicate users exist concurrently.
                 string maskedEmail = command.Email.MaskEmail();
                 LogConcurrentRegistration(_logger, ex, maskedEmail);
                 return Result.Failure<IdentityId>(AuthErrors.UserAlreadyExistsByEmail);
             }
-
-            // No cross-context profile creation here (the KittySaver RegisterUser->CreatePerson
-            // saga is deliberately not lifted): the translator profile is provisioned lazily and
-            // idempotently on the first authenticated TranslationSystem request (ADR-0002 §7).
-            return IdentityId.Create(user.Id);
         }
-
-        [LoggerMessage(EventId = EventIds.RegisterEmailFallback, Level = LogLevel.Warning, Message = "Failed to send confirmation email for user {UserId}: {Error}. Auto-confirming account as fallback")]
-        private static partial void LogConfirmationEmailFailed(ILogger logger, Guid userId, string error);
 
         [LoggerMessage(EventId = EventIds.RegisterConcurrentRace, Level = LogLevel.Warning, Message = "Concurrent registration race condition for email {Email}")]
         private static partial void LogConcurrentRegistration(ILogger logger, Exception exception, string email);

@@ -1,6 +1,7 @@
 using FluentValidation;
 using Microsoft.Extensions.DependencyInjection;
 using LotroKoniecDev.AuthSystem.Infrastructure.Emails;
+using LotroKoniecDev.AuthSystem.Infrastructure.Messaging;
 using LotroKoniecDev.AuthSystem.Infrastructure.Options;
 
 namespace LotroKoniecDev.AuthSystem.Infrastructure;
@@ -15,6 +16,7 @@ public static class InfrastructureDependencyInjection
             services.AddValidatorsFromAssembly(typeof(IInfrastructureMarker).Assembly);
             services.AddInfrastructureOptions();
             services.AddEmails();
+            services.AddMessaging();
 
             return services;
         }

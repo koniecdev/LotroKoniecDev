@@ -6,6 +6,10 @@ originSessionId: fcf33c21-a957-445f-bc57-c8ea7814f1b6
 ---
 # DAT Vnum Observations
 
+> **Addendum (2026-08-02):** 6th cycle — 48.8 → **49.1 (second MAJOR)**, vnum still **112/3**
+> while the forum fetch returned "49.1". Two majors and four points without a single vnum move.
+> See [live-test-2026-08-02.md](live-test-2026-08-02.md).
+
 > **Addendum (2026-07-11):** 5th cycle confirmed — 48.7 → **48.8**, vnum still **112/3** while a
 > live forum fetch returned "48.8". See [live-test-2026-07-11.md](live-test-2026-07-11.md).
 
@@ -18,6 +22,8 @@ originSessionId: fcf33c21-a957-445f-bc57-c8ea7814f1b6
 | 2026-03-22 | 47.1 → 47.2 | 112 | 3 | Yes (chunk-patched) |
 | **2026-04-23** | **47.2 → 48.0 (MAJOR)** | **112** | **3** | **Yes (+14MB, +4,231 fragments)** |
 | **2026-06-25** | **48.0 → 48.7 (point)** | **112** | **3** | **Yes (+1 MiB, +1,159 fragments)** |
+| 2026-07-11 | 48.7 → 48.8 (point) | 112 | 3 | Yes (minor) |
+| **2026-08-02** | **48.8 → 49.1 (MAJOR)** | **112** | **3** | **Yes (+1 MiB, +7,192 fragments)** |
 
 ## Conclusions — definitively confirmed
 

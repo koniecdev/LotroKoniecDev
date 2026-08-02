@@ -1,10 +1,20 @@
 ---
 name: DAT Protection NOT NEEDED — translations survive all updates (including major)
-description: attrib +R protection is unnecessary. Launcher uses chunk-based patching. Translations survive even major updates without any protection. Validated across 7 live tests including updates 48.0 (2026-04-23) and 48.7 (2026-06-25).
+description: attrib +R protection is unnecessary. Launcher uses chunk-based patching. Translations survive updates without any protection — with one refined limit: survival is per-SubFile (an update that modifies a SubFile reverts our fragments inside it; first observed 48.8→49.1). Validated across 9 live tests including majors 48.0 (2026-04-23) and 49 (2026-08-02).
 type: project
 originSessionId: fcf33c21-a957-445f-bc57-c8ea7814f1b6
 ---
 # DAT Protection Status: NOT NEEDED
+
+> **Addendum (2026-08-02) — the survival model is per-SubFile, not per-fragment.** 9th test
+> (major 48.8 → 49.1, "In Good Company"): **7/8 survived byte-for-byte; 1/8 REVERTED** to its
+> English original because SSG added 4 fragments to its SubFile (620757435: 1019→1023) — the
+> launcher replaced that whole chunk, wiping our fragment even though its own text was unchanged.
+> Counter-proof: the four SubFiles holding the surviving pairs kept identical fragment counts.
+> **The "protection NOT needed" conclusion stands** — `attrib +R` cannot save a chunk the update
+> legitimately replaces; the repair is a normal re-patch (and in the TMS model, exactly the
+> spec-0001 invalidation loop — its first real-world case). See
+> [live-test-2026-08-02.md](live-test-2026-08-02.md) + [update-49/RESULTS.md](update-49/RESULTS.md).
 
 > **Addendum (2026-07-11):** an 8th confirmation — resident translations survived the 48.7→48.8
 > cycle untouched (SKIP path, hash match) and a forced live `patch` (8/8, 0 warnings) confirmed
@@ -14,7 +24,7 @@ originSessionId: fcf33c21-a957-445f-bc57-c8ea7814f1b6
 
 We assumed LOTRO's official launcher overwrites DAT files on update, wiping translations. This drove the entire Legacy launch flow with attrib +R protection, process monitoring, and game client killing. **Wrong.**
 
-## Empirical evidence: 7 independent tests
+## Empirical evidence: 9 independent tests
 
 | Date | Update type | DAT modified? | Result |
 |------|-------------|---------------|--------|
@@ -25,6 +35,8 @@ We assumed LOTRO's official launcher overwrites DAT files on update, wiping tran
 | 2026-03-22 #2 | SKIP path verification | No | ✅ 255ms launch |
 | **2026-04-23** | **47.2 → 48.0 (MAJOR)** | **Yes (+14MB, +4,231 fragments)** | **✅ 8/8 survived, 4 channels verified** |
 | **2026-06-25** | **48.0 → 48.7 (point, SKIP path)** | **Yes (+1 MiB, +1,159 fragments)** | **✅ 8/8 survived, 4 channels, byte-identical** |
+| 2026-07-11 | 48.7 → 48.8 (point) | Yes (minor) | ✅ 8/8 survived + forced live WRITE-path re-patch OK |
+| **2026-08-02** | **48.8 → 49.1 (MAJOR)** | **Yes (+1 MiB, +7,192 fragments, in-place chunk rewrites)** | **⚠️ 7/8 survived byte-for-byte; 1/8 reverted — its SubFile was modified (+4 fragments) → whole chunk replaced** |
 
 ## How translations survive: chunk-based patching
 
@@ -53,14 +65,21 @@ We assumed LOTRO's official launcher overwrites DAT files on update, wiping tran
 4. Done. No protection, no monitoring, no killing processes.
 ```
 
-**Zero failures across 7 live tests including one major update.** datexport.dll READ + WRITE paths confirmed compatible with both 48.0 and 48.7 schemas (vnum 112/3 throughout).
+**Across 9 live tests (two majors) the only loss is the per-SubFile revert above — never a flow failure.** datexport.dll READ + WRITE paths confirmed compatible with 48.0, 48.7, 48.8 and 49.1 schemas (vnum 112/3 throughout).
 
 ## Russian project comparison
 
 - **Russians use:** `-disablePatch` flag (undocumented, SSG can remove anytime)
 - **We used:** `attrib +R` (OS-level block)
 - **Reality:** Neither is needed — translations survive updates anyway
-- Russians also have NinjaMark to detect overwrites — over-engineering for a non-problem
+- Russians also have NinjaMark (marker in DAT subfile 620750000) to detect launcher overwrites —
+  re-evaluated 2026-08-02 after the per-SubFile revert finding: the **problem class is real**
+  (our old "non-problem" verdict is retired), but the in-DAT marker is the wrong implementation
+  for us: it only fires when ITS OWN chunk is wiped (misses collateral wipes elsewhere), reading
+  it needs elevated DAT access on every launch (datexport opens with write intent), and our
+  lost-state edge already degrades gracefully (missing version file ⇒ hash=null ⇒ full re-patch).
+  An external DAT fingerprint (size+mtime in the version file) detects strictly more, with zero
+  DAT access on the SKIP path — see `update-49/RESULTS.md` §scenariusze (launch sentinel)
 
 ## Cross-reference
 

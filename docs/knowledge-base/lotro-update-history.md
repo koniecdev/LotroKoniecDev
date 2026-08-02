@@ -6,6 +6,11 @@ originSessionId: fcf33c21-a957-445f-bc57-c8ea7814f1b6
 ---
 # LOTRO Update History (observed)
 
+> **Addendum (2026-08-02):** → **49 "In Good Company" (MAJOR, released 2026-07-22)** + point
+> patch **49.1** (forum fetch during our test returned "49.1"). Client updated 2026-08-02:
+> +2,270 text files / +7,192 fragments, DAT +1 MiB exactly (in-place chunk rewrites). Survival
+> 7/8 — first per-SubFile revert observed. See [live-test-2026-08-02.md](live-test-2026-08-02.md).
+
 > **Addendum (2026-07-11):** → **48.8** observed (forum fetch returned "48.8"; vnum 112/3 unchanged,
 > 5th cycle; resident translations survived 48.7 → 48.8). Tested on the first real-world AUDIT-SEC
 > run — see [live-test-2026-07-11.md](live-test-2026-07-11.md).
@@ -19,6 +24,9 @@ originSessionId: fcf33c21-a957-445f-bc57-c8ea7814f1b6
 → 47.1 → 47.1.1 → 47.2
 → 48.0 (MAJOR — 2026-04-23, Hatokáli Fells / Rhûn content)
 → 48.7 (point — 2026-06-25, +1,159 fragments / +601 text files)
+→ 48.8 (point — observed 2026-07-11)
+→ 49 "In Good Company" (MAJOR — released 2026-07-22) → 49.1 (point — observed 2026-08-02,
+  together +7,192 fragments / +2,270 text files vs 48.8)
 ```
 
 All observed with **vnum 112/3 unchanged** — see [vnum-observations.md](vnum-observations.md).
@@ -33,6 +41,8 @@ All observed with **vnum 112/3 unchanged** — see [vnum-observations.md](vnum-o
 | 2026-03-22 | 47.1 → 47.2 (chunk) | SKIP path, translations survive DAT-patching update |
 | **2026-04-23** | **47.2 → 48.0 (MAJOR)** | **First major update since simplified flow. 4-channel survival verified. datexport.dll READ + WRITE compat with 48.0 schema.** |
 | **2026-06-25** | **48.0 → 48.7 (point)** | **Second live update, first via SKIP path. 4-channel survival verified. datexport.dll READ+WRITE compat with 48.7. vnum 112/3 (4th cycle). Forum-fetcher returned "48.7".** |
+| 2026-07-11 | 48.7 → 48.8 (point) | First real-world AUDIT-SEC run; survival + forced live WRITE-path re-patch OK. Forum-fetcher returned "48.8". |
+| **2026-08-02** | **48.8 → 49.1 (MAJOR)** | **Third live update-test. Survival 7/8 — first per-SubFile revert (SubFile 620757435 modified → chunk replaced). datexport.dll READ+WRITE compat with 49.1. vnum 112/3 (6th cycle). Forum-fetcher returned "49.1". First cycle with the TMS deployed — export-49 feeds the first real spec-0001 import.** |
 
 ## Major update 48.0 content (from diff analysis)
 

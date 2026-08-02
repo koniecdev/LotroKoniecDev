@@ -29,10 +29,13 @@ Detailed analysis: [lotro-companion-data-model.md](lotro-companion-data-model.md
 - `lotro-data` GitHub repo **is** the live dataset (updated within days of each patch); labels not needed — our English comes from our own export
 - Caveats: subset coverage, join on keys never text (`${PLAYER}` vs `<--DO_NOT_TOUCH!-->`), version skew tolerated as dangling refs, no LICENSE (attribution = courtesy decision)
 
-### DAT Protection: NOT NEEDED — Translations Survive Updates (incl. MAJOR)
+### DAT Protection: NOT NEEDED — Translations Survive Updates (incl. MAJOR), per-SubFile
 Detailed analysis: [dat-protection.md](dat-protection.md)
-- **PROVEN by 8 independent tests** including updates 47.2→48.0 (2026-04-23), 48.0→48.7 (2026-06-25) and 48.7→48.8 (2026-07-11)
-- Launcher uses chunk-based patching — our fragments sit in untouched chunks → byte-for-byte intact
+- **PROVEN by 9 independent tests** including majors 47.2→48.0 (2026-04-23) and 48.8→49.1 (2026-08-02)
+- Launcher uses chunk-based patching — fragments in untouched chunks stay byte-for-byte intact
+- **Refined 2026-08-02: survival is per-SubFile, not per-fragment** — an update that modifies a
+  SubFile replaces the whole chunk and reverts our fragments inside it (first observed 48.8→49.1:
+  1/8 reverted); repair = normal re-patch / the spec-0001 invalidation loop
 - `attrib +R` protection is unnecessary; legacy `HandleUpdatePath` is actively harmful; vnum-trigger is dead
 - Simplified flow (hash-based patch + fire-and-forget) is fully validated
 
@@ -58,6 +61,14 @@ Detailed analysis: [live-test-2026-07-11.md](live-test-2026-07-11.md)
 - Live forum fetch returned 48.8 while vnum stayed 112/3 — 5th unchanged cycle
 - `launch`'s SKIP path never refreshes the stored ForumVersion — only a standalone `patch` does (code-verified); the manual export→import gap is decided in #443 + ADR-0030
 
+### Live Test — Major Update 2026-08-02 (48.8 → 49.1 "In Good Company")
+Detailed analysis: [live-test-2026-08-02.md](live-test-2026-08-02.md) · committed artifacts: [update-49/](update-49/) · raw intel: `intel/update-49/`
+- **Third live update-test; first MAJOR since 48.0 and first with the TMS deployed** — U49 released 2026-07-22, client landed on 49.1
+- **Survival 7/8 — first real casualty in 9 tests, mechanism fully understood:** SSG added 4 fragments to SubFile 620757435 → launcher replaced the whole chunk → our fragment reverted to its (unchanged) English original; counter-proof: surviving pairs' SubFiles kept identical fragment counts
+- Content-wise a full major (+7,192 fragments — more than 48.0) at a DAT growth of exactly +1 MiB (in-place chunk rewrites; second consecutive equal-1-MiB growth)
+- datexport.dll READ+WRITE confirmed on 49.1; vnum 112/3 (6th cycle); forum-fetcher returned "49.1"
+- Our `launch` deliberately skipped this cycle (LEGAL-08 made repo polish.txt synthetic — hash mismatch would have patched synthetic text into the live game); update ran through the official launcher
+
 ### Live Test — Chunk Patches 2026-03-16..22
 Detailed analysis: [live-test-2026-03-16.md](live-test-2026-03-16.md)
 - 5 chunk-patch tests, all simplified-flow branches verified
@@ -66,7 +77,7 @@ Detailed analysis: [live-test-2026-03-16.md](live-test-2026-03-16.md)
 
 ### DAT Vnum — definitively schema-version, not content-version
 Detailed analysis: [vnum-observations.md](vnum-observations.md)
-- Vnum 112/3 unchanged across 45.x → 47.x → **48.0 major** → 48.7 → 48.8 — 5 cycles, zero movement (latest: [live-test-2026-07-11.md](live-test-2026-07-11.md))
+- Vnum 112/3 unchanged across 45.x → 47.x → **48.0 major** → 48.7 → 48.8 → **49.1 major** — 6 cycles (two majors), zero movement (latest: [live-test-2026-08-02.md](live-test-2026-08-02.md))
 - Vnum = DAT binary schema version, NOT content version — any vnum-triggered logic is dead
 - Forum version ("48.0") is the reliable content identifier
 
@@ -74,10 +85,11 @@ Detailed analysis: [vnum-observations.md](vnum-observations.md)
 Detailed analysis: [dat-export-diff-2026-03-22.md](dat-export-diff-2026-03-22.md)
 - 47.1→47.2: ~5000 lines, skill rewording
 - 47.2→48.0: 587 hunks, +4,231 fragments, new region — stats in [update-48.0/RESULTS.md](update-48.0/RESULTS.md); the raw diff lives in the gitignored `intel/` (repo copy removed 2026-07, LEGAL-08 — verbatim game text)
+- 48.8→49.1: 694 hunks, +7,192 fragments — stats in [update-49/RESULTS.md](update-49/RESULTS.md); raw diff only in the gitignored `intel/update-49/` (LEGAL-08)
 
 ### LOTRO Update History
 Detailed analysis: [lotro-update-history.md](lotro-update-history.md)
-- 45.1 → 45.4.1 → 46 → 46.1 → 47 (major) → 47.1 → 47.1.1 → 47.2 → 48.0 (major, 2026-04-23) → 48.7 (2026-06-25) → 48.8 (observed 2026-07-11)
+- 45.1 → 45.4.1 → 46 → 46.1 → 47 (major) → 47.1 → 47.1.1 → 47.2 → 48.0 (major, 2026-04-23) → 48.7 (2026-06-25) → 48.8 (observed 2026-07-11) → 49 "In Good Company" (major, 2026-07-22) → 49.1 (observed 2026-08-02)
 - 48.0 content: Hatokáli Fells, Rhûn expansion, Deluxe housing, Edit UI feature
 
 ### Game Update Detection & Translation Versioning
@@ -137,6 +149,21 @@ Same shape as `update-48.0/`. The 1.76 GB DAT backups + 78 MB full exports live 
 
 No separate launch log was committed for 48.7 — the SKIP-path launch timeline is captured inside
 [`RESULTS.md`](update-48.7/RESULTS.md) ("Launch log timeline"); raw logs live in the gitignored `intel/update-48.7/`.
+
+---
+
+## `update-49/` — committed text artifacts from the 48.8 → 49.1 test (2026-08-02)
+
+Same shape as the folders above (quest text in synthetic LEGAL-08 equivalents). DAT backups
+(~1.76 GB each), full exports (82.6/83.1 MB) and the raw diff live in the gitignored
+`intel/update-49/`; committed here:
+
+| File | What it is |
+|------|-----------|
+| [`BASELINE.md`](update-49/BASELINE.md) | Pre-update 48.8 snapshot: DAT hash, export stats, the polish.txt fork after LEGAL-08 (repo file synthetic vs DAT-resident set), 8/8 survival baseline |
+| [`RESULTS.md`](update-49/RESULTS.md) | Full 48.8→49.1 results: 7/8 survival, the per-SubFile revert mechanism + counter-proof, diff stats, vnum, WRITE test |
+
+No launch log this cycle — our `launch` was deliberately skipped (see RESULTS §deviation).
 
 ---
 

@@ -68,19 +68,22 @@ internal sealed partial class RegisterUser : IApiEndpoint
         private readonly IValidator<Command> _validator;
         private readonly ILogger<Handler> _logger;
         private readonly AuthDbContext _db;
+        private readonly OutboxSignal _outboxSignal;
 
         public Handler(
             UserManager<ApplicationUser> userManager,
             TimeProvider timeProvider,
             IValidator<Command> validator,
             ILogger<Handler> logger,
-            AuthDbContext db)
+            AuthDbContext db,
+            OutboxSignal outboxSignal)
         {
             _userManager = userManager;
             _timeProvider = timeProvider;
             _validator = validator;
             _logger = logger;
             _db = db;
+            _outboxSignal = outboxSignal;
         }
 
         public async ValueTask<Result<IdentityId>> Handle(
@@ -174,6 +177,10 @@ internal sealed partial class RegisterUser : IApiEndpoint
                 await _db.SaveChangesAsync(cancellationToken);
 
                 await transaction.CommitAsync(cancellationToken);
+
+                // Only after the commit: the relay reads committed rows, so a nudge sent inside
+                // the transaction would race it into seeing nothing (ADR-0035).
+                _outboxSignal.Notify();
 
                 // No cross-context profile creation here (the KittySaver RegisterUser->CreatePerson
                 // saga is deliberately not lifted): the translator profile is provisioned lazily and

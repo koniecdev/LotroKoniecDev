@@ -70,6 +70,11 @@ internal static class EventIds
     public const int OpenIddictPruneCompleted = 2310;
     public const int OpenIddictPruneFailed = 2311;
 
+    // Outbox Relay (2320–2329)
+    public const int OutboxRelayPassFailed = 2320;
+    public const int OutboxMessagePublishFailed = 2321;
+    public const int OutboxMessageUnroutable = 2322;
+
     // Startup (2350–2359)
     public const int StartupTransientDatabaseFailure = 2350;
 

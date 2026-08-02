@@ -1,6 +1,7 @@
 # Spec 0012: Update-resilience — launch sentinel, update-day orchestrator, import echo-guard
 
-- **Status:** Draft — open decisions pending (owner); experiments: **ALL FOUR done 2026-08-02**
+- **Status:** **Agreed** (owner decisions Q1–Q5 resolved 2026-08-02 — see Decisions; ticket cut
+  per Q5 in the dedicated **UR** milestone); experiments: **ALL FOUR done 2026-08-02**
   (E1: DAT free at the login screen; E3: full corpus 14.7 s — repair-set not required; E4:
   pre-creds kill clean 3×; E2: full forced-downgrade update cycle recorded — download leaves
   the DAT free, apply is a ~1 s lock burst, login screen post-update free). Results:
@@ -131,17 +132,32 @@ patching (convergent loop), decisive only for the kill branch, hence the conserv
 there. An hour-long slow-network update just means a long free-DAT download window and an idle
 watcher (FileSystemWatcher cost ≈ zero).
 
-## Open decisions (owner — extracted, not invented)
+## Decisions — resolved by the owner, 2026-08-02 (#558)
 
-- **Q1 — MVP scope:** Tier 0 only, or Tier 0 + handshake (recommended), or Tier 0+1 together?
-- **Q2 — One spec or two:** keep client sentinel/orchestrator and server echo-guard in this one
-  spec (recommended — two sides of the same coin) or split?
-- **Q3 — `-disablePatch` takeover:** park with an M4 revisit trigger (recommended) or analyze now?
-- **Q4 — Kill branch (B):** default-on with one-shot guard, or opt-in setting?
-- **Q5 — Placement/priority:** promote from TP-00 #377 into dedicated tickets gated before public
-  launch — confirm milestone/labels.
+- **Q1 — MVP scope: Tier 0 + Tier 1 together** (sentinel + handshake + update-day
+  orchestrator). Decided AFTER the four experiments landed: E1/E2 proved the silent branch A
+  window exists on update day, E3 bounded the patch cost at 14.7 s full-corpus, E4 proved the
+  branch-B fallback is clean — the orchestrator is de-risked enough to ship in the same cut.
+- **Q2 — One spec:** this spec covers both sides (client sentinel/orchestrator + server
+  echo-guard/metadata); tickets split per bounded context as always.
+- **Q3 — `-disablePatch` takeover: parked** with an explicit revisit trigger at M4 kickoff
+  (own launcher GUI = the moment full update-day UX control becomes relevant). Not needed for
+  the current design: the official launcher stays the updater and 9+1 live tests prove routine
+  launcher starts don't erase translations.
+- **Q4 — Branch B default-on** with the one-shot guard per detection and the conservative
+  quiesce (30+ s; E2 measured a ~1 s apply burst, so the margin is wide). Branch A stays the
+  default path; B fires only when A is impossible.
+- **Q5 — Placement: dedicated `UR` milestone**, gated before public launch — patcher tickets
+  UR-1x (sentinel, orchestrator, forced-downgrade E2E), TMS tickets UR-2x (echo-guard, artifact
+  metadata/handshake, one-time source repair). Repair-set endpoint deliberately NOT cut
+  (E3 verdict: optional; YAGNI until a real need appears).
 
-## Acceptance criteria (draft — final after Q1–Q5)
+Ticket cut (2026-08-02): **#562** UR-22 artifact metadata/handshake → **#565** UR-10 Tier-0
+content-sentinel → **#566** UR-11 Tier-1 orchestrator → **#567** UR-12 forced-downgrade E2E;
+**#563** UR-20 import echo-guard → **#564** UR-21 one-time source repair. First real 49.1
+import: #559 (UR-02).
+
+## Acceptance criteria (final per Q1–Q5)
 
 - [ ] After a simulated chunk-wipe (write-test DAT with a reverted SubFile), the next launch
       detects the revert via the content sentinel and restores every artifact row (Tier 0).

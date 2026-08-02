@@ -1,6 +1,8 @@
 # Spec 0012: Update-resilience — launch sentinel, update-day orchestrator, import echo-guard
 
-- **Status:** Draft — open decisions pending (owner); experiments E1–E4 pending (Windows box)
+- **Status:** Draft — open decisions pending (owner); experiments: **E3 done** (repair-set NOT
+  required — see below), E1/E4 scripted + pending a user run, E2 monitor ready for the next SSG
+  update (`scripts/experiments/`, results: `docs/knowledge-base/update-49/RESULTS.md` §Experiments)
 - **Date:** 2026-08-02 (seeded from the live-test 48.8→49.1 findings + owner discussion, same day)
 - **Author:** Artur Koniec (problem framing + orchestrator/kill concept) — structured against code,
   spec 0001 and the knowledge base by Claude
@@ -69,11 +71,15 @@ state, not process semantics** (FileSystemWatcher + RW-open probe on the DAT):
   late, that was legacy's error), and screenshot+LLM login-screen detection (dominated by the
   local file-state probe on cost, latency, offline operation, privacy and determinism).
 
-### Repair-set optimization (likely a requirement, pending E3)
+### Repair-set optimization (E3 verdict 2026-08-02: OPTIONAL, not required)
 
 TMS knows from the import diff exactly which SubFiles a version touched. Expose that set;
 the client repairs only artifact rows in touched SubFiles (~14k fragments for U49 instead of
-the full corpus). Full-corpus patch duration is unknown (8 rows ≈ 0.7–5 s) — E3 benchmarks it.
+the full corpus). **E3 measured (Release CLI, DAT copy, update-day-shaped run): full corpus
+800,864 rows = 14.7 s wall clock end-to-end (~10–11 s net patch); repair-set-sized 21,660 rows
+= 5.6 s.** A full-corpus re-patch fits the login window with a wide margin, so the repair-set
+drops out of the MVP into an optional later optimization (less I/O on the DAT, marginally
+faster repair) — not a correctness or UX requirement.
 
 ### Server side — import echo-guard + source hygiene (extends spec 0001)
 
@@ -88,12 +94,20 @@ the full corpus). Full-corpus patch duration is unknown (8 rows ≈ 0.7–5 s) �
 
 ## Experiments (inputs to final design; all local; Windows box)
 
-| # | Question | Procedure | Decides |
-|---|----------|-----------|---------|
-| E1 | Does the launcher hold the DAT at the login screen? | Launcher at login screen → elevated RW-open probe | A vs B as the dominant branch |
-| E4 | Is a pre-creds launcher kill clean? | Kill at login screen → relaunch → verify straight-to-login + game boots | Safety of branch B |
-| E3 | Full-corpus patch duration | Synthetic ~100k+-row polish.txt → patch a DAT COPY → time it | Repair-set: optional vs required |
-| E2 | Handle behavior across a real update cycle (download vs apply bursts; slow-network hour-long updates) | Next SSG update, or launcher repair/verify mode; observe probe + writes timeline | Quiesce windows; whether probe-success can occur mid-update |
+| # | Question | Procedure | Decides | Status |
+|---|----------|-----------|---------|--------|
+| E1 | Does the launcher hold the DAT at the login screen? | Launcher at login screen → elevated RW-open probe (`scripts/experiments/e1-rw-probe.ps1`) | A vs B as the dominant branch | ⏳ scripted, pending user run |
+| E4 | Is a pre-creds launcher kill clean? | Kill at login screen → relaunch → verify straight-to-login + game boots | Safety of branch B | ⏳ pending user run |
+| E3 | Full-corpus patch duration | Synthetic ~100k+-row polish.txt → patch a DAT COPY → time it | Repair-set: optional vs required | ✅ **800,864 rows = 14.7 s; 21,660 = 5.6 s ⇒ repair-set optional** |
+| E2 | Handle behavior across a real update cycle (download vs apply bursts; slow-network hour-long updates) | Next SSG update, or launcher repair/verify mode; observe probe + writes timeline (`scripts/experiments/e2-dat-handle-monitor.ps1`) | Quiesce windows; whether probe-success can occur mid-update | ⏳ monitor ready, awaits next SSG update |
+
+New lock-anatomy facts (2026-08-02, found while scripting E1): `LotroLauncher.exe` manifests
+`asInvoker` (no self-elevation) and the game dir ACL grants Users only RX — a plainly-started
+launcher cannot write the DAT at all, so SOMETHING elevates during updates (E2 identifies the
+actual writer). The probe must run elevated (a non-elevated run reports an ACL ACCESS-DENIED
+that masks the sharing state), and a LOCKED result at the login screen may mean a read handle
+with restrictive sharing rather than a write handle — either way it answers the operative
+question ("can WE patch now"), which is what branches A/B key on.
 
 Note on slow updates (owner's point): the RW probe is the **primary** signal, quiesce only a
 debounce. If E2 shows the launcher holds the DAT continuously until done, probe alone is
@@ -123,7 +137,9 @@ conservative quiesce there. An hour-long update just means the watcher idles for
       only after conservative quiesce; relaunch reaches login cleanly (E4-gated).
 - [ ] Echo-guard: importing a patched-DAT export against a translated corpus invalidates ONLY
       rows whose English actually changed (fixture: resident-Polish echo rows + one revert).
-- [ ] Repair-set: post-update repair touches only rows in update-touched SubFiles (E3-gated).
+- [ ] ~~Repair-set: post-update repair touches only rows in update-touched SubFiles~~ —
+      dropped from MVP per E3 (full-corpus re-patch = 14.7 s; repair-set is an optional
+      later optimization).
 
 ## Assumptions
 

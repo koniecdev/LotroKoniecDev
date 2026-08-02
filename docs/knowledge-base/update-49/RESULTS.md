@@ -265,6 +265,72 @@ exporcie to **nasz polski**, nie angielski. Spec 0001 zakłada angielski source 
 source) + jednorazowa naprawa zatrutych source'ów + docelowo eksport z czystego źródła
 (revert-file generowany z TMS przed exportem albo czysta kopia DAT).
 
+## Experiments E1–E4 — results (2026-08-02, #557)
+
+### E3 — full-corpus patch benchmark: ✅ DONE — repair-set NIE jest wymagany czasowo
+
+Setup: syntetyczny pełny korpus z export-49 (**800,865 wierszy danych**, treść = `PL ` + oryginał,
+`approved=1`, format bez zmian, CRLF zachowane) → Release CLI → patch na **KOPII** DAT 49
+z pre-utworzonym `.backup` (krok backupu = no-op „already exists" — zgodne z realnym update-day,
+gdzie backup już istnieje) → uruchomienie z osobnego cwd, żeby `SaveBaseline` nie tknął żywego
+`data/last_known_game_version.txt`.
+
+| Run | Wiersze | Wall clock (cała komenda) | Applied / Skipped / Warnings |
+|---|---|---|---|
+| Full corpus | 800,864 | **14.7 s** | 800,864 / 0 / 0 |
+| Repair-set-sized | 21,660 | **5.6 s** | 21,660 / 0 / 0 |
+
+- Wall clock obejmuje WSZYSTKO: startup CLI, preflight (w tym forum fetch przez sieć),
+  parsowanie pliku tłumaczeń (83 MB przy pełnym korpusie), patch wszystkich SubFile'ów, flush.
+  Stały narzut (startup+preflight+parse małego pliku) ≈ 3–4 s ⇒ czysty patch pełnego korpusu
+  ≈ 10–11 s.
+- Weryfikacja realności zapisu: bench DAT urósł +5,242,880 B — spójne z prefiksem `PL `
+  (~800k fragmentów × ~6.5 B UTF-16).
+- Repair-set proxy: wszystkie wiersze korpusu w 3,921 FileIds obecnych w hunkach diffa
+  48.8→49 (nadzbiór 1,277 dotkniętych istniejących SubFile'ów — zawiera też nowe SubFile'e).
+- Sprzęt: maszyna maintainera (NVMe). Nawet ×5 na wolnym dysku mieści się w oknie logowania.
+
+**Gating (spec 0012):** pełny re-patch korpusu mieści się w oknie logowania z dużym zapasem ⇒
+**repair-set = opcjonalna optymalizacja, nie wymaganie MVP**. Draft AC „repair touches only
+touched SubFiles" wypada z MVP.
+
+### Nowe fakty odkryte przy przygotowaniu E1 (anatomia locków — uściślenie)
+
+1. **`LotroLauncher.exe` ma manifest `requestedExecutionLevel=asInvoker`** — launcher sam się
+   NIE elevuje. 2. **ACL katalogu gry: `BUILTIN\Users = RX` (read+execute), zero write** —
+   zwykło-odpalony (nieelevowany) launcher **w ogóle nie może pisać do DAT**. Wnioski:
+   - Do zapisu przy update launcher musi coś elevować (UAC consent przy starcie update'u?) albo
+     user odpala go „jako administrator" — **E2 ma zidentyfikować, który proces realnie pisze**.
+   - Sonda RW **musi być elevated** (nieelevowana dostaje ACL-owy ACCESS-DENIED, który maskuje
+     stan sharing — potwierdzone self-testem skryptu).
+   - Interpretacja E1: launcher nieelevowany może na ekranie logowania trzymać handle READ
+     z restrykcyjnym sharingiem (np. `FileShare.Read`) — to też blokuje nasz otwór RW/ShareNone.
+     Sonda odpowiada więc na pytanie operacyjne („czy MY możemy patchować"), nie na pytanie
+     „czy launcher ma handle write".
+
+### E1 — sonda RW na ekranie logowania: ⏳ skrypt gotowy, czeka na przebieg z userem
+
+`scripts/experiments/e1-rw-probe.ps1` (elevated; loguje do gitignored
+`intel/update-49/e1-probe-results.log`). Protokół: `-Label baseline` (nic nie działa,
+oczekiwane OPEN-OK) → launcher odpalony NORMALNIE (nie z elevated shella — fidelity!) →
+`-Label login-screen` (**kluczowy wynik: gałąź A vs B**) → po E4-loginie `-Label in-game`
+(kontrola negatywna, oczekiwane LOCKED).
+
+### E4 — kill launchera pre-creds → relaunch: ⏳ czeka na przebieg z userem
+
+Z elevated shella: `taskkill /IM LotroLauncher.exe /F` (nazwa procesu potwierdzona na dysku)
+przy launcherze na ekranie logowania → ponowny normalny start → obserwacje usera: (a) wraca
+prosto do logowania bez re-weryfikacji/naprawy? (b) po zalogowaniu gra wstaje normalnie?
+
+### E2 — timeline handli przy realnym update: ⏳ monitor gotowy, czeka na najbliższy update SSG
+
+`scripts/experiments/e2-dat-handle-monitor.ps1` (elevated, odpalić PRZED launcherem, zostawić
+przez cały cykl update, Ctrl+C po starcie gry; loguje zmiany stanu probe/size/mtime/procesów
+co 1 s + heartbeat 30 s do gitignored `intel/update-49/e2-handle-timeline.log`). Alternatywny
+wcześniejszy przebieg: tryb repair/verify launchera, jeśli istnieje. Pytania: czy launcher
+puszcza DAT między burstami download/apply (probe-success mid-update?); który proces pisze
+(asInvoker vs elevacja); kształt okna quiesce dla gałęzi B.
+
 ## Pliki intel (gitignored `intel/update-49/`)
 
 DAT backupy 48.8 + 49 + write-test (po ~1.76 GB), pełne exporty 48.8/49 (82.6/83.1 MB), pełny

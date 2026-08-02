@@ -96,6 +96,12 @@ internal static class ApiDependencyInjection
             services.AddSingleton<OutboxSignal>();
             services.AddHostedService<OutboxRelay>();
 
+            // The consuming side of the same pipeline: broker deliveries -> confirmation e-mails.
+            // The processor is scoped because the consumer resolves it per message, mirroring how
+            // a request would; the pump itself is a singleton hosted service.
+            services.AddScoped<EmailConfirmationRequestProcessor>();
+            services.AddHostedService<EmailConfirmationConsumer>();
+
             // PERF-02: reference refresh tokens accumulate one row per refresh and are never
             // deleted otherwise; prune expired/invalid tokens and authorizations daily.
             services.AddHostedService<OpenIddictPruneService>();

@@ -40,19 +40,7 @@ internal sealed partial class RabbitMqMessagePublisher : IMessagePublisher, IAsy
         TimeProvider timeProvider,
         ILogger<RabbitMqMessagePublisher> logger)
     {
-        RabbitMqOptions settings = options.Value;
-
-        _connectionFactory = new ConnectionFactory
-        {
-            HostName = settings.Host,
-            Port = settings.Port,
-            UserName = settings.Username,
-            Password = settings.Password,
-            VirtualHost = settings.VirtualHost,
-            ClientProvidedName = "lotro-auth-api",
-            AutomaticRecoveryEnabled = true,
-            TopologyRecoveryEnabled = true
-        };
+        _connectionFactory = RabbitMqConnectionFactoryBuilder.Build(options.Value, "lotro-auth-api-publisher");
         _timeProvider = timeProvider;
         _logger = logger;
     }
@@ -138,7 +126,7 @@ internal sealed partial class RabbitMqMessagePublisher : IMessagePublisher, IAsy
             }
 
             IChannel channel = await _connection.CreateChannelAsync(ChannelOptions, cancellationToken);
-            await DeclareTopologyAsync(channel, cancellationToken);
+            await RabbitMqTopologyDeclaration.DeclareAsync(channel, cancellationToken);
             _channel = channel;
 
             return channel;
@@ -147,38 +135,6 @@ internal sealed partial class RabbitMqMessagePublisher : IMessagePublisher, IAsy
         {
             _connectionGate.Release();
         }
-    }
-
-    /// <summary>
-    /// Declares the exchange, the queue and the binding of <see cref="RabbitMqTopology"/>. AMQP
-    /// declarations are idempotent, so both sides may declare the same topology; the publisher
-    /// does it too because a topic exchange silently drops messages that reach no bound queue —
-    /// publishing before the consumer has ever started would otherwise lose them.
-    /// </summary>
-    private static async Task DeclareTopologyAsync(IChannel channel, CancellationToken cancellationToken)
-    {
-        await channel.ExchangeDeclareAsync(
-            exchange: RabbitMqTopology.EmailsExchange,
-            type: ExchangeType.Topic,
-            durable: true,
-            autoDelete: false,
-            arguments: null,
-            cancellationToken: cancellationToken);
-
-        await channel.QueueDeclareAsync(
-            queue: RabbitMqTopology.EmailQueue,
-            durable: true,
-            exclusive: false,
-            autoDelete: false,
-            arguments: null,
-            cancellationToken: cancellationToken);
-
-        await channel.QueueBindAsync(
-            queue: RabbitMqTopology.EmailQueue,
-            exchange: RabbitMqTopology.EmailsExchange,
-            routingKey: RabbitMqTopology.EmailBindingPattern,
-            arguments: null,
-            cancellationToken: cancellationToken);
     }
 
     private async Task CloseChannelAsync()

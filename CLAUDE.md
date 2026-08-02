@@ -303,9 +303,12 @@ file_id||gossip_id||translated_text||args_order||args_id||approved
 
 - **Forum version** (regex `Update\s+(\d+(?:\.\d+)*)\s+Release\s+Notes` on lotro.com) is the
   reliable game-version identifier. **DAT vnum is useless as a content version** (112/3 unchanged
-  across 45.x→48.0 even while the DAT was actively patched).
-- Launcher patches the DAT **chunk-based**; **translations survive updates** — proven across
-  6 live tests incl. the 47.2→48.0 major update. `attrib +R` protection is unnecessary.
+  across 45.x→49.1 — six cycles incl. two majors — even while the DAT was actively patched).
+- Launcher patches the DAT **chunk-based**; **translations survive updates per-SubFile** — proven
+  across 9 live tests incl. the 48.0 and 49 majors. Fragments in untouched SubFiles survive
+  byte-for-byte; an update that modifies a SubFile replaces the whole chunk and **reverts our
+  fragments inside it** (first observed 48.8→49.1: 1/8; repair = normal re-patch, TMS-side =
+  the spec-0001 invalidation loop). `attrib +R` protection is unnecessary either way.
 - Simplified launch flow (translation-hash check → patch only if changed → fire-and-forget launch)
   is fully validated.
 

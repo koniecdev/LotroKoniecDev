@@ -215,6 +215,7 @@ public sealed class ConfirmEmailEndpointTests : EndpointsTestBase
 
         // Assert
         response.StatusCode.ShouldBe(HttpStatusCode.Created);
+        await AccountConfirmationEmailSpy.WaitForCaptureAsync();
         AccountConfirmationEmailSpy.CallCount.ShouldBe(1);
         AccountConfirmationEmailSpy.LastEmail.ShouldBe(request.Email);
         AccountConfirmationEmailSpy.LastConfirmationToken.ShouldNotBeNullOrEmpty();

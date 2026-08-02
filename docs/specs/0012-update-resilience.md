@@ -1,10 +1,12 @@
 # Spec 0012: Update-resilience — launch sentinel, update-day orchestrator, import echo-guard
 
-- **Status:** Draft — open decisions pending (owner); experiments: **E1/E3/E4 done 2026-08-02**
-  (branch A viable — DAT free at the login screen; repair-set NOT required; pre-creds kill clean
-  3×), E2 monitor ready for the next SSG update (`scripts/experiments/`, results:
-  `docs/knowledge-base/update-49/RESULTS.md` §Experiments — incl. finding E1-F1: DAT mtime is
-  volatile, which forces the Tier-0 fingerprint revision below)
+- **Status:** Draft — open decisions pending (owner); experiments: **ALL FOUR done 2026-08-02**
+  (E1: DAT free at the login screen; E3: full corpus 14.7 s — repair-set not required; E4:
+  pre-creds kill clean 3×; E2: full forced-downgrade update cycle recorded — download leaves
+  the DAT free, apply is a ~1 s lock burst, login screen post-update free). Results:
+  `docs/knowledge-base/update-49/RESULTS.md` §Experiments — incl. findings E1-F1 (DAT mtime
+  volatile ⇒ Tier-0 content-sentinel revision below) and the forced-downgrade method (repeatable
+  update-cycle simulator; big-major burst shape still worth observing at the next real SSG major)
 - **Date:** 2026-08-02 (seeded from the live-test 48.8→49.1 findings + owner discussion, same day)
 - **Author:** Artur Koniec (problem framing + orchestrator/kill concept) — structured against code,
   spec 0001 and the knowledge base by Claude
@@ -75,7 +77,10 @@ state, not process semantics** (FileSystemWatcher + RW-open probe on the DAT):
 - **Convergent re-patch loop:** after our patch, keep watching until game start; if the launcher
   writes the DAT again (next chunk burst), re-probe and re-patch. Early patches are harmless by
   construction; the last write wins. Kill (branch B) remains gated on a conservative quiesce
-  (30+ s no writes + launcher idle) because kill is the one invasive act.
+  (30+ s no writes + launcher idle) because kill is the one invasive act. **E2-confirmed:** the
+  download phase leaves the DAT free (~11 s window in the forced 48.8→49.1 replay) so a probe
+  CAN succeed mid-update — the loop is what makes that harmless; the observed apply burst was
+  ~1 s, making the 30 s quiesce very conservative for deltas of this size.
 - Rejected detectors: process-lifecycle signals (launcher exit / game start — structurally too
   late, that was legacy's error), and screenshot+LLM login-screen detection (dominated by the
   local file-state probe on cost, latency, offline operation, privacy and determinism).
@@ -108,7 +113,7 @@ faster repair) — not a correctness or UX requirement.
 | E1 | Does the launcher hold the DAT at the login screen? | Launcher at login screen → elevated RW-open probe (`scripts/experiments/e1-rw-probe.ps1`) | A vs B as the dominant branch | ✅ **OPEN-OK at login screen ⇒ branch A viable & dominant**; in-game control LOCKED (0x80070020) |
 | E4 | Is a pre-creds launcher kill clean? | Kill at login screen → relaunch → verify straight-to-login + game boots | Safety of branch B | ✅ **clean, 3× reproduced** — relaunch indistinguishable from a normal start (UAC → DAT check → login); game boots fine |
 | E3 | Full-corpus patch duration | Synthetic ~100k+-row polish.txt → patch a DAT COPY → time it | Repair-set: optional vs required | ✅ **800,864 rows = 14.7 s; 21,660 = 5.6 s ⇒ repair-set optional** |
-| E2 | Handle behavior across a real update cycle (download vs apply bursts; slow-network hour-long updates) | Next SSG update, or launcher repair/verify mode; observe probe + writes timeline (`scripts/experiments/e2-dat-handle-monitor.ps1`) | Quiesce windows; whether probe-success can occur mid-update | ⏳ monitor ready, awaits next SSG update |
+| E2 | Handle behavior across a real update cycle (download vs apply bursts; slow-network hour-long updates) | **Forced downgrade** (swap live DAT for the 48.8 backup → launcher replays the real 48.8→49.1 cycle) + probe/writes timeline (`scripts/experiments/e2-dat-handle-monitor.ps1`) | Quiesce windows; whether probe-success can occur mid-update | ✅ **download leaves the DAT free (~11 s window, probe-success mid-update IS possible ⇒ convergent loop required & sufficient); apply = single ~1 s lock burst; post-update login screen free (branch A holds on update day); client holds the DAT for the whole session.** Caveat: ~5 MB delta — big-major burst shape TBD at the next real SSG major |
 
 New lock-anatomy facts (2026-08-02, E1/E4 pass): `LotroLauncher.exe` manifests `asInvoker` and
 the game dir ACL grants Users only RX, but **the launcher prompts UAC and runs elevated on every
@@ -120,11 +125,11 @@ Tier 0. Probes must run elevated (a non-elevated run reports an ACL ACCESS-DENIE
 the sharing state). The 64-bit client process is `lotroclient64` (`x64\lotroclient64.exe`).
 
 Note on slow updates (owner's point): the RW probe is the **primary** signal, quiesce only a
-debounce. If E2 shows the launcher holds the DAT continuously until done, probe alone is
-sufficient. If it releases between download/apply bursts, probe-success can occur mid-update —
-harmless for patching (convergent loop), decisive only for the kill branch, hence the
-conservative quiesce there. An hour-long update just means the watcher idles for an hour
-(FileSystemWatcher cost ≈ zero).
+debounce. **E2 resolved this: the launcher releases the DAT for the whole download phase and
+locks only for short apply bursts**, so probe-success mid-update is real — harmless for
+patching (convergent loop), decisive only for the kill branch, hence the conservative quiesce
+there. An hour-long slow-network update just means a long free-DAT download window and an idle
+watcher (FileSystemWatcher cost ≈ zero).
 
 ## Open decisions (owner — extracted, not invented)
 

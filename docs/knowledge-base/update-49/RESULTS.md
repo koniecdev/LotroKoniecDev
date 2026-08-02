@@ -346,14 +346,45 @@ zdegenerowałby się do force-re-patch przy każdym starcie. Korekta w spec 0012
 (milisekundy, zero fałszywych sygnałów w obie strony); alternatywa always-repatch (~15 s/start)
 odrzucona jako bezcelowy 800k-wierszowy zapis do DAT co sesję. Finalna decyzja: #558 (Q1).
 
-### E2 — timeline handli przy realnym update: ⏳ monitor gotowy, czeka na najbliższy update SSG
+### E2 — ✅ **wykonany od ręki metodą wymuszonego downgrade'u (pomysł ownera) — pełny cykl update zarejestrowany**
 
-`scripts/experiments/e2-dat-handle-monitor.ps1` (elevated, odpalić PRZED launcherem, zostawić
-przez cały cykl update, Ctrl+C po starcie gry; loguje zmiany stanu probe/size/mtime/procesów
-co 1 s + heartbeat 30 s do gitignored `intel/update-49/e2-handle-timeline.log`). Alternatywny
-wcześniejszy przebieg: tryb repair/verify launchera, jeśli istnieje. Pytania: czy launcher
-puszcza DAT między burstami download/apply (probe-success mid-update?); który proces pisze
-(asInvoker vs elevacja); kształt okna quiesce dla gałęzi B.
+**Metoda (nowa, powtarzalna):** elevated podmiana live DAT na backup 48.8 → launcher sam wykrył
+stary stan pliku i odtworzył **realny cykl update 48.8→49.1** (delta widoczna na pasku
+launchera) → `scripts/experiments/e2-dat-handle-monitor.ps1` (sonda co 1 s) przez cały cykl +
+sesję gry. Pełny log: gitignored `intel/update-49/e2-handle-timeline.log` (2 przebiegi —
+przerwa 19:40:22–19:41:53 to restart monitora przez usera przy ekranie logowania).
+
+| t (2026-08-02) | Zdarzenie |
+|---|---|
+| 19:39:32 | Monitor start: DAT=48.8 (1,893,807,856 B), probe OPEN-OK, procs=none |
+| 19:39:39 | LotroLauncher startuje (UAC) — probe **WCIĄŻ OPEN-OK przez ~11 s**: faza check+download NIE trzyma DAT |
+| 19:39:51.007 | **LOCKED** — burst apply |
+| 19:39:52.032 | **OPEN-OK**, size = 1,894,856,432 B (co do bajta rozmiar 49.1), mtime bump — **cały apply w JEDNYM ~1 s burście** |
+| 19:40–19:42 | Ekran logowania: OPEN-OK stabilnie (launcher żywy) |
+| 19:42:12 | **LOCKED, procs=lotroclient64** — klient przejmuje DAT na całą sesję; launcher znika przy spawnie klienta |
+| →koniec | LOCKED przez sesję in-game; po wyjściu z gry user zamknął monitor |
+
+**Wnioski (gating spec 0012):**
+
+1. **Download ≠ apply — faza pobierania NIE trzyma DAT.** Probe-success mid-update JEST
+   możliwy (~11 s wolnego DAT przed apply) ⇒ **convergent re-patch loop orchestratora jest
+   konieczny i wystarczający**: nasz wczesny patch może zostać nadpisany burstem apply, ostatni
+   zapis wygrywa, watch trwa do startu gry.
+2. **Apply = pojedynczy ~1 s lock-burst** (delta ~5 MB / 1,277 SubFile'ów) ⇒ quiesce 30 s dla
+   gałęzi B jest bardzo konserwatywny. Zastrzeżenie: duży major (nowy content GB-ami) może mieć
+   dłuższe/wielokrotne bursty — monitor zostaje w arsenale na następny realny major SSG.
+3. **Post-update login screen: OPEN-OK — gałąź A potwierdzona także w dniu update** (E1
+   potwierdzał ją tylko przy zwykłym starcie).
+4. Klient (`lotroclient64`) trzyma DAT od startu do końca sesji; launcher umiera przy spawnie
+   klienta — sygnały procesowe raz jeszcze potwierdzone jako strukturalnie spóźnione.
+5. **Tłumaczenia przeżyły wymuszony re-update** — user zweryfikował w UI gry („gwarantuję, że
+   je widziałem"); stan DAT zbiegł do 49.1 co do bajta rozmiaru. Zgodne z modelem per-SubFile.
+6. **Bonus metodologiczny:** forced-downgrade (podmiana DAT na starszy backup) = **powtarzalny
+   symulator pełnego cyklu update** — testy orchestratora end-to-end bez czekania na SSG; przy
+   okazji zwalidowana ścieżka „restore pristine DAT" (launcher czysto dociąga deltę).
+7. mtime NIE drgnął przy starcie klienta w tym przebiegu (w E1 drgnął przy logowaniu) —
+   wolatylność mtime jest nieprzewidywalna; finding E1-F1 (content-sentinel zamiast
+   size+mtime) stoi w mocy.
 
 ## Pliki intel (gitignored `intel/update-49/`)
 

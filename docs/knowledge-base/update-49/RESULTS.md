@@ -265,6 +265,127 @@ exporcie to **nasz polski**, nie angielski. Spec 0001 zakłada angielski source 
 source) + jednorazowa naprawa zatrutych source'ów + docelowo eksport z czystego źródła
 (revert-file generowany z TMS przed exportem albo czysta kopia DAT).
 
+## Experiments E1–E4 — results (2026-08-02, #557)
+
+### E3 — full-corpus patch benchmark: ✅ DONE — repair-set NIE jest wymagany czasowo
+
+Setup: syntetyczny pełny korpus z export-49 (**800,865 wierszy danych**, treść = `PL ` + oryginał,
+`approved=1`, format bez zmian, CRLF zachowane) → Release CLI → patch na **KOPII** DAT 49
+z pre-utworzonym `.backup` (krok backupu = no-op „already exists" — zgodne z realnym update-day,
+gdzie backup już istnieje) → uruchomienie z osobnego cwd, żeby `SaveBaseline` nie tknął żywego
+`data/last_known_game_version.txt`.
+
+| Run | Wiersze | Wall clock (cała komenda) | Applied / Skipped / Warnings |
+|---|---|---|---|
+| Full corpus | 800,864 | **14.7 s** | 800,864 / 0 / 0 |
+| Repair-set-sized | 21,660 | **5.6 s** | 21,660 / 0 / 0 |
+
+- Wall clock obejmuje WSZYSTKO: startup CLI, preflight (w tym forum fetch przez sieć),
+  parsowanie pliku tłumaczeń (83 MB przy pełnym korpusie), patch wszystkich SubFile'ów, flush.
+  Stały narzut (startup+preflight+parse małego pliku) ≈ 3–4 s ⇒ czysty patch pełnego korpusu
+  ≈ 10–11 s.
+- Weryfikacja realności zapisu: bench DAT urósł +5,242,880 B — spójne z prefiksem `PL `
+  (~800k fragmentów × ~6.5 B UTF-16).
+- Repair-set proxy: wszystkie wiersze korpusu w 3,921 FileIds obecnych w hunkach diffa
+  48.8→49 (nadzbiór 1,277 dotkniętych istniejących SubFile'ów — zawiera też nowe SubFile'e).
+- Sprzęt: maszyna maintainera (NVMe). Nawet ×5 na wolnym dysku mieści się w oknie logowania.
+
+**Gating (spec 0012):** pełny re-patch korpusu mieści się w oknie logowania z dużym zapasem ⇒
+**repair-set = opcjonalna optymalizacja, nie wymaganie MVP**. Draft AC „repair touches only
+touched SubFiles" wypada z MVP.
+
+### Nowe fakty odkryte przy przygotowaniu E1 (anatomia locków — uściślenie)
+
+1. **`LotroLauncher.exe` ma manifest `requestedExecutionLevel=asInvoker`** — launcher sam się
+   NIE elevuje. 2. **ACL katalogu gry: `BUILTIN\Users = RX` (read+execute), zero write** —
+   zwykło-odpalony (nieelevowany) launcher **w ogóle nie może pisać do DAT**. Wnioski:
+   - Do zapisu przy update launcher musi coś elevować (UAC consent przy starcie update'u?) albo
+     user odpala go „jako administrator" — **E2 ma zidentyfikować, który proces realnie pisze**.
+   - Sonda RW **musi być elevated** (nieelevowana dostaje ACL-owy ACCESS-DENIED, który maskuje
+     stan sharing — potwierdzone self-testem skryptu).
+   - Interpretacja E1: launcher nieelevowany może na ekranie logowania trzymać handle READ
+     z restrykcyjnym sharingiem (np. `FileShare.Read`) — to też blokuje nasz otwór RW/ShareNone.
+     Sonda odpowiada więc na pytanie operacyjne („czy MY możemy patchować"), nie na pytanie
+     „czy launcher ma handle write".
+
+### E1 — ✅ **OPEN-OK na ekranie logowania — launcher NIE trzyma DAT; gałąź A wykonalna**
+
+Przebieg 2026-08-02 19:14–19:17 (`scripts/experiments/e1-rw-probe.ps1`, elevated; pełny log
+w gitignored `intel/update-49/e1-probe-results.log`):
+
+| Label | Procesy | Wynik | mtime DAT w chwili sondy |
+|---|---|---|---|
+| baseline | none | OPEN-OK | 13:46:00 (bez zmian — sonda jest nieinwazyjna, nie bumpuje mtime) |
+| **login-screen** | LotroLauncher | **OPEN-OK** | 19:14:55 (launcher pisał do DAT ~16 s wcześniej, w fazie startowego checku — i już puścił) |
+| in-game | (klient 64-bit) | **LOCKED 0x80070020** sharing violation | 19:15:53 (kolejny zapis przy starcie klienta/logowaniu) |
+
+**Gating (spec 0012): gałąź A potwierdzona jako dominująca** — na ekranie logowania DAT jest
+wolny, cichy in-place patch w oknie wpisywania hasła jest fizycznie możliwy (a z E3 wiemy, że
+nawet pełny korpus = 14.7 s). Kontrola negatywna zachowuje się poprawnie (klient trzyma DAT
+przez całą sesję). Gotcha narzędziowa: log pokazał `procs=none` przy in-game locku, bo filtr
+skryptu nie znał **`lotroclient64`** (nowoczesny klient jest 64-bitowy, `x64\lotroclient64.exe`)
+— skrypty poprawione; patcherowy `GameProcessDetector` zna `lotroclient64` od dawna (bez buga).
+
+### E4 — ✅ **kill pre-creds czysty — 3× reprodukcja; relaunch nieodróżnialny od zwykłego startu**
+
+Launcher na ekranie logowania → `taskkill /IM LotroLauncher.exe /F` → ponowny start (user,
+3 powtórzenia): **każdy start launchera wygląda identycznie** — UAC prompt → check DAT → ekran
+logowania; po killu ZERO dodatkowej weryfikacji/naprawy ponad standardowy startowy check; po
+zalogowaniu gra wstaje normalnie. **Gałąź B bezpieczna** jako fallback. Bonus rozwiązujący
+zagadkę `asInvoker`+ACL: **launcher elevuje się przez UAC przy każdym starcie** — dlatego może
+pisać do DAT mimo Users=RX (a nasz orchestrator, sam elevated, może go killnąć).
+
+### Finding E1-F1 — **mtime DAT jest wolatylny: launcher pisze do DAT przy KAŻDYM starcie**
+
+Sekwencja mtime: 13:46:00 (spoczynek; baseline-probe NIE bumpuje) → **19:14:55 przy samym
+starcie launchera** (żadnego update'u; size bez zmian) → **19:15:53 przy starcie klienta**.
+Konsekwencja projektowa: **fingerprint size+mtime z draftu Tier 0 generowałby false-positive
+co launch** (mtime rusza się w każdej sesji bez żadnej utraty tłumaczeń) → sentinel
+zdegenerowałby się do force-re-patch przy każdym starcie. Korekta w spec 0012: detekcja przez
+**content-sentinel** — odczyt próbki znanych przetłumaczonych fragmentów przez datexport READ
+(milisekundy, zero fałszywych sygnałów w obie strony); alternatywa always-repatch (~15 s/start)
+odrzucona jako bezcelowy 800k-wierszowy zapis do DAT co sesję. Finalna decyzja: #558 (Q1).
+
+### E2 — ✅ **wykonany od ręki metodą wymuszonego downgrade'u (pomysł ownera) — pełny cykl update zarejestrowany**
+
+**Metoda (nowa, powtarzalna):** elevated podmiana live DAT na backup 48.8 → launcher sam wykrył
+stary stan pliku i odtworzył **realny cykl update 48.8→49.1** (delta widoczna na pasku
+launchera) → `scripts/experiments/e2-dat-handle-monitor.ps1` (sonda co 1 s) przez cały cykl +
+sesję gry. Pełny log: gitignored `intel/update-49/e2-handle-timeline.log` (2 przebiegi —
+przerwa 19:40:22–19:41:53 to restart monitora przez usera przy ekranie logowania).
+
+| t (2026-08-02) | Zdarzenie |
+|---|---|
+| 19:39:32 | Monitor start: DAT=48.8 (1,893,807,856 B), probe OPEN-OK, procs=none |
+| 19:39:39 | LotroLauncher startuje (UAC) — probe **WCIĄŻ OPEN-OK przez ~11 s**: faza check+download NIE trzyma DAT |
+| 19:39:51.007 | **LOCKED** — burst apply |
+| 19:39:52.032 | **OPEN-OK**, size = 1,894,856,432 B (co do bajta rozmiar 49.1), mtime bump — **cały apply w JEDNYM ~1 s burście** |
+| 19:40–19:42 | Ekran logowania: OPEN-OK stabilnie (launcher żywy) |
+| 19:42:12 | **LOCKED, procs=lotroclient64** — klient przejmuje DAT na całą sesję; launcher znika przy spawnie klienta |
+| →koniec | LOCKED przez sesję in-game; po wyjściu z gry user zamknął monitor |
+
+**Wnioski (gating spec 0012):**
+
+1. **Download ≠ apply — faza pobierania NIE trzyma DAT.** Probe-success mid-update JEST
+   możliwy (~11 s wolnego DAT przed apply) ⇒ **convergent re-patch loop orchestratora jest
+   konieczny i wystarczający**: nasz wczesny patch może zostać nadpisany burstem apply, ostatni
+   zapis wygrywa, watch trwa do startu gry.
+2. **Apply = pojedynczy ~1 s lock-burst** (delta ~5 MB / 1,277 SubFile'ów) ⇒ quiesce 30 s dla
+   gałęzi B jest bardzo konserwatywny. Zastrzeżenie: duży major (nowy content GB-ami) może mieć
+   dłuższe/wielokrotne bursty — monitor zostaje w arsenale na następny realny major SSG.
+3. **Post-update login screen: OPEN-OK — gałąź A potwierdzona także w dniu update** (E1
+   potwierdzał ją tylko przy zwykłym starcie).
+4. Klient (`lotroclient64`) trzyma DAT od startu do końca sesji; launcher umiera przy spawnie
+   klienta — sygnały procesowe raz jeszcze potwierdzone jako strukturalnie spóźnione.
+5. **Tłumaczenia przeżyły wymuszony re-update** — user zweryfikował w UI gry („gwarantuję, że
+   je widziałem"); stan DAT zbiegł do 49.1 co do bajta rozmiaru. Zgodne z modelem per-SubFile.
+6. **Bonus metodologiczny:** forced-downgrade (podmiana DAT na starszy backup) = **powtarzalny
+   symulator pełnego cyklu update** — testy orchestratora end-to-end bez czekania na SSG; przy
+   okazji zwalidowana ścieżka „restore pristine DAT" (launcher czysto dociąga deltę).
+7. mtime NIE drgnął przy starcie klienta w tym przebiegu (w E1 drgnął przy logowaniu) —
+   wolatylność mtime jest nieprzewidywalna; finding E1-F1 (content-sentinel zamiast
+   size+mtime) stoi w mocy.
+
 ## Pliki intel (gitignored `intel/update-49/`)
 
 DAT backupy 48.8 + 49 + write-test (po ~1.76 GB), pełne exporty 48.8/49 (82.6/83.1 MB), pełny

@@ -9,6 +9,7 @@ using Testcontainers.PostgreSql;
 using LotroKoniecDev.AuthSystem.API.Extensions;
 using LotroKoniecDev.AuthSystem.API.Services.Emails;
 using LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared;
+using LotroKoniecDev.AuthSystem.Infrastructure.Messaging;
 using LotroKoniecDev.AuthSystem.Persistence;
 using LotroKoniecDev.AuthSystem.Persistence.DbContexts;
 
@@ -112,6 +113,19 @@ public class AuthSystemApiFactory : WebApplicationFactory<Program>, IAsyncLifeti
             services.AddSingleton<SpyAccountDeletionEmailSender>();
             services.AddSingleton<IAccountDeletionEmailSender>(sp =>
                 sp.GetRequiredService<SpyAccountDeletionEmailSender>());
+
+            // Replace the RabbitMQ publisher with a spy: the suite runs without a broker, and the
+            // outbox relay tests assert against what reached the (fake) wire.
+            ServiceDescriptor? existingMessagePublisher = services
+                .FirstOrDefault(d => d.ServiceType == typeof(IMessagePublisher));
+            if (existingMessagePublisher is not null)
+            {
+                services.Remove(existingMessagePublisher);
+            }
+
+            services.AddSingleton<SpyMessagePublisher>();
+            services.AddSingleton<IMessagePublisher>(sp =>
+                sp.GetRequiredService<SpyMessagePublisher>());
 
             // Replace AuthDbContext to use the test connection string directly
             ServiceDescriptor? dbContextDescriptor = services

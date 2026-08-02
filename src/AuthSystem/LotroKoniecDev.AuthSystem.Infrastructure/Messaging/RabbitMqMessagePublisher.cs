@@ -128,7 +128,7 @@ internal sealed partial class RabbitMqMessagePublisher : IMessagePublisher, IAsy
                 return _channel;
             }
 
-            await CloseChannelAsync(); //if channel is not null
+            await CloseChannelAsync();
 
             if (_connection is not { IsOpen: true })
             {

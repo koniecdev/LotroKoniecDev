@@ -1,8 +1,10 @@
 # Spec 0012: Update-resilience — launch sentinel, update-day orchestrator, import echo-guard
 
-- **Status:** Draft — open decisions pending (owner); experiments: **E3 done** (repair-set NOT
-  required — see below), E1/E4 scripted + pending a user run, E2 monitor ready for the next SSG
-  update (`scripts/experiments/`, results: `docs/knowledge-base/update-49/RESULTS.md` §Experiments)
+- **Status:** Draft — open decisions pending (owner); experiments: **E1/E3/E4 done 2026-08-02**
+  (branch A viable — DAT free at the login screen; repair-set NOT required; pre-creds kill clean
+  3×), E2 monitor ready for the next SSG update (`scripts/experiments/`, results:
+  `docs/knowledge-base/update-49/RESULTS.md` §Experiments — incl. finding E1-F1: DAT mtime is
+  volatile, which forces the Tier-0 fingerprint revision below)
 - **Date:** 2026-08-02 (seeded from the live-test 48.8→49.1 findings + owner discussion, same day)
 - **Author:** Artur Koniec (problem framing + orchestrator/kill concept) — structured against code,
   spec 0001 and the knowledge base by Claude
@@ -41,10 +43,17 @@ corrections with stale Polish — and TMS imports stay correct at any corpus sca
 
 ### Tier 0 — launch sentinel (fundament; always on; = the Russians' proven Legacy mechanism)
 
-- `SaveBaseline` additionally stores a **DAT fingerprint** (size + LastWriteTime) in the version
-  file. On launch: fingerprint mismatch ⇒ the DAT was written by someone else since our last
-  patch ⇒ **force re-patch with a freshly synced artifact even when the translation-file hash
-  matches**. One-shot guard per fingerprint (no repair loops).
+- ~~DAT fingerprint (size + LastWriteTime)~~ **REVISED per E1-F1 (2026-08-02): the launcher
+  writes the DAT on EVERY start** (mtime bumps at launcher check and at client start, with no
+  translation loss), so a size+mtime fingerprint would false-positive every session and
+  degenerate Tier 0 into a force-re-patch-per-launch. Detection is a **content sentinel**
+  instead: on launch, read a small sample of known-translated artifact fragments via the
+  existing datexport READ path (milliseconds); any sampled fragment reverted to English ⇒
+  **force re-patch with a freshly synced artifact even when the translation-file hash
+  matches**. Sample choice: spread across distinct SubFiles (collateral reverts are
+  per-SubFile, so K sampled SubFiles detect a wipe of any of them; full certainty needs the
+  full artifact row-set — sampling breadth is an implementation knob). One-shot guard per
+  detection (no repair loops).
 - **Anti-masking handshake:** the distribution endpoint / artifact exposes the GameVersion it
   was generated for. The sentinel force-patches only when artifact-version ≥ live forum version;
   otherwise it defers (fallback-to-English semantics preserved — never re-apply pre-update
@@ -96,18 +105,19 @@ faster repair) — not a correctness or UX requirement.
 
 | # | Question | Procedure | Decides | Status |
 |---|----------|-----------|---------|--------|
-| E1 | Does the launcher hold the DAT at the login screen? | Launcher at login screen → elevated RW-open probe (`scripts/experiments/e1-rw-probe.ps1`) | A vs B as the dominant branch | ⏳ scripted, pending user run |
-| E4 | Is a pre-creds launcher kill clean? | Kill at login screen → relaunch → verify straight-to-login + game boots | Safety of branch B | ⏳ pending user run |
+| E1 | Does the launcher hold the DAT at the login screen? | Launcher at login screen → elevated RW-open probe (`scripts/experiments/e1-rw-probe.ps1`) | A vs B as the dominant branch | ✅ **OPEN-OK at login screen ⇒ branch A viable & dominant**; in-game control LOCKED (0x80070020) |
+| E4 | Is a pre-creds launcher kill clean? | Kill at login screen → relaunch → verify straight-to-login + game boots | Safety of branch B | ✅ **clean, 3× reproduced** — relaunch indistinguishable from a normal start (UAC → DAT check → login); game boots fine |
 | E3 | Full-corpus patch duration | Synthetic ~100k+-row polish.txt → patch a DAT COPY → time it | Repair-set: optional vs required | ✅ **800,864 rows = 14.7 s; 21,660 = 5.6 s ⇒ repair-set optional** |
 | E2 | Handle behavior across a real update cycle (download vs apply bursts; slow-network hour-long updates) | Next SSG update, or launcher repair/verify mode; observe probe + writes timeline (`scripts/experiments/e2-dat-handle-monitor.ps1`) | Quiesce windows; whether probe-success can occur mid-update | ⏳ monitor ready, awaits next SSG update |
 
-New lock-anatomy facts (2026-08-02, found while scripting E1): `LotroLauncher.exe` manifests
-`asInvoker` (no self-elevation) and the game dir ACL grants Users only RX — a plainly-started
-launcher cannot write the DAT at all, so SOMETHING elevates during updates (E2 identifies the
-actual writer). The probe must run elevated (a non-elevated run reports an ACL ACCESS-DENIED
-that masks the sharing state), and a LOCKED result at the login screen may mean a read handle
-with restrictive sharing rather than a write handle — either way it answers the operative
-question ("can WE patch now"), which is what branches A/B key on.
+New lock-anatomy facts (2026-08-02, E1/E4 pass): `LotroLauncher.exe` manifests `asInvoker` and
+the game dir ACL grants Users only RX, but **the launcher prompts UAC and runs elevated on every
+start** — that's how it writes the DAT despite the ACL (and why our elevated orchestrator can
+kill it). **E1-F1: the launcher writes the DAT during its startup check on EVERY launch** (and
+the client writes again at session start), so DAT mtime is NOT a "someone patched content"
+signal — this kills the size+mtime fingerprint and motivates the content-sentinel revision in
+Tier 0. Probes must run elevated (a non-elevated run reports an ACL ACCESS-DENIED that masks
+the sharing state). The 64-bit client process is `lotroclient64` (`x64\lotroclient64.exe`).
 
 Note on slow updates (owner's point): the RW probe is the **primary** signal, quiesce only a
 debounce. If E2 shows the launcher holds the DAT continuously until done, probe alone is
@@ -129,12 +139,14 @@ conservative quiesce there. An hour-long update just means the watcher idles for
 ## Acceptance criteria (draft — final after Q1–Q5)
 
 - [ ] After a simulated chunk-wipe (write-test DAT with a reverted SubFile), the next launch
-      detects the fingerprint mismatch and restores every artifact row (Tier 0).
+      detects the revert via the content sentinel and restores every artifact row (Tier 0).
 - [ ] Sentinel never patches with an artifact older than the live forum version (handshake).
 - [ ] Orchestrator branch A: patch lands between launcher-release and Play without killing
-      anything (E1-gated).
-- [ ] Orchestrator branch B: at most one launcher kill per fingerprint, only pre-client,
-      only after conservative quiesce; relaunch reaches login cleanly (E4-gated).
+      anything (E1 ✅ confirmed the window exists: DAT free at the login screen, full-corpus
+      patch 14.7 s).
+- [ ] Orchestrator branch B: at most one launcher kill per detection, only pre-client,
+      only after conservative quiesce; relaunch reaches login cleanly (E4 ✅ confirmed clean,
+      3× reproduced).
 - [ ] Echo-guard: importing a patched-DAT export against a translated corpus invalidates ONLY
       rows whose English actually changed (fixture: resident-Polish echo rows + one revert).
 - [ ] ~~Repair-set: post-update repair touches only rows in update-touched SubFiles~~ —

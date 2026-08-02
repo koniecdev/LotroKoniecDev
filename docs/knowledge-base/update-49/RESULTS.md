@@ -308,19 +308,43 @@ touched SubFiles" wypada z MVP.
      Sonda odpowiada więc na pytanie operacyjne („czy MY możemy patchować"), nie na pytanie
      „czy launcher ma handle write".
 
-### E1 — sonda RW na ekranie logowania: ⏳ skrypt gotowy, czeka na przebieg z userem
+### E1 — ✅ **OPEN-OK na ekranie logowania — launcher NIE trzyma DAT; gałąź A wykonalna**
 
-`scripts/experiments/e1-rw-probe.ps1` (elevated; loguje do gitignored
-`intel/update-49/e1-probe-results.log`). Protokół: `-Label baseline` (nic nie działa,
-oczekiwane OPEN-OK) → launcher odpalony NORMALNIE (nie z elevated shella — fidelity!) →
-`-Label login-screen` (**kluczowy wynik: gałąź A vs B**) → po E4-loginie `-Label in-game`
-(kontrola negatywna, oczekiwane LOCKED).
+Przebieg 2026-08-02 19:14–19:17 (`scripts/experiments/e1-rw-probe.ps1`, elevated; pełny log
+w gitignored `intel/update-49/e1-probe-results.log`):
 
-### E4 — kill launchera pre-creds → relaunch: ⏳ czeka na przebieg z userem
+| Label | Procesy | Wynik | mtime DAT w chwili sondy |
+|---|---|---|---|
+| baseline | none | OPEN-OK | 13:46:00 (bez zmian — sonda jest nieinwazyjna, nie bumpuje mtime) |
+| **login-screen** | LotroLauncher | **OPEN-OK** | 19:14:55 (launcher pisał do DAT ~16 s wcześniej, w fazie startowego checku — i już puścił) |
+| in-game | (klient 64-bit) | **LOCKED 0x80070020** sharing violation | 19:15:53 (kolejny zapis przy starcie klienta/logowaniu) |
 
-Z elevated shella: `taskkill /IM LotroLauncher.exe /F` (nazwa procesu potwierdzona na dysku)
-przy launcherze na ekranie logowania → ponowny normalny start → obserwacje usera: (a) wraca
-prosto do logowania bez re-weryfikacji/naprawy? (b) po zalogowaniu gra wstaje normalnie?
+**Gating (spec 0012): gałąź A potwierdzona jako dominująca** — na ekranie logowania DAT jest
+wolny, cichy in-place patch w oknie wpisywania hasła jest fizycznie możliwy (a z E3 wiemy, że
+nawet pełny korpus = 14.7 s). Kontrola negatywna zachowuje się poprawnie (klient trzyma DAT
+przez całą sesję). Gotcha narzędziowa: log pokazał `procs=none` przy in-game locku, bo filtr
+skryptu nie znał **`lotroclient64`** (nowoczesny klient jest 64-bitowy, `x64\lotroclient64.exe`)
+— skrypty poprawione; patcherowy `GameProcessDetector` zna `lotroclient64` od dawna (bez buga).
+
+### E4 — ✅ **kill pre-creds czysty — 3× reprodukcja; relaunch nieodróżnialny od zwykłego startu**
+
+Launcher na ekranie logowania → `taskkill /IM LotroLauncher.exe /F` → ponowny start (user,
+3 powtórzenia): **każdy start launchera wygląda identycznie** — UAC prompt → check DAT → ekran
+logowania; po killu ZERO dodatkowej weryfikacji/naprawy ponad standardowy startowy check; po
+zalogowaniu gra wstaje normalnie. **Gałąź B bezpieczna** jako fallback. Bonus rozwiązujący
+zagadkę `asInvoker`+ACL: **launcher elevuje się przez UAC przy każdym starcie** — dlatego może
+pisać do DAT mimo Users=RX (a nasz orchestrator, sam elevated, może go killnąć).
+
+### Finding E1-F1 — **mtime DAT jest wolatylny: launcher pisze do DAT przy KAŻDYM starcie**
+
+Sekwencja mtime: 13:46:00 (spoczynek; baseline-probe NIE bumpuje) → **19:14:55 przy samym
+starcie launchera** (żadnego update'u; size bez zmian) → **19:15:53 przy starcie klienta**.
+Konsekwencja projektowa: **fingerprint size+mtime z draftu Tier 0 generowałby false-positive
+co launch** (mtime rusza się w każdej sesji bez żadnej utraty tłumaczeń) → sentinel
+zdegenerowałby się do force-re-patch przy każdym starcie. Korekta w spec 0012: detekcja przez
+**content-sentinel** — odczyt próbki znanych przetłumaczonych fragmentów przez datexport READ
+(milisekundy, zero fałszywych sygnałów w obie strony); alternatywa always-repatch (~15 s/start)
+odrzucona jako bezcelowy 800k-wierszowy zapis do DAT co sesję. Finalna decyzja: #558 (Q1).
 
 ### E2 — timeline handli przy realnym update: ⏳ monitor gotowy, czeka na najbliższy update SSG
 

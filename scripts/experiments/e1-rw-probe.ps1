@@ -18,7 +18,7 @@ if (-not $isAdmin)
 }
 
 $ts = Get-Date -Format 'yyyy-MM-dd HH:mm:ss.fff'
-$procs = (Get-Process -Name LotroLauncher, lotroclient -ErrorAction SilentlyContinue | ForEach-Object { $_.Name }) -join '+'
+$procs = (Get-Process -Name LotroLauncher, lotroclient, lotroclient64 -ErrorAction SilentlyContinue | ForEach-Object { $_.Name }) -join '+'
 if (-not $procs) { $procs = 'none' }
 $dat = Get-Item -LiteralPath $DatPath
 $state = "size=$($dat.Length) mtime=$($dat.LastWriteTime.ToString('yyyy-MM-dd HH:mm:ss'))"

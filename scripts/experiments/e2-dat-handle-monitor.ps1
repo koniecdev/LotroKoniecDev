@@ -49,7 +49,7 @@ while ($true)
 {
     $dat = Get-Item -LiteralPath $DatPath -ErrorAction SilentlyContinue
     $probe = if ($dat) { Get-ProbeState -Path $DatPath } else { 'FILE-MISSING' }
-    $procs = (Get-Process -Name LotroLauncher, lotroclient -ErrorAction SilentlyContinue | ForEach-Object { $_.Name }) -join '+'
+    $procs = (Get-Process -Name LotroLauncher, lotroclient, lotroclient64 -ErrorAction SilentlyContinue | ForEach-Object { $_.Name }) -join '+'
     if (-not $procs) { $procs = 'none' }
     $size = if ($dat) { $dat.Length } else { 'missing' }
     $mtime = if ($dat) { $dat.LastWriteTime.ToString('HH:mm:ss.fff') } else { '-' }

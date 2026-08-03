@@ -49,8 +49,9 @@ jobs:
           # scale-to-zero Neon compute awake — that ruling outlives Azure, because Neon still
           # suspends — and names the full /health as the on-demand deep check. Once a day is exactly
           # that occasion — this is the only probe that proves the database is reachable.
-          # auth's /health also covers SMTP, so a red run here can legitimately mean "Brevo is down",
-          # not "the site is down"; the response body below says which check failed.
+          # auth's /health also covers SMTP and the in-stack RabbitMQ broker, so a red run here can
+          # legitimately mean "Brevo is down" or "the broker container is down" — not "the site is
+          # down"; the response body below says which check failed.
           #
           # The Static-SSR frontend exposes /health/live but nothing deep, so '/' is its liveness.
           probe() {

@@ -69,8 +69,11 @@ public class AuthSystemApiFactory : WebApplicationFactory<Program>, IAsyncLifeti
                 { "Email:Host", "localhost" },
                 { "Email:Port", "59999" },
                 // No broker in this suite; the values only have to satisfy the unconditional
-                // RabbitMqOptionsValidator at startup — nothing connects to them.
+                // RabbitMqOptionsValidator at startup. The port is a deliberately dead one (same
+                // trick as Email:Port above) so RabbitMqHealthCheck is deterministically Unhealthy
+                // — the full /health test must not flip when the dev compose broker (:5672) runs.
                 { "RabbitMq:Host", "localhost" },
+                { "RabbitMq:Port", "59998" },
                 { "RabbitMq:Username", "rabbitmq" },
                 { "RabbitMq:Password", "changeme" },
             });

@@ -226,7 +226,14 @@ try
         // surface in logs, via "resend confirmation", and on the full /health.
         .AddCheck<SmtpHealthCheck>(
             "smtp",
-            tags: ["smtp"]);
+            tags: ["smtp"])
+        // The broker is likewise NOT tagged "ready": e-mail messaging degrades gracefully while it
+        // is down (outbox rows wait, the consumer reconnects with backoff), and login/token
+        // issuance don't need it. A down broker container surfaces on the full /health the daily
+        // health ping probes.
+        .AddCheck<RabbitMqHealthCheck>(
+            "rabbitmq",
+            tags: ["broker"]);
 
     const string rateLimitPolicy = "fixed-by-ip";
     const string authEndpointRateLimitPolicy = "auth-endpoint-limit";

@@ -38,8 +38,11 @@ public static class RabbitMqTopologyDeclaration
     };
 
     /// <summary>
-    /// The parking lot is a quorum queue for the same durability as the queue it backstops; it
-    /// carries no delivery limit and no dead-letter exchange of its own — it is terminal.
+    /// The parking lot is a quorum queue for the same durability as the queue it backstops; no
+    /// dead-letter exchange of its own and no explicit delivery limit — it is terminal. The
+    /// quorum <em>default</em> delivery limit (20) still applies though, so any replay must
+    /// ack-and-republish, never reject-requeue — a reject-requeue loop would silently drop the
+    /// parked message (ADR-0036).
     /// </summary>
     private static readonly Dictionary<string, object?> DeadLetterQueueArguments = new()
     {

@@ -52,7 +52,9 @@ into every consumer (and a consumer-side count resets on restart).
 `lotro.emails.dlx` (fanout) → `emails.send.dlq` (quorum). Fanout, because "everything that dies
 goes to the one parking lot" needs no routing decisions — and dead-lettering preserves the
 original routing key on the message, so replay knows where it belongs. Nothing consumes the
-DLQ; it carries no delivery limit and no DLX of its own — it is terminal by design.
+DLQ; it sets no explicit delivery limit and no DLX of its own — it is terminal by design. It
+still inherits the quorum **default** delivery limit (20), which constrains how replay may ever
+consume it (Decision 5).
 
 ### 3. The dead-letter hop itself is at-least-once
 
@@ -77,7 +79,10 @@ at `Error` level before the parking reject.
 Ops story: inspect `emails.send.dlq` in the management UI, fix the cause, re-publish to
 `lotro.emails` under the message's preserved routing key (shovel or UI). No replay endpoint, no
 automated re-drive — YAGNI at the current volume; the user-facing recovery for the only current
-message type is the outbox-independent resend endpoint (ADR-0035).
+message type is the outbox-independent resend endpoint (ADR-0035). One hard rule binds any
+future re-drive tooling: **ack-and-republish, never reject-requeue** — the DLQ inherits the
+quorum default delivery limit (20) and has no DLX of its own, so a reject-requeue loop against
+it would silently drop the parked message after 20 attempts.
 
 ## Consequences
 

@@ -58,9 +58,11 @@ internal sealed partial class EmailConfirmationConsumer : BackgroundService
     /// consumer, which is harmless — every message in the queue needs the same SMTP relay, so
     /// none of the waiting ones could succeed either. Hard ceiling: the pause holds the delivery
     /// unacked, and the broker kills the channel when an ack takes longer than its consumer
-    /// timeout (30 min default) — every entry must stay well under that.
+    /// timeout (30 min default) — every entry must stay well under that. Internal so the unit
+    /// suite can pin both invariants (one entry per allowed redelivery, ceiling under the
+    /// timeout) instead of trusting this prose.
     /// </summary>
-    private static readonly TimeSpan[] RedeliveryBackoffs =
+    internal static readonly TimeSpan[] RedeliveryBackoffs =
     [
         TimeSpan.FromSeconds(30),
         TimeSpan.FromMinutes(2),
@@ -234,7 +236,10 @@ internal sealed partial class EmailConfirmationConsumer : BackgroundService
     /// Best-effort reject for the unexpected-exception path: when even the reject fails (typically
     /// a dead channel), the delivery is unacked anyway and the broker requeues it on channel close
     /// — and that connection loss increments the delivery count too, so even a crash loop is
-    /// bounded by the delivery limit.
+    /// bounded by the delivery limit. The pause is deliberately flat (always the ladder's first
+    /// rung, not indexed by redelivery count): an unexpected exception says nothing about SMTP
+    /// health, so this path only takes the edge off a hot loop — a persistently throwing
+    /// processor burns the delivery limit in minutes and parks, which is exactly the bound wanted.
     /// </summary>
     private async Task TryRequeueAsync(IChannel channel, ulong deliveryTag, CancellationToken stoppingToken)
     {

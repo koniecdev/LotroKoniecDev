@@ -95,12 +95,16 @@ public sealed class DeadLetterTopologyTests : IClassFixture<RabbitMqBrokerFixtur
         // basic.reject and a push consumer, mirroring production: only rejects (and connection
         // losses) increment the x-delivery-count the limit is measured against — a nack-requeue
         // or a BasicGet loop would spin forever without ever tripping it (RabbitMQ ≥ 4.3).
-        int deliveries = 0;
+        List<int> redeliveryCounts = [];
         await using IChannel consumerChannel = await _connection!.CreateChannelAsync();
         AsyncEventingBasicConsumer consumer = new(consumerChannel);
         consumer.ReceivedAsync += async (_, delivery) =>
         {
-            Interlocked.Increment(ref deliveries);
+            lock (redeliveryCounts)
+            {
+                redeliveryCounts.Add(RedeliveryCount.Read(delivery.BasicProperties.Headers));
+            }
+
             await consumerChannel.BasicRejectAsync(delivery.DeliveryTag, requeue: true);
         };
 
@@ -114,8 +118,17 @@ public sealed class DeadLetterTopologyTests : IClassFixture<RabbitMqBrokerFixtur
         BasicGetResult? dead = await GetWithinTimeoutAsync(RabbitMqTopology.EmailDeadLetterQueue, DeliveryTimeout);
         await consumerChannel.BasicCancelAsync(consumerTag);
 
-        dead.ShouldNotBeNull($"after {Volatile.Read(ref deliveries)} deliveries nothing was dead-lettered");
-        Volatile.Read(ref deliveries).ShouldBe(RabbitMqTopology.EmailDeliveryLimit + 1);
+        int[] observed;
+        lock (redeliveryCounts)
+        {
+            observed = redeliveryCounts.ToArray();
+        }
+
+        dead.ShouldNotBeNull($"after {observed.Length} deliveries nothing was dead-lettered");
+        // The exact 0..limit sequence also pins RedeliveryCount.Read against the CLR type the
+        // real client hands over for x-delivery-count — if that bridge broke, every entry would
+        // read 0 and the consumer's exhaustion branch would never fire in production.
+        observed.ShouldBe(Enumerable.Range(0, RabbitMqTopology.EmailDeliveryLimit + 1).ToArray());
         dead.Body.ToArray().ShouldBe(body);
         FirstDeathReason(dead.BasicProperties).ShouldBe("delivery_limit");
     }

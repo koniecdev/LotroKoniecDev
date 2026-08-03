@@ -55,6 +55,37 @@ services:
       ConnectionStrings__AuthDatabase: ${ConnectionStrings__AuthDatabase}
     restart: "no"
 
+  rabbitmq:
+    # Version pinned in lockstep with the dev compose.yaml and the integration suite's
+    # RabbitMqBrokerFixture (same image minus the management UI) — bump all three together, or the
+    # suite keeps proving the dead-letter topology against a different broker generation than the
+    # one this stack runs.
+    image: rabbitmq:4.3.4-management-alpine
+    restart: unless-stopped
+    # RabbitMQ keys its on-disk state (users, quorum-queue membership, parked dead letters) by node
+    # name, which defaults to rabbit@<hostname> — and compose hostnames are random per container.
+    # Without this pin every recreation would boot a FRESH node next to the old data and silently
+    # orphan the quorum queues, dead-letter parking lot included.
+    hostname: lotro-rabbitmq
+    environment:
+      RABBITMQ_DEFAULT_USER: rabbitmq
+      # Applied on FIRST boot only (empty data volume) — editing the box .env later does NOT rotate
+      # the live credential; rotation goes through rabbitmqctl (runbook → Secrets).
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:?generate one and add RABBITMQ_PASSWORD to the box .env (runbook → Secrets)}
+    ports:
+      # Management UI on the box loopback ONLY — reach it via `ssh -L 15672:localhost:15672 <box>`,
+      # never from the internet. It is the dead-letter parking-lot inspection/replay surface
+      # (runbook → Message broker).
+      - "127.0.0.1:15672:15672"
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD-SHELL", "rabbitmq-diagnostics -q ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+
   auth-api:
     image: ghcr.io/${IMAGE_NAMESPACE:-koniecdev}/lotrokoniecdev-auth-api:${IMAGE_TAG:-latest}
     restart: unless-stopped
@@ -83,6 +114,12 @@ services:
       Email__Sender: ${Email__Sender}
       Email__Username: ${Email__Username:-}
       Email__Password: ${Email__Password:-}
+      # The broker is the in-stack `rabbitmq` service above. Deliberately NO depends_on edge to it:
+      # auth-api boots while the broker is down — the publisher connects lazily and the consumer
+      # retries with backoff — and a broker outage must never block an app deploy.
+      RabbitMq__Host: rabbitmq
+      RabbitMq__Username: rabbitmq
+      RabbitMq__Password: ${RABBITMQ_PASSWORD:?generate one and add RABBITMQ_PASSWORD to the box .env (runbook → Secrets)}
       # AUTH_ADMIN_USERNAME must match ^[a-zA-Z0-9]+$ or auth-api fails at startup (ADR-0022).
       AdminUser__Username: ${AUTH_ADMIN_USERNAME:-}
       AdminUser__Email: ${AUTH_ADMIN_EMAIL:-}
@@ -211,6 +248,7 @@ services:
 volumes:
   auth-keys:
   frontend-keys:
+  rabbitmq-data:
   caddy-data:
   caddy-config:
 

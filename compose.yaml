@@ -26,6 +26,11 @@ services:
     # minus the management UI) — bump both together, or the suite keeps proving the dead-letter
     # topology against the old broker generation.
     image: rabbitmq:4.3.4-management-alpine
+    # RabbitMQ keys its on-disk state by node name (rabbit@<hostname>), and compose hostnames are
+    # random per container — without this pin a recreation boots a fresh node and orphans the
+    # volume's quorum queues. Harmless in dev (down -v resets anyway), but kept identical to the
+    # deployed stacks so the durability behavior never differs.
+    hostname: lotro-rabbitmq
     environment:
       RABBITMQ_DEFAULT_USER: rabbitmq
       RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD}

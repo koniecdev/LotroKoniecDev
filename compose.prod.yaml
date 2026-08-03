@@ -76,6 +76,37 @@ services:
         condition: service_healthy
     restart: "no"
 
+  rabbitmq:
+    # Version pinned in lockstep with the dev compose.yaml, compose.hetzner.yaml and the
+    # integration suite's RabbitMqBrokerFixture (same image minus the management UI) — bump them
+    # together, or the suite keeps proving the dead-letter topology against a different broker
+    # generation than the one the stacks run.
+    image: rabbitmq:4.3.4-management-alpine
+    # RabbitMQ keys its on-disk state (users, quorum-queue membership, parked dead letters) by node
+    # name, which defaults to rabbit@<hostname> — and compose hostnames are random per container.
+    # Without this pin every recreation would boot a FRESH node next to the old data and silently
+    # orphan the quorum queues, dead-letter parking lot included.
+    hostname: lotro-rabbitmq
+    environment:
+      RABBITMQ_DEFAULT_USER: rabbitmq
+      # Applied on FIRST boot only (empty data volume); a later change needs rabbitmqctl or a
+      # volume drop (-v).
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:?add RABBITMQ_PASSWORD to .env.prod (see .env.prod.example)}
+    ports:
+      # Alternate host port (dev compose publishes the UI on 15672) so the prod-parity stack can
+      # run alongside dev. Loopback-only, mirroring the deployed stack. AMQP itself is deliberately
+      # NOT published — only the in-stack auth-api talks to it (dev needs 5672 on the host because
+      # its apps are host Kestrels; here they are containers).
+      - "127.0.0.1:15673:15672"
+    volumes:
+      - lotrokoniecdev-prod-rabbitmq-data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD-SHELL", "rabbitmq-diagnostics -q ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+
   auth-api:
     build:
       context: .
@@ -110,6 +141,12 @@ services:
       Email__Sender: ${Email__Sender}
       Email__Username: ${Email__Username:-}
       Email__Password: ${Email__Password:-}
+      # The broker is the in-stack `rabbitmq` service above. Deliberately NO depends_on edge to it:
+      # auth-api boots while the broker is down — the publisher connects lazily and the consumer
+      # retries with backoff (same wiring as compose.hetzner.yaml).
+      RabbitMq__Host: rabbitmq
+      RabbitMq__Username: rabbitmq
+      RabbitMq__Password: ${RABBITMQ_PASSWORD:?add RABBITMQ_PASSWORD to .env.prod (see .env.prod.example)}
       # AUTH_ADMIN_USERNAME must match ^[a-zA-Z0-9]+$ or auth-api fails at startup (ADR-0022).
       AdminUser__Username: ${AUTH_ADMIN_USERNAME:-}
       AdminUser__Email: ${AUTH_ADMIN_EMAIL:-}
@@ -252,6 +289,7 @@ volumes:
   lotrokoniecdev-prod-postgres-data:
   lotrokoniecdev-prod-auth-keys:
   lotrokoniecdev-prod-frontend-keys:
+  lotrokoniecdev-prod-rabbitmq-data:
   lotrokoniecdev-prod-caddy-data:
 
 networks:

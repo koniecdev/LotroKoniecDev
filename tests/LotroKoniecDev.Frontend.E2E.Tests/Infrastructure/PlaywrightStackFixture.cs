@@ -386,6 +386,15 @@ public sealed class PlaywrightStackFixture : IAsyncLifetime
         }
     }
 
+    /// <summary>
+    /// auth-api container logs — the only visibility into the outbox relay and the broker
+    /// consumer when an e-mail fails to reach Mailpit (mirrors the TMS E2E fixture's helper).
+    /// </summary>
+    public async Task<string> GetAuthApiLogsAsync()
+    {
+        return await TryGetLogsAsync(_authApi);
+    }
+
     private static async Task<string> TryGetLogsAsync(IContainer container)
     {
         try

@@ -11,7 +11,9 @@ namespace LotroKoniecDev.Frontend.E2E.Tests.Infrastructure;
 /// </summary>
 internal static class AuthActions
 {
-    private const string ConfirmationSubject = "Potwierdzenie konta";
+    // Contains-match against the real subject ("Potwierdź konto — <brand>", #541) — brand-agnostic
+    // on purpose, so a rename does not break the flow again.
+    private const string ConfirmationSubject = "Potwierdź konto";
     private const string ConfirmationLinkPath = "/Account/ConfirmEmail";
     private static readonly TimeSpan MailTimeout = TimeSpan.FromSeconds(45);
     private static readonly LocatorWaitForOptions LongWait = new() { Timeout = 30_000 };
@@ -34,8 +36,18 @@ internal static class AuthActions
 
     public static async Task ConfirmEmailAsync(IPage page, PlaywrightStackFixture fixture, TestUser user)
     {
-        string link = await MailpitClient.WaitForLinkAsync(
-            fixture.MailpitBaseUrl, user.Email, ConfirmationSubject, ConfirmationLinkPath, MailTimeout);
+        string link;
+        try
+        {
+            link = await MailpitClient.WaitForLinkAsync(
+                fixture.MailpitBaseUrl, user.Email, ConfirmationSubject, ConfirmationLinkPath, MailTimeout);
+        }
+        catch (TimeoutException ex)
+        {
+            // The e-mail rides outbox -> broker -> consumer -> Mailpit; only the auth-api logs
+            // say which leg failed, and the containers are gone by the time a human looks.
+            throw new TimeoutException($"{ex.Message}\n{await fixture.GetAuthApiLogsAsync()}", ex);
+        }
 
         await page.GotoAsync(link);
         await page.GetByTestId(TestIds.ConfirmEmailSuccess).WaitForAsync(LongWait);

@@ -23,4 +23,8 @@
       <ProjectReference Include="..\..\Utilities\LotroKoniecDev.Options\LotroKoniecDev.Options.csproj" />
     </ItemGroup>
 
+    <ItemGroup>
+        <InternalsVisibleTo Include="LotroKoniecDev.AuthSystem.API.Tests.Integration" />
+    </ItemGroup>
+
 </Project>

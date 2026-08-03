@@ -171,7 +171,10 @@ internal sealed partial class OutboxRelay : BackgroundService
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
-                message.MarkFailed(ex.Message);
+                // MarkFailed guards against blank input, and Exception.Message is external data —
+                // an exception type with an empty message must not blow up the whole pass.
+                string error = string.IsNullOrWhiteSpace(ex.Message) ? ex.GetType().Name : ex.Message;
+                message.MarkFailed(error);
                 LogMessagePublishFailed(_logger, ex, message.Id, message.Type, message.Attempts);
                 published = false;
             }

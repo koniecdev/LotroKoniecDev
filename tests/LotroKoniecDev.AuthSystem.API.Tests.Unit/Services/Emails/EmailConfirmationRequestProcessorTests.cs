@@ -10,7 +10,7 @@ using Shouldly;
 
 namespace LotroKoniecDev.AuthSystem.API.Tests.Unit.Services.Emails;
 
-public class EmailConfirmationRequestProcessorTests
+public sealed class EmailConfirmationRequestProcessorTests
 {
     private readonly UserManager<ApplicationUser> _userManager = CreateUserManager();
     private readonly IAccountConfirmationEmailSender _emailSender =

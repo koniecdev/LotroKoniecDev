@@ -192,6 +192,12 @@ internal sealed partial class RegisterUser : IApiEndpoint
                 // DbUpdateException: unique constraint race condition on CreateAsync.
                 // InvalidOperationException: "Sequence contains more than one element" from
                 //   FindByEmailAsync when duplicate users exist concurrently.
+                // Known edge: if CommitAsync's acknowledgement is lost after the server actually
+                // committed, the execution strategy replays and lands here via the email pre-check,
+                // returning UserAlreadyExistsByEmail for a registration that in fact succeeded.
+                // Accepted: the committed outbox row still delivers the confirmation e-mail, so the
+                // user can complete the flow; the airtight fix (ExecuteInTransaction + verification
+                // query) buys little for this endpoint's stakes.
                 string maskedEmail = command.Email.MaskEmail();
                 LogConcurrentRegistration(_logger, ex, maskedEmail);
                 return Result.Failure<IdentityId>(AuthErrors.UserAlreadyExistsByEmail);

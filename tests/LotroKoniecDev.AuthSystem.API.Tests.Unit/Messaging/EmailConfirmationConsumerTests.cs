@@ -1,5 +1,6 @@
 using LotroKoniecDev.AuthSystem.API.BackgroundServices;
 using LotroKoniecDev.AuthSystem.Infrastructure.Messaging;
+using RabbitMQ.Client;
 
 namespace LotroKoniecDev.AuthSystem.API.Tests.Unit.Messaging;
 
@@ -7,7 +8,9 @@ namespace LotroKoniecDev.AuthSystem.API.Tests.Unit.Messaging;
 /// Pins the two invariants the redelivery backoff ladder promises only in prose (ADR-0036):
 /// the ladder and <see cref="RabbitMqTopology.EmailDeliveryLimit"/> move together, and no rung
 /// may hold a delivery unacked long enough for the broker to kill the channel. Without these,
-/// <c>Math.Min</c> in the consumer silently absorbs any drift.
+/// <c>Math.Min</c> in the consumer silently absorbs any drift. Also pins the poison decision for
+/// unusable message ids (ADR-0037): a delivery the inbox cannot deduplicate must be rejected,
+/// not processed blind.
 /// </summary>
 public sealed class EmailConfirmationConsumerTests
 {
@@ -26,5 +29,38 @@ public sealed class EmailConfirmationConsumerTests
         TimeSpan consumerTimeout = TimeSpan.FromMinutes(30);
 
         EmailConfirmationConsumer.RedeliveryBackoffs.ShouldAllBe(pause => pause < consumerTimeout);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    [InlineData("not-a-guid")]
+    [InlineData("00000000-0000-0000-0000-000000000000")]
+    public void TryReadMessageId_WithUnusableValue_ReturnsFalse(string? rawMessageId)
+    {
+        // Arrange — BasicProperties implements IReadOnlyBasicProperties
+        BasicProperties properties = new() { MessageId = rawMessageId };
+
+        // Act
+        bool usable = EmailConfirmationConsumer.TryReadMessageId(properties, out Guid _);
+
+        // Assert
+        usable.ShouldBeFalse();
+    }
+
+    [Fact]
+    public void TryReadMessageId_WithGuidValue_ReturnsTheParsedId()
+    {
+        // Arrange
+        Guid messageId = Guid.CreateVersion7();
+        BasicProperties properties = new() { MessageId = messageId.ToString() };
+
+        // Act
+        bool usable = EmailConfirmationConsumer.TryReadMessageId(properties, out Guid parsed);
+
+        // Assert
+        usable.ShouldBeTrue();
+        parsed.ShouldBe(messageId);
     }
 }

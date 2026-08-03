@@ -21,7 +21,9 @@ namespace LotroKoniecDev.AuthSystem.API.BackgroundServices;
 /// Acknowledgement is manual (<c>autoAck: false</c>) and happens only after the processor
 /// finished: a crash mid-send leaves the delivery unacked, the broker returns it to the queue,
 /// and the next start redelivers — at-least-once, matching the outbox's own semantics
-/// (the processor stays idempotent, see its remarks). Failures split three ways (ADR-0036):
+/// (the processor stays idempotent, see its remarks). On top of that, deliveries are
+/// deduplicated on the broker message id through the inbox (ADR-0037), so a redelivery of an
+/// already-processed message acks without a second e-mail. Failures split three ways (ADR-0036):
 /// poison payloads are rejected into the dead-letter queue immediately, transient failures are
 /// requeued behind an escalating pause, and the broker itself parks a message that exhausts
 /// <see cref="RabbitMqTopology.EmailDeliveryLimit"/> — so no failure loops forever and none is
@@ -167,6 +169,19 @@ internal sealed partial class EmailConfirmationConsumer : BackgroundService
     {
         try
         {
+            if (!TryReadMessageId(delivery.BasicProperties, out Guid messageId))
+            {
+                // Poison: without a usable message id the delivery cannot be deduplicated, and
+                // processing it blind would reopen the unbounded-duplicate hole the inbox closes
+                // (ADR-0037) — so it parks in the dead-letter queue for a human instead.
+                LogMessageIdUnusable(_logger, delivery.BasicProperties.MessageId);
+                await channel.BasicRejectAsync(
+                    delivery.DeliveryTag,
+                    requeue: false,
+                    cancellationToken: stoppingToken);
+                return;
+            }
+
             EmailConfirmationRequested? message = TryDeserialize(delivery.Body.Span);
             if (message is null || message.IdentityUserId == Guid.Empty)
             {
@@ -183,9 +198,9 @@ internal sealed partial class EmailConfirmationConsumer : BackgroundService
             Result ackDecision;
             await using (AsyncServiceScope scope = _scopeFactory.CreateAsyncScope())
             {
-                EmailConfirmationRequestProcessor processor =
-                    scope.ServiceProvider.GetRequiredService<EmailConfirmationRequestProcessor>();
-                ackDecision = await processor.ProcessAsync(message, stoppingToken);
+                EmailConfirmationDeliveryProcessor deliveryProcessor =
+                    scope.ServiceProvider.GetRequiredService<EmailConfirmationDeliveryProcessor>();
+                ackDecision = await deliveryProcessor.ProcessOnceAsync(message, messageId, stoppingToken);
             }
 
             if (ackDecision.IsSuccess)
@@ -258,6 +273,15 @@ internal sealed partial class EmailConfirmationConsumer : BackgroundService
         }
     }
 
+    /// <summary>
+    /// Reads the broker message id the inbox deduplicates on (ADR-0037). Internal so the unit
+    /// suite can pin the poison decision: absent, non-Guid and empty-Guid ids must all fail.
+    /// </summary>
+    internal static bool TryReadMessageId(IReadOnlyBasicProperties properties, out Guid messageId)
+    {
+        return Guid.TryParse(properties.MessageId, out messageId) && messageId != Guid.Empty;
+    }
+
     private static EmailConfirmationRequested? TryDeserialize(ReadOnlySpan<byte> body)
     {
         try
@@ -314,6 +338,12 @@ internal sealed partial class EmailConfirmationConsumer : BackgroundService
         Level = LogLevel.Error,
         Message = "Rejecting poison message {MessageId} into the dead-letter queue: the payload could not be read as a known contract")]
     private static partial void LogPoisonMessage(ILogger logger, string? messageId);
+
+    [LoggerMessage(
+        EventId = EventIds.EmailConsumerMessageIdUnusable,
+        Level = LogLevel.Error,
+        Message = "Rejecting message with unusable message id {MessageId} into the dead-letter queue: the inbox cannot deduplicate a delivery without an id")]
+    private static partial void LogMessageIdUnusable(ILogger logger, string? messageId);
 
     [LoggerMessage(
         EventId = EventIds.EmailConsumerTransientFailure,

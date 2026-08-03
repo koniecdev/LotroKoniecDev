@@ -175,8 +175,10 @@ public class AuthSystemApiFactory : WebApplicationFactory<Program>, IAsyncLifeti
 
     /// <summary>
     /// The suite's stand-in for the broker-to-consumer hop: what the relay publishes is pushed
-    /// through the same <see cref="EmailConfirmationRequestProcessor"/> the real consumer runs,
-    /// in a fresh scope per message, exactly like <c>EmailConfirmationConsumer.OnDeliveredAsync</c>.
+    /// through the same <see cref="EmailConfirmationDeliveryProcessor"/> the real consumer runs,
+    /// in a fresh scope per message, exactly like <c>EmailConfirmationConsumer.OnDeliveredAsync</c>
+    /// — including the inbox deduplication of ADR-0037, which therefore runs under this suite's
+    /// real PostgreSQL.
     /// </summary>
     private static async Task DeliverLikeTheConsumerWouldAsync(
         IServiceProvider services,
@@ -195,9 +197,9 @@ public class AuthSystemApiFactory : WebApplicationFactory<Program>, IAsyncLifeti
         }
 
         await using AsyncServiceScope scope = services.CreateAsyncScope();
-        EmailConfirmationRequestProcessor processor =
-            scope.ServiceProvider.GetRequiredService<EmailConfirmationRequestProcessor>();
-        await processor.ProcessAsync(payload, CancellationToken.None);
+        EmailConfirmationDeliveryProcessor deliveryProcessor =
+            scope.ServiceProvider.GetRequiredService<EmailConfirmationDeliveryProcessor>();
+        await deliveryProcessor.ProcessOnceAsync(payload, message.MessageId, CancellationToken.None);
     }
 
     public async Task InitializeAsync()

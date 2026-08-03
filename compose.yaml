@@ -33,7 +33,9 @@ services:
     hostname: lotro-rabbitmq
     environment:
       RABBITMQ_DEFAULT_USER: rabbitmq
-      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD}
+      # The default matches appsettings.Development.json, so a dev .env predating this key still
+      # boots a broker the host Kestrels can log into (an empty password would ACCESS_REFUSED them).
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-changeme}
     ports:
       - "5672:5672"
       - "15672:15672"

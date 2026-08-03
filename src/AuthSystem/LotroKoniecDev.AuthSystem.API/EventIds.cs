@@ -85,6 +85,7 @@ internal static class EventIds
     public const int EmailConfirmationAlreadyConfirmed = 2336;
     public const int EmailConfirmationAddressMissing = 2337;
     public const int EmailConsumerTeardownWarning = 2338;
+    public const int EmailConsumerRetriesExhausted = 2339;
 
     // Startup (2350–2359)
     public const int StartupTransientDatabaseFailure = 2350;

@@ -3,6 +3,7 @@ using Microsoft.Extensions.Options;
 using LotroKoniecDev.AuthSystem.API.Outbox;
 using LotroKoniecDev.AuthSystem.API.Services.Emails;
 using LotroKoniecDev.AuthSystem.Infrastructure.Messaging;
+using LotroKoniecDev.SharedKernel.BuildingBlocks;
 using LotroKoniecDev.SharedKernel.Monads;
 using RabbitMQ.Client;
 using RabbitMQ.Client.Events;
@@ -20,9 +21,17 @@ namespace LotroKoniecDev.AuthSystem.API.BackgroundServices;
 /// Acknowledgement is manual (<c>autoAck: false</c>) and happens only after the processor
 /// finished: a crash mid-send leaves the delivery unacked, the broker returns it to the queue,
 /// and the next start redelivers — at-least-once, matching the outbox's own semantics
-/// (the processor stays idempotent, see its remarks). The broker being down must never block
-/// application startup, so connecting happens here with escalating backoff, and the client's
-/// automatic recovery re-attaches the consumer if the connection drops later.
+/// (the processor stays idempotent, see its remarks). Failures split three ways (ADR-0036):
+/// poison payloads are rejected into the dead-letter queue immediately, transient failures are
+/// requeued behind an escalating pause, and the broker itself parks a message that exhausts
+/// <see cref="RabbitMqTopology.EmailDeliveryLimit"/> — so no failure loops forever and none is
+/// silently lost. Failed deliveries use <c>basic.reject</c>, never <c>basic.nack</c>: since
+/// RabbitMQ 4.3 only rejects (and connection losses) increment the <c>x-delivery-count</c> the
+/// delivery limit is measured against — a nack-requeue is an "explicit return" the broker
+/// redelivers forever without counting. The broker being down must never block application
+/// startup, so connecting
+/// happens here with escalating backoff, and the client's automatic recovery re-attaches the
+/// consumer if the connection drops later.
 /// </remarks>
 internal sealed partial class EmailConfirmationConsumer : BackgroundService
 {
@@ -39,11 +48,26 @@ internal sealed partial class EmailConfirmationConsumer : BackgroundService
     ];
 
     /// <summary>
-    /// Pause before a transient failure is nacked back to the queue. With a prefetch of one the
-    /// broker redelivers immediately after the nack, so without this pause a down SMTP relay
-    /// would spin the redeliver-fail loop hot; 30 s turns that into a calm retry cadence.
+    /// Pause before a transient failure is rejected back to the queue, indexed by the broker's
+    /// redelivery count — one entry per redelivery that
+    /// <see cref="RabbitMqTopology.EmailDeliveryLimit"/> allows, so the two move together. With a
+    /// prefetch of one the broker redelivers immediately after the reject; without a pause a down
+    /// SMTP relay would spin the redeliver-fail loop hot and burn through the delivery limit in
+    /// seconds. Escalating instead of flat, because the ladder must in total outlast a realistic
+    /// SMTP outage (~30 min) before the message parks in the DLQ. Pausing in-process blocks this
+    /// consumer, which is harmless — every message in the queue needs the same SMTP relay, so
+    /// none of the waiting ones could succeed either. Hard ceiling: the pause holds the delivery
+    /// unacked, and the broker kills the channel when an ack takes longer than its consumer
+    /// timeout (30 min default) — every entry must stay well under that.
     /// </summary>
-    private static readonly TimeSpan TransientFailureDelay = TimeSpan.FromSeconds(30);
+    private static readonly TimeSpan[] RedeliveryBackoffs =
+    [
+        TimeSpan.FromSeconds(30),
+        TimeSpan.FromMinutes(2),
+        TimeSpan.FromMinutes(5),
+        TimeSpan.FromMinutes(10),
+        TimeSpan.FromMinutes(15)
+    ];
 
     private readonly RabbitMqOptions _settings;
     private readonly IServiceScopeFactory _scopeFactory;
@@ -130,7 +154,7 @@ internal sealed partial class EmailConfirmationConsumer : BackgroundService
     }
 
     /// <summary>
-    /// Handles one delivery end-to-end. Every path must end in exactly one ack or nack — an
+    /// Handles one delivery end-to-end. Every path must end in exactly one ack or reject — an
     /// exception escaping this handler would be swallowed by the client library and leave the
     /// delivery unacked (stuck) until the channel dies.
     /// </summary>
@@ -144,12 +168,11 @@ internal sealed partial class EmailConfirmationConsumer : BackgroundService
             EmailConfirmationRequested? message = TryDeserialize(delivery.Body.Span);
             if (message is null || message.IdentityUserId == Guid.Empty)
             {
-                // Poison: no amount of redelivery fixes an unreadable payload, so it is dropped
-                // loudly instead of requeued into an infinite loop.
+                // Poison: no amount of redelivery fixes an unreadable payload, so it is rejected
+                // on first sight — the broker dead-letters it into the parking lot for a human.
                 LogPoisonMessage(_logger, delivery.BasicProperties.MessageId);
-                await channel.BasicNackAsync(
+                await channel.BasicRejectAsync(
                     delivery.DeliveryTag,
-                    multiple: false,
                     requeue: false,
                     cancellationToken: stoppingToken);
                 return;
@@ -169,13 +192,35 @@ internal sealed partial class EmailConfirmationConsumer : BackgroundService
                 return;
             }
 
-            LogTransientFailure(_logger, delivery.BasicProperties.MessageId, ackDecision.Error.ToString());
-            await Task.Delay(TransientFailureDelay, stoppingToken);
-            await channel.BasicNackAsync(delivery.DeliveryTag, multiple: false, requeue: true, cancellationToken: stoppingToken);
+            int redeliveries = RedeliveryCount.Read(delivery.BasicProperties.Headers);
+            if (redeliveries >= RabbitMqTopology.EmailDeliveryLimit)
+            {
+                // Final attempt: this reject pushes the count past the delivery limit, so the
+                // broker parks the message in the DLQ instead of redelivering — no pause needed.
+                LogRetriesExhausted(
+                    _logger,
+                    delivery.BasicProperties.MessageId,
+                    ackDecision.Error,
+                    RabbitMqTopology.EmailDeliveryLimit);
+                await channel.BasicRejectAsync(
+                    delivery.DeliveryTag,
+                    requeue: true,
+                    cancellationToken: stoppingToken);
+                return;
+            }
+
+            LogTransientFailure(
+                _logger,
+                delivery.BasicProperties.MessageId,
+                ackDecision.Error,
+                redeliveries + 1,
+                RabbitMqTopology.EmailDeliveryLimit);
+            await Task.Delay(RedeliveryBackoffs[Math.Min(redeliveries, RedeliveryBackoffs.Length - 1)], stoppingToken);
+            await channel.BasicRejectAsync(delivery.DeliveryTag, requeue: true, cancellationToken: stoppingToken);
         }
         catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
         {
-            // Shutdown mid-message: deliberately neither ack nor nack — closing the channel
+            // Shutdown mid-message: deliberately neither ack nor reject — closing the channel
             // returns the unacked delivery to the queue and the next start picks it up.
         }
         catch (Exception ex)
@@ -186,15 +231,17 @@ internal sealed partial class EmailConfirmationConsumer : BackgroundService
     }
 
     /// <summary>
-    /// Best-effort nack for the unexpected-exception path: when even the nack fails (typically a
-    /// dead channel), the delivery is unacked anyway and the broker requeues it on channel close.
+    /// Best-effort reject for the unexpected-exception path: when even the reject fails (typically
+    /// a dead channel), the delivery is unacked anyway and the broker requeues it on channel close
+    /// — and that connection loss increments the delivery count too, so even a crash loop is
+    /// bounded by the delivery limit.
     /// </summary>
     private async Task TryRequeueAsync(IChannel channel, ulong deliveryTag, CancellationToken stoppingToken)
     {
         try
         {
-            await Task.Delay(TransientFailureDelay, stoppingToken);
-            await channel.BasicNackAsync(deliveryTag, multiple: false, requeue: true, cancellationToken: stoppingToken);
+            await Task.Delay(RedeliveryBackoffs[0], stoppingToken);
+            await channel.BasicRejectAsync(deliveryTag, requeue: true, cancellationToken: stoppingToken);
         }
         catch (OperationCanceledException)
         {
@@ -260,14 +307,20 @@ internal sealed partial class EmailConfirmationConsumer : BackgroundService
     [LoggerMessage(
         EventId = EventIds.EmailConsumerPoisonMessage,
         Level = LogLevel.Error,
-        Message = "Dropping poison message {MessageId}: the payload could not be read as a known contract")]
+        Message = "Rejecting poison message {MessageId} into the dead-letter queue: the payload could not be read as a known contract")]
     private static partial void LogPoisonMessage(ILogger logger, string? messageId);
 
     [LoggerMessage(
         EventId = EventIds.EmailConsumerTransientFailure,
         Level = LogLevel.Warning,
-        Message = "Processing message {MessageId} failed with {Error}; requeueing for another attempt")]
-    private static partial void LogTransientFailure(ILogger logger, string? messageId, string error);
+        Message = "Processing message {MessageId} failed with {Error}; requeueing for redelivery {Redelivery} of {DeliveryLimit}")]
+    private static partial void LogTransientFailure(ILogger logger, string? messageId, Error error, int redelivery, int deliveryLimit);
+
+    [LoggerMessage(
+        EventId = EventIds.EmailConsumerRetriesExhausted,
+        Level = LogLevel.Error,
+        Message = "Processing message {MessageId} still failed with {Error} after {DeliveryLimit} redeliveries; the broker moves it to the dead-letter queue")]
+    private static partial void LogRetriesExhausted(ILogger logger, string? messageId, Error error, int deliveryLimit);
 
     [LoggerMessage(
         EventId = EventIds.EmailConsumerUnexpectedError,

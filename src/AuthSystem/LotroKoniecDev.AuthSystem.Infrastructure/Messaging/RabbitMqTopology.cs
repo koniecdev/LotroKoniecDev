@@ -32,4 +32,29 @@ public static class RabbitMqTopology
     /// Routing key of the account confirmation e-mail.
     /// </summary>
     public const string EmailConfirmationRoutingKey = "email.confirmation";
+
+    /// <summary>
+    /// Dead-letter exchange: the broker republishes here every message that
+    /// <see cref="EmailQueue"/> gives up on — rejected as poison by the consumer, or past
+    /// <see cref="EmailDeliveryLimit"/>. Fanout, because "everything that dies goes to the one
+    /// parking lot" needs no routing decisions, and the original routing key survives on the
+    /// message itself for replay.
+    /// </summary>
+    public const string EmailsDeadLetterExchange = "lotro.emails.dlx";
+
+    /// <summary>
+    /// The parking lot bound to <see cref="EmailsDeadLetterExchange"/>. Nothing consumes it:
+    /// messages wait for a human (management UI) to diagnose and replay them back to
+    /// <see cref="EmailsExchange"/> under their original routing key.
+    /// </summary>
+    public const string EmailDeadLetterQueue = "emails.send.dlq";
+
+    /// <summary>
+    /// How many times the broker redelivers a message of <see cref="EmailQueue"/> before
+    /// dead-lettering it (<c>x-delivery-limit</c>): 1 initial delivery + this many redeliveries,
+    /// then the parking lot. Broker-enforced, so the cap holds even across consumer restarts —
+    /// a crash-requeue loop counts like any other redelivery. Moves together with the consumer's
+    /// redelivery backoff ladder (one ladder entry per allowed redelivery).
+    /// </summary>
+    public const int EmailDeliveryLimit = 5;
 }

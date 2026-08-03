@@ -8,9 +8,7 @@ namespace LotroKoniecDev.AuthSystem.API.Services.Emails;
 /// <summary>
 /// The business reaction to a consumed <see cref="EmailConfirmationRequested"/> message: load the
 /// user, mint the confirmation token at send time (see the payload's remarks on token lifetime),
-/// and dispatch the e-mail. Success means "this message needs no redelivery" — a vanished or
-/// already-confirmed user is a success, because retrying can never change the outcome. Failure
-/// means "worth retrying" and drives the consumer's nack.
+/// and dispatch the e-mail.
 /// </summary>
 /// <remarks>
 /// Delivery is at-least-once (ADR-0035), so this must stay idempotent. Today that comes free:
@@ -34,6 +32,16 @@ internal sealed partial class EmailConfirmationRequestProcessor
         _logger = logger;
     }
 
+    /// <summary>
+    /// Handles one consumed message end-to-end and returns the acknowledgement decision.
+    /// </summary>
+    /// <returns>
+    /// NOT a business outcome — the answer to "does this message need redelivery?". Success means
+    /// "ack, drop it from the queue": either the e-mail went out, or redelivery can never change
+    /// the outcome (user vanished, address already confirmed, no address on the account) — nacking
+    /// those would loop the same message forever. Failure means "worth retrying" (e.g. the SMTP
+    /// relay is down) and drives the consumer's nack + requeue.
+    /// </returns>
     public async Task<Result> ProcessAsync(EmailConfirmationRequested message, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
@@ -53,17 +61,18 @@ internal sealed partial class EmailConfirmationRequestProcessor
 
         if (string.IsNullOrWhiteSpace(user.Email))
         {
-            LogAddressMissing(_logger, message.IdentityUserId);
+            LogEmailMissing(_logger, message.IdentityUserId);
             return Result.Success();
         }
 
         string confirmationToken = await _userManager.GenerateEmailConfirmationTokenAsync(user);
 
-        return await _accountConfirmationEmailSender.SendEmailConfirmationAsync(
+        Result sendEmailConfirmationResult = await _accountConfirmationEmailSender.SendEmailConfirmationAsync(
             user.Id,
             user.Email,
             confirmationToken,
             cancellationToken);
+        return sendEmailConfirmationResult;
     }
 
     [LoggerMessage(
@@ -82,5 +91,5 @@ internal sealed partial class EmailConfirmationRequestProcessor
         EventId = EventIds.EmailConfirmationAddressMissing,
         Level = LogLevel.Warning,
         Message = "Skipping confirmation e-mail for user {UserId}: the account carries no e-mail address")]
-    private static partial void LogAddressMissing(ILogger logger, Guid userId);
+    private static partial void LogEmailMissing(ILogger logger, Guid userId);
 }

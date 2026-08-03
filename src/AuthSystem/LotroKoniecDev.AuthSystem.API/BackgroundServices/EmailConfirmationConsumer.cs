@@ -147,25 +147,29 @@ internal sealed partial class EmailConfirmationConsumer : BackgroundService
                 // Poison: no amount of redelivery fixes an unreadable payload, so it is dropped
                 // loudly instead of requeued into an infinite loop.
                 LogPoisonMessage(_logger, delivery.BasicProperties.MessageId);
-                await channel.BasicNackAsync(delivery.DeliveryTag, multiple: false, requeue: false, cancellationToken: stoppingToken);
+                await channel.BasicNackAsync(
+                    delivery.DeliveryTag,
+                    multiple: false,
+                    requeue: false,
+                    cancellationToken: stoppingToken);
                 return;
             }
 
-            Result outcome;
+            Result ackDecision;
             await using (AsyncServiceScope scope = _scopeFactory.CreateAsyncScope())
             {
                 EmailConfirmationRequestProcessor processor =
                     scope.ServiceProvider.GetRequiredService<EmailConfirmationRequestProcessor>();
-                outcome = await processor.ProcessAsync(message, stoppingToken);
+                ackDecision = await processor.ProcessAsync(message, stoppingToken);
             }
 
-            if (outcome.IsSuccess)
+            if (ackDecision.IsSuccess)
             {
                 await channel.BasicAckAsync(delivery.DeliveryTag, multiple: false, cancellationToken: stoppingToken);
                 return;
             }
 
-            LogTransientFailure(_logger, delivery.BasicProperties.MessageId, outcome.Error.ToString());
+            LogTransientFailure(_logger, delivery.BasicProperties.MessageId, ackDecision.Error.ToString());
             await Task.Delay(TransientFailureDelay, stoppingToken);
             await channel.BasicNackAsync(delivery.DeliveryTag, multiple: false, requeue: true, cancellationToken: stoppingToken);
         }

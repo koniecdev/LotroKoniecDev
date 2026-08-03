@@ -94,16 +94,7 @@ internal sealed partial class EmailConfirmationConsumer : BackgroundService
     {
         try
         {
-            IChannel channel = await ConnectWithRetryAsync(stoppingToken);
-
-            AsyncEventingBasicConsumer consumer = new(channel);
-            consumer.ReceivedAsync += (_, delivery) => OnDeliveredAsync(channel, delivery, stoppingToken);
-
-            await channel.BasicConsumeAsync(
-                queue: RabbitMqTopology.EmailQueue,
-                autoAck: false,
-                consumer: consumer,
-                cancellationToken: stoppingToken);
+            await AttachConsumerWithRetryAsync(stoppingToken);
 
             LogStarted(_logger, RabbitMqTopology.EmailQueue);
 
@@ -121,7 +112,17 @@ internal sealed partial class EmailConfirmationConsumer : BackgroundService
         }
     }
 
-    private async Task<IChannel> ConnectWithRetryAsync(CancellationToken stoppingToken)
+    /// <summary>
+    /// Connects, declares the topology and registers the consumer as one all-or-nothing attempt.
+    /// The whole attach sits inside the retry loop on purpose: any non-cancellation exception
+    /// escaping <see cref="ExecuteAsync"/> would stop the entire host
+    /// (<see cref="BackgroundServiceExceptionBehavior.StopHost"/>), and a failure between the
+    /// connect and the consume registration — a topology mismatch, a channel torn down in the gap
+    /// — must degrade e-mail delivery, never take login down with it. A failed attempt disposes
+    /// whatever it managed to open before backing off, so retrying cannot accumulate half-attached
+    /// connections (each of which automatic recovery would otherwise keep alive forever).
+    /// </summary>
+    private async Task AttachConsumerWithRetryAsync(CancellationToken stoppingToken)
     {
         int failedAttempts = 0;
 
@@ -134,6 +135,7 @@ internal sealed partial class EmailConfirmationConsumer : BackgroundService
 
                 _connection = await connectionFactory.CreateConnectionAsync(stoppingToken);
                 IChannel channel = await _connection.CreateChannelAsync(cancellationToken: stoppingToken);
+                _channel = channel;
                 await RabbitMqTopologyDeclaration.DeclareAsync(channel, stoppingToken);
 
                 // Prefetch 1: the broker hands over the next message only after the previous one
@@ -144,11 +146,20 @@ internal sealed partial class EmailConfirmationConsumer : BackgroundService
                     global: false,
                     cancellationToken: stoppingToken);
 
-                _channel = channel;
-                return channel;
+                AsyncEventingBasicConsumer consumer = new(channel);
+                consumer.ReceivedAsync += (_, delivery) => OnDeliveredAsync(channel, delivery, stoppingToken);
+
+                await channel.BasicConsumeAsync(
+                    queue: RabbitMqTopology.EmailQueue,
+                    autoAck: false,
+                    consumer: consumer,
+                    cancellationToken: stoppingToken);
+
+                return;
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
+                await CloseAsync();
                 failedAttempts++;
                 TimeSpan wait = ConnectBackoffs[Math.Min(failedAttempts - 1, ConnectBackoffs.Length - 1)];
                 LogConnectFailed(_logger, ex, wait.TotalSeconds);
@@ -296,11 +307,14 @@ internal sealed partial class EmailConfirmationConsumer : BackgroundService
 
     private async Task CloseAsync()
     {
-        if (_channel is not null)
+        IChannel? channel = _channel;
+        _channel = null;
+
+        if (channel is not null)
         {
             try
             {
-                await _channel.DisposeAsync();
+                await channel.DisposeAsync();
             }
             catch (Exception ex)
             {
@@ -308,11 +322,14 @@ internal sealed partial class EmailConfirmationConsumer : BackgroundService
             }
         }
 
-        if (_connection is not null)
+        IConnection? connection = _connection;
+        _connection = null;
+
+        if (connection is not null)
         {
             try
             {
-                await _connection.DisposeAsync();
+                await connection.DisposeAsync();
             }
             catch (Exception ex)
             {

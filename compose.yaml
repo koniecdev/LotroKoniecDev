@@ -22,6 +22,9 @@ services:
       start_period: 10s
 
   rabbitmq:
+    # Version pinned in lockstep with the integration suite's RabbitMqBrokerFixture (same image
+    # minus the management UI) — bump both together, or the suite keeps proving the dead-letter
+    # topology against the old broker generation.
     image: rabbitmq:4.3.4-management-alpine
     environment:
       RABBITMQ_DEFAULT_USER: rabbitmq

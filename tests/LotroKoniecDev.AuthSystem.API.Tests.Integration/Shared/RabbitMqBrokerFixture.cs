@@ -12,8 +12,9 @@ namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared;
 public sealed class RabbitMqBrokerFixture : IAsyncLifetime
 {
     /// <summary>
-    /// Same major.minor as compose.yaml, so the suite proves the topology against the broker
-    /// generation the stack actually runs; management UI is dead weight in a test.
+    /// Pinned to the exact compose.yaml version (management UI stripped — dead weight in a
+    /// test), so the suite proves the topology against the broker generation the stack actually
+    /// runs. compose.yaml points back here: a bump must touch both.
     /// </summary>
     private readonly RabbitMqContainer _container = new RabbitMqBuilder("rabbitmq:4.3.4-alpine")
         .Build();

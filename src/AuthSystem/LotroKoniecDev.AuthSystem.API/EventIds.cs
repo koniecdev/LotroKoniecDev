@@ -87,6 +87,11 @@ internal static class EventIds
     public const int EmailConsumerTeardownWarning = 2338;
     public const int EmailConsumerRetriesExhausted = 2339;
 
+    // Inbox deduplication (2340–2349)
+    public const int EmailConsumerDuplicateSkipped = 2340;
+    public const int EmailConsumerInboxRaceLost = 2341;
+    public const int EmailConsumerMessageIdUnusable = 2342;
+
     // Startup (2350–2359)
     public const int StartupTransientDatabaseFailure = 2350;
 

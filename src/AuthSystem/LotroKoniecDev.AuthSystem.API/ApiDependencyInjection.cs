@@ -100,6 +100,7 @@ internal static class ApiDependencyInjection
             // The processor is scoped because the consumer resolves it per message, mirroring how
             // a request would; the pump itself is a singleton hosted service.
             services.AddScoped<EmailConfirmationRequestProcessor>();
+            services.AddScoped<EmailConfirmationDeliveryProcessor>();
             services.AddHostedService<EmailConfirmationConsumer>();
 
             // PERF-02: reference refresh tokens accumulate one row per refresh and are never

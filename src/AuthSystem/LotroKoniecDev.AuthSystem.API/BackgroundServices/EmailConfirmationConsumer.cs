@@ -142,7 +142,7 @@ internal sealed partial class EmailConfirmationConsumer : BackgroundService
         try
         {
             EmailConfirmationRequested? message = TryDeserialize(delivery.Body.Span);
-            if (message is null || message.UserId == Guid.Empty)
+            if (message is null || message.IdentityUserId == Guid.Empty)
             {
                 // Poison: no amount of redelivery fixes an unreadable payload, so it is dropped
                 // loudly instead of requeued into an infinite loop.

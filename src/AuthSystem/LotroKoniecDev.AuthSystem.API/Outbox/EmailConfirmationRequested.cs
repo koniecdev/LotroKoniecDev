@@ -11,4 +11,4 @@ namespace LotroKoniecDev.AuthSystem.API.Outbox;
 /// message that waits in the queue, gets retried, or sits in a dead-letter queue. The consumer
 /// mints the token and reads the address off the user at the moment it sends.
 /// </remarks>
-public sealed record EmailConfirmationRequested(Guid UserId);
+public sealed record EmailConfirmationRequested(Guid IdentityUserId);

@@ -38,22 +38,22 @@ internal sealed partial class EmailConfirmationRequestProcessor
     {
         cancellationToken.ThrowIfCancellationRequested();
 
-        ApplicationUser? user = await _userManager.FindByIdAsync(message.UserId.ToString());
+        ApplicationUser? user = await _userManager.FindByIdAsync(message.IdentityUserId.ToString());
         if (user is null)
         {
-            LogUserGone(_logger, message.UserId);
+            LogUserGone(_logger, message.IdentityUserId);
             return Result.Success();
         }
 
         if (user.EmailConfirmed)
         {
-            LogAlreadyConfirmed(_logger, message.UserId);
+            LogAlreadyConfirmed(_logger, message.IdentityUserId);
             return Result.Success();
         }
 
         if (string.IsNullOrWhiteSpace(user.Email))
         {
-            LogAddressMissing(_logger, message.UserId);
+            LogAddressMissing(_logger, message.IdentityUserId);
             return Result.Success();
         }
 

@@ -47,7 +47,6 @@ internal sealed partial class EmailConfirmationDeliveryProcessor
         CancellationToken cancellationToken)
     {
         bool alreadyProcessed = await _db.InboxMessages
-            .AsNoTracking()
             .AnyAsync(inboxMessage => inboxMessage.MessageId == messageId, cancellationToken);
         if (alreadyProcessed)
         {

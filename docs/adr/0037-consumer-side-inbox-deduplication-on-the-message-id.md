@@ -176,15 +176,22 @@ follow-up if the transport ever becomes an HTTP API.
 - `InboxMessage` (Persistence, `Inbox/` beside `Outbox/`) — `Create` factory + guards,
   private EF constructor, mirroring `OutboxMessage`; configuration via Fluent API with
   `nameof()` column names; purely additive migration (trivially N-1 safe under ADR-0023).
-- `EmailConfirmationConsumer.OnDeliveredAsync` — the only consumer change: id parse (poison on
-  absence), inbox lookup, post-success insert; `AuthDbContext` resolved from the existing
-  per-delivery scope like the relay does — no new abstraction. A primary-key violation on the
-  insert is treated as "already processed" (ack): a concurrent duplicate lost the race, which
-  means the work is done.
-- Tests, matching the branch's discipline: unit (`InboxMessage` factory guards) + integration
-  against the real broker (duplicate publish of one message id → exactly one e-mail via the
-  spy sender, one inbox row, empty queue; processor failure → no inbox row, redelivery really
-  retries; missing message id → parks in the DLQ, zero e-mails).
+- `EmailConfirmationDeliveryProcessor` (scoped, `Services/Emails/`) — the inbox lookup, the
+  delegation to `EmailConfirmationRequestProcessor` and the post-success insert live in this one
+  component because two delivery paths must run them identically: the broker consumer and the
+  integration suite's broker-less bridge (`AuthSystemApiFactory`), which would otherwise carry a
+  drifting copy of the dedup logic. `AuthDbContext` comes from the existing per-delivery scope
+  like the relay's does. A primary-key violation on the insert is treated as "already processed"
+  (ack): a concurrent duplicate lost the race, which means the work is done.
+- `EmailConfirmationConsumer.OnDeliveredAsync` — id parse (poison on an unusable id, pinned by
+  unit tests) and the swap to the delivery processor; every failure path stays as ADR-0036 left
+  it.
+- Tests, matching the branch's discipline: unit (`InboxMessage` factory guards; message-id
+  parsing incl. absent/non-Guid/empty) + integration against real PostgreSQL through the shared
+  delivery component (duplicate delivery of one message id → exactly one e-mail via the spy
+  sender and one inbox row; failed processing → no row, the healed redelivery really retries).
+  The broker's side of the poison path — reject parks in the DLQ — is already pinned by
+  `DeadLetterTopologyTests` against a real broker.
 
 ## References
 

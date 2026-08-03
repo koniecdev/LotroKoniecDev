@@ -126,8 +126,20 @@ internal sealed partial class RabbitMqMessagePublisher : IMessagePublisher, IAsy
             }
 
             IChannel channel = await _connection.CreateChannelAsync(ChannelOptions, cancellationToken);
-            await RabbitMqTopologyDeclaration.DeclareAsync(channel, cancellationToken);
             _channel = channel;
+
+            try
+            {
+                await RabbitMqTopologyDeclaration.DeclareAsync(channel, cancellationToken);
+            }
+            catch
+            {
+                // A failed declaration (typically PRECONDITION_FAILED on drifted queue arguments)
+                // leaves a channel the broker already closed; dispose the client half instead of
+                // handing it back for the next publish to trip over.
+                await CloseChannelAsync();
+                throw;
+            }
 
             return channel;
         }

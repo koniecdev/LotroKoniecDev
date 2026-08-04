@@ -1212,7 +1212,7 @@ containerized-OIDC problem dissolves in real production too.
 | `e2e` | manual + PRs touching package/Docker dependency manifests (so Dependabot bumps exercise it) | full-stack and browser E2E suites |
 | `smoke` | after deploys | health + a real OIDC token round-trip + file distribution |
 | `health-ping` | daily cron | probes the three public origins once a day (deep `/health`) — the only availability signal, and the one check that proves the (scale-to-zero) Neon database is reachable |
-| `cd-janitor` | nightly cron | cancels CD runs left `waiting` at the `production` approval gate for more than 24 h, so a stale-SHA candidate can never be approved by accident (#527) |
+| `cd-janitor` | nightly cron | cancels CD runs left `waiting` at the `production` approval gate for more than 24 h, so a stale-SHA candidate can never be approved by accident (#527) — via the force-cancel API endpoint, because a plain cancel is a silent no-op on approval-gated runs (#592) |
 | `codeql` | PRs + weekly schedule (no push — squash-merged code was already scanned on the PR, #526) | static security analysis |
 | `gitleaks` | PRs/pushes | secret scanning |
 | `actionlint` | every PR | lints `.github/workflows/` so workflow-only PRs cannot merge unparsed |

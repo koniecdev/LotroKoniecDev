@@ -1,6 +1,4 @@
-using System.Text.Json;
 using Microsoft.Extensions.Options;
-using LotroKoniecDev.AuthSystem.API.Outbox;
 using LotroKoniecDev.AuthSystem.API.Services.Emails;
 using LotroKoniecDev.AuthSystem.Infrastructure.Messaging;
 using LotroKoniecDev.SharedKernel.BuildingBlocks;
@@ -11,8 +9,12 @@ using RabbitMQ.Client.Events;
 namespace LotroKoniecDev.AuthSystem.API.BackgroundServices;
 
 /// <summary>
-/// Consumes <see cref="RabbitMqTopology.EmailQueue"/> and turns each delivery into a confirmation
-/// e-mail via <see cref="EmailConfirmationRequestProcessor"/>. Push-based, not polled: after
+/// The single e-mail dispatch consumer (ADR-0038): consumes
+/// <see cref="RabbitMqTopology.EmailQueue"/> and hands each delivery to the
+/// <see cref="IEmailMessageProcessor"/> registered for the AMQP <c>type</c> property — the outbox
+/// row's <c>Type</c> the publisher stamps on the wire. Selection goes by that property, never by
+/// routing key: the type says what the payload is, the routing key says which bindings receive it
+/// (<c>OutboxMessageRouting</c>'s separation, end-to-end). Push-based, not polled: after
 /// <c>BasicConsumeAsync</c> registers the subscription, the broker pushes deliveries over the open
 /// connection and the client library invokes <see cref="OnDeliveredAsync"/> per message —
 /// <see cref="ExecuteAsync"/> only sets this up and then parks until shutdown.
@@ -21,10 +23,11 @@ namespace LotroKoniecDev.AuthSystem.API.BackgroundServices;
 /// Acknowledgement is manual (<c>autoAck: false</c>) and happens only after the processor
 /// finished: a crash mid-send leaves the delivery unacked, the broker returns it to the queue,
 /// and the next start redelivers — at-least-once, matching the outbox's own semantics
-/// (the processor stays idempotent, see its remarks). On top of that, deliveries are
+/// (the processors stay idempotent, see the seam's remarks). On top of that, deliveries are
 /// deduplicated on the broker message id through the inbox (ADR-0037), so a redelivery of an
 /// already-processed message acks without a second e-mail. Failures split three ways (ADR-0036):
-/// poison payloads are rejected into the dead-letter queue immediately, transient failures are
+/// poison payloads — including a missing or unregistered message type — are rejected into the
+/// dead-letter queue immediately, transient failures are
 /// requeued behind an escalating pause, and the broker itself parks a message that exhausts
 /// <see cref="RabbitMqTopology.EmailDeliveryLimit"/> — so no failure loops forever and none is
 /// silently lost. Failed deliveries use <c>basic.reject</c>, never <c>basic.nack</c>: since
@@ -35,7 +38,7 @@ namespace LotroKoniecDev.AuthSystem.API.BackgroundServices;
 /// happens here with escalating backoff, and the client's automatic recovery re-attaches the
 /// consumer if the connection drops later.
 /// </remarks>
-internal sealed partial class EmailConfirmationConsumer : BackgroundService
+internal sealed partial class EmailDispatchConsumer : BackgroundService
 {
     /// <summary>
     /// Escalating wait between initial connection attempts. The ceiling stays low (the broker is
@@ -75,15 +78,15 @@ internal sealed partial class EmailConfirmationConsumer : BackgroundService
 
     private readonly RabbitMqOptions _settings;
     private readonly IServiceScopeFactory _scopeFactory;
-    private readonly ILogger<EmailConfirmationConsumer> _logger;
+    private readonly ILogger<EmailDispatchConsumer> _logger;
 
     private IConnection? _connection;
     private IChannel? _channel;
 
-    public EmailConfirmationConsumer(
+    public EmailDispatchConsumer(
         IOptions<RabbitMqOptions> options,
         IServiceScopeFactory scopeFactory,
-        ILogger<EmailConfirmationConsumer> logger)
+        ILogger<EmailDispatchConsumer> logger)
     {
         _settings = options.Value;
         _scopeFactory = scopeFactory;
@@ -193,25 +196,44 @@ internal sealed partial class EmailConfirmationConsumer : BackgroundService
                 return;
             }
 
-            EmailConfirmationRequested? message = TryDeserialize(delivery.Body.Span);
-            if (message is null || message.IdentityUserId == Guid.Empty)
-            {
-                // Poison: no amount of redelivery fixes an unreadable payload, so it is rejected
-                // on first sight — the broker dead-letters it into the parking lot for a human.
-                LogPoisonMessage(_logger, delivery.BasicProperties.MessageId);
-                await channel.BasicRejectAsync(
-                    delivery.DeliveryTag,
-                    requeue: false,
-                    cancellationToken: stoppingToken);
-                return;
-            }
-
             Result ackDecision;
             await using (AsyncServiceScope scope = _scopeFactory.CreateAsyncScope())
             {
-                EmailConfirmationDeliveryProcessor deliveryProcessor =
-                    scope.ServiceProvider.GetRequiredService<EmailConfirmationDeliveryProcessor>();
-                ackDecision = await deliveryProcessor.ProcessOnceAsync(message, messageId, stoppingToken);
+                string? messageType = delivery.BasicProperties.Type;
+                IEmailMessageProcessor? processor = string.IsNullOrWhiteSpace(messageType)
+                    ? null
+                    : scope.ServiceProvider.GetKeyedService<IEmailMessageProcessor>(messageType);
+                if (processor is null)
+                {
+                    // Poison: a missing or unregistered type means no processor can ever read
+                    // this delivery — no redelivery fixes that, so it parks for a human
+                    // (ADR-0038), exactly like an unusable message id.
+                    LogUnknownMessageType(_logger, delivery.BasicProperties.MessageId, messageType);
+                    await channel.BasicRejectAsync(
+                        delivery.DeliveryTag,
+                        requeue: false,
+                        cancellationToken: stoppingToken);
+                    return;
+                }
+
+                object? message = processor.TryDeserialize(delivery.Body.Span);
+                if (message is null)
+                {
+                    // Poison: no amount of redelivery fixes an unreadable payload, so it is
+                    // rejected on first sight — the broker dead-letters it into the parking lot
+                    // for a human.
+                    LogPoisonMessage(_logger, delivery.BasicProperties.MessageId);
+                    await channel.BasicRejectAsync(
+                        delivery.DeliveryTag,
+                        requeue: false,
+                        cancellationToken: stoppingToken);
+                    return;
+                }
+
+                EmailDeliveryProcessor deliveryProcessor =
+                    scope.ServiceProvider.GetRequiredService<EmailDeliveryProcessor>();
+                ackDecision = await deliveryProcessor.ProcessOnceAsync(
+                    processor, message, messageId, stoppingToken);
             }
 
             if (ackDecision.IsSuccess)
@@ -293,18 +315,6 @@ internal sealed partial class EmailConfirmationConsumer : BackgroundService
         return Guid.TryParse(properties.MessageId, out messageId) && messageId != Guid.Empty;
     }
 
-    private static EmailConfirmationRequested? TryDeserialize(ReadOnlySpan<byte> body)
-    {
-        try
-        {
-            return JsonSerializer.Deserialize<EmailConfirmationRequested>(body);
-        }
-        catch (JsonException)
-        {
-            return null;
-        }
-    }
-
     private async Task CloseAsync()
     {
         IChannel? channel = _channel;
@@ -361,6 +371,12 @@ internal sealed partial class EmailConfirmationConsumer : BackgroundService
         Level = LogLevel.Error,
         Message = "Rejecting message with unusable message id {MessageId} into the dead-letter queue: the inbox cannot deduplicate a delivery without an id")]
     private static partial void LogMessageIdUnusable(ILogger logger, string? messageId);
+
+    [LoggerMessage(
+        EventId = EventIds.EmailConsumerUnknownMessageType,
+        Level = LogLevel.Error,
+        Message = "Rejecting message {MessageId} into the dead-letter queue: no processor is registered for message type {MessageType}")]
+    private static partial void LogUnknownMessageType(ILogger logger, string? messageId, string? messageType);
 
     [LoggerMessage(
         EventId = EventIds.EmailConsumerTransientFailure,

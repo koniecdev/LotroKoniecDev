@@ -75,7 +75,7 @@ internal static class EventIds
     public const int OutboxMessagePublishFailed = 2321;
     public const int OutboxMessageUnroutable = 2322;
 
-    // Email Confirmation Consumer (2330–2339)
+    // Email Dispatch Consumer (2330–2339)
     public const int EmailConsumerConnectFailed = 2330;
     public const int EmailConsumerStarted = 2331;
     public const int EmailConsumerPoisonMessage = 2332;
@@ -91,6 +91,7 @@ internal static class EventIds
     public const int EmailConsumerDuplicateSkipped = 2340;
     public const int EmailConsumerInboxRaceLost = 2341;
     public const int EmailConsumerMessageIdUnusable = 2342;
+    public const int EmailConsumerUnknownMessageType = 2343;
 
     // Startup (2350–2359)
     public const int StartupTransientDatabaseFailure = 2350;

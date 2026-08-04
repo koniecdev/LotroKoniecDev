@@ -93,6 +93,32 @@ public sealed class EmailConfirmationRequestProcessorTests
         result.Error.ShouldBe(smtpError);
     }
 
+    [Theory]
+    [InlineData("this is not json at all")]
+    [InlineData("{}")]
+    [InlineData("""{"IdentityUserId":"not-a-guid"}""")]
+    public void TryDeserialize_PoisonPayload_ReturnsTheNullVerdict(string poisonPayload)
+    {
+        EmailConfirmationRequestProcessor sut = CreateSut();
+
+        object? message = sut.TryDeserialize(System.Text.Encoding.UTF8.GetBytes(poisonPayload));
+
+        message.ShouldBeNull();
+    }
+
+    [Fact]
+    public void TryDeserialize_ValidPayload_ReturnsTheTypedMessage()
+    {
+        Guid userId = Guid.CreateVersion7();
+        EmailConfirmationRequestProcessor sut = CreateSut();
+
+        object? message = sut.TryDeserialize(
+            System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(new EmailConfirmationRequested(userId)));
+
+        EmailConfirmationRequested typed = message.ShouldBeOfType<EmailConfirmationRequested>();
+        typed.IdentityUserId.ShouldBe(userId);
+    }
+
     private static ApplicationUser CreateUser(bool emailConfirmed) =>
         new()
         {

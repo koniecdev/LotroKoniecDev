@@ -12,12 +12,12 @@ namespace LotroKoniecDev.AuthSystem.API.Tests.Unit.Messaging;
 /// unusable message ids (ADR-0037): a delivery the inbox cannot deduplicate must be rejected,
 /// not processed blind.
 /// </summary>
-public sealed class EmailConfirmationConsumerTests
+public sealed class EmailDispatchConsumerTests
 {
     [Fact]
     public void RedeliveryBackoffs_ComparedToDeliveryLimit_HasOneEntryPerAllowedRedelivery()
     {
-        EmailConfirmationConsumer.RedeliveryBackoffs.Length.ShouldBe(RabbitMqTopology.EmailDeliveryLimit);
+        EmailDispatchConsumer.RedeliveryBackoffs.Length.ShouldBe(RabbitMqTopology.EmailDeliveryLimit);
     }
 
     [Fact]
@@ -28,7 +28,7 @@ public sealed class EmailConfirmationConsumerTests
         // pause into a channel loss that burns a redelivery instead of waiting one out.
         TimeSpan consumerTimeout = TimeSpan.FromMinutes(30);
 
-        EmailConfirmationConsumer.RedeliveryBackoffs.ShouldAllBe(pause => pause < consumerTimeout);
+        EmailDispatchConsumer.RedeliveryBackoffs.ShouldAllBe(pause => pause < consumerTimeout);
     }
 
     [Theory]
@@ -43,7 +43,7 @@ public sealed class EmailConfirmationConsumerTests
         BasicProperties properties = new() { MessageId = rawMessageId };
 
         // Act
-        bool usable = EmailConfirmationConsumer.TryReadMessageId(properties, out Guid _);
+        bool usable = EmailDispatchConsumer.TryReadMessageId(properties, out Guid _);
 
         // Assert
         usable.ShouldBeFalse();
@@ -57,7 +57,7 @@ public sealed class EmailConfirmationConsumerTests
         BasicProperties properties = new() { MessageId = messageId.ToString() };
 
         // Act
-        bool usable = EmailConfirmationConsumer.TryReadMessageId(properties, out Guid parsed);
+        bool usable = EmailDispatchConsumer.TryReadMessageId(properties, out Guid parsed);
 
         // Assert
         usable.ShouldBeTrue();

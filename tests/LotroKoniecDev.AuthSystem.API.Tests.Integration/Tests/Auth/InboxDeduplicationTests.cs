@@ -13,7 +13,7 @@ namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Tests.Auth;
 
 /// <summary>
 /// Proves the inbox deduplication of ADR-0037 against real PostgreSQL, through
-/// <see cref="EmailConfirmationDeliveryProcessor"/> — the one component both real delivery paths
+/// <see cref="EmailDeliveryProcessor"/> — the one component both real delivery paths
 /// (the broker consumer and this suite's broker-less bridge) resolve: a processed message id is
 /// recorded, a duplicate of it is acknowledged without a second e-mail, and a failed processing
 /// leaves no record so redelivery genuinely retries.
@@ -92,10 +92,12 @@ public sealed class InboxDeduplicationTests : EndpointsTestBase
     private async Task<Result> ProcessOnceAsync(Guid identityUserId, Guid messageId)
     {
         await using AsyncServiceScope scope = Factory.Services.CreateAsyncScope();
-        EmailConfirmationDeliveryProcessor deliveryProcessor =
-            scope.ServiceProvider.GetRequiredService<EmailConfirmationDeliveryProcessor>();
+        IEmailMessageProcessor processor = scope.ServiceProvider
+            .GetRequiredKeyedService<IEmailMessageProcessor>(nameof(EmailConfirmationRequested));
+        EmailDeliveryProcessor deliveryProcessor =
+            scope.ServiceProvider.GetRequiredService<EmailDeliveryProcessor>();
         return await deliveryProcessor.ProcessOnceAsync(
-            new EmailConfirmationRequested(identityUserId), messageId, CancellationToken.None);
+            processor, new EmailConfirmationRequested(identityUserId), messageId, CancellationToken.None);
     }
 
     private async Task<int> CountInboxRowsAsync(Guid messageId)

@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Microsoft.AspNetCore.Identity;
 using LotroKoniecDev.AuthSystem.API.Outbox;
 using LotroKoniecDev.AuthSystem.Domain.Aggregates.ApplicationUsers.Entities;
@@ -8,7 +9,8 @@ namespace LotroKoniecDev.AuthSystem.API.Services.Emails;
 /// <summary>
 /// The business reaction to a consumed <see cref="EmailConfirmationRequested"/> message: load the
 /// user, mint the confirmation token at send time (see the payload's remarks on token lifetime),
-/// and dispatch the e-mail.
+/// and dispatch the e-mail. The first entry of the <see cref="IEmailMessageProcessor"/> registry
+/// (ADR-0038).
 /// </summary>
 /// <remarks>
 /// Delivery is at-least-once (ADR-0035), so this must stay idempotent. Today that comes free:
@@ -16,7 +18,7 @@ namespace LotroKoniecDev.AuthSystem.API.Services.Emails;
 /// worst re-sends a confirmation e-mail — annoying, never harmful. A new message type must
 /// re-earn this property before it may reuse the pattern.
 /// </remarks>
-internal sealed partial class EmailConfirmationRequestProcessor
+internal sealed partial class EmailConfirmationRequestProcessor : IEmailMessageProcessor
 {
     private readonly UserManager<ApplicationUser> _userManager;
     private readonly IAccountConfirmationEmailSender _accountConfirmationEmailSender;
@@ -30,6 +32,24 @@ internal sealed partial class EmailConfirmationRequestProcessor
         _userManager = userManager;
         _accountConfirmationEmailSender = accountConfirmationEmailSender;
         _logger = logger;
+    }
+
+    public object? TryDeserialize(ReadOnlySpan<byte> body)
+    {
+        try
+        {
+            EmailConfirmationRequested? message = JsonSerializer.Deserialize<EmailConfirmationRequested>(body);
+            return message is null || message.IdentityUserId == Guid.Empty ? null : message;
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
+
+    public Task<Result> ProcessAsync(object message, CancellationToken cancellationToken)
+    {
+        return ProcessAsync((EmailConfirmationRequested)message, cancellationToken);
     }
 
     /// <summary>

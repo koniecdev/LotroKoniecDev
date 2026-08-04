@@ -12,7 +12,7 @@ namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared;
 /// The brokered twin of <see cref="AuthSystemApiFactory"/>: the base host swaps the publisher for
 /// a spy and removes the consumer (no broker in that suite), and this factory undoes exactly that
 /// against a real broker container — the real <see cref="RabbitMqMessagePublisher"/> returns, the
-/// real <see cref="EmailConfirmationConsumer"/> is put back, and the RabbitMq configuration points
+/// real <see cref="EmailDispatchConsumer"/> is put back, and the RabbitMq configuration points
 /// at the container. The SMTP seam stays spied, so tests still observe delivered e-mails without
 /// sending any. This is the only host where the full outbox → relay → broker → consumer pipeline
 /// exists in one process.
@@ -61,7 +61,7 @@ public sealed class BrokeredAuthSystemApiFactory : AuthSystemApiFactory
             }
 
             services.AddSingleton<IMessagePublisher, RabbitMqMessagePublisher>();
-            services.AddHostedService<EmailConfirmationConsumer>();
+            services.AddHostedService<EmailDispatchConsumer>();
         });
     }
 

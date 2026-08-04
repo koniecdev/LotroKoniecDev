@@ -21,14 +21,14 @@ namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Tests.Messaging;
 /// The only suite where the confirmation-e-mail pipeline runs end-to-end with nothing faked
 /// between the database and the SMTP seam: registration commits an outbox row, the real relay
 /// publishes it through the real <see cref="RabbitMqMessagePublisher"/> to a real broker, and the
-/// real <c>EmailConfirmationConsumer</c> consumes, deduplicates and dispatches to the spy e-mail
-/// sender. Everywhere else the broker hop is bridged in-process (<see cref="SpyMessagePublisher"/>),
+/// real <c>EmailDispatchConsumer</c> selects the registered processor, deduplicates and
+/// dispatches to the spy e-mail sender. Everywhere else the broker hop is bridged in-process (<see cref="SpyMessagePublisher"/>),
 /// so the consumer's ack/reject decisions never actually meet broker semantics — here they do.
 /// </summary>
 /// <remarks>
 /// The consumer's transient-failure ladder is deliberately not driven at this level: its first
 /// rung pauses 30 s before the reject, and each piece is already pinned separately — the ladder's
-/// invariants in <c>EmailConfirmationConsumerTests</c>, the failed-processing inbox contract in
+/// invariants in <c>EmailDispatchConsumerTests</c>, the failed-processing inbox contract in
 /// <c>InboxDeduplicationTests</c>, and the delivery-limit parking in
 /// <c>DeadLetterTopologyTests</c>.
 /// </remarks>
@@ -114,10 +114,14 @@ public sealed class EmailConfirmationPipelineTests : IClassFixture<BrokeredAuthS
         outboxRow.ShouldNotBeNull();
         int sendsAfterFirstDelivery = _confirmationEmailSpy.CallCount;
 
-        // Act — same payload, same message id, over the real wire
+        // Act — same payload, same type, same message id, over the real wire
         IMessagePublisher publisher = _factory.Services.GetRequiredService<IMessagePublisher>();
         await publisher.PublishAsync(
-            RabbitMqTopology.EmailConfirmationRoutingKey, outboxRow.Payload, outboxRow.Id, CancellationToken.None);
+            RabbitMqTopology.EmailConfirmationRoutingKey,
+            outboxRow.Type,
+            outboxRow.Payload,
+            outboxRow.Id,
+            CancellationToken.None);
 
         // Assert — the duplicate is consumed (queue drains), acked (no parking) and suppressed
         await WaitUntilQueueEmptyAsync(RabbitMqTopology.EmailQueue, DeliveryTimeout);
@@ -133,11 +137,16 @@ public sealed class EmailConfirmationPipelineTests : IClassFixture<BrokeredAuthS
     [InlineData("""{"IdentityUserId":"not-a-guid"}""")]
     public async Task Consumer_ShouldParkDeliveryInDeadLetterQueue_WhenThePayloadIsPoison(string poisonPayload)
     {
-        // Act — a valid message id, so the reject decision can only come from the payload
+        // Act — a valid message id and a registered type, so the reject decision can only come
+        // from the payload
         Guid messageId = Guid.CreateVersion7();
         IMessagePublisher publisher = _factory.Services.GetRequiredService<IMessagePublisher>();
         await publisher.PublishAsync(
-            RabbitMqTopology.EmailConfirmationRoutingKey, poisonPayload, messageId, CancellationToken.None);
+            RabbitMqTopology.EmailConfirmationRoutingKey,
+            nameof(EmailConfirmationRequested),
+            poisonPayload,
+            messageId,
+            CancellationToken.None);
 
         // Assert — parked on first sight, no e-mail, no dedup record
         BasicGetResult dead =
@@ -172,6 +181,34 @@ public sealed class EmailConfirmationPipelineTests : IClassFixture<BrokeredAuthS
         _confirmationEmailSpy.CallCount.ShouldBe(0);
     }
 
+    [Theory]
+    [InlineData(null)]
+    [InlineData("TypeNobodyRegistered")]
+    public async Task Consumer_ShouldParkDeliveryInDeadLetterQueue_WhenTheMessageTypeIsMissingOrUnregistered(
+        string? messageType)
+    {
+        // Arrange — a real unconfirmed user and a perfectly readable payload: the only thing
+        // broken about this delivery is the type property the registry selects processors by
+        // (ADR-0038), so a redelivery could never fix it
+        (RegisterRequest _, IdentityId identityId) = await UserFactory.RegisterRandomUserUnconfirmedAsync(
+            _apiClient, _faker, _confirmationEmailSpy);
+        await _confirmationEmailSpy.WaitForCaptureAsync(DeliveryTimeout);
+        _confirmationEmailSpy.Reset();
+        Guid messageId = Guid.CreateVersion7();
+        string validPayload = JsonSerializer.Serialize(new EmailConfirmationRequested(identityId.Value));
+
+        // Act — raw publish: the real publisher refuses to send without a type, the wire does not
+        await PublishRawAsync(validPayload, messageId.ToString(), messageType);
+
+        // Assert — parked on first sight, no e-mail, no dedup record
+        BasicGetResult dead =
+            (await GetWithinTimeoutAsync(RabbitMqTopology.EmailDeadLetterQueue, DeliveryTimeout)).ShouldNotBeNull();
+        Encoding.UTF8.GetString(dead.Body.ToArray()).ShouldBe(validPayload);
+        FirstDeathReason(dead.BasicProperties).ShouldBe("rejected");
+        _confirmationEmailSpy.CallCount.ShouldBe(0);
+        (await CountInboxRowsAsync(messageId)).ShouldBe(0);
+    }
+
     [Fact]
     public async Task Consumer_ShouldAckWithoutEmailAndWithoutParking_WhenTheUserNoLongerExists()
     {
@@ -181,7 +218,11 @@ public sealed class EmailConfirmationPipelineTests : IClassFixture<BrokeredAuthS
         string payload = JsonSerializer.Serialize(new EmailConfirmationRequested(Guid.CreateVersion7()));
         IMessagePublisher publisher = _factory.Services.GetRequiredService<IMessagePublisher>();
         await publisher.PublishAsync(
-            RabbitMqTopology.EmailConfirmationRoutingKey, payload, messageId, CancellationToken.None);
+            RabbitMqTopology.EmailConfirmationRoutingKey,
+            nameof(EmailConfirmationRequested),
+            payload,
+            messageId,
+            CancellationToken.None);
 
         // Assert — the inbox record doubles as the "consumer finished" signal
         int inboxRows = await WaitForInboxRowsAsync(messageId, DeliveryTimeout);
@@ -243,7 +284,7 @@ public sealed class EmailConfirmationPipelineTests : IClassFixture<BrokeredAuthS
         rabbitMqCheck.GetProperty("status").GetString().ShouldBe("Healthy");
     }
 
-    private async Task PublishRawAsync(string payload, string? messageId)
+    private async Task PublishRawAsync(string payload, string? messageId, string? messageType = null)
     {
         await using IConnection connection = await _factory.Broker.ConnectAsync(CancellationToken.None);
         await using IChannel channel = await connection.CreateChannelAsync();
@@ -251,6 +292,7 @@ public sealed class EmailConfirmationPipelineTests : IClassFixture<BrokeredAuthS
         BasicProperties properties = new()
         {
             MessageId = messageId,
+            Type = messageType,
             DeliveryMode = DeliveryModes.Persistent
         };
 

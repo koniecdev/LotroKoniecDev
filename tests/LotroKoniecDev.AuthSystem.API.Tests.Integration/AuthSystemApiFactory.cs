@@ -9,7 +9,6 @@ using Microsoft.Extensions.Logging;
 using Testcontainers.PostgreSql;
 using LotroKoniecDev.AuthSystem.API.BackgroundServices;
 using LotroKoniecDev.AuthSystem.API.Extensions;
-using LotroKoniecDev.AuthSystem.API.Outbox;
 using LotroKoniecDev.AuthSystem.API.Services.Emails;
 using LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared;
 using LotroKoniecDev.AuthSystem.Infrastructure.Messaging;
@@ -125,7 +124,7 @@ public class AuthSystemApiFactory : WebApplicationFactory<Program>, IAsyncLifeti
             // tests via EmailConfirmationRequestProcessor).
             ServiceDescriptor? emailConsumer = services.FirstOrDefault(d =>
                 d.ServiceType == typeof(IHostedService)
-                && d.ImplementationType == typeof(EmailConfirmationConsumer));
+                && d.ImplementationType == typeof(EmailDispatchConsumer));
             if (emailConsumer is not null)
             {
                 services.Remove(emailConsumer);
@@ -178,31 +177,34 @@ public class AuthSystemApiFactory : WebApplicationFactory<Program>, IAsyncLifeti
 
     /// <summary>
     /// The suite's stand-in for the broker-to-consumer hop: what the relay publishes is pushed
-    /// through the same <see cref="EmailConfirmationDeliveryProcessor"/> the real consumer runs,
-    /// in a fresh scope per message, exactly like <c>EmailConfirmationConsumer.OnDeliveredAsync</c>
-    /// — including the inbox deduplication of ADR-0037, which therefore runs under this suite's
-    /// real PostgreSQL.
+    /// through the same registry-selected <see cref="IEmailMessageProcessor"/> and
+    /// <see cref="EmailDeliveryProcessor"/> the real consumer runs, in a fresh scope per message,
+    /// exactly like <c>EmailDispatchConsumer.OnDeliveredAsync</c> — selection by the message type
+    /// (never the routing key, ADR-0038) and the inbox deduplication of ADR-0037 included, which
+    /// therefore both run under this suite's real PostgreSQL.
     /// </summary>
     private static async Task DeliverLikeTheConsumerWouldAsync(
         IServiceProvider services,
         SpyMessagePublisher.PublishedMessage message)
     {
-        if (message.RoutingKey != RabbitMqTopology.EmailConfirmationRoutingKey)
+        await using AsyncServiceScope scope = services.CreateAsyncScope();
+
+        IEmailMessageProcessor? processor =
+            scope.ServiceProvider.GetKeyedService<IEmailMessageProcessor>(message.Type);
+        if (processor is null)
         {
             return;
         }
 
-        EmailConfirmationRequested? payload =
-            System.Text.Json.JsonSerializer.Deserialize<EmailConfirmationRequested>(message.Payload);
+        object? payload = processor.TryDeserialize(System.Text.Encoding.UTF8.GetBytes(message.Payload));
         if (payload is null)
         {
             return;
         }
 
-        await using AsyncServiceScope scope = services.CreateAsyncScope();
-        EmailConfirmationDeliveryProcessor deliveryProcessor =
-            scope.ServiceProvider.GetRequiredService<EmailConfirmationDeliveryProcessor>();
-        await deliveryProcessor.ProcessOnceAsync(payload, message.MessageId, CancellationToken.None);
+        EmailDeliveryProcessor deliveryProcessor =
+            scope.ServiceProvider.GetRequiredService<EmailDeliveryProcessor>();
+        await deliveryProcessor.ProcessOnceAsync(processor, payload, message.MessageId, CancellationToken.None);
     }
 
     public virtual async Task InitializeAsync()

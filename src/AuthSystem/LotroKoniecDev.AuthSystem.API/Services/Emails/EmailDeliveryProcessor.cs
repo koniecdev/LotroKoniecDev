@@ -1,6 +1,5 @@
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
-using LotroKoniecDev.AuthSystem.API.Outbox;
 using LotroKoniecDev.AuthSystem.Persistence.DbContexts;
 using LotroKoniecDev.AuthSystem.Persistence.Inbox;
 using LotroKoniecDev.SharedKernel.Monads;
@@ -8,11 +7,12 @@ using LotroKoniecDev.SharedKernel.Monads;
 namespace LotroKoniecDev.AuthSystem.API.Services.Emails;
 
 /// <summary>
-/// The delivery-level wrapper around <see cref="EmailConfirmationRequestProcessor"/>: consults the
-/// inbox before doing any work and records the message id after success (ADR-0037). Both real
-/// delivery paths — <see cref="BackgroundServices.EmailConfirmationConsumer"/> and the integration
+/// The delivery-level wrapper around the per-type <see cref="IEmailMessageProcessor"/>: consults
+/// the inbox before doing any work and records the message id after success (ADR-0037). Both real
+/// delivery paths — <see cref="BackgroundServices.EmailDispatchConsumer"/> and the integration
 /// suite's broker-less bridge — resolve this one component, so the dedup logic cannot drift
-/// between them.
+/// between them. Type-agnostic on purpose: the inbox stays one undiscriminated table (ADR-0037
+/// §5 — message ids are outbox row ids, unique across types).
 /// </summary>
 /// <remarks>
 /// Returns the same ack-decision contract as the processor: success means "ack, drop it from the
@@ -22,27 +22,25 @@ namespace LotroKoniecDev.AuthSystem.API.Services.Emails;
 /// the consumer's existing transient path rejects the delivery and the broker's delivery limit
 /// bounds the loop (ADR-0037 Decision 4).
 /// </remarks>
-internal sealed partial class EmailConfirmationDeliveryProcessor
+internal sealed partial class EmailDeliveryProcessor
 {
     private readonly AuthDbContext _db;
-    private readonly EmailConfirmationRequestProcessor _processor;
     private readonly TimeProvider _timeProvider;
-    private readonly ILogger<EmailConfirmationDeliveryProcessor> _logger;
+    private readonly ILogger<EmailDeliveryProcessor> _logger;
 
-    public EmailConfirmationDeliveryProcessor(
+    public EmailDeliveryProcessor(
         AuthDbContext db,
-        EmailConfirmationRequestProcessor processor,
         TimeProvider timeProvider,
-        ILogger<EmailConfirmationDeliveryProcessor> logger)
+        ILogger<EmailDeliveryProcessor> logger)
     {
         _db = db;
-        _processor = processor;
         _timeProvider = timeProvider;
         _logger = logger;
     }
 
     public async Task<Result> ProcessOnceAsync(
-        EmailConfirmationRequested message,
+        IEmailMessageProcessor processor,
+        object message,
         Guid messageId,
         CancellationToken cancellationToken)
     {
@@ -54,7 +52,7 @@ internal sealed partial class EmailConfirmationDeliveryProcessor
             return Result.Success();
         }
 
-        Result ackDecision = await _processor.ProcessAsync(message, cancellationToken);
+        Result ackDecision = await processor.ProcessAsync(message, cancellationToken);
         if (ackDecision.IsFailure)
         {
             return ackDecision;

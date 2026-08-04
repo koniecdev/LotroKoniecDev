@@ -8,11 +8,11 @@ namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared;
 /// publishes and, when <see cref="FailWith"/> is set, refuses every publish the way a dead
 /// broker would. The optional delivery bridge stands in for the broker-to-consumer hop:
 /// each accepted publish is handed straight to it, the way the real queue would push the
-/// message at <c>EmailConfirmationConsumer</c> (which the suite removes, having no broker).
+/// message at <c>EmailDispatchConsumer</c> (which the suite removes, having no broker).
 /// </summary>
 internal sealed class SpyMessagePublisher : IMessagePublisher
 {
-    internal sealed record PublishedMessage(string RoutingKey, string Payload, Guid MessageId);
+    internal sealed record PublishedMessage(string RoutingKey, string Type, string Payload, Guid MessageId);
 
     private readonly ConcurrentQueue<PublishedMessage> _published = new();
     private readonly Func<PublishedMessage, Task>? _deliverAsync;
@@ -28,6 +28,7 @@ internal sealed class SpyMessagePublisher : IMessagePublisher
 
     public async Task PublishAsync(
         string routingKey,
+        string type,
         string payload,
         Guid messageId,
         CancellationToken cancellationToken)
@@ -38,7 +39,7 @@ internal sealed class SpyMessagePublisher : IMessagePublisher
             throw failure;
         }
 
-        PublishedMessage message = new(routingKey, payload, messageId);
+        PublishedMessage message = new(routingKey, type, payload, messageId);
         _published.Enqueue(message);
 
         if (_deliverAsync is not null)

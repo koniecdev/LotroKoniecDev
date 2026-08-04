@@ -12,9 +12,9 @@ using Testcontainers.PostgreSql;
 namespace LotroKoniecDev.Frontend.E2E.Tests.Infrastructure;
 
 /// <summary>
-/// Boots the whole browser-facing stack — Postgres + the one-shot migrator + auth-api + tms-api +
-/// the Blazor SSR Frontend + Mailpit + a headless Chromium — as real containers on one private
-/// network, then connects Playwright to the in-network browser over WebSocket. (The browser
+/// Boots the whole browser-facing stack — Postgres + the one-shot migrator + RabbitMQ + auth-api +
+/// tms-api + the Blazor SSR Frontend + Mailpit + a headless Chromium — as real containers on one
+/// private network, then connects Playwright to the in-network browser over WebSocket. (The browser
 /// container is built by hand rather than via the <c>Testcontainers.Playwright</c> module — see
 /// <see cref="StartBrowserAsync"/> for why that module is unusable with current Playwright images.)
 /// Every service has a DNS alias, so
@@ -32,6 +32,14 @@ public sealed class PlaywrightStackFixture : IAsyncLifetime
     private const string FrontendImage = "lotrokoniecdev-frontend:fe-e2e";
     private const string MigratorImage = "lotrokoniecdev-migrator:fe-e2e";
     private const string MailpitImage = "axllent/mailpit:latest";
+
+    /// <summary>
+    /// Pinned in lockstep with the compose stacks and the integration suite's
+    /// RabbitMqBrokerFixture — the confirmation e-mail rides the outbox → broker → consumer
+    /// pipeline, so without a broker in this network Mailpit would never receive the link the
+    /// register flow waits for.
+    /// </summary>
+    private const string RabbitMqImage = "rabbitmq:4.3.4-alpine";
 
     private const int PlaywrightPort = 8080;
 
@@ -77,6 +85,11 @@ public sealed class PlaywrightStackFixture : IAsyncLifetime
     private const string AdminEmail = "fe-e2e-admin@lotro-translator.pl";
     private const string AdminPassword = "FeE2eAdminPass123!";
 
+    // The image's built-in guest account only connects from the broker's own host, so the
+    // in-network auth-api needs an explicit user — same reasoning as the compose stacks.
+    private const string RabbitMqUsername = "rabbitmq";
+    private const string RabbitMqPassword = "fe-e2e-rabbitmq-password";
+
     private string _certPem = null!;
     private string _keyPem = null!;
 
@@ -84,6 +97,7 @@ public sealed class PlaywrightStackFixture : IAsyncLifetime
     private PostgreSqlContainer _postgres = null!;
     private IContainer _migrator = null!;
     private IContainer _mailpit = null!;
+    private IContainer _rabbitMq = null!;
     private IContainer _authApi = null!;
     private IContainer _tmsApi = null!;
     private IContainer _frontend = null!;
@@ -116,6 +130,7 @@ public sealed class PlaywrightStackFixture : IAsyncLifetime
 
         await StartPostgresAsync();
         await StartMailpitAsync();
+        await StartRabbitMqAsync();
         await RunMigratorAsync();
         await StartAuthApiAsync();
         await StartTmsApiAsync();
@@ -149,6 +164,22 @@ public sealed class PlaywrightStackFixture : IAsyncLifetime
                 .UntilHttpRequestIsSucceeded(request => request.ForPath("/").ForPort(MailpitHttpPort)))
             .Build();
         await _mailpit.StartAsync();
+    }
+
+    private async Task StartRabbitMqAsync()
+    {
+        _rabbitMq = new ContainerBuilder(RabbitMqImage)
+            .WithNetwork(_network)
+            .WithNetworkAliases("rabbitmq")
+            .WithEnvironment("RABBITMQ_DEFAULT_USER", RabbitMqUsername)
+            .WithEnvironment("RABBITMQ_DEFAULT_PASS", RabbitMqPassword)
+            // Log-based readiness rather than an exec probe: exec'ing into a container that is
+            // still starting throws out of the wait strategy under Docker load, failing the whole
+            // fixture. The auth-api consumer retries with backoff anyway, so "started" is enough.
+            .WithWaitStrategy(Wait.ForUnixContainer()
+                .UntilMessageIsLogged("Server startup complete"))
+            .Build();
+        await _rabbitMq.StartAsync();
     }
 
     private async Task RunMigratorAsync()
@@ -198,6 +229,11 @@ public sealed class PlaywrightStackFixture : IAsyncLifetime
             .WithEnvironment("Email__Host", "mailpit")
             .WithEnvironment("Email__Port", MailpitSmtpPort.ToString(CultureInfo.InvariantCulture))
             .WithEnvironment("Email__Mode", "None")
+            // The confirmation e-mail travels outbox -> broker -> consumer -> Mailpit, so the
+            // register flow's link genuinely rides the whole pipeline this suite exists to prove.
+            .WithEnvironment("RabbitMq__Host", "rabbitmq")
+            .WithEnvironment("RabbitMq__Username", RabbitMqUsername)
+            .WithEnvironment("RabbitMq__Password", RabbitMqPassword)
             .WithEnvironment("ASPNETCORE_Kestrel__Certificates__Default__Path", "/certs/e2e.crt")
             .WithEnvironment("ASPNETCORE_Kestrel__Certificates__Default__KeyPath", "/certs/e2e.key")
             .WithResourceMapping(Encoding.ASCII.GetBytes(_certPem), "/certs/e2e.crt")
@@ -350,6 +386,15 @@ public sealed class PlaywrightStackFixture : IAsyncLifetime
         }
     }
 
+    /// <summary>
+    /// auth-api container logs — the only visibility into the outbox relay and the broker
+    /// consumer when an e-mail fails to reach Mailpit (mirrors the TMS E2E fixture's helper).
+    /// </summary>
+    public async Task<string> GetAuthApiLogsAsync()
+    {
+        return await TryGetLogsAsync(_authApi);
+    }
+
     private static async Task<string> TryGetLogsAsync(IContainer container)
     {
         try
@@ -460,6 +505,11 @@ public sealed class PlaywrightStackFixture : IAsyncLifetime
         if (_authApi is not null)
         {
             await _authApi.DisposeAsync();
+        }
+
+        if (_rabbitMq is not null)
+        {
+            await _rabbitMq.DisposeAsync();
         }
 
         if (_mailpit is not null)

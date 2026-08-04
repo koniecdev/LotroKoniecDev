@@ -26,6 +26,22 @@ public sealed class SpyAccountConfirmationEmailSender : IAccountConfirmationEmai
             : Task.FromResult(Result.Success());
     }
 
+    /// <summary>
+    /// Blocks until a confirmation e-mail lands or the timeout passes. Registration stopped being
+    /// synchronous when it went through the outbox (commit -> relay -> delivery -> this spy), so
+    /// tests reading <see cref="LastEmail"/> right after a register call must wait on state, not
+    /// assume immediacy. Returns silently either way — the assertions stay at the call site.
+    /// </summary>
+    public async Task WaitForCaptureAsync(TimeSpan? timeout = null)
+    {
+        using CancellationTokenSource waitWindow = new(timeout ?? TimeSpan.FromSeconds(15));
+
+        while (LastEmail is null && !waitWindow.IsCancellationRequested)
+        {
+            await Task.Delay(50);
+        }
+    }
+
     public void Reset()
     {
         LastEmail = null;

@@ -75,6 +75,10 @@ internal static class UserFactory
         IdentityId identityId = JsonSerializer.Deserialize<IdentityId>(stringResponse, apiClient.JsonOptions);
         identityId.Value.ShouldNotBe(Guid.Empty);
 
+        // The confirmation e-mail travels the outbox pipeline now (commit -> relay -> delivery),
+        // so wait for the capture instead of assuming the register response implies it.
+        await accountConfirmationEmailSpy.WaitForCaptureAsync();
+
         return (request, identityId);
     }
 
@@ -82,6 +86,8 @@ internal static class UserFactory
         TestApiClient apiClient,
         SpyAccountConfirmationEmailSender accountConfirmationEmailSpy)
     {
+        await accountConfirmationEmailSpy.WaitForCaptureAsync();
+
         accountConfirmationEmailSpy.LastEmail.ShouldNotBeNullOrEmpty("Expected email confirmation spy to have captured an email.");
         accountConfirmationEmailSpy.LastConfirmationToken.ShouldNotBeNullOrEmpty("Expected email confirmation spy to have captured a token.");
 

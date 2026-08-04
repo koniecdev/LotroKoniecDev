@@ -40,6 +40,7 @@ public sealed partial class RegisterPageTests : EndpointsTestBase
 
         string html = await response.Content.ReadAsStringAsync();
         html.ShouldContain("Konto zostało utworzone");
+        await AccountConfirmationEmailSpy.WaitForCaptureAsync();
         AccountConfirmationEmailSpy.LastEmail.ShouldBe(request.Email);
     }
 

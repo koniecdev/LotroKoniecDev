@@ -47,7 +47,11 @@ public abstract class E2ETestBase : IAsyncLifetime
         return token.AccessToken;
     }
 
-    /// <summary>Registers a fresh user (granted the Translator role, email auto-confirmed) and logs it in.</summary>
+    /// <summary>
+    /// Registers a fresh user (granted the Translator role), confirms its e-mail through the
+    /// fixture's database seam (this network has no broker, so the confirmation e-mail never
+    /// arrives) and logs it in.
+    /// </summary>
     protected async Task<RegisteredTranslator> RegisterAndLoginTranslatorAsync()
     {
         string username = $"translator{Faker.Random.AlphaNumeric(10)}";
@@ -62,6 +66,7 @@ public abstract class E2ETestBase : IAsyncLifetime
             AcceptedTermsOfService: true);
 
         IdentityId identityId = await AuthApi.RegisterAsync(request);
+        await Fixture.ConfirmUserEmailAsync(email);
         TokenResponse token = await AuthApi.LoginAsync(email, TranslatorPassword);
         return new RegisteredTranslator(identityId, username, email, token.AccessToken);
     }

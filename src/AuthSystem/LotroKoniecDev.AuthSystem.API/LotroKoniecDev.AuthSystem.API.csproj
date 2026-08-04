@@ -51,6 +51,8 @@
     <ItemGroup>
         <InternalsVisibleTo Include="LotroKoniecDev.AuthSystem.API.Tests.Integration" />
         <InternalsVisibleTo Include="LotroKoniecDev.AuthSystem.API.Tests.Unit" />
+        <!-- NSubstitute proxies of the internal e-mail interfaces (Castle DynamicProxy). -->
+        <InternalsVisibleTo Include="DynamicProxyGenAssembly2" />
     </ItemGroup>
 
     <ItemGroup>

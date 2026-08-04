@@ -11,6 +11,7 @@ using LotroKoniecDev.AuthSystem.API.Extensions;
 using LotroKoniecDev.AuthSystem.API.Features.Auth;
 using LotroKoniecDev.AuthSystem.API.Hateoas.AccountAggregateFactories;
 using LotroKoniecDev.AuthSystem.API.Hateoas.DiscoveryFactories;
+using LotroKoniecDev.AuthSystem.API.Outbox;
 using LotroKoniecDev.AuthSystem.API.Services.Emails;
 using LotroKoniecDev.AuthSystem.API.Services.Emails.Templates;
 using LotroKoniecDev.AuthSystem.API.Services.Gdpr;
@@ -89,6 +90,18 @@ internal static class ApiDependencyInjection
             services.AddHostedService<AccountDeletionFinalizerHostedService>();
 
             services.AddScoped<IUserSessionRevoker, UserSessionRevoker>();
+
+            // Signal-driven outbox relay (ADR-0035): outbox writers nudge the singleton signal
+            // after their commit instead of the relay polling the database on an interval.
+            services.AddSingleton<OutboxSignal>();
+            services.AddHostedService<OutboxRelay>();
+
+            // The consuming side of the same pipeline: broker deliveries -> confirmation e-mails.
+            // The processor is scoped because the consumer resolves it per message, mirroring how
+            // a request would; the pump itself is a singleton hosted service.
+            services.AddScoped<EmailConfirmationRequestProcessor>();
+            services.AddScoped<EmailConfirmationDeliveryProcessor>();
+            services.AddHostedService<EmailConfirmationConsumer>();
 
             // PERF-02: reference refresh tokens accumulate one row per refresh and are never
             // deleted otherwise; prune expired/invalid tokens and authorizations daily.

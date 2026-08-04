@@ -14,12 +14,17 @@
       <PackageReference Include="Microsoft.Extensions.Configuration.Binder" />
       <PackageReference Include="Microsoft.Extensions.Options.ConfigurationExtensions" />
       <PackageReference Include="Microsoft.Extensions.Options.DataAnnotations" />
+      <PackageReference Include="RabbitMQ.Client" />
     </ItemGroup>
 
     <ItemGroup>
       <ProjectReference Include="..\..\SharedKernel\LotroKoniecDev.SharedKernel\LotroKoniecDev.SharedKernel.csproj" />
       <ProjectReference Include="..\..\Utilities\LotroKoniecDev.Logging\LotroKoniecDev.Logging.csproj" />
       <ProjectReference Include="..\..\Utilities\LotroKoniecDev.Options\LotroKoniecDev.Options.csproj" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <InternalsVisibleTo Include="LotroKoniecDev.AuthSystem.API.Tests.Integration" />
     </ItemGroup>
 
 </Project>

@@ -10,4 +10,9 @@ internal static class EventIds
     public const int EmailUnexpectedError = 3101;
     public const int EmailAuthenticationError = 3102;
     public const int EmailDisconnectWarning = 3103;
+
+    // Messaging (3200–3299)
+    public const int BrokerConnected = 3200;
+    public const int BrokerMessagePublished = 3201;
+    public const int BrokerTeardownWarning = 3202;
 }

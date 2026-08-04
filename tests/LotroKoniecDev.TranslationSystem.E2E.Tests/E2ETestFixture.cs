@@ -105,6 +105,29 @@ public sealed class E2ETestFixture : IAsyncLifetime
         }
     }
 
+    /// <summary>
+    /// Confirms a freshly-registered user's e-mail directly in the auth database. Since the
+    /// confirmation e-mail became an outbox message riding the broker, this network (no broker,
+    /// no mailpit) can never deliver it — and <c>RequireConfirmedEmail</c> blocks the password
+    /// grant until the address is confirmed. The genuine register → e-mail link → confirm journey
+    /// is the Frontend browser suite's concern; this suite's concern is real tokens against the
+    /// TMS loop, so it shortcuts the delivery leg the same way it resets data: through psql.
+    /// </summary>
+    public async Task ConfirmUserEmailAsync(string email)
+    {
+        ExecResult result = await _postgres.ExecAsync(
+        [
+            "psql", "-v", "ON_ERROR_STOP=1", "-U", PostgresUser, "-d", AuthDatabaseName,
+            "-c", $"UPDATE authsystem.\"Users\" SET \"EmailConfirmed\" = TRUE WHERE \"Email\" = '{email}';"
+        ]);
+
+        if (result.ExitCode != 0)
+        {
+            throw new InvalidOperationException(
+                $"Failed to confirm user e-mail (exit code {result.ExitCode}).\nStdout:\n{result.Stdout}\nStderr:\n{result.Stderr}");
+        }
+    }
+
     public async Task<string> GetAuthApiLogsAsync()
     {
         (string? stdout, string? stderr) = await _authApi.GetLogsAsync();
@@ -160,14 +183,20 @@ public sealed class E2ETestFixture : IAsyncLifetime
             .WithEnvironment("AdminUser__Username", AdminUsername)
             .WithEnvironment("AdminUser__Email", AdminEmail)
             .WithEnvironment("AdminUser__Password", AdminPassword)
-            // No mailpit in this network: the confirmation-email send fails fast and registration auto-confirms,
-            // so a freshly-registered translator can log in without the email round-trip. The sender identity is
-            // no longer baked into base appsettings.json (M6-06), so it is injected here too — otherwise the
-            // unconditional EmailOptionsValidator would abort auth-api startup.
+            // No mailpit in this network: the confirmation e-mail (an outbox message since the broker
+            // landed) never gets delivered, so tests confirm accounts through ConfirmUserEmailAsync
+            // instead of an e-mail round-trip. The sender identity is no longer baked into base
+            // appsettings.json (M6-06), so it is injected here too — otherwise the unconditional
+            // EmailOptionsValidator would abort auth-api startup.
             .WithEnvironment("Email__SenderEmail", "noreply@lotro-translator.pl")
             .WithEnvironment("Email__Sender", "lotro-translator.pl")
             .WithEnvironment("Email__Host", "localhost")
             .WithEnvironment("Email__Port", "2525")
+            // No broker in this network either — the values only have to satisfy the unconditional
+            // RabbitMqOptionsValidator at startup.
+            .WithEnvironment("RabbitMq__Host", "localhost")
+            .WithEnvironment("RabbitMq__Username", "rabbitmq")
+            .WithEnvironment("RabbitMq__Password", "changeme")
             .WithWaitStrategy(Wait.ForUnixContainer()
                 .UntilHttpRequestIsSucceeded(request => request.ForPath("/health/live").ForPort(8080)))
             .Build();

@@ -24,6 +24,7 @@
 - [Bringing the stack up](#bringing-the-stack-up) — dev, prod-parity, (re)provisioning a box, and the one-time network cutover
 - [Continuous deployment (CD over ssh)](#continuous-deployment-cd-over-ssh) — build-once → auto staging → gated prod promotion
 - [Database migrations](#database-migrations) — strategy, running them, and recovering from a bad migration (Neon PITR + the MIGR-04 auto-snapshot)
+- [Message broker (RabbitMQ)](#message-broker-rabbitmq) — the in-stack broker, the dead-letter parking lot, replay & rotation traps
 - [Post-deploy smoke test](#post-deploy-smoke-test) — one command verifies a deployed environment end-to-end
 - [Observability & monitoring](#observability--monitoring) — what exists today, and the gap the migration left
 - [Disaster recovery](#disaster-recovery)
@@ -70,16 +71,19 @@ TLS-terminating ingress:
 
 | Service | Image (`ghcr.io/koniecdev/…`) | Listens | Health | Persists |
 |---|---|---|---|---|
-| **auth-api** | `lotrokoniecdev-auth-api` | `:8080` (HTTP) | `/health` (deep: DB + SMTP), `/health/live`, `/health/ready` (probe — runs no checks, ADR-0025) | Data Protection keyring → `/keys` |
+| **auth-api** | `lotrokoniecdev-auth-api` | `:8080` (HTTP) | `/health` (deep: DB + SMTP + broker), `/health/live`, `/health/ready` (probe — runs no checks, ADR-0025) | Data Protection keyring → `/keys` |
 | **tms-api** | `lotrokoniecdev-tms-api` | `:8080` (HTTP) | `/health` (deep: DB), `/health/live`, `/health/ready` (probe — runs no checks, ADR-0025) | translation artifacts (read-only mount) |
 | **frontend** | `lotrokoniecdev-frontend` | `:8080` (HTTP) | — | Data Protection keyring → `/keys` |
 | **migrator** | `lotrokoniecdev-migrator` | one-shot (exits 0) | exit code | — |
 | _ingress_ | **Caddy** (`caddy:2-alpine`) | `:80`, `:443` | — | ACME certs + config volumes |
+| _broker_ | **RabbitMQ** (`rabbitmq:4.3.4-management-alpine` — pinned, see the compose comment) | `:5672` in-stack (AMQP; auth-api only) | `rabbitmq-diagnostics ping` (container healthcheck) + the `rabbitmq` leg of auth's deep `/health` | broker state (users, quorum queues, parked dead letters) → `rabbitmq-data` volume |
 
 Container contract (ADR-0008 §2): each app serves **plain HTTP on `:8080`** and expects a
 TLS-terminating ingress in front; runs **non-root**; logs **structured JSON to stdout**; takes **all
-runtime configuration from environment variables**. Only Caddy publishes ports; the apps use
-`expose:` and are reachable **only** through the proxy. The migrator runs to completion *before* the
+runtime configuration from environment variables**. Only Caddy publishes internet-facing ports; the
+apps use `expose:` and are reachable **only** through the proxy (the broker's management UI is the
+one loopback exception — `127.0.0.1:15672`, reachable exclusively over an ssh tunnel, see
+[Message broker](#message-broker-rabbitmq)). The migrator runs to completion *before* the
 APIs serve traffic, so there is never half-migrated serving.
 
 ## Environment variable matrix
@@ -112,7 +116,8 @@ variable that does not appear there does nothing, whatever this table says.
 
 Purely optional tuning knobs with safe defaults are omitted (e.g. `OpenIddict:AccessTokenLifetimeMinutes`
 = 60, `OpenIddict:RefreshTokenLifetimeDays` = 14, `Import:*`, `TranslationFileRebuild:DebounceWindow`
-= 2 s (ADR-0021), `Email:TimeoutSeconds`/`MaxSendAttempts`, `AllowedHosts` = `*`).
+= 2 s (ADR-0021), `Email:TimeoutSeconds`/`MaxSendAttempts`, `RabbitMq:Port` = 5672,
+`RabbitMq:VirtualHost` = `/`, `AllowedHosts` = `*`).
 
 > ⚠️ **Live prod domain is `lotro-translator.pl`** — auth → `https://auth.lotro-translator.pl`,
 > tms → `https://tms.lotro-translator.pl`, frontend → `https://lotro-translator.pl`. The three
@@ -141,6 +146,9 @@ Purely optional tuning knobs with safe defaults are omitted (e.g. `OpenIddict:Ac
 | `Email__SenderEmail` | `noreply@lotro-translator.pl` | a Brevo-**authorised** sender (today `koniecdev@gmail.com`) | ✅ all | plain | ⚠️ Not a free-text label — an unauthorised sender is accepted by the relay and **silently dropped** by the receiver. See [E-mail deliverability](#e-mail-deliverability--the-sender-must-be-one-brevo-is-authorised-to-send-as). |
 | `Email__Sender` | `lotro-translator.pl` | `LOTRO PL` | ✅ all | plain | Display name. |
 | `Email__Username` / `Email__Password` | — | Brevo SMTP login + key | optional¹ | **secret** (Password) | ¹If `Username` is set, `Password` is required. The login is shaped `<id>@smtp-brevo.com` — **not** the Brevo account e-mail (that fails with `535`). |
+| `RabbitMq__Host` | `localhost` (the compose broker, published on `:5672`) | `rabbitmq` (the in-stack broker service) | ✅ all | plain | Validated on start (every environment) — but auth-api **boots and serves with the broker down**: outbox rows wait, the consumer retries. See [Message broker](#message-broker-rabbitmq). |
+| `RabbitMq__Username` | `rabbitmq` | `rabbitmq` | ✅ all | plain | Matches the `RABBITMQ_DEFAULT_USER` literal in every compose file. |
+| `RabbitMq__Password` | `changeme` (appsettings.Development + the dev compose `RABBITMQ_PASSWORD`) | from `RABBITMQ_PASSWORD` | ✅ all | **secret** | ⚠️ The broker applies `RABBITMQ_DEFAULT_PASS` on **first boot only** — rotation is a lockstep dance, see the [secrets table](#secret-material--source-of-truth-and-how-to-rotate). |
 | `AdminUser__Username` / `AdminUser__Email` / `AdminUser__Password` | from `AUTH_ADMIN_*` | from `AUTH_ADMIN_*` | optional | **secret** (Password) | Seeds one admin **only when missing**; leave blank to skip. Username must match `^[a-zA-Z0-9]+$` (ADR-0022) or auth-api fails at startup; the admin logs in **by e-mail**. |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | `http://localhost:4317` (launchSettings → the compose aspire-dashboard) | — (empty: no sink today, ADR-0034) | optional | plain | Empty = telemetry export disabled. See [Observability](#observability--monitoring). |
 | `OTEL_EXPORTER_OTLP_PROTOCOL` | `grpc` | `grpc` / `http/protobuf` | optional | plain | Defaults to `grpc`. |
@@ -229,6 +237,7 @@ which is why they are named volumes and not bind mounts.
 | `Email__Username` | auth-api | **Brevo** dashboard → SMTP & API → SMTP keys | The SMTP **login**, shaped `<id>@smtp-brevo.com` — **not** the Brevo account e-mail, which fails the handshake with `535`. |
 | `Email__Password` | auth-api | **Brevo** (owner pastes) | Generate a new SMTP key in Brevo. Shown **once** and never readable back — the copies in the box `.env` and in GitHub secrets are both write-only, so a lost key is re-generated, never recovered. |
 | `AUTH_ADMIN_PASSWORD` (+ `AUTH_ADMIN_USERNAME`, `AUTH_ADMIN_EMAIL`) | auth-api → `AdminUser__*` seeder | **owner-chosen** | Seeded **only when missing**, so editing `.env` never rotates a live admin — see the reseed traps. `AUTH_ADMIN_USERNAME` must match `^[a-zA-Z0-9]+$` (ADR-0022) or auth-api fails at startup. |
+| `RABBITMQ_PASSWORD` (→ auth-api `RabbitMq__Password` **and** the broker's `RABBITMQ_DEFAULT_PASS`) | rabbitmq, auth-api | **box-local** — generate: `openssl rand -base64 24` | ⚠️ Same create-if-missing shape as the admin seed: the broker applies `RABBITMQ_DEFAULT_PASS` on **first boot only** (empty data volume), so editing `.env` later rotates what auth-api presents but **not** what the broker expects. Rotate in lockstep: `docker compose -f compose.hetzner.yaml exec rabbitmq rabbitmqctl change_password rabbitmq '<new>'` → update `.env` → `docker compose -f compose.hetzner.yaml up -d auth-api`. |
 | `SMOKE_CLIENT_SECRET` *(GitHub secret, per environment — **not** a box var)* | `scripts/smoke.sh`, CD | == `OpenIddict__ApiClientSecret` of that env | `gh secret set SMOKE_CLIENT_SECRET --env <staging\|production> --body "$VALUE"` — **never `--body -`**: gh takes `-` literally and the smoke leg then 401s. |
 | GHCR pull token *(not an env var — `docker login` state in `/home/deploy/.docker/config.json`)* | `docker compose pull` | **GitHub PAT**, scope `read:packages` **only** | Re-run `scripts/hetzner/bootstrap.sh` (its login leg prompts for user + PAT on a TTY). |
 | `HETZNER_SSH_KEY` *(GitHub secret, per environment — **not** a box var)* | CD over ssh (`deploy.yml`) | generated for CD — one key per box | The `deploy` user's key, never `root`'s. Mint + install + pin the host key: [One-time setup per environment](#one-time-setup-per-environment). |
@@ -989,6 +998,73 @@ Steps 2–4 can be rehearsed on staging at any time, without a deploy: restore t
 five minutes ago (a data no-op while staging is idle), check the [Verifying](#verifying) output is
 unchanged, then delete the preserved branch. Do **not** run it while manual QA is in progress — the
 restore drops connections and rewinds anything written after the restore point.
+
+## Message broker (RabbitMQ)
+
+Since the outbox/broker work (ADRs 0035–0037) each box runs a **single-node RabbitMQ container** in
+the stack (`rabbitmq` in `compose.hetzner.yaml` — pinned image, pinned `hostname`, named
+`rabbitmq-data` volume). Only **auth-api** talks to it: the outbox relay publishes committed rows to
+the `lotro.emails` exchange and the e-mail consumer consumes `emails.send`. Everything either side
+needs — exchanges, quorum queues, bindings, the dead-letter wiring — is **declared idempotently by
+the app on channel open**, so a fresh broker needs zero manual provisioning.
+
+The broker is deliberately a **soft dependency**:
+
+- **auth-api boots and serves with the broker down** — there is no `depends_on` edge on purpose. The
+  publisher connects lazily, the consumer retries with escalating backoff, committed outbox rows
+  wait (ADR-0035's safety sweep is the ceiling). An outage delays confirmation e-mails; it never
+  blocks login or token issuance.
+- It surfaces as the **`rabbitmq` check on auth's deep `/health`** (deliberately not on
+  `/health/ready`, same reasoning as SMTP) — the daily health ping is what tells you the container
+  died between deploys.
+
+### Management UI — over an ssh tunnel only
+
+The UI is published on the **box loopback** only, never the internet:
+
+```bash
+ssh -L 15672:localhost:15672 deploy@<box-ip>
+# then http://localhost:15672 — user `rabbitmq`, password = RABBITMQ_PASSWORD from the box .env
+```
+
+### The dead-letter parking lot (`emails.send.dlq`)
+
+Messages land there in exactly two ways (ADR-0036): **poison** (unreadable payload or unusable
+message id — rejected on first sight) and **exhausted** (`x-delivery-limit` = 5 redeliveries spent,
+e.g. an SMTP outage the backoff ladder could not outlast). Nothing consumes the queue; it waits for
+a human — a parked message usually means a user never got a confirmation e-mail, so diagnose from
+the payload's `IdentityUserId` plus the matching outbox row's error.
+
+**Replay = ack-and-republish, NEVER reject-requeue** (ADR-0036 §5). The parking lot is a quorum
+queue with the *default* delivery limit (20) and no DLX of its own, so a reject-requeue loop
+**silently drops** the parked message. In the management UI:
+
+1. **Inspect** without consuming: `emails.send.dlq` → *Get messages* with ack mode *Nack message
+   requeue true* (a nack is an "explicit return" — it does not tick the delivery count; a reject
+   does).
+2. **Replay**: *Publish message* on the **`lotro.emails`** exchange with the message's preserved
+   routing key (e.g. `email.confirmation`), its original **`message_id` property** and body. The
+   inbox deduplicates on the message id (ADR-0037), so replaying an already-processed id is a safe
+   no-op.
+3. Only after the replay demonstrably processed (e-mail sent / inbox row present): remove the parked
+   copy — *Get messages* with ack mode *Automatic ack*.
+
+### Traps
+
+- **The broker-carrying release needs the box `.env` updated FIRST**: append `RABBITMQ_PASSWORD`
+  (`openssl rand -base64 24`) to `/opt/lotro/.env` on **both** boxes before merging it. Missing it
+  is loud, not silent: compose interpolation fails (`${RABBITMQ_PASSWORD:?…}`) inside `deploy.sh`'s
+  config-validation step, which aborts the deploy while the old release keeps serving.
+- **`RABBITMQ_DEFAULT_PASS` applies on first boot only** (empty data volume). Editing the box `.env`
+  later rotates what auth-api presents but **not** what the broker expects — rotate in lockstep via
+  `rabbitmqctl change_password` (exact commands: the
+  [secrets table](#secret-material--source-of-truth-and-how-to-rotate)).
+- **Queue arguments are immutable.** Redeclaring `emails.send` with different `x-*` arguments fails
+  the channel with `PRECONDITION_FAILED` (ADR-0036). Changing them on a live box means draining and
+  deleting the queue first — treat it as a small migration, not a config tweak.
+- **Never remove the `hostname:` pin** on the service. RabbitMQ keys its on-disk state by node name
+  (`rabbit@<hostname>`); an unpinned recreation boots a fresh node beside the old data and orphans
+  the volume's quorum queues — parked dead letters included.
 
 ## Post-deploy smoke test
 

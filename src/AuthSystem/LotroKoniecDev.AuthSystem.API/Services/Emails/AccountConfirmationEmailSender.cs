@@ -29,7 +29,11 @@ internal sealed class AccountConfirmationEmailSender : IAccountConfirmationEmail
         _logger = logger;
     }
 
-    public async Task<Result> SendEmailConfirmationAsync(Guid userId, string email, string confirmationToken, CancellationToken cancellationToken)
+    public async Task<Result> SendEmailConfirmationAsync(
+        Guid userId,
+        string email,
+        string confirmationToken,
+        CancellationToken cancellationToken)
     {
         string link = _emailVerificationLinkFactory.Create(email, confirmationToken);
 
@@ -53,11 +57,13 @@ internal sealed class AccountConfirmationEmailSender : IAccountConfirmationEmail
             ["RecipientUserId"] = userId
         });
 
-        return await _emailService
+        Result sendResult = await _emailService
             .SendAsync(
                 receiverEmail: email,
                 subject: $"Potwierdź konto — {EmailBranding.Name}",
                 body: _templateRenderer.Render(template),
                 cancellationToken: cancellationToken);
+
+        return sendResult;
     }
 }

@@ -21,6 +21,33 @@ services:
       retries: 30
       start_period: 10s
 
+  rabbitmq:
+    # Version pinned in lockstep with the integration suite's RabbitMqBrokerFixture (same image
+    # minus the management UI) — bump both together, or the suite keeps proving the dead-letter
+    # topology against the old broker generation.
+    image: rabbitmq:4.3.4-management-alpine
+    # RabbitMQ keys its on-disk state by node name (rabbit@<hostname>), and compose hostnames are
+    # random per container — without this pin a recreation boots a fresh node and orphans the
+    # volume's quorum queues. Harmless in dev (down -v resets anyway), but kept identical to the
+    # deployed stacks so the durability behavior never differs.
+    hostname: lotro-rabbitmq
+    environment:
+      RABBITMQ_DEFAULT_USER: rabbitmq
+      # The default matches appsettings.Development.json, so a dev .env predating this key still
+      # boots a broker the host Kestrels can log into (an empty password would ACCESS_REFUSED them).
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-changeme}
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    volumes:
+      - lotrokoniecdev-rabbitmq-data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD-SHELL", "rabbitmq-diagnostics -q ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+
   aspire-dashboard:
     image: mcr.microsoft.com/dotnet/aspire-dashboard:latest
     environment:
@@ -62,3 +89,4 @@ services:
 
 volumes:
   lotrokoniecdev-postgres-data:
+  lotrokoniecdev-rabbitmq-data:

@@ -4,11 +4,15 @@ using Microsoft.AspNetCore.TestHost;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Testcontainers.PostgreSql;
+using LotroKoniecDev.AuthSystem.API.BackgroundServices;
 using LotroKoniecDev.AuthSystem.API.Extensions;
+using LotroKoniecDev.AuthSystem.API.Outbox;
 using LotroKoniecDev.AuthSystem.API.Services.Emails;
 using LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared;
+using LotroKoniecDev.AuthSystem.Infrastructure.Messaging;
 using LotroKoniecDev.AuthSystem.Persistence;
 using LotroKoniecDev.AuthSystem.Persistence.DbContexts;
 
@@ -64,6 +68,14 @@ public class AuthSystemApiFactory : WebApplicationFactory<Program>, IAsyncLifeti
                 { "Email:Sender", "lotro-translator.pl" },
                 { "Email:Host", "localhost" },
                 { "Email:Port", "59999" },
+                // No broker in this suite; the values only have to satisfy the unconditional
+                // RabbitMqOptionsValidator at startup. The port is a deliberately dead one (same
+                // trick as Email:Port above) so RabbitMqHealthCheck is deterministically Unhealthy
+                // — the full /health test must not flip when the dev compose broker (:5672) runs.
+                { "RabbitMq:Host", "localhost" },
+                { "RabbitMq:Port", "59998" },
+                { "RabbitMq:Username", "rabbitmq" },
+                { "RabbitMq:Password", "changeme" },
             });
         });
 
@@ -108,6 +120,33 @@ public class AuthSystemApiFactory : WebApplicationFactory<Program>, IAsyncLifeti
             services.AddSingleton<IAccountDeletionEmailSender>(sp =>
                 sp.GetRequiredService<SpyAccountDeletionEmailSender>());
 
+            // The suite runs without a broker: the consumer would loop on connection retries and
+            // spam warnings, so it is removed outright (its business logic has its own unit
+            // tests via EmailConfirmationRequestProcessor).
+            ServiceDescriptor? emailConsumer = services.FirstOrDefault(d =>
+                d.ServiceType == typeof(IHostedService)
+                && d.ImplementationType == typeof(EmailConfirmationConsumer));
+            if (emailConsumer is not null)
+            {
+                services.Remove(emailConsumer);
+            }
+
+            // Replace the RabbitMQ publisher with a spy: the suite runs without a broker, and the
+            // outbox relay tests assert against what reached the (fake) wire. The spy's delivery
+            // bridge plays the removed consumer's part, so registration still ends in a captured
+            // confirmation e-mail: outbox -> relay -> spy publish -> processor -> spy sender.
+            ServiceDescriptor? existingMessagePublisher = services
+                .FirstOrDefault(d => d.ServiceType == typeof(IMessagePublisher));
+            if (existingMessagePublisher is not null)
+            {
+                services.Remove(existingMessagePublisher);
+            }
+
+            services.AddSingleton<SpyMessagePublisher>(sp =>
+                new SpyMessagePublisher(message => DeliverLikeTheConsumerWouldAsync(sp, message)));
+            services.AddSingleton<IMessagePublisher>(sp =>
+                sp.GetRequiredService<SpyMessagePublisher>());
+
             // Replace AuthDbContext to use the test connection string directly
             ServiceDescriptor? dbContextDescriptor = services
                 .FirstOrDefault(d => d.ServiceType == typeof(DbContextOptions<AuthDbContext>));
@@ -135,6 +174,35 @@ public class AuthSystemApiFactory : WebApplicationFactory<Program>, IAsyncLifeti
         {
             logging.SetMinimumLevel(LogLevel.Warning);
         });
+    }
+
+    /// <summary>
+    /// The suite's stand-in for the broker-to-consumer hop: what the relay publishes is pushed
+    /// through the same <see cref="EmailConfirmationDeliveryProcessor"/> the real consumer runs,
+    /// in a fresh scope per message, exactly like <c>EmailConfirmationConsumer.OnDeliveredAsync</c>
+    /// — including the inbox deduplication of ADR-0037, which therefore runs under this suite's
+    /// real PostgreSQL.
+    /// </summary>
+    private static async Task DeliverLikeTheConsumerWouldAsync(
+        IServiceProvider services,
+        SpyMessagePublisher.PublishedMessage message)
+    {
+        if (message.RoutingKey != RabbitMqTopology.EmailConfirmationRoutingKey)
+        {
+            return;
+        }
+
+        EmailConfirmationRequested? payload =
+            System.Text.Json.JsonSerializer.Deserialize<EmailConfirmationRequested>(message.Payload);
+        if (payload is null)
+        {
+            return;
+        }
+
+        await using AsyncServiceScope scope = services.CreateAsyncScope();
+        EmailConfirmationDeliveryProcessor deliveryProcessor =
+            scope.ServiceProvider.GetRequiredService<EmailConfirmationDeliveryProcessor>();
+        await deliveryProcessor.ProcessOnceAsync(payload, message.MessageId, CancellationToken.None);
     }
 
     public async Task InitializeAsync()

@@ -5,6 +5,21 @@ argument-hint: <issue number> [extra context]
 
 Work GitHub ticket **#$ARGUMENTS** end-to-end, BRD/spec-driven. Follow this loop — do not skip steps.
 
+## 0. Preflight — sync `main` FIRST; fail loudly on a dirty tree
+
+Run this before anything else, even before reading the ticket:
+
+- `git status --porcelain` — **any output = STOP.** Report exactly what is uncommitted and end the
+  turn; the user decides what happens to it. No stash, no auto-commit, no salvage branch — do not
+  touch the tree.
+- `git checkout main`
+- `git pull --ff-only` — ff-only on purpose: local `main` must never carry its own commits, so a
+  pull that can't fast-forward means something is wrong — fail loudly instead of silently
+  rebasing stray commits into the next PR.
+
+This makes the post-merge loop self-contained: after merging the previous PR on GitHub, `/clear` →
+`/ticket <n>` needs no manual `git checkout main` + `git pull` first.
+
 ## 1. Pull the ticket
 
 - `gh issue view <n> --comments` — read title (`M{milestone}-{nn}: Title`), labels, body
@@ -41,21 +56,13 @@ Work GitHub ticket **#$ARGUMENTS** end-to-end, BRD/spec-driven. Follow this loop
 
 ## 4. Branch — always a fresh feature branch off main; never commit to main
 
-**Never work on `main` directly, and never lose uncommitted work.** Before cutting the ticket
-branch, get to a clean tree off a fresh `main`:
+Step 0 already left you on a clean, fresh `main`; anything dirty now is this session's own work
+(e.g. the step-3 spec file), and an untracked file travels with the checkout:
 
-- **Dirty working copy? Preserve it first — never discard it, never commit it to `main`:**
-  - On `main` (or a detached HEAD): create a salvage branch to hold the work so nothing lands on
-    `main` — `git switch -c salvage/<short-desc>`.
-  - On a feature branch already: keep the changes there (it isn't `main`).
-  - `git add -A` and commit with a logical message, `git push -u origin HEAD`, then open a PR from
-    it — a **draft is fine** (`gh pr create --draft --fill`). The point is only that the work
-    survives and is visible, not that it's finished.
-- **Then** land on a fresh `main` and cut the ticket branch off it:
-  - `git switch main && git pull --ff-only` (ff-only — never a merge commit; nothing should ever
-    have been committed to local `main`).
-  - `gh issue develop <n> --base main --checkout` — creates + checks out the linked
-    `{n}-{kebab-title}` branch off `main`. If it already exists, just check it out.
+- `gh issue develop <n> --base main --checkout` — creates + checks out the linked
+  `{n}-{kebab-title}` branch off `main`. If it already exists, just check it out.
+- **Never work on `main` directly.** If for any reason you find yourself past step 0 with commits
+  to make and no ticket branch yet, cut the branch first — nothing is ever committed to `main`.
 
 ## 5. Implement
 

@@ -1,5 +1,6 @@
 using System.Text;
 using LotroKoniecDev.Application.Parsers;
+using LotroKoniecDev.Tests.Shared;
 using LotroKoniecDev.TranslationSystem.API.Parsing;
 
 namespace LotroKoniecDev.TranslationSystem.API.Tests.Unit.Tests.Parsing;
@@ -40,6 +41,51 @@ public sealed class ParserContractParityTests
         patcher.IsApproved.ShouldBe(tms.Approved);
         ReconstructArgs(patcher.ArgsOrder).ShouldBe(tms.ArgsOrder);
         ReconstructArgs(patcher.ArgsId).ShouldBe(tms.ArgsId);
+    }
+
+    [Theory]
+    [MemberData(nameof(NaughtyStringCases.All), MemberType = typeof(NaughtyStringCases))]
+    public async Task BothParsers_OnNaughtyContent_ShouldCarveTheSameContractLineIdentically(string naughty)
+    {
+        // Arrange — hostile content is where two hand-written parsers of one format drift apart
+        // first (#569). No entry of the list carries a real newline or a literal backslash escape
+        // sequence, so the patcher's unescape stays a no-op here and the two contents compare
+        // directly; the escape asymmetry itself is pinned in the per-parser suites.
+        string line = $"620756992||1001||{naughty}||1-2||1-2||1";
+
+        LotroKoniecDev.Domain.Models.Translation patcher = new TranslationFileParser().ParseLine(line).Value;
+
+        ParsedExport tmsExport = await ParseAsync(line);
+        ParsedExportRow tms = tmsExport.Rows.ShouldHaveSingleItem();
+
+        // Assert
+        patcher.FileId.ShouldBe(tms.FileId);
+        ((long)patcher.GossipId).ShouldBe(tms.GossipId);
+        patcher.Content.ShouldBe(tms.Content);
+        patcher.IsApproved.ShouldBe(tms.Approved);
+        ReconstructArgs(patcher.ArgsOrder).ShouldBe(tms.ArgsOrder);
+        ReconstructArgs(patcher.ArgsId).ShouldBe(tms.ArgsId);
+    }
+
+    [Theory]
+    [InlineData(@"Line1\nLine2", "Line1\u000ALine2")]
+    [InlineData(@"Line1\rLine2", "Line1\u000DLine2")]
+    public async Task BothParsers_OnAnEscapeSequence_ShouldDivergeExactlyAsDesigned(string escapedContent, string unescapedContent)
+    {
+        // Arrange — the ONE deliberate difference between the two parsers, and the reason the theory
+        // above compares contents directly: the patcher unfolds the exporter's escape because it is
+        // about to write real characters into the DAT, while the TMS keeps the exported
+        // representation verbatim so the row round-trips byte-for-byte back out to the patcher.
+        // Nothing else pins this, and no naughty string reaches it (none carries such a sequence).
+        string line = $"620756992||1001||{escapedContent}||NULL||NULL||1";
+
+        // Act
+        LotroKoniecDev.Domain.Models.Translation patcher = new TranslationFileParser().ParseLine(line).Value;
+        ParsedExportRow tms = (await ParseAsync(line)).Rows.ShouldHaveSingleItem();
+
+        // Assert
+        patcher.Content.ShouldBe(unescapedContent);
+        tms.Content.ShouldBe(escapedContent);
     }
 
     private static async Task<ParsedExport> ParseAsync(string content)

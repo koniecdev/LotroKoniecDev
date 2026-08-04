@@ -619,6 +619,11 @@ cancels any CD run left `waiting` at the `production` gate for more than 24 hour
 merge produces a fresh candidate, and any older commit can still be deployed explicitly via
 `cd.yml`'s `workflow_dispatch`.
 
+**Cancelling a `waiting` run by hand:** the UI *Cancel* button and `gh run cancel` do **not** work
+on approval-gated runs — they only file a cancellation request no runner will ever pick up, so the
+run stays `waiting` ("requested to cancel" forever, #592). Use the same call the janitor makes:
+`gh api -X POST repos/koniecdev/LotroKoniecDev/actions/runs/<run-id>/force-cancel`.
+
 ### What `deploy.yml` does
 
 **Prod leg only, first (#534 — the N-1 promotion gate):** promotion is batched, so the sha the

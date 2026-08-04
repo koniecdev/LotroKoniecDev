@@ -14,6 +14,12 @@ name: CD janitor (expire stale deploy candidates)
 # Cutoff is measured from startedAt, not createdAt — a re-run of an old run resets startedAt, so a
 # deliberately re-run candidate gets a fresh 24 h window instead of being culled immediately.
 #
+# Cancelling goes through the force-cancel API endpoint, NOT `gh run cancel` (#592): the plain
+# cancel endpoint only *requests* cancellation, and a run held at an approval gate has no runner
+# to pick the request up, so it reports success while the run stays `waiting` forever — the UI
+# Cancel button fails the same way. The job verifies the status actually flipped and fails loudly
+# otherwise, so a green janitor always means the queue really was cleaned.
+#
 # Cron is UTC and deliberately off-hour (GitHub delays on-the-hour crons the most). Exact timing is
 # irrelevant here — anything roughly nightly keeps the queue clean.
 
@@ -80,15 +86,35 @@ jobs:
                 "$run_id" "$url" "$status" >> "$GITHUB_STEP_SUMMARY"
               continue
             fi
-            if gh run cancel "$run_id"; then
-              echo "Cancelled run ${run_id} (sha ${short_sha}, waiting since ${started_at})."
-              printf -- '- CANCELLED run [%s](%s) — sha `%s`, waiting since %s\n' \
-                "$run_id" "$url" "$short_sha" "$started_at" >> "$GITHUB_STEP_SUMMARY"
-            else
-              echo "::error::Failed to cancel run ${run_id}: ${url}"
+            # force-cancel, not `gh run cancel`: the plain cancel endpoint returns success while
+            # leaving an approval-gated run `waiting` forever (#592). Same permission surface —
+            # `actions: write` covers force-cancel too.
+            if ! gh api -X POST "repos/${GH_REPO}/actions/runs/${run_id}/force-cancel" >/dev/null; then
+              echo "::error::force-cancel API call failed for run ${run_id}: ${url}"
               printf -- '- FAIL could not cancel run [%s](%s)\n' "$run_id" "$url" >> "$GITHUB_STEP_SUMMARY"
               failed=1
+              continue
             fi
+            # Trust nothing the cancel call says — the first version of this janitor was green
+            # for a week while cancelling nothing. Only a verified flip out of `waiting` counts;
+            # the endpoint is quick but asynchronous, hence the short poll.
+            for _ in 1 2 3 4 5; do
+              status="$(gh run view "$run_id" --json status --jq .status || echo unknown)"
+              if [ "$status" != "waiting" ]; then
+                break
+              fi
+              sleep 2
+            done
+            if [ "$status" = "waiting" ]; then
+              echo "::error::Run ${run_id} is still waiting after force-cancel: ${url}"
+              printf -- '- FAIL run [%s](%s) still `waiting` after force-cancel\n' \
+                "$run_id" "$url" >> "$GITHUB_STEP_SUMMARY"
+              failed=1
+              continue
+            fi
+            echo "Cancelled run ${run_id} (sha ${short_sha}, waiting since ${started_at})."
+            printf -- '- CANCELLED run [%s](%s) — sha `%s`, waiting since %s\n' \
+              "$run_id" "$url" "$short_sha" "$started_at" >> "$GITHUB_STEP_SUMMARY"
           done <<< "$stale"
 
           exit "$failed"

@@ -205,7 +205,7 @@ public class AuthSystemApiFactory : WebApplicationFactory<Program>, IAsyncLifeti
         await deliveryProcessor.ProcessOnceAsync(payload, message.MessageId, CancellationToken.None);
     }
 
-    public async Task InitializeAsync()
+    public virtual async Task InitializeAsync()
     {
         await _postgresContainer.StartAsync();
         _connectionString = _postgresContainer.GetConnectionString();
@@ -221,7 +221,7 @@ public class AuthSystemApiFactory : WebApplicationFactory<Program>, IAsyncLifeti
         await DatabaseSeederExtensions.SeedAuthDatabaseAsync(Services, environment);
     }
 
-    public new async Task DisposeAsync()
+    public new virtual async Task DisposeAsync()
     {
         await _postgresContainer.DisposeAsync();
     }

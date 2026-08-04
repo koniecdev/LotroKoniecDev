@@ -20,9 +20,17 @@ using LotroKoniecDev.AuthSystem.API.Settings;
 using LotroKoniecDev.AuthSystem.Persistence.Settings;
 using LotroKoniecDev.Logging.Redaction;
 
+// Deliberately NOT CreateBootstrapLogger(): the reloadable bootstrap logger lives in the shared
+// static Log.Logger slot, and AddSerilog freezes it on the host's first logger resolution. The
+// integration suite boots several hosts from this Program concurrently (the shared factory plus a
+// brokered factory per pipeline suite), so one host can freeze the bootstrap logger another host
+// just installed — the second freeze then dies with "The logger is already frozen". A plain
+// console logger keeps startup logging (and the catch/finally below) working while AddSerilog
+// builds each host its own fully-configured pipeline; in production nothing changes — the single
+// host's final logger still replaces this one.
 Log.Logger = new LoggerConfiguration()
     .WriteTo.Console(formatProvider: CultureInfo.InvariantCulture)
-    .CreateBootstrapLogger();
+    .CreateLogger();
 
 try
 {

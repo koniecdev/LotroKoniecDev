@@ -3,12 +3,14 @@ using System.Text.RegularExpressions;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
+using LotroKoniecDev.AuthSystem.API.Outbox;
 using LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared;
 using LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared.Bases;
 using LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared.Factories;
 using LotroKoniecDev.AuthSystem.Contracts.Features.Auth.Account;
 using LotroKoniecDev.AuthSystem.Contracts.Features.Auth.Password;
 using LotroKoniecDev.AuthSystem.Contracts.Features.Auth.Register;
+using LotroKoniecDev.AuthSystem.Persistence.Outbox;
 using JsonOptions = Microsoft.AspNetCore.Http.Json.JsonOptions;
 
 namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Tests.Auth;
@@ -84,8 +86,16 @@ public sealed partial class DeletionGraceWindowTests : AsyncLifetimeTestBase
             new Uri("auth/forgot-password", UriKind.Relative),
             new ForgotPasswordRequest(registerRequest.Email));
 
-        // Assert — anti-enumeration success, but the reset email must not go out
+        // Assert — anti-enumeration success, but the reset email must not go out. The request
+        // now only commits an outbox row (ADR-0038) and the deletion-window guard fires in the
+        // dispatch processor, so wait until the delivery was actually consumed (the inbox row is
+        // the "processor finished" marker) — asserting right after the POST would race a broken
+        // guard into a false green.
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        OutboxMessage? outboxRow = await OutboxAssertions.WaitForOutboxRowAsync(
+            Factory, row => row.Type == nameof(PasswordResetRequested));
+        outboxRow.ShouldNotBeNull();
+        (await OutboxAssertions.WaitForInboxRowsAsync(Factory, outboxRow.Id)).ShouldBe(1);
         PasswordResetEmailSpy.CallCount.ShouldBe(0);
     }
 
@@ -101,6 +111,7 @@ public sealed partial class DeletionGraceWindowTests : AsyncLifetimeTestBase
             new Uri("auth/forgot-password", UriKind.Relative),
             new ForgotPasswordRequest(registerRequest.Email));
         forgotResponse.StatusCode.ShouldBe(HttpStatusCode.OK);
+        await PasswordResetEmailSpy.WaitForCaptureAsync();
         string preIssuedResetToken = PasswordResetEmailSpy.LastResetToken!;
 
         await ScheduleDeletionAsync(registerRequest.Email);

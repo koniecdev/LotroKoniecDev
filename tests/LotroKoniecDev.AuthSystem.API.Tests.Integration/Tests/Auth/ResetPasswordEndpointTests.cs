@@ -24,6 +24,7 @@ public sealed class ResetPasswordEndpointTests : EndpointsTestBase
         await ApiClient.Http.PostAsJsonAsync(
             new Uri("auth/forgot-password", UriKind.Relative),
             new ForgotPasswordRequest(registerRequest.Email));
+        await PasswordResetEmailSpy.WaitForCaptureAsync();
 
         string resetToken = PasswordResetEmailSpy.LastResetToken!;
 
@@ -52,6 +53,7 @@ public sealed class ResetPasswordEndpointTests : EndpointsTestBase
         await ApiClient.Http.PostAsJsonAsync(
             new Uri("auth/forgot-password", UriKind.Relative),
             new ForgotPasswordRequest(registerRequest.Email));
+        await PasswordResetEmailSpy.WaitForCaptureAsync();
 
         await ApiClient.Http.PostAsJsonAsync(
             new Uri("auth/reset-password", UriKind.Relative),
@@ -93,6 +95,7 @@ public sealed class ResetPasswordEndpointTests : EndpointsTestBase
         await ApiClient.Http.PostAsJsonAsync(
             new Uri("auth/forgot-password", UriKind.Relative),
             new ForgotPasswordRequest(registerRequest.Email));
+        await PasswordResetEmailSpy.WaitForCaptureAsync();
 
         await ApiClient.Http.PostAsJsonAsync(
             new Uri("auth/reset-password", UriKind.Relative),
@@ -146,6 +149,7 @@ public sealed class ResetPasswordEndpointTests : EndpointsTestBase
         await ApiClient.Http.PostAsJsonAsync(
             new Uri("auth/forgot-password", UriKind.Relative),
             new ForgotPasswordRequest(registerRequest.Email));
+        await PasswordResetEmailSpy.WaitForCaptureAsync();
 
         HttpResponseMessage resetResponse = await ApiClient.Http.PostAsJsonAsync(
             new Uri("auth/reset-password", UriKind.Relative),
@@ -216,6 +220,7 @@ public sealed class ResetPasswordEndpointTests : EndpointsTestBase
         await ApiClient.Http.PostAsJsonAsync(
             new Uri("auth/forgot-password", UriKind.Relative),
             new ForgotPasswordRequest(registerRequest.Email));
+        await PasswordResetEmailSpy.WaitForCaptureAsync();
 
         ResetPasswordRequest resetRequest = new(
             registerRequest.Email,
@@ -244,6 +249,7 @@ public sealed class ResetPasswordEndpointTests : EndpointsTestBase
         await ApiClient.Http.PostAsJsonAsync(
             new Uri("auth/forgot-password", UriKind.Relative),
             new ForgotPasswordRequest(registerRequest.Email));
+        await PasswordResetEmailSpy.WaitForCaptureAsync();
 
         string resetToken = PasswordResetEmailSpy.LastResetToken!;
 

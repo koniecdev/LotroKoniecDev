@@ -3,10 +3,10 @@ using FluentValidation.Results;
 using Microsoft.AspNetCore.Identity;
 using LotroKoniecDev.AuthSystem.API.Common;
 using LotroKoniecDev.AuthSystem.API.Extensions;
-using LotroKoniecDev.AuthSystem.API.Services.Emails;
+using LotroKoniecDev.AuthSystem.API.Outbox;
 using LotroKoniecDev.AuthSystem.Contracts.Features.Auth.Password;
 using LotroKoniecDev.AuthSystem.Domain.Aggregates.ApplicationUsers.Entities;
-
+using LotroKoniecDev.AuthSystem.Persistence.DbContexts;
 using LotroKoniecDev.SharedKernel.Constants;
 using LotroKoniecDev.SharedKernel.Messaging;
 using LotroKoniecDev.SharedKernel.Monads;
@@ -39,18 +39,21 @@ internal sealed partial class ForgotPassword : IApiEndpoint
             new PasswordHasher<ApplicationUser>().HashPassword(new ApplicationUser(), "DummyP@ssw0rd!");
 
         private readonly UserManager<ApplicationUser> _userManager;
-        private readonly IPasswordResetEmailSender _emailSender;
+        private readonly AuthDbContext _db;
+        private readonly OutboxWriter _outboxWriter;
         private readonly IValidator<Command> _validator;
         private readonly ILogger<Handler> _logger;
 
         public Handler(
             UserManager<ApplicationUser> userManager,
-            IPasswordResetEmailSender emailSender,
+            AuthDbContext db,
+            OutboxWriter outboxWriter,
             IValidator<Command> validator,
             ILogger<Handler> logger)
         {
             _userManager = userManager;
-            _emailSender = emailSender;
+            _db = db;
+            _outboxWriter = outboxWriter;
             _validator = validator;
             _logger = logger;
         }
@@ -65,12 +68,15 @@ internal sealed partial class ForgotPassword : IApiEndpoint
 
             ApplicationUser? user = await _userManager.FindByEmailAsync(command.Email);
 
+            // Every path pays the same PBKDF2 cost. Burning the dummy hash only on the
+            // not-found branch would make existing accounts answer measurably FASTER
+            // (their path is just a cheap outbox insert), turning response time into an
+            // inverted user-enumeration oracle (ADR-0038 decision 5).
+            _ = _userManager.PasswordHasher.VerifyHashedPassword(
+                new ApplicationUser(), DummyPasswordHash, "DummyP@ssw0rd!");
+
             if (user is null)
             {
-                // Perform dummy work to prevent timing-based user enumeration
-                _ = new PasswordHasher<ApplicationUser>()
-                    .VerifyHashedPassword(new ApplicationUser(), DummyPasswordHash, "DummyP@ssw0rd!");
-
                 string maskedEmail = command.Email.MaskEmail();
                 LogPasswordResetNonExistent(_logger, maskedEmail);
 
@@ -78,34 +84,19 @@ internal sealed partial class ForgotPassword : IApiEndpoint
                 return Result.Success();
             }
 
-            // While GDPR deletion is scheduled, the emailed cancel-deletion link is the only
-            // recovery path — a password reset would neither unlock the account nor stop the
-            // deletion. Pretend success so account state can't be probed.
-            if (user.DeletionScheduledAt is not null)
-            {
-                LogPasswordResetSkippedDeletionScheduled(_logger, user.Id);
-                return Result.Success();
-            }
+            // No token minting and no deletion-window check here: the payload carries the id
+            // alone, and the dispatch processor mints the token and owns the guard at delivery
+            // (ADR-0038 decision 2).
+            _outboxWriter.Enqueue(new PasswordResetRequested(user.Id));
+            await _db.SaveChangesAsync(cancellationToken);
 
-            string token = await _userManager.GeneratePasswordResetTokenAsync(user);
-
-            Result emailResult = await _emailSender.SendPasswordResetEmailAsync(user.Id, command.Email, token, cancellationToken);
-            if (emailResult.IsFailure)
-            {
-                LogPasswordResetEmailFailed(_logger, user.Id, emailResult.Error.Message);
-            }
+            _outboxWriter.NotifyEnqueuedCommitted();
 
             return Result.Success();
         }
 
         [LoggerMessage(EventId = EventIds.ForgotPasswordNonExistent, Level = LogLevel.Information, Message = "Password reset requested for non-existent email {Email}")]
         private static partial void LogPasswordResetNonExistent(ILogger logger, string email);
-
-        [LoggerMessage(EventId = EventIds.ForgotPasswordEmailFailed, Level = LogLevel.Error, Message = "Failed to send password reset email for user {UserId}: {Error}")]
-        private static partial void LogPasswordResetEmailFailed(ILogger logger, Guid userId, string error);
-
-        [LoggerMessage(EventId = EventIds.ForgotPasswordDeletionScheduled, Level = LogLevel.Information, Message = "Password reset skipped for user {UserId}: account deletion is scheduled")]
-        private static partial void LogPasswordResetSkippedDeletionScheduled(ILogger logger, Guid userId);
     }
 
     public void MapEndpoint(IEndpointRouteBuilder endpointRouteBuilder)

@@ -129,6 +129,7 @@ public sealed partial class SecurityStampCookieValidationTests : AsyncLifetimeTe
         await ApiClient.Http.PostAsJsonAsync(
             new Uri("auth/forgot-password", UriKind.Relative),
             new ForgotPasswordRequest(email));
+        await PasswordResetEmailSpy.WaitForCaptureAsync();
         string resetToken = PasswordResetEmailSpy.LastResetToken!;
 
         HttpResponseMessage resetResponse = await PostToResetPasswordPageAsync(new Dictionary<string, string>

@@ -13,7 +13,8 @@ internal static class OutboxMessageRouting
 {
     private static readonly Dictionary<string, string> RoutingKeysByType = new(StringComparer.Ordinal)
     {
-        [nameof(EmailConfirmationRequested)] = RabbitMqTopology.EmailConfirmationRoutingKey
+        [nameof(EmailConfirmationRequested)] = RabbitMqTopology.EmailConfirmationRoutingKey,
+        [nameof(PasswordResetRequested)] = RabbitMqTopology.PasswordResetRoutingKey
     };
 
     public static bool TryGetRoutingKey(string type, [NotNullWhen(true)] out string? routingKey)

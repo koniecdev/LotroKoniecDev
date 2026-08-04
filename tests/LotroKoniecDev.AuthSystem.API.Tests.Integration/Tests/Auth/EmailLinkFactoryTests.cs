@@ -80,10 +80,13 @@ public sealed class EmailLinkFactoryTests : EndpointsTestBase
 
         apiClient.Http.DefaultRequestHeaders.Host = forgedHost;
 
-        // Act
+        // Act — the request only commits the outbox row; the real sender (and with it the link
+        // factory) runs at delivery, in a background scope no forged Host header can ever reach
+        // (ADR-0038), so the capture has to be awaited
         HttpResponseMessage response = await apiClient.Http.PostAsJsonAsync(
             new Uri("auth/forgot-password", UriKind.Relative),
             new ForgotPasswordRequest(registerRequest.Email));
+        await emailServiceSpy.WaitForCaptureAsync();
 
         // Assert
         response.StatusCode.ShouldBe(HttpStatusCode.OK);

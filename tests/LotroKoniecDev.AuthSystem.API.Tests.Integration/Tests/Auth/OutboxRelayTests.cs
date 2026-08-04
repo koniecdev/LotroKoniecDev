@@ -56,6 +56,7 @@ public sealed class OutboxRelayTests : EndpointsTestBase
             .ShouldHaveSingleItem();
         published.MessageId.ShouldBe(message.Id);
         published.RoutingKey.ShouldBe(RabbitMqTopology.EmailConfirmationRoutingKey);
+        published.Type.ShouldBe(nameof(EmailConfirmationRequested));
         published.Payload.ShouldBe(message.Payload);
     }
 

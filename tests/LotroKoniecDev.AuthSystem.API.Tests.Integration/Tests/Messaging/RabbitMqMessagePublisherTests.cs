@@ -20,6 +20,7 @@ public sealed class RabbitMqMessagePublisherTests : IClassFixture<RabbitMqBroker
     private static readonly TimeSpan DeliveryTimeout = TimeSpan.FromSeconds(10);
 
     private const string Payload = """{"IdentityUserId":"a3a2cbb0-0000-0000-0000-000000000001"}""";
+    private const string MessageType = "EmailConfirmationRequested";
 
     private readonly RabbitMqBrokerFixture _broker;
     private RabbitMqMessagePublisher _publisher = null!;
@@ -52,12 +53,13 @@ public sealed class RabbitMqMessagePublisherTests : IClassFixture<RabbitMqBroker
 
         // Act — first publish on a fresh instance also opens the connection and declares topology
         await _publisher.PublishAsync(
-            RabbitMqTopology.EmailConfirmationRoutingKey, Payload, messageId, CancellationToken.None);
+            RabbitMqTopology.EmailConfirmationRoutingKey, MessageType, Payload, messageId, CancellationToken.None);
 
         // Assert — the broker took responsibility and the queue holds the exact wire message
         BasicGetResult delivery = (await GetFromEmailQueueAsync()).ShouldNotBeNull();
         Encoding.UTF8.GetString(delivery.Body.ToArray()).ShouldBe(Payload);
         delivery.BasicProperties.MessageId.ShouldBe(messageId.ToString());
+        delivery.BasicProperties.Type.ShouldBe(MessageType);
         delivery.BasicProperties.DeliveryMode.ShouldBe(DeliveryModes.Persistent);
         delivery.BasicProperties.ContentType.ShouldBe("application/json");
         delivery.BasicProperties.ContentEncoding.ShouldBe(Encoding.UTF8.WebName);
@@ -70,7 +72,7 @@ public sealed class RabbitMqMessagePublisherTests : IClassFixture<RabbitMqBroker
         // sends mandatory with confirmation tracking, so the basic.return must fault this very call
         // instead of silently dropping the message
         Task publish = _publisher.PublishAsync(
-            "billing.invoice", Payload, Guid.CreateVersion7(), CancellationToken.None);
+            "billing.invoice", MessageType, Payload, Guid.CreateVersion7(), CancellationToken.None);
 
         // Assert
         await Should.ThrowAsync<PublishException>(publish);
@@ -81,7 +83,7 @@ public sealed class RabbitMqMessagePublisherTests : IClassFixture<RabbitMqBroker
     {
         // Arrange — a first publish so the long-lived connection and channel exist to be killed
         await _publisher.PublishAsync(
-            RabbitMqTopology.EmailConfirmationRoutingKey, Payload, Guid.CreateVersion7(), CancellationToken.None);
+            RabbitMqTopology.EmailConfirmationRoutingKey, MessageType, Payload, Guid.CreateVersion7(), CancellationToken.None);
         (await GetFromEmailQueueAsync()).ShouldNotBeNull();
 
         await _broker.CloseAllConnectionsAsync();
@@ -105,7 +107,7 @@ public sealed class RabbitMqMessagePublisherTests : IClassFixture<RabbitMqBroker
             try
             {
                 await _publisher.PublishAsync(
-                    RabbitMqTopology.EmailConfirmationRoutingKey, Payload, messageId, CancellationToken.None);
+                    RabbitMqTopology.EmailConfirmationRoutingKey, MessageType, Payload, messageId, CancellationToken.None);
                 return;
             }
             catch (Exception) when (elapsed.Elapsed < DeliveryTimeout)

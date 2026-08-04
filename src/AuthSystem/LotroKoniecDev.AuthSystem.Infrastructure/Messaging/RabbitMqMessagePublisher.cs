@@ -47,20 +47,25 @@ internal sealed partial class RabbitMqMessagePublisher : IMessagePublisher, IAsy
 
     public async Task PublishAsync(
         string routingKey,
+        string type,
         string payload,
         Guid messageId,
         CancellationToken cancellationToken)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(routingKey);
+        ArgumentException.ThrowIfNullOrWhiteSpace(type);
         ArgumentException.ThrowIfNullOrWhiteSpace(payload);
         Ensure.NotEmpty(messageId);
         ObjectDisposedException.ThrowIf(_disposed, this);
 
         IChannel channel = await GetChannelAsync(cancellationToken);
 
+        // Type is the consumer's processor-selection key (ADR-0038): what the payload IS, while
+        // the routing key only says which bindings receive it.
         BasicProperties properties = new()
         {
             MessageId = messageId.ToString(),
+            Type = type,
             ContentType = JsonContentType,
             ContentEncoding = Encoding.UTF8.WebName,
             DeliveryMode = DeliveryModes.Persistent,

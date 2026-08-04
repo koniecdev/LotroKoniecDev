@@ -1,4 +1,3 @@
-using System.Text.Json;
 using FluentValidation;
 using FluentValidation.Results;
 using Microsoft.AspNetCore.Identity;
@@ -10,7 +9,6 @@ using LotroKoniecDev.AuthSystem.API.Outbox;
 using LotroKoniecDev.AuthSystem.Contracts.Features.Auth.Register;
 using LotroKoniecDev.AuthSystem.Domain.Aggregates.ApplicationUsers.Entities;
 using LotroKoniecDev.AuthSystem.Persistence.DbContexts;
-using LotroKoniecDev.AuthSystem.Persistence.Outbox;
 using LotroKoniecDev.SharedKernel.Authorization;
 using LotroKoniecDev.SharedKernel.Constants;
 using LotroKoniecDev.SharedKernel.Messaging;
@@ -68,7 +66,7 @@ internal sealed partial class RegisterUser : IApiEndpoint
         private readonly IValidator<Command> _validator;
         private readonly ILogger<Handler> _logger;
         private readonly AuthDbContext _db;
-        private readonly OutboxSignal _outboxSignal;
+        private readonly OutboxWriter _outboxWriter;
 
         public Handler(
             UserManager<ApplicationUser> userManager,
@@ -76,14 +74,14 @@ internal sealed partial class RegisterUser : IApiEndpoint
             IValidator<Command> validator,
             ILogger<Handler> logger,
             AuthDbContext db,
-            OutboxSignal outboxSignal)
+            OutboxWriter outboxWriter)
         {
             _userManager = userManager;
             _timeProvider = timeProvider;
             _validator = validator;
             _logger = logger;
             _db = db;
-            _outboxSignal = outboxSignal;
+            _outboxWriter = outboxWriter;
         }
 
         public async ValueTask<Result<IdentityId>> Handle(
@@ -167,20 +165,14 @@ internal sealed partial class RegisterUser : IApiEndpoint
                         string.Join(", ", roleIdentityResult.Errors.Select(e => e.Description))));
                 }
 
-                EmailConfirmationRequested emailConfirmationRequested = new(user.Id);
-                OutboxMessage outboxMessage = OutboxMessage.Create(
-                    type: nameof(EmailConfirmationRequested),
-                    payload: JsonSerializer.Serialize(emailConfirmationRequested),
-                    occurredOn: _timeProvider.GetUtcNow());
-
-                _db.OutboxMessages.Add(outboxMessage);
+                _outboxWriter.Enqueue(new EmailConfirmationRequested(user.Id));
                 await _db.SaveChangesAsync(cancellationToken);
 
                 await transaction.CommitAsync(cancellationToken);
 
                 // Only after the commit: the relay reads committed rows, so a nudge sent inside
                 // the transaction would race it into seeing nothing (ADR-0035).
-                _outboxSignal.Notify();
+                _outboxWriter.NotifyEnqueuedCommitted();
 
                 // No cross-context profile creation here (the KittySaver RegisterUser->CreatePerson
                 // saga is deliberately not lifted): the translator profile is provisioned lazily and

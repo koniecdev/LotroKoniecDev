@@ -165,7 +165,8 @@ internal sealed partial class OutboxRelay : BackgroundService
         {
             try
             {
-                await _messagePublisher.PublishAsync(routingKey, message.Payload, message.Id, stoppingToken);
+                await _messagePublisher.PublishAsync(
+                    routingKey, message.Type, message.Payload, message.Id, stoppingToken);
                 message.MarkAsProcessed(_timeProvider.GetUtcNow());
                 published = true;
             }

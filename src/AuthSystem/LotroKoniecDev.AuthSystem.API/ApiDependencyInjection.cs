@@ -91,17 +91,23 @@ internal static class ApiDependencyInjection
 
             services.AddScoped<IUserSessionRevoker, UserSessionRevoker>();
 
-            // Signal-driven outbox relay (ADR-0035): outbox writers nudge the singleton signal
-            // after their commit instead of the relay polling the database on an interval.
+            // Signal-driven outbox relay (ADR-0035): outbox writers stage rows through the shared
+            // writer and nudge the singleton signal after their commit instead of the relay
+            // polling the database on an interval.
             services.AddSingleton<OutboxSignal>();
+            services.AddScoped<OutboxWriter>();
             services.AddHostedService<OutboxRelay>();
 
-            // The consuming side of the same pipeline: broker deliveries -> confirmation e-mails.
-            // The processor is scoped because the consumer resolves it per message, mirroring how
-            // a request would; the pump itself is a singleton hosted service.
-            services.AddScoped<EmailConfirmationRequestProcessor>();
-            services.AddScoped<EmailConfirmationDeliveryProcessor>();
-            services.AddHostedService<EmailConfirmationConsumer>();
+            // The consuming side of the same pipeline: broker deliveries -> e-mails. The keyed
+            // registrations ARE the processor registry (ADR-0038): one line per message type,
+            // keyed by the outbox row's Type — an explicit, compile-visible inventory (ADR-0001,
+            // no assembly scanning). Processors are scoped because the consumer resolves them per
+            // message, mirroring how a request would; the pump itself is a singleton hosted
+            // service.
+            services.AddKeyedScoped<IEmailMessageProcessor, EmailConfirmationRequestProcessor>(
+                nameof(EmailConfirmationRequested));
+            services.AddScoped<EmailDeliveryProcessor>();
+            services.AddHostedService<EmailDispatchConsumer>();
 
             // PERF-02: reference refresh tokens accumulate one row per refresh and are never
             // deleted otherwise; prune expired/invalid tokens and authorizations daily.

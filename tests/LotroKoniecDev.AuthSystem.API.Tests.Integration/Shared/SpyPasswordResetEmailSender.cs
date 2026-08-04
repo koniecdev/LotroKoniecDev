@@ -21,6 +21,23 @@ public sealed class SpyPasswordResetEmailSender : IPasswordResetEmailSender
         return Task.FromResult(Result.Success());
     }
 
+    /// <summary>
+    /// Blocks until a reset e-mail lands or the timeout passes. Forgot-password stopped being
+    /// synchronous when it went through the outbox (commit -> relay -> delivery -> this spy), so
+    /// tests reading <see cref="LastResetToken"/> right after the forgot-password call must wait
+    /// on state, not assume immediacy. Returns silently either way — the assertions stay at the
+    /// call site.
+    /// </summary>
+    public async Task WaitForCaptureAsync(TimeSpan? timeout = null)
+    {
+        using CancellationTokenSource waitWindow = new(timeout ?? TimeSpan.FromSeconds(15));
+
+        while (LastResetToken is null && !waitWindow.IsCancellationRequested)
+        {
+            await Task.Delay(50);
+        }
+    }
+
     public void Reset()
     {
         LastEmail = null;

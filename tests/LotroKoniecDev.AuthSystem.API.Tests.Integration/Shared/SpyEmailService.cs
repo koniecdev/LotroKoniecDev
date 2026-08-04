@@ -18,4 +18,20 @@ public sealed class SpyEmailService : IEmailService
         LastBody = body;
         return Task.FromResult(Result.Success());
     }
+
+    /// <summary>
+    /// Blocks until an e-mail lands or the timeout passes. E-mails leave the request path through
+    /// the outbox (commit -> relay -> delivery -> this spy, ADR-0038), so tests reading
+    /// <see cref="LastBody"/> right after the triggering call must wait on state, not assume
+    /// immediacy. Returns silently either way — the assertions stay at the call site.
+    /// </summary>
+    public async Task WaitForCaptureAsync(TimeSpan? timeout = null)
+    {
+        using CancellationTokenSource waitWindow = new(timeout ?? TimeSpan.FromSeconds(15));
+
+        while (LastBody is null && !waitWindow.IsCancellationRequested)
+        {
+            await Task.Delay(50);
+        }
+    }
 }

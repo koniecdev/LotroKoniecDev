@@ -42,6 +42,7 @@ public sealed partial class ResetPasswordPageTests : EndpointsTestBase
         await ApiClient.Http.PostAsJsonAsync(
             new Uri("auth/forgot-password", UriKind.Relative),
             new ForgotPasswordRequest(registerRequest.Email));
+        await PasswordResetEmailSpy.WaitForCaptureAsync();
         string resetToken = PasswordResetEmailSpy.LastResetToken!;
 
         // Complete the reset through the browser Razor page

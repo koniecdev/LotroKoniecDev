@@ -34,6 +34,11 @@ public static class RabbitMqTopology
     public const string EmailConfirmationRoutingKey = "email.confirmation";
 
     /// <summary>
+    /// Routing key of the password reset e-mail.
+    /// </summary>
+    public const string PasswordResetRoutingKey = "email.password-reset";
+
+    /// <summary>
     /// Dead-letter exchange: the broker republishes here every message that
     /// <see cref="EmailQueue"/> gives up on — rejected as poison by the consumer, or past
     /// <see cref="EmailDeliveryLimit"/>. Fanout, because "everything that dies goes to the one

@@ -106,6 +106,8 @@ internal static class ApiDependencyInjection
             // service.
             services.AddKeyedScoped<IEmailMessageProcessor, EmailConfirmationRequestProcessor>(
                 nameof(EmailConfirmationRequested));
+            services.AddKeyedScoped<IEmailMessageProcessor, PasswordResetRequestProcessor>(
+                nameof(PasswordResetRequested));
             services.AddScoped<EmailDeliveryProcessor>();
             services.AddHostedService<EmailDispatchConsumer>();
 

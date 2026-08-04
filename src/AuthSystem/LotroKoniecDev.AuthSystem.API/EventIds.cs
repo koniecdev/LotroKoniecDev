@@ -42,9 +42,9 @@ internal static class EventIds
     // Data Export (2240–2249)
     public const int ExportDataCompleted = 2241;
 
-    // Forgot Password (2250–2259)
+    // Forgot Password (2250–2259) — 2251 (ForgotPasswordEmailFailed) retired: the send left the
+    // request path for the outbox pipeline (ADR-0038), so the handler no longer observes SMTP
     public const int ForgotPasswordNonExistent = 2250;
-    public const int ForgotPasswordEmailFailed = 2251;
 
     // Logout (2260–2269)
     public const int UserLoggedOut = 2260;
@@ -96,13 +96,19 @@ internal static class EventIds
     // Startup (2350–2359)
     public const int StartupTransientDatabaseFailure = 2350;
 
+    // Password Reset Dispatch (2360–2369)
+    public const int PasswordResetUserGone = 2360;
+    public const int PasswordResetAddressMissing = 2361;
+    public const int PasswordResetDeletionScheduled = 2362;
+
     // Middleware (2400–2499)
     public const int UnauthorizedAccessAttempt = 2400;
     public const int ForbiddenAccessAttempt = 2401;
 
-    // Pages (2600–2699)
+    // Pages (2600–2699) — 2610 carried PasswordResetTokenGenerated until the page stopped minting
+    // tokens (ADR-0038); the id now marks the outbox write that replaced the in-request send
     public const int EmailConfirmedViaUi = 2600;
-    public const int PasswordResetTokenGenerated = 2610;
+    public const int PasswordResetRequestQueued = 2610;
     public const int LoginUserNotFound = 2620;
     public const int LoginAccountLockedOut = 2621;
     public const int LoginWrongPassword = 2622;
@@ -121,7 +127,8 @@ internal static class EventIds
     public const int GdprDeletionScheduleArtifactRevocationFailed = 2704;
     public const int GdprDeletionCancelStampFailed = 2705;
 
-    // Forgot/Reset Password deletion-window gates (2710–2719)
-    public const int ForgotPasswordDeletionScheduled = 2710;
+    // Forgot/Reset Password deletion-window gates (2710–2719) — 2710
+    // (ForgotPasswordDeletionScheduled) retired: the forgot-password gate moved to the dispatch
+    // processor (ADR-0038 decision 2), which logs 2362 instead
     public const int ResetPasswordDeletionScheduled = 2711;
 }

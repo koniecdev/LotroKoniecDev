@@ -1,8 +1,9 @@
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
-using LotroKoniecDev.AuthSystem.API.Services.Emails;
+using LotroKoniecDev.AuthSystem.API.Outbox;
 using LotroKoniecDev.AuthSystem.Domain.Aggregates.ApplicationUsers.Entities;
+using LotroKoniecDev.AuthSystem.Persistence.DbContexts;
 
 namespace LotroKoniecDev.AuthSystem.API.Pages.Account;
 
@@ -15,16 +16,19 @@ internal sealed partial class ForgotPasswordModel : PageModel
         new PasswordHasher<ApplicationUser>().HashPassword(new ApplicationUser(), "DummyP@ssw0rd!");
 
     private readonly UserManager<ApplicationUser> _userManager;
-    private readonly IPasswordResetEmailSender _emailSender;
+    private readonly AuthDbContext _db;
+    private readonly OutboxWriter _outboxWriter;
     private readonly ILogger<ForgotPasswordModel> _logger;
 
     public ForgotPasswordModel(
         UserManager<ApplicationUser> userManager,
-        IPasswordResetEmailSender emailSender,
+        AuthDbContext db,
+        OutboxWriter outboxWriter,
         ILogger<ForgotPasswordModel> logger)
     {
         _userManager = userManager;
-        _emailSender = emailSender;
+        _db = db;
+        _outboxWriter = outboxWriter;
         _logger = logger;
     }
 
@@ -48,17 +52,24 @@ internal sealed partial class ForgotPasswordModel : PageModel
 
         ApplicationUser? user = await _userManager.FindByEmailAsync(Email);
 
-        if (user is null)
+        // Every path pays the same PBKDF2 cost. Burning the dummy hash only on the
+        // not-found branch would make existing accounts answer measurably FASTER
+        // (their path is just a cheap outbox insert), turning response time into an
+        // inverted user-enumeration oracle (ADR-0038 decision 5).
+        _ = _userManager.PasswordHasher.VerifyHashedPassword(
+            new ApplicationUser(), DummyPasswordHash, "DummyP@ssw0rd!");
+
+        if (user is not null)
         {
-            // Perform dummy work to prevent timing-based user enumeration
-            _ = _userManager.PasswordHasher.VerifyHashedPassword(
-                new ApplicationUser(), DummyPasswordHash, "DummyP@ssw0rd!");
-        }
-        else
-        {
-            string token = await _userManager.GeneratePasswordResetTokenAsync(user);
-            await _emailSender.SendPasswordResetEmailAsync(user.Id, Email, token, HttpContext.RequestAborted);
-            LogPasswordResetTokenGenerated(_logger, user.Id);
+            // No token minting and no deletion-window check here: the payload carries the id
+            // alone, and the dispatch processor mints the token and owns the guard at delivery
+            // (ADR-0038 decision 2).
+            _outboxWriter.Enqueue(new PasswordResetRequested(user.Id));
+            await _db.SaveChangesAsync(HttpContext.RequestAborted);
+
+            _outboxWriter.NotifyEnqueuedCommitted();
+
+            LogPasswordResetRequestQueued(_logger, user.Id);
         }
 
         // Always show success to prevent email enumeration
@@ -66,6 +77,6 @@ internal sealed partial class ForgotPasswordModel : PageModel
         return Page();
     }
 
-    [LoggerMessage(EventId = EventIds.PasswordResetTokenGenerated, Level = LogLevel.Information, Message = "Password reset token generated for user {UserId}")]
-    private static partial void LogPasswordResetTokenGenerated(ILogger logger, Guid userId);
+    [LoggerMessage(EventId = EventIds.PasswordResetRequestQueued, Level = LogLevel.Information, Message = "Password reset request queued for user {UserId}")]
+    private static partial void LogPasswordResetRequestQueued(ILogger logger, Guid userId);
 }

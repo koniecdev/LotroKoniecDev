@@ -38,6 +38,17 @@ try
 
     WebApplicationBuilder builder = WebApplication.CreateBuilder(args);
 
+    // DI validation in EVERY environment, not just Development (#572): a captive dependency or an
+    // unresolvable constructor that only manifests under Production config fails the container at
+    // startup — where CD smokes the 0%-traffic candidate — instead of surfacing as a 500 on first
+    // hit. Registered-services-only: a forgotten closed handler registration is still resolved at
+    // request time, so endpoint integration tests remain the guard for that.
+    builder.Host.UseDefaultServiceProvider(static (_, options) =>
+    {
+        options.ValidateScopes = true;
+        options.ValidateOnBuild = true;
+    });
+
     string? otlpEndpoint = builder.Configuration["OTEL_EXPORTER_OTLP_ENDPOINT"];
 
     builder.Services.AddSerilog((serviceProvider, loggerConfiguration) =>

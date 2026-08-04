@@ -49,7 +49,7 @@ public sealed class EmailConfirmationPipelineTests : IClassFixture<BrokeredAuthS
         _confirmationEmailSpy = factory.Services.GetRequiredService<SpyAccountConfirmationEmailSender>();
 
         JsonSerializerOptions jsonSerializerOptions =
-            factory.Services.GetRequiredService<IOptionsSnapshot<JsonOptions>>().Value.SerializerOptions;
+            factory.Services.GetRequiredService<IOptions<JsonOptions>>().Value.SerializerOptions;
         _apiClient = new TestApiClient(factory.CreateClient(), jsonSerializerOptions);
     }
 

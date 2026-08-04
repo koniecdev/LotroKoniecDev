@@ -80,11 +80,17 @@ public class TranslationSystemApiFactory : WebApplicationFactory<Program>, IAsyn
             });
 
             // AddDbContext calls compose (EF Core 9+): this appends the recording interceptors to
-            // the production registrations of the two contexts instead of replacing them.
-            services.AddDbContext<ApplicationReadDbContext>(options =>
-                options.AddInterceptors(ReadContextSqlRecorder));
-            services.AddDbContext<ApplicationWriteDbContext>(options =>
-                options.AddInterceptors(WriteContextSqlRecorder));
+            // the production registrations of the two contexts instead of replacing them. The
+            // production contexts are POOLED (singleton options), so the appended configuration must
+            // be singleton too — the default scoped optionsLifetime trips ValidateScopes (#572).
+            services.AddDbContext<ApplicationReadDbContext>(
+                options => options.AddInterceptors(ReadContextSqlRecorder),
+                contextLifetime: ServiceLifetime.Scoped,
+                optionsLifetime: ServiceLifetime.Singleton);
+            services.AddDbContext<ApplicationWriteDbContext>(
+                options => options.AddInterceptors(WriteContextSqlRecorder),
+                contextLifetime: ServiceLifetime.Scoped,
+                optionsLifetime: ServiceLifetime.Singleton);
         });
 
         builder.ConfigureLogging(logging =>

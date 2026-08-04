@@ -48,7 +48,7 @@ public sealed class AccountDeletionPipelineTests : IClassFixture<BrokeredAuthSys
         _deletionEmailSpy = factory.Services.GetRequiredService<SpyAccountDeletionEmailSender>();
 
         JsonSerializerOptions jsonSerializerOptions =
-            factory.Services.GetRequiredService<IOptionsSnapshot<JsonOptions>>().Value.SerializerOptions;
+            factory.Services.GetRequiredService<IOptions<JsonOptions>>().Value.SerializerOptions;
         _apiClient = new TestApiClient(factory.CreateClient(), jsonSerializerOptions);
     }
 

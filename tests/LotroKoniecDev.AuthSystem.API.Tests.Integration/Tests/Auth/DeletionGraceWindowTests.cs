@@ -33,7 +33,7 @@ public sealed partial class DeletionGraceWindowTests : AsyncLifetimeTestBase
     public DeletionGraceWindowTests(AuthSystemApiFactory appFactory) : base(appFactory)
     {
         JsonSerializerOptions jsonSerializerOptions =
-            appFactory.Services.GetRequiredService<IOptionsSnapshot<JsonOptions>>().Value.SerializerOptions;
+            appFactory.Services.GetRequiredService<IOptions<JsonOptions>>().Value.SerializerOptions;
 
         ApiClient = new TestApiClient(appFactory.CreateClient(), jsonSerializerOptions);
 

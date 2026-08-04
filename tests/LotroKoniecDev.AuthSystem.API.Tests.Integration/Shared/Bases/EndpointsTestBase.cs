@@ -12,7 +12,7 @@ public abstract class EndpointsTestBase : AsyncLifetimeTestBase
     protected EndpointsTestBase(AuthSystemApiFactory appFactory) : base(appFactory)
     {
         JsonSerializerOptions jsonSerializerOptions =
-            appFactory.Services.GetRequiredService<IOptionsSnapshot<JsonOptions>>().Value.SerializerOptions;
+            appFactory.Services.GetRequiredService<IOptions<JsonOptions>>().Value.SerializerOptions;
 
         ApiClient = new TestApiClient(appFactory.CreateClient(), jsonSerializerOptions);
     }

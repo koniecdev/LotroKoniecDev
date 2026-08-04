@@ -176,7 +176,7 @@ public sealed class ForwardedHeadersTrustTests
         HttpRequestMessage request)
     {
         JsonSerializerOptions jsonSerializerOptions =
-            factory.Services.GetRequiredService<IOptionsSnapshot<JsonOptions>>().Value.SerializerOptions;
+            factory.Services.GetRequiredService<IOptions<JsonOptions>>().Value.SerializerOptions;
 
         using HttpClient httpClient = factory.CreateClient();
         HttpResponseMessage httpResponse = await httpClient.SendAsync(request);

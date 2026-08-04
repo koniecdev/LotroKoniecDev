@@ -14,14 +14,24 @@ public sealed class TypeRegistrar : ITypeRegistrar
 
     public ITypeResolver Build()
     {
-        ServiceProvider provider = _services.BuildServiceProvider();
+        // DI validation regardless of environment (#572): a captive dependency or an unresolvable
+        // constructor fails the CLI at startup instead of mid-command, halfway through a DAT write.
+        ServiceProvider provider = _services.BuildServiceProvider(new ServiceProviderOptions
+        {
+            ValidateScopes = true,
+            ValidateOnBuild = true
+        });
         TypeResolver typeResolver = new(provider);
         return typeResolver;
     }
 
+    // Spectre registers the command types (ExportCommand, PatchCommand, LaunchCommand) through this
+    // method, and every one of them injects scoped handlers. Registering them as singletons is a
+    // captive dependency: the container refuses to build once ValidateScopes is on. Scoped keeps the
+    // lifetimes honest — TypeResolver resolves everything from a single process-lifetime scope.
     public void Register(Type service, Type implementation)
     {
-        _services.AddSingleton(service, implementation);
+        _services.AddScoped(service, implementation);
     }
 
     public void RegisterInstance(Type service, object implementation)

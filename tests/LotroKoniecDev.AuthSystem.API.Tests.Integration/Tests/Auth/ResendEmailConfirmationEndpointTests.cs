@@ -1,7 +1,11 @@
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
+using LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared;
 using LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared.Bases;
 using LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared.Factories;
 using LotroKoniecDev.AuthSystem.Contracts.Features.Auth.EmailConfirmation;
 using LotroKoniecDev.AuthSystem.Contracts.Features.Auth.Register;
+using LotroKoniecDev.AuthSystem.Persistence.DbContexts;
 
 namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Tests.Auth;
 
@@ -197,5 +201,50 @@ public sealed class ResendEmailConfirmationEndpointTests : EndpointsTestBase
 
         // Assert — should fail because email is already confirmed
         response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+    }
+
+    [Fact]
+    public async Task ResendEmailConfirmation_ShouldSendDirectlyAndWriteNoOutboxRow_WhenBrokerIsDown()
+    {
+        // Arrange — resend is the deliberate escape hatch of ADR-0038 decision 4: it must keep
+        // delivering precisely when the pipeline is the thing that is broken, so the spy broker
+        // refuses every publish for the duration of the act.
+        (RegisterRequest request, _) =
+            await UserFactory.RegisterRandomUserUnconfirmedAsync(ApiClient, Faker, AccountConfirmationEmailSpy);
+
+        AccountConfirmationEmailSpy.Reset();
+
+        SpyMessagePublisher messagePublisherSpy = Factory.Services.GetRequiredService<SpyMessagePublisher>();
+        int outboxRowsBeforeResend = await CountOutboxRowsAsync();
+
+        messagePublisherSpy.FailWith = new InvalidOperationException("broker down");
+
+        try
+        {
+            // Act
+            HttpResponseMessage response = await ApiClient.Http.PostAsJsonAsync(
+                new Uri("auth/resend-email-confirmation", UriKind.Relative),
+                new ResendEmailConfirmationRequest(request.Email));
+
+            // Assert — the e-mail was captured before the response returned (in-request, direct
+            // path) and the outbox grew by nothing: with zero new rows and a refusing broker, the
+            // pipeline cannot be what delivered it. A refactor routing resend through the outbox
+            // flips both assertions.
+            response.StatusCode.ShouldBe(HttpStatusCode.OK);
+            AccountConfirmationEmailSpy.CallCount.ShouldBe(1);
+            AccountConfirmationEmailSpy.LastEmail.ShouldBe(request.Email);
+            (await CountOutboxRowsAsync()).ShouldBe(outboxRowsBeforeResend);
+        }
+        finally
+        {
+            messagePublisherSpy.FailWith = null;
+        }
+    }
+
+    private async Task<int> CountOutboxRowsAsync()
+    {
+        await using AsyncServiceScope scope = Factory.Services.CreateAsyncScope();
+        AuthDbContext db = scope.ServiceProvider.GetRequiredService<AuthDbContext>();
+        return await db.OutboxMessages.AsNoTracking().CountAsync();
     }
 }

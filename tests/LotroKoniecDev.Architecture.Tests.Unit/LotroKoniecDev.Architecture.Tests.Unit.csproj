@@ -1,0 +1,60 @@
+<Project Sdk="Microsoft.NET.Sdk">
+    <PropertyGroup>
+        <TargetFramework>net10.0</TargetFramework>
+    </PropertyGroup>
+
+    <PropertyGroup>
+        <IsPackable>false</IsPackable>
+        <RootNamespace>LotroKoniecDev.Architecture.Tests.Unit</RootNamespace>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <PackageReference Include="coverlet.collector">
+            <PrivateAssets>all</PrivateAssets>
+            <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+        </PackageReference>
+        <PackageReference Include="Microsoft.NET.Test.Sdk"/>
+        <PackageReference Include="NetArchTest.Rules" />
+        <PackageReference Include="Shouldly" />
+        <PackageReference Include="xunit"/>
+        <PackageReference Include="xunit.runner.visualstudio">
+            <PrivateAssets>all</PrivateAssets>
+            <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+        </PackageReference>
+    </ItemGroup>
+
+    <ItemGroup>
+        <Using Include="Xunit"/>
+        <Using Include="Shouldly"/>
+    </ItemGroup>
+
+    <!-- Every cross-platform production assembly is referenced so the rules run against real IL.
+         The two patcher `net10.0-windows` assemblies (Infrastructure, Cli) cannot be referenced from
+         this `net10.0` project; they are the TOP of the patcher layering, so every rule about them is
+         expressed as a forbidden NAMESPACE on the assemblies below — no reference required. -->
+    <ItemGroup>
+        <ProjectReference Include="..\..\src\SharedKernel\LotroKoniecDev.SharedKernel\LotroKoniecDev.SharedKernel.csproj" />
+        <ProjectReference Include="..\..\src\Patcher\LotroKoniecDev.Primitives\LotroKoniecDev.Primitives.csproj" />
+        <ProjectReference Include="..\..\src\Patcher\LotroKoniecDev.Domain\LotroKoniecDev.Domain.csproj" />
+        <ProjectReference Include="..\..\src\Patcher\LotroKoniecDev.Application\LotroKoniecDev.Application.csproj" />
+        <ProjectReference Include="..\..\src\TranslationSystem\LotroKoniecDev.TranslationSystem.Primitives\LotroKoniecDev.TranslationSystem.Primitives.csproj" />
+        <ProjectReference Include="..\..\src\TranslationSystem\LotroKoniecDev.TranslationSystem.Domain\LotroKoniecDev.TranslationSystem.Domain.csproj" />
+        <ProjectReference Include="..\..\src\TranslationSystem\LotroKoniecDev.TranslationSystem.ReadModels\LotroKoniecDev.TranslationSystem.ReadModels.csproj" />
+        <ProjectReference Include="..\..\src\TranslationSystem\LotroKoniecDev.TranslationSystem.ReadModels.EntityFramework\LotroKoniecDev.TranslationSystem.ReadModels.EntityFramework.csproj" />
+        <ProjectReference Include="..\..\src\TranslationSystem\LotroKoniecDev.TranslationSystem.Projections\LotroKoniecDev.TranslationSystem.Projections.csproj" />
+        <ProjectReference Include="..\..\src\TranslationSystem\LotroKoniecDev.TranslationSystem.Persistence\LotroKoniecDev.TranslationSystem.Persistence.csproj" />
+        <ProjectReference Include="..\..\src\TranslationSystem\LotroKoniecDev.TranslationSystem.Contracts\LotroKoniecDev.TranslationSystem.Contracts.csproj" />
+        <ProjectReference Include="..\..\src\TranslationSystem\LotroKoniecDev.TranslationSystem.API\LotroKoniecDev.TranslationSystem.API.csproj" />
+        <ProjectReference Include="..\..\src\AuthSystem\LotroKoniecDev.AuthSystem.Domain\LotroKoniecDev.AuthSystem.Domain.csproj" />
+        <ProjectReference Include="..\..\src\AuthSystem\LotroKoniecDev.AuthSystem.Contracts\LotroKoniecDev.AuthSystem.Contracts.csproj" />
+        <ProjectReference Include="..\..\src\AuthSystem\LotroKoniecDev.AuthSystem.Infrastructure\LotroKoniecDev.AuthSystem.Infrastructure.csproj" />
+        <ProjectReference Include="..\..\src\AuthSystem\LotroKoniecDev.AuthSystem.Persistence\LotroKoniecDev.AuthSystem.Persistence.csproj" />
+        <ProjectReference Include="..\..\src\AuthSystem\LotroKoniecDev.AuthSystem.API\LotroKoniecDev.AuthSystem.API.csproj" />
+        <ProjectReference Include="..\..\src\Frontend\LotroKoniecDev.Frontend\LotroKoniecDev.Frontend.csproj" />
+        <ProjectReference Include="..\..\src\Utilities\LotroKoniecDev.Hateoas.Abstractions\LotroKoniecDev.Hateoas.Abstractions.csproj" />
+        <ProjectReference Include="..\..\src\Utilities\LotroKoniecDev.Hateoas\LotroKoniecDev.Hateoas.csproj" />
+        <ProjectReference Include="..\..\src\Utilities\LotroKoniecDev.Logging\LotroKoniecDev.Logging.csproj" />
+        <ProjectReference Include="..\..\src\Utilities\LotroKoniecDev.Options\LotroKoniecDev.Options.csproj" />
+    </ItemGroup>
+
+</Project>

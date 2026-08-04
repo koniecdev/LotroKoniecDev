@@ -49,7 +49,8 @@ inside it (see Context: the `RegisterUser` explicit-transaction trap). With one 
 call is explicit in the handler. If writers multiply (≥3), promote the convention to a
 `SaveChangesInterceptor`+`IDbTransactionInterceptor` pair via a follow-up ADR; until then the
 explicit call is the YAGNI-correct form. A forgotten notify is a soft failure: the row waits for
-a sweep instead of being lost.
+a sweep instead of being lost. *(The ≥3 trigger fired with the MSG migration — answered by
+ADR-0038 decision 6: explicit call retained, interceptor still declined.)*
 
 ### 3. Two sweeps bound the orphan window
 

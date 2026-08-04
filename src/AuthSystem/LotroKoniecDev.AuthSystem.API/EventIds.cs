@@ -29,13 +29,14 @@ internal static class EventIds
     public const int GdprErasureArtifactsCleanupFailed = 2228;
     public const int GdprErasureEmergencyLockout = 2229;
     public const int GdprErasureEmergencyLockoutFailed = 2230;
+    // 2235 (GdprDeletionScheduledEmailFailed), 2236 (GdprDeletionCancelledEmailFailed) and
+    // 2237 (GdprDeletionScheduleUnwound) retired: the deletion e-mails left the request path for
+    // the outbox pipeline (ADR-0038), so the handlers no longer observe SMTP and the unwind
+    // compensation the failure triggered is gone (decision 5)
     public const int GdprDeletionScheduled = 2231;
     public const int GdprDeletionCancelled = 2232;
     public const int GdprDeletionFinalized = 2233;
     public const int GdprCancelTokenInvalid = 2234;
-    public const int GdprDeletionScheduledEmailFailed = 2235;
-    public const int GdprDeletionCancelledEmailFailed = 2236;
-    public const int GdprDeletionScheduleUnwound = 2237;
     public const int GdprDeletionFinalizerRunFailed = 2238;
     public const int GdprDeletionFinalizerUserFailed = 2239;
 
@@ -101,6 +102,17 @@ internal static class EventIds
     public const int PasswordResetAddressMissing = 2361;
     public const int PasswordResetDeletionScheduled = 2362;
 
+    // Deletion-Scheduled Dispatch (2370–2379)
+    public const int DeletionScheduledUserGone = 2370;
+    public const int DeletionScheduledScheduleGone = 2371;
+    public const int DeletionScheduledWindowOver = 2372;
+    public const int DeletionScheduledAddressMissing = 2373;
+
+    // Deletion-Cancelled Dispatch (2380–2389)
+    public const int DeletionCancelledUserGone = 2380;
+    public const int DeletionCancelledRescheduled = 2381;
+    public const int DeletionCancelledAddressMissing = 2382;
+
     // Middleware (2400–2499)
     public const int UnauthorizedAccessAttempt = 2400;
     public const int ForbiddenAccessAttempt = 2401;
@@ -119,13 +131,11 @@ internal static class EventIds
     public const int RegisterCompletedViaUi = 2640;
     public const int DeletionCancelledViaUi = 2650;
 
-    // GDPR Deletion Scheduling internals (2700–2709)
+    // GDPR Deletion Scheduling internals (2700–2709) — 2701–2703 and 2705 retired: the unwind
+    // compensation is gone (ADR-0038 decision 5) and both deletion flows now rotate the security
+    // stamp inside their single save (decision 2), so there is no separate stamp update to fail
     public const int GdprDeletionSchedulingUpdateFailed = 2700;
-    public const int GdprDeletionScheduleUnwindFailed = 2701;
-    public const int GdprDeletionScheduleUnwindException = 2702;
-    public const int GdprDeletionScheduleStampFailed = 2703;
     public const int GdprDeletionScheduleArtifactRevocationFailed = 2704;
-    public const int GdprDeletionCancelStampFailed = 2705;
 
     // Forgot/Reset Password deletion-window gates (2710–2719) — 2710
     // (ForgotPasswordDeletionScheduled) retired: the forgot-password gate moved to the dispatch

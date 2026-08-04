@@ -139,6 +139,9 @@ public sealed partial class DeletionGraceWindowTests : AsyncLifetimeTestBase
         await ScheduleDeletionAsync(registerRequest.Email);
         string cancelToken = AccountDeletionEmailSpy.LastCancelToken!;
 
+        // The cancel token above was minted at delivery against the post-schedule stamp
+        // (ADR-0038 decision 2) — the attack below must not be able to invalidate it.
+
         ChangePasswordRequest changeRequest = new(TestPassword, "AttackerNewPass1!");
         using HttpRequestMessage request = new(HttpMethod.Post, "auth/change-password");
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", preScheduleAccessToken);
@@ -292,6 +295,10 @@ public sealed partial class DeletionGraceWindowTests : AsyncLifetimeTestBase
 
         HttpResponseMessage response = await ApiClient.Http.SendAsync(request);
         response.StatusCode.ShouldBe(HttpStatusCode.NoContent);
+
+        // The cancel token arrives through the pipeline (ADR-0038), not the request path —
+        // callers read it off the spy right after this returns, so wait for the delivery here
+        await AccountDeletionEmailSpy.WaitForScheduledCaptureAsync();
     }
 
     private async Task<string> GetAccessTokenAsync(string email)

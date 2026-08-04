@@ -4,7 +4,7 @@ using Microsoft.AspNetCore.Identity;
 using LotroKoniecDev.AuthSystem.API.ApiErrors;
 using LotroKoniecDev.AuthSystem.API.Common;
 using LotroKoniecDev.AuthSystem.API.Extensions;
-using LotroKoniecDev.AuthSystem.API.Services.Emails;
+using LotroKoniecDev.AuthSystem.API.Outbox;
 using LotroKoniecDev.AuthSystem.Contracts.Features.Auth.Account;
 using LotroKoniecDev.AuthSystem.Domain.Aggregates.ApplicationUsers.Entities;
 using LotroKoniecDev.AuthSystem.Persistence.Identity;
@@ -20,6 +20,9 @@ namespace LotroKoniecDev.AuthSystem.API.Features.Auth;
 /// the whole grace window, so the emailed token is the only proof of ownership.
 /// Cancelling invalidates the current password (it may be the attacker's only asset)
 /// and hands back a fresh reset token that forces the password-reset flow.
+/// The courtesy notice travels through the outbox pipeline (ADR-0038): its row commits
+/// atomically with the cancellation, turning the former fire-and-forget send into a
+/// guaranteed delivery.
 /// </summary>
 internal sealed partial class CancelAccountDeletion : IApiEndpoint
 {
@@ -56,18 +59,18 @@ internal sealed partial class CancelAccountDeletion : IApiEndpoint
             new PasswordHasher<ApplicationUser>().HashPassword(new ApplicationUser(), "DummyP@ssw0rd!");
 
         private readonly UserManager<ApplicationUser> _userManager;
-        private readonly IAccountDeletionEmailSender _emailSender;
+        private readonly OutboxWriter _outboxWriter;
         private readonly IValidator<Command> _validator;
         private readonly ILogger<Handler> _logger;
 
         public Handler(
             UserManager<ApplicationUser> userManager,
-            IAccountDeletionEmailSender emailSender,
+            OutboxWriter outboxWriter,
             IValidator<Command> validator,
             ILogger<Handler> logger)
         {
             _userManager = userManager;
-            _emailSender = emailSender;
+            _outboxWriter = outboxWriter;
             _validator = validator;
             _logger = logger;
         }
@@ -118,6 +121,14 @@ internal sealed partial class CancelAccountDeletion : IApiEndpoint
             user.AccessFailedCount = 0;
             user.PasswordHash = null;
 
+            // Rotating the stamp makes the cancel token single-use and kills any leftover
+            // sessions. Assigned INSIDE the same save that commits the outbox row (ADR-0038
+            // decision 2) — the notice carries no token, but the rule keeps every e-mail
+            // writer's stamp final before its row becomes visible to the relay.
+            user.SecurityStamp = Guid.NewGuid().ToString();
+
+            _outboxWriter.Enqueue(new AccountDeletionCancelled(user.Id));
+
             IdentityResult updateResult = await _userManager.UpdateAsync(user);
             if (!updateResult.Succeeded)
             {
@@ -125,22 +136,11 @@ internal sealed partial class CancelAccountDeletion : IApiEndpoint
                 return Result.Failure<CancelledDeletion>(AuthErrors.CancelDeletionFailed(errors));
             }
 
-            // Rotating the stamp makes the cancel token single-use and kills any leftover
-            // sessions; the reset token must be generated AFTER the rotation to stay valid.
-            IdentityResult stampResult = await _userManager.UpdateSecurityStampAsync(user);
-            if (!stampResult.Succeeded)
-            {
-                LogSecurityStampUpdateFailed(_logger, user.Id);
-            }
+            _outboxWriter.NotifyEnqueuedCommitted();
 
+            // Minted AFTER the commit, against the committed stamp — a token minted before the
+            // save would die with the rotation it travels next to.
             string passwordResetToken = await _userManager.GeneratePasswordResetTokenAsync(user);
-
-            Result emailResult = await _emailSender.SendDeletionCancelledEmailAsync(
-                user.Id, user.Email!, cancellationToken);
-            if (emailResult.IsFailure)
-            {
-                LogCancelledEmailFailed(_logger, user.Id, emailResult.Error.Message);
-            }
 
             LogDeletionCancelled(_logger, user.Id, command.IpAddress, command.UserAgent);
 
@@ -152,12 +152,6 @@ internal sealed partial class CancelAccountDeletion : IApiEndpoint
 
         [LoggerMessage(EventId = EventIds.GdprCancelTokenInvalid, Level = LogLevel.Warning, Message = "Invalid cancel-deletion token presented for {MaskedEmail}. IP: {IpAddress}, UserAgent: {UserAgent}")]
         private static partial void LogCancelTokenInvalid(ILogger logger, string maskedEmail, string? ipAddress, string? userAgent);
-
-        [LoggerMessage(EventId = EventIds.GdprDeletionCancelledEmailFailed, Level = LogLevel.Error, Message = "Failed to send the deletion-cancelled confirmation email for user {UserId}: {Error}")]
-        private static partial void LogCancelledEmailFailed(ILogger logger, Guid userId, string error);
-
-        [LoggerMessage(EventId = EventIds.GdprDeletionCancelStampFailed, Level = LogLevel.Error, Message = "Failed to update security stamp for user {UserId} while cancelling deletion")]
-        private static partial void LogSecurityStampUpdateFailed(ILogger logger, Guid userId);
     }
 
     public void MapEndpoint(IEndpointRouteBuilder endpointRouteBuilder)

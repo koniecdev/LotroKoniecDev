@@ -14,7 +14,9 @@ internal static class OutboxMessageRouting
     private static readonly Dictionary<string, string> RoutingKeysByType = new(StringComparer.Ordinal)
     {
         [nameof(EmailConfirmationRequested)] = RabbitMqTopology.EmailConfirmationRoutingKey,
-        [nameof(PasswordResetRequested)] = RabbitMqTopology.PasswordResetRoutingKey
+        [nameof(PasswordResetRequested)] = RabbitMqTopology.PasswordResetRoutingKey,
+        [nameof(AccountDeletionScheduled)] = RabbitMqTopology.DeletionScheduledRoutingKey,
+        [nameof(AccountDeletionCancelled)] = RabbitMqTopology.DeletionCancelledRoutingKey
     };
 
     public static bool TryGetRoutingKey(string type, [NotNullWhen(true)] out string? routingKey)

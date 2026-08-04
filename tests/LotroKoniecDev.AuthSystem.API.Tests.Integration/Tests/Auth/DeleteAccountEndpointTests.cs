@@ -2,6 +2,7 @@ using System.Net.Http.Headers;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using LotroKoniecDev.AuthSystem.API.Features.Auth;
+using LotroKoniecDev.AuthSystem.API.Outbox;
 using LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared;
 using LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared.Bases;
 using LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared.Factories;
@@ -9,6 +10,7 @@ using LotroKoniecDev.AuthSystem.Contracts.Features.Auth.Account;
 using LotroKoniecDev.AuthSystem.Contracts.Features.Auth.Register;
 using LotroKoniecDev.AuthSystem.Domain.Aggregates.ApplicationUsers.Entities;
 using LotroKoniecDev.AuthSystem.Persistence.DbContexts;
+using LotroKoniecDev.AuthSystem.Persistence.Outbox;
 using LotroKoniecDev.SharedKernel.StronglyTypedIds;
 
 namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Tests.Auth;
@@ -78,7 +80,7 @@ public sealed class DeleteAccountEndpointTests : EndpointsTestBase
     }
 
     [Fact]
-    public async Task DeleteAccount_ShouldSendCancellationEmail_WhenScheduling()
+    public async Task DeleteAccount_ShouldDeliverCancellationEmail_WhenScheduling()
     {
         // Arrange
         (RegisterRequest registerRequest, _) =
@@ -86,14 +88,42 @@ public sealed class DeleteAccountEndpointTests : EndpointsTestBase
 
         string accessToken = await GetAccessTokenAsync(registerRequest.Email, TestPassword);
 
-        // Act
+        // Act — the request only commits the outbox row; the e-mail arrives through the
+        // pipeline (relay -> delivery -> spy), so the capture has to be awaited (ADR-0038)
         HttpResponseMessage response = await SendDeleteRequestAsync(accessToken, TestPassword);
+        await AccountDeletionEmailSpy.WaitForScheduledCaptureAsync();
 
         // Assert
         response.StatusCode.ShouldBe(HttpStatusCode.NoContent);
         AccountDeletionEmailSpy.ScheduledCallCount.ShouldBe(1);
         AccountDeletionEmailSpy.LastScheduledEmail.ShouldBe(registerRequest.Email);
         AccountDeletionEmailSpy.LastCancelToken.ShouldNotBeNullOrWhiteSpace();
+    }
+
+    [Fact]
+    public async Task DeleteAccount_ShouldWriteAnIdOnlyOutboxRow_WhenScheduling()
+    {
+        // Arrange
+        (RegisterRequest registerRequest, IdentityId identityId) =
+            await UserFactory.RegisterRandomUserWithRequestAsync(ApiClient, Faker, AccountConfirmationEmailSpy, TestPassword);
+
+        string accessToken = await GetAccessTokenAsync(registerRequest.Email, TestPassword);
+
+        // Act
+        HttpResponseMessage response = await SendDeleteRequestAsync(accessToken, TestPassword);
+        await AccountDeletionEmailSpy.WaitForScheduledCaptureAsync();
+
+        // Assert — the payload carries the user id and nothing else: the cancel token is minted
+        // at delivery and must never persist in an outbox row (ADR-0038 decision 2)
+        response.StatusCode.ShouldBe(HttpStatusCode.NoContent);
+        OutboxMessage? outboxRow = await OutboxAssertions.WaitForOutboxRowAsync(
+            Factory, row => row.Type == nameof(AccountDeletionScheduled));
+        outboxRow.ShouldNotBeNull();
+        AccountDeletionScheduled payload = JsonSerializer.Deserialize<AccountDeletionScheduled>(outboxRow.Payload)
+            .ShouldNotBeNull();
+        payload.IdentityUserId.ShouldBe(identityId.Value);
+        AccountDeletionEmailSpy.LastCancelToken.ShouldNotBeNullOrEmpty();
+        outboxRow.Payload.ShouldNotContain(AccountDeletionEmailSpy.LastCancelToken);
     }
 
     [Fact]
@@ -144,11 +174,12 @@ public sealed class DeleteAccountEndpointTests : EndpointsTestBase
         string accessToken = await GetAccessTokenAsync(registerRequest.Email, TestPassword);
         HttpResponseMessage firstResponse = await SendDeleteRequestAsync(accessToken, TestPassword);
         firstResponse.StatusCode.ShouldBe(HttpStatusCode.NoContent);
+        await AccountDeletionEmailSpy.WaitForScheduledCaptureAsync();
 
         // Act — the JWT is self-contained, so it stays usable within its lifetime
         HttpResponseMessage secondResponse = await SendDeleteRequestAsync(accessToken, TestPassword);
 
-        // Assert
+        // Assert — the rejected retry must not have queued a second e-mail
         secondResponse.StatusCode.ShouldBe(HttpStatusCode.UnprocessableEntity);
         string body = await secondResponse.Content.ReadAsStringAsync();
         body.ShouldContain("Auth.DeletionAlreadyScheduled");
@@ -190,7 +221,7 @@ public sealed class DeleteAccountEndpointTests : EndpointsTestBase
     }
 
     [Fact]
-    public async Task DeleteAccount_ShouldUnwindSchedule_WhenCancellationEmailFails()
+    public async Task DeleteAccount_ShouldKeepScheduleAndSucceed_WhenCancellationEmailFails()
     {
         // Arrange
         (RegisterRequest registerRequest, IdentityId identityId) =
@@ -204,18 +235,19 @@ public sealed class DeleteAccountEndpointTests : EndpointsTestBase
         {
             // Act
             HttpResponseMessage response = await SendDeleteRequestAsync(accessToken, TestPassword);
+            await AccountDeletionEmailSpy.WaitForScheduledCaptureAsync(TimeSpan.FromSeconds(5));
 
-            // Assert — without the emailed cancel link the owner couldn't cancel,
-            // so the schedule is rolled back and the account stays usable.
-            response.StatusCode.ShouldBe(HttpStatusCode.InternalServerError);
-            string body = await response.Content.ReadAsStringAsync();
-            body.ShouldContain("Auth.DeletionSchedulingFailed");
+            // Assert — the unwind compensation is gone (ADR-0038 decision 5): the request only
+            // commits the outbox row atomically with the schedule, so an SMTP failure neither
+            // fails the request nor unwinds the schedule — redelivery (or a DLQ replay) owns it.
+            response.StatusCode.ShouldBe(HttpStatusCode.NoContent);
 
             ApplicationUser user = await GetUserAsync(identityId.Value);
-            user.DeletionScheduledAt.ShouldBeNull();
+            user.DeletionScheduledAt.ShouldNotBeNull();
 
-            HttpResponseMessage loginResponse = await RequestTokenAsync(registerRequest.Email, TestPassword);
-            loginResponse.StatusCode.ShouldBe(HttpStatusCode.OK);
+            OutboxMessage? outboxRow = await OutboxAssertions.WaitForOutboxRowAsync(
+                Factory, row => row.Type == nameof(AccountDeletionScheduled));
+            outboxRow.ShouldNotBeNull();
         }
         finally
         {

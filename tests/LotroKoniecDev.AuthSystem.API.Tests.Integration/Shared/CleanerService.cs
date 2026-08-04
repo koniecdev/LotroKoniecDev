@@ -20,6 +20,9 @@ internal sealed class CleanerService
 
         // PostgreSQL preserves the casing of identifiers EF Core emits, so we have to quote them.
         // TRUNCATE ... CASCADE is faster than DELETE and handles FK chains in one statement.
+        // Outbox and inbox carry no FK to Users, so they must be listed explicitly — otherwise an
+        // unprocessed row left by one test (e.g. an unroutable type) keeps failing every relay
+        // pass of every later test in the collection.
         await db.Database.ExecuteSqlRawAsync("""
                                              TRUNCATE TABLE
                                                  authsystem."UserRoles",
@@ -28,7 +31,9 @@ internal sealed class CleanerService
                                                  authsystem."UserTokens",
                                                  authsystem."OpenIddictTokens",
                                                  authsystem."OpenIddictAuthorizations",
-                                                 authsystem."Users"
+                                                 authsystem."Users",
+                                                 authsystem."OutboxMessages",
+                                                 authsystem."InboxMessages"
                                              RESTART IDENTITY CASCADE;
                                              """);
     }

@@ -43,7 +43,7 @@ public sealed class PasswordResetPipelineTests : IClassFixture<BrokeredAuthSyste
         _passwordResetEmailSpy = factory.Services.GetRequiredService<SpyPasswordResetEmailSender>();
 
         JsonSerializerOptions jsonSerializerOptions =
-            factory.Services.GetRequiredService<IOptionsSnapshot<JsonOptions>>().Value.SerializerOptions;
+            factory.Services.GetRequiredService<IOptions<JsonOptions>>().Value.SerializerOptions;
         _apiClient = new TestApiClient(factory.CreateClient(), jsonSerializerOptions);
     }
 

@@ -38,6 +38,17 @@ try
 
     WebApplicationBuilder builder = WebApplication.CreateBuilder(args);
 
+    // DI validation in EVERY environment, not just Development (#572): a captive dependency or an
+    // unresolvable constructor that only manifests under Production config fails the container at
+    // startup — where CD smokes the 0%-traffic candidate — instead of surfacing as a 500 on first
+    // hit. Registered-services-only: a forgotten closed handler registration is still resolved at
+    // request time, so endpoint integration tests remain the guard for that.
+    builder.Host.UseDefaultServiceProvider(static (_, options) =>
+    {
+        options.ValidateScopes = true;
+        options.ValidateOnBuild = true;
+    });
+
     // Optional, git-ignored per-developer overrides (e.g. AdminUser:* seed credentials), the same
     // machine-local file the EF design-time factories already read. It survives `docker compose
     // down -v`, so a local admin is re-seeded on the next host start.

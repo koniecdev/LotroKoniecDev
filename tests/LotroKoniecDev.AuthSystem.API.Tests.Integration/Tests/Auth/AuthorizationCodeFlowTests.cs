@@ -26,7 +26,7 @@ public sealed partial class AuthorizationCodeFlowTests : AsyncLifetimeTestBase
     public AuthorizationCodeFlowTests(AuthSystemApiFactory appFactory) : base(appFactory)
     {
         JsonSerializerOptions jsonSerializerOptions =
-            appFactory.Services.GetRequiredService<IOptionsSnapshot<JsonOptions>>().Value.SerializerOptions;
+            appFactory.Services.GetRequiredService<IOptions<JsonOptions>>().Value.SerializerOptions;
 
         // Client that follows redirects (for normal API calls and registration)
         ApiClient = new TestApiClient(appFactory.CreateClient(), jsonSerializerOptions);

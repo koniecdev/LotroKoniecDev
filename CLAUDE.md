@@ -507,6 +507,14 @@ structure.
 - **AAA always; assertions inline in the test method.** DRY the Arrange (builders), never the
   Assert. One reason to fail per test.
 - **Tooling: xUnit + Shouldly + NSubstitute only.** Naming: `MethodName_Scenario_ExpectedResult`.
+  (`Architecture.Tests.Unit` additionally uses **NetArchTest.Rules** — architecture rules only.)
+- **The structural house rules are a TEST, not review memory.** `tests/LotroKoniecDev.Architecture.Tests.Unit`
+  mechanically enforces the patcher dependency rule, no-mediator (ADR-0001), patcher/TMS bounded-context
+  isolation, the Frontend's contracts-only reach, the persistence direction, the CQRS read/write split and
+  the sealed/`internal`-handler/commands-only-validator conventions — over assembly IL, in the normal unit
+  gate, on every OS. **A new production project must join `ProductionAssemblies.All`** or it escapes every
+  rule (a self-test fails until it does). Changing a rule is an architecture decision: fix the code, or
+  write the ADR first — never weaken the test to green. Details: `tests/CLAUDE.md`.
 - Platform honesty: tests must pass on macOS AND Windows — `Path.Combine`, never hardcoded `C:\`.
 - **TMS test projects mirror KittySaver naming.** Unit (pure):
   `TranslationSystem.Domain.Tests.Unit`, `TranslationSystem.API.Tests.Unit`,

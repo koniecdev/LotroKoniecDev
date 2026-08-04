@@ -12,11 +12,12 @@ dotnet test tests/LotroKoniecDev.Frontend.E2E.Tests          # browser stack via
 dotnet test --filter "FullyQualifiedName~Fragment"     # filter by name
 ```
 
-Full project inventory (13 projects):
+Full project inventory (14 projects):
 
 | Project | Kind | Needs |
 |---|---|---|
 | `LotroKoniecDev.Tests.Unit` | patcher unit | nothing (pure) |
+| `LotroKoniecDev.Architecture.Tests.Unit` | repo-wide structural rules over assembly IL (NetArchTest.Rules) | nothing (pure) |
 | `LotroKoniecDev.SharedKernel.Tests.Unit` | SharedKernel unit (monads, BuildingBlocks, Ensure, strongly-typed IDs) | nothing (pure); Stryker target |
 | `LotroKoniecDev.Logging.Tests.Unit` | `Utilities/Logging` redaction unit | nothing (pure) |
 | `LotroKoniecDev.TranslationSystem.Domain.Tests.Unit` | TMS domain unit | nothing (pure); Stryker target |
@@ -58,6 +59,7 @@ per-project `stryker-config.json` after reviewing the baseline report.
 - **xUnit** — test framework (`Fact`, `Theory`, `InlineData`)
 - **Shouldly** — `.ShouldBe()`, `.ShouldBeTrue()`, `.ShouldContain()`, …
 - **NSubstitute** — mocking: `Substitute.For<IInterface>()`
+- **NetArchTest.Rules** — architecture tests (assembly IL only; `LotroKoniecDev.Architecture.Tests.Unit`)
 - **Xunit.SkippableFact** — E2E tests that need Windows + a real DAT
 - **coverlet.collector** — code coverage
 - Versions: `Directory.Packages.props` is the single source of truth.
@@ -101,6 +103,37 @@ Command handlers are constructed with their **real FluentValidation validator** 
 dependency-free) and mocked ports. Unit tests are **pure**: no filesystem assertions, no network,
 no real DAT — and **platform-agnostic** (build paths with `Path.Combine`, never hardcode `C:\`;
 the suite runs on macOS too).
+
+## Architecture Tests (LotroKoniecDev.Architecture.Tests.Unit)
+
+**The mechanical guard for the structural house rules** — the ones CLAUDE.md and the ADRs state in prose
+and code review used to be the only thing enforcing. Pure assembly reflection (no DB, no filesystem, no
+network), so it runs in the normal unit gate on every OS.
+
+| File | Rule |
+|---|---|
+| `PatcherLayeringTests` | Cli / Infrastructure -> Application -> Domain -> Primitives; the lower layer never reaches up |
+| `NoMediatorTests` | ADR-0001 — no `Mediator` / `MediatR` type anywhere in production IL |
+| `BoundedContextIsolationTests` | patcher <-> TMS share the `\|\|` file, never code; the Frontend sees `Contracts`, never a domain or DbContext; the TMS never links the auth server internals |
+| `PersistenceDirectionTests` | patcher/TMS domain, read models and contracts carry no EF Core or Npgsql |
+| `CqrsSeparationTests` | a query handler never injects a repository, `IUnitOfWork` or the write DbContext; a command handler injects `IValidator<TCommand>` |
+| `HandlerConventionTests` | handlers are `internal sealed`; no `IValidator<TQuery>` (validators are command-only) |
+| `SealedConventionTests` | every class is sealed unless another production type derives from it |
+| `SuiteSelfTests` | the suite can still say "no" — pins a dependency that genuinely exists, and fails when a production project escapes the search set |
+
+Two mechanisms, on purpose: **NetArchTest.Rules** for dependency rules (it scans the full IL of every
+member), **plain reflection** for convention rules its predicate DSL cannot express ("sealed unless
+something inherits it", a validator's generic argument).
+
+Adding a production project? Add the `ProjectReference` **and** the entry in
+`Shared/ProductionAssemblies.All` — `SuiteSelfTests` fails until you do. The two patcher
+`net10.0-windows` assemblies (Infrastructure, Cli) are absent on purpose: a `net10.0` project cannot
+reference them, and they sit at the TOP of the layering, so rules about them are stated as forbidden
+namespaces on the assemblies below.
+
+`SealedConventionTests.KnownViolations` quarantines pre-existing violations, each keyed to its own
+ticket (#570 is a test-only change). The list is **self-cleaning** — a second test fails once an entry
+stops violating, so a fix cannot land without removing it.
 
 ## Infrastructure Tests (LotroKoniecDev.Tests.Infrastructure)
 

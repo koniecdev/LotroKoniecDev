@@ -323,6 +323,15 @@ file_id||gossip_id||translated_text||args_order||args_id||approved
 - **No mediator — slim SRP handlers (ADR-0001), repo-wide.** One use case = one record + one
   handler implementing the in-house `ICommandHandler<,>`/`IQueryHandler<,>`. Consumers inject the
   closed handler interface directly. Lifted KittySaver code is de-mediatorized on entry.
+- **DI validation is always on (#572).** Every composition root enables `ValidateScopes` +
+  `ValidateOnBuild` in ALL environments (`builder.Host.UseDefaultServiceProvider` on the three web
+  hosts; `ServiceProviderOptions` in the CLI `TypeRegistrar`) — a new host copies the pattern. It
+  validates registered services only, so endpoint integration tests stay the guard for a forgotten
+  closed handler registration. **In the CLI, Spectre command types are registered `AddScoped` and
+  resolved through a single process-lifetime scope in `TypeResolver`** — they inject scoped
+  handlers, so the old `AddSingleton` + root-provider resolve is a captive dependency that refuses
+  to build. A new CLI command follows suit. Nothing in CI covers that graph (the CLI is
+  `net10.0-windows/win-x86`), so changes to it need a Windows `export`/`patch`/`launch` smoke.
 - **CQRS read/write split, day 1 (ADR-0002 amendment).** Query handlers read POCO `ReadModels`
   through `IApplicationReadDbContext`; command handlers load and mutate aggregates via
   repositories + `IUnitOfWork`. The write model never serves list/search queries; every new

@@ -20,9 +20,17 @@ using OpenTelemetry.Trace;
 using Serilog;
 using Serilog.Sinks.OpenTelemetry;
 
+// Deliberately NOT CreateBootstrapLogger(): the reloadable bootstrap logger lives in the shared
+// static Log.Logger slot, and AddSerilog freezes it on the host's first logger resolution. Any
+// test run that boots a second host from this Program (a WithWebHostBuilder child, a second
+// class fixture) lets one host freeze the bootstrap logger another host just installed — the
+// second freeze then dies with "The logger is already frozen". A plain console logger keeps
+// startup logging (and the catch/finally below) working while AddSerilog builds each host its
+// own fully-configured pipeline; in production nothing changes — the single host's final logger
+// still replaces this one.
 Log.Logger = new LoggerConfiguration()
     .WriteTo.Console(formatProvider: CultureInfo.InvariantCulture)
-    .CreateBootstrapLogger();
+    .CreateLogger();
 
 try
 {

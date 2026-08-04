@@ -7,11 +7,10 @@ using OpenIddict.Abstractions;
 using LotroKoniecDev.AuthSystem.API.ApiErrors;
 using LotroKoniecDev.AuthSystem.API.Common;
 using LotroKoniecDev.AuthSystem.API.Extensions;
-using LotroKoniecDev.AuthSystem.API.Services.Emails;
+using LotroKoniecDev.AuthSystem.API.Outbox;
 using LotroKoniecDev.AuthSystem.API.Settings;
 using LotroKoniecDev.AuthSystem.Contracts.Features.Auth.Account;
 using LotroKoniecDev.AuthSystem.Domain.Aggregates.ApplicationUsers.Entities;
-using LotroKoniecDev.AuthSystem.Persistence.Identity;
 using LotroKoniecDev.SharedKernel.Messaging;
 using LotroKoniecDev.SharedKernel.Monads;
 
@@ -22,6 +21,9 @@ namespace LotroKoniecDev.AuthSystem.API.Features.Auth;
 /// the account is locked for the grace period and a one-time cancellation link is emailed,
 /// so a stolen password alone can no longer erase an account irreversibly.
 /// The deletion finalizer performs the actual erasure once the grace period elapses.
+/// The cancel e-mail travels through the outbox pipeline (ADR-0038): its row commits atomically
+/// with the schedule, so "scheduled but no e-mail ever recorded" cannot exist, and delivery
+/// failures are the pipeline's to retry — not this handler's to compensate.
 /// </summary>
 internal sealed partial class DeleteAccount : IApiEndpoint
 {
@@ -52,7 +54,7 @@ internal sealed partial class DeleteAccount : IApiEndpoint
         private readonly UserManager<ApplicationUser> _userManager;
         private readonly IOpenIddictTokenManager _tokenManager;
         private readonly IOpenIddictAuthorizationManager _authorizationManager;
-        private readonly IAccountDeletionEmailSender _emailSender;
+        private readonly OutboxWriter _outboxWriter;
         private readonly TimeProvider _timeProvider;
         private readonly GdprSettings _gdprSettings;
         private readonly IValidator<Command> _validator;
@@ -62,7 +64,7 @@ internal sealed partial class DeleteAccount : IApiEndpoint
             UserManager<ApplicationUser> userManager,
             IOpenIddictTokenManager tokenManager,
             IOpenIddictAuthorizationManager authorizationManager,
-            IAccountDeletionEmailSender emailSender,
+            OutboxWriter outboxWriter,
             TimeProvider timeProvider,
             IOptions<GdprSettings> gdprSettings,
             IValidator<Command> validator,
@@ -71,7 +73,7 @@ internal sealed partial class DeleteAccount : IApiEndpoint
             _userManager = userManager;
             _tokenManager = tokenManager;
             _authorizationManager = authorizationManager;
-            _emailSender = emailSender;
+            _outboxWriter = outboxWriter;
             _timeProvider = timeProvider;
             _gdprSettings = gdprSettings.Value;
             _validator = validator;
@@ -103,10 +105,6 @@ internal sealed partial class DeleteAccount : IApiEndpoint
                 return Result.Failure<ScheduledDeletion>(AuthErrors.DeletionAlreadyScheduled);
             }
 
-            // The still-real email address; captured before any mutation so the
-            // cancellation link always reaches the legitimate owner.
-            string email = user.Email!;
-
             DateTimeOffset scheduledAt = _timeProvider.GetUtcNow();
             DateTimeOffset finalizesAt = scheduledAt + _gdprSettings.DeletionGracePeriod;
 
@@ -117,6 +115,14 @@ internal sealed partial class DeleteAccount : IApiEndpoint
             user.LockoutEnabled = true;
             user.LockoutEnd = finalizesAt;
 
+            // Invalidate all sessions by assigning the fresh stamp INSIDE the same save that
+            // commits the outbox row (ADR-0038 decision 2): the relay is signal-driven, so the
+            // dispatch processor can mint the cancel token milliseconds after commit — a stamp
+            // rotated in a later save would kill the emailed link it just minted.
+            user.SecurityStamp = Guid.NewGuid().ToString();
+
+            _outboxWriter.Enqueue(new AccountDeletionScheduled(user.Id));
+
             IdentityResult updateResult = await _userManager.UpdateAsync(user);
             if (!updateResult.Succeeded)
             {
@@ -125,31 +131,9 @@ internal sealed partial class DeleteAccount : IApiEndpoint
                 return Result.Failure<ScheduledDeletion>(AuthErrors.DeletionSchedulingFailed);
             }
 
-            // Invalidate all sessions; the cancel token must be generated AFTER the stamp
-            // rotation because it binds to the security stamp (one-time-use guarantee).
-            IdentityResult stampResult = await _userManager.UpdateSecurityStampAsync(user);
-            if (!stampResult.Succeeded)
-            {
-                LogSecurityStampUpdateFailed(_logger, user.Id);
-            }
+            _outboxWriter.NotifyEnqueuedCommitted();
 
             await TryRevokeOpenIddictArtifactsAsync(user, cancellationToken);
-
-            string cancelToken = await _userManager.GenerateUserTokenAsync(
-                user,
-                AccountDeletionCancellationTokenProvider.ProviderName,
-                AccountDeletionCancellationTokenProvider.CancelDeletionPurpose);
-
-            Result emailResult = await _emailSender.SendDeletionScheduledEmailAsync(
-                user.Id, email, cancelToken, finalizesAt, cancellationToken);
-            if (emailResult.IsFailure)
-            {
-                // Without the emailed link the owner has no way to cancel, so the schedule
-                // is unwound and the user is asked to retry once mail delivery recovers.
-                LogScheduledEmailFailed(_logger, user.Id, emailResult.Error.Message);
-                await TryUnwindScheduleAsync(user);
-                return Result.Failure<ScheduledDeletion>(AuthErrors.DeletionSchedulingFailed);
-            }
 
             LogDeletionScheduled(_logger, user.Id, finalizesAt, command.IpAddress, command.UserAgent);
 
@@ -180,49 +164,11 @@ internal sealed partial class DeleteAccount : IApiEndpoint
             }
         }
 
-        private async Task TryUnwindScheduleAsync(ApplicationUser user)
-        {
-            try
-            {
-                user.DeletionScheduledAt = null;
-                user.LockoutEnd = null;
-
-                IdentityResult updateResult = await _userManager.UpdateAsync(user);
-                if (updateResult.Succeeded)
-                {
-                    LogScheduleUnwound(_logger, user.Id);
-                    return;
-                }
-
-                string errors = string.Join(", ", updateResult.Errors.Select(e => e.Description));
-                LogScheduleUnwindFailed(_logger, user.Id, errors);
-            }
-            catch (Exception ex)
-            {
-                LogScheduleUnwindException(_logger, ex, user.Id);
-            }
-        }
-
         [LoggerMessage(EventId = EventIds.GdprDeletionScheduled, Level = LogLevel.Information, Message = "GDPR deletion scheduled for user {UserId}; finalizes at {FinalizesAt}. IP: {IpAddress}, UserAgent: {UserAgent}")]
         private static partial void LogDeletionScheduled(ILogger logger, Guid userId, DateTimeOffset finalizesAt, string? ipAddress, string? userAgent);
 
-        [LoggerMessage(EventId = EventIds.GdprDeletionScheduledEmailFailed, Level = LogLevel.Error, Message = "Failed to send the deletion-scheduled email for user {UserId}: {Error}. Unwinding the schedule.")]
-        private static partial void LogScheduledEmailFailed(ILogger logger, Guid userId, string error);
-
-        [LoggerMessage(EventId = EventIds.GdprDeletionScheduleUnwound, Level = LogLevel.Warning, Message = "Deletion schedule unwound for user {UserId} because the cancellation email could not be sent")]
-        private static partial void LogScheduleUnwound(ILogger logger, Guid userId);
-
-        [LoggerMessage(EventId = EventIds.GdprDeletionScheduleUnwindFailed, Level = LogLevel.Critical, Message = "Failed to unwind the deletion schedule for user {UserId}: {Errors}. Account stays locked with a schedule but without a cancellation email. Manual intervention required.")]
-        private static partial void LogScheduleUnwindFailed(ILogger logger, Guid userId, string errors);
-
-        [LoggerMessage(EventId = EventIds.GdprDeletionScheduleUnwindException, Level = LogLevel.Critical, Message = "Exception while unwinding the deletion schedule for user {UserId}. Manual intervention required.")]
-        private static partial void LogScheduleUnwindException(ILogger logger, Exception exception, Guid userId);
-
         [LoggerMessage(EventId = EventIds.GdprDeletionSchedulingUpdateFailed, Level = LogLevel.Error, Message = "Failed to persist the deletion schedule for user {UserId}: {Errors}")]
         private static partial void LogSchedulingUpdateFailed(ILogger logger, Guid userId, string errors);
-
-        [LoggerMessage(EventId = EventIds.GdprDeletionScheduleStampFailed, Level = LogLevel.Error, Message = "Failed to update security stamp for user {UserId} while scheduling deletion")]
-        private static partial void LogSecurityStampUpdateFailed(ILogger logger, Guid userId);
 
         [LoggerMessage(EventId = EventIds.GdprDeletionScheduleArtifactRevocationFailed, Level = LogLevel.Warning, Message = "Failed to revoke OpenIddict artifacts for user {UserId} while scheduling deletion. Refresh tokens may stay valid until expiry.")]
         private static partial void LogArtifactRevocationFailed(ILogger logger, Exception exception, Guid userId);

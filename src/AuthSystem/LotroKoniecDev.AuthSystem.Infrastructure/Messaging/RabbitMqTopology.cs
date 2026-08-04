@@ -39,6 +39,16 @@ public static class RabbitMqTopology
     public const string PasswordResetRoutingKey = "email.password-reset";
 
     /// <summary>
+    /// Routing key of the deletion-scheduled e-mail (the cancel link).
+    /// </summary>
+    public const string DeletionScheduledRoutingKey = "email.deletion-scheduled";
+
+    /// <summary>
+    /// Routing key of the deletion-cancelled courtesy e-mail.
+    /// </summary>
+    public const string DeletionCancelledRoutingKey = "email.deletion-cancelled";
+
+    /// <summary>
     /// Dead-letter exchange: the broker republishes here every message that
     /// <see cref="EmailQueue"/> gives up on — rejected as poison by the consumer, or past
     /// <see cref="EmailDeliveryLimit"/>. Fanout, because "everything that dies goes to the one

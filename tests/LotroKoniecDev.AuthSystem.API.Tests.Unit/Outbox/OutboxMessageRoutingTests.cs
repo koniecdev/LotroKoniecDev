@@ -25,12 +25,36 @@ public sealed class OutboxMessageRoutingTests
         routingKey.ShouldBe(RabbitMqTopology.PasswordResetRoutingKey);
     }
 
+    [Fact]
+    public void TryGetRoutingKey_AccountDeletionScheduled_MapsToDeletionScheduledRoutingKey()
+    {
+        bool found = OutboxMessageRouting.TryGetRoutingKey(
+            nameof(AccountDeletionScheduled), out string? routingKey);
+
+        found.ShouldBeTrue();
+        routingKey.ShouldBe(RabbitMqTopology.DeletionScheduledRoutingKey);
+    }
+
+    [Fact]
+    public void TryGetRoutingKey_AccountDeletionCancelled_MapsToDeletionCancelledRoutingKey()
+    {
+        bool found = OutboxMessageRouting.TryGetRoutingKey(
+            nameof(AccountDeletionCancelled), out string? routingKey);
+
+        found.ShouldBeTrue();
+        routingKey.ShouldBe(RabbitMqTopology.DeletionCancelledRoutingKey);
+    }
+
     [Theory]
     [InlineData("")]
     [InlineData("emailconfirmationrequested")]
     [InlineData("email.confirmation")]
     [InlineData("passwordresetrequested")]
     [InlineData("email.password-reset")]
+    [InlineData("accountdeletionscheduled")]
+    [InlineData("email.deletion-scheduled")]
+    [InlineData("accountdeletioncancelled")]
+    [InlineData("email.deletion-cancelled")]
     [InlineData("SomeFutureUnmappedEvent")]
     public void TryGetRoutingKey_UnknownOrMiscasedType_ReturnsFalse(string type)
     {

@@ -85,14 +85,16 @@ public sealed class CancelAccountDeletionEndpointTests : EndpointsTestBase
     }
 
     [Fact]
-    public async Task CancelDeletion_ShouldSendConfirmationEmail()
+    public async Task CancelDeletion_ShouldDeliverConfirmationEmail()
     {
         // Arrange
         (RegisterRequest registerRequest, _) = await RegisterAndScheduleDeletionAsync();
         string cancelToken = AccountDeletionEmailSpy.LastCancelToken!;
 
-        // Act
+        // Act — the courtesy notice arrives through the pipeline, so the capture has to be
+        // awaited (ADR-0038)
         HttpResponseMessage response = await SendCancelRequestAsync(registerRequest.Email, cancelToken);
+        await AccountDeletionEmailSpy.WaitForCancelledCaptureAsync();
 
         // Assert
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
@@ -181,6 +183,9 @@ public sealed class CancelAccountDeletionEndpointTests : EndpointsTestBase
 
         HttpResponseMessage response = await ApiClient.Http.SendAsync(request);
         response.StatusCode.ShouldBe(HttpStatusCode.NoContent);
+
+        // The cancel token arrives through the pipeline (ADR-0038), not the request path
+        await AccountDeletionEmailSpy.WaitForScheduledCaptureAsync();
         AccountDeletionEmailSpy.LastCancelToken.ShouldNotBeNullOrWhiteSpace();
 
         return (registerRequest, identityId);

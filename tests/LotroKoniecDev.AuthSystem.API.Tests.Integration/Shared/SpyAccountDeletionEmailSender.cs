@@ -43,6 +43,37 @@ public sealed class SpyAccountDeletionEmailSender : IAccountDeletionEmailSender
         return Task.FromResult(Result.Success());
     }
 
+    /// <summary>
+    /// Blocks until a deletion-scheduled e-mail lands or the timeout passes. Scheduling stopped
+    /// being synchronous when the e-mail went through the outbox (commit -> relay -> delivery ->
+    /// this spy), so tests reading <see cref="LastCancelToken"/> right after the delete call must
+    /// wait on state, not assume immediacy. Returns silently either way — the assertions stay at
+    /// the call site.
+    /// </summary>
+    public async Task WaitForScheduledCaptureAsync(TimeSpan? timeout = null)
+    {
+        using CancellationTokenSource waitWindow = new(timeout ?? TimeSpan.FromSeconds(15));
+
+        while (LastCancelToken is null && !waitWindow.IsCancellationRequested)
+        {
+            await Task.Delay(50);
+        }
+    }
+
+    /// <summary>
+    /// Blocks until a deletion-cancelled e-mail lands or the timeout passes — the courtesy
+    /// notice travels the same asynchronous pipeline as the scheduled e-mail.
+    /// </summary>
+    public async Task WaitForCancelledCaptureAsync(TimeSpan? timeout = null)
+    {
+        using CancellationTokenSource waitWindow = new(timeout ?? TimeSpan.FromSeconds(15));
+
+        while (LastCancelledEmail is null && !waitWindow.IsCancellationRequested)
+        {
+            await Task.Delay(50);
+        }
+    }
+
     public void Reset()
     {
         LastScheduledEmail = null;

@@ -61,7 +61,9 @@ publisher starts stamping the outbox row's `Type` into the AMQP `type` basic pro
 consumer selects by that property, never by routing key (the type says what the payload *is*,
 the routing key says which bindings *receive* it — `OutboxMessageRouting`'s separation, now
 end-to-end). A delivery with a missing or unregistered type is poison: no redelivery can fix it,
-so it parks in the DLQ immediately, exactly like an unusable message id.
+so it parks in the DLQ immediately, exactly like an unusable message id. (In-flight messages
+published before the `type` stamp existed are a deploy-transition concern, not a steady-state
+one — see the promotion precondition in Implementation Notes.)
 
 The ack/reject contract, the redelivery ladder and the delivery limit stay type-agnostic and
 unchanged. The inbox wrapper (`EmailConfirmationDeliveryProcessor`) generalizes with the
@@ -81,6 +83,24 @@ no matter how long the message waited. The same rule covers derivable state: the
 deletion-scheduled processor recomputes `finalizesAt` from `ApplicationUser.DeletionScheduledAt`
 plus `GdprSettings.DeletionGracePeriod` instead of snapshotting it into the payload. The
 deletion-cancelled e-mail needs no token at all (see Context) — its payload is the user id alone.
+
+Minting against the *current* stamp is only safe while nothing rotates the stamp after the
+outbox row becomes visible — and the relay is signal-driven, so "after commit" can mean
+milliseconds. Hence a hard rule: **a handler that both writes an e-mail outbox row and rotates
+the security stamp commits both in one `SaveChangesAsync`** — rotate by assigning a fresh stamp
+value before that single save (a separate `UpdateSecurityStampAsync` call is a second save),
+never in a later one. Otherwise a fast delivery can mint the emailed token against the doomed
+stamp and the request's own rotation kills the link — for `DeleteAccount` that would recreate
+the exact "locked account, dead cancel link" state this ADR exists to eliminate.
+
+Recomputing state at delivery also means the state may have *vanished* by delivery: the
+precondition a message was written under can be gone by the time it is processed (or replayed
+from the DLQ much later). A processor whose precondition no longer holds acks and skips — the
+`EmailConfirmationRequestProcessor` user-gone/already-confirmed pattern. Concretely: the
+password-reset processor sends only while `DeletionScheduledAt` is null (this check's single
+home from now on — today the API handler has it and the SSR page forgot it), and the
+deletion-scheduled processor acks-and-skips a gone schedule instead of computing `finalizesAt`
+from a null.
 
 ### 3. Topology unchanged: one queue, three new routing keys
 
@@ -107,13 +127,20 @@ After migration no user-facing request observes SMTP. Per flow:
 
 - **`RegisterUser`** — already the pattern (#575); unchanged.
 - **`ForgotPassword`** (both call sites) — observable behavior unchanged (always success,
-  anti-enumeration). Bonus: the send leaves the request path, closing the response-time leak.
+  anti-enumeration). The SMTP round-trip paid only for existing accounts leaves the request
+  path — but the leak only closes if the equalization is re-balanced, not dropped: a cheap
+  outbox insert against the deliberate PBKDF2 dummy on the not-found branch would *invert* the
+  oracle (existing accounts answering measurably faster — the trap `CancelAccountDeletion`'s
+  every-path-pays comment already documents). MSG-03 runs the dummy verify on **both**
+  branches, `CancelAccountDeletion`-style.
 - **`CancelAccountDeletion`** — observable behavior unchanged (it already ignored send
   failures); the courtesy e-mail merely becomes reliable instead of best-effort.
 - **`DeleteAccount`** — **behavior change, owner-accepted.** The unwind compensation is deleted.
   The outbox row must commit **atomically with the schedule mutation** (one transaction), so
   "scheduled but no e-mail ever recorded" cannot exist; a database failure still fails the whole
-  request before anything is scheduled. After commit, the account locks immediately and the
+  request before anything is scheduled. That same save carries the security-stamp rotation
+  (decision 2's same-save rule) — the stamp must be final before the row is visible, or the
+  handler's own rotation races the delivery and kills the emailed cancel link. After commit, the account locks immediately and the
   cancel e-mail is *eventually delivered*: the redelivery ladder rides out SMTP outages, and a
   message that exhausts the delivery limit parks in the DLQ for manual replay (ADR-0036 §5).
   The failure mode "locked account, no cancel link" changes from *prevented by unwinding* to
@@ -123,7 +150,8 @@ After migration no user-facing request observes SMTP. Per flow:
 
 Writing flows grow from one to four, meeting ADR-0035's ≥3 escalation trigger. Ruling: keep the explicit
 per-writer call, do not build the interceptor pair. The new writers commit through a single
-`SaveChangesAsync` (none reproduces `RegisterUser`'s explicit-transaction trap), a forgotten
+`SaveChangesAsync` (decision 2's same-save rule folds the deletion flows' stamp rotations into
+that save; none reproduces `RegisterUser`'s explicit-transaction trap), a forgotten
 call is a soft failure bounded by the 6 h sweep, and an interceptor pair is machinery a
 four-writer inventory doesn't earn (YAGNI). Revisit only if a forgotten notify actually bites.
 
@@ -142,7 +170,8 @@ delivery detail behind the consumer (plus the decision-4 exception).
   per-flow ad-hoc error handling.
 - An SMTP outage stops failing user-facing requests (`DeleteAccount` today) and stops silently
   dropping courtesy mail (`CancelAccountDeletion` today).
-- `ForgotPassword` stops leaking account existence through response timing.
+- `ForgotPassword` loses its dominant timing signal (the SMTP round-trip paid only for existing
+  accounts); the residual insert-vs-dummy asymmetry is equalized in MSG-03 (decision 5).
 - No live token can leak via an outbox row, broker frame or parked DLQ message; tokens are
   always fresh against the current security stamp.
 - `DeleteAccount` can no longer end in the unmonitored worst case of its compensation
@@ -213,11 +242,25 @@ Recorded here, implemented by MSG-02..05 — this ADR changes no code.
   `type` property; unknown-type poison path; `EmailConfirmationDeliveryProcessor` generalizes;
   `EmailConfirmationRequestProcessor` becomes the first registry entry.
 - **MSG-03 (#581):** `PasswordResetRequested(Guid)` + processor + `email.password-reset`;
-  `ForgotPassword.Handler` and `Pages/Account/ForgotPassword.cshtml.cs` write outbox rows.
+  `ForgotPassword.Handler` and `Pages/Account/ForgotPassword.cshtml.cs` write outbox rows, keep
+  the dummy verify on every branch (decision 5) and stop minting tokens; the
+  `DeletionScheduledAt` guard moves into the processor (decision 2), which also fixes the SSR
+  page having skipped it.
 - **MSG-04 (#582):** `AccountDeletionScheduled(Guid)` + `AccountDeletionCancelled(Guid)` +
-  processors + routing keys; `DeleteAccount` swaps send+unwind for an atomic outbox write;
-  `CancelAccountDeletion` swaps its fire-and-forget send; `finalizesAt` recomputed at delivery.
+  processors + routing keys; `DeleteAccount` swaps send+unwind for an atomic outbox write with
+  the stamp rotation folded into the same save (decision 2); `CancelAccountDeletion` swaps its
+  fire-and-forget send and folds its stamp rotation the same way (the response's reset token is
+  minted after that single save, against the committed stamp); `finalizesAt` recomputed at
+  delivery, ack-and-skip when the schedule is gone (decision 2).
 - **MSG-05 (#583):** in-code documentation of the resend exception (decision 4), pointing here.
+- **Promotion precondition (one-off):** production has run the pre-`type` pipeline since #575,
+  so the generalization reaches prod only as the finished MSG-02..05 batch, and the promotion
+  carrying it must find `emails.send` **and** `emails.send.dlq` empty (management UI check —
+  trivially true at current volume). A message published without the `type` property but
+  consumed after the cutover parks as unknown-type poison, and a *replay* of a pre-`type` DLQ
+  message parks again — a loop only hand-editing the message escapes. Staging deploys per push
+  and will traverse the intermediate states; parked staging messages from the transition are
+  expected noise — purge them.
 - Touched types: `EmailConfirmationConsumer`, `RabbitMqMessagePublisher`, `RabbitMqTopology`,
   `OutboxMessageRouting`, `EmailConfirmationDeliveryProcessor`, the three e-mail senders behind
   the processors, the four feature slices above.

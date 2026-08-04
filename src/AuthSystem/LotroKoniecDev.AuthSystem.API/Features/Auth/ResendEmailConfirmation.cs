@@ -89,6 +89,11 @@ internal sealed partial class ResendEmailConfirmation : IApiEndpoint
 
             string token = await _userManager.GenerateEmailConfirmationTokenAsync(user);
 
+            // Deliberately synchronous and outbox-independent (ADR-0038 decision 4): resend is the
+            // user-driven escape hatch ADR-0035's 6 h orphan tail is priced on, so it must keep
+            // delivering when the pipeline itself (relay, broker, consumer) is what is stuck. It is
+            // the only intentional direct-SMTP call on a request path — do not migrate it to the
+            // outbox; that would silently invalidate ADR-0035's pricing.
             Result emailResult = await _accountConfirmationEmailSender.SendEmailConfirmationAsync(
                 user.Id, command.Email, token, cancellationToken);
             if (emailResult.IsFailure)

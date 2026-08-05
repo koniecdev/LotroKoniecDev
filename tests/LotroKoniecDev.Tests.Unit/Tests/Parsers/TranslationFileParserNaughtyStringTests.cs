@@ -12,26 +12,19 @@ namespace LotroKoniecDev.Tests.Unit.Tests.Parsers;
 /// <see cref="TranslationFileParser.ParseLine"/> reading it back.
 /// </summary>
 /// <remarks>
-/// These tests pin CURRENT behavior. Changing the format itself still needs an ADR plus updated
-/// golden fixtures on both sides of the contract (CLAUDE.md).
+/// Changing the format itself needs an ADR plus updated golden fixtures on both sides of the
+/// contract (CLAUDE.md) — ADR-0039 is the last one.
 /// </remarks>
 public sealed class TranslationFileParserNaughtyStringTests
 {
     private readonly TranslationFileParser _parser = new();
 
     /// <summary>
-    /// The escape the exporter applies to every fragment before writing a line
-    /// (<c>ExportTextsQueryHandler</c>): real newlines become two-character sequences so a fragment
-    /// stays on one line.
+    /// The escape the exporter applies to every fragment before writing a line — the real one
+    /// <c>ExportTextsQueryHandler</c> calls (ADR-0039), not a copy of it.
     /// </summary>
-    /// <remarks>
-    /// KEEP IN SYNC with <c>ExportTextsQueryHandler</c> — the handler escapes inline while streaming
-    /// to a file, so there is no seam to call and the rule is duplicated here. #596 changes that
-    /// escape; this copy must move with it or these theories will keep passing while describing a
-    /// pipeline that no longer exists.
-    /// </remarks>
     private static string EscapeAsExporter(string text)
-        => text.Replace("\r", "\\r").Replace("\n", "\\n");
+        => TranslationLineEscaper.Escape(text);
 
     [Theory]
     [MemberData(nameof(NaughtyStringCases.All), MemberType = typeof(NaughtyStringCases))]
@@ -98,18 +91,15 @@ public sealed class TranslationFileParserNaughtyStringTests
     }
 
     [Theory]
-    [InlineData(@"C:\notes", "C:" + "\u000A" + "otes")]
-    [InlineData(@"backslash \n here", "backslash " + "\u000A" + " here")]
-    [InlineData(@"\r", "\u000D")]
-    [InlineData(@"\\n", "\\" + "\u000A")]
-    public void ParseLine_ContentCarryingALiteralBackslashEscapeSequence_ShouldBeLossy(string content, string expectedLossyContent)
+    [InlineData(@"C:\notes")]
+    [InlineData(@"backslash \n here")]
+    [InlineData(@"\r")]
+    [InlineData(@"\\n")]
+    public void ParseLine_ContentCarryingALiteralBackslashEscapeSequence_ShouldRoundTripExactly(string content)
     {
-        // Arrange — DOCUMENTED CURRENT BEHAVIOR, not an endorsement: the exporter escapes only REAL
-        // newlines, so a backslash that the source text itself carries in front of 'r'/'n' reaches
-        // the parser indistinguishable from an escape and is unfolded into a control character.
-        // The transform is therefore not injective and this direction loses data. Tracked as #596;
-        // pinned here so fixing it is a deliberate, visible change to this assertion, never an
-        // accident.
+        // Arrange — the escape escapes its own escape character (ADR-0039), so a backslash the
+        // source text itself carries in front of 'r'/'n' is no longer indistinguishable from an
+        // escape sequence. This used to unfold into a control character and lose data (#596).
         string line = $"620756992||1001||{EscapeAsExporter(content)}||NULL||NULL||1";
 
         // Act
@@ -117,7 +107,7 @@ public sealed class TranslationFileParserNaughtyStringTests
 
         // Assert
         result.IsSuccess.ShouldBeTrue();
-        result.Value.Content.ShouldBe(expectedLossyContent);
+        result.Value.Content.ShouldBe(content);
     }
 
     [Theory]

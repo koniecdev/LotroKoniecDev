@@ -147,42 +147,6 @@ public sealed class TranslationTests
     }
 
     [Fact]
-    public void GetUnescapedContent_ShouldUnescapeNewlines()
-    {
-        // Arrange
-        Translation translation = new()
-        {
-            FileId = 1,
-            GossipId = 100,
-            Content = "Line1\\nLine2\\rLine3"
-        };
-
-        // Act
-        string unescaped = translation.GetUnescapedContent();
-
-        // Assert
-        unescaped.ShouldBe("Line1\nLine2\rLine3");
-    }
-
-    [Fact]
-    public void GetUnescapedContent_WithoutEscapes_ShouldReturnSameContent()
-    {
-        // Arrange
-        Translation translation = new()
-        {
-            FileId = 1,
-            GossipId = 100,
-            Content = "Normal content without escapes"
-        };
-
-        // Act
-        string unescaped = translation.GetUnescapedContent();
-
-        // Assert
-        unescaped.ShouldBe("Normal content without escapes");
-    }
-
-    [Fact]
     public void ToString_ShouldReturnFormattedString()
     {
         // Arrange

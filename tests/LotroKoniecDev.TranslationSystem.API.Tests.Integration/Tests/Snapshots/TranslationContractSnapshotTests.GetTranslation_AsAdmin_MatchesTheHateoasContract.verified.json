@@ -1,0 +1,35 @@
+﻿{
+  "id": "Guid_1",
+  "fileId": 620756992,
+  "gossipId": 1,
+  "sourceText": "Welcome back to Middle-earth!",
+  "argsOrder": null,
+  "argsId": null,
+  "translatedText": "Witaj w Śródziemiu!",
+  "previousSourceText": "Welcome to Middle-earth!",
+  "submitter": {
+    "id": "Guid_2",
+    "displayName": "Seed Author"
+  },
+  "approver": null,
+  "status": "NeedsReview",
+  "createdAt": "{Timestamp}+00:00",
+  "updatedAt": "{Timestamp}+00:00",
+  "links": [
+    {
+      "href": "http://localhost/api/v1/translations/Guid_1",
+      "rel": "self",
+      "method": "GET"
+    },
+    {
+      "href": "http://localhost/api/v1/translations",
+      "rel": "upsert",
+      "method": "PUT"
+    },
+    {
+      "href": "http://localhost/api/v1/translations/Guid_1/approve",
+      "rel": "approve",
+      "method": "POST"
+    }
+  ]
+}

@@ -1,0 +1,21 @@
+﻿{
+  "items": [],
+  "page": 1,
+  "pageSize": 50,
+  "totalCount": 0,
+  "totalPages": 0,
+  "hasNextPage": false,
+  "hasPreviousPage": false,
+  "links": [
+    {
+      "href": "http://localhost/api/v1/translations?search=Balrog&page=1&pageSize=50",
+      "rel": "self",
+      "method": "GET"
+    },
+    {
+      "href": "http://localhost/api/v1/translations/approve",
+      "rel": "bulk-approve",
+      "method": "POST"
+    }
+  ]
+}

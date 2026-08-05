@@ -1,0 +1,8 @@
+﻿{
+  "type": "https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/400",
+  "title": "Validation Error",
+  "status": 400,
+  "detail": "'Translated Text' must not be empty.",
+  "errorCode": "Translations.Validation",
+  "traceId": "{TraceId}"
+}

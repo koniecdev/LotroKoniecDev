@@ -1,0 +1,8 @@
+﻿{
+  "type": "https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/422",
+  "title": "Data Conflict",
+  "status": 422,
+  "detail": "The lotronotationversion value '48' is already taken.",
+  "errorCode": "GameVersionEntity.LotroNotationVersion.AlreadyTaken",
+  "traceId": "{TraceId}"
+}

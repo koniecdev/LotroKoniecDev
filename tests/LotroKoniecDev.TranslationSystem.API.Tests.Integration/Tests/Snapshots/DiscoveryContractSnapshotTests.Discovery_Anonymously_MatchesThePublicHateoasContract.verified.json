@@ -1,0 +1,25 @@
+﻿{
+  "name": "LotroKoniecDev.TranslationSystem",
+  "links": [
+    {
+      "href": "http://localhost/",
+      "rel": "self",
+      "method": "GET"
+    },
+    {
+      "href": "http://localhost/api/v1/translation-files/pl",
+      "rel": "translation-file",
+      "method": "GET"
+    },
+    {
+      "href": "http://localhost/api/v1/progress",
+      "rel": "progress",
+      "method": "GET"
+    },
+    {
+      "href": "http://localhost/api/v1/translations",
+      "rel": "translations",
+      "method": "GET"
+    }
+  ]
+}

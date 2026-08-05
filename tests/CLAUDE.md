@@ -152,8 +152,8 @@ Two properties worth knowing before you add one:
   the **logical** contract (names, nesting, JSON types, values), not the transport's encoding of
   non-ASCII — so Polish reads as Polish in the verified file. Nothing else covers that encoding
   (`ContentNegotiationTests` pins the media type and `Vary`, not the bytes), so `ApiSnapshot`
-  carries its own `ShouldServeUtf8Async` assert on the **raw** body and every snapshot with Polish
-  in it calls that too.
+  carries its own `ShouldServeUnescapedUtf8Async` assert on the **raw** body and every snapshot with
+  Polish in it calls that too.
 - A markup snapshot is the component's **rendered body only**. bUnit's `Markup` does not include
   `<PageTitle>` / `<HeadContent>`, so head metadata needs its own assert.
 - A snapshot suite is the sanctioned exception to "unit tests are pure: no filesystem". It reads its

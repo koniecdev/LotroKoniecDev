@@ -143,7 +143,8 @@ A KittySaver slice is one file: `internal sealed class <Action> : IEndpoint` con
 | Touch DAT binary parsing / writing / native interop | delegate to the **`dat-format-expert`** agent |
 | Re-investigate update behavior, vnum, translation survival, launch flow | **don't** — empirically settled in `docs/knowledge-base/` (start at its README) |
 | Make a non-trivial architectural/modeling decision | skim `docs/adr/`, then **write a new ADR** (`/adr`); anchors: 0001 (no mediator), 0002 (TMS pivot + freeze/unfreeze amendments), 0008 (cloud-agnostic deployment + env strategy — M6), 0009 (browser E2E via Testcontainers + Playwright) |
-| Deploy/operate the stack, or set env vars per environment | `docs/deployment/runbook.md` — env-var matrix (service × environment), secret generation, the issuer/redirect/authority/CORS gotchas, bring-up sequence + DB migrations |
+| Deploy/operate the stack, or set env vars per environment | `docs/deployment/runbook.md` — env-var matrix (service × environment), secret generation, the issuer/redirect/authority/CORS gotchas, bring-up sequence + DB migrations. Ingress/routing shape: ADR-0034 (Caddy) + **ADR-0041** (why there is no gateway behind it) |
+| Add a proxy/gateway, expose a new service, or wire a client to an API path | **ADR-0041** — there is no API gateway: Caddy owns transport, the discovery document owns semantics, the frontend BFF owns aggregation. Clients resolve endpoints by **rel name** (ADR-0040's vocabulary), never by hardcoded path |
 | Touch the update lifecycle (GameVersion, import diff, invalidation, distribution, CLI sync) | `docs/specs/0001-game-update-lifecycle-and-translation-invalidation.md` — the agreed domain spec |
 | Touch the game-content catalog (CatalogEntry/TextSlot, Companion zip import, catalog browser, memberships) | `docs/specs/0008-game-content-catalog-layer.md` (agreed) + `docs/knowledge-base/lotro-companion-data-model.md` (the verified `key:<FileId>:<GossipId>` join — never join on text). Naming rule: **never "entity"** in this layer (DDD-Entity misconception) |
 | Implement a feature whose business rules are fuzzy | **`/spec`** first (seed → questions → agreed spec in `docs/specs/`) |
@@ -360,6 +361,13 @@ file_id||gossip_id||translated_text||args_order||args_id||approved
   it advertises only what the caller may already reach, and it is what lets the CLI (and M4) boot
   without hardcoded paths. Only parameterless entry points belong in it; id-keyed affordances
   (`approve`, `delete`, `import`) live on the representation carrying the id.
+- **No API gateway — the discovery document IS the client contract surface (ADR-0041).** Caddy owns
+  transport, each API's discovery root owns semantics, the SSR frontend owns aggregation; nothing
+  goes in the request path between them. So **rel names are a frozen public contract** — additions
+  are cheap, renames break every client — and a client takes one root URL per service as config and
+  resolves everything else by rel (#610 frontend, #611 CLI). A service split does **not** justify a
+  gateway: the departing service hosts its own root and the one it left links to it with a single
+  configured absolute URI. Reopening triggers are listed in the ADR.
 - **Validation:** FluentValidation **for commands only** — the command handler injects
   `IValidator<TCommand>` and maps failures to `Result` (never throws). Queries validate inline
   in their handler. Every validator must be registered in DI.

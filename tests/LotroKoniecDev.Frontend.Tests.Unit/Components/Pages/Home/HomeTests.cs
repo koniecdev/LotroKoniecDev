@@ -13,6 +13,8 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.DependencyInjection;
 using NSubstitute;
 using HomeComponent = LotroKoniecDev.Frontend.Components.Pages.Home.Home;
+using LotroKoniecDev.Frontend.Tests.Unit.Infrastructure.Discovery;
+using LotroKoniecDev.TranslationSystem.Contracts.Hateoas;
 
 namespace LotroKoniecDev.Frontend.Tests.Unit.Components.Pages.Home;
 
@@ -28,6 +30,7 @@ public sealed class HomeTests : BunitContext
     public HomeTests()
     {
         Services.AddSingleton(_client);
+        Services.AddSingleton(StubDiscoveryCache.AdvertisingGet(Rels.Progress));
         Services.AddScoped<HomeProgressLoader>();
     }
 

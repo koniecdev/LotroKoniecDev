@@ -2,9 +2,12 @@ using System.Net;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using LotroKoniecDev.Frontend.Components.Pages.Editor;
+using LotroKoniecDev.Frontend.Infrastructure.Discovery;
 using LotroKoniecDev.Frontend.Infrastructure.HttpClients;
 using LotroKoniecDev.Frontend.Infrastructure.HttpClients.TranslationSystemHttpClients;
+using LotroKoniecDev.Frontend.Tests.Unit.Infrastructure.Discovery;
 using LotroKoniecDev.Frontend.Tests.Unit.Infrastructure.HttpClients;
+using LotroKoniecDev.TranslationSystem.Contracts.Hateoas;
 using LotroKoniecDev.TranslationSystem.Contracts.Translations;
 using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.TranslationAggregate;
 using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.TranslationAggregate.Enums;
@@ -22,6 +25,8 @@ public sealed class TranslationEditorLoaderTests
     private const string ApproveHref = "https://tms.example/hateoas/translations/abc/approve";
 
     private static readonly Guid TranslationGuid = Guid.Parse("0192a000-0000-7000-8000-000000000042");
+    private static readonly string ResolvedTranslationsUri =
+        BaseUrl.TrimEnd('/') + StubDiscoveryCache.HrefFor(Rels.Translations);
 
     // Mirrors the JSON options the Frontend's HTTP seam uses (HttpClientApiExtensions) so the stub
     // body deserializes through the exact same contract the loader relies on.
@@ -55,7 +60,7 @@ public sealed class TranslationEditorLoaderTests
     }
 
     [Fact]
-    public async Task LoadAsync_RequestsTheGetOneEndpointForTheGivenId()
+    public async Task LoadAsync_WhenTheTranslationsRelIsAdvertised_AppendsTheIdToThatHref()
     {
         TranslationEditorLoader loader = CreateLoader(
             HttpStatusCode.OK,
@@ -67,7 +72,7 @@ public sealed class TranslationEditorLoaderTests
         handler.LastRequest.ShouldNotBeNull();
         handler.LastRequest!.Method.ShouldBe(HttpMethod.Get);
         handler.LastRequest.RequestUri!.ToString()
-            .ShouldBe($"{BaseUrl}api/v1/translations/{TranslationGuid}");
+            .ShouldBe($"{ResolvedTranslationsUri}/{TranslationGuid}");
     }
 
     [Fact]
@@ -184,13 +189,71 @@ public sealed class TranslationEditorLoaderTests
             CreatedAt: DateTimeOffset.UtcNow,
             UpdatedAt: DateTimeOffset.UtcNow);
 
+    [Fact]
+    public async Task LoadAsync_WhenTheTranslationsRelIsNotAdvertised_FailsWithoutCallingTheApi()
+    {
+        // `translations` is anonymous today, but the editor route is [Authorize] and the loader must not
+        // assume the rel is there — an absent rel is a refusal to call, not a path to compose (#610).
+        StubHttpMessageHandler handler = StubHttpMessageHandler.RespondWith(HttpStatusCode.OK, "{}");
+        TranslationEditorLoader loader = new(StubDiscoveryCache.AdvertisingGet(Rels.Progress), CreateClient(handler));
+
+        ApiResult<TranslationDetailResponse> result = await loader.LoadAsync(TranslationId.Create(TranslationGuid));
+
+        result.IsFailure.ShouldBeTrue();
+        result.ProblemDetails!.Status.ShouldBe(403);
+        handler.LastRequest.ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task LoadAsync_WhenDiscoveryIsUnavailable_PassesThatProblemThrough()
+    {
+        StubHttpMessageHandler handler = StubHttpMessageHandler.RespondWith(HttpStatusCode.OK, "{}");
+        TranslationEditorLoader loader = new(StubDiscoveryCache.Unavailable(), CreateClient(handler));
+
+        ApiResult<TranslationDetailResponse> result = await loader.LoadAsync(TranslationId.Create(TranslationGuid));
+
+        result.IsFailure.ShouldBeTrue();
+        result.ProblemDetails!.Status.ShouldBe(503);
+        handler.LastRequest.ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task ResolveCollectionUpsertHrefAsync_WhenTheUpsertRelIsAdvertised_ReturnsThatHref()
+    {
+        // The recovery path (a resubmit whose row could not be reloaded) has no row to read the upsert
+        // rel from, so it resolves the same rel from the service document — never a compiled-in path.
+        TranslationEditorLoader loader = CreateLoader(HttpStatusCode.OK, "{}", out _);
+
+        ApiResult<string> result = await loader.ResolveCollectionUpsertHrefAsync();
+
+        result.IsSuccess.ShouldBeTrue();
+        result.Value.ShouldBe(StubDiscoveryCache.HrefFor(Rels.Upsert));
+    }
+
+    [Fact]
+    public async Task ResolveCollectionUpsertHrefAsync_WhenTheUpsertRelIsNotAdvertised_Fails()
+    {
+        // The API emits `upsert` only for a translator. A reader who somehow reaches the recovery path
+        // gets a failure the page can render — not a PUT to a guessed collection URL.
+        TranslationEditorLoader loader = new(
+            StubDiscoveryCache.AdvertisingGet(Rels.Translations),
+            CreateClient(StubHttpMessageHandler.RespondWith(HttpStatusCode.OK, "{}")));
+
+        ApiResult<string> result = await loader.ResolveCollectionUpsertHrefAsync();
+
+        result.IsFailure.ShouldBeTrue();
+        result.ProblemDetails!.Status.ShouldBe(403);
+    }
+
     private static TranslationEditorLoader CreateLoader(
         HttpStatusCode statusCode,
         string jsonBody,
         out StubHttpMessageHandler handler)
     {
         handler = StubHttpMessageHandler.RespondWith(statusCode, jsonBody);
-        return new TranslationEditorLoader(CreateClient(handler));
+        return new TranslationEditorLoader(
+            StubDiscoveryCache.AdvertisingGet(Rels.Translations, Rels.Upsert),
+            CreateClient(handler));
     }
 
     private static ITranslationSystemClient CreateClient(StubHttpMessageHandler handler)

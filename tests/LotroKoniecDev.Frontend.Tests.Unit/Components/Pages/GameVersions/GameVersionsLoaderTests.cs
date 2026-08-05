@@ -2,8 +2,10 @@ using System.Net;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using LotroKoniecDev.Frontend.Components.Pages.GameVersions;
+using LotroKoniecDev.Frontend.Infrastructure.Discovery;
 using LotroKoniecDev.Frontend.Infrastructure.HttpClients;
 using LotroKoniecDev.Frontend.Infrastructure.HttpClients.TranslationSystemHttpClients;
+using LotroKoniecDev.Frontend.Tests.Unit.Infrastructure.Discovery;
 using LotroKoniecDev.Frontend.Tests.Unit.Infrastructure.HttpClients;
 using LotroKoniecDev.Hateoas.Abstractions;
 using LotroKoniecDev.TranslationSystem.Contracts.Common;
@@ -17,7 +19,15 @@ namespace LotroKoniecDev.Frontend.Tests.Unit.Components.Pages.GameVersions;
 public sealed class GameVersionsLoaderTests
 {
     private const string BaseUrl = "https://localhost:5002/";
+
+    /// <summary>The per-row / collection hrefs the API advertises — never composed by the loader (#610).</summary>
+    private const string AdvertisedRegisterHref = "/advertised/register-game-version";
+
+    private const string AdvertisedDeleteHref = "/advertised/delete-game-version/42";
+
     private static readonly Guid GameVersionGuid = Guid.Parse("0192a000-0000-7000-8000-0000000000aa");
+    private static readonly string ResolvedGameVersionsUri =
+        BaseUrl.TrimEnd('/') + StubDiscoveryCache.HrefFor(Rels.GameVersions);
 
     // Mirrors the JSON options the Frontend's HTTP seam uses (HttpClientApiExtensions) so the stub
     // body deserializes through the exact same contract the loader relies on.
@@ -27,7 +37,7 @@ public sealed class GameVersionsLoaderTests
     };
 
     [Fact]
-    public async Task ListGameVersionsAsync_RequestsTheGameVersionsCollectionEndpoint()
+    public async Task ListGameVersionsAsync_WhenTheGameVersionsRelIsAdvertised_GetsThatHref()
     {
         GameVersionsLoader loader = CreateLoader(
             HttpStatusCode.OK,
@@ -38,7 +48,7 @@ public sealed class GameVersionsLoaderTests
 
         handler.LastRequest.ShouldNotBeNull();
         handler.LastRequest!.Method.ShouldBe(HttpMethod.Get);
-        handler.LastRequest.RequestUri!.ToString().ShouldBe($"{BaseUrl}api/v1/game-versions");
+        handler.LastRequest.RequestUri!.ToString().ShouldBe(ResolvedGameVersionsUri);
     }
 
     [Fact]
@@ -75,18 +85,47 @@ public sealed class GameVersionsLoaderTests
     }
 
     [Fact]
-    public async Task RegisterGameVersionAsync_PostsTheVersionToTheCollectionEndpoint()
+    public async Task ListGameVersionsAsync_WhenTheGameVersionsRelIsNotAdvertised_FailsWithoutCallingTheApi()
+    {
+        // `game-versions` is RequireTranslatorRole while /game-versions is only [Authorize], so an
+        // authenticated non-translator reaches this on a normal navigation — it must be a clear failure,
+        // never a call to a guessed path (#610).
+        StubHttpMessageHandler handler = StubHttpMessageHandler.RespondWith(HttpStatusCode.OK, "{}");
+        GameVersionsLoader loader = new(StubDiscoveryCache.AdvertisingGet(Rels.Progress), CreateClient(handler));
+
+        ApiResult<CollectionResponse<GameVersionResponse>> result = await loader.ListGameVersionsAsync();
+
+        result.IsFailure.ShouldBeTrue();
+        result.ProblemDetails!.Status.ShouldBe(403);
+        handler.LastRequest.ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task ListGameVersionsAsync_WhenDiscoveryIsUnavailable_PassesThatProblemThrough()
+    {
+        StubHttpMessageHandler handler = StubHttpMessageHandler.RespondWith(HttpStatusCode.OK, "{}");
+        GameVersionsLoader loader = new(StubDiscoveryCache.Unavailable(), CreateClient(handler));
+
+        ApiResult<CollectionResponse<GameVersionResponse>> result = await loader.ListGameVersionsAsync();
+
+        result.IsFailure.ShouldBeTrue();
+        result.ProblemDetails!.Status.ShouldBe(503);
+        handler.LastRequest.ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task RegisterGameVersionAsync_WhenGivenTheCollectionsRegisterHref_PostsTheVersionToIt()
     {
         GameVersionsLoader loader = CreateLoader(
             HttpStatusCode.Created,
             JsonSerializer.Serialize(VersionFixture(), ApiJsonOptions),
             out StubHttpMessageHandler handler);
 
-        ApiResult<GameVersionResponse> result = await loader.RegisterGameVersionAsync("48.0");
+        ApiResult<GameVersionResponse> result = await loader.RegisterGameVersionAsync(AdvertisedRegisterHref, "48.0");
 
         result.IsSuccess.ShouldBeTrue();
         handler.LastRequest!.Method.ShouldBe(HttpMethod.Post);
-        handler.LastRequest.RequestUri!.ToString().ShouldBe($"{BaseUrl}api/v1/game-versions");
+        handler.LastRequest.RequestUri!.ToString().ShouldBe($"{BaseUrl}{AdvertisedRegisterHref.TrimStart('/')}");
         handler.LastRequestBody.ShouldNotBeNull();
         handler.LastRequestBody!.ShouldContain("48.0");
     }
@@ -99,22 +138,22 @@ public sealed class GameVersionsLoaderTests
             """{ "title": "Data Conflict", "status": 422 }""",
             out _);
 
-        ApiResult<GameVersionResponse> result = await loader.RegisterGameVersionAsync("48.0");
+        ApiResult<GameVersionResponse> result = await loader.RegisterGameVersionAsync(AdvertisedRegisterHref, "48.0");
 
         result.IsFailure.ShouldBeTrue();
         result.ProblemDetails!.Status.ShouldBe(422);
     }
 
     [Fact]
-    public async Task DeleteGameVersionAsync_SendsDeleteToTheVersionScopedEndpoint()
+    public async Task DeleteGameVersionAsync_WhenGivenTheRowsDeleteHref_SendsDeleteToIt()
     {
         GameVersionsLoader loader = CreateLoader(HttpStatusCode.NoContent, string.Empty, out StubHttpMessageHandler handler);
 
-        ApiResult result = await loader.DeleteGameVersionAsync(GameVersionId.Create(GameVersionGuid));
+        ApiResult result = await loader.DeleteGameVersionAsync(AdvertisedDeleteHref);
 
         result.IsSuccess.ShouldBeTrue();
         handler.LastRequest!.Method.ShouldBe(HttpMethod.Delete);
-        handler.LastRequest.RequestUri!.ToString().ShouldBe($"{BaseUrl}api/v1/game-versions/{GameVersionGuid}");
+        handler.LastRequest.RequestUri!.ToString().ShouldBe($"{BaseUrl}{AdvertisedDeleteHref.TrimStart('/')}");
     }
 
     [Fact]
@@ -125,7 +164,7 @@ public sealed class GameVersionsLoaderTests
             """{ "title": "Data Conflict", "status": 422 }""",
             out _);
 
-        ApiResult result = await loader.DeleteGameVersionAsync(GameVersionId.Create(GameVersionGuid));
+        ApiResult result = await loader.DeleteGameVersionAsync(AdvertisedDeleteHref);
 
         result.IsFailure.ShouldBeTrue();
         result.ProblemDetails!.Status.ShouldBe(422);
@@ -137,7 +176,7 @@ public sealed class GameVersionsLoaderTests
     private static GameVersionsLoader CreateLoader(HttpStatusCode statusCode, string body, out StubHttpMessageHandler handler)
     {
         handler = StubHttpMessageHandler.RespondWith(statusCode, body);
-        return new GameVersionsLoader(CreateClient(handler));
+        return new GameVersionsLoader(StubDiscoveryCache.AdvertisingGet(Rels.GameVersions), CreateClient(handler));
     }
 
     private static ITranslationSystemClient CreateClient(StubHttpMessageHandler handler)

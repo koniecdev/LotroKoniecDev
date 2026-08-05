@@ -5,14 +5,21 @@ namespace LotroKoniecDev.Frontend.Tests.Unit.Components.Pages.Translations;
 
 public sealed class TranslationListQueryTests
 {
+    /// <summary>
+    /// Stands in for the <c>translations</c> href the TMS service document advertises (#610). It looks
+    /// nothing like the real route on purpose — this type must only ever append a query string to
+    /// whatever the server handed it, never know an API path of its own.
+    /// </summary>
+    private const string CollectionHref = "/resolved-by-discovery/translations";
+
     [Fact]
     public void From_WithNoFilters_BuildsBaseUriWithLangAndDefaultPaging()
     {
         TranslationListQuery query = TranslationListQuery.From(search: null, status: null, page: 1);
 
-        string uri = query.ToApiRelativeUri();
+        string uri = query.ToApiUri(CollectionHref);
 
-        uri.ShouldStartWith("/api/v1/translations?");
+        uri.ShouldStartWith($"{CollectionHref}?");
         uri.ShouldContain("lang=pl");
         uri.ShouldContain("page=1");
         uri.ShouldContain($"pageSize={TranslationListQuery.DefaultPageSize}");
@@ -25,7 +32,7 @@ public sealed class TranslationListQueryTests
     {
         TranslationListQuery query = TranslationListQuery.From(search: "Witaj w Śródziemiu", status: null, page: 1);
 
-        query.ToApiRelativeUri().ShouldContain("search=Witaj%20w%20%C5%9Ar%C3%B3dziemiu");
+        query.ToApiUri(CollectionHref).ShouldContain("search=Witaj%20w%20%C5%9Ar%C3%B3dziemiu");
     }
 
     [Fact]
@@ -34,7 +41,7 @@ public sealed class TranslationListQueryTests
         TranslationListQuery query = TranslationListQuery.From(search: "100% & <tag>", status: null, page: 1);
 
         // The page only URL-encodes; the API escapes LIKE metacharacters server-side.
-        string uri = query.ToApiRelativeUri();
+        string uri = query.ToApiUri(CollectionHref);
         uri.ShouldContain("search=100%25%20%26%20%3Ctag%3E");
     }
 
@@ -43,7 +50,7 @@ public sealed class TranslationListQueryTests
     {
         TranslationListQuery query = TranslationListQuery.From(search: null, status: "NeedsReview", page: 1);
 
-        query.ToApiRelativeUri().ShouldContain("status=NeedsReview");
+        query.ToApiUri(CollectionHref).ShouldContain("status=NeedsReview");
         query.Status.ShouldBe(TranslationStatus.NeedsReview);
     }
 
@@ -69,7 +76,7 @@ public sealed class TranslationListQueryTests
         TranslationListQuery query = TranslationListQuery.From(search: null, status: status, page: 1);
 
         query.Status.ShouldBeNull();
-        query.ToApiRelativeUri().ShouldNotContain("status=");
+        query.ToApiUri(CollectionHref).ShouldNotContain("status=");
     }
 
     [Theory]
@@ -81,7 +88,7 @@ public sealed class TranslationListQueryTests
         TranslationListQuery query = TranslationListQuery.From(search: search, status: null, page: 1);
 
         query.Search.ShouldBeNull();
-        query.ToApiRelativeUri().ShouldNotContain("search=");
+        query.ToApiUri(CollectionHref).ShouldNotContain("search=");
     }
 
     [Fact]
@@ -102,17 +109,17 @@ public sealed class TranslationListQueryTests
         TranslationListQuery query = TranslationListQuery.From(search: null, status: null, page: requested);
 
         query.Page.ShouldBe(expected);
-        query.ToApiRelativeUri().ShouldContain($"page={expected}");
+        query.ToApiUri(CollectionHref).ShouldContain($"page={expected}");
     }
 
     [Fact]
-    public void ToApiRelativeUri_WithAllFilters_ComposesEveryParameter()
+    public void ToApiUri_WithAllFilters_ComposesEveryParameter()
     {
         TranslationListQuery query = TranslationListQuery.From(search: "Gandalf", status: "Approved", page: 2);
 
-        string uri = query.ToApiRelativeUri();
+        string uri = query.ToApiUri(CollectionHref);
 
-        uri.ShouldStartWith("/api/v1/translations?");
+        uri.ShouldStartWith($"{CollectionHref}?");
         uri.ShouldContain("lang=pl");
         uri.ShouldContain("page=2");
         uri.ShouldContain($"pageSize={TranslationListQuery.DefaultPageSize}");
@@ -199,7 +206,7 @@ public sealed class TranslationListQueryTests
         TranslationListQuery query = TranslationListQuery.From(search: null, status: null, page: 1, pageSize: pageSize);
 
         query.PageSize.ShouldBe(pageSize);
-        query.ToApiRelativeUri().ShouldContain($"pageSize={pageSize}");
+        query.ToApiUri(CollectionHref).ShouldContain($"pageSize={pageSize}");
     }
 
     [Theory]

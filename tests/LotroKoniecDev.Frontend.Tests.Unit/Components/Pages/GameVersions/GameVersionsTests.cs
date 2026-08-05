@@ -12,6 +12,7 @@ using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.GameVersionAggregat
 using Microsoft.Extensions.DependencyInjection;
 using NSubstitute;
 using GameVersionsComponent = LotroKoniecDev.Frontend.Components.Pages.GameVersions.GameVersions;
+using LotroKoniecDev.Frontend.Tests.Unit.Infrastructure.Discovery;
 
 namespace LotroKoniecDev.Frontend.Tests.Unit.Components.Pages.GameVersions;
 
@@ -41,6 +42,7 @@ public sealed class GameVersionsTests : BunitContext
     {
         Services.AddAntiforgery();
         Services.AddSingleton(_client);
+        Services.AddSingleton(StubDiscoveryCache.AdvertisingGet(Rels.GameVersions));
         Services.AddScoped<GameVersionsLoader>();
     }
 

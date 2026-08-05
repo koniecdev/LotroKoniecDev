@@ -2,9 +2,13 @@ using System.Net;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using LotroKoniecDev.Frontend.Components.Pages.Home;
+using LotroKoniecDev.Frontend.Infrastructure.Discovery;
 using LotroKoniecDev.Frontend.Infrastructure.HttpClients;
 using LotroKoniecDev.Frontend.Infrastructure.HttpClients.TranslationSystemHttpClients;
+using LotroKoniecDev.Frontend.Tests.Unit.Infrastructure.Discovery;
 using LotroKoniecDev.Frontend.Tests.Unit.Infrastructure.HttpClients;
+using LotroKoniecDev.Hateoas.Abstractions;
+using LotroKoniecDev.TranslationSystem.Contracts.Hateoas;
 using LotroKoniecDev.TranslationSystem.Contracts.Progress;
 
 namespace LotroKoniecDev.Frontend.Tests.Unit.Components.Pages.Home;
@@ -49,7 +53,7 @@ public sealed class HomeProgressLoaderTests
     }
 
     [Fact]
-    public async Task LoadAsync_RequestsThePublicProgressEndpoint()
+    public async Task LoadAsync_WhenTheProgressRelIsAdvertised_GetsThatHref()
     {
         HomeProgressLoader loader = CreateLoader(
             new PublicProgressResponse(0, 0, 0, null),
@@ -59,7 +63,54 @@ public sealed class HomeProgressLoaderTests
 
         handler.LastRequest.ShouldNotBeNull();
         handler.LastRequest!.Method.ShouldBe(HttpMethod.Get);
-        handler.LastRequest.RequestUri!.ToString().ShouldBe($"{BaseUrl}api/v1/progress");
+        handler.LastRequest.RequestUri!.ToString()
+            .ShouldBe(BaseUrl.TrimEnd('/') + StubDiscoveryCache.HrefFor(Rels.Progress));
+    }
+
+    [Fact]
+    public async Task LoadAsync_WhenTheAdvertisedHrefIsAbsolute_CallsItInsteadOfTheClientsBaseAddress()
+    {
+        // The production shape: LinkGenerator emits absolute hrefs, so every real TMS call now travels
+        // to whatever origin discovery names — not to the typed client's configured base address. The
+        // other stubs here use relative hrefs, so without this the absolute path is never exercised.
+        const string AbsoluteHref = "https://tms.lotro.test/api/v1/progress";
+        StubHttpMessageHandler handler = StubHttpMessageHandler.RespondWith(
+            HttpStatusCode.OK,
+            JsonSerializer.Serialize(new PublicProgressResponse(1, 1, 1, "48.1"), ApiJsonOptions));
+        HomeProgressLoader loader = new(
+            StubDiscoveryCache.Advertising(new LinkDto(AbsoluteHref, Rels.Progress, "GET")),
+            CreateClient(handler));
+
+        ApiResult<PublicProgressResponse> result = await loader.LoadAsync();
+
+        result.IsSuccess.ShouldBeTrue();
+        handler.LastRequest!.RequestUri!.ToString().ShouldBe(AbsoluteHref);
+    }
+
+    [Fact]
+    public async Task LoadAsync_WhenTheProgressRelIsNotAdvertised_FailsWithoutCallingTheApi()
+    {
+        StubHttpMessageHandler handler = StubHttpMessageHandler.RespondWith(HttpStatusCode.OK, "{}");
+        HomeProgressLoader loader = new(StubDiscoveryCache.AdvertisingGet(Rels.Translations), CreateClient(handler));
+
+        ApiResult<PublicProgressResponse> result = await loader.LoadAsync();
+
+        result.IsFailure.ShouldBeTrue();
+        result.ProblemDetails!.Status.ShouldBe(403);
+        handler.LastRequest.ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task LoadAsync_WhenDiscoveryIsUnavailable_PassesThatProblemThrough()
+    {
+        StubHttpMessageHandler handler = StubHttpMessageHandler.RespondWith(HttpStatusCode.OK, "{}");
+        HomeProgressLoader loader = new(StubDiscoveryCache.Unavailable(), CreateClient(handler));
+
+        ApiResult<PublicProgressResponse> result = await loader.LoadAsync();
+
+        result.IsFailure.ShouldBeTrue();
+        result.ProblemDetails!.Status.ShouldBe(503);
+        handler.LastRequest.ShouldBeNull();
     }
 
     [Fact]
@@ -68,7 +119,7 @@ public sealed class HomeProgressLoaderTests
         StubHttpMessageHandler handler = StubHttpMessageHandler.RespondWith(
             HttpStatusCode.InternalServerError,
             """{ "title": "Nie udało się wczytać postępu.", "status": 500 }""");
-        HomeProgressLoader loader = new(CreateClient(handler));
+        HomeProgressLoader loader = new(StubDiscoveryCache.AdvertisingGet(Rels.Progress), CreateClient(handler));
 
         ApiResult<PublicProgressResponse> result = await loader.LoadAsync();
 
@@ -84,7 +135,7 @@ public sealed class HomeProgressLoaderTests
         handler = StubHttpMessageHandler.RespondWith(
             HttpStatusCode.OK,
             JsonSerializer.Serialize(progress, ApiJsonOptions));
-        return new HomeProgressLoader(CreateClient(handler));
+        return new HomeProgressLoader(StubDiscoveryCache.AdvertisingGet(Rels.Progress), CreateClient(handler));
     }
 
     private static ITranslationSystemClient CreateClient(StubHttpMessageHandler handler)

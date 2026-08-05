@@ -2,9 +2,12 @@ using System.Net;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using LotroKoniecDev.Frontend.Components.Pages.Dashboard;
+using LotroKoniecDev.Frontend.Infrastructure.Discovery;
 using LotroKoniecDev.Frontend.Infrastructure.HttpClients;
 using LotroKoniecDev.Frontend.Infrastructure.HttpClients.TranslationSystemHttpClients;
+using LotroKoniecDev.Frontend.Tests.Unit.Infrastructure.Discovery;
 using LotroKoniecDev.Frontend.Tests.Unit.Infrastructure.HttpClients;
+using LotroKoniecDev.TranslationSystem.Contracts.Hateoas;
 using LotroKoniecDev.TranslationSystem.Contracts.Translations;
 
 namespace LotroKoniecDev.Frontend.Tests.Unit.Components.Pages.Dashboard;
@@ -36,7 +39,7 @@ public sealed class DashboardStatsLoaderTests
     }
 
     [Fact]
-    public async Task LoadAsync_RequestsTheStatsEndpoint()
+    public async Task LoadAsync_WhenTheStatsRelIsAdvertised_GetsThatHref()
     {
         DashboardStatsLoader loader = CreateLoader(
             new TranslationStatsResponse(0, 0, 0, 0),
@@ -46,7 +49,36 @@ public sealed class DashboardStatsLoaderTests
 
         handler.LastRequest.ShouldNotBeNull();
         handler.LastRequest!.Method.ShouldBe(HttpMethod.Get);
-        handler.LastRequest.RequestUri!.ToString().ShouldBe($"{BaseUrl}api/v1/translations/stats");
+        handler.LastRequest.RequestUri!.ToString()
+            .ShouldBe(BaseUrl.TrimEnd('/') + StubDiscoveryCache.HrefFor(Rels.TranslationStats));
+    }
+
+    [Fact]
+    public async Task LoadAsync_WhenTheStatsRelIsNotAdvertised_FailsWithoutCallingTheApi()
+    {
+        // The rel is translator-only. An unauthorized session gets a clear failure — never a call to
+        // a locally guessed path (#610).
+        StubHttpMessageHandler handler = StubHttpMessageHandler.RespondWith(HttpStatusCode.OK, "{}");
+        DashboardStatsLoader loader = new(StubDiscoveryCache.AdvertisingGet(Rels.Progress), CreateClient(handler));
+
+        ApiResult<TranslationStatsResponse> result = await loader.LoadAsync();
+
+        result.IsFailure.ShouldBeTrue();
+        result.ProblemDetails!.Status.ShouldBe(403);
+        handler.LastRequest.ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task LoadAsync_WhenDiscoveryIsUnavailable_PassesThatProblemThrough()
+    {
+        StubHttpMessageHandler handler = StubHttpMessageHandler.RespondWith(HttpStatusCode.OK, "{}");
+        DashboardStatsLoader loader = new(StubDiscoveryCache.Unavailable(), CreateClient(handler));
+
+        ApiResult<TranslationStatsResponse> result = await loader.LoadAsync();
+
+        result.IsFailure.ShouldBeTrue();
+        result.ProblemDetails!.Status.ShouldBe(503);
+        handler.LastRequest.ShouldBeNull();
     }
 
     [Fact]
@@ -55,7 +87,7 @@ public sealed class DashboardStatsLoaderTests
         StubHttpMessageHandler handler = StubHttpMessageHandler.RespondWith(
             HttpStatusCode.InternalServerError,
             """{ "title": "Nie udało się wczytać statystyk.", "status": 500 }""");
-        DashboardStatsLoader loader = new(CreateClient(handler));
+        DashboardStatsLoader loader = new(StubDiscoveryCache.AdvertisingGet(Rels.TranslationStats), CreateClient(handler));
 
         ApiResult<TranslationStatsResponse> result = await loader.LoadAsync();
 
@@ -71,7 +103,7 @@ public sealed class DashboardStatsLoaderTests
         handler = StubHttpMessageHandler.RespondWith(
             HttpStatusCode.OK,
             JsonSerializer.Serialize(stats, ApiJsonOptions));
-        return new DashboardStatsLoader(CreateClient(handler));
+        return new DashboardStatsLoader(StubDiscoveryCache.AdvertisingGet(Rels.TranslationStats), CreateClient(handler));
     }
 
     private static ITranslationSystemClient CreateClient(StubHttpMessageHandler handler)

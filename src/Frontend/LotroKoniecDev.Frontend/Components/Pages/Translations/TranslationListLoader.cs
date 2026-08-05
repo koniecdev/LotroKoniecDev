@@ -1,33 +1,46 @@
+using LotroKoniecDev.Frontend.Infrastructure.Discovery;
 using LotroKoniecDev.Frontend.Infrastructure.HttpClients;
 using LotroKoniecDev.Frontend.Infrastructure.HttpClients.TranslationSystemHttpClients;
 using LotroKoniecDev.TranslationSystem.Contracts.Common;
+using LotroKoniecDev.TranslationSystem.Contracts.Hateoas;
 using LotroKoniecDev.TranslationSystem.Contracts.Translations;
 
 namespace LotroKoniecDev.Frontend.Components.Pages.Translations;
 
 /// <summary>
 /// Fetches a page of translations for the list view through the typed TMS client, given the page's
-/// normalized <see cref="TranslationListQuery"/>. Kept as a thin injectable seam so the page's
-/// search / status-filter / pagination behavior is unit-testable end-to-end over a stubbed HTTP
-/// handler (the Frontend has no bUnit for component-level rendering tests).
+/// normalized <see cref="TranslationListQuery"/>. The collection's address comes from the service
+/// document's <c>translations</c> rel (#610) — anonymous, like the page itself. Kept as a thin
+/// injectable seam so the page's search / status-filter / pagination behavior is unit-testable
+/// end-to-end over a stubbed HTTP handler (the Frontend has no bUnit for component-level rendering tests).
 /// </summary>
 internal sealed class TranslationListLoader
 {
+    private readonly IDiscoveryCache _discoveryCache;
     private readonly ITranslationSystemClient _client;
 
-    public TranslationListLoader(ITranslationSystemClient client)
+    public TranslationListLoader(IDiscoveryCache discoveryCache, ITranslationSystemClient client)
     {
+        _discoveryCache = discoveryCache;
         _client = client;
     }
 
-    public Task<ApiResult<PaginationResponse<TranslationListItemResponse>>> LoadAsync(
+    public async Task<ApiResult<PaginationResponse<TranslationListItemResponse>>> LoadAsync(
         TranslationListQuery query,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(query);
 
-        return _client.GetApiResultAsync<PaginationResponse<TranslationListItemResponse>>(
-            query.ToApiRelativeUri(),
+        ApiResult<string> href = await _discoveryCache.ResolveTranslationSystemHrefAsync(
+            Rels.Translations,
+            cancellationToken);
+        if (href.IsFailure)
+        {
+            return ApiResult.Failure<PaginationResponse<TranslationListItemResponse>>(href.ProblemDetails!);
+        }
+
+        return await _client.GetApiResultAsync<PaginationResponse<TranslationListItemResponse>>(
+            query.ToApiUri(href.Value),
             cancellationToken);
     }
 

@@ -12,6 +12,7 @@ using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.GameVersionAggregat
 using Microsoft.Extensions.DependencyInjection;
 using NSubstitute;
 using ImportExportComponent = LotroKoniecDev.Frontend.Components.Pages.ImportExport.ImportExport;
+using LotroKoniecDev.Frontend.Tests.Unit.Infrastructure.Discovery;
 
 namespace LotroKoniecDev.Frontend.Tests.Unit.Components.Pages.ImportExport;
 
@@ -33,6 +34,7 @@ public sealed class ImportExportTests : BunitContext
     {
         Services.AddAntiforgery();
         Services.AddSingleton(_client);
+        Services.AddSingleton(StubDiscoveryCache.AdvertisingGet(Rels.GameVersions, Rels.TranslationFile));
         Services.AddScoped<ImportExportLoader>();
     }
 
@@ -55,8 +57,7 @@ public sealed class ImportExportTests : BunitContext
         // A non-admin translator can list versions but the collection carries no `register` rel, so the
         // admin-only import panel stays hidden — driven by the server's affordance, not a local role check.
         AuthorizeAs("Frodo");
-        StubVersions(
-            new GameVersionResponse(GameVersionId.Create(Guid.NewGuid()), "48.0", DateTimeOffset.UnixEpoch, GameVersionStatus.Unprocessed));
+        StubVersions(NonImportableVersion("48.0"));
 
         IRenderedComponent<ImportExportComponent> component = RenderPage();
 
@@ -68,9 +69,7 @@ public sealed class ImportExportTests : BunitContext
     public void Render_WhenCollectionHasTheRegisterRel_ShowsTheImportFormWithAVersionOptionPerListedVersion()
     {
         AuthorizeAs("Sam");
-        StubVersionsWithRegisterRel(
-            new GameVersionResponse(GameVersionId.Create(Guid.NewGuid()), "48.0", DateTimeOffset.UnixEpoch, GameVersionStatus.Unprocessed),
-            new GameVersionResponse(GameVersionId.Create(Guid.NewGuid()), "47.2", DateTimeOffset.UnixEpoch, GameVersionStatus.Processed));
+        StubVersionsWithRegisterRel(ImportableVersion("48.0"), ImportableVersion("47.2"));
 
         IRenderedComponent<ImportExportComponent> component = RenderPage();
 
@@ -84,7 +83,7 @@ public sealed class ImportExportTests : BunitContext
         // property of a [SupplyParameterFromForm] model, so the inputs MUST be named ImportInput.* —
         // a bare name (e.g. "UploadFile") binds null and the import can never run.
         AuthorizeAs("Sam");
-        StubVersionsWithRegisterRel(new GameVersionResponse(GameVersionId.Create(Guid.NewGuid()), "48.0", DateTimeOffset.UnixEpoch, GameVersionStatus.Unprocessed));
+        StubVersionsWithRegisterRel(ImportableVersion("48.0"));
 
         IRenderedComponent<ImportExportComponent> component = RenderPage();
 
@@ -97,7 +96,7 @@ public sealed class ImportExportTests : BunitContext
     public async Task Submit_WhenNoFileChosen_ShowsTheChooseFileValidationAndDoesNotCallImport()
     {
         AuthorizeAs("Sam");
-        StubVersionsWithRegisterRel(new GameVersionResponse(GameVersionId.Create(Guid.NewGuid()), "48.0", DateTimeOffset.UnixEpoch, GameVersionStatus.Unprocessed));
+        StubVersionsWithRegisterRel(ImportableVersion("48.0"));
         IRenderedComponent<ImportExportComponent> component = RenderPage();
 
         await component.Find("form").SubmitAsync();
@@ -123,6 +122,32 @@ public sealed class ImportExportTests : BunitContext
     }
 
     [Fact]
+    public void Render_WhenNoVersionAdvertisesTheImportRel_SaysSoInsteadOfOfferingAnUnusableSelector()
+    {
+        // An admin whose every registered version is Superseded: the API withholds `import` on all of
+        // them, so a selector would offer only options the server would refuse on submit (#610).
+        AuthorizeAs("Sam");
+        StubVersionsWithRegisterRel(NonImportableVersion("47.2"), NonImportableVersion("46.0"));
+
+        IRenderedComponent<ImportExportComponent> component = RenderPage();
+
+        component.Find(".empty").TextContent.ShouldContain("Brak wersji do importu");
+        component.FindAll("input[type=file]").ShouldBeEmpty();
+    }
+
+    [Fact]
+    public void Render_WhenOnlySomeVersionsAdvertiseTheImportRel_OffersOnlyThose()
+    {
+        AuthorizeAs("Sam");
+        StubVersionsWithRegisterRel(ImportableVersion("48.0"), NonImportableVersion("46.0"));
+
+        IRenderedComponent<ImportExportComponent> component = RenderPage();
+
+        IReadOnlyList<IElement> options = component.FindAll("select[name=\"ImportInput.GameVersionId\"] option");
+        options.ShouldHaveSingleItem().TextContent.ShouldContain("48.0");
+    }
+
+    [Fact]
     public void Render_WhenTheCollectionFailsToLoad_HidesTheImportPanelButSurfacesTheErrorAndKeepsTheDownload()
     {
         // The register rel can't be read from a failed fetch, so the import panel is hidden — but the
@@ -145,6 +170,17 @@ public sealed class ImportExportTests : BunitContext
 
     private void AuthorizeAs(string userName) =>
         AddAuthorization().SetAuthorized(userName);
+
+    /// <summary>A version the API offers an admin an <c>import</c> affordance for (not Superseded).</summary>
+    private static GameVersionResponse ImportableVersion(string version) =>
+        new(GameVersionId.Create(Guid.NewGuid()), version, DateTimeOffset.UnixEpoch, GameVersionStatus.Unprocessed)
+        {
+            Links = [new LinkDto($"https://tms.example/hateoas/import/{version}", Rels.Import, "POST")]
+        };
+
+    /// <summary>A version carrying no <c>import</c> rel — what a non-admin sees, and what an admin sees on a Superseded row.</summary>
+    private static GameVersionResponse NonImportableVersion(string version) =>
+        new(GameVersionId.Create(Guid.NewGuid()), version, DateTimeOffset.UnixEpoch, GameVersionStatus.Superseded);
 
     /// <summary>Stubs the versions list as a plain translator sees it — no admin <c>register</c> rel.</summary>
     private void StubVersions(params GameVersionResponse[] versions) =>

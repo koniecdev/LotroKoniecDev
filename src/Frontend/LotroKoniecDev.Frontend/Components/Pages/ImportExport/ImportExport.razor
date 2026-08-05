@@ -101,6 +101,16 @@
                         <p>Najpierw zarejestruj wersję gry, zanim zaimportujesz eksport.</p>
                     </div>
                 }
+                else if (_importableVersions is { Count: 0 })
+                {
+                    @* Versions exist, but the server advertises `import` on none of them — every one is
+                       Superseded. Say so here instead of offering a selector whose every option would be
+                       refused on submit (#610). *@
+                    <div class="empty">
+                        <h2>Brak wersji do importu</h2>
+                        <p>Żadna z zarejestrowanych wersji gry nie przyjmuje już importu. Zarejestruj nowszą wersję.</p>
+                    </div>
+                }
                 else if (_versions is not null)
                 {
                     @* EditForm in static SSR emits the antiforgery token itself; a manual <AntiforgeryToken/>
@@ -113,7 +123,7 @@
                                 <label for="game-version">Wersja gry</label>
                                 <div class="select-wrap">
                                     <select id="game-version" name="ImportInput.GameVersionId">
-                                        @foreach (GameVersionResponse version in _versions)
+                                        @foreach (GameVersionResponse version in _importableVersions)
                                         {
                                             <option value="@version.Id.Value" selected="@(version.Id.Value == ImportInput?.GameVersionId)">
                                                 @version.Version (@version.Status)
@@ -202,6 +212,13 @@
     private ImportFormModel? ImportInput { get; set; }
 
     private IReadOnlyList<GameVersionResponse>? _versions;
+
+    /// <summary>
+    /// The subset of <c>_versions</c> the server advertises an <c>import</c> rel for — the selector's
+    /// options and the only ids <see cref="ImportAsync"/> can resolve a target for (#610).
+    /// </summary>
+    private IReadOnlyList<GameVersionResponse> _importableVersions = [];
+
     private ProblemDetails? _versionsProblem;
     private ProblemDetails? _importProblem;
     private ImportSummary? _summary;
@@ -224,12 +241,15 @@
         if (result.IsSuccess)
         {
             _versions = [.. result.Value.Items];
+            _importableVersions = ImportTargets.Importable(_versions);
             _canImport = result.Value.Links.HasLink(Rels.Register);
             _versionsProblem = null;
         }
         else
         {
             _versions = null;
+            _importableVersions = [];
+            _canImport = false;
             _versionsProblem = result.ProblemDetails;
         }
     }
@@ -260,10 +280,24 @@
             return;
         }
 
+        // The upload target is the chosen version's own `import` rel (#610) — the API emits it for an
+        // admin on any version that is not Superseded, so a missing link means the server refuses this
+        // import. Never compose the path from the id.
+        if (ImportTargets.FindImportHref(_versions, input.GameVersionId) is not { } importHref)
+        {
+            _importProblem = new ProblemDetails
+            {
+                Title = "Nie można zaimportować do tej wersji gry.",
+                Detail = "Serwer nie udostępnia importu dla wybranej wersji. Odśwież stronę i wybierz inną wersję."
+            };
+            await LoadVersionsAsync();
+            return;
+        }
+
         await using Stream fileStream = input.File.OpenReadStream();
 
         ApiResult<ImportSummary> result = await Loader.ImportAsync(
-            GameVersionId.FromValue(input.GameVersionId),
+            importHref,
             fileStream,
             input.File.FileName,
             input.AllowMassRemoval,

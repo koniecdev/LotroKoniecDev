@@ -15,6 +15,7 @@ using Microsoft.AspNetCore.Components;
 using Microsoft.Extensions.DependencyInjection;
 using NSubstitute;
 using TranslationsComponent = LotroKoniecDev.Frontend.Components.Pages.Translations.Translations;
+using LotroKoniecDev.Frontend.Tests.Unit.Infrastructure.Discovery;
 
 namespace LotroKoniecDev.Frontend.Tests.Unit.Components.Pages.Translations;
 
@@ -32,6 +33,7 @@ public sealed class TranslationsTests : BunitContext
     {
         Services.AddAntiforgery();
         Services.AddSingleton(_client);
+        Services.AddSingleton(StubDiscoveryCache.AdvertisingGet(Rels.Translations));
         Services.AddScoped<TranslationListLoader>();
         AddAuthorization().SetAuthorized("Frodo");
     }

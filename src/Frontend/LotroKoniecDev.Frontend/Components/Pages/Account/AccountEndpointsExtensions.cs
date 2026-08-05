@@ -2,8 +2,10 @@ using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using LotroKoniecDev.AuthSystem.Contracts.Features.Auth.Account;
+using LotroKoniecDev.Frontend.Infrastructure.Discovery;
 using LotroKoniecDev.Frontend.Infrastructure.HttpClients;
 using LotroKoniecDev.Frontend.Infrastructure.HttpClients.TranslationSystemHttpClients;
+using LotroKoniecDev.TranslationSystem.Contracts.Hateoas;
 using LotroKoniecDev.TranslationSystem.Contracts.Translators;
 using Microsoft.AspNetCore.Mvc;
 
@@ -22,9 +24,6 @@ internal static class AccountEndpointsExtensions
 {
     /// <summary>The download URL — linked from the account page's export action.</summary>
     internal const string ExportDownloadPath = "/account/export";
-
-    /// <summary>The TMS leg — the caller's contribution export (self-only; LEGAL-07).</summary>
-    internal const string ContributionExportApiPath = "/api/v1/translators/me/data-export";
 
     private static readonly JsonSerializerOptions ExportSerializerOptions = new()
     {
@@ -52,6 +51,7 @@ internal static class AccountEndpointsExtensions
     /// </summary>
     internal static async Task<IResult> DownloadAccountExportAsync(
         AccountLoader loader,
+        IDiscoveryCache discoveryCache,
         ITranslationSystemClient translationSystemClient,
         CancellationToken cancellationToken)
     {
@@ -69,14 +69,24 @@ internal static class AccountEndpointsExtensions
         TranslatorDataExportResponse? translationData = null;
         try
         {
-            ApiResult<TranslatorDataExportResponse> contributionResult =
-                await translationSystemClient.GetApiResultAsync<TranslatorDataExportResponse>(
-                    ContributionExportApiPath,
-                    cancellationToken);
+            // The TMS leg is addressed by the 'contribution-data-export' rel (#610). An unresolvable
+            // rel degrades exactly like a failed call does — it never falls back to a guessed path,
+            // and it never fails the download (ADR-0032).
+            ApiResult<string> contributionHref = await discoveryCache.ResolveTranslationSystemHrefAsync(
+                Rels.ContributionDataExport,
+                cancellationToken);
 
-            if (contributionResult.IsSuccess)
+            if (contributionHref.IsSuccess)
             {
-                translationData = contributionResult.Value;
+                ApiResult<TranslatorDataExportResponse> contributionResult =
+                    await translationSystemClient.GetApiResultAsync<TranslatorDataExportResponse>(
+                        contributionHref.Value,
+                        cancellationToken);
+
+                if (contributionResult.IsSuccess)
+                {
+                    translationData = contributionResult.Value;
+                }
             }
         }
         catch (JsonException)

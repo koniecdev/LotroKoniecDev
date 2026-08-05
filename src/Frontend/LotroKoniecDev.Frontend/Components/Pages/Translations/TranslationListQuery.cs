@@ -6,9 +6,11 @@ namespace LotroKoniecDev.Frontend.Components.Pages.Translations;
 
 /// <summary>
 /// The normalized filter/paging state of the translation list page, and the single place that turns it
-/// into the relative URI the typed client calls (<c>GET /api/v1/translations</c>). Pure and isolated so
-/// the search / status-filter / pagination wiring is unit-testable without rendering the component (the
-/// Frontend has no bUnit) — the page reads it from the query string and hands it to the loader.
+/// into the URI the typed client calls. The collection's own address is <em>not</em> known here — it is
+/// the <c>translations</c> entry point resolved from the TMS service document (#610) and passed in — so
+/// this type only ever appends the filter/paging query string to it. Pure and isolated so the search /
+/// status-filter / pagination wiring is unit-testable without rendering the component (the Frontend has
+/// no bUnit) — the page reads it from the query string and hands it to the loader.
 /// </summary>
 internal sealed record TranslationListQuery
 {
@@ -25,7 +27,6 @@ internal sealed record TranslationListQuery
     /// </summary>
     internal static readonly IReadOnlyList<int> PageSizeOptions = [25, 50, 100];
 
-    private const string ApiPath = "/api/v1/translations";
     private const string PagePath = "/translations";
 
     private TranslationListQuery(string? search, TranslationStatus? status, int page, int pageSize)
@@ -56,11 +57,14 @@ internal sealed record TranslationListQuery
     }
 
     /// <summary>
-    /// The relative URI for the API call: always carries <c>lang</c>, <c>page</c> and <c>pageSize</c>;
-    /// adds <c>search</c> and <c>status</c> only when set, with values URL-encoded.
+    /// The API call's URI: the server-advertised <paramref name="collectionHref"/> plus this state's
+    /// query string — always <c>lang</c>, <c>page</c> and <c>pageSize</c>, adding <c>search</c> and
+    /// <c>status</c> only when set, with values URL-encoded.
     /// </summary>
-    public string ToApiRelativeUri()
+    public string ToApiUri(string collectionHref)
     {
+        ArgumentException.ThrowIfNullOrWhiteSpace(collectionHref);
+
         Dictionary<string, string?> parameters = new()
         {
             ["lang"] = Language,
@@ -68,7 +72,7 @@ internal sealed record TranslationListQuery
         };
         AddPagingAndFilterParameters(parameters);
 
-        return QueryHelpers.AddQueryString(ApiPath, parameters);
+        return QueryHelpers.AddQueryString(collectionHref, parameters);
     }
 
     /// <summary>

@@ -21,12 +21,14 @@ push → `gh pr create` (the interactive "ask before pushing" rule is waived). Y
 
 ## The loop (do not skip steps)
 
-1. **Pull the ticket.** `gh issue view $ARGUMENTS --comments` — title, labels, body (Context /
-   Depends on / Tasks / Acceptance criteria), every comment (later comments override the body).
-   For each `Depends on #X`, verify it is satisfied; an open blocking dependency → `STATUS: BLOCKED`
-   (category: dependency). Issues predating the 2026-06 pivot may describe a dead world (MediatR,
-   one shared Application, auth in M5) — **CLAUDE.md wins**; note the conflict and build the
-   current world.
+1. **Pull the ticket.** `gh issue view $ARGUMENTS --json number,title,state,labels,body,comments`
+   — one call returning title, labels, body (Context / Depends on / Tasks / Acceptance criteria)
+   and the `comments` array (later comments override the body). **Never use `-c/--comments`** — it
+   replaces the default view with a comments-only one, so a comment-free issue prints nothing and
+   still exits 0. For each `Depends on #X`, verify it is satisfied; an open blocking dependency →
+   `STATUS: BLOCKED` (category: dependency). Issues predating the 2026-06 pivot may describe a dead
+   world (MediatR, one shared Application, auth in M5) — **CLAUDE.md wins**; note the conflict and
+   build the current world.
 2. **Ground it in the repo.** Read the areas the ticket touches; identify the nearest sibling
    slice to mirror (here, or TheKittySaver `AdoptionSystem.API/Features/…` + de-mediatorization).
    DAT/update work → `docs/knowledge-base/` FIRST (vnum, translation survival, launch flow are

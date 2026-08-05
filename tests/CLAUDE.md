@@ -98,8 +98,13 @@ delimiter collisions this format is weakest at. Those are composed by hand as ex
 hazard is actually present in the data before trusting a `MemberData` theory to cover it.
 
 Several tests pin **known-lossy** behavior on purpose, say so in-place, and name the defect ticket
-they document (#596 escape asymmetry, #597 odd trailing pipe, #598 over-long piece). Do not "fix"
-such a test — fix the defect, then change the assertion deliberately.
+they document (#597 odd trailing pipe, #598 over-long piece). Do not "fix" such a test — fix the
+defect, then change the assertion deliberately. That is what #596 did: the escape asymmetry it
+pinned is gone (ADR-0039), so both its tests now assert exact round trips, and
+`TranslationLineEscaperTests` exists **twice** — one suite per bounded context, over that context's
+own copy of the rule. The two copies are duplicated by design (the contexts share the file, never
+code), so the twin suites plus `ParserContractParityTests` are the only thing keeping them in step:
+change one escaper, change the other in the same commit.
 
 ## Snapshot tests (Verify — #571)
 

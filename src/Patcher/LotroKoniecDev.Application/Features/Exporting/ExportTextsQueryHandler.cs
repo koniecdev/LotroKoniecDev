@@ -2,6 +2,7 @@
 using LotroKoniecDev.Application.Abstractions.DatFilesServices;
 using LotroKoniecDev.Application.Abstractions.Messaging;
 using LotroKoniecDev.Application.Extensions;
+using LotroKoniecDev.Application.Parsers;
 using LotroKoniecDev.Domain.Core.BuildingBlocks;
 using LotroKoniecDev.Domain.Core.Errors;
 using LotroKoniecDev.Domain.Models;
@@ -76,9 +77,6 @@ internal sealed class ExportTextsQueryHandler : IQueryHandler<ExportTextsQuery, 
                     {
                         string text = string.Join(DatFileConstants.PieceSeparator, fragment.Pieces);
 
-                        // Escape newlines for single-line storage
-                        text = text.Replace("\r", "\\r").Replace("\n", "\\n");
-
                         // Generate default args_order and args_id if fragment has arguments
                         string argsOrder = "NULL";
                         string argsId = "NULL";
@@ -93,7 +91,7 @@ internal sealed class ExportTextsQueryHandler : IQueryHandler<ExportTextsQuery, 
                             argsId = argsOrder; // Default: same order
                         }
 
-                        await writer.WriteLineAsync($"{fileId}||{fragmentId}||{text}||{argsOrder}||{argsId}||1");
+                        await writer.WriteLineAsync(FormatRow(fileId, fragmentId, text, argsOrder, argsId));
 
                         fragmentCount++;
                     }
@@ -125,6 +123,16 @@ internal sealed class ExportTextsQueryHandler : IQueryHandler<ExportTextsQuery, 
         }
 
     }
+
+    /// <summary>
+    /// Composes one <c>exported.txt</c> row. The escape is applied here (ADR-0039), on the joined
+    /// text — the piece separator carries nothing escapable, so folding after the join leaves it
+    /// intact. A row is composed rather than interpolated inline so the file's format has a seam a
+    /// test can hold: the handler streams straight to disk, and a unit suite must not assert on real
+    /// file output.
+    /// </summary>
+    internal static string FormatRow(int fileId, ulong fragmentId, string text, string argsOrder, string argsId)
+        => $"{fileId}||{fragmentId}||{TranslationLineEscaper.Escape(text)}||{argsOrder}||{argsId}||1";
 
     private static async Task WriteHeaderAsync(StreamWriter writer)
     {

@@ -1,6 +1,7 @@
 using LotroKoniecDev.Application;
 using LotroKoniecDev.Application.Abstractions.DatFilesServices;
 using LotroKoniecDev.Application.Features.Exporting;
+using LotroKoniecDev.Application.Parsers;
 using LotroKoniecDev.Domain.Core.BuildingBlocks;
 using LotroKoniecDev.Domain.Core.Monads;
 using LotroKoniecDev.Primitives.Enums;
@@ -181,4 +182,26 @@ public sealed class ExportTextsQueryHandlerTests : IDisposable
         _mockHandler.Received(1).Close(42);
     }
 
+    [Theory]
+    [InlineData("plain", "620756992||1001||plain||NULL||NULL||1")]
+    [InlineData("Line1\nLine2", @"620756992||1001||Line1\nLine2||NULL||NULL||1")]
+    [InlineData("Line1\r\nLine2", @"620756992||1001||Line1\r\nLine2||NULL||NULL||1")]
+    [InlineData(@"C:\notes", @"620756992||1001||C:\\notes||NULL||NULL||1")]
+    public void FormatRow_WithEscapableText_ShouldFoldItOntoOneLine(string text, string expected)
+        => ExportTextsQueryHandler.FormatRow(620756992, 1001, text, "NULL", "NULL").ShouldBe(expected);
+
+    [Theory]
+    [InlineData("Line1\nLine2")]
+    [InlineData("Line1\r\nLine2")]
+    [InlineData(@"C:\notes")]
+    [InlineData("Tekst z <--DO_NOT_TOUCH!--> argumentem")]
+    [InlineData(@"a||b" + "\n" + "c")]
+    public void FormatRow_ThenParse_ShouldRecoverTheFragmentTextExactly(string text)
+    {
+        // The export half of the || round trip (ADR-0039): what the exporter writes is what the
+        // patcher's own parser reads back. Nothing else pins the handler's escape call.
+        string row = ExportTextsQueryHandler.FormatRow(620756992, 1001, text, "NULL", "NULL");
+
+        new TranslationFileParser().ParseLine(row).Value.Content.ShouldBe(text);
+    }
 }

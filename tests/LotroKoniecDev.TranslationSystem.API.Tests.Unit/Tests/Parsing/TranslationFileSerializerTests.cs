@@ -22,9 +22,19 @@ public sealed class TranslationFileSerializerTests
             .ShouldBe("1||2||x||NULL||NULL||1\r\n");
 
     [Fact]
-    public void Serialize_WithEscapedNewlines_ShouldKeepThemVerbatim()
-        => Serialize(new ArtifactRow(1, 2, @"Line1\nLine2", null, null))
+    public void Serialize_WithARealNewline_ShouldFoldItOntoOneLine()
+        => Serialize(new ArtifactRow(1, 2, "Line1\nLine2", null, null))
             .ShouldBe(@"1||2||Line1\nLine2||NULL||NULL||1" + "\r\n");
+
+    [Fact]
+    public void Serialize_WithARealCarriageReturnLineFeed_ShouldFoldBothCharacters()
+        => Serialize(new ArtifactRow(1, 2, "Line1\r\nLine2", null, null))
+            .ShouldBe(@"1||2||Line1\r\nLine2||NULL||NULL||1" + "\r\n");
+
+    [Fact]
+    public void Serialize_WithALiteralBackslash_ShouldEscapeItSoTheParserCannotMistakeItForAnEscape()
+        => Serialize(new ArtifactRow(1, 2, @"Line1\nLine2", null, null))
+            .ShouldBe(@"1||2||Line1\\nLine2||NULL||NULL||1" + "\r\n");
 
     [Fact]
     public void Serialize_WithSeparatorInContent_ShouldEmitItVerbatim()

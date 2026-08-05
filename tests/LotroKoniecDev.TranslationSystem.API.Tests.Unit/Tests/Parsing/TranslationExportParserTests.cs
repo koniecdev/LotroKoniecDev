@@ -30,13 +30,27 @@ public sealed class TranslationExportParserTests
         // Act
         ParsedExport result = await ParseFixtureAsync("exported-sample.txt");
 
-        // Assert — the comment and the blank line are skipped, five rows remain.
+        // Assert — the comments and the blank line are skipped, seven rows remain.
         result.HasErrors.ShouldBeFalse();
-        result.Rows.Count.ShouldBe(5);
+        result.Rows.Count.ShouldBe(7);
         result.Rows[0].FileId.ShouldBe(620756992);
         result.Rows[0].GossipId.ShouldBe(1001);
         result.Rows[0].Content.ShouldBe("Witaj w Srodziemiu!");
         result.Rows[0].ArgsOrder.ShouldBe("NULL");
+    }
+
+    [Fact]
+    public async Task ParseAsync_WithGoldenFixture_ShouldUnfoldTheEscapeIntoRawText()
+    {
+        // Act
+        ParsedExport result = await ParseFixtureAsync("exported-sample.txt");
+
+        // Assert — the catalog stores raw text, never the file representation (ADR-0039). The
+        // backslash row is what proves the transform is injective: it must NOT become a newline.
+        result.Rows.Single(row => row.GossipId == 1006).Content
+            .ShouldBe("Wiersz jeden\nWiersz dwa\r\nWiersz trzy");
+        result.Rows.Single(row => row.GossipId == 1007).Content
+            .ShouldBe(@"Sciezka C:\notes i sekwencja \n");
     }
 
     [Fact]

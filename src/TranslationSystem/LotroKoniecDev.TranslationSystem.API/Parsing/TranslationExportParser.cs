@@ -6,8 +6,9 @@ namespace LotroKoniecDev.TranslationSystem.API.Parsing;
 
 /// <summary>
 /// Parses an uploaded <c>exported.txt</c> in the LOTRO <c>||</c> contract
-/// (<c>file_id||gossip_id||content||args_order||args_id||approved</c>). The TMS owns its own
-/// parser; golden fixtures + round-trip tests guard it against drift from the patcher's parser.
+/// (<c>file_id||gossip_id||content||args_order||args_id||approved</c>), unfolding the content escape
+/// (ADR-0039) so the catalog stores the raw source text rather than its file representation. The TMS
+/// owns its own parser; golden fixtures + round-trip tests guard it against drift from the patcher's.
 /// </summary>
 internal sealed class TranslationExportParser : ITranslationExportParser
 {
@@ -117,8 +118,9 @@ internal sealed class TranslationExportParser : ITranslationExportParser
 
         // Anchor from both ends (matches the patcher, #29/#106): file_id, gossip_id lead;
         // args_order, args_id, approved trail; everything between is content re-joined with the
-        // separator, so content may legally contain "||".
-        string content = string.Join(FieldSeparator, parts[2..^3]);
+        // separator, so content may legally contain "||". The escape is unfolded last (ADR-0039),
+        // so the row hands out the raw source text the DAT actually holds.
+        string content = TranslationLineEscaper.Unescape(string.Join(FieldSeparator, parts[2..^3]));
 
         row = new ParsedExportRow(
             FileId: fileId,

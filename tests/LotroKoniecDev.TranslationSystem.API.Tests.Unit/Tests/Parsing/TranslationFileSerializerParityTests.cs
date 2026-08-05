@@ -40,17 +40,27 @@ public sealed class TranslationFileSerializerParityTests
         }
     }
 
-    [Fact]
-    public void SerializedRow_WithEscapedNewline_ShouldBeUnescapedByThePatcher()
+    [Theory]
+    [InlineData("Line1\nLine2")]
+    [InlineData("Line1\r\nLine2")]
+    [InlineData("Line1\rLine2")]
+    [InlineData(@"C:\notes")]
+    [InlineData(@"backslash \n here")]
+    [InlineData(@"a||b" + "\n" + "c")]
+    [InlineData("Zażółć gęślą jaźń")]
+    public void SerializedRow_CarryingAnEscapableCharacter_ShouldReachThePatcherIntact(string content)
     {
-        // Arrange — content is stored escaped; the patcher unescapes on its way into the DAT.
-        string serialized = new TranslationFileSerializer().Serialize([new ArtifactRow(1, 2, @"Line1\nLine2", null, null)]);
+        // Arrange — the end-to-end statement of ADR-0039: the TMS stores raw text, escapes it on the
+        // way out, and the patcher unfolds it on the way into the DAT. This is #596's acceptance
+        // criterion expressed across both contexts.
+        string serialized = new TranslationFileSerializer().Serialize([new ArtifactRow(1, 2, content, null, null)]);
 
-        // Act
+        // Act — the escape guarantees exactly one line, so trimming the terminator is safe.
+        string[] lines = serialized.Split("\r\n", StringSplitOptions.RemoveEmptyEntries);
         LotroKoniecDev.Domain.Models.Translation parsed =
-            new TranslationFileParser().ParseLine(serialized.TrimEnd('\r', '\n')).Value;
+            new TranslationFileParser().ParseLine(lines.ShouldHaveSingleItem()).Value;
 
         // Assert
-        parsed.Content.ShouldBe("Line1\nLine2");
+        parsed.Content.ShouldBe(content);
     }
 }

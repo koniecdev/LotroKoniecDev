@@ -151,6 +151,60 @@ public sealed class CoreLoopTests : IAsyncLifetime
         secondFile.ShouldNotContain($"{FileId}||1||");
     }
 
+    [Fact]
+    public async Task CoreLoop_ContentCarryingNewlinesAndBackslashes_SurvivesImportApproveDownloadAndPatcherParse()
+    {
+        // #596 / ADR-0039 end to end. Two hazards in one flow: a Polish translation typed with real
+        // newlines in the editor's textarea (it used to split the row into two malformed lines and
+        // vanish from the file), and a literal backslash in front of 'n' (it used to unfold into a
+        // control character on the patcher's side).
+        const string multiLinePolish = "Polski jeden\nDruga linia";
+        const string backslashPolish = @"Sciezka C:\notes";
+        const string escapedMultiLinePolish = @"Polski jeden\nDruga linia";
+        const string escapedBackslashPolish = @"Sciezka C:\\notes";
+
+        using HttpClient admin = AdminClient();
+        using HttpClient translator = TranslatorClient();
+
+        // The English baseline itself arrives escaped from the patcher's exporter.
+        Guid versionId = await RegisterVersionAsync(admin, "48.0");
+        await ImportAsync(admin, versionId, Line(1, @"English one\nsecond line"), Line(2, "English two"));
+
+        // The import unfolds the escape, so the catalog holds the raw source the DAT contains.
+        TranslationDetailResponse first = await UpsertAsync(translator, gossipId: 1, polish: multiLinePolish);
+        first.SourceText.ShouldBe("English one\nsecond line");
+
+        TranslationDetailResponse second = await UpsertAsync(translator, gossipId: 2, polish: backslashPolish);
+        (await admin.PostAsync(ApproveRoute(first.Id.Value), null)).StatusCode.ShouldBe(HttpStatusCode.NoContent);
+        (await admin.PostAsync(ApproveRoute(second.Id.Value), null)).StatusCode.ShouldBe(HttpStatusCode.NoContent);
+
+        // Both rows reach the distributed file, each folded onto exactly one line.
+        (_, string file) = await TranslationFileDownloadPolling.DownloadWhenConvergedAsync(
+            _factory.CreateClient(),
+            FileRoute,
+            (candidate, content) => candidate.IsSuccessStatusCode
+                && content.Contains($"{FileId}||2||{escapedBackslashPolish}||NULL||NULL||1"));
+        file.ShouldContain($"{FileId}||1||{escapedMultiLinePolish}||NULL||NULL||1");
+        file.ShouldContain($"{FileId}||2||{escapedBackslashPolish}||NULL||NULL||1");
+
+        // And the patcher recovers the raw text it is about to write into the DAT.
+        string tempFile = Path.Combine(Path.GetTempPath(), $"polish_{Guid.NewGuid():N}.txt");
+        await File.WriteAllTextAsync(tempFile, file);
+        try
+        {
+            IReadOnlyList<LotroKoniecDev.Domain.Models.Translation> parsed =
+                new TranslationFileParser().ParseFile(tempFile).Value;
+
+            parsed.Count.ShouldBe(2);
+            parsed[0].Content.ShouldBe(multiLinePolish);
+            parsed[1].Content.ShouldBe(backslashPolish);
+        }
+        finally
+        {
+            File.Delete(tempFile);
+        }
+    }
+
     private static string ApproveRoute(Guid translationId) => $"{TranslationsRoute}/{translationId}/approve";
 
     private static string Line(int gossipId, string text) => $"{FileId}||{gossipId}||{text}||NULL||NULL||1";

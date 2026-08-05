@@ -11,8 +11,8 @@ namespace LotroKoniecDev.TranslationSystem.API.Tests.Unit.Tests.Parsing;
 /// <c>exported.txt</c> back.
 /// </summary>
 /// <remarks>
-/// These tests pin CURRENT behavior. Changing the format itself still needs an ADR plus updated
-/// golden fixtures on both sides of the contract (CLAUDE.md).
+/// Changing the format itself needs an ADR plus updated golden fixtures on both sides of the
+/// contract (CLAUDE.md) — ADR-0039 is the last one.
 /// </remarks>
 public sealed class TranslationFileNaughtyStringTests
 {
@@ -93,23 +93,40 @@ public sealed class TranslationFileNaughtyStringTests
     [InlineData("Polish\ntext")]
     [InlineData("Polish\r\ntext")]
     [InlineData("Polish\rtext")]
-    public async Task SerializeThenParse_ContentCarryingARealNewline_ShouldLoseTheRow(string content)
+    [InlineData("Multi\nline\r\nPolish\rtext")]
+    public async Task SerializeThenParse_ContentCarryingARealNewline_ShouldRoundTripExactly(string content)
     {
-        // Arrange — DOCUMENTED CURRENT BEHAVIOR, not an endorsement. The serializer emits content
-        // verbatim because imported source text arrives already escaped from the patcher's exporter.
-        // Translator-submitted Polish never passes through that escape (the editor is a multi-line
-        // textarea and the upsert slice only checks NotEmpty), so a newline in a translation splits
-        // one row into two malformed lines and the fragment silently disappears from the distributed
-        // file. Tracked as #596; pinned here so fixing it is a deliberate, visible change to this
-        // assertion, never an accident.
+        // Arrange — translator-submitted Polish reaches the serializer raw (the editor is a
+        // multi-line textarea and the upsert slice only checks NotEmpty), so the WRITER escapes it
+        // (ADR-0039). Before that, a newline split one row into two malformed lines and the fragment
+        // silently disappeared from the distributed file (#596).
         string file = _serializer.Serialize([new ArtifactRow(620756992, 1001, content, null, null)]);
 
         // Act
         ParsedExport parsed = await ParseAsync(file);
 
         // Assert
-        parsed.Rows.ShouldBeEmpty();
-        parsed.Errors.ShouldNotBeEmpty();
+        parsed.Errors.ShouldBeEmpty();
+        parsed.Rows.ShouldHaveSingleItem().Content.ShouldBe(content);
+    }
+
+    [Theory]
+    [InlineData(@"C:\notes")]
+    [InlineData(@"backslash \n here")]
+    [InlineData(@"\r")]
+    [InlineData(@"\\n")]
+    public async Task SerializeThenParse_ContentCarryingALiteralBackslashEscapeSequence_ShouldRoundTripExactly(string content)
+    {
+        // Arrange — the other half of #596: the escape escapes its own escape character, so a
+        // backslash in front of 'r'/'n' survives instead of unfolding into a control character.
+        string file = _serializer.Serialize([new ArtifactRow(620756992, 1001, content, null, null)]);
+
+        // Act
+        ParsedExport parsed = await ParseAsync(file);
+
+        // Assert
+        parsed.Errors.ShouldBeEmpty();
+        parsed.Rows.ShouldHaveSingleItem().Content.ShouldBe(content);
     }
 
     [Theory]

@@ -6,9 +6,10 @@ namespace LotroKoniecDev.TranslationSystem.Domain.Aggregates.TranslationAggregat
 /// <summary>
 /// The English source of a fragment as exported from the DAT — the unit the import diff compares.
 /// Text and the two argument columns are one value (spec 0001: a placeholder-structure change is
-/// a meaning change even without a text change), so equality covers all three. Stored verbatim in
-/// the exported representation (<c>\r</c>/<c>\n</c> kept escaped, args as the raw <c>NULL</c>/<c>1-2-3</c>
-/// column) so the distributed file round-trips byte-for-byte through the patcher.
+/// a meaning change even without a text change), so equality covers all three. Text is the RAW
+/// fragment text (real newlines, real backslashes): the file's escape is unfolded by the parser and
+/// re-applied by the serializer (ADR-0039), so it never leaks into the column. The args columns keep
+/// their file form (<c>1-2-3</c>, absent normalized to <c>null</c>) — they carry nothing escapable.
 /// </summary>
 public sealed class TranslationSource : ValueObject
 {
@@ -18,9 +19,9 @@ public sealed class TranslationSource : ValueObject
 
     public static Result<TranslationSource> Create(string text, string? argsOrder, string? argsId)
     {
-        // Source text is exported verbatim from the DAT — empty fragments are legal game content and
-        // must round-trip. A null here is never produced by the parser, so it is a programmer error,
-        // not a per-row validation failure.
+        // Source text comes straight from the DAT — empty fragments are legal game content and must
+        // round-trip. A null here is never produced by the parser, so it is a programmer error, not
+        // a per-row validation failure.
         ArgumentNullException.ThrowIfNull(text);
 
         TranslationSource instance = new(text, NormalizeArgs(argsOrder), NormalizeArgs(argsId));

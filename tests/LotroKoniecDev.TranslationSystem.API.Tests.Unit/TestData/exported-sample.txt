@@ -1,7 +1,10 @@
 # Golden fixture mirroring the patcher's || contract. Guards both contexts against format drift.
+# Rows 1006-1007 carry the ADR-0039 escape: \n / \r fold a real newline, \\ folds a real backslash.
 620756992||1001||Witaj w Srodziemiu!||NULL||NULL||1
 620756992||1002||Tekst z <--DO_NOT_TOUCH!--> argumentem||1||1||1
 620756992||1003||Line with || inside the content||NULL||NULL||1
 620756992||1004||Multi||arg||content||1-2||1-2||1
 
 620756992||1005||Trailing approved zero||NULL||NULL||0
+620756992||1006||Wiersz jeden\nWiersz dwa\r\nWiersz trzy||NULL||NULL||1
+620756992||1007||Sciezka C:\\notes i sekwencja \\n||NULL||NULL||1

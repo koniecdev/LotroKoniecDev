@@ -275,9 +275,13 @@ Rules worth knowing (they all exist for a reason):
 - **The content itself may contain `||`.** Parsers on both sides read the first two fields from
   the front, the last three fields from the back, and join everything in the middle back
   together as the content. Naive `split("||")` would corrupt such lines.
-- **Newlines are escaped.** A real line break inside game text is stored as `\r` / `\n`
-  literals. Only the **patcher** unescapes them (when writing into the DAT). The TMS stores and
-  redistributes content exactly as-is, byte for byte.
+- **Content is escaped in the file, raw everywhere else (ADR-0039).** A real line break becomes
+  `\r` / `\n` and a real backslash becomes `\\`, so one row is always one line and the transform is
+  reversible. **Every writer escapes and every reader unescapes** — the patcher's exporter and
+  parser, the TMS' serializer and import parser. What the database holds, what the editor shows and
+  what lands in the DAT is always the raw text; the escape exists only between them. (Before 2026-08
+  only the patcher's exporter escaped and only its parser unescaped, which is why a translation typed
+  with a line break used to vanish from the file — #596.)
 - **`args_order`**: `NULL` means no arguments. `2-1` means "swap the two inserted values"
   (1-indexed in the file; the patcher converts to 0-indexed internally).
 - **`approved`**: the patcher patches only rows with `1`. The export always writes `1`; the TMS

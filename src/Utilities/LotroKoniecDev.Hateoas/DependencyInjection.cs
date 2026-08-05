@@ -14,7 +14,8 @@ public static class DependencyInjection
         /// <summary>
         /// Registers the cross-cutting HATEOAS infrastructure:
         /// <list type="bullet">
-        ///   <item><see cref="ILinkFactory"/> backed by ASP.NET's <c>LinkGenerator</c>.</item>
+        ///   <item><see cref="ILinkFactory"/> backed by ASP.NET's <c>LinkGenerator</c> and the
+        ///   target endpoint's own authorization metadata.</item>
         ///   <item><see cref="IHttpContextAccessor"/> — required by the link factory for absolute URIs.</item>
         ///   <item>A fallback <see cref="IProblemDetailsWriter"/> that serves RFC 7807 for the HATEOAS vendor media type.</item>
         ///   <item>A <see cref="JsonTypeInfo"/> modifier that suppresses empty <c>links</c> arrays from plain-JSON responses.</item>
@@ -33,7 +34,10 @@ public static class DependencyInjection
         public IServiceCollection AddHateoasInfrastructure()
         {
             services.AddHttpContextAccessor();
-            services.AddSingleton<ILinkFactory, LinkFactory>();
+
+            // Scoped, not singleton: the link factory evaluates the target endpoint's authorization
+            // through the scoped IAuthorizationService before emitting a link.
+            services.AddScoped<ILinkFactory, LinkFactory>();
             services.AddSingleton<IProblemDetailsWriter, FallbackProblemDetailsWriter>();
 
             services.ConfigureHttpJsonOptions(jsonOptions =>

@@ -15,7 +15,7 @@ public static class HateoasResults
     /// vendor media type, <paramref name="attachLinks"/> is executed to
     /// populate the response's hypermedia links before serialization.
     /// </summary>
-    public static IResult Ok<T>(T response, Action<T>? attachLinks = null)
+    public static IResult Ok<T>(T response, Func<T, ValueTask>? attachLinks = null)
         where T : class
         => new HateoasNegotiatedResult<T>(response, attachLinks, StatusCodes.Status200OK);
 }

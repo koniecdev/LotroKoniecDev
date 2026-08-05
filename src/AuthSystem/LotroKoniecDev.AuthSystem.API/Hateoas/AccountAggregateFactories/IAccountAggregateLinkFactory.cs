@@ -21,5 +21,5 @@ internal interface IAccountAggregateLinkFactory
     /// Whether GDPR deletion is scheduled for the account. While scheduled,
     /// the only advertised transition is <c>cancel-deletion</c> (ADR-0031).
     /// </param>
-    List<LinkDto> CreateAccountLinks(bool isEmailConfirmed, bool isDeletionScheduled);
+    ValueTask<List<LinkDto>> CreateAccountLinksAsync(bool isEmailConfirmed, bool isDeletionScheduled);
 }

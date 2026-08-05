@@ -15,30 +15,30 @@ internal sealed class DiscoveryLinkFactory : IDiscoveryLinkFactory
         _linkFactory = linkFactory;
     }
 
-    public List<LinkDto> CreateDiscoveryLinks(bool isAuthenticated)
+    public async ValueTask<List<LinkDto>> CreateDiscoveryLinksAsync(bool isAuthenticated)
     {
         List<LinkDto> links = [];
 
-        links.AddIfPresent(_linkFactory.Create(
+        links.AddIfPresent(await _linkFactory.CreateAsync(
             endpoint: nameof(Discovery),
             rel: Rels.Self,
             method: HttpMethods.Get));
 
         if (isAuthenticated)
         {
-            links.AddIfPresent(_linkFactory.Create(
+            links.AddIfPresent(await _linkFactory.CreateAsync(
                 endpoint: nameof(ExportAccountData),
                 rel: Rels.ExportAccountData,
                 method: HttpMethods.Get));
         }
         else
         {
-            links.AddIfPresent(_linkFactory.Create(
+            links.AddIfPresent(await _linkFactory.CreateAsync(
                 endpoint: nameof(RegisterUser),
                 rel: Rels.Register,
                 method: HttpMethods.Post));
 
-            links.AddIfPresent(_linkFactory.Create(
+            links.AddIfPresent(await _linkFactory.CreateAsync(
                 endpoint: nameof(ForgotPassword),
                 rel: Rels.ForgotPassword,
                 method: HttpMethods.Post));

@@ -16,8 +16,8 @@ internal sealed class Discovery : IApiEndpoint
             {
                 DiscoveryResponse response = new("LotroKoniecDev.AuthSystem");
 
-                return HateoasResults.Ok(response, r =>
-                    r.Links = discoveryLinkFactory.CreateDiscoveryLinks(
+                return HateoasResults.Ok(response, async r =>
+                    r.Links = await discoveryLinkFactory.CreateDiscoveryLinksAsync(
                         user.Identity?.IsAuthenticated is true));
             })
             .AllowAnonymous()

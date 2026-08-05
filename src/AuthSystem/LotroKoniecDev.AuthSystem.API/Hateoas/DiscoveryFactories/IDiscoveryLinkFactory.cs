@@ -4,5 +4,5 @@ namespace LotroKoniecDev.AuthSystem.API.Hateoas.DiscoveryFactories;
 
 internal interface IDiscoveryLinkFactory
 {
-    List<LinkDto> CreateDiscoveryLinks(bool isAuthenticated);
+    ValueTask<List<LinkDto>> CreateDiscoveryLinksAsync(bool isAuthenticated);
 }

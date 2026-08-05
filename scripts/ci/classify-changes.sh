@@ -50,7 +50,7 @@ INERT='\.md$|^docs/|^LICENSE$|^\.gitignore$|^\.gitattributes$|\.sh$|\.ps1$|(^|/)
 # thing that checks it before it gets there (HETZ-04); the two scripts/ci/ halves of the N-1
 # promotion gate for the same reason — CD's prod leg runs them (#534) and their self-tests are the
 # only pre-deploy check they face.
-GUARD_INPUTS='^scripts/check-ssr-purity\.(sh|ps1)$|^scripts/check-migration-safety\.(sh|ps1)$|^scripts/tests/check-migration-safety\.tests\.sh$|^scripts/check-dockerfile-restore-graph\.(sh|ps1)$|^scripts/claude/(issue-trust|next-ticket|work-ticket)\.sh$|^scripts/tests/claude-loop-provenance\.tests\.sh$|^scripts/hetzner/deploy\.sh$|^scripts/tests/hetzner-deploy\.tests\.sh$|^scripts/ci/(resolve-prod-baseline|n1-promotion-gate)\.sh$|^scripts/tests/(resolve-prod-baseline|n1-promotion-gate)\.tests\.sh$|(^|/)Dockerfile[^/]*$|^\.github/workflows/(pr-verify|ci)\.yml$'
+GUARD_INPUTS='^scripts/check-ssr-purity\.(sh|ps1)$|^scripts/check-frontend-hypermedia\.(sh|ps1)$|^scripts/check-migration-safety\.(sh|ps1)$|^scripts/tests/check-migration-safety\.tests\.sh$|^scripts/check-dockerfile-restore-graph\.(sh|ps1)$|^scripts/claude/(issue-trust|next-ticket|work-ticket)\.sh$|^scripts/tests/claude-loop-provenance\.tests\.sh$|^scripts/hetzner/deploy\.sh$|^scripts/tests/hetzner-deploy\.tests\.sh$|^scripts/ci/(resolve-prod-baseline|n1-promotion-gate)\.sh$|^scripts/tests/(resolve-prod-baseline|n1-promotion-gate)\.tests\.sh$|(^|/)Dockerfile[^/]*$|^\.github/workflows/(pr-verify|ci)\.yml$'
 
 # Build-relevant despite matching INERT: the two workflows that DEFINE the .NET gate.
 CODE_INPUTS='^\.github/workflows/(pr-verify|ci)\.yml$'

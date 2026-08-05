@@ -507,7 +507,19 @@ structure.
 - **AAA always; assertions inline in the test method.** DRY the Arrange (builders), never the
   Assert. One reason to fail per test.
 - **Tooling: xUnit + Shouldly + NSubstitute only.** Naming: `MethodName_Scenario_ExpectedResult`.
-  (`Architecture.Tests.Unit` additionally uses **NetArchTest.Rules** — architecture rules only.)
+  (`Architecture.Tests.Unit` additionally uses **NetArchTest.Rules** — architecture rules only;
+  the two snapshot suites use **Verify.Xunit** — see the next bullet.)
+- **Snapshots pin shape; they never replace an assert (#571).** Three tools, three jobs: **golden
+  fixtures** own the `||` file contract on both sides (a snapshot adds nothing there and must not
+  replace them), **plain asserts** own behavior across many inputs, and a **Verify snapshot** owns
+  "did anything about this large payload change" — TMS API response bodies (JSON incl. HATEOAS links
+  and ProblemDetails) and Blazor SSR rendered markup, where hand-written asserts only ever cover a
+  corner. The behavioral suites stay; deleting an assert because "the snapshot covers it" is the
+  wrong move. `*.verified.*` files are committed and ARE the pinned contract, `*.received.*` is
+  git-ignored scratch, and **re-accepting a verified file is a deliberate, reviewed act** — read the
+  diff, then land it in the same PR as the change that caused it. One shared scrubber set
+  (`tests/Shared/VerifyModuleInitializer.cs`, linked into every snapshot suite) keeps runs
+  deterministic; a snapshot that churns is worse than no snapshot. Details: `tests/CLAUDE.md`.
 - **The structural house rules are a TEST, not review memory.** `tests/LotroKoniecDev.Architecture.Tests.Unit`
   mechanically enforces the patcher dependency rule, no-mediator (ADR-0001), patcher/TMS bounded-context
   isolation, the Frontend's contracts-only reach, the persistence direction, the CQRS read/write split and

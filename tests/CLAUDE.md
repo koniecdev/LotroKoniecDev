@@ -61,6 +61,7 @@ per-project `stryker-config.json` after reviewing the baseline report.
 - **NSubstitute** — mocking: `Substitute.For<IInterface>()`
 - **NaughtyStrings** — the Big List of Naughty Strings, for hostile-input theories (see below)
 - **NetArchTest.Rules** — architecture tests (assembly IL only; `LotroKoniecDev.Architecture.Tests.Unit`)
+- **Verify.Xunit** — snapshot tests for API response contracts and rendered SSR markup (see below)
 - **Xunit.SkippableFact** — E2E tests that need Windows + a real DAT
 - **coverlet.collector** — code coverage
 - Versions: `Directory.Packages.props` is the single source of truth.
@@ -99,6 +100,70 @@ hazard is actually present in the data before trusting a `MemberData` theory to 
 Several tests pin **known-lossy** behavior on purpose, say so in-place, and name the defect ticket
 they document (#596 escape asymmetry, #597 odd trailing pipe, #598 over-long piece). Do not "fix"
 such a test — fix the defect, then change the assertion deliberately.
+
+## Snapshot tests (Verify — #571)
+
+Snapshot testing is for **one specific shape of assertion**: the target is a large structured output
+that hand-written asserts only ever cover in part. Two seams qualify today, and the pilot lives in a
+`Snapshots/` folder in each:
+
+| Suite | Snapshots | Pins |
+|---|---|---|
+| `TranslationSystem.API.Tests.Integration/Tests/Snapshots/` | `TranslationContractSnapshotTests` (HATEOAS list, public list, middle page, empty envelope, HATEOAS detail, plain-JSON list), `ProblemDetailsSnapshotTests` (400/404/422 + 401/403) | the whole response body — property names, nesting, JSON types, the complete link set |
+| `Frontend.Tests.Unit/Snapshots/` | `HomeMarkupSnapshotTests` (4 states incl. zero-catalog), `TermsMarkupSnapshotTests` | the whole rendered SSR markup of the page |
+
+Seed for the shape you are pinning, not for the shape that is easy: the API fixture seeds three rows
+so a **middle page** (the only place `previous-page` and `next-page` both appear) and the **empty
+envelope** are covered, and the Home counters are five-figure so the NBSP group separator actually
+renders. A snapshot of the one well-formed happy payload is the easiest kind to write and the least
+worth having.
+
+**When a snapshot is the right tool:**
+
+- **Golden fixtures** own the `||` file contract on both sides. Snapshots add nothing there and must
+  never replace them — that format changes only via ADR, and its fixtures are round-tripped, not
+  compared.
+- **Plain asserts** own behavior: "an admin sees `approve`, a translator does not" is a statement
+  about many inputs, so it stays a `[Theory]`. A snapshot answers "did *anything* about this payload
+  change", which is a different question.
+- **Snapshots** own shape. They exist for the fields nobody thought to assert. They complement the
+  behavioral suites (`TranslationAggregateHateoasTests`, `ProblemDetailsContractTests`, `HomeTests`,
+  `TermsTests` all stay) — deleting an assert because "the snapshot covers it" is the wrong move.
+
+**Re-accepting a verified file is a deliberate, reviewed act.** `*.verified.*` files are committed
+and ARE the pinned contract; `*.received.*` files are that run's scratch output and are git-ignored.
+When a snapshot fails, read the diff: either the change was intended (rename the received file over
+the verified one, in the same PR, so the diff is reviewable) or you just found a regression. Never
+re-accept a batch of snapshots without reading each diff.
+
+Everything is configured once in **`tests/Shared/VerifyModuleInitializer.cs`**, linked into every
+snapshot suite (same idiom as `NaughtyStringCases.cs`) so all of them scrub identically — inline
+GUIDs, ISO-8601 instants, 64-char hex digests (the translation file's SHA-256, which is also the
+strong `ETag`) and the `traceId` ASP.NET Core stamps on every `ProblemDetails`. The diff-tool
+launcher is disabled there too: most runs are headless, and a GUI popping up would hang the run.
+
+Two properties worth knowing before you add one:
+
+- The scrubbers are **shape-matched**, not positional — a regex only fires on text that still looks
+  like a GUID / an instant / a digest. A contract regression that changes the shape (an instant
+  serialized as a Unix epoch) leaves the raw value in the snapshot and fails the test, which is the
+  point.
+- API snapshots go through `ApiSnapshot`, which re-indents the body via `JsonNode`. What is pinned is
+  the **logical** contract (names, nesting, JSON types, values), not the transport's encoding of
+  non-ASCII — so Polish reads as Polish in the verified file. Nothing else covers that encoding
+  (`ContentNegotiationTests` pins the media type and `Vary`, not the bytes), so `ApiSnapshot`
+  carries its own `ShouldServeUtf8Async` assert on the **raw** body and every snapshot with Polish
+  in it calls that too.
+- A markup snapshot is the component's **rendered body only**. bUnit's `Markup` does not include
+  `<PageTitle>` / `<HeadContent>`, so head metadata needs its own assert.
+- A snapshot suite is the sanctioned exception to "unit tests are pure: no filesystem". It reads its
+  `*.verified.*` from the source tree at runtime (and writes `*.received.*` on failure) — that file is
+  the pinned contract, not an assertion about generated output, so `Frontend.Tests.Unit` stays a pure
+  suite in every sense the rule is about.
+
+Add a snapshot when the payload is big and the existing asserts cover a corner of it. Do not add one
+to a small `Result` or a three-field DTO — a plain assert says more, and says it in the failure
+message.
 
 ## Unit Tests (LotroKoniecDev.Tests.Unit)
 

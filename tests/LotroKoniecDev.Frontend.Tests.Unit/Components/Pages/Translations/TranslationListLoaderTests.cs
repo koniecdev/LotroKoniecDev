@@ -2,10 +2,13 @@ using System.Net;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using LotroKoniecDev.Frontend.Components.Pages.Translations;
+using LotroKoniecDev.Frontend.Infrastructure.Discovery;
 using LotroKoniecDev.Frontend.Infrastructure.HttpClients;
 using LotroKoniecDev.Frontend.Infrastructure.HttpClients.TranslationSystemHttpClients;
+using LotroKoniecDev.Frontend.Tests.Unit.Infrastructure.Discovery;
 using LotroKoniecDev.Frontend.Tests.Unit.Infrastructure.HttpClients;
 using LotroKoniecDev.TranslationSystem.Contracts.Common;
+using LotroKoniecDev.TranslationSystem.Contracts.Hateoas;
 using LotroKoniecDev.TranslationSystem.Contracts.Translations;
 using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.TranslationAggregate;
 using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.TranslationAggregate.Enums;
@@ -16,6 +19,9 @@ namespace LotroKoniecDev.Frontend.Tests.Unit.Components.Pages.Translations;
 public sealed class TranslationListLoaderTests
 {
     private const string BaseUrl = "https://localhost:5002/";
+
+    private static readonly string ResolvedTranslationsUri =
+        BaseUrl.TrimEnd('/') + StubDiscoveryCache.HrefFor(Rels.Translations);
 
     // Mirrors the JSON options the Frontend's HTTP seam uses (HttpClientApiExtensions) so the stub
     // body deserializes through the exact same contract the loader relies on.
@@ -52,7 +58,7 @@ public sealed class TranslationListLoaderTests
     }
 
     [Fact]
-    public async Task LoadAsync_WithNoFilters_RequestsTheTranslationsEndpointWithLangAndDefaultPaging()
+    public async Task LoadAsync_WithNoFilters_QueriesTheAdvertisedTranslationsHrefWithLangAndDefaultPaging()
     {
         TranslationListLoader loader = CreateLoader(EmptyPage(), out StubHttpMessageHandler handler);
 
@@ -61,7 +67,7 @@ public sealed class TranslationListLoaderTests
         handler.LastRequest.ShouldNotBeNull();
         handler.LastRequest!.Method.ShouldBe(HttpMethod.Get);
         string requestUri = handler.LastRequest.RequestUri!.ToString();
-        requestUri.ShouldStartWith($"{BaseUrl}api/v1/translations?");
+        requestUri.ShouldStartWith($"{ResolvedTranslationsUri}?");
         requestUri.ShouldContain("lang=pl");
         requestUri.ShouldContain("page=1");
         requestUri.ShouldContain($"pageSize={TranslationListQuery.DefaultPageSize}");
@@ -121,7 +127,7 @@ public sealed class TranslationListLoaderTests
         StubHttpMessageHandler handler = StubHttpMessageHandler.RespondWith(
             HttpStatusCode.BadRequest,
             """{ "title": "Nieobsługiwany język", "status": 400 }""");
-        TranslationListLoader loader = new(CreateClient(handler));
+        TranslationListLoader loader = new(StubDiscoveryCache.AdvertisingGet(Rels.Translations), CreateClient(handler));
 
         ApiResult<PaginationResponse<TranslationListItemResponse>> result =
             await loader.LoadAsync(TranslationListQuery.From(null, null, 1));
@@ -132,6 +138,34 @@ public sealed class TranslationListLoaderTests
     }
 
     [Fact]
+    public async Task LoadAsync_WhenTheTranslationsRelIsNotAdvertised_FailsWithoutCallingTheApi()
+    {
+        StubHttpMessageHandler handler = StubHttpMessageHandler.RespondWith(HttpStatusCode.OK, "{}");
+        TranslationListLoader loader = new(StubDiscoveryCache.AdvertisingGet(Rels.Progress), CreateClient(handler));
+
+        ApiResult<PaginationResponse<TranslationListItemResponse>> result =
+            await loader.LoadAsync(TranslationListQuery.From(null, null, 1));
+
+        result.IsFailure.ShouldBeTrue();
+        result.ProblemDetails!.Status.ShouldBe(403);
+        handler.LastRequest.ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task LoadAsync_WhenDiscoveryIsUnavailable_PassesThatProblemThrough()
+    {
+        StubHttpMessageHandler handler = StubHttpMessageHandler.RespondWith(HttpStatusCode.OK, "{}");
+        TranslationListLoader loader = new(StubDiscoveryCache.Unavailable(), CreateClient(handler));
+
+        ApiResult<PaginationResponse<TranslationListItemResponse>> result =
+            await loader.LoadAsync(TranslationListQuery.From(null, null, 1));
+
+        result.IsFailure.ShouldBeTrue();
+        result.ProblemDetails!.Status.ShouldBe(503);
+        handler.LastRequest.ShouldBeNull();
+    }
+
+    [Fact]
     public async Task BulkApproveAsync_PostsTheSelectedIdsToTheHref_AndReturnsTheSummary()
     {
         Guid first = Guid.NewGuid();
@@ -139,7 +173,7 @@ public sealed class TranslationListLoaderTests
         StubHttpMessageHandler handler = StubHttpMessageHandler.RespondWith(
             HttpStatusCode.OK,
             JsonSerializer.Serialize(new BulkApproveTranslationsResponse(2, 2, 0), ApiJsonOptions));
-        TranslationListLoader loader = new(CreateClient(handler));
+        TranslationListLoader loader = new(StubDiscoveryCache.AdvertisingGet(Rels.Translations), CreateClient(handler));
 
         ApiResult<BulkApproveTranslationsResponse> result =
             await loader.BulkApproveAsync("/api/v1/translations/approve", [first, second]);
@@ -159,7 +193,7 @@ public sealed class TranslationListLoaderTests
         StubHttpMessageHandler handler = StubHttpMessageHandler.RespondWith(
             HttpStatusCode.BadRequest,
             """{ "title": "Za dużo pozycji", "status": 400 }""");
-        TranslationListLoader loader = new(CreateClient(handler));
+        TranslationListLoader loader = new(StubDiscoveryCache.AdvertisingGet(Rels.Translations), CreateClient(handler));
 
         ApiResult<BulkApproveTranslationsResponse> result =
             await loader.BulkApproveAsync("/api/v1/translations/approve", [Guid.NewGuid()]);
@@ -192,7 +226,7 @@ public sealed class TranslationListLoaderTests
         handler = StubHttpMessageHandler.RespondWith(
             HttpStatusCode.OK,
             JsonSerializer.Serialize(page, ApiJsonOptions));
-        return new TranslationListLoader(CreateClient(handler));
+        return new TranslationListLoader(StubDiscoveryCache.AdvertisingGet(Rels.Translations), CreateClient(handler));
     }
 
     private static ITranslationSystemClient CreateClient(StubHttpMessageHandler handler)

@@ -12,6 +12,7 @@ using Microsoft.AspNetCore.Components;
 using Microsoft.Extensions.DependencyInjection;
 using NSubstitute;
 using EditorComponent = LotroKoniecDev.Frontend.Components.Pages.Editor.Editor;
+using LotroKoniecDev.Frontend.Tests.Unit.Infrastructure.Discovery;
 
 namespace LotroKoniecDev.Frontend.Tests.Unit.Components.Pages.Editor;
 
@@ -34,6 +35,7 @@ public sealed class EditorTests : BunitContext
     {
         Services.AddAntiforgery();
         Services.AddSingleton(_client);
+        Services.AddSingleton(StubDiscoveryCache.AdvertisingGet(Rels.Translations, Rels.Upsert));
         Services.AddScoped<TranslationEditorLoader>();
         AddAuthorization().SetAuthorized("Frodo");
     }
@@ -300,6 +302,72 @@ public sealed class EditorTests : BunitContext
         recoveryForm.QuerySelectorAll("textarea[name=DraftField]").Length.ShouldBe(1);
         recoveryForm.QuerySelector("button[type=submit]")!.TextContent.ShouldContain("Zapisz ponownie");
         component.FindAll(".editor-grid").ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task Save_FromTheRecoveryFormWithNoLoadedRow_PutsToTheUpsertHrefFromTheServiceDocument()
+    {
+        // With no row to advertise the upsert rel, the recovery resubmit resolves it from TMS discovery
+        // (#610) instead of a compiled-in collection path. Only a PUT to that exact advertised href is
+        // stubbed to succeed, so the redirect happens iff the discovered href was the one used.
+        Guid id = Guid.NewGuid();
+        _client
+            .GetApiResultAsync<TranslationDetailResponse>(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(
+                ApiResult.Success(BuildDetail(sourceText: "Hello.", translatedText: "Cześć.", canEdit: true)),
+                ApiResult.Failure<TranslationDetailResponse>(new() { Title = "Nie znaleziono." }));
+        _client
+            .PutApiResultAsync<TranslationDetailResponse>(SaveHref, Arg.Any<object>(), Arg.Any<CancellationToken>())
+            .Returns(ApiResult.Failure<TranslationDetailResponse>(new() { Title = "Zapis odrzucony." }));
+        _client
+            .PutApiResultAsync<TranslationDetailResponse>(
+                StubDiscoveryCache.HrefFor(Rels.Upsert), Arg.Any<object>(), Arg.Any<CancellationToken>())
+            .Returns(ApiResult.Success(BuildDetail("Hello.", "Cześć.", canEdit: true)));
+        BunitNavigationManager navigation = Navigation();
+        IRenderedComponent<EditorComponent> component = RenderEditor(id);
+
+        // First submit follows the loaded row's href and is rejected; the reload then fails, leaving the
+        // recovery form with no row — exactly the state a real SSR resubmit request lands in.
+        await component.Find("form").SubmitAsync();
+        component.Render();
+        await component.Find("form").SubmitAsync();
+
+        navigation.Uri.ShouldEndWith($"/editor/{id}?saved=true");
+    }
+
+    [Fact]
+    public async Task Save_FromTheRecoveryFormWhenTheUpsertRelIsNotAdvertised_ShowsTheErrorAndDoesNotPut()
+    {
+        // The other half of the recovery path: discovery answers, but withholds `upsert` (a reader, or a
+        // session whose bearer stopped being accepted). The page must surface that instead of PUTting to
+        // a guessed collection URL (#610).
+        BunitContext context = new();
+        context.Services.AddAntiforgery();
+        ITranslationSystemClient client = Substitute.For<ITranslationSystemClient>();
+        context.Services.AddSingleton(client);
+        context.Services.AddSingleton(StubDiscoveryCache.AdvertisingGet(Rels.Translations));
+        context.Services.AddScoped<TranslationEditorLoader>();
+        context.AddAuthorization().SetAuthorized("Frodo");
+        client
+            .GetApiResultAsync<TranslationDetailResponse>(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(
+                ApiResult.Success(BuildDetail(sourceText: "Hello.", translatedText: "Cześć.", canEdit: true)),
+                ApiResult.Failure<TranslationDetailResponse>(new() { Title = "Nie znaleziono." }));
+        client
+            .PutApiResultAsync<TranslationDetailResponse>(Arg.Any<string>(), Arg.Any<object>(), Arg.Any<CancellationToken>())
+            .Returns(ApiResult.Failure<TranslationDetailResponse>(new() { Title = "Zapis odrzucony." }));
+        IRenderedComponent<EditorComponent> component =
+            context.Render<EditorComponent>(parameters => parameters.Add(p => p.Id, Guid.NewGuid()));
+
+        await component.Find("form").SubmitAsync();
+        component.Render();
+        await component.Find("form").SubmitAsync();
+
+        // Exactly one PUT — the first submit's, which followed the loaded row's href. The recovery
+        // resubmit never reached the client because the rel could not be resolved.
+        await client.Received(1).PutApiResultAsync<TranslationDetailResponse>(
+            Arg.Any<string>(), Arg.Any<object>(), Arg.Any<CancellationToken>());
+        component.Markup.ShouldContain("Ta funkcja jest niedostępna");
     }
 
     [Fact]

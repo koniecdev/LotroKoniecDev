@@ -3,8 +3,10 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using LotroKoniecDev.Frontend.Components.Pages.ImportExport;
+using LotroKoniecDev.Frontend.Infrastructure.Discovery;
 using LotroKoniecDev.Frontend.Infrastructure.HttpClients;
 using LotroKoniecDev.Frontend.Infrastructure.HttpClients.TranslationSystemHttpClients;
+using LotroKoniecDev.Frontend.Tests.Unit.Infrastructure.Discovery;
 using LotroKoniecDev.Frontend.Tests.Unit.Infrastructure.HttpClients;
 using LotroKoniecDev.Hateoas.Abstractions;
 using LotroKoniecDev.TranslationSystem.Contracts.Common;
@@ -19,7 +21,16 @@ namespace LotroKoniecDev.Frontend.Tests.Unit.Components.Pages.ImportExport;
 public sealed class ImportExportLoaderTests
 {
     private const string BaseUrl = "https://localhost:5002/";
+
+    /// <summary>
+    /// The per-version <c>import</c> href the API advertises. It looks nothing like the real route on
+    /// purpose: a passing assertion proves the loader followed the advertised link (#610).
+    /// </summary>
+    private const string AdvertisedImportHref = "/advertised/import-into/42";
+
     private static readonly Guid GameVersionGuid = Guid.Parse("0192a000-0000-7000-8000-000000000099");
+    private static readonly string ResolvedGameVersionsUri =
+        BaseUrl.TrimEnd('/') + StubDiscoveryCache.HrefFor(Rels.GameVersions);
 
     // Mirrors the JSON options the Frontend's HTTP seam uses (HttpClientApiExtensions) so the stub
     // body deserializes through the exact same contract the loader relies on.
@@ -29,7 +40,7 @@ public sealed class ImportExportLoaderTests
     };
 
     [Fact]
-    public async Task ListGameVersionsAsync_RequestsTheGameVersionsCollectionEndpoint()
+    public async Task ListGameVersionsAsync_WhenTheGameVersionsRelIsAdvertised_GetsThatHref()
     {
         ImportExportLoader loader = CreateLoader(
             HttpStatusCode.OK,
@@ -41,7 +52,7 @@ public sealed class ImportExportLoaderTests
 
         handler.LastRequest.ShouldNotBeNull();
         handler.LastRequest!.Method.ShouldBe(HttpMethod.Get);
-        handler.LastRequest.RequestUri!.ToString().ShouldBe($"{BaseUrl}api/v1/game-versions");
+        handler.LastRequest.RequestUri!.ToString().ShouldBe(ResolvedGameVersionsUri);
     }
 
     [Fact]
@@ -98,7 +109,61 @@ public sealed class ImportExportLoaderTests
     }
 
     [Fact]
-    public async Task ImportAsync_PostsMultipartToTheVersionScopedImportEndpoint()
+    public async Task ListGameVersionsAsync_WhenTheGameVersionsRelIsNotAdvertised_FailsWithoutCallingTheApi()
+    {
+        // `game-versions` is RequireTranslatorRole while /import-export is only [Authorize], so an
+        // authenticated non-translator lands here on a normal navigation (#610).
+        StubHttpMessageHandler handler = StubHttpMessageHandler.RespondWith(HttpStatusCode.OK, "{}");
+        ImportExportLoader loader = new(StubDiscoveryCache.AdvertisingGet(Rels.Progress), CreateClient(handler));
+
+        ApiResult<CollectionResponse<GameVersionResponse>> result = await loader.ListGameVersionsAsync();
+
+        result.IsFailure.ShouldBeTrue();
+        result.ProblemDetails!.Status.ShouldBe(403);
+        handler.LastRequest.ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task ListGameVersionsAsync_WhenDiscoveryIsUnavailable_PassesThatProblemThrough()
+    {
+        StubHttpMessageHandler handler = StubHttpMessageHandler.RespondWith(HttpStatusCode.OK, "{}");
+        ImportExportLoader loader = new(StubDiscoveryCache.Unavailable(), CreateClient(handler));
+
+        ApiResult<CollectionResponse<GameVersionResponse>> result = await loader.ListGameVersionsAsync();
+
+        result.IsFailure.ShouldBeTrue();
+        result.ProblemDetails!.Status.ShouldBe(503);
+        handler.LastRequest.ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task DownloadTranslationFileAsync_WhenTheTranslationFileRelIsNotAdvertised_FailsWithoutCallingTheApi()
+    {
+        StubHttpMessageHandler handler = StubHttpMessageHandler.RespondWith(HttpStatusCode.OK, "body");
+        ImportExportLoader loader = new(StubDiscoveryCache.AdvertisingGet(Rels.Progress), CreateClient(handler));
+
+        ApiResult<string> result = await loader.DownloadTranslationFileAsync();
+
+        result.IsFailure.ShouldBeTrue();
+        result.ProblemDetails!.Status.ShouldBe(403);
+        handler.LastRequest.ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task DownloadTranslationFileAsync_WhenDiscoveryIsUnavailable_PassesThatProblemThrough()
+    {
+        StubHttpMessageHandler handler = StubHttpMessageHandler.RespondWith(HttpStatusCode.OK, "body");
+        ImportExportLoader loader = new(StubDiscoveryCache.Unavailable(), CreateClient(handler));
+
+        ApiResult<string> result = await loader.DownloadTranslationFileAsync();
+
+        result.IsFailure.ShouldBeTrue();
+        result.ProblemDetails!.Status.ShouldBe(503);
+        handler.LastRequest.ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task ImportAsync_WhenGivenTheVersionsImportHref_PostsMultipartToIt()
     {
         ImportExportLoader loader = CreateLoader(
             HttpStatusCode.OK,
@@ -106,12 +171,12 @@ public sealed class ImportExportLoaderTests
             out StubHttpMessageHandler handler);
         using MemoryStream file = new(Encoding.UTF8.GetBytes("620756992||1001||Witaj||NULL||NULL||1"));
 
-        await loader.ImportAsync(GameVersionId.Create(GameVersionGuid), file, "exported.txt", allowMassRemoval: false);
+        await loader.ImportAsync(AdvertisedImportHref, file, "exported.txt", allowMassRemoval: false);
 
         handler.LastRequest.ShouldNotBeNull();
         handler.LastRequest!.Method.ShouldBe(HttpMethod.Post);
         handler.LastRequest.RequestUri!.ToString()
-            .ShouldBe($"{BaseUrl}api/v1/game-versions/{GameVersionGuid}/import?allowMassRemoval=false");
+            .ShouldBe($"{BaseUrl}{AdvertisedImportHref.TrimStart('/')}?allowMassRemoval=false");
     }
 
     [Fact]
@@ -123,7 +188,7 @@ public sealed class ImportExportLoaderTests
             out StubHttpMessageHandler handler);
         using MemoryStream file = new(Encoding.UTF8.GetBytes("620756992||1001||Witaj||NULL||NULL||1"));
 
-        await loader.ImportAsync(GameVersionId.Create(GameVersionGuid), file, "exported.txt", allowMassRemoval: false);
+        await loader.ImportAsync(AdvertisedImportHref, file, "exported.txt", allowMassRemoval: false);
 
         handler.LastRequestBody.ShouldNotBeNull();
         handler.LastRequestBody!.ShouldContain("name=file");
@@ -142,7 +207,7 @@ public sealed class ImportExportLoaderTests
             out StubHttpMessageHandler handler);
         using MemoryStream file = new(Encoding.UTF8.GetBytes("x"));
 
-        await loader.ImportAsync(GameVersionId.Create(GameVersionGuid), file, "exported.txt", allowMassRemoval: true);
+        await loader.ImportAsync(AdvertisedImportHref, file, "exported.txt", allowMassRemoval: true);
 
         handler.LastRequest!.RequestUri!.Query.ShouldBe("?allowMassRemoval=true");
     }
@@ -157,7 +222,7 @@ public sealed class ImportExportLoaderTests
         using MemoryStream file = new(Encoding.UTF8.GetBytes("x"));
 
         ApiResult<ImportSummary> result =
-            await loader.ImportAsync(GameVersionId.Create(GameVersionGuid), file, "exported.txt", allowMassRemoval: false);
+            await loader.ImportAsync(AdvertisedImportHref, file, "exported.txt", allowMassRemoval: false);
 
         result.IsSuccess.ShouldBeTrue();
         result.Value.Added.ShouldBe(3);
@@ -178,14 +243,14 @@ public sealed class ImportExportLoaderTests
         using MemoryStream file = new(Encoding.UTF8.GetBytes("x"));
 
         ApiResult<ImportSummary> result =
-            await loader.ImportAsync(GameVersionId.Create(GameVersionGuid), file, "exported.txt", allowMassRemoval: false);
+            await loader.ImportAsync(AdvertisedImportHref, file, "exported.txt", allowMassRemoval: false);
 
         result.IsFailure.ShouldBeTrue();
         result.ProblemDetails!.Status.ShouldBe(422);
     }
 
     [Fact]
-    public async Task DownloadTranslationFileAsync_RequestsThePolishTranslationFileEndpoint()
+    public async Task DownloadTranslationFileAsync_WhenTheTranslationFileRelIsAdvertised_GetsThatHref()
     {
         ImportExportLoader loader = CreateLoader(HttpStatusCode.OK, "file body", out StubHttpMessageHandler handler);
 
@@ -193,7 +258,8 @@ public sealed class ImportExportLoaderTests
 
         handler.LastRequest.ShouldNotBeNull();
         handler.LastRequest!.Method.ShouldBe(HttpMethod.Get);
-        handler.LastRequest.RequestUri!.ToString().ShouldBe($"{BaseUrl}api/v1/translation-files/pl");
+        handler.LastRequest.RequestUri!.ToString()
+            .ShouldBe(BaseUrl.TrimEnd('/') + StubDiscoveryCache.HrefFor(Rels.TranslationFile));
     }
 
     [Fact]
@@ -234,7 +300,9 @@ public sealed class ImportExportLoaderTests
         out StubHttpMessageHandler handler)
     {
         handler = StubHttpMessageHandler.RespondWith(statusCode, body);
-        return new ImportExportLoader(CreateClient(handler));
+        return new ImportExportLoader(
+            StubDiscoveryCache.AdvertisingGet(Rels.GameVersions, Rels.TranslationFile),
+            CreateClient(handler));
     }
 
     private static ITranslationSystemClient CreateClient(StubHttpMessageHandler handler)

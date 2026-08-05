@@ -8,6 +8,7 @@ using Microsoft.Extensions.Caching.Hybrid;
 using AuthDiscoveryResponse = LotroKoniecDev.AuthSystem.Contracts.Discovery.DiscoveryResponse;
 using AuthRels = LotroKoniecDev.AuthSystem.Contracts.Hateoas.Rels;
 using TranslationDiscoveryResponse = LotroKoniecDev.TranslationSystem.Contracts.Discovery.DiscoveryResponse;
+using TranslationRels = LotroKoniecDev.TranslationSystem.Contracts.Hateoas.Rels;
 
 namespace LotroKoniecDev.Frontend.Infrastructure.Discovery;
 
@@ -62,15 +63,36 @@ internal sealed class DiscoveryCache : IDiscoveryCache
         {
             return ApiResult.Failure<TranslationDiscoveryResponse>(ex.ProblemDetails);
         }
+        catch (AuthenticatedLinksDegradedException)
+        {
+            // Same handling as the auth leg: the cookie reads authenticated but the API answered with
+            // the anonymous link set, so the bearer never reached it. Mark the session dead (the next
+            // OnValidatePrincipal signs the cookie out cleanly) and serve the anonymous links, so the
+            // public pages keep rendering instead of erroring on the way out.
+            await MarkSessionDeadAsync(cancellationToken);
+
+            try
+            {
+                TranslationDiscoveryResponse anonymous =
+                    await GetOrCreateTranslationAsync(AnonymousSuffix, cancellationToken);
+                return ApiResult.Success(anonymous);
+            }
+            catch (DiscoveryUnavailableException ex) when (ex.ProblemDetails is not null)
+            {
+                // The API died between the two calls — keep errors-as-values instead of letting the
+                // sentinel escape and 500 the page.
+                return ApiResult.Failure<TranslationDiscoveryResponse>(ex.ProblemDetails);
+            }
+        }
     }
 
     public async Task<ApiResult<AuthDiscoveryResponse>> GetAuthSystemDiscoveryAsync(
         CancellationToken cancellationToken = default)
     {
-        // Same poisoning guard idea as the TMS leg, but stricter: the auth root advertises the
-        // 'export-account-data' rel only to authenticated callers, so an authenticated key must never
-        // cache a response missing it (which would mean the bearer never reached the API) — that
-        // would break the whole account section for every signed-in user for a day.
+        // The same poisoning guard the TMS leg runs: the auth root advertises the 'export-account-data'
+        // rel only to authenticated callers, so an authenticated key must never cache a response
+        // missing it (which would mean the bearer never reached the API) — that would break the whole
+        // account section for every signed-in user for a day.
         string authSuffix = GetAuthSuffix();
 
         try
@@ -112,16 +134,28 @@ internal sealed class DiscoveryCache : IDiscoveryCache
         // Only successful, correctly-shaped payloads are cached. A ProblemDetails failure must never be
         // persisted under the 1-day TTL (it would keep the app broken for 24h after a transient outage):
         // the factory throws so HybridCache discards the entry and the next request retries the live
-        // endpoint.
+        // endpoint. The same rule covers a degraded link set — see the guard below.
         return await _hybridCache.GetOrCreateAsync(
             TranslationSystemDiscoveryCacheKeyPrefix + authSuffix,
-            _translationSystemClient,
-            static async (client, ct) =>
+            (Client: _translationSystemClient, RequiresAuthenticatedLinks: authSuffix is not AnonymousSuffix),
+            static async (state, ct) =>
             {
-                ApiResult<TranslationDiscoveryResponse> result = await client.GetDiscoveryAsync(ct);
+                ApiResult<TranslationDiscoveryResponse> result = await state.Client.GetDiscoveryAsync(ct);
                 if (result.IsFailure)
                 {
                     throw new DiscoveryUnavailableException(result.ProblemDetails);
+                }
+
+                // The TMS root is anonymous (#608) and tailors its links to the caller, so an
+                // authenticated key that comes back with only the anonymous set means the bearer never
+                // reached the API. Caching that would strip every signed-in user of the dashboard,
+                // editor and admin entry points for a day. 'contribution-data-export' is the sentinel:
+                // its endpoint requires nothing beyond authentication, so every authenticated caller
+                // gets it — exactly what 'export-account-data' is for the auth leg.
+                if (state.RequiresAuthenticatedLinks
+                    && !ContainsGetRel(result.Value.Links, TranslationRels.ContributionDataExport))
+                {
+                    throw new AuthenticatedLinksDegradedException();
                 }
 
                 return result.Value;

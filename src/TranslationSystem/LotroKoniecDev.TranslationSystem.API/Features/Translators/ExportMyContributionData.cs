@@ -131,6 +131,10 @@ internal sealed partial class ExportMyContributionData : IEndpoint
             })
             .WithName(nameof(ExportMyContributionData))
             .WithTags("Translators")
+            // Authentication and nothing more, deliberately: because every authenticated caller is
+            // allowed here, the discovery document advertises this endpoint's rel to every authenticated
+            // caller, and the frontend's DiscoveryCache reads that as its "the bearer reached the API"
+            // sentinel. Tightening this policy force-signs every logged-in user out — see Rels.ContributionDataExport.
             .RequireAuthorization(AuthorizationPolicies.RequireAuthenticatedUser)
             .Produces<TranslatorDataExportResponse>(StatusCodes.Status200OK);
     }

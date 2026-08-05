@@ -99,6 +99,12 @@ jobs:
       - name: Pure-SSR guard
         run: ./scripts/check-ssr-purity.sh
 
+      # Same shape, the other Frontend invariant: no hardcoded API paths. There is no gateway
+      # (ADR-0041), so a client resolves every entry point by rel — a compiled-in "/api/v1/..."
+      # only fails at runtime, and this catches it in seconds.
+      - name: Frontend hypermedia guard
+        run: ./scripts/check-frontend-hypermedia.sh
+
       # Build-cache analog of the SSR gate: every Dockerfile must COPY the full transitive
       # .csproj closure it restores. `dotnet restore` SKIPS a missing project file and still
       # exits 0, so a stale COPY list degrades the restore layer silently and stays green.

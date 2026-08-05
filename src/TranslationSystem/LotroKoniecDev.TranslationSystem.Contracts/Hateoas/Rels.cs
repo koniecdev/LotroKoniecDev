@@ -11,6 +11,14 @@ public static class Rels
     public const string Translations = "translations";
     public const string TranslationStats = "translation-stats";
     public const string GameVersions = "game-versions";
+
+    /// <summary>
+    /// The caller's own contribution export. <b>Load-bearing beyond its endpoint:</b> its target requires
+    /// nothing but authentication, so the frontend's <c>DiscoveryCache</c> treats its absence under an
+    /// authenticated cache key as proof the bearer never reached the API, and force-signs the session out.
+    /// Tightening that endpoint's policy — or renaming this rel — signs every logged-in user out on their
+    /// next page load; change the frontend guard in the same commit.
+    /// </summary>
     public const string ContributionDataExport = "contribution-data-export";
 
     // Translation aggregate actions

@@ -21,6 +21,8 @@ using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.Mvc;
 using NSubstitute;
 using AuthDiscoveryResponse = LotroKoniecDev.AuthSystem.Contracts.Discovery.DiscoveryResponse;
+using TranslationDiscoveryResponse = LotroKoniecDev.TranslationSystem.Contracts.Discovery.DiscoveryResponse;
+using TranslationRels = LotroKoniecDev.TranslationSystem.Contracts.Hateoas.Rels;
 
 namespace LotroKoniecDev.Frontend.Tests.Unit.Components.Pages.Account;
 
@@ -35,6 +37,7 @@ public sealed class AccountEndpointsExtensionsTests
     private const string BaseUrl = "https://localhost:5003/";
     private const string TmsBaseUrl = "https://localhost:5002/";
     private const string ExportHref = "auth/account/data-export";
+    private const string ContributionExportHref = "/advertised/my-contribution-export";
 
     private static readonly JsonSerializerOptions ApiJsonOptions = new(JsonSerializerDefaults.Web)
     {
@@ -49,7 +52,7 @@ public sealed class AccountEndpointsExtensionsTests
         AccountLoader loader = CreateLoaderReturning(AccountLoaderTests.CreateEnvelope());
 
         IResult result = await AccountEndpointsExtensions.DownloadAccountExportAsync(
-            loader, CreateTmsClientReturningContribution(), CancellationToken.None);
+            loader, _discoveryCache, CreateTmsClientReturningContribution(), CancellationToken.None);
 
         FileContentHttpResult file = result.ShouldBeOfType<FileContentHttpResult>();
         file.ContentType.ShouldBe("application/json");
@@ -63,7 +66,7 @@ public sealed class AccountEndpointsExtensionsTests
         AccountLoader loader = CreateLoaderReturning(AccountLoaderTests.CreateEnvelope());
 
         IResult result = await AccountEndpointsExtensions.DownloadAccountExportAsync(
-            loader, CreateTmsClientReturningContribution(), CancellationToken.None);
+            loader, _discoveryCache, CreateTmsClientReturningContribution(), CancellationToken.None);
 
         FileContentHttpResult file = result.ShouldBeOfType<FileContentHttpResult>();
         string json = Encoding.UTF8.GetString(file.FileContents.ToArray());
@@ -78,7 +81,7 @@ public sealed class AccountEndpointsExtensionsTests
         AccountLoader loader = CreateLoaderReturning(AccountLoaderTests.CreateEnvelope());
 
         IResult result = await AccountEndpointsExtensions.DownloadAccountExportAsync(
-            loader, CreateTmsClientReturningContribution(), CancellationToken.None);
+            loader, _discoveryCache, CreateTmsClientReturningContribution(), CancellationToken.None);
 
         FileContentHttpResult file = result.ShouldBeOfType<FileContentHttpResult>();
         string json = Encoding.UTF8.GetString(file.FileContents.ToArray());
@@ -97,7 +100,7 @@ public sealed class AccountEndpointsExtensionsTests
             """{ "title": "Usługa chwilowo niedostępna", "status": 503 }"""));
 
         IResult result = await AccountEndpointsExtensions.DownloadAccountExportAsync(
-            loader, tmsClient, CancellationToken.None);
+            loader, _discoveryCache, tmsClient, CancellationToken.None);
 
         FileContentHttpResult file = result.ShouldBeOfType<FileContentHttpResult>();
         string json = Encoding.UTF8.GetString(file.FileContents.ToArray());
@@ -115,11 +118,52 @@ public sealed class AccountEndpointsExtensionsTests
             """{ "title": "Błąd serwera", "status": 500 }"""));
 
         IResult result = await AccountEndpointsExtensions.DownloadAccountExportAsync(
-            loader, tmsClient, CancellationToken.None);
+            loader, _discoveryCache, tmsClient, CancellationToken.None);
 
         FileContentHttpResult file = result.ShouldBeOfType<FileContentHttpResult>();
         file.ContentType.ShouldBe("application/json");
         file.FileDownloadName!.ShouldStartWith("lotro-translator-moje-dane-");
+    }
+
+    [Fact]
+    public async Task DownloadAccountExportAsync_WhenTheContributionRelIsNotAdvertised_ServesTheFileWithIsCompleteFalse()
+    {
+        // An unresolvable rel degrades exactly like a failed TMS call (ADR-0032): the Art. 15 document
+        // still downloads, honestly flagged incomplete — it must never fall back to a guessed path, and
+        // must never fail the auth leg's download either.
+        AccountLoader loader = CreateLoaderReturning(AccountLoaderTests.CreateEnvelope());
+        _discoveryCache.GetTranslationSystemDiscoveryAsync(Arg.Any<CancellationToken>())
+            .Returns(ApiResult.Success(new TranslationDiscoveryResponse("LotroKoniecDev.TranslationSystem")));
+        StubHttpMessageHandler tmsHandler = StubHttpMessageHandler.RespondWith(
+            HttpStatusCode.OK,
+            JsonSerializer.Serialize(CreateContribution(), ApiJsonOptions));
+
+        IResult result = await AccountEndpointsExtensions.DownloadAccountExportAsync(
+            loader, _discoveryCache, CreateTmsClient(tmsHandler), CancellationToken.None);
+
+        FileContentHttpResult file = result.ShouldBeOfType<FileContentHttpResult>();
+        string json = Encoding.UTF8.GetString(file.FileContents.ToArray());
+        json.ShouldContain("\"translationData\": null");
+        json.ShouldContain("\"isComplete\": false");
+        // No rel, no call — the contribution endpoint was never guessed at.
+        tmsHandler.LastRequest.ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task DownloadAccountExportAsync_WhenTmsDiscoveryIsUnavailable_ServesTheFileWithIsCompleteFalse()
+    {
+        // A TMS outage degrades the file rather than failing the download — only the auth leg can do that.
+        AccountLoader loader = CreateLoaderReturning(AccountLoaderTests.CreateEnvelope());
+        _discoveryCache.GetTranslationSystemDiscoveryAsync(Arg.Any<CancellationToken>())
+            .Returns(ApiResult.Failure<TranslationDiscoveryResponse>(new ProblemDetails { Status = 503 }));
+
+        IResult result = await AccountEndpointsExtensions.DownloadAccountExportAsync(
+            loader, _discoveryCache, CreateTmsClientReturningContribution(), CancellationToken.None);
+
+        FileContentHttpResult file = result.ShouldBeOfType<FileContentHttpResult>();
+        string json = Encoding.UTF8.GetString(file.FileContents.ToArray());
+        json.ShouldContain("\"translationData\": null");
+        json.ShouldContain("\"isComplete\": false");
     }
 
     [Fact]
@@ -130,7 +174,7 @@ public sealed class AccountEndpointsExtensionsTests
             StubHttpMessageHandler.RespondWith(HttpStatusCode.OK, "this is not json"));
 
         IResult result = await AccountEndpointsExtensions.DownloadAccountExportAsync(
-            loader, tmsClient, CancellationToken.None);
+            loader, _discoveryCache, tmsClient, CancellationToken.None);
 
         FileContentHttpResult file = result.ShouldBeOfType<FileContentHttpResult>();
         string json = Encoding.UTF8.GetString(file.FileContents.ToArray());
@@ -146,7 +190,7 @@ public sealed class AccountEndpointsExtensionsTests
             StubHttpMessageHandler.RespondWith(HttpStatusCode.OK, string.Empty));
 
         IResult result = await AccountEndpointsExtensions.DownloadAccountExportAsync(
-            loader, tmsClient, CancellationToken.None);
+            loader, _discoveryCache, tmsClient, CancellationToken.None);
 
         FileContentHttpResult file = result.ShouldBeOfType<FileContentHttpResult>();
         string json = Encoding.UTF8.GetString(file.FileContents.ToArray());
@@ -165,7 +209,7 @@ public sealed class AccountEndpointsExtensionsTests
                 """{ "title": "Nie znaleziono użytkownika", "status": 404 }""")));
 
         IResult result = await AccountEndpointsExtensions.DownloadAccountExportAsync(
-            loader, CreateTmsClientReturningContribution(), CancellationToken.None);
+            loader, _discoveryCache, CreateTmsClientReturningContribution(), CancellationToken.None);
 
         ProblemHttpResult problem = result.ShouldBeOfType<ProblemHttpResult>();
         problem.ProblemDetails.Status.ShouldBe(404);
@@ -185,7 +229,7 @@ public sealed class AccountEndpointsExtensionsTests
             CreateClient(StubHttpMessageHandler.RespondWith(HttpStatusCode.OK, "{}")));
 
         IResult result = await AccountEndpointsExtensions.DownloadAccountExportAsync(
-            loader, CreateTmsClientReturningContribution(), CancellationToken.None);
+            loader, _discoveryCache, CreateTmsClientReturningContribution(), CancellationToken.None);
 
         ProblemHttpResult problem = result.ShouldBeOfType<ProblemHttpResult>();
         problem.ProblemDetails.Status.ShouldBe(503);
@@ -209,6 +253,14 @@ public sealed class AccountEndpointsExtensionsTests
         };
         _discoveryCache.GetAuthSystemDiscoveryAsync(Arg.Any<CancellationToken>())
             .Returns(ApiResult.Success(discovery));
+
+        // The TMS leg is addressed by its own rel (#610), so the same cache serves both legs here.
+        TranslationDiscoveryResponse translationDiscovery = new("LotroKoniecDev.TranslationSystem")
+        {
+            Links = [new LinkDto(ContributionExportHref, TranslationRels.ContributionDataExport, "GET")]
+        };
+        _discoveryCache.GetTranslationSystemDiscoveryAsync(Arg.Any<CancellationToken>())
+            .Returns(ApiResult.Success(translationDiscovery));
     }
 
     private static AuthSystemClient CreateClient(StubHttpMessageHandler handler)

@@ -425,6 +425,16 @@ file_id||gossip_id||translated_text||args_order||args_id||approved
   `@rendermode`, `StateHasChanged`, or `AddInteractive*`. `scripts/check-ssr-purity.sh` (with a
   `.ps1` twin for local Windows devs) gates this in **both** `pr-verify` and `ci`, before
   `setup-dotnet`. Genuinely need interactivity? That's an ADR-first architecture change.
+- **The Frontend hardcodes no API path — enforced, not just documented (#610).** There is no
+  gateway (ADR-0041), so every entry point is resolved by **rel name** through
+  `IDiscoveryCache.ResolveTranslationSystemHrefAsync(Rels.<Name>)` and every id-keyed action follows
+  the href the loaded resource advertises. A missing rel is a `ProblemDetails` failure — never a
+  locally composed path, because an absent rel means the server does not offer that affordance to
+  this caller. `scripts/check-frontend-hypermedia.sh` (with a `.ps1` twin) flags an API path in any
+  string literal under `src/Frontend/` and gates it in **both** `pr-verify` and `ci`, alongside the
+  SSR guard; prose mentions in comments stay allowed. The one bounded exception is the editor's
+  detail URI (`{discovered translations href}/{id}`) — the `/editor/{id}` route hands over an id,
+  not a link, and it is documented as such in `TranslationEditorLoader`.
 - **Docker restore layers are loud and gated (ADR-0028, amended).** Every Dockerfile that lists
   `.csproj` files must COPY the **full transitive closure** of the projects it restores.
   `dotnet restore` treats a missing project file as `Skipping project … because it was not found`

@@ -202,13 +202,6 @@
 
 @code
 {
-    /// <summary>
-    /// Recovery-only fallback for the upsert target: the upsert rel is row-independent (it always points
-    /// at the collection PUT), so when the row could not be reloaded on a resubmit we PUT here rather
-    /// than trust a client-submitted href. The happy path follows <c>_detail</c>'s advertised link.
-    /// </summary>
-    private const string CollectionUpsertPath = "/api/v1/translations";
-
     [Parameter]
     public Guid Id { get; set; }
 
@@ -260,9 +253,22 @@
         _draftText = DraftField ?? string.Empty;
 
         // Follow the row's server-advertised upsert href (never a client-submitted one — that would let a
-        // tampered post redirect the bearer-token request off-host); fall back to the collection PUT only
-        // when the row is unloadable on a recovery resubmit.
-        string upsertHref = _detail?.Links.FindLink(Rels.Upsert)?.Href ?? CollectionUpsertPath;
+        // tampered post redirect the bearer-token request off-host). The upsert rel is row-independent
+        // (it always points at the collection PUT), so whenever the row cannot supply it — unloadable on
+        // a recovery resubmit, or loaded but withholding the rel — we resolve the same rel from the
+        // service document instead of a compiled-in path (#610). The server still rules on the request.
+        string? upsertHref = _detail?.Links.FindLink(Rels.Upsert)?.Href;
+        if (upsertHref is null)
+        {
+            ApiResult<string> resolved = await Loader.ResolveCollectionUpsertHrefAsync(CancellationToken.None);
+            if (resolved.IsFailure)
+            {
+                _saveProblem = resolved.ProblemDetails;
+                return;
+            }
+
+            upsertHref = resolved.Value;
+        }
 
         UpsertTranslationRequest request = new(FileIdField, GossipIdField, _draftText);
         ApiResult<TranslationDetailResponse> result = await Loader.SaveAsync(upsertHref, request, CancellationToken.None);

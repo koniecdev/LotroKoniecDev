@@ -2,7 +2,9 @@ using System.Net;
 using System.Text;
 using LotroKoniecDev.Frontend.Components.Pages.ImportExport;
 using LotroKoniecDev.Frontend.Infrastructure.HttpClients.TranslationSystemHttpClients;
+using LotroKoniecDev.Frontend.Tests.Unit.Infrastructure.Discovery;
 using LotroKoniecDev.Frontend.Tests.Unit.Infrastructure.HttpClients;
+using LotroKoniecDev.TranslationSystem.Contracts.Hateoas;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Http.HttpResults;
 
@@ -63,8 +65,9 @@ public sealed class ImportExportEndpointsExtensionsTests
     {
         // A transport failure yields a synthesized ProblemDetails (503) from the HTTP seam; the route
         // passes it through. The 502 fallback only fires for the (defensive) null-ProblemDetails case.
-        ImportExportLoader loader = new(CreateClient(
-            StubHttpMessageHandler.Throw(new HttpRequestException("connection refused"))));
+        ImportExportLoader loader = new(
+            StubDiscoveryCache.AdvertisingGet(Rels.TranslationFile),
+            CreateClient(StubHttpMessageHandler.Throw(new HttpRequestException("connection refused"))));
 
         IResult result = await ImportExportEndpointsExtensions.DownloadTranslationFileAsync(loader, CancellationToken.None);
 
@@ -73,7 +76,9 @@ public sealed class ImportExportEndpointsExtensionsTests
     }
 
     private static ImportExportLoader CreateLoader(HttpStatusCode statusCode, string body) =>
-        new(CreateClient(StubHttpMessageHandler.RespondWith(statusCode, body)));
+        new(
+            StubDiscoveryCache.AdvertisingGet(Rels.TranslationFile),
+            CreateClient(StubHttpMessageHandler.RespondWith(statusCode, body)));
 
     private static ITranslationSystemClient CreateClient(StubHttpMessageHandler handler)
     {

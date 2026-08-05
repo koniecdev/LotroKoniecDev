@@ -77,6 +77,8 @@ echo '── guards only: the bash gates re-run, the .NET gate does not ──�
 expect 'code=false guards=true images=false' 'a script the provenance self-test executes' 'scripts/claude/work-ticket.sh'
 expect 'code=false guards=true images=false' 'the provenance gate itself'                 'scripts/claude/issue-trust.sh'
 expect 'code=false guards=true images=false' 'the SSR-purity guard'                       'scripts/check-ssr-purity.sh'
+expect 'code=false guards=true images=false' 'the hypermedia guard'                       'scripts/check-frontend-hypermedia.sh'
+expect 'code=false guards=true images=false' 'the hypermedia guard PowerShell twin'       'scripts/check-frontend-hypermedia.ps1'
 expect 'code=false guards=true images=false' 'the migration-safety guard'                 'scripts/check-migration-safety.sh'
 expect 'code=false guards=true images=false' 'a guard self-test'                          'scripts/tests/check-migration-safety.tests.sh'
 expect 'code=false guards=true images=false' 'the script CD runs on a prod box'           'scripts/hetzner/deploy.sh'

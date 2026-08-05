@@ -54,7 +54,7 @@
     }
 
     @* The register affordance is the collection's admin-only `register` rel (#158) — not a local role check. *@
-    @if (_canRegister)
+    @if (_registerHref is not null)
     {
         <section class="panel">
             <header class="panel-head">
@@ -126,11 +126,12 @@
                                 </span>
                             </td>
                             <td class="col-actions">
-                                @* The `delete` rel is emitted only for an admin on an Unprocessed version (#158). *@
-                                @if (version.Links.HasLink(Rels.Delete))
+                                @* The `delete` rel is emitted only for an admin on an Unprocessed version (#158),
+                                   and it carries the URI to call — the page never composes one (#610). *@
+                                @if (version.Links.FindLink(Rels.Delete) is { } deleteLink)
                                 {
                                     <form method="post" @formname="@DeleteFormName(version.Id)"
-                                          @onsubmit="() => DeleteAsync(version.Id)">
+                                          @onsubmit="() => DeleteAsync(deleteLink.Href)">
                                         <AntiforgeryToken/>
                                         <button type="submit" class="btn btn-ghost btn-sm">Usuń</button>
                                     </form>
@@ -160,7 +161,12 @@
     private ProblemDetails? _versionsProblem;
     private ProblemDetails? _actionProblem;
     private string? _actionMessage;
-    private bool _canRegister;
+
+    /// <summary>
+    /// The collection's server-advertised <c>register</c> href — admin-only, so its presence is both the
+    /// affordance gate and the URI the form posts to (#610). Null means "not offered to this caller".
+    /// </summary>
+    private string? _registerHref;
 
     protected override async Task OnInitializedAsync()
     {
@@ -179,13 +185,13 @@
         if (result.IsSuccess)
         {
             _versions = [.. result.Value.Items];
-            _canRegister = result.Value.Links.HasLink(Rels.Register);
+            _registerHref = result.Value.Links.FindLink(Rels.Register)?.Href;
             _versionsProblem = null;
         }
         else
         {
             _versions = null;
-            _canRegister = false;
+            _registerHref = null;
             _versionsProblem = result.ProblemDetails;
         }
     }
@@ -195,7 +201,7 @@
         _actionProblem = null;
         _actionMessage = null;
 
-        if (!_canRegister)
+        if (_registerHref is not { } registerHref)
         {
             return;
         }
@@ -208,7 +214,8 @@
             return;
         }
 
-        ApiResult<GameVersionResponse> result = await Loader.RegisterGameVersionAsync(version, CancellationToken.None);
+        ApiResult<GameVersionResponse> result =
+            await Loader.RegisterGameVersionAsync(registerHref, version, CancellationToken.None);
         if (result.IsSuccess)
         {
             _actionMessage = $"Zarejestrowano wersję {result.Value.Version}.";
@@ -223,12 +230,12 @@
         await LoadVersionsAsync();
     }
 
-    private async Task DeleteAsync(GameVersionId id)
+    private async Task DeleteAsync(string deleteHref)
     {
         _actionProblem = null;
         _actionMessage = null;
 
-        ApiResult result = await Loader.DeleteGameVersionAsync(id, CancellationToken.None);
+        ApiResult result = await Loader.DeleteGameVersionAsync(deleteHref, CancellationToken.None);
         if (result.IsSuccess)
         {
             _actionMessage = "Usunięto wersję gry.";

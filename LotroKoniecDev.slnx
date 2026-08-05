@@ -95,6 +95,9 @@
     <Project Path="src/Utilities/LotroKoniecDev.Options/LotroKoniecDev.Options.csproj" />
   </Folder>
   <Folder Name="/tests/" />
+  <Folder Name="/tests/Architecture/">
+    <Project Path="tests/LotroKoniecDev.Architecture.Tests.Unit/LotroKoniecDev.Architecture.Tests.Unit.csproj" />
+  </Folder>
   <Folder Name="/tests/Patcher/">
     <Project Path="tests/LotroKoniecDev.Tests.Unit/LotroKoniecDev.Tests.Unit.csproj" />
     <Project Path="tests/LotroKoniecDev.Tests.Infrastructure/LotroKoniecDev.Tests.Infrastructure.csproj" />

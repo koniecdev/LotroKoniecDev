@@ -8,11 +8,11 @@ namespace LotroKoniecDev.Application.Abstractions;
 public interface ITranslationParser
 {
     /// <summary>
-    /// Parses a translation file and returns all valid translations.
+    /// Parses a translation file into its valid translations plus a warning per rejected line.
     /// </summary>
     /// <param name="filePath">Path to the translation file.</param>
-    /// <returns>Result containing the list of translations or an error.</returns>
-    Result<IReadOnlyList<Translation>> ParseFile(string filePath);
+    /// <returns>Result containing the parsed translations and warnings, or an error.</returns>
+    Result<TranslationParseResult> ParseFile(string filePath);
 
     /// <summary>
     /// Parses a single translation line.

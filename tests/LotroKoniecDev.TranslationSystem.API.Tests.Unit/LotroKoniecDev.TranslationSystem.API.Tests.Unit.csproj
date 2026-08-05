@@ -13,6 +13,7 @@
             <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
         </PackageReference>
         <PackageReference Include="Microsoft.NET.Test.Sdk" />
+        <PackageReference Include="NaughtyStrings" />
         <PackageReference Include="NSubstitute" />
         <PackageReference Include="Shouldly" />
         <PackageReference Include="xunit" />
@@ -29,6 +30,11 @@
 
     <ItemGroup>
         <Content Include="TestData\**\*.txt" CopyToOutputDirectory="PreserveNewest" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <!-- Linked, not copied: one hostile-string theory source shared by every unit suite (#569). -->
+        <Compile Include="..\Shared\NaughtyStringCases.cs" Link="Shared\NaughtyStringCases.cs" />
     </ItemGroup>
 
     <ItemGroup>

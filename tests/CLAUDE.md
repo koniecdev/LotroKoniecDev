@@ -59,10 +59,46 @@ per-project `stryker-config.json` after reviewing the baseline report.
 - **xUnit** — test framework (`Fact`, `Theory`, `InlineData`)
 - **Shouldly** — `.ShouldBe()`, `.ShouldBeTrue()`, `.ShouldContain()`, …
 - **NSubstitute** — mocking: `Substitute.For<IInterface>()`
+- **NaughtyStrings** — the Big List of Naughty Strings, for hostile-input theories (see below)
 - **NetArchTest.Rules** — architecture tests (assembly IL only; `LotroKoniecDev.Architecture.Tests.Unit`)
 - **Xunit.SkippableFact** — E2E tests that need Windows + a real DAT
 - **coverlet.collector** — code coverage
 - Versions: `Directory.Packages.props` is the single source of truth.
+
+## Hostile-string theories (`tests/Shared/NaughtyStringCases.cs` — #569)
+
+String-heavy seams are hardened with the **Big List of Naughty Strings** (the `NaughtyStrings`
+package): emoji and other surrogate pairs, RTL/bidi controls, zero-width and combining marks,
+quote/escape/injection soup, non-ASCII digits. The theory sources live in **one file**,
+`tests/Shared/NaughtyStringCases.cs`, **linked** (`<Compile Include="..\Shared\…" Link="Shared\…" />`)
+into every pure unit suite that needs them — `Tests.Unit`, `TranslationSystem.API.Tests.Unit`,
+`TranslationSystem.Domain.Tests.Unit`. Add the link + the `NaughtyStrings` PackageReference to a new
+suite rather than copy-pasting lists; add a category source there rather than inlining one in a test.
+
+Sources: `All` (everything), `UnicodeHazards` (UTF-16 length hazards), `DelimiterHazards` (collides
+with a delimited text format), `NonAsciiDigits` (id columns), `SubmittableText` / `BlankText` (what
+the API's `NotEmpty()` does and does not let through as translated text), plus `AllValues` — the raw
+list, for a suite that must filter the corpus down to what its seam accepts **before** building a
+`TheoryData`, so its assertion stays unconditional instead of hiding in an `if`. Entries are
+de-duplicated: the upstream list repeats two, and a duplicate logs a "Skipping test case with
+duplicate ID" line on every run.
+
+Both sides of the `||` contract carry hostile round-trip coverage:
+`TranslationFileParserNaughtyStringTests` + `FragmentNaughtyStringTests` (patcher — parser and the
+VarLen/UTF-16 binary writer), `TranslationFileNaughtyStringTests` + `ParserContractParityTests`
+(TMS — serializer, import parser and the cross-parser drift guard),
+`NaughtyStringValueObjectTests` (TMS domain — a VO factory answers with a `Result`, never an
+exception).
+
+**The corpus does not reach every interesting case.** It carries no empty string, no real newline,
+no literal `\r`/`\n` escape sequence and no entry ending in an odd run of `|` — exactly the
+delimiter collisions this format is weakest at. Those are composed by hand as explicit
+`[InlineData]` theories next to the corpus-driven ones; when you add a seam, check whether its
+hazard is actually present in the data before trusting a `MemberData` theory to cover it.
+
+Several tests pin **known-lossy** behavior on purpose, say so in-place, and name the defect ticket
+they document (#596 escape asymmetry, #597 odd trailing pipe, #598 over-long piece). Do not "fix"
+such a test — fix the defect, then change the assertion deliberately.
 
 ## Unit Tests (LotroKoniecDev.Tests.Unit)
 

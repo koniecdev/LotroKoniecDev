@@ -12,8 +12,8 @@
 #   caffeinate -is scripts/claude/backlog-loop.sh   # overnight on macOS (blocks sleep)
 #
 # Env (all forwarded to work-ticket.sh): LOOP_EFFORT and LOOP_MODEL (defaults come from the
-#   worker role in ~/.claude/model-policy.env when present, else high/fable; reviews run at
-#   xhigh via the code-reviewer agent definition),
+#   worker role in ~/.claude/model-policy.env when present, else high/opus; reviews run at
+#   high via the code-reviewer agent definition),
 #   LOOP_CONFIG_DIR (default ~/.claude-account1 — which account runs the loop),
 #   LOOP_PERMISSION_MODE (default auto), LOOP_UNSAFE, LOOP_MAX_BUDGET_USD,
 #   LOOP_TICKET_TIMEOUT_MIN, LOOP_CHECKS_TIMEOUT_MIN, LOOP_SKIP_LABELS,

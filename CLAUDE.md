@@ -183,7 +183,7 @@ scripts/claude/backlog-loop.sh 123 130                 # exactly these tickets, 
 caffeinate -is scripts/claude/backlog-loop.sh          # overnight run on macOS (blocks sleep)
 scripts/claude/next-ticket.sh                          # print the next READY ticket (priority + deps)
 scripts/claude/work-ticket.sh 123                      # one ticket, one fresh headless session
-# defaults: fable (Fable 5) · effort high (reviews at high too) · permission-mode auto — override via LOOP_MODEL /
+# defaults: opus (Opus 5) · effort high (reviews at high too) · permission-mode auto — override via LOOP_MODEL /
 # LOOP_EFFORT / LOOP_PERMISSION_MODE / LOOP_UNSAFE=1 · full manual: docs/claude-loop.md
 
 # TMS — EF Core migrations (write context owns them; --connection makes it work without appsettings/live DB)
@@ -397,12 +397,12 @@ file_id||gossip_id||translated_text||args_order||args_id||approved
 - **Right-size the design — YAGNI by default.** Before proposing an abstraction, cache, config
   knob, queue, or new infra, check it solves a **real, present** need from the current
   spec/ticket — not a hypothetical future. Pick the simple path and note the trade-off in one line.
-- **Agent fan-out is budgeted; everything runs on Fable 5 at high effort** (2026-07-17: reviews
-  moved back to Fable 5 + high via the central model policy, matching loop workers — history:
-  Fable switch 2026-07-09→11, same-day Opus revert #497, Fable re-enable #503, Opus for reviews
-  2026-07-13). Hard cap:
+- **Agent fan-out is budgeted; everything runs on Opus 5 at high effort** (2026-08-05: reviews,
+  loop workers and audits all moved to Opus 5 via the central model policy — history: Fable
+  switch 2026-07-09→11, same-day Opus revert #497, Fable re-enable #503, Opus for reviews
+  2026-07-13, Fable again 2026-07-17). Hard cap:
   **max 4 subagents in parallel**, no chained waves by default; a small diff gets reviewed
-  **inline, zero agents**. The `code-reviewer` agent runs with **model Fable 5 + effort high**;
+  **inline, zero agents**. The `code-reviewer` agent runs with **model Opus 5 + effort high**;
   `/code-review` and `/security-review` follow the session model/effort; loop-mode worker
   sessions run at **effort high**
   (`LOOP_EFFORT` default) — unless the prompt for that run explicitly says otherwise. Applies to

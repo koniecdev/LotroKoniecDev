@@ -84,7 +84,8 @@ player's patcher downloads a translation file that never shows outdated text in 
   as 64-bit (`long`, already mandated by #93).
 - An exported row is exactly: `file_id||gossip_id||text||args_order||args_id||approved`
   (`ExportTextsQueryHandler.cs:95`). On export: `text` = English pieces joined with
-  `<--DO_NOT_TOUCH!-->`, `\r`/`\n` escaped to literals; `args_order`/`args_id` = `NULL` when the
+  `<--DO_NOT_TOUCH!-->`, then run through the file's escape (`\`→`\\`, CR→`\r`, LF→`\n`; ADR-0039 —
+  the import unfolds it again, so the catalog stores the raw text); `args_order`/`args_id` = `NULL` when the
   fragment has no arguments, otherwise the identity order `1-2-…-N`; `approved` = constant `1`.
   There is **no other state in a row** — no hidden version, no category, no UI grouping; the DAT
   is one undifferentiated bag of texts.

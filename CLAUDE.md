@@ -294,7 +294,13 @@ file_id||gossip_id||translated_text||args_order||args_id||approved
 
 - `<--DO_NOT_TOUCH!-->` = argument placeholder
 - `args_order`: `NULL` or `1-2-3` (1-indexed in file, 0-indexed internally)
-- `\r`, `\n` in content are unescaped by parser
+- **Content escape (ADR-0039): `\`→`\\`, CR→`\r`, LF→`\n`.** It escapes its own escape character, so
+  it is injective and `Unescape(Escape(x)) == x`. **Every writer escapes and every reader unescapes**
+  — all four ends (patcher exporter + parser, TMS serializer + import parser), each via its context's
+  own `TranslationLineEscaper`. Text held anywhere else — in the DAT, in `TranslationSource.Text`, in
+  `TranslatedText` — is always the RAW form; the escape exists only between `Serialize` and `Parse`.
+  A sequence no writer can produce (`\t`, a trailing lone `\`) reads back verbatim. The `||`
+  separator is deliberately **not** escaped: both parsers anchor from both ends instead.
 - Results sorted by FileId then GossipId for sequential DAT I/O
 - **Changing this format requires an ADR + updated golden fixtures in BOTH contexts** (patcher
   parser tests and TMS import/export tests).

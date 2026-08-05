@@ -286,7 +286,7 @@ public sealed class GetTranslationFileTests : IAsyncLifetime
         try
         {
             IReadOnlyList<LotroKoniecDev.Domain.Models.Translation> parsed =
-                new TranslationFileParser().ParseFile(tempFile).Value;
+                new TranslationFileParser().ParseFile(tempFile).Value.Translations;
 
             // Assert — both rows round-trip: args preserved, || anchoring preserved, all approved.
             parsed.Count.ShouldBe(2);

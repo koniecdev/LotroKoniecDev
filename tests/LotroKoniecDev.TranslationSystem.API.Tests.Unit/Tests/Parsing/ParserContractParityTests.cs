@@ -2,7 +2,11 @@ using System.Text;
 using LotroKoniecDev.Application.Parsers;
 using LotroKoniecDev.Tests.Shared;
 using LotroKoniecDev.TranslationSystem.API.Parsing;
+using PatcherCarvedLine = LotroKoniecDev.Application.Parsers.CarvedTranslationLine;
+using PatcherCarver = LotroKoniecDev.Application.Parsers.TranslationLineCarver;
 using PatcherEscaper = LotroKoniecDev.Application.Parsers.TranslationLineEscaper;
+using TmsCarvedLine = LotroKoniecDev.TranslationSystem.API.Parsing.CarvedTranslationLine;
+using TmsCarver = LotroKoniecDev.TranslationSystem.API.Parsing.TranslationLineCarver;
 using TmsEscaper = LotroKoniecDev.TranslationSystem.API.Parsing.TranslationLineEscaper;
 
 namespace LotroKoniecDev.TranslationSystem.API.Tests.Unit.Tests.Parsing;
@@ -17,6 +21,8 @@ namespace LotroKoniecDev.TranslationSystem.API.Tests.Unit.Tests.Parsing;
 /// </summary>
 public sealed class ParserContractParityTests
 {
+    private const string AbsentArgs = "NULL";
+
     [Theory]
     [InlineData("620756992||1001||Witaj w Srodziemiu!||NULL||NULL||1")]
     [InlineData("620756992||1002||Tekst z <--DO_NOT_TOUCH!--> argumentem||1||1||1")]
@@ -25,6 +31,11 @@ public sealed class ParserContractParityTests
     [InlineData("620756992||1005||Trailing approved zero||NULL||NULL||0")]
     [InlineData("100||200||leading||||NULL||NULL||1")]
     [InlineData("100||200||||trailing||NULL||NULL||1")]
+    [InlineData("100||200||trailing pipe|||NULL||NULL||1")]
+    [InlineData("100||200||three trailing pipes|||||1-2||3-4||1")]
+    [InlineData("100||200|||||NULL||NULL||1")]
+    [InlineData("100||200||trailing pipe|||||||1")]
+    [InlineData("100||200||||||||1")]
     public async Task BothParsers_OnTheSameContractLine_ShouldAgreeOnEveryField(string line)
     {
         // Arrange — the patcher parser is per-line; the TMS parser is per-stream.
@@ -39,8 +50,8 @@ public sealed class ParserContractParityTests
         ((long)patcher.GossipId).ShouldBe(tms.GossipId);
         patcher.Content.ShouldBe(tms.Content);
         patcher.IsApproved.ShouldBe(tms.Approved);
-        ReconstructArgs(patcher.ArgsOrder).ShouldBe(tms.ArgsOrder);
-        ReconstructArgs(patcher.ArgsId).ShouldBe(tms.ArgsId);
+        ReconstructArgs(patcher.ArgsOrder).ShouldBe(NormalizeArgs(tms.ArgsOrder));
+        ReconstructArgs(patcher.ArgsId).ShouldBe(NormalizeArgs(tms.ArgsId));
     }
 
     [Theory]
@@ -63,8 +74,8 @@ public sealed class ParserContractParityTests
         ((long)patcher.GossipId).ShouldBe(tms.GossipId);
         patcher.Content.ShouldBe(tms.Content);
         patcher.IsApproved.ShouldBe(tms.Approved);
-        ReconstructArgs(patcher.ArgsOrder).ShouldBe(tms.ArgsOrder);
-        ReconstructArgs(patcher.ArgsId).ShouldBe(tms.ArgsId);
+        ReconstructArgs(patcher.ArgsOrder).ShouldBe(NormalizeArgs(tms.ArgsOrder));
+        ReconstructArgs(patcher.ArgsId).ShouldBe(NormalizeArgs(tms.ArgsId));
     }
 
     [Theory]
@@ -124,6 +135,66 @@ public sealed class ParserContractParityTests
     }
 
     [Theory]
+    [MemberData(nameof(NaughtyStringCases.DelimiterHazards), MemberType = typeof(NaughtyStringCases))]
+    public void BothCarvers_OnTheSameLine_ShouldFindIdenticalFieldBoundaries(string naughty)
+    {
+        // Arrange — the second duplicated-by-design rule (ADR-0042), guarded the same way the escape
+        // is: the content is followed by a raw trailing pipe, the exact collision #597 was about.
+        string line = $"620756992||1001||{naughty}|||1-2||3-4||1";
+
+        // Act
+        PatcherCarver.TryCarve(line, out PatcherCarvedLine? patcher).ShouldBeTrue();
+        TmsCarver.TryCarve(line, out TmsCarvedLine? tms).ShouldBeTrue();
+
+        // Assert
+        patcher!.FileId.ShouldBe(tms!.FileId);
+        patcher.GossipId.ShouldBe(tms.GossipId);
+        patcher.Content.ShouldBe(tms.Content);
+        patcher.ArgsOrder.ShouldBe(tms.ArgsOrder);
+        patcher.ArgsId.ShouldBe(tms.ArgsId);
+        patcher.Approved.ShouldBe(tms.Approved);
+    }
+
+    [Theory]
+    [MemberData(nameof(NaughtyStringCases.DelimiterHazards), MemberType = typeof(NaughtyStringCases))]
+    public void BothCarvers_OnALineWithEmptyArgsColumns_ShouldFindIdenticalFieldBoundaries(string naughty)
+    {
+        // Arrange — the harder half: EMPTY args columns put the separator pairs next to each other,
+        // so a copy whose backward search let a match straddle its slice edge would take the wrong
+        // pair. With NULL args that mistake is invisible, which is why it needs its own theory.
+        string line = $"620756992||1001||{naughty}||||||1";
+
+        // Act
+        PatcherCarver.TryCarve(line, out PatcherCarvedLine? patcher).ShouldBeTrue();
+        TmsCarver.TryCarve(line, out TmsCarvedLine? tms).ShouldBeTrue();
+
+        // Assert
+        patcher!.FileId.ShouldBe(tms!.FileId);
+        patcher.GossipId.ShouldBe(tms.GossipId);
+        patcher.Content.ShouldBe(tms.Content);
+        patcher.ArgsOrder.ShouldBe(tms.ArgsOrder);
+        patcher.ArgsId.ShouldBe(tms.ArgsId);
+        patcher.Approved.ShouldBe(tms.Approved);
+    }
+
+    [Theory]
+    [InlineData("620756992||1001||Content||1-x||NULL||1")]
+    [InlineData("620756992||1001||Content||NULL||1-x||1")]
+    [InlineData("620756992||1001||Content||1--2||NULL||1")]
+    [InlineData("620756992||1001||Content||ONE||NULL||1")]
+    public async Task BothParsers_OnAMalformedArgsColumn_ShouldRejectTheLine(string line)
+    {
+        // A column that is neither NULL nor "1-2-3" is a malformed row on BOTH sides (ADR-0042).
+        // One side swallowing it while the other stores it verbatim is exactly the divergence #597
+        // produced once content leaked into the args boundary.
+        new TranslationFileParser().ParseLine(line).IsFailure.ShouldBeTrue();
+
+        ParsedExport tmsExport = await ParseAsync(line);
+        tmsExport.Rows.ShouldBeEmpty();
+        tmsExport.Errors.ShouldHaveSingleItem();
+    }
+
+    [Theory]
     [MemberData(nameof(NaughtyStringCases.All), MemberType = typeof(NaughtyStringCases))]
     public async Task PatcherExporterEscape_ThenTmsImportParse_ShouldRecoverTheOriginal(string naughty)
     {
@@ -170,5 +241,16 @@ public sealed class ParserContractParityTests
 
     /// <summary>Rebuilds the verbatim args string the TMS keeps from the patcher's 0-indexed int array.</summary>
     private static string ReconstructArgs(int[]? args)
-        => args is null ? "NULL" : string.Join('-', args.Select(value => value + 1));
+        => args is null ? AbsentArgs : string.Join('-', args.Select(value => value + 1));
+
+    /// <summary>
+    /// The patcher collapses every spelling of "no arguments" to a null array, while the TMS keeps
+    /// the column's file form. Comparing the raw strings would therefore make an EMPTY args column
+    /// permanently inexpressible here — and an empty column next to a trailing pipe is exactly the
+    /// boundary the backward pass slices for (ADR-0042), so the guard has to reach it.
+    /// </summary>
+    private static string NormalizeArgs(string args)
+        => string.IsNullOrWhiteSpace(args) || args.Equals(AbsentArgs, StringComparison.OrdinalIgnoreCase)
+            ? AbsentArgs
+            : args;
 }

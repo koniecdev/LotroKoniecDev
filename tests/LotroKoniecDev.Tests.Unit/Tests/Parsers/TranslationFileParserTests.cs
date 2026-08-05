@@ -1,3 +1,4 @@
+using LotroKoniecDev.Application.Abstractions;
 using LotroKoniecDev.Application.Parsers;
 using LotroKoniecDev.Domain.Core.Monads;
 using LotroKoniecDev.Domain.Models;
@@ -28,7 +29,7 @@ public sealed class TranslationFileParserTests : IDisposable
     public void ParseFile_NullPath_ShouldThrowArgumentException()
     {
         // Act
-        Func<Result<IReadOnlyList<Translation>>> action = () => _parser.ParseFile(null!);
+        Func<Result<TranslationParseResult>> action = () => _parser.ParseFile(null!);
 
         // Assert
         action.ShouldThrow<ArgumentException>();
@@ -38,7 +39,7 @@ public sealed class TranslationFileParserTests : IDisposable
     public void ParseFile_EmptyPath_ShouldThrowArgumentException()
     {
         // Act
-        Func<Result<IReadOnlyList<Translation>>> action = () => _parser.ParseFile("   ");
+        Func<Result<TranslationParseResult>> action = () => _parser.ParseFile("   ");
 
         // Assert
         action.ShouldThrow<ArgumentException>();
@@ -51,7 +52,7 @@ public sealed class TranslationFileParserTests : IDisposable
         string nonExistentPath = Path.Combine(_tempDirectory, "nonexistent.txt");
 
         // Act
-        Result<IReadOnlyList<Translation>> result = _parser.ParseFile(nonExistentPath);
+        Result<TranslationParseResult> result = _parser.ParseFile(nonExistentPath);
 
         // Assert
         result.IsFailure.ShouldBeTrue();
@@ -66,11 +67,11 @@ public sealed class TranslationFileParserTests : IDisposable
         File.WriteAllText(filePath, "");
 
         // Act
-        Result<IReadOnlyList<Translation>> result = _parser.ParseFile(filePath);
+        Result<TranslationParseResult> result = _parser.ParseFile(filePath);
 
         // Assert
         result.IsSuccess.ShouldBeTrue();
-        result.Value.ShouldBeEmpty();
+        result.Value.Translations.ShouldBeEmpty();
     }
 
     [Fact]
@@ -87,11 +88,11 @@ public sealed class TranslationFileParserTests : IDisposable
         File.WriteAllText(filePath, content);
 
         // Act
-        Result<IReadOnlyList<Translation>> result = _parser.ParseFile(filePath);
+        Result<TranslationParseResult> result = _parser.ParseFile(filePath);
 
         // Assert
         result.IsSuccess.ShouldBeTrue();
-        result.Value.Count.ShouldBe(1);
+        result.Value.Translations.Count.ShouldBe(1);
     }
 
     [Fact]
@@ -103,16 +104,16 @@ public sealed class TranslationFileParserTests : IDisposable
         File.WriteAllText(filePath, content);
 
         // Act
-        Result<IReadOnlyList<Translation>> result = _parser.ParseFile(filePath);
+        Result<TranslationParseResult> result = _parser.ParseFile(filePath);
 
         // Assert
         result.IsSuccess.ShouldBeTrue();
-        result.Value.Count.ShouldBe(1);
-        result.Value[0].FileId.ShouldBe(12345);
-        result.Value[0].GossipId.ShouldBe(67890UL);
-        result.Value[0].Content.ShouldBe("Hello World");
-        result.Value[0].ArgsOrder.ShouldBeNull();
-        result.Value[0].ArgsId.ShouldBeNull();
+        result.Value.Translations.Count.ShouldBe(1);
+        result.Value.Translations[0].FileId.ShouldBe(12345);
+        result.Value.Translations[0].GossipId.ShouldBe(67890UL);
+        result.Value.Translations[0].Content.ShouldBe("Hello World");
+        result.Value.Translations[0].ArgsOrder.ShouldBeNull();
+        result.Value.Translations[0].ArgsId.ShouldBeNull();
     }
 
     [Fact]
@@ -124,12 +125,12 @@ public sealed class TranslationFileParserTests : IDisposable
         File.WriteAllText(filePath, content);
 
         // Act
-        Result<IReadOnlyList<Translation>> result = _parser.ParseFile(filePath);
+        Result<TranslationParseResult> result = _parser.ParseFile(filePath);
 
         // Assert
         result.IsSuccess.ShouldBeTrue();
-        result.Value[0].ArgsOrder.ShouldBe(new[] { 0, 1, 2 }); // 1-indexed to 0-indexed
-        result.Value[0].ArgsId.ShouldBe(new[] { 3, 4, 5 });
+        result.Value.Translations[0].ArgsOrder.ShouldBe(new[] { 0, 1, 2 }); // 1-indexed to 0-indexed
+        result.Value.Translations[0].ArgsId.ShouldBe(new[] { 3, 4, 5 });
     }
 
     [Fact]
@@ -141,11 +142,11 @@ public sealed class TranslationFileParserTests : IDisposable
         File.WriteAllText(filePath, content);
 
         // Act
-        Result<IReadOnlyList<Translation>> result = _parser.ParseFile(filePath);
+        Result<TranslationParseResult> result = _parser.ParseFile(filePath);
 
         // Assert
         result.IsSuccess.ShouldBeTrue();
-        result.Value[0].Content.ShouldBe("Line1\nLine2\rLine3");
+        result.Value.Translations[0].Content.ShouldBe("Line1\nLine2\rLine3");
     }
 
     [Fact]
@@ -161,17 +162,17 @@ public sealed class TranslationFileParserTests : IDisposable
         File.WriteAllText(filePath, content);
 
         // Act
-        Result<IReadOnlyList<Translation>> result = _parser.ParseFile(filePath);
+        Result<TranslationParseResult> result = _parser.ParseFile(filePath);
 
         // Assert
         result.IsSuccess.ShouldBeTrue();
-        result.Value.Count.ShouldBe(3);
-        result.Value[0].FileId.ShouldBe(100);
-        result.Value[0].GossipId.ShouldBe(200UL);
-        result.Value[1].FileId.ShouldBe(100);
-        result.Value[1].GossipId.ShouldBe(300UL);
-        result.Value[2].FileId.ShouldBe(200);
-        result.Value[2].GossipId.ShouldBe(300UL);
+        result.Value.Translations.Count.ShouldBe(3);
+        result.Value.Translations[0].FileId.ShouldBe(100);
+        result.Value.Translations[0].GossipId.ShouldBe(200UL);
+        result.Value.Translations[1].FileId.ShouldBe(100);
+        result.Value.Translations[1].GossipId.ShouldBe(300UL);
+        result.Value.Translations[2].FileId.ShouldBe(200);
+        result.Value.Translations[2].GossipId.ShouldBe(300UL);
     }
 
     [Fact]
@@ -359,7 +360,7 @@ public sealed class TranslationFileParserTests : IDisposable
     }
 
     [Fact]
-    public void ParseFile_WithInvalidLines_ShouldSkipAndContinue()
+    public void ParseFile_WithInvalidLines_ShouldSkipContinueAndReportTheRejectedLine()
     {
         // Arrange
         string filePath = Path.Combine(_tempDirectory, "mixed.txt");
@@ -371,10 +372,94 @@ public sealed class TranslationFileParserTests : IDisposable
         File.WriteAllText(filePath, content);
 
         // Act
-        Result<IReadOnlyList<Translation>> result = _parser.ParseFile(filePath);
+        Result<TranslationParseResult> result = _parser.ParseFile(filePath);
+
+        // Assert — a rejected line is reported, never silently dropped (ADR-0042); the warning
+        // travels into PatchSummaryResponse.Warnings, which the CLI prints.
+        result.IsSuccess.ShouldBeTrue();
+        result.Value.Translations.Count.ShouldBe(2);
+        result.Value.Warnings.ShouldHaveSingleItem();
+        result.Value.RejectedLineCount.ShouldBe(1);
+    }
+
+    [Fact]
+    public void ParseFile_WithMoreRejectedLinesThanTheWarningCap_ShouldQuoteTheCapAndCountTheRest()
+    {
+        // Arrange — 150 malformed rows. Every warning quotes a whole line, and a real polish.txt is
+        // ~790k rows, so an uncapped list would bury the console (the TMS import caps for the same
+        // reason, spec 0006). The COUNT must stay exact even though the list is truncated.
+        string filePath = Path.Combine(_tempDirectory, "all-bad.txt");
+        File.WriteAllLines(filePath, Enumerable.Range(0, 150).Select(index => $"100||{index}||Content||1-x||NULL||1"));
+
+        // Act
+        Result<TranslationParseResult> result = _parser.ParseFile(filePath);
 
         // Assert
         result.IsSuccess.ShouldBeTrue();
-        result.Value.Count.ShouldBe(2);
+        result.Value.Translations.ShouldBeEmpty();
+        result.Value.RejectedLineCount.ShouldBe(150);
+        result.Value.Warnings.Count.ShouldBe(101);
+        result.Value.Warnings[^1].ShouldContain("and 50 more rejected lines");
+    }
+
+    [Theory]
+    [InlineData("100||200||Content||1-x||NULL||1", "args_order")]
+    [InlineData("100||200||Content||NULL||1-x||1", "args_id")]
+    [InlineData("100||200||Content||1--2||NULL||1", "args_order")]
+    [InlineData("100||200||Content||ONE||NULL||1", "args_order")]
+    [InlineData("100||200||Content|| 1-2||NULL||1", "args_order")]
+    [InlineData("100||200||Content||99999999999||NULL||1", "args_order")]
+    public void ParseLine_MalformedArgsColumn_ShouldFailInsteadOfSwallowingIt(string line, string column)
+    {
+        // Act — a bare catch used to turn an unparsable args column into null, so a fragment with
+        // reordered arguments was patched without its ordering and nobody was told (#597).
+        Result<Translation> result = _parser.ParseLine(line);
+
+        // Assert
+        result.IsFailure.ShouldBeTrue();
+        result.Error.Code.ShouldBe("Translation.ParseError");
+        result.Error.Message.ShouldContain(column);
+    }
+
+    [Theory]
+    [InlineData("NULL")]
+    [InlineData("null")]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void ParseLine_AbsentArgsColumn_ShouldParseAsNoArguments(string absent)
+    {
+        // Act — every spelling of "this row carries no argument order" stays a success.
+        Result<Translation> result = _parser.ParseLine($"100||200||Content||{absent}||{absent}||1");
+
+        // Assert
+        result.IsSuccess.ShouldBeTrue();
+        result.Value.ArgsOrder.ShouldBeNull();
+        result.Value.ArgsId.ShouldBeNull();
+    }
+
+    [Theory]
+    [InlineData("abc|")]
+    [InlineData("abc||")]
+    [InlineData("abc|||")]
+    [InlineData("|")]
+    [InlineData("||")]
+    [InlineData("|||")]
+    [InlineData("|abc|")]
+    [InlineData("a|b|")]
+    public void ParseLine_ContentEndingInPipes_ShouldKeepEveryPipeAndLeaveTheArgsColumnsClean(string content)
+    {
+        // Arrange — the boundary is found by scanning backward (ADR-0042), so the last two pipes of
+        // a run are the separator and everything before them stays content. Split resolved this
+        // greedily left to right and lost the last pipe into the args column (#597).
+        string line = $"620756992||1001||{content}||1-2||3-4||1";
+
+        // Act
+        Result<Translation> result = _parser.ParseLine(line);
+
+        // Assert
+        result.IsSuccess.ShouldBeTrue();
+        result.Value.Content.ShouldBe(content);
+        result.Value.ArgsOrder.ShouldBe(new[] { 0, 1 });
+        result.Value.ArgsId.ShouldBe(new[] { 2, 3 });
     }
 }

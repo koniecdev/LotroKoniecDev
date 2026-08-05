@@ -1,3 +1,4 @@
+using LotroKoniecDev.Application.Abstractions;
 using LotroKoniecDev.Application.Parsers;
 using LotroKoniecDev.Domain.Core.Monads;
 using LotroKoniecDev.Domain.Models;
@@ -21,10 +22,10 @@ public sealed class RoundtripE2ETests
 
         //Arrange — parse polish.txt to get target IDs and expected content
         TranslationFileParser parser = new();
-        Result<IReadOnlyList<Translation>> polishResult = parser.ParseFile(_fixture.TranslationsPolishPath);
+        Result<TranslationParseResult> polishResult = parser.ParseFile(_fixture.TranslationsPolishPath);
         polishResult.IsSuccess.ShouldBeTrue(
             $"polish.txt should parse. Error: {(polishResult.IsFailure ? polishResult.Error.Message : "")}");
-        polishResult.Value.ShouldNotBeEmpty("polish.txt should contain translations");
+        polishResult.Value.Translations.ShouldNotBeEmpty("polish.txt should contain translations");
 
         //Arrange — use cached export as "before" (original English DAT)
         _fixture.CachedExportResult!.ExitCode.ShouldBe((int)CliExitCode.Success,
@@ -50,7 +51,7 @@ public sealed class RoundtripE2ETests
         Dictionary<string, string> beforeIndex = BuildLineIndex(_fixture.CachedExportPath);
         Dictionary<string, string> afterIndex = BuildLineIndex(afterPath);
 
-        foreach (Translation expected in polishResult.Value)
+        foreach (Translation expected in polishResult.Value.Translations)
         {
             string linePrefix = $"{expected.FileId}||{expected.GossipId}||";
 
@@ -79,11 +80,11 @@ public sealed class RoundtripE2ETests
 
         //Arrange — get set of translated IDs to exclude
         TranslationFileParser parser = new();
-        Result<IReadOnlyList<Translation>> polishResult = parser.ParseFile(_fixture.TranslationsPolishPath);
+        Result<TranslationParseResult> polishResult = parser.ParseFile(_fixture.TranslationsPolishPath);
         polishResult.IsSuccess.ShouldBeTrue(
             $"polish.txt should parse. Error: {(polishResult.IsFailure ? polishResult.Error.Message : "")}");
 
-        HashSet<string> translatedKeys = polishResult.Value
+        HashSet<string> translatedKeys = polishResult.Value.Translations
             .Select(t => $"{t.FileId}||{t.GossipId}||")
             .ToHashSet();
 

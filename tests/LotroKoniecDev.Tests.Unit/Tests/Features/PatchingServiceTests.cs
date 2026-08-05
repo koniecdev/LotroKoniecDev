@@ -44,8 +44,13 @@ public sealed class PatchingServiceTests
 
     private void SetupTranslations(params Translation[] translations)
     {
+        SetupParsedFile(translations, []);
+    }
+
+    private void SetupParsedFile(IReadOnlyList<Translation> translations, IReadOnlyList<string> warnings)
+    {
         _translationParser.ParseFile(Arg.Any<string>())
-            .Returns(Result.Success<IReadOnlyList<Translation>>(translations.ToList()));
+            .Returns(Result.Success(new TranslationParseResult(translations, warnings, warnings.Count)));
     }
 
     private static Translation CreateTranslation(
@@ -88,7 +93,7 @@ public sealed class PatchingServiceTests
         SetupAllPassingDefaults();
         Error parseError = new("Translation.ParseError", "Bad format", ErrorType.Validation);
         _translationParser.ParseFile(Arg.Any<string>())
-            .Returns(Result.Failure<IReadOnlyList<Translation>>(parseError));
+            .Returns(Result.Failure<TranslationParseResult>(parseError));
 
         // Act
         Result<PatchSummaryResponse> result = _sut.ApplyTranslations("/translations/polish.txt", "/game/client_local_English.dat");
@@ -96,6 +101,57 @@ public sealed class PatchingServiceTests
         // Assert
         result.IsFailure.ShouldBeTrue();
         result.Error.Code.ShouldBe("Translation.ParseError");
+    }
+
+    [Fact]
+    public void ApplyTranslations_WhenTheParserRejectedALine_ShouldSurfaceItsWarningInTheSummary()
+    {
+        // Arrange — a rejected line used to vanish inside the parser (ADR-0042). The summary is the
+        // only channel the CLI prints, so a warning that does not reach it is still swallowed.
+        SetupAllPassingDefaults();
+        SetupParsedFile([CreateTranslation()], ["Line 7: the args_order column '1-x' is malformed."]);
+
+        // Act
+        Result<PatchSummaryResponse> result = _sut.ApplyTranslations("/translations/polish.txt", "/game/client_local_English.dat");
+
+        // Assert
+        result.IsSuccess.ShouldBeTrue();
+        result.Value.Warnings.ShouldContain("Line 7: the args_order column '1-x' is malformed.");
+    }
+
+    [Fact]
+    public void ApplyTranslations_WhenEveryLineWasRejected_ShouldSayWhyInsteadOfJustNoTranslations()
+    {
+        // Arrange — the failure path drops the warning list (the CLI prints it only on success), so
+        // without the reason in the Error itself a wholly corrupt polish.txt would report a bare
+        // "No translations to apply" — the exact silence ADR-0042 exists to remove.
+        SetupAllPassingDefaults();
+        SetupParsedFile([], ["Error parsing line '1||2||c||1-x||NULL||1': the args_order column is malformed."]);
+
+        // Act
+        Result<PatchSummaryResponse> result = _sut.ApplyTranslations("/translations/polish.txt", "/game/client_local_English.dat");
+
+        // Assert
+        result.IsFailure.ShouldBeTrue();
+        result.Error.Code.ShouldBe("Translation.NoTranslations");
+        result.Error.Message.ShouldContain("args_order");
+    }
+
+    [Fact]
+    public void ApplyTranslations_WhenTheFileHeldNoRowsAtAll_ShouldReportPlainNoTranslations()
+    {
+        // Arrange — an empty or comments-only file is not a corruption, so it must not be dressed up
+        // as one; nothing was rejected and there is no reason to give.
+        SetupAllPassingDefaults();
+        SetupParsedFile([], []);
+
+        // Act
+        Result<PatchSummaryResponse> result = _sut.ApplyTranslations("/translations/polish.txt", "/game/client_local_English.dat");
+
+        // Assert
+        result.IsFailure.ShouldBeTrue();
+        result.Error.Code.ShouldBe("Translation.NoTranslations");
+        result.Error.Message.ShouldBe("No translations to apply.");
     }
 
     [Fact]
@@ -437,7 +493,7 @@ public sealed class PatchingServiceTests
             .Returns(_ =>
             {
                 callOrder.Add("parse");
-                return Result.Success<IReadOnlyList<Translation>>(new List<Translation> { CreateTranslation() });
+                return Result.Success(new TranslationParseResult([CreateTranslation()], [], 0));
             });
 
         _datFileHandler.Open(Arg.Any<string>(), DatFileAccess.ReadWrite)

@@ -129,27 +129,48 @@ public sealed class TranslationFileParserNaughtyStringTests
     }
 
     [Theory]
-    [InlineData("abc|", "abc")]
-    [InlineData("abc|||", "abc||")]
-    [InlineData("|", "")]
-    [InlineData("|||", "||")]
-    public void ParseLine_ContentEndingInAnOddNumberOfPipes_ShouldLoseTheLastPipe(string content, string expectedLossyContent)
+    [InlineData("abc|")]
+    [InlineData("abc||")]
+    [InlineData("abc|||")]
+    [InlineData("|")]
+    [InlineData("||")]
+    [InlineData("|||")]
+    public void ParseLine_ContentEndingInAnOddNumberOfPipes_ShouldRoundTripExactly(string content)
     {
-        // Arrange — DOCUMENTED CURRENT BEHAVIOR, not an endorsement. Split is greedy left to right,
-        // so a trailing pipe merges with the separator that follows it and the content boundary
-        // lands one character early: the pipe is swallowed and reappears glued to the args column.
-        // No entry of the naughty list ends in an odd pipe run, so this collision has to be composed
-        // by hand. Tracked as #597; pinned here so fixing it is a deliberate, visible change to this
-        // assertion, never an accident.
-        string line = $"620756992||1001||{content}||NULL||NULL||1";
+        // Arrange — the trailing boundary is found by scanning BACKWARD (ADR-0042), so the last two
+        // pipes of a run are the separator and every earlier one stays content. Split resolved the
+        // boundary greedily left to right, which landed it one character early: the pipe was
+        // swallowed and reappeared glued to the args column (#597). No entry of the naughty list
+        // ends in an odd pipe run, so this collision has to be composed by hand.
+        string line = $"620756992||1001||{EscapeAsExporter(content)}||NULL||NULL||1";
 
         // Act
         Result<Translation> result = _parser.ParseLine(line);
 
         // Assert
         result.IsSuccess.ShouldBeTrue();
-        result.Value.Content.ShouldBe(expectedLossyContent);
-        result.Value.ArgsOrder.ShouldBeNull(); // "|NULL" is swallowed by ParseArgsArray's bare catch
+        result.Value.Content.ShouldBe(content);
+        result.Value.ArgsOrder.ShouldBeNull();
+        result.Value.ArgsId.ShouldBeNull();
+    }
+
+    [Theory]
+    [MemberData(nameof(NaughtyStringCases.PipeRuns), MemberType = typeof(NaughtyStringCases))]
+    public void ParseLine_EveryPipeRunUpToSixCharacters_ShouldRoundTripAndLeaveTheArgsColumnsClean(string content)
+    {
+        // Arrange — exhaustive over the alphabet this format is weakest at, in BOTH parities: the
+        // run can sit at the leading boundary, the trailing one, or both at once. The hand-picked
+        // cases above only sample it.
+        string line = $"620756992||1001||{EscapeAsExporter(content)}||1-2||3-4||1";
+
+        // Act
+        Result<Translation> result = _parser.ParseLine(line);
+
+        // Assert
+        result.IsSuccess.ShouldBeTrue();
+        result.Value.Content.ShouldBe(content);
+        result.Value.ArgsOrder.ShouldBe([0, 1]);
+        result.Value.ArgsId.ShouldBe([2, 3]);
     }
 
     [Theory]

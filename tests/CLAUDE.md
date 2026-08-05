@@ -78,11 +78,13 @@ suite rather than copy-pasting lists; add a category source there rather than in
 
 Sources: `All` (everything), `UnicodeHazards` (UTF-16 length hazards), `DelimiterHazards` (collides
 with a delimited text format), `NonAsciiDigits` (id columns), `SubmittableText` / `BlankText` (what
-the API's `NotEmpty()` does and does not let through as translated text), plus `AllValues` — the raw
-list, for a suite that must filter the corpus down to what its seam accepts **before** building a
-`TheoryData`, so its assertion stays unconditional instead of hiding in an `if`. Entries are
-de-duplicated: the upstream list repeats two, and a duplicate logs a "Skipping test case with
-duplicate ID" line on every run.
+the API's `NotEmpty()` does and does not let through as translated text), `PipeRuns` (**not** from
+the corpus — every string over `{'a','|'}` up to six characters, 127 entries, so both `||` parsers
+are pinned exhaustively against the delimiter collision of #597 rather than at six sampled points),
+plus `AllValues` — the raw list, for a suite that must filter the corpus down to what its seam
+accepts **before** building a `TheoryData`, so its assertion stays unconditional instead of hiding
+in an `if`. Entries are de-duplicated: the upstream list repeats two, and a duplicate logs a
+"Skipping test case with duplicate ID" line on every run.
 
 Both sides of the `||` contract carry hostile round-trip coverage:
 `TranslationFileParserNaughtyStringTests` + `FragmentNaughtyStringTests` (patcher — parser and the
@@ -94,17 +96,24 @@ exception).
 **The corpus does not reach every interesting case.** It carries no empty string, no real newline,
 no literal `\r`/`\n` escape sequence and no entry ending in an odd run of `|` — exactly the
 delimiter collisions this format is weakest at. Those are composed by hand as explicit
-`[InlineData]` theories next to the corpus-driven ones; when you add a seam, check whether its
-hazard is actually present in the data before trusting a `MemberData` theory to cover it.
+`[InlineData]` theories next to the corpus-driven ones (and, for the pipe runs, by the generated
+`PipeRuns` source above); when you add a seam, check whether its hazard is actually present in the
+data before trusting a `MemberData` theory to cover it.
 
 Several tests pin **known-lossy** behavior on purpose, say so in-place, and name the defect ticket
-they document (#597 odd trailing pipe, #598 over-long piece). Do not "fix" such a test — fix the
-defect, then change the assertion deliberately. That is what #596 did: the escape asymmetry it
-pinned is gone (ADR-0039), so both its tests now assert exact round trips, and
-`TranslationLineEscaperTests` exists **twice** — one suite per bounded context, over that context's
-own copy of the rule. The two copies are duplicated by design (the contexts share the file, never
-code), so the twin suites plus `ParserContractParityTests` are the only thing keeping them in step:
-change one escaper, change the other in the same commit.
+they document (today: #598 over-long piece). Do not "fix" such a test — fix the defect, then change
+the assertion deliberately. That is what #596 and #597 did: the escape asymmetry (ADR-0039) and the
+swallowed trailing pipe (ADR-0042) are both gone, so all four of their tests now assert exact round
+trips.
+
+The `||` rule now lives in **two duplicated-by-design types per context** — `TranslationLineEscaper`
+(the content escape) and `TranslationLineCarver` (the field boundaries) — each with its own twin
+unit suite, plus `BothEscapers_…` / `BothCarvers_…` in `ParserContractParityTests`. The contexts
+share the file, never code, so those parity tests are the only thing keeping the copies in step:
+**change one copy, change the other in the same commit.** The twin per-context suites would both
+stay green through a one-sided change; the parity suite would not. #597 is the cautionary tale for
+why parity alone is not enough — both parsers carved the line identically *wrongly*, so the drift
+guard saw nothing. Round-trip fidelity through each context's own writer is what caught it.
 
 ## Snapshot tests (Verify — #571)
 

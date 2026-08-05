@@ -1,3 +1,4 @@
+using LotroKoniecDev.Application.Abstractions;
 using LotroKoniecDev.Application.Parsers;
 using LotroKoniecDev.Domain.Core.Monads;
 using LotroKoniecDev.Domain.Models;
@@ -77,11 +78,12 @@ public sealed class ExportE2ETests
         Skip.If(!_fixture.IsDatFileAvailable, "DAT file not found in TestData/");
 
         TranslationFileParser parser = new();
-        Result<IReadOnlyList<Translation>> result = parser.ParseFile(_fixture.CachedExportPath);
+        Result<TranslationParseResult> result = parser.ParseFile(_fixture.CachedExportPath);
 
         result.IsSuccess.ShouldBeTrue(
             $"Parser should succeed. Error: {(result.IsFailure ? result.Error.Message : "")}");
-        result.Value.ShouldNotBeEmpty("Parsed translations should not be empty");
+        result.Value.Translations.ShouldNotBeEmpty("Parsed translations should not be empty");
+        result.Value.Warnings.ShouldBeEmpty("A real export must not contain a line the parser rejects");
     }
 
     [SkippableFact]

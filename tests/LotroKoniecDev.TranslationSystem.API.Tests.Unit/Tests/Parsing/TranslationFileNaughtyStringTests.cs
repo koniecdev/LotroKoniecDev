@@ -130,26 +130,67 @@ public sealed class TranslationFileNaughtyStringTests
     }
 
     [Theory]
-    [InlineData("abc|", "abc")]
-    [InlineData("abc|||", "abc||")]
-    [InlineData("|", "")]
-    [InlineData("|||", "||")]
-    public async Task SerializeThenParse_ContentEndingInAnOddNumberOfPipes_ShouldLoseTheLastPipe(string content, string expectedLossyContent)
+    [InlineData("abc|")]
+    [InlineData("abc||")]
+    [InlineData("abc|||")]
+    [InlineData("|")]
+    [InlineData("||")]
+    [InlineData("|||")]
+    public async Task SerializeThenParse_ContentEndingInAnOddNumberOfPipes_ShouldRoundTripExactly(string content)
     {
-        // Arrange — DOCUMENTED CURRENT BEHAVIOR, not an endorsement, and identical to the patcher's
-        // (the two parsers agree here, which is exactly why the parity guard cannot see it). Split
-        // is greedy left to right, so a trailing pipe merges with the separator that follows it: the
-        // pipe is swallowed and reappears glued to the args column. No entry of the naughty list
-        // ends in an odd pipe run, so this collision has to be composed by hand. Tracked as #597.
-        string file = _serializer.Serialize([new ArtifactRow(620756992, 1001, content, null, null)]);
+        // Arrange — the trailing boundary is found by scanning BACKWARD (ADR-0042), so the last two
+        // pipes of a run are the separator and every earlier one stays content. Split resolved the
+        // boundary greedily left to right, so the last pipe was swallowed and reappeared glued to
+        // the args column — identically in both parsers, which is exactly why the parity guard could
+        // not see it (#597). No entry of the naughty list ends in an odd pipe run, so this collision
+        // has to be composed by hand.
+        string file = _serializer.Serialize([new ArtifactRow(620756992, 1001, content, "1-2", "3-4")]);
 
         // Act
         ParsedExport parsed = await ParseAsync(file);
 
         // Assert
+        parsed.Errors.ShouldBeEmpty();
         ParsedExportRow row = parsed.Rows.ShouldHaveSingleItem();
-        row.Content.ShouldBe(expectedLossyContent);
-        row.ArgsOrder.ShouldBe("|NULL"); // the swallowed pipe, now polluting the args column
+        row.Content.ShouldBe(content);
+        row.ArgsOrder.ShouldBe("1-2");
+        row.ArgsId.ShouldBe("3-4");
+    }
+
+    [Theory]
+    [InlineData("620756992||1001||Content||1-x||NULL||1", "args_order")]
+    [InlineData("620756992||1001||Content||NULL||1-x||1", "args_id")]
+    [InlineData("620756992||1001||Content||1--2||NULL||1", "args_order")]
+    [InlineData("620756992||1001||Content||ONE||NULL||1", "args_order")]
+    public async Task ParseAsync_MalformedArgsColumn_ShouldRejectTheRowInsteadOfStoringItVerbatim(string line, string column)
+    {
+        // Act — a value that is neither NULL nor "1-2-3" used to be stored as-is, where it was
+        // unusable as an order and still took part in the import diff (#597, spec 0001).
+        ParsedExport parsed = await ParseAsync($"{line}\r\n");
+
+        // Assert
+        parsed.Rows.ShouldBeEmpty();
+        parsed.Errors.ShouldHaveSingleItem().Message.ShouldContain(column);
+    }
+
+    [Theory]
+    [MemberData(nameof(NaughtyStringCases.PipeRuns), MemberType = typeof(NaughtyStringCases))]
+    public async Task SerializeThenParse_EveryPipeRunUpToSixCharacters_ShouldRoundTripExactly(string content)
+    {
+        // Arrange — exhaustive over the alphabet this format is weakest at, in BOTH parities: the
+        // run can sit at the leading boundary, the trailing one, or both at once. The hand-picked
+        // cases above only sample it.
+        string file = _serializer.Serialize([new ArtifactRow(620756992, 1001, content, "1-2", "3-4")]);
+
+        // Act
+        ParsedExport parsed = await ParseAsync(file);
+
+        // Assert
+        parsed.Errors.ShouldBeEmpty();
+        ParsedExportRow row = parsed.Rows.ShouldHaveSingleItem();
+        row.Content.ShouldBe(content);
+        row.ArgsOrder.ShouldBe("1-2");
+        row.ArgsId.ShouldBe("3-4");
     }
 
     [Fact]

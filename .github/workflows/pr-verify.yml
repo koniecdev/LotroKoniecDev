@@ -99,11 +99,11 @@ jobs:
       - name: Pure-SSR guard
         run: ./scripts/check-ssr-purity.sh
 
-      # Same shape, the other Frontend invariant: no hardcoded API paths. There is no gateway
-      # (ADR-0041), so a client resolves every entry point by rel — a compiled-in "/api/v1/..."
-      # only fails at runtime, and this catches it in seconds.
-      - name: Frontend hypermedia guard
-        run: ./scripts/check-frontend-hypermedia.sh
+      # Same shape, the other client invariant: no hardcoded API paths, in the Frontend and in
+      # the CLI alike. There is no gateway (ADR-0041), so a client resolves every entry point by
+      # rel — a compiled-in "/api/v1/..." only fails at runtime, and this catches it in seconds.
+      - name: Client hypermedia guard
+        run: ./scripts/check-client-hypermedia.sh
 
       # Build-cache analog of the SSR gate: every Dockerfile must COPY the full transitive
       # .csproj closure it restores. `dotnet restore` SKIPS a missing project file and still

@@ -49,8 +49,8 @@ jobs:
         run: ./scripts/check-ssr-purity.sh
 
       # Same hypermedia gate as pr-verify — backstops direct pushes to main.
-      - name: Frontend hypermedia guard
-        run: ./scripts/check-frontend-hypermedia.sh
+      - name: Client hypermedia guard
+        run: ./scripts/check-client-hypermedia.sh
 
       # Same restore-graph gate as pr-verify — backstops direct pushes to main.
       - name: Docker restore-graph guard

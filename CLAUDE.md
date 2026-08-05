@@ -147,6 +147,7 @@ A KittySaver slice is one file: `internal sealed class <Action> : IEndpoint` con
 | Touch the update lifecycle (GameVersion, import diff, invalidation, distribution, CLI sync) | `docs/specs/0001-game-update-lifecycle-and-translation-invalidation.md` — the agreed domain spec |
 | Touch the game-content catalog (CatalogEntry/TextSlot, Companion zip import, catalog browser, memberships) | `docs/specs/0008-game-content-catalog-layer.md` (agreed) + `docs/knowledge-base/lotro-companion-data-model.md` (the verified `key:<FileId>:<GossipId>` join — never join on text). Naming rule: **never "entity"** in this layer (DDD-Entity misconception) |
 | Implement a feature whose business rules are fuzzy | **`/spec`** first (seed → questions → agreed spec in `docs/specs/`) |
+| Write or hand over a **manual QA ticket** (external tester) | **`/qa-ticket`** — every scenario verified against HEAD first; `/qa-ticket #<n>` re-baselines an existing one |
 | Review a finished change | the **`code-reviewer`** agent |
 | Understand the backlog / milestones | `gh issue list` + Roadmap digest below |
 | Compare with the Russian sister project | `docs/RUSSIAN_PROJECT_RESEARCH.md` + `docs/knowledge-base/russian-project.md` |
@@ -567,6 +568,36 @@ structure.
    empirical DAT/update finding → `docs/knowledge-base/` (dated). The same mistake made twice
    means a rule is missing.
 
+### Manual QA — external testers execute what you write, literally
+
+Manual QA runs on deployed **staging**, browser-only, by external testers with no repo access, no
+Docker, no CLI — and no way to tell whether a ticket is still true. They pair with a general-purpose
+LLM that has none of this repo's context, so a wrong scenario line does not get questioned: it gets
+executed and reported as a bug. **Write QA tickets with `/qa-ticket`; re-baseline an existing one
+with `/qa-ticket #<n>` before handing it over.**
+
+- **An unverified scenario is a defect.** Every line must be backed by something you actually read
+  in `src/` (the `.AllowAnonymous()`, the validator rule, the razor condition, the literal message
+  string) or by a live query against staging. Of the first QA batch's 8 bug reports only 2 were
+  valid findings; the misses trace to ticket lines that were stale (#603), unexecutable on staging
+  (#547), contradicted by the code (#546), or invited browser-side fault injection (#602, #604).
+  Tickets are written from `docs/specs/`, the product then moves, and nothing re-checks them — #271
+  claimed the `polish.txt` download was auth-gated for a month after #309 made it public.
+- **Classify every scenario:** plain (browser-only), _(owner-assisted — SKIP unless the owner runs
+  it)_, or **blocked: what is missing**. Never "optional" — optional invites improvisation, and
+  improvisation is what produced #602/#604. DevTools "Offline" is not API downtime: it cuts
+  browser→frontend, and nothing server-rendered can render at all.
+- **Every QA ticket carries the read-first block** (the SSR/fault-injection/do-not-improvise briefing
+  — verbatim copy lives in `.claude/commands/qa-ticket.md`). It is the tester briefing, delivered
+  where they actually read it.
+- **Hand over at most 3 tickets at a time**, and give every filed bug a verdict the same day
+  (`valid` / `by design + why` / `needs retest`). A 15-ticket batch rots; without the feedback loop a
+  tester keeps applying a wrong mental model and each wrong report is paid for twice.
+- **Preconditions are the owner's job, not the tester's.** Non-default row states come from
+  `scripts/qa/seed-staging.sql` (staging only; requires one approve in the UI afterwards to rebuild
+  the artifact). Sample `exported.txt` files and the admin login are owner-provided — a scenario
+  without its precondition ships as `blocked:`, never as a hopeful checkbox.
+
 ### Loop mode — one ticket = one closed PR, in its own fresh headless process
 
 Working the backlog autonomously has **two non-negotiables: one ticket = one closed PR (git
@@ -656,10 +687,13 @@ runs, env knobs, triage, troubleshooting): **`docs/claude-loop.md`**.
 
 ## Proactive command use
 
-The `/ticket`, `/spec`, `/feature`, `/adr` workflows are model-invocable — reach for them yourself
-when the request matches, without waiting for the user to type the slash:
+The `/ticket`, `/spec`, `/feature`, `/adr`, `/qa-ticket` workflows are model-invocable — reach for
+them yourself when the request matches, without waiting for the user to type the slash:
 
 - User references **a ticket number or pastes an issue** → run **`/ticket`**.
+- User wants a **manual QA scenario written, refreshed or handed to a tester** → **`/qa-ticket`**.
+  Same when triaging a tester's bug report: verify the claim against the code before answering, and
+  re-baseline the QA ticket that produced it.
 - User floats a **rough feature idea** with unclear business rules → **`/spec`** first.
 - User describes a **concrete new use case** → mirror the nearest sibling slice (note:
   **`/feature` scaffolds the patcher-style Application slice** — for TMS slices mirror

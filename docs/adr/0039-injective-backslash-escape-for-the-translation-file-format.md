@@ -60,7 +60,8 @@ live inside content, `NULL` args, the comment marker and CRLF line endings are a
 particular **the separator is deliberately NOT escaped** — anchoring from both ends already
 recovers it, both parsers already agree on it, and escaping it would break every `exported.txt` and
 every `polish.txt` in existence for a problem that does not exist. (The one true delimiter defect,
-content ending in an odd run of `|`, is #597 and is out of scope here.)
+content ending in an odd run of `|`, is #597 and is out of scope here. **Settled by ADR-0042**,
+which kept the separator unescaped and fixed the carving instead.)
 
 ### 2. All four ends apply it
 

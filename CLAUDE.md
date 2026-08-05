@@ -351,6 +351,15 @@ file_id||gossip_id||translated_text||args_order||args_id||approved
   upsert (added in M2-11; persisted via the `IdentityId` converter in `TranslationSystem.Persistence`),
   and `ApprovedById` lands with the approve slice (#101 / M2-12). No auth-less interim state to
   retrofit later.
+- **Hypermedia links are authorization-aware, not role-branched (ADR-0040).** `ILinkFactory` replays
+  the *target* endpoint's own policy (`IAllowAnonymous` → `AuthorizationPolicy.CombineAsync` incl.
+  the fallback → `IAuthorizationService`) before emitting a link, so a rel is never advertised to a
+  caller who would get 401/403 following it. Never restate a role rule inside a link factory — a
+  link factory encodes *state* rules only (removed, `Draft`/`NeedsReview`, `Unprocessed`). The TMS
+  service document (`GET /`) is the one deliberate `AllowAnonymous` hole in authorized-by-default:
+  it advertises only what the caller may already reach, and it is what lets the CLI (and M4) boot
+  without hardcoded paths. Only parameterless entry points belong in it; id-keyed affordances
+  (`approve`, `delete`, `import`) live on the representation carrying the id.
 - **Validation:** FluentValidation **for commands only** — the command handler injects
   `IValidator<TCommand>` and maps failures to `Result` (never throws). Queries validate inline
   in their handler. Every validator must be registered in DI.

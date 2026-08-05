@@ -16,7 +16,7 @@ internal sealed class TranslationAggregateLinkFactory : ITranslationAggregateLin
         _linkFactory = linkFactory;
     }
 
-    public List<LinkDto> CreateTranslationLinks(
+    public async ValueTask<List<LinkDto>> CreateTranslationLinksAsync(
         TranslationId id,
         TranslationStatus status,
         bool isRemoved,
@@ -26,13 +26,15 @@ internal sealed class TranslationAggregateLinkFactory : ITranslationAggregateLin
         List<LinkDto> links = [];
 
         // Anonymous read-only browsing (#309): every transition — including self, whose target GET
-        // is translator-only — needs authentication, so a non-translator caller gets no links.
+        // is translator-only — needs authentication, so a non-translator caller gets no links. The
+        // link factory replays each target endpoint's policy anyway (#608); these role predicates
+        // stay because they also carry the state rules below, and skip work that would be dropped.
         if (!callerIsTranslator)
         {
             return links;
         }
 
-        links.AddIfPresent(_linkFactory.Create(
+        links.AddIfPresent(await _linkFactory.CreateAsync(
             endpoint: nameof(GetTranslation),
             rel: Rels.Self,
             method: HttpMethods.Get,
@@ -47,7 +49,7 @@ internal sealed class TranslationAggregateLinkFactory : ITranslationAggregateLin
 
         // Upsert is keyed by (FileId, GossipId) in the request body, so the rel targets the
         // collection PUT rather than an item URL.
-        links.AddIfPresent(_linkFactory.Create(
+        links.AddIfPresent(await _linkFactory.CreateAsync(
             endpoint: nameof(UpsertTranslation),
             rel: Rels.Upsert,
             method: HttpMethods.Put));
@@ -56,7 +58,7 @@ internal sealed class TranslationAggregateLinkFactory : ITranslationAggregateLin
         // untranslated row (nothing to approve) nor an already-approved one (idempotent dead end).
         if (callerIsAdmin && status is TranslationStatus.Draft or TranslationStatus.NeedsReview)
         {
-            links.AddIfPresent(_linkFactory.Create(
+            links.AddIfPresent(await _linkFactory.CreateAsync(
                 endpoint: nameof(ApproveTranslation),
                 rel: Rels.Approve,
                 method: HttpMethods.Post,
@@ -66,7 +68,7 @@ internal sealed class TranslationAggregateLinkFactory : ITranslationAggregateLin
         return links;
     }
 
-    public List<LinkDto> CreateCollectionLinks(bool callerIsAdmin)
+    public async ValueTask<List<LinkDto>> CreateCollectionLinksAsync(bool callerIsAdmin)
     {
         List<LinkDto> links = [];
 
@@ -74,7 +76,7 @@ internal sealed class TranslationAggregateLinkFactory : ITranslationAggregateLin
         // sees the collection affordance, mirroring the per-item approve gate.
         if (callerIsAdmin)
         {
-            links.AddIfPresent(_linkFactory.Create(
+            links.AddIfPresent(await _linkFactory.CreateAsync(
                 endpoint: nameof(BulkApproveTranslations),
                 rel: Rels.BulkApprove,
                 method: HttpMethods.Post));

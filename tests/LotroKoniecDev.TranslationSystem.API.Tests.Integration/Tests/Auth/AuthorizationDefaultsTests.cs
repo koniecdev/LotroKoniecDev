@@ -14,16 +14,19 @@ public sealed class AuthorizationDefaultsTests
     }
 
     [Fact]
-    public async Task GetDiscovery_WithoutToken_ShouldReturn401()
+    public async Task GetDiscovery_WithoutToken_ShouldReturn200()
     {
-        // Arrange
+        // Arrange — the service document is the one deliberate hole in authorized-by-default (#608):
+        // it advertises only endpoints the caller may already reach, and an unauthenticated client
+        // has no other way to bootstrap. What it hands back per caller is
+        // DiscoveryHateoasTests' subject; here the point is only that the root is not walled off.
         using HttpClient client = _factory.CreateClient();
 
         // Act
         HttpResponseMessage response = await client.GetAsync("/");
 
         // Assert
-        response.StatusCode.ShouldBe(HttpStatusCode.Unauthorized);
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
     }
 
     [Fact]
@@ -42,36 +45,6 @@ public sealed class AuthorizationDefaultsTests
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
         body.ShouldNotBeNull();
         body.Name.ShouldBe("LotroKoniecDev.TranslationSystem");
-    }
-
-    [Fact]
-    public async Task GetDiscovery_WithTokenSignedByUnknownKey_ShouldReturn401()
-    {
-        // Arrange
-        using HttpClient client = _factory.CreateClient();
-        client.DefaultRequestHeaders.Authorization =
-            new AuthenticationHeaderValue("Bearer", TranslationSystemApiFactory.CreateTokenSignedWithUnknownKey());
-
-        // Act
-        HttpResponseMessage response = await client.GetAsync("/");
-
-        // Assert
-        response.StatusCode.ShouldBe(HttpStatusCode.Unauthorized);
-    }
-
-    [Fact]
-    public async Task GetDiscovery_WithExpiredToken_ShouldReturn401()
-    {
-        // Arrange
-        using HttpClient client = _factory.CreateClient();
-        client.DefaultRequestHeaders.Authorization =
-            new AuthenticationHeaderValue("Bearer", TranslationSystemApiFactory.CreateExpiredAccessToken());
-
-        // Act
-        HttpResponseMessage response = await client.GetAsync("/");
-
-        // Assert
-        response.StatusCode.ShouldBe(HttpStatusCode.Unauthorized);
     }
 
     [Fact]

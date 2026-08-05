@@ -27,10 +27,10 @@ internal sealed class HateoasNegotiatedResult<T> : IResult
     where T : class
 {
     private readonly T _response;
-    private readonly Action<T>? _linkAttacher;
+    private readonly Func<T, ValueTask>? _linkAttacher;
     private readonly int _statusCode;
 
-    public HateoasNegotiatedResult(T response, Action<T>? linkAttacher, int statusCode)
+    public HateoasNegotiatedResult(T response, Func<T, ValueTask>? linkAttacher, int statusCode)
     {
         ArgumentNullException.ThrowIfNull(response);
         _response = response;
@@ -47,7 +47,7 @@ internal sealed class HateoasNegotiatedResult<T> : IResult
 
         if (includeHateoas)
         {
-            _linkAttacher!(_response);
+            await _linkAttacher!(_response);
         }
 
         // Append (never overwrite) so Vary tokens set by upstream middleware

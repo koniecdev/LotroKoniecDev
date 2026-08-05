@@ -94,9 +94,9 @@ internal sealed partial class ExportAccountData : IApiEndpoint
                     return Results.Problem(queryResult.Error.ToProblemDetails());
                 }
 
-                return HateoasResults.Ok(queryResult.Value, r =>
+                return HateoasResults.Ok(queryResult.Value, async r =>
                 {
-                    r.Links = accountAggregateLinkFactory.CreateAccountLinks(
+                    r.Links = await accountAggregateLinkFactory.CreateAccountLinksAsync(
                         isEmailConfirmed: r.AuthData.EmailConfirmed,
                         isDeletionScheduled: r.AuthData.DeletionScheduledAt is not null);
                 });

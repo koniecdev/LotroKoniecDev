@@ -1,0 +1,55 @@
+﻿{
+  "name": "LotroKoniecDev.TranslationSystem",
+  "links": [
+    {
+      "href": "http://localhost/",
+      "rel": "self",
+      "method": "GET"
+    },
+    {
+      "href": "http://localhost/api/v1/translation-files/pl",
+      "rel": "translation-file",
+      "method": "GET"
+    },
+    {
+      "href": "http://localhost/api/v1/progress",
+      "rel": "progress",
+      "method": "GET"
+    },
+    {
+      "href": "http://localhost/api/v1/translations",
+      "rel": "translations",
+      "method": "GET"
+    },
+    {
+      "href": "http://localhost/api/v1/translations",
+      "rel": "upsert",
+      "method": "PUT"
+    },
+    {
+      "href": "http://localhost/api/v1/translations/stats",
+      "rel": "translation-stats",
+      "method": "GET"
+    },
+    {
+      "href": "http://localhost/api/v1/translations/approve",
+      "rel": "bulk-approve",
+      "method": "POST"
+    },
+    {
+      "href": "http://localhost/api/v1/game-versions",
+      "rel": "game-versions",
+      "method": "GET"
+    },
+    {
+      "href": "http://localhost/api/v1/game-versions",
+      "rel": "register",
+      "method": "POST"
+    },
+    {
+      "href": "http://localhost/api/v1/translators/me/data-export",
+      "rel": "contribution-data-export",
+      "method": "GET"
+    }
+  ]
+}

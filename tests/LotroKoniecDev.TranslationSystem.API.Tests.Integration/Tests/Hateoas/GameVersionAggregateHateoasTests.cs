@@ -16,8 +16,9 @@ namespace LotroKoniecDev.TranslationSystem.API.Tests.Integration.Tests.Hateoas;
 
 /// <summary>
 /// Verifies the game-version aggregate's HATEOAS links: per-item <c>self</c> (resolving to the new
-/// item endpoint) plus the role-gated <c>delete</c> action (admins only, on unprocessed versions), the
-/// collection <c>self</c>, and the role-gated <c>register</c> action (admins only). Plain
+/// item endpoint) plus the role-gated <c>delete</c> action (admins only, on unprocessed versions) and
+/// <c>import</c> action (admins only, on anything not superseded — #608), the collection <c>self</c>,
+/// and the role-gated <c>register</c> action (admins only). Plain
 /// <c>application/json</c> requests must carry no links and still deserialize.
 /// </summary>
 [Collection("TranslationApi")]
@@ -170,6 +171,70 @@ public sealed class GameVersionAggregateHateoasTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task GetGameVersion_AsAdmin_WhenUnprocessed_AdvertisesImportAgainstTheVersion()
+    {
+        // Arrange — import is keyed by the version it lands against, so the affordance lives on the
+        // item that carries the id rather than on the service document (#608).
+        GameVersionId id = await SeedAsync("48.0");
+
+        // Act
+        GameVersionResponse response = await GetHateoasAsync<GameVersionResponse>(
+            AdminClient(), $"{Route}/{id.Value}");
+
+        // Assert
+        LinkDto import = response.Links.Where(l => l.Rel == Rels.Import).ShouldHaveSingleItem();
+        import.Method.ShouldBe("POST");
+        import.Href.ShouldEndWith($"{Route}/{id.Value}/import");
+    }
+
+    [Fact]
+    public async Task GetGameVersion_AsAdmin_WhenProcessed_StillAdvertisesImport()
+    {
+        // Arrange — re-importing into an already processed version is legal (MarkAsProcessed refuses
+        // only a superseded one), so the affordance survives processing even though delete does not.
+        GameVersionId id = await SeedProcessedAsync("48.0");
+
+        // Act
+        GameVersionResponse response = await GetHateoasAsync<GameVersionResponse>(
+            AdminClient(), $"{Route}/{id.Value}");
+
+        // Assert
+        response.Links.ShouldContain(l => l.Rel == Rels.Import);
+        response.Links.ShouldNotContain(l => l.Rel == Rels.Delete);
+    }
+
+    [Fact]
+    public async Task GetGameVersion_AsAdmin_WhenSuperseded_DoesNotAdvertiseImport()
+    {
+        // Arrange — a superseded version is the one state MarkAsProcessed refuses, so importing into
+        // it is a dead transition and must not be advertised.
+        GameVersionId id = await SeedSupersededAsync("47.0");
+
+        // Act
+        GameVersionResponse response = await GetHateoasAsync<GameVersionResponse>(
+            AdminClient(), $"{Route}/{id.Value}");
+
+        // Assert
+        response.Links.ShouldContain(l => l.Rel == Rels.Self);
+        response.Links.ShouldNotContain(l => l.Rel == Rels.Import);
+    }
+
+    [Fact]
+    public async Task GetGameVersion_AsTranslator_DoesNotAdvertiseImport()
+    {
+        // Arrange — import is admin-only; the endpoint's own policy is what drops the rel.
+        GameVersionId id = await SeedAsync("48.0");
+
+        // Act
+        GameVersionResponse response = await GetHateoasAsync<GameVersionResponse>(
+            TranslatorClient(), $"{Route}/{id.Value}");
+
+        // Assert
+        response.Links.ShouldContain(l => l.Rel == Rels.Self);
+        response.Links.ShouldNotContain(l => l.Rel == Rels.Import);
+    }
+
+    [Fact]
     public async Task ListGameVersions_PlainJson_OmitsLinks()
     {
         // Arrange
@@ -232,6 +297,19 @@ public sealed class GameVersionAggregateHateoasTests : IAsyncLifetime
 
         GameVersion gameVersion = GameVersion.Create(LotroNotationVersion.Create(version).Value, Now).Value;
         gameVersion.MarkAsProcessed();
+        dbContext.GameVersions.Add(gameVersion);
+        await dbContext.SaveChangesAsync();
+
+        return gameVersion.Id;
+    }
+
+    private async Task<GameVersionId> SeedSupersededAsync(string version)
+    {
+        using IServiceScope scope = _factory.Services.CreateScope();
+        ApplicationWriteDbContext dbContext = scope.ServiceProvider.GetRequiredService<ApplicationWriteDbContext>();
+
+        GameVersion gameVersion = GameVersion.Create(LotroNotationVersion.Create(version).Value, Now).Value;
+        gameVersion.MarkSuperseded();
         dbContext.GameVersions.Add(gameVersion);
         await dbContext.SaveChangesAsync();
 

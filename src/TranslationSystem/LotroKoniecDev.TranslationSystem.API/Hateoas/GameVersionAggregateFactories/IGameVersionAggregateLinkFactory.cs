@@ -13,13 +13,14 @@ internal interface IGameVersionAggregateLinkFactory
     /// <summary>
     /// Per-item links for one game version: <c>self</c>, plus <c>delete</c> when the caller holds the
     /// Admin role and the version is still <see cref="GameVersionStatus.Unprocessed"/> — a processed or
-    /// superseded version is woven into the update lifecycle and cannot be removed.
+    /// superseded version is woven into the update lifecycle and cannot be removed — plus <c>import</c>
+    /// for an admin on any version that is not <see cref="GameVersionStatus.Superseded"/>.
     /// </summary>
-    List<LinkDto> CreateGameVersionLinks(GameVersionId id, GameVersionStatus status, bool callerIsAdmin);
+    ValueTask<List<LinkDto>> CreateGameVersionLinksAsync(GameVersionId id, GameVersionStatus status, bool callerIsAdmin);
 
     /// <summary>
     /// Collection-level links for the game-version list: <c>self</c>, plus <c>register</c> when the
     /// caller holds the reviewer (Admin) role — the manual fallback used when the forum scrape breaks.
     /// </summary>
-    List<LinkDto> CreateCollectionLinks(bool callerIsAdmin);
+    ValueTask<List<LinkDto>> CreateCollectionLinksAsync(bool callerIsAdmin);
 }

@@ -19,7 +19,7 @@ internal interface ITranslationAggregateLinkFactory
     /// <param name="isRemoved">Whether the row is soft-removed (a removed row exposes <c>self</c> only).</param>
     /// <param name="callerIsTranslator">Whether the caller holds the Translator (or Admin) role — anonymous readers get no links.</param>
     /// <param name="callerIsAdmin">Whether the caller holds the reviewer (Admin) role (gates <c>approve</c>).</param>
-    List<LinkDto> CreateTranslationLinks(
+    ValueTask<List<LinkDto>> CreateTranslationLinksAsync(
         TranslationId id,
         TranslationStatus status,
         bool isRemoved,
@@ -31,5 +31,5 @@ internal interface ITranslationAggregateLinkFactory
     /// <c>bulk-approve</c> action (#322), so a non-admin caller gets an empty list.
     /// </summary>
     /// <param name="callerIsAdmin">Whether the caller holds the reviewer (Admin) role (gates <c>bulk-approve</c>).</param>
-    List<LinkDto> CreateCollectionLinks(bool callerIsAdmin);
+    ValueTask<List<LinkDto>> CreateCollectionLinksAsync(bool callerIsAdmin);
 }

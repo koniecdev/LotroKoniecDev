@@ -14,14 +14,14 @@ internal sealed class PaginationLinkFactory : IPaginationLinkFactory
         _linkFactory = linkFactory;
     }
 
-    public IReadOnlyList<LinkDto> CreatePaginationLinks<T>(
+    public async ValueTask<IReadOnlyList<LinkDto>> CreatePaginationLinksAsync<T>(
         string endpointName,
         PaginationResponse<T> paginationResponse,
         object? additionalRouteValues = null)
     {
         List<LinkDto> links = [];
 
-        links.AddIfPresent(_linkFactory.Create(
+        links.AddIfPresent(await _linkFactory.CreateAsync(
             endpoint: endpointName,
             rel: Rels.Self,
             method: HttpMethods.Get,
@@ -29,13 +29,13 @@ internal sealed class PaginationLinkFactory : IPaginationLinkFactory
 
         if (paginationResponse.TotalPages > 0)
         {
-            links.AddIfPresent(_linkFactory.Create(
+            links.AddIfPresent(await _linkFactory.CreateAsync(
                 endpoint: endpointName,
                 rel: Rels.FirstPage,
                 method: HttpMethods.Get,
                 values: BuildRouteValues(1, paginationResponse.PageSize, additionalRouteValues)));
 
-            links.AddIfPresent(_linkFactory.Create(
+            links.AddIfPresent(await _linkFactory.CreateAsync(
                 endpoint: endpointName,
                 rel: Rels.LastPage,
                 method: HttpMethods.Get,
@@ -44,7 +44,7 @@ internal sealed class PaginationLinkFactory : IPaginationLinkFactory
 
         if (paginationResponse.Page > 1)
         {
-            links.AddIfPresent(_linkFactory.Create(
+            links.AddIfPresent(await _linkFactory.CreateAsync(
                 endpoint: endpointName,
                 rel: Rels.PreviousPage,
                 method: HttpMethods.Get,
@@ -53,7 +53,7 @@ internal sealed class PaginationLinkFactory : IPaginationLinkFactory
 
         if (paginationResponse.Page < paginationResponse.TotalPages)
         {
-            links.AddIfPresent(_linkFactory.Create(
+            links.AddIfPresent(await _linkFactory.CreateAsync(
                 endpoint: endpointName,
                 rel: Rels.NextPage,
                 method: HttpMethods.Get,

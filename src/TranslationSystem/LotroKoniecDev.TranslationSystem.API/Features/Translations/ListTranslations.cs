@@ -172,19 +172,19 @@ internal sealed class ListTranslations : IEndpoint
                 bool callerIsAdmin = user.IsInRole(AuthConstants.Roles.Admin);
                 bool callerIsTranslator = callerIsAdmin || user.IsInRole(AuthConstants.Roles.Translator);
 
-                return HateoasResults.Ok(response, paged =>
+                return HateoasResults.Ok(response, async paged =>
                 {
                     foreach (TranslationListItemResponse item in paged.Items)
                     {
-                        item.Links = translationLinkFactory.CreateTranslationLinks(
+                        item.Links = await translationLinkFactory.CreateTranslationLinksAsync(
                             item.Id, item.Status, isRemoved: false, callerIsTranslator, callerIsAdmin);
                     }
 
                     paged.Links =
                     [
-                        .. paginationLinkFactory.CreatePaginationLinks(
+                        .. await paginationLinkFactory.CreatePaginationLinksAsync(
                             nameof(ListTranslations), paged, new { lang, search, status, sort }),
-                        .. translationLinkFactory.CreateCollectionLinks(callerIsAdmin)
+                        .. await translationLinkFactory.CreateCollectionLinksAsync(callerIsAdmin)
                     ];
                 });
             })

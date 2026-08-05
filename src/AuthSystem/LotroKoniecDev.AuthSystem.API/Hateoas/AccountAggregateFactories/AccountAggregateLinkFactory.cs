@@ -14,12 +14,12 @@ internal sealed class AccountAggregateLinkFactory : IAccountAggregateLinkFactory
         _linkFactory = linkFactory;
     }
 
-    public List<LinkDto> CreateAccountLinks(bool isEmailConfirmed, bool isDeletionScheduled)
+    public async ValueTask<List<LinkDto>> CreateAccountLinksAsync(bool isEmailConfirmed, bool isDeletionScheduled)
     {
         List<LinkDto> links = [];
 
         // Self — GET the account data export (the resource itself)
-        links.AddIfPresent(_linkFactory.Create(
+        links.AddIfPresent(await _linkFactory.CreateAsync(
             endpoint: nameof(ExportAccountData),
             rel: Rels.Self,
             method: HttpMethods.Get));
@@ -29,7 +29,7 @@ internal sealed class AccountAggregateLinkFactory : IAccountAggregateLinkFactory
         // so the normal account rels are suppressed as dead ends.
         if (isDeletionScheduled)
         {
-            links.AddIfPresent(_linkFactory.Create(
+            links.AddIfPresent(await _linkFactory.CreateAsync(
                 endpoint: nameof(CancelAccountDeletion),
                 rel: Rels.CancelDeletion,
                 method: HttpMethods.Post));
@@ -38,12 +38,12 @@ internal sealed class AccountAggregateLinkFactory : IAccountAggregateLinkFactory
         }
 
         // Always-available state transitions for an authenticated, active account
-        links.AddIfPresent(_linkFactory.Create(
+        links.AddIfPresent(await _linkFactory.CreateAsync(
             endpoint: nameof(ChangePassword),
             rel: Rels.ChangePassword,
             method: HttpMethods.Post));
 
-        links.AddIfPresent(_linkFactory.Create(
+        links.AddIfPresent(await _linkFactory.CreateAsync(
             endpoint: nameof(DeleteAccount),
             rel: Rels.DeleteAccount,
             method: HttpMethods.Post));
@@ -53,7 +53,7 @@ internal sealed class AccountAggregateLinkFactory : IAccountAggregateLinkFactory
         // disappears so clients do not advertise a dead transition.
         if (!isEmailConfirmed)
         {
-            links.AddIfPresent(_linkFactory.Create(
+            links.AddIfPresent(await _linkFactory.CreateAsync(
                 endpoint: nameof(ResendEmailConfirmation),
                 rel: Rels.ResendEmailConfirmation,
                 method: HttpMethods.Post));

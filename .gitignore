@@ -510,6 +510,10 @@ intel/
 # Stryker.NET mutation testing output
 StrykerOutput/
 
+# Verify snapshot testing (#571): *.verified.* files ARE the contract and are committed; the
+# *.received.* files a failing snapshot writes next to them are scratch output of that run.
+*.received.*
+
 # Terraform — the IaC itself was retired with Azure (ADR-0034 / #492); the only Terraform left in
 # the repo is the dead, never-to-be-applied copy under docs/deployment/azure-graveyard/. These rules
 # stay as a net: leftover local artifacts (.terraform/, tfplan) must never be swept into a commit by

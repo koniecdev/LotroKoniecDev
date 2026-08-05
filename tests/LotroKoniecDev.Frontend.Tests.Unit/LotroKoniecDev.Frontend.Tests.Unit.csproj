@@ -21,6 +21,7 @@
         <PackageReference Include="Microsoft.NET.Test.Sdk" />
         <PackageReference Include="NSubstitute" />
         <PackageReference Include="Shouldly" />
+        <PackageReference Include="Verify.Xunit" />
         <PackageReference Include="xunit" />
         <PackageReference Include="xunit.runner.visualstudio">
             <PrivateAssets>all</PrivateAssets>
@@ -29,9 +30,16 @@
     </ItemGroup>
 
     <ItemGroup>
+        <!-- One scrubber set for every snapshot suite (#571) — linked, never copy-pasted, exactly like
+             the NaughtyStrings theory sources (#569). -->
+        <Compile Include="..\Shared\VerifyModuleInitializer.cs" Link="Shared\VerifyModuleInitializer.cs" />
+    </ItemGroup>
+
+    <ItemGroup>
         <Using Include="Xunit" />
         <Using Include="Shouldly" />
         <Using Include="Bunit" />
+        <Using Include="VerifyXunit" />
     </ItemGroup>
 
     <ItemGroup>

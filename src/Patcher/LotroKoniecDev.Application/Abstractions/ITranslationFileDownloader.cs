@@ -6,7 +6,11 @@ namespace LotroKoniecDev.Application.Abstractions;
 /// </summary>
 public interface ITranslationFileDownloader
 {
-    Task<Result<TranslationFileFetchResult>> FetchAsync(string baseUrl, string? currentETag, CancellationToken cancellationToken);
+    /// <param name="endpoint">
+    /// The absolute URI resolved from the service document by <see cref="ITranslationFileEndpointResolver"/>.
+    /// The downloader composes no path of its own — there is no route left in the patcher source (#611).
+    /// </param>
+    Task<Result<TranslationFileFetchResult>> FetchAsync(Uri endpoint, string? currentETag, CancellationToken cancellationToken);
 }
 
 /// <summary>

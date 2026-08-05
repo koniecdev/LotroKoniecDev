@@ -35,6 +35,7 @@ public static class ApplicationDependencyInjection
         services.AddSingleton<ITranslationParser, TranslationFileParser>();
         services.AddSingleton<IGameUpdateChecker, GameUpdateChecker>();
         services.AddScoped<IPatchingService, PatchingService>();
+        services.AddScoped<ITranslationFileEndpointResolver, TranslationFileEndpointResolver>();
         services.AddScoped<IVersionBaselineService, VersionBaselineService>();
         services.AddScoped<IGameLaunchingStrategy, SimplifiedGameLaunchingStrategy>();
 

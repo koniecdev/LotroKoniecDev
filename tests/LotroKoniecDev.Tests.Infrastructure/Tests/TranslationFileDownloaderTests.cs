@@ -17,7 +17,7 @@ namespace LotroKoniecDev.Tests.Infrastructure.Tests;
 /// </summary>
 public sealed class TranslationFileDownloaderTests
 {
-    private const string BaseUrl = "https://tms.example.com";
+    private static readonly Uri Endpoint = new("https://tms.example.com/api/v1/translation-files/pl");
     private const string Content = "polish content";
 
     /// <summary>Independently computed (shell <c>shasum -a 256</c>), never via the code under test.</summary>
@@ -32,7 +32,7 @@ public sealed class TranslationFileDownloaderTests
         TranslationFileDownloader sut = new(httpClient);
 
         // Act
-        Result<TranslationFileFetchResult> result = await sut.FetchAsync(BaseUrl, null, CancellationToken.None);
+        Result<TranslationFileFetchResult> result = await sut.FetchAsync(Endpoint, null, CancellationToken.None);
 
         // Assert
         result.IsSuccess.ShouldBeTrue();
@@ -50,7 +50,7 @@ public sealed class TranslationFileDownloaderTests
         TranslationFileDownloader sut = new(httpClient);
 
         // Act
-        Result<TranslationFileFetchResult> result = await sut.FetchAsync(BaseUrl, null, CancellationToken.None);
+        Result<TranslationFileFetchResult> result = await sut.FetchAsync(Endpoint, null, CancellationToken.None);
 
         // Assert
         result.IsFailure.ShouldBeTrue();
@@ -66,7 +66,7 @@ public sealed class TranslationFileDownloaderTests
         TranslationFileDownloader sut = new(httpClient);
 
         // Act
-        Result<TranslationFileFetchResult> result = await sut.FetchAsync(BaseUrl, null, CancellationToken.None);
+        Result<TranslationFileFetchResult> result = await sut.FetchAsync(Endpoint, null, CancellationToken.None);
 
         // Assert
         result.IsFailure.ShouldBeTrue();
@@ -83,7 +83,7 @@ public sealed class TranslationFileDownloaderTests
         TranslationFileDownloader sut = new(httpClient);
 
         // Act
-        Result<TranslationFileFetchResult> result = await sut.FetchAsync(BaseUrl, null, CancellationToken.None);
+        Result<TranslationFileFetchResult> result = await sut.FetchAsync(Endpoint, null, CancellationToken.None);
 
         // Assert
         result.IsFailure.ShouldBeTrue();
@@ -101,7 +101,7 @@ public sealed class TranslationFileDownloaderTests
         TranslationFileDownloader sut = new(httpClient);
 
         // Act
-        Result<TranslationFileFetchResult> result = await sut.FetchAsync(BaseUrl, null, CancellationToken.None);
+        Result<TranslationFileFetchResult> result = await sut.FetchAsync(Endpoint, null, CancellationToken.None);
 
         // Assert
         result.IsFailure.ShouldBeTrue();
@@ -121,7 +121,7 @@ public sealed class TranslationFileDownloaderTests
         TranslationFileDownloader sut = new(httpClient);
 
         // Act
-        Result<TranslationFileFetchResult> result = await sut.FetchAsync(BaseUrl, null, CancellationToken.None);
+        Result<TranslationFileFetchResult> result = await sut.FetchAsync(Endpoint, null, CancellationToken.None);
 
         // Assert
         result.IsFailure.ShouldBeTrue();
@@ -139,7 +139,7 @@ public sealed class TranslationFileDownloaderTests
         TranslationFileDownloader sut = new(httpClient);
 
         // Act
-        Result<TranslationFileFetchResult> result = await sut.FetchAsync(BaseUrl, null, CancellationToken.None);
+        Result<TranslationFileFetchResult> result = await sut.FetchAsync(Endpoint, null, CancellationToken.None);
 
         // Assert
         result.IsFailure.ShouldBeTrue();
@@ -157,7 +157,7 @@ public sealed class TranslationFileDownloaderTests
         TranslationFileDownloader sut = new(httpClient);
 
         // Act
-        Result<TranslationFileFetchResult> result = await sut.FetchAsync(BaseUrl, "\"cached-etag\"", CancellationToken.None);
+        Result<TranslationFileFetchResult> result = await sut.FetchAsync(Endpoint, "\"cached-etag\"", CancellationToken.None);
 
         // Assert
         result.IsSuccess.ShouldBeTrue();
@@ -178,7 +178,7 @@ public sealed class TranslationFileDownloaderTests
         TranslationFileDownloader sut = new(httpClient);
 
         // Act
-        Result<TranslationFileFetchResult> result = await sut.FetchAsync(BaseUrl, malformedETag, CancellationToken.None);
+        Result<TranslationFileFetchResult> result = await sut.FetchAsync(Endpoint, malformedETag, CancellationToken.None);
 
         // Assert
         result.IsSuccess.ShouldBeTrue();
@@ -186,6 +186,49 @@ public sealed class TranslationFileDownloaderTests
         result.Value.Content.ShouldBe(Content);
         handler.LastRequest.ShouldNotBeNull();
         handler.LastRequest.Headers.IfNoneMatch.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task FetchAsync_ShouldRequestTheResolvedEndpointVerbatim()
+    {
+        // Arrange — the endpoint arrives already resolved from discovery, so the downloader appends
+        // nothing to it: there is no route left in the patcher source to append (#611).
+        Uri movedEndpoint = new("https://tms.example.com/downloads/pl.txt");
+        using HttpResponseMessage response = OkResponse(Content, $"\"{ContentHash}\"");
+        StubHttpMessageHandler handler = new(response);
+        using HttpClient httpClient = new(handler);
+        TranslationFileDownloader sut = new(httpClient);
+
+        // Act
+        Result<TranslationFileFetchResult> result = await sut.FetchAsync(movedEndpoint, null, CancellationToken.None);
+
+        // Assert
+        result.IsSuccess.ShouldBeTrue();
+        handler.LastRequest.ShouldNotBeNull();
+        handler.LastRequest.RequestUri.ShouldBe(movedEndpoint);
+    }
+
+    [Theory]
+    [InlineData(HttpStatusCode.Found)]
+    [InlineData(HttpStatusCode.MovedPermanently)]
+    [InlineData(HttpStatusCode.TemporaryRedirect)]
+    public async Task FetchAsync_RedirectResponse_ShouldBeRejectedRatherThanFollowedOffTheOrigin(HttpStatusCode status)
+    {
+        // Arrange — the resolved endpoint was validated to be on the configured origin, and a 302 is
+        // exactly how a hostile server would walk around that check: the body (and the ETag hashing
+        // it) would then come from the redirect target, so the integrity check would confirm the
+        // wrong file. The TMS client is registered with redirects OFF (#611) and a 3xx is a failure.
+        using HttpResponseMessage response = new(status);
+        response.Headers.Location = new Uri("https://evil.example.com/api/v1/translation-files/pl");
+        using HttpClient httpClient = new(new StubHttpMessageHandler(response));
+        TranslationFileDownloader sut = new(httpClient);
+
+        // Act
+        Result<TranslationFileFetchResult> result = await sut.FetchAsync(Endpoint, null, CancellationToken.None);
+
+        // Assert
+        result.IsFailure.ShouldBeTrue();
+        result.Error.Code.ShouldBe("TranslationFileSync.NetworkError");
     }
 
     [Fact]
@@ -197,7 +240,7 @@ public sealed class TranslationFileDownloaderTests
         TranslationFileDownloader sut = new(httpClient);
 
         // Act
-        Result<TranslationFileFetchResult> result = await sut.FetchAsync(BaseUrl, "\"cached-etag\"", CancellationToken.None);
+        Result<TranslationFileFetchResult> result = await sut.FetchAsync(Endpoint, "\"cached-etag\"", CancellationToken.None);
 
         // Assert
         result.IsSuccess.ShouldBeTrue();

@@ -239,7 +239,9 @@ namespaces on the assemblies below.
 
 `SealedConventionTests.KnownViolations` quarantines pre-existing violations, each keyed to its own
 ticket (#570 is a test-only change). The list is **self-cleaning** — a second test fails once an entry
-stops violating, so a fix cannot land without removing it.
+stops violating, so a fix cannot land without removing it. It is **empty since #599** sealed the last
+one (`Domain.Core.Monads.Result<TValue>`): a new violation now fails the gate outright, and adding an
+entry instead of sealing the type needs a ticket to point at.
 
 ## Infrastructure Tests (LotroKoniecDev.Tests.Infrastructure)
 

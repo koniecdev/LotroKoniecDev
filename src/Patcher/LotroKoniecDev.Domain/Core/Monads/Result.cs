@@ -58,11 +58,11 @@ public class Result
 /// Represents a result of an operation with status information, a value, and possibly an error.
 /// </summary>
 /// <typeparam name="TValue">The type of the result value.</typeparam>
-public class Result<TValue> : Result
+public sealed class Result<TValue> : Result
 {
     private readonly TValue _value;
 
-    protected internal Result(TValue value, bool isSuccess, Error error)
+    internal Result(TValue value, bool isSuccess, Error error)
         : base(isSuccess, error)
     {
         _value = value;

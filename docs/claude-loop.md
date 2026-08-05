@@ -96,8 +96,8 @@ one ticket with `LOOP_TRUST_GATE=0`, or add the commenter to `LOOP_TRUSTED_LOGIN
 
 | Var | Default | Meaning |
 |---|---|---|
-| `LOOP_EFFORT` | `high` | claude effort per ticket (reviews inside the session run at `xhigh` via the `code-reviewer` agent definition) |
-| `LOOP_MODEL` | `fable` | Fable 5 (re-enabled 2026-07-13 after a same-day Opus revert; original switch 2026-07-09) |
+| `LOOP_EFFORT` | `high` | claude effort per ticket (reviews inside the session run at `high` via the `code-reviewer` agent definition) |
+| `LOOP_MODEL` | `opus` | Opus 5 (2026-08-05 — replaced Fable 5, which had run since 2026-07-17) |
 | `LOOP_PERMISSION_MODE` | `auto` | headless permission mode |
 | `LOOP_CONFIG_DIR` | `~/.claude-account1` | Claude config dir = which account runs the loop (exported as `CLAUDE_CONFIG_DIR`) |
 | `LOOP_ALLOWED_TOOLS` | git/gh/dotnet/scripts | loop-scoped Bash allowlist passed via `--allowedTools` |

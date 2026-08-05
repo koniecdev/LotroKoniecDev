@@ -1,12 +1,12 @@
 namespace LotroKoniecDev.TranslationSystem.API.Parsing;
 
-/// <summary>One parsed row of an uploaded export, in the verbatim exported representation.</summary>
+/// <summary>One parsed row of an uploaded export.</summary>
 /// <remarks>
-/// Args columns are the raw <c>NULL</c>/<c>1-2-3</c> strings and <see cref="Content"/> keeps its
-/// escaped <c>\r</c>/<c>\n</c> — the TMS stores and redistributes texts byte-for-byte; only the
-/// patcher unescapes, when it injects into the DAT. <see cref="Approved"/> is retained for
-/// format symmetry but the import ignores it: the export's column is a constant and TMS approval
-/// state is owned by the editor loop, not the file.
+/// Args columns are the raw <c>NULL</c>/<c>1-2-3</c> strings (they carry nothing escapable), while
+/// <see cref="Content"/> is the RAW text — the parser unfolds the file's escape (ADR-0039) and the
+/// serializer re-applies it on the way out, so the escape never reaches the catalog.
+/// <see cref="Approved"/> is retained for format symmetry but the import ignores it: the export's
+/// column is a constant and TMS approval state is owned by the editor loop, not the file.
 /// </remarks>
 public sealed record ParsedExportRow(
     int FileId,

@@ -9,6 +9,11 @@ public sealed class Translation
 {
     public int FileId { get; init; }
     public ulong GossipId { get; init; }
+
+    /// <summary>
+    /// The raw fragment text, ready to be written into the DAT — the parser already unfolded the
+    /// file's escape sequences (ADR-0039), so this never carries a <c>\n</c> two-character pair.
+    /// </summary>
     public string Content { get; init; } = string.Empty;
     public int[]? ArgsOrder { get; init; }
     public int[]? ArgsId { get; init; }
@@ -32,13 +37,6 @@ public sealed class Translation
     /// <returns>Array of text pieces.</returns>
     public string[] GetPieces() =>
         Content.Split([DatFileConstants.PieceSeparator], StringSplitOptions.None);
-
-    /// <summary>
-    /// Unescapes special characters in the content.
-    /// </summary>
-    /// <returns>Content with newlines and carriage returns restored.</returns>
-    public string GetUnescapedContent() =>
-        Content.Replace("\\r", "\r").Replace("\\n", "\n");
 
     public override string ToString() =>
         $"Translation[File={FileId}, Gossip={GossipId}, Length={Content.Length}]";

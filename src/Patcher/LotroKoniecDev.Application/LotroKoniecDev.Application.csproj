@@ -14,6 +14,10 @@
     <ItemGroup>
         <InternalsVisibleTo Include="LotroKoniecDev.Tests.Infrastructure" />
         <InternalsVisibleTo Include="LotroKoniecDev.Tests.Unit" />
+        <!-- ParserContractParityTests is the || contract's cross-context drift guard: it drives the
+             patcher's escaper and parser against the TMS' own copies (ADR-0039). Test-only reach —
+             production code in the two contexts still shares the file, never code. -->
+        <InternalsVisibleTo Include="LotroKoniecDev.TranslationSystem.API.Tests.Unit" />
     </ItemGroup>
     <ItemGroup>
         <ProjectReference Include="..\LotroKoniecDev.Domain\LotroKoniecDev.Domain.csproj"/>

@@ -10,6 +10,8 @@ namespace LotroKoniecDev.Application.Parsers;
 /// <remarks>
 /// File format: file_id||gossip_id||content||args_order||args_id||approved
 /// Lines starting with # are comments, empty lines are ignored.
+/// Content arrives escaped (ADR-0039) and is unfolded by <see cref="TranslationLineEscaper"/>, so
+/// <see cref="Translation.Content"/> always carries the raw text about to be written into the DAT.
 /// </remarks>
 public sealed class TranslationFileParser : ITranslationParser
 {
@@ -84,7 +86,7 @@ public sealed class TranslationFileParser : ITranslationParser
             {
                 FileId = int.Parse(parts[0]),
                 GossipId = ulong.Parse(parts[1]),
-                Content = UnescapeContent(content),
+                Content = TranslationLineEscaper.Unescape(content),
                 ArgsOrder = ParseArgsArray(parts[^3]),
                 ArgsId = ParseArgsArray(parts[^2]),
                 IsApproved = parts[^1] == "1"
@@ -104,12 +106,6 @@ public sealed class TranslationFileParser : ITranslationParser
     /// </summary>
     private static bool ShouldSkipLine(string line) =>
         string.IsNullOrWhiteSpace(line) || line.TrimStart().StartsWith('#');
-
-    /// <summary>
-    /// Unescapes newline and carriage return sequences.
-    /// </summary>
-    private static string UnescapeContent(string content) =>
-        content.Replace("\\r", "\r").Replace("\\n", "\n");
 
     /// <summary>
     /// Parses an argument array in format "1-2-3" to 0-indexed integers.

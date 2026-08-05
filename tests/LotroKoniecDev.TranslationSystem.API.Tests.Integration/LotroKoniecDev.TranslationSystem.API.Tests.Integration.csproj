@@ -18,12 +18,20 @@
         <PackageReference Include="Shouldly" />
         <PackageReference Include="Testcontainers" />
         <PackageReference Include="Testcontainers.PostgreSql"/>
+        <PackageReference Include="Verify.Xunit" />
         <PackageReference Include="xunit" />
         <PackageReference Include="xunit.runner.visualstudio" />
     </ItemGroup>
 
     <ItemGroup>
+        <!-- One scrubber set for every snapshot suite (#571) — linked, never copy-pasted, exactly like
+             the NaughtyStrings theory sources (#569). -->
+        <Compile Include="..\Shared\VerifyModuleInitializer.cs" Link="Shared\VerifyModuleInitializer.cs" />
+    </ItemGroup>
+
+    <ItemGroup>
         <Using Include="Xunit"/>
+        <Using Include="VerifyXunit"/>
     </ItemGroup>
 
     <ItemGroup>

@@ -1,0 +1,64 @@
+﻿{
+  "items": [
+    {
+      "id": "Guid_1",
+      "fileId": 620756992,
+      "gossipId": 2,
+      "sourceText": "The road goes ever on.",
+      "translatedText": null,
+      "status": "Untranslated",
+      "submitter": null,
+      "updatedAt": "{Timestamp}+00:00",
+      "links": [
+        {
+          "href": "http://localhost/api/v1/translations/Guid_1",
+          "rel": "self",
+          "method": "GET"
+        },
+        {
+          "href": "http://localhost/api/v1/translations",
+          "rel": "upsert",
+          "method": "PUT"
+        }
+      ]
+    }
+  ],
+  "page": 2,
+  "pageSize": 1,
+  "totalCount": 3,
+  "totalPages": 3,
+  "hasNextPage": true,
+  "hasPreviousPage": true,
+  "links": [
+    {
+      "href": "http://localhost/api/v1/translations?page=2&pageSize=1",
+      "rel": "self",
+      "method": "GET"
+    },
+    {
+      "href": "http://localhost/api/v1/translations?page=1&pageSize=1",
+      "rel": "first-page",
+      "method": "GET"
+    },
+    {
+      "href": "http://localhost/api/v1/translations?page=3&pageSize=1",
+      "rel": "last-page",
+      "method": "GET"
+    },
+    {
+      "href": "http://localhost/api/v1/translations?page=1&pageSize=1",
+      "rel": "previous-page",
+      "method": "GET"
+    },
+    {
+      "href": "http://localhost/api/v1/translations?page=3&pageSize=1",
+      "rel": "next-page",
+      "method": "GET"
+    },
+    {
+      "href": "http://localhost/api/v1/translations/approve",
+      "rel": "bulk-approve",
+      "method": "POST"
+    }
+  ]
+}

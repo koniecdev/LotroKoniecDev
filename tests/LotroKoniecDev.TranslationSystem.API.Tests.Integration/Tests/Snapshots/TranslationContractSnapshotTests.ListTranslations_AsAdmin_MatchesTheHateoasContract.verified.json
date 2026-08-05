@@ -1,0 +1,106 @@
+﻿{
+  "items": [
+    {
+      "id": "Guid_1",
+      "fileId": 620756992,
+      "gossipId": 1,
+      "sourceText": "Welcome back to Middle-earth!",
+      "translatedText": "Witaj w Śródziemiu!",
+      "status": "NeedsReview",
+      "submitter": {
+        "id": "Guid_2",
+        "displayName": "Seed Author"
+      },
+      "updatedAt": "{Timestamp}+00:00",
+      "links": [
+        {
+          "href": "http://localhost/api/v1/translations/Guid_1",
+          "rel": "self",
+          "method": "GET"
+        },
+        {
+          "href": "http://localhost/api/v1/translations",
+          "rel": "upsert",
+          "method": "PUT"
+        },
+        {
+          "href": "http://localhost/api/v1/translations/Guid_1/approve",
+          "rel": "approve",
+          "method": "POST"
+        }
+      ]
+    },
+    {
+      "id": "Guid_3",
+      "fileId": 620756992,
+      "gossipId": 2,
+      "sourceText": "The road goes ever on.",
+      "translatedText": null,
+      "status": "Untranslated",
+      "submitter": null,
+      "updatedAt": "{Timestamp}+00:00",
+      "links": [
+        {
+          "href": "http://localhost/api/v1/translations/Guid_3",
+          "rel": "self",
+          "method": "GET"
+        },
+        {
+          "href": "http://localhost/api/v1/translations",
+          "rel": "upsert",
+          "method": "PUT"
+        }
+      ]
+    },
+    {
+      "id": "Guid_4",
+      "fileId": 620756992,
+      "gossipId": 3,
+      "sourceText": "Not all those who wander are lost.",
+      "translatedText": null,
+      "status": "Untranslated",
+      "submitter": null,
+      "updatedAt": "{Timestamp}+00:00",
+      "links": [
+        {
+          "href": "http://localhost/api/v1/translations/Guid_4",
+          "rel": "self",
+          "method": "GET"
+        },
+        {
+          "href": "http://localhost/api/v1/translations",
+          "rel": "upsert",
+          "method": "PUT"
+        }
+      ]
+    }
+  ],
+  "page": 1,
+  "pageSize": 50,
+  "totalCount": 3,
+  "totalPages": 1,
+  "hasNextPage": false,
+  "hasPreviousPage": false,
+  "links": [
+    {
+      "href": "http://localhost/api/v1/translations?page=1&pageSize=50",
+      "rel": "self",
+      "method": "GET"
+    },
+    {
+      "href": "http://localhost/api/v1/translations?page=1&pageSize=50",
+      "rel": "first-page",
+      "method": "GET"
+    },
+    {
+      "href": "http://localhost/api/v1/translations?page=1&pageSize=50",
+      "rel": "last-page",
+      "method": "GET"
+    },
+    {
+      "href": "http://localhost/api/v1/translations/approve",
+      "rel": "bulk-approve",
+      "method": "POST"
+    }
+  ]
+}

@@ -1,0 +1,8 @@
+﻿{
+  "type": "https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/404",
+  "title": "Not Found",
+  "status": 404,
+  "detail": "The translationentity with id: Guid_1 has not been found.",
+  "errorCode": "TranslationEntity.NotFound",
+  "traceId": "{TraceId}"
+}

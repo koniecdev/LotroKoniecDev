@@ -18,3 +18,12 @@
 # Native interop binaries and DAT game files — never apply EOL normalization.
 *.dll binary
 *.dat binary
+
+# Verify snapshots (#571) — belt-and-braces, NOT load-bearing: `* text=auto eol=lf` above already
+# checks these out as LF everywhere, and Verify normalizes newlines internally before comparing, so
+# the Windows leg is covered twice over. Listed explicitly only so the intent survives an edit to the
+# catch-all rule; deleting these lines changes nothing on its own.
+*.verified.txt text eol=lf
+*.verified.json text eol=lf
+*.verified.html text eol=lf
+*.verified.xml text eol=lf

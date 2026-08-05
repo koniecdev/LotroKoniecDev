@@ -440,16 +440,42 @@ file_id||gossip_id||translated_text||args_order||args_id||approved
   `@rendermode`, `StateHasChanged`, or `AddInteractive*`. `scripts/check-ssr-purity.sh` (with a
   `.ps1` twin for local Windows devs) gates this in **both** `pr-verify` and `ci`, before
   `setup-dotnet`. Genuinely need interactivity? That's an ADR-first architecture change.
-- **The Frontend hardcodes no API path — enforced, not just documented (#610).** There is no
-  gateway (ADR-0041), so every entry point is resolved by **rel name** through
-  `IDiscoveryCache.ResolveTranslationSystemHrefAsync(Rels.<Name>)` and every id-keyed action follows
-  the href the loaded resource advertises. A missing rel is a `ProblemDetails` failure — never a
-  locally composed path, because an absent rel means the server does not offer that affordance to
-  this caller. `scripts/check-frontend-hypermedia.sh` (with a `.ps1` twin) flags an API path in any
-  string literal under `src/Frontend/` and gates it in **both** `pr-verify` and `ci`, alongside the
-  SSR guard; prose mentions in comments stay allowed. The one bounded exception is the editor's
-  detail URI (`{discovered translations href}/{id}`) — the `/editor/{id}` route hands over an id,
-  not a link, and it is documented as such in `TranslationEditorLoader`.
+- **No client hardcodes an API path — enforced, not just documented (#610 frontend, #611 CLI).**
+  There is no gateway (ADR-0041), so every entry point is resolved by **rel name** — the Frontend
+  through `IDiscoveryCache.ResolveTranslationSystemHrefAsync(Rels.<Name>)`, the CLI through
+  `ITranslationFileEndpointResolver` — and every id-keyed action follows the href the loaded
+  resource advertises. A missing rel is a failure (`ProblemDetails` in the Frontend, a `Result`
+  error in the CLI) — never a locally composed path, because an absent rel means the server does
+  not offer that affordance to this caller. `scripts/check-client-hypermedia.sh` (with a `.ps1`
+  twin) flags an API path in any string literal under `src/Frontend/` **and** `src/Patcher/` and
+  gates it in **both** `pr-verify` and `ci`, alongside the SSR guard; prose mentions in comments
+  stay allowed. The one bounded exception is the editor's detail URI
+  (`{discovered translations href}/{id}`) — the `/editor/{id}` route hands over an id, not a link,
+  and it is documented as such in `TranslationEditorLoader`.
+- **The CLI resolves its download URL from discovery, and degrades without guessing (#611).**
+  `SyncTranslationFileCommand` still takes one input, `TmsBaseUrl`; everything else comes from
+  `GET {baseUrl}/` with the HATEOAS vendor `Accept` (links are opt-in — a plain-JSON request gets a
+  link-less document). Discovery is the primary path and the `.endpoint` sidecar next to
+  `polish.txt`/`.etag` is the **outage** fallback only: a server that answers but does not advertise
+  `translation-file`, or advertises an href off the configured origin, is a refusal, not an outage —
+  no fallback, no composed path. A resolved href is re-validated (absolute, https except loopback,
+  same origin as the base URL) whether it came from the wire or from disk. Because the launch must
+  never block on the network (spec 0001 Q5), an unresolvable endpoint reports
+  `EndpointUnresolvedUsedCache` and lets the launch continue on the local file; with no local file
+  the launch path reports it and exits 2, exactly as it does today. Same reasoning downgrades a
+  failed `.endpoint` write to a logged warning — that sidecar is a hint, and the next run
+  re-resolves it — while a failed `Save` of the downloaded file stays fatal. The TMS adapters use
+  their own keyed `HttpClient` with **`AllowAutoRedirect = false`**: the origin check on the
+  resolved href is worthless if a 302 can carry the request off it (the redirect target would serve
+  both the body and the ETag that hashes it, so the integrity check would confirm the wrong file).
+  The forum fetcher keeps redirects — it targets a third-party site.
+  **The patcher's one allowed shared reference is `Utilities/LotroKoniecDev.Hateoas.Abstractions`**
+  (`MediaTypes.HateoasJson`, and `LinkDto` in tests only). It is not the TMS side, and the vendor
+  media type is centralised there precisely so the two ends cannot drift; the CLI still re-types the
+  link envelope rather than linking `TranslationSystem.Contracts`, with a parity test standing in
+  for the compiler. Note `BoundedContextIsolationTests` covers patcher Primitives/Domain/Application
+  only — Infrastructure and Cli are `net10.0-windows`, so a `net10.0` test project cannot reference
+  them and nothing mechanically blocks the next reference added there.
 - **Docker restore layers are loud and gated (ADR-0028, amended).** Every Dockerfile that lists
   `.csproj` files must COPY the **full transitive closure** of the projects it restores.
   `dotnet restore` treats a missing project file as `Skipping project … because it was not found`

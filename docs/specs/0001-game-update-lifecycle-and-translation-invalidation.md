@@ -230,6 +230,13 @@ For every row of the uploaded export, compared against the stored source state b
   + ETag, 304/unreachable → keep the cached file and proceed. Configurable API base URL; the
   manual `patch <name>` path stays untouched. Additive slice + its launch-flow wiring are the
   sole sanctioned freeze exception (ADR-0002 amendment).
+  *Amendment (ADR-0041 / #611, 2026-08-05):* the CLI no longer knows that route. It is configured
+  with the TMS **root** URL only and resolves the download URI from the service document by the
+  `translation-file` rel, re-validating it (absolute, `https` except loopback, same origin as the
+  configured root) before use. A last-known-good href is cached next to the ETag sidecar as the
+  **outage** fallback; a server that answers without the rel is a refusal, not an outage, so it
+  gets no fallback and no composed path. "Unreachable → keep the cached file and proceed" now also
+  covers an unresolvable endpoint — the launch is still never blocked on the network.
   *Amendment (AUDIT-SEC-01 / #391, 2026-07-09):* the base URL must be `https` (plain `http` only
   for localhost), and a 200 body is saved only if it hash-matches the ETag — which **is** the hex
   SHA-256 of the file's UTF-8 bytes (cross-context contract, guarded by tests on both sides). A

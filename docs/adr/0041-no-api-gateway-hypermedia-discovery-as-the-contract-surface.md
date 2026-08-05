@@ -186,7 +186,10 @@ are the answer to that case.
 - Numbered **0041**, not 0040 as the ticket title says: #608 landed as
   `0040-authorization-aware-hateoas-links-and-an-anonymous-tms-root.md` first.
 - The client-side half of §2 is tracked as #610 (frontend: drop the six hardcoded paths) and #611
-  (CLI: drop `TranslationFileRoute`). Neither is blocked by this ADR.
+  (CLI: drop `TranslationFileRoute`). Neither is blocked by this ADR. **Both have since landed** —
+  no client carries an API path any more, and `scripts/check-client-hypermedia.sh` keeps it that way
+  in CI. The CLI keeps a last-known-good href sidecar as an *outage* fallback only: a server that
+  answers without the rel is a refusal, not an outage, so it gets no fallback and no composed path.
 
 ## References
 

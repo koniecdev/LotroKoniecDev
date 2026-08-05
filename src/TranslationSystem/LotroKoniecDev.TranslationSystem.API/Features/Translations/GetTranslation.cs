@@ -97,8 +97,8 @@ internal sealed class GetTranslation : IEndpoint
                 bool callerIsAdmin = user.IsInRole(AuthConstants.Roles.Admin);
                 bool callerIsTranslator = callerIsAdmin || user.IsInRole(AuthConstants.Roles.Translator);
 
-                return HateoasResults.Ok(queryResult.Response, r =>
-                    r.Links = translationLinkFactory.CreateTranslationLinks(
+                return HateoasResults.Ok(queryResult.Response, async r =>
+                    r.Links = await translationLinkFactory.CreateTranslationLinksAsync(
                         r.Id, r.Status, queryResult.IsRemoved, callerIsTranslator, callerIsAdmin));
             })
             .WithName(nameof(GetTranslation))

@@ -10,7 +10,7 @@ namespace LotroKoniecDev.TranslationSystem.API.Hateoas.PaginationLinkFactories;
 /// </summary>
 internal interface IPaginationLinkFactory
 {
-    IReadOnlyList<LinkDto> CreatePaginationLinks<T>(
+    ValueTask<IReadOnlyList<LinkDto>> CreatePaginationLinksAsync<T>(
         string endpointName,
         PaginationResponse<T> paginationResponse,
         object? additionalRouteValues = null);

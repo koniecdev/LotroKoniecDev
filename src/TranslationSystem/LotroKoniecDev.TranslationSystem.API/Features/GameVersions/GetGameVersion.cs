@@ -74,8 +74,8 @@ internal sealed class GetGameVersion : IEndpoint
 
                 bool callerIsAdmin = user.IsInRole(AuthConstants.Roles.Admin);
 
-                return HateoasResults.Ok(result.Value, r =>
-                    r.Links = gameVersionLinkFactory.CreateGameVersionLinks(r.Id, r.Status, callerIsAdmin));
+                return HateoasResults.Ok(result.Value, async r =>
+                    r.Links = await gameVersionLinkFactory.CreateGameVersionLinksAsync(r.Id, r.Status, callerIsAdmin));
             })
             .WithName(nameof(GetGameVersion))
             .WithTags("GameVersions")

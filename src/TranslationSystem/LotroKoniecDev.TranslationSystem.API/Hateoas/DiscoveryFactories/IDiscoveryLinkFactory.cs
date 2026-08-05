@@ -4,5 +4,5 @@ namespace LotroKoniecDev.TranslationSystem.API.Hateoas.DiscoveryFactories;
 
 internal interface IDiscoveryLinkFactory
 {
-    List<LinkDto> CreateDiscoveryLinks();
+    ValueTask<List<LinkDto>> CreateDiscoveryLinksAsync();
 }

@@ -93,14 +93,15 @@ internal sealed class ListGameVersions : IEndpoint
                 CollectionResponse<GameVersionResponse> response = new() { Items = result.Value };
                 bool callerIsAdmin = user.IsInRole(AuthConstants.Roles.Admin);
 
-                return HateoasResults.Ok(response, collection =>
+                return HateoasResults.Ok(response, async collection =>
                 {
                     foreach (GameVersionResponse item in collection.Items)
                     {
-                        item.Links = gameVersionLinkFactory.CreateGameVersionLinks(item.Id, item.Status, callerIsAdmin);
+                        item.Links = await gameVersionLinkFactory.CreateGameVersionLinksAsync(
+                            item.Id, item.Status, callerIsAdmin);
                     }
 
-                    collection.Links = gameVersionLinkFactory.CreateCollectionLinks(callerIsAdmin);
+                    collection.Links = await gameVersionLinkFactory.CreateCollectionLinksAsync(callerIsAdmin);
                 });
             })
             .WithName(nameof(ListGameVersions))

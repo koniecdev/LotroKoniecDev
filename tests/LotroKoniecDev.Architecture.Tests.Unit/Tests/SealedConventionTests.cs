@@ -24,12 +24,9 @@ public sealed class SealedConventionTests
 
     /// <summary>
     /// Real violations that predate this suite, each fixed under its own ticket — #570 is a test-only
-    /// change. Keyed by type full name, valued by the ticket that removes the entry.
+    /// change. Keyed by type full name, valued by the ticket that removes the entry. Empty since #599.
     /// </summary>
-    private static readonly Dictionary<string, string> KnownViolations = new(StringComparer.Ordinal)
-    {
-        ["LotroKoniecDev.Domain.Core.Monads.Result`1"] = "#599",
-    };
+    private static readonly Dictionary<string, string> KnownViolations = new(StringComparer.Ordinal);
 
     [Fact]
     public void ProductionClasses_WithoutAnExplicitSubclass_AreSealed()

@@ -22,9 +22,11 @@ This makes the post-merge loop self-contained: after merging the previous PR on 
 
 ## 1. Pull the ticket
 
-- `gh issue view <n> --comments` — read title (`M{milestone}-{nn}: Title`), labels, body
-  (Context / Depends on / Tasks / Acceptance criteria) and every comment (later comments override
-  the body).
+- `gh issue view <n> --json number,title,state,labels,body,comments` — one call that returns
+  everything: title (`M{milestone}-{nn}: Title`), labels, body (Context / Depends on / Tasks /
+  Acceptance criteria) and the `comments` array (later comments override the body). **Never use
+  `-c/--comments`** — it does not add comments to the default view, it *replaces* it with a
+  comments-only view, so on a comment-free issue it prints nothing and still exits 0.
 - For each `Depends on #X` / `Blocks #X`: `gh issue view X` enough to know whether the dependency
   is satisfied. If an open dependency genuinely blocks this ticket, **stop and say so** — don't
   build on missing foundations.

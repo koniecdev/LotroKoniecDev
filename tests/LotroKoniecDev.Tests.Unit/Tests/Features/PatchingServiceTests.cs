@@ -4,6 +4,7 @@ using LotroKoniecDev.Application.Features.Patching;
 using LotroKoniecDev.Domain.Core.BuildingBlocks;
 using LotroKoniecDev.Domain.Core.Monads;
 using LotroKoniecDev.Domain.Models;
+using LotroKoniecDev.Primitives.Constants;
 using LotroKoniecDev.Primitives.Enums;
 using LotroKoniecDev.Tests.Unit.Shared;
 
@@ -229,6 +230,72 @@ public sealed class PatchingServiceTests
         result.IsSuccess.ShouldBeTrue();
         result.Value.SkippedTranslations.ShouldBe(1);
         result.Value.Warnings.ShouldContain(w => w.Contains("not a text file"));
+    }
+
+    [Fact]
+    public void ApplyTranslations_PieceLongerThanTheDatAllows_ShouldSkipAndWarnWithoutWritingTheSubFile()
+    {
+        // Arrange — the TMS caps the text at its API, so this row can only come from a hand-edited or
+        // hostile polish.txt. It used to reach VarLenEncoder.Write and throw mid-loop (#598).
+        SetupAllPassingDefaults();
+        SetupTranslations(CreateTranslation(content: new string('ż', DatFileConstants.MaxTextPieceLength + 1)));
+
+        // Act
+        Result<PatchSummaryResponse> result = _sut.ApplyTranslations("/translations/polish.txt", "/game/client_local_English.dat");
+
+        // Assert
+        result.IsSuccess.ShouldBeTrue();
+        result.Value.AppliedTranslations.ShouldBe(0);
+        result.Value.SkippedTranslations.ShouldBe(1);
+        result.Value.Warnings.ShouldContain(w => w.Contains("32768 characters"));
+
+        // The row is screened before any subfile is loaded, so nothing is committed on its account —
+        // this is what keeps a bad row from leaving a half-patched DAT behind.
+        _datFileHandler.DidNotReceive().PutSubfileData(
+            Arg.Any<int>(), Arg.Any<int>(), Arg.Any<byte[]>(), Arg.Any<int>(), Arg.Any<int>());
+    }
+
+    [Fact]
+    public void ApplyTranslations_PieceLongerThanTheDatAllows_ShouldStillApplyEveryOtherRow()
+    {
+        // Arrange — one poisoned row must cost exactly one row, not the whole patch run. Both rows
+        // target the same fragment because the fixture subfile holds exactly one; what is under test
+        // is that the loop survives the first row, not which fragment the second one lands on.
+        SetupAllPassingDefaults();
+        SetupTranslations(
+            CreateTranslation(gossipId: FragmentId1, content: new string('ż', DatFileConstants.MaxTextPieceLength + 1)),
+            CreateTranslation(gossipId: FragmentId1, content: "Zdrowy tekst"));
+
+        // Act
+        Result<PatchSummaryResponse> result = _sut.ApplyTranslations("/translations/polish.txt", "/game/client_local_English.dat");
+
+        // Assert
+        result.IsSuccess.ShouldBeTrue();
+        result.Value.AppliedTranslations.ShouldBe(1);
+        result.Value.SkippedTranslations.ShouldBe(1);
+
+        // The counters alone would also be satisfied by a run that applied the healthy row in memory
+        // and never committed it. The commit is invisible in the Result, so assert it here.
+        _datFileHandler.Received(1).PutSubfileData(
+            DatHandle, TextFileId, Arg.Any<byte[]>(), Arg.Any<int>(), Arg.Any<int>());
+    }
+
+    [Fact]
+    public void ApplyTranslations_ContentSplittingIntoPiecesThatEachFit_ShouldApply()
+    {
+        // Arrange — the DAT caps each PIECE, not the whole row, and the patcher cuts pieces on the
+        // placeholder. Content twice the ceiling is therefore legal as long as no piece exceeds it.
+        SetupAllPassingDefaults();
+        string half = new('ż', DatFileConstants.MaxTextPieceLength);
+        SetupTranslations(CreateTranslation(content: $"{half}{DatFileConstants.PieceSeparator}{half}"));
+
+        // Act
+        Result<PatchSummaryResponse> result = _sut.ApplyTranslations("/translations/polish.txt", "/game/client_local_English.dat");
+
+        // Assert
+        result.IsSuccess.ShouldBeTrue();
+        result.Value.AppliedTranslations.ShouldBe(1);
+        result.Value.SkippedTranslations.ShouldBe(0);
     }
 
     [Fact]

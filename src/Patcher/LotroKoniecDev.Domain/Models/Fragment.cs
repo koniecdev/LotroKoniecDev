@@ -1,5 +1,6 @@
 using System.Text;
 using LotroKoniecDev.Domain.Core.Utilities;
+using LotroKoniecDev.Primitives.Constants;
 
 namespace LotroKoniecDev.Domain.Models;
 
@@ -77,9 +78,27 @@ public sealed class Fragment
     }
 
     /// <summary>
+    /// Indicates whether a text piece can be written into the DAT — <see cref="Write"/>'s
+    /// precondition, exposed so callers can screen replacement content instead of discovering the
+    /// limit as an exception halfway through a subfile (#598). Pieces read out of the DAT satisfy
+    /// it by construction; only translated content can violate it.
+    /// </summary>
+    /// <param name="piece">The candidate text piece.</param>
+    public static bool IsWritablePiece(string piece)
+    {
+        ArgumentNullException.ThrowIfNull(piece);
+
+        return piece.Length <= DatFileConstants.MaxTextPieceLength;
+    }
+
+    /// <summary>
     /// Writes the fragment to binary format.
     /// </summary>
     /// <param name="writer">The binary writer to write to.</param>
+    /// <exception cref="ArgumentOutOfRangeException">
+    /// When a piece fails <see cref="IsWritablePiece"/>. Deliberate: the variable-length prefix
+    /// cannot express the length, and writing a truncated one would corrupt the whole subfile.
+    /// </exception>
     public void Write(BinaryWriter writer)
     {
         ArgumentNullException.ThrowIfNull(writer);

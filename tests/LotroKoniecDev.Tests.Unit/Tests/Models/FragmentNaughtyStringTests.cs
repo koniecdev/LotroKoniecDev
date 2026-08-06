@@ -126,15 +126,42 @@ public sealed class FragmentNaughtyStringTests
         parsed.Pieces.ShouldBe([longPiece]);
     }
 
+    [Theory]
+    [InlineData(VarLenSingleByteCeiling)]
+    [InlineData(VarLenTwoByteCeiling)]
+    public void IsWritablePiece_PieceUpToTheVarLenCeiling_ShouldBeTrue(int length)
+    {
+        // Arrange
+        string piece = new('ż', length);
+
+        // Act
+        bool writable = Fragment.IsWritablePiece(piece);
+
+        // Assert
+        writable.ShouldBeTrue();
+    }
+
+    [Fact]
+    public void IsWritablePiece_PieceLongerThanTheVarLenCeiling_ShouldBeFalse()
+    {
+        // Arrange — the screen PatchingService runs before it mutates a loaded subfile (#598), so an
+        // over-long row costs one warning instead of a mid-loop throw over an already-written DAT.
+        string piece = new('ż', VarLenTwoByteCeiling + 1);
+
+        // Act
+        bool writable = Fragment.IsWritablePiece(piece);
+
+        // Assert
+        writable.ShouldBeFalse();
+    }
+
     [Fact]
     public void Write_PieceLongerThanTheVarLenCeiling_ShouldThrow()
     {
-        // Arrange — DOCUMENTED CURRENT BEHAVIOR. Refusing to write is right in itself: VarLen cannot
-        // express a length above 32767, and a truncated prefix would silently corrupt the subfile.
-        // What is NOT right is where the throw lands — nothing caps TranslatedText, and neither
-        // PatchingService nor its handler catches, so an over-long translation escapes as an
-        // unhandled exception mid-loop, after earlier subfiles were already written. Tracked as
-        // #598; pinned here so fixing it is a deliberate, visible change to this assertion.
+        // Arrange — the deliberate last resort behind IsWritablePiece, not a reachable failure mode:
+        // VarLen cannot express a length above 32767 and a truncated prefix would silently corrupt
+        // every following fragment, so writing one anyway is a programmer error. Callers screen the
+        // content first (#598, ADR-0043); this pins that Write itself never degrades to truncation.
         Fragment fragment = new() { Pieces = [new string('ż', VarLenTwoByteCeiling + 1)] };
         using MemoryStream stream = new();
         using BinaryWriter writer = new(stream, Encoding.Unicode, leaveOpen: true);

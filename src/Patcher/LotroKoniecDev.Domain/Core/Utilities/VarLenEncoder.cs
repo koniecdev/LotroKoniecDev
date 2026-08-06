@@ -1,3 +1,5 @@
+using LotroKoniecDev.Primitives.Constants;
+
 namespace LotroKoniecDev.Domain.Core.Utilities;
 
 /// <summary>
@@ -9,7 +11,10 @@ public static class VarLenEncoder
     private const int HighBitMask = 0x80;
     private const int LowByteMask = 0xFF;
     private const int MaxSingleByteValue = 0x7F;
-    private const int MaxTwoByteValue = 0x7FFF;
+
+    // One constant with Fragment.IsWritablePiece — a screen that disagreed with the guard it screens
+    // for would re-open #598 by letting an unwritable piece through, or by refusing a writable one.
+    private const int MaxTwoByteValue = DatFileConstants.MaxVarLenValue;
 
     /// <summary>
     /// Reads a variable-length encoded integer from a BinaryReader.

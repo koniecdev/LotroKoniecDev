@@ -101,10 +101,12 @@ delimiter collisions this format is weakest at. Those are composed by hand as ex
 data before trusting a `MemberData` theory to cover it.
 
 Several tests pin **known-lossy** behavior on purpose, say so in-place, and name the defect ticket
-they document (today: #598 over-long piece). Do not "fix" such a test — fix the defect, then change
-the assertion deliberately. That is what #596 and #597 did: the escape asymmetry (ADR-0039) and the
-swallowed trailing pipe (ADR-0042) are both gone, so all four of their tests now assert exact round
-trips.
+they document. Do not "fix" such a test — fix the defect, then change the assertion deliberately.
+That is what #596, #597 and #598 did: the escape asymmetry (ADR-0039), the swallowed trailing pipe
+(ADR-0042) and the over-long piece (ADR-0043) are all gone, so their tests now assert exact round
+trips — and `Write_PieceLongerThanTheVarLenCeiling_ShouldThrow` stays, restated as the deliberate
+last resort behind `Fragment.IsWritablePiece` rather than a reachable crash. **There is no
+known-lossy pin left today**; the next one to be added should name its ticket here.
 
 The `||` rule now lives in **two duplicated-by-design types per context** — `TranslationLineEscaper`
 (the content escape) and `TranslationLineCarver` (the field boundaries) — each with its own twin

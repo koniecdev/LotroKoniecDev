@@ -782,6 +782,13 @@ the APIs serve traffic — never from inside the application at startup. The rul
   SDK, no `dotnet-ef` tool, no source.
 - **Idempotent.** Each bundle applies only the migrations missing from that context's
   `__EFMigrationsHistory` table, so re-running it is a safe no-op.
+- **The bundle RID follows the build platform** (#594). Because the bundles are self-contained, their
+  architecture must match the `runtime-deps` base — which is a manifest list and resolves to whatever
+  is being built for. The Dockerfile derives the RID from BuildKit's `TARGETARCH`
+  (`amd64` → `linux-x64`, `arm64` → `linux-arm64`), so CD's amd64 runners keep producing the
+  `linux-x64` image the Hetzner boxes run, and a local prod-parity build on Apple Silicon gets arm64
+  bundles with no build-arg. Override with `--build-arg TARGET_RUNTIME=<rid>`; an architecture with no
+  mapping fails the build rather than shipping a wrong-arch image.
 - **Fail-fast = no half-migrated serving.** Any failure (unreachable DB, bad migration, missing
   connection string) exits non-zero. On the box, CD runs the migrator as **its own container before
   `up -d`** — see the warning in [What `deploy.yml` does](#what-deployyml-does).

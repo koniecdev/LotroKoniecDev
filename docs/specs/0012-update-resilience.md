@@ -14,8 +14,10 @@
 - **Related:** `docs/knowledge-base/update-49/{BASELINE,RESULTS}.md` (empirics + scenario analysis),
   `docs/knowledge-base/live-test-2026-08-02.md`, `docs/knowledge-base/dat-protection.md`
   (per-SubFile survival model), spec 0001 (game-update lifecycle — this spec extends it),
-  ADR-0030 (manual export ceremony), `docs/RUSSIAN_PROJECT_RESEARCH.md` (Legacy = file-state
-  sentinel + `-disablePatch`), TP-00 #377 ("launch sentinel (DAT-repair gap)" — promoted here)
+  ADR-0030 (manual export ceremony), **ADR-0045** (the game version reaches clients through our
+  API — revises the Tier-0 handshake below), `docs/RUSSIAN_PROJECT_RESEARCH.md` (Legacy =
+  file-state sentinel + `-disablePatch`), TP-00 #377 ("launch sentinel (DAT-repair gap)" —
+  promoted here)
 
 ## Business context — what the 49.1 live test proved
 
@@ -57,11 +59,17 @@ corrections with stale Polish — and TMS imports stay correct at any corpus sca
   per-SubFile, so K sampled SubFiles detect a wipe of any of them; full certainty needs the
   full artifact row-set — sampling breadth is an implementation knob). One-shot guard per
   detection (no repair loops).
-- **Anti-masking handshake:** the distribution endpoint / artifact exposes the GameVersion it
-  was generated for. The sentinel force-patches only when artifact-version ≥ live forum version;
-  otherwise it defers (fallback-to-English semantics preserved — never re-apply pre-update
-  Polish over fresh English; a dropped artifact row can NEVER un-write stale Polish, because
-  patch does not write absences).
+- **Anti-masking handshake** (revised by **ADR-0045**, 2026-08-06 — the client never reads
+  lotro.com): the distribution response carries the GameVersion the artifact was generated for
+  **and a server-computed staleness verdict** ("does the TMS know an Unprocessed version newer
+  than this artifact?"). The sentinel force-patches only when the server says the artifact is
+  current; otherwise it defers (fallback-to-English semantics preserved — never re-apply
+  pre-update Polish over fresh English; a dropped artifact row can NEVER un-write stale Polish,
+  because patch does not write absences). The client performs no version comparison — version
+  ordering stays in the TMS domain, deployable. Unknown verdict, missing artifact version or an
+  unreachable TMS ⇒ treat as "do not force-patch". The verdict is valid only for the response
+  that carried it and is never cached as authority. **Coverage limit:** the handshake gates the
+  *forced* repair only; the routine hash-triggered patch is ungated (ADR-0045 Consequences).
 - Offline ⇒ never force-patch; proceed to launch (degrade to English for wiped rows).
 
 ### Tier 1 — update-day orchestrator (atomic UX; branches A/B/C)
@@ -104,8 +112,14 @@ faster repair) — not a correctness or UX requirement.
 - **Pristine-source direction (optional, Q-gated):** generate a revert file from TMS SourceText
   before export, or keep a pristine DAT copy (the Russians re-download the original DAT for the
   same reason).
-- **Artifact metadata:** GameVersion of generation (needed by the Tier-0 handshake) + the
-  touched-SubFiles set per version (repair-set).
+- **Artifact metadata:** GameVersion of generation + the staleness verdict derived from it (both
+  needed by the Tier-0 handshake — ADR-0045), plus the touched-SubFiles set per version
+  (repair-set). The artifact carries no version today, so this is a new column + migration, not
+  an exposure of something already stored.
+- **Version detection is a prerequisite, not a convenience (ADR-0045 §4):** the verdict is only as
+  early as the TMS's knowledge of a new version, so the forum watcher (#85) moves into this
+  milestone. Its detections count immediately and are dismissible after the fact; #624 must land
+  first, because a wrongly registered version is currently unrecoverable once superseded.
 
 ## Experiments (inputs to final design; all local; Windows box)
 
@@ -161,7 +175,9 @@ import: #559 (UR-02).
 
 - [ ] After a simulated chunk-wipe (write-test DAT with a reverted SubFile), the next launch
       detects the revert via the content sentinel and restores every artifact row (Tier 0).
-- [ ] Sentinel never patches with an artifact older than the live forum version (handshake).
+- [ ] Sentinel force-patches only when the server's staleness verdict says the artifact is
+      current, and declines on stale/unknown/offline (handshake — ADR-0045; the client never
+      reads lotro.com and never compares versions itself).
 - [ ] Orchestrator branch A: patch lands between launcher-release and Play without killing
       anything (E1 ✅ confirmed the window exists: DAT free at the login screen, full-corpus
       patch 14.7 s).

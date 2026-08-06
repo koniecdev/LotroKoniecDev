@@ -16,11 +16,9 @@ using LotroKoniecDev.TranslationSystem.Persistence.DbContexts.Abstractions;
 
 namespace LotroKoniecDev.TranslationSystem.API.Features.GameVersions;
 
-/// <summary>
-/// Manually registers a game version (spec 0001): the degenerate fallback the admin uses when the
-/// forum scrape breaks. Creates an Unprocessed version; a duplicate version string is a conflict
-/// (the registration is idempotent in effect — the existing version stands).
-/// </summary>
+// Registration is the manual half of the update ceremony and stays that way (ADR-0030); the forum
+// watcher (#85) will add an automatic path, not replace this one. A duplicate version string is a
+// conflict whatever its status — the way back from a wrong registration is deleting the row (#624).
 internal sealed class RegisterGameVersion : IEndpoint
 {
     internal sealed record Command(string Version) : ICommand<Result<GameVersionResponse>>;

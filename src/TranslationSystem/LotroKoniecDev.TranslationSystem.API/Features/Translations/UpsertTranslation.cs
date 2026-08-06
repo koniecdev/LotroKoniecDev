@@ -18,6 +18,7 @@ using LotroKoniecDev.TranslationSystem.Persistence.DbContexts.Abstractions;
 using LotroKoniecDev.TranslationSystem.Persistence.DbContexts.ReadDbContexts;
 using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.TranslationAggregate.Enums;
 using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.TranslatorAggregate;
+using LotroKoniecDev.TranslationSystem.Primitives.Constants;
 using Microsoft.EntityFrameworkCore;
 
 namespace LotroKoniecDev.TranslationSystem.API.Features.Translations;
@@ -48,8 +49,12 @@ internal sealed class UpsertTranslation : IEndpoint
             RuleFor(command => command.GossipId)
                 .GreaterThanOrEqualTo(0);
 
+            // The upper bound is a DAT-format fact, not a UX preference: past it the patcher cannot
+            // write the row at all (#598). Rejecting here turns a mid-patch failure on someone
+            // else's machine into a validation error the translator sees while editing.
             RuleFor(command => command.TranslatedText)
-                .NotEmpty();
+                .NotEmpty()
+                .MaximumLength(DatFormatConstants.MaxTranslatedTextLength);
         }
     }
 

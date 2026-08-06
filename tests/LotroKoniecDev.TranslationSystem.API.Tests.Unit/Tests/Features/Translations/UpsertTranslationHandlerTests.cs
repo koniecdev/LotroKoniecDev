@@ -15,6 +15,7 @@ using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.GameVersionAggregat
 using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.TranslationAggregate;
 using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.TranslationAggregate.Enums;
 using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.TranslatorAggregate;
+using LotroKoniecDev.TranslationSystem.Primitives.Constants;
 using LotroKoniecDev.TranslationSystem.ReadModels.Aggregates.TranslationAggregate;
 using LotroKoniecDev.TranslationSystem.ReadModels.Aggregates.TranslatorAggregate;
 using NSubstitute;
@@ -107,6 +108,40 @@ public sealed class UpsertTranslationHandlerTests
         result.IsFailure.ShouldBeTrue();
         result.Error.Code.ShouldBe("Translations.Validation");
         await _unitOfWork.DidNotReceive().SaveChangesAsync(Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Handle_WhenTranslatedTextLongerThanTheDatAllows_ShouldReturnValidationError()
+    {
+        // Arrange — the patcher cannot write this row into the DAT at all, so it must be refused
+        // here rather than accepted, approved and published into the artifact (#598).
+        GivenStoredRow(Untranslated());
+        string tooLong = new('ż', DatFormatConstants.MaxTranslatedTextLength + 1);
+
+        // Act
+        Result<TranslationDetailResponse> result = await CreateHandler().Handle(Command(1, tooLong), CancellationToken.None);
+
+        // Assert
+        result.IsFailure.ShouldBeTrue();
+        result.Error.Code.ShouldBe("Translations.Validation");
+        await _unitOfWork.DidNotReceive().SaveChangesAsync(Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Handle_WhenTranslatedTextExactlyAtTheDatLimit_ShouldPersist()
+    {
+        // Arrange — the boundary itself is legal; the cap must not cost a translator the last character.
+        Translation row = Untranslated();
+        GivenStoredRow(row);
+        string atLimit = new('ż', DatFormatConstants.MaxTranslatedTextLength);
+        GivenReadBack(row, atLimit);
+
+        // Act
+        Result<TranslationDetailResponse> result = await CreateHandler().Handle(Command(1, atLimit), CancellationToken.None);
+
+        // Assert
+        result.IsSuccess.ShouldBeTrue();
+        row.TranslatedText.ShouldBe(atLimit);
     }
 
     [Fact]

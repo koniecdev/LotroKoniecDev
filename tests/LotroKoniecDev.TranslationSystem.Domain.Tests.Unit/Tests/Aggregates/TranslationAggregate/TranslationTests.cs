@@ -4,6 +4,7 @@ using LotroKoniecDev.TranslationSystem.Domain.Aggregates.TranslationAggregate.Va
 using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.GameVersionAggregate;
 using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.TranslationAggregate.Enums;
 using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.TranslatorAggregate;
+using LotroKoniecDev.TranslationSystem.Primitives.Constants;
 
 namespace LotroKoniecDev.TranslationSystem.Domain.Tests.Unit.Tests.Aggregates.TranslationAggregate;
 
@@ -177,6 +178,39 @@ public sealed class TranslationTests
         translation.TranslatedText.ShouldBe("Witaj");
         translation.SubmittedById.ShouldBe(Submitter);
         translation.UpdatedAt.ShouldBe(Changed);
+    }
+
+    [Fact]
+    public void ProvideTranslation_TextAtTheDatLimit_ShouldAttachDraft()
+    {
+        // Arrange
+        Translation translation = CreateUntranslated();
+        string atLimit = new('ż', DatFormatConstants.MaxTranslatedTextLength);
+
+        // Act
+        translation.ProvideTranslation(atLimit, Submitter, Changed);
+
+        // Assert
+        translation.TranslatedText.ShouldBe(atLimit);
+    }
+
+    [Fact]
+    public void ProvideTranslation_TextLongerThanTheDatAllows_ShouldThrowAndLeaveTheRowUntouched()
+    {
+        // Arrange — a programmer-error guard like the blank-text one beside it: UpsertTranslation's
+        // validator is what turns this into a message for the translator (#598). What matters here is
+        // that a rejected text cannot half-apply — no Polish, no submitter, no status change.
+        Translation translation = CreateUntranslated();
+        string tooLong = new('ż', DatFormatConstants.MaxTranslatedTextLength + 1);
+
+        // Act
+        Action provide = () => translation.ProvideTranslation(tooLong, Submitter, Changed);
+
+        // Assert
+        provide.ShouldThrow<ArgumentOutOfRangeException>();
+        translation.TranslatedText.ShouldBeNull();
+        translation.SubmittedById.ShouldBeNull();
+        translation.Status.ShouldBe(TranslationStatus.Untranslated);
     }
 
     [Fact]

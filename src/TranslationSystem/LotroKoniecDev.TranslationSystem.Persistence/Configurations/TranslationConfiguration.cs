@@ -3,6 +3,7 @@ using LotroKoniecDev.TranslationSystem.Domain.Aggregates.TranslationAggregate.En
 using LotroKoniecDev.TranslationSystem.Domain.Aggregates.TranslationAggregate.ValueObjects;
 using LotroKoniecDev.TranslationSystem.Domain.Aggregates.TranslatorAggregate.Entities;
 using LotroKoniecDev.TranslationSystem.Persistence.Consts;
+using LotroKoniecDev.TranslationSystem.Primitives.Constants;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 
@@ -12,10 +13,22 @@ internal sealed class TranslationConfiguration : IEntityTypeConfiguration<Transl
 {
     private const string ConcurrencyTokenColumn = "xmin";
     private const string ConcurrencyTokenType = "xid";
+    private const string TranslatedTextLengthConstraint = "CK_Translations_TranslatedText_MaxLength";
 
     public void Configure(EntityTypeBuilder<Translation> builder)
     {
-        builder.ToTable("Translations");
+        // The database backstop behind UpsertTranslation.Validator and the ProvideTranslation guard:
+        // past this length the patcher cannot write the row into the DAT at all (#598, ADR-0043).
+        // A CHECK, not the varchar(n) that HasMaxLength would emit: narrowing text -> varchar rewrites
+        // the ~780k-row table and rebuilds its trigram index under ACCESS EXCLUSIVE, which is the
+        // deploy-window outage ADR-0023 exists to prevent. PostgreSQL's length() counts code points
+        // where the DAT counts UTF-16 code units, so this catches gross violations while the exact
+        // measure stays in the C# boundary; SourceText needs no cap at all — it comes out of the DAT
+        // and is within range by construction.
+        builder.ToTable("Translations", table => table.HasCheckConstraint(
+            TranslatedTextLengthConstraint,
+            $"\"{nameof(Translation.TranslatedText)}\" IS NULL "
+            + $"OR length(\"{nameof(Translation.TranslatedText)}\") <= {DatFormatConstants.MaxTranslatedTextLength}"));
 
         // PostgreSQL's xmin system column is a free optimistic-concurrency token (AUDIT-EF-01),
         // mapped as a shadow property exactly as TheKittySaver's AuditableEntityConfiguration does:

@@ -16,7 +16,10 @@ using LotroKoniecDev.TranslationSystem.Persistence.DbContexts.WriteDbContexts;
 using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.GameVersionAggregate;
 using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.TranslationAggregate.Enums;
 using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.TranslatorAggregate;
+using LotroKoniecDev.TranslationSystem.Primitives.Constants;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Npgsql;
 
 namespace LotroKoniecDev.TranslationSystem.API.Tests.Integration.Tests.Translations;
 
@@ -155,6 +158,64 @@ public sealed class UpsertTranslationTests : IAsyncLifetime
 
         // Assert
         response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+    }
+
+    [Fact]
+    public async Task Upsert_WithTextLongerThanTheDatAllows_ShouldReturn400()
+    {
+        // Arrange — over the DAT's per-piece ceiling the patcher cannot write the row at all, so the
+        // API must refuse it rather than let it reach the artifact and fail on a player's machine (#598).
+        await SeedAsync(gossipId: 1, source: "One", SeedStatus.Untranslated);
+        using HttpClient client = TranslatorClient(Guid.NewGuid());
+
+        // Act
+        HttpResponseMessage response = await client.PutAsJsonAsync(
+            Route,
+            new UpsertTranslationRequest(FileId, 1, new string('ż', DatFormatConstants.MaxTranslatedTextLength + 1)));
+
+        // Assert
+        response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+    }
+
+    [Fact]
+    public async Task Upsert_WithTextExactlyAtTheDatLimit_ShouldPersistTheWholeText()
+    {
+        // Arrange — the boundary is legal, and the check constraint added alongside the validator must
+        // accept it too: a cap that silently truncated the last character would corrupt the artifact.
+        await SeedAsync(gossipId: 1, source: "One", SeedStatus.Untranslated);
+        using HttpClient client = TranslatorClient(Guid.NewGuid());
+        string atLimit = new('ż', DatFormatConstants.MaxTranslatedTextLength);
+
+        // Act
+        HttpResponseMessage response = await client.PutAsJsonAsync(
+            Route, new UpsertTranslationRequest(FileId, 1, atLimit));
+
+        // Assert
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+
+        TranslationDetailResponse? detail = await response.Content.ReadFromJsonAsync<TranslationDetailResponse>(JsonOptions);
+        detail!.TranslatedText.ShouldBe(atLimit);
+    }
+
+    [Fact]
+    public async Task TranslatedTextCheckConstraint_ShouldRejectAnOverLongWriteThatBypassesTheApi()
+    {
+        // Arrange — the backstop of #598 sits below both the validator and the domain guard, so the
+        // only way to exercise it is to write past them. Pinned because a check constraint dropped by
+        // a later model change would leave no other trace.
+        await SeedAsync(gossipId: 1, source: "One", SeedStatus.Untranslated);
+
+        using IServiceScope scope = _factory.Services.CreateScope();
+        ApplicationWriteDbContext dbContext = scope.ServiceProvider.GetRequiredService<ApplicationWriteDbContext>();
+
+        // Act
+        Func<Task> write = () => dbContext.Database.ExecuteSqlRawAsync(
+            "UPDATE translation.\"Translations\" SET \"TranslatedText\" = repeat('a', {0});",
+            DatFormatConstants.MaxTranslatedTextLength + 1);
+
+        // Assert
+        PostgresException violation = await write.ShouldThrowAsync<PostgresException>();
+        violation.ConstraintName.ShouldBe("CK_Translations_TranslatedText_MaxLength");
     }
 
     [Fact]

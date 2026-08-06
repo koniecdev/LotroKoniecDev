@@ -7,6 +7,7 @@ using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.GameVersionAggregat
 using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.TranslationAggregate;
 using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.TranslationAggregate.Enums;
 using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.TranslatorAggregate;
+using LotroKoniecDev.TranslationSystem.Primitives.Constants;
 
 namespace LotroKoniecDev.TranslationSystem.Domain.Aggregates.TranslationAggregate.Entities;
 
@@ -114,10 +115,15 @@ public sealed class Translation : AggregateRoot<TranslationId>
     /// re-translating an invalidated row keeps the superseded English for side-by-side context until
     /// approve clears it. The text is stored verbatim, preserving its <c>&lt;--DO_NOT_TOUCH!--&gt;</c>
     /// placeholders; the placeholder-count-mismatch warning UX lives in M3.
+    /// Text the DAT cannot hold is refused (#598): like the blank-text guard beside it this is a
+    /// programmer-error assertion, not a per-row validation failure — the boundary that turns it
+    /// into a message for the translator is <c>UpsertTranslation.Validator</c>.
     /// </summary>
     public void ProvideTranslation(string translatedText, TranslatorId submittedBy, DateTimeOffset now)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(translatedText);
+        ArgumentOutOfRangeException.ThrowIfGreaterThan(
+            translatedText.Length, DatFormatConstants.MaxTranslatedTextLength, nameof(translatedText));
         Ensure.NotEmpty(submittedBy);
 
         TranslatedText = translatedText;

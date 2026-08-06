@@ -1,12 +1,14 @@
 using System.Net;
 using System.Text;
 using LotroKoniecDev.Frontend.Components.Pages.ImportExport;
+using LotroKoniecDev.Frontend.Infrastructure.Errors;
 using LotroKoniecDev.Frontend.Infrastructure.HttpClients.TranslationSystemHttpClients;
 using LotroKoniecDev.Frontend.Tests.Unit.Infrastructure.Discovery;
 using LotroKoniecDev.Frontend.Tests.Unit.Infrastructure.HttpClients;
 using LotroKoniecDev.TranslationSystem.Contracts.Hateoas;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Http.HttpResults;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace LotroKoniecDev.Frontend.Tests.Unit.Components.Pages.ImportExport;
 
@@ -25,7 +27,7 @@ public sealed class ImportExportEndpointsExtensionsTests
         const string body = "# polish.txt\n620756992||1001||Witaj w Śródziemiu!||NULL||NULL||1";
         ImportExportLoader loader = CreateLoader(HttpStatusCode.OK, body);
 
-        IResult result = await ImportExportEndpointsExtensions.DownloadTranslationFileAsync(loader, CancellationToken.None);
+        IResult result = await ImportExportEndpointsExtensions.DownloadTranslationFileAsync(loader, NullLoggerFactory.Instance, CancellationToken.None);
 
         FileContentHttpResult file = result.ShouldBeOfType<FileContentHttpResult>();
         file.FileDownloadName.ShouldBe(ImportExportLoader.DownloadFileName);
@@ -39,7 +41,7 @@ public sealed class ImportExportEndpointsExtensionsTests
         // The patcher parser int.Parses the first field, so a leading BOM would break it.
         ImportExportLoader loader = CreateLoader(HttpStatusCode.OK, "620756992||1001||Witaj||NULL||NULL||1");
 
-        IResult result = await ImportExportEndpointsExtensions.DownloadTranslationFileAsync(loader, CancellationToken.None);
+        IResult result = await ImportExportEndpointsExtensions.DownloadTranslationFileAsync(loader, NullLoggerFactory.Instance, CancellationToken.None);
 
         FileContentHttpResult file = result.ShouldBeOfType<FileContentHttpResult>();
         byte[] preamble = Encoding.UTF8.GetPreamble();
@@ -54,10 +56,36 @@ public sealed class ImportExportEndpointsExtensionsTests
             HttpStatusCode.NotFound,
             """{ "title": "Brak pliku tłumaczenia", "status": 404 }""");
 
-        IResult result = await ImportExportEndpointsExtensions.DownloadTranslationFileAsync(loader, CancellationToken.None);
+        IResult result = await ImportExportEndpointsExtensions.DownloadTranslationFileAsync(loader, NullLoggerFactory.Instance, CancellationToken.None);
 
         ProblemHttpResult problem = result.ShouldBeOfType<ProblemHttpResult>();
         problem.ProblemDetails.Status.ShouldBe(404);
+    }
+
+    [Fact]
+    public async Task DownloadTranslationFileAsync_WhenUpstreamReturnsAnEnglishProblem_RewritesItInPolish()
+    {
+        // The browser shows this body verbatim — it is a download route, not a rendered page — so the
+        // same errorCode→Polish rule applies here as on a page (#548 / ADR-0044).
+        ImportExportLoader loader = CreateLoader(
+            HttpStatusCode.NotFound,
+            """
+            {
+              "title": "Not Found",
+              "status": 404,
+              "detail": "No translation file has been built for 'pl' yet.",
+              "errorCode": "TranslationFiles.NotFound"
+            }
+            """);
+
+        IResult result = await ImportExportEndpointsExtensions.DownloadTranslationFileAsync(loader, NullLoggerFactory.Instance, CancellationToken.None);
+
+        ProblemHttpResult problem = result.ShouldBeOfType<ProblemHttpResult>();
+        problem.ProblemDetails.Status.ShouldBe(404);
+        problem.ProblemDetails.Title.ShouldBe(
+            "Plik z tłumaczeniami nie został jeszcze zbudowany. Zatwierdź przynajmniej jedno tłumaczenie i spróbuj ponownie.");
+        problem.ProblemDetails.Extensions[ApiProblemCopy.TechnicalDetailExtensionKey]
+            .ShouldBe("TranslationFiles.NotFound — No translation file has been built for 'pl' yet.");
     }
 
     [Fact]
@@ -69,7 +97,7 @@ public sealed class ImportExportEndpointsExtensionsTests
             StubDiscoveryCache.AdvertisingGet(Rels.TranslationFile),
             CreateClient(StubHttpMessageHandler.Throw(new HttpRequestException("connection refused"))));
 
-        IResult result = await ImportExportEndpointsExtensions.DownloadTranslationFileAsync(loader, CancellationToken.None);
+        IResult result = await ImportExportEndpointsExtensions.DownloadTranslationFileAsync(loader, NullLoggerFactory.Instance, CancellationToken.None);
 
         ProblemHttpResult problem = result.ShouldBeOfType<ProblemHttpResult>();
         problem.ProblemDetails.Status.ShouldBe(StatusCodes.Status503ServiceUnavailable);

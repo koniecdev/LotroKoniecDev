@@ -5,6 +5,7 @@ using LotroKoniecDev.AuthSystem.Contracts.Hateoas;
 using LotroKoniecDev.Frontend.Components.Pages.Account;
 using LotroKoniecDev.Frontend.Components.Shared;
 using LotroKoniecDev.Frontend.Infrastructure.Discovery;
+using LotroKoniecDev.Frontend.Infrastructure.Errors;
 using LotroKoniecDev.Frontend.Infrastructure.HttpClients;
 using LotroKoniecDev.Frontend.Infrastructure.HttpClients.AuthSystemHttpClients;
 using LotroKoniecDev.Hateoas.Abstractions;
@@ -125,11 +126,11 @@ public sealed class AccountTests : BunitContext
         _discoveryCache.GetAuthSystemDiscoveryAsync(Arg.Any<CancellationToken>())
             .Returns(ApiResult.Success(discovery));
         _client.GetApiResultAsync<AccountDataExportResponse>(Arg.Any<string>(), Arg.Any<CancellationToken>())
-            .Returns(ApiResult.Failure<AccountDataExportResponse>(new ProblemDetails
-            {
-                Title = "Nie udało się wczytać danych konta",
-                Status = (int)HttpStatusCode.BadGateway
-            }));
+            // A Frontend-authored failure (the shape HttpClientApiExtensions produces for a transport
+            // error) — already Polish, so it renders verbatim rather than through the copy map.
+            .Returns(ApiResult.Failure<AccountDataExportResponse>(ApiProblemCopy.FrontendAuthored(
+                "Nie udało się wczytać danych konta",
+                status: (int)HttpStatusCode.BadGateway)));
 
         IRenderedComponent<AccountComponent> component = Render<AccountComponent>();
 

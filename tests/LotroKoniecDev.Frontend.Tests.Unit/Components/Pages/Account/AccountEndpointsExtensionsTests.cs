@@ -6,6 +6,7 @@ using LotroKoniecDev.AuthSystem.Contracts.Features.Auth.Account;
 using LotroKoniecDev.AuthSystem.Contracts.Hateoas;
 using LotroKoniecDev.Frontend.Components.Pages.Account;
 using LotroKoniecDev.Frontend.Infrastructure.Discovery;
+using LotroKoniecDev.Frontend.Infrastructure.Errors;
 using LotroKoniecDev.Frontend.Infrastructure.HttpClients;
 using LotroKoniecDev.Frontend.Infrastructure.HttpClients.AuthSystemHttpClients;
 using LotroKoniecDev.Frontend.Infrastructure.HttpClients.TranslationSystemHttpClients;
@@ -23,6 +24,7 @@ using NSubstitute;
 using AuthDiscoveryResponse = LotroKoniecDev.AuthSystem.Contracts.Discovery.DiscoveryResponse;
 using TranslationDiscoveryResponse = LotroKoniecDev.TranslationSystem.Contracts.Discovery.DiscoveryResponse;
 using TranslationRels = LotroKoniecDev.TranslationSystem.Contracts.Hateoas.Rels;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace LotroKoniecDev.Frontend.Tests.Unit.Components.Pages.Account;
 
@@ -52,7 +54,7 @@ public sealed class AccountEndpointsExtensionsTests
         AccountLoader loader = CreateLoaderReturning(AccountLoaderTests.CreateEnvelope());
 
         IResult result = await AccountEndpointsExtensions.DownloadAccountExportAsync(
-            loader, _discoveryCache, CreateTmsClientReturningContribution(), CancellationToken.None);
+            loader, _discoveryCache, CreateTmsClientReturningContribution(), NullLoggerFactory.Instance, CancellationToken.None);
 
         FileContentHttpResult file = result.ShouldBeOfType<FileContentHttpResult>();
         file.ContentType.ShouldBe("application/json");
@@ -66,7 +68,7 @@ public sealed class AccountEndpointsExtensionsTests
         AccountLoader loader = CreateLoaderReturning(AccountLoaderTests.CreateEnvelope());
 
         IResult result = await AccountEndpointsExtensions.DownloadAccountExportAsync(
-            loader, _discoveryCache, CreateTmsClientReturningContribution(), CancellationToken.None);
+            loader, _discoveryCache, CreateTmsClientReturningContribution(), NullLoggerFactory.Instance, CancellationToken.None);
 
         FileContentHttpResult file = result.ShouldBeOfType<FileContentHttpResult>();
         string json = Encoding.UTF8.GetString(file.FileContents.ToArray());
@@ -81,7 +83,7 @@ public sealed class AccountEndpointsExtensionsTests
         AccountLoader loader = CreateLoaderReturning(AccountLoaderTests.CreateEnvelope());
 
         IResult result = await AccountEndpointsExtensions.DownloadAccountExportAsync(
-            loader, _discoveryCache, CreateTmsClientReturningContribution(), CancellationToken.None);
+            loader, _discoveryCache, CreateTmsClientReturningContribution(), NullLoggerFactory.Instance, CancellationToken.None);
 
         FileContentHttpResult file = result.ShouldBeOfType<FileContentHttpResult>();
         string json = Encoding.UTF8.GetString(file.FileContents.ToArray());
@@ -100,7 +102,7 @@ public sealed class AccountEndpointsExtensionsTests
             """{ "title": "Usługa chwilowo niedostępna", "status": 503 }"""));
 
         IResult result = await AccountEndpointsExtensions.DownloadAccountExportAsync(
-            loader, _discoveryCache, tmsClient, CancellationToken.None);
+            loader, _discoveryCache, tmsClient, NullLoggerFactory.Instance, CancellationToken.None);
 
         FileContentHttpResult file = result.ShouldBeOfType<FileContentHttpResult>();
         string json = Encoding.UTF8.GetString(file.FileContents.ToArray());
@@ -118,7 +120,7 @@ public sealed class AccountEndpointsExtensionsTests
             """{ "title": "Błąd serwera", "status": 500 }"""));
 
         IResult result = await AccountEndpointsExtensions.DownloadAccountExportAsync(
-            loader, _discoveryCache, tmsClient, CancellationToken.None);
+            loader, _discoveryCache, tmsClient, NullLoggerFactory.Instance, CancellationToken.None);
 
         FileContentHttpResult file = result.ShouldBeOfType<FileContentHttpResult>();
         file.ContentType.ShouldBe("application/json");
@@ -139,7 +141,7 @@ public sealed class AccountEndpointsExtensionsTests
             JsonSerializer.Serialize(CreateContribution(), ApiJsonOptions));
 
         IResult result = await AccountEndpointsExtensions.DownloadAccountExportAsync(
-            loader, _discoveryCache, CreateTmsClient(tmsHandler), CancellationToken.None);
+            loader, _discoveryCache, CreateTmsClient(tmsHandler), NullLoggerFactory.Instance, CancellationToken.None);
 
         FileContentHttpResult file = result.ShouldBeOfType<FileContentHttpResult>();
         string json = Encoding.UTF8.GetString(file.FileContents.ToArray());
@@ -158,7 +160,7 @@ public sealed class AccountEndpointsExtensionsTests
             .Returns(ApiResult.Failure<TranslationDiscoveryResponse>(new ProblemDetails { Status = 503 }));
 
         IResult result = await AccountEndpointsExtensions.DownloadAccountExportAsync(
-            loader, _discoveryCache, CreateTmsClientReturningContribution(), CancellationToken.None);
+            loader, _discoveryCache, CreateTmsClientReturningContribution(), NullLoggerFactory.Instance, CancellationToken.None);
 
         FileContentHttpResult file = result.ShouldBeOfType<FileContentHttpResult>();
         string json = Encoding.UTF8.GetString(file.FileContents.ToArray());
@@ -174,7 +176,7 @@ public sealed class AccountEndpointsExtensionsTests
             StubHttpMessageHandler.RespondWith(HttpStatusCode.OK, "this is not json"));
 
         IResult result = await AccountEndpointsExtensions.DownloadAccountExportAsync(
-            loader, _discoveryCache, tmsClient, CancellationToken.None);
+            loader, _discoveryCache, tmsClient, NullLoggerFactory.Instance, CancellationToken.None);
 
         FileContentHttpResult file = result.ShouldBeOfType<FileContentHttpResult>();
         string json = Encoding.UTF8.GetString(file.FileContents.ToArray());
@@ -190,7 +192,7 @@ public sealed class AccountEndpointsExtensionsTests
             StubHttpMessageHandler.RespondWith(HttpStatusCode.OK, string.Empty));
 
         IResult result = await AccountEndpointsExtensions.DownloadAccountExportAsync(
-            loader, _discoveryCache, tmsClient, CancellationToken.None);
+            loader, _discoveryCache, tmsClient, NullLoggerFactory.Instance, CancellationToken.None);
 
         FileContentHttpResult file = result.ShouldBeOfType<FileContentHttpResult>();
         string json = Encoding.UTF8.GetString(file.FileContents.ToArray());
@@ -209,10 +211,40 @@ public sealed class AccountEndpointsExtensionsTests
                 """{ "title": "Nie znaleziono użytkownika", "status": 404 }""")));
 
         IResult result = await AccountEndpointsExtensions.DownloadAccountExportAsync(
-            loader, _discoveryCache, CreateTmsClientReturningContribution(), CancellationToken.None);
+            loader, _discoveryCache, CreateTmsClientReturningContribution(), NullLoggerFactory.Instance, CancellationToken.None);
 
         ProblemHttpResult problem = result.ShouldBeOfType<ProblemHttpResult>();
         problem.ProblemDetails.Status.ShouldBe(404);
+    }
+
+    [Fact]
+    public async Task DownloadAccountExportAsync_WhenUpstreamReturnsAnEnglishProblem_RewritesItInPolish()
+    {
+        // A download route answers with a raw problem body the browser shows verbatim, so it carries
+        // the same errorCode→Polish rule as a rendered page (#548 / ADR-0044).
+        StubDiscoveryWithExportLink();
+        AccountLoader loader = new(
+            _discoveryCache,
+            CreateClient(StubHttpMessageHandler.RespondWith(
+                HttpStatusCode.NotFound,
+                """
+                {
+                  "title": "Not Found",
+                  "status": 404,
+                  "detail": "User not found.",
+                  "errorCode": "Auth.UserNotFound",
+                  "traceId": "00-abc-def-01"
+                }
+                """)));
+
+        IResult result = await AccountEndpointsExtensions.DownloadAccountExportAsync(
+            loader, _discoveryCache, CreateTmsClientReturningContribution(), NullLoggerFactory.Instance, CancellationToken.None);
+
+        ProblemHttpResult problem = result.ShouldBeOfType<ProblemHttpResult>();
+        problem.ProblemDetails.Status.ShouldBe(404);
+        problem.ProblemDetails.Title.ShouldBe("Nie znaleziono konta.");
+        problem.ProblemDetails.Extensions[ApiProblemCopy.TechnicalDetailExtensionKey]
+            .ShouldBe("Auth.UserNotFound — User not found.");
     }
 
     [Fact]
@@ -229,7 +261,7 @@ public sealed class AccountEndpointsExtensionsTests
             CreateClient(StubHttpMessageHandler.RespondWith(HttpStatusCode.OK, "{}")));
 
         IResult result = await AccountEndpointsExtensions.DownloadAccountExportAsync(
-            loader, _discoveryCache, CreateTmsClientReturningContribution(), CancellationToken.None);
+            loader, _discoveryCache, CreateTmsClientReturningContribution(), NullLoggerFactory.Instance, CancellationToken.None);
 
         ProblemHttpResult problem = result.ShouldBeOfType<ProblemHttpResult>();
         problem.ProblemDetails.Status.ShouldBe(503);

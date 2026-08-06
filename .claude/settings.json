@@ -2,5 +2,11 @@
   "enabledPlugins": {
     "superpowers@claude-plugins-official": true,
     "security-guidance@claude-plugins-official": true
+  },
+  "permissions": {
+    "allow": [
+      "Bash(dotnet build:*)",
+      "Bash(dotnet test:*)"
+    ]
   }
 }

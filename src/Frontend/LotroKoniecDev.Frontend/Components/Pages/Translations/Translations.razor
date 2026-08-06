@@ -82,7 +82,9 @@
                 </svg>
             </span>
             <div class="em-body">
-                <span class="t">@(_result.ProblemDetails?.Title ?? "Nie udało się wczytać tłumaczeń.")</span>
+                <ApiProblemAlert Problem="@_result.ProblemDetails"
+                                 Fallback="Nie udało się wczytać tłumaczeń."
+                                 HeadlineClass="t"/>
             </div>
         </div>
     }
@@ -107,7 +109,7 @@
         @if (_bulkProblem is not null)
         {
             <div class="status-message status-error" role="alert">
-                <p>@(_bulkProblem.Detail ?? _bulkProblem.Title ?? "Nie udało się zatwierdzić tłumaczeń.")</p>
+                <ApiProblemAlert Problem="@_bulkProblem" Fallback="Nie udało się zatwierdzić tłumaczeń."/>
             </div>
         }
         else if (_bulkNotice is not null)

@@ -2,6 +2,7 @@ using LotroKoniecDev.AuthSystem.Contracts.Features.Auth.Account;
 using LotroKoniecDev.AuthSystem.Contracts.Features.Auth.Password;
 using LotroKoniecDev.AuthSystem.Contracts.Hateoas;
 using LotroKoniecDev.Frontend.Infrastructure.Discovery;
+using LotroKoniecDev.Frontend.Infrastructure.Errors;
 using LotroKoniecDev.Frontend.Infrastructure.Hateoas;
 using LotroKoniecDev.Frontend.Infrastructure.HttpClients;
 using LotroKoniecDev.Frontend.Infrastructure.HttpClients.AuthSystemHttpClients;
@@ -49,12 +50,10 @@ internal sealed class AccountLoader
         LinkDto? exportLink = discoveryResult.Value.Links.FindLink(Rels.ExportAccountData);
         if (exportLink is null)
         {
-            return ApiResult.Failure<AccountDataExportResponse>(new ProblemDetails
-            {
-                Title = "Sekcja konta jest niedostępna",
-                Detail = "Serwer nie udostępnia danych konta dla tej sesji. Zaloguj się ponownie.",
-                Status = StatusCodes.Status403Forbidden
-            });
+            return ApiResult.Failure<AccountDataExportResponse>(ApiProblemCopy.FrontendAuthored(
+                "Sekcja konta jest niedostępna",
+                "Serwer nie udostępnia danych konta dla tej sesji. Zaloguj się ponownie.",
+                StatusCodes.Status403Forbidden));
         }
 
         return await _client.GetApiResultAsync<AccountDataExportResponse>(

@@ -45,7 +45,9 @@
                     </svg>
                 </span>
                 <div class="em-body">
-                    <span class="t">@(_saveProblem.Title ?? "Nie udało się zapisać tłumaczenia.")</span>
+                    <ApiProblemAlert Problem="@_saveProblem"
+                                     Fallback="Nie udało się zapisać tłumaczenia."
+                                     HeadlineClass="t"/>
                 </div>
             </div>
             <section class="panel">
@@ -79,7 +81,9 @@
                     </svg>
                 </span>
                 <div class="em-body">
-                    <span class="t">@(_loadProblem.Title ?? "Nie udało się wczytać tłumaczenia.")</span>
+                    <ApiProblemAlert Problem="@_loadProblem"
+                                     Fallback="Nie udało się wczytać tłumaczenia."
+                                     HeadlineClass="t"/>
                 </div>
             </div>
         }
@@ -108,7 +112,7 @@
         @if (_saveProblem is not null)
         {
             <div class="status-message status-error" role="alert">
-                <p>@(_saveProblem.Title ?? "Nie udało się zapisać tłumaczenia.")</p>
+                <ApiProblemAlert Problem="@_saveProblem" Fallback="Nie udało się zapisać tłumaczenia."/>
             </div>
         }
         else if (Saved && _approveProblem is null)
@@ -121,7 +125,7 @@
         @if (_approveProblem is not null)
         {
             <div class="status-message status-error" role="alert">
-                <p>@(_approveProblem.Title ?? "Nie udało się zatwierdzić tłumaczenia.")</p>
+                <ApiProblemAlert Problem="@_approveProblem" Fallback="Nie udało się zatwierdzić tłumaczenia."/>
             </div>
         }
         else if (Approved && _saveProblem is null)

@@ -40,11 +40,9 @@
                 </svg>
             </span>
             <div class="em-body">
-                <span class="t">@(_result.ProblemDetails?.Title ?? "Nie udało się wczytać danych konta.")</span>
-                @if (!string.IsNullOrWhiteSpace(_result.ProblemDetails?.Detail))
-                {
-                    <span class="s">@_result.ProblemDetails!.Detail</span>
-                }
+                <ApiProblemAlert Problem="@_result.ProblemDetails"
+                                 Fallback="Nie udało się wczytać danych konta."
+                                 HeadlineClass="t"/>
             </div>
         </div>
     }

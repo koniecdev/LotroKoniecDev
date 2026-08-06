@@ -1,4 +1,5 @@
 using System.Text;
+using LotroKoniecDev.Frontend.Infrastructure.Errors;
 using LotroKoniecDev.Frontend.Infrastructure.HttpClients;
 using Microsoft.AspNetCore.Mvc;
 
@@ -35,17 +36,18 @@ internal static class ImportExportEndpointsExtensions
     /// </summary>
     internal static async Task<IResult> DownloadTranslationFileAsync(
         ImportExportLoader loader,
+        ILoggerFactory loggerFactory,
         CancellationToken cancellationToken)
     {
         ApiResult<string> result = await loader.DownloadTranslationFileAsync(cancellationToken);
 
         if (result.IsFailure)
         {
-            return Results.Problem(result.ProblemDetails ?? new ProblemDetails
-            {
-                Title = "Nie udało się pobrać pliku tłumaczenia.",
-                Status = StatusCodes.Status502BadGateway
-            });
+            return Results.Problem(ApiProblemCopy.Localize(
+                loggerFactory,
+                result.ProblemDetails,
+                "Nie udało się pobrać pliku tłumaczenia.",
+                StatusCodes.Status502BadGateway));
         }
 
         // BOM-less UTF-8: the upstream TMS endpoint serves the artifact as Encoding.UTF8 text and the

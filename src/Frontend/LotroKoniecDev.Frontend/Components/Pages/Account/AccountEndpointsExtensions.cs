@@ -3,6 +3,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using LotroKoniecDev.AuthSystem.Contracts.Features.Auth.Account;
 using LotroKoniecDev.Frontend.Infrastructure.Discovery;
+using LotroKoniecDev.Frontend.Infrastructure.Errors;
 using LotroKoniecDev.Frontend.Infrastructure.HttpClients;
 using LotroKoniecDev.Frontend.Infrastructure.HttpClients.TranslationSystemHttpClients;
 using LotroKoniecDev.TranslationSystem.Contracts.Hateoas;
@@ -53,17 +54,18 @@ internal static class AccountEndpointsExtensions
         AccountLoader loader,
         IDiscoveryCache discoveryCache,
         ITranslationSystemClient translationSystemClient,
+        ILoggerFactory loggerFactory,
         CancellationToken cancellationToken)
     {
         ApiResult<AccountDataExportResponse> result = await loader.LoadExportAsync(cancellationToken);
 
         if (result.IsFailure)
         {
-            return Results.Problem(result.ProblemDetails ?? new ProblemDetails
-            {
-                Title = "Nie udało się pobrać danych konta.",
-                Status = StatusCodes.Status502BadGateway
-            });
+            return Results.Problem(ApiProblemCopy.Localize(
+                loggerFactory,
+                result.ProblemDetails,
+                "Nie udało się pobrać danych konta.",
+                StatusCodes.Status502BadGateway));
         }
 
         TranslatorDataExportResponse? translationData = null;

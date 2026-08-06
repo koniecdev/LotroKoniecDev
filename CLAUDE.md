@@ -305,6 +305,13 @@ file_id||gossip_id||translated_text||args_order||args_id||approved
   own `TranslationLineEscaper`. Text held anywhere else — in the DAT, in `TranslationSource.Text`, in
   `TranslatedText` — is always the RAW form; the escape exists only between `Serialize` and `Parse`.
   A sequence no writer can produce (`\t`, a trailing lone `\`) reads back verbatim.
+- **Content is bounded by the DAT, not by the file (ADR-0043).** A text piece is written behind a
+  2-byte VarLen prefix, so it cannot exceed **32767 UTF-16 code units**. The TMS refuses a longer
+  `TranslatedText` at the API (`UpsertTranslation.Validator` + a `CHECK` constraint — never a
+  `varchar(n)` narrowing, which would rewrite the ~780k-row table under `ACCESS EXCLUSIVE`); the
+  patcher warn-skips such a row **before** it loads or mutates a subfile
+  (`Fragment.IsWritablePiece`). `Fragment.Write` still throws — deliberately, as the last resort —
+  and `PatchingService` never catches mid-write.
 - **The `||` separator is deliberately NOT escaped — the line is CARVED, never `Split` (ADR-0042).**
   Each context's `TranslationLineCarver` scans **forward** for the two id separators and **backward**
   for the three trailing ones (slicing before each backward search), so content may contain `||` and

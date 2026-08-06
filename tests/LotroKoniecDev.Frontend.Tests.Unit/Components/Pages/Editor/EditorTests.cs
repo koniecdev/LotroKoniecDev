@@ -1,3 +1,4 @@
+using System.Globalization;
 using AngleSharp.Dom;
 using Bunit.TestDoubles;
 using LotroKoniecDev.Frontend.Components.Pages.Editor;
@@ -8,6 +9,7 @@ using LotroKoniecDev.TranslationSystem.Contracts.Hateoas;
 using LotroKoniecDev.TranslationSystem.Contracts.Translations;
 using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.TranslationAggregate;
 using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.TranslationAggregate.Enums;
+using LotroKoniecDev.TranslationSystem.Primitives.Constants;
 using Microsoft.AspNetCore.Components;
 using Microsoft.Extensions.DependencyInjection;
 using NSubstitute;
@@ -140,6 +142,19 @@ public sealed class EditorTests : BunitContext
         IRenderedComponent<EditorComponent> component = RenderEditor();
 
         component.FindAll("textarea#translated").Count.ShouldBe(1);
+    }
+
+    [Fact]
+    public void Render_SaveForm_CapsTheTextareaAtTheDatPieceLimit()
+    {
+        // The API rejects a longer text outright (#598); the browser cap keeps a translator from
+        // discovering that only after typing past it. Enforcement stays server-side.
+        StubLoad(BuildDetail(sourceText: "Hello.", translatedText: "Cześć.", canEdit: true));
+
+        IRenderedComponent<EditorComponent> component = RenderEditor();
+
+        component.Find("textarea#translated").GetAttribute("maxlength")
+            .ShouldBe(DatFormatConstants.MaxTranslatedTextLength.ToString(CultureInfo.InvariantCulture));
     }
 
     [Fact]
@@ -302,6 +317,29 @@ public sealed class EditorTests : BunitContext
         recoveryForm.QuerySelectorAll("textarea[name=DraftField]").Length.ShouldBe(1);
         recoveryForm.QuerySelector("button[type=submit]")!.TextContent.ShouldContain("Zapisz ponownie");
         component.FindAll(".editor-grid").ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task Save_RecoveryForm_CapsItsTextareaAtTheDatPieceLimitToo()
+    {
+        // The recovery textarea is a second, independently written control (Editor.razor renders it in
+        // its own branch), so the cap it carries has to be pinned separately from the main one — the
+        // draft it holds is resubmitted to the same API rule (#598).
+        _client
+            .GetApiResultAsync<TranslationDetailResponse>(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(
+                ApiResult.Success(BuildDetail(sourceText: "Hello.", translatedText: "Cześć.", canEdit: true)),
+                ApiResult.Failure<TranslationDetailResponse>(new() { Title = "Nie znaleziono." }));
+        _client
+            .PutApiResultAsync<TranslationDetailResponse>(Arg.Any<string>(), Arg.Any<object>(), Arg.Any<CancellationToken>())
+            .Returns(ApiResult.Failure<TranslationDetailResponse>(new() { Title = "Zapis odrzucony." }));
+        IRenderedComponent<EditorComponent> component = RenderEditor();
+
+        await component.Find("form").SubmitAsync();
+        component.Render();
+
+        component.Find("textarea#translated-recovery").GetAttribute("maxlength")
+            .ShouldBe(DatFormatConstants.MaxTranslatedTextLength.ToString(CultureInfo.InvariantCulture));
     }
 
     [Fact]

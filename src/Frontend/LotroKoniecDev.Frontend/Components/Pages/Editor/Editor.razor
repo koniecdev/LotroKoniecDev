@@ -10,6 +10,7 @@
 @using LotroKoniecDev.TranslationSystem.Contracts.Hateoas
 @using LotroKoniecDev.TranslationSystem.Contracts.Translations
 @using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.TranslationAggregate
+@using LotroKoniecDev.TranslationSystem.Primitives.Constants
 @inject TranslationEditorLoader Loader
 @inject NavigationManager Navigation
 
@@ -59,6 +60,7 @@
                         <input type="hidden" name="GossipIdField" value="@GossipIdField"/>
                         <label class="visually-hidden" for="translated-recovery">Tłumaczenie polskie</label>
                         <textarea id="translated-recovery" name="DraftField" class="editor-textarea mono" rows="8"
+                                  maxlength="@DatFormatConstants.MaxTranslatedTextLength"
                                   placeholder="Wpisz tłumaczenie…">@_draftText</textarea>
                         <div class="editor-actions" style="margin-top: 12px;">
                             <button type="submit" class="btn btn-primary">Zapisz ponownie</button>
@@ -176,6 +178,7 @@
                             <input type="hidden" name="GossipIdField" value="@detail.GossipId"/>
                             <label class="visually-hidden" for="translated">Tłumaczenie polskie</label>
                             <textarea id="translated" name="DraftField" class="editor-textarea mono" rows="8"
+                                      maxlength="@DatFormatConstants.MaxTranslatedTextLength"
                                       placeholder="Wpisz tłumaczenie…">@(_draftText ?? detail.TranslatedText)</textarea>
                             <div class="editor-actions" style="margin-top: 12px;">
                                 <button type="submit" class="btn btn-primary">Zapisz</button>

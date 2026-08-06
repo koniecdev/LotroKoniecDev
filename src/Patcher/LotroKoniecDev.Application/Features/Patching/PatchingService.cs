@@ -3,6 +3,7 @@ using LotroKoniecDev.Application.Abstractions.DatFilesServices;
 using LotroKoniecDev.Application.Extensions;
 using LotroKoniecDev.Domain.Core.Errors;
 using LotroKoniecDev.Domain.Models;
+using LotroKoniecDev.Primitives.Constants;
 using LotroKoniecDev.Primitives.Enums;
 
 namespace LotroKoniecDev.Application.Features.Patching;
@@ -96,6 +97,21 @@ internal sealed class PatchingService : IPatchingService
                     continue;
                 }
 
+                // Screened here — before a subfile is loaded, and well before one is mutated — because
+                // this is the last point at which an unwritable row is still just a row (#598, ADR-0043).
+                // A hand-edited or hostile file is the only source: the TMS caps the text at the API.
+                string[] pieces = translation.GetPieces();
+
+                if (!pieces.All(Fragment.IsWritablePiece))
+                {
+                    warnings.Add(
+                        $"Fragment {translation.GossipId} in file {translation.FileId} has a text piece of "
+                        + $"{pieces.Max(piece => piece.Length)} characters, above the "
+                        + $"{DatFileConstants.MaxTextPieceLength} the DAT format allows");
+                    skippedCount++;
+                    continue;
+                }
+
                 if (translation.FileId != currentFileId)
                 {
                     if (currentSubFile is not null && currentFileId != -1)
@@ -142,7 +158,7 @@ internal sealed class PatchingService : IPatchingService
                 if (currentSubFile.TryGetFragment(translation.FragmentId, out Fragment? fragment)
                     && fragment is not null)
                 {
-                    fragment.Pieces = translation.GetPieces().ToList();
+                    fragment.Pieces = [.. pieces];
 
                     if (translation.ArgsOrder is not null && fragment.HasArguments)
                     {

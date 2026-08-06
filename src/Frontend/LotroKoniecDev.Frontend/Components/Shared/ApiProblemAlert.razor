@@ -1,0 +1,59 @@
+@using Microsoft.AspNetCore.Mvc
+@using LotroKoniecDev.Frontend.Infrastructure.Errors
+@inject ILogger<ApiProblemAlert> Logger
+
+@* The only way a page renders a failed call (ADR-0044): Polish copy keyed by the API's errorCode,
+   with the API's own English wording kept one click away for a bug report. The caller supplies the
+   box (`error-message` or `status-message status-error`); this renders its body. *@
+
+<span class="problem-headline @HeadlineClass">@_view.Message</span>
+@if (_view.SecondaryMessage is not null)
+{
+    <span class="problem-secondary s">@_view.SecondaryMessage</span>
+}
+@if (_view.TechnicalDetail is not null)
+{
+    <details class="problem-tech">
+        <summary>Szczegóły techniczne</summary>
+        <span class="problem-tech-body">@_view.TechnicalDetail</span>
+    </details>
+}
+
+@code {
+    private ApiProblemView _view = new(ApiProblemCopy.GenericMessage, null, null, null);
+    private string? _reportedErrorCode;
+
+    /// <summary>The failure to describe; <c>null</c> renders <see cref="Fallback"/>.</summary>
+    [Parameter]
+    public ProblemDetails? Problem { get; set; }
+
+    /// <summary>
+    /// The page's own contextual Polish sentence, used when the problem carries nothing usable.
+    /// A mapped error code and the HTTP-status copy both outrank it.
+    /// </summary>
+    [Parameter]
+    [EditorRequired]
+    public string Fallback { get; set; } = ApiProblemCopy.GenericMessage;
+
+    /// <summary>
+    /// Class for the headline element, so the component fits the caller's box unchanged — the rich
+    /// <c>error-message</c> box styles its title through <c>.em-body .t</c>.
+    /// </summary>
+    [Parameter]
+    public string? HeadlineClass { get; set; }
+
+    protected override void OnParametersSet()
+    {
+        _view = ApiProblemCopy.Describe(Problem, Fallback);
+
+        // An API error that shipped before its Polish copy did. The user already sees the degraded
+        // message, so this is the moment the gap is worth reporting — but OnParametersSet runs on
+        // every parameter set, and a parent that re-renders after setting the problem (ImportExport
+        // reloads its version list) would otherwise log the same gap twice per request.
+        if (_view.UnmappedErrorCode is { } unmappedErrorCode && unmappedErrorCode != _reportedErrorCode)
+        {
+            _reportedErrorCode = unmappedErrorCode;
+            ApiProblemCopy.ReportUnmappedErrorCode(Logger, _view, Problem?.Status);
+        }
+    }
+}

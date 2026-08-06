@@ -3,7 +3,7 @@
 **Status:** Accepted
 **Date:** 2026-08-06
 **Decision-makers:** Solo maintainer
-**Related:** Patcher (`Features/UpdateChecking`, `Features/PreflightChecking`, `Features/TranslationFileSyncing`), TMS distribution endpoint, `docs/specs/0012-update-resilience.md` (Tier-0 handshake — amended by this ADR), `docs/specs/0001-game-update-lifecycle-and-translation-invalidation.md`, ADR-0030 (partially superseded), ADR-0041 (rel resolution), ADR-0002 (bounded contexts), tickets #85 (M2-18), #562 (UR-22), #565 (UR-10), #611 (CLI discovery)
+**Related:** Patcher (`Features/UpdateChecking`, `Features/PreflightChecking`, `Features/TranslationFileSyncing`), TMS distribution endpoint, `docs/specs/0012-update-resilience.md` (Tier-0 handshake — amended by this ADR), `docs/specs/0001-game-update-lifecycle-and-translation-invalidation.md`, ADR-0030 (partially superseded), ADR-0041 (rel resolution), ADR-0002 (bounded contexts), tickets #85 (UR-24), #562 (UR-22), #565 (UR-10), #611 (CLI discovery), #624 (UR-23), #626 (UR-25), #627 (UR-26)
 
 ## Context
 
@@ -145,17 +145,40 @@ all of them. Provenance and dismissal are orthogonal fields on the aggregate.
 ### 7. The preflight update check reads the TMS
 
 `PreflightCheckQueryHandler` keeps its shape and `IGameUpdateChecker` keeps its name and seam;
-only the implementation changes — it reads the TMS-served version instead of scraping. Graceful
-degradation is preserved exactly: an unreachable server yields no version and never blocks
-`patch`, matching today's `LogForumFetchFailed` path.
+only the implementation changes — it reads the TMS-served version instead of scraping (through the
+entry point §8 gives it). Graceful degradation is preserved exactly: an unreachable server yields
+no version and never blocks `patch`, matching today's `LogForumFetchFailed` path.
 
-### 8. Rel-resolved entry point, headers carry the payload
+The client still performs no version ordering. Reporting that the TMS version differs from the one
+stored in `version.txt` is a string inequality, which is what the check does today; deciding which
+of two versions is newer stays in the TMS (§3).
 
-The distribution URL is resolved from the TMS discovery root (`GET /`, `.AllowAnonymous()`) by the
-existing `Rels.TranslationFile`, per ADR-0041 — that is #611's job, killing the hardcoded
-`api/v1/translation-files/pl` in `TranslationFileDownloader.cs:27`. The version and verdict
-themselves travel as response headers, because they must survive a 304 and a header is not
-rel-addressable. No new rel, and no new literal API path in the patcher.
+### 8. Two client channels: headers on the launch path, a rel-resolved endpoint for preflight
+
+Both start at the anonymous discovery root (`GET /`, `.AllowAnonymous()`); neither leaves a literal
+API path in the patcher.
+
+**Launch — the sentinel.** The distribution URL is resolved by the existing `Rels.TranslationFile`,
+per ADR-0041 — that is #611's job, killing the hardcoded `api/v1/translation-files/pl` in
+`TranslationFileDownloader.cs:27`. The artifact version and the verdict travel as response headers
+on that same request, because they must survive a 304 and a header is not rel-addressable. No
+second round-trip on a path that is already talking to the TMS.
+
+**Patch — the preflight (§7).** That path has no request to ride on. `patch` downloads no artifact,
+and it does not even hold a server address: `--tms-url` exists only on `LaunchCommand`
+(`GlobalSettings.DefaultTmsBaseUrl` is a blank constant). Reading a header there would mean
+fetching the whole artifact — ~82 MB in the same `||` format — to learn one scalar, and it would
+only degrade to a cheap 304 when a cached ETag happens to exist. So the preflight gets its own
+anonymous entry point, `GET /api/v1/game-versions/current`, advertised under a new rel
+`current-game-version` (#626) and consumed by #627, which also puts `--tms-url` on `patch`.
+
+The two channels answer different questions and must not be collapsed into one. The header verdict
+is response-scoped and counts only `Unprocessed` versions (§3). The endpoint answers "what is the
+newest version the TMS knows", every status included — to an admin standing in front of a DAT a
+`Processed` version is still the current game version.
+
+Rel names are a frozen public contract (ADR-0041): adding `current-game-version` is cheap, renaming
+it after clients ship is not.
 
 ### 9. The forum regex ends up in exactly one place
 
@@ -242,6 +265,12 @@ and puts an unrequested outbound call in the launch path.
 would expose the admin's operational version catalog to buy one scalar, and it costs a second
 round-trip on a path that is already talking to the TMS.
 
+Both objections are about **that** endpoint on **the launch path**, and neither carries over to the
+preflight (§8). There, nothing is already in flight to piggyback on, and the answer comes from a
+purpose-built single-value endpoint that returns one version plus its status — a number SSG
+publishes itself — instead of the catalog. `GET /api/v1/game-versions` and `/{id}` keep
+`RequireTranslatorRole` either way.
+
 ### C. Client derives the version locally (DAT vnum or launcher files)
 
 No network at all. **Rejected.** DAT vnum is empirically dead as a content version (unchanged
@@ -289,6 +318,11 @@ only by wrong detections.
   ADR-0030 §2 e-mail alert, and a liveness signal.
 - TMS — recovery (Prerequisite): a bogus registration must stay retirable after it has been
   superseded, and a superseded number must not block registering the real version.
+- TMS — the preflight's entry point (#626): an anonymous `GET /api/v1/game-versions/current`
+  returning the numerically newest known version with its status, plus the `current-game-version`
+  rel in `Rels` and `DiscoveryLinkFactory`. It orders by the same `LotroNotationVersion` comparator
+  #562 introduces — `DetectedAt` would let a late registration of a lower number win.
+- Patcher — the whole de-scrape is #627, and it depends on #626 and #611 being on the wire first.
 - Patcher — remove: `Application/Abstractions/IForumPageFetcher.cs`,
   `Infrastructure/Network/ForumPageFetcher.cs`, the regex in
   `Features/UpdateChecking/GameUpdateChecker.cs`, and the fetcher's DI line
@@ -318,4 +352,6 @@ only by wrong detections.
 - ADR-0002 — bounded contexts share no code (the duplication argument narrows, §7)
 - ADR-0023 — forward-only, N-1 compatible migrations (the artifact's new column)
 - `docs/knowledge-base/` — DAT vnum useless as a content version; per-SubFile survival model
-- Tickets #85 (M2-18), #562 (UR-22), #565 (UR-10), #611 (CLI discovery)
+- Tickets #85 (UR-24 forum watcher), #562 (UR-22 artifact version + verdict), #565 (UR-10 sentinel),
+  #611 (CLI discovery), #624 (UR-23 superseded rows stay retirable), #626 (UR-25 current-version
+  endpoint + rel), #627 (UR-26 patcher drops the scrape)

@@ -112,6 +112,13 @@ internal sealed partial class SimplifiedGameLaunchingStrategy : IGameLaunchingSt
 
             PatchSummaryResponse patchSummary = patchResult.Value;
 
+            // The launch path runs the same parser as `patch`, so a rejected line must reach a human
+            // here too (ADR-0042). `patch` prints the summary; launch has only the log.
+            foreach (string warning in patchSummary.Warnings)
+            {
+                LogPatchWarning(_logger, warning);
+            }
+
             translationsApplied = true;
             appliedCount = patchSummary.AppliedTranslations;
             skippedCount = patchSummary.SkippedTranslations;
@@ -219,6 +226,9 @@ internal sealed partial class SimplifiedGameLaunchingStrategy : IGameLaunchingSt
 
     [LoggerMessage(EventId = EventIds.LaunchTranslationsPatched, Level = LogLevel.Information, Message = "Patched translations: {Applied} applied, {Skipped} skipped")]
     private static partial void LogTranslationsPatched(ILogger logger, int applied, int skipped);
+
+    [LoggerMessage(EventId = EventIds.LaunchPatchWarning, Level = LogLevel.Warning, Message = "Patch warning: {Warning}")]
+    private static partial void LogPatchWarning(ILogger logger, string warning);
 
     [LoggerMessage(EventId = EventIds.LaunchReadingDatVnum, Level = LogLevel.Information, Message = "Reading DAT vnum to save alongside hash...")]
     private static partial void LogReadingDatVnum(ILogger logger);

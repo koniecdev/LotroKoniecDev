@@ -36,4 +36,5 @@ internal static class EventIds
     public const int LaunchGameLaunchFailed = 5122;
     public const int LaunchLauncherStarted = 5123;
     public const int LaunchEnded = 5124;
+    public const int LaunchPatchWarning = 5125;
 }

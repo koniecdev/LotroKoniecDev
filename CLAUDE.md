@@ -295,14 +295,22 @@ file_id||gossip_id||translated_text||args_order||args_id||approved
 ```
 
 - `<--DO_NOT_TOUCH!-->` = argument placeholder
-- `args_order`: `NULL` or `1-2-3` (1-indexed in file, 0-indexed internally)
+- `args_order` / `args_id`: `NULL` or `1-2-3` (1-indexed in file, 0-indexed internally). Anything
+  else **rejects the row and is reported** (ADR-0042) — the CLI prints it as a patch warning, the
+  import fails the whole upload. Whether the positions FIT the fragment is checked downstream in
+  `Fragment.TryReorderArgRefs`, the only place that knows how many argument references there are.
 - **Content escape (ADR-0039): `\`→`\\`, CR→`\r`, LF→`\n`.** It escapes its own escape character, so
   it is injective and `Unescape(Escape(x)) == x`. **Every writer escapes and every reader unescapes**
   — all four ends (patcher exporter + parser, TMS serializer + import parser), each via its context's
   own `TranslationLineEscaper`. Text held anywhere else — in the DAT, in `TranslationSource.Text`, in
   `TranslatedText` — is always the RAW form; the escape exists only between `Serialize` and `Parse`.
-  A sequence no writer can produce (`\t`, a trailing lone `\`) reads back verbatim. The `||`
-  separator is deliberately **not** escaped: both parsers anchor from both ends instead.
+  A sequence no writer can produce (`\t`, a trailing lone `\`) reads back verbatim.
+- **The `||` separator is deliberately NOT escaped — the line is CARVED, never `Split` (ADR-0042).**
+  Each context's `TranslationLineCarver` scans **forward** for the two id separators and **backward**
+  for the three trailing ones (slicing before each backward search), so content may contain `||` and
+  may end in any run of `|`. `string.Split` resolves every boundary greedily left to right, which
+  silently ate a trailing pipe into the args column (#597); never reintroduce it here. Nothing but
+  content can hold a `|`, so both boundaries are recoverable by construction — no escape needed.
 - Results sorted by FileId then GossipId for sequential DAT I/O
 - **Changing this format requires an ADR + updated golden fixtures in BOTH contexts** (patcher
   parser tests and TMS import/export tests).

@@ -30,9 +30,9 @@ public sealed class TranslationExportParserTests
         // Act
         ParsedExport result = await ParseFixtureAsync("exported-sample.txt");
 
-        // Assert — the comments and the blank line are skipped, seven rows remain.
+        // Assert — the comments and the blank line are skipped, nine rows remain.
         result.HasErrors.ShouldBeFalse();
-        result.Rows.Count.ShouldBe(7);
+        result.Rows.Count.ShouldBe(9);
         result.Rows[0].FileId.ShouldBe(620756992);
         result.Rows[0].GossipId.ShouldBe(1001);
         result.Rows[0].Content.ShouldBe("Witaj w Srodziemiu!");
@@ -51,6 +51,24 @@ public sealed class TranslationExportParserTests
             .ShouldBe("Wiersz jeden\nWiersz dwa\r\nWiersz trzy");
         result.Rows.Single(row => row.GossipId == 1007).Content
             .ShouldBe(@"Sciezka C:\notes i sekwencja \n");
+    }
+
+    [Fact]
+    public async Task ParseAsync_WithGoldenFixture_ShouldKeepTrailingPipesOutOfTheArgsColumns()
+    {
+        // Act
+        ParsedExport result = await ParseFixtureAsync("exported-sample.txt");
+
+        // Assert — the separator is not escaped; the boundary is recovered by scanning backward, so
+        // the run's last two pipes are the separator and every earlier one is content (ADR-0042).
+        ParsedExportRow singlePipe = result.Rows.Single(row => row.GossipId == 1008);
+        singlePipe.Content.ShouldBe("Koniec rury|");
+        singlePipe.ArgsOrder.ShouldBe("NULL");
+
+        ParsedExportRow triplePipe = result.Rows.Single(row => row.GossipId == 1009);
+        triplePipe.Content.ShouldBe("Trzy rury|||");
+        triplePipe.ArgsOrder.ShouldBe("1-2");
+        triplePipe.ArgsId.ShouldBe("3-4");
     }
 
     [Fact]

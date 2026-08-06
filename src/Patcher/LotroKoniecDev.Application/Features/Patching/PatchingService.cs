@@ -27,7 +27,7 @@ internal sealed class PatchingService : IPatchingService
         string datFilePath,
         IProgress<OperationProgress>? progress = null)
     {
-        Result<IReadOnlyList<Translation>> translationParseResult =
+        Result<TranslationParseResult> translationParseResult =
             _translationParser.ParseFile(translationsPath);
 
         if (translationParseResult.IsFailure)
@@ -35,11 +35,23 @@ internal sealed class PatchingService : IPatchingService
             return Result.Failure<PatchSummaryResponse>(translationParseResult.Error);
         }
 
-        IReadOnlyList<Translation> translations = translationParseResult.Value;
+        IReadOnlyList<Translation> translations = translationParseResult.Value.Translations;
+
+        // A line the parser rejected is reported, never swallowed (ADR-0042): its warning rides
+        // along with the per-fragment ones into the summary the CLI prints.
+        IReadOnlyList<string> parseWarnings = translationParseResult.Value.Warnings;
 
         if (translations.Count == 0)
         {
-            return Result.Failure<PatchSummaryResponse>(DomainErrors.Translation.NoTranslations);
+            // A file whose every line was rejected must say WHY. The warning list is only printed on
+            // a successful patch, so on this path the diagnosis has to ride in the error itself —
+            // otherwise the fix of ADR-0042 would stop exactly where it matters most.
+            return Result.Failure<PatchSummaryResponse>(
+                translationParseResult.Value.RejectedLineCount > 0
+                    ? DomainErrors.Translation.NoTranslationsEveryLineRejected(
+                        translationParseResult.Value.RejectedLineCount,
+                        parseWarnings[0])
+                    : DomainErrors.Translation.NoTranslations);
         }
 
         Result<int> datFileOpenResult = _datFileHandler.Open(datFilePath, DatFileAccess.ReadWrite);
@@ -55,7 +67,7 @@ internal sealed class PatchingService : IPatchingService
         {
             Dictionary<int, (int Size, int Iteration)> fileSizes = _datFileHandler.GetAllSubfileSizes(datFileHandle);
 
-            List<string> warnings = [];
+            List<string> warnings = [.. parseWarnings];
             int appliedCount = 0;
             int skippedCount = 0;
 

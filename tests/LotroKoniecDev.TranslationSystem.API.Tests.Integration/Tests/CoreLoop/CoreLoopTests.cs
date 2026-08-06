@@ -87,7 +87,7 @@ public sealed class CoreLoopTests : IAsyncLifetime
         try
         {
             IReadOnlyList<LotroKoniecDev.Domain.Models.Translation> parsed =
-                new TranslationFileParser().ParseFile(tempFile).Value;
+                new TranslationFileParser().ParseFile(tempFile).Value.Translations;
 
             LotroKoniecDev.Domain.Models.Translation only = parsed.ShouldHaveSingleItem();
             only.FileId.ShouldBe(FileId);
@@ -193,7 +193,7 @@ public sealed class CoreLoopTests : IAsyncLifetime
         try
         {
             IReadOnlyList<LotroKoniecDev.Domain.Models.Translation> parsed =
-                new TranslationFileParser().ParseFile(tempFile).Value;
+                new TranslationFileParser().ParseFile(tempFile).Value.Translations;
 
             parsed.Count.ShouldBe(2);
             parsed[0].Content.ShouldBe(multiLinePolish);

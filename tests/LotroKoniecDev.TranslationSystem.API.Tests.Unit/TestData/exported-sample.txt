@@ -1,5 +1,7 @@
 # Golden fixture mirroring the patcher's || contract. Guards both contexts against format drift.
 # Rows 1006-1007 carry the ADR-0039 escape: \n / \r fold a real newline, \\ folds a real backslash.
+# Rows 1008-1009 end in an odd run of | — the separator is NOT escaped, the boundary is found by
+# scanning backward, so the last two pipes of the run are the separator (ADR-0042).
 620756992||1001||Witaj w Srodziemiu!||NULL||NULL||1
 620756992||1002||Tekst z <--DO_NOT_TOUCH!--> argumentem||1||1||1
 620756992||1003||Line with || inside the content||NULL||NULL||1
@@ -8,3 +10,5 @@
 620756992||1005||Trailing approved zero||NULL||NULL||0
 620756992||1006||Wiersz jeden\nWiersz dwa\r\nWiersz trzy||NULL||NULL||1
 620756992||1007||Sciezka C:\\notes i sekwencja \\n||NULL||NULL||1
+620756992||1008||Koniec rury|||NULL||NULL||1
+620756992||1009||Trzy rury|||||1-2||3-4||1

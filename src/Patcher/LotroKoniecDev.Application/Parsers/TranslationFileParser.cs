@@ -1,3 +1,4 @@
+using System.Globalization;
 using LotroKoniecDev.Application.Abstractions;
 using LotroKoniecDev.Domain.Core.Errors;
 using LotroKoniecDev.Domain.Models;
@@ -10,26 +11,38 @@ namespace LotroKoniecDev.Application.Parsers;
 /// <remarks>
 /// File format: file_id||gossip_id||content||args_order||args_id||approved
 /// Lines starting with # are comments, empty lines are ignored.
+/// Fields are carved by <see cref="TranslationLineCarver"/>, which anchors from both ends
+/// (ADR-0042), so content may contain the separator and may end in any run of <c>|</c>.
 /// Content arrives escaped (ADR-0039) and is unfolded by <see cref="TranslationLineEscaper"/>, so
 /// <see cref="Translation.Content"/> always carries the raw text about to be written into the DAT.
 /// </remarks>
 public sealed class TranslationFileParser : ITranslationParser
 {
     private const string FieldSeparator = "||";
-    private const int MinimumFieldCount = 6;
+    private const int SeparatorCount = 5;
+    private const string AbsentArgs = "NULL";
+    private const char ArgsPositionSeparator = '-';
 
-    public Result<IReadOnlyList<Translation>> ParseFile(string filePath)
+    /// <summary>
+    /// Mirrors the TMS import's own cap (spec 0006): a wholly corrupt file is rejected either way,
+    /// and the cap only bounds how many lines are quoted back. Without it a 790k-row file gone bad
+    /// would print one full-line warning per row to the console.
+    /// </summary>
+    private const int MaxCollectedWarnings = 100;
+
+    public Result<TranslationParseResult> ParseFile(string filePath)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(filePath);
 
         if (!File.Exists(filePath))
         {
-            return Result.Failure<IReadOnlyList<Translation>>(
+            return Result.Failure<TranslationParseResult>(
                 DomainErrors.Translation.FileNotFound(filePath));
         }
 
         List<Translation> translations = [];
         List<string> warnings = [];
+        int rejectedLineCount = 0;
 
         foreach (string line in File.ReadLines(filePath))
         {
@@ -43,11 +56,21 @@ public sealed class TranslationFileParser : ITranslationParser
             if (parseResult.IsSuccess)
             {
                 translations.Add(parseResult.Value);
+                continue;
             }
-            else
+
+            rejectedLineCount++;
+
+            if (warnings.Count < MaxCollectedWarnings)
             {
                 warnings.Add(parseResult.Error.Message);
             }
+        }
+
+        int quotedWarnings = warnings.Count;
+        if (rejectedLineCount > quotedWarnings)
+        {
+            warnings.Add($"... and {rejectedLineCount - quotedWarnings} more rejected lines (only the first {MaxCollectedWarnings} are listed).");
         }
 
         // Sort by FileId then GossipId for optimal I/O during patching
@@ -56,7 +79,7 @@ public sealed class TranslationFileParser : ITranslationParser
             .ThenBy(t => t.GossipId)
             .ToList();
 
-        return Result.Success<IReadOnlyList<Translation>>(sortedTranslations);
+        return Result.Success(new TranslationParseResult(sortedTranslations, warnings, rejectedLineCount));
     }
 
     public Result<Translation> ParseLine(string line)
@@ -67,38 +90,48 @@ public sealed class TranslationFileParser : ITranslationParser
                 DomainErrors.Translation.InvalidFormat("Empty line"));
         }
 
-        string[] parts = line.Split([FieldSeparator], StringSplitOptions.None);
-
-        if (parts.Length < MinimumFieldCount)
+        if (!TranslationLineCarver.TryCarve(line, out CarvedTranslationLine? carved))
         {
             return Result.Failure<Translation>(
                 DomainErrors.Translation.InvalidFormat(
-                    $"Expected at least {MinimumFieldCount} fields, got {parts.Length}"));
+                    $"expected {SeparatorCount} '{FieldSeparator}' separators outside the content, in line '{line}'"));
         }
 
-        try
-        {
-            // Anchor from both ends: file_id, gossip_id lead; args_order, args_id, approved trail.
-            // Everything between is content re-joined with the separator, so content may contain "||".
-            string content = string.Join(FieldSeparator, parts[2..^3]);
-
-            Translation translation = new()
-            {
-                FileId = int.Parse(parts[0]),
-                GossipId = ulong.Parse(parts[1]),
-                Content = TranslationLineEscaper.Unescape(content),
-                ArgsOrder = ParseArgsArray(parts[^3]),
-                ArgsId = ParseArgsArray(parts[^2]),
-                IsApproved = parts[^1] == "1"
-            };
-
-            return Result.Success(translation);
-        }
-        catch (Exception ex) when (ex is FormatException or OverflowException)
+        if (!int.TryParse(carved.FileId, NumberStyles.Integer, CultureInfo.InvariantCulture, out int fileId))
         {
             return Result.Failure<Translation>(
-                DomainErrors.Translation.ParseError(line, ex.Message));
+                DomainErrors.Translation.ParseError(line, $"File id '{carved.FileId}' is not a valid integer."));
         }
+
+        if (!ulong.TryParse(carved.GossipId, NumberStyles.Integer, CultureInfo.InvariantCulture, out ulong gossipId))
+        {
+            return Result.Failure<Translation>(
+                DomainErrors.Translation.ParseError(line, $"Gossip id '{carved.GossipId}' is not a valid integer."));
+        }
+
+        if (!TryParseArgsArray(carved.ArgsOrder, out int[]? argsOrder))
+        {
+            return Result.Failure<Translation>(
+                DomainErrors.Translation.ParseError(line, DescribeMalformedArgs("args_order", carved.ArgsOrder)));
+        }
+
+        if (!TryParseArgsArray(carved.ArgsId, out int[]? argsId))
+        {
+            return Result.Failure<Translation>(
+                DomainErrors.Translation.ParseError(line, DescribeMalformedArgs("args_id", carved.ArgsId)));
+        }
+
+        Translation translation = new()
+        {
+            FileId = fileId,
+            GossipId = gossipId,
+            Content = TranslationLineEscaper.Unescape(carved.Content),
+            ArgsOrder = argsOrder,
+            ArgsId = argsId,
+            IsApproved = carved.Approved == "1"
+        };
+
+        return Result.Success(translation);
     }
 
     /// <summary>
@@ -108,29 +141,42 @@ public sealed class TranslationFileParser : ITranslationParser
         string.IsNullOrWhiteSpace(line) || line.TrimStart().StartsWith('#');
 
     /// <summary>
-    /// Parses an argument array in format "1-2-3" to 0-indexed integers.
+    /// Parses an argument column in format "1-2-3" to 0-indexed integers. An absent column
+    /// (<c>NULL</c>, empty or blank) yields <see langword="null"/> arguments and succeeds; anything
+    /// else that is not a <c>-</c>-separated list of ASCII decimal integers fails, so the caller
+    /// rejects and reports the row rather than silently patching it without its argument order
+    /// (ADR-0042). Whether the positions FIT the fragment is checked downstream by
+    /// <c>Fragment.TryReorderArgRefs</c>, which is the only place that knows how many there are.
     /// </summary>
-    /// <param name="value">The string value to parse.</param>
-    /// <returns>Array of 0-indexed integers, or null if value is NULL or empty.</returns>
-    private static int[]? ParseArgsArray(string value)
+    private static bool TryParseArgsArray(string value, out int[]? args)
     {
+        args = null;
+
         if (string.IsNullOrWhiteSpace(value) ||
-            value.Equals("NULL", StringComparison.OrdinalIgnoreCase))
+            value.Equals(AbsentArgs, StringComparison.OrdinalIgnoreCase))
         {
-            return null;
+            return true;
         }
 
-        try
+        string[] positions = value.Split(ArgsPositionSeparator);
+        int[] parsed = new int[positions.Length];
+
+        for (int index = 0; index < positions.Length; index++)
         {
-            // Format: "1-2-3" -> [0, 1, 2] (convert from 1-indexed to 0-indexed)
-            return value
-                .Split('-')
-                .Select(s => int.Parse(s) - 1)
-                .ToArray();
+            // NumberStyles.None on purpose: no sign (the '-' is the separator), no surrounding
+            // whitespace, ASCII digits only. An overflowing position fails here too.
+            if (!int.TryParse(positions[index], NumberStyles.None, CultureInfo.InvariantCulture, out int position))
+            {
+                return false;
+            }
+
+            parsed[index] = position - 1;
         }
-        catch
-        {
-            return null;
-        }
+
+        args = parsed;
+        return true;
     }
+
+    private static string DescribeMalformedArgs(string column, string value)
+        => $"The {column} column '{value}' is neither NULL nor a '-' separated list of integers.";
 }

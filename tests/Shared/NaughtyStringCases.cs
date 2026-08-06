@@ -77,6 +77,39 @@ internal static class NaughtyStringCases
     ]);
 
     /// <summary>
+    /// Every string over the alphabet <c>{'a', '|'}</c> up to six characters — 127 entries covering
+    /// every pipe run the <c>||</c> contract can meet at either content boundary, in both parities,
+    /// including the empty string. The naughty corpus deliberately carries none of these (no entry
+    /// ends in an odd run of <c>|</c>), and hand-picked cases only sample the hazard: an odd
+    /// trailing run silently lost its last pipe into the args column for the life of the format
+    /// (#597, fixed by ADR-0042). Exhaustive is cheap here and pins the carving against a future
+    /// "simplification" back to <c>string.Split</c>.
+    /// </summary>
+    public static TheoryData<string> PipeRuns => ToTheoryData(BuildPipeRuns(maxLength: 6));
+
+    private static IEnumerable<string> BuildPipeRuns(int maxLength)
+    {
+        List<string> combinations = [string.Empty];
+        List<string> previousLength = [string.Empty];
+
+        for (int length = 1; length <= maxLength; length++)
+        {
+            List<string> currentLength = new(previousLength.Count * 2);
+
+            foreach (string prefix in previousLength)
+            {
+                currentLength.Add(prefix + 'a');
+                currentLength.Add(prefix + '|');
+            }
+
+            combinations.AddRange(currentLength);
+            previousLength = currentLength;
+        }
+
+        return combinations;
+    }
+
+    /// <summary>
     /// Digits a human reads as a number but <see cref="int.TryParse(string, out int)"/> does not —
     /// fullwidth, Arabic-Indic and other non-ASCII numerals. Aimed at the two id columns of the
     /// <c>||</c> contract, which must reject them rather than mis-parse them into a wrong fragment.

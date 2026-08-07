@@ -161,15 +161,29 @@ watcher (FileSystemWatcher cost ≈ zero).
 - **Q4 — Branch B default-on** with the one-shot guard per detection and the conservative
   quiesce (30+ s; E2 measured a ~1 s apply burst, so the margin is wide). Branch A stays the
   default path; B fires only when A is impossible.
-- **Q5 — Placement: dedicated `UR` milestone**, gated before public launch — patcher tickets
-  UR-1x (sentinel, orchestrator, forced-downgrade E2E), TMS tickets UR-2x (echo-guard, artifact
-  metadata/handshake, one-time source repair). Repair-set endpoint deliberately NOT cut
-  (E3 verdict: optional; YAGNI until a real need appears).
+- **Q5 — Placement: dedicated `UR` milestone**, gated before public launch — the patcher side
+  (sentinel, orchestrator, forced-downgrade E2E) and the TMS side (echo-guard, artifact
+  metadata/handshake, one-time source repair) ship under one milestone. Repair-set endpoint
+  deliberately NOT cut (E3 verdict: optional; YAGNI until a real need appears).
+  **Amended 2026-08-07 — the `UR-1x` patcher / `UR-2x` TMS band rule is dropped.** It survived
+  exactly one round of additions: ADR-0045 cut four more tickets by next-free-number, and UR-26
+  (#627) is a patcher ticket sitting in the TMS band. `UR-nn` is a plain counter — the bounded
+  context is already in the ticket title, ordering lives in `Depends on`, and no tooling reads
+  the digit. Renumbering was rejected: it would break every `UR-nn` reference in ADR-0045, this
+  spec and the ticket bodies to restore a signal nothing consumes.
 
-Ticket cut (2026-08-02): **#562** UR-22 artifact metadata/handshake → **#565** UR-10 Tier-0
-content-sentinel → **#566** UR-11 Tier-1 orchestrator → **#567** UR-12 forced-downgrade E2E;
-**#563** UR-20 import echo-guard → **#564** UR-21 one-time source repair. First real 49.1
-import: #559 (UR-02).
+Ticket cut (2026-08-02, extended 2026-08-06 by ADR-0045). Numbers are allocation order, **not**
+execution order — the real chains are:
+
+- **#624** UR-23 superseded version stays retirable → **#85** UR-24 forum watcher
+- **#562** UR-22 artifact version + verdict → **#626** UR-25 current-version endpoint + rel →
+  **#627** UR-26 patcher drops the forum scrape
+- **#562** UR-22 → **#565** UR-10 Tier-0 content-sentinel → **#566** UR-11 Tier-1 orchestrator →
+  **#567** UR-12 forced-downgrade E2E
+- **#563** UR-20 import echo-guard → **#564** UR-21 one-time source repair
+
+First real 49.1 import: **#559** (UR-02) — a manual ops run against a live game install, not a
+code ticket. It carries no milestone and stays that way: the backlog loop must never pick it up.
 
 ## Acceptance criteria (final per Q1–Q5)
 

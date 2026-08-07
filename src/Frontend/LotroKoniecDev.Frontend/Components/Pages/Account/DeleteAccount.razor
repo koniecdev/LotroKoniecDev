@@ -8,6 +8,7 @@
 @using LotroKoniecDev.Frontend.Infrastructure.Hateoas
 @using LotroKoniecDev.Frontend.Infrastructure.HttpClients
 @using LotroKoniecDev.Hateoas.Abstractions
+@using LotroKoniecDev.Frontend.Infrastructure.Errors
 @inject AccountLoader Loader
 
 <PageTitle>Usuń konto — lotro-translator.pl</PageTitle>
@@ -57,7 +58,9 @@
                 </svg>
             </span>
             <div class="em-body">
-                <span class="t">@(_loadResult.ProblemDetails?.Title ?? "Nie udało się wczytać danych konta.")</span>
+                <ApiProblemAlert Problem="@_loadResult.ProblemDetails"
+                                 Fallback="Nie udało się wczytać danych konta."
+                                 HeadlineClass="t"/>
             </div>
         </div>
     }
@@ -105,11 +108,9 @@
                             </svg>
                         </span>
                         <div class="em-body">
-                            <span class="t">@_submitProblem.Title</span>
-                            @if (!string.IsNullOrWhiteSpace(_submitProblem.Detail))
-                            {
-                                <span class="s">@_submitProblem.Detail</span>
-                            }
+                            <ApiProblemAlert Problem="@_submitProblem"
+                                             Fallback="Nie udało się zaplanować usunięcia konta."
+                                             HeadlineClass="t"/>
                         </div>
                     </div>
                 }
@@ -187,21 +188,17 @@
 
         if (string.IsNullOrWhiteSpace(DeleteInput?.Password))
         {
-            _submitProblem = new Microsoft.AspNetCore.Mvc.ProblemDetails
-            {
-                Title = "Hasło jest wymagane",
-                Detail = "Podaj obecne hasło, aby potwierdzić usunięcie konta."
-            };
+            _submitProblem = ApiProblemCopy.FrontendAuthored(
+                "Hasło jest wymagane",
+                "Podaj obecne hasło, aby potwierdzić usunięcie konta.");
             return;
         }
 
         if (!string.Equals(DeleteInput.ConfirmPhrase, ConfirmPhrase, StringComparison.Ordinal))
         {
-            _submitProblem = new Microsoft.AspNetCore.Mvc.ProblemDetails
-            {
-                Title = "Nieprawidłowe potwierdzenie",
-                Detail = $"Wpisz {ConfirmPhrase} w polu potwierdzenia, aby kontynuować."
-            };
+            _submitProblem = ApiProblemCopy.FrontendAuthored(
+                "Nieprawidłowe potwierdzenie",
+                $"Wpisz {ConfirmPhrase} w polu potwierdzenia, aby kontynuować.");
             return;
         }
 
@@ -219,18 +216,14 @@
 
         if (result.IsUnauthorized)
         {
-            _submitProblem = new Microsoft.AspNetCore.Mvc.ProblemDetails
-            {
-                Title = "Sesja wygasła",
-                Detail = "Zaloguj się ponownie, aby usunąć konto."
-            };
+            _submitProblem = ApiProblemCopy.FrontendAuthored(
+                "Sesja wygasła",
+                "Zaloguj się ponownie, aby usunąć konto.");
             return;
         }
 
-        _submitProblem = result.ProblemDetails ?? new Microsoft.AspNetCore.Mvc.ProblemDetails
-        {
-            Title = "Nie udało się zaplanować usunięcia konta."
-        };
+        _submitProblem = result.ProblemDetails
+                         ?? ApiProblemCopy.FrontendAuthored("Nie udało się zaplanować usunięcia konta.");
     }
 
     /// <summary>

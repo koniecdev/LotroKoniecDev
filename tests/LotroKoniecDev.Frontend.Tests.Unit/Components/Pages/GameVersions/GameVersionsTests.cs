@@ -158,6 +158,35 @@ public sealed class GameVersionsTests : BunitContext
     }
 
     [Fact]
+    public async Task Delete_WhenTheApiRefusesInEnglish_ShowsPolishInTheSharedActionErrorBlock()
+    {
+        // #548: the shared _actionProblem block (reused verbatim by register) used to paint the API's
+        // English straight into the Polish page. Register's own submit is undrivable in bUnit SSR —
+        // see the class summary — so delete pins the block both actions render through.
+        AuthorizeAs("Sam");
+        StubVersions(Version("48.0", GameVersionStatus.Unprocessed, canDelete: true));
+        _client.DeleteApiResultAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(ApiResult.Failure(new()
+            {
+                Title = "Data Conflict",
+                Detail = "Game version with ID '…' is referenced by one or more translations and cannot be deleted.",
+                Status = 422,
+                Extensions = { ["errorCode"] = "GameVersionEntity.CannotDeleteReferencedVersion" }
+            }));
+        IRenderedComponent<GameVersionsComponent> component = RenderPage();
+
+        await component.Find(".col-actions form").SubmitAsync();
+
+        IElement error = component.Find(".status-message.status-error");
+        error.QuerySelector(".problem-headline")!.TextContent
+            .ShouldBe("Tej wersji gry nie można usunąć, bo są z nią powiązane tłumaczenia.");
+        error.QuerySelector(".problem-headline")!.TextContent.ShouldNotContain("Data Conflict");
+        // The API's own wording survives for a bug report, but only behind the technical-details block.
+        error.QuerySelector("details.problem-tech .problem-tech-body")!.TextContent
+            .ShouldContain("is referenced by one or more translations");
+    }
+
+    [Fact]
     public void Render_WhenNoVersionsExist_ShowsTheEmptyStateInsteadOfTheTable()
     {
         AuthorizeAs("Frodo");

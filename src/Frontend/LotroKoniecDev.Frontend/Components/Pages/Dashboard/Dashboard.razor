@@ -33,7 +33,9 @@
                 </svg>
             </span>
             <div class="em-body">
-                <span class="t">@(_result.ProblemDetails?.Title ?? "Nie udało się wczytać statystyk.")</span>
+                <ApiProblemAlert Problem="@_result.ProblemDetails"
+                                 Fallback="Nie udało się wczytać statystyk."
+                                 HeadlineClass="t"/>
             </div>
         </div>
     }

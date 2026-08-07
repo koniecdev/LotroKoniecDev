@@ -9,6 +9,7 @@
 @using LotroKoniecDev.TranslationSystem.Contracts.Hateoas
 @using LotroKoniecDev.TranslationSystem.Contracts.Import
 @using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.GameVersionAggregate
+@using LotroKoniecDev.Frontend.Infrastructure.Errors
 @inject ImportExportLoader Loader
 
 <PageTitle>Import / Eksport — lotro-translator.pl</PageTitle>
@@ -56,7 +57,9 @@
                 </svg>
             </span>
             <div class="em-body">
-                <span class="t">@(_versionsProblem.Title ?? "Nie udało się wczytać listy wersji gry.")</span>
+                <ApiProblemAlert Problem="@_versionsProblem"
+                                 Fallback="Nie udało się wczytać listy wersji gry."
+                                 HeadlineClass="t"/>
             </div>
         </div>
     }
@@ -77,9 +80,14 @@
 
                 @if (_importProblem is not null)
                 {
-                    <p class="status-line status-down" role="alert">
-                        <span class="dot"></span>@(_importProblem.Detail ?? _importProblem.Title ?? "Nie udało się zaimportować pliku.")
-                    </p>
+                    @* A div, not a p: the alert may render a <details> block, which a paragraph
+                       cannot legally contain. *@
+                    <div class="status-line status-line-block status-down" role="alert">
+                        <span class="dot"></span>
+                        <div class="status-line-body">
+                            <ApiProblemAlert Problem="@_importProblem" Fallback="Nie udało się zaimportować pliku."/>
+                        </div>
+                    </div>
                 }
                 else if (_summary is not null)
                 {
@@ -268,14 +276,14 @@
 
         if (input.File is null || input.File.Length == 0)
         {
-            _importProblem = new ProblemDetails { Title = "Wybierz plik exported.txt do wgrania." };
+            _importProblem = ApiProblemCopy.FrontendAuthored("Wybierz plik exported.txt do wgrania.");
             await LoadVersionsAsync();
             return;
         }
 
         if (input.GameVersionId == Guid.Empty)
         {
-            _importProblem = new ProblemDetails { Title = "Wybierz wersję gry." };
+            _importProblem = ApiProblemCopy.FrontendAuthored("Wybierz wersję gry.");
             await LoadVersionsAsync();
             return;
         }
@@ -285,11 +293,9 @@
         // import. Never compose the path from the id.
         if (ImportTargets.FindImportHref(_versions, input.GameVersionId) is not { } importHref)
         {
-            _importProblem = new ProblemDetails
-            {
-                Title = "Nie można zaimportować do tej wersji gry.",
-                Detail = "Serwer nie udostępnia importu dla wybranej wersji. Odśwież stronę i wybierz inną wersję."
-            };
+            _importProblem = ApiProblemCopy.FrontendAuthored(
+                "Nie można zaimportować do tej wersji gry.",
+                "Serwer nie udostępnia importu dla wybranej wersji. Odśwież stronę i wybierz inną wersję.");
             await LoadVersionsAsync();
             return;
         }

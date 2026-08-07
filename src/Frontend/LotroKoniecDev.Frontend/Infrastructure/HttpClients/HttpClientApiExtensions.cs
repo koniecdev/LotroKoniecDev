@@ -1,6 +1,7 @@
 using System.Net.Http.Json;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using LotroKoniecDev.Frontend.Infrastructure.Errors;
 using Microsoft.AspNetCore.Mvc;
 using Polly.CircuitBreaker;
 using Polly.Timeout;
@@ -254,6 +255,10 @@ internal static class HttpClientApiExtensions
                 if (problem is not null)
                 {
                     problem.Status ??= (int)response.StatusCode;
+
+                    // Whatever the body claims, it came off the wire and is English until proven
+                    // otherwise — it does not get to wear the Frontend-authored marker (ADR-0044 §2).
+                    ApiProblemCopy.StripFrontendAuthoredMarker(problem);
                     return problem;
                 }
             }
@@ -263,12 +268,10 @@ internal static class HttpClientApiExtensions
             }
         }
 
-        return new ProblemDetails
-        {
-            Title = "Żądanie nie powiodło się",
-            Detail = "Serwer odrzucił żądanie bez szczegółów błędu.",
-            Status = (int)response.StatusCode
-        };
+        return ApiProblemCopy.FrontendAuthored(
+            "Żądanie nie powiodło się",
+            "Serwer odrzucił żądanie bez szczegółów błędu.",
+            (int)response.StatusCode);
     }
 
     /// <summary>
@@ -284,23 +287,17 @@ internal static class HttpClientApiExtensions
 
     private static ProblemDetails MapTransportFailureToProblemDetails(Exception ex) => ex switch
     {
-        BrokenCircuitException => new ProblemDetails
-        {
-            Title = "Usługa chwilowo niedostępna",
-            Detail = "Połączenie z serwerem zostało tymczasowo wstrzymane. Spróbuj ponownie za chwilę.",
-            Status = StatusCodes.Status503ServiceUnavailable
-        },
-        TimeoutRejectedException or TaskCanceledException => new ProblemDetails
-        {
-            Title = "Przekroczono czas oczekiwania",
-            Detail = "Serwer nie odpowiedział w wyznaczonym czasie. Spróbuj ponownie.",
-            Status = StatusCodes.Status504GatewayTimeout
-        },
-        _ => new ProblemDetails
-        {
-            Title = "Błąd połączenia",
-            Detail = "Nie udało się połączyć z serwerem. Spróbuj ponownie za chwilę.",
-            Status = StatusCodes.Status503ServiceUnavailable
-        }
+        BrokenCircuitException => ApiProblemCopy.FrontendAuthored(
+            "Usługa chwilowo niedostępna",
+            "Połączenie z serwerem zostało tymczasowo wstrzymane. Spróbuj ponownie za chwilę.",
+            StatusCodes.Status503ServiceUnavailable),
+        TimeoutRejectedException or TaskCanceledException => ApiProblemCopy.FrontendAuthored(
+            "Przekroczono czas oczekiwania",
+            "Serwer nie odpowiedział w wyznaczonym czasie. Spróbuj ponownie.",
+            StatusCodes.Status504GatewayTimeout),
+        _ => ApiProblemCopy.FrontendAuthored(
+            "Błąd połączenia",
+            "Nie udało się połączyć z serwerem. Spróbuj ponownie za chwilę.",
+            StatusCodes.Status503ServiceUnavailable)
     };
 }

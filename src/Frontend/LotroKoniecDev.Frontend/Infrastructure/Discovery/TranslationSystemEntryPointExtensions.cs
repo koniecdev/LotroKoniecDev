@@ -1,3 +1,4 @@
+using LotroKoniecDev.Frontend.Infrastructure.Errors;
 using LotroKoniecDev.Frontend.Infrastructure.Hateoas;
 using LotroKoniecDev.Frontend.Infrastructure.HttpClients;
 using LotroKoniecDev.Hateoas.Abstractions;
@@ -46,10 +47,8 @@ internal static class TranslationSystemEntryPointExtensions
     /// affordance exists but is not this session's to use — the rel travels in <c>Detail</c> so a
     /// support report names the missing entry point instead of "coś poszło nie tak".
     /// </summary>
-    private static ProblemDetails MissingEntryPoint(string rel) => new()
-    {
-        Title = "Ta funkcja jest niedostępna",
-        Detail = $"Serwer nie udostępnia tej sesji zasobu „{rel}”. Zaloguj się ponownie lub spróbuj później.",
-        Status = StatusCodes.Status403Forbidden
-    };
+    private static ProblemDetails MissingEntryPoint(string rel) => ApiProblemCopy.FrontendAuthored(
+        "Ta funkcja jest niedostępna",
+        $"Serwer nie udostępnia tej sesji zasobu „{rel}”. Zaloguj się ponownie lub spróbuj później.",
+        StatusCodes.Status403Forbidden);
 }

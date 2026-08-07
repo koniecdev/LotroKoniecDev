@@ -250,6 +250,32 @@ public sealed class EditorTests : BunitContext
     }
 
     [Fact]
+    public async Task Save_WhenTheApiRejectsAnEmptyTranslation_ShowsPolishAndNotTheApiEnglish()
+    {
+        // The exact surface #548 reports: the API rejects an empty translation by design and used to
+        // paint its English "Validation Error" into the Polish page.
+        Guid id = Guid.NewGuid();
+        StubLoad(BuildDetail(sourceText: "Hello.", translatedText: "Cześć.", canEdit: true));
+        _client
+            .PutApiResultAsync<TranslationDetailResponse>(Arg.Any<string>(), Arg.Any<object>(), Arg.Any<CancellationToken>())
+            .Returns(ApiResult.Failure<TranslationDetailResponse>(new()
+            {
+                Title = "Validation Error",
+                Detail = "'Translated Text' must not be empty.",
+                Status = 400,
+                Extensions = { ["errorCode"] = "Translations.Validation" }
+            }));
+        IRenderedComponent<EditorComponent> component = RenderEditor(id);
+
+        await component.Find("form").SubmitAsync();
+
+        IElement error = component.Find(".status-message.status-error");
+        error.QuerySelector(".problem-headline")!.TextContent
+            .ShouldBe("Tłumaczenie nie może być puste i nie może przekraczać dozwolonej długości.");
+        error.QuerySelector(".problem-headline")!.TextContent.ShouldNotContain("Validation Error");
+    }
+
+    [Fact]
     public async Task Approve_WhenApproveFails_DoesNotRedirectAndShowsTheErrorInline()
     {
         // Symmetric to the save-failure path: a rejected approve (API 403 / 409 / 422 / …) must not

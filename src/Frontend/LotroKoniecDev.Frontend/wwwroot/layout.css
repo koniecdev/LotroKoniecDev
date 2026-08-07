@@ -903,6 +903,19 @@ code {
     font-size: 14.5px;
 }
 
+/* Multi-line variant: the dot stays on the first line when the body wraps or carries a details block. */
+.status-line-block {
+    align-items: flex-start;
+}
+
+.status-line-block .dot {
+    margin-top: 7px;
+}
+
+.status-line-body {
+    min-width: 0;
+}
+
 .status-line .dot {
     width: 9px;
     height: 9px;
@@ -1014,6 +1027,33 @@ code {
 .error-message .em-retry {
     flex: 0 0 auto;
     margin: 0;
+}
+
+/* ───────── API problem alert body (ADR-0044) ───────── */
+.problem-headline,
+.problem-secondary {
+    display: block;
+}
+
+.problem-tech {
+    margin-top: 6px;
+    font-size: 12.5px;
+    color: var(--text-mute);
+}
+
+.problem-tech > summary {
+    cursor: pointer;
+    user-select: none;
+    color: inherit;
+}
+
+.problem-tech .problem-tech-body {
+    display: block;
+    margin-top: 4px;
+    font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 12px;
+    line-height: 1.5;
+    overflow-wrap: anywhere;
 }
 
 /* ───────── Data table ───────── */

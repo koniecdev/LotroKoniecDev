@@ -9,6 +9,7 @@
 @using LotroKoniecDev.TranslationSystem.Contracts.GameVersions
 @using LotroKoniecDev.TranslationSystem.Contracts.Hateoas
 @using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.GameVersionAggregate
+@using LotroKoniecDev.Frontend.Infrastructure.Errors
 @inject GameVersionsLoader Loader
 
 <PageTitle>Wersje gry — lotro-translator.pl</PageTitle>
@@ -35,7 +36,9 @@
                 </svg>
             </span>
             <div class="em-body">
-                <span class="t">@(_versionsProblem.Title ?? "Nie udało się wczytać listy wersji gry.")</span>
+                <ApiProblemAlert Problem="@_versionsProblem"
+                                 Fallback="Nie udało się wczytać listy wersji gry."
+                                 HeadlineClass="t"/>
             </div>
         </div>
     }
@@ -43,7 +46,7 @@
     @if (_actionProblem is not null)
     {
         <div class="status-message status-error" role="alert">
-            <p>@(_actionProblem.Detail ?? _actionProblem.Title ?? "Operacja nie powiodła się.")</p>
+            <ApiProblemAlert Problem="@_actionProblem" Fallback="Operacja nie powiodła się."/>
         </div>
     }
     else if (_actionMessage is not null)
@@ -209,7 +212,7 @@
         string version = RegisterInput?.Version?.Trim() ?? string.Empty;
         if (version.Length == 0)
         {
-            _actionProblem = new ProblemDetails { Title = "Podaj wersję gry." };
+            _actionProblem = ApiProblemCopy.FrontendAuthored("Podaj wersję gry.");
             await LoadVersionsAsync();
             return;
         }

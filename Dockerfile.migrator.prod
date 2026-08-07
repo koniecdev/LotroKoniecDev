@@ -18,11 +18,16 @@
 # framework-dependent); accepted for the standalone property and the leaner base.
 
 ARG BUILD_CONFIGURATION=Release
-ARG TARGET_RUNTIME=linux-x64
+# Empty on purpose: the bundle RID is DERIVED from the architecture being built for (see the
+# resolve step in the build stage). An explicit --build-arg TARGET_RUNTIME=<rid> still wins.
+ARG TARGET_RUNTIME=
 
 FROM mcr.microsoft.com/dotnet/sdk:10.0@sha256:ed034a8bf0b24ded0cbbac07e17825d8e9ebfe21e308191d0f7421eaf5ad4664 AS build
 ARG BUILD_CONFIGURATION
 ARG TARGET_RUNTIME
+# Set automatically by BuildKit from the platform being built for; must be re-declared per stage to
+# be readable in RUN.
+ARG TARGETARCH
 WORKDIR /src
 
 # dotnet-ef is the CLI only; the bundle is built against each project's pinned EF Core version
@@ -46,20 +51,42 @@ COPY ["src/Utilities/", "src/Utilities/"]
 RUN dotnet restore src/TranslationSystem/LotroKoniecDev.TranslationSystem.Persistence/LotroKoniecDev.TranslationSystem.Persistence.csproj && \
     dotnet restore src/AuthSystem/LotroKoniecDev.AuthSystem.API/LotroKoniecDev.AuthSystem.API.csproj
 
+# The bundles are SELF-CONTAINED, so their RID must match the architecture of the final stage — and
+# that stage's runtime-deps pin is a manifest LIST, so it resolves to whatever is being built for.
+# A hardcoded linux-x64 therefore shipped x64 bundles inside an arm64 rootfs on Apple Silicon and the
+# migrator died at startup with `rosetta error: failed to open elf at /lib64/ld-linux-x86-64.so.2`
+# (exit 133), while amd64 CI runners and the Hetzner boxes never saw it — there host arch == bundle
+# arch (#594). Deriving the RID from TARGETARCH keeps those amd64 builds on linux-x64 unchanged and
+# lets a Mac build arm64 bundles with no build-arg. Dockerfile ARG expansion has no substring
+# replacement (a ${TARGETARCH/amd64/x64} default expands literally), hence resolving it in shell.
+# Unmapped architectures fail loudly rather than guessing a RID.
+RUN set -eu; \
+    if [ -n "${TARGET_RUNTIME:-}" ]; then \
+        rid="$TARGET_RUNTIME"; \
+    else \
+        case "${TARGETARCH:-}" in \
+            amd64) rid=linux-x64 ;; \
+            arm64) rid=linux-arm64 ;; \
+            *) echo "Dockerfile.migrator.prod: no bundle RID mapped for TARGETARCH='${TARGETARCH:-}'; pass --build-arg TARGET_RUNTIME=<rid>." >&2; exit 1 ;; \
+        esac; \
+    fi; \
+    echo "$rid" > /tmp/target-runtime; \
+    echo "Migration bundles target RID: $rid"
+
 # TMS migrations resolve through the Persistence project (it carries EF Core Design + the design-time
 # factory); Auth resolves through its API project (Auth Persistence intentionally has no Design
 # package). The throwaway --connection at the end satisfies the design-time factory while EF builds
 # the model to bundle it — the real connection string is supplied at RUN time by the bundle itself.
-RUN dotnet ef migrations bundle \
-      --self-contained --target-runtime "$TARGET_RUNTIME" --configuration "$BUILD_CONFIGURATION" \
+RUN rid="$(cat /tmp/target-runtime)" && dotnet ef migrations bundle \
+      --self-contained --target-runtime "$rid" --configuration "$BUILD_CONFIGURATION" \
       --project src/TranslationSystem/LotroKoniecDev.TranslationSystem.Persistence \
       --startup-project src/TranslationSystem/LotroKoniecDev.TranslationSystem.Persistence \
       --context ApplicationWriteDbContext \
       --output /bundles/tms-migrate \
       -- --connection "Host=build-time-placeholder;Database=build;Username=build;Password=build"
 
-RUN dotnet ef migrations bundle \
-      --self-contained --target-runtime "$TARGET_RUNTIME" --configuration "$BUILD_CONFIGURATION" \
+RUN rid="$(cat /tmp/target-runtime)" && dotnet ef migrations bundle \
+      --self-contained --target-runtime "$rid" --configuration "$BUILD_CONFIGURATION" \
       --project src/AuthSystem/LotroKoniecDev.AuthSystem.Persistence \
       --startup-project src/AuthSystem/LotroKoniecDev.AuthSystem.API \
       --context AuthDbContext \

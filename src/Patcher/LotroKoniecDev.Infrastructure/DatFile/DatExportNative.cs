@@ -17,14 +17,21 @@ internal static partial class DatExportNative
     private const string DllName = "datexport.dll";
 
     /// <summary>
-    /// Flags for opening DAT files: Read (2) + Write (128) = 130.
+    /// Flags for opening DAT files read-write: 2 | 128.
     /// </summary>
     public const uint OpenFlagsReadWrite = 130;
 
     /// <summary>
-    /// Flags for opening DAT files read-only: Read (2).
+    /// Flags for opening DAT files read-only: 2 | ReadOnly (4).
     /// </summary>
-    public const uint OpenFlagsRead = 2;
+    // Bit 0x4 is the only flag that changes the access the native library asks the OS for: with it
+    // set, datexport.dll opens the file GENERIC_READ | FILE_SHARE_READ; without it, every open —
+    // whatever else the flags say — asks for GENERIC_READ | GENERIC_WRITE and therefore fails on a
+    // file the caller cannot write. This is NOT the 2 bit, which is present in both constants and
+    // selects nothing about access; assuming otherwise is what made #446 ship a read-only export
+    // path that still required elevation (#629). Measured, not inferred:
+    // docs/knowledge-base/datexport-readonly-open-2026-08-07.md.
+    public const uint OpenFlagsRead = 6;
 
     /// <summary>
     /// Opens a specified DAT file with extended configurations and retrieves detailed metadata about the file.

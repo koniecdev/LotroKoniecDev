@@ -1,9 +1,12 @@
 # ADR-0030: Game-version export stays manual — VM runner deferred, pipeline instrumented
 
-**Status:** Accepted
+**Status:** Accepted — **partially superseded by ADR-0045 (2026-08-06)**: #85's placement in
+Post-MVP/Backlog no longer holds (it becomes a correctness prerequisite of the client-facing
+anti-masking guard and moves into the UR milestone). §1 (VM runner deferred), the read-path and
+ceremony-script moves in §2, §3's reconsider triggers and §4's accepted staleness window all stand.
 **Date:** 2026-07-11
 **Decision-makers:** Solo maintainer
-**Related:** Patcher (export/launch flow), `docs/specs/0001-game-update-lifecycle-and-translation-invalidation.md` (Out of scope), tickets #443 (TP-11), #85 (M2-18 forum watcher), #384 (TP-07), #52 (Discord notifications), knowledge-base live-test entries
+**Related:** Patcher (export/launch flow), `docs/specs/0001-game-update-lifecycle-and-translation-invalidation.md` (Out of scope), tickets #443 (TP-11), #85 (M2-18 forum watcher), #384 (TP-07), #52 (Discord notifications), knowledge-base live-test entries, ADR-0045 (game version served by our API)
 
 ## Context
 

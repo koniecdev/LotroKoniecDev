@@ -4,6 +4,9 @@
 Post-MVP/Backlog no longer holds (it becomes a correctness prerequisite of the client-facing
 anti-masking guard and moves into the UR milestone). §1 (VM runner deferred), the read-path and
 ceremony-script moves in §2, §3's reconsider triggers and §4's accepted staleness window all stand.
+**Amended 2026-08-07 (#629):** §2's read-path move was written against native flag `2`, which never
+produced a read-only handle — the selector is bit `0x4`. With `OpenFlagsRead = 6` the move is
+**delivered and verified** on the live Program Files DAT; the decision itself is unchanged.
 **Date:** 2026-07-11
 **Decision-makers:** Solo maintainer
 **Related:** Patcher (export/launch flow), `docs/specs/0001-game-update-lifecycle-and-translation-invalidation.md` (Out of scope), tickets #443 (TP-11), #85 (M2-18 forum watcher), #384 (TP-07), #52 (Discord notifications), knowledge-base live-test entries, ADR-0045 (game version served by our API)
@@ -47,6 +50,10 @@ Facts that constrain the choice today:
   twice empirically — a `launch` on 2026-04-23, an `export` on 2026-06-25
   (`live-test-2026-04-23.md`, `live-test-2026-06-25.md`). #443 Option A (same PR as this ADR)
   switches read paths to flag 2, pending real-Windows confirmation.
+  > **2026-08-07 (#629):** the confirmation came back negative and then positive. Flag `2` does not
+  > select read-only — bit `0x4` does, and flag `2` is present in the read-write constant too, so the
+  > "read" open kept asking for `GENERIC_READ|GENERIC_WRITE`. `OpenFlagsRead = 6` delivers what this
+  > bullet assumed: `docs/knowledge-base/datexport-readonly-open-2026-08-07.md`.
 
 ## Decision
 
@@ -61,8 +68,9 @@ needs a KVM host and hours, and its answers buy nothing actionable until the tri
 ### 2. The manual pipeline is instrumented — three concrete moves
 
 - **Read path de-elevated (#443 Option A, this PR).** `export` and version reads open the DAT
-  read-only (native flag 2); `export.bat` stops self-elevating. The ceremony loses its UAC step,
-  and any future runner's export task needs no elevation engineering at all.
+  read-only (native flag 2 — **corrected to 6 by #629**, the read-only bit is `0x4`);
+  `export.bat` stops self-elevating. The ceremony loses its UAC step, and any future runner's
+  export task needs no elevation engineering at all.
 - **Detection latency bounded (#85 scope amendment).** The M2-18 forum watcher additionally
   notifies the admin **by e-mail** when a new GameVersion is detected (previously: structured log
   only for MVP). Discord webhook stays post-MVP (#52). #85 currently sits in Post-MVP/Backlog per

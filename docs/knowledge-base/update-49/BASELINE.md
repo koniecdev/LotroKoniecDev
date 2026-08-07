@@ -36,6 +36,10 @@ export pokazuje **+5 plików / +13 fragmentów** względem post-48.7.
 Export robiony z backupu (live DAT w Program Files odmawia otwarcia non-elevated — `datexport.dll`
 otwiera z write/sidecar intentem; znane ograniczenie, patrz RESULTS 48.0 §perms).
 
+> **Superseded 2026-08-07 (#629):** ograniczenie było nasze, nie biblioteki — read-only open siedzi na
+> bicie `0x4`. Kolejne exporty rób prosto z live path —
+> [../datexport-readonly-open-2026-08-07.md](../datexport-readonly-open-2026-08-07.md).
+
 ## Version file (pre-update)
 
 ```

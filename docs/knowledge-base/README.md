@@ -75,6 +75,13 @@ Detailed analysis: [live-test-2026-03-16.md](live-test-2026-03-16.md)
 - Legacy flow: harmful (double UAC, kills game) — confirmed bad
 - SKIP path: 2026-03-22 confirmed (hash match → launch in 255ms)
 
+### datexport.dll — the read-only open flag is bit `0x4`, and `export` needs NO elevation (2026-08-07)
+Detailed analysis: [datexport-readonly-open-2026-08-07.md](datexport-readonly-open-2026-08-07.md)
+- `OpenFlagsRead = 2` never set the read-only bit, so every "read" open asked the OS for `GENERIC_READ|`**`WRITE`** and failed on a file we cannot write; `= 6` (`0x2|0x4`) is the whole fix
+- Proven three ways: x86 disassembly of the open helper (`0x10012bb0`), a flag matrix over `attrib +R` / ACL / writable, and a **non-elevated `export` off the live Program Files DAT** — exit 0, DAT byte-identical
+- **Measurement trap:** `icacls /deny "(W)"` also denies `SYNCHRONIZE`, so it blocks reads and is not a Program Files proxy — build one with `/inheritance:r /grant:r "user:(RX)"` and assert both preconditions
+- Supersedes the "export from a backup copy" workaround in the 48.7 / 49 baselines; #443 Option A is delivered (#629)
+
 ### DAT Vnum — definitively schema-version, not content-version
 Detailed analysis: [vnum-observations.md](vnum-observations.md)
 - Vnum 112/3 unchanged across 45.x → 47.x → **48.0 major** → 48.7 → 48.8 → **49.1 major** — 6 cycles (two majors), zero movement (latest: [live-test-2026-08-02.md](live-test-2026-08-02.md))

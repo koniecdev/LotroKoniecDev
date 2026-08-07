@@ -179,10 +179,11 @@ automatic `.backup` of the `DAT`), and maps failures to clear exit codes.
 ### Requirements & usage
 
 - **Windows** (x86/x64), [.NET 10 Runtime x86](https://dotnet.microsoft.com/download/dotnet/10.0),
-  and an installed copy of LOTRO. Writing into `Program Files` needs administrator rights.
+  and an installed copy of LOTRO. Writing into `Program Files` needs administrator rights; reading
+  does not, so `export` runs without an elevation prompt.
 
 ```bash
-export.bat                 # game DAT  → data/exported.txt
+export.bat                 # game DAT  → data/exported.txt (reads only — no elevation)
 patch.bat polish           # translations/polish.txt → game DAT (self-elevates)
 lotro.bat polish           # launch: hash-check → patch if changed → start the game
 # equivalent: dotnet run --project src/Patcher/LotroKoniecDev.Cli -- launch polish

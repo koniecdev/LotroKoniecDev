@@ -1,4 +1,5 @@
 using System.Net;
+using LotroKoniecDev.Frontend.Infrastructure.Errors;
 using LotroKoniecDev.Frontend.Infrastructure.HttpClients;
 using Polly.CircuitBreaker;
 using Polly.Timeout;
@@ -161,6 +162,27 @@ public sealed class HttpClientApiExtensionsTests
         result.ProblemDetails!.Status.ShouldBe(403);
         result.IsForbidden.ShouldBeTrue();
         result.IsUnauthorized.ShouldBeFalse();
+    }
+
+    [Theory]
+    [InlineData("<html><head><title>502 Bad Gateway</title></head><body></body></html>")]
+    [InlineData("")]
+    [InlineData("   ")]
+    [InlineData("null")]
+    [InlineData("[]")]
+    [InlineData("plain text")]
+    public async Task GetApiResultAsync_WhenTheErrorBodyCarriesNoProblem_SynthesizesOneThatStaysTranslatable(string body)
+    {
+        // The marker means "already Polish, render as-is", so stamping it here skipped the status
+        // ladder and rendered a placeholder during the staging outage (#637).
+        HttpClient httpClient = CreateClient(StubHttpMessageHandler.RespondWith(HttpStatusCode.BadGateway, body));
+
+        ApiResult<string> result = await httpClient.GetApiResultAsync<string>("translation-files/pl");
+
+        result.ProblemDetails!.Extensions.ShouldNotContainKey(ApiProblemCopy.FrontendAuthoredExtensionKey);
+        result.ProblemDetails.Title.ShouldBeNull();
+        result.ProblemDetails.Detail.ShouldBeNull();
+        result.ProblemDetails.Status.ShouldBe(502);
     }
 
     [Fact]

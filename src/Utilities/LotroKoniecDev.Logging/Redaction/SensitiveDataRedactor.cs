@@ -9,8 +9,11 @@ namespace LotroKoniecDev.Logging.Redaction;
 /// <c>password</c>) are replaced wholesale, and any e-mail address surviving in a non-sensitive value
 /// has its local part masked, so neither a replayable token nor a piece of PII is persisted in plain
 /// text. All methods are total — a logging hot path must never throw — and operate on the raw query
-/// string without decoding, so the separator is recognised in both spellings a query can carry: the
-/// literal <c>@</c> and the <c>%40</c> that <c>Uri.EscapeDataString</c> produces (ADR-0046).
+/// string without decoding, so the separator is recognised in its literal <c>@</c> form and in the
+/// single-encoded <c>%40</c> that <c>Uri.EscapeDataString</c> produces (ADR-0046). Deeper nesting is
+/// NOT covered: an address escaped twice (<c>%2540</c>, as it would be inside a <c>returnUrl</c>
+/// carrying a link that itself carries an address) matches neither form and survives the mask. No
+/// such link exists today; the fix is another alternation here, not a decode step in a hot path.
 /// </summary>
 public static partial class SensitiveDataRedactor
 {

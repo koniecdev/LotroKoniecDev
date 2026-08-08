@@ -90,12 +90,25 @@ The link is `/Account/ResendConfirmation?email=<escaped>`, which is the first pl
 puts an e-mail in a **query string**. `SensitiveDataRedactor.RedactQueryString` masks e-mails in
 request logs, but it matched the raw query text on a literal `@` — and `Uri.EscapeDataString` writes
 `%40`. Shipping the link without touching the redactor would have persisted whole addresses in the
-logs of every environment.
+Serilog request log of every environment.
 
 The redactor now recognises both spellings of the separator, so `?email=alice%40example.com` logs as
 `?email=a***%40example.com`. Decoding the query before matching was rejected: the function returns
 the query verbatim apart from the redactions, so decoding would have to be undone on the way out,
 and a decode step in a logging hot path is a new way to throw on malformed input.
+
+Two limits of that fix, stated so they are not mistaken for coverage:
+
+- **It covers the Serilog request log, which is not the only log that sees a URL.** In
+  **Development** the Serilog override is `"Microsoft": "Information"`, so
+  `Microsoft.AspNetCore.Hosting.Diagnostics` also emits its own `Request starting … GET /path?query`
+  line — unredacted, to the console and to `./Logs/auth-system-.log`. Staging and Production set
+  `"Microsoft": "Warning"` and never emit it. Dev logs are local and short-lived, so this is
+  accepted rather than fixed; raising it to a redacted enricher would mean owning the framework's
+  log line too.
+- **Only single encoding is handled.** `%2540` — an address inside a URL that is itself escaped into
+  a query parameter, the shape a `returnUrl` would carry — matches neither `@` nor `%40`. Nothing
+  builds such a link today. The fix, if one ever does, is another alternation, not a decode step.
 
 ## Consequences
 

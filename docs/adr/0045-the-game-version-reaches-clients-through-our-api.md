@@ -138,9 +138,9 @@ Two constraints on this:
 
 Detection provenance (manual vs watcher) and dismissal do not belong in `GameVersionStatus`. That
 enum models one question — has this version's export been imported — and every existing invariant
-hangs off it (`EnsureCanBeDeleted` admits only `Unprocessed`, `MarkSuperseded` refuses `Processed`,
-the import sweep queries `GetUnprocessedDetectedBeforeAsync`). A fourth state would thread through
-all of them. Provenance and dismissal are orthogonal fields on the aggregate.
+hangs off it (`EnsureCanBeDeleted` refuses `Processed`, `MarkSuperseded` refuses `Processed`, the
+import sweep queries `GetUnprocessedDetectedBeforeAsync`). A fourth state would thread through all
+of them. Provenance and dismissal are orthogonal fields on the aggregate.
 
 ### 7. The preflight update check reads the TMS
 
@@ -189,7 +189,11 @@ HTTP, exactly as spec 0012's Assumptions require.
 
 ## Prerequisite defect — a bogus version can become permanently unusable
 
-§5 is only safe once this is fixed, and it is reachable today from an admin typo alone:
+> **Resolved by #624 (2026-08-08).** `EnsureCanBeDeleted` now refuses only `Processed`, and the
+> `delete` rel is advertised for every other status, so retiring the dead row is the recovery route
+> this section demanded. The trap below is kept as the record of *why*; §5 is no longer blocked.
+
+§5 is only safe once this is fixed, and it was reachable from an admin typo alone:
 
 1. Version `50` is registered by mistake (`Unprocessed`).
 2. A later import of the real `49.2` sweeps every older unprocessed row into `Superseded`
@@ -197,15 +201,17 @@ HTTP, exactly as spec 0012's Assumptions require.
 3. Update 50 actually ships. Registration is refused — `ExistsByVersionAsync` ignores status
    (`GameVersionRepository.cs:47-52`). Import is refused — the `import` rel is withheld for
    `Superseded` (`GameVersionAggregateLinkFactory.cs:47`) and `MarkAsProcessed` rejects it
-   (`GameVersion.cs:28-31`). Deletion is refused — `EnsureCanBeDeleted` admits only `Unprocessed`
-   (`GameVersion.cs:58-66`).
+   (`GameVersion.cs:28-31`). Deletion was refused too — `EnsureCanBeDeleted` admitted only
+   `Unprocessed`.
 
 `MarkSuperseded` has one call site and no inverse anywhere in `src/`. Canonicalization
-(ADR-0003) means `50`, `50.0` and `50.0.0` are the same value, so there is no spelling around it.
-The version number is dead: hand-written SQL, or a deliberately wrong row, are the only exits.
+(ADR-0003) means `50`, `50.0` and `50.0.0` are the same value, so there was no spelling around it.
+The version number was dead: hand-written SQL, or a deliberately wrong row, were the only exits.
 
 A watcher that registers automatically turns a rare typo into a recurring, unattended path into
-that state. The recovery route must exist before detection goes auto-active.
+that state, which is why the recovery route had to exist before detection goes auto-active. #624
+made it deletion: the duplicate check stays status-blind on purpose, so retiring the dead row is the
+one way back and two rows can never carry the same version string.
 
 ## Consequences
 

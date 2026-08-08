@@ -19,8 +19,8 @@
         <h1>Wersje gry</h1>
         <p class="lede">
             Przeglądaj wykryte wersje gry LOTRO i ich stan w cyklu aktualizacji. Administrator może ręcznie
-            zarejestrować wersję, gdy odczyt z forum jest niedostępny, oraz usunąć błędnie dodaną, jeszcze
-            nieprzetworzoną wersję.
+            zarejestrować wersję, gdy odczyt z forum jest niedostępny, oraz usunąć błędnie dodaną wersję —
+            dopóki nie zaimportowano do niej tekstów.
         </p>
     </div>
 </section>
@@ -129,8 +129,9 @@
                                 </span>
                             </td>
                             <td class="col-actions">
-                                @* The `delete` rel is emitted only for an admin on an Unprocessed version (#158),
-                                   and it carries the URI to call — the page never composes one (#610). *@
+                                @* The `delete` rel is emitted only for an admin on a version no import has
+                                   landed against (#158, #624), and it carries the URI to call — the page
+                                   never composes one (#610). *@
                                 @if (version.Links.FindLink(Rels.Delete) is { } deleteLink)
                                 {
                                     <form method="post" @formname="@DeleteFormName(version.Id)"

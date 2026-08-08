@@ -50,16 +50,21 @@ public sealed class GameVersion : AggregateRoot<GameVersionId>
     }
 
     /// <summary>
-    /// Guards deletion: only an <see cref="GameVersionStatus.Unprocessed"/> version may be removed. A
-    /// processed or superseded version has been woven into the update lifecycle (spec 0001) and removing
-    /// it would orphan the translations that reference it. The cross-aggregate "no translation references
-    /// this version" check stays in the delete handler — the aggregate only owns the status invariant.
+    /// Guards deletion: only a <see cref="GameVersionStatus.Processed"/> version is kept, because it is the
+    /// one an import has been applied against and its translations point at it (spec 0001). A
+    /// <see cref="GameVersionStatus.Superseded"/> version was registered and then skipped —
+    /// <see cref="MarkSuperseded"/> refuses a processed version, so nothing was ever imported into it and
+    /// nothing references it. Leaving it undeletable burned its version number forever (#624). The
+    /// cross-aggregate "no translation references this version" check stays in the delete handler — the
+    /// aggregate only owns the status invariant.
     /// </summary>
     public Result EnsureCanBeDeleted()
     {
-        if (Status is not GameVersionStatus.Unprocessed)
+        // Stated as an allow-list, not as "anything but Processed": a status added later must be
+        // triaged deliberately rather than inherit deletability by default.
+        if (Status is not (GameVersionStatus.Unprocessed or GameVersionStatus.Superseded))
         {
-            return Result.Failure(DomainErrors.GameVersionEntity.OnlyUnprocessedCanBeDeleted(Id));
+            return Result.Failure(DomainErrors.GameVersionEntity.ProcessedCannotBeDeleted(Id));
         }
 
         return Result.Success();

@@ -66,9 +66,9 @@ internal sealed class GameVersionsLoader
     }
 
     /// <summary>
-    /// Deletes a mistaken, still-unprocessed entry by following its own <c>delete</c> link.
-    /// <paramref name="deleteHref"/> is the server-advertised URI — present only for an admin on an
-    /// <c>Unprocessed</c> row, which is the whole gate.
+    /// Deletes a mistaken entry by following its own <c>delete</c> link.
+    /// <paramref name="deleteHref"/> is the server-advertised URI — present only for an admin on a row
+    /// no import has landed against (#624), which is the whole gate.
     /// </summary>
     public Task<ApiResult> DeleteGameVersionAsync(
         string deleteHref,

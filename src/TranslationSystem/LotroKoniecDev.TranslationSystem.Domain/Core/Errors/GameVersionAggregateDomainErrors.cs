@@ -27,11 +27,11 @@ public static partial class DomainErrors
                 $"Game version with ID '{id.Value}' is already processed and cannot be superseded.",
                 "ProcessedCannotBeSuperseded");
 
-        public static Error OnlyUnprocessedCanBeDeleted(GameVersionId id)
+        public static Error ProcessedCannotBeDeleted(GameVersionId id)
             => InvalidOperation(
                 nameof(GameVersionEntity),
-                $"Game version with ID '{id.Value}' is not unprocessed and cannot be deleted; only unprocessed versions can be deleted.",
-                "OnlyUnprocessedCanBeDeleted");
+                $"Game version with ID '{id.Value}' is processed and cannot be deleted; an import has been applied against it.",
+                "ProcessedCannotBeDeleted");
 
         public static Error CannotDeleteReferencedVersion(GameVersionId id)
             => InvalidOperation(

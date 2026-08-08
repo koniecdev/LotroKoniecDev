@@ -211,8 +211,11 @@ A `GameVersion` also has a small state machine:
   48.1 becomes Superseded automatically.
 
 Forbidden moves are enforced in code: a Processed version can never become Superseded, and a
-Superseded version can never be Processed. Only an Unprocessed version that no translation
-points to may be deleted (for fixing typos in manually registered versions).
+Superseded version can never be Processed. A Processed version can never be deleted either — it is
+the one an import was applied against. An Unprocessed or Superseded version that no translation
+points to may be deleted (for fixing typos in manually registered versions). Superseded counts here
+because it was registered and then skipped: no import ever landed against it, so nothing references
+it, and refusing to delete it used to burn that version number forever (#624).
 
 Game version names are **canonical**: `48`, `48.0` and `48.0.0` are the same version. The system
 removes meaningless trailing zeros before storing or comparing (ADR-0003). Without this rule,
@@ -734,9 +737,11 @@ keeps its own tiny, always-converging copy of each user's public profile.
 3. Submitting calls `POST /api/v1/game-versions`. The handler validates the version text,
    canonicalizes it (`48.0` → `48`), rejects duplicates **after** canonicalization, and stores
    a new `Unprocessed` version.
-4. A mistyped version can be deleted — but only while it is still `Unprocessed` **and** no
-   translation row references it. Both checks are server-side; the frontend's delete button is,
-   again, only rendered when the API advertises a `delete` link.
+4. A mistyped version can be deleted as long as it is not `Processed` **and** no translation row
+   references it. That includes a `Superseded` row — one the admin registered by mistake and then
+   skipped by importing the real version — which is how its version number is freed for the real
+   update when it eventually ships (#624). Both checks are server-side; the frontend's delete button
+   is, again, only rendered when the API advertises a `delete` link.
 
 ### 5.4 The import — uploading a fresh export
 

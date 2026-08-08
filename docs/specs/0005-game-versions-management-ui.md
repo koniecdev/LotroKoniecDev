@@ -7,6 +7,14 @@
 - **Related:** Spec 0001 (game-update lifecycle), ADR-0003 (LotroNotationVersion canonical form),
   #107/M2-19 (GameVersion endpoints), #158/M3-12 (HATEOAS-driven affordances), `Components/Pages/ImportExport/` (sibling slice)
 
+> **Amendment 2026-08-08 (#624 / UR-23) — the delete guard is `not Processed`, not `Unprocessed`.**
+> Every "only `Unprocessed` may be deleted" statement below now reads "everything except
+> `Processed`". A `Superseded` row was registered and then skipped — `MarkSuperseded` refuses a
+> processed version, so no import ever landed against it and nothing references it — and refusing to
+> delete it burned its version number forever (it could not be deleted, imported into, or registered
+> again). The error is now `GameVersionEntity.ProcessedCannotBeDeleted`. The register duplicate check
+> and the cross-aggregate reference check are unchanged.
+
 ## Business context
 
 After a LOTRO update the admin reacts to detected game versions (spec 0001): a forum watcher
@@ -60,13 +68,13 @@ and delete a still-unprocessed version they registered by mistake.
   resource advertises the admin-only `register` / `delete` rel — never a locally recomputed role (#158).
 - Duplicate version (normalized per ADR-0003: `48` ≡ `48.0` ≡ `48.0.0`) → the API returns a
   conflict; surface the `ProblemDetails` and keep the list intact.
-- **Delete guard (server-side, authoritative):** load the version → not found ⇒ 404; status is not
-  `Unprocessed` ⇒ conflict (`CannotDeleteProcessedVersion`); any translation references it ⇒ conflict
-  (`CannotDeleteReferencedVersion`); else remove + save ⇒ 204. Under the lifecycle an Unprocessed
-  version has never been imported against, so the referenced check is defense-in-depth (it should
-  not normally trigger).
-- The `delete` rel is emitted per item for admins **only when `Status == Unprocessed`** (cheap,
-  status is on the response); the referenced check stays server-side.
+- **Delete guard (server-side, authoritative):** load the version → not found ⇒ 404; status is
+  `Processed` ⇒ conflict (`ProcessedCannotBeDeleted`); any translation references it ⇒ conflict
+  (`CannotDeleteReferencedVersion`); else remove + save ⇒ 204. Under the lifecycle neither an
+  Unprocessed nor a Superseded version has ever been imported against, so the referenced check is
+  defense-in-depth (it should not normally trigger).
+- The `delete` rel is emitted per item for admins **when `Status != Processed`** (cheap, status is on
+  the response); the referenced check stays server-side.
 - Empty list → friendly empty state; the register form (when admin) still shows so the first version
   can be added.
 - Failed list fetch → surface the error; the register form / delete buttons cannot show (rels can't
@@ -88,6 +96,12 @@ and delete a still-unprocessed version they registered by mistake.
   (404 not found / 409 conflict when Processed/Superseded/referenced).
 - **Errors:** new `DomainErrors.GameVersionEntity.OnlyUnprocessedCanBeDeleted` (covers Processed
   **and** Superseded) and `CannotDeleteReferencedVersion` (both `TypeOfError.DataConflict` → 422).
+  *(Amendment 2026-08-08, #624/UR-23: the status guard was too wide. `MarkSuperseded` refuses a
+  processed version, so a superseded row is one that was registered and then skipped — never
+  imported against, referenced by nothing — and blocking its deletion sealed its version number
+  forever. Only `Processed` is blocked now, and the error is
+  `GameVersionEntity.ProcessedCannotBeDeleted`. The duplicate check on register and the
+  cross-aggregate reference check are unchanged.)*
 - **Files touched:** new `Features/GameVersions/DeleteGameVersion.cs`, repository `Delete` +
   referenced-check, `Rels.Delete`, the GameVersion link factory; new
   `Components/Pages/GameVersions/{GameVersions.razor, GameVersionsLoader.cs}`; nav link in
@@ -98,9 +112,9 @@ and delete a still-unprocessed version they registered by mistake.
 - [ ] `/game-versions` lists versions **newest-first** with version, detected-at, and a status badge.
 - [ ] A non-admin translator sees the list but **no register form and no delete buttons**.
 - [ ] An admin sees the register form; submitting a valid version POSTs and the new row appears.
-- [ ] An admin sees a delete button only on **Unprocessed** rows; deleting removes the row.
-- [ ] `DELETE` on a Processed/Superseded version ⇒ conflict; on an unknown id ⇒ 404; on a referenced
-      version ⇒ conflict — each surfaced as `ProblemDetails`, list preserved.
+- [ ] An admin sees a delete button on every row except **Processed** ones; deleting removes the row.
+- [ ] `DELETE` on a Processed version ⇒ conflict; on an unknown id ⇒ 404; on a referenced version ⇒
+      conflict — each surfaced as `ProblemDetails`, list preserved.
 - [ ] A duplicate/invalid register surfaces the API `ProblemDetails` without losing the list.
 - [ ] An empty list shows the empty state; a failed fetch surfaces the error.
 - [ ] The sidebar shows a "Wersje gry" link.

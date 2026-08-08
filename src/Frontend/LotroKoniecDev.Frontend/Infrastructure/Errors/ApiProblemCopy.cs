@@ -67,8 +67,8 @@ internal static class ApiProblemCopy
                 "Ta wersja gry została zastąpiona nowszą i nie może już zostać przetworzona.",
             ["GameVersionEntity.ProcessedCannotBeSuperseded"] =
                 "Ta wersja gry jest już przetworzona i nie można oznaczyć jej jako zastąpionej.",
-            ["GameVersionEntity.OnlyUnprocessedCanBeDeleted"] =
-                "Usunąć można tylko wersję gry, do której nie zaimportowano jeszcze tekstów.",
+            ["GameVersionEntity.ProcessedCannotBeDeleted"] =
+                "Tej wersji gry nie można usunąć, bo zaimportowano już do niej teksty.",
             ["GameVersionEntity.CannotDeleteReferencedVersion"] =
                 "Tej wersji gry nie można usunąć, bo są z nią powiązane tłumaczenia.",
             ["GameVersions.Validation"] =

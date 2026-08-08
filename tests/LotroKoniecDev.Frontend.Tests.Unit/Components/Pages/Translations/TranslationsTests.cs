@@ -91,6 +91,47 @@ public sealed class TranslationsTests : BunitContext
     }
 
     [Fact]
+    public void Render_WhenFirstPageRelAbsent_RendersADisabledFirstControl()
+    {
+        // The QA symptom of #545: on page 1 the server omits first-page, so "Pierwsza" must be an
+        // inert span rather than a link that reloads the page the user is already on.
+        StubPage(MultiPageOf(page: 1, links: [PageLink(Rels.NextPage), PageLink(Rels.LastPage)]));
+
+        IRenderedComponent<TranslationsComponent> component = RenderPage();
+
+        component.FindAll("a[rel=first]").ShouldBeEmpty();
+        component.FindAll("span.is-disabled").ShouldContain(span => span.TextContent.Contains("Pierwsza"));
+    }
+
+    [Fact]
+    public void Render_WhenLastPageRelAbsent_RendersADisabledLastControl()
+    {
+        // The other half of #545, on the last page.
+        StubPage(MultiPageOf(page: 2, links: [PageLink(Rels.PreviousPage), PageLink(Rels.FirstPage)]));
+
+        IRenderedComponent<TranslationsComponent> component = RenderPage();
+
+        component.FindAll("a[rel=last]").ShouldBeEmpty();
+        component.FindAll("span.is-disabled").ShouldContain(span => span.TextContent.Contains("Ostatnia"));
+    }
+
+    [Fact]
+    public void Render_WhenBoundaryRelsPresent_RendersThemAsEnabledControls()
+    {
+        // A middle page carries all four, so none of them degrades to a disabled span.
+        StubPage(MultiPageOf(page: 2, links:
+        [
+            PageLink(Rels.FirstPage), PageLink(Rels.PreviousPage), PageLink(Rels.NextPage), PageLink(Rels.LastPage)
+        ]));
+
+        IRenderedComponent<TranslationsComponent> component = RenderPage();
+
+        component.FindAll("a[rel=first]").Count.ShouldBe(1);
+        component.FindAll("a[rel=last]").Count.ShouldBe(1);
+        component.FindAll("span.is-disabled").ShouldBeEmpty();
+    }
+
+    [Fact]
     public void Render_WhenNoPaginationRelsPresent_RendersNoPager()
     {
         StubPage(SinglePageOf(Row(canEdit: true)));

@@ -163,9 +163,10 @@ Hypermedia links are **opt-in** (the shared `MediaTypes` convention, spec 0002 �
 
 Links are **state- and role-aware**: a soft-removed translation advertises only `self`; `approve`
 appears only for an `Admin` on a `Draft`/`NeedsReview` row; `register` (game version) only for an
-`Admin`. Pagination links (`first-page`/`previous-page`/`next-page`/`last-page`) appear only when the
-target page exists. Treat the link set as the authoritative "what can I do next" — don't hard-code
-URLs you can read from a rel.
+`Admin`. Pagination links (`first-page`/`previous-page`/`next-page`/`last-page`) appear only when they
+lead somewhere else — a boundary rel is omitted on the very page it points at, so a client can render
+the control as disabled without recomputing anything (#545). Treat the link set as the authoritative
+"what can I do next" — don't hard-code URLs you can read from a rel.
 
 ---
 
@@ -504,7 +505,8 @@ Sent only with `Accept: application/vnd.dev-lotrokoniecdev.hateoas.json`.
 | `bulk-approve` | POST | `/api/v1/translations/approve` | on the translations collection, caller is `Admin` |
 | `register` | POST | `/api/v1/game-versions` | on the game-versions collection, caller is `Admin` |
 | `delete` | DELETE | `/api/v1/game-versions/{id}` | caller is `Admin` **and** the version is not `Processed` (#624) |
-| `first-page` / `previous-page` / `next-page` / `last-page` | GET | the list page | the target page exists |
+| `previous-page` / `next-page` | GET | the list page | that neighbouring page exists |
+| `first-page` / `last-page` | GET | the list page | the target page exists **and is not the current one** (#545); both survive an over-range page, so an overshooting caller can get back |
 
 ### 10.2 `auth-api` rels (`AuthSystem.Contracts/Hateoas/Rels.cs`)
 

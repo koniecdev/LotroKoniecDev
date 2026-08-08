@@ -45,16 +45,6 @@
       "href": "http://localhost/api/v1/translations?page=1&pageSize=50",
       "rel": "self",
       "method": "GET"
-    },
-    {
-      "href": "http://localhost/api/v1/translations?page=1&pageSize=50",
-      "rel": "first-page",
-      "method": "GET"
-    },
-    {
-      "href": "http://localhost/api/v1/translations?page=1&pageSize=50",
-      "rel": "last-page",
-      "method": "GET"
     }
   ]
 }

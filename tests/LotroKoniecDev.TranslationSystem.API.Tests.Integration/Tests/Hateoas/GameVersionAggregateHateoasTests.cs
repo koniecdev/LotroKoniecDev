@@ -16,8 +16,8 @@ namespace LotroKoniecDev.TranslationSystem.API.Tests.Integration.Tests.Hateoas;
 
 /// <summary>
 /// Verifies the game-version aggregate's HATEOAS links: per-item <c>self</c> (resolving to the new
-/// item endpoint) plus the role-gated <c>delete</c> action (admins only, on unprocessed versions) and
-/// <c>import</c> action (admins only, on anything not superseded — #608), the collection <c>self</c>,
+/// item endpoint) plus the role-gated <c>delete</c> action (admins only, on anything not processed —
+/// #624) and <c>import</c> action (admins only, on anything not superseded — #608), the collection <c>self</c>,
 /// and the role-gated <c>register</c> action (admins only). Plain
 /// <c>application/json</c> requests must carry no links and still deserialize.
 /// </summary>
@@ -126,7 +126,7 @@ public sealed class GameVersionAggregateHateoasTests : IAsyncLifetime
     [Fact]
     public async Task ListGameVersions_AsAdmin_WhenVersionIsProcessed_DoesNotAdvertiseDeleteOnTheItem()
     {
-        // Arrange — only an unprocessed version may be deleted; a processed one offers self only.
+        // Arrange — a processed version is the one an import landed against, so it is never deletable.
         GameVersionId id = await SeedProcessedAsync("48.0");
 
         // Act
@@ -217,6 +217,40 @@ public sealed class GameVersionAggregateHateoasTests : IAsyncLifetime
         // Assert
         response.Links.ShouldContain(l => l.Rel == Rels.Self);
         response.Links.ShouldNotContain(l => l.Rel == Rels.Import);
+    }
+
+    [Fact]
+    public async Task GetGameVersion_AsAdmin_WhenSuperseded_AdvertisesDelete()
+    {
+        // Arrange — retiring a skipped version is how the admin frees its version number, so the button
+        // has to be on the page rather than reachable only by calling the API by hand (#624).
+        GameVersionId id = await SeedSupersededAsync("47.0");
+
+        // Act
+        GameVersionResponse response = await GetHateoasAsync<GameVersionResponse>(
+            AdminClient(), $"{Route}/{id.Value}");
+
+        // Assert
+        LinkDto delete = response.Links.Where(l => l.Rel == Rels.Delete).ShouldHaveSingleItem();
+        delete.Method.ShouldBe("DELETE");
+        delete.Href.ShouldEndWith($"{Route}/{id.Value}");
+    }
+
+    [Fact]
+    public async Task ListGameVersions_AsAdmin_WhenVersionIsSuperseded_AdvertisesDeleteOnTheItem()
+    {
+        // Arrange — the versions page renders its delete button off the list's per-item rel.
+        GameVersionId id = await SeedSupersededAsync("47.0");
+
+        // Act
+        CollectionResponse<GameVersionResponse> response =
+            await GetHateoasAsync<CollectionResponse<GameVersionResponse>>(AdminClient(), Route);
+
+        // Assert
+        GameVersionResponse item = response.Items.First(i => i.Id == id);
+        LinkDto delete = item.Links.Where(l => l.Rel == Rels.Delete).ShouldHaveSingleItem();
+        delete.Method.ShouldBe("DELETE");
+        delete.Href.ShouldEndWith($"{Route}/{id.Value}");
     }
 
     [Fact]

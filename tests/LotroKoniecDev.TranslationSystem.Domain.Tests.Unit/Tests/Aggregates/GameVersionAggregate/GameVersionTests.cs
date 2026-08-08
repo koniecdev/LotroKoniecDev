@@ -162,13 +162,14 @@ public sealed class GameVersionTests
 
         // Assert
         result.IsFailure.ShouldBeTrue();
-        result.Error.ShouldBe(DomainErrors.GameVersionEntity.OnlyUnprocessedCanBeDeleted(gameVersion.Id));
+        result.Error.ShouldBe(DomainErrors.GameVersionEntity.ProcessedCannotBeDeleted(gameVersion.Id));
     }
 
     [Fact]
-    public void EnsureCanBeDeleted_WhenSuperseded_ShouldReturnFailure()
+    public void EnsureCanBeDeleted_WhenSuperseded_ShouldSucceed()
     {
-        // Arrange
+        // Arrange — superseded means "registered, then skipped": MarkSuperseded refuses a processed
+        // version, so no import ever landed against this one and nothing references it (#624).
         GameVersion gameVersion = CreateGameVersion();
         gameVersion.MarkSuperseded();
 
@@ -176,7 +177,6 @@ public sealed class GameVersionTests
         Result result = gameVersion.EnsureCanBeDeleted();
 
         // Assert
-        result.IsFailure.ShouldBeTrue();
-        result.Error.ShouldBe(DomainErrors.GameVersionEntity.OnlyUnprocessedCanBeDeleted(gameVersion.Id));
+        result.IsSuccess.ShouldBeTrue();
     }
 }

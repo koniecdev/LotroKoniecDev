@@ -128,6 +128,7 @@ public sealed class ApiProblemCopyTests
     [InlineData("GameVersionEntity.LotroNotationVersion.AlreadyTaken", 422, "Taka wersja gry jest już zarejestrowana.")]
     [InlineData("GameVersionEntity.LotroNotationVersion.InvalidFormat", 400, "Numer wersji gry musi składać się z liczb rozdzielonych kropkami, na przykład „48.0” albo „47.1.1”.")]
     [InlineData("GameVersionEntity.CannotDeleteReferencedVersion", 422, "Tej wersji gry nie można usunąć, bo są z nią powiązane tłumaczenia.")]
+    [InlineData("GameVersionEntity.ProcessedCannotBeDeleted", 422, "Tej wersji gry nie można usunąć, bo zaimportowano już do niej teksty.")]
     [InlineData("TranslationEntity.CannotApproveWithoutTranslation", 422, "Nie można zatwierdzić pustego tłumaczenia — najpierw wpisz polski tekst.")]
     [InlineData("Translations.Validation", 400, "Tłumaczenie nie może być puste i nie może przekraczać dozwolonej długości.")]
     [InlineData("Auth.InvalidCurrentPassword", 400, "Aktualne hasło jest nieprawidłowe.")]

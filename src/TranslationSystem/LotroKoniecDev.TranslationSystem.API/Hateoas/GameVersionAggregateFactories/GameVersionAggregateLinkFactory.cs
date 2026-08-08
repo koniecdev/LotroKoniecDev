@@ -30,9 +30,11 @@ internal sealed class GameVersionAggregateLinkFactory : IGameVersionAggregateLin
             method: HttpMethods.Get,
             values: new { id = id.Value }));
 
-        // Deleting a mistaken manual registration is an admin action, and only an unprocessed version
-        // may be removed (a processed/superseded one is referenced by translations — spec 0001).
-        if (callerIsAdmin && status is GameVersionStatus.Unprocessed)
+        // Deleting a mistaken manual registration is an admin action. Only a processed version is kept —
+        // it is the one translations point at (spec 0001). A superseded version was registered and then
+        // skipped, so retiring it is exactly how the admin frees its version number again (#624). Stated
+        // as an allow-list to mirror EnsureCanBeDeleted, so the rel can never outrun the domain guard.
+        if (callerIsAdmin && status is GameVersionStatus.Unprocessed or GameVersionStatus.Superseded)
         {
             links.AddIfPresent(await _linkFactory.CreateAsync(
                 endpoint: nameof(DeleteGameVersion),

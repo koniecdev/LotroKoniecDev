@@ -17,11 +17,12 @@ using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.GameVersionAggregat
 namespace LotroKoniecDev.TranslationSystem.API.Features.GameVersions;
 
 /// <summary>
-/// Deletes a manually-registered game version that was added by mistake (#209). The guard is strict:
-/// only an <see cref="Primitives.Aggregates.GameVersionAggregate.Enums.GameVersionStatus.Unprocessed"/>
-/// version with no translation referencing it can be removed — a processed or superseded version is
-/// woven into the update lifecycle (spec 0001) and removing it would orphan the rows that point at it
-/// (422). Requires the admin policy; an unknown id is a 404.
+/// Deletes a manually-registered game version that was added by mistake (#209). Only a
+/// <see cref="Primitives.Aggregates.GameVersionAggregate.Enums.GameVersionStatus.Processed"/> version is
+/// kept — it is the one an import was applied against, and removing it would orphan the rows that point
+/// at it (422). An unprocessed or superseded version with no translation referencing it can be removed,
+/// which is what frees a version number burned by a wrong registration (#624). Requires the admin
+/// policy; an unknown id is a 404.
 /// </summary>
 internal sealed class DeleteGameVersion : IEndpoint
 {
@@ -79,9 +80,9 @@ internal sealed class DeleteGameVersion : IEndpoint
                 return deletableResult;
             }
 
-            // Cross-aggregate safety net: under the lifecycle an Unprocessed version has never been
-            // imported against, so nothing should reference it — but a referenced version must never be
-            // removed, or its translations would point at a missing version.
+            // Cross-aggregate safety net: under the lifecycle neither an Unprocessed nor a Superseded
+            // version has ever been imported against, so nothing should reference it — but a referenced
+            // version must never be removed, or its translations would point at a missing version.
             if (await _translationRepository.AnyReferencesGameVersionAsync(command.Id, cancellationToken))
             {
                 return Result.Failure(DomainErrors.GameVersionEntity.CannotDeleteReferencedVersion(command.Id));

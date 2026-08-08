@@ -69,7 +69,7 @@ public sealed class DeleteGameVersionHandlerTests
 
         // Assert
         result.IsFailure.ShouldBeTrue();
-        result.Error.ShouldBe(DomainErrors.GameVersionEntity.OnlyUnprocessedCanBeDeleted(gameVersion.Id));
+        result.Error.ShouldBe(DomainErrors.GameVersionEntity.ProcessedCannotBeDeleted(gameVersion.Id));
         // The status guard short-circuits before the cross-aggregate reference check.
         await _translationRepository.DidNotReceive().AnyReferencesGameVersionAsync(Arg.Any<GameVersionId>(), Arg.Any<CancellationToken>());
         _gameVersionRepository.DidNotReceive().Remove(Arg.Any<GameVersion>());
@@ -111,5 +111,45 @@ public sealed class DeleteGameVersionHandlerTests
         result.IsSuccess.ShouldBeTrue();
         _gameVersionRepository.Received(1).Remove(gameVersion);
         await _unitOfWork.Received(1).SaveChangesAsync(Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Handle_WhenSupersededAndUnreferenced_ShouldRemoveAndPersist()
+    {
+        // Arrange — a version that was registered and then skipped was never imported against, so
+        // retiring it is how the admin frees its version number again (#624).
+        GameVersion gameVersion = UnprocessedVersion();
+        gameVersion.MarkSuperseded();
+        _gameVersionRepository.GetByIdAsync(gameVersion.Id, Arg.Any<CancellationToken>())
+            .Returns(Maybe<GameVersion>.From(gameVersion));
+
+        // Act
+        Result result = await CreateHandler().Handle(new DeleteGameVersion.Command(gameVersion.Id), CancellationToken.None);
+
+        // Assert
+        result.IsSuccess.ShouldBeTrue();
+        _gameVersionRepository.Received(1).Remove(gameVersion);
+        await _unitOfWork.Received(1).SaveChangesAsync(Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Handle_WhenSupersededButReferencedByATranslation_ShouldReturnConflictAndNotDelete()
+    {
+        // Arrange — the cross-aggregate net still stands whatever the status (#624 leaves it untouched).
+        GameVersion gameVersion = UnprocessedVersion();
+        gameVersion.MarkSuperseded();
+        _gameVersionRepository.GetByIdAsync(gameVersion.Id, Arg.Any<CancellationToken>())
+            .Returns(Maybe<GameVersion>.From(gameVersion));
+        _translationRepository.AnyReferencesGameVersionAsync(gameVersion.Id, Arg.Any<CancellationToken>())
+            .Returns(true);
+
+        // Act
+        Result result = await CreateHandler().Handle(new DeleteGameVersion.Command(gameVersion.Id), CancellationToken.None);
+
+        // Assert
+        result.IsFailure.ShouldBeTrue();
+        result.Error.ShouldBe(DomainErrors.GameVersionEntity.CannotDeleteReferencedVersion(gameVersion.Id));
+        _gameVersionRepository.DidNotReceive().Remove(Arg.Any<GameVersion>());
+        await _unitOfWork.DidNotReceive().SaveChangesAsync(Arg.Any<CancellationToken>());
     }
 }

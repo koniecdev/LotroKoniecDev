@@ -111,6 +111,22 @@ public sealed class SensitiveDataRedactorTests
         result.ShouldBe("?email=a***@example.com");
     }
 
+    /// <summary>
+    /// The shape a link built with <c>Uri.EscapeDataString</c> puts on the wire (ADR-0046). The query
+    /// is matched raw and never decoded, so a matcher that only knows the literal <c>@</c> lets the
+    /// whole address through into the request log.
+    /// </summary>
+    [Theory]
+    [InlineData("?email=alice%40example.com", "?email=a***%40example.com")]
+    [InlineData("?email=alice%2Btag%40example.com", "?email=a***%40example.com")]
+    [InlineData("?email=alice%40example.com&page=2", "?email=a***%40example.com&page=2")]
+    public void RedactQueryString_PercentEncodedEmailValue_MasksLocalPart(string queryString, string expected)
+    {
+        string result = SensitiveDataRedactor.RedactQueryString(queryString);
+
+        result.ShouldBe(expected);
+    }
+
     [Fact]
     public void RedactQueryString_EmailInArbitraryParameterName_IsStillMasked()
     {
@@ -140,6 +156,8 @@ public sealed class SensitiveDataRedactorTests
     [InlineData("b@c.com", "b***@c.com")]
     [InlineData("bob.smith@contoso.co.uk", "b***@contoso.co.uk")]
     [InlineData("alice+tag@example.com", "a***@example.com")]
+    [InlineData("alice%40example.com", "a***%40example.com")]
+    [InlineData("alice%2Btag%40example.com", "a***%40example.com")]
     public void MaskEmail_ValidEmail_MasksEverythingAfterTheFirstCharacterOfTheLocalPart(
         string email,
         string expected)
@@ -153,6 +171,7 @@ public sealed class SensitiveDataRedactorTests
     [InlineData("")]
     [InlineData("   ")]
     [InlineData("@example.com")]
+    [InlineData("%40example.com")]
     [InlineData("not-an-email")]
     public void MaskEmail_MissingLocalPartOrAtSign_ReturnsFullyRedacted(string value)
     {

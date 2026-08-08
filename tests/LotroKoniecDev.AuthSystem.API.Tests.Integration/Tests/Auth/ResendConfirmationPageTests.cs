@@ -28,6 +28,32 @@ public sealed partial class ResendConfirmationPageTests : EndpointsTestBase
         html.ShouldContain("Wyślij link aktywacyjny");
     }
 
+    /// <summary>
+    /// The receiving end of the login page's unconfirmed-account link (ADR-0046). The <c>+</c> earns
+    /// the row: a link built without escaping would arrive here decoded as a space, and the prefilled
+    /// address would be a different one than the account's.
+    /// </summary>
+    [Fact]
+    public async Task ResendConfirmationPage_ShouldPrefillTheAddress_WhenItArrivesInTheQuery()
+    {
+        // Arrange
+        const string email = "alice+tag@example.com";
+
+        // Act
+        HttpResponseMessage response = await ApiClient.Http.GetAsync(
+            new Uri($"/Account/ResendConfirmation?email={Uri.EscapeDataString(email)}", UriKind.Relative));
+
+        // Assert
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+
+        string html = await response.Content.ReadAsStringAsync();
+        Match input = EmailInputRegex().Match(html);
+        input.Success.ShouldBeTrue("Expected the resend page to render an e-mail input.");
+        // Decoded, because Razor writes the '+' as the entity '&#x2B;' — what matters is the address
+        // the browser puts back in the field, not the encoder's spelling of it.
+        WebUtility.HtmlDecode(input.Value).ShouldContain($"value=\"{email}\"");
+    }
+
     [Fact]
     public async Task LoginPage_ShouldOfferLinkToResendConfirmation()
     {
@@ -222,4 +248,7 @@ public sealed partial class ResendConfirmationPageTests : EndpointsTestBase
 
     [GeneratedRegex("""name="__RequestVerificationToken".*?value="([^"]+)""")]
     private static partial Regex AntiForgeryTokenRegex();
+
+    [GeneratedRegex("""<input[^>]*name="Email"[^>]*>""")]
+    private static partial Regex EmailInputRegex();
 }

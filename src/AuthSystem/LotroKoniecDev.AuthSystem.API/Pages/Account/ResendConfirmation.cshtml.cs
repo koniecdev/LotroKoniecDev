@@ -22,9 +22,16 @@ internal sealed class ResendConfirmationModel : PageModel
 
     public bool IsSubmitted { get; set; }
 
-    public void OnGet()
+    /// <summary>
+    /// <paramref name="email"/> arrives from the login page's unconfirmed-account alert (ADR-0046)
+    /// and is a form default, nothing more: the POST handler still owns the anti-enumeration
+    /// behaviour, so an address typed into the query by hand reveals exactly as much as one typed
+    /// into the field.
+    /// </summary>
+    public void OnGet(string? email)
     {
         IsSubmitted = false;
+        Email = email?.Trim() ?? string.Empty;
     }
 
     public async Task<IActionResult> OnPostAsync(CancellationToken cancellationToken)

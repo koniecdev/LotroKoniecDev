@@ -258,6 +258,7 @@ try
     const string authEndpointRateLimitPolicy = "auth-endpoint-limit";
     const string forgotPasswordRateLimitPolicy = "forgot-password-limit";
     const string resendConfirmationRateLimitPolicy = "resend-confirmation-limit";
+    const string resendConfirmationPageViewPartition = "resend-confirmation-page-view";
 
     builder.Services.AddRateLimiter(options =>
     {
@@ -292,15 +293,22 @@ try
                     Window = TimeSpan.FromMinutes(15)
                 }));
 
-        // Separate rate limiting for email confirmation resend
+        // Separate rate limiting for email confirmation resend. The budget belongs to the SEND: the
+        // policy rides an [EnableRateLimiting] attribute on the Razor PageModel, and a Razor Page is
+        // one endpoint for both verbs, so a verb-blind partition spends the 3-per-15-minutes window on
+        // page views — three of them and the user cannot even reach the form. That is the form
+        // ADR-0046 made the advertised one-click fix for a blocked login, so the distinction is
+        // load-bearing, not cosmetic. Rendering a form costs nothing; sending mail is what needs the cap.
         options.AddPolicy(resendConfirmationRateLimitPolicy, httpContext =>
-            RateLimitPartition.GetFixedWindowLimiter(
-                partitionKey: httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown",
-                factory: _ => new FixedWindowRateLimiterOptions
-                {
-                    PermitLimit = 3,
-                    Window = TimeSpan.FromMinutes(15)
-                }));
+            HttpMethods.IsPost(httpContext.Request.Method)
+                ? RateLimitPartition.GetFixedWindowLimiter(
+                    partitionKey: httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+                    factory: _ => new FixedWindowRateLimiterOptions
+                    {
+                        PermitLimit = 3,
+                        Window = TimeSpan.FromMinutes(15)
+                    })
+                : RateLimitPartition.GetNoLimiter<string>(resendConfirmationPageViewPartition));
     });
 
     WebApplication app = builder.Build();

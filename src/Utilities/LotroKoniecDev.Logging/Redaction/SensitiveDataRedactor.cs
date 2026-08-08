@@ -9,11 +9,17 @@ namespace LotroKoniecDev.Logging.Redaction;
 /// <c>password</c>) are replaced wholesale, and any e-mail address surviving in a non-sensitive value
 /// has its local part masked, so neither a replayable token nor a piece of PII is persisted in plain
 /// text. All methods are total — a logging hot path must never throw — and operate on the raw query
-/// string without decoding, which is sufficient because query e-mails carry a literal <c>@</c>.
+/// string without decoding, so the separator is recognised in its literal <c>@</c> form and in the
+/// single-encoded <c>%40</c> that <c>Uri.EscapeDataString</c> produces (ADR-0046). Deeper nesting is
+/// NOT covered: an address escaped twice (<c>%2540</c>, as it would be inside a <c>returnUrl</c>
+/// carrying a link that itself carries an address) matches neither form and survives the mask. No
+/// such link exists today; the fix is another alternation here, not a decode step in a hot path.
 /// </summary>
 public static partial class SensitiveDataRedactor
 {
     private const string RedactedValue = "***";
+
+    private const string PercentEncodedAt = "%40";
 
     /// <summary>
     /// Query-parameter names whose value is a secret and must never be logged. Matched
@@ -69,7 +75,7 @@ public static partial class SensitiveDataRedactor
     /// <summary>
     /// Masks the local part of an e-mail, keeping only its first character (e.g.
     /// <c>alice@example.com</c> becomes <c>a***@example.com</c>). Anything without a non-empty local
-    /// part and an <c>@</c> is treated as fully sensitive and replaced with <c>***</c>.
+    /// part and a separator is treated as fully sensitive and replaced with <c>***</c>.
     /// </summary>
     public static string MaskEmail(string value)
     {
@@ -79,6 +85,11 @@ public static partial class SensitiveDataRedactor
         }
 
         int atIndex = value.IndexOf('@', StringComparison.Ordinal);
+        if (atIndex < 0)
+        {
+            atIndex = value.IndexOf(PercentEncodedAt, StringComparison.Ordinal);
+        }
+
         return atIndex <= 0 ? RedactedValue : string.Concat(value[0].ToString(), RedactedValue, value[atIndex..]);
     }
 
@@ -105,7 +116,9 @@ public static partial class SensitiveDataRedactor
 
     private static string MaskEmailsIn(string value)
     {
-        if (value.Length == 0 || !value.Contains('@', StringComparison.Ordinal))
+        bool mayHoldEmail = value.Contains('@', StringComparison.Ordinal)
+            || value.Contains(PercentEncodedAt, StringComparison.Ordinal);
+        if (!mayHoldEmail)
         {
             return value;
         }
@@ -113,6 +126,6 @@ public static partial class SensitiveDataRedactor
         return EmailRegex().Replace(value, match => MaskEmail(match.Value));
     }
 
-    [GeneratedRegex(@"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}", RegexOptions.CultureInvariant)]
+    [GeneratedRegex(@"[A-Za-z0-9._%+-]+(?:@|%40)[A-Za-z0-9.-]+\.[A-Za-z]{2,}", RegexOptions.CultureInvariant)]
     private static partial Regex EmailRegex();
 }

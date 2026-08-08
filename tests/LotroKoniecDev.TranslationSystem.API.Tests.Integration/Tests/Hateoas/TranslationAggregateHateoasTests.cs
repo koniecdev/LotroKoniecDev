@@ -180,10 +180,11 @@ public sealed class TranslationAggregateHateoasTests : IAsyncLifetime
         item.Links.ShouldContain(l => l.Rel == Rels.Upsert && l.Method == "PUT");
         item.Links.ShouldContain(l => l.Rel == Rels.Approve && l.Method == "POST");
 
-        // Assert — pagination links on the envelope
+        // Assert — pagination links on the envelope. One row fits on one page, so every boundary rel
+        // would point at the page we are already on and none is advertised (#545).
         response.Links.ShouldContain(l => l.Rel == Rels.Self && l.Method == "GET");
-        response.Links.ShouldContain(l => l.Rel == Rels.FirstPage);
-        response.Links.ShouldContain(l => l.Rel == Rels.LastPage);
+        response.Links.ShouldNotContain(l => l.Rel == Rels.FirstPage);
+        response.Links.ShouldNotContain(l => l.Rel == Rels.LastPage);
 
         // Assert — the admin-only bulk-approve collection affordance (#322) drives the FE checkbox toolbar.
         response.Links.ShouldContain(l => l.Rel == Rels.BulkApprove && l.Method == "POST");
@@ -194,19 +195,23 @@ public sealed class TranslationAggregateHateoasTests : IAsyncLifetime
     {
         // Arrange — the public read-only list (#309): items must not advertise transitions an
         // anonymous visitor cannot take (self targets the translator-only detail GET), while the
-        // envelope keeps its pagination navigation, which is plain browsing.
-        Translation row = await SeedAsync(Row(1, "Aragorn", TranslationStatus.Draft));
+        // envelope keeps its pagination navigation, which is plain browsing. Two rows one per page,
+        // so the pager links this test is about actually exist.
+        Translation row = await SeedAsync(Row(1, "Aragorn", TranslationStatus.Draft), Row(2, "Boromir"));
 
         // Act
         PaginationResponse<TranslationListItemResponse> response =
             await GetHateoasAsync<PaginationResponse<TranslationListItemResponse>>(
-                _factory.CreateClient(), "/api/v1/translations?page=1&pageSize=50");
+                _factory.CreateClient(), "/api/v1/translations?page=1&pageSize=1");
 
         // Assert
         response.Items.First(i => i.Id == row.Id).Links.ShouldBeEmpty();
         response.Links.ShouldContain(l => l.Rel == Rels.Self && l.Method == "GET");
-        response.Links.ShouldContain(l => l.Rel == Rels.FirstPage);
+        response.Links.ShouldContain(l => l.Rel == Rels.NextPage);
         response.Links.ShouldContain(l => l.Rel == Rels.LastPage);
+        // On page 1 the backward jumps lead nowhere, so the pager renders them disabled (#545).
+        response.Links.ShouldNotContain(l => l.Rel == Rels.FirstPage);
+        response.Links.ShouldNotContain(l => l.Rel == Rels.PreviousPage);
         // The bulk-approve affordance is reviewer-only, so the anonymous envelope must not carry it.
         response.Links.ShouldNotContain(l => l.Rel == Rels.BulkApprove);
     }
@@ -249,6 +254,44 @@ public sealed class TranslationAggregateHateoasTests : IAsyncLifetime
         response.Links.ShouldContain(l => l.Rel == Rels.LastPage);
         response.Links.ShouldContain(l => l.Rel == Rels.PreviousPage);
         response.Links.ShouldContain(l => l.Rel == Rels.NextPage);
+    }
+
+    [Fact]
+    public async Task ListTranslations_OnTheLastPage_OmitsTheForwardJumps()
+    {
+        // Arrange — three rows, one per page, so page 3 is the last page.
+        await SeedAsync(Row(1, "a"), Row(2, "b"), Row(3, "c"));
+
+        // Act
+        PaginationResponse<TranslationListItemResponse> response =
+            await GetHateoasAsync<PaginationResponse<TranslationListItemResponse>>(
+                AdminClient(), "/api/v1/translations?page=3&pageSize=1");
+
+        // Assert — both forward controls lead nowhere here and the pager renders them disabled (#545).
+        response.Page.ShouldBe(3);
+        response.Links.ShouldNotContain(l => l.Rel == Rels.LastPage);
+        response.Links.ShouldNotContain(l => l.Rel == Rels.NextPage);
+        response.Links.ShouldContain(l => l.Rel == Rels.FirstPage);
+        response.Links.ShouldContain(l => l.Rel == Rels.PreviousPage);
+    }
+
+    [Fact]
+    public async Task ListTranslations_PastTheLastPage_StillOffersBothAbsoluteJumpsBack()
+    {
+        // Arrange — page is clamped at the lower bound only, so an over-range page is reachable and
+        // must not become a dead end: next is genuinely gone, but first/last are absolute jumps.
+        await SeedAsync(Row(1, "a"), Row(2, "b"), Row(3, "c"));
+
+        // Act
+        PaginationResponse<TranslationListItemResponse> response =
+            await GetHateoasAsync<PaginationResponse<TranslationListItemResponse>>(
+                AdminClient(), "/api/v1/translations?page=99&pageSize=1");
+
+        // Assert
+        response.Items.ShouldBeEmpty();
+        response.Links.ShouldContain(l => l.Rel == Rels.FirstPage);
+        response.Links.ShouldContain(l => l.Rel == Rels.LastPage);
+        response.Links.ShouldNotContain(l => l.Rel == Rels.NextPage);
     }
 
     [Fact]

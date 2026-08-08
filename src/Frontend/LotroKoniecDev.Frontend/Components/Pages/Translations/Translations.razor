@@ -232,51 +232,65 @@
             {
                 @resultsTable
             }
+        }
 
-            @* The pager controls' availability is driven by the server's pagination link rels (#158); the
-               user-facing /translations?... URLs stay FE-built via ToPageRelativeUri so they remain clean. *@
-            @if (pageData.Links.HasLink(Rels.PreviousPage) || pageData.Links.HasLink(Rels.NextPage))
-            {
-                <nav class="pager" aria-label="Stronicowanie">
-                    @if (pageData.Links.HasLink(Rels.FirstPage))
-                    {
-                        <a class="btn btn-ghost" href="@_query.ToPageRelativeUri(1)" rel="first">« Pierwsza</a>
-                    }
-                    else
-                    {
-                        <span class="btn btn-ghost is-disabled" aria-disabled="true">« Pierwsza</span>
-                    }
+        @* The pager controls' availability is driven by the server's pagination link rels (#158); the
+           user-facing /translations?... URLs stay FE-built via ToPageRelativeUri so they remain clean.
 
-                    @if (pageData.Links.HasLink(Rels.PreviousPage))
-                    {
-                        <a class="btn btn-ghost" href="@_query.ToPageRelativeUri(pageData.Page - 1)" rel="prev">← Poprzednia</a>
-                    }
-                    else
-                    {
-                        <span class="btn btn-ghost is-disabled" aria-disabled="true">← Poprzednia</span>
-                    }
+           It sits OUTSIDE the empty-state branch on purpose (#634). An over-range page (?page=99 of 3)
+           is empty yet still carries first-page/last-page — the API emits those absolute jumps
+           precisely so an overshooting caller has a way back (#545) — and rendering the empty state
+           without a pager left the user with no control at all, only the URL bar. A genuine
+           no-matches page carries no pagination rel whatsoever, so it stays pager-less on the same
+           rule; nothing here recomputes availability from Page/TotalPages.
 
-                    <span class="pager-status">@pageData.Page / @pageData.TotalPages</span>
+           The gate names all four rels rather than previous||next: those two happen to accompany the
+           boundary rels in every reachable state today, but that is a coupling across two codebases,
+           not a rule anything enforces. *@
+        @if (pageData.Links.HasLink(Rels.FirstPage)
+             || pageData.Links.HasLink(Rels.PreviousPage)
+             || pageData.Links.HasLink(Rels.NextPage)
+             || pageData.Links.HasLink(Rels.LastPage))
+        {
+            <nav class="pager" aria-label="Stronicowanie">
+                @if (pageData.Links.HasLink(Rels.FirstPage))
+                {
+                    <a class="btn btn-ghost" href="@_query.ToPageRelativeUri(1)" rel="first">« Pierwsza</a>
+                }
+                else
+                {
+                    <span class="btn btn-ghost is-disabled" aria-disabled="true">« Pierwsza</span>
+                }
 
-                    @if (pageData.Links.HasLink(Rels.NextPage))
-                    {
-                        <a class="btn btn-ghost" href="@_query.ToPageRelativeUri(pageData.Page + 1)" rel="next">Następna →</a>
-                    }
-                    else
-                    {
-                        <span class="btn btn-ghost is-disabled" aria-disabled="true">Następna →</span>
-                    }
+                @if (pageData.Links.HasLink(Rels.PreviousPage))
+                {
+                    <a class="btn btn-ghost" href="@_query.ToPageRelativeUri(pageData.Page - 1)" rel="prev">← Poprzednia</a>
+                }
+                else
+                {
+                    <span class="btn btn-ghost is-disabled" aria-disabled="true">← Poprzednia</span>
+                }
 
-                    @if (pageData.Links.HasLink(Rels.LastPage))
-                    {
-                        <a class="btn btn-ghost" href="@_query.ToPageRelativeUri(pageData.TotalPages)" rel="last">Ostatnia »</a>
-                    }
-                    else
-                    {
-                        <span class="btn btn-ghost is-disabled" aria-disabled="true">Ostatnia »</span>
-                    }
-                </nav>
-            }
+                <span class="pager-status">@pageData.Page / @pageData.TotalPages</span>
+
+                @if (pageData.Links.HasLink(Rels.NextPage))
+                {
+                    <a class="btn btn-ghost" href="@_query.ToPageRelativeUri(pageData.Page + 1)" rel="next">Następna →</a>
+                }
+                else
+                {
+                    <span class="btn btn-ghost is-disabled" aria-disabled="true">Następna →</span>
+                }
+
+                @if (pageData.Links.HasLink(Rels.LastPage))
+                {
+                    <a class="btn btn-ghost" href="@_query.ToPageRelativeUri(pageData.TotalPages)" rel="last">Ostatnia »</a>
+                }
+                else
+                {
+                    <span class="btn btn-ghost is-disabled" aria-disabled="true">Ostatnia »</span>
+                }
+            </nav>
         }
     }
 </section>

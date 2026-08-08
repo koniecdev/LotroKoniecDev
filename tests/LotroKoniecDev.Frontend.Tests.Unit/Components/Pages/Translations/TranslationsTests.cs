@@ -141,6 +141,40 @@ public sealed class TranslationsTests : BunitContext
         component.FindAll("nav.pager").ShouldBeEmpty();
     }
 
+    /// <summary>
+    /// The two ways a page can render zero rows are not the same state (#634). Overshooting the last
+    /// page still carries the server's absolute jumps, so the pager is the only way back; a filter
+    /// that matched nothing carries no rel and has nowhere to go. The distinction is the rel set, not
+    /// the row count — which is why the pager cannot live inside the empty-state branch.
+    /// </summary>
+    [Fact]
+    public void Render_WhenPageIsOverRange_RendersTheEmptyStateWithAWayBack()
+    {
+        // ?page=99 of 3: the API omits next-page but still emits the absolute jumps plus previous-page
+        StubPage(OverRangePageOf(page: 99, links:
+        [
+            PageLink(Rels.FirstPage), PageLink(Rels.PreviousPage), PageLink(Rels.LastPage)
+        ]));
+
+        IRenderedComponent<TranslationsComponent> component = RenderPage();
+
+        component.FindAll("div.empty").Count.ShouldBe(1);
+        component.FindAll("a[rel=first]").Count.ShouldBe(1);
+        component.FindAll("a[rel=last]").Count.ShouldBe(1);
+    }
+
+    [Fact]
+    public void Render_WhenNothingMatchedTheFilter_RendersTheEmptyStateWithNoPager()
+    {
+        // TotalPages = 0, so the API emits no pagination rel at all — there is genuinely nowhere to go
+        StubPage(OverRangePageOf(page: 1, links: []));
+
+        IRenderedComponent<TranslationsComponent> component = RenderPage();
+
+        component.FindAll("div.empty").Count.ShouldBe(1);
+        component.FindAll("nav.pager").ShouldBeEmpty();
+    }
+
     [Fact]
     public void Render_WhenCollectionHasBulkApproveRel_ShowsTheCheckboxColumnAndBulkButton()
     {
@@ -363,6 +397,22 @@ public sealed class TranslationsTests : BunitContext
         };
 
     private const string BulkApproveHref = "https://tms.example/api/v1/translations/approve";
+
+    /// <summary>
+    /// A page that renders zero rows. The rel set is what separates the two reasons it can be empty:
+    /// an over-range page carries the boundary jumps, a no-matches page carries nothing.
+    /// </summary>
+    private static PaginationResponse<TranslationListItemResponse> OverRangePageOf(
+        int page,
+        IReadOnlyCollection<LinkDto> links) =>
+        new()
+        {
+            Items = [],
+            Page = page,
+            PageSize = 1,
+            TotalCount = links.Count == 0 ? 0 : 3,
+            Links = links
+        };
 
     private static PaginationResponse<TranslationListItemResponse> MultiPageOf(int page, IReadOnlyCollection<LinkDto> links) =>
         new()

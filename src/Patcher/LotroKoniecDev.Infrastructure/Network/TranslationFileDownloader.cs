@@ -10,6 +10,8 @@ namespace LotroKoniecDev.Infrastructure.Network;
 /// <summary>
 /// Downloads the Polish translation file from the TMS distribution endpoint over HTTP with a
 /// conditional <c>If-None-Match</c> request, so an unchanged file returns 304 rather than its bytes.
+/// The endpoint is handed in already resolved from the service document by rel (ADR-0041 / #611) —
+/// this type knows no route, and the patcher source carries none.
 /// A downloaded body is accepted only when it hash-matches the server's ETag
 /// (<see cref="TranslationFileContentIntegrity"/>) — a corrupted or tampered file is rejected here,
 /// and the sync falls back to the cached copy (AUDIT-SEC-01 / #391).
@@ -24,8 +26,6 @@ public sealed class TranslationFileDownloader : ITranslationFileDownloader
     /// </summary>
     public const long MaxResponseContentBytes = 128 * 1024 * 1024;
 
-    private const string TranslationFileRoute = "api/v1/translation-files/pl";
-
     private readonly HttpClient _httpClient;
 
     public TranslationFileDownloader(HttpClient httpClient)
@@ -34,12 +34,13 @@ public sealed class TranslationFileDownloader : ITranslationFileDownloader
     }
 
     public async Task<Result<TranslationFileFetchResult>> FetchAsync(
-        string baseUrl, string? currentETag, CancellationToken cancellationToken)
+        Uri endpoint, string? currentETag, CancellationToken cancellationToken)
     {
+        ArgumentNullException.ThrowIfNull(endpoint);
+
         try
         {
-            Uri requestUri = new($"{baseUrl.TrimEnd('/')}/{TranslationFileRoute}", UriKind.Absolute);
-            using HttpRequestMessage request = new(HttpMethod.Get, requestUri);
+            using HttpRequestMessage request = new(HttpMethod.Get, endpoint);
             // The stored value comes from an on-disk sidecar file, so it goes through the typed
             // header API instead of TryAddWithoutValidation (AUDIT-SEC-07 / #397). A value that no
             // longer parses as an ETag is simply dropped — the fetch degrades to a full download.

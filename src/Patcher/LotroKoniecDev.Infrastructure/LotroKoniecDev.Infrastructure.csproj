@@ -20,6 +20,10 @@
     <ItemGroup>
         <ProjectReference Include="..\LotroKoniecDev.Domain\LotroKoniecDev.Domain.csproj"/>
         <ProjectReference Include="..\LotroKoniecDev.Application\LotroKoniecDev.Application.csproj"/>
+        <!-- The HATEOAS vendor media type is a cross-service convention centralised in Utilities on
+             purpose: the TMS attaches discovery links only to a request that accepts it, so a
+             re-typed copy drifting here would silently strip the CLI of every entry point (#611). -->
+        <ProjectReference Include="..\..\Utilities\LotroKoniecDev.Hateoas.Abstractions\LotroKoniecDev.Hateoas.Abstractions.csproj"/>
     </ItemGroup>
 
     <ItemGroup>

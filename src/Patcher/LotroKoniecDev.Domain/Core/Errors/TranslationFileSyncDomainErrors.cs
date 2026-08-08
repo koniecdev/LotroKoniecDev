@@ -10,6 +10,12 @@ public static partial class DomainErrors
 
         public const string ResponseTooLargeCode = "TranslationFileSync.ResponseTooLarge";
 
+        public const string EndpointDiscoveryUnavailableCode = "TranslationFileSync.EndpointDiscoveryUnavailable";
+
+        public const string EndpointNotAdvertisedCode = "TranslationFileSync.EndpointNotAdvertised";
+
+        public const string EndpointRejectedCode = "TranslationFileSync.EndpointRejected";
+
         public static Error NetworkError(string message) =>
             IoError("TranslationFileSync", "NetworkError", message);
 
@@ -22,5 +28,19 @@ public static partial class DomainErrors
 
         public static Error IntegrityCheckFailed(string message) =>
             Error.IoError(IntegrityCheckFailedCode, $"The downloaded translation file failed the integrity check: {message}");
+
+        /// <summary>The service document could not be read and no usable endpoint was cached (#611).</summary>
+        public static Error EndpointDiscoveryUnavailable(string message) =>
+            Error.IoError(EndpointDiscoveryUnavailableCode,
+                $"The translation-file endpoint could not be resolved from the server: {message}");
+
+        /// <summary>The server answered, but its service document offers no such affordance to this caller.</summary>
+        public static Error EndpointNotAdvertised(string rel) =>
+            Error.IoError(EndpointNotAdvertisedCode,
+                $"The server's service document does not advertise a '{rel}' link, so the translation file is not on offer.");
+
+        public static Error EndpointRejected(string href, string reason) =>
+            Error.IoError(EndpointRejectedCode,
+                $"The translation-file endpoint '{href}' was rejected: {reason}");
     }
 }

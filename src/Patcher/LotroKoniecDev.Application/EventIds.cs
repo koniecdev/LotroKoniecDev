@@ -37,4 +37,8 @@ internal static class EventIds
     public const int LaunchLauncherStarted = 5123;
     public const int LaunchEnded = 5124;
     public const int LaunchPatchWarning = 5125;
+
+    // Translation File Syncing (5200–5299)
+    public const int TranslationFileEndpointFallbackToCache = 5200;
+    public const int TranslationFileEndpointHintNotPersisted = 5201;
 }

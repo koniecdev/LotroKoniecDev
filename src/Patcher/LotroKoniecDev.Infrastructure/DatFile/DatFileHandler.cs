@@ -20,7 +20,10 @@ public sealed class DatFileHandler : IDatFileHandler, IDatVersionReader
     /// Opens a LOTRO DAT file given its file path and returns a handle to the open file.
     /// </summary>
     /// <param name="datFilePath">The file path to the DAT file to be opened. It must not be null, empty, or whitespace.</param>
-    /// <param name="access">The native open mode: read-only opens work without write permission on the file.</param>
+    /// <param name="access">
+    /// The native open mode. <see cref="DatFileAccess.Read"/> opens without write permission on the
+    /// file — verified against the live Program Files DAT, non-elevated (#629).
+    /// </param>
     /// <returns>
     /// A <see cref="Result{TValue}"/> containing the handle to the opened DAT file if the operation is successful;
     /// otherwise, a failure result with an error message describing why the file could not be opened.

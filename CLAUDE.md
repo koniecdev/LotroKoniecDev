@@ -165,11 +165,11 @@ dotnet test tests/LotroKoniecDev.Tests.Unit            # fast, pure unit (must a
 dotnet test tests/LotroKoniecDev.Tests.E2E             # full pipeline — auto-skips off-Windows
 dotnet test --filter "FullyQualifiedName~Fragment"     # filter by name
 
-# Run the CLI (Windows; needs LOTRO + admin for DAT write)
+# Run the CLI (Windows; needs LOTRO. `export` reads and needs NO admin — #629; only DAT writes do)
 dotnet run --project src/Patcher/LotroKoniecDev.Cli -- export                 # DAT → data/exported.txt
 dotnet run --project src/Patcher/LotroKoniecDev.Cli -- patch polish           # translations/polish.txt → DAT
 dotnet run --project src/Patcher/LotroKoniecDev.Cli -- launch polish          # hash-check → patch if changed → launch
-# or the elevated .bat wrappers: export.bat / patch.bat / lotro.bat
+# or the .bat wrappers: export.bat (no elevation) / patch.bat, lotro.bat (self-elevate)
 
 # GitHub tickets (BRD/spec-driven flow)
 gh issue list --state open                             # backlog; titles follow "M{milestone}-{nn}: Title"

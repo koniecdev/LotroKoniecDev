@@ -2,9 +2,11 @@
 setlocal
 cd /d "%~dp0"
 
-rem Export opens the DAT read-only (#443 Option A, native flag 2), so no elevation here.
-rem If a live-DAT export ever fails with DatFile.CannotOpen, run it from an elevated shell
-rem and report on #443 — that would disprove the read-only-flag assumption.
+rem Export opens the DAT read-only (#443 Option A, native flag 6 — the read-only bit is 0x4), so
+rem no elevation here. Verified 2026-08-07 against the live Program Files DAT from a non-elevated
+rem shell: exit 0, DAT byte-identical (#629). A DatFile.CannotOpen here means the file is not
+rem readable at all, not that it needs write access — check the path and the ACL, do not re-add
+rem the elevation block.
 rem Delayed expansion below inserts user arguments after cmd parsing, so metacharacters
 rem stay literal (AUDIT-SEC-06 hardening, kept even without the elevation boundary).
 set "LOTRO_WRAPPER_ARGS=%*"

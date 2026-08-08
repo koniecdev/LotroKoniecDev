@@ -76,7 +76,9 @@ We assumed LOTRO's official launcher overwrites DAT files on update, wiping tran
   re-evaluated 2026-08-02 after the per-SubFile revert finding: the **problem class is real**
   (our old "non-problem" verdict is retired), but the in-DAT marker is the wrong implementation
   for us: it only fires when ITS OWN chunk is wiped (misses collateral wipes elsewhere), reading
-  it needs elevated DAT access on every launch (datexport opens with write intent), and our
+  it costs a full DAT open on every launch (no longer an *elevated* one — the read-only open works
+  since #629, see [datexport-readonly-open-2026-08-07.md](datexport-readonly-open-2026-08-07.md) —
+  but still an open on the SKIP path, which is the actual objection), and our
   lost-state edge already degrades gracefully (missing version file ⇒ hash=null ⇒ full re-patch).
   An external DAT fingerprint (size+mtime in the version file) detects strictly more, with zero
   DAT access on the SKIP path — see `update-49/RESULTS.md` §scenariusze (launch sentinel)

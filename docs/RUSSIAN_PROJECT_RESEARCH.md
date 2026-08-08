@@ -297,7 +297,12 @@ CloseDatFile(handle)
 ```
 
 **Flagi otwarcia:**
-- `OpenFlagsReadWrite = 130` (Read=2 | Write=128)
+- `OpenFlagsReadWrite = 130`, `OpenFlagsRead = 6`
+- Rozbicie „Read=2 | Write=128" było **błędne** (sprostowane 2026-08-07, #629): bit `2` siedzi w obu
+  stałych i nie wybiera niczego w kwestii dostępu. Jedynym bitem, który zmienia `dwDesiredAccess`
+  przekazywany do `CreateFileA`, jest `0x4` — z nim biblioteka otwiera `GENERIC_READ`, bez niego
+  `GENERIC_READ|GENERIC_WRITE`. Szczegóły:
+  [knowledge-base/datexport-readonly-open-2026-08-07.md](knowledge-base/datexport-readonly-open-2026-08-07.md)
 
 ---
 

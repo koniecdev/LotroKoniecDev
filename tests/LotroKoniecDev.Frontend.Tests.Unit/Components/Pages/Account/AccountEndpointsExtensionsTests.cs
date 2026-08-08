@@ -218,6 +218,24 @@ public sealed class AccountEndpointsExtensionsTests
     }
 
     [Fact]
+    public async Task DownloadAccountExportAsync_WhenTheProxyAnswersForAStoppedUpstream_ServesThePolishStatusCopy()
+    {
+        StubDiscoveryWithExportLink();
+        AccountLoader loader = new(
+            _discoveryCache,
+            CreateClient(StubHttpMessageHandler.RespondWith(
+                HttpStatusCode.BadGateway,
+                "<html><head><title>502 Bad Gateway</title></head><body></body></html>")));
+
+        IResult result = await AccountEndpointsExtensions.DownloadAccountExportAsync(
+            loader, _discoveryCache, CreateTmsClientReturningContribution(), NullLoggerFactory.Instance, CancellationToken.None);
+
+        ProblemHttpResult problem = result.ShouldBeOfType<ProblemHttpResult>();
+        problem.ProblemDetails.Status.ShouldBe(StatusCodes.Status502BadGateway);
+        problem.ProblemDetails.Title.ShouldBe("Usługa jest chwilowo niedostępna. Spróbuj ponownie za chwilę.");
+    }
+
+    [Fact]
     public async Task DownloadAccountExportAsync_WhenUpstreamReturnsAnEnglishProblem_RewritesItInPolish()
     {
         // A download route answers with a raw problem body the browser shows verbatim, so it carries

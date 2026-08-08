@@ -132,9 +132,12 @@ treści to `LotroNotationVersion` (VO w postaci kanonicznej). Status: `Unprocess
 - `MarkSuperseded()` — `Processed` nie może być cofnięty do `Superseded` (przetworzona praca nigdy nie
   jest cofana); spiętrzone nieprzetworzone wersje są masowo oznaczane, gdy nowsza zostaje przetworzona
   (`GameVersion.cs:40`).
-- `EnsureCanBeDeleted()` — guard kasowania (#209): tylko wersja `Unprocessed` może zostać usunięta;
-  przetworzona/superseded jest wpleciona w cykl aktualizacji. Cross-agregatowy warunek „żadne
-  tłumaczenie jej nie referuje" zostaje w handlerze `DeleteGameVersion` (`GameVersion.cs:58`).
+- `EnsureCanBeDeleted()` — guard kasowania (#209, poprawiony w #624): usunąć nie można tylko wersji
+  `Processed` — to jedyny status, przeciw któremu wykonano import, więc tłumaczenia na niego wskazują.
+  `Unprocessed` i `Superseded` można wycofać; `Superseded` to wersja zarejestrowana i pominięta
+  (`MarkSuperseded` odrzuca `Processed`), więc nic jej nie referuje, a blokada kasowania paliła jej
+  numer wersji na zawsze. Cross-agregatowy warunek „żadne tłumaczenie jej nie referuje" zostaje
+  w handlerze `DeleteGameVersion` (`GameVersion.cs:58`).
 - `Create(version, detectedAt)` — fabryka; powstaje jako `Unprocessed` (`GameVersion.cs:68`).
 
 ### 3. Translator (ADR-0004)

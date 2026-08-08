@@ -113,7 +113,7 @@ nieustawiany). Wersja powstaje jako **`Unprocessed`**.
 | INV-3.2 | 🟢 `Superseded` **nigdy** nie może być przetworzony | `MarkAsProcessed` na `Superseded` → fail; inaczej → `Processed` (re-upload do `Processed` legalny i idempotentny). | `GameVersionEntity.SupersededCannotBeProcessed` (`GameVersion.cs:28-30`) |
 | INV-3.3 | 🟢 `Processed` **nie cofa się** do `Superseded` | `MarkSuperseded` na `Processed` → fail (przetworzona praca nigdy nie jest cofana). Spiętrzone `Unprocessed` są masowo oznaczane, gdy nowsza zostaje przetworzona. | `GameVersionEntity.ProcessedCannotBeSuperseded` (`GameVersion.cs:42-44`) |
 | INV-3.4 | 🟢 `LotroNotationVersion`/`DetectedAt` niezmienne | `get`-only, ustawiane w konstruktorze. ⚠️ `DetectedAt` = porządek wersji (chronologia rejestracji; **brak parsowania semver**). | `GameVersion.cs:13-14` |
-| INV-3.7 | 🟢 Tylko `Unprocessed` może być **usunięta** | `EnsureCanBeDeleted` na `Processed`/`Superseded` → fail — wersja wpleciona w cykl aktualizacji (spec 0001). Warunek cross-agregatowy w handlerze (INV-9.6). | `GameVersionEntity.OnlyUnprocessedCanBeDeleted` (`GameVersion.cs:58-66`) |
+| INV-3.7 | 🟢 `Processed` nie może być **usunięta**; `Unprocessed`/`Superseded` mogą | `EnsureCanBeDeleted` na `Processed` → fail — to jedyny status, przeciw któremu wykonano import, więc tłumaczenia na niego wskazują (spec 0001). `Superseded` = zarejestrowana i pominięta (`MarkSuperseded` odrzuca `Processed`), więc nic jej nie referuje i musi dać się wycofać, inaczej jej numer wersji przepada na zawsze (#624). Warunek cross-agregatowy w handlerze (INV-9.6). | `GameVersionEntity.ProcessedCannotBeDeleted` (`GameVersion.cs:58-69`) |
 
 | Value Object | Reguła | Dokładna wartość | Błąd |
 |--------------|--------|------------------|------|
@@ -224,7 +224,7 @@ all-or-nothing, idempotentny re-upload). Błędy importu = `DataConflict` → **
 | INV-9.3 | 🔵 Register zwraca **201** z `Location` na item-endpoint | `/api/v1/game-versions/{id}`. | `RegisterGameVersion.cs:108-111` |
 | INV-9.4 | 🔵 Lista niestronicowana, domyślny sort `DetectedAt` malejąco + opcjonalny `?sort=` | Niewiele wierszy (jeden na update gry); klucze `version`/`detectedAt`/`status` (sort po **stringu**, nie semantycznie); nieznany klucz degraduje do `DetectedAt` **rosnąco**. | `ListGameVersions.cs:42-47`, `:67-74` |
 | INV-9.5 | 🔵 Get-one: id `Empty` → `NotFound` | Short-circuit przed DB. | `GetGameVersion.cs:38-42` |
-| INV-9.6 | 🔵 Delete (#209, admin): tylko `Unprocessed` **i** niereferowana | Guard domenowy `EnsureCanBeDeleted` (INV-3.7) + cross-agregatowy check `AnyReferencesGameVersionAsync` w handlerze → 422; nieznany id → 404; sukces → **204**. Link HATEOAS `delete` tylko dla admina na wersji `Unprocessed`. | `GameVersionEntity.CannotDeleteReferencedVersion` (`DeleteGameVersion.cs:76-93`) |
+| INV-9.6 | 🔵 Delete (#209, admin): każda **poza** `Processed`, **i** niereferowana | Guard domenowy `EnsureCanBeDeleted` (INV-3.7) + cross-agregatowy check `AnyReferencesGameVersionAsync` w handlerze → 422; nieznany id → 404; sukces → **204**. Link HATEOAS `delete` dla admina na wersji innej niż `Processed` (#624). Duplikat przy `POST` nadal ignoruje status — powrotem z błędnej rejestracji jest usunięcie martwego wiersza, nie drugi wiersz z tym samym numerem. | `GameVersionEntity.CannotDeleteReferencedVersion` (`DeleteGameVersion.cs:76-93`) |
 
 ---
 

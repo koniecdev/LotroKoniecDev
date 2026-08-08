@@ -308,9 +308,12 @@ All routes are under `/api/v1` unless noted. All require a bearer token except
 `{ version }` (dotted notation, e.g. `"48.0"`, ≤ 12 chars; canonicalized — `48` = `48.0`).
 
 **`DELETE /game-versions/{id}`** (#209) removes a manually-registered version that was added by
-mistake. The guard is strict: only an `Unprocessed` version with **no translation referencing it**
-may be deleted — otherwise **422** (`GameVersionEntity.OnlyUnprocessedCanBeDeleted` /
-`GameVersionEntity.CannotDeleteReferencedVersion`); an unknown id is **404**.
+mistake. Only a `Processed` version is kept — it is the one an import was applied against. An
+`Unprocessed` or `Superseded` version with **no translation referencing it** may be deleted, which
+is what frees a version number burned by a wrong registration (#624); otherwise **422**
+(`GameVersionEntity.ProcessedCannotBeDeleted` / `GameVersionEntity.CannotDeleteReferencedVersion`);
+an unknown id is **404**. The duplicate check on `POST` ignores status on purpose — deleting the
+dead row is the way back, not a second row carrying the same version string.
 
 ### 8.2 Translations
 
@@ -500,7 +503,7 @@ Sent only with `Accept: application/vnd.dev-lotrokoniecdev.hateoas.json`.
 | `approve` | POST | `/api/v1/translations/{id}/approve` | caller is `Admin` **and** status ∈ {Draft, NeedsReview}, not removed |
 | `bulk-approve` | POST | `/api/v1/translations/approve` | on the translations collection, caller is `Admin` |
 | `register` | POST | `/api/v1/game-versions` | on the game-versions collection, caller is `Admin` |
-| `delete` | DELETE | `/api/v1/game-versions/{id}` | caller is `Admin` **and** the version is `Unprocessed` |
+| `delete` | DELETE | `/api/v1/game-versions/{id}` | caller is `Admin` **and** the version is not `Processed` (#624) |
 | `first-page` / `previous-page` / `next-page` / `last-page` | GET | the list page | the target page exists |
 
 ### 10.2 `auth-api` rels (`AuthSystem.Contracts/Hateoas/Rels.cs`)

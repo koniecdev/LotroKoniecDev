@@ -409,6 +409,16 @@
             color: oklch(0.82 0.06 25);
             font-size: 12.5px;
         }
+        .auth-alert .alert-action {
+            display: inline-block;
+            margin-top: 8px;
+            font-size: 12.5px;
+            font-weight: 600;
+            color: oklch(0.95 0.05 25);
+            text-decoration: underline;
+            text-underline-offset: 3px;
+        }
+        .auth-alert .alert-action:hover { color: var(--text); }
 
         /* ── Secondary info strip ── */
         .auth-meta {
@@ -555,6 +565,11 @@
                                     <div>
                                         <span class="t">Nie udało się zalogować</span>
                                         <span class="s">@Model.ErrorMessage</span>
+                                        @if (Model.ResendConfirmationEmail is { } resendConfirmationEmail)
+                                        {
+                                            <a class="alert-action"
+                                               href="/Account/ResendConfirmation?email=@Uri.EscapeDataString(resendConfirmationEmail)">Wyślij link ponownie →</a>
+                                        }
                                     </div>
                                 </div>
                             }

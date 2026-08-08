@@ -305,12 +305,12 @@ public sealed partial class AuthorizationCodeFlowTests : AsyncLifetimeTestBase
         // Act
         HttpResponseMessage response = await _noRedirectClient.SendAsync(request);
 
-        // Assert — login is rejected: the page is re-rendered (200) with the generic error, NOT a
-        // redirect (302), which is what a successful sign-in would return.
+        // Assert — login is rejected: the page is re-rendered (200) with the unconfirmed-account
+        // error (ADR-0046), NOT a redirect (302), which is what a successful sign-in would return.
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
 
         string html = await response.Content.ReadAsStringAsync();
-        html.ShouldContain("Nieprawidłowy e-mail lub hasło");
+        html.ShouldContain("To konto nie zostało jeszcze aktywowane");
     }
 
     [Fact]

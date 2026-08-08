@@ -15,15 +15,22 @@ namespace LotroKoniecDev.AuthSystem.API.Pages.Account;
 internal sealed partial class LoginModel : PageModel
 {
     /// <summary>
-    /// Single source of truth for every credential-failure branch. Kept identical across
-    /// user-not-found, lockout, wrong-password and unconfirmed-email so no branch ever reveals
-    /// which check failed (anti-enumeration). The activation hint is generic — it neither confirms
-    /// the account exists nor that it is unconfirmed — yet still nudges a brand-new user to finish
-    /// registration.
+    /// Single source of truth for the credential-failure branches a caller can reach without proving
+    /// they know the password — user-not-found, lockout and wrong-password. Kept identical across the
+    /// three so none of them reveals whether the address is registered (anti-enumeration). The
+    /// branches that run behind a verified password (deletion-scheduled, unconfirmed e-mail) name
+    /// their reason instead; ADR-0046 has the exposure argument.
     /// </summary>
-    private const string GenericCredentialErrorMessage =
-        "Nieprawidłowy e-mail lub hasło. Jeśli konto zostało dopiero co utworzone, " +
-        "dokończ rejestrację, potwierdzając swój adres e-mail — kliknij link aktywacyjny, który do Ciebie wysłaliśmy.";
+    private const string GenericCredentialErrorMessage = "Nieprawidłowy e-mail lub hasło.";
+
+    /// <summary>
+    /// Reached only after <c>CheckPasswordAsync</c> succeeded, so it cannot tell an unauthenticated
+    /// caller anything about the address (ADR-0046). Being vague here was actively harmful: it
+    /// pointed a user whose only problem is an unopened activation e-mail at the password reset,
+    /// which cannot fix their account.
+    /// </summary>
+    private const string EmailNotConfirmedErrorMessage =
+        "To konto nie zostało jeszcze aktywowane. Sprawdź skrzynkę — wysłaliśmy na Twój adres link aktywacyjny.";
 
     /// <summary>
     /// Pre-computed hash for timing-equalization on the credential-failure branches that would
@@ -87,6 +94,14 @@ internal sealed partial class LoginModel : PageModel
         FrontendUrl.For(_openIddictSettings.Value.WebClient, FrontendLoginPath);
 
     public string? ErrorMessage { get; set; }
+
+    /// <summary>
+    /// The address the "resend the activation link" affordance carries, set only on the
+    /// unconfirmed-e-mail branch so the link never appears without a verified password (ADR-0046).
+    /// Taken from the store rather than from the posted form — the page has no reason to reflect an
+    /// arbitrary input into a URL.
+    /// </summary>
+    public string? ResendConfirmationEmail { get; set; }
 
     public void OnGet(string? returnUrl = null)
     {
@@ -166,9 +181,12 @@ internal sealed partial class LoginModel : PageModel
             LogEmailNotConfirmed(_logger, user.Id, HttpContext.Connection.RemoteIpAddress);
             // Identity is configured with RequireConfirmedEmail, but the interactive login path uses
             // CheckPasswordAsync, which does not run PreSignInCheck. Enforce confirmation explicitly.
-            // Same generic message as the other branches — never reveal that the account exists but is
-            // unconfirmed — and placed after the password hash above so there is no timing oracle.
-            ErrorMessage = GenericCredentialErrorMessage;
+            // The position of this check is load-bearing, not incidental: naming the unconfirmed state
+            // is only safe because the password was verified above (ADR-0046). Moving it in front of
+            // the password check turns this message — and the resend link — into an account-enumeration
+            // oracle for an unauthenticated caller.
+            ErrorMessage = EmailNotConfirmedErrorMessage;
+            ResendConfirmationEmail = user.Email;
             return Page();
         }
 

@@ -19,8 +19,13 @@ public sealed partial class LoginPageTests : EndpointsTestBase
 
     public LoginPageTests(AuthSystemApiFactory appFactory) : base(appFactory) { }
 
+    /// <summary>
+    /// ADR-0046: this branch runs after the password check, so it names the actual problem instead of
+    /// asserting the credentials are wrong — and carries the address into the resend page, which is
+    /// the only action that unblocks the account.
+    /// </summary>
     [Fact]
-    public async Task LoginPage_ShouldGuideToConfirmEmail_WhenAccountIsUnconfirmed()
+    public async Task LoginPage_ShouldNameTheUnconfirmedAccount_WhenThePasswordIsCorrect()
     {
         // Arrange — a registered account whose e-mail was never confirmed, with a valid password
         (RegisterRequest request, _) =
@@ -33,11 +38,38 @@ public sealed partial class LoginPageTests : EndpointsTestBase
             ["Password"] = request.Password
         });
 
-        // Assert — the message guides the user to activate, without ever stating the account exists but is unconfirmed
+        // Assert
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
         string html = await response.Content.ReadAsStringAsync();
-        html.ShouldContain("Nieprawidłowy e-mail lub hasło");
-        html.ShouldContain("aktywacyjny");
+        html.ShouldContain("To konto nie zostało jeszcze aktywowane");
+        html.ShouldNotContain("Nieprawidłowy e-mail lub hasło");
+        html.ShouldContain($"/Account/ResendConfirmation?email={Uri.EscapeDataString(request.Email)}");
+    }
+
+    /// <summary>
+    /// The affordance half of the invariant below: a caller without the password is not offered the
+    /// resend link either, so the link cannot become the oracle the message no longer is. The page
+    /// always carries a bare <c>/Account/ResendConfirmation</c> in its footer — only the address-bearing
+    /// form of it is account-specific.
+    /// </summary>
+    [Fact]
+    public async Task LoginPage_ShouldNotOfferTheResendLink_WhenTheUnconfirmedAccountsPasswordIsWrong()
+    {
+        // Arrange
+        (RegisterRequest request, _) =
+            await UserFactory.RegisterRandomUserUnconfirmedAsync(ApiClient, Faker, AccountConfirmationEmailSpy);
+
+        // Act
+        HttpResponseMessage response = await PostToLoginPageAsync(new Dictionary<string, string>
+        {
+            ["Email"] = request.Email,
+            ["Password"] = request.Password + "WRONG"
+        });
+
+        // Assert
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        string html = await response.Content.ReadAsStringAsync();
+        html.ShouldNotContain("/Account/ResendConfirmation?email=");
     }
 
     [Fact]
@@ -60,8 +92,15 @@ public sealed partial class LoginPageTests : EndpointsTestBase
         html.ShouldContain("Nieprawidłowy e-mail lub hasło");
     }
 
+    /// <summary>
+    /// The anti-enumeration invariant, as ADR-0046 restated it: every branch reachable **without** a
+    /// verified password answers identically — including an unconfirmed account probed with the wrong
+    /// password — so nothing about an address is learnable without already holding its password. The
+    /// two branches behind a verified password (deletion scheduled, unconfirmed e-mail) name their
+    /// reason on purpose and are pinned separately.
+    /// </summary>
     [Fact]
-    public async Task LoginPage_ShouldReturnIdenticalMessage_ForEveryCredentialFailure()
+    public async Task LoginPage_ShouldReturnIdenticalMessage_ForEveryFailureReachableWithoutThePassword()
     {
         // Arrange — a confirmed account (wrong-password + lockout branches) and an unconfirmed one
         (RegisterRequest confirmed, _) =
@@ -72,7 +111,7 @@ public sealed partial class LoginPageTests : EndpointsTestBase
             await UserFactory.RegisterRandomUserWithRequestAsync(ApiClient, Faker, AccountConfirmationEmailSpy);
         await LockOutAsync(lockedOut.Username);
 
-        // Act — one probe per credential-failure branch of /Account/Login
+        // Act — one probe per credential-failure branch a caller can reach without the password
         string nonExistentMessage = await PostAndExtractRenderedAlertAsync(new Dictionary<string, string>
         {
             ["Email"] = "nobody-" + Faker.Random.AlphaNumeric(8) + "@example.com",
@@ -83,10 +122,10 @@ public sealed partial class LoginPageTests : EndpointsTestBase
             ["Email"] = confirmed.Email,
             ["Password"] = confirmed.Password + "WRONG"
         });
-        string unconfirmedMessage = await PostAndExtractRenderedAlertAsync(new Dictionary<string, string>
+        string unconfirmedWrongPasswordMessage = await PostAndExtractRenderedAlertAsync(new Dictionary<string, string>
         {
             ["Email"] = unconfirmed.Email,
-            ["Password"] = unconfirmed.Password
+            ["Password"] = unconfirmed.Password + "WRONG"
         });
         string lockedOutMessage = await PostAndExtractRenderedAlertAsync(new Dictionary<string, string>
         {
@@ -97,7 +136,7 @@ public sealed partial class LoginPageTests : EndpointsTestBase
         // Assert — no branch reveals which check failed: identical text is the anti-enumeration invariant
         nonExistentMessage.ShouldNotBeNullOrWhiteSpace();
         wrongPasswordMessage.ShouldBe(nonExistentMessage);
-        unconfirmedMessage.ShouldBe(nonExistentMessage);
+        unconfirmedWrongPasswordMessage.ShouldBe(nonExistentMessage);
         lockedOutMessage.ShouldBe(nonExistentMessage);
     }
 

@@ -504,6 +504,30 @@ data/
 # Claude per-user settings
 .claude/settings.local.json
 
+# Claude agent memory — one maintainer's accumulated corrections, tied to runs and tickets nobody
+# outside can verify. Agents still read and write it locally; this repo is public, so it does not
+# ship. Durable, checkable knowledge belongs in CLAUDE.md, an ADR, or docs/knowledge-base/.
+.claude/agent-memory/
+
+# Claude worktrees — throwaway checkouts the agent tooling creates per ticket
+.claude/worktrees/
+
+# Claude runtime state — schedules, checkpoints, mailboxes, agent registries. Machine-local by
+# nature and worthless to anyone else. These were only ever held back by .git/info/exclude, which
+# does not travel with a clone: on any other machine one `git add -A` would publish them.
+.claude/scheduled_tasks.json
+.claude/routines/.state/
+.claude/checkpoints/
+.claude/mailbox/
+.claude/agent-registry.json
+.claude/agent-memory-local/
+.claude/first-run
+.claude/assistant-daemon-state.json
+
+# Repo-audit lens runner and its lenses — maintainer-only, unreleased, and it files issues
+scripts/claude/audit.sh
+scripts/claude/audits/
+
 # Intel / test snapshots (DAT backups, exports, diffs — too large for git)
 intel/
 

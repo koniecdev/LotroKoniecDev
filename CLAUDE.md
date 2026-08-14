@@ -631,10 +631,13 @@ structure.
    list `gh api "repos/{owner}/{repo}/code-scanning/alerts?ref=refs/pull/<n>/merge&state=open"`
    and fix every alert (dismiss only with a stated reason); the loop's merge gate enforces this
    mechanically.
-6. **Feed the flywheel.** Reusable correction → persist it: agent lesson →
-   `.claude/agent-memory/<agent>/`; global rule → **this file**; real decision → new ADR;
-   empirical DAT/update finding → `docs/knowledge-base/` (dated). The same mistake made twice
-   means a rule is missing.
+6. **Feed the flywheel.** Reusable correction → persist it: global rule → **this file**; real
+   decision → new ADR; empirical DAT/update finding → `docs/knowledge-base/` (dated). The same
+   mistake made twice means a rule is missing.
+   A lesson too narrow for any of those goes to `.claude/agent-memory/<agent>/`, which is
+   **gitignored** — this repo is public, and one maintainer's notes about their own runs are not
+   something a stranger should pull. So treat agent-memory as a scratchpad: if a lesson is worth
+   keeping, it is worth promoting to a shared, checkable place from the list above.
 
 ### Manual QA — external testers execute what you write, literally
 

@@ -420,20 +420,21 @@ file_id||gossip_id||translated_text||args_order||args_id||approved
 - **Right-size the design — YAGNI by default.** Before proposing an abstraction, cache, config
   knob, queue, or new infra, check it solves a **real, present** need from the current
   spec/ticket — not a hypothetical future. Pick the simple path and note the trade-off in one line.
-- **Agent fan-out is budgeted; everything runs on Opus 5 at high effort** (2026-08-05: reviews,
-  loop workers and audits all moved to Opus 5 via the central model policy — history: Fable
-  switch 2026-07-09→11, same-day Opus revert #497, Fable re-enable #503, Opus for reviews
-  2026-07-13, Fable again 2026-07-17). Hard cap:
+- **Agent fan-out is budgeted; agents inherit the session's model and effort** (the repo pins no
+  model tier of its own — see the 2026-08-14 prune; the churn it ended: Fable switch 2026-07-09→11,
+  same-day Opus revert #497, Fable re-enable #503, Opus for reviews 2026-07-13, Fable again
+  2026-07-17, Opus everywhere 2026-08-05). Hard cap:
   **max 4 subagents in parallel**, no chained waves by default; a small diff gets reviewed
-  **inline, zero agents**. The `code-reviewer` agent runs with **model Opus 5 + effort high**;
-  `/code-review` and `/security-review` follow the session model/effort; loop-mode worker
-  sessions run at **effort high**
-  (`LOOP_EFFORT` default) — unless the prompt for that run explicitly says otherwise. Applies to
-  interactive sessions and loop-mode workers alike. The concrete values live in agent frontmatter
-  and in the loop scripts' fallback defaults; on the maintainer's machine both are driven by the
-  central `~/.claude/model-policy.env` (frontmatter stamped via `apply-model-policy.sh`, loop
-  scripts source it at runtime — fresh clones just use the committed values). If this prose and
-  the frontmatter ever disagree, the frontmatter wins.
+  **inline, zero agents**. The committed `code-reviewer` agent carries **`model: inherit`** — it
+  runs on whatever model and effort the session runs on, so a fresh clone reviews with the
+  contributor's own tier instead of a model this repo has no business pinning for them;
+  `/code-review` and `/security-review` follow the session model/effort the same way; loop-mode
+  worker sessions run at **effort high** (`LOOP_EFFORT` default) — unless the prompt for that run
+  explicitly says otherwise. Applies to interactive sessions and loop-mode workers alike. The
+  concrete values live in agent frontmatter and in the loop scripts' fallback defaults; the
+  maintainer pins their own tier machine-locally (a central model policy outside the repo), which
+  is deliberately **not** something a clone inherits. If this prose and the frontmatter ever
+  disagree, the frontmatter wins.
 - **Frontend is Static SSR — enforced, not just documented.** No WebAssembly, no SignalR circuit,
   no per-user server state; forms post via `<form method="post" @formname @onsubmit>` (the SSR
   `@onsubmit` special-case) or `<EditForm OnValidSubmit>` — never interactive `@on*` handlers,

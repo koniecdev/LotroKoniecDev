@@ -3,6 +3,11 @@ description: Loop-mode ticket worker — work ONE GitHub issue end-to-end in THI
 argument-hint: <issue number>
 ---
 
+> **Maintainer-only.** Spawned per ticket by `scripts/claude/work-ticket.sh` as part of the
+> autonomous loop; it commits, pushes and opens a PR against this repository. Contributors working
+> an issue by hand want `/ticket`, which asks before pushing.
+> See [`scripts/claude/README.md`](../../scripts/claude/README.md).
+
 Work GitHub ticket **#$ARGUMENTS** end-to-end in THIS session. You are the loop's per-ticket
 worker: a fresh, isolated context that lives and dies with this one ticket. The conductor script
 judges you ONLY by your final message — everything else you read or produce disappears with you.

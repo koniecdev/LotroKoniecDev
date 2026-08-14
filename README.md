@@ -218,6 +218,27 @@ format requires an ADR and updated golden fixtures in **both** the Patcher and t
 
 ---
 
+## A note on the `.claude/` directory
+
+This project is developed with AI assistance, and that setup is checked in rather than hidden. If
+you cloned the repo and wondered what those files are, they split cleanly in two:
+
+- **For anyone working on the code** — [`CLAUDE.md`](CLAUDE.md) (conventions, layer rules, house
+  style), `.claude/commands/` (`/spec`, `/feature`, `/ticket`, `/adr`, `/qa-ticket`) and
+  `.claude/agents/dat-format-expert.md`, which writes down the DAT binary format and the
+  `datexport.dll` call surface. The first and the last are worth reading as plain documentation
+  even if you never run an AI tool.
+- **For the maintainer only** — `scripts/claude/` and [`docs/claude-loop.md`](docs/claude-loop.md),
+  an autonomous backlog loop that needs write access to this repository. Nothing there is required
+  to build, test or contribute; see [`scripts/claude/README.md`](scripts/claude/README.md).
+
+**If you are filing an issue:** that loop reads issue text as instructions, so every ticket passes a
+provenance gate (ADR-0026) that trusts only writers with repository access, and fails closed.
+Issues from outside are read by a human first — nothing you write in an issue reaches `main` on its
+own.
+
+---
+
 ## Project status & roadmap
 
 Pre-release, actively developed. The Patcher (**M1**) is shipped and proven on live game updates. The

@@ -1,6 +1,15 @@
 # Dependabot — automated dependency freshness (audit #0001 / H1).
 # Keeps the auth server and the four shipped images on patched dependencies, and surfaces newer
-# action versions to pin against (the SHA-pinning follow-up, H6). Grouped to keep PR noise low.
+# action versions to pin against (the SHA-pinning follow-up, H6).
+#
+# Target shape: exactly ONE pull request per ecosystem per week -- nuget, github-actions, docker.
+# Three is the floor, not a preference: Dependabot raises pull requests per ecosystem and cannot
+# combine across them. Every group below therefore matches "*" with no `update-types` filter, so
+# nothing can fall outside a group and earn a pull request of its own.
+#
+# Security updates are deliberately NOT grouped (that needs `applies-to: security-updates`). They
+# should keep arriving as their own immediate pull requests -- a CVE fix must never sit behind a
+# broken major in a batch of thirty.
 version: 2
 
 updates:
@@ -11,9 +20,16 @@ updates:
       interval: "weekly"
     open-pull-requests-limit: 10
     groups:
-      nuget-minor-patch:
+      # ONE pull request for every nuget update, majors included. Omitting `update-types` is what
+      # does it: with the old ["minor","patch"] restriction a major matched no group at all and got
+      # its own PR (#511 NSubstitute, #510 Npgsql+Serilog, #234, #233), so a quiet week still
+      # produced four or five. Dependabot cannot merge across ecosystems, so three PRs a week --
+      # nuget, github-actions, docker -- is the floor, and this brings us to it.
+      # Trade-off, accepted deliberately: one breaking major now blocks the whole batch and there is
+      # no way to merge the good half. The fix is an `ignore` entry for the offender (see below for
+      # the working example), after which Dependabot rebuilds the PR without it.
+      nuget:
         patterns: ["*"]
-        update-types: ["minor", "patch"]
     ignore:
       # Microsoft.OpenApi 3.x cannot build on ASP.NET Core 10. Microsoft.AspNetCore.OpenApi 10.0.9
       # (the whole 10.x line) depends on Microsoft.OpenApi 2.0.0, and its bundled XmlCommentGenerator

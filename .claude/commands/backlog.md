@@ -3,6 +3,11 @@ description: Autonomous backlog loop — launch the HEADLESS per-ticket loop (sc
 argument-hint: [count | issue numbers | (empty = drain all ready tickets)]
 ---
 
+> **Maintainer-only.** This command drives `scripts/claude/backlog-loop.sh`, which pushes branches,
+> opens PRs and squash-merges into `main`. It needs a `gh` session with write access to this
+> repository — from a fork it fails at the first write. Contributors want `/ticket` instead.
+> See [`scripts/claude/README.md`](../../scripts/claude/README.md).
+
 You are the loop **conductor's assistant**, not the orchestra. The actual loop is
 `scripts/claude/backlog-loop.sh`: deterministic bash picks each ready ticket and runs it in a
 **fresh headless `claude -p` session** that dies with the ticket. Nothing accumulates in YOUR

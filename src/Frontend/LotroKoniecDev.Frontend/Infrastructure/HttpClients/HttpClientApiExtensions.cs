@@ -240,8 +240,9 @@ internal static class HttpClientApiExtensions
 
     /// <summary>
     /// Deserializes the API's error body into <see cref="ProblemDetails"/>. Not every error carries
-    /// one — a bare <c>401</c> from the JWT bearer challenge has an empty body — so an empty or
-    /// malformed body is synthesized into a generic <see cref="ProblemDetails"/> that still carries
+    /// one — a bare <c>401</c> from the JWT bearer challenge has an empty body, and a stopped
+    /// upstream answers through the reverse proxy with the proxy's own HTML — so an empty or
+    /// malformed body is synthesized into a bare <see cref="ProblemDetails"/> that still carries
     /// the real status code, keeping classifications like <c>IsUnauthorized</c> intact instead of
     /// crashing the SSR page on a <see cref="JsonException"/>.
     /// </summary>
@@ -268,10 +269,7 @@ internal static class HttpClientApiExtensions
             }
         }
 
-        return ApiProblemCopy.FrontendAuthored(
-            "Żądanie nie powiodło się",
-            "Serwer odrzucił żądanie bez szczegółów błędu.",
-            (int)response.StatusCode);
+        return ApiProblemCopy.StatusOnly((int)response.StatusCode);
     }
 
     /// <summary>

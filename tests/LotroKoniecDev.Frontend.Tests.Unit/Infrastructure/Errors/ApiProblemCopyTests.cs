@@ -267,6 +267,42 @@ public sealed class ApiProblemCopyTests
     }
 
     [Theory]
+    [InlineData(500, "Wystąpił nieoczekiwany błąd serwera. Spróbuj ponownie za chwilę.")]
+    [InlineData(502, "Usługa jest chwilowo niedostępna. Spróbuj ponownie za chwilę.")]
+    [InlineData(503, "Usługa jest chwilowo niedostępna. Spróbuj ponownie za chwilę.")]
+    [InlineData(504, "Serwer nie odpowiedział w wyznaczonym czasie. Spróbuj ponownie.")]
+    [InlineData(401, "Twoja sesja wygasła. Zaloguj się ponownie.")]
+    public void Describe_ForAStatusOnlyProblem_ShowsTheStatusCopy(int status, string expectedCopy)
+    {
+        // What a stopped upstream produces: the proxy's non-JSON body leaves nothing to translate,
+        // so the status ladder is the whole answer (#637).
+        ApiProblemView view = ApiProblemCopy.Describe(ApiProblemCopy.StatusOnly(status), PageFallback);
+
+        view.Message.ShouldBe(expectedCopy);
+        view.TechnicalDetail.ShouldBeNull();
+        view.SecondaryMessage.ShouldBeNull();
+    }
+
+    [Theory]
+    [InlineData(501)]
+    [InlineData(418)]
+    public void Describe_ForAStatusOnlyProblemWhoseStatusHasNoCopy_FallsBackToTheCallSiteSentence(int status)
+    {
+        ApiProblemCopy.Describe(ApiProblemCopy.StatusOnly(status), PageFallback).Message.ShouldBe(PageFallback);
+    }
+
+    [Fact]
+    public void Describe_ForAnEmptyProblemBodyOffTheWire_ConvergesOnTheSameCopyAsTheStatusOnlySynthesis()
+    {
+        // "{}" parses, so it takes the other branch of ParseProblemDetails and keeps only the
+        // backfilled status — it must not read differently from the unparseable case.
+        ProblemDetails parsedFromEmptyObject = new() { Status = 502 };
+
+        ApiProblemCopy.Describe(parsedFromEmptyObject, PageFallback).Message
+            .ShouldBe(ApiProblemCopy.Describe(ApiProblemCopy.StatusOnly(502), PageFallback).Message);
+    }
+
+    [Theory]
     [InlineData("")]
     [InlineData("   ")]
     public void Describe_WhenTheCallSiteFallbackIsBlank_FloorsOnTheGenericMessage(string blankFallback)

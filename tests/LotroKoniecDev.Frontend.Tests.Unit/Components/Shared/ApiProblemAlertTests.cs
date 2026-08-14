@@ -41,6 +41,20 @@ public sealed class ApiProblemAlertTests : BunitContext
     }
 
     [Fact]
+    public void Render_ForAStatusOnlyProblem_ShowsTheStatusCopyAloneAndNeverAnEmptyBox()
+    {
+        // What an outage leaves: a status and nothing else (#637). There is no English to collapse,
+        // so the headline has to carry the whole message on its own.
+        IRenderedComponent<ApiProblemAlert> component = Render<ApiProblemAlert>(parameters => parameters
+            .Add(alert => alert.Problem, ApiProblemCopy.StatusOnly(502))
+            .Add(alert => alert.Fallback, "Nie udało się wczytać listy wersji gry."));
+
+        component.Find(".problem-headline").TextContent
+            .ShouldBe("Usługa jest chwilowo niedostępna. Spróbuj ponownie za chwilę.");
+        component.FindAll("details").ShouldBeEmpty();
+    }
+
+    [Fact]
     public void Render_ForAnApiFailure_KeepsTheCodeAndEnglishInACollapsedDetailsBlock()
     {
         ProblemDetails problem = ApiProblem(

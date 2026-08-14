@@ -272,6 +272,18 @@ internal static class ApiProblemCopy
         };
 
     /// <summary>
+    /// A failure whose body carried nothing to translate — an absent or unparseable error body, such
+    /// as the HTML a reverse proxy answers with when the upstream is down. It stays deliberately
+    /// unmarked so <see cref="Describe"/> degrades it down the status ladder (ADR-0044 §3); marking
+    /// it would assert "already Polish" about a placeholder and skip the ladder entirely (#637).
+    /// </summary>
+    public static ProblemDetails StatusOnly(int status)
+        => new()
+        {
+            Status = status
+        };
+
+    /// <summary>
     /// Removes the Frontend-authored marker from a problem parsed off the wire, so an API response
     /// carrying that member (ours never does) cannot pass its English through untranslated.
     /// </summary>

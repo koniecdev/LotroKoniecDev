@@ -103,6 +103,23 @@ public sealed class ImportExportEndpointsExtensionsTests
         problem.ProblemDetails.Status.ShouldBe(StatusCodes.Status503ServiceUnavailable);
     }
 
+    [Fact]
+    public async Task DownloadTranslationFileAsync_WhenTheProxyAnswersForAStoppedUpstream_ServesThePolishStatusCopy()
+    {
+        // The staging outage of #637: tms-api down, so Caddy answers 502 with its own HTML and the
+        // body carries no problem to translate.
+        ImportExportLoader loader = CreateLoader(
+            HttpStatusCode.BadGateway,
+            "<html><head><title>502 Bad Gateway</title></head><body></body></html>");
+
+        IResult result = await ImportExportEndpointsExtensions.DownloadTranslationFileAsync(loader, NullLoggerFactory.Instance, CancellationToken.None);
+
+        ProblemHttpResult problem = result.ShouldBeOfType<ProblemHttpResult>();
+        problem.ProblemDetails.Status.ShouldBe(StatusCodes.Status502BadGateway);
+        problem.ProblemDetails.Title.ShouldBe("Usługa jest chwilowo niedostępna. Spróbuj ponownie za chwilę.");
+        problem.ProblemDetails.Extensions.ShouldNotContainKey(ApiProblemCopy.TechnicalDetailExtensionKey);
+    }
+
     private static ImportExportLoader CreateLoader(HttpStatusCode statusCode, string body) =>
         new(
             StubDiscoveryCache.AdvertisingGet(Rels.TranslationFile),

@@ -14,7 +14,7 @@
     <!-- Security override: bunit 2.7.2 transitively pulls AngleSharp 1.4.0, which carries advisory
          GHSA-pgww-w46g-26qg. Pin the first patched 1.x release; Frontend.Tests.Unit references it
          directly to force the fixed version into the graph. -->
-    <PackageVersion Include="AngleSharp" Version="1.7.0" />
+    <PackageVersion Include="AngleSharp" Version="1.7.1" />
     <!-- Security override: OpenIddict.*.DataProtection 7.5.0 transitively pulls System.Security.Cryptography.Xml
          10.0.7, which carries CVE-2026-50648 (GHSA-23rf-6693-g89p and four sibling advisories, all fixed in
          10.0.10). Pin the patched release; the AuthSystem test projects reference it directly to force the fixed
@@ -23,7 +23,7 @@
     <PackageVersion Include="Microsoft.AspNetCore.Authentication.OpenIdConnect" Version="10.0.10" />
     <PackageVersion Include="Microsoft.Extensions.Caching.Hybrid" Version="10.8.0" />
     <PackageVersion Include="Microsoft.Extensions.Http.Resilience" Version="10.8.0" />
-    <PackageVersion Include="Scalar.AspNetCore" Version="2.16.17" />
+    <PackageVersion Include="Scalar.AspNetCore" Version="2.16.20" />
     <PackageVersion Include="AspNetCore.HealthChecks.NpgSql" Version="9.0.0" />
     <!-- Authentication & Identity -->
     <PackageVersion Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.10" />
@@ -47,7 +47,7 @@
     <!-- Email -->
     <PackageVersion Include="MailKit" Version="4.17.0" />
     <!-- Messaging -->
-    <PackageVersion Include="RabbitMQ.Client" Version="7.2.1" />
+    <PackageVersion Include="RabbitMQ.Client" Version="7.2.2" />
     <!-- DI -->
     <PackageVersion Include="Microsoft.Extensions.DependencyInjection" Version="10.0.10" />
     <PackageVersion Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.10" />
@@ -76,7 +76,7 @@
     <PackageVersion Include="xunit" Version="2.9.3" />
     <PackageVersion Include="xunit.runner.visualstudio" Version="3.1.5" />
     <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="18.8.1" />
-    <PackageVersion Include="NSubstitute" Version="6.0.0" />
+    <PackageVersion Include="NSubstitute" Version="6.2.0" />
     <PackageVersion Include="coverlet.collector" Version="8.0.1" />
     <PackageVersion Include="Xunit.SkippableFact" Version="1.5.61" />
     <PackageVersion Include="Bogus" Version="35.6.5" />

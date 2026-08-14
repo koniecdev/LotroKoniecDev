@@ -504,6 +504,14 @@ data/
 # Claude per-user settings
 .claude/settings.local.json
 
+# Claude agent memory — one maintainer's accumulated corrections, tied to runs and tickets nobody
+# outside can verify. Agents still read and write it locally; this repo is public, so it does not
+# ship. Durable, checkable knowledge belongs in CLAUDE.md, an ADR, or docs/knowledge-base/.
+.claude/agent-memory/
+
+# Claude worktrees — throwaway checkouts the agent tooling creates per ticket
+.claude/worktrees/
+
 # Intel / test snapshots (DAT backups, exports, diffs — too large for git)
 intel/
 

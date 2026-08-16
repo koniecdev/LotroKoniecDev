@@ -69,32 +69,27 @@ internal static class AccountEndpointsExtensions
         }
 
         TranslatorDataExportResponse? translationData = null;
-        try
-        {
-            // The TMS leg is addressed by the 'contribution-data-export' rel (#610). An unresolvable
-            // rel degrades exactly like a failed call does — it never falls back to a guessed path,
-            // and it never fails the download (ADR-0032).
-            ApiResult<string> contributionHref = await discoveryCache.ResolveTranslationSystemHrefAsync(
-                Rels.ContributionDataExport,
-                cancellationToken);
 
-            if (contributionHref.IsSuccess)
+        // The TMS leg is addressed by the 'contribution-data-export' rel (#610). An unresolvable
+        // rel degrades exactly like a failed call does — it never falls back to a guessed path,
+        // and it never fails the download (ADR-0032). A 200 whose body does not parse is a failed
+        // call too — the HTTP seam owns that degradation (#638) — and a 200 empty body succeeds
+        // with a null value; both leave translationData null.
+        ApiResult<string> contributionHref = await discoveryCache.ResolveTranslationSystemHrefAsync(
+            Rels.ContributionDataExport,
+            cancellationToken);
+
+        if (contributionHref.IsSuccess)
+        {
+            ApiResult<TranslatorDataExportResponse> contributionResult =
+                await translationSystemClient.GetApiResultAsync<TranslatorDataExportResponse>(
+                    contributionHref.Value,
+                    cancellationToken);
+
+            if (contributionResult.IsSuccess)
             {
-                ApiResult<TranslatorDataExportResponse> contributionResult =
-                    await translationSystemClient.GetApiResultAsync<TranslatorDataExportResponse>(
-                        contributionHref.Value,
-                        cancellationToken);
-
-                if (contributionResult.IsSuccess)
-                {
-                    translationData = contributionResult.Value;
-                }
+                translationData = contributionResult.Value;
             }
-        }
-        catch (JsonException)
-        {
-            // A 200 whose body doesn't parse is still a failed TMS leg — degrade, don't fail
-            // the download (ADR-0032). The null-check above likewise covers a 200 empty body.
         }
 
         AccountDataExportFile exportFile = new(

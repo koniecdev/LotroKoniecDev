@@ -1,6 +1,9 @@
 using System.Net;
 using LotroKoniecDev.Frontend.Infrastructure.Errors;
 using LotroKoniecDev.Frontend.Infrastructure.HttpClients;
+using LotroKoniecDev.TranslationSystem.Contracts.Progress;
+using LotroKoniecDev.TranslationSystem.Contracts.Translators;
+using Microsoft.AspNetCore.Http;
 using Polly.CircuitBreaker;
 using Polly.Timeout;
 
@@ -198,6 +201,128 @@ public sealed class HttpClientApiExtensionsTests
         result.ProblemDetails!.Title.ShouldBe("Brak autoryzacji");
         result.ProblemDetails.Status.ShouldBe(401);
         result.IsUnauthorized.ShouldBeTrue();
+    }
+
+    [Theory]
+    [InlineData("<html><head><title>Maintenance</title></head><body>Back soon</body></html>")]
+    [InlineData("<!DOCTYPE html><html><body><form action=\"/login\"></form></body></html>")]
+    [InlineData("plain text")]
+    [InlineData("null")]
+    [InlineData("[]")]
+    [InlineData("42")]
+    [InlineData("\"a string where an object was expected\"")]
+    [InlineData("""{ "total": "abc" }""")]
+    [InlineData("""{ "total": 1""")]
+    public async Task GetApiResultAsync_WhenASuccessBodyIsNotTheApisJson_FailsWithATranslatableBadGatewayProblem(string body)
+    {
+        // A proxy serving its maintenance page with a 200, or an auth redirect landing a login page on
+        // an API URL: the status says success, the body is not the API's answer. That used to throw
+        // JsonException out of the SSR render (#638); it is the #637 outage class and degrades the same
+        // way — a status-only problem the ladder answers in Polish, never an exception.
+        HttpClient httpClient = CreateClient(StubHttpMessageHandler.RespondWith(HttpStatusCode.OK, body));
+
+        ApiResult<PublicProgressResponse> result =
+            await httpClient.GetApiResultAsync<PublicProgressResponse>("progress");
+
+        result.IsFailure.ShouldBeTrue();
+        result.ProblemDetails!.Status.ShouldBe(StatusCodes.Status502BadGateway);
+        result.ProblemDetails.Extensions.ShouldNotContainKey(ApiProblemCopy.FrontendAuthoredExtensionKey);
+        result.ProblemDetails.Title.ShouldBeNull();
+        result.ProblemDetails.Detail.ShouldBeNull();
+        result.IsUnauthorized.ShouldBeFalse();
+        result.IsForbidden.ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task GetApiResultAsync_WhenAStronglyTypedIdInTheSuccessBodyIsMalformed_FailsWithATranslatableBadGatewayProblem()
+    {
+        // The repo's own StronglyTypedIdJsonConverter is the one converter in the seam that is not
+        // STJ's: a bad GUID must still surface as a JsonException it swallows, not as a FormatException
+        // that would escape the render the same way the raw JsonException did (#638).
+        HttpClient httpClient = CreateClient(StubHttpMessageHandler.RespondWith(
+            HttpStatusCode.OK,
+            """
+            {
+              "profile": {
+                "translatorId": "not-a-guid",
+                "identityId": "also-not-a-guid",
+                "displayName": "Frodo",
+                "email": null,
+                "provisionedAt": "2026-07-11T10:00:00+00:00"
+              },
+              "contributions": null
+            }
+            """));
+
+        ApiResult<TranslatorDataExportResponse> result =
+            await httpClient.GetApiResultAsync<TranslatorDataExportResponse>("translators/me/data-export");
+
+        result.IsFailure.ShouldBeTrue();
+        result.ProblemDetails!.Status.ShouldBe(StatusCodes.Status502BadGateway);
+        result.ProblemDetails.Extensions.ShouldNotContainKey(ApiProblemCopy.FrontendAuthoredExtensionKey);
+    }
+
+    [Fact]
+    public async Task GetApiResultAsync_WhenASuccessBodyIsNotTheApisJson_DescribesAsTheSameCopyAsAProxyBadGateway()
+    {
+        // The end-to-end promise of the seam: what the page shows for a 200 maintenance page is
+        // exactly what it shows for the proxy's own 502 — one outage class, one sentence.
+        HttpClient httpClient = CreateClient(StubHttpMessageHandler.RespondWith(
+            HttpStatusCode.OK,
+            "<html><body>Maintenance</body></html>"));
+
+        ApiResult<PublicProgressResponse> result =
+            await httpClient.GetApiResultAsync<PublicProgressResponse>("progress");
+
+        ApiProblemCopy.Describe(result.ProblemDetails, "Nie udało się wczytać postępu.").Message
+            .ShouldBe("Usługa jest chwilowo niedostępna. Spróbuj ponownie za chwilę.");
+    }
+
+    [Fact]
+    public async Task PostApiResultAsync_WhenASuccessBodyIsNotTheApisJson_FailsWithATranslatableBadGatewayProblem()
+    {
+        // Every generic verb funnels through the same seam — the contract is not GET-only.
+        HttpClient httpClient = CreateClient(StubHttpMessageHandler.RespondWith(
+            HttpStatusCode.Created,
+            "<html><body>Maintenance</body></html>"));
+
+        ApiResult<PublicProgressResponse> result = await httpClient.PostApiResultAsync<PublicProgressResponse>(
+            "progress",
+            new { Name = "x" });
+
+        result.IsFailure.ShouldBeTrue();
+        result.ProblemDetails!.Status.ShouldBe(StatusCodes.Status502BadGateway);
+        result.ProblemDetails.Extensions.ShouldNotContainKey(ApiProblemCopy.FrontendAuthoredExtensionKey);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    public async Task GetApiResultAsync_WhenASuccessBodyIsEmpty_SucceedsWithTheDefaultValue(string body)
+    {
+        // The boundary next to the unreadable-body rule: nothing at all is a 204-shaped success, not
+        // garbage — the caller gets the default and decides, exactly as before #638.
+        HttpClient httpClient = CreateClient(StubHttpMessageHandler.RespondWith(HttpStatusCode.OK, body));
+
+        ApiResult<PublicProgressResponse> result =
+            await httpClient.GetApiResultAsync<PublicProgressResponse>("progress");
+
+        result.IsSuccess.ShouldBeTrue();
+        result.Value.ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task GetApiResultAsync_WhenASuccessBodyIsTheApisJson_DeserializesIt()
+    {
+        HttpClient httpClient = CreateClient(StubHttpMessageHandler.RespondWith(
+            HttpStatusCode.OK,
+            """{ "total": 200, "translated": 150, "approved": 80, "currentGameVersion": "48.1" }"""));
+
+        ApiResult<PublicProgressResponse> result =
+            await httpClient.GetApiResultAsync<PublicProgressResponse>("progress");
+
+        result.IsSuccess.ShouldBeTrue();
+        result.Value.ShouldBe(new PublicProgressResponse(200, 150, 80, "48.1"));
     }
 
     private static HttpClient CreateClient(StubHttpMessageHandler handler)

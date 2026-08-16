@@ -72,9 +72,9 @@ internal static class AccountEndpointsExtensions
 
         // The TMS leg is addressed by the 'contribution-data-export' rel (#610). An unresolvable
         // rel degrades exactly like a failed call does — it never falls back to a guessed path,
-        // and it never fails the download (ADR-0032). A 200 whose body does not parse is a failed
-        // call too — the HTTP seam owns that degradation (#638) — and a 200 empty body succeeds
-        // with a null value; both leave translationData null.
+        // and it never fails the download (ADR-0032). A 200 whose body does not parse, or is
+        // empty, is a failed call too — the HTTP seam owns that degradation (#638, #653) — so a
+        // success here always carries a value, and every other outcome leaves translationData null.
         ApiResult<string> contributionHref = await discoveryCache.ResolveTranslationSystemHrefAsync(
             Rels.ContributionDataExport,
             cancellationToken);

@@ -386,9 +386,66 @@ przerwa 19:40:22–19:41:53 to restart monitora przez usera przy ekranie logowan
    wolatylność mtime jest nieprzewidywalna; finding E1-F1 (content-sentinel zamiast
    size+mtime) stoi w mocy.
 
+## Experiment E5 — per-SubFile size/iteration snapshot (2026-08-17, #656) — ✅ **SYGNAŁ DZIAŁA: pokrycie 1,277/1,277, zero przegapionych**
+
+**Metoda:** `scripts/experiments/e5-subfile-metadata-snapshot.ps1` (PR #657 + fix loadera):
+read-only open (#629, **bez elevacji**), jedno `GetSubfileSizes` → CSV
+`FileId,Size,Iteration[,Version]` dla wszystkich SubFile'ów; `-Diff` porównuje dwa CSV.
+Gotcha narzędziowa: w hoście PowerShell zależności datexport.dll (msvcr71, msvcp71/90, zlib1T —
+leżą obok niej w repo) wymagają `LoadLibraryExW` + `LOAD_WITH_ALTERED_SEARCH_PATH`; goły
+`LoadLibraryW` po ścieżce absolutnej umiera z win32 error 126, bo loader szuka zależności
+w katalogach hosta, nie DLL-ki.
+
+**Odchylenie od protokołu (szczęśliwe):** między baseline'em after-patch a startem launchera SSG
+wydał **realny update 49.1→49.3** — krok „plain launch" stał się pomiarem na żywym update, a
+kontrola negatywna została wykonana po nim (gra już aktualna). Podmiana DAT na backup 48.8
+okazała się **zbędna**: backup przediffowano **offline** przez `-DatPath` — nowa technika,
+pomiar pełnego cyklu update bez dotykania żywej instalacji i bez re-downloadu.
+
+Stany: 48.8 backup = 308,511 SubFile'ów (278,983 text) · 49.1 = 310,782 (281,253) ·
+49.3 = 310,895 (281,366).
+
+| Diff | size | iteration | version | added | removed |
+|---|---|---|---|---|---|
+| **Kontrola negatywna** (plain launch na 49.3, bez update) | **0** | **0** | **0** | **0** | **0** |
+| **Realny update 49.1→49.3** (after-patch ↔ po launcherze) | 56 (54 text) | **57 (55 text)** | 0 | 122 (122 text) | 9 (9 text) |
+| **48.8 backup ↔ live 49.3** (offline) | 725 (713 text) | **937 (921 text)** | 68 | 2,769 (2,768 text) | 385 (385 text) |
+
+W obu pomiarach `any changed` = `iteration changed` — **iteration sama pokrywa komplet ruchu**
+(size zgubił 1 SubFile przy realnym update i 212 przy 48.8→49.3; version to podzbiór iteration
+i przy realnym update nie drgnął wcale — jako sygnał jest martwy, pętlę `-IncludeVersion`
+można w detektorze pominąć).
+
+**Cross-check z ground truth** (diff eksportów 48.8→49.1; ekstrakcja FileId z hunków
+odtworzyła dokładnie **1,277** dotkniętych istniejących SubFile'ów z tego dokumentu):
+**899 złapanych jako ruch iteration + 378 jako removed = 1,277/1,277, 0 przegapionych.**
+Nowe-w-49: 2,642/2,644 obecne w `added` (brakujące 2 usunięte z powrotem przez 49.3 — spójne).
+Bonus: 49.3 usunął 378 z SubFile'ów dotkniętych przez 49.1 i dodał 2,769 nowych — SSG
+restrukturyzuje pliki między point-release'ami częściej, niż sugerował sam diff treści.
+
+**Wnioski (gating #565 / spec 0012 Tier 0):**
+
+1. **Predykat detektora: `iteration się ruszyła ∨ FileId zniknął` = chunk wymieniony od
+   naszego patcha.** Pokrycie 100% względem znanego ground truth, zero fałszywych pozytywów
+   (nasz `PatchingService` zachowuje iteration/version przy zapisie — potwierdzone: baseline
+   zdjęty tuż po patchu, dalsze snapshoty bez patcha, żadnego szumu własnego).
+2. **Kontrola negatywna czysta mimo E1-F1** — launcher pisze do DAT (mtime) przy każdym
+   starcie, ale per-SubFile metadata stoi w miejscu. Dokładnie tej separacji szukaliśmy.
+3. **Koszt:** open+`GetSubfileSizes` 0.21–0.23 s (warm) / 1.3–1.4 s (cold), bez elevacji —
+   tańszy niż dzisiejsza ścieżka SKIP z hashem pliku tłumaczeń.
+4. **Diff-set = repair-set za darmo** — detektor od razu wie, KTÓRE SubFile'e wymieniono
+   (repair-set i tak opcjonalny po E3, ale przychodzi gratis).
+5. **Tier-0 (#565) przechodzi z content-samplingu na snapshot metadanych:** przy `patch`
+   zapisujemy mapę FileId→Iteration; przy `launch` jeden call + diff. Pytanie o szerokość
+   próbkowania (K) znika w całości. Row-level source guard (ADR-0047/#659) zostaje bez zmian —
+   to warstwa admisji zapisu, komplementarna wobec detekcji (zgodnie z komentarzem na #565
+   z 2026-08-17).
+
 ## Pliki intel (gitignored `intel/update-49/`)
 
 DAT backupy 48.8 + 49 + write-test (po ~1.76 GB), pełne exporty 48.8/49 (82.6/83.1 MB), pełny
-diff (1.76 MB), snapshoty polish.txt (resident pre-LEGAL-08 + repo post-LEGAL-08) i version file.
+diff (1.76 MB), snapshoty polish.txt (resident pre-LEGAL-08 + repo post-LEGAL-08) i version file,
+snapshoty E5 (`e5-*.csv` + `.meta.txt`, ~7 MB każdy: after-patch, after-real-update-49.3,
+after-plain-launch, backup-48.8-offline + listy zmienionych tekstowych FileId).
 Committed tutaj: BASELINE.md + RESULTS.md (synthetic). Kopia robocza `data/exported.txt` =
 export 49.1 (SHA256 `56F6D046…32B00`) — deliverable do importu w TMS (GameVersion **49.1**).

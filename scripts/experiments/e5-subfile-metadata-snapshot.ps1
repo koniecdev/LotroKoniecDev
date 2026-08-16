@@ -228,9 +228,14 @@ public static class E5Native
 {
     // Pre-loading by absolute path pins the module the later DllImport("datexport.dll") calls bind
     // to, so the loader never probes the working directory or %PATH% (the DLL-planting guard the
-    // production interop gets from DefaultDllImportSearchPaths).
+    // production interop gets from DefaultDllImportSearchPaths). LOAD_WITH_ALTERED_SEARCH_PATH is
+    // required: datexport.dll's own dependencies (msvcr71, msvcp71/90, zlib1T - committed beside
+    // it) must resolve from ITS directory, not the PowerShell host's, or the load dies with
+    // win32 error 126.
+    public const uint LoadWithAlteredSearchPath = 0x8;
+
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
-    public static extern IntPtr LoadLibraryW(string lpFileName);
+    public static extern IntPtr LoadLibraryExW(string lpFileName, IntPtr hFile, uint dwFlags);
 
     [DllImport("datexport.dll", CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
     public static extern int OpenDatFileEx2(
@@ -265,9 +270,9 @@ public static class E5Native
 }
 '@
 
-if ([E5Native]::LoadLibraryW($resolvedDll) -eq [IntPtr]::Zero)
+if ([E5Native]::LoadLibraryExW($resolvedDll, [IntPtr]::Zero, [E5Native]::LoadWithAlteredSearchPath) -eq [IntPtr]::Zero)
 {
-    throw "LoadLibrary failed for $resolvedDll (win32 error $([Runtime.InteropServices.Marshal]::GetLastWin32Error()))"
+    throw "LoadLibraryExW failed for $resolvedDll (win32 error $([Runtime.InteropServices.Marshal]::GetLastWin32Error()))"
 }
 
 # 2 | ReadOnly(4). Bit 0x4 is what makes the native library ask the OS for GENERIC_READ only, which

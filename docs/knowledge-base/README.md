@@ -82,6 +82,14 @@ Detailed analysis: [datexport-readonly-open-2026-08-07.md](datexport-readonly-op
 - **Measurement trap:** `icacls /deny "(W)"` also denies `SYNCHRONIZE`, so it blocks reads and is not a Program Files proxy — build one with `/inheritance:r /grant:r "user:(RX)"` and assert both preconditions
 - Supersedes the "export from a backup copy" workaround in the 48.7 / 49 baselines; #443 Option A is delivered (#629)
 
+### E5 — a per-SubFile size/iteration snapshot detects SSG chunk replacement (2026-08-17)
+Detailed analysis: [update-49/RESULTS.md](update-49/RESULTS.md) §E5 · tool: `scripts/experiments/e5-subfile-metadata-snapshot.ps1` (#656/#657)
+- **Detector predicate: iteration moved ∨ FileId vanished = chunk replaced since our patch.** Ground-truth coverage 1,277/1,277 touched SubFiles (899 iteration + 378 removed), **0 missed**; negative control (plain launcher start) all-zero despite E1-F1's every-start mtime write
+- Measured on a LIVE update (49.1→49.3 hit mid-experiment: 57 replaced / +122 / −9, all caught); the 48.8 backup was diffed **offline** via `-DatPath` — full update-cycle measurement without touching the live install
+- One non-elevated read-only open + `GetSubfileSizes` = 0.2 s warm / 1.4 s cold; `size` is a subset of `iteration`, `Version` is dead as a signal
+- Redesigns Tier-0 (#565): metadata snapshot replaces content sampling; the diff set is the repair set; the ADR-0047 row-level guard stays (write admission, complementary)
+- PowerShell interop trap: loading datexport.dll by absolute path needs `LoadLibraryExW` + `LOAD_WITH_ALTERED_SEARCH_PATH` or its beside-the-DLL dependencies (msvcr71 & co.) don't resolve (win32 error 126)
+
 ### DAT Vnum — definitively schema-version, not content-version
 Detailed analysis: [vnum-observations.md](vnum-observations.md)
 - Vnum 112/3 unchanged across 45.x → 47.x → **48.0 major** → 48.7 → 48.8 → **49.1 major** — 6 cycles (two majors), zero movement (latest: [live-test-2026-08-02.md](live-test-2026-08-02.md))
@@ -96,7 +104,7 @@ Detailed analysis: [dat-export-diff-2026-03-22.md](dat-export-diff-2026-03-22.md
 
 ### LOTRO Update History
 Detailed analysis: [lotro-update-history.md](lotro-update-history.md)
-- 45.1 → 45.4.1 → 46 → 46.1 → 47 (major) → 47.1 → 47.1.1 → 47.2 → 48.0 (major, 2026-04-23) → 48.7 (2026-06-25) → 48.8 (observed 2026-07-11) → 49 "In Good Company" (major, 2026-07-22) → 49.1 (observed 2026-08-02)
+- 45.1 → 45.4.1 → 46 → 46.1 → 47 (major) → 47.1 → 47.1.1 → 47.2 → 48.0 (major, 2026-04-23) → 48.7 (2026-06-25) → 48.8 (observed 2026-07-11) → 49 "In Good Company" (major, 2026-07-22) → 49.1 (observed 2026-08-02) → 49.3 (observed 2026-08-17 during E5)
 - 48.0 content: Hatokáli Fells, Rhûn expansion, Deluxe housing, Edit UI feature
 
 ### Game Update Detection & Translation Versioning
@@ -168,7 +176,7 @@ Same shape as the folders above (quest text in synthetic LEGAL-08 equivalents). 
 | File | What it is |
 |------|-----------|
 | [`BASELINE.md`](update-49/BASELINE.md) | Pre-update 48.8 snapshot: DAT hash, export stats, the polish.txt fork after LEGAL-08 (repo file synthetic vs DAT-resident set), 8/8 survival baseline |
-| [`RESULTS.md`](update-49/RESULTS.md) | Full 48.8→49.1 results: 7/8 survival, the per-SubFile revert mechanism + counter-proof, diff stats, vnum, WRITE test |
+| [`RESULTS.md`](update-49/RESULTS.md) | Full 48.8→49.1 results: 7/8 survival, the per-SubFile revert mechanism + counter-proof, diff stats, vnum, WRITE test; experiments E1–E4 (2026-08-02) and E5 (2026-08-17, incl. the live 49.1→49.3 measurement) |
 
 No launch log this cycle — our `launch` was deliberately skipped (see RESULTS §deviation).
 

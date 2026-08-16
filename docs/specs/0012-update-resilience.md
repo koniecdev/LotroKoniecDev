@@ -118,8 +118,21 @@ faster repair) — not a correctness or UX requirement.
 
 ### Server side — import echo-guard + source hygiene (extends spec 0001)
 
-- **Echo-guard:** on import, an incoming row whose text equals the row's current Polish content
-  is an echo of our own patch ⇒ treat as Unchanged (do not touch SourceText, do not invalidate).
+- **Echo-guard (#563 UR-20 — implemented 2026-08-17):** on import, an incoming row whose text
+  equals the row's current Polish content is an echo of our own patch ⇒ treat as Unchanged (do not
+  touch SourceText, do not invalidate). As built: the diff compares the incoming source hash against
+  a second per-row hash, the **echo hash** = `(TranslatedText, Source.ArgsOrder, Source.ArgsId)` —
+  the exact triple the artifact carries and a patched DAT exports back (the patcher writes the text
+  verbatim, never changes the argument count, and the exporter re-emits identity args from that
+  count). The source check runs first, so an already-poisoned row (source == Polish, see #564) is
+  plain Unchanged, never an echo. An echo on a soft-removed row follows the identical-source re-add
+  rule (restore). A different Polish text — e.g. an older Polish still resident after a re-edit
+  (approve P1 → admin patches → translator re-edits to P2 → the next export echoes P1) — is
+  indistinguishable from a real change and re-creates a poisoned source of the kind #564 repairs;
+  catching it needs the row's Polish history (TP-15 / #50, post-MVP). Echoes are counted in
+  `ImportSummary.Echoed` (a subset of `Unchanged`; the import page shows it as "W tym echo patcha")
+  and in the import-passes log line — observability only, no warning: with today's manual ceremony
+  every export comes from a patched DAT, so echoes are the norm, not an anomaly.
 - **One-time source repair** for already-poisoned rows (today: 8).
 - **Pristine-source direction (optional, Q-gated):** generate a revert file from TMS SourceText
   before export, or keep a pristine DAT copy (the Russians re-download the original DAT for the
@@ -212,8 +225,11 @@ code ticket. It carries no milestone and stays that way: the backlog loop must n
 - [ ] Orchestrator branch B: at most one launcher kill per detection, only pre-client,
       only after conservative quiesce; relaunch reaches login cleanly (E4 ✅ confirmed clean,
       3× reproduced).
-- [ ] Echo-guard: importing a patched-DAT export against a translated corpus invalidates ONLY
-      rows whose English actually changed (fixture: resident-Polish echo rows + one revert).
+- [x] Echo-guard: importing a patched-DAT export against a translated corpus invalidates ONLY
+      rows whose English actually changed (fixture: resident-Polish echo rows + one revert) —
+      **#563 done 2026-08-17**: `TranslationDiffServiceTests` (echo matrix incl. the U49 shape),
+      `ImportExportedTextsTests.Import_ExportFromPatchedDat_…` (echo rows + collateral revert +
+      one real English change, end-to-end through the artifact).
 - [ ] ~~Repair-set: post-update repair touches only rows in update-touched SubFiles~~ —
       dropped from MVP per E3 (full-corpus re-patch = 14.7 s; repair-set is an optional
       later optimization).

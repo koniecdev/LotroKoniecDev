@@ -242,11 +242,16 @@ one way back and two rows can never carry the same version string.
   as an alertable state when #85 is built.
 - #85 becomes pre-launch work that ADR-0030 had deliberately parked, and it adds a hosted service
   plus SMTP to the TMS.
-- The guard covers the forced repair only. The routine launch path patches whenever the artifact
+- ~~The guard covers the forced repair only. The routine launch path patches whenever the artifact
   hash changed (`SimplifiedGameLaunchingStrategy.cs:85-99`), with no version gate, so an unrelated
   approve that rebuilds the artifact mid-window still re-injects pre-update Polish. Accepted for
   now — closing it means gating the ordinary patch on the verdict too, trading a masking risk for
-  a wider "no Polish at all" window. Revisit if a real update day shows it hurting.
+  a wider "no Polish at all" window. Revisit if a real update day shows it hurting.~~
+  **Superseded by ADR-0047 (2026-08-17).** The owner named "no stale Polish over changed English"
+  an invariant of the system, on every write path; it is now enforced per row at write time in the
+  patcher (artifact `source_digest` + local ledger), which also covers the pre-registration window
+  described in §Context above that this verdict never could. The verdict stays as the
+  preflight/UI signal (§2, §7, #562) and no longer gates the repair.
 - TMS unreachable ⇒ no repair. Tier 0 declines rather than masks, but also never heals a
   collateral revert while offline. Accepted: masking is the worse failure.
 - The distribution response grows contract surface that must hold on 304 — a header dropped on the

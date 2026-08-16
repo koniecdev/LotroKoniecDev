@@ -4,7 +4,9 @@
   per Q5 in the dedicated **UR** milestone); experiments: **ALL FOUR done 2026-08-02**
   (E1: DAT free at the login screen; E3: full corpus 14.7 s — repair-set not required; E4:
   pre-creds kill clean 3×; E2: full forced-downgrade update cycle recorded — download leaves
-  the DAT free, apply is a ~1 s lock burst, login screen post-update free). Results:
+  the DAT free, apply is a ~1 s lock burst, login screen post-update free) **+ E5 done
+  2026-08-17** (per-SubFile iteration snapshot = complete wipe signal, 1,277/1,277 coverage —
+  Tier-0 detection revised below, #565 redesigned). Results:
   `docs/knowledge-base/update-49/RESULTS.md` §Experiments — incl. findings E1-F1 (DAT mtime
   volatile ⇒ Tier-0 content-sentinel revision below) and the forced-downgrade method (repeatable
   update-cycle simulator; big-major burst shape still worth observing at the next real SSG major)
@@ -51,14 +53,24 @@ corrections with stale Polish — and TMS imports stay correct at any corpus sca
 - ~~DAT fingerprint (size + LastWriteTime)~~ **REVISED per E1-F1 (2026-08-02): the launcher
   writes the DAT on EVERY start** (mtime bumps at launcher check and at client start, with no
   translation loss), so a size+mtime fingerprint would false-positive every session and
-  degenerate Tier 0 into a force-re-patch-per-launch. Detection is a **content sentinel**
+  degenerate Tier 0 into a force-re-patch-per-launch. ~~Detection is a **content sentinel**
   instead: on launch, read a small sample of known-translated artifact fragments via the
   existing datexport READ path (milliseconds); any sampled fragment reverted to English ⇒
-  **force re-patch with a freshly synced artifact even when the translation-file hash
-  matches**. Sample choice: spread across distinct SubFiles (collateral reverts are
-  per-SubFile, so K sampled SubFiles detect a wipe of any of them; full certainty needs the
-  full artifact row-set — sampling breadth is an implementation knob). One-shot guard per
-  detection (no repair loops).
+  force re-patch. Sampling breadth is an implementation knob. One-shot guard per detection.~~
+  **REVISED AGAIN per E5 (2026-08-17, #656): detection is a per-SubFile ITERATION SNAPSHOT,
+  no content reads and no sampling.** E1-F1 killed only the whole-file fingerprint; E5 measured
+  the per-SubFile metadata underneath it and it is exactly the signal we wanted: one
+  non-elevated read-only open + `GetSubfileSizes` (~0.2 s) returns size+iteration for every
+  SubFile; predicate **`iteration moved ∨ FileId vanished` = chunk replaced since our patch**.
+  Proven on a live update (49.1→49.3) and against the 48.8→49.1 ground truth: 1,277/1,277
+  touched SubFiles covered, 0 missed, negative control all-zero (`Version` is dead; `size` a
+  strict subset of `iteration`; our own patch preserves both, so no self-noise; also closes
+  the byte-identical-replacement blind spot a content pair-diff has). The snapshot
+  (FileId → Iteration) is persisted after each successful patch and refreshed after a
+  successful repair — which makes the repair self-limiting, replacing the one-shot marker
+  whose key E1-F1 killed. The diff set doubles as the repair set for free. Coverage is total
+  by construction, so the sampling-breadth knob disappears. Full data:
+  `docs/knowledge-base/update-49/RESULTS.md` §E5; redesigned ticket: #565.
 - **Anti-masking handshake** (revised by **ADR-0045**, 2026-08-06 — the client never reads
   lotro.com): the distribution response carries the GameVersion the artifact was generated for
   **and a server-computed staleness verdict** ("does the TMS know an Unprocessed version newer
@@ -129,6 +141,7 @@ faster repair) — not a correctness or UX requirement.
 | E4 | Is a pre-creds launcher kill clean? | Kill at login screen → relaunch → verify straight-to-login + game boots | Safety of branch B | ✅ **clean, 3× reproduced** — relaunch indistinguishable from a normal start (UAC → DAT check → login); game boots fine |
 | E3 | Full-corpus patch duration | Synthetic ~100k+-row polish.txt → patch a DAT COPY → time it | Repair-set: optional vs required | ✅ **800,864 rows = 14.7 s; 21,660 = 5.6 s ⇒ repair-set optional** |
 | E2 | Handle behavior across a real update cycle (download vs apply bursts; slow-network hour-long updates) | **Forced downgrade** (swap live DAT for the 48.8 backup → launcher replays the real 48.8→49.1 cycle) + probe/writes timeline (`scripts/experiments/e2-dat-handle-monitor.ps1`) | Quiesce windows; whether probe-success can occur mid-update | ✅ **download leaves the DAT free (~11 s window, probe-success mid-update IS possible ⇒ convergent loop required & sufficient); apply = single ~1 s lock burst; post-update login screen free (branch A holds on update day); client holds the DAT for the whole session.** Caveat: ~5 MB delta — big-major burst shape TBD at the next real SSG major |
+| E5 | Does an SSG chunk replacement move per-SubFile size/iteration? (2026-08-17, #656) | Snapshot `(FileId,Size,Iteration,Version)` for all ~310k SubFiles via one `GetSubfileSizes` (`scripts/experiments/e5-subfile-metadata-snapshot.ps1`, non-elevated); diff after-patch vs after-update vs plain-launch; 48.8 backup diffed OFFLINE via `-DatPath` | Tier-0 detection: metadata snapshot vs content sentinel | ✅ **iteration+presence = complete signal: 1,277/1,277 ground-truth coverage (899 iteration + 378 removed, 0 missed); negative control 0/0/0 despite E1-F1; measured live on 49.1→49.3 (57 replaced, all caught); `Version` dead, `size` strict subset; 0.2 s warm / 1.4 s cold ⇒ #565 redesigned around it** |
 
 New lock-anatomy facts (2026-08-02, E1/E4 pass): `LotroLauncher.exe` manifests `asInvoker` and
 the game dir ACL grants Users only RX, but **the launcher prompts UAC and runs elevated on every
@@ -178,8 +191,8 @@ execution order — the real chains are:
 - **#624** UR-23 superseded version stays retirable → **#85** UR-24 forum watcher
 - **#562** UR-22 artifact version + verdict → **#626** UR-25 current-version endpoint + rel →
   **#627** UR-26 patcher drops the forum scrape
-- **#562** UR-22 → **#565** UR-10 Tier-0 content-sentinel → **#566** UR-11 Tier-1 orchestrator →
-  **#567** UR-12 forced-downgrade E2E
+- **#562** UR-22 → **#565** UR-10 Tier-0 wipe detection (iteration snapshot per E5) →
+  **#566** UR-11 Tier-1 orchestrator → **#567** UR-12 forced-downgrade E2E
 - **#563** UR-20 import echo-guard → **#564** UR-21 one-time source repair
 
 First real 49.1 import: **#559** (UR-02) — a manual ops run against a live game install, not a
@@ -188,7 +201,8 @@ code ticket. It carries no milestone and stays that way: the backlog loop must n
 ## Acceptance criteria (final per Q1–Q5)
 
 - [ ] After a simulated chunk-wipe (write-test DAT with a reverted SubFile), the next launch
-      detects the revert via the content sentinel and restores every artifact row (Tier 0).
+      detects the revert via the ~~content sentinel~~ **iteration-snapshot diff (E5 revision)**
+      and restores every artifact row (Tier 0).
 - [ ] Sentinel force-patches only when the server's staleness verdict says the artifact is
       current, and declines on stale/unknown/offline (handshake — ADR-0045; the client never
       reads lotro.com and never compares versions itself).

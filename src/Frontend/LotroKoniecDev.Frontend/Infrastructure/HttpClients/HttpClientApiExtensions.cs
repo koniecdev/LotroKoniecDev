@@ -13,7 +13,9 @@ namespace LotroKoniecDev.Frontend.Infrastructure.HttpClients;
 /// success deserializes the body, an error status deserializes the API's <c>ProblemDetails</c>, and a
 /// transport failure (no HTTP status — Polly timeout/circuit-open, socket error) is mapped to a Polish
 /// <c>ProblemDetails</c> so the SSR page renders a message instead of crashing. The Frontend is
-/// Polish-only, so these messages are inlined rather than localized.
+/// Polish-only, so these messages are inlined rather than localized. Nothing here throws for what
+/// came off the wire: a body that is not the API's answer — on an error status <em>or</em> a success
+/// one — is a failed result, never an exception escaping the render.
 /// </summary>
 internal static class HttpClientApiExtensions
 {
@@ -196,15 +198,13 @@ internal static class HttpClientApiExtensions
             if (response.IsSuccessStatusCode)
             {
                 // A success with no body (e.g. 204 No Content) has nothing to deserialize — surface the
-                // default value rather than throwing a JsonException on an empty string.
+                // default value rather than failing on an empty string.
                 if (string.IsNullOrWhiteSpace(content))
                 {
                     return ApiResult.Success<T>(default!);
                 }
 
-                T value = JsonSerializer.Deserialize<T>(content, JsonOptions)
-                          ?? throw new JsonException($"Failed to deserialize {typeof(T).Name}");
-                return ApiResult.Success(value);
+                return ParseSuccessBody<T>(content);
             }
 
             return ApiResult.Failure<T>(ParseProblemDetails(content, response));
@@ -236,6 +236,35 @@ internal static class HttpClientApiExtensions
         {
             return ApiResult.Failure(MapTransportFailureToProblemDetails(ex));
         }
+    }
+
+    /// <summary>
+    /// Deserializes a success body into <typeparamref name="T"/>. A success status does not prove the
+    /// body is the API's answer — a reverse proxy serves its maintenance page with a <c>200</c>, an
+    /// auth redirect lands an HTML login page on an API URL — so a body that does not read as
+    /// <typeparamref name="T"/> (or reads as the <c>null</c> literal) is the same outage class as an
+    /// unreadable error body and degrades the same way: a status-only <see cref="ProblemDetails"/> the
+    /// copy ladder answers in Polish (#637), never a <see cref="JsonException"/> escaping the SSR
+    /// render (#638). It carries <c>502 Bad Gateway</c> rather than the status it wore: what came back
+    /// is an invalid upstream response whatever the status line said, <c>200</c> has no failure copy,
+    /// and a download route localizing it would otherwise answer the browser with a <c>200</c> problem.
+    /// </summary>
+    private static ApiResult<T> ParseSuccessBody<T>(string content)
+    {
+        try
+        {
+            T? value = JsonSerializer.Deserialize<T>(content, JsonOptions);
+            if (value is not null)
+            {
+                return ApiResult.Success(value);
+            }
+        }
+        catch (JsonException)
+        {
+            // Fall through to the synthesized ProblemDetails below.
+        }
+
+        return ApiResult.Failure<T>(ApiProblemCopy.StatusOnly(StatusCodes.Status502BadGateway));
     }
 
     /// <summary>

@@ -171,6 +171,8 @@ public sealed class AccountEndpointsExtensionsTests
     [Fact]
     public async Task DownloadAccountExportAsync_WhenTmsReturnsAMalformedBody_StillServesTheFileWithIsCompleteFalse()
     {
+        // A 200 whose body is not JSON is a failed TMS leg — the seam degrades it (#638), and the
+        // route degrades the file rather than failing the download (ADR-0032).
         AccountLoader loader = CreateLoaderReturning(AccountLoaderTests.CreateEnvelope());
         ITranslationSystemClient tmsClient = CreateTmsClient(
             StubHttpMessageHandler.RespondWith(HttpStatusCode.OK, "this is not json"));
@@ -226,6 +228,27 @@ public sealed class AccountEndpointsExtensionsTests
             CreateClient(StubHttpMessageHandler.RespondWith(
                 HttpStatusCode.BadGateway,
                 "<html><head><title>502 Bad Gateway</title></head><body></body></html>")));
+
+        IResult result = await AccountEndpointsExtensions.DownloadAccountExportAsync(
+            loader, _discoveryCache, CreateTmsClientReturningContribution(), NullLoggerFactory.Instance, CancellationToken.None);
+
+        ProblemHttpResult problem = result.ShouldBeOfType<ProblemHttpResult>();
+        problem.ProblemDetails.Status.ShouldBe(StatusCodes.Status502BadGateway);
+        problem.ProblemDetails.Title.ShouldBe("Usługa jest chwilowo niedostępna. Spróbuj ponownie za chwilę.");
+    }
+
+    [Fact]
+    public async Task DownloadAccountExportAsync_WhenTheAuthLegAnswersAMaintenancePageWithA200_ServesThePolishStatusCopyInsteadOfThrowing()
+    {
+        // The #637 outage class wearing a success status: the proxy's maintenance page comes back as
+        // 200 + HTML. That used to throw JsonException out of the route (#638); it is a failed auth
+        // leg like any other and answers with the same Polish sentence the proxy's own 502 does.
+        StubDiscoveryWithExportLink();
+        AccountLoader loader = new(
+            _discoveryCache,
+            CreateClient(StubHttpMessageHandler.RespondWith(
+                HttpStatusCode.OK,
+                "<html><head><title>Maintenance</title></head><body>Back soon</body></html>")));
 
         IResult result = await AccountEndpointsExtensions.DownloadAccountExportAsync(
             loader, _discoveryCache, CreateTmsClientReturningContribution(), NullLoggerFactory.Instance, CancellationToken.None);

@@ -298,17 +298,47 @@ public sealed class HttpClientApiExtensionsTests
     [Theory]
     [InlineData("")]
     [InlineData("   ")]
-    public async Task GetApiResultAsync_WhenASuccessBodyIsEmpty_SucceedsWithTheDefaultValue(string body)
+    public async Task GetApiResultAsync_WhenASuccessBodyIsEmpty_FailsWithATranslatableBadGatewayProblem(string body)
     {
-        // The boundary next to the unreadable-body rule: nothing at all is a 204-shaped success, not
-        // garbage — the caller gets the default and decides, exactly as before #638.
+        // The rule next to #638's: a value-promising call that gets nothing back has not been answered
+        // either. It used to succeed with a null Value that every caller dereferences (#653) — now it is
+        // the same unreadable-body class as a maintenance page, and degrades the same way. Only the
+        // body-less verbs and PostForHeadersApiResultAsync model 204.
         HttpClient httpClient = CreateClient(StubHttpMessageHandler.RespondWith(HttpStatusCode.OK, body));
 
         ApiResult<PublicProgressResponse> result =
             await httpClient.GetApiResultAsync<PublicProgressResponse>("progress");
 
+        result.IsFailure.ShouldBeTrue();
+        result.ProblemDetails!.Status.ShouldBe(StatusCodes.Status502BadGateway);
+        result.ProblemDetails.Extensions.ShouldNotContainKey(ApiProblemCopy.FrontendAuthoredExtensionKey);
+        result.ProblemDetails.Title.ShouldBeNull();
+        result.ProblemDetails.Detail.ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task GetApiResultAsync_WhenASuccessBodyIsEmpty_DescribesAsTheSameCopyAsAProxyBadGateway()
+    {
+        HttpClient httpClient = CreateClient(StubHttpMessageHandler.RespondWith(HttpStatusCode.OK, string.Empty));
+
+        ApiResult<PublicProgressResponse> result =
+            await httpClient.GetApiResultAsync<PublicProgressResponse>("progress");
+
+        ApiProblemCopy.Describe(result.ProblemDetails, "Nie udało się wczytać postępu.").Message
+            .ShouldBe("Usługa jest chwilowo niedostępna. Spróbuj ponownie za chwilę.");
+    }
+
+    [Fact]
+    public async Task PostApiResultAsync_WhenTheBodyLessVerbGetsNoContent_Succeeds()
+    {
+        // The other side of the boundary: 204 stays a success where nothing was promised. This is the
+        // approve/delete path — it must not inherit the value-promising verbs' empty-body rule.
+        HttpClient httpClient = CreateClient(StubHttpMessageHandler.RespondWith(HttpStatusCode.NoContent, string.Empty));
+
+        ApiResult result = await httpClient.PostApiResultAsync("translations/1/approve", new { });
+
         result.IsSuccess.ShouldBeTrue();
-        result.Value.ShouldBeNull();
+        result.ProblemDetails.ShouldBeNull();
     }
 
     [Fact]

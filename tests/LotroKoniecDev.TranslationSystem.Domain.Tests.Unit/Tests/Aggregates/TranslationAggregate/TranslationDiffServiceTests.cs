@@ -16,8 +16,15 @@ public sealed class TranslationDiffServiceTests
         string text,
         string? argsOrder = null,
         TranslationStatus status = TranslationStatus.Untranslated,
-        bool isRemoved = false)
-        => new(TranslationId.Create(), new FragmentKeyValue(fileId, gossipId), Hash(text, argsOrder), status, isRemoved);
+        bool isRemoved = false,
+        string? polish = null)
+        => new(
+            TranslationId.Create(),
+            new FragmentKeyValue(fileId, gossipId),
+            Hash(text, argsOrder),
+            SourceHash.ComputeEcho(polish, argsOrder, argsOrder),
+            status,
+            isRemoved);
 
     private static KeyValuePair<FragmentKeyValue, SourceHash> Incoming(
         int fileId,
@@ -239,5 +246,169 @@ public sealed class TranslationDiffServiceTests
         incoming.Count.ShouldBe(1);
         incoming.ContainsKey(new FragmentKeyValue(1, 9)).ShouldBeTrue();
         plan.AddedCount.ShouldBe(1);
+    }
+
+    [Theory]
+    [InlineData(TranslationStatus.Draft)]
+    [InlineData(TranslationStatus.Approved)]
+    [InlineData(TranslationStatus.NeedsReview)]
+    public async Task ComputePlanAsync_WhenIncomingSourceIsTheRowsOwnPolish_ShouldBeUnchangedEcho(TranslationStatus status)
+    {
+        // Arrange — the export came from a patched DAT, so the resident row carries our Polish as
+        // its "source" (spec 0012); whatever the status, the current Polish is what would echo.
+        StoredSourceDigest stored = Stored(1, 1, "Alpha", status: status, polish: "Alfa");
+        Dictionary<FragmentKeyValue, SourceHash> incoming = Map(Incoming(1, 1, "Alfa"));
+
+        // Act
+        TranslationDiffPlan plan = await TranslationDiffService.ComputePlanAsync(Existing(stored), incoming, CancellationToken.None);
+
+        // Assert
+        plan.EchoedCount.ShouldBe(1);
+        plan.UnchangedCount.ShouldBe(1);
+        plan.SourceChangedByKey.ShouldBeEmpty();
+        plan.InvalidatedCount.ShouldBe(0);
+        plan.RestoredIds.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task ComputePlanAsync_WhenIncomingSourceIsSomeoneElsesPolish_ShouldBeSourceChange()
+    {
+        // Arrange — only the row's OWN Polish is an echo; a different Polish text is a real change
+        // (e.g. an older Polish still resident after a re-edit — the guard cannot know it).
+        StoredSourceDigest stored = Stored(1, 1, "Alpha", status: TranslationStatus.Approved, polish: "Alfa");
+        Dictionary<FragmentKeyValue, SourceHash> incoming = Map(Incoming(1, 1, "Alfa stara"));
+
+        // Act
+        TranslationDiffPlan plan = await TranslationDiffService.ComputePlanAsync(Existing(stored), incoming, CancellationToken.None);
+
+        // Assert
+        plan.EchoedCount.ShouldBe(0);
+        plan.SourceChangedByKey.Count.ShouldBe(1);
+        plan.InvalidatedCount.ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task ComputePlanAsync_WhenRowHasNoPolish_ShouldNeverEcho()
+    {
+        // Arrange — an untranslated row has nothing of ours that could come back; any differing text
+        // is a source change even if it happens to look Polish.
+        StoredSourceDigest stored = Stored(1, 1, "Alpha");
+        Dictionary<FragmentKeyValue, SourceHash> incoming = Map(Incoming(1, 1, "Alfa"));
+
+        // Act
+        TranslationDiffPlan plan = await TranslationDiffService.ComputePlanAsync(Existing(stored), incoming, CancellationToken.None);
+
+        // Assert
+        plan.EchoedCount.ShouldBe(0);
+        plan.SourceChangedByKey.Count.ShouldBe(1);
+        plan.InvalidatedCount.ShouldBe(0);
+    }
+
+    [Fact]
+    public async Task ComputePlanAsync_WhenPolishEchoesWithIdenticalArgs_ShouldBeUnchangedEcho()
+    {
+        // Arrange — a placeholder-bearing row: the patched DAT keeps the argument count, so the
+        // export re-emits the source's identity args next to our Polish. Text AND args match the
+        // echo triple.
+        StoredSourceDigest stored = Stored(1, 1, "Hail <--DO_NOT_TOUCH!--> friend", argsOrder: "1-1", status: TranslationStatus.Approved, polish: "Witaj <--DO_NOT_TOUCH!--> przyjacielu");
+        Dictionary<FragmentKeyValue, SourceHash> incoming = Map(Incoming(1, 1, "Witaj <--DO_NOT_TOUCH!--> przyjacielu", argsOrder: "1-1"));
+
+        // Act
+        TranslationDiffPlan plan = await TranslationDiffService.ComputePlanAsync(Existing(stored), incoming, CancellationToken.None);
+
+        // Assert
+        plan.EchoedCount.ShouldBe(1);
+        plan.UnchangedCount.ShouldBe(1);
+        plan.SourceChangedByKey.ShouldBeEmpty();
+        plan.InvalidatedCount.ShouldBe(0);
+    }
+
+    [Fact]
+    public async Task ComputePlanAsync_WhenPolishEchoesWithDifferentArgs_ShouldBeSourceChange()
+    {
+        // Arrange — the echo is the whole triple: our Polish text with the source's args columns. A
+        // changed argument structure is a real change even when the text is our own Polish.
+        StoredSourceDigest stored = Stored(1, 1, "Alpha", argsOrder: "1-2", status: TranslationStatus.Approved, polish: "Alfa");
+        Dictionary<FragmentKeyValue, SourceHash> incoming = Map(Incoming(1, 1, "Alfa", argsOrder: "1-2-3"));
+
+        // Act
+        TranslationDiffPlan plan = await TranslationDiffService.ComputePlanAsync(Existing(stored), incoming, CancellationToken.None);
+
+        // Assert
+        plan.EchoedCount.ShouldBe(0);
+        plan.SourceChangedByKey.Count.ShouldBe(1);
+        plan.InvalidatedCount.ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task ComputePlanAsync_WhenStoredSourceAlreadyEqualsThePolish_ShouldBePlainUnchangedNotEcho()
+    {
+        // Arrange — a poisoned row (its source was overwritten with the Polish echo by a pre-guard
+        // import): the source check wins, so it is unchanged and NOT counted as an echo — the echo
+        // counter reports guard hits only.
+        StoredSourceDigest stored = Stored(1, 1, "Alfa", status: TranslationStatus.Approved, polish: "Alfa");
+        Dictionary<FragmentKeyValue, SourceHash> incoming = Map(Incoming(1, 1, "Alfa"));
+
+        // Act
+        TranslationDiffPlan plan = await TranslationDiffService.ComputePlanAsync(Existing(stored), incoming, CancellationToken.None);
+
+        // Assert
+        plan.UnchangedCount.ShouldBe(1);
+        plan.EchoedCount.ShouldBe(0);
+        plan.SourceChangedByKey.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task ComputePlanAsync_WhenRemovedRowReappearsAsItsOwnPolish_ShouldRestoreAndCountEcho()
+    {
+        // Arrange — an echo proves the fragment still holds our patch, i.e. its source never really
+        // changed, so a soft-removed row follows the identical-source re-add rule and is restored.
+        StoredSourceDigest removed = Stored(1, 1, "Alpha", status: TranslationStatus.Approved, isRemoved: true, polish: "Alfa");
+        Dictionary<FragmentKeyValue, SourceHash> incoming = Map(Incoming(1, 1, "Alfa"));
+
+        // Act
+        TranslationDiffPlan plan = await TranslationDiffService.ComputePlanAsync(Existing(removed), incoming, CancellationToken.None);
+
+        // Assert
+        plan.RestoredIds.Count.ShouldBe(1);
+        plan.RestoredIds[0].ShouldBe(removed.Id);
+        plan.EchoedCount.ShouldBe(1);
+        plan.UnchangedCount.ShouldBe(0);
+        plan.SourceChangedByKey.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task ComputePlanAsync_OnPatchedDatExport_ShouldInvalidateOnlyTheRealEnglishChange()
+    {
+        // Arrange — the U49 shape (spec 0012 AC): a translated corpus, an export from the admin's
+        // patched DAT. Rows 1-2 echo our Polish, row 3 was collateral-reverted to its identical
+        // English (a client-side repair, not a TMS event), row 4's English really changed, row 5 is
+        // untranslated and untouched.
+        StoredSourceDigest[] existing =
+        [
+            Stored(1, 1, "Alpha", status: TranslationStatus.Approved, polish: "Alfa"),
+            Stored(1, 2, "Beta", status: TranslationStatus.Approved, polish: "Bety"),
+            Stored(1, 3, "Gamma", status: TranslationStatus.Approved, polish: "Gama"),
+            Stored(1, 4, "Delta", status: TranslationStatus.Approved, polish: "Delty"),
+            Stored(1, 5, "Epsilon")
+        ];
+        Dictionary<FragmentKeyValue, SourceHash> incoming = Map(
+            Incoming(1, 1, "Alfa"),
+            Incoming(1, 2, "Bety"),
+            Incoming(1, 3, "Gamma"),
+            Incoming(1, 4, "Delta reworded"),
+            Incoming(1, 5, "Epsilon"));
+
+        // Act
+        TranslationDiffPlan plan = await TranslationDiffService.ComputePlanAsync(Existing(existing), incoming, CancellationToken.None);
+
+        // Assert
+        plan.EchoedCount.ShouldBe(2);
+        plan.UnchangedCount.ShouldBe(4);
+        plan.SourceChangedByKey.Count.ShouldBe(1);
+        plan.SourceChangedByKey.ContainsKey(new FragmentKeyValue(1, 4)).ShouldBeTrue();
+        plan.InvalidatedCount.ShouldBe(1);
+        plan.AddedCount.ShouldBe(0);
+        plan.RemovedIds.ShouldBeEmpty();
     }
 }

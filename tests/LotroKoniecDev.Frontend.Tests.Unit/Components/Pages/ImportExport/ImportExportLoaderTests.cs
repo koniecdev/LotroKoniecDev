@@ -230,6 +230,7 @@ public sealed class ImportExportLoaderTests
         result.Value.Invalidated.ShouldBe(1);
         result.Value.Removed.ShouldBe(4);
         result.Value.Unchanged.ShouldBe(10);
+        result.Value.Echoed.ShouldBe(7);
         result.Value.Warnings.ShouldHaveSingleItem();
     }
 
@@ -292,7 +293,7 @@ public sealed class ImportExportLoaderTests
         new(GameVersionId.Create(GameVersionGuid), "48.0", DateTimeOffset.UnixEpoch, GameVersionStatus.Unprocessed);
 
     private static ImportSummary SummaryFixture() =>
-        new(Added: 3, SourceChanged: 2, Invalidated: 1, Removed: 4, Unchanged: 10, Warnings: ["1 wiersz przywrócony."]);
+        new(Added: 3, SourceChanged: 2, Invalidated: 1, Removed: 4, Unchanged: 10, Echoed: 7, Warnings: ["1 wiersz przywrócony."]);
 
     private static ImportExportLoader CreateLoader(
         HttpStatusCode statusCode,

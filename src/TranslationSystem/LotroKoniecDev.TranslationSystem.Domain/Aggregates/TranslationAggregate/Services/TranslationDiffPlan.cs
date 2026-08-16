@@ -26,6 +26,14 @@ public sealed class TranslationDiffPlan
     public int UnchangedCount { get; }
 
     /// <summary>
+    /// Rows whose incoming "source" was our own Polish echoed back from a patched DAT (spec 0012)
+    /// — matched through <see cref="StoredSourceDigest.EchoHash"/> and treated as an identical
+    /// source, so they are already counted in <see cref="UnchangedCount"/> (or in
+    /// <see cref="RestoredIds"/> when they were soft-removed). Reported for observability only.
+    /// </summary>
+    public int EchoedCount { get; }
+
+    /// <summary>
     /// Source-changed rows that carried Polish work and were therefore invalidated.
     /// </summary>
     public int InvalidatedCount { get; }
@@ -57,6 +65,7 @@ public sealed class TranslationDiffPlan
         IReadOnlyList<TranslationId> removedIds,
         IReadOnlyList<TranslationId> restoredIds,
         int unchangedCount,
+        int echoedCount,
         int invalidatedCount,
         int comparableExistingCount)
     {
@@ -70,6 +79,7 @@ public sealed class TranslationDiffPlan
         RemovedIds = removedIds;
         RestoredIds = restoredIds;
         UnchangedCount = unchangedCount;
+        EchoedCount = echoedCount;
         InvalidatedCount = invalidatedCount;
         ComparableExistingCount = comparableExistingCount;
     }

@@ -12,6 +12,17 @@ namespace LotroKoniecDev.TranslationSystem.Domain.Aggregates.TranslationAggregat
 /// the database; the import handler realizes the plan inside its transaction after the truncation
 /// guard passes.
 /// </summary>
+/// <remarks>
+/// Echo-guard (spec 0012): the admin exports from their own patched DAT, so a resident row comes
+/// back with our Polish as its "source". Without the guard every translated-and-resident row would
+/// read as source-changed on every update — a mass false invalidation that also overwrites the
+/// English with Polish. An incoming row that differs from the stored source but hash-matches the
+/// row's <see cref="StoredSourceDigest.EchoHash"/> is therefore an echo: treated exactly like an
+/// identical source (unchanged, or restored when soft-removed) and counted separately for
+/// observability. The guard sees only the row's <em>current</em> Polish — an older Polish still
+/// resident after a re-edit is indistinguishable from a real change and poisons the source the way
+/// #564 repairs; catching it needs the row's Polish history (TP-15 / #50, post-MVP).
+/// </remarks>
 public static class TranslationDiffService
 {
     /// <summary>
@@ -31,6 +42,7 @@ public static class TranslationDiffService
         List<TranslationId> removedIds = [];
         List<TranslationId> restoredIds = [];
         int unchangedCount = 0;
+        int echoedCount = 0;
         int invalidatedCount = 0;
         int comparableExistingCount = 0;
 
@@ -51,8 +63,16 @@ public static class TranslationDiffService
                 continue;
             }
 
-            if (incomingHash == stored.SourceHash)
+            // The source check runs first, so a row whose stored source already equals its Polish (a
+            // poisoned source from a pre-guard import) counts as plain unchanged, never as an echo.
+            bool isEcho = incomingHash != stored.SourceHash && incomingHash == stored.EchoHash;
+            if (incomingHash == stored.SourceHash || isEcho)
             {
+                if (isEcho)
+                {
+                    echoedCount++;
+                }
+
                 if (stored.IsRemoved)
                 {
                     restoredIds.Add(stored.Id);
@@ -78,6 +98,7 @@ public static class TranslationDiffService
             removedIds,
             restoredIds,
             unchangedCount,
+            echoedCount,
             invalidatedCount,
             comparableExistingCount);
     }

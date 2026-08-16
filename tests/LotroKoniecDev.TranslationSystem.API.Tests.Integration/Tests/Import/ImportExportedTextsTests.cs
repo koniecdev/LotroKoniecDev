@@ -232,6 +232,104 @@ public sealed class ImportExportedTextsTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Import_ExportFromPatchedDat_ShouldTreatEchoesAsUnchangedAndInvalidateOnlyTheRealEnglishChange()
+    {
+        // Arrange — the U49 shape (spec 0012 / #563): a translated, approved corpus, then an export
+        // taken from the admin's OWN patched DAT. Resident rows 1-2 come back carrying our Polish as
+        // their "source" (echo; row 2 is placeholder-bearing, so its args columns ride along and pin
+        // the projection's echo triple), row 3 was collateral-reverted to its identical English,
+        // row 4's English really changed (its chunk was replaced, so it reads English too), row 5 is
+        // untranslated and untouched.
+        const string placeholderPolish = "Witaj <--DO_NOT_TOUCH!--> przyjacielu";
+        GameVersionId firstVersion = await SeedVersionAsync("48.8");
+        using HttpClient client = AdminClient();
+        static MultipartFormDataContent Baseline() =>
+            ExportContent(
+                Line(1, "Alpha"),
+                LineWithArgs(2, "Greet <--DO_NOT_TOUCH!--> friend", "1-1"),
+                Line(3, "Gamma"),
+                Line(4, "Delta"),
+                Line(5, "Epsilon"));
+        await client.PostAsync(ImportRoute(firstVersion), Baseline());
+        foreach ((int gossipId, string polish) in new[] { (1, "Alfa"), (2, placeholderPolish), (3, "Gama"), (4, "Delty") })
+        {
+            await AttachPolishAsync(gossipId, polish);
+            await ApprovePolishAsync(gossipId);
+        }
+
+        // Pin the pre-import artifact to all four approved rows (an idempotent re-upload schedules a
+        // rebuild; the approvals above went straight to the DB and did not), so the final poll
+        // strictly witnesses the invalidated row LEAVING the file rather than an intermediate build.
+        await client.PostAsync(ImportRoute(firstVersion), Baseline());
+        await TranslationFileDownloadPolling.DownloadWhenConvergedAsync(
+            _factory.CreateClient(),
+            "/api/v1/translation-files/pl",
+            (candidate, content) => candidate.IsSuccessStatusCode && content.Contains($"{FileId}||4||Delty||NULL||NULL||1"));
+
+        DateTimeOffset residentUpdatedAt = (await GetTranslationAsync(1))!.UpdatedAt;
+        GameVersionId secondVersion = await SeedVersionAsync("49.1");
+
+        // Act
+        HttpResponseMessage response = await client.PostAsync(
+            ImportRoute(secondVersion),
+            ExportContent(
+                Line(1, "Alfa"),
+                LineWithArgs(2, placeholderPolish, "1-1"),
+                Line(3, "Gamma"),
+                Line(4, "Delta reworded"),
+                Line(5, "Epsilon")));
+        ImportSummary? summary = await response.Content.ReadFromJsonAsync<ImportSummary>();
+
+        // Assert — only the real English change is invalidated; the echoes are visible in the
+        // summary and byte-for-byte untouched (source, Polish, status, timestamp).
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        summary.ShouldNotBeNull();
+        summary.Added.ShouldBe(0);
+        summary.SourceChanged.ShouldBe(1);
+        summary.Invalidated.ShouldBe(1);
+        summary.Removed.ShouldBe(0);
+        summary.Unchanged.ShouldBe(4);
+        summary.Echoed.ShouldBe(2);
+
+        Translation? echoed = await GetTranslationAsync(1);
+        echoed!.Source.Text.ShouldBe("Alpha");
+        echoed.TranslatedText.ShouldBe("Alfa");
+        echoed.Status.ShouldBe(TranslationStatus.Approved);
+        echoed.PreviousSourceText.ShouldBeNull();
+        echoed.LastSourceChangeInVersion.ShouldBeNull();
+        echoed.UpdatedAt.ShouldBe(residentUpdatedAt);
+
+        Translation? echoedWithArgs = await GetTranslationAsync(2);
+        echoedWithArgs!.Source.Text.ShouldBe("Greet <--DO_NOT_TOUCH!--> friend");
+        echoedWithArgs.Source.ArgsOrder.ShouldBe("1-1");
+        echoedWithArgs.Source.ArgsId.ShouldBe("1-1");
+        echoedWithArgs.TranslatedText.ShouldBe(placeholderPolish);
+        echoedWithArgs.Status.ShouldBe(TranslationStatus.Approved);
+
+        Translation? collateral = await GetTranslationAsync(3);
+        collateral!.Source.Text.ShouldBe("Gamma");
+        collateral.Status.ShouldBe(TranslationStatus.Approved);
+
+        Translation? invalidated = await GetTranslationAsync(4);
+        invalidated!.Status.ShouldBe(TranslationStatus.NeedsReview);
+        invalidated.PreviousSourceText.ShouldBe("Delta");
+        invalidated.Source.Text.ShouldBe("Delta reworded");
+        invalidated.TranslatedText.ShouldBe("Delty");
+
+        // The distributed file keeps every echoed (still Approved) row and drops only the invalidated
+        // one, once the import's debounced background rebuild converges (PERF-04).
+        (HttpResponseMessage download, string file) = await TranslationFileDownloadPolling.DownloadWhenConvergedAsync(
+            _factory.CreateClient(),
+            "/api/v1/translation-files/pl",
+            (candidate, content) => candidate.IsSuccessStatusCode && !content.Contains($"{FileId}||4||"));
+        download.StatusCode.ShouldBe(HttpStatusCode.OK);
+        file.ShouldContain($"{FileId}||1||Alfa||NULL||NULL||1");
+        file.ShouldContain($"{FileId}||2||{placeholderPolish}||1-1||1-1||1");
+        file.ShouldContain($"{FileId}||3||Gama||NULL||NULL||1");
+        file.ShouldNotContain($"{FileId}||4||");
+    }
+
+    [Fact]
     public async Task Import_MassRemovalWithoutOverride_ShouldReturn422AndLeaveStateIntact()
     {
         // Arrange — baseline three rows, then upload that drops two of them (67% > 20%).
@@ -753,6 +851,10 @@ public sealed class ImportExportedTextsTests : IAsyncLifetime
         => $"/api/v1/game-versions/{versionId.Value}/import";
 
     private static string Line(int gossipId, string text) => $"{FileId}||{gossipId}||{text}||NULL||NULL||1";
+
+    // The exporter emits identity args from the fragment's argument count (args_order == args_id),
+    // for the pristine English and for a patched fragment alike (spec 0012 echo triple).
+    private static string LineWithArgs(int gossipId, string text, string args) => $"{FileId}||{gossipId}||{text}||{args}||{args}||1";
 
     private static MultipartFormDataContent ExportContent(params string[] lines) => TextContent(string.Join('\n', lines));
 

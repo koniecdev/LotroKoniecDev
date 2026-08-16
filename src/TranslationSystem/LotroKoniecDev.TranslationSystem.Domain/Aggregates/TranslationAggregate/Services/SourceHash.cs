@@ -28,6 +28,17 @@ public readonly record struct SourceHash(ulong High, ulong Low)
     }
 
     /// <summary>
+    /// The hash a DAT patched with this row's Polish echoes back when it is exported again (spec
+    /// 0012): the current Polish text framed with the source's own args columns — the patcher writes
+    /// the text verbatim and never changes the argument count, and the exporter re-emits the args
+    /// columns from that count, so an unchanged fragment comes back as exactly this triple. Hashed
+    /// through <see cref="Compute(string, string?, string?)"/> so it compares against an incoming
+    /// source hash-to-hash. <c>null</c> when the row carries no Polish — nothing of ours can echo.
+    /// </summary>
+    public static SourceHash? ComputeEcho(string? translatedText, string? argsOrder, string? argsId)
+        => translatedText is null ? null : Compute(translatedText, argsOrder, argsId);
+
+    /// <summary>
     /// Hashes the triple in its persisted (value-object-normalized) representation — callers must
     /// pass args columns the way <see cref="TranslationSource"/> stores them (<c>null</c> when
     /// absent, never the raw <c>NULL</c> literal), or the two sides of the diff would disagree.

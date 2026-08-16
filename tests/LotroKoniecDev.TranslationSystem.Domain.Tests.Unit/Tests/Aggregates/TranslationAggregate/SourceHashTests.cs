@@ -92,6 +92,30 @@ public sealed class SourceHashTests
     }
 
     [Fact]
+    public void ComputeEcho_WithoutPolish_ShouldBeNull()
+    {
+        // Act — an untranslated row has nothing of ours that could echo back from a patched DAT.
+        SourceHash? echo = SourceHash.ComputeEcho(null, "1-2", "1-2");
+
+        // Assert
+        echo.ShouldBeNull();
+    }
+
+    [Fact]
+    public void ComputeEcho_WithPolish_ShouldEqualTheIncomingHashOfThePatchedTriple()
+    {
+        // Arrange — the incoming side of an echo is the exported row (our Polish as text, the
+        // source's identity args), hashed through the VO like every upload row (spec 0012).
+        TranslationSource echoedRow = TranslationSource.Create("Witaj <--DO_NOT_TOUCH!--> przyjacielu", "1-1", "1-1").Value;
+
+        // Act
+        SourceHash? echo = SourceHash.ComputeEcho("Witaj <--DO_NOT_TOUCH!--> przyjacielu", "1-1", "1-1");
+
+        // Assert
+        echo.ShouldBe(SourceHash.Compute(echoedRow));
+    }
+
+    [Fact]
     public void Compute_LargeText_ShouldHashWithoutError()
     {
         // Arrange — a multi-kilobyte fragment exercises the pooled-buffer path beyond typical sizes.

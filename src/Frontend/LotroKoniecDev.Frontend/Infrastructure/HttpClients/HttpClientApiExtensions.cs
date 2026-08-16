@@ -197,13 +197,6 @@ internal static class HttpClientApiExtensions
 
             if (response.IsSuccessStatusCode)
             {
-                // A success with no body (e.g. 204 No Content) has nothing to deserialize — surface the
-                // default value rather than failing on an empty string.
-                if (string.IsNullOrWhiteSpace(content))
-                {
-                    return ApiResult.Success<T>(default!);
-                }
-
                 return ParseSuccessBody<T>(content);
             }
 
@@ -242,15 +235,24 @@ internal static class HttpClientApiExtensions
     /// Deserializes a success body into <typeparamref name="T"/>. A success status does not prove the
     /// body is the API's answer — a reverse proxy serves its maintenance page with a <c>200</c>, an
     /// auth redirect lands an HTML login page on an API URL — so a body that does not read as
-    /// <typeparamref name="T"/> (or reads as the <c>null</c> literal) is the same outage class as an
-    /// unreadable error body and degrades the same way: a status-only <see cref="ProblemDetails"/> the
-    /// copy ladder answers in Polish (#637), never a <see cref="JsonException"/> escaping the SSR
-    /// render (#638). It carries <c>502 Bad Gateway</c> rather than the status it wore: what came back
-    /// is an invalid upstream response whatever the status line said, <c>200</c> has no failure copy,
-    /// and a download route localizing it would otherwise answer the browser with a <c>200</c> problem.
+    /// <typeparamref name="T"/> (or reads as the <c>null</c> literal, or is empty — #653) is the same
+    /// outage class as an unreadable error body and degrades the same way: a status-only
+    /// <see cref="ProblemDetails"/> the copy ladder answers in Polish (#637), never a
+    /// <see cref="JsonException"/> escaping the SSR render (#638) and never a <c>null</c>
+    /// <see cref="ApiResult{T}.Value"/> for the caller to dereference. Every generic verb promises a
+    /// value, so <c>204 No Content</c> is not modelled here — the body-less <see cref="ApiResult"/> verbs
+    /// and <c>PostForHeadersApiResultAsync</c> are where nothing was promised. It carries
+    /// <c>502 Bad Gateway</c> rather than the status it wore: what came back is an invalid upstream
+    /// response whatever the status line said, <c>200</c> has no failure copy, and a download route
+    /// localizing it would otherwise answer the browser with a <c>200</c> problem.
     /// </summary>
     private static ApiResult<T> ParseSuccessBody<T>(string content)
     {
+        if (string.IsNullOrWhiteSpace(content))
+        {
+            return ApiResult.Failure<T>(ApiProblemCopy.StatusOnly(StatusCodes.Status502BadGateway));
+        }
+
         try
         {
             T? value = JsonSerializer.Deserialize<T>(content, JsonOptions);

@@ -1,6 +1,8 @@
 using System.Net;
+using LotroKoniecDev.Frontend.Infrastructure.Errors;
 using LotroKoniecDev.Frontend.Infrastructure.HttpClients;
 using LotroKoniecDev.Frontend.Infrastructure.HttpClients.TranslationSystemHttpClients;
+using Microsoft.AspNetCore.Http;
 
 namespace LotroKoniecDev.Frontend.Tests.Unit.Infrastructure.HttpClients;
 
@@ -24,15 +26,18 @@ public sealed class TranslationSystemClientTests
     }
 
     [Fact]
-    public async Task GetApiResultAsync_WhenSuccessHasEmptyBody_ReturnsSuccessWithDefaultValue()
+    public async Task GetApiResultAsync_WhenSuccessHasEmptyBody_ReturnsFailureWithATranslatableBadGatewayProblem()
     {
+        // A value-promising call answered with nothing — even a genuine 204 — is not answered (#653):
+        // the typed client hands the seam's rule through unchanged instead of a null Value.
         StubHttpMessageHandler handler = StubHttpMessageHandler.RespondWith(HttpStatusCode.NoContent, string.Empty);
         ITranslationSystemClient client = CreateClient(handler);
 
         ApiResult<string> result = await client.GetApiResultAsync<string>("anything");
 
-        result.IsSuccess.ShouldBeTrue();
-        result.Value.ShouldBeNull();
+        result.IsFailure.ShouldBeTrue();
+        result.ProblemDetails!.Status.ShouldBe(StatusCodes.Status502BadGateway);
+        result.ProblemDetails.Extensions.ShouldNotContainKey(ApiProblemCopy.FrontendAuthoredExtensionKey);
     }
 
     [Fact]

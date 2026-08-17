@@ -290,9 +290,9 @@ VarLen: 0-127 = 1 byte; 128-32767 = 2 bytes (high bit flag)
 
 ```
 # Comments start with #
-file_id||gossip_id||translated_text||args_order||args_id||approved
-620756992||1001||Witaj w Srodziemiu!||NULL||NULL||1
-620756992||1002||Tekst z <--DO_NOT_TOUCH!--> argumentem||1||1||1
+file_id||gossip_id||translated_text||args_order||args_id||approved||source_digest
+620756992||1001||Witaj w Srodziemiu!||NULL||NULL||1||3f9a1c0e7b2d4a55
+620756992||1002||Tekst z <--DO_NOT_TOUCH!--> argumentem||1||1||1||9c02e4d1a7f0b366
 ```
 
 - `<--DO_NOT_TOUCH!-->` = argument placeholder
@@ -327,7 +327,8 @@ file_id||gossip_id||translated_text||args_order||args_id||approved
   contexts is a golden fixture pinned on both sides.
 - **The `||` separator is deliberately NOT escaped — the line is CARVED, never `Split` (ADR-0042).**
   Each context's `TranslationLineCarver` scans **forward** for the two id separators and **backward**
-  for the three trailing ones (slicing before each backward search), so content may contain `||` and
+  for the trailing ones — three or four, sniffed from the last field: `0`/`1` is `approved`, 16 hex
+  is `source_digest` (ADR-0047) — slicing before each backward search, so content may contain `||` and
   may end in any run of `|`. `string.Split` resolves every boundary greedily left to right, which
   silently ate a trailing pipe into the args column (#597); never reintroduce it here. Nothing but
   content can hold a `|`, so both boundaries are recoverable by construction — no escape needed.

@@ -85,8 +85,12 @@ Three rules are normative, not implementation detail:
   response that carried it. A verdict cached on disk and replayed on an offline launch, or under
   `--skip-sync`, would assert freshness nobody vouched for.
 
-The Tier-0 rule becomes: force-patch only when the server says the artifact is current. Spec
-0012's "artifact-version ≥ live forum version" phrasing is superseded by this.
+~~The Tier-0 rule becomes: force-patch only when the server says the artifact is current.~~ Spec
+0012's "artifact-version ≥ live forum version" phrasing is superseded by this. **Superseded by
+ADR-0047 (2026-08-17):** the verdict no longer gates the Tier-0 repair — admission is decided per row
+at write time by the source guard, so the repair runs from the local artifact, offline, whatever the
+verdict says. "Unknown means do not repair" and "response-scoped, never persisted" survive as the
+semantics of the verdict *as a preflight/UI signal*, which is all it is now.
 
 ### 4. #85 (M2-18 forum watcher) is what gives the guard useful coverage — promoted into UR
 
@@ -102,7 +106,10 @@ and there the verdict reads "current" and the sentinel repairs with pre-update P
 moves the start of coverage from admin-notice to publication.
 
 Therefore #85 moves from Post-MVP / Backlog into the UR — update-resilience milestone as a
-dependency of #562 (UR-22) and #565 (UR-10), and ships before the sentinel reaches players. It
+dependency of #562 (UR-22) ~~and #565 (UR-10), and ships before the sentinel reaches players~~
+(*superseded by ADR-0047, 2026-08-17: the sentinel's repair no longer depends on the verdict, so
+#85 is not on #565's path; it keeps its value for the update-check channel and for the TMS
+learning versions early*). It
 keeps the ADR-0030 §2 scope amendment (e-mail alert on detection), which was never mirrored onto
 the ticket — do that when it is picked up.
 

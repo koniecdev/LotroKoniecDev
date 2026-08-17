@@ -84,14 +84,14 @@ corrections with stale Polish — and TMS imports stay correct at any corpus sca
 - **Anti-masking handshake** (revised by **ADR-0045**, 2026-08-06 — the client never reads
   lotro.com): the distribution response carries the GameVersion the artifact was generated for
   **and a server-computed staleness verdict** ("does the TMS know an Unprocessed version newer
-  than this artifact?"). The sentinel force-patches only when the server says the artifact is
-  current; otherwise it defers (fallback-to-English semantics preserved — never re-apply
+  than this artifact?"). ~~The sentinel force-patches only when the server says the artifact is
+  current; otherwise it defers~~ (fallback-to-English semantics preserved — never re-apply
   pre-update Polish over fresh English; a dropped artifact row can NEVER un-write stale Polish,
   because patch does not write absences). The client performs no version comparison — version
-  ordering stays in the TMS domain, deployable. Unknown verdict, missing artifact version or an
-  unreachable TMS ⇒ treat as "do not force-patch". The verdict is valid only for the response
-  that carried it and is never cached as authority. **Coverage limit:** the handshake gates the
-  *forced* repair only; the routine hash-triggered patch is ungated (ADR-0045 Consequences).
+  ordering stays in the TMS domain, deployable. ~~Unknown verdict, missing artifact version or an
+  unreachable TMS ⇒ treat as "do not force-patch".~~ The verdict is valid only for the response
+  that carried it and is never cached as authority. ~~**Coverage limit:** the handshake gates the
+  *forced* repair only; the routine hash-triggered patch is ungated (ADR-0045 Consequences).~~
   *Amended 2026-08-17 (ADR-0047 §5):* **the verdict no longer gates the repair.** The no-masking
   invariant is enforced per row at write time (artifact `source_digest` + local ledger — the
   patcher writes a row only over the English it was translated from or over its own earlier
@@ -205,9 +205,11 @@ faster repair) — not a correctness or UX requirement.
   needed by the Tier-0 handshake — ADR-0045), plus the touched-SubFiles set per version
   (repair-set). The artifact carries no version today, so this is a new column + migration, not
   an exposure of something already stored.
-- **Version detection is a prerequisite, not a convenience (ADR-0045 §4):** the verdict is only as
-  early as the TMS's knowledge of a new version, so the forum watcher (#85) moves into this
-  milestone. Its detections count immediately and are dismissible after the fact; #624 must land
+- **Version detection feeds the update-check channel, no longer the repair (ADR-0045 §4 as
+  superseded by ADR-0047):** the verdict is only as early as the TMS's knowledge of a new version,
+  so the forum watcher (#85) stays in this milestone for the preflight/UI signal and for the TMS
+  learning versions early — but the client repair no longer waits for it (admission is per row,
+  ADR-0047). Its detections count immediately and are dismissible after the fact; #624 must land
   first, because a wrongly registered version is currently unrecoverable once superseded.
 
 ## Experiments (inputs to final design; all local; Windows box)
@@ -292,6 +294,8 @@ execution order — the real chains are:
   **#566** UR-11 Tier-1 orchestrator → **#567** UR-12 forced-downgrade E2E
 - **#563** UR-20 import echo-guard → **#564** UR-21 one-time source repair
 - *(added 2026-08-17)* **#563** UR-20 (`SourceHash`) → **#659** UR-27 per-row source guard
+  (**#564** UR-21 lands before the first guarded artifact reaches production — ordering, not a
+  code dependency; it is owner-run)
   (ADR-0047) → **#565** UR-10 and **#566** UR-11; **#660** UR-28 (E6, owner-run) → the branch-B
   default of **#566**
 

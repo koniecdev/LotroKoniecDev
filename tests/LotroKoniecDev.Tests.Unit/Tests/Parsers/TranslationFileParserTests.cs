@@ -462,4 +462,46 @@ public sealed class TranslationFileParserTests : IDisposable
         result.Value.ArgsOrder.ShouldBe(new[] { 0, 1 });
         result.Value.ArgsId.ShouldBe(new[] { 2, 3 });
     }
+
+    [Fact]
+    public void ParseLine_SevenColumnLine_ShouldCarryTheSourceDigest()
+    {
+        // Act — the digest is the value the write guard compares the fragment against, so it has to
+        // reach the parsed row intact (ADR-0047).
+        Result<Translation> result = new TranslationFileParser()
+            .ParseLine("620756992||1001||Witaj w Srodziemiu!||NULL||NULL||1||a37cc1683216cd32");
+
+        // Assert
+        result.IsSuccess.ShouldBeTrue();
+        result.Value.SourceDigest.ShouldBe("a37cc1683216cd32");
+        result.Value.Content.ShouldBe("Witaj w Srodziemiu!");
+        result.Value.IsApproved.ShouldBeTrue();
+    }
+
+    [Fact]
+    public void ParseLine_SixColumnLine_ShouldSucceedWithoutADigestRatherThanRejectTheRow()
+    {
+        // Act — load-bearing (ADR-0047 §3): rejecting here would make a wholly six-column file
+        // NoTranslationsEveryLineRejected, which the launch path turns into RepatchFailed and
+        // refuses to start the game on. The GUARD skips such rows; the parser never does.
+        Result<Translation> result = new TranslationFileParser()
+            .ParseLine("620756992||1001||Witaj w Srodziemiu!||NULL||NULL||1");
+
+        // Assert
+        result.IsSuccess.ShouldBeTrue();
+        result.Value.SourceDigest.ShouldBeNull();
+    }
+
+    [Fact]
+    public void ParseLine_SevenColumnLineWhoseContentHoldsTheSeparatorAndTrailingPipes_ShouldCarveBothEnds()
+    {
+        // Act — the seventh column adds one backward step; the content boundary must not move.
+        Result<Translation> result = new TranslationFileParser()
+            .ParseLine("620756992||1009||Trzy rury|||||1-2||3-4||1||2f2d1cb2f502250a");
+
+        // Assert
+        result.IsSuccess.ShouldBeTrue();
+        result.Value.Content.ShouldBe("Trzy rury|||");
+        result.Value.SourceDigest.ShouldBe("2f2d1cb2f502250a");
+    }
 }

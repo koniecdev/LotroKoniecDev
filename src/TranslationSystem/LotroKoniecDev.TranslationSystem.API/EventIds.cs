@@ -23,6 +23,9 @@ internal static class EventIds
     // Background workers (1400–1499)
     public const int TranslationFileRebuildCompleted = 1400;
     public const int TranslationFileRebuildFailed = 1401;
+    public const int TranslationFileFormatUpgradeStarted = 1402;
+    public const int TranslationFileFormatUpgradeCompleted = 1403;
+    public const int TranslationFileFormatUpgradeFailed = 1404;
 
     // GDPR (1500–1599)
     public const int GdprContributionExportRequested = 1500;

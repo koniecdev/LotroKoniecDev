@@ -9,8 +9,11 @@ namespace LotroKoniecDev.Application.Parsers;
 /// Parses translation files in the LOTRO patcher format.
 /// </summary>
 /// <remarks>
-/// File format: file_id||gossip_id||content||args_order||args_id||approved
+/// File format: file_id||gossip_id||content||args_order||args_id||approved||source_digest
 /// Lines starting with # are comments, empty lines are ignored.
+/// The trailing <c>source_digest</c> (ADR-0047) is optional on read: a six-column line parses
+/// exactly as it always did and simply carries no digest, which the patcher's write guard — not
+/// this parser — turns into a skipped row.
 /// Fields are carved by <see cref="TranslationLineCarver"/>, which anchors from both ends
 /// (ADR-0042), so content may contain the separator and may end in any run of <c>|</c>.
 /// Content arrives escaped (ADR-0039) and is unfolded by <see cref="TranslationLineEscaper"/>, so
@@ -19,7 +22,7 @@ namespace LotroKoniecDev.Application.Parsers;
 public sealed class TranslationFileParser : ITranslationParser
 {
     private const string FieldSeparator = "||";
-    private const int SeparatorCount = 5;
+    private const int MinSeparatorCount = 5;
     private const string AbsentArgs = "NULL";
     private const char ArgsPositionSeparator = '-';
 
@@ -94,7 +97,7 @@ public sealed class TranslationFileParser : ITranslationParser
         {
             return Result.Failure<Translation>(
                 DomainErrors.Translation.InvalidFormat(
-                    $"expected {SeparatorCount} '{FieldSeparator}' separators outside the content, in line '{line}'"));
+                    $"expected at least {MinSeparatorCount} '{FieldSeparator}' separators outside the content, in line '{line}'"));
         }
 
         if (!int.TryParse(carved.FileId, NumberStyles.Integer, CultureInfo.InvariantCulture, out int fileId))
@@ -128,7 +131,12 @@ public sealed class TranslationFileParser : ITranslationParser
             Content = TranslationLineEscaper.Unescape(carved.Content),
             ArgsOrder = argsOrder,
             ArgsId = argsId,
-            IsApproved = carved.Approved == "1"
+            IsApproved = carved.Approved == "1",
+            // A missing digest is NOT a parse failure (ADR-0047 §3). Rejecting here would turn a
+            // wholly six-column file into NoTranslationsEveryLineRejected, which the launch path
+            // maps to RepatchFailed and refuses to start the game on — the guard skips such rows
+            // instead, reports them, and lets the launch through.
+            SourceDigest = carved.SourceDigest
         };
 
         return Result.Success(translation);

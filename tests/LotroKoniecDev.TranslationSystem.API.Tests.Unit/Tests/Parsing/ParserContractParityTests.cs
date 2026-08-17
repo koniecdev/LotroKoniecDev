@@ -2,6 +2,7 @@ using System.Text;
 using LotroKoniecDev.Application.Parsers;
 using LotroKoniecDev.Tests.Shared;
 using LotroKoniecDev.TranslationSystem.API.Parsing;
+using LotroKoniecDev.TranslationSystem.Domain.Aggregates.TranslationAggregate.Services;
 using PatcherCarvedLine = LotroKoniecDev.Application.Parsers.CarvedTranslationLine;
 using PatcherCarver = LotroKoniecDev.Application.Parsers.TranslationLineCarver;
 using PatcherEscaper = LotroKoniecDev.Application.Parsers.TranslationLineEscaper;
@@ -36,6 +37,13 @@ public sealed class ParserContractParityTests
     [InlineData("100||200|||||NULL||NULL||1")]
     [InlineData("100||200||trailing pipe|||||||1")]
     [InlineData("100||200||||||||1")]
+    // Seven columns (ADR-0047): the digests are the real ones for these triples, because the TMS
+    // parser verifies the column and would otherwise reject the row before any field was compared.
+    [InlineData("620756992||1001||Witaj w Srodziemiu!||NULL||NULL||1||a37cc1683216cd32")]
+    [InlineData("620756992||1002||Tekst z <--DO_NOT_TOUCH!--> argumentem||1||1||1||eacc6a53f9a2ae91")]
+    [InlineData("620756992||1004||Multi||arg||content||1-2||1-2||1||2dcab7603ec22224")]
+    [InlineData("620756992||1008||Koniec rury|||NULL||NULL||1||df0aa563e80483a5")]
+    [InlineData("620756992||1009||Trzy rury|||||1-2||3-4||1||2f2d1cb2f502250a")]
     public async Task BothParsers_OnTheSameContractLine_ShouldAgreeOnEveryField(string line)
     {
         // Arrange — the patcher parser is per-line; the TMS parser is per-stream.
@@ -50,6 +58,7 @@ public sealed class ParserContractParityTests
         ((long)patcher.GossipId).ShouldBe(tms.GossipId);
         patcher.Content.ShouldBe(tms.Content);
         patcher.IsApproved.ShouldBe(tms.Approved);
+        patcher.SourceDigest.ShouldBe(tms.SourceDigest);
         ReconstructArgs(patcher.ArgsOrder).ShouldBe(NormalizeArgs(tms.ArgsOrder));
         ReconstructArgs(patcher.ArgsId).ShouldBe(NormalizeArgs(tms.ArgsId));
     }
@@ -253,4 +262,60 @@ public sealed class ParserContractParityTests
         => string.IsNullOrWhiteSpace(args) || args.Equals(AbsentArgs, StringComparison.OrdinalIgnoreCase)
             ? AbsentArgs
             : args;
+
+    [Fact]
+    public async Task BothParsers_OnTheSevenColumnGoldenFixture_ShouldProduceTheSameContentAndDigestForEveryRow()
+    {
+        // Arrange — the seven-column golden fixture (ADR-0047). Driving it through BOTH parsers is
+        // what makes it a contract rather than one context's test data.
+        string path = Path.Combine(AppContext.BaseDirectory, "TestData", "exported-sample-digested.txt");
+        string[] rowLines = (await File.ReadAllLinesAsync(path))
+            .Where(line => !string.IsNullOrWhiteSpace(line) && !line.TrimStart().StartsWith('#'))
+            .ToArray();
+
+        await using FileStream stream = File.OpenRead(path);
+        ParsedExport tmsExport = await new TranslationExportParser().ParseAsync(stream, CancellationToken.None);
+
+        // Act
+        TranslationFileParser patcher = new();
+        LotroKoniecDev.Domain.Models.Translation[] patcherRows =
+            rowLines.Select(line => patcher.ParseLine(line).Value).ToArray();
+
+        // Assert
+        tmsExport.Errors.ShouldBeEmpty();
+        tmsExport.Rows.Select(row => row.Content).ShouldBe(patcherRows.Select(row => row.Content));
+        tmsExport.Rows.Select(row => row.SourceDigest).ShouldBe(patcherRows.Select(row => row.SourceDigest));
+    }
+
+    [Fact]
+    public void BothDigestImplementations_OnTheSevenColumnGoldenFixturesFirstRow_ShouldAgree()
+    {
+        // The two contexts compute the digest with independent code (CLAUDE.md: share the file,
+        // never code). SourceDigestGoldenCases pins them both against an externally computed value;
+        // this pins them against EACH OTHER on the very row the fixture file carries, so a shared
+        // misreading of the fixture cannot hide a divergence.
+        LotroKoniecDev.Domain.Models.SourceDigest.Compute("Witaj w Srodziemiu!", null, null)
+            .ShouldBe(SourceHash.Compute("Witaj w Srodziemiu!", null, null).ToWireDigest());
+    }
+
+    [Theory]
+    [MemberData(nameof(NaughtyStringCases.DelimiterHazards), MemberType = typeof(NaughtyStringCases))]
+    public void BothCarvers_OnASevenColumnLine_ShouldFindIdenticalFieldBoundaries(string naughty)
+    {
+        // Arrange — the third duplicated-by-design rule, guarded like the other two: the extra
+        // backward step of ADR-0047 must land in the same place in both copies, including next to
+        // a raw trailing pipe.
+        string line = $"620756992||1001||{naughty}|||1-2||3-4||1||a37cc1683216cd32";
+
+        // Act
+        PatcherCarver.TryCarve(line, out PatcherCarvedLine? patcher).ShouldBeTrue();
+        TmsCarver.TryCarve(line, out TmsCarvedLine? tms).ShouldBeTrue();
+
+        // Assert
+        patcher!.Content.ShouldBe(tms!.Content);
+        patcher.ArgsOrder.ShouldBe(tms.ArgsOrder);
+        patcher.ArgsId.ShouldBe(tms.ArgsId);
+        patcher.Approved.ShouldBe(tms.Approved);
+        patcher.SourceDigest.ShouldBe(tms.SourceDigest);
+    }
 }

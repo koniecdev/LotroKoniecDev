@@ -34,6 +34,7 @@
     <ItemGroup>
         <!-- Linked, not copied: one hostile-string theory source shared by every unit suite (#569). -->
         <Compile Include="..\Shared\NaughtyStringCases.cs" Link="Shared\NaughtyStringCases.cs"/>
+        <Compile Include="..\Shared\SourceDigestGoldenCases.cs" Link="Shared\SourceDigestGoldenCases.cs"/>
     </ItemGroup>
 
     <ItemGroup>

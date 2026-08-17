@@ -4,6 +4,7 @@ using LotroKoniecDev.Application.Features.Exporting;
 using LotroKoniecDev.Application.Parsers;
 using LotroKoniecDev.Domain.Core.BuildingBlocks;
 using LotroKoniecDev.Domain.Core.Monads;
+using LotroKoniecDev.Domain.Models;
 using LotroKoniecDev.Primitives.Enums;
 using LotroKoniecDev.Tests.Unit.Shared;
 using NSubstitute.ExceptionExtensions;
@@ -188,7 +189,33 @@ public sealed class ExportTextsQueryHandlerTests : IDisposable
     [InlineData("Line1\r\nLine2", @"620756992||1001||Line1\r\nLine2||NULL||NULL||1")]
     [InlineData(@"C:\notes", @"620756992||1001||C:\\notes||NULL||NULL||1")]
     public void FormatRow_WithEscapableText_ShouldFoldItOntoOneLine(string text, string expected)
-        => ExportTextsQueryHandler.FormatRow(620756992, 1001, text, "NULL", "NULL").ShouldBe(expected);
+        // The six columns are unchanged; ADR-0047 appends the source digest of the very triple the
+        // row carries, so the expectation is composed rather than restated in every InlineData.
+        => ExportTextsQueryHandler.FormatRow(620756992, 1001, text, "NULL", "NULL", argumentCount: 0)
+            .ShouldBe($"{expected}||{SourceDigest.ForExportForm(text, 0)}");
+
+    [Theory]
+    [InlineData(0, "NULL", "NULL")]
+    [InlineData(2, "1-2", "1-2")]
+    public void FormatRow_ShouldEndInTheDigestOfItsOwnExportedTriple(int argumentCount, string argsOrder, string argsId)
+    {
+        // ADR-0047 §2: exported.txt carries the digest too, so a hand-edited export stays patchable
+        // and the TMS import can verify the column instead of shipping an artifact players reject.
+        string row = ExportTextsQueryHandler.FormatRow(620756992, 1001, "Some text", argsOrder, argsId, argumentCount);
+
+        row.ShouldEndWith($"||{SourceDigest.ForExportForm("Some text", argumentCount)}");
+    }
+
+    [Fact]
+    public void FormatRow_ThenParse_ShouldCarryTheDigestTheWriteGuardChecks()
+    {
+        // The digest is worthless unless it survives into the parsed row — that is the value the
+        // guard compares the fragment against.
+        string row = ExportTextsQueryHandler.FormatRow(620756992, 1001, "Some text", "NULL", "NULL", argumentCount: 0);
+
+        new TranslationFileParser().ParseLine(row).Value.SourceDigest
+            .ShouldBe(SourceDigest.ForExportForm("Some text", 0));
+    }
 
     [Theory]
     [InlineData("Line1\nLine2")]
@@ -200,7 +227,7 @@ public sealed class ExportTextsQueryHandlerTests : IDisposable
     {
         // The export half of the || round trip (ADR-0039): what the exporter writes is what the
         // patcher's own parser reads back. Nothing else pins the handler's escape call.
-        string row = ExportTextsQueryHandler.FormatRow(620756992, 1001, text, "NULL", "NULL");
+        string row = ExportTextsQueryHandler.FormatRow(620756992, 1001, text, "NULL", "NULL", argumentCount: 0);
 
         new TranslationFileParser().ParseLine(row).Value.Content.ShouldBe(text);
     }

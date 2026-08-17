@@ -1,16 +1,26 @@
 using System.Globalization;
 using System.Runtime.CompilerServices;
 using System.Text;
+using LotroKoniecDev.SharedKernel.Monads;
+using LotroKoniecDev.TranslationSystem.Domain.Aggregates.TranslationAggregate.Services;
+using LotroKoniecDev.TranslationSystem.Domain.Aggregates.TranslationAggregate.ValueObjects;
 
 namespace LotroKoniecDev.TranslationSystem.API.Parsing;
 
 /// <summary>
 /// Parses an uploaded <c>exported.txt</c> in the LOTRO <c>||</c> contract
-/// (<c>file_id||gossip_id||content||args_order||args_id||approved</c>), carving fields by anchoring
-/// from both ends (ADR-0042) and unfolding the content escape (ADR-0039) so the catalog stores the
-/// raw source text rather than its file representation. The TMS owns its own parser; golden fixtures
-/// + round-trip tests guard it against drift from the patcher's.
+/// (<c>file_id||gossip_id||content||args_order||args_id||approved||source_digest</c>), carving fields
+/// by anchoring from both ends (ADR-0042) and unfolding the content escape (ADR-0039) so the catalog
+/// stores the raw source text rather than its file representation. The TMS owns its own parser;
+/// golden fixtures + round-trip tests guard it against drift from the patcher's.
 /// </summary>
+/// <remarks>
+/// The trailing <c>source_digest</c> (ADR-0047) is optional: a six-column upload — an older export,
+/// a hand-made file — imports exactly as it always did. When the column IS present it is
+/// <b>verified</b> against the row's own triple, so a wrong-file upload or a drift between the two
+/// contexts' digest implementations is a per-row rejection here (ADR-0042) instead of a silent
+/// artifact every player's patcher would then refuse.
+/// </remarks>
 internal sealed class TranslationExportParser : ITranslationExportParser
 {
     private const string FieldSeparator = "||";
@@ -104,7 +114,7 @@ internal sealed class TranslationExportParser : ITranslationExportParser
         // contain "||" and may end in any run of '|' (ADR-0042).
         if (!TranslationLineCarver.TryCarve(line, out CarvedTranslationLine? carved))
         {
-            error = $"Expected {SeparatorCount} '{FieldSeparator}' separators outside the content.";
+            error = $"Expected at least {SeparatorCount} '{FieldSeparator}' separators outside the content.";
             return false;
         }
 
@@ -132,18 +142,46 @@ internal sealed class TranslationExportParser : ITranslationExportParser
             return false;
         }
 
+        // The escape is unfolded last (ADR-0039), so the row hands out the raw source text the DAT
+        // actually holds.
+        string content = TranslationLineEscaper.Unescape(carved.Content);
+
+        if (carved.SourceDigest is { } sourceDigest && !MatchesSourceDigest(content, carved, sourceDigest))
+        {
+            // The row claims a digest that is not the digest of the row (ADR-0047 §2). That is a
+            // wrong-file upload or an implementation drift between the two contexts, and it must
+            // fail loudly here rather than as 800k `source moved` warnings on players' boxes.
+            error = $"The source_digest column '{sourceDigest}' does not match the row's own text and argument columns.";
+            return false;
+        }
+
         row = new ParsedExportRow(
             FileId: fileId,
             GossipId: gossipId,
-            // The escape is unfolded last (ADR-0039), so the row hands out the raw source text the
-            // DAT actually holds.
-            Content: TranslationLineEscaper.Unescape(carved.Content),
+            Content: content,
             ArgsOrder: carved.ArgsOrder,
             ArgsId: carved.ArgsId,
-            Approved: carved.Approved.Trim() == "1");
+            Approved: carved.Approved.Trim() == "1",
+            SourceDigest: carved.SourceDigest);
 
         error = null;
         return true;
+    }
+
+    /// <summary>
+    /// Recomputes the row's own <c>SourceHash</c> over the triple exactly as the catalog will store
+    /// it — <see cref="TranslationSource"/>'s normalization, so an absent args column is
+    /// <see langword="null"/> and never the <c>NULL</c> literal — and compares it against the
+    /// declared column. Case-insensitive: writers emit lowercase, readers forgive a hand-edited file.
+    /// </summary>
+    private static bool MatchesSourceDigest(string content, CarvedTranslationLine carved, string declaredDigest)
+    {
+        Result<TranslationSource> sourceResult = TranslationSource.Create(content, carved.ArgsOrder, carved.ArgsId);
+
+        return sourceResult.IsSuccess
+            && SourceHash.Compute(sourceResult.Value)
+                .ToWireDigest()
+                .Equals(declaredDigest, StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>

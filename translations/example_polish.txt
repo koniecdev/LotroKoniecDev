@@ -1,5 +1,11 @@
 # LOTRO Polish Translations
-# Format: file_id||gossip_id||content||args_order||args_id||approved
+# Format: file_id||gossip_id||content||args_order||args_id||approved||source_digest
+#
+#   source_digest (7. kolumna, ADR-0047) identyfikuje ANGIELSKI tekst, dla ktorego powstalo
+#   tlumaczenie. Patcher zapisuje wiersz tylko wtedy, gdy DAT nadal zawiera ten angielski tekst
+#   (albo to, co sam tam wczesniej zapisal) - dzieki temu po aktualizacji gry stare tlumaczenie
+#   nigdy nie przykryje zmienionego tekstu. Wiersz BEZ tej kolumny nie jest zapisywany wcale.
+#   Wartosci ponizej pochodza z eksportu tego DAT-a; nie zmieniaj ich recznie.
 #
 # Linie zaczynajace sie od # sa ignorowane
 # Puste linie sa ignorowane
@@ -7,17 +13,17 @@
 # PRZYKLADY:
 #
 # Prosty tekst bez argumentow:
-# 620756992||1001||Witaj w Srodziemiu!||NULL||NULL||1
+# 620756992||1001||Witaj w Srodziemiu!||NULL||NULL||1||<skopiuj_z_exported.txt>
 #
 # Tekst z jednym argumentem (np. imie gracza):
-# 620756992||1002||Witaj, <--DO_NOT_TOUCH!-->!||1||1||1
+# 620756992||1002||Witaj, <--DO_NOT_TOUCH!-->!||1||1||1||<skopiuj_z_exported.txt>
 #
 # Tekst z wieloma argumentami:
-# 620756992||1003||Masz <--DO_NOT_TOUCH!--> zlota i <--DO_NOT_TOUCH!--> srebra.||1-2||1-2||1
+# 620756992||1003||Masz <--DO_NOT_TOUCH!--> zlota i <--DO_NOT_TOUCH!--> srebra.||1-2||1-2||1||<skopiuj_z_exported.txt>
 #
 # Tekst z zamieniona kolejnoscia argumentow:
 # Oryginal: "Level {0}: {1}" -> "Poziom {1}: {0}"
-# 620756992||1004||Poziom <--DO_NOT_TOUCH!-->: <--DO_NOT_TOUCH!-->||2-1||1-2||1
+# 620756992||1004||Poziom <--DO_NOT_TOUCH!-->: <--DO_NOT_TOUCH!-->||2-1||1-2||1||<skopiuj_z_exported.txt>
 
 # === TUTAJ WSTAW SWOJE TLUMACZENIA ===
 #620871150||218649169||'A sign, <--DO_NOT_TOUCH!-->! Grey moths rising in a line above the marsh...do you think something below stirs them?\n\n  \qAsh-grey wings at dusk\n  Above the drowned tower,\n  Where the forgotten warden waits\n  to sound his cracked horn\n  and call back the watch he lost.\q\n\n'The marsh has gone still, and the old beacon-cage stands empty; only these moths remain to mark a path. Something restless has settled in these fens, and I fear it settled here long before the causeway sank.\n\n'We must find its source before nightfall. My sister keeps watch on the ridge above the mist -- look for her lantern on your way.'||1||1||1

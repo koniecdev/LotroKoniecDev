@@ -268,12 +268,20 @@ Both directions of data travel use one plain-text format. One line per fragment:
 
 ```
 # comment lines start with a hash; empty lines are ignored
-file_id||gossip_id||content||args_order||args_id||approved
-620756992||1001||Witaj w Śródziemiu!||NULL||NULL||1
-620756992||1002||Masz <--DO_NOT_TOUCH!--> złota i <--DO_NOT_TOUCH!--> srebra.||2-1||2-1||1
+file_id||gossip_id||content||args_order||args_id||approved||source_digest
+620756992||1001||Witaj w Śródziemiu!||NULL||NULL||1||3f9a1c0e7b2d4a55
+620756992||1002||Masz <--DO_NOT_TOUCH!--> złota i <--DO_NOT_TOUCH!--> srebra.||2-1||2-1||1||9c02e4d1a7f0b366
 ```
 
 Rules worth knowing (they all exist for a reason):
+
+- **`source_digest` says which English the row belongs to (ADR-0047).** It is 16 hex characters of a
+  hash over the row's source text and its two argument columns. The patcher writes a fragment only
+  when the DAT still holds exactly that English, or what the patcher itself last wrote there — so
+  between a game update and the next import, a translation made for the old wording is skipped and
+  the player sees the game's own new text. Both readers still accept the older six-column form (an
+  older export, a hand-made file); both writers always emit seven, and a row without the column is
+  reported and never written into the DAT.
 
 - **The content itself may contain `||`.** Parsers on both sides read the first two fields from
   the front, the last three fields from the back, and join everything in the middle back

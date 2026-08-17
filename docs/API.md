@@ -443,8 +443,11 @@ ADR-0021) — never built per request, so a download may briefly trail a commit.
   (`TranslationFiles.NotFound`).
 
 The file holds **Approved + non-invalidated + non-removed** rows, sorted by `FileId` then `GossipId`,
-byte-compatible with the patcher's writer (the `args_order||args_id||approved` columns, approved always
-`1`, CRLF terminators). See the [translation file contract](../CLAUDE.md) and
+byte-compatible with the patcher's writer (the `args_order||args_id||approved||source_digest` columns,
+approved always `1`, CRLF terminators). `source_digest` (ADR-0047) is the 16-hex prefix of the row's
+`SourceHash` over its stored English source — the value the patcher checks the DAT against before it
+overwrites a fragment, so a translation approved for an older game version can never mask a reworded
+text. See the [translation file contract](../CLAUDE.md) and
 [DOMAIN.md §projection](DOMAIN.md#projekcja-precomputedtranslationfile).
 
 ### 8.5 Public progress (`GET /progress`)

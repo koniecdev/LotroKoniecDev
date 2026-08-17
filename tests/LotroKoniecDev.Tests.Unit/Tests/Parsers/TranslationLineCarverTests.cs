@@ -87,4 +87,69 @@ public sealed class TranslationLineCarverTests
         // guards are for programmer errors, Results are for business failures).
         Should.Throw<ArgumentNullException>(() => TranslationLineCarver.TryCarve(null!, out _));
     }
+
+    [Theory]
+    [InlineData("620756992||1001||Witaj||NULL||NULL||1||a37cc1683216cd32", "Witaj", "NULL", "1", "a37cc1683216cd32")]
+    [InlineData("1||2||a||b||1-2||3-4||0||b37cc1683216cd32", "a||b", "1-2", "0", "b37cc1683216cd32")]
+    [InlineData("1||2||trailing|||NULL||NULL||1||A37CC1683216CD32", "trailing|", "NULL", "1", "A37CC1683216CD32")]
+    [InlineData("1||2||||||||1||00112233445566ff", "", "", "1", "00112233445566ff")]
+    [InlineData("1||2||a37cc1683216cd32||NULL||NULL||1||b37cc1683216cd32", "a37cc1683216cd32", "NULL", "1", "b37cc1683216cd32")]
+    public void TryCarve_SevenColumnLine_ShouldCarveTheSourceDigestWithoutDisturbingTheOtherFields(
+        string line, string content, string argsOrder, string approved, string sourceDigest)
+    {
+        // Act — one more backward step than a six-column line (ADR-0047 §2), taken only because the
+        // last field IS 16 hex characters. Content that happens to look like a digest is irrelevant:
+        // it is never the last field.
+        bool carved = TranslationLineCarver.TryCarve(line, out CarvedTranslationLine? fields);
+
+        // Assert
+        carved.ShouldBeTrue();
+        fields!.Content.ShouldBe(content);
+        fields.ArgsOrder.ShouldBe(argsOrder);
+        fields.Approved.ShouldBe(approved);
+        fields.SourceDigest.ShouldBe(sourceDigest);
+    }
+
+    [Theory]
+    [InlineData("620756992||1001||Witaj||NULL||NULL||1")]
+    [InlineData("620756992||1001||Witaj||NULL||NULL||0")]
+    [InlineData("1||2||a||b||1-2||3-4||1")]
+    public void TryCarve_SixColumnLine_ShouldCarveExactlyAsBeforeWithNoSourceDigest(string line)
+    {
+        // Act — six-column files (older exports, hand-made ones, every existing fixture) must keep
+        // carving unchanged; ADR-0047 makes the seventh column optional on READ, not on write.
+        bool carved = TranslationLineCarver.TryCarve(line, out CarvedTranslationLine? fields);
+
+        // Assert
+        carved.ShouldBeTrue();
+        fields!.SourceDigest.ShouldBeNull();
+    }
+
+    [Theory]
+    [InlineData("1||2||content||NULL||NULL||a37cc1683216cd3", "a37cc1683216cd3")]
+    [InlineData("1||2||content||NULL||NULL||a37cc1683216cd3g", "a37cc1683216cd3g")]
+    [InlineData("1||2||content||NULL||NULL||not-a-digest", "not-a-digest")]
+    public void TryCarve_LastFieldThatOnlyResemblesADigest_ShouldStayTheApprovedColumn(string line, string approved)
+    {
+        // Act — the sniff is the ONLY thing separating the two widths, so anything short of exactly
+        // 16 hex characters has to fall back to the six-column reading rather than shift every field.
+        bool carved = TranslationLineCarver.TryCarve(line, out CarvedTranslationLine? fields);
+
+        // Assert
+        carved.ShouldBeTrue();
+        fields!.Approved.ShouldBe(approved);
+        fields.SourceDigest.ShouldBeNull();
+    }
+
+    [Fact]
+    public void TryCarve_DigestWithoutEnoughSeparatorsBeforeIt_ShouldRefuseToCarve()
+    {
+        // Act — a five-separator line whose last field is a digest leaves no room for the args
+        // columns; consuming the content's separator to make one fit would silently mis-carve it.
+        bool carved = TranslationLineCarver.TryCarve("1||2||content||NULL||a37cc1683216cd32", out CarvedTranslationLine? fields);
+
+        // Assert
+        carved.ShouldBeFalse();
+        fields.ShouldBeNull();
+    }
 }

@@ -82,8 +82,11 @@ player's patcher downloads a translation file that never shows outdated text in 
   DAT subfile, `GossipId` (`Fragment.FragmentId`, 8-byte unsigned) the fragment within it. This
   is how LOTRO itself addresses texts and how the patcher writes them back. TMS stores GossipId
   as 64-bit (`long`, already mandated by #93).
-- An exported row is exactly: `file_id||gossip_id||text||args_order||args_id||approved`
-  (`ExportTextsQueryHandler.cs:95`). On export: `text` = English pieces joined with
+- An exported row is exactly:
+  `file_id||gossip_id||text||args_order||args_id||approved||source_digest`
+  (`ExportTextsQueryHandler.FormatRow`). The trailing `source_digest` arrived with ADR-0047 and is
+  the digest of the very triple the row carries; readers on both sides still accept the older
+  six-column form. On export: `text` = English pieces joined with
   `<--DO_NOT_TOUCH!-->`, then run through the file's escape (`\`→`\\`, CR→`\r`, LF→`\n`; ADR-0039 —
   the import unfolds it again, so the catalog stores the raw text); `args_order`/`args_id` = `NULL` when the
   fragment has no arguments, otherwise the identity order `1-2-…-N`; `approved` = constant `1`.

@@ -1,0 +1,16 @@
+# Golden fixture for the SEVEN-column || contract (ADR-0047). Row for row it mirrors
+# exported-sample.txt, which stays as the six-column fixture: both widths are readable on both
+# sides, and only the writers moved to seven.
+# The trailing source_digest is the 16-hex prefix of the framed SHA-256 over the row's RAW triple —
+# raw meaning after the ADR-0039 escape is unfolded (rows 1006-1007) and with an absent args column
+# normalized to null, never the NULL literal. Values computed outside both implementations.
+620756992||1001||Witaj w Srodziemiu!||NULL||NULL||1||a37cc1683216cd32
+620756992||1002||Tekst z <--DO_NOT_TOUCH!--> argumentem||1||1||1||eacc6a53f9a2ae91
+620756992||1003||Line with || inside the content||NULL||NULL||1||53d1d3c39040ce7e
+620756992||1004||Multi||arg||content||1-2||1-2||1||2dcab7603ec22224
+
+620756992||1005||Trailing approved zero||NULL||NULL||0||49f1d0394453c3c9
+620756992||1006||Wiersz jeden\nWiersz dwa\r\nWiersz trzy||NULL||NULL||1||42a0c7ecf85b56e4
+620756992||1007||Sciezka C:\\notes i sekwencja \\n||NULL||NULL||1||23e21ca43b96da7f
+620756992||1008||Koniec rury|||NULL||NULL||1||df0aa563e80483a5
+620756992||1009||Trzy rury|||||1-2||3-4||1||2f2d1cb2f502250a

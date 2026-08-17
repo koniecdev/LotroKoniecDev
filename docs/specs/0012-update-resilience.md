@@ -193,7 +193,10 @@ faster repair) — not a correctness or UX requirement.
   catching it needs the row's Polish history (TP-15 / #50, post-MVP). Echoes are counted in
   `ImportSummary.Echoed` (a subset of `Unchanged`; the import page shows it as "W tym echo patcha")
   and in the import-passes log line — observability only, no warning: with today's manual ceremony
-  every export comes from a patched DAT, so echoes are the norm, not an anomaly.
+  every export comes from a patched DAT, so echoes are the norm, not an anomaly. **Interaction
+  with the invariant (ADR-0047 Context):** an echo also hides a row whose *new* English our patch
+  overwrote in the pre-import window, so until #659 lands the post-update ceremony is export →
+  import first, patch afterwards.
 - **One-time source repair** for already-poisoned rows (today: 8).
 - **Pristine-source direction (optional, Q-gated):** generate a revert file from TMS SourceText
   before export, or keep a pristine DAT copy (the Russians re-download the original DAT for the

@@ -36,6 +36,15 @@ writing the pre-update artifact over the post-update DAT. Code facts that pin th
   with pre-update Polish there. (3) The Tier-1 orchestrator (#566) patches **after** the launcher's
   apply burst, on update day, by construction — with the artifact it synced at launch, which is the
   pre-update one.
+- The echo-guard (#563, spec 0012) makes that window *silent* on the TMS side: an export taken
+  after such a write carries our Polish for the row, the import hash-matches it as an echo of our
+  own patch and treats it as Unchanged, so the row stays Approved and the artifact keeps shipping
+  the stale translation. Before the echo-guard the same export at least invalidated the row
+  (wrongly, with a poisoned source — the #564 class) and the artifact dropped it. The echo-guard is
+  right — mass false invalidation was the larger defect — but it moves the only remaining defence
+  to the write itself, which is this ADR. Until #659 lands, the manual ceremony after an SSG
+  update is therefore **export and import first, patch afterwards** (a hash-changing `launch` or a
+  manual `patch` between the update and the export is what writes the stale row).
 - The verdict cannot close the hole, structurally: it depends on the TMS *knowing* about the new
   version (manual registration or the #85 watcher), and the client is forbidden from finding out
   itself (ADR-0045 §1: no lotro.com read; `vnum-observations.md`: the DAT carries no content version).
@@ -96,8 +105,13 @@ exactly as `export` would compose it, and writes iff:
 - it equals the row's `source_digest` — the fragment holds the English this translation was made
   for (pristine, or collaterally reverted by the launcher — the case Tier 0/1 exist to repair); or
 - it equals the ledger's entry for `(FileId, GossipId)` (§4) — the fragment holds what this
-  patcher last wrote there, so a newer translation for the same English, or a no-op re-run, goes
-  through.
+  patcher last wrote there, so a newer translation for the same English goes through; or
+- it equals the digest of **this row's own translation** in export form (the Polish text with
+  identity args — the same function §4 applies after a write) — the fragment already holds exactly
+  what the row would write. The write is a no-op and always safe (nothing but our own patch puts
+  that text there), and it (re)seeds the ledger entry. This clause is what makes a DAT patched
+  before the ledger existed bootstrap by itself for every row on its current translation; a row
+  holding an *older* Polish still needs the ledger (§4).
 
 Anything else means the English moved under us: the row is **skipped and reported** as
 `source moved`, alongside the existing per-row warnings (ADR-0042 style), and counted in
@@ -119,8 +133,8 @@ successful patch actually wrote and swapped in atomically (temp file + rename).
 A missing or unreadable ledger is treated as empty. The consequence is bounded and safe in the
 invariant's direction: rows currently holding an *older* Polish are then unknown text and get
 skipped with warnings until an update reverts their SubFile or the DAT is restored pristine
-(the E2 restore path); rows holding the *current* translation still pass (§3, first bullet after
-the write is a no-op and re-seeds the ledger); rows holding English still pass. Losing the ledger
+(the E2 restore path); rows holding the *current* translation still pass (§3, third bullet — the
+no-op clause re-seeds the ledger); rows holding English still pass. Losing the ledger
 can never cause masking, only under-patching. That is the correct side to fail on.
 
 ### 5. The staleness verdict stops gating repair; the routine path needs no gate
@@ -204,10 +218,12 @@ Turns an offline, per-machine fact ("what did *this* patcher write into *this* D
 state keyed by a client identity the system does not have and does not want (no accounts on the
 player side). Rejected.
 
-### E. Skip the ledger — compare against the source digest only
+### E. Skip the ledger — compare against the source digest (and the row's own translation) only
 
-Blocks every re-patch of an already-Polish row: an updated translation for unchanged English could
-never land, and every no-op re-run would report the whole corpus as "source moved". Rejected.
+The no-op clause (§3, third bullet) covers the re-run, but an updated translation for unchanged
+English could still never land: the fragment holds the older Polish, which matches neither the
+English digest nor the new translation. Only a record of what *we* wrote admits that write.
+Rejected.
 
 ## Implementation Notes
 
@@ -231,7 +247,14 @@ never land, and every no-op re-run would report the whole corpus as "source move
   here; spec 0012 Tier 0 (verdict no longer gates repair; offline repair allowed) and Tier 1 (loop
   and branch B patch only through the guard); ADR-0045 Consequences bullet marked superseded;
   CLAUDE.md house rule (the invariant, one line).
-- **Tickets:** #659 (UR-27) implements this ADR and blocks #565 and #566; #660 (UR-28 / E6) is the
+- **Poisoned sources first (#564):** a row whose stored source is our Polish (the 8 rows #564
+  repairs) gets `source_digest = digest(Polish)`, so a pristine fragment (English) never matches
+  and an already-patched one always does — the guard would fossilise the poisoning. #659 depends
+  on #564.
+- **Warnings are aggregated, not streamed:** `source moved` can hit thousands of rows in one run
+  (a major that changed 1,644 sources — U49); the CLI reports a count plus a bounded sample, never
+  one line per row on the launch path.
+- **Tickets:** #659 (UR-27) implements this ADR and blocks #565 and #566; #564 (UR-21) precedes #659; #660 (UR-28 / E6) is the
   separate branch-B quiesce question and is unaffected by this decision.
 
 ## References

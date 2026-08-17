@@ -219,6 +219,12 @@ build, not an update day.
   swap in the same state on the next run. Both fail toward English, never toward masking. Accepted.
 - Six-column translation files stop patching (they still parse and still launch). There is no
   `--unguarded` switch, deliberately — the invariant has no operator override.
+- **The other direction is silent: a pre-ADR CLI reading a seven-column artifact patches nothing.**
+  Its carver takes three separators from the end, so the digest lands in `approved`, the value is not
+  `1`, and every row is skipped as unapproved — without a warning, because an unapproved row has
+  always been skipped silently. Acceptable only because there are no real users yet and the CLI is
+  run from source by the maintainer; once a CLI is distributed, the artifact's format change needs a
+  version signal the client can act on (the discovery document, not a guess).
 - **Poisoning can recur, and the guard fossilises it.** The echo-guard recognises only the row's
   *current* Polish (its documented limit): a row edited between the admin's last patch and their
   export comes back as the older Polish, is filed as a source change and re-poisons the source

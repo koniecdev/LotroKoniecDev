@@ -264,6 +264,9 @@ exporcie to **nasz polski**, nie angielski. Spec 0001 zakłada angielski source 
 (incoming text == aktualny polski content wiersza → traktuj jako echo/unchanged, nie ruszaj
 source) + jednorazowa naprawa zatrutych source'ów + docelowo eksport z czystego źródła
 (revert-file generowany z TMS przed exportem albo czysta kopia DAT).
+**Status:** echo-guard **wdrożony 2026-08-17 (#563 UR-20, spec 0012)** — porównanie po hashu
+trójki `(TranslatedText, ArgsOrder, ArgsId)`, licznik `Echoed` w `ImportSummary`; naprawa
+zatrutych source'ów = #564 (UR-21).
 
 ## Experiments E1–E4 — results (2026-08-02, #557)
 

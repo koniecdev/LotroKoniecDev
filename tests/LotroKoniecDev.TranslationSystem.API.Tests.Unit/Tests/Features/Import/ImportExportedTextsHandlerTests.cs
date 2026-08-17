@@ -16,6 +16,8 @@ using LotroKoniecDev.TranslationSystem.Persistence.DbContexts.Abstractions;
 using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.GameVersionAggregate;
 using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.GameVersionAggregate.Enums;
 using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.TranslationAggregate;
+using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.TranslationAggregate.Enums;
+using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.TranslatorAggregate;
 using NSubstitute;
 
 namespace LotroKoniecDev.TranslationSystem.API.Tests.Unit.Tests.Features.Import;
@@ -93,6 +95,13 @@ public sealed class ImportExportedTextsHandlerTests
             VersionId,
             new DateTimeOffset(2026, 6, 1, 0, 0, 0, TimeSpan.Zero)).Value;
 
+    private static Translation TranslatedRow(int gossipId, string text, string polish)
+    {
+        Translation translation = ExistingRow(gossipId, text);
+        translation.ProvideTranslation(polish, TranslatorId.Create(), new DateTimeOffset(2026, 6, 2, 0, 0, 0, TimeSpan.Zero));
+        return translation;
+    }
+
     private static async IAsyncEnumerable<StoredSourceDigest> DigestStream(params Translation[] translations)
     {
         await Task.Yield();
@@ -102,6 +111,7 @@ public sealed class ImportExportedTextsHandlerTests
                 translation.Id,
                 FragmentKeyValue.From(translation.FragmentKey),
                 SourceHash.Compute(translation.Source),
+                SourceHash.ComputeEcho(translation.TranslatedText, translation.Source.ArgsOrder, translation.Source.ArgsId),
                 translation.Status,
                 translation.IsRemoved);
         }
@@ -361,6 +371,38 @@ public sealed class ImportExportedTextsHandlerTests
         result.Value.Added.ShouldBe(0);
         result.Value.Unchanged.ShouldBe(0);
         result.Value.Warnings.ShouldContain(warning => warning.Contains("1 previously-removed row"));
+    }
+
+    [Fact]
+    public async Task Handle_WhenUploadEchoesTheRowsOwnPolish_ShouldLeaveTheRowUntouchedAndCountTheEcho()
+    {
+        // Arrange — an export from the admin's patched DAT (spec 0012): row 1 comes back as our own
+        // Polish, row 2 as an untouched English source; neither is a source change.
+        GivenVersion(UnprocessedVersion());
+        Translation resident = TranslatedRow(1, "Alpha", "Alfa");
+        GivenExisting(resident, ExistingRow(2, "Beta"));
+        // Hand the aggregate back should the handler wrongly route it through the source-change leg,
+        // so the assertions below observe a real mutation instead of an unreachable stub.
+        _translationRepository.GetByIdsAsync(
+                Arg.Is<IReadOnlyList<TranslationId>>(ids => ids!.Contains(resident.Id)),
+                Arg.Any<CancellationToken>())
+            .Returns([resident]);
+        string export = Export(Line(1, "Alfa"), Line(2, "Beta"));
+
+        // Act
+        Result<ImportSummary> result = await CreateHandler().Handle(Command(VersionId, export), CancellationToken.None);
+
+        // Assert — the echo is reported and counted inside Unchanged; the row's English source,
+        // Polish and status stand.
+        result.IsSuccess.ShouldBeTrue();
+        result.Value.Echoed.ShouldBe(1);
+        result.Value.Unchanged.ShouldBe(2);
+        result.Value.SourceChanged.ShouldBe(0);
+        result.Value.Invalidated.ShouldBe(0);
+        resident.Source.Text.ShouldBe("Alpha");
+        resident.TranslatedText.ShouldBe("Alfa");
+        resident.Status.ShouldBe(TranslationStatus.Draft);
+        resident.PreviousSourceText.ShouldBeNull();
     }
 
     [Fact]

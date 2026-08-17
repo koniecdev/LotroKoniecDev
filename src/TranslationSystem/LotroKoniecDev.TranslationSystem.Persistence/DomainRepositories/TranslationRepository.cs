@@ -31,7 +31,7 @@ internal sealed class TranslationRepository : GenericRepository<Translation, Tra
     /// </summary>
     private const string SourceDigestQuery =
         """
-        SELECT "Id", "FileId", "GossipId", "SourceText", "ArgsOrder", "ArgsId", "Status", "RemovedInVersion"
+        SELECT "Id", "FileId", "GossipId", "SourceText", "ArgsOrder", "ArgsId", "Status", "RemovedInVersion", "TranslatedText"
         FROM translation."Translations"
         """;
 
@@ -66,11 +66,16 @@ internal sealed class TranslationRepository : GenericRepository<Translation, Tra
             string text = reader.GetString(3);
             string? argsOrder = reader.IsDBNull(4) ? null : reader.GetString(4);
             string? argsId = reader.IsDBNull(5) ? null : reader.GetString(5);
+            string? translatedText = reader.IsDBNull(8) ? null : reader.GetString(8);
 
+            // Both hashes are computed from the row's own columns and the strings dropped before the
+            // next read: the echo hash frames the Polish with the SOURCE's args columns, because that
+            // is the triple the artifact carries and a patched DAT echoes back (spec 0012).
             yield return new StoredSourceDigest(
                 TranslationId.FromValue(reader.GetGuid(0)),
                 new FragmentKeyValue(reader.GetInt32(1), reader.GetInt64(2)),
                 SourceHash.Compute(text, argsOrder, argsId),
+                SourceHash.ComputeEcho(translatedText, argsOrder, argsId),
                 Enum.Parse<TranslationStatus>(reader.GetString(6)),
                 !reader.IsDBNull(7));
         }

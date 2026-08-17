@@ -190,7 +190,7 @@ internal sealed partial class ImportExportedTexts : IEndpoint
             LogImportPasses(
                 _logger,
                 incomingCount, uploadPassMilliseconds, diffPassMilliseconds, applyPassMilliseconds,
-                plan.AddedCount, plan.SourceChangedByKey.Count, plan.RemovedIds.Count, plan.RestoredIds.Count);
+                plan.AddedCount, plan.SourceChangedByKey.Count, plan.RemovedIds.Count, plan.RestoredIds.Count, plan.EchoedCount);
 
             // Version processing changes the distributed set (removed rows drop out, re-added rows
             // return), so the pre-built translation file is regenerated after the import commits
@@ -466,11 +466,12 @@ internal sealed partial class ImportExportedTexts : IEndpoint
                 Invalidated: plan.InvalidatedCount,
                 Removed: plan.RemovedIds.Count,
                 Unchanged: plan.UnchangedCount,
+                Echoed: plan.EchoedCount,
                 Warnings: warnings);
         }
 
-        [LoggerMessage(EventId = EventIds.ImportPassesCompleted, Level = LogLevel.Information, Message = "Import passes for {IncomingRows} incoming row(s): upload pass {UploadPassMs} ms, diff pass {DiffPassMs} ms, apply pass {ApplyPassMs} ms (added {Added}, source-changed {SourceChanged}, removed {Removed}, restored {Restored}).")]
-        private static partial void LogImportPasses(ILogger logger, int incomingRows, long uploadPassMs, long diffPassMs, long applyPassMs, int added, int sourceChanged, int removed, int restored);
+        [LoggerMessage(EventId = EventIds.ImportPassesCompleted, Level = LogLevel.Information, Message = "Import passes for {IncomingRows} incoming row(s): upload pass {UploadPassMs} ms, diff pass {DiffPassMs} ms, apply pass {ApplyPassMs} ms (added {Added}, source-changed {SourceChanged}, removed {Removed}, restored {Restored}, echoed {Echoed}).")]
+        private static partial void LogImportPasses(ILogger logger, int incomingRows, long uploadPassMs, long diffPassMs, long applyPassMs, int added, int sourceChanged, int removed, int restored, int echoed);
     }
 
     public void MapEndpoint(IEndpointRouteBuilder endpointRouteBuilder)

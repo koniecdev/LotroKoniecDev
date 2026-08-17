@@ -190,6 +190,10 @@
                     <span class="num @(summary.Unchanged == 0 ? "zero" : null)">@summary.Unchanged</span>
                     <span class="lbl">Bez zmian</span>
                 </article>
+                <article class="stat-tile" title="Wiersze, których „źródłem” w pliku był nasz własny polski tekst (eksport z patchowanego DAT) — policzone jako bez zmian, angielski źródłowy nietknięty.">
+                    <span class="num @(summary.Echoed == 0 ? "zero" : null)">@summary.Echoed</span>
+                    <span class="lbl">W tym echo patcha</span>
+                </article>
             </section>
 
             @if (summary.Warnings.Count > 0)

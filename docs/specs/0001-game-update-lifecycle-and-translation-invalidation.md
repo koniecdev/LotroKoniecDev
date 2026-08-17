@@ -141,6 +141,10 @@ For every row of the uploaded export, compared against the stored source state b
   source-changed rule applies.
 - **Unchanged** (pair known, source identical): no-op. *No diff = SSG touched nothing = the
   stored state stands* — sound because `export` is a deterministic full dump of all text subfiles.
+  **Echo amendment (spec 0012, #563):** an incoming source that differs from the stored English but
+  equals the row's own current Polish (with the source's args columns) is an *echo* of our patch —
+  the admin exports from a patched DAT — and is treated as Unchanged (restore when soft-removed),
+  never as source-changed; counted separately in `ImportSummary.Echoed`.
 - The diff transaction is all-or-nothing; a failed upload leaves the previous state intact.
 - **Truncation guard (both, decided):** a partially written/corrupt `exported.txt` would
   masquerade as a mass removal (and mass invalidation), so the import defends itself twice —
@@ -219,7 +223,7 @@ For every row of the uploaded export, compared against the stored source state b
   detection/processing state.
 - **Upload & diff:** re-shaped #97 — `POST /api/v1/game-versions/{id}/import` (multipart
   `exported.txt`, authorized: admin). Response: `ImportSummary { Added, SourceChanged,
-  Invalidated, Removed, Unchanged, Warnings }`. Errors as ProblemDetails via `Result` failures
+  Invalidated, Removed, Unchanged, Echoed, Warnings }`. Errors as ProblemDetails via `Result` failures
   (validation → 400, unknown version → 404, truncation guard → 422).
 - **Distribution:** re-shaped #102 — `GET /api/v1/translation-files/{lang}` (anonymous, `pl`
   only for now) → streamed translation file + `ETag`; honors `If-None-Match` → 304. (Route

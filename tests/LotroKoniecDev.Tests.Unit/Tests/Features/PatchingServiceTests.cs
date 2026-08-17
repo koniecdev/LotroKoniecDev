@@ -883,4 +883,76 @@ public sealed class PatchingServiceTests
         result.Value.AppliedTranslations.ShouldBe(1);
         result.Value.Warnings.ShouldContain(warning => warning.Contains("Read-only volume"));
     }
+
+    [Fact]
+    public void ApplyTranslations_MixedSubFile_ShouldWriteItOnceAndRecordOnlyTheAdmittedRow()
+    {
+        // Arrange — one subfile, two rows: the first still holds its English (admitted), the second's
+        // English moved (refused). The subfile is written back exactly once, and only the admitted
+        // row reaches the ledger — a refused row's fragment holds SSG's text, not ours.
+        SetupAllPassingDefaults();
+        _datFileHandler.GetSubfileData(DatHandle, TextFileId, 100)
+            .Returns(Result.Success(TestDataFactory.CreateTextSubFileData(TextFileId, FragmentId1, 2)));
+        LedgerKey admittedKey = new(TextFileId, FragmentId1);
+        LedgerKey refusedKey = new(TextFileId, FragmentId2);
+        SetupTranslations(
+            CreateTranslation(gossipId: FragmentId1),
+            CreateTranslation(gossipId: FragmentId2, sourceDigest: SourceDigest.ForExportForm("Some other English", 0)));
+
+        // Act
+        Result<PatchSummaryResponse> result = _sut.ApplyTranslations("/translations/polish.txt", "/game/client_local_English.dat");
+
+        // Assert
+        result.IsSuccess.ShouldBeTrue();
+        result.Value.AppliedTranslations.ShouldBe(1);
+        result.Value.SourceMovedTranslations.ShouldBe(1);
+        _datFileHandler.Received(1).PutSubfileData(DatHandle, TextFileId, Arg.Any<byte[]>(), Arg.Any<int>(), 1);
+        _translationLedger.Received(1).Save(
+            Arg.Any<string>(),
+            Arg.Is<IReadOnlyDictionary<LedgerKey, string>>(entries => entries.ContainsKey(admittedKey) && !entries.ContainsKey(refusedKey)));
+    }
+
+    [Fact]
+    public void ApplyTranslations_RerunThatChangesNothingInTheLedger_ShouldNotRewriteIt()
+    {
+        // Arrange — the ledger already records exactly what this run writes again (a no-op re-run of
+        // the same artifact). Rewriting a multi-MB sidecar on every launch would be pure churn.
+        SetupAllPassingDefaults();
+        _translationLedger.Read(Arg.Any<string>()).Returns(new Dictionary<LedgerKey, string>
+        {
+            [new LedgerKey(TextFileId, FragmentId1)] = SourceDigest.ForExportForm("Przetlumaczony tekst", 0)
+        });
+        SetupTranslations(CreateTranslation());
+
+        // Act
+        Result<PatchSummaryResponse> result = _sut.ApplyTranslations("/translations/polish.txt", "/game/client_local_English.dat");
+
+        // Assert
+        result.IsSuccess.ShouldBeTrue();
+        _translationLedger.DidNotReceive().Save(Arg.Any<string>(), Arg.Any<IReadOnlyDictionary<LedgerKey, string>>());
+    }
+
+    [Fact]
+    public void ApplyTranslations_SameRowListedTwice_ShouldLetTheSecondRowSeeTheFirstRowsWrite()
+    {
+        // Arrange — a hand-made file naming the same fragment twice with different content used to be
+        // last-wins. The first row's write sits in the in-memory subfile when the second is judged, so
+        // clause (b) has to consult the entries pending for that subfile, not only the ledger on disk.
+        SetupAllPassingDefaults();
+        SetupTranslations(
+            CreateTranslation(content: "Pierwsza wersja"),
+            CreateTranslation(content: "Druga wersja"));
+
+        // Act
+        Result<PatchSummaryResponse> result = _sut.ApplyTranslations("/translations/polish.txt", "/game/client_local_English.dat");
+
+        // Assert — both admitted, no spurious "source moved", the last write is what the ledger records.
+        result.IsSuccess.ShouldBeTrue();
+        result.Value.AppliedTranslations.ShouldBe(2);
+        result.Value.SourceMovedTranslations.ShouldBe(0);
+        _translationLedger.Received(1).Save(
+            Arg.Any<string>(),
+            Arg.Is<IReadOnlyDictionary<LedgerKey, string>>(entries =>
+                entries[new LedgerKey(TextFileId, FragmentId1)] == SourceDigest.ForExportForm("Druga wersja", 0)));
+    }
 }

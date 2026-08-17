@@ -80,6 +80,9 @@ internal sealed class PatchingService : IPatchingService
 
         int datFileHandle = datFileOpenResult.Value;
 
+        // Read by the finally block, so it lives outside the try.
+        bool datFlushed = false;
+
         try
         {
             Dictionary<int, (int Size, int Iteration)> fileSizes = _datFileHandler.GetAllSubfileSizes(datFileHandle);
@@ -97,7 +100,7 @@ internal sealed class PatchingService : IPatchingService
             // artifact still describes what sits on that fragment, and dropping it would strand the
             // fragment on our older Polish forever.
             Dictionary<LedgerKey, string> ledgerEntries = new(_translationLedger.Read(translationsPath));
-            List<KeyValuePair<LedgerKey, string>> pendingLedgerEntries = [];
+            Dictionary<LedgerKey, string> pendingLedgerEntries = [];
             bool ledgerChanged = false;
 
             BoundedGuardWarnings sourceMoved = new();
@@ -240,7 +243,11 @@ internal sealed class PatchingService : IPatchingService
                         SourceDigest.Matches(currentDigest, translation.SourceDigest)
                         // (b) what this patcher last wrote there, so a NEWER translation for the same
                         //     English can still land on a fragment that already holds Polish.
-                        || ledgerEntries.TryGetValue(ledgerKey, out string? recordedDigest)
+                        //     The entries written into the subfile currently in memory count too:
+                        //     a file listing the same key twice (hand-made) used to be last-wins,
+                        //     and the second row must see the first one's write, not the disk.
+                        || (pendingLedgerEntries.TryGetValue(ledgerKey, out string? recordedDigest)
+                                || ledgerEntries.TryGetValue(ledgerKey, out recordedDigest))
                             && SourceDigest.Matches(currentDigest, recordedDigest)
                         // (c) exactly what this row would write — the write is a no-op, nothing but
                         //     our own patch puts that text there, and it re-seeds the ledger. This
@@ -261,7 +268,7 @@ internal sealed class PatchingService : IPatchingService
 
                     fragment.Pieces = [.. pieces];
                     currentSubFileModified = true;
-                    pendingLedgerEntries.Add(new KeyValuePair<LedgerKey, string>(ledgerKey, writtenDigest));
+                    pendingLedgerEntries[ledgerKey] = writtenDigest;
 
                     if (translation.ArgsOrder is not null && fragment.HasArguments)
                     {
@@ -304,6 +311,13 @@ internal sealed class PatchingService : IPatchingService
 
             if (ledgerChanged)
             {
+                // The DAT reaches disk before the ledger claims what it holds: a process killed between
+                // the two would otherwise leave a ledger describing writes the DAT never received, and
+                // those rows would then match nothing on the next run. The finally block is what
+                // guarantees a flush on every OTHER path, so it is skipped once this one ran.
+                _datFileHandler.Flush(datFileHandle);
+                datFlushed = true;
+
                 Result ledgerSaveResult = _translationLedger.Save(translationsPath, ledgerEntries);
 
                 if (ledgerSaveResult.IsFailure)
@@ -326,7 +340,11 @@ internal sealed class PatchingService : IPatchingService
         }
         finally
         {
-            _datFileHandler.Flush(datFileHandle);
+            if (!datFlushed)
+            {
+                _datFileHandler.Flush(datFileHandle);
+            }
+
             _datFileHandler.Close(datFileHandle);
         }
     }

@@ -82,7 +82,11 @@ internal static class TranslationLineCarver
             return false;
         }
 
-        string lastField = line[(beforeLastField + FieldSeparator.Length)..];
+        // Sniffed on the TRIMMED last field: `approved` has always tolerated trailing whitespace
+        // (the readers Trim() it), and a digest followed by a stray space or tab must not degrade
+        // the line into a six-column reading whose content swallows `||NULL` and whose approved
+        // column is the digest — the TMS import would store that as the row's source, silently.
+        string lastField = line[(beforeLastField + FieldSeparator.Length)..].TrimEnd();
 
         string? sourceDigest = null;
         int beforeApproved = beforeLastField;

@@ -16,6 +16,10 @@
 #   ("Enter Middle-earth", docs/knowledge-base/update-49/RESULTS.md); pozostale wiersze czekaja na
 #   uzupelnienie z eksportu (ich angielskie oryginaly nie sa nigdzie w repo).
 #
+#   Digest jest wazny dla KONKRETNEJ wersji gry - po aktualizacji, ktora zmienila dany tekst,
+#   trzeba go pobrac ponownie z nowego eksportu. Suita E2E nie polega na wartosciach z tego pliku:
+#   przed patchem przestempluje kazdy wiersz digestem z eksportu wlasnego DAT-a (E2ETestFixture).
+#
 # Linie zaczynajace sie od # sa ignorowane
 # Puste linie sa ignorowane
 #

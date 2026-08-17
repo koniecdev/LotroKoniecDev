@@ -141,6 +141,28 @@ public sealed class TranslationLineCarverTests
         fields.SourceDigest.ShouldBeNull();
     }
 
+    [Theory]
+    [InlineData("620756992||1001||Witaj||NULL||NULL||1||a37cc1683216cd32 ")]
+    [InlineData("620756992||1001||Witaj||NULL||NULL||1||a37cc1683216cd32\t")]
+    [InlineData("620756992||1001||Witaj||NULL||NULL||1||a37cc1683216cd32\r")]
+    [InlineData("620756992||1001||Witaj||NULL||NULL||1||a37cc1683216cd32 \t")]
+    public void TryCarve_DigestFollowedByTrailingWhitespace_ShouldStillCarveSevenColumns(string line)
+    {
+        // Act — `approved` has always tolerated trailing whitespace (its readers Trim() it), so the
+        // sniff has to see past it too: otherwise the line degrades to a six-column reading whose
+        // content swallows "||NULL" and whose approved column is the digest — and the TMS import
+        // would store that as the row's source, silently.
+        bool carved = TranslationLineCarver.TryCarve(line, out CarvedTranslationLine? fields);
+
+        // Assert
+        carved.ShouldBeTrue();
+        fields!.Content.ShouldBe("Witaj");
+        fields.ArgsOrder.ShouldBe("NULL");
+        fields.ArgsId.ShouldBe("NULL");
+        fields.Approved.ShouldBe("1");
+        fields.SourceDigest.ShouldBe("a37cc1683216cd32");
+    }
+
     [Fact]
     public void TryCarve_DigestWithoutEnoughSeparatorsBeforeIt_ShouldRefuseToCarve()
     {

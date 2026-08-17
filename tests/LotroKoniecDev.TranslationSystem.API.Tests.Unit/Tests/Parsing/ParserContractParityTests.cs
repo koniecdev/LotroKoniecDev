@@ -44,6 +44,10 @@ public sealed class ParserContractParityTests
     [InlineData("620756992||1004||Multi||arg||content||1-2||1-2||1||2dcab7603ec22224")]
     [InlineData("620756992||1008||Koniec rury|||NULL||NULL||1||df0aa563e80483a5")]
     [InlineData("620756992||1009||Trzy rury|||||1-2||3-4||1||2f2d1cb2f502250a")]
+    // A digest followed by trailing whitespace stays a seven-column line on both sides — the six-
+    // column fallback would swallow "||NULL" into the content and put the digest into `approved`.
+    [InlineData("620756992||1001||Witaj w Srodziemiu!||NULL||NULL||1||a37cc1683216cd32 ")]
+    [InlineData("620756992||1001||Witaj w Srodziemiu!||NULL||NULL||1||a37cc1683216cd32\t")]
     public async Task BothParsers_OnTheSameContractLine_ShouldAgreeOnEveryField(string line)
     {
         // Arrange — the patcher parser is per-line; the TMS parser is per-stream.

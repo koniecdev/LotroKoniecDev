@@ -10,6 +10,7 @@ using LotroKoniecDev.TranslationSystem.Contracts.Import;
 using LotroKoniecDev.TranslationSystem.Domain.Aggregates.GameVersionAggregate.Entities;
 using LotroKoniecDev.TranslationSystem.Domain.Aggregates.GameVersionAggregate.ValueObjects;
 using LotroKoniecDev.TranslationSystem.Domain.Aggregates.TranslationAggregate.Entities;
+using LotroKoniecDev.TranslationSystem.Domain.Aggregates.TranslationAggregate.Services;
 using LotroKoniecDev.TranslationSystem.Domain.Aggregates.TranslationAggregate.ValueObjects;
 using LotroKoniecDev.TranslationSystem.Domain.Aggregates.TranslatorAggregate.Entities;
 using LotroKoniecDev.TranslationSystem.Domain.Aggregates.TranslatorAggregate.ValueObjects;
@@ -847,10 +848,62 @@ public sealed class ImportExportedTextsTests : IAsyncLifetime
         return document.RootElement.TryGetProperty("errorCode", out JsonElement code) ? code.GetString() : null;
     }
 
+    [Fact]
+    public async Task Import_SevenColumnExportWithMatchingDigests_ShouldImportExactlyLikeSixColumns()
+    {
+        // Arrange — the CLI's export carries the source_digest column since ADR-0047 §2; the TMS
+        // verifies it and otherwise treats the line as it always did. Row 2 is uploaded six-column
+        // in the same file to prove both widths coexist (older exports, hand-made files).
+        GameVersionId versionId = await SeedVersionAsync("48.0");
+        using HttpClient client = AdminClient();
+
+        // Act
+        HttpResponseMessage response = await client.PostAsync(
+            ImportRoute(versionId),
+            ExportContent(DigestedLine(1, "Alpha"), Line(2, "Beta")));
+        ImportSummary? summary = await response.Content.ReadFromJsonAsync<ImportSummary>();
+
+        // Assert
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        summary.ShouldNotBeNull();
+        summary.Added.ShouldBe(2);
+        (await GetTranslationAsync(1))!.Source.Text.ShouldBe("Alpha");
+        (await GetTranslationAsync(2))!.Source.Text.ShouldBe("Beta");
+    }
+
+    [Fact]
+    public async Task Import_SevenColumnExportWithAWrongDigest_ShouldReturn422AndPersistNothing()
+    {
+        // Arrange — a digest that is not the digest of its own row means a wrong file or an
+        // implementation drift between the two contexts (ADR-0047 §2). It fails loudly at import,
+        // whole upload, like any unparseable line (ADR-0042) — never as `source moved` on players.
+        GameVersionId versionId = await SeedVersionAsync("48.0");
+        using HttpClient client = AdminClient();
+
+        // Act
+        HttpResponseMessage response = await client.PostAsync(
+            ImportRoute(versionId),
+            ExportContent(DigestedLine(1, "Alpha"), WronglyDigestedLine(2, "Beta")));
+
+        // Assert
+        response.StatusCode.ShouldBe(HttpStatusCode.UnprocessableEntity);
+        (await ReadErrorCodeAsync(response)).ShouldBe("Import.ParseFailed");
+        (await CountTranslationsAsync()).ShouldBe(0);
+        (await GetVersionStatusAsync(versionId)).ShouldBe(GameVersionStatus.Unprocessed);
+    }
+
     private static string ImportRoute(GameVersionId versionId)
         => $"/api/v1/game-versions/{versionId.Value}/import";
 
     private static string Line(int gossipId, string text) => $"{FileId}||{gossipId}||{text}||NULL||NULL||1";
+
+    // A seven-column export line as the CLI writes it since ADR-0047: the last field is the digest of
+    // the row's own source triple, so the import can verify it against its own SourceHash.
+    private static string DigestedLine(int gossipId, string text)
+        => $"{Line(gossipId, text)}||{SourceHash.Compute(text, null, null).ToWireDigest()}";
+
+    private static string WronglyDigestedLine(int gossipId, string text)
+        => $"{Line(gossipId, text)}||{SourceHash.Compute(text + " (not this)", null, null).ToWireDigest()}";
 
     // The exporter emits identity args from the fragment's argument count (args_order == args_id),
     // for the pristine English and for a patched fragment alike (spec 0012 echo triple).

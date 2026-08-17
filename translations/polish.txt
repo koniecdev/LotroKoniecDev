@@ -4,8 +4,17 @@
 #   source_digest (7. kolumna, ADR-0047) identyfikuje ANGIELSKI tekst, dla ktorego powstalo
 #   tlumaczenie. Patcher zapisuje wiersz tylko wtedy, gdy DAT nadal zawiera ten angielski tekst
 #   (albo to, co sam tam wczesniej zapisal) - dzieki temu po aktualizacji gry stare tlumaczenie
-#   nigdy nie przykryje zmienionego tekstu. Wiersz BEZ tej kolumny nie jest zapisywany wcale.
-#   Wartosci ponizej pochodza z eksportu tego DAT-a; nie zmieniaj ich recznie.
+#   nigdy nie przykryje zmienionego tekstu. Wiersz BEZ tej kolumny nie jest zapisywany wcale
+#   (patcher wypisze WARN "no source digest" i pominie go).
+#
+#   Skad wziac wartosc: uruchom export.bat, otworz data/exported.txt, znajdz wiersz o tym samym
+#   file_id||gossip_id i skopiuj jego OSTATNIA kolumne. To jest digest angielskiego oryginalu
+#   policzony z DAT-a - NIGDY nie licz go z polskiego tekstu (taki wiersz nie zapisze sie na
+#   czystym DAT-cie, a patcher bedzie klamal "source moved").
+#
+#   Stan ponizej: wiersz "Wejdz do Srodziemia" ma digest swojego angielskiego oryginalu
+#   ("Enter Middle-earth", docs/knowledge-base/update-49/RESULTS.md); pozostale wiersze czekaja na
+#   uzupelnienie z eksportu (ich angielskie oryginaly nie sa nigdzie w repo).
 #
 # Linie zaczynajace sie od # sa ignorowane
 # Puste linie sa ignorowane
@@ -27,11 +36,11 @@
 
 # === TUTAJ WSTAW SWOJE TLUMACZENIA ===
 
-620871150||218649169||'Mamy znak, <--DO_NOT_TOUCH!-->! Szare ćmy wznoszą się rzędem nad mokradłem...myślisz, że coś je płoszy z dołu?\n\n  \qPopielate skrzydła o zmierzchu\n  Nad zatopioną wieżą,\n  Tam gdzie zapomniany strażnik czeka\n  by zadąć w pęknięty róg\n  i zwołać straż, którą utracił.\q\n\n'Mokradło ucichło, a stara klatka sygnałowa stoi pusta; tylko te ćmy znaczą jeszcze ścieżkę. Coś niespokojnego zalęgło się na tych trzęsawiskach i obawiam się, że zalęgło się tu na długo zanim grobla utonęła.\n\n'Musimy odnaleźć źródło przed zmrokiem. Moja siostra czuwa na grzbiecie wzgórza ponad mgłą -- wypatruj jej latarni po drodze.'||1||1||1||6f3a6cba1e52ce33
-620759036||218649169||'PL - We cannot let the old warden rouse the drowned watch with that cracked horn, <--DO_NOT_TOUCH!-->. He has silenced the bells and clouded the waters of the vale. The beacon's fall to neglect shames us all!\n\n'Come, let us row out to the tower. The keepers of the ridge are waiting. We will hold the causeway together, and the marsh will keep its silence once again!'\n\n<rgb=#FF0000>WARNING: This is a solo errand, and cannot be completed with companions.</rgb>||1||1||1||d8c1e8ca85a76fbe
-620757435||225138404||Wejdź do Śródziemia||NULL||NULL||1||945a11b6a8ab4fd9
-620757027||9795381||Kliknij tutaj aby wybrać swój tytuł||NULL||NULL||1||667b998b7443955d
-620861331||228870261||Ekwipunek||NULL||NULL||1||8cd2513865297a85
-620757027||29271026||Podstawowe statystyki||NULL||NULL||1||a5cb13f7708152f7
-620757027||103943794||Pokaż wszystkie||NULL||NULL||1||747f96fd00dcc095
-620757027||85383154||Stylizacje||NULL||NULL||1||ad1936359fc55606
+620871150||218649169||'Mamy znak, <--DO_NOT_TOUCH!-->! Szare ćmy wznoszą się rzędem nad mokradłem...myślisz, że coś je płoszy z dołu?\n\n  \qPopielate skrzydła o zmierzchu\n  Nad zatopioną wieżą,\n  Tam gdzie zapomniany strażnik czeka\n  by zadąć w pęknięty róg\n  i zwołać straż, którą utracił.\q\n\n'Mokradło ucichło, a stara klatka sygnałowa stoi pusta; tylko te ćmy znaczą jeszcze ścieżkę. Coś niespokojnego zalęgło się na tych trzęsawiskach i obawiam się, że zalęgło się tu na długo zanim grobla utonęła.\n\n'Musimy odnaleźć źródło przed zmrokiem. Moja siostra czuwa na grzbiecie wzgórza ponad mgłą -- wypatruj jej latarni po drodze.'||1||1||1
+620759036||218649169||'PL - We cannot let the old warden rouse the drowned watch with that cracked horn, <--DO_NOT_TOUCH!-->. He has silenced the bells and clouded the waters of the vale. The beacon's fall to neglect shames us all!\n\n'Come, let us row out to the tower. The keepers of the ridge are waiting. We will hold the causeway together, and the marsh will keep its silence once again!'\n\n<rgb=#FF0000>WARNING: This is a solo errand, and cannot be completed with companions.</rgb>||1||1||1
+620757435||225138404||Wejdź do Śródziemia||NULL||NULL||1||e10605387a9229ae
+620757027||9795381||Kliknij tutaj aby wybrać swój tytuł||NULL||NULL||1
+620861331||228870261||Ekwipunek||NULL||NULL||1
+620757027||29271026||Podstawowe statystyki||NULL||NULL||1
+620757027||103943794||Pokaż wszystkie||NULL||NULL||1
+620757027||85383154||Stylizacje||NULL||NULL||1

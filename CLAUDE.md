@@ -146,6 +146,7 @@ A KittySaver slice is one file: `internal sealed class <Action> : IEndpoint` con
 | Deploy/operate the stack, or set env vars per environment | `docs/deployment/runbook.md` — env-var matrix (service × environment), secret generation, the issuer/redirect/authority/CORS gotchas, bring-up sequence + DB migrations. Ingress/routing shape: ADR-0034 (Caddy) + **ADR-0041** (why there is no gateway behind it) |
 | Add a proxy/gateway, expose a new service, or wire a client to an API path | **ADR-0041** — there is no API gateway: Caddy owns transport, the discovery document owns semantics, the frontend BFF owns aggregation. Clients resolve endpoints by **rel name** (ADR-0040's vocabulary), never by hardcoded path |
 | Touch the update lifecycle (GameVersion, import diff, invalidation, distribution, CLI sync) | `docs/specs/0001-game-update-lifecycle-and-translation-invalidation.md` — the agreed domain spec |
+| Touch update-day behavior on the client (sentinel, orchestrator, any new DAT write path) | `docs/specs/0012-update-resilience.md` (Tier 0/1 rules as amended 2026-08-17) + **ADR-0047** — every write goes through the per-row source guard; the no-masking invariant has no path exceptions |
 | Touch the game-content catalog (CatalogEntry/TextSlot, Companion zip import, catalog browser, memberships) | `docs/specs/0008-game-content-catalog-layer.md` (agreed) + `docs/knowledge-base/lotro-companion-data-model.md` (the verified `key:<FileId>:<GossipId>` join — never join on text). Naming rule: **never "entity"** in this layer (DDD-Entity misconception) |
 | Implement a feature whose business rules are fuzzy | **`/spec`** first (seed → questions → agreed spec in `docs/specs/`) |
 | Write or hand over a **manual QA ticket** (external tester) | **`/qa-ticket`** — every scenario verified against HEAD first; `/qa-ticket #<n>` re-baselines an existing one |
@@ -289,9 +290,9 @@ VarLen: 0-127 = 1 byte; 128-32767 = 2 bytes (high bit flag)
 
 ```
 # Comments start with #
-file_id||gossip_id||translated_text||args_order||args_id||approved
-620756992||1001||Witaj w Srodziemiu!||NULL||NULL||1
-620756992||1002||Tekst z <--DO_NOT_TOUCH!--> argumentem||1||1||1
+file_id||gossip_id||translated_text||args_order||args_id||approved||source_digest
+620756992||1001||Witaj w Srodziemiu!||NULL||NULL||1||3f9a1c0e7b2d4a55
+620756992||1002||Tekst z <--DO_NOT_TOUCH!--> argumentem||1||1||1||9c02e4d1a7f0b366
 ```
 
 - `<--DO_NOT_TOUCH!-->` = argument placeholder
@@ -312,9 +313,22 @@ file_id||gossip_id||translated_text||args_order||args_id||approved
   patcher warn-skips such a row **before** it loads or mutates a subfile
   (`Fragment.IsWritablePiece`). `Fragment.Write` still throws — deliberately, as the last resort —
   and `PatchingService` never catches mid-write.
+- **Stale Polish never lands over changed English — an INVARIANT, enforced per row at write time
+  (ADR-0047, #659).** Owner's rule (2026-08-17): if SSG changed a row's English in version N+1 and
+  the newest approved translation is still for N, the player sees English — *whatever path writes
+  the DAT* (routine `launch` hash-patch, `patch`, the spec-0012 sentinel, the update-day
+  orchestrator). TMS-side exclusion of invalidated rows (spec 0001) holds only after the new export
+  is imported; the client closes the pre-import window: the artifact carries per row a
+  `source_digest` (7th column — 16 hex of the framed SHA-256 the TMS computes as `SourceHash`), and
+  the patcher writes a row only when the fragment holds that English or what the patcher itself
+  last wrote there (`<file>.ledger` sidecar); anything else is skipped and reported as
+  `source moved`. No verdict, registration or watcher is load-bearing for this, and there is no
+  operator override. A six-column translation file is not patchable. Digest parity between the two
+  contexts is a golden fixture pinned on both sides.
 - **The `||` separator is deliberately NOT escaped — the line is CARVED, never `Split` (ADR-0042).**
   Each context's `TranslationLineCarver` scans **forward** for the two id separators and **backward**
-  for the three trailing ones (slicing before each backward search), so content may contain `||` and
+  for the trailing ones — three or four, sniffed from the last field: `0`/`1` is `approved`, 16 hex
+  is `source_digest` (ADR-0047) — slicing before each backward search, so content may contain `||` and
   may end in any run of `|`. `string.Split` resolves every boundary greedily left to right, which
   silently ate a trailing pipe into the args column (#597); never reintroduce it here. Nothing but
   content can hold a `|`, so both boundaries are recoverable by construction — no escape needed.

@@ -161,6 +161,19 @@ For every row of the uploaded export, compared against the stored source state b
   DAT (`dat-protection.md`); (2) the TMS excludes invalidated rows from the translation file, so
   `patch` never re-applies stale Polish over it. This is the codified form of the knowledge-base
   core insight "re-patching after game update is WRONG" (`update-detection-strategy.md`).
+  *Amendment (ADR-0047 / #659, 2026-08-17):* the owner named this an **invariant** — *if SSG
+  changed a row's English in version N+1 and the newest approved translation is still the one for
+  version N, the player sees English, whatever path writes the DAT.* Mechanism (2) enforces it only
+  **after** the new export is imported; between the SSG update and that import every artifact still
+  carries translations approved against the old English, and any patch (routine hash-patch after
+  an unrelated approve, the spec-0012 sentinel before the version is registered, the update-day
+  orchestrator by construction) would re-inject them. So a third mechanism closes the window on
+  the client: (3) the artifact carries per row the digest of the English the translation was
+  approved against, and the **patcher writes a row only when the fragment currently holds that
+  English or what the patcher itself last wrote there** (local ledger); anything else is left
+  alone and reported as `source moved`. Exclusion (2) remains the TMS-side truth; the guard (3) is
+  what makes the pre-import window safe. ADR-0047 has the ruling, the format change and the
+  rejected alternatives.
 - An invalidated translation is **explicitly visible to the admin/translators** as needing
   re-translation; supplying and approving a new Polish text clears the invalidation (the approve
   slice #101 gains this rule). The stale Polish is **kept** as the draft starting point, and the

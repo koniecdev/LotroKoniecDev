@@ -85,8 +85,12 @@ Three rules are normative, not implementation detail:
   response that carried it. A verdict cached on disk and replayed on an offline launch, or under
   `--skip-sync`, would assert freshness nobody vouched for.
 
-The Tier-0 rule becomes: force-patch only when the server says the artifact is current. Spec
-0012's "artifact-version ≥ live forum version" phrasing is superseded by this.
+~~The Tier-0 rule becomes: force-patch only when the server says the artifact is current.~~ Spec
+0012's "artifact-version ≥ live forum version" phrasing is superseded by this. **Superseded by
+ADR-0047 (2026-08-17):** the verdict no longer gates the Tier-0 repair — admission is decided per row
+at write time by the source guard, so the repair runs from the local artifact, offline, whatever the
+verdict says. "Unknown means do not repair" and "response-scoped, never persisted" survive as the
+semantics of the verdict *as a preflight/UI signal*, which is all it is now.
 
 ### 4. #85 (M2-18 forum watcher) is what gives the guard useful coverage — promoted into UR
 
@@ -102,7 +106,10 @@ and there the verdict reads "current" and the sentinel repairs with pre-update P
 moves the start of coverage from admin-notice to publication.
 
 Therefore #85 moves from Post-MVP / Backlog into the UR — update-resilience milestone as a
-dependency of #562 (UR-22) and #565 (UR-10), and ships before the sentinel reaches players. It
+dependency of #562 (UR-22) ~~and #565 (UR-10), and ships before the sentinel reaches players~~
+(*superseded by ADR-0047, 2026-08-17: the sentinel's repair no longer depends on the verdict, so
+#85 is not on #565's path; it keeps its value for the update-check channel and for the TMS
+learning versions early*). It
 keeps the ADR-0030 §2 scope amendment (e-mail alert on detection), which was never mirrored onto
 the ticket — do that when it is picked up.
 
@@ -242,11 +249,16 @@ one way back and two rows can never carry the same version string.
   as an alertable state when #85 is built.
 - #85 becomes pre-launch work that ADR-0030 had deliberately parked, and it adds a hosted service
   plus SMTP to the TMS.
-- The guard covers the forced repair only. The routine launch path patches whenever the artifact
+- ~~The guard covers the forced repair only. The routine launch path patches whenever the artifact
   hash changed (`SimplifiedGameLaunchingStrategy.cs:85-99`), with no version gate, so an unrelated
   approve that rebuilds the artifact mid-window still re-injects pre-update Polish. Accepted for
   now — closing it means gating the ordinary patch on the verdict too, trading a masking risk for
-  a wider "no Polish at all" window. Revisit if a real update day shows it hurting.
+  a wider "no Polish at all" window. Revisit if a real update day shows it hurting.~~
+  **Superseded by ADR-0047 (2026-08-17).** The owner named "no stale Polish over changed English"
+  an invariant of the system, on every write path; it is now enforced per row at write time in the
+  patcher (artifact `source_digest` + local ledger), which also covers the pre-registration window
+  described in §Context above that this verdict never could. The verdict stays as the
+  preflight/UI signal (§2, §7, #562) and no longer gates the repair.
 - TMS unreachable ⇒ no repair. Tier 0 declines rather than masks, but also never heals a
   collateral revert while offline. Accepted: masking is the worse failure.
 - The distribution response grows contract surface that must hold on 304 — a header dropped on the

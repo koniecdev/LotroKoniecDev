@@ -500,6 +500,10 @@ data/
 
 # Claude lock files
 .claude/scheduled_tasks.lock
+# The backlog conductor's mutex (scripts/claude/backlog-loop.sh). Since #465 it holds a `pid`
+# file, so an unignored lock shows up as `?? .claude/backlog-loop.lock/` and the worker's
+# clean-tree preflight aborts every ticket with "dirty working copy" — the loop could not start.
+.claude/backlog-loop.lock/
 
 # Claude per-user settings
 .claude/settings.local.json

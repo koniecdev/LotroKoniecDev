@@ -1,6 +1,7 @@
 using System.Text;
 using LotroKoniecDev.Tests.Shared;
 using LotroKoniecDev.TranslationSystem.API.Parsing;
+using LotroKoniecDev.TranslationSystem.Domain.Aggregates.TranslationAggregate.Services;
 
 namespace LotroKoniecDev.TranslationSystem.API.Tests.Unit.Tests.Parsing;
 
@@ -24,7 +25,7 @@ public sealed class TranslationFileNaughtyStringTests
     public async Task SerializeThenParse_NaughtyContent_ShouldRoundTripExactly(string naughty)
     {
         // Arrange
-        string file = _serializer.Serialize([new ArtifactRow(620756992, 1001, naughty, null, null)]);
+        string file = _serializer.Serialize([Row(620756992, 1001, naughty, null, null)]);
 
         // Act
         ParsedExport parsed = await ParseAsync(file);
@@ -40,7 +41,7 @@ public sealed class TranslationFileNaughtyStringTests
     {
         // Arrange — the separator is legal inside content; the parser anchors from both ends.
         string content = $"{naughty}||{naughty}";
-        string file = _serializer.Serialize([new ArtifactRow(620756992, 1001, content, "1-2", "1-2")]);
+        string file = _serializer.Serialize([Row(620756992, 1001, content, "1-2", "1-2")]);
 
         // Act
         ParsedExport parsed = await ParseAsync(file);
@@ -58,7 +59,7 @@ public sealed class TranslationFileNaughtyStringTests
     {
         // Arrange — '#' starts a comment only at the start of a LINE; a content field never is one.
         string content = $"#{naughty}";
-        string file = _serializer.Serialize([new ArtifactRow(620756992, 1001, content, null, null)]);
+        string file = _serializer.Serialize([Row(620756992, 1001, content, null, null)]);
 
         // Act
         ParsedExport parsed = await ParseAsync(file);
@@ -75,9 +76,9 @@ public sealed class TranslationFileNaughtyStringTests
         // swallows its neighbours rather than just itself.
         List<ArtifactRow> rows =
         [
-            new(620756992, 1001, naughty, null, null),
-            new(620756992, 1002, $"{naughty}||{naughty}", "1", "1"),
-            new(620756993, 1003, $"#{naughty}", null, null)
+            Row(620756992, 1001, naughty, null, null),
+            Row(620756992, 1002, $"{naughty}||{naughty}", "1", "1"),
+            Row(620756993, 1003, $"#{naughty}", null, null)
         ];
         string file = _serializer.Serialize(rows);
 
@@ -100,7 +101,7 @@ public sealed class TranslationFileNaughtyStringTests
         // multi-line textarea and the upsert slice only checks NotEmpty), so the WRITER escapes it
         // (ADR-0039). Before that, a newline split one row into two malformed lines and the fragment
         // silently disappeared from the distributed file (#596).
-        string file = _serializer.Serialize([new ArtifactRow(620756992, 1001, content, null, null)]);
+        string file = _serializer.Serialize([Row(620756992, 1001, content, null, null)]);
 
         // Act
         ParsedExport parsed = await ParseAsync(file);
@@ -119,7 +120,7 @@ public sealed class TranslationFileNaughtyStringTests
     {
         // Arrange — the other half of #596: the escape escapes its own escape character, so a
         // backslash in front of 'r'/'n' survives instead of unfolding into a control character.
-        string file = _serializer.Serialize([new ArtifactRow(620756992, 1001, content, null, null)]);
+        string file = _serializer.Serialize([Row(620756992, 1001, content, null, null)]);
 
         // Act
         ParsedExport parsed = await ParseAsync(file);
@@ -144,7 +145,7 @@ public sealed class TranslationFileNaughtyStringTests
         // the args column — identically in both parsers, which is exactly why the parity guard could
         // not see it (#597). No entry of the naughty list ends in an odd pipe run, so this collision
         // has to be composed by hand.
-        string file = _serializer.Serialize([new ArtifactRow(620756992, 1001, content, "1-2", "3-4")]);
+        string file = _serializer.Serialize([Row(620756992, 1001, content, "1-2", "3-4")]);
 
         // Act
         ParsedExport parsed = await ParseAsync(file);
@@ -180,7 +181,7 @@ public sealed class TranslationFileNaughtyStringTests
         // Arrange — exhaustive over the alphabet this format is weakest at, in BOTH parities: the
         // run can sit at the leading boundary, the trailing one, or both at once. The hand-picked
         // cases above only sample it.
-        string file = _serializer.Serialize([new ArtifactRow(620756992, 1001, content, "1-2", "3-4")]);
+        string file = _serializer.Serialize([Row(620756992, 1001, content, "1-2", "3-4")]);
 
         // Act
         ParsedExport parsed = await ParseAsync(file);
@@ -198,7 +199,7 @@ public sealed class TranslationFileNaughtyStringTests
     {
         // Arrange — an empty fragment is legal game content and must survive; the naughty list has
         // no empty entry (its shortest is one character), so this case is composed by hand.
-        string file = _serializer.Serialize([new ArtifactRow(620756992, 1001, string.Empty, null, null)]);
+        string file = _serializer.Serialize([Row(620756992, 1001, string.Empty, null, null)]);
 
         // Act
         ParsedExport parsed = await ParseAsync(file);
@@ -244,6 +245,22 @@ public sealed class TranslationFileNaughtyStringTests
         // admin); an escaping exception is not, because it would abort the whole import.
         await Should.NotThrowAsync(() => ParseAsync(line));
     }
+
+    /// <summary>
+    /// An artifact row whose <c>source_digest</c> is the digest of its OWN triple. These suites
+    /// exercise text fidelity through the writer/reader pair, and since ADR-0047 the reader verifies
+    /// that column (a wrong-file upload must fail loudly), so an arbitrary digest would reject every
+    /// row before its content was ever compared. A real distributed row carries the digest of the
+    /// ENGLISH instead — the projector's job, pinned by the projector's own tests.
+    /// </summary>
+    private static ArtifactRow Row(int fileId, long gossipId, string content, string? argsOrder, string? argsId)
+        => new(
+            fileId,
+            gossipId,
+            content,
+            argsOrder,
+            argsId,
+            SourceHash.Compute(content, argsOrder, argsId).ToWireDigest());
 
     private async Task<ParsedExport> ParseAsync(string file)
     {

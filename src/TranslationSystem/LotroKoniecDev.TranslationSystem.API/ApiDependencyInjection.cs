@@ -182,6 +182,11 @@ internal static class ApiDependencyInjection
                 serviceProvider.GetRequiredService<TranslationFileRebuildScheduler>());
             services.AddHostedService<TranslationFileRebuildWorker>();
 
+            // One-shot catch-up for a stored artifact written before ADR-0047's source_digest column
+            // (Consequences — "Deploy ordering"): without it an upgraded CLI patches nothing until
+            // the next approve happens to rebuild the artifact.
+            services.AddHostedService<TranslationFileFormatUpgradeService>();
+
             services.AddScoped<
                 IQueryHandler<GetTranslationFile.HashQuery, Result<string>>,
                 GetTranslationFile.HashHandler>();

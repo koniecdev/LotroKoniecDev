@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using System.Text;
 using LotroKoniecDev.TranslationSystem.API.Parsing;
+using LotroKoniecDev.TranslationSystem.Domain.Aggregates.TranslationAggregate.Services;
 using LotroKoniecDev.TranslationSystem.Persistence.DbContexts.Abstractions;
 using LotroKoniecDev.TranslationSystem.Persistence.DbContexts.ReadDbContexts;
 using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.TranslationAggregate.Enums;
@@ -9,6 +10,18 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace LotroKoniecDev.TranslationSystem.API.Features.TranslationFiles;
+
+/// <summary>
+/// One Approved row as read for projection: the Polish that ships plus the English it was approved
+/// against, which exists only to be hashed into the row's <c>source_digest</c> (ADR-0047).
+/// </summary>
+internal sealed record ArtifactSourceRow(
+    int FileId,
+    long GossipId,
+    string TranslatedText,
+    string SourceText,
+    string? ArgsOrder,
+    string? ArgsId);
 
 /// <summary>
 /// Projects the current Approved set into the precomputed translation file (spec 0001: regenerate
@@ -47,17 +60,34 @@ internal sealed class PrecomputedTranslationFileProjector : IPrecomputedTranslat
             // Approved, non-removed rows are included (NeedsReview is the re-translation backlog).
             // The RemovedInVersion guard is load-bearing, not redundant with the status: an Approved
             // row can later be soft-removed by an import without losing its Approved status.
-            List<ArtifactRow> rows = await readDbContext.Translations
+            // Streamed rather than materialized: the English source is needed only long enough to
+            // hash it into the row's source_digest (ADR-0047), so it never joins the artifact in
+            // memory alongside the Polish it is hashed for.
+            List<ArtifactRow> rows = [];
+
+            IAsyncEnumerable<ArtifactSourceRow> sourceRows = readDbContext.Translations
                 .Where(translation => translation.Status == TranslationStatus.Approved && translation.RemovedInVersion == null)
                 .OrderBy(translation => translation.FileId)
                 .ThenBy(translation => translation.GossipId)
-                .Select(translation => new ArtifactRow(
+                .Select(translation => new ArtifactSourceRow(
                     translation.FileId,
                     translation.GossipId,
                     translation.TranslatedText!,
+                    translation.SourceText,
                     translation.ArgsOrder,
                     translation.ArgsId))
-                .ToListAsync(cancellationToken);
+                .AsAsyncEnumerable();
+
+            await foreach (ArtifactSourceRow sourceRow in sourceRows.WithCancellation(cancellationToken))
+            {
+                rows.Add(new ArtifactRow(
+                    sourceRow.FileId,
+                    sourceRow.GossipId,
+                    sourceRow.TranslatedText,
+                    sourceRow.ArgsOrder,
+                    sourceRow.ArgsId,
+                    SourceHash.Compute(sourceRow.SourceText, sourceRow.ArgsOrder, sourceRow.ArgsId).ToWireDigest()));
+            }
 
             string content = serializer.Serialize(rows);
             // Hex SHA-256 of the UTF-8 body is a cross-context contract: it ships as the distribution

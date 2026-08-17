@@ -1,4 +1,6 @@
 using System.Diagnostics;
+using LotroKoniecDev.Application.Parsers;
+using LotroKoniecDev.Domain.Models;
 
 namespace LotroKoniecDev.Tests.E2E;
 
@@ -14,7 +16,14 @@ public sealed class E2ETestFixture : IAsyncLifetime
 
     public string DatFilePath { get; private set; } = string.Empty;
     public string CliExePath { get; private set; } = string.Empty;
+    /// <summary>
+    /// The translation file every patch test uses: the repo's rows with each <c>source_digest</c>
+    /// re-stamped from this DAT's own export (see <see cref="StampSourceDigests"/>).
+    /// </summary>
     public string TranslationsPolishPath { get; private set; } = string.Empty;
+
+    /// <summary>The committed <c>translations/polish.txt</c>, before the digests are re-stamped.</summary>
+    public string RepoTranslationsPolishPath { get; private set; } = string.Empty;
     public bool IsDatFileAvailable { get; private set; }
     public string CachedExportPath { get; private set; } = string.Empty;
     public CliResult? CachedExportResult { get; private set; }
@@ -31,7 +40,7 @@ public sealed class E2ETestFixture : IAsyncLifetime
         }
         await BuildCliProjectAsync();
         CliExePath = FindCliExe();
-        TranslationsPolishPath = FindTranslationsFile("polish.txt");
+        RepoTranslationsPolishPath = FindTranslationsFile("polish.txt");
         IsDatFileAvailable = true;
 
         // Clean up orphaned temp dirs from previous crashed runs (older than 1h)
@@ -61,7 +70,64 @@ public sealed class E2ETestFixture : IAsyncLifetime
                 $"Cached export failed with exit code {CachedExportResult.ExitCode}. " +
                 $"stderr: {CachedExportResult.Stderr}");
         }
+
+        TranslationsPolishPath = StampSourceDigests(RepoTranslationsPolishPath, CachedExportPath, exportDir);
     }
+
+    /// <summary>
+    /// Rewrites the repo's translation file with each row's <c>source_digest</c> taken from the export
+    /// of THIS DAT (ADR-0047) — exactly the step a translator performs after running <c>export</c>.
+    /// Without it the suite would depend on digests hand-copied into a committed file, which are
+    /// stale for anyone whose game is on a different version, and every row would be warn-skipped as
+    /// <c>no source digest</c>.
+    /// </summary>
+    private static string StampSourceDigests(string translationsPath, string exportPath, string outputDir)
+    {
+        TranslationFileParser parser = new();
+        Dictionary<string, string> digestsByKey = [];
+
+        foreach (Translation exported in parser.ParseFile(exportPath).Value.Translations)
+        {
+            if (exported.SourceDigest is not null)
+            {
+                digestsByKey[$"{exported.FileId}||{exported.GossipId}"] = exported.SourceDigest;
+            }
+        }
+
+        List<string> stamped = [];
+
+        foreach (string line in File.ReadLines(translationsPath))
+        {
+            if (string.IsNullOrWhiteSpace(line) || line.TrimStart().StartsWith('#'))
+            {
+                stamped.Add(line);
+                continue;
+            }
+
+            string[] fields = line.Split("||");
+            if (fields.Length < 6)
+            {
+                stamped.Add(line);
+                continue;
+            }
+
+            string withoutDigest = IsWireDigest(fields[^1])
+                ? line[..line.LastIndexOf("||", StringComparison.Ordinal)]
+                : line;
+
+            stamped.Add(digestsByKey.TryGetValue($"{fields[0]}||{fields[1]}", out string? digest)
+                ? $"{withoutDigest}||{digest}"
+                : withoutDigest);
+        }
+
+        string stampedPath = Path.Combine(outputDir, "polish-digested.txt");
+        File.WriteAllLines(stampedPath, stamped);
+
+        return stampedPath;
+    }
+
+    private static bool IsWireDigest(string field)
+        => field.Length == 16 && field.All(char.IsAsciiHexDigit);
 
     public Task DisposeAsync()
     {

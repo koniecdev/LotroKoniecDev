@@ -20,6 +20,14 @@ public sealed class Translation
     public bool IsApproved { get; init; } = true;
 
     /// <summary>
+    /// The <c>source_digest</c> column (ADR-0047): 16 hex characters identifying the English this
+    /// translation was made against, or <see langword="null"/> on a six-column line. The parser never
+    /// rejects a row for lacking it — a wholly six-column file must still parse and still let the game
+    /// launch; it is the patcher's write guard that refuses to write such a row.
+    /// </summary>
+    public string? SourceDigest { get; init; }
+
+    /// <summary>
     /// Indicates whether this translation has argument reordering information.
     /// </summary>
     public bool HasArguments => ArgsOrder is { Length: > 0 };

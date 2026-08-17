@@ -14,6 +14,7 @@ public sealed class PatchingServiceTests
 {
     private readonly IDatFileHandler _datFileHandler;
     private readonly ITranslationParser _translationParser;
+    private readonly ITranslationLedger _translationLedger;
     private readonly PatchingService _sut;
 
     private const int DatHandle = 42;
@@ -22,11 +23,27 @@ public sealed class PatchingServiceTests
     private const ulong FragmentId1 = 1001;
     private const ulong FragmentId2 = 1002;
 
+    /// <summary>The text every fixture fragment holds, so the guard's "pristine English" clause is the default.</summary>
+    private const string FixtureFragmentText = "Test";
+
+    /// <summary>
+    /// The digest of the fixture fragment's own export form (ADR-0047 §3, clause (a)). A row
+    /// carrying it is one made for the English the DAT actually holds — the ordinary case, so it is
+    /// what <see cref="CreateTranslation"/> defaults to.
+    /// </summary>
+    private static readonly string PristineSourceDigest = SourceDigest.ForExportForm(FixtureFragmentText, 0);
+
     public PatchingServiceTests()
     {
         _datFileHandler = Substitute.For<IDatFileHandler>();
         _translationParser = Substitute.For<ITranslationParser>();
-        _sut = new PatchingService(_datFileHandler, _translationParser);
+        _translationLedger = Substitute.For<ITranslationLedger>();
+        _translationLedger.Read(Arg.Any<string>()).Returns(new Dictionary<LedgerKey, string>());
+        _translationLedger
+            .Save(Arg.Any<string>(), Arg.Any<IReadOnlyDictionary<LedgerKey, string>>())
+            .Returns(Result.Success());
+
+        _sut = new PatchingService(_datFileHandler, _translationParser, _translationLedger);
     }
 
     private void SetupAllPassingDefaults()
@@ -59,7 +76,8 @@ public sealed class PatchingServiceTests
         ulong gossipId = FragmentId1,
         string content = "Przetlumaczony tekst",
         int[]? argsOrder = null,
-        bool isApproved = true) =>
+        bool isApproved = true,
+        string? sourceDigest = null) =>
         new()
         {
             FileId = fileId,
@@ -67,7 +85,20 @@ public sealed class PatchingServiceTests
             Content = content,
             ArgsOrder = argsOrder,
             ArgsId = null,
-            IsApproved = isApproved
+            IsApproved = isApproved,
+            // Since ADR-0047 a row is written only when it says which English it was made for, so
+            // "a row that patches" defaults to the digest of what the fixture fragment holds.
+            SourceDigest = sourceDigest ?? PristineSourceDigest
+        };
+
+    /// <summary>A row off a six-column translation file — hand-made, or an artifact predating ADR-0047.</summary>
+    private static Translation CreateSixColumnTranslation() =>
+        new()
+        {
+            FileId = TextFileId,
+            GossipId = FragmentId1,
+            Content = "Przetlumaczony tekst",
+            IsApproved = true
         };
 
     [Fact]
@@ -526,7 +557,10 @@ public sealed class PatchingServiceTests
         // Translation with swapped arg order: [1, 0] means new[0]=old[1], new[1]=old[0]
         Translation translation = CreateTranslation(
             content: "Czesc1<--DO_NOT_TOUCH!-->Czesc2<--DO_NOT_TOUCH!-->Czesc3",
-            argsOrder: [1, 0]);
+            argsOrder: [1, 0],
+            // This fixture's fragment carries three pieces and two argument references, so its
+            // export form differs from the default one-piece fixture's.
+            sourceDigest: SourceDigest.ForExportForm("Part1<--DO_NOT_TOUCH!-->Part2<--DO_NOT_TOUCH!-->Part3", 2));
         SetupTranslations(translation);
 
         byte[]? capturedData = null;
@@ -575,5 +609,350 @@ public sealed class PatchingServiceTests
 
         // Assert
         callOrder.ShouldBe(["parse", "open_dat"]);
+    }
+
+    [Fact]
+    public void ApplyTranslations_RowMadeForTheEnglishTheDatHolds_ShouldWriteIt()
+    {
+        // Arrange — clause (a) of ADR-0047 §3: pristine, or collaterally reverted by the launcher.
+        // This is the case Tier 0/1 repair exists for, so it must stay wide open.
+        SetupAllPassingDefaults();
+        SetupTranslations(CreateTranslation(sourceDigest: PristineSourceDigest));
+
+        // Act
+        Result<PatchSummaryResponse> result = _sut.ApplyTranslations("/translations/polish.txt", "/game/client_local_English.dat");
+
+        // Assert
+        result.Value.AppliedTranslations.ShouldBe(1);
+        result.Value.SourceMovedTranslations.ShouldBe(0);
+    }
+
+    [Fact]
+    public void ApplyTranslations_EnglishChangedUnderTheRow_ShouldSkipItAndReportSourceMoved()
+    {
+        // Arrange — THE invariant (ADR-0047): SSG reworded the row in version N+1 and the newest
+        // approved translation is still for N, so the player sees English. Whatever path writes.
+        SetupAllPassingDefaults();
+        SetupTranslations(CreateTranslation(sourceDigest: SourceDigest.ForExportForm("Some other English", 0)));
+
+        // Act
+        Result<PatchSummaryResponse> result = _sut.ApplyTranslations("/translations/polish.txt", "/game/client_local_English.dat");
+
+        // Assert
+        result.IsSuccess.ShouldBeTrue();
+        result.Value.AppliedTranslations.ShouldBe(0);
+        result.Value.SkippedTranslations.ShouldBe(1);
+        result.Value.SourceMovedTranslations.ShouldBe(1);
+        result.Value.Warnings.ShouldContain(warning => warning.Contains("source moved"));
+    }
+
+    [Fact]
+    public void ApplyTranslations_EnglishChangedUnderTheRow_ShouldNotWriteTheSubFileAtAll()
+    {
+        // Arrange — the counters alone would also be satisfied by a run that mutated the fragment in
+        // memory and merely declined to count it. Skipping has to mean "wrote nothing".
+        SetupAllPassingDefaults();
+        SetupTranslations(CreateTranslation(sourceDigest: SourceDigest.ForExportForm("Some other English", 0)));
+
+        // Act
+        _sut.ApplyTranslations("/translations/polish.txt", "/game/client_local_English.dat");
+
+        // Assert
+        _datFileHandler.DidNotReceive().PutSubfileData(
+            Arg.Any<int>(), TextFileId, Arg.Any<byte[]>(), Arg.Any<int>(), Arg.Any<int>());
+    }
+
+    [Fact]
+    public void ApplyTranslations_FragmentHoldingWhatWeWroteBefore_ShouldAcceptANewerTranslation()
+    {
+        // Arrange — clause (b): the fragment holds our older Polish, which matches neither the row's
+        // English digest nor the new translation. Only the ledger can admit this write, and without
+        // it an updated translation could never reach a fragment we had already patched.
+        SetupAllPassingDefaults();
+        _datFileHandler.GetSubfileData(DatHandle, TextFileId, 100)
+            .Returns(Result.Success(TestDataFactory.CreateTextSubFileData(TextFileId, "Stara wersja")));
+        _translationLedger.Read(Arg.Any<string>()).Returns(new Dictionary<LedgerKey, string>
+        {
+            [new LedgerKey(TextFileId, 1)] = SourceDigest.ForExportForm("Stara wersja", 0)
+        });
+        SetupTranslations(CreateTranslation(gossipId: 1, content: "Nowa wersja"));
+
+        // Act
+        Result<PatchSummaryResponse> result = _sut.ApplyTranslations("/translations/polish.txt", "/game/client_local_English.dat");
+
+        // Assert
+        result.Value.AppliedTranslations.ShouldBe(1);
+        result.Value.SourceMovedTranslations.ShouldBe(0);
+    }
+
+    [Fact]
+    public void ApplyTranslations_FragmentHoldingOurOlderPolishWithNoLedger_ShouldSkipItAndReportSourceMoved()
+    {
+        // Arrange — the documented degradation of a lost ledger (ADR-0047 §4): under-patching, never
+        // masking. The row is skipped until an update reverts its SubFile or the DAT is restored.
+        SetupAllPassingDefaults();
+        _datFileHandler.GetSubfileData(DatHandle, TextFileId, 100)
+            .Returns(Result.Success(TestDataFactory.CreateTextSubFileData(TextFileId, "Stara wersja")));
+        SetupTranslations(CreateTranslation(gossipId: 1, content: "Nowa wersja"));
+
+        // Act
+        Result<PatchSummaryResponse> result = _sut.ApplyTranslations("/translations/polish.txt", "/game/client_local_English.dat");
+
+        // Assert
+        result.Value.AppliedTranslations.ShouldBe(0);
+        result.Value.SourceMovedTranslations.ShouldBe(1);
+    }
+
+    [Fact]
+    public void ApplyTranslations_FragmentAlreadyHoldingExactlyThisTranslation_ShouldStillApplyAndSeedTheLedger()
+    {
+        // Arrange — clause (c): a re-run over a DAT patched before the ledger existed. Nothing but
+        // our own patch puts that text there, so the write is a safe no-op and it bootstraps the
+        // ledger entry that later clause-(b) writes depend on.
+        SetupAllPassingDefaults();
+        _datFileHandler.GetSubfileData(DatHandle, TextFileId, 100)
+            .Returns(Result.Success(TestDataFactory.CreateTextSubFileData(TextFileId, "Juz przetlumaczone")));
+        SetupTranslations(CreateTranslation(
+            gossipId: 1,
+            content: "Juz przetlumaczone",
+            sourceDigest: SourceDigest.ForExportForm("Angielski, ktorego juz tam nie ma", 0)));
+
+        // Act
+        Result<PatchSummaryResponse> result = _sut.ApplyTranslations("/translations/polish.txt", "/game/client_local_English.dat");
+
+        // Assert
+        result.Value.AppliedTranslations.ShouldBe(1);
+        _translationLedger.Received(1).Save(
+            "/translations/polish.txt",
+            Arg.Is<IReadOnlyDictionary<LedgerKey, string>>(entries =>
+                entries[new LedgerKey(TextFileId, 1)] == SourceDigest.ForExportForm("Juz przetlumaczone", 0)));
+    }
+
+    [Fact]
+    public void ApplyTranslations_HandMadeRowWithNullArgsOnAnArgumentBearingFragment_ShouldStillMatchItsOwnTranslation()
+    {
+        // Arrange — clause (c) takes the argument count from the FRAGMENT, never from the row's own
+        // args columns, which a hand-made file may leave as NULL. Reading them from the row would
+        // make an already-translated arg-bearing fragment fail every clause and report a false
+        // "source moved" on every run.
+        const string polish = "Czesc1<--DO_NOT_TOUCH!-->Czesc2";
+        byte[][] argRefs = [[0x01, 0x00, 0x00, 0x00], [0x02, 0x00, 0x00, 0x00]];
+        byte[] subFileData = TestDataFactory.CreateTextSubFileDataWithArgs(
+            TextFileId, FragmentId1, ["Czesc1", "Czesc2"], argRefs);
+
+        _datFileHandler.Open(Arg.Any<string>(), DatFileAccess.ReadWrite).Returns(Result.Success(DatHandle));
+        _datFileHandler.GetAllSubfileSizes(DatHandle).Returns(new Dictionary<int, (int, int)>
+        {
+            { TextFileId, (subFileData.Length, 1) }
+        });
+        _datFileHandler.GetSubfileData(DatHandle, TextFileId, subFileData.Length).Returns(Result.Success(subFileData));
+        _datFileHandler.GetSubfileVersion(DatHandle, TextFileId).Returns(1);
+        _datFileHandler.PutSubfileData(DatHandle, Arg.Any<int>(), Arg.Any<byte[]>(), Arg.Any<int>(), Arg.Any<int>())
+            .Returns(Result.Success());
+
+        SetupTranslations(CreateTranslation(
+            content: polish,
+            argsOrder: null,
+            sourceDigest: SourceDigest.ForExportForm("English that has since moved", 2)));
+
+        // Act
+        Result<PatchSummaryResponse> result = _sut.ApplyTranslations("/translations/polish.txt", "/game/client_local_English.dat");
+
+        // Assert
+        result.Value.AppliedTranslations.ShouldBe(1);
+        result.Value.SourceMovedTranslations.ShouldBe(0);
+    }
+
+    [Fact]
+    public void ApplyTranslations_RowWithoutASourceDigest_ShouldSkipItAndSayWhy()
+    {
+        // Arrange — a six-column translation file: hand-made, or an artifact from before ADR-0047.
+        SetupAllPassingDefaults();
+        SetupTranslations(CreateSixColumnTranslation());
+
+        // Act
+        Result<PatchSummaryResponse> result = _sut.ApplyTranslations("/translations/polish.txt", "/game/client_local_English.dat");
+
+        // Assert — success, not failure: the launch path turns a failure into RepatchFailed and
+        // refuses to start the game, and an unpatchable file must never cost the player the game.
+        result.IsSuccess.ShouldBeTrue();
+        result.Value.AppliedTranslations.ShouldBe(0);
+        result.Value.SkippedTranslations.ShouldBe(1);
+        result.Value.MissingSourceDigestTranslations.ShouldBe(1);
+        result.Value.Warnings.ShouldContain(warning => warning.Contains("no source_digest column"));
+    }
+
+    [Fact]
+    public void ApplyTranslations_RowWithoutASourceDigest_ShouldNotEvenLoadTheSubFile()
+    {
+        // Arrange — a wholly six-column artifact is ~800k unpatchable rows; deciding that before the
+        // subfile load is what keeps it from costing a full corpus read for nothing.
+        SetupAllPassingDefaults();
+        SetupTranslations(CreateSixColumnTranslation());
+
+        // Act
+        _sut.ApplyTranslations("/translations/polish.txt", "/game/client_local_English.dat");
+
+        // Assert
+        _datFileHandler.DidNotReceive().GetSubfileData(Arg.Any<int>(), Arg.Any<int>(), Arg.Any<int>());
+    }
+
+    [Fact]
+    public void ApplyTranslations_ManyGuardSkips_ShouldReportACountAndABoundedSample()
+    {
+        // Arrange — a major update can move thousands of sources at once (U49 moved 1,644). Both
+        // consumers of Warnings print or log it line by line, so the bound has to be in the summary.
+        SetupAllPassingDefaults();
+        // 120 fragments, not more: the fixture writes the fragment count as a single VarLen byte.
+        _datFileHandler.GetSubfileData(DatHandle, TextFileId, 100)
+            .Returns(Result.Success(TestDataFactory.CreateTextSubFileData(TextFileId, FragmentId1, 120)));
+
+        Translation[] moved = Enumerable.Range(0, 120)
+            .Select(index => CreateTranslation(
+                gossipId: FragmentId1 + (ulong)index,
+                sourceDigest: SourceDigest.ForExportForm("Some other English", 0)))
+            .ToArray();
+        SetupTranslations(moved);
+
+        // Act
+        Result<PatchSummaryResponse> result = _sut.ApplyTranslations("/translations/polish.txt", "/game/client_local_English.dat");
+
+        // Assert — the per-row samples are the ones that start with "Fragment"; the roll-up line and
+        // the "and N more" tail are separate entries.
+        result.Value.SourceMovedTranslations.ShouldBe(120);
+        result.Value.Warnings.Count(warning => warning.StartsWith("Fragment ")).ShouldBe(100);
+        result.Value.Warnings.ShouldContain(warning => warning.Contains("... and 20 more"));
+    }
+
+    [Fact]
+    public void ApplyTranslations_RowWrittenIntoASubFileThatFailedToCommit_ShouldNotBeRecordedInTheLedger()
+    {
+        // Arrange — the ledger claims what the DAT holds. Recording a row whose subfile never
+        // reached disk would admit a later write against text that is not there (ADR-0047 §4).
+        SetupAllPassingDefaults();
+        _datFileHandler.PutSubfileData(DatHandle, TextFileId, Arg.Any<byte[]>(), Arg.Any<int>(), Arg.Any<int>())
+            .Returns(Result.Failure(new Error("DatFile.WriteError", "Disk full", ErrorType.IoError)));
+        SetupTranslations(CreateTranslation());
+
+        // Act
+        _sut.ApplyTranslations("/translations/polish.txt", "/game/client_local_English.dat");
+
+        // Assert
+        _translationLedger.DidNotReceive().Save(
+            Arg.Any<string>(), Arg.Any<IReadOnlyDictionary<LedgerKey, string>>());
+    }
+
+    [Fact]
+    public void ApplyTranslations_RowsAbsentFromTheArtifact_ShouldKeepTheirLedgerEntries()
+    {
+        // Arrange — the ledger is UPSERTED, never rebuilt (ADR-0047 §4). A row edited back to Draft
+        // leaves the artifact, but its Polish still sits on the fragment; dropping the entry would
+        // strand that fragment on our older Polish once the row is re-approved.
+        SetupAllPassingDefaults();
+        LedgerKey absentRow = new(TextFileId2, 7777);
+        _translationLedger.Read(Arg.Any<string>()).Returns(new Dictionary<LedgerKey, string>
+        {
+            [absentRow] = SourceDigest.ForExportForm("Polish we wrote in an earlier run", 0)
+        });
+        SetupTranslations(CreateTranslation());
+
+        // Act
+        _sut.ApplyTranslations("/translations/polish.txt", "/game/client_local_English.dat");
+
+        // Assert
+        _translationLedger.Received(1).Save(
+            Arg.Any<string>(),
+            Arg.Is<IReadOnlyDictionary<LedgerKey, string>>(entries => entries.ContainsKey(absentRow)));
+    }
+
+    [Fact]
+    public void ApplyTranslations_WhenTheLedgerCannotBeWritten_ShouldWarnRatherThanFailThePatch()
+    {
+        // Arrange — the DAT is already written by then, and a lost ledger only under-patches next
+        // time. Failing here would turn a hint's IO error into a refused launch.
+        SetupAllPassingDefaults();
+        _translationLedger.Save(Arg.Any<string>(), Arg.Any<IReadOnlyDictionary<LedgerKey, string>>())
+            .Returns(Result.Failure(new Error("TranslationFileSync.CacheWriteError", "Read-only volume", ErrorType.IoError)));
+        SetupTranslations(CreateTranslation());
+
+        // Act
+        Result<PatchSummaryResponse> result = _sut.ApplyTranslations("/translations/polish.txt", "/game/client_local_English.dat");
+
+        // Assert
+        result.IsSuccess.ShouldBeTrue();
+        result.Value.AppliedTranslations.ShouldBe(1);
+        result.Value.Warnings.ShouldContain(warning => warning.Contains("Read-only volume"));
+    }
+
+    [Fact]
+    public void ApplyTranslations_MixedSubFile_ShouldWriteItOnceAndRecordOnlyTheAdmittedRow()
+    {
+        // Arrange — one subfile, two rows: the first still holds its English (admitted), the second's
+        // English moved (refused). The subfile is written back exactly once, and only the admitted
+        // row reaches the ledger — a refused row's fragment holds SSG's text, not ours.
+        SetupAllPassingDefaults();
+        _datFileHandler.GetSubfileData(DatHandle, TextFileId, 100)
+            .Returns(Result.Success(TestDataFactory.CreateTextSubFileData(TextFileId, FragmentId1, 2)));
+        LedgerKey admittedKey = new(TextFileId, FragmentId1);
+        LedgerKey refusedKey = new(TextFileId, FragmentId2);
+        SetupTranslations(
+            CreateTranslation(gossipId: FragmentId1),
+            CreateTranslation(gossipId: FragmentId2, sourceDigest: SourceDigest.ForExportForm("Some other English", 0)));
+
+        // Act
+        Result<PatchSummaryResponse> result = _sut.ApplyTranslations("/translations/polish.txt", "/game/client_local_English.dat");
+
+        // Assert
+        result.IsSuccess.ShouldBeTrue();
+        result.Value.AppliedTranslations.ShouldBe(1);
+        result.Value.SourceMovedTranslations.ShouldBe(1);
+        _datFileHandler.Received(1).PutSubfileData(DatHandle, TextFileId, Arg.Any<byte[]>(), Arg.Any<int>(), 1);
+        _translationLedger.Received(1).Save(
+            Arg.Any<string>(),
+            Arg.Is<IReadOnlyDictionary<LedgerKey, string>>(entries => entries.ContainsKey(admittedKey) && !entries.ContainsKey(refusedKey)));
+    }
+
+    [Fact]
+    public void ApplyTranslations_RerunThatChangesNothingInTheLedger_ShouldNotRewriteIt()
+    {
+        // Arrange — the ledger already records exactly what this run writes again (a no-op re-run of
+        // the same artifact). Rewriting a multi-MB sidecar on every launch would be pure churn.
+        SetupAllPassingDefaults();
+        _translationLedger.Read(Arg.Any<string>()).Returns(new Dictionary<LedgerKey, string>
+        {
+            [new LedgerKey(TextFileId, FragmentId1)] = SourceDigest.ForExportForm("Przetlumaczony tekst", 0)
+        });
+        SetupTranslations(CreateTranslation());
+
+        // Act
+        Result<PatchSummaryResponse> result = _sut.ApplyTranslations("/translations/polish.txt", "/game/client_local_English.dat");
+
+        // Assert
+        result.IsSuccess.ShouldBeTrue();
+        _translationLedger.DidNotReceive().Save(Arg.Any<string>(), Arg.Any<IReadOnlyDictionary<LedgerKey, string>>());
+    }
+
+    [Fact]
+    public void ApplyTranslations_SameRowListedTwice_ShouldLetTheSecondRowSeeTheFirstRowsWrite()
+    {
+        // Arrange — a hand-made file naming the same fragment twice with different content used to be
+        // last-wins. The first row's write sits in the in-memory subfile when the second is judged, so
+        // clause (b) has to consult the entries pending for that subfile, not only the ledger on disk.
+        SetupAllPassingDefaults();
+        SetupTranslations(
+            CreateTranslation(content: "Pierwsza wersja"),
+            CreateTranslation(content: "Druga wersja"));
+
+        // Act
+        Result<PatchSummaryResponse> result = _sut.ApplyTranslations("/translations/polish.txt", "/game/client_local_English.dat");
+
+        // Assert — both admitted, no spurious "source moved", the last write is what the ledger records.
+        result.IsSuccess.ShouldBeTrue();
+        result.Value.AppliedTranslations.ShouldBe(2);
+        result.Value.SourceMovedTranslations.ShouldBe(0);
+        _translationLedger.Received(1).Save(
+            Arg.Any<string>(),
+            Arg.Is<IReadOnlyDictionary<LedgerKey, string>>(entries =>
+                entries[new LedgerKey(TextFileId, FragmentId1)] == SourceDigest.ForExportForm("Druga wersja", 0)));
     }
 }

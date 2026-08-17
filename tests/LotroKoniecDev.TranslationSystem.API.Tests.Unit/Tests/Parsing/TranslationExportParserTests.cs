@@ -254,4 +254,91 @@ public sealed class TranslationExportParserTests
         // Assert
         lines.ShouldBeEmpty();
     }
+
+    [Fact]
+    public async Task ParseAsync_WithTheSevenColumnGoldenFixture_ShouldParseEveryRowAndKeepItsDigest()
+    {
+        // Act — the seven-column golden fixture (ADR-0047). Its digests were computed outside both
+        // implementations, so a row surviving here means the parser AND the verification agree with
+        // the contract rather than merely with themselves.
+        ParsedExport parsed = await ParseFixtureAsync("exported-sample-digested.txt");
+
+        // Assert
+        parsed.Errors.ShouldBeEmpty();
+        parsed.Rows.Count.ShouldBe(9);
+        parsed.Rows.ShouldAllBe(row => row.SourceDigest != null);
+        parsed.Rows[0].SourceDigest.ShouldBe("a37cc1683216cd32");
+        parsed.Rows[0].Content.ShouldBe("Witaj w Srodziemiu!");
+    }
+
+    [Fact]
+    public async Task ParseAsync_BothGoldenFixtures_ShouldAgreeOnEveryContentField()
+    {
+        // Act — the two fixtures are the same rows at the two widths, so the seventh column must
+        // change nothing about how the first six are read.
+        ParsedExport sixColumn = await ParseFixtureAsync("exported-sample.txt");
+        ParsedExport sevenColumn = await ParseFixtureAsync("exported-sample-digested.txt");
+
+        // Assert
+        sevenColumn.Rows.Select(row => row.Content).ShouldBe(sixColumn.Rows.Select(row => row.Content));
+        sevenColumn.Rows.Select(row => row.ArgsOrder).ShouldBe(sixColumn.Rows.Select(row => row.ArgsOrder));
+        sevenColumn.Rows.Select(row => row.ArgsId).ShouldBe(sixColumn.Rows.Select(row => row.ArgsId));
+        sevenColumn.Rows.Select(row => row.Approved).ShouldBe(sixColumn.Rows.Select(row => row.Approved));
+        sixColumn.Rows.ShouldAllBe(row => row.SourceDigest == null);
+    }
+
+    [Fact]
+    public async Task ParseAsync_SixColumnUpload_ShouldStillImportWithoutADigest()
+    {
+        // Act — an older export or a hand-made file. A missing digest is "no parity check for this
+        // row" on the import side; refusing it would break every existing exported.txt.
+        ParsedExport parsed = await ParseAsync("620756992||1001||Witaj w Srodziemiu!||NULL||NULL||1\r\n");
+
+        // Assert
+        parsed.Errors.ShouldBeEmpty();
+        parsed.Rows.ShouldHaveSingleItem().SourceDigest.ShouldBeNull();
+    }
+
+    [Theory]
+    [InlineData("620756992||1001||Witaj w Srodziemiu!||NULL||NULL||1||0000000000000000")]
+    [InlineData("620756992||1001||Witaj w Srodziemiu!||NULL||NULL||1||eacc6a53f9a2ae91")]
+    [InlineData("620756992||1002||Tekst z <--DO_NOT_TOUCH!--> argumentem||1||1||1||a37cc1683216cd32")]
+    public async Task ParseAsync_SevenColumnUploadWhoseDigestDoesNotMatchTheRow_ShouldRejectThatRow(string line)
+    {
+        // Act — a wrong-file upload, or a drift between the two contexts' digest implementations.
+        // It has to fail HERE, loudly, instead of shipping an artifact whose every row every
+        // player's patcher would then refuse as "source moved" (ADR-0047 §2).
+        ParsedExport parsed = await ParseAsync($"{line}\r\n");
+
+        // Assert
+        parsed.Rows.ShouldBeEmpty();
+        parsed.Errors.ShouldHaveSingleItem().Message.ShouldContain("source_digest");
+    }
+
+    [Theory]
+    [InlineData("a37cc1683216cd32")]
+    [InlineData("A37CC1683216CD32")]
+    public async Task ParseAsync_SevenColumnUploadWithAMatchingDigest_ShouldAcceptItInEitherCase(string digest)
+    {
+        // Act — writers emit lowercase; a hand-edited file that upper-cased the column is still
+        // unambiguously the same digest, so rejecting it would be pedantry with a real cost.
+        ParsedExport parsed = await ParseAsync($"620756992||1001||Witaj w Srodziemiu!||NULL||NULL||1||{digest}\r\n");
+
+        // Assert
+        parsed.Errors.ShouldBeEmpty();
+        parsed.Rows.ShouldHaveSingleItem().SourceDigest.ShouldBe(digest);
+    }
+
+    [Fact]
+    public async Task ParseAsync_SevenColumnRowWhoseArgsColumnsAreBlankRatherThanNull_ShouldStillVerify()
+    {
+        // Act — the verification hashes the row the way the CATALOG will store it, so blank and
+        // NULL must both normalize to an absent column. Hashing the literal would reject a row the
+        // import then stores under a different triple.
+        ParsedExport parsed = await ParseAsync("620756992||1001||Witaj w Srodziemiu!||||||1||a37cc1683216cd32\r\n");
+
+        // Assert
+        parsed.Errors.ShouldBeEmpty();
+        parsed.Rows.ShouldHaveSingleItem().SourceDigest.ShouldBe("a37cc1683216cd32");
+    }
 }

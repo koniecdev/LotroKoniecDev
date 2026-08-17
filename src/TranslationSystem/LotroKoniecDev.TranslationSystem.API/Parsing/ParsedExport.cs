@@ -7,6 +7,9 @@ namespace LotroKoniecDev.TranslationSystem.API.Parsing;
 /// serializer re-applies it on the way out, so the escape never reaches the catalog.
 /// <see cref="Approved"/> is retained for format symmetry but the import ignores it: the export's
 /// column is a constant and TMS approval state is owned by the editor loop, not the file.
+/// <see cref="SourceDigest"/> is the seventh column when the upload carries one (ADR-0047) — already
+/// verified against the parsed triple by the parser, so it is informational here; it is
+/// <see langword="null"/> for a six-column upload, which stays perfectly importable.
 /// </remarks>
 public sealed record ParsedExportRow(
     int FileId,
@@ -14,7 +17,8 @@ public sealed record ParsedExportRow(
     string Content,
     string ArgsOrder,
     string ArgsId,
-    bool Approved);
+    bool Approved,
+    string? SourceDigest = null);
 
 /// <summary>A line that failed to parse, with its 1-based line number for the rejection message.</summary>
 public sealed record ExportParseError(int LineNumber, string Message);

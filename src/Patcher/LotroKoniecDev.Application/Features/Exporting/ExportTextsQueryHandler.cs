@@ -91,7 +91,8 @@ internal sealed class ExportTextsQueryHandler : IQueryHandler<ExportTextsQuery, 
                             argsId = argsOrder; // Default: same order
                         }
 
-                        await writer.WriteLineAsync(FormatRow(fileId, fragmentId, text, argsOrder, argsId));
+                        await writer.WriteLineAsync(
+                            FormatRow(fileId, fragmentId, text, argsOrder, argsId, fragment.ArgRefs.Count));
 
                         fragmentCount++;
                     }
@@ -131,19 +132,29 @@ internal sealed class ExportTextsQueryHandler : IQueryHandler<ExportTextsQuery, 
     /// test can hold: the handler streams straight to disk, and a unit suite must not assert on real
     /// file output.
     /// </summary>
-    internal static string FormatRow(int fileId, ulong fragmentId, string text, string argsOrder, string argsId)
-        => $"{fileId}||{fragmentId}||{TranslationLineEscaper.Escape(text)}||{argsOrder}||{argsId}||1";
+    /// <remarks>
+    /// The trailing <c>source_digest</c> (ADR-0047 §2) is the digest of the very triple this row
+    /// carries, so a translator who edits <c>exported.txt</c> by hand still ends up with a patchable
+    /// file, and the TMS import can verify the column against its own <c>SourceHash</c> and fail
+    /// loudly on drift instead of quietly shipping a digest players' patchers reject. Composed
+    /// through the same <see cref="SourceDigest"/> the write guard uses, so export and guard cannot
+    /// disagree about what the fragment's export form is.
+    /// </remarks>
+    internal static string FormatRow(int fileId, ulong fragmentId, string text, string argsOrder, string argsId, int argumentCount)
+        => $"{fileId}||{fragmentId}||{TranslationLineEscaper.Escape(text)}||{argsOrder}||{argsId}||1||{SourceDigest.ForExportForm(text, argumentCount)}";
 
     private static async Task WriteHeaderAsync(StreamWriter writer)
     {
         await writer.WriteLineAsync("# LOTRO Text Export - Ready for Translation");
-        await writer.WriteLineAsync("# Format: file_id||gossip_id||text||args_order||args_id||approved");
+        await writer.WriteLineAsync("# Format: file_id||gossip_id||text||args_order||args_id||approved||source_digest");
         await writer.WriteLineAsync("#");
         await writer.WriteLineAsync("# Translation instructions:");
         await writer.WriteLineAsync("#   1. Replace English text with Polish translation");
         await writer.WriteLineAsync("#   2. DO NOT modify <--DO_NOT_TOUCH!--> markers - they are variable placeholders");
         await writer.WriteLineAsync("#   3. args_order/args_id - leave as NULL unless changing argument order");
         await writer.WriteLineAsync("#   4. Remove lines you don't translate (or leave them - identical lines are ignored)");
+        await writer.WriteLineAsync("#   5. DO NOT touch source_digest - it identifies the English this row was translated");
+        await writer.WriteLineAsync("#      from. A row without it is never written into the DAT (ADR-0047)");
         await writer.WriteLineAsync("#");
     }
 }

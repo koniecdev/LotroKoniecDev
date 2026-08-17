@@ -11,15 +11,17 @@ namespace LotroKoniecDev.TranslationSystem.API.Tests.Unit.Tests.Parsing;
 /// </summary>
 public sealed class TranslationFileSerializerParityTests
 {
+    private const string Digest = "3f9a1c0e7b2d4a55";
+
     [Fact]
     public void SerializedRows_ShouldParseBackThroughThePatcherWithIdenticalFields()
     {
         // Arrange — includes a row whose content contains the || separator and args columns.
         ArtifactRow[] rows =
         [
-            new(620756992, 1001, "Witaj w Srodziemiu!", null, null),
-            new(620756992, 1004, "Multi||arg||content", "1-2", "1-2"),
-            new(620756992, 1005, "Trailing approved", null, null),
+            new(620756992, 1001, "Witaj w Srodziemiu!", null, null, "3f9a1c0e7b2d4a55"),
+            new(620756992, 1004, "Multi||arg||content", "1-2", "1-2", "9c02e4d1a7f0b366"),
+            new(620756992, 1005, "Trailing approved", null, null, "00112233445566ff"),
         ];
 
         // Act
@@ -37,6 +39,9 @@ public sealed class TranslationFileSerializerParityTests
             ((long)parsed.GossipId).ShouldBe(rows[i].GossipId);
             parsed.Content.ShouldBe(rows[i].Content);
             parsed.IsApproved.ShouldBeTrue();
+            // The seventh column is what makes the artifact patchable at all (ADR-0047) — it has to
+            // survive the writer/reader pair intact, including on the row whose content holds "||".
+            parsed.SourceDigest.ShouldBe(rows[i].SourceDigest);
         }
     }
 
@@ -53,7 +58,7 @@ public sealed class TranslationFileSerializerParityTests
         // Arrange — the end-to-end statement of ADR-0039: the TMS stores raw text, escapes it on the
         // way out, and the patcher unfolds it on the way into the DAT. This is #596's acceptance
         // criterion expressed across both contexts.
-        string serialized = new TranslationFileSerializer().Serialize([new ArtifactRow(1, 2, content, null, null)]);
+        string serialized = new TranslationFileSerializer().Serialize([new ArtifactRow(1, 2, content, null, null, Digest)]);
 
         // Act — the escape guarantees exactly one line, so trimming the terminator is safe.
         string[] lines = serialized.Split("\r\n", StringSplitOptions.RemoveEmptyEntries);

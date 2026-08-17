@@ -198,19 +198,26 @@ revert, copy it back over `client_local_English.dat`.
 Each line is one translation; `#` starts a comment:
 
 ```
-file_id||gossip_id||translated_text||args_order||args_id||approved
+file_id||gossip_id||translated_text||args_order||args_id||approved||source_digest
 ```
 
 ```
 # Simple text:
-620756992||1001||Witaj w Śródziemiu!||NULL||NULL||1
+620756992||1001||Witaj w Śródziemiu!||NULL||NULL||1||3f9a1c0e7b2d4a55
 
 # Text with a dynamic argument (e.g. a player name):
-620756992||1002||Witaj, <--DO_NOT_TOUCH!-->!||1||1||1
+620756992||1002||Witaj, <--DO_NOT_TOUCH!-->!||1||1||1||9c02e4d1a7f0b366
 
 # Reordered arguments ("Level {0}: {1}" → "Poziom {1}: {0}"):
-620756992||1004||Poziom <--DO_NOT_TOUCH!-->: <--DO_NOT_TOUCH!-->||2-1||1-2||1
+620756992||1004||Poziom <--DO_NOT_TOUCH!-->: <--DO_NOT_TOUCH!-->||2-1||1-2||1||1a2b3c4d5e6f7081
 ```
+
+`source_digest` (ADR-0047) identifies the **English** the row was translated from — 16 hex
+characters of a hash over that text and its argument columns. The patcher writes a row only when
+the DAT still holds that English (or what the patcher itself last wrote there), so a translation
+made for the previous game version never lands on top of a reworded one: the player sees English
+instead. A row without the column is parsed, reported and **not** written. Readers on both sides
+still accept the older six-column form; the writers always emit seven.
 
 `<--DO_NOT_TOUCH!-->` marks a game-supplied argument and must be kept verbatim; `args_order`
 reorders arguments (`NULL` or e.g. `2-1`); `approved` is `1` when the line is approved. Changing this

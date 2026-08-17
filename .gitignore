@@ -572,3 +572,10 @@ override.tf.json
 terraform.rc
 # Claude backlog-loop artifacts (headless run logs + per-ticket JSON transcripts)
 /logs/
+
+# Patcher sidecars written next to a translation file at runtime (never content of the repo):
+# the TMS sync's `.etag` + `.endpoint` (TranslationFileCache) and the ADR-0047 write ledger.
+translations/*.etag
+translations/*.endpoint
+translations/*.ledger
+translations/*.ledger.tmp

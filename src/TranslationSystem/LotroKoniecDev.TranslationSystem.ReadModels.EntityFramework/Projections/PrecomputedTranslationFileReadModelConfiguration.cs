@@ -8,14 +8,14 @@ public sealed class PrecomputedTranslationFileReadModelConfiguration : IEntityTy
 {
     public void Configure(EntityTypeBuilder<PrecomputedTranslationFileReadModel> builder)
     {
-        // Physical table name retained from the original aggregate (ADR-0007): the rename is a
-        // code-model change only, so no migration is needed.
+        // The table keeps the name the original aggregate had (ADR-0007). Only the class was renamed,
+        // so no migration is needed.
         builder.ToTable("TranslationArtifacts");
 
         builder.Property(precomputedTranslationFile => precomputedTranslationFile.Id)
             .ValueGeneratedNever();
 
-        // CreatedAt is computed from GeneratedAt on the read model — there is no such column.
+        // The read model computes CreatedAt from GeneratedAt. There is no such column in the table.
         builder.Ignore(precomputedTranslationFile => precomputedTranslationFile.CreatedAt);
     }
 }

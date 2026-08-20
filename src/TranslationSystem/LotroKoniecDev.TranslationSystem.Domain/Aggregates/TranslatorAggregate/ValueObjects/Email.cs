@@ -6,9 +6,9 @@ using LotroKoniecDev.TranslationSystem.Domain.Core.Errors;
 namespace LotroKoniecDev.TranslationSystem.Domain.Aggregates.TranslatorAggregate.ValueObjects;
 
 /// <summary>
-/// A translator's email, sourced from the authenticated <c>email</c> claim. Optional on the
-/// <see cref="Entities.Translator"/> (the claim may be absent), so callers create it only when a
-/// value is present; the constrained-string format check mirrors KittySaver's <c>Email</c> VO.
+/// A translator's email, taken from the authenticated <c>email</c> claim. The claim can be missing,
+/// so <see cref="Entities.Translator"/> keeps it optional and callers build this type only when there
+/// is a value. The format check mirrors KittySaver's <c>Email</c> value object.
 /// </summary>
 public sealed partial class Email : ValueObject
 {

@@ -17,8 +17,9 @@ using Microsoft.Extensions.DependencyInjection;
 namespace LotroKoniecDev.TranslationSystem.API.Tests.Integration.Tests.Progress;
 
 /// <summary>
-/// The public landing-page progress endpoint (#309). Every test calls it with a token-less client —
-/// anonymous access IS the contract: the landing page renders these counters before any login exists.
+/// The public progress endpoint the landing page uses (#309). Every test calls it without a token,
+/// because being open to anyone is the point: the landing page shows these counters before anybody logs
+/// in.
 /// </summary>
 [Collection("TranslationApi")]
 public sealed class GetPublicProgressTests : IAsyncLifetime
@@ -70,14 +71,14 @@ public sealed class GetPublicProgressTests : IAsyncLifetime
         progress.Total.ShouldBe(0);
         progress.Translated.ShouldBe(0);
         progress.Approved.ShouldBe(0);
-        // The seeded base version is Unprocessed — nothing has been imported for it yet.
+        // The seeded base version is still Unprocessed, because nothing has been imported for it yet.
         progress.CurrentGameVersion.ShouldBeNull();
     }
 
     [Fact]
     public async Task Progress_WithMixedStatuses_ShouldBucketEachCounter()
     {
-        // Arrange — one untranslated, two drafts, three approved, one invalidated (NeedsReview).
+        // Arrange: one untranslated, two drafts, three approved, one invalidated (NeedsReview).
         await SeedAsync(
             Row(1, "a"),
             Row(2, "b", TranslationStatus.Draft),
@@ -118,7 +119,7 @@ public sealed class GetPublicProgressTests : IAsyncLifetime
     [Fact]
     public async Task Progress_WithProcessedVersions_ShouldReturnTheNewestProcessedOne()
     {
-        // Arrange — an older and a newer processed version plus a newest merely-detected one: the
+        // Arrange: an older and a newer processed version plus a newest merely-detected one: the
         // catalog is current for the newest PROCESSED version, not the newest known version.
         await SeedVersionAsync("47.2", Now.AddDays(-30), processed: true);
         await SeedVersionAsync("48.1", Now.AddDays(-1), processed: true);
@@ -134,7 +135,7 @@ public sealed class GetPublicProgressTests : IAsyncLifetime
     [Fact]
     public async Task Progress_WithOnlyUnprocessedVersions_ShouldReturnNullVersion()
     {
-        // Arrange — the InitializeAsync base version is already Unprocessed; add another one.
+        // Arrange: the InitializeAsync base version is already Unprocessed; add another one.
         await SeedVersionAsync("48.3", Now, processed: false);
 
         // Act
@@ -147,7 +148,7 @@ public sealed class GetPublicProgressTests : IAsyncLifetime
     [Fact]
     public async Task Progress_RepeatedWithinTtl_ShouldNotRerunTheCounterQueries()
     {
-        // Arrange — the first call populates the server-side cache (AUDIT-EF-04/#354).
+        // Arrange: the first call populates the server-side cache (AUDIT-EF-04/#354).
         await SeedAsync(Row(1, "a", TranslationStatus.Approved), Row(2, "b"));
         PublicProgressResponse first = await ProgressAsync();
         _factory.ReadContextSqlRecorder.Clear();
@@ -155,8 +156,8 @@ public sealed class GetPublicProgressTests : IAsyncLifetime
         // Act
         PublicProgressResponse second = await ProgressAsync();
 
-        // Assert — served entirely from the cache: identical payload and zero read-context SQL
-        // (the recorded command stream is the only seam that can prove "no second query").
+        // Assert: served entirely from the cache: identical payload and zero read-context SQL
+        // (the recorded command stream is the only place that can prove "no second query").
         second.ShouldBe(first);
         _factory.ReadContextSqlRecorder.Commands.ShouldBeEmpty();
     }

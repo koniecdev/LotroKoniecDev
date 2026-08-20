@@ -13,9 +13,9 @@ public sealed class Program
 {
     private static async Task<int> Main(string[] args)
     {
-        // The file sink stays at Debug on purpose: it is the diagnostic trail users attach to bug
-        // reports (full paths included — the log never leaves the local machine unless shared).
-        // The console stays at Information so CLI output remains readable (AUDIT-SEC-07 / #397).
+        // The file sink stays at Debug on purpose: it is the trail users attach to a bug report, full
+        // paths included, and the log never leaves their machine unless they send it. The console
+        // stays at Information so the CLI output stays readable (AUDIT-SEC-07, #397).
         string logFilePath = Path.Combine(GlobalSettings.DataDir, "patcher.log");
         Log.Logger = new LoggerConfiguration()
             .MinimumLevel.Debug()
@@ -58,8 +58,8 @@ public sealed class Program
 
         int result = await app.RunAsync(args, cancellationTokenSource.Token);
 
-        // Spectre.Console.Cli returns -1 for parse errors (unknown command, missing args).
-        // Map to our InvalidArguments exit code for consistent contract.
+        // Spectre.Console.Cli returns -1 when it cannot parse the command line, for example on an
+        // unknown command or a missing argument. Map that to our own InvalidArguments exit code.
         return result < 0 ? ExitCodes.InvalidArguments : result;
     }
 }

@@ -4,10 +4,10 @@ using LotroKoniecDev.SharedKernel.Authorization;
 namespace LotroKoniecDev.TranslationSystem.API.Tests.Integration.Tests.ContentNegotiation;
 
 /// <summary>
-/// The HATEOAS-bearing list/detail endpoints negotiate a single payload between plain JSON and the
-/// vendor representation. The existing aggregate HATEOAS suites assert the link sets; this pins the
-/// negotiation contract the cache layer depends on — the served media type follows the <c>Accept</c>
-/// header, and <c>Vary: Accept</c> is emitted for <em>both</em> representations (RFC 9110 §12.5.5).
+/// The list and detail endpoints that can carry links serve one payload in two forms: plain JSON or our
+/// vendor type. The other HATEOAS suites check the link sets; this one pins what caches depend on: the
+/// media type served follows the <c>Accept</c> header, and <c>Vary: Accept</c> is sent for both forms
+/// (RFC 9110 §12.5.5).
 /// </summary>
 [Collection("TranslationApi")]
 public sealed class ContentNegotiationTests

@@ -6,38 +6,32 @@ using LotroKoniecDev.Hateoas.Abstractions;
 namespace LotroKoniecDev.Hateoas.ContentNegotiation;
 
 /// <summary>
-/// RFC 7231 / RFC 9110 compliant Accept-header parser that selects between
-/// the plain JSON representation and the HATEOAS vendor representation based
-/// on client-declared media-type quality factors.
+/// Reads the Accept header (RFC 7231 / RFC 9110) and picks between plain JSON and our link-carrying
+/// JSON, using the quality values the client sent.
 ///
-/// <para>Decision rules:</para>
+/// <para>Rules:</para>
 /// <list type="bullet">
-///   <item>No Accept header or empty header -> plain JSON (no HATEOAS).</item>
-///   <item>Wildcards (<c>*/*</c>, <c>application/*</c>) -> plain JSON (HATEOAS is strictly opt-in).</item>
-///   <item>HATEOAS vendor type explicitly listed with quality &gt;= JSON quality -> HATEOAS.</item>
-///   <item>Otherwise -> plain JSON.</item>
+///   <item>No Accept header, or an empty one: plain JSON.</item>
+///   <item>A wildcard (<c>*/*</c>, <c>application/*</c>): plain JSON, because links are opt-in.</item>
+///   <item>Our vendor type listed with a quality at least as high as JSON: links.</item>
+///   <item>Anything else: plain JSON.</item>
 /// </list>
 ///
 /// <para>
-/// Ties between the two specific media types favour the vendor type because
-/// the client has explicitly requested it — silently dropping requested
-/// hypermedia would violate the principle of least astonishment.
+/// On a tie the vendor type wins, because the client asked for it by name and dropping the links
+/// without saying so would surprise them.
 /// </para>
 ///
 /// <para>
-/// This is a pure function over the request's Accept header, so it is exposed
-/// as a static class: there is no state, no dependencies, and no meaningful
-/// way to substitute it (integration tests exercise the real implementation).
-/// Keeping it static avoids a one-implementation interface resolved from DI
-/// just to be located inside <see cref="HateoasNegotiatedResult{T}"/>.
+/// This is a pure function over the Accept header, so it is a static class: no state, no
+/// dependencies, and nothing worth substituting in a test. An interface with one implementation would
+/// only exist so <see cref="HateoasNegotiatedResult{T}"/> could pull it out of DI.
 /// </para>
 ///
 /// <para>
-/// Note: when a client sends an Accept header that matches neither media
-/// type (e.g. <c>text/html</c>), RFC 9110 §15.5.7 allows returning
-/// <c>406 Not Acceptable</c>. We intentionally fall back to plain JSON
-/// instead — the pragmatic REST convention — because the API has no other
-/// representations to offer.
+/// When the Accept header matches neither type (say <c>text/html</c>), RFC 9110 §15.5.7 allows a
+/// <c>406 Not Acceptable</c>. We return plain JSON instead, as most REST APIs do, because we have no
+/// other representation to offer.
 /// </para>
 /// </summary>
 internal static class HateoasContentNegotiator
@@ -79,13 +73,13 @@ internal static class HateoasContentNegotiator
             }
         }
 
-        // HATEOAS vendor type was not listed (or was rejected via q=0).
+        // The vendor type was not listed, or was refused with q=0.
         if (hateoasQuality <= 0)
         {
             return false;
         }
 
-        // HATEOAS wins on ties (more specific, explicitly requested).
+        // On a tie the vendor type wins: it is more specific and the client named it.
         return hateoasQuality >= jsonQuality;
     }
 }

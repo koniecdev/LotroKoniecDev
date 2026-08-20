@@ -20,7 +20,7 @@ public sealed class HealthEndpointsTests
         HttpResponseMessage response = await client.GetAsync("/health");
         string body = await response.Content.ReadAsStringAsync();
 
-        // Assert — Testing points SMTP and the broker at dead ports, so the full report is
+        // Assert: Testing points SMTP and the broker at dead ports, so the full report is
         // Unhealthy (503) by design; what this test pins is that the db + smtp + broker checks
         // stay reachable on demand here.
         response.StatusCode.ShouldBe(HttpStatusCode.ServiceUnavailable);
@@ -52,7 +52,7 @@ public sealed class HealthEndpointsTests
         HttpResponseMessage response = await client.GetAsync("/health/ready");
         string body = await response.Content.ReadAsStringAsync();
 
-        // Assert — ACA probes this path every few seconds; it must never touch Postgres (ADR-0025)
+        // Assert: ACA probes this path every few seconds; it must never touch Postgres (ADR-0025)
         // nor the broker (a broker outage must not pull auth out of the ingress rotation).
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
         body.ShouldContain("\"status\": \"Healthy\"");

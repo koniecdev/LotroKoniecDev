@@ -7,20 +7,20 @@ using LotroKoniecDev.SharedKernel.Monads;
 namespace LotroKoniecDev.AuthSystem.API.Services.Emails;
 
 /// <summary>
-/// The delivery-level wrapper around the per-type <see cref="IEmailMessageProcessor"/>: consults
-/// the inbox before doing any work and records the message id after success (ADR-0037). Both real
-/// delivery paths — <see cref="BackgroundServices.EmailDispatchConsumer"/> and the integration
-/// suite's broker-less bridge — resolve this one component, so the dedup logic cannot drift
-/// between them. Type-agnostic on purpose: the inbox stays one undiscriminated table (ADR-0037
-/// §5 — message ids are outbox row ids, unique across types).
+/// The wrapper around the per-type <see cref="IEmailMessageProcessor"/>. It checks the inbox before
+/// doing any work and writes the message id there after success (ADR-0037).
+/// Both delivery paths, <see cref="BackgroundServices.EmailDispatchConsumer"/> and the integration
+/// tests' bridge that runs without a broker, use this one component, so the duplicate check cannot
+/// differ between them. It knows nothing about message types on purpose: the inbox is one table with
+/// no type column (ADR-0037 §5), because message ids are outbox row ids and are unique across types.
 /// </summary>
 /// <remarks>
-/// Returns the same ack-decision contract as the processor: success means "ack, drop it from the
-/// queue" (processed now, or already processed before), failure means "worth redelivering". The
-/// inbox row lands AFTER the send on purpose — recording first would trade duplicate-e-mail risk
-/// for lost-e-mail risk (ADR-0037 Decision 2). Database faults deliberately escape as exceptions:
-/// the consumer's existing transient path rejects the delivery and the broker's delivery limit
-/// bounds the loop (ADR-0037 Decision 4).
+/// It returns the same answer as the processor: success means "acknowledge it and drop it from the
+/// queue", whether it was processed now or earlier, and failure means "worth sending again".
+/// The inbox row is written after the send on purpose. Writing it first would trade the risk of a
+/// duplicate e-mail for the risk of losing one (ADR-0037 Decision 2).
+/// Database faults are allowed to escape as exceptions: the consumer's normal retry path rejects the
+/// delivery and the broker's delivery limit ends the loop (ADR-0037 Decision 4).
 /// </remarks>
 internal sealed partial class EmailDeliveryProcessor
 {
@@ -66,8 +66,8 @@ internal sealed partial class EmailDeliveryProcessor
         }
         catch (DbUpdateException ex) when (IsPrimaryKeyViolation(ex))
         {
-            // A concurrent duplicate won the insert race, which means the work is done — same
-            // ack decision as a pre-check hit.
+            // Another delivery of the same message inserted the row first, which means the work is
+            // already done. The answer is the same as when the check at the start finds it.
             LogInboxRaceLost(_logger, messageId);
         }
 

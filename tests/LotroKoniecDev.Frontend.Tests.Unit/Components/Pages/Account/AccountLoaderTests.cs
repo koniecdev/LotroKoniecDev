@@ -16,17 +16,17 @@ using AuthDiscoveryResponse = LotroKoniecDev.AuthSystem.Contracts.Discovery.Disc
 namespace LotroKoniecDev.Frontend.Tests.Unit.Components.Pages.Account;
 
 /// <summary>
-/// Drives the account loader seam end-to-end over a stubbed HTTP handler: discovery resolves the
-/// <c>export-account-data</c> link, the export GET follows the advertised href, and the write
-/// operations (schedule deletion / change password) post the exact request contracts to the hrefs the
-/// envelope advertised — nothing is hardcoded from role claims.
+/// Drives the account loader end to end over a stubbed HTTP handler: discovery finds the
+/// <c>export-account-data</c> link, the export GET follows the href it was given, and the writes,
+/// scheduling a deletion and changing the password, post the exact request bodies to the hrefs the
+/// response offered. Nothing is decided here from role claims.
 /// </summary>
 public sealed class AccountLoaderTests
 {
     private const string BaseUrl = "https://localhost:5003/";
     private const string ExportHref = "auth/account/data-export";
 
-    // Mirrors the JSON options the Frontend's HTTP seam uses (HttpClientApiExtensions) so the stub
+    // The same JSON options the Frontend's HTTP layer uses (HttpClientApiExtensions), so the stub
     // body deserializes through the exact same contract the loader relies on.
     private static readonly JsonSerializerOptions ApiJsonOptions = new(JsonSerializerDefaults.Web)
     {

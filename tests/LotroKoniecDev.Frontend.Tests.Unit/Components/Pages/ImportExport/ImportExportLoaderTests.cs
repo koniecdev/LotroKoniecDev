@@ -23,8 +23,8 @@ public sealed class ImportExportLoaderTests
     private const string BaseUrl = "https://localhost:5002/";
 
     /// <summary>
-    /// The per-version <c>import</c> href the API advertises. It looks nothing like the real route on
-    /// purpose: a passing assertion proves the loader followed the advertised link (#610).
+    /// The per-version <c>import</c> href the API sends. It looks nothing like the real route on purpose,
+    /// so a passing assertion proves the loader followed the link it was given (#610).
     /// </summary>
     private const string AdvertisedImportHref = "/advertised/import-into/42";
 
@@ -32,7 +32,7 @@ public sealed class ImportExportLoaderTests
     private static readonly string ResolvedGameVersionsUri =
         BaseUrl.TrimEnd('/') + StubDiscoveryCache.HrefFor(Rels.GameVersions);
 
-    // Mirrors the JSON options the Frontend's HTTP seam uses (HttpClientApiExtensions) so the stub
+    // The same JSON options the Frontend's HTTP layer uses (HttpClientApiExtensions), so the stub
     // body deserializes through the exact same contract the loader relies on.
     private static readonly JsonSerializerOptions ApiJsonOptions = new(JsonSerializerDefaults.Web)
     {
@@ -76,8 +76,9 @@ public sealed class ImportExportLoaderTests
     [Fact]
     public async Task ListGameVersionsAsync_PreservesTheCollectionLinksSoTheRegisterRelCanGateImport()
     {
-        // The collection's admin-only `register` rel must survive deserialization — the import/export
-        // page gates the import panel on its presence (#158) rather than recomputing the role locally.
+        // The collection's admin-only `register` rel has to survive deserialization, because the
+        // import/export page shows the import panel only when it is there (#158) instead of checking the
+        // role itself.
         CollectionResponse<GameVersionResponse> collection = new()
         {
             Items = [VersionFixture()],

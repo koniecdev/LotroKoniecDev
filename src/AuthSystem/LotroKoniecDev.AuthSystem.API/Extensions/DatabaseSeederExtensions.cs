@@ -23,9 +23,9 @@ internal static class DatabaseSeederExtensions
         ILogger logger = services.GetRequiredService<ILoggerFactory>()
             .CreateLogger(typeof(DatabaseSeederExtensions));
 
-        // The whole seed is idempotent, so replaying it after a transient failure is safe. Each
-        // attempt gets a fresh scope (and thus a fresh AuthDbContext) — a context that failed
-        // mid-migration must not be reused.
+        // The whole seed can be run twice without harm, so retrying after a temporary failure is
+        // safe. Each attempt gets a new scope, and with it a new AuthDbContext, because a context that
+        // failed during a migration must not be reused.
         await ColdStartRetry.ExecuteAsync(
             async () =>
             {
@@ -64,8 +64,8 @@ internal static class DatabaseSeederExtensions
     {
         IConfiguration configuration = serviceProvider.GetRequiredService<IConfiguration>();
 
-        // Credentials come from configuration ("AdminUser" section: env vars in production,
-        // appsettings.Development.json locally). No credentials configured = no admin seeded.
+        // The credentials come from the "AdminUser" configuration section: environment variables in
+        // production, appsettings.Development.json locally. With no credentials, no admin is created.
         string? email = configuration["AdminUser:Email"];
         string? password = configuration["AdminUser:Password"];
         string username = configuration["AdminUser:Username"] ?? "admin";
@@ -82,8 +82,8 @@ internal static class DatabaseSeederExtensions
             return;
         }
 
-        // A taken username must not crash every subsequent startup — skip and leave
-        // resolution (freeing the username or reconfiguring AdminUser) to the operator.
+        // A username that is already taken must not break every later startup. We skip it and leave it
+        // to the operator to free the username or change AdminUser.
         if (await userManager.FindByNameAsync(username) is not null)
         {
             return;
@@ -156,14 +156,14 @@ internal static class DatabaseSeederExtensions
                 }
             };
 
-            // Only add localhost URIs in development/testing
+            // Add the localhost URIs only in development and testing.
             if (!isProduction)
             {
                 webClient.RedirectUris.Add(new Uri(settings.WebClient.RedirectUris[0]));
                 webClient.PostLogoutRedirectUris.Add(new Uri(settings.WebClient.PostLogoutRedirectUris[0]));
             }
 
-            // Production URIs from configuration
+            // The production URIs come from configuration.
             foreach (string redirectUri in settings.WebClient.RedirectUris)
             {
                 webClient.RedirectUris.Add(new Uri(redirectUri));
@@ -177,7 +177,7 @@ internal static class DatabaseSeederExtensions
             await applicationManager.CreateAsync(webClient);
         }
 
-        // API Client (for service-to-service communication)
+        // The API client, used for calls between services.
         if (await applicationManager.FindByClientIdAsync(AuthConstants.ClientIds.Api) is null)
         {
             await applicationManager.CreateAsync(new OpenIddictApplicationDescriptor
@@ -197,8 +197,8 @@ internal static class DatabaseSeederExtensions
             });
         }
 
-        // Test Client (for integration/E2E tests only) - uses password flow
-        // This client is only seeded in Testing environment.
+        // The test client, used by integration and E2E tests only. It uses the password flow and is
+        // created only in the Testing environment.
         if (environment.IsEnvironment("Testing"))
         {
             const string testClientId = "lotrokoniecdev-test";

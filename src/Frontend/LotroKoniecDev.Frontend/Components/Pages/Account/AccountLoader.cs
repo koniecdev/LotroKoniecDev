@@ -13,12 +13,12 @@ using AuthDiscoveryResponse = LotroKoniecDev.AuthSystem.Contracts.Discovery.Disc
 namespace LotroKoniecDev.Frontend.Components.Pages.Account;
 
 /// <summary>
-/// Drives the account pages' auth-API calls through the typed client (LEGAL-02): resolve the
-/// <c>export-account-data</c> link from auth discovery, fetch the GDPR export envelope (the account
-/// resource — its <c>Links</c> gate every further action), and follow the envelope's
-/// <c>delete-account</c> / <c>change-password</c> rels. Kept as a thin injectable seam so the pages'
-/// data flow is unit-testable over a substituted client and so bUnit render tests can drive the
-/// pages through a substituted loader.
+/// Makes the account pages' calls to the auth API through the typed client (LEGAL-02). It finds the
+/// <c>export-account-data</c> link in auth discovery, fetches the GDPR export, which is the account
+/// resource whose <c>Links</c> decide what else the user may do, and follows that resource's
+/// <c>delete-account</c> and <c>change-password</c> links.
+/// It stays a thin injectable class, so the pages' data flow can be unit-tested against a substituted
+/// client and bUnit render tests can drive the pages through a substituted loader.
 /// </summary>
 internal sealed class AccountLoader
 {
@@ -32,10 +32,10 @@ internal sealed class AccountLoader
     }
 
     /// <summary>
-    /// Loads the account export envelope: auth discovery → <c>export-account-data</c> link → GET.
-    /// A missing link under an authenticated session means the API does not serve the account
-    /// section for this caller — surfaced as a 403 <see cref="ProblemDetails"/>, never invented
-    /// locally from role claims.
+    /// Loads the account export: auth discovery, then the <c>export-account-data</c> link, then a GET.
+    /// When that link is missing in a logged-in session, the API does not offer the account section to
+    /// this caller. That becomes a 403 <see cref="ProblemDetails"/>, and it is never decided here from
+    /// role claims.
     /// </summary>
     public async Task<ApiResult<AccountDataExportResponse>> LoadExportAsync(
         CancellationToken cancellationToken = default)
@@ -62,8 +62,9 @@ internal sealed class AccountLoader
     }
 
     /// <summary>
-    /// Schedules account deletion (two-phase, ADR-0031). The success payload travels in response
-    /// headers (<c>X-Deletion-Scheduled-At</c> / <c>X-Deletion-Finalizes-At</c>), not a body.
+    /// Schedules an account deletion, which happens in two phases (ADR-0031). On success the data comes
+    /// back in response headers, <c>X-Deletion-Scheduled-At</c> and <c>X-Deletion-Finalizes-At</c>, and
+    /// not in a body.
     /// </summary>
     public Task<ApiResult<ApiResponseHeaders>> ScheduleDeletionAsync(
         string href,

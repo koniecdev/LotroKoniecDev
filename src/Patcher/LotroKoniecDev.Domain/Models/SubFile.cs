@@ -4,8 +4,7 @@ using LotroKoniecDev.Primitives.Constants;
 namespace LotroKoniecDev.Domain.Models;
 
 /// <summary>
-/// Represents a subfile within a LOTRO DAT archive.
-/// Contains metadata and text fragments for text files.
+/// One subfile of a LOTRO DAT archive: its metadata, and its text fragments when it holds text.
 /// </summary>
 public sealed class SubFile
 {
@@ -17,26 +16,13 @@ public sealed class SubFile
     public byte Unknown2 { get; private set; }
     public Dictionary<ulong, Fragment> Fragments { get; } = new();
 
-    /// <summary>
-    /// Determines if a file ID represents a text file.
-    /// Text files have 0x25 as the high byte.
-    /// </summary>
+    /// <summary>A text file has 0x25 as the high byte of its file id.</summary>
     public static bool IsTextFile(int fileId) => fileId >> 24 == DatFileConstants.TextFileMarker;
 
-    /// <summary>
-    /// Indicates whether this subfile contains text data.
-    /// </summary>
     public bool IsText => IsTextFile(FileId);
 
-    /// <summary>
-    /// Gets the total number of fragments in this subfile.
-    /// </summary>
     public int FragmentCount => Fragments.Count;
 
-    /// <summary>
-    /// Parses a subfile from raw binary data.
-    /// </summary>
-    /// <param name="data">The raw binary data of the subfile.</param>
     public void Parse(byte[] data)
     {
         ArgumentNullException.ThrowIfNull(data);
@@ -48,7 +34,7 @@ public sealed class SubFile
 
         if (!IsTextFile(FileId))
         {
-            // Non-text file - preserve raw data without parsing
+            // Not a text file: keep the raw bytes and do not parse them.
             return;
         }
 
@@ -66,13 +52,9 @@ public sealed class SubFile
         }
     }
 
-    /// <summary>
-    /// Serializes the subfile to binary format.
-    /// </summary>
-    /// <param name="argsOrder">Optional argument order for reordering (0-indexed).</param>
-    /// <param name="argsId">Optional argument IDs for reordering.</param>
-    /// <param name="targetFragmentId">The fragment ID to apply argument reordering to.</param>
-    /// <returns>The serialized binary data.</returns>
+    /// <param name="argsOrder">The new argument order, 0-indexed. Leave null to keep the current one.</param>
+    /// <param name="argsId">The new argument ids. Leave null to keep the current ones.</param>
+    /// <param name="targetFragmentId">The fragment the reordering applies to.</param>
     public byte[] Serialize(int[]? argsOrder = null, int[]? argsId = null, ulong? targetFragmentId = null)
     {
         using MemoryStream stream = new();
@@ -97,18 +79,9 @@ public sealed class SubFile
         return stream.ToArray();
     }
 
-    /// <summary>
-    /// Tries to get a fragment by its ID.
-    /// </summary>
-    /// <param name="fragmentId">The fragment ID to find.</param>
-    /// <param name="fragment">The found fragment, or null if not found.</param>
-    /// <returns>True if the fragment was found; otherwise, false.</returns>
     public bool TryGetFragment(ulong fragmentId, out Fragment? fragment) =>
         Fragments.TryGetValue(fragmentId, out fragment);
 
-    /// <summary>
-    /// Reorders arguments in a fragment based on specified order.
-    /// </summary>
     private static void ReorderArguments(Fragment fragment, int[] argsOrder, int[] argsId)
     {
         for (int i = 0; i < argsOrder.Length && i < fragment.ArgRefs.Count; i++)

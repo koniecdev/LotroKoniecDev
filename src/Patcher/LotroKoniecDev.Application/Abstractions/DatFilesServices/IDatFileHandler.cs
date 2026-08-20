@@ -3,57 +3,27 @@ using LotroKoniecDev.Primitives.Enums;
 namespace LotroKoniecDev.Application.Abstractions.DatFilesServices;
 
 /// <summary>
-/// Provides an abstraction for DAT file operations.
+/// The port the application layer uses to read and write a LOTRO DAT file.
 /// </summary>
 public interface IDatFileHandler : IDisposable
 {
-    /// <summary>
-    /// Opens a DAT file and returns the file handle.
-    /// </summary>
-    /// <param name="datFilePath">Path to the DAT file.</param>
-    /// <param name="access">The native open mode: read-only or read-write.</param>
-    /// <returns>Result containing the file handle or an error.</returns>
+    /// <param name="access">Read-only or read-write.</param>
     Result<int> Open(string datFilePath, DatFileAccess access);
 
-    /// <summary>
-    /// Gets sizes and iterations of all subfiles in the DAT archive.
-    /// </summary>
-    /// <param name="handle">The DAT file handle.</param>
-    /// <returns>Dictionary mapping file IDs to their sizes and iterations.</returns>
+    /// <returns>Every subfile id in the archive, with its size and iteration number.</returns>
     Dictionary<int, (int Size, int Iteration)> GetAllSubfileSizes(int handle);
 
-    /// <summary>
-    /// Gets the version of a specific subfile.
-    /// </summary>
     int GetSubfileVersion(int handle, int fileId);
 
-    /// <summary>
-    /// Reads raw data from a subfile.
-    /// </summary>
-    /// <param name="handle">The DAT file handle.</param>
-    /// <param name="fileId">The subfile ID.</param>
-    /// <param name="size">The size of data to read.</param>
-    /// <returns>Result containing the raw bytes or an error.</returns>
+    /// <param name="size">How many bytes to read. Take it from <see cref="GetAllSubfileSizes"/>.</param>
     Result<byte[]> GetSubfileData(int handle, int fileId, int size);
 
-    /// <summary>
-    /// Writes raw data to a subfile.
-    /// </summary>
-    /// <param name="handle">The DAT file handle.</param>
-    /// <param name="fileId">The subfile ID.</param>
-    /// <param name="data">The data to write.</param>
-    /// <param name="version">The version number.</param>
-    /// <param name="iteration">The iteration number.</param>
-    /// <returns>Result indicating success or an error.</returns>
+    /// <param name="version">The version to give the subfile after the write.</param>
+    /// <param name="iteration">The iteration number to give the subfile after the write.</param>
     Result PutSubfileData(int handle, int fileId, byte[] data, int version, int iteration);
 
-    /// <summary>
-    /// Flushes pending changes to disk.
-    /// </summary>
+    /// <summary>Writes everything still buffered for this file to disk.</summary>
     void Flush(int handle);
 
-    /// <summary>
-    /// Closes the DAT file.
-    /// </summary>
     void Close(int handle);
 }

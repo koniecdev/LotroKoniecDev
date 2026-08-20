@@ -20,7 +20,7 @@ public sealed class GameVersionsLoaderTests
 {
     private const string BaseUrl = "https://localhost:5002/";
 
-    /// <summary>The per-row / collection hrefs the API advertises — never composed by the loader (#610).</summary>
+    /// <summary>The per-row and collection hrefs the API sends. The loader never builds one (#610).</summary>
     private const string AdvertisedRegisterHref = "/advertised/register-game-version";
 
     private const string AdvertisedDeleteHref = "/advertised/delete-game-version/42";
@@ -29,7 +29,7 @@ public sealed class GameVersionsLoaderTests
     private static readonly string ResolvedGameVersionsUri =
         BaseUrl.TrimEnd('/') + StubDiscoveryCache.HrefFor(Rels.GameVersions);
 
-    // Mirrors the JSON options the Frontend's HTTP seam uses (HttpClientApiExtensions) so the stub
+    // The same JSON options the Frontend's HTTP layer uses (HttpClientApiExtensions), so the stub
     // body deserializes through the exact same contract the loader relies on.
     private static readonly JsonSerializerOptions ApiJsonOptions = new(JsonSerializerDefaults.Web)
     {
@@ -54,8 +54,8 @@ public sealed class GameVersionsLoaderTests
     [Fact]
     public async Task ListGameVersionsAsync_PreservesTheCollectionRegisterRelSoTheFormCanBeGated()
     {
-        // The collection's admin-only `register` rel must survive deserialization — the page gates the
-        // register form on its presence (#158) rather than recomputing the role locally.
+        // The collection's admin-only `register` rel has to survive deserialization, because the page
+        // shows the register form only when it is there (#158) instead of checking the role itself.
         CollectionResponse<GameVersionResponse> collection = new()
         {
             Items = [VersionFixture()],
@@ -87,9 +87,9 @@ public sealed class GameVersionsLoaderTests
     [Fact]
     public async Task ListGameVersionsAsync_WhenTheGameVersionsRelIsNotAdvertised_FailsWithoutCallingTheApi()
     {
-        // `game-versions` is RequireTranslatorRole while /game-versions is only [Authorize], so an
-        // authenticated non-translator reaches this on a normal navigation — it must be a clear failure,
-        // never a call to a guessed path (#610).
+        // `game-versions` needs the translator role, while the /game-versions page only needs a login, so
+        // a logged-in user who is not a translator reaches this by simply navigating there. It has to be
+        // a clear failure and never a call to a guessed path (#610).
         StubHttpMessageHandler handler = StubHttpMessageHandler.RespondWith(HttpStatusCode.OK, "{}");
         GameVersionsLoader loader = new(StubDiscoveryCache.AdvertisingGet(Rels.Progress), CreateClient(handler));
 

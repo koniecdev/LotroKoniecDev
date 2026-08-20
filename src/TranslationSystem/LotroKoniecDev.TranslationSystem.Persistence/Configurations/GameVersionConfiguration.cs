@@ -25,7 +25,7 @@ internal sealed class GameVersionConfiguration : IEntityTypeConfiguration<GameVe
                 .IsUnique();
         });
 
-        // Get-only property — EF Core convention skips it without an explicit mapping.
+        // A get-only property. EF Core skips it unless it is mapped here.
         builder.Property(gameVersion => gameVersion.DetectedAt);
 
         builder.Property(gameVersion => gameVersion.Status)

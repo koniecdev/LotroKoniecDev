@@ -29,9 +29,9 @@ public sealed partial class ResendConfirmationPageTests : EndpointsTestBase
     }
 
     /// <summary>
-    /// The receiving end of the login page's unconfirmed-account link (ADR-0046). The <c>+</c> earns
-    /// the row: a link built without escaping would arrive here decoded as a space, and the prefilled
-    /// address would be a different one than the account's.
+    /// Where the login page's "account not confirmed" link leads (ADR-0046). The <c>+</c> case matters:
+    /// a link built without escaping would arrive here with a space instead, and the address in the form
+    /// would not be the account's.
     /// </summary>
     [Fact]
     public async Task ResendConfirmationPage_ShouldPrefillTheAddress_WhenItArrivesInTheQuery()
@@ -49,8 +49,8 @@ public sealed partial class ResendConfirmationPageTests : EndpointsTestBase
         string html = await response.Content.ReadAsStringAsync();
         Match input = EmailInputRegex().Match(html);
         input.Success.ShouldBeTrue("Expected the resend page to render an e-mail input.");
-        // Decoded, because Razor writes the '+' as the entity '&#x2B;' — what matters is the address
-        // the browser puts back in the field, not the encoder's spelling of it.
+        // Decoded, because Razor writes the '+' as the entity '&#x2B;'. What matters is the address the
+        // browser puts back into the field, not how the encoder spelled it.
         WebUtility.HtmlDecode(input.Value).ShouldContain($"value=\"{email}\"");
     }
 
@@ -71,7 +71,7 @@ public sealed partial class ResendConfirmationPageTests : EndpointsTestBase
     [Fact]
     public async Task ConfirmEmailPage_ShouldOfferLinkToResendConfirmation_WhenTokenIsInvalid()
     {
-        // Act — a bare ConfirmEmail GET (no email/token) renders the expired/invalid panel
+        // Act: a bare ConfirmEmail GET (no email/token) renders the expired/invalid panel
         HttpResponseMessage response = await ApiClient.Http.GetAsync(
             new Uri("/Account/ConfirmEmail", UriKind.Relative));
 
@@ -148,19 +148,19 @@ public sealed partial class ResendConfirmationPageTests : EndpointsTestBase
     [Fact]
     public async Task ResendConfirmationPage_ShouldRenderIdenticalConfirmation_ForUnknownConfirmedAndUnconfirmed()
     {
-        // Arrange — one account per confirmation state, plus a never-registered address
+        // Arrange: one account per confirmation state, plus a never-registered address
         (RegisterRequest unconfirmed, _) =
             await UserFactory.RegisterRandomUserUnconfirmedAsync(ApiClient, Faker, AccountConfirmationEmailSpy);
         (RegisterRequest confirmed, _) =
             await UserFactory.RegisterRandomUserWithRequestAsync(ApiClient, Faker, AccountConfirmationEmailSpy);
         string unknownEmail = Faker.Internet.Email();
 
-        // Act — the neutral confirmation each input produces
+        // Act: the neutral confirmation each input produces
         string unconfirmedHtml = await (await PostToResendConfirmationPageAsync(unconfirmed.Email)).Content.ReadAsStringAsync();
         string confirmedHtml = await (await PostToResendConfirmationPageAsync(confirmed.Email)).Content.ReadAsStringAsync();
         string unknownHtml = await (await PostToResendConfirmationPageAsync(unknownEmail)).Content.ReadAsStringAsync();
 
-        // Assert — anti-enumeration: the rendered confirmation must be byte-identical
+        // Assert: anti-enumeration: the rendered confirmation must be byte-identical
         unconfirmedHtml.ShouldContain(SuccessMarker);
         confirmedHtml.ShouldBe(unconfirmedHtml);
         unknownHtml.ShouldBe(unconfirmedHtml);
@@ -193,7 +193,7 @@ public sealed partial class ResendConfirmationPageTests : EndpointsTestBase
     [Fact]
     public async Task ResendConfirmationPage_ShouldShowOpaqueError_AndNotSend_WhenEmailExceedsMaxLength()
     {
-        // Arrange — one over EmailConstants.MaxLength, so the shared validator rejects it before any lookup
+        // Arrange: one over EmailConstants.MaxLength, so the shared validator rejects it before any lookup
         AccountConfirmationEmailSpy.Reset();
         string overLongEmail = new string('a', EmailConstants.MaxLength) + "@example.com";
 

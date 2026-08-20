@@ -71,8 +71,8 @@ internal static class TestDataFactory
     }
 
     /// <summary>
-    /// Creates binary SubFile data that declares <paramref name="declaredFragmentCount"/> fragments
-    /// but contains no fragment data — an impossible count used to exercise parser bounds checks.
+    /// Builds binary SubFile data that says it has <paramref name="declaredFragmentCount"/> fragments but
+    /// contains none. The count is impossible, which is what exercises the parser's bounds checks.
     /// </summary>
     internal static byte[] CreateTextSubFileDataWithImpossibleFragmentCount(int fileId, int declaredFragmentCount)
     {

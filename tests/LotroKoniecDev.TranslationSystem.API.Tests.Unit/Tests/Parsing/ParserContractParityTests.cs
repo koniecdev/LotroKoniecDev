@@ -44,19 +44,19 @@ public sealed class ParserContractParityTests
     [InlineData("620756992||1004||Multi||arg||content||1-2||1-2||1||2dcab7603ec22224")]
     [InlineData("620756992||1008||Koniec rury|||NULL||NULL||1||df0aa563e80483a5")]
     [InlineData("620756992||1009||Trzy rury|||||1-2||3-4||1||2f2d1cb2f502250a")]
-    // A digest followed by trailing whitespace stays a seven-column line on both sides — the six-
-    // column fallback would swallow "||NULL" into the content and put the digest into `approved`.
+    // A digest with trailing spaces is still a seven-column line on both sides. Reading it as six
+    // columns would swallow "||NULL" into the content and put the digest into `approved`.
     [InlineData("620756992||1001||Witaj w Srodziemiu!||NULL||NULL||1||a37cc1683216cd32 ")]
     [InlineData("620756992||1001||Witaj w Srodziemiu!||NULL||NULL||1||a37cc1683216cd32\t")]
     public async Task BothParsers_OnTheSameContractLine_ShouldAgreeOnEveryField(string line)
     {
-        // Arrange — the patcher parser is per-line; the TMS parser is per-stream.
+        // Arrange: the patcher parser is per-line; the TMS parser is per-stream.
         LotroKoniecDev.Domain.Models.Translation patcher = new TranslationFileParser().ParseLine(line).Value;
 
         ParsedExport tmsExport = await ParseAsync(line);
         ParsedExportRow tms = tmsExport.Rows.ShouldHaveSingleItem();
 
-        // Assert — the args boundary is checked by rebuilding the verbatim args string from the
+        // Assert: the args boundary is checked by rebuilding the verbatim args string from the
         // patcher's int arrays; everything else compares directly.
         patcher.FileId.ShouldBe(tms.FileId);
         ((long)patcher.GossipId).ShouldBe(tms.GossipId);
@@ -71,7 +71,7 @@ public sealed class ParserContractParityTests
     [MemberData(nameof(NaughtyStringCases.All), MemberType = typeof(NaughtyStringCases))]
     public async Task BothParsers_OnNaughtyContent_ShouldCarveTheSameContractLineIdentically(string naughty)
     {
-        // Arrange — hostile content is where two hand-written parsers of one format drift apart
+        // Arrange: hostile content is where two hand-written parsers of one format drift apart
         // first (#569). The corpus is injected RAW, so this asserts the two parsers agree on
         // whatever they make of it, not that the line round-trips; fidelity is the job of the
         // per-parser suites, which feed the corpus through the matching writer first.
@@ -99,7 +99,7 @@ public sealed class ParserContractParityTests
     [InlineData(@"nieznana \t sekwencja", @"nieznana \t sekwencja")]
     public async Task BothParsers_OnAnEscapeSequence_ShouldUnfoldItIdentically(string escapedContent, string rawContent)
     {
-        // Arrange — this used to be the ONE deliberate divergence: the patcher unfolded the escape
+        // Arrange: this used to be the ONE deliberate divergence: the patcher unfolded the escape
         // while the TMS kept the file representation. ADR-0039 made the escape a property of the
         // file rather than of one caller, so both readers now answer with the raw text. No naughty
         // string carries such a sequence, so these cases are composed by hand.
@@ -117,7 +117,7 @@ public sealed class ParserContractParityTests
     [Fact]
     public async Task BothParsers_OnTheGoldenFixture_ShouldProduceTheSameContentForEveryRow()
     {
-        // Arrange — the golden fixture IS the contract (CLAUDE.md), so it is driven through BOTH
+        // Arrange: the golden fixture IS the contract (CLAUDE.md), so it is driven through BOTH
         // parsers rather than only the TMS one. The patcher parser is per-line, so comments and
         // blank lines are filtered the way its own ParseFile does.
         string path = Path.Combine(AppContext.BaseDirectory, "TestData", "exported-sample.txt");
@@ -141,9 +141,9 @@ public sealed class ParserContractParityTests
     [MemberData(nameof(NaughtyStringCases.All), MemberType = typeof(NaughtyStringCases))]
     public void BothEscapers_OnTheSameInput_ShouldProduceIdenticalBytes(string naughty)
     {
-        // The two copies of the escape rule (ADR-0039) are duplicated by design — the contexts share
-        // the file, never code — so nothing but this test stops one of them from drifting. The twin
-        // per-context suites would both stay green through a one-sided change; this one would not.
+        // The escape rule (ADR-0039) exists twice on purpose, because the two contexts share the file
+        // and never the code, so nothing but this test stops one copy from changing on its own. Each
+        // context's own suite would stay green through a one-sided change; this one would not.
         PatcherEscaper.Escape(naughty).ShouldBe(TmsEscaper.Escape(naughty));
     }
 
@@ -151,7 +151,7 @@ public sealed class ParserContractParityTests
     [MemberData(nameof(NaughtyStringCases.DelimiterHazards), MemberType = typeof(NaughtyStringCases))]
     public void BothCarvers_OnTheSameLine_ShouldFindIdenticalFieldBoundaries(string naughty)
     {
-        // Arrange — the second duplicated-by-design rule (ADR-0042), guarded the same way the escape
+        // Arrange: the second duplicated-by-design rule (ADR-0042), guarded the same way the escape
         // is: the content is followed by a raw trailing pipe, the exact collision #597 was about.
         string line = $"620756992||1001||{naughty}|||1-2||3-4||1";
 
@@ -172,7 +172,7 @@ public sealed class ParserContractParityTests
     [MemberData(nameof(NaughtyStringCases.DelimiterHazards), MemberType = typeof(NaughtyStringCases))]
     public void BothCarvers_OnALineWithEmptyArgsColumns_ShouldFindIdenticalFieldBoundaries(string naughty)
     {
-        // Arrange — the harder half: EMPTY args columns put the separator pairs next to each other,
+        // Arrange: the harder half: EMPTY args columns put the separator pairs next to each other,
         // so a copy whose backward search let a match straddle its slice edge would take the wrong
         // pair. With NULL args that mistake is invisible, which is why it needs its own theory.
         string line = $"620756992||1001||{naughty}||||||1";
@@ -211,7 +211,7 @@ public sealed class ParserContractParityTests
     [MemberData(nameof(NaughtyStringCases.All), MemberType = typeof(NaughtyStringCases))]
     public async Task PatcherExporterEscape_ThenTmsImportParse_ShouldRecoverTheOriginal(string naughty)
     {
-        // Arrange — THE production direction: the patcher writes exported.txt, the TMS reads it.
+        // Arrange: THE production direction: the patcher writes exported.txt, the TMS reads it.
         // Every other suite covers one context's writer against its own reader, or the TMS writer
         // against the patcher reader; this is the leg that carries every real import.
         string escaped = PatcherEscaper.Escape(naughty);
@@ -233,7 +233,7 @@ public sealed class ParserContractParityTests
     [InlineData("")]
     public async Task PatcherExporterEscape_ThenTmsImportParse_OnAHandComposedHazard_ShouldRecoverTheOriginal(string raw)
     {
-        // Arrange — the naughty corpus carries no real newline, no escape sequence and no separator
+        // Arrange: the naughty corpus carries no real newline, no escape sequence and no separator
         // combined with one, so the hazards this format is weakest at are composed by hand.
         string escaped = PatcherEscaper.Escape(raw);
         string line = $"620756992||1001||{escaped}||NULL||NULL||1";
@@ -257,10 +257,10 @@ public sealed class ParserContractParityTests
         => args is null ? AbsentArgs : string.Join('-', args.Select(value => value + 1));
 
     /// <summary>
-    /// The patcher collapses every spelling of "no arguments" to a null array, while the TMS keeps
-    /// the column's file form. Comparing the raw strings would therefore make an EMPTY args column
-    /// permanently inexpressible here — and an empty column next to a trailing pipe is exactly the
-    /// boundary the backward pass slices for (ADR-0042), so the guard has to reach it.
+    /// The patcher turns every way of writing "no arguments" into a null array, while the TMS keeps the
+    /// column as it appears in the file. Comparing the raw strings would therefore make an empty args
+    /// column impossible to express here, and an empty column next to a trailing pipe is exactly the
+    /// boundary the backward pass has to find (ADR-0042), so this test must be able to reach it.
     /// </summary>
     private static string NormalizeArgs(string args)
         => string.IsNullOrWhiteSpace(args) || args.Equals(AbsentArgs, StringComparison.OrdinalIgnoreCase)
@@ -270,7 +270,7 @@ public sealed class ParserContractParityTests
     [Fact]
     public async Task BothParsers_OnTheSevenColumnGoldenFixture_ShouldProduceTheSameContentAndDigestForEveryRow()
     {
-        // Arrange — the seven-column golden fixture (ADR-0047). Driving it through BOTH parsers is
+        // Arrange: the seven-column golden fixture (ADR-0047). Driving it through BOTH parsers is
         // what makes it a contract rather than one context's test data.
         string path = Path.Combine(AppContext.BaseDirectory, "TestData", "exported-sample-digested.txt");
         string[] rowLines = (await File.ReadAllLinesAsync(path))
@@ -306,7 +306,7 @@ public sealed class ParserContractParityTests
     [MemberData(nameof(NaughtyStringCases.DelimiterHazards), MemberType = typeof(NaughtyStringCases))]
     public void BothCarvers_OnASevenColumnLine_ShouldFindIdenticalFieldBoundaries(string naughty)
     {
-        // Arrange — the third duplicated-by-design rule, guarded like the other two: the extra
+        // Arrange: the third duplicated-by-design rule, guarded like the other two: the extra
         // backward step of ADR-0047 must land in the same place in both copies, including next to
         // a raw trailing pipe.
         string line = $"620756992||1001||{naughty}|||1-2||3-4||1||a37cc1683216cd32";

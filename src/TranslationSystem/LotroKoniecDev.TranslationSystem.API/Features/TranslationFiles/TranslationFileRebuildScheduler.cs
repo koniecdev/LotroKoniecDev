@@ -3,11 +3,12 @@ using System.Threading.Channels;
 namespace LotroKoniecDev.TranslationSystem.API.Features.TranslationFiles;
 
 /// <summary>
-/// In-process dirty-signal queue between the write handlers and the rebuild worker (PERF-04,
-/// ADR-0021). A singleton wrapping an unbounded channel: <see cref="Schedule"/> never blocks and
-/// never throws on a full queue, so the hot path pays only an enqueue. In-process is a deliberate
-/// single-replica assumption — with multiple API replicas each process would rebuild on its own
-/// writes only, missing the others' (see ADR-0021 for the scale-out trigger).
+/// The queue of "needs rebuilding" signals between the write handlers and the rebuild worker (PERF-04,
+/// ADR-0021). It is a singleton around a channel with no size limit, so <see cref="Schedule"/> never
+/// blocks and never fails on a full queue, and the write path only pays for adding an item.
+/// Keeping it inside the process assumes a single API instance on purpose. With several instances each
+/// process would only rebuild after its own writes and miss the others'. ADR-0021 says what would make
+/// us change that.
 /// </summary>
 internal sealed class TranslationFileRebuildScheduler : ITranslationFileRebuildScheduler
 {
@@ -16,12 +17,12 @@ internal sealed class TranslationFileRebuildScheduler : ITranslationFileRebuildS
 
     private int _pendingCount;
 
-    /// <summary>The worker's end of the queue; nothing else may read it.</summary>
+    /// <summary>The worker's end of the queue. Nothing else may read it.</summary>
     public ChannelReader<string> Reader => _signals.Reader;
 
     /// <summary>
-    /// Signals scheduled but not yet rebuilt. Zero means every scheduled rebuild has completed —
-    /// the quiesce point the integration suite waits for before truncating tables.
+    /// How many signals are waiting for a rebuild. Zero means every scheduled rebuild has finished,
+    /// which is what the integration tests wait for before they truncate the tables.
     /// </summary>
     public int PendingCount => Volatile.Read(ref _pendingCount);
 
@@ -33,6 +34,6 @@ internal sealed class TranslationFileRebuildScheduler : ITranslationFileRebuildS
         _signals.Writer.TryWrite(language);
     }
 
-    /// <summary>Called by the worker once the rebuild covering the drained signals has finished.</summary>
+    /// <summary>The worker calls this once the rebuild that covers those signals has finished.</summary>
     public void MarkCompleted(int consumedSignalCount) => Interlocked.Add(ref _pendingCount, -consumedSignalCount);
 }

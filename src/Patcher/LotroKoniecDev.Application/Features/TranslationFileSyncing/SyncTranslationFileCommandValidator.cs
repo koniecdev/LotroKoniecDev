@@ -15,8 +15,9 @@ public sealed class SyncTranslationFileCommandValidator : AbstractValidator<Sync
             .NotEmpty();
     }
 
-    // Plain http hands the downloaded file to any on-path attacker (AUDIT-SEC-01 / #391), so only
-    // loopback — where no network hop exists — may skip TLS (local dev against a host Kestrel).
+    // Over plain http anyone on the path can change the downloaded file (AUDIT-SEC-01, #391). Only
+    // loopback may skip TLS, because there is no network hop there. That covers local development
+    // against a Kestrel on the same machine.
     private static bool BeAnAbsoluteHttpsUrl(string value)
         => Uri.TryCreate(value, UriKind.Absolute, out Uri? uri)
            && (uri.Scheme == Uri.UriSchemeHttps || uri.Scheme == Uri.UriSchemeHttp && uri.IsLoopback);

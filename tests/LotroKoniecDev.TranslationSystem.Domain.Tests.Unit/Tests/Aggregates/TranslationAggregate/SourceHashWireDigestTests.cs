@@ -13,9 +13,9 @@ public sealed class SourceHashWireDigestTests
     [MemberData(nameof(SourceDigestGoldenCases.All), MemberType = typeof(SourceDigestGoldenCases))]
     public void ToWireDigest_OnTheGoldenTriple_ShouldProduceTheContractDigest(
         string text, string? argsOrder, string? argsId, string expected)
-        // The twin of this test lives in the patcher's Tests.Unit over the same fixture. Both must
-        // agree with a value neither implementation produced — that is the only thing standing
-        // between a one-sided framing change and every row of every artifact becoming unpatchable.
+        // The twin of this test lives in the patcher's Tests.Unit over the same fixture. Both have to
+        // agree with a value neither implementation produced. That is the only thing between a one-sided
+        // change to the framing and every row of every artifact becoming unpatchable.
         => SourceHash.Compute(text, argsOrder, argsId).ToWireDigest().ShouldBe(expected);
 
     [Fact]
@@ -25,7 +25,7 @@ public sealed class SourceHashWireDigestTests
     [Fact]
     public void ToWireDigest_ShouldBeTheDigestBytesInDigestOrderNotTheUlongsHexRendering()
     {
-        // Arrange — High is those same bytes read LITTLE-endian, so rendering the ulong as x16
+        // Arrange: High is those same bytes read LITTLE-endian, so rendering the ulong as x16
         // reverses them. That mistake produces a perfectly well-formed 16-hex column which no
         // patcher would ever match, and nothing but this assertion would notice.
         SourceHash hash = SourceHash.Compute("Witaj w Srodziemiu!", null, null);

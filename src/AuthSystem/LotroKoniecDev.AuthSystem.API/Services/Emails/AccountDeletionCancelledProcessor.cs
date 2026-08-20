@@ -7,17 +7,17 @@ using LotroKoniecDev.SharedKernel.Monads;
 namespace LotroKoniecDev.AuthSystem.API.Services.Emails;
 
 /// <summary>
-/// The business reaction to a consumed <see cref="AccountDeletionCancelled"/> message: load the
-/// user and dispatch the courtesy notice — no token to mint, the forced-reset token travels in
-/// the cancel endpoint's response (see the payload's remarks). Carries the mirror of the
-/// deletion-scheduled drift guard (ADR-0038 decision 2): if deletion is scheduled again by the
-/// time this is processed, "your account was kept" is a lie and the message is acknowledged
-/// without sending.
+/// What happens when an <see cref="AccountDeletionCancelled"/> message arrives: load the user and send
+/// the notice. There is no token to create here, because the reset token travels in the cancel
+/// endpoint's response (see the payload's remarks).
+/// It carries the mirror of the deletion-scheduled check (ADR-0038 decision 2): if a deletion has been
+/// scheduled again by the time this runs, "your account was kept" would be wrong, so the message is
+/// acknowledged without sending anything.
 /// </summary>
 /// <remarks>
-/// Delivery is at-least-once (ADR-0035), so this must stay idempotent. It is: the e-mail carries
-/// no state and no token, so a redelivered message at worst repeats the notice — annoying, never
-/// harmful — and every skip branch reads current state, so replays converge on the same decision.
+/// A message may arrive more than once (ADR-0035), so this has to be safe to run twice. It is: the
+/// e-mail carries no state and no token, so at worst the user gets the notice again, which is annoying
+/// but harmless, and every skip case reads the current state, so a repeat reaches the same decision.
 /// </remarks>
 internal sealed partial class AccountDeletionCancelledProcessor : IEmailMessageProcessor
 {
@@ -54,14 +54,15 @@ internal sealed partial class AccountDeletionCancelledProcessor : IEmailMessageP
     }
 
     /// <summary>
-    /// Handles one consumed message end-to-end and returns the acknowledgement decision.
+    /// Handles one message from start to finish and says whether it may be acknowledged.
     /// </summary>
     /// <returns>
-    /// NOT a business outcome — the answer to "does this message need redelivery?". Success means
-    /// "ack, drop it from the queue": either the e-mail went out, or redelivery can never change
-    /// the outcome (user vanished, deletion scheduled again in the gap, no address on the
-    /// account) — nacking those would loop the same message forever. Failure means "worth
-    /// retrying" (e.g. the SMTP relay is down) and drives the consumer's reject + requeue.
+    /// This is not a business result. It answers one question: does this message need to be sent
+    /// again? Success means "acknowledge it and drop it from the queue", either because the e-mail went
+    /// out or because sending again could never change anything: the user is gone, a deletion was
+    /// scheduled again in the meantime, or the account has no address. Refusing those would repeat the
+    /// same message forever. Failure means "worth another try", for example when the SMTP relay is
+    /// down, and the consumer then rejects and requeues it.
     /// </returns>
     public async Task<Result> ProcessAsync(AccountDeletionCancelled message, CancellationToken cancellationToken)
     {
@@ -74,8 +75,9 @@ internal sealed partial class AccountDeletionCancelledProcessor : IEmailMessageP
             return Result.Success();
         }
 
-        // The mirror drift guard — also what stops a post-finalization DLQ replay: erasure keeps
-        // DeletionScheduledAt set as its audit trace, so an anonymized account lands here too.
+        // The mirror check. It also stops a replay from the dead-letter queue after the deletion
+        // finished: erasure leaves DeletionScheduledAt set as its record, so an anonymized account
+        // ends up here as well.
         if (user.DeletionScheduledAt is not null)
         {
             LogDeletionRescheduled(_logger, message.IdentityUserId);

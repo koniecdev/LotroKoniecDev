@@ -20,8 +20,8 @@ internal sealed class EmailVerificationLinkFactory : IEmailVerificationLinkFacto
     {
         _linkGenerator = linkGenerator;
 
-        // Scheme + host come from the configured issuer, never the request Host header, so a
-        // forged Host cannot poison the confirmation link that gets emailed to the account owner.
+        // The scheme and host come from the configured issuer and never from the request's Host
+        // header, so a faked Host cannot change the confirmation link we e-mail to the account owner.
         Uri issuer = new(openIddictSettings.Value.Issuer, UriKind.Absolute);
         _scheme = issuer.Scheme;
         _host = HostString.FromUriComponent(issuer);

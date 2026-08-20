@@ -38,17 +38,17 @@ public sealed class ListGameVersionsTests : IAsyncLifetime
     [Fact]
     public async Task List_ReturnsVersionsNewestFirstWithStatus()
     {
-        // Arrange — three versions detected on different days, with mixed lifecycle statuses.
+        // Arrange: three versions detected on different days, with mixed lifecycle statuses.
         await SeedAsync("47.0", Now, GameVersionStatus.Superseded);
         await SeedAsync("47.1", Now.AddDays(1), GameVersionStatus.Processed);
         await SeedAsync("48.0", Now.AddDays(2), GameVersionStatus.Unprocessed);
         using HttpClient client = TranslatorClient();
 
-        // Act — the list is wrapped in a HATEOAS collection envelope (M2-25).
+        // Act: the list is wrapped in a HATEOAS collection envelope (M2-25).
         CollectionResponse<GameVersionResponse>? body = await (await client.GetAsync(Route))
             .Content.ReadFromJsonAsync<CollectionResponse<GameVersionResponse>>(JsonOptions);
 
-        // Assert — newest first; status round-trips; versions are stored canonical (trailing zeros dropped).
+        // Assert: newest first; status round-trips; versions are stored canonical (trailing zeros dropped).
         body.ShouldNotBeNull();
         GameVersionResponse[] items = body.Items.ToArray();
         items.Length.ShouldBe(3);
@@ -63,7 +63,7 @@ public sealed class ListGameVersionsTests : IAsyncLifetime
     [Fact]
     public async Task List_WithSortVersionAscending_OrdersLexicographically()
     {
-        // Arrange — versions are stored canonical (trailing zeros dropped) and sorted as strings.
+        // Arrange: versions are stored canonical (trailing zeros dropped) and sorted as strings.
         await SeedAsync("47.0", Now, GameVersionStatus.Unprocessed);
         await SeedAsync("48.0", Now.AddDays(1), GameVersionStatus.Unprocessed);
         await SeedAsync("46.5", Now.AddDays(2), GameVersionStatus.Unprocessed);
@@ -78,7 +78,7 @@ public sealed class ListGameVersionsTests : IAsyncLifetime
     [Fact]
     public async Task List_WithSortDetectedAtAscending_OrdersOldestFirst()
     {
-        // Arrange — the default is newest-first; an ascending sort flips it to oldest-first.
+        // Arrange: the default is newest-first; an ascending sort flips it to oldest-first.
         await SeedAsync("47.0", Now, GameVersionStatus.Unprocessed);
         await SeedAsync("47.1", Now.AddDays(1), GameVersionStatus.Unprocessed);
         await SeedAsync("48.0", Now.AddDays(2), GameVersionStatus.Unprocessed);
@@ -93,7 +93,7 @@ public sealed class ListGameVersionsTests : IAsyncLifetime
     [Fact]
     public async Task List_WithUnknownSortKey_FallsBackToDetectedAtAscending()
     {
-        // Arrange — an unrecognized key degrades to the default column (DetectedAt) ascending: the
+        // Arrange: an unrecognized key degrades to the default column (DetectedAt) ascending: the
         // full set, oldest-first (deliberately oldest-first, not the newest-first no-sort default).
         await SeedAsync("47.0", Now, GameVersionStatus.Unprocessed);
         await SeedAsync("48.0", Now.AddDays(1), GameVersionStatus.Unprocessed);

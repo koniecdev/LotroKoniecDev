@@ -10,14 +10,15 @@ using LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared.Bases;
 namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Tests.RateLimiting;
 
 /// <summary>
-/// Proves the brute-force limiter genuinely binds to the OpenIddict <c>/connect/*</c> endpoints
-/// (#347): they are mapped at the root, so the policy must ride the group they are actually mapped
-/// through — a bare <c>MapGroup("/connect")</c> convention never reaches them. Enforcement order
-/// matters too: the limiter middleware must run BEFORE authentication, because OpenIddict validates
-/// protocol requests inside the authentication stage and short-circuits invalid ones — a limiter
-/// placed after it would never count exactly the junk traffic it exists to stop. Introspection and
-/// revocation have no ASP.NET Core passthrough at all — OpenIddict middleware serves them entirely —
-/// so their limits ride metadata-only routes (#349, <c>MiddlewareServedEndpoints</c>). The suite's
+/// Proves the brute-force limiter really applies to the OpenIddict <c>/connect/*</c> endpoints (#347).
+/// They are mapped at the root, so the policy has to be on the group they are actually mapped through;
+/// a plain <c>MapGroup("/connect")</c> convention never reaches them.
+/// The order matters too: the limiter must run before authentication, because OpenIddict checks
+/// protocol requests during authentication and stops the invalid ones early. A limiter after it would
+/// never count exactly the junk traffic it exists to stop.
+/// Introspection and revocation are served entirely by OpenIddict middleware and cannot be handed to
+/// us at all, so their limits sit on routes that carry metadata only (#349,
+/// <c>MiddlewareServedEndpoints</c>). The suite's
 /// Testing host keeps the limiter middleware off; the burst tests force-arm it on a derived host to
 /// observe real 429 rejection, which a Staging-environment factory cannot do in-suite (outside
 /// Dev/Testing the settings validators demand production key material at startup).
@@ -59,7 +60,7 @@ public sealed class ConnectRateLimitingTests : EndpointsTestBase
     [Fact]
     public void OpenIddictEndpointUri_Always_HasARoutedEndpointCarryingARateLimitPolicy()
     {
-        // Arrange — introspection and revocation have NO ASP.NET Core passthrough in OpenIddict:
+        // Arrange: introspection and revocation have NO ASP.NET Core passthrough in OpenIddict:
         // the middleware serves them entirely inside the authentication stage, so the ONLY thing
         // arming the limiter on such a URI is a metadata-carrying routed endpoint (#349,
         // MiddlewareServedEndpoints). This pins every auth-surface URI registered on the OpenIddict
@@ -70,8 +71,9 @@ public sealed class ConnectRateLimitingTests : EndpointsTestBase
         OpenIddictServerOptions serverOptions = Factory.Services
             .GetRequiredService<IOptionsMonitor<OpenIddictServerOptions>>().CurrentValue;
 
-        // The last three collections are empty today (no such URIs are registered) — enumerating
-        // them now means enabling device/PAR/end-user-verification later cannot slip past this pin.
+        // The last three collections are empty today, because no such URIs are registered. Listing them
+        // now means that turning on device flow, pushed authorization requests or end-user verification
+        // later cannot slip past this check.
         List<Uri> authSurfaceUris = serverOptions.TokenEndpointUris
             .Concat(serverOptions.AuthorizationEndpointUris)
             .Concat(serverOptions.UserInfoEndpointUris)
@@ -109,7 +111,7 @@ public sealed class ConnectRateLimitingTests : EndpointsTestBase
     [InlineData("auth/resend-email-confirmation", "resend-confirmation-limit")]
     public void ApiEndpointWithOwnPolicy_Always_OverridesTheGroupPolicy(string route, string expectedPolicy)
     {
-        // Arrange — group metadata is attached in every environment now, so the endpoint-level
+        // Arrange: group metadata is attached in every environment now, so the endpoint-level
         // policy must keep winning (GetMetadata returns the last match: group first, endpoint last).
         EndpointDataSource endpointDataSource = Factory.Services.GetRequiredService<EndpointDataSource>();
 
@@ -130,7 +132,7 @@ public sealed class ConnectRateLimitingTests : EndpointsTestBase
     [InlineData("health/ready")]
     public void HealthEndpoint_Always_CarriesNoRateLimitPolicy(string route)
     {
-        // Arrange — ACA readiness probes poll these continuously (ADR-0025); a limiter here would
+        // Arrange: ACA readiness probes poll these continuously (ADR-0025); a limiter here would
         // 429 the probe and pull the app out of the ingress rotation.
         EndpointDataSource endpointDataSource = Factory.Services.GetRequiredService<EndpointDataSource>();
 
@@ -146,7 +148,7 @@ public sealed class ConnectRateLimitingTests : EndpointsTestBase
     [Fact]
     public async Task ConnectToken_BurstWithSeededClient_RejectsRequestBeyondPermitLimit()
     {
-        // Arrange — the seeded public client with a wrong password: admitted requests travel the
+        // Arrange: the seeded public client with a wrong password: admitted requests travel the
         // full OpenIddict validation + passthrough endpoint path before failing with 400.
         using WebApplicationFactory<Program> limitedHost = CreateRateLimitedHost();
         using HttpClient client = limitedHost.CreateClient();
@@ -162,7 +164,7 @@ public sealed class ConnectRateLimitingTests : EndpointsTestBase
             statusCodes[i] = response.StatusCode;
         }
 
-        // Assert — the first requests pass through to OpenIddict (fresh partition), the one past
+        // Assert: the first requests pass through to OpenIddict (fresh partition), the one past
         // the permit limit is cut off by the limiter.
         statusCodes.Take(AuthEndpointPermitLimit).ShouldAllBe(statusCode => statusCode != HttpStatusCode.TooManyRequests);
         statusCodes[AuthEndpointPermitLimit].ShouldBe(HttpStatusCode.TooManyRequests);
@@ -171,10 +173,9 @@ public sealed class ConnectRateLimitingTests : EndpointsTestBase
     [Fact]
     public async Task ConnectToken_BurstWithUnknownClient_RejectsRequestBeyondPermitLimit()
     {
-        // Arrange — an unknown client_id is the cheapest externally craftable junk: OpenIddict
-        // rejects it during the authentication stage, so this burst proves the limiter counts
-        // requests BEFORE OpenIddict sees them — the exact ordering a post-authentication limiter
-        // silently loses.
+        // Arrange: an unknown client_id is the cheapest junk anyone can send. OpenIddict rejects it
+        // during authentication, so this burst proves the limiter counts requests before OpenIddict sees
+        // them. A limiter placed after authentication would quietly miss exactly these.
         using WebApplicationFactory<Program> limitedHost = CreateRateLimitedHost();
         using HttpClient client = limitedHost.CreateClient();
 
@@ -197,7 +198,7 @@ public sealed class ConnectRateLimitingTests : EndpointsTestBase
     [Fact]
     public async Task ConnectIntrospect_BurstGuessingTheConfidentialClientSecret_RejectsRequestBeyondPermitLimit()
     {
-        // Arrange — introspection has no routed handler of its own (OpenIddict middleware serves it
+        // Arrange: introspection has no routed handler of its own (OpenIddict middleware serves it
         // during the authentication stage), so this burst proves the metadata-only route genuinely
         // arms the limiter there: without it, the confidential api client's secret could be guessed
         // without any throttle (#349). Admitted requests fail client authentication inside

@@ -1,12 +1,12 @@
 namespace LotroKoniecDev.AuthSystem.API.Services.Emails.Templates;
 
 /// <summary>
-/// What a transactional message says, with no trace of how it looks. Senders build this;
+/// What a message says, with nothing about how it looks. Senders build this, and
 /// <see cref="IEmailTemplateRenderer"/> turns it into the HTML and plain-text bodies.
 /// </summary>
 internal sealed record EmailTemplateModel
 {
-    /// <summary>Line most inbox lists preview next to the subject.</summary>
+    /// <summary>The line most mail clients show next to the subject in the message list.</summary>
     public required string Preheader { get; init; }
 
     public required string Heading { get; init; }
@@ -15,6 +15,6 @@ internal sealed record EmailTemplateModel
 
     public EmailCallToAction? CallToAction { get; init; }
 
-    /// <summary>What to do when the recipient did not trigger the message.</summary>
+    /// <summary>What the reader should do if they did not ask for this message.</summary>
     public string? SecurityNote { get; init; }
 }

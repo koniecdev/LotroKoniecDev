@@ -9,10 +9,10 @@ using NSubstitute;
 namespace LotroKoniecDev.Frontend.Tests.Unit.Components.Layout;
 
 /// <summary>
-/// Renders <see cref="MainLayout"/> through bUnit to lock the footer legal links down (LEGAL-05):
-/// every frontend page must offer the terms of service and the auth-hosted privacy policy — the
-/// single source of truth the cookie banner and the terms page already target. A regression here
-/// silently breaks the Art. 13 reachability requirement on the whole app.
+/// Renders <see cref="MainLayout"/> through bUnit to pin the legal links in the footer (LEGAL-05).
+/// Every page must offer the terms of service and the privacy policy the auth server hosts, which is
+/// the one place the cookie banner and the terms page already point at. If this breaks, the whole app
+/// quietly stops meeting the Art. 13 requirement that those pages are reachable.
 /// </summary>
 public sealed class MainLayoutTests : BunitContext
 {

@@ -8,8 +8,8 @@ using Testcontainers.PostgreSql;
 namespace LotroKoniecDev.TranslationSystem.E2E.Tests;
 
 /// <summary>
-/// Boots the full TMS backend the way it ships — Postgres + the one-shot migrator + auth-api + tms-api —
-/// as real containers on a private Docker network, so the suite exercises the core loop over actual HTTP
+/// Starts the full TMS backend the way it ships, as real containers on a private Docker network:
+/// Postgres, the one-shot migrator, auth-api and tms-api. So the suite runs the core loop over real HTTP
 /// through real JWT issuance, JWKS validation and lazy translator provisioning. This is the layer the
 /// in-process integration tests cannot reach (they forge HS256 tokens and disable JWKS discovery).
 /// </summary>
@@ -37,8 +37,9 @@ public sealed class E2ETestFixture : IAsyncLifetime
     private const string ApiClientSecret = "e2e-test-api-client-secret-min-32-characters";
 
     /// <summary>
-    /// Seeded by auth-api on startup from <c>AdminUser__*</c> config, with <c>EmailConfirmed = true</c> and the
-    /// <c>Admin</c> role — so a password-grant login yields a real Admin token without the email-confirmation dance.
+    /// Created by auth-api at startup from the <c>AdminUser__*</c> configuration, with
+    /// <c>EmailConfirmed = true</c> and the <c>Admin</c> role, so a password login gives a real admin token
+    /// without going through e-mail confirmation.
     /// </summary>
     public const string AdminUsername = "e2eadmin";
     public const string AdminEmail = "e2e-admin@lotro-translator.pl";
@@ -68,8 +69,8 @@ public sealed class E2ETestFixture : IAsyncLifetime
             .Build();
         await _network.CreateAsync();
 
-        // Postgres' POSTGRES_DB creates lotro_translation on first boot; the bind-mounted init script
-        // adds the second database (lotro_auth) the AuthSystem needs — identical to the compose stack.
+        // POSTGRES_DB creates lotro_translation on the first boot, and the mounted init script adds the
+        // second database, lotro_auth, that the AuthSystem needs. The compose stack does the same.
         string initScriptPath = Path.Combine(FindSolutionDirectory(), "scripts", "init-postgres.sh");
         _postgres = new PostgreSqlBuilder("postgres:17-alpine")
             .WithNetwork(_network)
@@ -106,12 +107,13 @@ public sealed class E2ETestFixture : IAsyncLifetime
     }
 
     /// <summary>
-    /// Confirms a freshly-registered user's e-mail directly in the auth database. Since the
-    /// confirmation e-mail became an outbox message riding the broker, this network (no broker,
-    /// no mailpit) can never deliver it — and <c>RequireConfirmedEmail</c> blocks the password
-    /// grant until the address is confirmed. The genuine register → e-mail link → confirm journey
-    /// is the Frontend browser suite's concern; this suite's concern is real tokens against the
-    /// TMS loop, so it shortcuts the delivery leg the same way it resets data: through psql.
+    /// Confirms a newly registered user's e-mail directly in the auth database. The confirmation e-mail
+    /// is now an outbox message that travels through the broker, and this network has no broker and no
+    /// mailpit, so it can never arrive, while <c>RequireConfirmedEmail</c> blocks the password login until
+    /// the address is confirmed.
+    /// The real journey from register to e-mail link to confirm belongs to the frontend browser suite.
+    /// This suite is about real tokens against the TMS loop, so it skips the delivery step the same way it
+    /// resets data: through psql.
     /// </summary>
     public async Task ConfirmUserEmailAsync(string email)
     {
@@ -142,8 +144,9 @@ public sealed class E2ETestFixture : IAsyncLifetime
 
     private async Task RunMigratorAsync()
     {
-        // One-shot: migrates the TMS context (via Persistence) then the Auth context (via the Auth API),
-        // exactly as the compose migrator does. Mirrors compose env — connection strings only.
+        // A one-shot container: it migrates the TMS context through Persistence and then the Auth context
+        // through the Auth API, exactly as the compose migrator does. Its environment matches compose and
+        // carries only the connection strings.
         _migrator = new ContainerBuilder(MigratorImage)
             .WithNetwork(_network)
             .WithEnvironment("ASPNETCORE_ENVIRONMENT", "Development")
@@ -183,16 +186,16 @@ public sealed class E2ETestFixture : IAsyncLifetime
             .WithEnvironment("AdminUser__Username", AdminUsername)
             .WithEnvironment("AdminUser__Email", AdminEmail)
             .WithEnvironment("AdminUser__Password", AdminPassword)
-            // No mailpit in this network: the confirmation e-mail (an outbox message since the broker
-            // landed) never gets delivered, so tests confirm accounts through ConfirmUserEmailAsync
-            // instead of an e-mail round-trip. The sender identity is no longer baked into base
-            // appsettings.json (M6-06), so it is injected here too — otherwise the unconditional
-            // EmailOptionsValidator would abort auth-api startup.
+            // There is no mailpit in this network, so the confirmation e-mail, which became an outbox
+            // message when the broker arrived, is never delivered. Tests confirm accounts through
+            // ConfirmUserEmailAsync instead of waiting for an e-mail.
+            // The sender identity is no longer in the base appsettings.json (M6-06), so it is set here
+            // too, or EmailOptionsValidator would stop auth-api at startup.
             .WithEnvironment("Email__SenderEmail", "noreply@lotro-translator.pl")
             .WithEnvironment("Email__Sender", "lotro-translator.pl")
             .WithEnvironment("Email__Host", "localhost")
             .WithEnvironment("Email__Port", "2525")
-            // No broker in this network either — the values only have to satisfy the unconditional
+            // There is no broker in this network either. These values only have to satisfy
             // RabbitMqOptionsValidator at startup.
             .WithEnvironment("RabbitMq__Host", "localhost")
             .WithEnvironment("RabbitMq__Username", "rabbitmq")

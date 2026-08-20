@@ -7,17 +7,18 @@ using LotroKoniecDev.SharedKernel.Monads;
 namespace LotroKoniecDev.AuthSystem.API.Services.Emails;
 
 /// <summary>
-/// The business reaction to a consumed <see cref="PasswordResetRequested"/> message: load the
-/// user, mint the reset token at send time (see the payload's remarks on token lifetime), and
-/// dispatch the e-mail. Also the single home of the deletion-window guard (ADR-0038 decision 2):
-/// while GDPR deletion is scheduled, the emailed cancel-deletion link is the only recovery path —
-/// a password reset would neither unlock the account nor stop the deletion, so the message is
-/// acknowledged without sending.
+/// What happens when a <see cref="PasswordResetRequested"/> message arrives: load the user, create the
+/// reset token now rather than earlier (see the payload's remarks about token lifetime), and send the
+/// e-mail.
+/// This is also the one place that checks the deletion window (ADR-0038 decision 2). While a GDPR
+/// deletion is scheduled, the cancel link in the e-mail is the only way back, because a password reset
+/// would neither unlock the account nor stop the deletion. So the message is acknowledged without
+/// sending anything.
 /// </summary>
 /// <remarks>
-/// Delivery is at-least-once (ADR-0035), so this must stay idempotent. It does: a redelivered
-/// message at worst re-sends a reset e-mail with a fresh token — annoying, never harmful — and
-/// every skip branch reads current state, so replays converge on the same decision.
+/// A message may arrive more than once (ADR-0035), so this has to be safe to run twice. It is: at
+/// worst a reset e-mail is sent again with a new token, which is annoying but harmless, and every skip
+/// case reads the current state, so a repeat reaches the same decision.
 /// </remarks>
 internal sealed partial class PasswordResetRequestProcessor : IEmailMessageProcessor
 {
@@ -54,14 +55,15 @@ internal sealed partial class PasswordResetRequestProcessor : IEmailMessageProce
     }
 
     /// <summary>
-    /// Handles one consumed message end-to-end and returns the acknowledgement decision.
+    /// Handles one message from start to finish and says whether it may be acknowledged.
     /// </summary>
     /// <returns>
-    /// NOT a business outcome — the answer to "does this message need redelivery?". Success means
-    /// "ack, drop it from the queue": either the e-mail went out, or redelivery can never change
-    /// the outcome (user vanished, deletion scheduled, no address on the account) — nacking those
-    /// would loop the same message forever. Failure means "worth retrying" (e.g. the SMTP relay
-    /// is down) and drives the consumer's reject + requeue.
+    /// This is not a business result. It answers one question: does this message need to be sent
+    /// again? Success means "acknowledge it and drop it from the queue", either because the e-mail went
+    /// out or because sending again could never change anything: the user is gone, a deletion is
+    /// scheduled, or the account has no address. Refusing those would repeat the same message forever.
+    /// Failure means "worth another try", for example when the SMTP relay is down, and the consumer
+    /// then rejects and requeues it.
     /// </returns>
     public async Task<Result> ProcessAsync(PasswordResetRequested message, CancellationToken cancellationToken)
     {

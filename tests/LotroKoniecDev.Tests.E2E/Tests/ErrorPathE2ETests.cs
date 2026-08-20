@@ -90,7 +90,7 @@ public sealed class ErrorPathE2ETests
     {
         Skip.If(!_fixture.IsDatFileAvailable, "DAT file not found in TestData/");
 
-        //Arrange — create a translation file with only unparseable lines
+        //Arrange: create a translation file with only unparseable lines
         string garbagePath = Path.Combine(_fixture.CreateTempDir(), "garbage.txt");
         await File.WriteAllTextAsync(garbagePath, """
             not a valid line at all
@@ -103,7 +103,7 @@ public sealed class ErrorPathE2ETests
         CliResult result = await _fixture.RunCliAsync(
             $"patch \"{garbagePath}\" -d \"{tempDatPath}\"");
 
-        //Assert — parser skips all unparseable lines → empty list → NoTranslations (Validation) → exit code 1
+        //Assert: parser skips all unparseable lines → empty list → NoTranslations (Validation) → exit code 1
         result.ExitCode.ShouldBe((int)CliExitCode.InvalidArguments,
             $"Patch with garbage translations should fail. stdout: {result.Stdout}");
     }
@@ -113,7 +113,7 @@ public sealed class ErrorPathE2ETests
     {
         Skip.If(!_fixture.IsDatFileAvailable, "DAT file not found in TestData/");
 
-        //Arrange — create a translation file with only comments and blanks
+        //Arrange: create a translation file with only comments and blanks
         string commentsPath = Path.Combine(_fixture.CreateTempDir(), "comments_only.txt");
         await File.WriteAllTextAsync(commentsPath, """
             # This is a comment
@@ -127,7 +127,7 @@ public sealed class ErrorPathE2ETests
         CliResult result = await _fixture.RunCliAsync(
             $"patch \"{commentsPath}\" -d \"{tempDatPath}\"");
 
-        //Assert — all lines skipped → empty translations → NoTranslations (Validation) → exit code 1
+        //Assert: all lines skipped → empty translations → NoTranslations (Validation) → exit code 1
         result.ExitCode.ShouldBe((int)CliExitCode.InvalidArguments,
             $"Patch with comment-only file should fail. stdout: {result.Stdout}");
     }
@@ -137,11 +137,11 @@ public sealed class ErrorPathE2ETests
     {
         Skip.If(!_fixture.IsDatFileAvailable, "DAT file not found in TestData/");
 
-        //Act — full translations path, but NO dat path argument
+        //Act: full translations path, but NO dat path argument
         CliResult result = await _fixture.RunCliAsync(
             $"patch \"{_fixture.TranslationsPolishPath}\"");
 
-        //Assert — Bug sends empty string to handler → "not found: " with empty path.
+        //Assert: Bug sends empty string to handler → "not found: " with empty path.
         // Fixed code calls DatPathResolver → either finds DAT or returns meaningful error.
         result.Stdout.Contains("not found: \r\n").ShouldBeFalse(
             "Empty path in error indicates DatPathResolver was bypassed");
@@ -154,13 +154,13 @@ public sealed class ErrorPathE2ETests
     {
         Skip.If(!_fixture.IsDatFileAvailable, "DAT file not found in TestData/");
 
-        //Arrange — empty working dir: no data/ folder, no LOTRO standard paths
+        //Arrange: empty working dir: no data/ folder, no LOTRO standard paths
         string emptyWorkDir = _fixture.CreateTempDir();
 
-        //Act — export with no args (no dat path, output defaults to data/exported.txt)
+        //Act: export with no args (no dat path, output defaults to data/exported.txt)
         CliResult result = await _fixture.RunCliAsync("export", workingDirectory: emptyWorkDir);
 
-        //Assert — Bug sends empty string → "not found: " with empty path.
+        //Assert: Bug sends empty string → "not found: " with empty path.
         // Fixed code checks for null and returns FileNotFound before reaching handler.
         result.Stdout.Contains("not found: \r\n").ShouldBeFalse(
             "Empty path in error indicates null DatPath guard was bypassed");

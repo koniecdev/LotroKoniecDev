@@ -7,7 +7,7 @@ using LotroKoniecDev.TranslationSystem.Contracts.Translations;
 namespace LotroKoniecDev.TranslationSystem.API.Tests.Integration.Tests.ErrorContract;
 
 /// <summary>
-/// Pins the API error contract at the HTTP seam (the existing suites assert only the status code).
+/// Pins the API's error contract at the HTTP level; the other suites only check the status code.
 /// Domain failures are served as <c>application/problem+json</c> carrying a typed <c>errorCode</c>, a
 /// status-family <c>title</c> and the <c>status</c> (ErrorExtensions.ToProblemDetails: 400 Validation,
 /// 404 NotFound, 422 DataConflict). Auth rejections (401/403) are also served as
@@ -58,7 +58,7 @@ public sealed class ProblemDetailsContractTests : IAsyncLifetime
         // Arrange
         using HttpClient client = AdminClient();
 
-        // Act — "banana" passes the NotEmpty/MaxLength validator, so the failure surfaces from the
+        // Act: "banana" passes the NotEmpty/MaxLength validator, so the failure surfaces from the
         // LotroNotationVersion value object's dotted-numeric format check.
         HttpResponseMessage response = await client.PostAsJsonAsync("/api/v1/game-versions", new RegisterGameVersionRequest("banana"));
         JsonElement problem = await ReadProblemDetailsAsync(response);
@@ -124,7 +124,7 @@ public sealed class ProblemDetailsContractTests : IAsyncLifetime
     [Fact]
     public async Task RegisterGameVersion_WhenAlreadyTaken_ShouldReturn422DataConflictProblem()
     {
-        // Arrange — register the version, then re-register an equivalent notation.
+        // Arrange: register the version, then re-register an equivalent notation.
         using HttpClient client = AdminClient();
         (await client.PostAsJsonAsync("/api/v1/game-versions", new RegisterGameVersionRequest("48.0")))
             .StatusCode.ShouldBe(HttpStatusCode.Created);
@@ -144,14 +144,14 @@ public sealed class ProblemDetailsContractTests : IAsyncLifetime
     [Fact]
     public async Task ProtectedEndpoint_WithoutToken_ShouldReturn401AsProblemDetailsWithoutErrorCode()
     {
-        // Arrange — /api/v1/game-versions: the translations list itself is publicly readable (#309).
+        // Arrange: /api/v1/game-versions: the translations list itself is publicly readable (#309).
         using HttpClient client = _factory.CreateClient();
 
         // Act
         HttpResponseMessage response = await client.GetAsync("/api/v1/game-versions");
         JsonElement problem = await ReadProblemDetailsAsync(response);
 
-        // Assert — authentication failures share the problem+json surface, but the domain errorCode
+        // Assert: authentication failures share the problem+json surface, but the domain errorCode
         // extension is added only by ErrorExtensions.ToProblemDetails for Result failures, never here.
         response.StatusCode.ShouldBe(HttpStatusCode.Unauthorized);
         response.Content.Headers.ContentType?.MediaType.ShouldBe(ProblemJson);

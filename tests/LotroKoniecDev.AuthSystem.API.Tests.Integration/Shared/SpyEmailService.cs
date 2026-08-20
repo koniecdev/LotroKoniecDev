@@ -23,7 +23,7 @@ public sealed class SpyEmailService : IEmailService
     /// Blocks until an e-mail lands or the timeout passes. E-mails leave the request path through
     /// the outbox (commit -> relay -> delivery -> this spy, ADR-0038), so tests reading
     /// <see cref="LastBody"/> right after the triggering call must wait on state, not assume
-    /// immediacy. Returns silently either way — the assertions stay at the call site.
+    /// immediacy. It returns either way, and the assertions stay in the test.
     /// </summary>
     public async Task WaitForCaptureAsync(TimeSpan? timeout = null)
     {

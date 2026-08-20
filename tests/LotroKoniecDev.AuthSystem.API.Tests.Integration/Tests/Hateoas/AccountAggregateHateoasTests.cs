@@ -14,12 +14,11 @@ using LotroKoniecDev.Hateoas.Abstractions;
 namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Tests.Hateoas;
 
 /// <summary>
-/// Verifies that the account aggregate's HATEOAS link set is <em>state-aware</em>:
-/// the shape of <c>links</c> reflects the current observable state of the
-/// user's account, not the state at the time the access token was issued.
-/// Specifically, <c>resend-email-confirmation</c> must only appear while the
-/// email is still unconfirmed — once confirmed, advertising the transition
-/// would violate the HATEOAS contract by pointing clients at a dead end.
+/// Checks that the account's links follow its current state and not the state it had when the access
+/// token was issued.
+/// In particular, <c>resend-email-confirmation</c> may only appear while the address is still
+/// unconfirmed. Once it is confirmed, offering that action would point clients at something that leads
+/// nowhere.
 /// </summary>
 public sealed class AccountAggregateHateoasTests : EndpointsTestBase
 {

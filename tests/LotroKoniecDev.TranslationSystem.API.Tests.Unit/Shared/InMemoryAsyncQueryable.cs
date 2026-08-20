@@ -5,10 +5,10 @@ using Microsoft.EntityFrameworkCore.Query;
 namespace LotroKoniecDev.TranslationSystem.API.Tests.Unit.Shared;
 
 /// <summary>
-/// Minimal in-memory <see cref="IAsyncQueryProvider"/> so a hand-built <c>DbSet</c> double can run
-/// EF Core's async LINQ operators (<c>FirstOrDefaultAsync</c>, <c>ToListAsync</c>) over a plain list
-/// in a pure unit test — no database, no EF Core InMemory provider. Used only to verify the write
-/// handlers' read-back projection against seeded read models.
+/// A small in-memory <see cref="IAsyncQueryProvider"/> so a hand-built <c>DbSet</c> substitute can run
+/// EF Core's async LINQ methods, such as <c>FirstOrDefaultAsync</c> and <c>ToListAsync</c>, over a plain
+/// list in a pure unit test, with no database and no EF Core InMemory provider.
+/// It is used only to check the write handlers' read-back projection against seeded read models.
 /// </summary>
 internal sealed class TestAsyncQueryProvider<TEntity> : IAsyncQueryProvider
 {

@@ -27,7 +27,7 @@ public sealed class GameUpdateCheckerTests
         _checker = new GameUpdateChecker(_mockFetcher, _mockStore, _mockLogger);
     }
 
-    // ───────────────────────────── CheckForUpdateAsync — normal flow ─────────────────────────────
+    // ───────────────────────────── CheckForUpdateAsync: normal flow ─────────────────────────────
 
     [Fact]
     public async Task CheckForUpdateAsync_ShouldReturnForumVersionChanged_WhenNewVersionDetected()
@@ -60,7 +60,7 @@ public sealed class GameUpdateCheckerTests
         // Act
         await _checker.CheckForUpdateAsync(VersionFilePath);
 
-        // Assert — CheckForUpdateAsync only reports, never saves
+        // Assert: CheckForUpdateAsync only reports, never saves
         _mockStore.DidNotReceive().SaveVersion(Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<int>(), Arg.Any<int>());
     }
 
@@ -115,7 +115,7 @@ public sealed class GameUpdateCheckerTests
         result.Error.Code.ShouldBe("GameUpdateCheck.VersionFileError");
     }
 
-    // ───────────────────────────── CheckForUpdateAsync — graceful degradation ─────────────────────────────
+    // ───────────────────────────── CheckForUpdateAsync: graceful degradation ─────────────────────────────
 
     [Fact]
     public async Task CheckForUpdateAsync_ShouldReturnNoForumVersion_WhenForumFetchFails()
@@ -130,7 +130,7 @@ public sealed class GameUpdateCheckerTests
         // Act
         Result<GameUpdateCheckSummary> result = await _checker.CheckForUpdateAsync(VersionFilePath);
 
-        // Assert — forum fail is graceful, never blocks gaming
+        // Assert: forum fail is graceful, never blocks gaming
         result.IsSuccess.ShouldBeTrue();
         result.Value.ForumVersion.ShouldBeNull();
         result.Value.StoredInfo.ShouldBe(StoredInfo401);
@@ -150,18 +150,18 @@ public sealed class GameUpdateCheckerTests
         // Act
         Result<GameUpdateCheckSummary> result = await _checker.CheckForUpdateAsync(VersionFilePath);
 
-        // Assert — page format change is graceful, never blocks gaming
+        // Assert: page format change is graceful, never blocks gaming
         result.IsSuccess.ShouldBeTrue();
         result.Value.ForumVersion.ShouldBeNull();
         result.Value.StoredInfo.ShouldBe(StoredInfo401);
     }
 
-    // ───────────────────────────── CheckForUpdateAsync — first run ─────────────────────────────
+    // ───────────────────────────── CheckForUpdateAsync: first run ─────────────────────────────
 
     [Fact]
     public async Task CheckForUpdateAsync_ShouldReturnFirstLaunch_WhenNoStoredVersion()
     {
-        // Arrange — no version.txt yet, forum works
+        // Arrange: no version.txt yet, forum works
         _mockStore.ReadStoredVersion(VersionFilePath)
             .Returns(Result.Success<StoredVersionInfo?>(null));
         _mockFetcher.FetchReleaseNotesPageAsync()
@@ -170,7 +170,7 @@ public sealed class GameUpdateCheckerTests
         // Act
         Result<GameUpdateCheckSummary> result = await _checker.CheckForUpdateAsync(VersionFilePath);
 
-        // Assert — first run, handler will establish baseline
+        // Assert: first run, handler will establish baseline
         result.IsSuccess.ShouldBeTrue();
         result.Value.ForumVersion.ShouldBe("40.2");
         result.Value.StoredInfo.ShouldBeNull();
@@ -180,7 +180,7 @@ public sealed class GameUpdateCheckerTests
     [Fact]
     public async Task CheckForUpdateAsync_ShouldReturnFirstLaunchNoForum_WhenFirstRunAndForumFails()
     {
-        // Arrange — no version.txt, AND forum unreachable
+        // Arrange: no version.txt, AND forum unreachable
         _mockStore.ReadStoredVersion(VersionFilePath)
             .Returns(Result.Success<StoredVersionInfo?>(null));
         Error networkError = new("GameUpdateCheck.NetworkError", "Connection refused", ErrorType.IoError);
@@ -190,7 +190,7 @@ public sealed class GameUpdateCheckerTests
         // Act
         Result<GameUpdateCheckSummary> result = await _checker.CheckForUpdateAsync(VersionFilePath);
 
-        // Assert — zero info, graceful: just let the user play
+        // Assert: zero info, graceful: just let the user play
         result.IsSuccess.ShouldBeTrue();
         result.Value.ForumVersion.ShouldBeNull();
         result.Value.StoredInfo.ShouldBeNull();
@@ -201,7 +201,7 @@ public sealed class GameUpdateCheckerTests
     [Fact]
     public async Task CheckForUpdateAsync_ShouldReturnFirstLaunchNoForum_WhenFirstRunAndVersionNotFoundInPage()
     {
-        // Arrange — no version.txt, forum reachable but page format changed
+        // Arrange: no version.txt, forum reachable but page format changed
         _mockStore.ReadStoredVersion(VersionFilePath)
             .Returns(Result.Success<StoredVersionInfo?>(null));
         _mockFetcher.FetchReleaseNotesPageAsync()
@@ -216,7 +216,7 @@ public sealed class GameUpdateCheckerTests
         result.Value.StoredInfo.ShouldBeNull();
     }
 
-    // ───────────────────────────── CheckForUpdateAsync — input validation ─────────────────────────────
+    // ───────────────────────────── CheckForUpdateAsync: input validation ─────────────────────────────
 
     [Fact]
     public async Task CheckForUpdateAsync_ShouldThrow_WhenNullPath()
@@ -238,12 +238,12 @@ public sealed class GameUpdateCheckerTests
         await act.ShouldThrowAsync<ArgumentException>();
     }
 
-    // ───────────────────────────── CheckForUpdateAsync — parsing ─────────────────────────────
+    // ───────────────────────────── CheckForUpdateAsync: parsing ─────────────────────────────
 
     [Fact]
     public async Task CheckForUpdateAsync_ShouldPickFirstVersion_WhenMultipleVersionsInHtml()
     {
-        // Arrange — forum lists newest first, checker should pick "40.2"
+        // Arrange: forum lists newest first, checker should pick "40.2"
         string html = """
             <a>Update 40.2 Release Notes</a>
             <a>Update 40.1 Release Notes</a>

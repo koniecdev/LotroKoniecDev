@@ -3,14 +3,14 @@ using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.TranslationAggregat
 namespace LotroKoniecDev.Frontend.Components.Pages.Translations;
 
 /// <summary>
-/// Maps a <see cref="TranslationStatus"/> to its Polish label and badge CSS class for the list view.
-/// The Frontend is Polish-only (ADR-aligned with the rest of the UI), so labels are inlined rather
-/// than localized. <see cref="TranslationStatus.Unset"/> is a never-persisted sentinel and renders
-/// defensively as the neutral "unknown" badge.
+/// Turns a <see cref="TranslationStatus"/> into its Polish label and badge CSS class for the list. The
+/// Frontend is Polish only, like the rest of the UI, so the labels are written here instead of being
+/// translated. <see cref="TranslationStatus.Unset"/> is never stored, and it falls back to the neutral
+/// "unknown" badge just in case.
 /// </summary>
 internal static class TranslationStatusDisplay
 {
-    /// <summary>The statuses a user can filter by, in display order (excludes the <c>Unset</c> sentinel).</summary>
+    /// <summary>The statuses a user can filter by, in the order they are shown. <c>Unset</c> is left out.</summary>
     public static IReadOnlyList<TranslationStatus> FilterableStatuses { get; } =
     [
         TranslationStatus.Untranslated,

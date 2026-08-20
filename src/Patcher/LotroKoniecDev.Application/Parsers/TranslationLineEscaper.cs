@@ -3,14 +3,15 @@ using System.Text;
 namespace LotroKoniecDev.Application.Parsers;
 
 /// <summary>
-/// The content escape of the <c>||</c> translation file (ADR-0039): <c>\</c> becomes <c>\\</c>,
-/// CR becomes <c>\r</c> and LF becomes <c>\n</c>, so a fragment carrying real newlines stays on one
-/// line and the transform stays injective. Every writer of the file escapes and every reader
-/// unescapes; text held in memory, in the DAT and in the TMS database is always the raw form.
+/// The content escape of the <c>||</c> translation file (ADR-0039): <c>\</c> becomes <c>\\</c>, CR
+/// becomes <c>\r</c> and LF becomes <c>\n</c>. A fragment with real newlines then stays on one line,
+/// and because the escape character is escaped too, no two different texts can produce the same
+/// output. Every writer of the file escapes and every reader unescapes. Text in memory, in the DAT and
+/// in the TMS database is always the raw form.
 /// </summary>
 /// <remarks>
-/// The TMS owns an identical copy in its own <c>Parsing</c> namespace — the two bounded contexts
-/// share the file, never code (CLAUDE.md). The parity suites are what keep the copies honest.
+/// The TMS has an identical copy in its own <c>Parsing</c> namespace, because the two bounded contexts
+/// share the file and never the code (CLAUDE.md). The parity test suites keep the copies the same.
 /// </remarks>
 internal static class TranslationLineEscaper
 {
@@ -19,7 +20,7 @@ internal static class TranslationLineEscaper
     private const char LineFeedMarker = 'n';
 
     /// <summary>
-    /// Folds a raw content string into its single-line file representation.
+    /// Turns raw content into the single-line form the file stores.
     /// </summary>
     public static string Escape(string content)
     {
@@ -55,9 +56,9 @@ internal static class TranslationLineEscaper
     }
 
     /// <summary>
-    /// Unfolds a file representation back into raw content. A sequence no writer can produce
-    /// (<c>\t</c>, a trailing lone backslash) is kept verbatim rather than rejected — only a file
-    /// written before ADR-0039 can contain one.
+    /// Turns the file form back into raw content. A sequence no writer of ours can produce, such as
+    /// <c>\t</c> or a single backslash at the end, is kept as it is instead of being rejected. Only a
+    /// file written before ADR-0039 can hold one.
     /// </summary>
     public static string Unescape(string content)
     {

@@ -6,14 +6,14 @@ using LotroKoniecDev.TranslationSystem.Domain.Aggregates.TranslationAggregate.Se
 namespace LotroKoniecDev.TranslationSystem.API.Tests.Unit.Tests.Parsing;
 
 /// <summary>
-/// Hostile-input coverage for the TMS half of the <c>||</c> contract (#569): the Big List of Naughty
-/// Strings driven through the producer/consumer pair the TMS owns — <see cref="TranslationFileSerializer"/>
-/// writing the distributed file and <see cref="TranslationExportParser"/> reading an uploaded
+/// Hostile-input coverage for the TMS half of the <c>||</c> contract (#569). It runs the Big List of
+/// Naughty Strings through the pair the TMS owns: <see cref="TranslationFileSerializer"/>, which writes
+/// the distributed file, and <see cref="TranslationExportParser"/>, which reads an uploaded
 /// <c>exported.txt</c> back.
 /// </summary>
 /// <remarks>
-/// Changing the format itself needs an ADR plus updated golden fixtures on both sides of the
-/// contract (CLAUDE.md) — ADR-0039 is the last one.
+/// Changing the format itself needs an ADR and updated golden fixtures on both sides of the contract
+/// (CLAUDE.md). ADR-0039 is the most recent one.
 /// </remarks>
 public sealed class TranslationFileNaughtyStringTests
 {
@@ -39,7 +39,7 @@ public sealed class TranslationFileNaughtyStringTests
     [MemberData(nameof(NaughtyStringCases.DelimiterHazards), MemberType = typeof(NaughtyStringCases))]
     public async Task SerializeThenParse_NaughtyContentCarryingTheFieldSeparator_ShouldRecoverExactContent(string naughty)
     {
-        // Arrange — the separator is legal inside content; the parser anchors from both ends.
+        // Arrange: the separator is legal inside content; the parser anchors from both ends.
         string content = $"{naughty}||{naughty}";
         string file = _serializer.Serialize([Row(620756992, 1001, content, "1-2", "1-2")]);
 
@@ -57,7 +57,7 @@ public sealed class TranslationFileNaughtyStringTests
     [MemberData(nameof(NaughtyStringCases.DelimiterHazards), MemberType = typeof(NaughtyStringCases))]
     public async Task SerializeThenParse_NaughtyContentOpeningWithTheCommentMarker_ShouldStillParse(string naughty)
     {
-        // Arrange — '#' starts a comment only at the start of a LINE; a content field never is one.
+        // Arrange: '#' starts a comment only at the start of a LINE; a content field never is one.
         string content = $"#{naughty}";
         string file = _serializer.Serialize([Row(620756992, 1001, content, null, null)]);
 
@@ -72,7 +72,7 @@ public sealed class TranslationFileNaughtyStringTests
     [MemberData(nameof(NaughtyStringCases.UnicodeHazards), MemberType = typeof(NaughtyStringCases))]
     public async Task SerializeThenParse_ManyNaughtyRows_ShouldKeepEveryRowOnItsOwnLine(string naughty)
     {
-        // Arrange — a real artifact is one long file; a length or terminator error in one row
+        // Arrange: a real artifact is one long file; a length or terminator error in one row
         // swallows its neighbours rather than just itself.
         List<ArtifactRow> rows =
         [
@@ -97,7 +97,7 @@ public sealed class TranslationFileNaughtyStringTests
     [InlineData("Multi\nline\r\nPolish\rtext")]
     public async Task SerializeThenParse_ContentCarryingARealNewline_ShouldRoundTripExactly(string content)
     {
-        // Arrange — translator-submitted Polish reaches the serializer raw (the editor is a
+        // Arrange: translator-submitted Polish reaches the serializer raw (the editor is a
         // multi-line textarea and the upsert slice only checks NotEmpty), so the WRITER escapes it
         // (ADR-0039). Before that, a newline split one row into two malformed lines and the fragment
         // silently disappeared from the distributed file (#596).
@@ -118,7 +118,7 @@ public sealed class TranslationFileNaughtyStringTests
     [InlineData(@"\\n")]
     public async Task SerializeThenParse_ContentCarryingALiteralBackslashEscapeSequence_ShouldRoundTripExactly(string content)
     {
-        // Arrange — the other half of #596: the escape escapes its own escape character, so a
+        // Arrange: the other half of #596: the escape escapes its own escape character, so a
         // backslash in front of 'r'/'n' survives instead of unfolding into a control character.
         string file = _serializer.Serialize([Row(620756992, 1001, content, null, null)]);
 
@@ -139,12 +139,12 @@ public sealed class TranslationFileNaughtyStringTests
     [InlineData("|||")]
     public async Task SerializeThenParse_ContentEndingInAnOddNumberOfPipes_ShouldRoundTripExactly(string content)
     {
-        // Arrange — the trailing boundary is found by scanning BACKWARD (ADR-0042), so the last two
-        // pipes of a run are the separator and every earlier one stays content. Split resolved the
-        // boundary greedily left to right, so the last pipe was swallowed and reappeared glued to
-        // the args column — identically in both parsers, which is exactly why the parity guard could
-        // not see it (#597). No entry of the naughty list ends in an odd pipe run, so this collision
-        // has to be composed by hand.
+        // Arrange: the boundary at the end is found by scanning backwards (ADR-0042), so the last two
+        // pipes of a run are the separator and every earlier one is content. Split took the boundary
+        // greedily from the left, so the last pipe was swallowed and turned up stuck to the args column.
+        // Both parsers did the same thing, which is exactly why the parity test could not see it (#597).
+        // No entry in the naughty list ends in an odd number of pipes, so this case has to be built by
+        // hand.
         string file = _serializer.Serialize([Row(620756992, 1001, content, "1-2", "3-4")]);
 
         // Act
@@ -165,7 +165,7 @@ public sealed class TranslationFileNaughtyStringTests
     [InlineData("620756992||1001||Content||ONE||NULL||1", "args_order")]
     public async Task ParseAsync_MalformedArgsColumn_ShouldRejectTheRowInsteadOfStoringItVerbatim(string line, string column)
     {
-        // Act — a value that is neither NULL nor "1-2-3" used to be stored as-is, where it was
+        // Act: a value that is neither NULL nor "1-2-3" used to be stored as-is, where it was
         // unusable as an order and still took part in the import diff (#597, spec 0001).
         ParsedExport parsed = await ParseAsync($"{line}\r\n");
 
@@ -178,7 +178,7 @@ public sealed class TranslationFileNaughtyStringTests
     [MemberData(nameof(NaughtyStringCases.PipeRuns), MemberType = typeof(NaughtyStringCases))]
     public async Task SerializeThenParse_EveryPipeRunUpToSixCharacters_ShouldRoundTripExactly(string content)
     {
-        // Arrange — exhaustive over the alphabet this format is weakest at, in BOTH parities: the
+        // Arrange: exhaustive over the alphabet this format is weakest at, in BOTH parities: the
         // run can sit at the leading boundary, the trailing one, or both at once. The hand-picked
         // cases above only sample it.
         string file = _serializer.Serialize([Row(620756992, 1001, content, "1-2", "3-4")]);
@@ -197,7 +197,7 @@ public sealed class TranslationFileNaughtyStringTests
     [Fact]
     public async Task SerializeThenParse_EmptyContent_ShouldRoundTripAsEmpty()
     {
-        // Arrange — an empty fragment is legal game content and must survive; the naughty list has
+        // Arrange: an empty fragment is legal game content and must survive; the naughty list has
         // no empty entry (its shortest is one character), so this case is composed by hand.
         string file = _serializer.Serialize([Row(620756992, 1001, string.Empty, null, null)]);
 
@@ -213,7 +213,7 @@ public sealed class TranslationFileNaughtyStringTests
     [MemberData(nameof(NaughtyStringCases.NonAsciiDigits), MemberType = typeof(NaughtyStringCases))]
     public async Task ParseAsync_NonAsciiDigitsInTheFileIdColumn_ShouldRejectTheRow(string naughtyDigits)
     {
-        // Act — a fullwidth or Arabic-Indic "number" addresses no real DAT subfile; accepting it
+        // Act: a fullwidth or Arabic-Indic "number" addresses no real DAT subfile; accepting it
         // would attach an import row to the wrong fragment.
         ParsedExport parsed = await ParseAsync($"{naughtyDigits}||1001||Content||NULL||NULL||1\r\n");
 
@@ -238,20 +238,21 @@ public sealed class TranslationFileNaughtyStringTests
     [MemberData(nameof(NaughtyStringCases.All), MemberType = typeof(NaughtyStringCases))]
     public async Task ParseAsync_NaughtyStringInEveryColumn_ShouldAnswerWithErrorsInsteadOfThrowing(string naughty)
     {
-        // Arrange — the whole uploaded line is hostile: both id columns, the content and both args.
+        // Arrange: the whole uploaded line is hostile: both id columns, the content and both args.
         string line = string.Join("||", naughty, naughty, naughty, naughty, naughty, naughty);
 
-        // Act & Assert — a per-line parse error is a legitimate outcome (it is reported back to the
+        // Act & Assert: a per-line parse error is a legitimate outcome (it is reported back to the
         // admin); an escaping exception is not, because it would abort the whole import.
         await Should.NotThrowAsync(() => ParseAsync(line));
     }
 
     /// <summary>
-    /// An artifact row whose <c>source_digest</c> is the digest of its OWN triple. These suites
-    /// exercise text fidelity through the writer/reader pair, and since ADR-0047 the reader verifies
-    /// that column (a wrong-file upload must fail loudly), so an arbitrary digest would reject every
-    /// row before its content was ever compared. A real distributed row carries the digest of the
-    /// ENGLISH instead — the projector's job, pinned by the projector's own tests.
+    /// A row whose <c>source_digest</c> is the digest of its own triple. These tests check that the text
+    /// survives the writer and the reader, and since ADR-0047 the reader also verifies that column,
+    /// because the wrong file must fail loudly. So a random digest would reject every row before its
+    /// content was ever compared.
+    /// A real distributed row carries the digest of the English instead. That is the projector's job and
+    /// is pinned by the projector's own tests.
     /// </summary>
     private static ArtifactRow Row(int fileId, long gossipId, string content, string? argsOrder, string? argsId)
         => new(

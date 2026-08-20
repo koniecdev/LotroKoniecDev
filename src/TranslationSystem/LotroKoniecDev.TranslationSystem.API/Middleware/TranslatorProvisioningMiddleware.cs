@@ -5,18 +5,19 @@ using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.TranslatorAggregate
 namespace LotroKoniecDev.TranslationSystem.API.Middleware;
 
 /// <summary>
-/// Eagerly provisions the TMS-local <c>Translator</c> for an authenticated caller on their first
-/// authenticated request (ADR-0004 amendment 2026-06-24), so a freshly registered and logged-in user
-/// already has a profile before performing any write. Runs only once the request has passed
-/// authentication and authorization (it is wired after <c>UseAuthorization</c>), so a 401/403 short-
-/// circuits before it and an unauthenticated request is skipped. The provisioner is idempotent and
-/// only writes when the claims changed, so steady-state re-touches are a pure read.
+/// Creates the TMS-side <c>Translator</c> for an authenticated caller on their first authenticated
+/// request (ADR-0004, amended 2026-06-24), so a user who just registered and logged in already has a
+/// profile before any write.
+/// It runs only after the request passed authentication and authorization, because it is wired after
+/// <c>UseAuthorization</c>, so a 401 or 403 stops earlier and an anonymous request skips it. The
+/// provisioner is safe to call twice and only writes when the claims changed, so a normal request is
+/// just a read.
 ///
-/// Best-effort by design: a <see cref="Result"/> failure (e.g. a token missing the display-name
-/// claim) is logged and skipped so read endpoints never depend on provisioning succeeding — the
-/// write handlers keep their own authoritative provisioning, which surfaces the error on a write.
-/// A genuine infrastructure fault is not swallowed; it flows through the standard exception pipeline
-/// like any other request.
+/// It only tries its best. A <see cref="Result"/> failure, for example a token with no display-name
+/// claim, is logged and skipped, so read endpoints never depend on provisioning working. The write
+/// handlers do their own provisioning and report the error there.
+/// A real infrastructure fault is not swallowed: it goes through the normal exception pipeline like any
+/// other request.
 /// </summary>
 internal sealed partial class TranslatorProvisioningMiddleware
 {

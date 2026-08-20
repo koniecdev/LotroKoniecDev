@@ -10,17 +10,16 @@ using LotroKoniecDev.SharedKernel.Monads;
 namespace LotroKoniecDev.AuthSystem.API.Services.Emails;
 
 /// <summary>
-/// The business reaction to a consumed <see cref="AccountDeletionScheduled"/> message: load the
-/// user, recompute the deletion date, mint the cancel token at send time (see the payload's
-/// remarks on token lifetime), and dispatch the e-mail with the cancel link. The drift guard
-/// lives here (ADR-0038 decision 2): a cancellation racing this message wins — a stale "your
-/// account will be deleted" must never go out after the schedule is gone.
+/// What happens when an <see cref="AccountDeletionScheduled"/> message arrives: load the user, work
+/// out the deletion date again, create the cancel token now rather than earlier (see the payload's
+/// remarks about token lifetime), and send the e-mail with the cancel link.
+/// The check lives here (ADR-0038 decision 2): if a cancellation arrives at the same time, it wins. An
+/// out-of-date "your account will be deleted" must never go out after the schedule is gone.
 /// </summary>
 /// <remarks>
-/// Delivery is at-least-once (ADR-0035), so this must stay idempotent. It is: a redelivered
-/// message at worst re-sends the e-mail with a fresh, equally valid cancel token — annoying,
-/// never harmful — and every skip branch reads current state, so replays converge on the same
-/// decision.
+/// A message may arrive more than once (ADR-0035), so this has to be safe to run twice. It is: at
+/// worst the e-mail is sent again with a new, equally valid cancel token, which is annoying but
+/// harmless, and every skip case reads the current state, so a repeat reaches the same decision.
 /// </remarks>
 internal sealed partial class AccountDeletionScheduledProcessor : IEmailMessageProcessor
 {
@@ -63,15 +62,15 @@ internal sealed partial class AccountDeletionScheduledProcessor : IEmailMessageP
     }
 
     /// <summary>
-    /// Handles one consumed message end-to-end and returns the acknowledgement decision.
+    /// Handles one message from start to finish and says whether it may be acknowledged.
     /// </summary>
     /// <returns>
-    /// NOT a business outcome — the answer to "does this message need redelivery?". Success means
-    /// "ack, drop it from the queue": either the e-mail went out, or redelivery can never change
-    /// the outcome (user vanished, schedule cancelled in the gap, deletion window already over,
-    /// no address on the account) — nacking those would loop the same message forever. Failure
-    /// means "worth retrying" (e.g. the SMTP relay is down) and drives the consumer's reject +
-    /// requeue.
+    /// This is not a business result. It answers one question: does this message need to be sent
+    /// again? Success means "acknowledge it and drop it from the queue", either because the e-mail went
+    /// out or because sending again could never change anything: the user is gone, the deletion was
+    /// cancelled in the meantime, the grace period is already over, or the account has no address.
+    /// Refusing those would repeat the same message forever. Failure means "worth another try", for
+    /// example when the SMTP relay is down, and the consumer then rejects and requeues it.
     /// </returns>
     public async Task<Result> ProcessAsync(AccountDeletionScheduled message, CancellationToken cancellationToken)
     {
@@ -90,11 +89,11 @@ internal sealed partial class AccountDeletionScheduledProcessor : IEmailMessageP
             return Result.Success();
         }
 
-        // Guards against a much-delayed delivery (a DLQ replay long after the fact): once the
-        // grace window is over the e-mail's "cancel until <date>" is a lie — and erasure keeps
-        // DeletionScheduledAt as its audit trace with a synthetic address on the row, so the
-        // schedule-gone guard above alone would let a post-finalization replay mint a working
-        // cancel token for an anonymized account.
+        // Guards against a delivery that arrives much later, such as a replay from the dead-letter
+        // queue. Once the grace period is over, the e-mail's "cancel until <date>" is wrong. Erasure
+        // also leaves DeletionScheduledAt set, with a made-up address on the row, so the check above
+        // on its own would let a late replay create a working cancel token for an anonymized
+        // account.
         DateTimeOffset finalizesAt = user.DeletionScheduledAt.Value + _gdprSettings.DeletionGracePeriod;
         if (finalizesAt <= _timeProvider.GetUtcNow())
         {

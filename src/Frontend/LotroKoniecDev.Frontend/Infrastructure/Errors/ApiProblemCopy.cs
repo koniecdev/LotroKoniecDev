@@ -5,15 +5,15 @@ using Microsoft.AspNetCore.Mvc;
 namespace LotroKoniecDev.Frontend.Infrastructure.Errors;
 
 /// <summary>
-/// The single source of Polish copy for a failed API call (ADR-0044). The APIs write English —
-/// a domain message keyed by a machine-readable <c>errorCode</c>, or, for a status the
-/// <c>UseStatusCodePages</c> middleware synthesizes, a bare English reason phrase with no code at
-/// all. So the default is to translate, and only a <see cref="ProblemDetails"/> the Frontend
-/// authored itself (via <see cref="FrontendAuthored"/>) is rendered as-is.
+/// The one place the Polish text for a failed API call comes from (ADR-0044). The APIs write English:
+/// either a domain message with a machine-readable <c>errorCode</c>, or, for a status the
+/// <c>UseStatusCodePages</c> middleware produces, a bare English phrase with no code at all.
+/// So the default is to translate, and only a <see cref="ProblemDetails"/> the Frontend wrote itself,
+/// through <see cref="FrontendAuthored"/>, is shown as it is.
 /// <para>
-/// The default runs that way round deliberately: an unrecognised problem degrades to Polish, so a
-/// surface nobody anticipated cannot leak English. Getting the marker wrong shows a generic Polish
-/// sentence instead of a specific one — never the bug this exists to fix.
+/// The default works that way round on purpose: a problem we do not recognise still comes out in Polish,
+/// so a page nobody thought of cannot show English. Getting the marker wrong only shows a general Polish
+/// sentence instead of a specific one, and never the bug this exists to prevent.
 /// </para>
 /// </summary>
 internal static class ApiProblemCopy
@@ -21,33 +21,33 @@ internal static class ApiProblemCopy
     internal const string ErrorCodeExtensionKey = "errorCode";
 
     /// <summary>
-    /// Marks a <see cref="ProblemDetails"/> the Frontend wrote itself — already Polish, already
-    /// user-facing, nothing to translate. Stamped only by <see cref="FrontendAuthored"/> and
-    /// stripped from anything parsed off the wire, so an API body can never claim it.
+    /// Marks a <see cref="ProblemDetails"/> the Frontend wrote itself: already Polish, already meant for
+    /// the user, nothing to translate. Only <see cref="FrontendAuthored"/> sets it, and it is removed
+    /// from anything read off the wire, so an API response can never claim it.
     /// </summary>
     internal const string FrontendAuthoredExtensionKey = "frontendAuthored";
 
     /// <summary>
-    /// Where <see cref="Localize"/> parks the API's own wording. A raw problem body has no
-    /// collapsible block to hide it in, so it moves out of <c>Detail</c> instead of being dropped.
+    /// Where <see cref="Localize"/> puts the API's own wording. A plain problem body has nowhere to hide
+    /// it, so it moves out of <c>Detail</c> instead of being thrown away.
     /// </summary>
     internal const string TechnicalDetailExtensionKey = "technicalDetail";
 
-    /// <summary>The correlation token both APIs stamp on every problem body.</summary>
+    /// <summary>The tracking id both APIs put on every problem body.</summary>
     internal const string TraceIdExtensionKey = "traceId";
 
     /// <summary>
-    /// The last resort: an API-authored failure whose code is unmapped and whose status carries no
-    /// copy either. Reaching it is a gap in <see cref="PolishByErrorCode"/>, and
-    /// <c>ApiProblemAlert</c> logs the code when it does.
+    /// The last resort: a failure from an API whose code has no text here and whose status has none
+    /// either. Reaching it means <see cref="PolishByErrorCode"/> is missing an entry, and
+    /// <c>ApiProblemAlert</c> logs the code when that happens.
     /// </summary>
     internal const string GenericMessage = "Operacja nie powiodła się. Spróbuj ponownie za chwilę.";
 
     /// <summary>
-    /// Polish copy per API error code. Covers every code <c>TranslationSystem.API</c> and
-    /// <c>AuthSystem.API</c> can produce — the domain error catalogues, the per-slice validation
-    /// errors and the shared exception handlers. A code missing here degrades to
-    /// <see cref="PolishByStatusCode"/>, never to the API's English.
+    /// The Polish text for each API error code. It covers every code <c>TranslationSystem.API</c> and
+    /// <c>AuthSystem.API</c> can produce: the domain error lists, the per-slice validation errors and the
+    /// shared exception handlers. A code that is missing here falls back to
+    /// <see cref="PolishByStatusCode"/> and never to the API's English.
     /// </summary>
     private static readonly FrozenDictionary<string, string> PolishByErrorCode =
         new Dictionary<string, string>(StringComparer.Ordinal)
@@ -194,9 +194,9 @@ internal static class ApiProblemCopy
         }.ToFrozenDictionary(StringComparer.Ordinal);
 
     /// <summary>
-    /// The degradation path for an API-authored failure whose code has no copy yet: say what the
-    /// status means in Polish rather than fall back to the API's English. Deliberately outranks the
-    /// call site's own fallback, which only says that something failed.
+    /// The fallback for an API failure whose code has no text yet: say what the status means, in Polish,
+    /// instead of showing the API's English. It deliberately wins over the call site's own fallback,
+    /// which only says that something went wrong.
     /// </summary>
     private static readonly FrozenDictionary<int, string> PolishByStatusCode =
         new Dictionary<int, string>
@@ -220,8 +220,8 @@ internal static class ApiProblemCopy
 
     /// <summary>
     /// Turns a failure into what the page shows. <paramref name="fallbackMessage"/> is the page's own
-    /// contextual Polish sentence, used when there is no problem object at all or when a
-    /// Frontend-authored problem carries no text.
+    /// Polish sentence for this situation, used when there is no problem object at all, or when a problem
+    /// the Frontend wrote carries no text.
     /// </summary>
     public static ApiProblemView Describe(ProblemDetails? problem, string fallbackMessage)
     {
@@ -234,7 +234,7 @@ internal static class ApiProblemCopy
 
         if (IsFrontendAuthored(problem))
         {
-            // Already Polish. Its title and detail are both user-facing, so neither is dropped.
+            // Already Polish. Both the title and the detail are meant for the user, so we keep both.
             return FirstNonBlank(problem.Title) is { } polishTitle
                 ? new ApiProblemView(polishTitle, FirstNonBlank(problem.Detail), null, null)
                 : new ApiProblemView(FirstNonBlank(problem.Detail) ?? fallback, null, null, null);
@@ -248,9 +248,9 @@ internal static class ApiProblemCopy
             return new ApiProblemView(mapped, null, technicalDetail, null);
         }
 
-        // No code at all is the UseStatusCodePages shape — a bare English reason phrase like
-        // "Unauthorized". It degrades exactly like an unmapped code, and is just as untranslatable
-        // by hand, so the status copy answers both.
+        // No code at all is what UseStatusCodePages produces: a bare English phrase such as
+        // "Unauthorized". It is handled exactly like a code we do not know, and it cannot be translated
+        // by hand either, so the text for the status covers both.
         string degraded = problem.Status is { } status && PolishByStatusCode.TryGetValue(status, out string? byStatus)
             ? byStatus
             : fallback;
@@ -259,8 +259,8 @@ internal static class ApiProblemCopy
     }
 
     /// <summary>
-    /// A problem the Frontend wrote for its own reasons — a Polly transport failure, a rel the
-    /// server does not advertise, an inline form guard. Polish by construction, never translated.
+    /// A problem the Frontend created itself: a transport failure from Polly, a rel the server does not
+    /// send, or a check inside a form. It is Polish already and is never translated.
     /// </summary>
     public static ProblemDetails FrontendAuthored(string title, string? detail = null, int? status = null)
         => new()
@@ -272,10 +272,10 @@ internal static class ApiProblemCopy
         };
 
     /// <summary>
-    /// A failure whose body carried nothing to translate — an absent or unparseable error body, such
-    /// as the HTML a reverse proxy answers with when the upstream is down. It stays deliberately
-    /// unmarked so <see cref="Describe"/> degrades it down the status ladder (ADR-0044 §3); marking
-    /// it would assert "already Polish" about a placeholder and skip the ladder entirely (#637).
+    /// A failure whose body had nothing to translate: an error body that was missing or unreadable, such
+    /// as the HTML a reverse proxy sends when the service behind it is down. It is left unmarked on
+    /// purpose, so <see cref="Describe"/> falls back through the status texts (ADR-0044 §3). Marking it
+    /// would claim a placeholder is "already Polish" and skip that fallback entirely (#637).
     /// </summary>
     public static ProblemDetails StatusOnly(int status)
         => new()
@@ -284,8 +284,8 @@ internal static class ApiProblemCopy
         };
 
     /// <summary>
-    /// Removes the Frontend-authored marker from a problem parsed off the wire, so an API response
-    /// carrying that member (ours never does) cannot pass its English through untranslated.
+    /// Removes the Frontend-authored marker from a problem read off the wire, so an API response that
+    /// carries that field, which ours never do, cannot pass its English through untranslated.
     /// </summary>
     public static void StripFrontendAuthoredMarker(ProblemDetails problem)
     {
@@ -298,8 +298,8 @@ internal static class ApiProblemCopy
            && marker is true;
 
     /// <summary>
-    /// The same translation for a route that answers with a raw problem body instead of a rendered
-    /// page — the file-download endpoints, whose failure the browser shows verbatim.
+    /// The same translation for a route that answers with a plain problem body instead of a page, such as
+    /// the file-download endpoints, whose failure the browser shows as it is.
     /// </summary>
     public static ProblemDetails Localize(
         ILoggerFactory loggerFactory,
@@ -325,8 +325,8 @@ internal static class ApiProblemCopy
             localized.Extensions[TechnicalDetailExtensionKey] = technicalDetail;
         }
 
-        // The trace id is the one token that ties a support report to the server-side log; it is the
-        // API's, not ours to mint, so it rides across rather than being rebuilt away.
+        // The trace id is the one value that links a support report to the server log. It belongs to the
+        // API and is not ours to create, so we pass it through instead of losing it.
         if (problem?.Extensions.TryGetValue(TraceIdExtensionKey, out object? traceId) is true)
         {
             localized.Extensions[TraceIdExtensionKey] = traceId;
@@ -336,8 +336,8 @@ internal static class ApiProblemCopy
     }
 
     /// <summary>
-    /// Reports an API error code that shipped before its Polish copy. Shared by both renderers so
-    /// the gap is never silent, whichever surface degraded (ADR-0044 §3).
+    /// Reports an API error code that shipped before its Polish text existed. Both renderers use it, so
+    /// the gap is never silent, whichever page hit it (ADR-0044 §3).
     /// </summary>
     public static void ReportUnmappedErrorCode(ILogger logger, ApiProblemView view, int? status)
     {
@@ -356,8 +356,8 @@ internal static class ApiProblemCopy
             "API error code {ErrorCode} (status {StatusCode}) has no Polish copy; showed the status fallback.");
 
     /// <summary>
-    /// The <c>errorCode</c> arrives as a <see cref="JsonElement"/> when the problem was deserialized
-    /// from the wire and as a plain <see cref="string"/> when it was constructed in-process.
+    /// The <c>errorCode</c> arrives as a <see cref="JsonElement"/> when the problem was read off the
+    /// wire, and as a plain <see cref="string"/> when it was built here.
     /// </summary>
     private static string? ReadErrorCode(ProblemDetails problem)
     {
@@ -377,8 +377,8 @@ internal static class ApiProblemCopy
     }
 
     /// <summary>
-    /// The code and the API's own wording, whichever of the two the problem actually carries.
-    /// A problem with neither (a body-less status) has nothing worth showing.
+    /// The code and the API's own wording, whichever of the two the problem carries. A problem with
+    /// neither, which is a status with no body, has nothing worth showing.
     /// </summary>
     private static string? BuildTechnicalDetail(string? errorCode, ProblemDetails problem)
         => (errorCode, FirstNonBlank(problem.Detail, problem.Title)) switch

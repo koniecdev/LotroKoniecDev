@@ -3,10 +3,9 @@ using FluentValidation;
 namespace LotroKoniecDev.Frontend.Settings;
 
 /// <summary>
-/// Fail-fast startup validation of the OIDC relying-party configuration the Frontend authenticates
-/// translators with (ADR-0008 §3, M6-05). Required in every environment; messages name the full
-/// configuration key so a missing/invalid value aborts boot rather than breaking the login flow at
-/// runtime.
+/// Checks the OIDC settings the Frontend logs translators in with, and stops the boot when they are
+/// wrong (ADR-0008 §3, M6-05). Every environment needs them. The messages name the full configuration
+/// key, so a missing or invalid value fails the boot instead of breaking the login later.
 /// </summary>
 internal sealed class AuthSystemSettingsValidator : AbstractValidator<AuthSystemSettings>
 {

@@ -77,7 +77,7 @@ public sealed class PatchE2ETests
     {
         Skip.If(!_fixture.IsDatFileAvailable, "DAT file not found in TestData/");
 
-        //Arrange — first patch creates backup
+        //Arrange: first patch creates backup
         string tempDatPath = _fixture.CreateTempDatCopy();
         CliResult firstPatch = await _fixture.RunCliAsync(
             $"patch \"{_fixture.TranslationsPolishPath}\" -d \"{tempDatPath}\"");
@@ -86,7 +86,7 @@ public sealed class PatchE2ETests
         string backupPath = tempDatPath + ".backup";
         DateTime backupModifiedAfterFirst = File.GetLastWriteTimeUtc(backupPath);
 
-        //Act — second patch should reuse existing backup
+        //Act: second patch should reuse existing backup
         CliResult secondPatch = await _fixture.RunCliAsync(
             $"patch \"{_fixture.TranslationsPolishPath}\" -d \"{tempDatPath}\"");
 
@@ -101,7 +101,7 @@ public sealed class PatchE2ETests
     {
         Skip.If(!_fixture.IsDatFileAvailable, "DAT file not found in TestData/");
 
-        //Arrange — working dir with translations/polish.txt (mimics production layout)
+        //Arrange: working dir with translations/polish.txt (mimics production layout)
         string workDir = _fixture.CreateTempDir();
         string translationsDir = Path.Combine(workDir, "translations");
         Directory.CreateDirectory(translationsDir);
@@ -109,19 +109,19 @@ public sealed class PatchE2ETests
 
         string tempDatPath = _fixture.CreateTempDatCopy();
 
-        //Act — use short name "polish" (no path separators, no .txt extension)
+        //Act: use short name "polish" (no path separators, no .txt extension)
         CliResult result = await _fixture.RunCliAsync(
             $"patch polish -d \"{tempDatPath}\"",
             workingDirectory: workDir);
 
-        //Assert — should resolve "polish" → "translations/polish.txt" and succeed
+        //Assert: should resolve "polish" → "translations/polish.txt" and succeed
         result.ExitCode.ShouldBe((int)CliExitCode.Success,
             $"Short name 'polish' should resolve to translations/polish.txt. stdout: {result.Stdout}");
     }
 
     /// <summary>
-    /// Option A (#443) feasibility gate on real Windows: the read-write open path must still
-    /// genuinely demand write access — patching a read-only DAT copy fails without changing a byte.
+    /// The feasibility check for option A (#443) on real Windows: the read-write open path must still
+    /// really require write access, so patching a read-only copy of the DAT fails and changes nothing.
     /// </summary>
     [SkippableFact]
     public async Task Patch_ShouldFailAndLeaveDatUnchanged_WhenDatCopyIsReadOnly()
@@ -148,8 +148,8 @@ public sealed class PatchE2ETests
         }
         finally
         {
-            // The .backup copy inherits ReadOnly via File.Copy — clear the attribute on every
-            // file so the fixture's temp-dir cleanup does not fail on Windows.
+            // File.Copy carries the ReadOnly attribute over to the .backup copy, so clear it on every
+            // file, or the fixture's cleanup of the temp directory fails on Windows.
             foreach (string file in Directory.GetFiles(tempDir))
             {
                 File.SetAttributes(file, File.GetAttributes(file) & ~FileAttributes.ReadOnly);

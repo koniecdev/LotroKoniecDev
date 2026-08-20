@@ -77,7 +77,7 @@ public sealed class SortParserTests
     [Fact]
     public void Parse_SkipsEmptyAndKeylessSegments()
     {
-        // Arrange — a stray double comma yields an empty segment; ":desc" has no key.
+        // Arrange: a stray double comma yields an empty segment; ":desc" has no key.
         // Act
         List<SortItem> items = SortParser.Parse("fileId,,:desc, gossipId ").ToList();
 

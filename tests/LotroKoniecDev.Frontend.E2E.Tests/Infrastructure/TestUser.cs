@@ -1,10 +1,10 @@
 namespace LotroKoniecDev.Frontend.E2E.Tests.Infrastructure;
 
 /// <summary>
-/// A freshly-minted, globally-unique account for one registration flow. The username/email carry a
-/// GUID suffix so reruns never collide on the Auth side's uniqueness rules, and the email is routed
-/// to Mailpit (any domain works — nothing leaves the box). There is no phone number: unlike
-/// TheKittySaver, our registration form has no phone field.
+/// A brand-new, unique account for one registration flow. The username and e-mail end in a GUID, so a
+/// rerun never clashes with the auth server's uniqueness rules, and the e-mail goes to Mailpit, where
+/// any domain works because nothing leaves the machine.
+/// There is no phone number: unlike TheKittySaver, our registration form has no phone field.
 /// </summary>
 internal sealed class TestUser
 {

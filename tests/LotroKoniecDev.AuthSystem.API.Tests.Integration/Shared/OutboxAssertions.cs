@@ -6,17 +6,17 @@ using LotroKoniecDev.AuthSystem.Persistence.Outbox;
 namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared;
 
 /// <summary>
-/// Polling helpers over the outbox and inbox tables for tests that assert on the asynchronous
-/// tail of the e-mail pipeline: a request only commits the outbox row (ADR-0038), so everything
-/// after it — publish, delivery, the inbox record — has to be awaited as state, never assumed.
+/// Helpers that poll the outbox and inbox tables, for tests that check the part of the e-mail pipeline
+/// that runs later. A request only commits the outbox row (ADR-0038), so everything after it, the
+/// publish, the delivery and the inbox record, has to be waited for and never assumed.
 /// </summary>
 internal static class OutboxAssertions
 {
     private static readonly TimeSpan DefaultTimeout = TimeSpan.FromSeconds(15);
 
     /// <summary>
-    /// Polls the outbox until a row matches or the timeout passes, then returns the latest
-    /// snapshot (or null) — the assertions on it stay in the test body.
+    /// Polls the outbox until a row matches or the time runs out, then returns what it last read, or
+    /// null. The assertions on it stay in the test itself.
     /// </summary>
     public static async Task<OutboxMessage?> WaitForOutboxRowAsync(
         AuthSystemApiFactory factory,
@@ -43,8 +43,8 @@ internal static class OutboxAssertions
     }
 
     /// <summary>
-    /// Waits until the inbox records the message as processed (the "consumer finished" marker)
-    /// and returns the row count — 0 when the timeout passes first.
+    /// Waits until the inbox records the message as processed, which is how we know the consumer
+    /// finished, and returns the number of rows. It returns 0 when the time runs out first.
     /// </summary>
     public static async Task<int> WaitForInboxRowsAsync(
         AuthSystemApiFactory factory,

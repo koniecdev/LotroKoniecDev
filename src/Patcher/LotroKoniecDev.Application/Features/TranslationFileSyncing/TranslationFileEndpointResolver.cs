@@ -6,21 +6,21 @@ using Microsoft.Extensions.Logging;
 namespace LotroKoniecDev.Application.Features.TranslationFileSyncing;
 
 /// <summary>
-/// Turns the one configured input — the TMS root URL — into the absolute URI the translation file is
-/// downloaded from, by asking the service document for the <c>translation-file</c> link relation.
+/// Turns the one configured input, the TMS root URL, into the absolute URI the translation file is
+/// downloaded from, by looking up the <c>translation-file</c> link relation in the service document.
 /// <para>
-/// Discovery first, cache as the safety net (#611): a stored last-known-good href covers an outage,
-/// but it is never the primary path, and nothing here composes a path of its own. A server that
-/// answers and does <i>not</i> advertise the rel gets no fallback — an absent rel means the endpoint
-/// is not on offer, which is a different statement from "the server is down".
+/// Discovery comes first and the cache is only a safety net (#611). A stored href that worked before
+/// covers an outage, but it is never the first choice, and nothing here builds a path of its own.
+/// A server that answers but does <i>not</i> offer the rel gets no fallback. A missing rel means the
+/// endpoint is not on offer, which is not the same as the server being down.
 /// </para>
 /// </summary>
 internal sealed partial class TranslationFileEndpointResolver : ITranslationFileEndpointResolver
 {
     /// <summary>
-    /// The link relation the TMS advertises its distribution endpoint under. Rel names are a frozen
-    /// public contract (ADR-0041) — this is the one string the CLI is allowed to know, precisely
-    /// because renaming it is the one change the server may never make.
+    /// The link relation the TMS publishes its download endpoint under. Rel names are a fixed public
+    /// contract (ADR-0041). This is the one string the CLI may know, exactly because renaming it is
+    /// the one change the server is never allowed to make.
     /// </summary>
     public const string TranslationFileRel = "translation-file";
 
@@ -79,9 +79,9 @@ internal sealed partial class TranslationFileEndpointResolver : ITranslationFile
         Result<Uri> cached = ValidateHref(baseUri, cachedHref);
         if (cached.IsFailure)
         {
-            // The sidecar is on-disk data, so it is validated exactly like a freshly discovered href
-            // (AUDIT-SEC-07). It also fails here when the operator repointed --tms-url at another
-            // host: the cached endpoint belongs to the old one and must not be reused.
+            // The cached href is data from disk, so it is checked exactly like one just discovered
+            // (AUDIT-SEC-07). It also fails here when someone pointed --tms-url at another host: the
+            // cached endpoint belongs to the old one and must not be reused.
             return Result.Failure<Uri>(DomainErrors.TranslationFileSync.EndpointDiscoveryUnavailable(
                 $"{discoveryError.Message} The cached endpoint could not be reused: {cached.Error.Message}"));
         }
@@ -98,17 +98,17 @@ internal sealed partial class TranslationFileEndpointResolver : ITranslationFile
                 href, "it is not an absolute URI."));
         }
 
-        // Same rule the configured base URL passes through: plain http hands the file to any on-path
-        // attacker (AUDIT-SEC-01), so only loopback — where there is no network hop — may skip TLS.
+        // The same rule the configured base URL passes: over plain http anyone on the path can change
+        // the file (AUDIT-SEC-01), so only loopback may skip TLS, because there is no network hop.
         if (uri.Scheme != Uri.UriSchemeHttps && !(uri.Scheme == Uri.UriSchemeHttp && uri.IsLoopback))
         {
             return Result.Failure<Uri>(DomainErrors.TranslationFileSync.EndpointRejected(
                 href, "only https is allowed (plain http only for localhost)."));
         }
 
-        // The href is attacker-influenceable whenever the base URL is, so the document may move the
-        // path but never the origin: a link pointing anywhere else is a redirect to an arbitrary
-        // host, not an entry point.
+        // Whoever controls the base URL controls this href too, so the document may change the path
+        // but never the origin. A link pointing somewhere else is a redirect to any host at all, not
+        // an entry point.
         if (!string.Equals(uri.Scheme, baseUri.Scheme, StringComparison.Ordinal)
             || !string.Equals(uri.Authority, baseUri.Authority, StringComparison.OrdinalIgnoreCase))
         {

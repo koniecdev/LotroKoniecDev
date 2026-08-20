@@ -13,11 +13,12 @@ using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.TranslationAggregat
 namespace LotroKoniecDev.TranslationSystem.API.Tests.Integration.Tests.CoreLoop;
 
 /// <summary>
-/// Proves the M2 DoD end-to-end through the public HTTP endpoints only — no DB seed helpers for the
-/// translation lifecycle — so the assembled slices (register version, import+diff, list/get, upsert,
-/// approve, distribution) compose into the real admin/translator loop, and the downloaded file
-/// round-trips through the patcher's own parser (the <c>||</c> cross-context contract guard). The
-/// per-endpoint and per-field cases live in the sibling suites; this suite owns the integrated flow.
+/// Proves the M2 definition of done end to end, through the public HTTP endpoints only, with no
+/// database seeding for the translation lifecycle. So the separate slices, registering a version,
+/// importing and diffing, listing and getting, upserting, approving and downloading, really do add up
+/// to the admin and translator loop, and the downloaded file parses with the patcher's own parser,
+/// which guards the <c>||</c> contract between the two contexts.
+/// The per-endpoint and per-field cases live in the other suites; this one owns the whole flow.
 /// </summary>
 [Collection("TranslationApi")]
 public sealed class CoreLoopTests : IAsyncLifetime
@@ -68,9 +69,9 @@ public sealed class CoreLoopTests : IAsyncLifetime
         HttpResponseMessage approve = await admin.PostAsync(ApproveRoute(edited.Id.Value), null);
         approve.StatusCode.ShouldBe(HttpStatusCode.NoContent);
 
-        // Download the distributed file (anonymous): the approved row is in, the untranslated one is
-        // out. The artifact is rebuilt in the background, debounced (PERF-04) — poll until the
-        // approve's rebuild has converged.
+        // Download the distributed file without logging in: the approved row is in it and the
+        // untranslated one is not. The file is rebuilt in the background after a short delay (PERF-04),
+        // so poll until the approve's rebuild has finished.
         (HttpResponseMessage download, string file) = await TranslationFileDownloadPolling.DownloadWhenConvergedAsync(
             _factory.CreateClient(),
             FileRoute,

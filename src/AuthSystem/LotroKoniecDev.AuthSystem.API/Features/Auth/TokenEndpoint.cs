@@ -14,8 +14,8 @@ namespace LotroKoniecDev.AuthSystem.API.Features.Auth;
 internal sealed class TokenEndpoint : IEndpoint
 {
     /// <summary>
-    /// Pre-computed hash for timing-equalization when user is not found.
-    /// Prevents attackers from distinguishing "user not found" from "wrong password" via response time.
+    /// A hash computed up front, so the not-found path takes as long as the normal one. Without it,
+    /// response time would tell an attacker "no such user" from "wrong password".
     /// </summary>
     private static readonly string DummyPasswordHash =
         new PasswordHasher<ApplicationUser>().HashPassword(new ApplicationUser(), "DummyP@ssw0rd!");
@@ -33,8 +33,8 @@ internal sealed class TokenEndpoint : IEndpoint
             return await HandleAuthorizationCodeGrantAsync(httpContext);
         }
 
-        // Password flow is only enabled in Testing environment for integration/E2E tests.
-        // OpenIddict will reject password grant requests in other environments.
+        // The password flow is only on in the Testing environment, for integration and E2E tests.
+        // OpenIddict refuses a password grant anywhere else.
         if (request.IsPasswordGrantType())
         {
             return await HandlePasswordGrantAsync(request, userManager, signInManager);
@@ -78,13 +78,14 @@ internal sealed class TokenEndpoint : IEndpoint
         UserManager<ApplicationUser> userManager,
         SignInManager<ApplicationUser> signInManager)
     {
-        // The OIDC "username" wire parameter is a protocol constant — semantically it carries
-        // the login identifier, which is the e-mail (ADR-0022).
+        // "username" is a fixed name in the OIDC protocol. What it actually carries is the login
+        // identifier, and here that is the e-mail (ADR-0022).
         ApplicationUser? user = await userManager.FindByEmailAsync(request.Username!);
 
         if (user is null)
         {
-            // Perform a dummy password check to prevent timing-based user enumeration
+            // Check a dummy password anyway, so the response time does not reveal whether the user
+            // exists.
             _ = userManager.PasswordHasher.VerifyHashedPassword(
                 new ApplicationUser(), DummyPasswordHash, request.Password!);
             return Results.Problem(
@@ -93,9 +94,9 @@ internal sealed class TokenEndpoint : IEndpoint
                 statusCode: StatusCodes.Status400BadRequest);
         }
 
-        // A deletion-scheduled account is also locked out, so this gate must run before the
-        // lockout-aware sign-in check. The specific error is revealed only after the password
-        // is verified, keeping the endpoint unusable for account-state probing.
+        // An account with a scheduled deletion is also locked out, so this check has to come before
+        // the sign-in check that looks at the lockout. The exact error is only shown after the password
+        // was verified, so this endpoint cannot be used to learn the state of an account.
         if (user.DeletionScheduledAt is not null)
         {
             bool deletionScheduledPasswordValid = await userManager.CheckPasswordAsync(user, request.Password!);
@@ -158,9 +159,9 @@ internal sealed class TokenEndpoint : IEndpoint
                 statusCode: StatusCodes.Status400BadRequest);
         }
 
-        // Refresh tokens are revoked when GDPR deletion is scheduled, but revocation is
-        // best-effort — this gate guarantees a locked or deletion-scheduled account can
-        // never refresh its way back to a usable access token.
+        // Refresh tokens are revoked when a GDPR deletion is scheduled, but that revocation is only
+        // best effort. This check makes sure a locked account, or one waiting for deletion, can never
+        // refresh its way back to a working access token.
         if (user.DeletionScheduledAt is not null || await userManager.IsLockedOutAsync(user))
         {
             return Results.Problem(

@@ -82,7 +82,7 @@ public sealed class GetTranslationTests : IAsyncLifetime
     [Fact]
     public async Task Get_WithInvalidatedRow_ShouldExposePreviousSourceArgsAndTranslation()
     {
-        // Arrange — a row that carried Polish, then a game update reworded its source: NeedsReview,
+        // Arrange: a row that carried Polish, then a game update reworded its source: NeedsReview,
         // with the args columns and the superseded English preserved for side-by-side review. These
         // are the detail endpoint's reason to exist beyond the list item; distinct args values also
         // pin the projection's column order (a swapped ArgsOrder/ArgsId would fail here).

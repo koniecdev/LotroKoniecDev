@@ -1,12 +1,13 @@
 namespace LotroKoniecDev.Frontend.Settings;
 
 /// <summary>
-/// Filesystem directory the Data Protection keyring is persisted to (mounted to a shared
-/// volume in container deployments). Empty is valid in Development: the framework default
-/// location at <c>~/.aspnet/DataProtection-Keys</c> already persists across host restarts, so
-/// dev must not hardcode a container path. A non-dev startup guard rejects an empty value (an
-/// ephemeral keyring in production mass-logs-out users on every deploy because every auth cookie
-/// / antiforgery token / OIDC correlation cookie becomes unreadable).
+/// The directory the Data Protection keyring is written to. In container deployments it is a shared
+/// volume.
+/// It may be empty in Development, because the framework's default location,
+/// <c>~/.aspnet/DataProtection-Keys</c>, already survives a restart, and dev must not hardcode a
+/// container path. Outside development a startup check rejects an empty value: a keyring that lives only
+/// in one process logs every user out on each deploy, because no auth cookie, antiforgery token or OIDC
+/// correlation cookie can be read afterwards.
 /// </summary>
 internal sealed class DataProtectionSettings
 {

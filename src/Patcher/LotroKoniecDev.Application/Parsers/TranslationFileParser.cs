@@ -6,18 +6,18 @@ using LotroKoniecDev.Domain.Models;
 namespace LotroKoniecDev.Application.Parsers;
 
 /// <summary>
-/// Parses translation files in the LOTRO patcher format.
+/// Reads a translation file in the LOTRO patcher format.
 /// </summary>
 /// <remarks>
-/// File format: file_id||gossip_id||content||args_order||args_id||approved||source_digest
-/// Lines starting with # are comments, empty lines are ignored.
-/// The trailing <c>source_digest</c> (ADR-0047) is optional on read: a six-column line parses
-/// exactly as it always did and simply carries no digest, which the patcher's write guard — not
-/// this parser — turns into a skipped row.
-/// Fields are carved by <see cref="TranslationLineCarver"/>, which anchors from both ends
-/// (ADR-0042), so content may contain the separator and may end in any run of <c>|</c>.
-/// Content arrives escaped (ADR-0039) and is unfolded by <see cref="TranslationLineEscaper"/>, so
-/// <see cref="Translation.Content"/> always carries the raw text about to be written into the DAT.
+/// The format is <c>file_id||gossip_id||content||args_order||args_id||approved||source_digest</c>.
+/// A line starting with # is a comment, and empty lines are ignored.
+/// The last field, <c>source_digest</c> (ADR-0047), is optional on read. A six-column line parses as
+/// it always did and simply has no digest. It is the patcher's write guard, not this parser, that
+/// turns such a row into a skipped one.
+/// <see cref="TranslationLineCarver"/> cuts the fields out by working from both ends of the line
+/// (ADR-0042), so the content may hold the separator and may end in any number of <c>|</c>.
+/// The content arrives escaped (ADR-0039) and <see cref="TranslationLineEscaper"/> unescapes it, so
+/// <see cref="Translation.Content"/> always holds the raw text that goes into the DAT.
 /// </remarks>
 public sealed class TranslationFileParser : ITranslationParser
 {
@@ -27,9 +27,9 @@ public sealed class TranslationFileParser : ITranslationParser
     private const char ArgsPositionSeparator = '-';
 
     /// <summary>
-    /// Mirrors the TMS import's own cap (spec 0006): a wholly corrupt file is rejected either way,
-    /// and the cap only bounds how many lines are quoted back. Without it a 790k-row file gone bad
-    /// would print one full-line warning per row to the console.
+    /// The same limit the TMS import uses (spec 0006). A completely broken file is rejected either
+    /// way, and this only limits how many lines are quoted back. Without it, a 790k-row file gone bad
+    /// would print one full-line warning per row.
     /// </summary>
     private const int MaxCollectedWarnings = 100;
 
@@ -76,7 +76,7 @@ public sealed class TranslationFileParser : ITranslationParser
             warnings.Add($"... and {rejectedLineCount - quotedWarnings} more rejected lines (only the first {MaxCollectedWarnings} are listed).");
         }
 
-        // Sort by FileId then GossipId for optimal I/O during patching
+        // Sort by FileId and then GossipId, so patching reads the DAT in order.
         List<Translation> sortedTranslations = translations
             .OrderBy(t => t.FileId)
             .ThenBy(t => t.GossipId)
@@ -132,29 +132,26 @@ public sealed class TranslationFileParser : ITranslationParser
             ArgsOrder = argsOrder,
             ArgsId = argsId,
             IsApproved = carved.Approved == "1",
-            // A missing digest is NOT a parse failure (ADR-0047 §3). Rejecting here would turn a
-            // wholly six-column file into NoTranslationsEveryLineRejected, which the launch path
-            // maps to RepatchFailed and refuses to start the game on — the guard skips such rows
-            // instead, reports them, and lets the launch through.
+            // A missing digest is not a parse error (ADR-0047 §3). Rejecting it here would turn a
+            // file that is six columns throughout into NoTranslationsEveryLineRejected, which the
+            // launch path reads as RepatchFailed and refuses to start the game on. The write guard
+            // skips such rows instead, reports them, and lets the launch go ahead.
             SourceDigest = carved.SourceDigest
         };
 
         return Result.Success(translation);
     }
 
-    /// <summary>
-    /// Determines if a line should be skipped (empty or comment).
-    /// </summary>
     private static bool ShouldSkipLine(string line) =>
         string.IsNullOrWhiteSpace(line) || line.TrimStart().StartsWith('#');
 
     /// <summary>
-    /// Parses an argument column in format "1-2-3" to 0-indexed integers. An absent column
-    /// (<c>NULL</c>, empty or blank) yields <see langword="null"/> arguments and succeeds; anything
-    /// else that is not a <c>-</c>-separated list of ASCII decimal integers fails, so the caller
-    /// rejects and reports the row rather than silently patching it without its argument order
-    /// (ADR-0042). Whether the positions FIT the fragment is checked downstream by
-    /// <c>Fragment.TryReorderArgRefs</c>, which is the only place that knows how many there are.
+    /// Reads an argument column such as "1-2-3" into 0-indexed integers. A column that is absent, so
+    /// <c>NULL</c>, empty or blank, succeeds and gives <see langword="null"/> arguments. Anything else
+    /// that is not a list of ASCII decimal numbers separated by <c>-</c> fails, so the caller rejects
+    /// and reports the row instead of patching it without its argument order (ADR-0042).
+    /// Whether those positions fit the fragment is checked later in
+    /// <c>Fragment.TryReorderArgRefs</c>, the only place that knows how many arguments there are.
     /// </summary>
     private static bool TryParseArgsArray(string value, out int[]? args)
     {
@@ -171,8 +168,8 @@ public sealed class TranslationFileParser : ITranslationParser
 
         for (int index = 0; index < positions.Length; index++)
         {
-            // NumberStyles.None on purpose: no sign (the '-' is the separator), no surrounding
-            // whitespace, ASCII digits only. An overflowing position fails here too.
+            // NumberStyles.None on purpose: no sign, because '-' is the separator, no spaces around
+            // the number, ASCII digits only. A number too large for an int fails here as well.
             if (!int.TryParse(positions[index], NumberStyles.None, CultureInfo.InvariantCulture, out int position))
             {
                 return false;

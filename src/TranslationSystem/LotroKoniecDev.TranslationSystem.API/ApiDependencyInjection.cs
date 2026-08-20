@@ -60,21 +60,21 @@ internal static class ApiDependencyInjection
             {
                 jsonOptions.SerializerOptions.Converters.Add(new JsonStringEnumConverter());
             });
-            // Registers ILinkFactory, IHttpContextAccessor, the fallback IProblemDetailsWriter
-            // for the HATEOAS vendor media type, and the JsonTypeInfo modifier that strips
-            // empty 'links' arrays from plain-JSON responses. Must follow AddProblemDetails()
-            // so ASP.NET Core's default writer handles plain JSON / RFC 7807 Accept values first.
+            // Registers ILinkFactory, IHttpContextAccessor, the fallback IProblemDetailsWriter for our
+            // vendor media type, and the JsonTypeInfo modifier that hides empty 'links' arrays in plain
+            // JSON. It has to come after AddProblemDetails(), so ASP.NET Core's own writer keeps the
+            // plain JSON and RFC 7807 Accept values.
             services.AddHateoasInfrastructure();
 
-            // Cross-cutting clock shared by every command handler that stamps timestamps
-            // (import diff, translation upsert, …) — registered once at the API root, not per feature.
+            // The clock every command handler that writes a timestamp uses, such as the import diff and
+            // the translation upsert. It is registered once here and not per feature.
             services.AddSingleton(TimeProvider.System);
 
-            // L1-only HybridCache (PERF-07): no IDistributedCache is registered, so it falls back to
-            // its in-memory store — the translator-provisioning lookup that runs on every authenticated
-            // request is process-local and tiny, and a distributed backend would add latency for no
-            // gain. Mirrors TheKittySaver's AuthSystem HybridCache setup; the short TTL is set here as
-            // the default and restated at the provisioning call site.
+            // An in-memory HybridCache only (PERF-07). No IDistributedCache is registered, so it uses
+            // its in-memory store. The translator lookup that runs on every authenticated request is
+            // small and local to this process, and a shared cache would only add latency.
+            // This mirrors TheKittySaver's AuthSystem HybridCache setup. The short TTL is the default
+            // here and is written out again where provisioning uses it.
             services.AddHybridCache(options =>
             {
                 options.MaximumPayloadBytes = 1024 * 64;
@@ -106,9 +106,9 @@ internal static class ApiDependencyInjection
                     $"{ImportSettings.ConfigurationSection}:{nameof(ImportSettings.ApplyChunkSize)} must be at least 1.")
                 .ValidateOnStart();
 
-            // The import is the only multipart endpoint, so lifting the global multipart form-length
-            // limit to the configured upload ceiling is safe and keeps it in step with the endpoint's
-            // request-body limit — otherwise the framework's 128 MB default would cap a larger ceiling
+            // The import is the only multipart endpoint, so raising the global multipart limit to the
+            // configured upload size is safe and keeps it in step with the endpoint's own request-body
+            // limit. Without it the framework's 128 MB default would cut a larger limit short
             // (spec 0003, #208).
             services.AddOptions<FormOptions>()
                 .Configure<IOptions<ImportSettings>>((formOptions, importSettings) =>
@@ -162,14 +162,17 @@ internal static class ApiDependencyInjection
 
         private void AddTranslationFilesFeature()
         {
-            // Serializer + projector are stateless except the projector's single-flight gate, so both
-            // are singletons; the projector resolves scoped EF services through a fresh scope.
+            // The serializer and the projector hold no state, apart from the projector's gate that lets
+            // one rebuild run at a time, so both are singletons. The projector opens its own scope to
+            // resolve the scoped EF services.
             services.AddSingleton<ITranslationFileSerializer, TranslationFileSerializer>();
             services.AddSingleton<IPrecomputedTranslationFileProjector, PrecomputedTranslationFileProjector>();
 
-            // Debounced background rebuild (PERF-04, ADR-0021): write handlers signal the scheduler;
-            // the worker coalesces the signals and drives the projector on the host lifetime. The
-            // worker needs the scheduler's channel reader, hence the concrete singleton + forward.
+            // The background rebuild waits a moment before it runs (PERF-04, ADR-0021). Write handlers
+            // signal the scheduler, and the worker collects those signals into one rebuild and runs the
+            // projector for as long as the host lives. The worker needs the scheduler's channel reader,
+            // which is why the concrete type is registered as a singleton and the interface points at
+            // it.
             services.AddOptions<TranslationFileRebuildSettings>()
                 .BindConfiguration(TranslationFileRebuildSettings.ConfigurationSection)
                 .Validate(
@@ -182,9 +185,9 @@ internal static class ApiDependencyInjection
                 serviceProvider.GetRequiredService<TranslationFileRebuildScheduler>());
             services.AddHostedService<TranslationFileRebuildWorker>();
 
-            // One-shot catch-up for a stored artifact written before ADR-0047's source_digest column
-            // (Consequences — "Deploy ordering"): without it an upgraded CLI patches nothing until
-            // the next approve happens to rebuild the artifact.
+            // A one-off catch-up for a stored artifact written before ADR-0047 added the source_digest
+            // column (see "Deploy ordering" in its Consequences). Without it an updated CLI patches
+            // nothing until the next approve rebuilds the artifact.
             services.AddHostedService<TranslationFileFormatUpgradeService>();
 
             services.AddScoped<
@@ -218,8 +221,8 @@ internal static class ApiDependencyInjection
             services.AddSingleton<IValidator<AuthSettings>, AuthSettingsValidator>();
             services.AddOptionsWithFluentValidation<AuthSettings>(AuthSettings.ConfigurationSection);
 
-            // Standard JWT Bearer authentication against the AuthSystem (OpenIddict) issuer —
-            // avoids OpenIddict's scope permission validation which is hard to configure.
+            // Plain JWT Bearer authentication against the AuthSystem (OpenIddict) issuer. It avoids
+            // OpenIddict's own scope permission checks, which are hard to configure.
             services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
                 .AddJwtBearer();
 
@@ -228,8 +231,8 @@ internal static class ApiDependencyInjection
                 {
                     AuthSettings settings = authSettingsAccessor.Value;
 
-                    // In containerized environments, internal service-to-service communication uses HTTP.
-                    // HTTPS is terminated at the ingress/load balancer level.
+                    // In containers the services talk to each other over plain HTTP. HTTPS ends at the
+                    // ingress or load balancer.
                     bool requireHttps = !environment.IsDevelopment()
                                         && !environment.IsTesting()
                                         && settings.Issuer.StartsWith("https://", StringComparison.OrdinalIgnoreCase);
@@ -238,8 +241,8 @@ internal static class ApiDependencyInjection
                     options.Audience = settings.Audience;
                     options.RequireHttpsMetadata = requireHttps;
 
-                    // Disable default claim type mapping so OpenIddict claim types
-                    // (sub, name, role) are preserved as-is in the ClaimsPrincipal.
+                    // Turn off the default claim renaming, so the OpenIddict claim names (sub, name,
+                    // role) reach the ClaimsPrincipal unchanged.
                     options.MapInboundClaims = false;
 
                     options.TokenValidationParameters = new TokenValidationParameters
@@ -254,7 +257,7 @@ internal static class ApiDependencyInjection
                         RoleClaimType = "role"
                     };
 
-                    // Fetch signing keys from JWKS endpoint
+                    // Read the signing keys from the JWKS endpoint.
                     options.ConfigurationManager = new ConfigurationManager<OpenIdConnectConfiguration>(
                         $"{settings.EffectiveAuthority.TrimEnd('/')}/.well-known/openid-configuration",
                         new OpenIdConnectConfigurationRetriever(),
@@ -272,9 +275,9 @@ internal static class ApiDependencyInjection
 
         private void AddAuthorizationPolicies()
         {
-            // Endpoints are authorized by default (house rule): any endpoint without explicit
-            // authorization metadata requires an authenticated user. Public endpoints opt out
-            // explicitly with AllowAnonymous (health checks, future export download).
+            // Endpoints require a logged-in user by default (house rule): any endpoint without its own
+            // authorization metadata is closed. A public endpoint says so with AllowAnonymous, as the
+            // health checks do.
             services.AddAuthorizationBuilder()
                 .SetFallbackPolicy(new AuthorizationPolicyBuilder()
                     .RequireAuthenticatedUser()
@@ -295,9 +298,9 @@ internal static class ApiDependencyInjection
 
         private static bool HasScope(System.Security.Claims.ClaimsPrincipal user, string requiredScope)
         {
-            // OAuth2 scopes can be:
-            // 1. Space-separated in a single "scope" claim (OAuth2 standard)
-            // 2. Multiple individual "scope" claims (some identity providers)
+            // OAuth2 scopes arrive in one of two shapes:
+            // 1. Several scopes in one "scope" claim, separated by spaces, which is the standard.
+            // 2. One "scope" claim per scope, which some identity providers send.
             IEnumerable<System.Security.Claims.Claim> scopeClaims = user.FindAll("scope");
 
             foreach (System.Security.Claims.Claim claim in scopeClaims)

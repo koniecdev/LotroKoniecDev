@@ -15,9 +15,9 @@ using LotroKoniecDev.SharedKernel.StronglyTypedIds;
 namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Tests.Auth;
 
 /// <summary>
-/// Drives the grace-period finalization through its scoped entry point
-/// (<see cref="IAccountDeletionFinalizer"/>) — the hosted service merely calls it on a
-/// timer — and asserts the observable outcome: anonymized rows and dead logins.
+/// Runs the finalization that happens after the grace period through its own entry point,
+/// <see cref="IAccountDeletionFinalizer"/>, which is all the hosted service does on its timer, and
+/// checks the result: anonymized rows and logins that no longer work.
 /// </summary>
 public sealed class AccountDeletionFinalizerTests : EndpointsTestBase
 {
@@ -72,7 +72,7 @@ public sealed class AccountDeletionFinalizerTests : EndpointsTestBase
     [Fact]
     public async Task Finalizer_ShouldNotTouchAccount_BeforeGracePeriodElapses()
     {
-        // Arrange — freshly scheduled, still well inside the 14-day window
+        // Arrange: freshly scheduled, still well inside the 14-day window
         (RegisterRequest registerRequest, IdentityId identityId) = await RegisterAndScheduleDeletionAsync();
 
         // Act
@@ -97,7 +97,7 @@ public sealed class AccountDeletionFinalizerTests : EndpointsTestBase
         int firstRunCount = await RunFinalizerAsync();
         int secondRunCount = await RunFinalizerAsync();
 
-        // Assert — the second run sees the anonymization marker and skips the account
+        // Assert: the second run sees the anonymization marker and skips the account
         firstRunCount.ShouldBe(1);
         secondRunCount.ShouldBe(0);
     }
@@ -105,7 +105,7 @@ public sealed class AccountDeletionFinalizerTests : EndpointsTestBase
     [Fact]
     public async Task Finalizer_ShouldIgnoreAccounts_WithoutScheduledDeletion()
     {
-        // Arrange — a healthy account, never scheduled
+        // Arrange: a healthy account, never scheduled
         (RegisterRequest registerRequest, IdentityId identityId) =
             await UserFactory.RegisterRandomUserWithRequestAsync(ApiClient, Faker, AccountConfirmationEmailSpy, TestPassword);
 

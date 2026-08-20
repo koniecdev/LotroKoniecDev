@@ -18,14 +18,15 @@ using Microsoft.Extensions.DependencyInjection;
 namespace LotroKoniecDev.TranslationSystem.API.Tests.Integration.Tests.Concurrency;
 
 /// <summary>
-/// Concurrency guards at the HTTP seam (mirrors the AuthSystem ConcurrencyEndpointsTests). Two write
-/// paths are stressed under a parallel fan-out of identical requests sharing one authenticated
-/// identity: parallel upsert of the same fragment, and double-approve of the same row. Both exercise
-/// the lazy-provisioning first-write race (ADR-0004), and approve additionally floods the artifact
-/// rebuild scheduler (PERF-04: the burst coalesces into a debounced background rebuild) — none of
-/// which may surface a 500. With the xmin optimistic-concurrency token (AUDIT-EF-01) the racing
-/// writers no longer silently overwrite each other: at least one commits and the rest resolve as
-/// clean 409 conflicts. The token itself is proven deterministically in TranslationConcurrencyTokenTests.
+/// Concurrency checks at the HTTP level, like the AuthSystem's ConcurrencyEndpointsTests. Two write
+/// paths are hit with many identical requests at once, all from the same logged-in user: upserting the
+/// same fragment, and approving the same row twice.
+/// Both hit the race where the profile is created on first use (ADR-0004), and approve also floods the
+/// rebuild scheduler, where the burst turns into one background rebuild (PERF-04). None of that may
+/// produce a 500.
+/// With the xmin concurrency token (AUDIT-EF-01) the racing writers no longer overwrite each other
+/// silently: at least one commits and the rest come back as clean 409 conflicts. The token itself is
+/// proven step by step in TranslationConcurrencyTokenTests.
 /// </summary>
 [Collection("TranslationApi")]
 public sealed class ConcurrencyEndpointsTests : IAsyncLifetime
@@ -62,7 +63,7 @@ public sealed class ConcurrencyEndpointsTests : IAsyncLifetime
     [Fact]
     public async Task ConcurrentUpsert_SameFragmentByOneNewIdentity_ShouldSerializeToWinnersAndProvisionExactlyOneTranslator()
     {
-        // Arrange — one untranslated row and a single never-before-seen identity firing every write,
+        // Arrange: one untranslated row and a single never-before-seen identity firing every write,
         // so the lazy-provisioning insert races with itself.
         await SeedUntranslatedRowAsync(gossipId: 1);
         using HttpClient client = TranslatorClient(Guid.NewGuid());
@@ -73,7 +74,7 @@ public sealed class ConcurrencyEndpointsTests : IAsyncLifetime
             .ToArray();
         HttpResponseMessage[] responses = await Task.WhenAll(tasks);
 
-        // Assert — the xmin token (AUDIT-EF-01) serializes the racing writers instead of letting them
+        // Assert: the xmin token (AUDIT-EF-01) serializes the racing writers instead of letting them
         // silently overwrite each other: at least one commits and every loser is a clean 409 (never a
         // 500). The row settles Draft, and the unique identity index plus the first-write-race re-read
         // still converge on exactly one Translator.
@@ -93,7 +94,7 @@ public sealed class ConcurrencyEndpointsTests : IAsyncLifetime
     [Fact]
     public async Task ConcurrentApprove_SameDraftRow_ShouldSerializeToWinnersAndEndApproved()
     {
-        // Arrange — a single draft row, every approve fired by one admin identity in parallel.
+        // Arrange: a single draft row, every approve fired by one admin identity in parallel.
         Guid id = await SeedDraftRowAsync(gossipId: 2, polish: "Witaj");
         using HttpClient client = AdminClient(Guid.NewGuid());
 
@@ -103,7 +104,7 @@ public sealed class ConcurrencyEndpointsTests : IAsyncLifetime
             .ToArray();
         HttpResponseMessage[] responses = await Task.WhenAll(tasks);
 
-        // Assert — the xmin token (AUDIT-EF-01) serializes the racing approves rather than letting each
+        // Assert: the xmin token (AUDIT-EF-01) serializes the racing approves rather than letting each
         // blindly re-stamp the row: at least one publishes and every loser is a clean 409 (never a 500).
         // The row settles Approved and the admin approver is provisioned once (the seeded submitter is
         // the only other Translator).

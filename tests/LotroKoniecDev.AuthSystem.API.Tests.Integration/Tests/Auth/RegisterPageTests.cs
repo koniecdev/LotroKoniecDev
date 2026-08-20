@@ -113,9 +113,9 @@ public sealed partial class RegisterPageTests : EndpointsTestBase
 
         string html = await response.Content.ReadAsStringAsync();
         html.ShouldContain("register-accept-terms");
-        // The frontend terms URL derives from the web client's first post-logout redirect URI
-        // (AuthSystemApiFactory configures https://localhost:5001) — a regression to the linkless
-        // fallback would ship a consent checkbox referencing terms the registrant cannot open.
+        // The terms URL comes from the web client's first post-logout redirect URI, which
+        // AuthSystemApiFactory sets to https://localhost:5001. If it fell back to the version without a
+        // link, the consent checkbox would point at terms the person registering cannot open.
         html.ShouldContain("""<a href="https://localhost:5001/regulamin" target="_blank" rel="noopener">regulamin serwisu</a>""");
     }
 
@@ -136,7 +136,7 @@ public sealed partial class RegisterPageTests : EndpointsTestBase
         // Act
         HttpResponseMessage response = await PostToRegisterPageAsync(form);
 
-        // Assert — the explicit Polish charset rule, never the misleading password hint
+        // Assert: the explicit Polish charset rule, never the misleading password hint
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
 
         string html = await response.Content.ReadAsStringAsync();

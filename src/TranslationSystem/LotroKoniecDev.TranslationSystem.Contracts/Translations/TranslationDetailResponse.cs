@@ -5,12 +5,11 @@ using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.TranslationAggregat
 namespace LotroKoniecDev.TranslationSystem.Contracts.Translations;
 
 /// <summary>
-/// A single translation in full: the English source plus its argument columns (for placeholder
-/// validation), the current Polish, the superseded English kept for side-by-side review when a
-/// game update invalidated the row, the workflow status, the translator who last submitted Polish
-/// (<c>null</c> while still untranslated) and the reviewer who last approved it (<c>null</c> until
-/// first approved). Submitter / approver carry their display name (ADR-0004) for the editor. Backs
-/// the side-by-side editor.
+/// One translation with everything the editor needs: the English source and its argument columns
+/// (used to check the placeholders), the current Polish, the old English kept for comparison when a
+/// game update invalidated the row, the status, the translator who last sent Polish (<c>null</c>
+/// while the row is untranslated) and the reviewer who last approved it (<c>null</c> before the first
+/// approval). Both people carry their display name (ADR-0004).
 /// </summary>
 public sealed record TranslationDetailResponse(
     TranslationId Id,

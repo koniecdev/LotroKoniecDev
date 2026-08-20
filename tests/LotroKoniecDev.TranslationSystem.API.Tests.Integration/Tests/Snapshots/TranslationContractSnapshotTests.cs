@@ -16,19 +16,20 @@ using Microsoft.Extensions.DependencyInjection;
 namespace LotroKoniecDev.TranslationSystem.API.Tests.Integration.Tests.Snapshots;
 
 /// <summary>
-/// Pins the <em>whole</em> shape of the translation read endpoints (#571) — every property name, the
-/// nesting, the JSON types and the complete HATEOAS link set — where the behavioral suites assert only
-/// the handful of fields each of them is about. An accidental contract change (a renamed property, a
-/// dropped link, a nested object flattened) fails here until the verified file is re-accepted in the
-/// same PR, which makes the break visible in review instead of silent.
+/// Pins the whole shape of the translation read endpoints (#571): every property name, the nesting, the
+/// JSON types and the full set of links. The behavioural suites only check the few fields each of them
+/// is about.
+/// An accidental change to the contract, such as a renamed property, a dropped link or a nested object
+/// flattened, fails here until the new verified file is accepted in the same PR, which makes the change
+/// visible in review instead of silent.
 /// </summary>
 /// <remarks>
-/// The seed is three rows on purpose, not one: it lets a single fixture cover the populated row, the
-/// null-heavy untranslated row, a middle page (where <c>previous-page</c> / <c>next-page</c> are the
-/// links most likely to regress unnoticed) and the empty envelope. Snapshots complement the behavioral
-/// asserts, they do not replace them — <c>TranslationAggregateHateoasTests</c> still owns the
-/// role-aware and state-aware link rules, because those are statements about behavior across many
-/// inputs, not about the shape of one payload.
+/// The seed has three rows on purpose. That lets one fixture cover a filled row, an untranslated row
+/// full of nulls, a middle page, where <c>previous-page</c> and <c>next-page</c> are the links most
+/// likely to break unnoticed, and an empty response.
+/// Snapshots go next to the behavioural assertions and do not replace them.
+/// <c>TranslationAggregateHateoasTests</c> still owns the rules about roles and state, because those are
+/// statements about behaviour across many inputs and not about the shape of one payload.
 /// </remarks>
 [Collection("TranslationApi")]
 public sealed class TranslationContractSnapshotTests : IAsyncLifetime

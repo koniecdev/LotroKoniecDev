@@ -12,21 +12,21 @@ using Microsoft.Extensions.Caching.Hybrid;
 namespace LotroKoniecDev.TranslationSystem.API.Features.Translations;
 
 /// <summary>
-/// The mini-dashboard's progress counters (M3-05): total / translated / approved / remaining over the
-/// active (non-removed) catalog. Reads the POCO read model — never the write aggregate (CQRS, ADR-0002
-/// amendment) — with a single grouped count per <see cref="TranslationStatus"/>, then buckets in
-/// memory, so it stays one cheap round-trip regardless of catalog size. Counters only, by design
-/// (YAGNI — not analytics).
+/// The progress counters on the mini-dashboard (M3-05): total, translated, approved and remaining over
+/// the catalog rows that are not removed. It reads the read model and never the write aggregate (CQRS,
+/// ADR-0002 amendment), with one grouped count per <see cref="TranslationStatus"/> that is then summed
+/// in memory, so it stays one cheap query however large the catalog is. Counters only, on purpose. This
+/// is not analytics.
 ///
-/// Served from a short-TTL <see cref="HybridCache"/> entry (AUDIT-EF-04/#354) under its own key —
-/// deliberately not shared with <see cref="Progress.GetPublicProgress"/>: the slices stay
-/// independent and their responses differ; the cost is one extra grouped scan per TTL window.
+/// The result is cached in a short-lived <see cref="HybridCache"/> entry (AUDIT-EF-04, #354) under its
+/// own key, deliberately not shared with <see cref="Progress.GetPublicProgress"/>. The two endpoints
+/// stay independent and their responses differ. The cost is one extra grouped scan per cache window.
 /// </summary>
 internal sealed class GetTranslationStats : IEndpoint
 {
     /// <summary>
-    /// One entry for the whole dashboard — the counters are catalog-wide, not per user. Internal so
-    /// the integration-test reset can evict it alongside its TRUNCATE.
+    /// One entry for the whole dashboard, because the counters cover the catalog and not a single user.
+    /// It is internal so the integration tests can clear it together with their TRUNCATE.
     /// </summary>
     internal const string CounterCacheKey = "translation-stats";
 
@@ -35,8 +35,8 @@ internal sealed class GetTranslationStats : IEndpoint
     internal sealed class Handler : IQueryHandler<Query, Result<TranslationStatsResponse>>
     {
         /// <summary>
-        /// Bounded staleness on counters is fine (same philosophy as the ADR-0021 debounce); 30 s
-        /// keeps the dashboard responsive after an approve while deduplicating request bursts.
+        /// Slightly old counters are fine here, the same idea as the delay in ADR-0021. With 30 seconds
+        /// the dashboard still reacts quickly to an approve while a burst of requests costs one scan.
         /// </summary>
         private static readonly HybridCacheEntryOptions CounterTtlEntryOptions = new()
         {
@@ -66,10 +66,10 @@ internal sealed class GetTranslationStats : IEndpoint
         }
 
         /// <summary>
-        /// Computes on its OWN scope, never the calling request's: HybridCache runs ONE factory for
-        /// all concurrently joined callers, and the initiating request can abort — disposing its
-        /// request-scoped read context — while others stay joined. A fresh scope keeps the shared
-        /// computation alive for the survivors instead of faulting them with a disposed context.
+        /// This runs in its own scope and never in the calling request's. HybridCache runs one factory
+        /// for every caller waiting on the same key, and the request that started it can be cancelled,
+        /// which disposes its read context, while the others are still waiting. A fresh scope keeps the
+        /// shared work alive for them instead of failing on a disposed context.
         /// </summary>
         private async ValueTask<TranslationStatsResponse> ComputeStatsAsync(CancellationToken cancellationToken)
         {
@@ -86,11 +86,10 @@ internal sealed class GetTranslationStats : IEndpoint
             int total = countByStatus.Values.Sum();
             int approved = countByStatus.GetValueOrDefault(TranslationStatus.Approved);
 
-            // "Translated" = the rows that carry Polish content. The domain only reaches Draft,
-            // Approved or NeedsReview once Polish exists (Translation.ProvideTranslation / Approve /
-            // ApplySourceChange), so summing exactly those three buckets matches the contract by
-            // construction — rather than "everything but Untranslated", which would also fold in any
-            // future status.
+            // "Translated" means the rows that hold Polish. A row only reaches Draft, Approved or
+            // NeedsReview once there is Polish, through Translation.ProvideTranslation, Approve or
+            // ApplySourceChange, so adding exactly those three matches the contract. Counting
+            // "everything except Untranslated" would also pick up any status added later.
             int translated =
                 countByStatus.GetValueOrDefault(TranslationStatus.Draft)
                 + approved

@@ -25,8 +25,8 @@ public sealed class OpenIddictSettingsValidatorTests
     private const string ValidApiClientSecret = "a-strong-and-sufficiently-long-secret-value";
     private const string ValidIssuer = "https://auth.lotro-translator.pl";
 
-    // Redirect URIs are full callback URLs (path included), so they are validated as absolute http(s)
-    // URLs — not as bare CORS origins.
+    // A redirect URI is a full callback URL with a path, so it is checked as an absolute http or https
+    // URL and not as a plain CORS origin.
     private static readonly string[] ValidRedirectUris = ["https://lotro-translator.pl/callback"];
     private static readonly string[] ValidPostLogoutRedirectUris = ["https://lotro-translator.pl"];
 

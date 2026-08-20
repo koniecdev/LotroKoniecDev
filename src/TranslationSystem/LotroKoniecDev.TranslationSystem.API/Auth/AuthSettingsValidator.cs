@@ -3,11 +3,11 @@ using FluentValidation;
 namespace LotroKoniecDev.TranslationSystem.API.Auth;
 
 /// <summary>
-/// Fail-fast startup validation of the JWT bearer settings the TMS uses to validate AuthSystem
-/// (OpenIddict) tokens (ADR-0008 §3, M6-05). Issuer + Audience are required in every environment —
-/// the dev compose and Testing harness both need a configured issuer — so the rules are
-/// unconditional; messages name the full configuration key so a missing value aborts boot rather
-/// than rejecting every request at runtime.
+/// Checks the JWT bearer settings the TMS uses to validate AuthSystem (OpenIddict) tokens, and stops
+/// the boot when they are wrong (ADR-0008 §3, M6-05). Issuer and Audience are required in every
+/// environment, because the dev compose stack and the test harness both need an issuer, so there is no
+/// exception. The messages name the full configuration key, so a missing value fails the boot instead
+/// of rejecting every request later.
 /// </summary>
 internal sealed class AuthSettingsValidator : AbstractValidator<AuthSettings>
 {

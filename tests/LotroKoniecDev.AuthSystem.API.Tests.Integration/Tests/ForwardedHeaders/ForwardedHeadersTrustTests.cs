@@ -15,14 +15,15 @@ using JsonOptions = Microsoft.AspNetCore.Http.Json.JsonOptions;
 namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Tests.ForwardedHeaders;
 
 /// <summary>
-/// Proves the forwarded-header TRUST boundary (#399): when <c>ForwardedHeaders:KnownNetworks</c>
-/// is configured, <c>X-Forwarded-*</c> is honoured only from peers inside those CIDRs — a spoofed
-/// header from anywhere else is ignored — and a malformed CIDR aborts boot instead of silently
-/// widening trust. The observable seam is the same as <see cref="ForwardedHeadersTests"/>: the
-/// anonymous discovery document's scheme-derived HATEOAS links. The peer address is injected by a
-/// first-in-pipeline middleware (an <see cref="IStartupFilter"/>), because the in-memory TestServer
-/// connection carries no RemoteIpAddress — and the middleware skips the known-proxy check entirely
-/// for address-less connections.
+/// Proves who the forwarded headers are trusted from (#399). When
+/// <c>ForwardedHeaders:KnownNetworks</c> is set, <c>X-Forwarded-*</c> is only read from peers inside
+/// those networks, a faked header from anywhere else is ignored, and a malformed network stops the boot
+/// instead of quietly trusting more.
+/// We look at the same thing as <see cref="ForwardedHeadersTests"/>: the public discovery document's
+/// links, which are built from the scheme.
+/// The peer address is set by a middleware that runs first, an <see cref="IStartupFilter"/>, because an
+/// in-memory TestServer connection has no RemoteIpAddress, and the middleware skips the trust check
+/// completely for a connection without one.
 /// </summary>
 [Collection("AuthApi")]
 public sealed class ForwardedHeadersTrustTests
@@ -44,7 +45,7 @@ public sealed class ForwardedHeadersTrustTests
     [Fact]
     public async Task Discovery_SpoofedForwardedProtoFromPeerOutsideKnownNetworks_KeepsHttpLinks()
     {
-        // Arrange — 203.0.113.7 (TEST-NET-3) is outside the trusted proxy subnet.
+        // Arrange: 203.0.113.7 (TEST-NET-3) is outside the trusted proxy subnet.
         using WebApplicationFactory<Program> factory =
             FactoryWithKnownNetworks(TrustedProxyCidr, peerAddress: "203.0.113.7");
         using HttpRequestMessage request = HateoasRequest();
@@ -53,7 +54,7 @@ public sealed class ForwardedHeadersTrustTests
         // Act
         DiscoveryResponse response = await SendDiscoveryAsync(factory, request);
 
-        // Assert — the spoofed proto must NOT flip the scheme.
+        // Assert: the spoofed proto must NOT flip the scheme.
         response.Links.ShouldNotBeEmpty();
         foreach (LinkDto link in response.Links)
         {
@@ -65,7 +66,7 @@ public sealed class ForwardedHeadersTrustTests
     [Fact]
     public async Task Discovery_ForwardedProtoFromPeerInsideKnownNetworks_BuildsHttpsLinks()
     {
-        // Arrange — the peer sits inside the trusted proxy subnet, like the real ingress hop.
+        // Arrange: the peer sits inside the trusted proxy subnet, like the real ingress hop.
         using WebApplicationFactory<Program> factory =
             FactoryWithKnownNetworks(TrustedProxyCidr, peerAddress: "10.60.0.5");
         using HttpRequestMessage request = HateoasRequest();
@@ -74,7 +75,7 @@ public sealed class ForwardedHeadersTrustTests
         // Act
         DiscoveryResponse response = await SendDiscoveryAsync(factory, request);
 
-        // Assert — restricting trust must not break the legitimate proxy path.
+        // Assert: restricting trust must not break the legitimate proxy path.
         response.Links.ShouldNotBeEmpty();
         foreach (LinkDto link in response.Links)
         {
@@ -86,7 +87,7 @@ public sealed class ForwardedHeadersTrustTests
     [Fact]
     public async Task Discovery_ForwardedProtoFromCaddysPinnedIp_BuildsHttpsLinks()
     {
-        // Arrange — the boundary the boxes actually run since #506: a single /32, and the peer IS it.
+        // Arrange: the boundary the boxes actually run since #506: a single /32, and the peer IS it.
         using WebApplicationFactory<Program> factory =
             FactoryWithKnownNetworks(CaddyOnlyCidr, peerAddress: "10.60.0.100");
         using HttpRequestMessage request = HateoasRequest();
@@ -95,7 +96,7 @@ public sealed class ForwardedHeadersTrustTests
         // Act
         DiscoveryResponse response = await SendDiscoveryAsync(factory, request);
 
-        // Assert — narrowing the CIDR to a host address must not break the real ingress hop.
+        // Assert: narrowing the CIDR to a host address must not break the real ingress hop.
         response.Links.ShouldNotBeEmpty();
         foreach (LinkDto link in response.Links)
         {
@@ -107,7 +108,7 @@ public sealed class ForwardedHeadersTrustTests
     [Fact]
     public async Task Discovery_SpoofedForwardedProtoFromNeighbourInCaddysSubnet_KeepsHttpLinks()
     {
-        // Arrange — 10.60.0.101 shares Caddy's /24 but is outside its /32. This is the whole point of
+        // Arrange: 10.60.0.101 shares Caddy's /24 but is outside its /32. This is the whole point of
         // #506: a co-tenant container on the box would have been BELIEVED under the old /24 trust.
         using WebApplicationFactory<Program> factory =
             FactoryWithKnownNetworks(CaddyOnlyCidr, peerAddress: "10.60.0.101");
@@ -117,7 +118,7 @@ public sealed class ForwardedHeadersTrustTests
         // Act
         DiscoveryResponse response = await SendDiscoveryAsync(factory, request);
 
-        // Assert — same subnet is NOT enough; only Caddy's exact address is trusted.
+        // Assert: same subnet is NOT enough; only Caddy's exact address is trusted.
         response.Links.ShouldNotBeEmpty();
         foreach (LinkDto link in response.Links)
         {
@@ -136,14 +137,14 @@ public sealed class ForwardedHeadersTrustTests
         using WebApplicationFactory<Program> factory = _appFactory.WithWebHostBuilder(builder =>
             builder.UseSetting("ForwardedHeaders:KnownNetworks:0", malformedCidr));
 
-        // Act & Assert — boot must abort instead of silently widening forwarded-header trust.
+        // Act & Assert: boot must abort instead of silently widening forwarded-header trust.
         Should.Throw<FormatException>(() => factory.CreateClient());
     }
 
     [Fact]
     public void Startup_KnownNetworksSetAsScalarWithoutIndex_FailsFast()
     {
-        // Arrange — an operator typo: the knob set as a scalar (missing the __0 index) binds to
+        // Arrange: an operator typo: the knob set as a scalar (missing the __0 index) binds to
         // null, which without the guard would silently revert to trust-everyone.
         using WebApplicationFactory<Program> factory = _appFactory.WithWebHostBuilder(builder =>
             builder.UseSetting("ForwardedHeaders:KnownNetworks", TrustedProxyCidr));

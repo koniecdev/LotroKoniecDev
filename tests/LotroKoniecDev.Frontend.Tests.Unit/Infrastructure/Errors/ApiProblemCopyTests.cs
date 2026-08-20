@@ -10,9 +10,10 @@ using Microsoft.Extensions.Logging;
 namespace LotroKoniecDev.Frontend.Tests.Unit.Infrastructure.Errors;
 
 /// <summary>
-/// The Polish-copy lookup for API failures (#548 / ADR-0044). The contract under test: an
-/// API-authored problem is keyed by its <c>errorCode</c> and its English wording never becomes the
-/// message, while a Frontend-authored problem (no code, already Polish) passes through untouched.
+/// The lookup that turns an API failure into Polish text (#548, ADR-0044). The rule under test: a
+/// problem from an API is looked up by its <c>errorCode</c> and its English wording never becomes the
+/// message, while a problem the Frontend wrote, which has no code and is already Polish, passes through
+/// unchanged.
 /// </summary>
 public sealed class ApiProblemCopyTests
 {
@@ -77,10 +78,10 @@ public sealed class ApiProblemCopyTests
         int status,
         string expectedMessage)
     {
-        // Both APIs run AddProblemDetails() + UseStatusCodePages(), which writes a bare English reason
-        // phrase and NO errorCode — see the committed ProblemDetailsSnapshotTests contracts. Treating
-        // "no code" as "the Frontend wrote it, so it is already Polish" would paint "Unauthorized"
-        // onto the page, which is the very defect #548 reports.
+        // Both APIs use AddProblemDetails() and UseStatusCodePages(), which write a bare English phrase
+        // and no errorCode. See the committed ProblemDetailsSnapshotTests. Reading "no code" as "the
+        // Frontend wrote this, so it is already Polish" would print "Unauthorized" onto the page, which
+        // is exactly the bug #548 reports.
         ProblemDetails problem = new() { Title = apiReasonPhrase, Status = status };
 
         ApiProblemView view = ApiProblemCopy.Describe(problem, PageFallback);
@@ -150,8 +151,8 @@ public sealed class ApiProblemCopyTests
     [Fact]
     public void Describe_WhenTheErrorCodeIsMapped_KeepsTheApiWordingAsTechnicalDetailOnly()
     {
-        // The numbers an admin needs (line numbers, row counts) live in the API's own message, so it
-        // is kept — one click away, never as the message itself.
+        // The numbers an admin needs, such as line numbers and row counts, are in the API's own message,
+        // so we keep it one click away and never use it as the message itself.
         ProblemDetails problem = ApiProblem(
             "Import.MassRemovalBlocked",
             422,
@@ -294,8 +295,8 @@ public sealed class ApiProblemCopyTests
     [Fact]
     public void Describe_ForAnEmptyProblemBodyOffTheWire_ConvergesOnTheSameCopyAsTheStatusOnlySynthesis()
     {
-        // "{}" parses, so it takes the other branch of ParseProblemDetails and keeps only the
-        // backfilled status — it must not read differently from the unparseable case.
+        // "{}" parses, so it takes the other branch of ParseProblemDetails and keeps only the status we
+        // filled in. It must read exactly like the case where the body could not be parsed.
         ProblemDetails parsedFromEmptyObject = new() { Status = 502 };
 
         ApiProblemCopy.Describe(parsedFromEmptyObject, PageFallback).Message
@@ -338,7 +339,7 @@ public sealed class ApiProblemCopyTests
     [Fact]
     public async Task Describe_OnAProblemParsedFromARealApiResponse_ShowsThePolishCopy()
     {
-        // End to end across the seam that actually produces the ProblemDetails a page renders: the
+        // End to end through the code that really produces the ProblemDetails a page shows: the
         // body below is exactly what ErrorExtensions.ToProblemDetails writes for a rejected save.
         const string apiResponseBody = """
             {

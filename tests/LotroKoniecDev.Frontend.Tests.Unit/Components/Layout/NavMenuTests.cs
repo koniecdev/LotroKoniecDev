@@ -84,7 +84,7 @@ public sealed class NavMenuTests : BunitContext
             .ToArray();
 
         // The [Authorize]-gated pages stay hidden from anonymous visitors (#523);
-        // the topbar hosts the auth affordance in the same nav, so the login link renders last.
+        // the top bar puts the login control in the same nav, so the login link comes last.
         navTargets.ShouldBe(
         [
             "/", "/translations",
@@ -114,7 +114,7 @@ public sealed class NavMenuTests : BunitContext
     /// Hosts <see cref="NavMenu"/> inside a render fragment and resolves it via
     /// <c>FindComponent</c>. The component's <see cref="Microsoft.AspNetCore.Components.Authorization.AuthorizeView"/>
     /// resolves asynchronously, which the typed <c>Render&lt;NavMenu&gt;</c> discovery does not see on its
-    /// first synchronous pass for a parameterless component; the fragment seam renders it reliably.
+    /// first pass for a component with no parameters, and the render fragment does it reliably.
     /// </summary>
     private IRenderedComponent<NavMenu> RenderNavMenu()
     {

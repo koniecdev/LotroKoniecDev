@@ -33,7 +33,7 @@ public sealed class TranslatorTests
     [Fact]
     public void Create_WithoutEmail_ShouldProvisionWithNullEmail()
     {
-        // Act — the email claim may be absent; the lean profile does not require it.
+        // Act: the email claim may be absent; the lean profile does not require it.
         Result<Translator> result = Translator.Create(Identity, Name(), email: null, Provisioned);
 
         // Assert
@@ -44,7 +44,7 @@ public sealed class TranslatorTests
     [Fact]
     public void Create_WithEmptyIdentity_ShouldThrow()
     {
-        // Assert — IdentityId is the cross-context key; an empty one is a programmer error.
+        // Assert: IdentityId is the cross-context key; an empty one is a programmer error.
         Should.Throw<ArgumentException>(() => Translator.Create(default, Name(), Mail(), Provisioned));
     }
 
@@ -54,7 +54,7 @@ public sealed class TranslatorTests
         // Arrange
         Translator translator = Translator.Create(Identity, Name("Strider"), null, Provisioned).Value;
 
-        // Act — a renamed account converges on the next authenticated touch.
+        // Act: a renamed account converges on the next authenticated touch.
         translator.RefreshProfile(Name("Aragorn"), Mail());
 
         // Assert
@@ -71,7 +71,7 @@ public sealed class TranslatorTests
         // Arrange
         Translator translator = Translator.Create(Identity, Name(), Mail(), Provisioned).Value;
 
-        // Act — the email claim disappeared (or became malformed) on a later touch.
+        // Act: the email claim disappeared (or became malformed) on a later touch.
         translator.RefreshProfile(Name(), email: null);
 
         // Assert

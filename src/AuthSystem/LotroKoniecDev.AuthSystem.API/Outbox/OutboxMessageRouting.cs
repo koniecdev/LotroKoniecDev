@@ -4,10 +4,10 @@ using LotroKoniecDev.AuthSystem.Infrastructure.Messaging;
 namespace LotroKoniecDev.AuthSystem.API.Outbox;
 
 /// <summary>
-/// Maps an outbox row's <c>Type</c> — the payload contract name the consumer deserializes by —
-/// to the broker routing key it travels under. The two stay separate concepts on purpose: the
-/// type says what the payload is, the routing key says which bindings receive it, and conflating
-/// them would let a contract rename silently unroute messages from a live queue.
+/// Maps an outbox row's <c>Type</c>, the payload contract name the consumer reads it back by, to the
+/// broker routing key it travels under. The two stay separate on purpose: the type says what the
+/// payload is, the routing key says which bindings receive it. If they were the same thing, renaming
+/// a contract would quietly stop messages reaching a live queue.
 /// </summary>
 internal static class OutboxMessageRouting
 {

@@ -8,8 +8,8 @@ namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Tests.Maintenance;
 /// <summary>
 /// Prune behavior against the real OpenIddict Entity Framework stores and PostgreSQL: rows past the
 /// 14-day retention that are expired or revoked disappear, while recent or still-valid rows survive.
-/// The 13/15-day-old rows bracket the retention threshold from both sides without clock faking —
-/// the descriptors carry explicit creation dates.
+/// The rows aged 13 and 15 days sit on either side of the 14-day limit, so no fake clock is needed: the
+/// descriptors carry their creation dates.
 /// </summary>
 [Collection("AuthApi")]
 public sealed class OpenIddictPruneServiceIntegrationTests
@@ -92,7 +92,7 @@ public sealed class OpenIddictPruneServiceIntegrationTests
         // Act
         await ResolvePruneService().PruneOnceAsync(CancellationToken.None);
 
-        // Assert — the permanent valid grant is a user's live consent and must never be pruned
+        // Assert: the permanent valid grant is a user's live consent and must never be pruned
         await using AsyncServiceScope assertScope = _factory.Services.CreateAsyncScope();
         IOpenIddictAuthorizationManager assertAuthorizationManager =
             assertScope.ServiceProvider.GetRequiredService<IOpenIddictAuthorizationManager>();

@@ -152,7 +152,7 @@ public sealed class PreflightCheckQueryHandlerTests
     [Fact]
     public async Task Handle_DatFilePathWithNoDirectory_ShouldCheckWriteAccessOnEmptyString()
     {
-        // Arrange — Path.GetDirectoryName("file.dat") returns "" on Windows
+        // Arrange: Path.GetDirectoryName("file.dat") returns "" on Windows
         _mockProcessDetector.IsLotroRunning().Returns(false);
         _mockWriteAccessChecker.CanWriteTo("").Returns(false);
         _mockUpdateChecker.CheckForUpdateAsync(Arg.Any<string>())

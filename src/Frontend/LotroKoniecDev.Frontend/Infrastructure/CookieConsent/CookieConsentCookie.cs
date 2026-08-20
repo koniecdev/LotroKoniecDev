@@ -4,10 +4,10 @@ internal static class CookieConsentCookie
 {
     internal const string Name = ".lotrokoniecdev.cookie-consent";
 
-    // The show/hide decision is made server-side from the request cookie header — the app is pure
-    // SSR with no client-side script reading this cookie, and HttpOnly does not affect server
-    // reads. Secure mirrors the request scheme (like the session-expired marker) so the cookie
-    // still round-trips on the plain-http dev profile; it carries no sensitive value.
+    // The server decides whether to show the banner, from the request's cookie header. The app is pure
+    // SSR and no script reads this cookie, and HttpOnly does not affect reads on the server.
+    // Secure follows the request scheme, like the session-expired marker, so the cookie still works on
+    // the plain-http dev profile. It carries nothing sensitive.
     internal static CookieOptions BuildOptions(bool isHttps) => new()
     {
         HttpOnly = true,

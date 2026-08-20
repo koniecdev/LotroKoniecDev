@@ -5,8 +5,8 @@ using LotroKoniecDev.Infrastructure.GameLaunching;
 namespace LotroKoniecDev.Tests.Infrastructure.Tests;
 
 /// <summary>
-/// Exercises the launch-boundary signature enforcement point (AUDIT-SEC-02 / #392) against real
-/// files and the real WinVerifyTrust machinery — Windows-only, like the rest of this project.
+/// Exercises the signature check done before launching (AUDIT-SEC-02, #392) against real files and the
+/// real WinVerifyTrust, so it is Windows-only, like the rest of this project.
 /// </summary>
 public sealed class AuthenticodeLauncherSignatureVerifierTests
 {

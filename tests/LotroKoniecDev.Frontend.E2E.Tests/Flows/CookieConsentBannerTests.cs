@@ -5,11 +5,11 @@ using Shouldly;
 namespace LotroKoniecDev.Frontend.E2E.Tests.Flows;
 
 /// <summary>
-/// LEGAL-04 — the cookie information banner's acceptance criteria, pinned in a real browser: with
-/// <em>JavaScript disabled</em>, a new visitor sees the banner on any page, accepting it (a plain
-/// SSR form post — no script) hides it everywhere, and the consent survives navigation; and on a
-/// phone-sized viewport the bar stays pinned to the bottom edge yet leaves the footer's legal links
-/// reachable (#672). Needs no account and no seeded database — the banner is anonymous by design.
+/// LEGAL-04: what the cookie banner has to do, checked in a real browser. With JavaScript turned off, a
+/// new visitor sees the banner on any page, accepting it with a plain form post and no script hides it
+/// everywhere, and the consent survives navigation. On a phone-sized screen the bar stays at the bottom
+/// edge and still leaves the footer's legal links reachable (#672).
+/// It needs no account and nothing seeded, because the banner is for anonymous visitors.
 /// </summary>
 public sealed class CookieConsentBannerTests : E2ETestBase
 {
@@ -27,7 +27,7 @@ public sealed class CookieConsentBannerTests : E2ETestBase
     [Fact]
     public async Task Banner_shows_for_new_visitor_and_accepting_without_javascript_hides_it_across_navigation()
     {
-        // Arrange — a dedicated JS-less context: the acceptance path must be pure SSR.
+        // Arrange: a dedicated JS-less context: the acceptance path must be pure SSR.
         await using IBrowserContext jsLessContext = await Fixture.Browser.NewContextAsync(new BrowserNewContextOptions
         {
             IgnoreHTTPSErrors = true,
@@ -53,16 +53,16 @@ public sealed class CookieConsentBannerTests : E2ETestBase
         // The accept redirect returns to the page the form was posted from.
         page.Url.ShouldContain("/regulamin");
 
-        // The consent cookie survives navigation — the banner stays gone everywhere.
+        // The consent cookie survives navigation, so the banner stays hidden everywhere.
         await page.GotoAsync($"{Fixture.FrontendBaseUrl}/");
         (await banner.IsVisibleAsync()).ShouldBeFalse();
     }
 
     /// <summary>
-    /// #672, the half of the trade that is easy to lose: the bar is sticky rather than in normal flow,
-    /// so it is still glued to the bottom edge of the viewport at the top of a long page. A plain
-    /// in-flow bar would satisfy the reachability test below just as well while scrolling the consent
-    /// notice off-screen entirely — which is LEGAL-04's whole point — so it is asserted separately.
+    /// #672, the half of the deal that is easy to lose: the bar is sticky and not in the normal flow, so
+    /// it is still stuck to the bottom of the screen at the top of a long page.
+    /// A bar in the normal flow would pass the reachability test below just as well while scrolling the
+    /// consent notice out of sight, which is the whole point of LEGAL-04. So it is checked separately.
     /// </summary>
     [Fact]
     public async Task Banner_on_a_phone_viewport_stays_pinned_to_the_bottom_edge_while_the_page_can_still_scroll()
@@ -79,13 +79,13 @@ public sealed class CookieConsentBannerTests : E2ETestBase
     }
 
     /// <summary>
-    /// #672 — the bar used to be <c>position: fixed</c>, i.e. out of flow, so at the end of the page it
-    /// sat on top of the last ~165px of the document: exactly where "Regulamin" and "Polityka
-    /// prywatności" live, the two links a visitor who has not consented yet most needs. The invariant
-    /// is stated at <em>maximum scroll</em> on purpose — a bar pinned to the bottom edge passes over
-    /// the footer mid-scroll by design, and it is where the visitor comes to rest that must be clear.
-    /// JavaScript is on here purely as the test's measuring tape (scroll to the end, read boxes); the
-    /// banner's own no-JavaScript contract is pinned by the JS-less test above.
+    /// #672: the bar used to be <c>position: fixed</c>, so it was out of the flow and, at the end of the
+    /// page, sat on top of the last 165 pixels or so. That is exactly where "Regulamin" and "Polityka
+    /// prywatności" are, the two links a visitor who has not consented yet needs most.
+    /// The rule is stated at maximum scroll on purpose: a bar stuck to the bottom passes over the footer
+    /// while scrolling by design, and what matters is where the visitor ends up.
+    /// JavaScript is on here only as the test's measuring tool, to scroll to the end and read boxes. That
+    /// the banner itself works without JavaScript is pinned by the test above.
     /// </summary>
     [Fact]
     public async Task Banner_on_a_phone_viewport_leaves_the_legal_footer_links_reachable_at_the_end_of_the_page()
@@ -98,12 +98,12 @@ public sealed class CookieConsentBannerTests : E2ETestBase
         ILocator termsLink = footer.GetByRole(AriaRole.Link, new() { Name = TermsLinkName, Exact = true });
         ILocator privacyPolicyLink = footer.GetByRole(AriaRole.Link, new() { Name = PrivacyPolicyLinkName, Exact = true });
 
-        // Act — a first-time visitor hunting for the legal texts scrolls to the very end of the page.
+        // Act: a first-time visitor looking for the legal texts scrolls to the very end of the page.
         await ScrollToBottomAsync(page);
 
-        // Assert — the whole footer comes to rest above the bar, which is strictly stronger than the
-        // two links doing so, and both links really take a tap: the trial click runs Playwright's
-        // hit-target check, so an element painted over the link fails it.
+        // Assert: the whole footer ends up above the bar, which is stronger than only the two links doing
+        // so, and both links really respond to a tap. The trial click runs Playwright's hit-target check,
+        // so anything drawn over the link fails it.
         LocatorBoundingBoxResult bar = await RequireBoundingBoxAsync(banner);
         LocatorBoundingBoxResult footerBox = await RequireBoundingBoxAsync(footer);
         LocatorBoundingBoxResult termsBox = await RequireBoundingBoxAsync(termsLink);
@@ -117,9 +117,9 @@ public sealed class CookieConsentBannerTests : E2ETestBase
     }
 
     /// <summary>
-    /// #672 — the other end of the same trade: nothing may stay reserved for a bar that is gone. The
-    /// bar reserves its space by being in flow, so consent removing it from the markup is what makes
-    /// the footer flush again; this would fail a re-implementation that padded the footer instead.
+    /// #672, the other end of the same deal: no space may stay reserved for a bar that is gone. The bar
+    /// takes up its space by being in the flow, so removing it from the markup after consent is what
+    /// makes the footer sit flush again. A rewrite that padded the footer instead would fail this.
     /// </summary>
     [Fact]
     public async Task Accepting_on_a_phone_viewport_leaves_the_footer_flush_with_the_end_of_the_page()
@@ -141,9 +141,10 @@ public sealed class CookieConsentBannerTests : E2ETestBase
     }
 
     /// <summary>
-    /// The reporter's viewport size: below 640px the bar stacks and its button goes full width, so it
-    /// is at its tallest exactly where the viewport is shortest. This emulates the size, not the
-    /// device — real iOS Safari is closed out by the ticket's manual retest on staging.
+    /// The screen size the reporter used. Below 640px the bar stacks its parts and the button becomes
+    /// full width, so it is at its tallest exactly where the screen is shortest.
+    /// This copies the size and not the device; real iOS Safari is covered by the ticket's manual retest
+    /// on staging.
     /// </summary>
     private async Task<IBrowserContext> NewPhoneContextAsync()
     {
@@ -164,8 +165,10 @@ public sealed class CookieConsentBannerTests : E2ETestBase
         return page;
     }
 
-    /// <summary>Every face in <c>fonts.css</c> is <c>font-display: swap</c>, so a late swap would
-    /// reflow the document after it was measured — settle them before reading any box.</summary>
+    /// <summary>
+    /// Every font in <c>fonts.css</c> uses <c>font-display: swap</c>, so a font that arrives late would
+    /// move the page after it was measured. Wait for them before reading any box.
+    /// </summary>
     private static async Task WaitForFontsAsync(IPage page) =>
         await page.EvaluateAsync<bool>("document.fonts.ready.then(() => true)");
 

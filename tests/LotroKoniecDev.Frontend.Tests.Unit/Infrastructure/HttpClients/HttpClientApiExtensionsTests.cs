@@ -49,8 +49,8 @@ public sealed class HttpClientApiExtensionsTests
     [Fact]
     public async Task GetTextAsync_OnSuccess_ReturnsTheRawBodyWithoutJsonParsing()
     {
-        // The body is a plain text file, not JSON — it must survive verbatim (the JSON helpers would
-        // throw on it). This is the load-bearing difference between GetTextAsync and GetApiResultAsync.
+        // The body is a plain text file and not JSON, so it has to come back unchanged. The JSON helpers
+        // would throw on it. That is the whole difference between GetTextAsync and GetApiResultAsync.
         const string body = "# polish.txt\n620756992||1001||Witaj||NULL||NULL||1";
         HttpClient httpClient = CreateClient(StubHttpMessageHandler.RespondWith(HttpStatusCode.OK, body));
 
@@ -102,7 +102,7 @@ public sealed class HttpClientApiExtensionsTests
 
         result.IsSuccess.ShouldBeTrue();
         result.Value.GetValueOrDefault("X-Deletion-Finalizes-At").ShouldBe("2026-07-25T10:00:00.0000000+00:00");
-        // Header names are case-insensitive per RFC 9110 — the capture must honor that.
+        // RFC 9110 says header names ignore case, and the capture has to do the same.
         result.Value.GetValueOrDefault("x-deletion-scheduled-at").ShouldBe("2026-07-11T10:00:00.0000000+00:00");
         result.Value.GetValueOrDefault("X-Missing").ShouldBeNull();
     }
@@ -139,8 +139,8 @@ public sealed class HttpClientApiExtensionsTests
     [Fact]
     public async Task GetApiResultAsync_WhenErrorBodyIsEmpty_SynthesizesAProblemCarryingTheStatusCode()
     {
-        // A bare 401 from the JWT bearer challenge has no body — the seam must not crash on the empty
-        // JSON and must keep the status so IsUnauthorized classification works.
+        // A plain 401 from the JWT bearer challenge has no body. The code must not crash on the empty
+        // JSON and must keep the status, so the IsUnauthorized check still works.
         HttpClient httpClient = CreateClient(StubHttpMessageHandler.RespondWith(
             HttpStatusCode.Unauthorized,
             string.Empty));
@@ -215,10 +215,11 @@ public sealed class HttpClientApiExtensionsTests
     [InlineData("""{ "total": 1""")]
     public async Task GetApiResultAsync_WhenASuccessBodyIsNotTheApisJson_FailsWithATranslatableBadGatewayProblem(string body)
     {
-        // A proxy serving its maintenance page with a 200, or an auth redirect landing a login page on
-        // an API URL: the status says success, the body is not the API's answer. That used to throw
-        // JsonException out of the SSR render (#638); it is the #637 outage class and degrades the same
-        // way — a status-only problem the ladder answers in Polish, never an exception.
+        // A proxy serving its maintenance page with a 200, or an auth redirect putting a login page on an
+        // API URL: the status says success, but the body is not the API's answer. That used to throw a
+        // JsonException out of the render (#638). It belongs to the #637 outage class and is handled the
+        // same way: a problem with only a status, which the Polish text ladder answers, never an
+        // exception.
         HttpClient httpClient = CreateClient(StubHttpMessageHandler.RespondWith(HttpStatusCode.OK, body));
 
         ApiResult<PublicProgressResponse> result =
@@ -236,9 +237,9 @@ public sealed class HttpClientApiExtensionsTests
     [Fact]
     public async Task GetApiResultAsync_WhenAStronglyTypedIdInTheSuccessBodyIsMalformed_FailsWithATranslatableBadGatewayProblem()
     {
-        // The repo's own StronglyTypedIdJsonConverter is the one converter in the seam that is not
-        // STJ's: a bad GUID must still surface as a JsonException it swallows, not as a FormatException
-        // that would escape the render the same way the raw JsonException did (#638).
+        // StronglyTypedIdJsonConverter is the one converter here that is ours and not System.Text.Json's.
+        // A bad GUID still has to come out as a JsonException, which we catch, and not as a
+        // FormatException, which would escape the render the way the raw JsonException used to (#638).
         HttpClient httpClient = CreateClient(StubHttpMessageHandler.RespondWith(
             HttpStatusCode.OK,
             """
@@ -265,8 +266,8 @@ public sealed class HttpClientApiExtensionsTests
     [Fact]
     public async Task GetApiResultAsync_WhenASuccessBodyIsNotTheApisJson_DescribesAsTheSameCopyAsAProxyBadGateway()
     {
-        // The end-to-end promise of the seam: what the page shows for a 200 maintenance page is
-        // exactly what it shows for the proxy's own 502 — one outage class, one sentence.
+        // The promise this code makes: what the page shows for a maintenance page with a 200 is exactly
+        // what it shows for the proxy's own 502. One kind of outage, one sentence.
         HttpClient httpClient = CreateClient(StubHttpMessageHandler.RespondWith(
             HttpStatusCode.OK,
             "<html><body>Maintenance</body></html>"));
@@ -281,7 +282,7 @@ public sealed class HttpClientApiExtensionsTests
     [Fact]
     public async Task PostApiResultAsync_WhenASuccessBodyIsNotTheApisJson_FailsWithATranslatableBadGatewayProblem()
     {
-        // Every generic verb funnels through the same seam — the contract is not GET-only.
+        // Every generic verb goes through the same code, so this rule is not only about GET.
         HttpClient httpClient = CreateClient(StubHttpMessageHandler.RespondWith(
             HttpStatusCode.Created,
             "<html><body>Maintenance</body></html>"));
@@ -300,10 +301,10 @@ public sealed class HttpClientApiExtensionsTests
     [InlineData("   ")]
     public async Task GetApiResultAsync_WhenASuccessBodyIsEmpty_FailsWithATranslatableBadGatewayProblem(string body)
     {
-        // The rule next to #638's: a value-promising call that gets nothing back has not been answered
-        // either. It used to succeed with a null Value that every caller dereferences (#653) — now it is
-        // the same unreadable-body class as a maintenance page, and degrades the same way. Only the
-        // body-less verbs and PostForHeadersApiResultAsync model 204.
+        // The rule next to #638's: a call that promises a value and gets nothing back was not answered
+        // either. It used to succeed with a null Value that every caller then used (#653). Now it counts
+        // as the same unreadable body as a maintenance page and is handled the same way. Only the
+        // body-less verbs and PostForHeadersApiResultAsync accept a 204.
         HttpClient httpClient = CreateClient(StubHttpMessageHandler.RespondWith(HttpStatusCode.OK, body));
 
         ApiResult<PublicProgressResponse> result =
@@ -331,8 +332,8 @@ public sealed class HttpClientApiExtensionsTests
     [Fact]
     public async Task PostApiResultAsync_WhenTheBodyLessVerbGetsNoContent_Succeeds()
     {
-        // The other side of the boundary: 204 stays a success where nothing was promised. This is the
-        // approve/delete path — it must not inherit the value-promising verbs' empty-body rule.
+        // The other side of that line: a 204 is still a success where nothing was promised. This is the
+        // approve and delete path, and it must not take on the rule for calls that promise a value.
         HttpClient httpClient = CreateClient(StubHttpMessageHandler.RespondWith(HttpStatusCode.NoContent, string.Empty));
 
         ApiResult result = await httpClient.PostApiResultAsync("translations/1/approve", new { });

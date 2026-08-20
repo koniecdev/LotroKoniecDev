@@ -10,7 +10,7 @@ public sealed class GetTranslationFileHandlerTests
     [Fact]
     public async Task Handle_WhenLanguageUnsupported_ShouldReturnValidationError()
     {
-        // Arrange — an unsupported language is rejected before the read model is touched.
+        // Arrange: an unsupported language is rejected before the read model is touched.
         GetTranslationFile.Handler handler = new(Substitute.For<IApplicationReadDbContext>());
 
         // Act

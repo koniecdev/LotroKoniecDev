@@ -27,9 +27,9 @@ public sealed class PatchingServiceTests
     private const string FixtureFragmentText = "Test";
 
     /// <summary>
-    /// The digest of the fixture fragment's own export form (ADR-0047 §3, clause (a)). A row
-    /// carrying it is one made for the English the DAT actually holds — the ordinary case, so it is
-    /// what <see cref="CreateTranslation"/> defaults to.
+    /// The digest of the fixture fragment's own export form (ADR-0047 §3, rule (a)). A row carrying it
+    /// was made for the English the DAT really holds, which is the normal case, so
+    /// <see cref="CreateTranslation"/> uses it by default.
     /// </summary>
     private static readonly string PristineSourceDigest = SourceDigest.ForExportForm(FixtureFragmentText, 0);
 
@@ -91,7 +91,7 @@ public sealed class PatchingServiceTests
             SourceDigest = sourceDigest ?? PristineSourceDigest
         };
 
-    /// <summary>A row off a six-column translation file — hand-made, or an artifact predating ADR-0047.</summary>
+    /// <summary>A row from a six-column translation file, either hand-made or written before ADR-0047.</summary>
     private static Translation CreateSixColumnTranslation() =>
         new()
         {
@@ -138,7 +138,7 @@ public sealed class PatchingServiceTests
     [Fact]
     public void ApplyTranslations_WhenTheParserRejectedALine_ShouldSurfaceItsWarningInTheSummary()
     {
-        // Arrange — a rejected line used to vanish inside the parser (ADR-0042). The summary is the
+        // Arrange: a rejected line used to vanish inside the parser (ADR-0042). The summary is the
         // only channel the CLI prints, so a warning that does not reach it is still swallowed.
         SetupAllPassingDefaults();
         SetupParsedFile([CreateTranslation()], ["Line 7: the args_order column '1-x' is malformed."]);
@@ -154,9 +154,9 @@ public sealed class PatchingServiceTests
     [Fact]
     public void ApplyTranslations_WhenEveryLineWasRejected_ShouldSayWhyInsteadOfJustNoTranslations()
     {
-        // Arrange — the failure path drops the warning list (the CLI prints it only on success), so
-        // without the reason in the Error itself a wholly corrupt polish.txt would report a bare
-        // "No translations to apply" — the exact silence ADR-0042 exists to remove.
+        // Arrange: on the failure path the warning list is dropped, because the CLI only prints it after
+        // a success. So without the reason inside the Error itself, a completely broken polish.txt would
+        // report a bare "No translations to apply", which is exactly the silence ADR-0042 removes.
         SetupAllPassingDefaults();
         SetupParsedFile([], ["Error parsing line '1||2||c||1-x||NULL||1': the args_order column is malformed."]);
 
@@ -172,7 +172,7 @@ public sealed class PatchingServiceTests
     [Fact]
     public void ApplyTranslations_WhenTheFileHeldNoRowsAtAll_ShouldReportPlainNoTranslations()
     {
-        // Arrange — an empty or comments-only file is not a corruption, so it must not be dressed up
+        // Arrange: an empty or comments-only file is not a corruption, so it must not be dressed up
         // as one; nothing was rejected and there is no reason to give.
         SetupAllPassingDefaults();
         SetupParsedFile([], []);
@@ -266,7 +266,7 @@ public sealed class PatchingServiceTests
     [Fact]
     public void ApplyTranslations_PieceLongerThanTheDatAllows_ShouldSkipAndWarnWithoutWritingTheSubFile()
     {
-        // Arrange — the TMS caps the text at its API, so this row can only come from a hand-edited or
+        // Arrange: the TMS caps the text at its API, so this row can only come from a hand-edited or
         // hostile polish.txt. It used to reach VarLenEncoder.Write and throw mid-loop (#598).
         SetupAllPassingDefaults();
         SetupTranslations(CreateTranslation(content: new string('ż', DatFileConstants.MaxTextPieceLength + 1)));
@@ -280,8 +280,8 @@ public sealed class PatchingServiceTests
         result.Value.SkippedTranslations.ShouldBe(1);
         result.Value.Warnings.ShouldContain(w => w.Contains("32768 characters"));
 
-        // The row is screened before any subfile is loaded, so nothing is committed on its account —
-        // this is what keeps a bad row from leaving a half-patched DAT behind.
+        // The row is checked before any subfile is loaded, so nothing is written because of it. That is
+        // what stops a bad row from leaving a half-patched DAT behind.
         _datFileHandler.DidNotReceive().PutSubfileData(
             Arg.Any<int>(), Arg.Any<int>(), Arg.Any<byte[]>(), Arg.Any<int>(), Arg.Any<int>());
     }
@@ -289,7 +289,7 @@ public sealed class PatchingServiceTests
     [Fact]
     public void ApplyTranslations_PieceLongerThanTheDatAllows_ShouldStillApplyEveryOtherRow()
     {
-        // Arrange — one poisoned row must cost exactly one row, not the whole patch run. Both rows
+        // Arrange: one poisoned row must cost exactly one row, not the whole patch run. Both rows
         // target the same fragment because the fixture subfile holds exactly one; what is under test
         // is that the loop survives the first row, not which fragment the second one lands on.
         SetupAllPassingDefaults();
@@ -314,7 +314,7 @@ public sealed class PatchingServiceTests
     [Fact]
     public void ApplyTranslations_ContentSplittingIntoPiecesThatEachFit_ShouldApply()
     {
-        // Arrange — the DAT caps each PIECE, not the whole row, and the patcher cuts pieces on the
+        // Arrange: the DAT caps each PIECE, not the whole row, and the patcher cuts pieces on the
         // placeholder. Content twice the ceiling is therefore legal as long as no piece exceeds it.
         SetupAllPassingDefaults();
         string half = new('ż', DatFileConstants.MaxTextPieceLength);
@@ -614,7 +614,7 @@ public sealed class PatchingServiceTests
     [Fact]
     public void ApplyTranslations_RowMadeForTheEnglishTheDatHolds_ShouldWriteIt()
     {
-        // Arrange — clause (a) of ADR-0047 §3: pristine, or collaterally reverted by the launcher.
+        // Arrange: clause (a) of ADR-0047 §3: pristine, or collaterally reverted by the launcher.
         // This is the case Tier 0/1 repair exists for, so it must stay wide open.
         SetupAllPassingDefaults();
         SetupTranslations(CreateTranslation(sourceDigest: PristineSourceDigest));
@@ -630,7 +630,7 @@ public sealed class PatchingServiceTests
     [Fact]
     public void ApplyTranslations_EnglishChangedUnderTheRow_ShouldSkipItAndReportSourceMoved()
     {
-        // Arrange — THE invariant (ADR-0047): SSG reworded the row in version N+1 and the newest
+        // Arrange: THE invariant (ADR-0047): SSG reworded the row in version N+1 and the newest
         // approved translation is still for N, so the player sees English. Whatever path writes.
         SetupAllPassingDefaults();
         SetupTranslations(CreateTranslation(sourceDigest: SourceDigest.ForExportForm("Some other English", 0)));
@@ -649,7 +649,7 @@ public sealed class PatchingServiceTests
     [Fact]
     public void ApplyTranslations_EnglishChangedUnderTheRow_ShouldNotWriteTheSubFileAtAll()
     {
-        // Arrange — the counters alone would also be satisfied by a run that mutated the fragment in
+        // Arrange: the counters alone would also be satisfied by a run that mutated the fragment in
         // memory and merely declined to count it. Skipping has to mean "wrote nothing".
         SetupAllPassingDefaults();
         SetupTranslations(CreateTranslation(sourceDigest: SourceDigest.ForExportForm("Some other English", 0)));
@@ -665,7 +665,7 @@ public sealed class PatchingServiceTests
     [Fact]
     public void ApplyTranslations_FragmentHoldingWhatWeWroteBefore_ShouldAcceptANewerTranslation()
     {
-        // Arrange — clause (b): the fragment holds our older Polish, which matches neither the row's
+        // Arrange: clause (b): the fragment holds our older Polish, which matches neither the row's
         // English digest nor the new translation. Only the ledger can admit this write, and without
         // it an updated translation could never reach a fragment we had already patched.
         SetupAllPassingDefaults();
@@ -688,7 +688,7 @@ public sealed class PatchingServiceTests
     [Fact]
     public void ApplyTranslations_FragmentHoldingOurOlderPolishWithNoLedger_ShouldSkipItAndReportSourceMoved()
     {
-        // Arrange — the documented degradation of a lost ledger (ADR-0047 §4): under-patching, never
+        // Arrange: the documented degradation of a lost ledger (ADR-0047 §4): under-patching, never
         // masking. The row is skipped until an update reverts its SubFile or the DAT is restored.
         SetupAllPassingDefaults();
         _datFileHandler.GetSubfileData(DatHandle, TextFileId, 100)
@@ -706,7 +706,7 @@ public sealed class PatchingServiceTests
     [Fact]
     public void ApplyTranslations_FragmentAlreadyHoldingExactlyThisTranslation_ShouldStillApplyAndSeedTheLedger()
     {
-        // Arrange — clause (c): a re-run over a DAT patched before the ledger existed. Nothing but
+        // Arrange: clause (c): a re-run over a DAT patched before the ledger existed. Nothing but
         // our own patch puts that text there, so the write is a safe no-op and it bootstraps the
         // ledger entry that later clause-(b) writes depend on.
         SetupAllPassingDefaults();
@@ -731,7 +731,7 @@ public sealed class PatchingServiceTests
     [Fact]
     public void ApplyTranslations_HandMadeRowWithNullArgsOnAnArgumentBearingFragment_ShouldStillMatchItsOwnTranslation()
     {
-        // Arrange — clause (c) takes the argument count from the FRAGMENT, never from the row's own
+        // Arrange: clause (c) takes the argument count from the FRAGMENT, never from the row's own
         // args columns, which a hand-made file may leave as NULL. Reading them from the row would
         // make an already-translated arg-bearing fragment fail every clause and report a false
         // "source moved" on every run.
@@ -766,14 +766,14 @@ public sealed class PatchingServiceTests
     [Fact]
     public void ApplyTranslations_RowWithoutASourceDigest_ShouldSkipItAndSayWhy()
     {
-        // Arrange — a six-column translation file: hand-made, or an artifact from before ADR-0047.
+        // Arrange: a six-column translation file: hand-made, or an artifact from before ADR-0047.
         SetupAllPassingDefaults();
         SetupTranslations(CreateSixColumnTranslation());
 
         // Act
         Result<PatchSummaryResponse> result = _sut.ApplyTranslations("/translations/polish.txt", "/game/client_local_English.dat");
 
-        // Assert — success, not failure: the launch path turns a failure into RepatchFailed and
+        // Assert: success, not failure: the launch path turns a failure into RepatchFailed and
         // refuses to start the game, and an unpatchable file must never cost the player the game.
         result.IsSuccess.ShouldBeTrue();
         result.Value.AppliedTranslations.ShouldBe(0);
@@ -785,7 +785,7 @@ public sealed class PatchingServiceTests
     [Fact]
     public void ApplyTranslations_RowWithoutASourceDigest_ShouldNotEvenLoadTheSubFile()
     {
-        // Arrange — a wholly six-column artifact is ~800k unpatchable rows; deciding that before the
+        // Arrange: a wholly six-column artifact is ~800k unpatchable rows; deciding that before the
         // subfile load is what keeps it from costing a full corpus read for nothing.
         SetupAllPassingDefaults();
         SetupTranslations(CreateSixColumnTranslation());
@@ -800,7 +800,7 @@ public sealed class PatchingServiceTests
     [Fact]
     public void ApplyTranslations_ManyGuardSkips_ShouldReportACountAndABoundedSample()
     {
-        // Arrange — a major update can move thousands of sources at once (U49 moved 1,644). Both
+        // Arrange: a major update can move thousands of sources at once (U49 moved 1,644). Both
         // consumers of Warnings print or log it line by line, so the bound has to be in the summary.
         SetupAllPassingDefaults();
         // 120 fragments, not more: the fixture writes the fragment count as a single VarLen byte.
@@ -817,7 +817,7 @@ public sealed class PatchingServiceTests
         // Act
         Result<PatchSummaryResponse> result = _sut.ApplyTranslations("/translations/polish.txt", "/game/client_local_English.dat");
 
-        // Assert — the per-row samples are the ones that start with "Fragment"; the roll-up line and
+        // Assert: the per-row samples are the ones that start with "Fragment"; the roll-up line and
         // the "and N more" tail are separate entries.
         result.Value.SourceMovedTranslations.ShouldBe(120);
         result.Value.Warnings.Count(warning => warning.StartsWith("Fragment ")).ShouldBe(100);
@@ -827,7 +827,7 @@ public sealed class PatchingServiceTests
     [Fact]
     public void ApplyTranslations_RowWrittenIntoASubFileThatFailedToCommit_ShouldNotBeRecordedInTheLedger()
     {
-        // Arrange — the ledger claims what the DAT holds. Recording a row whose subfile never
+        // Arrange: the ledger claims what the DAT holds. Recording a row whose subfile never
         // reached disk would admit a later write against text that is not there (ADR-0047 §4).
         SetupAllPassingDefaults();
         _datFileHandler.PutSubfileData(DatHandle, TextFileId, Arg.Any<byte[]>(), Arg.Any<int>(), Arg.Any<int>())
@@ -845,7 +845,7 @@ public sealed class PatchingServiceTests
     [Fact]
     public void ApplyTranslations_RowsAbsentFromTheArtifact_ShouldKeepTheirLedgerEntries()
     {
-        // Arrange — the ledger is UPSERTED, never rebuilt (ADR-0047 §4). A row edited back to Draft
+        // Arrange: the ledger is UPSERTED, never rebuilt (ADR-0047 §4). A row edited back to Draft
         // leaves the artifact, but its Polish still sits on the fragment; dropping the entry would
         // strand that fragment on our older Polish once the row is re-approved.
         SetupAllPassingDefaults();
@@ -868,7 +868,7 @@ public sealed class PatchingServiceTests
     [Fact]
     public void ApplyTranslations_WhenTheLedgerCannotBeWritten_ShouldWarnRatherThanFailThePatch()
     {
-        // Arrange — the DAT is already written by then, and a lost ledger only under-patches next
+        // Arrange: the DAT is already written by then, and a lost ledger only under-patches next
         // time. Failing here would turn a hint's IO error into a refused launch.
         SetupAllPassingDefaults();
         _translationLedger.Save(Arg.Any<string>(), Arg.Any<IReadOnlyDictionary<LedgerKey, string>>())
@@ -887,9 +887,10 @@ public sealed class PatchingServiceTests
     [Fact]
     public void ApplyTranslations_MixedSubFile_ShouldWriteItOnceAndRecordOnlyTheAdmittedRow()
     {
-        // Arrange — one subfile, two rows: the first still holds its English (admitted), the second's
-        // English moved (refused). The subfile is written back exactly once, and only the admitted
-        // row reaches the ledger — a refused row's fragment holds SSG's text, not ours.
+        // Arrange: one subfile with two rows. The first still holds its English and is written, and the
+        // second's English changed and is refused. The subfile is written back exactly once, and only the
+        // written row reaches the ledger, because a refused row's fragment holds SSG's text and not
+        // ours.
         SetupAllPassingDefaults();
         _datFileHandler.GetSubfileData(DatHandle, TextFileId, 100)
             .Returns(Result.Success(TestDataFactory.CreateTextSubFileData(TextFileId, FragmentId1, 2)));
@@ -915,7 +916,7 @@ public sealed class PatchingServiceTests
     [Fact]
     public void ApplyTranslations_RerunThatChangesNothingInTheLedger_ShouldNotRewriteIt()
     {
-        // Arrange — the ledger already records exactly what this run writes again (a no-op re-run of
+        // Arrange: the ledger already records exactly what this run writes again (a no-op re-run of
         // the same artifact). Rewriting a multi-MB sidecar on every launch would be pure churn.
         SetupAllPassingDefaults();
         _translationLedger.Read(Arg.Any<string>()).Returns(new Dictionary<LedgerKey, string>
@@ -935,7 +936,7 @@ public sealed class PatchingServiceTests
     [Fact]
     public void ApplyTranslations_SameRowListedTwice_ShouldLetTheSecondRowSeeTheFirstRowsWrite()
     {
-        // Arrange — a hand-made file naming the same fragment twice with different content used to be
+        // Arrange: a hand-made file naming the same fragment twice with different content used to be
         // last-wins. The first row's write sits in the in-memory subfile when the second is judged, so
         // clause (b) has to consult the entries pending for that subfile, not only the ledger on disk.
         SetupAllPassingDefaults();
@@ -946,7 +947,7 @@ public sealed class PatchingServiceTests
         // Act
         Result<PatchSummaryResponse> result = _sut.ApplyTranslations("/translations/polish.txt", "/game/client_local_English.dat");
 
-        // Assert — both admitted, no spurious "source moved", the last write is what the ledger records.
+        // Assert: both admitted, no spurious "source moved", the last write is what the ledger records.
         result.IsSuccess.ShouldBeTrue();
         result.Value.AppliedTranslations.ShouldBe(2);
         result.Value.SourceMovedTranslations.ShouldBe(0);

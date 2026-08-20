@@ -10,8 +10,9 @@ using Microsoft.IdentityModel.Protocols.OpenIdConnect;
 namespace LotroKoniecDev.Frontend.Infrastructure.Auth;
 
 /// <summary>
-/// Maps the login (challenge) and logout (cookie sign-out + RP-initiated end-session) endpoints the
-/// OIDC RP wiring relies on. The navbar wires its login/logout controls to these in M3-02.
+/// Maps the login and logout routes the OIDC setup needs. Login starts the challenge; logout clears the
+/// cookie and ends the session at the auth server. The navbar's login and logout buttons point here
+/// (M3-02).
 /// </summary>
 internal static class AuthEndpointsExtensions
 {
@@ -45,13 +46,14 @@ internal static class AuthEndpointsExtensions
     }
 
     /// <summary>
-    /// The login route's request delegate, exposed internally so it can be unit-tested without a web
-    /// host. The OIDC challenge builds its redirect from the authority's discovery document, which the
-    /// handler fetches lazily — when the auth server is unreachable that fetch throws deep inside
-    /// <c>HandleChallenge</c> and would surface as a raw 500. Warming the discovery cache here first
-    /// (the same <see cref="IConfigurationManager{T}"/> the handler uses) turns an outage into an honest
-    /// "login temporarily unavailable" (503) page; the challenge below then reuses the now-cached
-    /// document and 302s to the authority exactly as before when auth is up.
+    /// The login route's handler, internal so a unit test can call it without a web host.
+    /// The OIDC challenge builds its redirect from the authority's discovery document, which the handler
+    /// fetches the first time it needs it. When the auth server is unreachable that fetch throws deep
+    /// inside <c>HandleChallenge</c> and the user gets a bare 500.
+    /// Fetching the document here first, through the same <see cref="IConfigurationManager{T}"/> the
+    /// handler uses, turns an outage into an honest "login temporarily unavailable" page with a 503.
+    /// When auth is up, the challenge below reuses the cached document and redirects exactly as
+    /// before.
     /// </summary>
     internal static async Task<IResult> LoginAsync(
         HttpContext context,
@@ -85,11 +87,12 @@ internal static class AuthEndpointsExtensions
     }
 
     /// <summary>
-    /// Cookie-only sign-out for flows where the upstream IdP session is already dead — e.g. account
-    /// deletion was just scheduled, so the auth server has locked the account and revoked its tokens.
-    /// The regular <see cref="LogoutAsync"/> round-trips through OIDC end-session and always lands on
-    /// the registered post-logout URI (home); this variant skips the dead round-trip and lands on the
-    /// given local page instead (the anonymous "deletion scheduled" info page).
+    /// Signs out of the cookie only, for cases where the session at the auth server is already gone, for
+    /// example right after an account deletion was scheduled and the auth server locked the account and
+    /// revoked its tokens.
+    /// The normal <see cref="LogoutAsync"/> goes through the OIDC end-session endpoint and always ends on
+    /// the registered post-logout URI, the home page. This one skips that pointless round trip and ends
+    /// on the given local page instead, the "deletion scheduled" info page.
     /// </summary>
     internal static async Task<IResult> LocalSignOutAsync(HttpContext context, string? returnUrl)
     {

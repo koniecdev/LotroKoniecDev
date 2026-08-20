@@ -12,11 +12,11 @@ namespace LotroKoniecDev.TranslationSystem.API.Tests.Integration.Tests.Snapshots
 /// type but carry no domain <c>errorCode</c>.
 /// </summary>
 /// <remarks>
-/// <c>ProblemDetailsContractTests</c> asserts the individual fields that carry meaning; these
-/// snapshots exist for the fields nobody thought to assert — a <c>type</c> URI silently changing, an
-/// extension appearing or disappearing, <c>detail</c> starting to leak internals (most likely on the
-/// 403, where the framework knows why the policy failed). A deliberate change re-accepts the verified
-/// file in the same PR.
+/// <c>ProblemDetailsContractTests</c> checks the fields that carry meaning. These snapshots exist for
+/// the fields nobody thought to check: a <c>type</c> URI changing quietly, an extension appearing or
+/// disappearing, or <c>detail</c> starting to reveal internals, which is most likely on the 403, where
+/// the framework knows why the policy failed.
+/// A deliberate change accepts the new verified file in the same PR.
 /// </remarks>
 [Collection("TranslationApi")]
 public sealed class ProblemDetailsSnapshotTests : IAsyncLifetime
@@ -83,8 +83,8 @@ public sealed class ProblemDetailsSnapshotTests : IAsyncLifetime
     [Fact]
     public async Task ProtectedEndpoint_WithoutToken_MatchesTheUnauthorizedProblemContract()
     {
-        // Authentication rejections are written by the framework, not by the domain error mapper —
-        // the snapshot is what proves the two surfaces stay indistinguishable to a client.
+        // The framework writes the authentication rejections, not our own error mapper. The snapshot is
+        // what proves a client cannot tell the two apart.
         using HttpClient client = _factory.CreateClient();
 
         using HttpResponseMessage response = await client.GetAsync("/api/v1/game-versions");

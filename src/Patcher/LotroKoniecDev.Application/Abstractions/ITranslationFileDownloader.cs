@@ -1,21 +1,22 @@
 namespace LotroKoniecDev.Application.Abstractions;
 
 /// <summary>
-/// Fetches the current Polish translation file from the TMS distribution endpoint, honouring a cached
-/// ETag so an unchanged file is reported as not-modified instead of being re-downloaded.
+/// Fetches the current Polish translation file from the TMS. It sends the cached ETag, so an
+/// unchanged file comes back as "not modified" instead of being downloaded again.
 /// </summary>
 public interface ITranslationFileDownloader
 {
     /// <param name="endpoint">
-    /// The absolute URI resolved from the service document by <see cref="ITranslationFileEndpointResolver"/>.
-    /// The downloader composes no path of its own — there is no route left in the patcher source (#611).
+    /// The absolute URI that <see cref="ITranslationFileEndpointResolver"/> read from the service
+    /// document. The downloader builds no path of its own: no route is left in the patcher source
+    /// (#611).
     /// </param>
     Task<Result<TranslationFileFetchResult>> FetchAsync(Uri endpoint, string? currentETag, CancellationToken cancellationToken);
 }
 
 /// <summary>
-/// The outcome of a conditional translation-file fetch: either the server confirmed the cached copy is
-/// still current (<see cref="IsModified"/> is <c>false</c>), or it returned a newer file with its ETag.
+/// The result of a conditional fetch. Either the server said the cached copy is still current, and
+/// <see cref="IsModified"/> is <c>false</c>, or it sent a newer file together with its ETag.
 /// </summary>
 public sealed record TranslationFileFetchResult(bool IsModified, string? Content, string? ETag)
 {

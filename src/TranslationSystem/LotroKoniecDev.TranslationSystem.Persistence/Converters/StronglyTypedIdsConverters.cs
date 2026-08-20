@@ -13,8 +13,8 @@ public static class StronglyTypedIdsConverters
     public static ModelConfigurationBuilder RegisterAllStronglyTypedIdConverters(
         this ModelConfigurationBuilder configurationBuilder)
     {
-        // Npgsql's `timestamp with time zone` only accepts DateTimeOffset values with UTC offset.
-        // Normalize on the way in so callers don't have to remember to call ToUniversalTime().
+        // Npgsql's `timestamp with time zone` only accepts a DateTimeOffset with a UTC offset.
+        // Convert on the way in, so no caller has to remember ToUniversalTime().
         configurationBuilder
             .Properties<DateTimeOffset>()
             .HaveConversion<UtcDateTimeOffsetConverter>();
@@ -35,9 +35,9 @@ public static class StronglyTypedIdsConverters
             .Properties<TranslatorId>()
             .HaveConversion<StronglyTypedIdValueConverter<TranslatorId>>();
 
-        // IdentityId is the AuthSystem user id (cross-context reference) carried by the Translator as
-        // the lazy-provisioning key (ADR-0004); it lives in the SharedKernel, not the TMS Primitives,
-        // but persists the same way.
+        // IdentityId is the AuthSystem user id. The Translator carries it as the key for creating a
+        // profile on first use (ADR-0004). It lives in the SharedKernel and not in the TMS Primitives,
+        // but it is stored the same way.
         configurationBuilder
             .Properties<IdentityId>()
             .HaveConversion<StronglyTypedIdValueConverter<IdentityId>>();

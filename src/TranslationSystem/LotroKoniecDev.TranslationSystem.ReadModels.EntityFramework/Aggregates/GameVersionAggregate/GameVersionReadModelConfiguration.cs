@@ -16,7 +16,7 @@ public sealed class GameVersionReadModelConfiguration : IEntityTypeConfiguration
         builder.Property(gameVersionReadModel => gameVersionReadModel.Status)
             .HasConversion<string>();
 
-        // CreatedAt is computed from DetectedAt on the read model — there is no such column.
+        // The read model computes CreatedAt from DetectedAt. There is no such column in the table.
         builder.Ignore(gameVersionReadModel => gameVersionReadModel.CreatedAt);
     }
 }

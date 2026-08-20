@@ -17,13 +17,13 @@ using JsonOptions = Microsoft.AspNetCore.Http.Json.JsonOptions;
 namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Tests.Messaging;
 
 /// <summary>
-/// The password-reset legs of the brokered pipeline (MSG-03, ADR-0038): forgot-password commits
-/// an id-only outbox row, the real relay publishes it to a real broker, and the real consumer
-/// selects <c>PasswordResetRequestProcessor</c> by the AMQP <c>type</c> property, mints the token
-/// at delivery and dispatches to the spy sender. The legs mirror
-/// <see cref="EmailConfirmationPipelineTests"/> where the machinery is shared and add what is
-/// specific to this type: the token must never appear in an outbox row or a parked message, and
-/// the delivered token must actually reset the password.
+/// The password-reset parts of the pipeline with a real broker (MSG-03, ADR-0038). Forgot-password
+/// commits an outbox row that carries only an id, the real relay publishes it to a real broker, and the
+/// real consumer picks <c>PasswordResetRequestProcessor</c> by the AMQP <c>type</c> property, creates
+/// the token at delivery and hands the message to the spy sender.
+/// These tests follow <see cref="EmailConfirmationPipelineTests"/> where the machinery is the same, and
+/// add what is specific here: the token must never appear in an outbox row or in a parked message, and
+/// the delivered token must really reset the password.
 /// </summary>
 public sealed class PasswordResetPipelineTests : IClassFixture<BrokeredAuthSystemApiFactory>, IAsyncLifetime
 {
@@ -57,7 +57,7 @@ public sealed class PasswordResetPipelineTests : IClassFixture<BrokeredAuthSyste
         await cleaner.CleanAsync();
 
         // The host's consumer declares the topology on startup, but the first test may reach this
-        // point before that attach finished — declaring here is idempotent (proven in
+        // point before that attach finished. Declaring it here again is safe (proven in
         // DeadLetterTopologyTests) and guarantees the purges below have queues to purge.
         await using IConnection connection = await _factory.Broker.ConnectAsync(CancellationToken.None);
         await using IChannel channel = await connection.CreateChannelAsync();
@@ -71,30 +71,30 @@ public sealed class PasswordResetPipelineTests : IClassFixture<BrokeredAuthSyste
     [Fact]
     public async Task Pipeline_ShouldDeliverAResetEmailWhoseTokenWorks_WhenForgotPasswordCommits()
     {
-        // Arrange — a confirmed account, so the only pipeline traffic left is the reset e-mail
+        // Arrange: a confirmed account, so the only pipeline traffic left is the reset e-mail
         (RegisterRequest request, IdentityId identityId) = await UserFactory.RegisterRandomUserWithRequestAsync(
             _apiClient, _faker, _confirmationEmailSpy);
 
-        // Act — forgot-password is the user-facing trigger of the whole pipeline
+        // Act: forgot-password is the user-facing trigger of the whole pipeline
         HttpResponseMessage forgotResponse = await _apiClient.Http.PostAsJsonAsync(
             new Uri("auth/forgot-password", UriKind.Relative), new ForgotPasswordRequest(request.Email));
         await _passwordResetEmailSpy.WaitForCaptureAsync(DeliveryTimeout);
 
-        // Assert — the e-mail went out once, to the registered address, with a usable token
+        // Assert: the e-mail went out once, to the registered address, with a usable token
         forgotResponse.StatusCode.ShouldBe(HttpStatusCode.OK);
         _passwordResetEmailSpy.LastEmail.ShouldBe(request.Email);
         _passwordResetEmailSpy.LastResetToken.ShouldNotBeNullOrWhiteSpace();
         _passwordResetEmailSpy.CallCount.ShouldBe(1);
 
-        // The delivered token really resets the password — the end-to-end proof that minting at
-        // delivery produced a link the user can use
+        // The delivered token really resets the password, which proves that creating it at delivery time
+        // produced a link the user can use.
         HttpResponseMessage resetResponse = await _apiClient.Http.PostAsJsonAsync(
             new Uri("auth/reset-password", UriKind.Relative),
             new ResetPasswordRequest(request.Email, _passwordResetEmailSpy.LastResetToken!, "NewPass99!"));
         resetResponse.StatusCode.ShouldBe(HttpStatusCode.OK);
 
-        // The outbox row was published and marked on the first attempt — and carries the user id
-        // alone: no reset token may ever persist in an outbox row (ADR-0038 decision 2)
+        // The outbox row was published and marked on the first attempt, and it carries the user id and
+        // nothing else: a reset token must never sit in an outbox row (ADR-0038 decision 2).
         OutboxMessage? outboxRow = await OutboxAssertions.WaitForOutboxRowAsync(
             _factory,
             row => row.Type == nameof(PasswordResetRequested) && row.ProcessedOn != null,
@@ -116,7 +116,7 @@ public sealed class PasswordResetPipelineTests : IClassFixture<BrokeredAuthSyste
     [Fact]
     public async Task Consumer_ShouldAckWithoutSecondEmail_WhenTheSameMessageIdIsDeliveredAgain()
     {
-        // Arrange — a fully delivered reset request, then its exact wire message published again
+        // Arrange: a fully delivered reset request, then its exact wire message published again
         // (the relay's crash window: published but not yet marked processed → re-published later)
         (RegisterRequest request, _) = await UserFactory.RegisterRandomUserWithRequestAsync(
             _apiClient, _faker, _confirmationEmailSpy);
@@ -130,7 +130,7 @@ public sealed class PasswordResetPipelineTests : IClassFixture<BrokeredAuthSyste
         outboxRow.ShouldNotBeNull();
         int sendsAfterFirstDelivery = _passwordResetEmailSpy.CallCount;
 
-        // Act — same payload, same type, same message id, over the real wire
+        // Act: same payload, same type, same message id, over the real wire
         IMessagePublisher publisher = _factory.Services.GetRequiredService<IMessagePublisher>();
         await publisher.PublishAsync(
             RabbitMqTopology.PasswordResetRoutingKey,
@@ -139,7 +139,7 @@ public sealed class PasswordResetPipelineTests : IClassFixture<BrokeredAuthSyste
             outboxRow.Id,
             CancellationToken.None);
 
-        // Assert — the duplicate is consumed (queue drains), acked (no parking) and suppressed
+        // Assert: the duplicate is consumed (queue drains), acked (no parking) and suppressed
         await WaitUntilQueueEmptyAsync(RabbitMqTopology.EmailQueue, DeliveryTimeout);
         await Task.Delay(TimeSpan.FromSeconds(1));
         _passwordResetEmailSpy.CallCount.ShouldBe(sendsAfterFirstDelivery);
@@ -153,7 +153,7 @@ public sealed class PasswordResetPipelineTests : IClassFixture<BrokeredAuthSyste
     [InlineData("""{"IdentityUserId":"not-a-guid"}""")]
     public async Task Consumer_ShouldParkDeliveryInDeadLetterQueue_WhenThePayloadIsPoison(string poisonPayload)
     {
-        // Act — a valid message id and the registered reset type, so the reject decision can only
+        // Act: a valid message id and the registered reset type, so the reject decision can only
         // come from the payload
         Guid messageId = Guid.CreateVersion7();
         IMessagePublisher publisher = _factory.Services.GetRequiredService<IMessagePublisher>();
@@ -164,7 +164,7 @@ public sealed class PasswordResetPipelineTests : IClassFixture<BrokeredAuthSyste
             messageId,
             CancellationToken.None);
 
-        // Assert — parked on first sight, no e-mail, no dedup record
+        // Assert: parked on first sight, no e-mail, no dedup record
         BasicGetResult dead =
             (await GetWithinTimeoutAsync(RabbitMqTopology.EmailDeadLetterQueue, DeliveryTimeout)).ShouldNotBeNull();
         Encoding.UTF8.GetString(dead.Body.ToArray()).ShouldBe(poisonPayload);
@@ -176,7 +176,7 @@ public sealed class PasswordResetPipelineTests : IClassFixture<BrokeredAuthSyste
     [Fact]
     public async Task Consumer_ShouldAckWithoutEmailAndWithoutParking_WhenTheUserNoLongerExists()
     {
-        // Act — a payload whose user id matches no account (requested, then erased): redelivery
+        // Act: a payload whose user id matches no account (requested, then erased): redelivery
         // could never change the outcome, so the ack-and-record contract applies, not the DLQ
         Guid messageId = Guid.CreateVersion7();
         string payload = JsonSerializer.Serialize(new PasswordResetRequested(Guid.CreateVersion7()));
@@ -188,7 +188,7 @@ public sealed class PasswordResetPipelineTests : IClassFixture<BrokeredAuthSyste
             messageId,
             CancellationToken.None);
 
-        // Assert — the inbox record doubles as the "consumer finished" signal
+        // Assert: the inbox record doubles as the "consumer finished" signal
         int inboxRows = await OutboxAssertions.WaitForInboxRowsAsync(_factory, messageId, DeliveryTimeout);
         inboxRows.ShouldBe(1);
         _passwordResetEmailSpy.CallCount.ShouldBe(0);
@@ -197,9 +197,9 @@ public sealed class PasswordResetPipelineTests : IClassFixture<BrokeredAuthSyste
     }
 
     /// <summary>
-    /// Polls the queue until a delivery arrives or the timeout passes — routing and dead-lettering
-    /// are asynchronous inside the broker. The read is auto-acked: every caller either asserts on
-    /// the delivery (test over either way) or expects null.
+    /// Polls the queue until a delivery arrives or the time runs out. Routing and dead-lettering happen
+    /// asynchronously inside the broker. The read acknowledges the message, which is fine: every caller
+    /// either checks the delivery or expects null.
     /// </summary>
     private async Task<BasicGetResult?> GetWithinTimeoutAsync(string queue, TimeSpan timeout)
     {

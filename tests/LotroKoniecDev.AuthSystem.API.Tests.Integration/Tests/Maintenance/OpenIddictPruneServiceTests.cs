@@ -32,7 +32,7 @@ public sealed class OpenIddictPruneServiceTests
         // Act
         await service.PruneOnceAsync(CancellationToken.None);
 
-        // Assert — pruning is invisible in any return value, so the manager calls are the observable
+        // Assert: pruning is invisible in any return value, so the manager calls are the observable
         // side effect; tokens must go first because OpenIddict never deletes an authorization that
         // still has tokens attached.
         Received.InOrder(() =>
@@ -79,7 +79,7 @@ public sealed class OpenIddictPruneServiceTests
         await using ServiceProvider serviceProvider = BuildServiceProvider();
         using OpenIddictPruneService service = CreateService(serviceProvider);
 
-        // Act & Assert — a shutdown cancellation must not be swallowed and logged as a failure
+        // Act & Assert: a shutdown cancellation must not be swallowed and logged as a failure
         await Should.ThrowAsync<OperationCanceledException>(
             () => service.PruneOnceAsync(cancellationSource.Token));
     }
@@ -87,7 +87,7 @@ public sealed class OpenIddictPruneServiceTests
     [Fact]
     public async Task PruneOnceAsync_OperationCanceledWithoutShutdown_IsSwallowedLikeAnyFailure()
     {
-        // Arrange — a rogue OperationCanceledException not caused by the host's own stopping token
+        // Arrange: a rogue OperationCanceledException not caused by the host's own stopping token
         _tokenManager.PruneAsync(Arg.Any<DateTimeOffset>(), Arg.Any<CancellationToken>())
             .Returns(ValueTask.FromException<long>(new OperationCanceledException()));
         await using ServiceProvider serviceProvider = BuildServiceProvider();
@@ -100,7 +100,7 @@ public sealed class OpenIddictPruneServiceTests
     [Fact]
     public async Task StartAsync_StoppedBeforeStartupDelayElapses_NeverPrunes()
     {
-        // Arrange — real clock: the one-minute startup delay cannot elapse within this test
+        // Arrange: real clock: the one-minute startup delay cannot elapse within this test
         await using ServiceProvider serviceProvider = BuildServiceProvider();
         using OpenIddictPruneService service = new(
             serviceProvider.GetRequiredService<IServiceScopeFactory>(),

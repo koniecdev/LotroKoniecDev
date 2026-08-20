@@ -13,8 +13,8 @@ internal sealed class GdprSettingsValidator : IValidateOptions<GdprSettings>
             errors.Add("DeletionGracePeriod must be positive.");
         }
 
-        // GDPR Art. 12(3): erasure must complete "without undue delay",
-        // at most one month after the request.
+        // GDPR Art. 12(3): the erasure has to happen "without undue delay", and at most one month
+        // after the request.
         if (options.DeletionGracePeriod > TimeSpan.FromDays(30))
         {
             errors.Add("DeletionGracePeriod must not exceed 30 days.");
@@ -25,8 +25,8 @@ internal sealed class GdprSettingsValidator : IValidateOptions<GdprSettings>
             errors.Add("DeletionFinalizationPollInterval must be at least 1 minute.");
         }
 
-        // A poll interval longer than the grace period would leave finalization to the
-        // startup catch-up run alone and silently overshoot the Art. 12(3) deadline.
+        // An interval longer than the grace period would leave the work to the catch-up run at startup
+        // alone, and the Art. 12(3) deadline would pass without anyone noticing.
         if (options.DeletionFinalizationPollInterval > options.DeletionGracePeriod)
         {
             errors.Add("DeletionFinalizationPollInterval must not exceed DeletionGracePeriod.");

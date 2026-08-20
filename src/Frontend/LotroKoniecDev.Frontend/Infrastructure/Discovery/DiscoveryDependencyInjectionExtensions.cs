@@ -8,9 +8,9 @@ public static class DiscoveryDependencyInjectionExtensions
     {
         public IServiceCollection AddDiscoveryCache()
         {
-            // L1-only HybridCache: no IDistributedCache is registered, so HybridCache falls back to its
-            // in-memory store. Discovery responses are tiny and tied to the local process; a distributed
-            // cache would add latency for no gain.
+            // An in-memory HybridCache only. No IDistributedCache is registered, so it uses its
+            // in-memory store. Discovery responses are small and belong to this process, and a shared
+            // cache would only add latency.
             services.AddHybridCache(options =>
             {
                 options.MaximumPayloadBytes = 1024 * 64;
@@ -22,8 +22,8 @@ public static class DiscoveryDependencyInjectionExtensions
                 };
             });
 
-            // Scoped because the typed HTTP client it depends on is scoped (per request). HybridCache
-            // itself is a singleton internally, so the TTL still spans requests.
+            // Scoped, because the typed HTTP client it uses is scoped to a request. HybridCache itself is
+            // a singleton inside, so an entry still lives across requests.
             services.AddScoped<IDiscoveryCache, DiscoveryCache>();
 
             return services;

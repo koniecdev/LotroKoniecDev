@@ -35,8 +35,8 @@ internal static class OpenIddictExtensions
                     .AllowClientCredentialsFlow()
                     .AllowAuthorizationCodeFlow();
 
-                // Password flow is only enabled in testing for integration/E2E tests.
-                // In production, use authorization code flow with PKCE.
+                // The password flow is only on in Testing, for integration and E2E tests. Production
+                // uses the authorization code flow with PKCE.
                 if (environment.IsEnvironment("Testing"))
                 {
                     options.AllowPasswordFlow();
@@ -44,9 +44,9 @@ internal static class OpenIddictExtensions
 
                 options.RequireProofKeyForCodeExchange();
 
-                // Enable rolling refresh tokens - when a refresh token is used, it's automatically
-                // invalidated and a new one is issued. This prevents token replay attacks.
-                // Reference tokens are stored in the database, allowing revocation.
+                // Rolling refresh tokens: using a refresh token invalidates it and issues a new one, so
+                // an old token cannot be replayed. Reference tokens live in the database, which is what
+                // makes revoking them possible.
                 options.UseReferenceRefreshTokens();
 
                 options.RegisterScopes(
@@ -58,13 +58,13 @@ internal static class OpenIddictExtensions
                     AuthConstants.Scopes.Api,
                     AuthConstants.Scopes.Service);
 
-                // Disable access token encryption to allow standard JWT Bearer validation.
-                // Access tokens are signed (tamper-proof) but not encrypted.
-                // This is a common pattern - encryption is optional in OAuth2/OIDC.
+                // Access tokens are not encrypted, so standard JWT Bearer validation can read them.
+                // They are still signed, so they cannot be changed. Encryption is optional in OAuth2
+                // and OIDC, and leaving it off is common.
                 options.DisableAccessTokenEncryption();
 
-                // In development/testing, use ephemeral keys.
-                // In production, keys are configured via ConfigureOpenIddictServerSettings.
+                // Development and testing use throwaway keys. In production the keys come from
+                // ConfigureOpenIddictServerSettings.
                 if (environment.IsDevelopment() || environment.IsEnvironment("Testing"))
                 {
                     options.AddEphemeralSigningKey()
@@ -108,8 +108,8 @@ internal sealed class ConfigureOpenIddictServerSettings(IConfiguration configura
         options.AccessTokenLifetime = TimeSpan.FromMinutes(settings.AccessTokenLifetimeMinutes);
         options.RefreshTokenLifetime = TimeSpan.FromDays(settings.RefreshTokenLifetimeDays);
 
-        // In development/testing, use ephemeral keys only (configured in AddServer).
-        // In production, use RSA asymmetric keys - public key is exposed via JWKS for token validation.
+        // Development and testing use throwaway keys only, set up in AddServer. Production uses RSA
+        // keys, and the public one is published through JWKS so tokens can be validated.
         if (environment.IsDevelopment() || environment.IsEnvironment("Testing"))
         {
             return;
@@ -117,8 +117,8 @@ internal sealed class ConfigureOpenIddictServerSettings(IConfiguration configura
 
         try
         {
-            // Encryption key (symmetric) - used for authorization codes, refresh tokens, etc.
-            // Not exposed via JWKS, so symmetric is fine here.
+            // The encryption key is symmetric and is used for authorization codes, refresh tokens and
+            // the like. It is never published through JWKS, so a symmetric key is fine.
             byte[] encKeyBytes = Convert.FromBase64String(settings.EncryptionKey.Key);
             if (encKeyBytes.Length < 32)
             {
@@ -138,18 +138,19 @@ internal sealed class ConfigureOpenIddictServerSettings(IConfiguration configura
 
         try
         {
-            // Signing key (RSA asymmetric) - public key exposed via JWKS for resource servers.
+            // The signing key is RSA. Its public half is published through JWKS for resource servers.
             string rsaXml = System.Text.Encoding.UTF8.GetString(
                 Convert.FromBase64String(settings.SigningKey.RsaPrivateKeyXml));
 
-            // Not wrapped in `using`: OpenIddict retains this RSA (via RsaSecurityKey in the singleton
-            // server options) for the app's lifetime — to sign tokens AND to export the public key on
-            // /.well-known/jwks. Disposing it makes the JWKS endpoint throw ObjectDisposedException
-            // (RSAOpenSsl), so discovery succeeds but JWKS 500s → IDX20807 at every relying party.
+            // Not inside a `using`. OpenIddict keeps this RSA for the whole life of the app, through
+            // an RsaSecurityKey in the singleton server options, both to sign tokens and to publish the
+            // public key at /.well-known/jwks. Disposing it makes the JWKS endpoint throw
+            // ObjectDisposedException from RSAOpenSsl, so discovery still works but JWKS returns 500
+            // and every client fails with IDX20807.
             RSA rsa = RSA.Create();
             rsa.FromXmlString(rsaXml);
 
-            // Validate minimum key size (RSA-2048)
+            // The key must be at least RSA-2048.
             if (rsa.KeySize < 2048)
             {
                 throw new InvalidOperationException(
@@ -171,8 +172,8 @@ internal sealed class ConfigureOpenIddictServerSettings(IConfiguration configura
                 "Invalid RSA signing key. The XML does not represent a valid RSA key.", ex);
         }
 
-        // Register previous signing key for key rotation.
-        // Existing tokens signed with the old key remain valid during the rotation window.
+        // Register the previous signing key so keys can be rotated. Tokens signed with the old key stay
+        // valid while both keys are registered.
         if (string.IsNullOrWhiteSpace(settings.SigningKey.PreviousRsaPrivateKeyXml))
         {
             return;
@@ -183,7 +184,8 @@ internal sealed class ConfigureOpenIddictServerSettings(IConfiguration configura
             string prevRsaXml = System.Text.Encoding.UTF8.GetString(
                 Convert.FromBase64String(settings.SigningKey.PreviousRsaPrivateKeyXml));
 
-            // Not disposed — same app-lifetime requirement as the current signing key above.
+            // Not disposed, for the same reason as the current signing key above: it has to live as
+            // long as the app.
             RSA prevRsa = RSA.Create();
             prevRsa.FromXmlString(prevRsaXml);
 

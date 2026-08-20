@@ -1,9 +1,9 @@
 namespace LotroKoniecDev.TranslationSystem.Contracts.Translations;
 
 /// <summary>
-/// Creates or updates the Polish content of one translation row, identified by its stable fragment
-/// key <c>(FileId, GossipId)</c> (spec 0001). The submitting translator is taken from the
-/// authenticated identity, never the request body.
+/// Creates or updates the Polish text of one translation row, found by its fragment key
+/// <c>(FileId, GossipId)</c> (spec 0001). The translator comes from the authenticated identity and
+/// never from the request body.
 /// </summary>
 public sealed record UpsertTranslationRequest(
     int FileId,

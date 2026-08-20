@@ -12,31 +12,30 @@ public static class DependencyInjection
     extension(IServiceCollection services)
     {
         /// <summary>
-        /// Registers the cross-cutting HATEOAS infrastructure:
+        /// Registers the shared HATEOAS pieces:
         /// <list type="bullet">
-        ///   <item><see cref="ILinkFactory"/> backed by ASP.NET's <c>LinkGenerator</c> and the
+        ///   <item><see cref="ILinkFactory"/>, built on ASP.NET's <c>LinkGenerator</c> and on the
         ///   target endpoint's own authorization metadata.</item>
-        ///   <item><see cref="IHttpContextAccessor"/> — required by the link factory for absolute URIs.</item>
-        ///   <item>A fallback <see cref="IProblemDetailsWriter"/> that serves RFC 7807 for the HATEOAS vendor media type.</item>
-        ///   <item>A <see cref="JsonTypeInfo"/> modifier that suppresses empty <c>links</c> arrays from plain-JSON responses.</item>
+        ///   <item><see cref="IHttpContextAccessor"/>, which the link factory needs for absolute URIs.</item>
+        ///   <item>A fallback <see cref="IProblemDetailsWriter"/> that serves RFC 7807 for the vendor media type.</item>
+        ///   <item>A <see cref="JsonTypeInfo"/> modifier that hides empty <c>links</c> arrays in plain JSON.</item>
         /// </list>
         /// <para>
-        /// Aggregate-specific link factories (e.g. <c>IAccountAggregateLinkFactory</c>,
-        /// <c>ICatAggregateLinkFactory</c>) remain the responsibility of each service —
-        /// they encode domain knowledge (endpoint names, state-aware rels) that does not
-        /// belong in a cross-cutting library.
+        /// Link factories for a single aggregate (<c>IAccountAggregateLinkFactory</c>,
+        /// <c>ICatAggregateLinkFactory</c>) stay with each service. They know endpoint names and
+        /// state-dependent rels, which do not belong in a shared library.
         /// </para>
         /// <para>
-        /// Must be called <em>after</em> <c>AddProblemDetails()</c> so the default writer
-        /// handles its supported Accept types first, with this fallback tried last.
+        /// Call this after <c>AddProblemDetails()</c>, so the default writer handles the Accept types it
+        /// supports and this fallback is tried last.
         /// </para>
         /// </summary>
         public IServiceCollection AddHateoasInfrastructure()
         {
             services.AddHttpContextAccessor();
 
-            // Scoped, not singleton: the link factory evaluates the target endpoint's authorization
-            // through the scoped IAuthorizationService before emitting a link.
+            // Scoped, not singleton: before it emits a link, the factory checks the target endpoint's
+            // authorization through the scoped IAuthorizationService.
             services.AddScoped<ILinkFactory, LinkFactory>();
             services.AddSingleton<IProblemDetailsWriter, FallbackProblemDetailsWriter>();
 

@@ -35,7 +35,7 @@ public sealed class GetTranslationStatsHandlerTests
     [Fact]
     public async Task Handle_WithMixedStatuses_ShouldBucketEachCounter()
     {
-        // Arrange — 1 untranslated, 2 draft, 3 approved, 1 needs-review.
+        // Arrange: 1 untranslated, 2 draft, 3 approved, 1 needs-review.
         Given(1, TranslationStatus.Untranslated);
         Given(2, TranslationStatus.Draft);
         Given(3, TranslationStatus.Draft);
@@ -57,7 +57,7 @@ public sealed class GetTranslationStatsHandlerTests
     [Fact]
     public async Task Handle_ShouldExcludeSoftRemovedRowsFromEveryCounter()
     {
-        // Arrange — only the kept approved row may count anywhere.
+        // Arrange: only the kept approved row may count anywhere.
         Given(1, TranslationStatus.Approved);
         Given(2, TranslationStatus.Approved, removed: true);
         Given(3, TranslationStatus.Untranslated, removed: true);
@@ -93,7 +93,7 @@ public sealed class GetTranslationStatsHandlerTests
     [Fact]
     public async Task Handle_SecondCallWithinTtl_ShouldServeCountersFromCacheWithoutRequerying()
     {
-        // Arrange — two handlers share one cache but read different catalogs: a second database
+        // Arrange: two handlers share one cache but read different catalogs: a second database
         // read would surface the grown catalog, so identical counters prove the cache served it.
         HybridCache hybridCache = TestHybridCache.Create();
         Given(1, TranslationStatus.Approved);
@@ -117,7 +117,7 @@ public sealed class GetTranslationStatsHandlerTests
     [Fact]
     public async Task Handle_AfterTheEntryExpires_ShouldRecomputeCountersFromTheLiveCatalog()
     {
-        // Arrange — eviction is the state HybridCache reaches once the TTL lapses (the expiry timer
+        // Arrange: eviction is the state HybridCache reaches once the TTL lapses (the expiry timer
         // itself is HybridCache's contract); the handler must then recompute, not hold on.
         HybridCache hybridCache = TestHybridCache.Create();
         Given(1, TranslationStatus.Approved);

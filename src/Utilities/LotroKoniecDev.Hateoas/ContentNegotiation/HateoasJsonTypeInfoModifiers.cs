@@ -4,26 +4,21 @@ using LotroKoniecDev.Hateoas.Abstractions;
 namespace LotroKoniecDev.Hateoas.ContentNegotiation;
 
 /// <summary>
-/// <see cref="IJsonTypeInfoResolver"/> modifiers that adapt the System.Text.Json
-/// contract so HATEOAS hypermedia links disappear entirely from the serialized
-/// payload whenever they are empty.
+/// <see cref="IJsonTypeInfoResolver"/> modifiers that drop an empty <c>links</c> array from the
+/// serialized payload.
 /// <para>
-/// Enterprise-grade content negotiation requires that the plain JSON
-/// representation contain no trace of HATEOAS. Merely leaving the default
-/// <c>Links = []</c> initializer would emit <c>"links": []</c>, which leaks
-/// the schema of the HATEOAS representation into the non-HATEOAS one.
-/// This modifier applies a <see cref="JsonPropertyInfo.ShouldSerialize"/>
-/// predicate to every <see cref="ILinksResponse.Links"/> property so empty
-/// collections are omitted from output without forcing every DTO to declare
-/// its own attribute.
+/// A plain JSON response should show no sign of the link representation at all. The default
+/// <c>Links = []</c> initializer would print <c>"links": []</c> and give the shape away. This
+/// modifier puts a <see cref="JsonPropertyInfo.ShouldSerialize"/> check on every
+/// <see cref="ILinksResponse.Links"/> property, so empty collections are left out and no DTO needs
+/// an attribute of its own.
 /// </para>
 /// </summary>
 public static class HateoasJsonTypeInfoModifiers
 {
     /// <summary>
-    /// When applied to a <see cref="JsonTypeInfo"/> whose runtime type
-    /// implements <see cref="ILinksResponse"/>, configures its
-    /// <c>Links</c> property to be serialized only when non-empty.
+    /// For a <see cref="JsonTypeInfo"/> whose type implements <see cref="ILinksResponse"/>, makes the
+    /// <c>Links</c> property serialize only when it holds something.
     /// </summary>
     public static void SuppressEmptyLinks(JsonTypeInfo typeInfo)
     {

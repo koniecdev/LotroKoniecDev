@@ -31,7 +31,7 @@ public sealed partial class ForgotPasswordPageTests : EndpointsTestBase
         HttpResponseMessage response = await PostToForgotPasswordPageAsync(request.Email);
         await PasswordResetEmailSpy.WaitForCaptureAsync();
 
-        // Assert — success panel plus a delivered e-mail whose token never touched the outbox row
+        // Assert: success panel plus a delivered e-mail whose token never touched the outbox row
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
         string html = await response.Content.ReadAsStringAsync();
         html.ShouldContain("Jeśli konto istnieje");
@@ -58,7 +58,7 @@ public sealed partial class ForgotPasswordPageTests : EndpointsTestBase
         // Act
         HttpResponseMessage response = await PostToForgotPasswordPageAsync("nobody@example.com");
 
-        // Assert — the anti-enumeration panel shows, but nothing was queued and nothing will send
+        // Assert: the anti-enumeration panel shows, but nothing was queued and nothing will send
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
         string html = await response.Content.ReadAsStringAsync();
         html.ShouldContain("Jeśli konto istnieje");

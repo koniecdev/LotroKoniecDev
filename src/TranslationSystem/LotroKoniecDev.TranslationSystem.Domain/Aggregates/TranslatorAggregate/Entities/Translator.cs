@@ -8,13 +8,14 @@ using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.TranslatorAggregate
 namespace LotroKoniecDev.TranslationSystem.Domain.Aggregates.TranslatorAggregate.Entities;
 
 /// <summary>
-/// The TMS-local projection of an authenticated user who edits translations (ADR-0004): the lean
-/// counterpart to KittySaver's <c>Person</c>. Holds the human-readable identity the editor renders
-/// (<see cref="DisplayName"/>, optional <see cref="Email"/>) keyed by the cross-context
-/// <see cref="IdentityId"/> (the AuthSystem user id). Provisioned lazily and idempotently on the
-/// caller's first authenticated request (ADR-0004 amendment 2026-06-24), so a registered and logged-in
-/// user has a profile before any write; the profile refreshes from
-/// the current claims whenever they change, so a renamed account converges without a separate sync.
+/// The TMS-side profile of an authenticated user who edits translations (ADR-0004). It is the small
+/// counterpart to KittySaver's <c>Person</c> and holds the name the editor shows
+/// (<see cref="DisplayName"/> and an optional <see cref="Email"/>), keyed by the
+/// <see cref="IdentityId"/> that the AuthSystem owns.
+/// The profile is created on the user's first authenticated request, and creating it twice is safe
+/// (ADR-0004, amended 2026-06-24). So a user who registered and logged in has a profile before any
+/// write. It is refreshed from the current claims whenever they change, so a renamed account catches
+/// up on its own and needs no separate sync.
 /// </summary>
 public sealed class Translator : AggregateRoot<TranslatorId>
 {
@@ -24,9 +25,8 @@ public sealed class Translator : AggregateRoot<TranslatorId>
     public DateTimeOffset ProvisionedAt { get; }
 
     /// <summary>
-    /// Re-applies the latest claims on an authenticated touch: refreshes the display name and email so
-    /// a renamed account converges. A <c>null</c> <paramref name="email"/> clears a previously known
-    /// address.
+    /// Copies the latest claims onto the profile, so a renamed account catches up. A <c>null</c>
+    /// <paramref name="email"/> clears an address we knew before.
     /// </summary>
     public void RefreshProfile(DisplayName displayName, Email? email)
     {

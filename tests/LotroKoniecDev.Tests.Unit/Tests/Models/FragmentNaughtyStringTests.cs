@@ -6,10 +6,11 @@ using LotroKoniecDev.Tests.Shared;
 namespace LotroKoniecDev.Tests.Unit.Tests.Models;
 
 /// <summary>
-/// Hostile-input coverage for the binary half of the patcher (#569): a fragment's UTF-16 pieces and
-/// argument strings are length-prefixed with <see cref="VarLenEncoder"/>, so anything that makes a
-/// character count disagree with its byte count — surrogate pairs, combining marks, astral-plane
-/// characters — corrupts every following fragment in the subfile, not just its own.
+/// Hostile-input coverage for the binary half of the patcher (#569). A fragment's UTF-16 pieces and
+/// argument strings carry a length prefix written by <see cref="VarLenEncoder"/>, so anything that makes
+/// the character count disagree with the byte count, such as surrogate pairs, combining marks or
+/// characters outside the basic plane, corrupts every following fragment in the subfile and not only its
+/// own.
 /// </summary>
 public sealed class FragmentNaughtyStringTests
 {
@@ -34,7 +35,7 @@ public sealed class FragmentNaughtyStringTests
     [MemberData(nameof(NaughtyStringCases.UnicodeHazards), MemberType = typeof(NaughtyStringCases))]
     public void WriteThenParse_NaughtyPiecesSplitAcrossOneFragment_ShouldRoundTripExactly(string naughty)
     {
-        // Arrange — the game splits a single displayed text into several pieces; a length error in
+        // Arrange: the game splits a single displayed text into several pieces; a length error in
         // one of them desynchronises the reader for the rest of the fragment.
         Fragment fragment = new() { Pieces = [naughty, string.Empty, naughty, "plain", naughty] };
 
@@ -49,7 +50,7 @@ public sealed class FragmentNaughtyStringTests
     [MemberData(nameof(NaughtyStringCases.UnicodeHazards), MemberType = typeof(NaughtyStringCases))]
     public void WriteThenParse_NaughtyArgumentStrings_ShouldRoundTripExactly(string naughty)
     {
-        // Arrange — argument string groups carry the same VarLen + UTF-16 encoding as pieces and are
+        // Arrange: argument string groups carry the same VarLen + UTF-16 encoding as pieces and are
         // read after the argument references, so they desynchronise the reader just as badly.
         Fragment fragment = new() { Pieces = ["Text with a placeholder"] };
         fragment.ArgRefs.Add([0x01, 0x00, 0x00, 0x00]);
@@ -66,7 +67,7 @@ public sealed class FragmentNaughtyStringTests
     [MemberData(nameof(NaughtyStringCases.UnicodeHazards), MemberType = typeof(NaughtyStringCases))]
     public void WriteThenParse_NaughtyPieceRepeatedIntoATwoByteLength_ShouldRoundTripExactly(string naughty)
     {
-        // Arrange — repeat until the length genuinely crosses the VarLen one-byte ceiling, so the
+        // Arrange: repeat until the length genuinely crosses the VarLen one-byte ceiling, so the
         // prefix takes the two-byte high-bit path while the payload stays hostile. A fixed repeat
         // count would not: a third of the hazard entries are one or two characters long. Repeating
         // whole copies never splits a surrogate pair.
@@ -85,10 +86,11 @@ public sealed class FragmentNaughtyStringTests
     [Fact]
     public void Write_PieceOfAstralPlaneCharacters_ShouldPrefixItWithItsUtf16CodeUnitCount()
     {
-        // Arrange — the length prefix counts UTF-16 code units, NOT runes. These four emoji are
-        // eight code units; a rune-counting writer would halve the declared length and shred every
-        // following fragment in the subfile. The round-trip theories above would catch that too —
-        // this states the wire rule outright, on the one input where runes and code units differ.
+        // Arrange: the length prefix counts UTF-16 code units and not characters. These four emoji are
+        // eight code units, so a writer that counted characters would declare half the length and destroy
+        // every following fragment in the subfile.
+        // The round-trip tests above would catch that too. This one states the rule directly, on the one
+        // input where the two counts differ.
         const string naughty = "😀😀😀😀";
         Fragment fragment = new() { Pieces = [naughty] };
         using MemoryStream stream = new();
@@ -114,7 +116,7 @@ public sealed class FragmentNaughtyStringTests
     [InlineData(VarLenTwoByteCeiling)]
     public void WriteThenParse_PieceAtAVarLenBoundary_ShouldRoundTripExactly(int length)
     {
-        // Arrange — a non-ASCII BMP filler keeps the character count exact while still exercising
+        // Arrange: a non-ASCII BMP filler keeps the character count exact while still exercising
         // the two-bytes-per-character payload maths.
         string longPiece = new('ż', length);
         Fragment fragment = new() { Pieces = [longPiece] };
@@ -144,7 +146,7 @@ public sealed class FragmentNaughtyStringTests
     [Fact]
     public void IsWritablePiece_PieceLongerThanTheVarLenCeiling_ShouldBeFalse()
     {
-        // Arrange — the screen PatchingService runs before it mutates a loaded subfile (#598), so an
+        // Arrange: the screen PatchingService runs before it mutates a loaded subfile (#598), so an
         // over-long row costs one warning instead of a mid-loop throw over an already-written DAT.
         string piece = new('ż', VarLenTwoByteCeiling + 1);
 
@@ -158,7 +160,7 @@ public sealed class FragmentNaughtyStringTests
     [Fact]
     public void Write_PieceLongerThanTheVarLenCeiling_ShouldThrow()
     {
-        // Arrange — the deliberate last resort behind IsWritablePiece, not a reachable failure mode:
+        // Arrange: the deliberate last resort behind IsWritablePiece, not a reachable failure mode:
         // VarLen cannot express a length above 32767 and a truncated prefix would silently corrupt
         // every following fragment, so writing one anyway is a programmer error. Callers screen the
         // content first (#598, ADR-0043); this pins that Write itself never degrades to truncation.

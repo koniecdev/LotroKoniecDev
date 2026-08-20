@@ -1,15 +1,15 @@
 namespace LotroKoniecDev.Frontend.Infrastructure.Security;
 
 /// <summary>
-/// The single guard for every caller-supplied return target the app redirects to — the login
-/// challenge, the local sign-out and the cookie-consent bounce-back: yields the value only when it
-/// is a same-site path, otherwise <see langword="null"/> so the caller falls back to a safe default.
+/// The one check for every return target a caller sends that the app redirects to: the login challenge,
+/// the local sign-out and the cookie-consent bounce-back. It returns the value only when it is a path on
+/// this site, and <see langword="null"/> otherwise, so the caller falls back to a safe default.
 /// </summary>
 /// <remarks>
-/// Control characters are rejected because the WHATWG URL parser strips ASCII tab and newline, so
-/// <c>"/\t/evil.example"</c> would reach the browser as the protocol-relative
-/// <c>"//evil.example"</c> — an open redirect a plain prefix check lets through.
-/// Twin of the auth server's <c>Common/LocalReturnUrl</c> — change both together.
+/// Control characters are rejected because the WHATWG URL parser drops ASCII tab and newline, so
+/// <c>"/\t/evil.example"</c> would reach the browser as <c>"//evil.example"</c>, an open redirect a
+/// check on the first characters alone would let through.
+/// The auth server has a twin in <c>Common/LocalReturnUrl</c>. Change both together.
 /// </remarks>
 internal static class LocalReturnUrl
 {

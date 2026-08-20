@@ -15,11 +15,11 @@ public static class Rels
     public const string ForgotPassword = "forgot-password";
 
     /// <summary>
-    /// The caller's own account export. <b>Load-bearing beyond its endpoint:</b> the auth root advertises
-    /// it only to authenticated callers, so the frontend's <c>DiscoveryCache</c> treats its absence under
-    /// an authenticated cache key as proof the bearer never reached the API, and force-signs the session
-    /// out. Renaming this rel — or stopping its emission to any authenticated caller — signs every
-    /// logged-in user out on their next page load; change the frontend guard in the same commit.
+    /// The caller's own account export. <b>This rel does more than name an endpoint.</b> The auth root
+    /// offers it only to logged-in callers, so when the frontend's <c>DiscoveryCache</c> does not see it
+    /// under an authenticated cache key, it concludes the token never reached the API and signs the
+    /// session out. Renaming this rel, or no longer sending it to some logged-in caller, signs every
+    /// logged-in user out on their next page load. Change the frontend guard in the same commit.
     /// </summary>
     public const string ExportAccountData = "export-account-data";
 }

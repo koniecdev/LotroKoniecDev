@@ -74,7 +74,7 @@ public sealed class GetTranslationStatsTests : IAsyncLifetime
     [Fact]
     public async Task Stats_WithMixedStatuses_ShouldBucketEachCounter()
     {
-        // Arrange — one untranslated, two drafts, three approved, one invalidated (NeedsReview).
+        // Arrange: one untranslated, two drafts, three approved, one invalidated (NeedsReview).
         await SeedAsync(
             Row(1, "a"),
             Row(2, "b", TranslationStatus.Draft),
@@ -99,7 +99,7 @@ public sealed class GetTranslationStatsTests : IAsyncLifetime
     [Fact]
     public async Task Stats_ShouldExcludeSoftRemovedRowsFromEveryCounter()
     {
-        // Arrange — a removed approved row and a removed untranslated row must not count anywhere.
+        // Arrange: a removed approved row and a removed untranslated row must not count anywhere.
         await SeedAsync(
             Row(1, "kept", TranslationStatus.Approved),
             Row(2, "removed-approved", TranslationStatus.Approved, removed: true),
@@ -128,7 +128,7 @@ public sealed class GetTranslationStatsTests : IAsyncLifetime
     [Fact]
     public async Task Stats_RepeatedWithinTtl_ShouldNotRerunTheCounterQuery()
     {
-        // Arrange — the first call populates the server-side cache (AUDIT-EF-04/#354).
+        // Arrange: the first call populates the server-side cache (AUDIT-EF-04/#354).
         await SeedAsync(Row(1, "a", TranslationStatus.Approved), Row(2, "b"));
         TranslationStatsResponse first = await StatsAsync();
         _factory.ReadContextSqlRecorder.Clear();
@@ -136,7 +136,7 @@ public sealed class GetTranslationStatsTests : IAsyncLifetime
         // Act
         TranslationStatsResponse second = await StatsAsync();
 
-        // Assert — served entirely from the cache: identical payload and zero read-context SQL
+        // Assert: served entirely from the cache: identical payload and zero read-context SQL
         // (translator provisioning touches only the write context, so the read stream stays clean).
         second.ShouldBe(first);
         _factory.ReadContextSqlRecorder.Commands.ShouldBeEmpty();

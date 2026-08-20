@@ -4,31 +4,32 @@ using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.TranslationAggregat
 namespace LotroKoniecDev.TranslationSystem.Domain.Aggregates.TranslationAggregate.Services;
 
 /// <summary>
-/// Pure diff of an uploaded export against the stored source state, keyed by
-/// <see cref="FragmentKeyValue"/> over the full file (spec 0001), computed entirely over value
-/// rows (spec 0006): the upload arrives pre-hashed as a key→hash map, the catalog streams by as
-/// <see cref="StoredSourceDigest"/>s, and sources compare hash-to-hash — nothing here holds a
-/// source string or an aggregate. Produces a <see cref="TranslationDiffPlan"/> without touching
-/// the database; the import handler realizes the plan inside its transaction after the truncation
-/// guard passes.
+/// Compares an uploaded export with the stored source state over the whole file, keyed by
+/// <see cref="FragmentKeyValue"/> (spec 0001) and working on value rows only (spec 0006). The upload
+/// arrives already hashed as a key to hash map, the catalog streams past as
+/// <see cref="StoredSourceDigest"/> rows, and sources are compared hash to hash, so nothing here
+/// holds a source string or an aggregate. It builds a <see cref="TranslationDiffPlan"/> without
+/// touching the database. The import handler carries the plan out inside its transaction once the
+/// truncation guard passes.
 /// </summary>
 /// <remarks>
-/// Echo-guard (spec 0012): the admin exports from their own patched DAT, so a resident row comes
-/// back with our Polish as its "source". Without the guard every translated-and-resident row would
-/// read as source-changed on every update — a mass false invalidation that also overwrites the
-/// English with Polish. An incoming row that differs from the stored source but hash-matches the
-/// row's <see cref="StoredSourceDigest.EchoHash"/> is therefore an echo: treated exactly like an
-/// identical source (unchanged, or restored when soft-removed) and counted separately for
-/// observability. The guard sees only the row's <em>current</em> Polish — an older Polish still
-/// resident after a re-edit is indistinguishable from a real change and poisons the source the way
-/// #564 repairs; catching it needs the row's Polish history (TP-15 / #50, post-MVP).
+/// The echo guard (spec 0012): the admin exports from their own patched DAT, so a row that is still
+/// patched comes back with our Polish as its "source". Without the guard, every translated row that
+/// is still in the DAT would look source-changed on every update. That would invalidate them all and
+/// also write Polish over the English. So an incoming row that differs from the stored source but
+/// matches the row's <see cref="StoredSourceDigest.EchoHash"/> is our own text coming back: it is
+/// treated like an unchanged source (or a restored one when the row was soft-removed) and counted on
+/// its own for reporting.
+/// The guard only knows the row's current Polish. An older Polish still sitting in the DAT after a
+/// re-edit looks exactly like a real change, and it poisons the source in the way #564 repairs.
+/// Catching that needs the row's Polish history (TP-15 / #50, post-MVP).
 /// </remarks>
 public static class TranslationDiffService
 {
     /// <summary>
-    /// Consumes <paramref name="incomingByKey"/>: every key matched to a stored row is removed
-    /// while <paramref name="existing"/> streams by, so on return the map holds exactly the added
-    /// keys and is handed to the plan as its added set — the caller must not reuse it.
+    /// This method empties <paramref name="incomingByKey"/>: every key that matches a stored row is
+    /// removed while <paramref name="existing"/> streams past. On return the map holds exactly the
+    /// added keys and is handed to the plan as its added set, so the caller must not reuse it.
     /// </summary>
     public static async Task<TranslationDiffPlan> ComputePlanAsync(
         IAsyncEnumerable<StoredSourceDigest> existing,
@@ -63,8 +64,8 @@ public static class TranslationDiffService
                 continue;
             }
 
-            // The source check runs first, so a row whose stored source already equals its Polish (a
-            // poisoned source from a pre-guard import) counts as plain unchanged, never as an echo.
+            // The source check runs first, so a row whose stored source is already its own Polish (a
+            // poisoned source from an import before the guard) counts as unchanged, not as an echo.
             bool isEcho = incomingHash != stored.SourceHash && incomingHash == stored.EchoHash;
             if (incomingHash == stored.SourceHash || isEcho)
             {

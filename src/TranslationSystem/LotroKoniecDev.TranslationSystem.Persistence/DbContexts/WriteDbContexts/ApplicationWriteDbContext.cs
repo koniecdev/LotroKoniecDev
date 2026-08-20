@@ -48,12 +48,12 @@ internal sealed class ApplicationWriteDbContext : DbContext, IUnitOfWork
 
             await operation(cancellationToken);
 
-            // Save the tracked changes but DEFER accepting them: with retry-on-failure enabled, a
-            // transient fault at commit makes the strategy re-run this whole lambda. Were the tracker
-            // accepted now (the SaveChanges default), the retry would find nothing pending and silently
-            // drop the tracked mutations; deferring the accept until the commit succeeds keeps them
-            // re-emittable on retry. The COPY inside `operation` re-runs fresh too, since the failed
-            // attempt rolled back.
+            // Save the tracked changes but do not accept them yet. With retry-on-failure on, a
+            // temporary fault at commit makes the strategy run this whole lambda again. If the tracker
+            // accepted the changes now, which is what SaveChanges does by default, the retry would
+            // find nothing pending and quietly lose them. Waiting for the commit to succeed keeps them
+            // ready to send again. The COPY inside `operation` also runs again from scratch, because
+            // the failed attempt rolled back.
             await SaveChangesAsync(acceptAllChangesOnSuccess: false, cancellationToken);
             await transaction.CommitAsync(cancellationToken);
             ChangeTracker.AcceptAllChanges();
@@ -74,8 +74,9 @@ internal sealed class ApplicationWriteDbContext : DbContext, IUnitOfWork
     {
         modelBuilder.HasDefaultSchema(DatabaseSchemas.Translation);
 
-        // The trigram GIN indexes on Translations (TranslationConfiguration) need pg_trgm; the
-        // migration emits CREATE EXTENSION IF NOT EXISTS, so the migrator role must be allowed to.
+        // The trigram GIN indexes on Translations (TranslationConfiguration) need pg_trgm. The
+        // migration emits CREATE EXTENSION IF NOT EXISTS, so the migrator role must be allowed to run
+        // it.
         modelBuilder.HasPostgresExtension("pg_trgm");
 
         modelBuilder.ApplyConfigurationsFromAssembly(Assembly.GetExecutingAssembly());

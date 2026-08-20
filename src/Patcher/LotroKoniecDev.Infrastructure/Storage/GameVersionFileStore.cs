@@ -7,9 +7,9 @@ using LotroKoniecDev.Domain.Models;
 namespace LotroKoniecDev.Infrastructure.Storage;
 
 /// <summary>
-/// Reads and writes game version to a local text file.
-/// Format: forumVersion|vnumDatFile|vnumGameData
-/// Legacy format (plain string) is supported for backward compatibility.
+/// Reads and writes the game version in a local text file.
+/// The format is <c>forumVersion|vnumDatFile|vnumGameData</c>. Older files hold the forum version
+/// alone, and those are still read.
 /// </summary>
 public sealed class GameVersionFileStore : IGameVersionFileStore
 {
@@ -44,7 +44,7 @@ public sealed class GameVersionFileStore : IGameVersionFileStore
                     new StoredVersionInfo(forumVersion, vnumDatFile, vnumGameData, translationHash));
             }
 
-            // Legacy format: plain forum version string (no vnums)
+            // An older file: the forum version on its own, with no vnums.
             return Result.Success<StoredVersionInfo?>(new StoredVersionInfo(content, null, null));
         }
         catch (Exception ex)

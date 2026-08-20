@@ -7,11 +7,12 @@ using LotroKoniecDev.TranslationSystem.Contracts.Translations;
 namespace LotroKoniecDev.Frontend.Components.Pages.Dashboard;
 
 /// <summary>
-/// Fetches the mini-dashboard's progress counters (M3-05) through the typed TMS client, resolving the
-/// entry point from the service document's <c>translation-stats</c> rel (#610) — a rel the API emits
-/// only for a translator, so an unauthorized session gets a clear failure instead of a guessed call.
-/// Kept as a thin injectable seam so the page's data flow is unit-testable end-to-end over a stubbed
-/// HTTP handler (the Frontend has no bUnit for component-level rendering tests).
+/// Fetches the mini-dashboard's progress counters (M3-05) through the typed TMS client. It finds the
+/// endpoint through the service document's <c>translation-stats</c> rel (#610), which the API only
+/// offers to a translator, so a session without that right gets a clear failure instead of a guessed
+/// call.
+/// It stays a thin injectable class, so the page's data flow can be unit-tested end to end against a
+/// stubbed HTTP handler.
 /// </summary>
 internal sealed class DashboardStatsLoader
 {

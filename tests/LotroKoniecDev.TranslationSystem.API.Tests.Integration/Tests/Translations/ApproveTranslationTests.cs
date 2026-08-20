@@ -62,7 +62,7 @@ public sealed class ApproveTranslationTests : IAsyncLifetime
     [Fact]
     public async Task Approve_OnDraftRow_ShouldReturn204StampApproverAndPublish()
     {
-        // Arrange — a draft row is excluded from the distributed file; approving must publish it
+        // Arrange: a draft row is excluded from the distributed file; approving must publish it
         // and regenerate the artifact (spec 0001).
         Guid id = await SeedAsync(gossipId: 1, SeedStatus.Draft, polish: "Witaj");
         using HttpClient client = AdminClient(Guid.NewGuid());
@@ -80,7 +80,7 @@ public sealed class ApproveTranslationTests : IAsyncLifetime
             FileRoute,
             (download, content) => download.IsSuccessStatusCode && content.Contains($"{FileId}||1||Witaj||NULL||NULL||1"));
 
-        // Assert — the approver is the lazily provisioned Translator, carrying the JWT display name.
+        // Assert: the approver is the lazily provisioned Translator, carrying the JWT display name.
         response.StatusCode.ShouldBe(HttpStatusCode.NoContent);
         body.ShouldNotBeNull();
         body.Status.ShouldBe(TranslationStatus.Approved);
@@ -92,7 +92,7 @@ public sealed class ApproveTranslationTests : IAsyncLifetime
     [Fact]
     public async Task Approve_OnNeedsReviewRow_ShouldClearInvalidationAndReappearInDownload()
     {
-        // Arrange — an invalidated row keeps its old Polish and the superseded English; approving it
+        // Arrange: an invalidated row keeps its old Polish and the superseded English; approving it
         // republishes the Polish and clears the invalidation (spec 0001).
         Guid id = await SeedAsync(gossipId: 2, SeedStatus.NeedsReview, polish: "Stary polski");
         using HttpClient client = AdminClient(Guid.NewGuid());
@@ -117,7 +117,7 @@ public sealed class ApproveTranslationTests : IAsyncLifetime
     [Fact]
     public async Task Approve_WithoutTranslation_ShouldReturn422()
     {
-        // Arrange — an untranslated row has no Polish to publish.
+        // Arrange: an untranslated row has no Polish to publish.
         Guid id = await SeedAsync(gossipId: 3, SeedStatus.Untranslated, polish: null);
         using HttpClient client = AdminClient(Guid.NewGuid());
 
@@ -131,7 +131,7 @@ public sealed class ApproveTranslationTests : IAsyncLifetime
     [Fact]
     public async Task Approve_OnRemovedRow_ShouldReturn422()
     {
-        // Arrange — a soft-removed row is excluded from the distributed file.
+        // Arrange: a soft-removed row is excluded from the distributed file.
         Guid id = await SeedAsync(gossipId: 4, SeedStatus.DraftThenRemoved, polish: "Gamma");
         using HttpClient client = AdminClient(Guid.NewGuid());
 
@@ -158,7 +158,7 @@ public sealed class ApproveTranslationTests : IAsyncLifetime
     [Fact]
     public async Task Approve_AsTranslator_ShouldReturn403()
     {
-        // Arrange — approval is an admin (reviewer) action; the translator role must not approve.
+        // Arrange: approval is an admin (reviewer) action; the translator role must not approve.
         Guid id = await SeedAsync(gossipId: 1, SeedStatus.Draft, polish: "Witaj");
         using HttpClient client = TranslatorClient(Guid.NewGuid());
 

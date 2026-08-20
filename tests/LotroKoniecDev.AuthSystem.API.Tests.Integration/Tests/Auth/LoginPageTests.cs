@@ -20,18 +20,18 @@ public sealed partial class LoginPageTests : EndpointsTestBase
     public LoginPageTests(AuthSystemApiFactory appFactory) : base(appFactory) { }
 
     /// <summary>
-    /// ADR-0046: this branch runs after the password check, so it names the actual problem instead of
-    /// asserting the credentials are wrong — and carries the address into the resend page, which is
-    /// the only action that unblocks the account.
+    /// ADR-0046: this case only happens after the password was checked, so it names the real problem
+    /// instead of saying the credentials are wrong, and it carries the address to the resend page, which
+    /// is the only thing that unblocks the account.
     /// </summary>
     [Fact]
     public async Task LoginPage_ShouldNameTheUnconfirmedAccount_WhenThePasswordIsCorrect()
     {
-        // Arrange — a registered account whose e-mail was never confirmed, with a valid password
+        // Arrange: a registered account whose e-mail was never confirmed, with a valid password
         (RegisterRequest request, _) =
             await UserFactory.RegisterRandomUserUnconfirmedAsync(ApiClient, Faker, AccountConfirmationEmailSpy);
 
-        // Act — the correct credentials, but the account is still unconfirmed
+        // Act: the correct credentials, but the account is still unconfirmed
         HttpResponseMessage response = await PostToLoginPageAsync(new Dictionary<string, string>
         {
             ["Email"] = request.Email,
@@ -47,10 +47,10 @@ public sealed partial class LoginPageTests : EndpointsTestBase
     }
 
     /// <summary>
-    /// The affordance half of the invariant below: a caller without the password is not offered the
-    /// resend link either, so the link cannot become the oracle the message no longer is. The page
-    /// always carries a bare <c>/Account/ResendConfirmation</c> in its footer — only the address-bearing
-    /// form of it is account-specific.
+    /// The other half of the rule below: a caller who does not know the password is not offered the
+    /// resend link either, so the link cannot reveal what the message no longer does. The page always
+    /// has a plain <c>/Account/ResendConfirmation</c> in its footer; only the version carrying an
+    /// address says anything about an account.
     /// </summary>
     [Fact]
     public async Task LoginPage_ShouldNotOfferTheResendLink_WhenTheUnconfirmedAccountsPasswordIsWrong()
@@ -75,11 +75,11 @@ public sealed partial class LoginPageTests : EndpointsTestBase
     [Fact]
     public async Task LoginPage_ShouldRejectLogin_WhenIdentifierIsUsernameInsteadOfEmail()
     {
-        // Arrange — a confirmed account; the login identifier is the e-mail (ADR-0022)
+        // Arrange: a confirmed account; the login identifier is the e-mail (ADR-0022)
         (RegisterRequest request, _) =
             await UserFactory.RegisterRandomUserWithRequestAsync(ApiClient, Faker, AccountConfirmationEmailSpy);
 
-        // Act — the valid username with the valid password must behave like any wrong credential
+        // Act: the valid username with the valid password must behave like any wrong credential
         HttpResponseMessage response = await PostToLoginPageAsync(new Dictionary<string, string>
         {
             ["Email"] = request.Username,
@@ -93,16 +93,17 @@ public sealed partial class LoginPageTests : EndpointsTestBase
     }
 
     /// <summary>
-    /// The anti-enumeration invariant, as ADR-0046 restated it: every branch reachable **without** a
-    /// verified password answers identically — including an unconfirmed account probed with the wrong
-    /// password — so nothing about an address is learnable without already holding its password. The
-    /// two branches behind a verified password (deletion scheduled, unconfirmed e-mail) name their
-    /// reason on purpose and are pinned separately.
+    /// The rule that stops anyone finding out which accounts exist, as ADR-0046 states it: every case
+    /// reachable without a correct password answers the same way, including an unconfirmed account tried
+    /// with the wrong password. So nothing about an address can be learned without already knowing its
+    /// password.
+    /// The two cases that only happen after a correct password, a scheduled deletion and an unconfirmed
+    /// address, name their reason on purpose and are pinned separately.
     /// </summary>
     [Fact]
     public async Task LoginPage_ShouldReturnIdenticalMessage_ForEveryFailureReachableWithoutThePassword()
     {
-        // Arrange — a confirmed account (wrong-password + lockout branches) and an unconfirmed one
+        // Arrange: a confirmed account (wrong-password + lockout branches) and an unconfirmed one
         (RegisterRequest confirmed, _) =
             await UserFactory.RegisterRandomUserWithRequestAsync(ApiClient, Faker, AccountConfirmationEmailSpy);
         (RegisterRequest unconfirmed, _) =
@@ -111,7 +112,7 @@ public sealed partial class LoginPageTests : EndpointsTestBase
             await UserFactory.RegisterRandomUserWithRequestAsync(ApiClient, Faker, AccountConfirmationEmailSpy);
         await LockOutAsync(lockedOut.Username);
 
-        // Act — one probe per credential-failure branch a caller can reach without the password
+        // Act: one probe per credential-failure branch a caller can reach without the password
         string nonExistentMessage = await PostAndExtractRenderedAlertAsync(new Dictionary<string, string>
         {
             ["Email"] = "nobody-" + Faker.Random.AlphaNumeric(8) + "@example.com",
@@ -133,7 +134,7 @@ public sealed partial class LoginPageTests : EndpointsTestBase
             ["Password"] = lockedOut.Password // correct password — the lockout branch must still win
         });
 
-        // Assert — no branch reveals which check failed: identical text is the anti-enumeration invariant
+        // Assert: no branch reveals which check failed: identical text is the anti-enumeration invariant
         nonExistentMessage.ShouldNotBeNullOrWhiteSpace();
         wrongPasswordMessage.ShouldBe(nonExistentMessage);
         unconfirmedWrongPasswordMessage.ShouldBe(nonExistentMessage);
@@ -141,10 +142,11 @@ public sealed partial class LoginPageTests : EndpointsTestBase
     }
 
     /// <summary>
-    /// Every off-site target collapses to the configured frontend instead of being carried into the
-    /// <c>Location</c> header. The <c>%09</c> case earns its own row: a prefix-only guard calls it
-    /// local, and handing it to <c>LocalRedirect</c> fails the executor's own check — so without the
-    /// control-character screen a successful login ends in an unhandled 500 rather than a redirect.
+    /// Every target outside this site is replaced by the configured frontend instead of being put into
+    /// the <c>Location</c> header. The <c>%09</c> case has its own row: a check that only looks at the
+    /// first characters calls it local, and passing it to <c>LocalRedirect</c> fails that method's own
+    /// check. So without the control-character test a successful login ends in an unhandled 500 instead
+    /// of a redirect.
     /// </summary>
     [Theory]
     [InlineData("/\t/evil.example")]
@@ -153,7 +155,7 @@ public sealed partial class LoginPageTests : EndpointsTestBase
     [InlineData("https://evil.example/harvest")]
     public async Task LoginPage_ShouldRedirectToTheFrontend_WhenReturnUrlIsNotLocal(string returnUrl)
     {
-        // Arrange — a confirmed account, so the login itself succeeds and reaches the redirect
+        // Arrange: a confirmed account, so the login itself succeeds and reaches the redirect
         (RegisterRequest request, _) =
             await UserFactory.RegisterRandomUserWithRequestAsync(ApiClient, Faker, AccountConfirmationEmailSpy);
 
@@ -166,22 +168,22 @@ public sealed partial class LoginPageTests : EndpointsTestBase
             },
             returnUrl);
 
-        // Assert — the off-site target is dropped; the fallback comes from configuration, not the query
+        // Assert: the off-site target is dropped; the fallback comes from configuration, not the query
         response.StatusCode.ShouldBe(HttpStatusCode.Found);
         response.Headers.Location.ShouldNotBeNull();
         response.Headers.Location!.OriginalString.ShouldBe(ExpectedFrontendLoginUrl);
     }
 
     /// <summary>
-    /// The reset-password and confirm-email pages send the user to a bare <c>/Account/Login</c>, so a
-    /// successful sign-in has no continuation to resume. This host's root serves the discovery JSON,
-    /// which dead-ends the browser — the fallback has to leave for the frontend's login route, where
-    /// the cookie just issued completes the OIDC challenge silently.
+    /// The reset-password and confirm-email pages send the user to a plain <c>/Account/Login</c>, so a
+    /// successful sign-in has nowhere to continue. This host's root serves the discovery JSON, which is
+    /// a dead end for a browser, so the fallback has to go to the frontend's login route, where the
+    /// cookie we just issued completes the OIDC challenge without the user noticing.
     /// </summary>
     [Fact]
     public async Task LoginPage_ShouldRedirectToTheFrontend_WhenThereIsNoReturnUrl()
     {
-        // Arrange — a confirmed account, mirroring a user who just reset their password
+        // Arrange: a confirmed account, mirroring a user who just reset their password
         (RegisterRequest request, _) =
             await UserFactory.RegisterRandomUserWithRequestAsync(ApiClient, Faker, AccountConfirmationEmailSpy);
 
@@ -201,7 +203,7 @@ public sealed partial class LoginPageTests : EndpointsTestBase
     [Fact]
     public async Task LoginPage_ShouldResumeTheContinuation_WhenReturnUrlIsLocal()
     {
-        // Arrange — the interrupted authorization the login flow is expected to resume
+        // Arrange: the interrupted authorization the login flow is expected to resume
         const string continuation = "/connect/authorize?client_id=lotrokoniecdev-test&response_type=code";
         (RegisterRequest request, _) =
             await UserFactory.RegisterRandomUserWithRequestAsync(ApiClient, Faker, AccountConfirmationEmailSpy);
@@ -215,7 +217,7 @@ public sealed partial class LoginPageTests : EndpointsTestBase
             },
             continuation);
 
-        // Assert — hardening must not break the flow it protects
+        // Assert: hardening must not break the flow it protects
         response.StatusCode.ShouldBe(HttpStatusCode.Found);
         response.Headers.Location.ShouldNotBeNull();
         response.Headers.Location!.OriginalString.ShouldBe(continuation);
@@ -246,11 +248,10 @@ public sealed partial class LoginPageTests : EndpointsTestBase
     }
 
     /// <summary>
-    /// Posts credentials to the login page, optionally carrying an OIDC continuation in the query
-    /// string. Both legs run on one non-redirecting client — it must be the same client so its cookie
-    /// container carries the antiforgery cookie from the GET into the POST, and non-redirecting so
-    /// the sign-in redirect target stays observable as a <c>Location</c> header instead of being
-    /// followed away.
+    /// Posts the credentials to the login page, with an optional OIDC continuation in the query string.
+    /// Both steps use one client that does not follow redirects. It has to be the same client so its
+    /// cookie container carries the antiforgery cookie from the GET into the POST, and it must not
+    /// follow redirects so the target stays visible in the <c>Location</c> header.
     /// </summary>
     private async Task<HttpResponseMessage> PostToLoginPageAsync(
         Dictionary<string, string> formFields,

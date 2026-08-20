@@ -15,14 +15,15 @@ using Microsoft.Extensions.DependencyInjection;
 namespace LotroKoniecDev.TranslationSystem.API.Tests.Integration.Tests.ForwardedHeaders;
 
 /// <summary>
-/// Proves the TMS honours the reverse-proxy <c>X-Forwarded-*</c> headers (Program.cs
-/// <c>UseForwardedHeaders</c>, ADR-0008 / M6-02): behind a TLS-terminating ingress the request
-/// scheme reads <c>https</c>, so every scheme-derived absolute URL (HATEOAS hrefs, and by the same
-/// mechanism the JWT issuer / OIDC redirects) is built as <c>https</c>. The HATEOAS self link is the
-/// seam: it is generated from <c>HttpContext.Request.Scheme</c> via <c>LinkGenerator</c>, exactly the
-/// surface forwarded headers rewrite. The suite runs in the Testing environment, where the middleware
-/// is active (gated only out of Development) but <c>UseHttpsRedirection</c> is not — so the forwarded
-/// proto rewrites the scheme without a redirect masking the assertion.
+/// Proves the TMS reads the reverse proxy's <c>X-Forwarded-*</c> headers (Program.cs
+/// <c>UseForwardedHeaders</c>, ADR-0008, M6-02). Behind an ingress that terminates TLS, the request
+/// scheme reads <c>https</c>, so every absolute URL built from the scheme is https. That covers the
+/// HATEOAS hrefs and, by the same route, the JWT issuer and the OIDC redirects.
+/// What we look at is the HATEOAS self link, which <c>LinkGenerator</c> builds from
+/// <c>HttpContext.Request.Scheme</c>, exactly the value these headers change.
+/// The suite runs in the Testing environment, where the middleware is on, since it is only off in
+/// Development, but <c>UseHttpsRedirection</c> is not. So the forwarded scheme changes the value with no
+/// redirect hiding the result.
 /// </summary>
 [Collection("TranslationApi")]
 public sealed class ForwardedHeadersTests : IAsyncLifetime
@@ -68,7 +69,7 @@ public sealed class ForwardedHeadersTests : IAsyncLifetime
     [Fact]
     public async Task GetResource_WithoutForwardedProto_BuildsHttpAbsoluteLinks()
     {
-        // Arrange — the test server speaks plain http; with no X-Forwarded-Proto the scheme stays
+        // Arrange: the test server speaks plain http; with no X-Forwarded-Proto the scheme stays
         // http, proving the header (not some unrelated default) is what flips the scheme to https.
         GameVersionId id = await SeedAsync("48.0");
         using HttpClient client = TranslatorClient();
@@ -106,7 +107,7 @@ public sealed class ForwardedHeadersTests : IAsyncLifetime
     [Fact]
     public async Task GetResource_WithForwardedProtoHttps_IsServedDirectlyWithoutRedirect()
     {
-        // Arrange — a proxied request that already declares https must be served directly, not
+        // Arrange: a proxied request that already declares https must be served directly, not
         // bounced with a 3xx. NOTE: this asserts only that forwarded headers introduce no spurious
         // redirect; it does NOT exercise UseHttpsRedirection, which is gated out of the Testing
         // environment (Program.cs: `!IsDevelopment() && !IsTesting()`). The live "ForwardedProto

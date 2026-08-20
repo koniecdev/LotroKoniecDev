@@ -5,9 +5,9 @@ using LotroKoniecDev.Domain.Core.Monads;
 namespace LotroKoniecDev.Infrastructure.Storage;
 
 /// <summary>
-/// Stores the downloaded translation file and two sidecars next to it — <c>.etag</c> for the
-/// conditional request, <c>.endpoint</c> for the last-known-good download URL (#611) — so the launch
-/// sync can revalidate cheaply and still find the file when discovery itself is unreachable.
+/// Stores the downloaded translation file and two small files next to it: <c>.etag</c> for the
+/// conditional request and <c>.endpoint</c> for the last download URL that worked (#611). The launch
+/// sync can then check for changes cheaply, and still find the file when discovery is unreachable.
 /// </summary>
 public sealed class TranslationFileCache : ITranslationFileCache
 {
@@ -58,10 +58,10 @@ public sealed class TranslationFileCache : ITranslationFileCache
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            // A missing or unreadable sidecar just means "nothing cached" — the sync degrades to a
-            // full download, or to discovery-only endpoint resolution. The catch matches the writers':
-            // a sidecar written by an elevated run is readable only as UnauthorizedAccessException to
-            // a plain one, and that must not take the launch down.
+            // A missing or unreadable file here just means "nothing cached". The sync then does a full
+            // download, or resolves the endpoint from discovery only. We catch the same errors the
+            // writers do: a file written by an elevated run raises UnauthorizedAccessException for a
+            // normal one, and that must not stop the launch.
             return null;
         }
     }

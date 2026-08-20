@@ -8,9 +8,9 @@ using LotroKoniecDev.Tests.Infrastructure.Shared;
 namespace LotroKoniecDev.Tests.Infrastructure.Tests;
 
 /// <summary>
-/// Exercises the fetcher's response-size cap (AUDIT-SEC-04 / #394) over an in-memory stub
-/// handler — no real network. The forum page crosses a remote trust boundary, so an over-cap
-/// body must surface as a failure result instead of exhausting process memory.
+/// Exercises the fetcher's response-size limit (AUDIT-SEC-04, #394) over an in-memory stub handler, with
+/// no network. The forum page comes from outside, so a body over the limit has to come back as a failure
+/// instead of using up all our memory.
 /// </summary>
 public sealed class ForumPageFetcherTests
 {
@@ -35,7 +35,7 @@ public sealed class ForumPageFetcherTests
     [Fact]
     public async Task FetchReleaseNotesPageAsync_ResponseDeclaringABodyOverTheSizeCap_ShouldReturnFailure()
     {
-        // Arrange — a Content-Length above the cap must be refused before any body byte is read.
+        // Arrange: a Content-Length above the cap must be refused before any body byte is read.
         using HttpResponseMessage response = OkResponse(PageContent);
         response.Content.Headers.ContentLength = ForumPageFetcher.MaxResponseContentBytes + 1;
         using HttpClient httpClient = new(new StubHttpMessageHandler(response));
@@ -52,7 +52,7 @@ public sealed class ForumPageFetcherTests
     [Fact]
     public async Task FetchReleaseNotesPageAsync_UndeclaredBodyStreamingPastTheSizeCap_ShouldReturnFailure()
     {
-        // Arrange — no Content-Length (chunked-style), the body itself overruns the cap while
+        // Arrange: no Content-Length (chunked-style), the body itself overruns the cap while
         // streaming: the buffer limit must cut it off instead of growing without bound.
         using HttpResponseMessage response = new(HttpStatusCode.OK)
         {
@@ -72,7 +72,7 @@ public sealed class ForumPageFetcherTests
     [Fact]
     public async Task FetchReleaseNotesPageAsync_BodyThatStallsPastTheClientTimeout_ShouldFailAsTimedOutInsteadOfHanging()
     {
-        // Arrange — ResponseHeadersRead moves the body read out of HttpClient.Timeout's scope;
+        // Arrange: ResponseHeadersRead moves the body read out of HttpClient.Timeout's scope;
         // the fetcher must re-apply the timeout itself or a stalling server hangs preflight.
         using HttpResponseMessage response = new(HttpStatusCode.OK) { Content = new StallingContent() };
         using HttpClient httpClient = new(new StubHttpMessageHandler(response));

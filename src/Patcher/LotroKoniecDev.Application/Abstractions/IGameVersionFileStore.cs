@@ -8,7 +8,7 @@ namespace LotroKoniecDev.Application.Abstractions;
 public interface IGameVersionFileStore
 {
     /// <summary>
-    /// Reads the stored version info. Returns null if the file does not exist (first run).
+    /// Returns null when the file does not exist yet, which is the case on the first run.
     /// </summary>
     Result<StoredVersionInfo?> ReadStoredVersion(string versionFilePath);
 

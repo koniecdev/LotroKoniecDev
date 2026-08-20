@@ -10,9 +10,9 @@ namespace LotroKoniecDev.Infrastructure.Network;
 public sealed class ForumPageFetcher : IForumPageFetcher
 {
     /// <summary>
-    /// Hard cap on the fetched page size (AUDIT-SEC-04 / #394). The release-notes forum page is an
-    /// HTML document well under 1 MB, so 8 MiB is generous headroom while a hostile or misbehaving
-    /// server can no longer exhaust process memory.
+    /// The largest page we will read (AUDIT-SEC-04, #394). The release-notes page is HTML well under
+    /// 1 MB, so 8 MiB leaves plenty of room while a hostile or broken server can no longer use up all
+    /// our memory.
     /// </summary>
     public const long MaxResponseContentBytes = 8 * 1024 * 1024;
 
@@ -30,9 +30,9 @@ public sealed class ForumPageFetcher : IForumPageFetcher
     {
         try
         {
-            // ResponseHeadersRead keeps HttpClient from buffering the whole body before the size
-            // cap can run, which also moves the body read out of HttpClient.Timeout's scope — so
-            // the timeout is re-applied around the entire fetch.
+            // ResponseHeadersRead stops HttpClient from buffering the whole body before the size
+            // limit is checked. It also takes the body read out of HttpClient.Timeout, so we apply
+            // the same timeout around the whole fetch ourselves.
             using CancellationTokenSource timeoutCts = new(_httpClient.Timeout);
 
             using HttpResponseMessage response = await _httpClient.GetAsync(

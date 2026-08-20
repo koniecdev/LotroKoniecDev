@@ -94,9 +94,9 @@ internal sealed partial class RegisterUser : IApiEndpoint
                 return Result.Failure<IdentityId>(validationResult.ToValidationError(nameof(RegisterUser)));
             }
 
-            // The context enables EnableRetryOnFailure, so EF refuses a user-initiated transaction
-            // unless the whole unit of work runs inside an execution strategy — a retry has to be
-            // able to replay begin-to-commit, not a single statement inside it.
+            // The context has EnableRetryOnFailure on, so EF refuses a transaction we start ourselves
+            // unless the whole unit of work runs inside an execution strategy. A retry has to be able
+            // to replay everything from begin to commit, not one statement inside it.
             IExecutionStrategy executionStrategy = _db.Database.CreateExecutionStrategy();
 
             return await executionStrategy.ExecuteAsync(async () => await RegisterAsync(command, cancellationToken));
@@ -106,8 +106,8 @@ internal sealed partial class RegisterUser : IApiEndpoint
             Command command,
             CancellationToken cancellationToken)
         {
-            // A retried attempt starts from a rolled-back transaction while the tracker still holds
-            // the previous attempt's entities as Added — replaying without a reset would insert twice.
+            // A retry starts after a rolled-back transaction, but the change tracker still holds the
+            // previous attempt's entities as Added. Replaying without clearing it would insert twice.
             _db.ChangeTracker.Clear();
 
             await using IDbContextTransaction transaction =
@@ -170,26 +170,27 @@ internal sealed partial class RegisterUser : IApiEndpoint
 
                 await transaction.CommitAsync(cancellationToken);
 
-                // Only after the commit: the relay reads committed rows, so a nudge sent inside
-                // the transaction would race it into seeing nothing (ADR-0035).
+                // Only after the commit. The relay reads committed rows, so a signal sent inside the
+                // transaction could arrive while there is still nothing to see (ADR-0035).
                 _outboxWriter.NotifyEnqueuedCommitted();
 
-                // No cross-context profile creation here (the KittySaver RegisterUser->CreatePerson
-                // saga is deliberately not lifted): the translator profile is provisioned lazily and
-                // idempotently on the first authenticated TranslationSystem request (ADR-0002 §7).
+                // No profile is created in the other context here. The KittySaver
+                // RegisterUser to CreatePerson saga was left out on purpose: the translator profile is
+                // created on the first authenticated TranslationSystem request, and creating it twice
+                // is safe (ADR-0002 §7).
                 return IdentityId.Create(user.Id);
             }
             catch (Exception ex) when (ex is DbUpdateException or InvalidOperationException)
             {
-                // DbUpdateException: unique constraint race condition on CreateAsync.
-                // InvalidOperationException: "Sequence contains more than one element" from
-                //   FindByEmailAsync when duplicate users exist concurrently.
-                // Known edge: if CommitAsync's acknowledgement is lost after the server actually
-                // committed, the execution strategy replays and lands here via the email pre-check,
-                // returning UserAlreadyExistsByEmail for a registration that in fact succeeded.
-                // Accepted: the committed outbox row still delivers the confirmation e-mail, so the
-                // user can complete the flow; the airtight fix (ExecuteInTransaction + verification
-                // query) buys little for this endpoint's stakes.
+                // DbUpdateException means two requests hit the unique constraint in CreateAsync at the
+                // same time. InvalidOperationException means FindByEmailAsync found more than one row,
+                // which happens while those duplicates exist.
+                // There is a known corner case: if the answer to CommitAsync is lost after the server
+                // really committed, the execution strategy replays, the e-mail pre-check finds the row
+                // and we return UserAlreadyExistsByEmail for a registration that in fact worked.
+                // We accept that. The committed outbox row still sends the confirmation e-mail, so the
+                // user can finish the flow, and a watertight fix with ExecuteInTransaction and a
+                // verification query would buy little here.
                 string maskedEmail = command.Email.MaskEmail();
                 LogConcurrentRegistration(_logger, ex, maskedEmail);
                 return Result.Failure<IdentityId>(AuthErrors.UserAlreadyExistsByEmail);
@@ -217,10 +218,9 @@ internal sealed partial class RegisterUser : IApiEndpoint
 
                 Result<IdentityId> commandResult = await handler.Handle(command, cancellationToken);
 
-                // No GET-by-id endpoint exists for users (by design — user identity is only
-                // accessible via OpenIddict's /connect/userinfo once the user has authenticated),
-                // so no Location header is emitted. Clients read the newly-minted IdentityId
-                // from the 201 response body.
+                // There is no get-user-by-id endpoint on purpose: a user's identity is only readable
+                // through OpenIddict's /connect/userinfo after they log in. So we send no Location
+                // header, and clients read the new IdentityId from the 201 response body.
                 return commandResult.IsFailure
                     ? Results.Problem(commandResult.Error.ToProblemDetails())
                     : Results.Json(commandResult.Value, statusCode: StatusCodes.Status201Created);

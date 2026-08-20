@@ -12,10 +12,10 @@ internal sealed class ApplicationUserConfiguration : IEntityTypeConfiguration<Ap
         builder.HasIndex(u => u.UserName).IsUnique();
         builder.HasIndex(u => u.Email).IsUnique();
 
-        // Identity's base mapping creates this index non-unique. RequireUniqueEmail is app-level
-        // only, and the login path resolves FindByEmailAsync — a case-variant duplicate pair
-        // (Foo@x.com / foo@x.com) would throw there and lock both accounts out (ADR-0022).
-        // The database name must stay "EmailIndex", or the base mapping yields a second index.
+        // Identity's own mapping makes this index non-unique. RequireUniqueEmail is checked in the
+        // app only, and the login path calls FindByEmailAsync. So a pair that differs only in case,
+        // such as Foo@x.com and foo@x.com, would make that call throw and lock both accounts out
+        // (ADR-0022). The database name has to stay "EmailIndex", or Identity adds a second index.
         builder.HasIndex(u => u.NormalizedEmail)
             .IsUnique()
             .HasDatabaseName("EmailIndex");
@@ -37,7 +37,7 @@ internal sealed class ApplicationUserConfiguration : IEntityTypeConfiguration<Ap
 
         builder.Property(u => u.DeletionScheduledAt);
 
-        // Partial index: the deletion finalizer polls only the handful of rows with a schedule set.
+        // A partial index. The deletion job only looks at the few rows that have a date set.
         builder.HasIndex(u => u.DeletionScheduledAt)
             .HasFilter($"\"{nameof(ApplicationUser.DeletionScheduledAt)}\" IS NOT NULL");
     }

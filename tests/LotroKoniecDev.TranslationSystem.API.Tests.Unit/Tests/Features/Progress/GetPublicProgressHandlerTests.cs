@@ -25,7 +25,7 @@ public sealed class GetPublicProgressHandlerTests
     [Fact]
     public async Task Handle_WithMixedCatalog_ShouldBucketCountersAndPickTheNewestProcessedVersion()
     {
-        // Arrange — 1 untranslated, 1 draft, 2 approved, 1 needs-review; the newest version is
+        // Arrange: 1 untranslated, 1 draft, 2 approved, 1 needs-review; the newest version is
         // merely detected, so the older processed one is the current catalog version.
         Given(1, TranslationStatus.Untranslated);
         Given(2, TranslationStatus.Draft);
@@ -48,7 +48,7 @@ public sealed class GetPublicProgressHandlerTests
     [Fact]
     public async Task Handle_SecondCallWithinTtl_ShouldServeTheSnapshotFromCacheWithoutRequerying()
     {
-        // Arrange — two handlers share one cache but read different catalogs: a second database
+        // Arrange: two handlers share one cache but read different catalogs: a second database
         // read would surface the grown catalog, so an identical snapshot proves the cache served it.
         HybridCache hybridCache = TestHybridCache.Create();
         Given(1, TranslationStatus.Approved);
@@ -63,7 +63,7 @@ public sealed class GetPublicProgressHandlerTests
         Result<PublicProgressResponse> cached =
             await second.Handle(new GetPublicProgress.Query(), CancellationToken.None);
 
-        // Assert — the whole snapshot is one entry: the version lookup is deduplicated with the
+        // Assert: the whole snapshot is one entry: the version lookup is deduplicated with the
         // counters, so the cached response still carries the first computation's null version.
         initial.IsSuccess.ShouldBeTrue();
         cached.IsSuccess.ShouldBeTrue();
@@ -75,7 +75,7 @@ public sealed class GetPublicProgressHandlerTests
     [Fact]
     public async Task Handle_AfterTheEntryExpires_ShouldRecomputeTheSnapshotFromTheLiveCatalog()
     {
-        // Arrange — eviction is the state HybridCache reaches once the TTL lapses (the expiry timer
+        // Arrange: eviction is the state HybridCache reaches once the TTL lapses (the expiry timer
         // itself is HybridCache's contract); the handler must then recompute, not hold on.
         HybridCache hybridCache = TestHybridCache.Create();
         Given(1, TranslationStatus.Approved);

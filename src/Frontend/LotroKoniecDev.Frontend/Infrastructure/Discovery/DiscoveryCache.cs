@@ -50,8 +50,9 @@ internal sealed class DiscoveryCache : IDiscoveryCache
     public async Task<ApiResult<TranslationDiscoveryResponse>> GetTranslationSystemDiscoveryAsync(
         CancellationToken cancellationToken = default)
     {
-        // Keyed by auth state because the API tailors its HATEOAS link set per role. A shared key
-        // would let the first caller (anon or authed) freeze the wrong link set for everyone for a day.
+        // The key includes whether the caller is logged in, because the API sends a different set of
+        // links per role. With one shared key, whoever called first would fix the wrong set for everyone
+        // for a day.
         string authSuffix = GetAuthSuffix();
 
         try
@@ -65,10 +66,10 @@ internal sealed class DiscoveryCache : IDiscoveryCache
         }
         catch (AuthenticatedLinksDegradedException)
         {
-            // Same handling as the auth leg: the cookie reads authenticated but the API answered with
-            // the anonymous link set, so the bearer never reached it. Mark the session dead (the next
-            // OnValidatePrincipal signs the cookie out cleanly) and serve the anonymous links, so the
-            // public pages keep rendering instead of erroring on the way out.
+            // The same handling as on the auth side: the cookie says the user is logged in, but the API
+            // sent the anonymous set of links, so the token never reached it. Mark the session dead, so
+            // the next cookie validation signs the user out cleanly, and return the anonymous links, so
+            // the public pages still render instead of failing on the way out.
             await MarkSessionDeadAsync(cancellationToken);
 
             try
@@ -79,8 +80,8 @@ internal sealed class DiscoveryCache : IDiscoveryCache
             }
             catch (DiscoveryUnavailableException ex) when (ex.ProblemDetails is not null)
             {
-                // The API died between the two calls — keep errors-as-values instead of letting the
-                // sentinel escape and 500 the page.
+                // The API failed between the two calls. Return the error as a value instead of letting
+                // the exception escape and turn the page into a 500.
                 return ApiResult.Failure<TranslationDiscoveryResponse>(ex.ProblemDetails);
             }
         }
@@ -89,10 +90,10 @@ internal sealed class DiscoveryCache : IDiscoveryCache
     public async Task<ApiResult<AuthDiscoveryResponse>> GetAuthSystemDiscoveryAsync(
         CancellationToken cancellationToken = default)
     {
-        // The same poisoning guard the TMS leg runs: the auth root advertises the 'export-account-data'
-        // rel only to authenticated callers, so an authenticated key must never cache a response
-        // missing it (which would mean the bearer never reached the API) — that would break the whole
-        // account section for every signed-in user for a day.
+        // The same guard as on the TMS side. The auth root offers the 'export-account-data' rel only to
+        // logged-in callers, so a response without it must never be cached under a logged-in key: that
+        // would mean the token never reached the API, and it would break the whole account section for
+        // every signed-in user for a day.
         string authSuffix = GetAuthSuffix();
 
         try
@@ -102,15 +103,16 @@ internal sealed class DiscoveryCache : IDiscoveryCache
         }
         catch (DiscoveryUnavailableException ex) when (ex.ProblemDetails is not null)
         {
-            // Genuine outage (network/5xx) — never reclassified as "session expired".
+            // A real outage, a network error or a 5xx. It is never turned into "session expired".
             return ApiResult.Failure<AuthDiscoveryResponse>(ex.ProblemDetails);
         }
         catch (AuthenticatedLinksDegradedException)
         {
-            // The cookie still reads authenticated, but the API answered with the anonymous link set:
-            // the bearer token never reached it (expired/invalid/key-rotated). Degrade to the anonymous
-            // links AND mark the session dead so the next OnValidatePrincipal signs the cookie out
-            // cleanly; the [Authorize] account pages then bounce through login instead of erroring.
+            // The cookie still says the user is logged in, but the API sent the anonymous set of links,
+            // so the token never reached it: it expired, is invalid, or its key was rotated. Fall back
+            // to the anonymous links and mark the session dead, so the next cookie validation signs the
+            // user out cleanly. The [Authorize] account pages then send them to login instead of
+            // failing.
             await MarkSessionDeadAsync(cancellationToken);
 
             try
@@ -120,8 +122,8 @@ internal sealed class DiscoveryCache : IDiscoveryCache
             }
             catch (DiscoveryUnavailableException ex) when (ex.ProblemDetails is not null)
             {
-                // The API died between the two calls — keep errors-as-values instead of letting the
-                // sentinel escape and 500 the page.
+                // The API failed between the two calls. Return the error as a value instead of letting
+                // the exception escape and turn the page into a 500.
                 return ApiResult.Failure<AuthDiscoveryResponse>(ex.ProblemDetails);
             }
         }
@@ -131,10 +133,10 @@ internal sealed class DiscoveryCache : IDiscoveryCache
         string authSuffix,
         CancellationToken cancellationToken)
     {
-        // Only successful, correctly-shaped payloads are cached. A ProblemDetails failure must never be
-        // persisted under the 1-day TTL (it would keep the app broken for 24h after a transient outage):
-        // the factory throws so HybridCache discards the entry and the next request retries the live
-        // endpoint. The same rule covers a degraded link set — see the guard below.
+        // Only successful responses of the right shape are cached. A ProblemDetails failure must never
+        // be stored for a day, because a short outage would then keep the app broken for 24 hours. The
+        // factory throws instead, so HybridCache drops the entry and the next request calls the live
+        // endpoint again. The same rule applies to an incomplete set of links; see the check below.
         return await _hybridCache.GetOrCreateAsync(
             TranslationSystemDiscoveryCacheKeyPrefix + authSuffix,
             (Client: _translationSystemClient, RequiresAuthenticatedLinks: authSuffix is not AnonymousSuffix),
@@ -146,12 +148,13 @@ internal sealed class DiscoveryCache : IDiscoveryCache
                     throw new DiscoveryUnavailableException(result.ProblemDetails);
                 }
 
-                // The TMS root is anonymous (#608) and tailors its links to the caller, so an
-                // authenticated key that comes back with only the anonymous set means the bearer never
-                // reached the API. Caching that would strip every signed-in user of the dashboard,
-                // editor and admin entry points for a day. 'contribution-data-export' is the sentinel:
-                // its endpoint requires nothing beyond authentication, so every authenticated caller
-                // gets it — exactly what 'export-account-data' is for the auth leg.
+                // The TMS root is open to anyone (#608) and sends different links per caller, so a
+                // logged-in key that comes back with only the anonymous set means the token never
+                // reached the API. Caching that would take the dashboard, the editor and the admin pages
+                // away from every signed-in user for a day.
+                // 'contribution-data-export' is the marker we look for: its endpoint needs nothing but a
+                // login, so every logged-in caller gets it, just like 'export-account-data' on the auth
+                // side.
                 if (state.RequiresAuthenticatedLinks
                     && !ContainsGetRel(result.Value.Links, TranslationRels.ContributionDataExport))
                 {
@@ -213,8 +216,8 @@ internal sealed class DiscoveryCache : IDiscoveryCache
 }
 
 /// <summary>
-/// Sentinel exception used to bubble an API failure out of the <c>HybridCache</c> factory without
-/// having it persisted as a cache entry. The public 3-constructor shape appeases CA1032.
+/// Carries an API failure out of the <c>HybridCache</c> factory, so it is not stored as a cache entry.
+/// The three public constructors are there to satisfy CA1032.
 /// </summary>
 public sealed class DiscoveryUnavailableException : Exception
 {
@@ -241,10 +244,10 @@ public sealed class DiscoveryUnavailableException : Exception
 }
 
 /// <summary>
-/// Sentinel exception meaning the auth API answered with the anonymous link set under an
-/// authenticated cache key — i.e. the bearer token never reached it. Distinct from
-/// <see cref="DiscoveryUnavailableException"/> (a genuine outage) so the caller can degrade to a
-/// guest link set + dead-session sign-out instead of rendering an error.
+/// Means the auth API sent the anonymous set of links under a logged-in cache key, so the token never
+/// reached it. It is a separate type from <see cref="DiscoveryUnavailableException"/>, which is a real
+/// outage, so the caller can fall back to the guest links and sign the dead session out instead of
+/// showing an error.
 /// </summary>
 public sealed class AuthenticatedLinksDegradedException : Exception
 {

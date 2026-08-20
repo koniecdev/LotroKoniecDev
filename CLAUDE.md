@@ -538,6 +538,15 @@ file_id||gossip_id||translated_text||args_order||args_id||approved||source_diges
 - **Documentation uses `/// <summary>` XML doc comments** — never plain `//` comments to
   document a type or member. Omit entirely when the name already explains the intent; reserve
   plain `//` for the non-obvious *why* inline in logic.
+- **Comments are written in simple English, level B1-B2 (#675).** Short sentences, common
+  words, one idea per sentence. No chains of em-dashes, no stacked clauses, no vocabulary a
+  non-native reader has to look up. A comment nobody can read on the first pass is a defect,
+  even when every word in it is true.
+- **A comment explains the *why*, never the *what*.** If the name and the code already say it,
+  write nothing — `MarkAsProcessed` does not need "Marks the version as processed". Keep the
+  reason and the pointer (`spec 0001`, `ADR-0047`, `#624`); leave the full story to the ADR or
+  the spec, and never repeat the same explanation in a doc comment, an inline comment and a
+  document at once.
 - Code & identifiers in **English**.
 - **Domain class member order — mirror TheKittySaver exactly** (golden refs:
   `…AdoptionSystem.Domain/Aggregates/CatAggregate/Entities/Cat.cs`, `…/Vaccination.cs`). Top to

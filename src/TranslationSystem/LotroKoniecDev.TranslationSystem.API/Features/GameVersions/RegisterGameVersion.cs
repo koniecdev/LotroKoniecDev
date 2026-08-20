@@ -16,9 +16,10 @@ using LotroKoniecDev.TranslationSystem.Persistence.DbContexts.Abstractions;
 
 namespace LotroKoniecDev.TranslationSystem.API.Features.GameVersions;
 
-// Registration is the manual half of the update ceremony and stays that way (ADR-0030); the forum
-// watcher (#85) will add an automatic path, not replace this one. A duplicate version string is a
-// conflict whatever its status — the way back from a wrong registration is deleting the row (#624).
+// Registering a version by hand is the manual part of the update routine and stays that way
+// (ADR-0030). The forum watcher (#85) will add an automatic path next to it, not replace it.
+// A version string that already exists is a conflict whatever its status. The way back from a wrong
+// registration is deleting the row (#624).
 internal sealed class RegisterGameVersion : IEndpoint
 {
     internal sealed record Command(string Version) : ICommand<Result<GameVersionResponse>>;
@@ -103,7 +104,8 @@ internal sealed class RegisterGameVersion : IEndpoint
 
                 Result<GameVersionResponse> result = await handler.Handle(command, cancellationToken);
 
-                // Point Location at the new resource's own item endpoint (GET /game-versions/{id}, added in M2-25).
+                // Location points at the new resource's own endpoint, GET /game-versions/{id}, added in
+                // M2-25.
                 return result.IsSuccess
                     ? Results.Created($"/api/v1/game-versions/{result.Value.Id.Value}", result.Value)
                     : Results.Problem(result.Error.ToProblemDetails());

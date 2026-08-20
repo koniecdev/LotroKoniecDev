@@ -43,7 +43,7 @@ public sealed class TranslationFileEndpointResolverTests
     [Fact]
     public async Task ResolveAsync_WhenDiscoveryAdvertisesTheRel_ShouldReturnItsHref()
     {
-        // Arrange — the document carries other entry points too; only the rel decides.
+        // Arrange: the document carries other entry points too; only the rel decides.
         DiscoveryReturns(
             new DiscoveredLink($"{BaseUrl}/", "self", "GET"),
             TranslationFileLink(),
@@ -60,7 +60,7 @@ public sealed class TranslationFileEndpointResolverTests
     [Fact]
     public async Task ResolveAsync_WhenDiscoveryIsUnreachableAndAnHrefIsCached_ShouldFallBackToIt()
     {
-        // Arrange — the cache is the outage safety net: the sync keeps working while the root is down.
+        // Arrange: the cache is the outage safety net: the sync keeps working while the root is down.
         DiscoveryFails();
 
         // Act
@@ -80,7 +80,7 @@ public sealed class TranslationFileEndpointResolverTests
     public async Task ResolveAsync_WhenDiscoveryIsUnreachableAndNothingIsCached_ShouldFailWithoutGuessingAPath(
         string? cachedHref)
     {
-        // Arrange — the first-ever run against an unreachable server: there is nothing safe to guess.
+        // Arrange: the first-ever run against an unreachable server: there is nothing safe to guess.
         DiscoveryFails();
 
         // Act
@@ -95,7 +95,7 @@ public sealed class TranslationFileEndpointResolverTests
     [Fact]
     public async Task ResolveAsync_WhenTheDocumentDoesNotAdvertiseTheRel_ShouldFailWithoutUsingTheCache()
     {
-        // Arrange — the server answered and did not offer the affordance. That is a statement about
+        // Arrange: the server answered and did not offer the action. That is a statement about
         // what is on offer, not an outage, so the cached href must not paper over it.
         DiscoveryReturns(new DiscoveredLink($"{BaseUrl}/", "self", "GET"));
 
@@ -115,19 +115,19 @@ public sealed class TranslationFileEndpointResolverTests
     [InlineData("file:///etc/passwd")]
     [InlineData("/api/v1/translation-files/pl")]
     [InlineData("not a uri at all")]
-    // The classic origin-check bypasses. Each one is rejected because of a specific System.Uri
-    // normalisation rule, so they are pinned here: a refactor of the check to uri.Host, to
-    // AbsoluteUri.StartsWith(baseUrl) or to IdnHost silently reopens one of them.
-    // Userinfo — the authority is everything AFTER the '@', so this fetches from evil.com.
+    // The well-known ways to get past an origin check. Each one is rejected because of a particular
+    // System.Uri rule, so they are pinned here: rewriting the check to use uri.Host, to
+    // AbsoluteUri.StartsWith(baseUrl) or to IdnHost quietly reopens one of them.
+    // User info: the authority is everything after the '@', so this would fetch from evil.com.
     [InlineData("https://tms.example.com@evil.com/api/v1/translation-files/pl")]
     [InlineData("https://tms.example.com:443@evil.com/api/v1/translation-files/pl")]
-    // Fully-qualified trailing dot — the same DNS name, a different authority string.
+    // A trailing dot: the same DNS name, but a different authority string.
     [InlineData("https://tms.example.com./api/v1/translation-files/pl")]
-    // Cyrillic 'а' (U+0430) in "example" — visually identical, a different host.
+    // A Cyrillic 'а' (U+0430) in "example": it looks the same but is a different host.
     [InlineData("https://tms.exаmple.com/api/v1/translation-files/pl")]
     public async Task ResolveAsync_WhenTheAdvertisedHrefLeavesTheConfiguredOrigin_ShouldRejectIt(string href)
     {
-        // Arrange — the href is attacker-influenceable whenever the base URL is, so the document may
+        // Arrange: the href is attacker-influenceable whenever the base URL is, so the document may
         // move the path but never the origin, and never off TLS.
         DiscoveryReturns(TranslationFileLink(href));
 
@@ -140,13 +140,14 @@ public sealed class TranslationFileEndpointResolverTests
     }
 
     [Theory]
-    // Host casing and an explicit default port are the same origin — rejecting them would break a
-    // perfectly ordinary deployment, so the accept side is pinned as deliberately as the reject side.
+    // A different case in the host, or the default port written out, is the same origin. Rejecting those
+    // would break a perfectly normal deployment, so what we accept is pinned as carefully as what we
+    // reject.
     [InlineData(BaseUrl, "https://TMS.EXAMPLE.COM/api/v1/translation-files/pl")]
     [InlineData(BaseUrl, "https://tms.example.com:443/api/v1/translation-files/pl")]
     // A non-default port is fine as long as both sides agree on it.
     [InlineData("https://tms.example.com:8443", "https://tms.example.com:8443/api/v1/translation-files/pl")]
-    // The document may move the path freely — that is the entire point of resolving by rel.
+    // The document may change the path freely. That is the whole point of resolving by rel.
     [InlineData(BaseUrl, "https://tms.example.com/downloads/pl.txt")]
     public async Task ResolveAsync_WhenTheAdvertisedHrefStaysOnTheConfiguredOrigin_ShouldAcceptIt(
         string baseUrl, string href)
@@ -165,7 +166,7 @@ public sealed class TranslationFileEndpointResolverTests
     [Fact]
     public async Task ResolveAsync_WhenTheCachedHrefLeavesTheConfiguredOrigin_ShouldRejectItToo()
     {
-        // Arrange — the sidecar is on-disk data, and it is stale the moment --tms-url is repointed.
+        // Arrange: the sidecar is on-disk data, and it is stale the moment --tms-url is repointed.
         DiscoveryFails();
 
         // Act
@@ -183,7 +184,7 @@ public sealed class TranslationFileEndpointResolverTests
     [InlineData("http://127.0.0.1:5002")]
     public async Task ResolveAsync_WhenTheDeploymentIsLoopback_ShouldAllowPlainHttp(string baseUrl)
     {
-        // Arrange — loopback has no network hop, the one place the TLS rule bends (dev host Kestrel).
+        // Arrange: loopback has no network hop, the one place the TLS rule bends (dev host Kestrel).
         DiscoveryReturns(new DiscoveredLink(
             $"{baseUrl}/api/v1/translation-files/pl", TranslationFileEndpointResolver.TranslationFileRel, "GET"));
 
@@ -198,7 +199,7 @@ public sealed class TranslationFileEndpointResolverTests
     [Fact]
     public async Task ResolveAsync_WhenTheRelIsAdvertisedForAnotherVerb_ShouldNotTreatItAsTheDownload()
     {
-        // Arrange — a rel names an affordance together with its method; a POST link is a different one.
+        // Arrange: a rel names an action together with its method, so a POST link is a different one.
         DiscoveryReturns(new DiscoveredLink(
             DownloadHref, TranslationFileEndpointResolver.TranslationFileRel, "POST"));
 

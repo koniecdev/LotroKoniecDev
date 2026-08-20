@@ -13,7 +13,7 @@ public sealed class TranslationFileRebuildSchedulerTests
         // Arrange
         TranslationFileRebuildScheduler scheduler = new();
 
-        // Act & Assert — a blank language is a programmer error, not a business failure.
+        // Act & Assert: a blank language is a programmer error, not a business failure.
         Should.Throw<ArgumentException>(() => scheduler.Schedule(language!));
         scheduler.PendingCount.ShouldBe(0);
     }
@@ -36,7 +36,7 @@ public sealed class TranslationFileRebuildSchedulerTests
     [Fact]
     public void MarkCompleted_AfterAllSignalsRebuilt_ShouldReturnToIdle()
     {
-        // Arrange — a burst of signals the worker later drains as one batch.
+        // Arrange: a burst of signals the worker later drains as one batch.
         TranslationFileRebuildScheduler scheduler = new();
         scheduler.Schedule("pl");
         scheduler.Schedule("pl");
@@ -45,7 +45,7 @@ public sealed class TranslationFileRebuildSchedulerTests
         // Act
         scheduler.MarkCompleted(3);
 
-        // Assert — idle means every scheduled rebuild has completed (the tests' quiesce point).
+        // Assert: idle means every scheduled rebuild has finished, which is what the tests wait for.
         scheduler.PendingCount.ShouldBe(0);
     }
 }

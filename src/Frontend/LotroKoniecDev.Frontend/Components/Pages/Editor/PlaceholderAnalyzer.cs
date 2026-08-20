@@ -1,22 +1,22 @@
 namespace LotroKoniecDev.Frontend.Components.Pages.Editor;
 
 /// <summary>
-/// Pure analysis of the <c>&lt;--DO_NOT_TOUCH!--&gt;</c> argument placeholder for the side-by-side
-/// editor: it counts the token in a piece of text and splits the text into literal / placeholder runs
-/// so the page can highlight the markers without an interactive layer. The token is the inter-context
-/// file contract (a piece separator); the Frontend owns its own copy as a constant rather than
-/// referencing the frozen patcher, exactly as each bounded context owns its own parser. Kept isolated
-/// so the count / comparison / segmentation rules are unit-testable directly, without paying the cost
-/// of rendering the component (the editor's render-level highlighting is covered separately by bUnit).
+/// Works out where the <c>&lt;--DO_NOT_TOUCH!--&gt;</c> argument placeholder sits, for the side-by-side
+/// editor. It counts the marker in a piece of text and splits the text into plain runs and marker runs,
+/// so the page can highlight the markers without any interactive code.
+/// The marker is part of the file contract between the two contexts. The Frontend keeps its own copy as
+/// a constant instead of referencing the patcher, exactly as each context has its own parser.
+/// It is kept separate so the counting, comparing and splitting rules can be unit-tested directly,
+/// without rendering the component. The highlighting itself is covered by bUnit tests.
 /// </summary>
 internal static class PlaceholderAnalyzer
 {
-    /// <summary>The argument placeholder marker; translators must keep it verbatim (file-format contract).</summary>
+    /// <summary>The argument placeholder. Translators must keep it exactly as it is (file contract).</summary>
     internal const string Placeholder = "<--DO_NOT_TOUCH!-->";
 
     /// <summary>
-    /// Counts how many <see cref="Placeholder"/> markers occur in <paramref name="text"/>. A
-    /// <c>null</c> or empty text has none.
+    /// Counts the <see cref="Placeholder"/> markers in <paramref name="text"/>. A <c>null</c> or empty
+    /// text has none.
     /// </summary>
     public static int Count(string? text)
     {
@@ -37,11 +37,11 @@ internal static class PlaceholderAnalyzer
     }
 
     /// <summary>
-    /// Compares the placeholder count of the English source against the Polish translation. The result
-    /// reports whether the counts match and carries both counts so the page can render an exact warning
-    /// (the warning is advisory — the API stores the Polish verbatim either way, spec 0001 / #100).
-    /// Untranslated Polish (no text yet) is never flagged: there is nothing to warn about until the
-    /// translator types.
+    /// Compares how many placeholders the English source has with how many the Polish has. The result
+    /// says whether they match and carries both numbers, so the page can show an exact warning. The
+    /// warning is only advice: the API stores the Polish as it is either way (spec 0001, #100).
+    /// A row with no Polish yet is never flagged, because there is nothing to warn about until the
+    /// translator starts typing.
     /// </summary>
     public static PlaceholderComparison Compare(string sourceText, string? translatedText)
     {
@@ -57,9 +57,9 @@ internal static class PlaceholderAnalyzer
     }
 
     /// <summary>
-    /// Splits <paramref name="text"/> into ordered runs, each flagged as the placeholder marker or
-    /// literal text, so the page can wrap only the markers in a highlight span. Adjacent literals are
-    /// never produced; an empty text yields no segments.
+    /// Splits <paramref name="text"/> into runs in order, each marked as either the placeholder or plain
+    /// text, so the page can highlight the markers only. Two plain runs never follow each other, and an
+    /// empty text produces no runs.
     /// </summary>
     public static IReadOnlyList<PlaceholderSegment> Segment(string? text)
     {
@@ -94,10 +94,11 @@ internal static class PlaceholderAnalyzer
 }
 
 /// <summary>
-/// The outcome of comparing English vs Polish placeholder counts: the two counts and whether they
-/// match. <see cref="IsMatch"/> is <c>true</c> for still-untranslated Polish (nothing to warn about).
+/// The result of comparing the placeholder counts: both numbers and whether they match.
+/// <see cref="IsMatch"/> is <c>true</c> when there is no Polish yet, because there is nothing to warn
+/// about.
 /// </summary>
 internal sealed record PlaceholderComparison(int SourceCount, int TranslatedCount, bool IsMatch);
 
-/// <summary>One ordered run of text from <see cref="PlaceholderAnalyzer.Segment"/>: a literal or a marker.</summary>
+/// <summary>One run of text from <see cref="PlaceholderAnalyzer.Segment"/>: plain text or a marker.</summary>
 internal sealed record PlaceholderSegment(string Text, bool IsPlaceholder);

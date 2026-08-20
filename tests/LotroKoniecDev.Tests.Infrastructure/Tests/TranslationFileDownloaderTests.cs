@@ -10,10 +10,10 @@ using LotroKoniecDev.Tests.Infrastructure.Shared;
 namespace LotroKoniecDev.Tests.Infrastructure.Tests;
 
 /// <summary>
-/// Exercises the downloader's integrity enforcement point (AUDIT-SEC-01 / #391) over an in-memory
-/// stub handler — no real network. The pure hash comparison itself is covered in
-/// <c>Tests.Unit/TranslationFileContentIntegrityTests</c>; these tests prove the downloader actually
-/// applies it before handing content to the sync.
+/// Exercises the downloader's integrity check (AUDIT-SEC-01, #391) over an in-memory stub handler, with
+/// no network. The hash comparison itself is covered in
+/// <c>Tests.Unit/TranslationFileContentIntegrityTests</c>. These tests prove the downloader really
+/// applies it before it hands the content to the sync.
 /// </summary>
 public sealed class TranslationFileDownloaderTests
 {
@@ -44,7 +44,7 @@ public sealed class TranslationFileDownloaderTests
     [Fact]
     public async Task FetchAsync_BodyNotMatchingTheETagHash_ShouldRejectTheDownload()
     {
-        // Arrange — the served bytes do not hash to the advertised ETag (corruption or tampering).
+        // Arrange: the served bytes do not hash to the advertised ETag (corruption or tampering).
         using HttpResponseMessage response = OkResponse("tampered body", $"\"{ContentHash}\"");
         using HttpClient httpClient = new(new StubHttpMessageHandler(response));
         TranslationFileDownloader sut = new(httpClient);
@@ -60,7 +60,7 @@ public sealed class TranslationFileDownloaderTests
     [Fact]
     public async Task FetchAsync_ResponseWithoutAnETag_ShouldRejectTheDownload()
     {
-        // Arrange — no validator means no way to verify the body: fail closed.
+        // Arrange: no validator means no way to verify the body: fail closed.
         using HttpResponseMessage response = OkResponse(Content, eTag: null);
         using HttpClient httpClient = new(new StubHttpMessageHandler(response));
         TranslationFileDownloader sut = new(httpClient);
@@ -76,7 +76,7 @@ public sealed class TranslationFileDownloaderTests
     [Fact]
     public async Task FetchAsync_ResponseWithAWeakETag_ShouldRejectTheDownload()
     {
-        // Arrange — a weak validator cannot guarantee byte equality, so it is as unverifiable as none.
+        // Arrange: a weak validator cannot guarantee byte equality, so it is as unverifiable as none.
         using HttpResponseMessage response = OkResponse(Content, eTag: null);
         response.Headers.ETag = new EntityTagHeaderValue($"\"{ContentHash}\"", isWeak: true);
         using HttpClient httpClient = new(new StubHttpMessageHandler(response));
@@ -93,7 +93,7 @@ public sealed class TranslationFileDownloaderTests
     [Fact]
     public async Task FetchAsync_ResponseDeclaringABodyOverTheSizeCap_ShouldRejectTheDownload()
     {
-        // Arrange — a Content-Length above the cap (AUDIT-SEC-04 / #394) must be refused up front,
+        // Arrange: a Content-Length above the cap (AUDIT-SEC-04 / #394) must be refused up front,
         // before any body byte is read.
         using HttpResponseMessage response = OkResponse(Content, $"\"{ContentHash}\"");
         response.Content.Headers.ContentLength = TranslationFileDownloader.MaxResponseContentBytes + 1;
@@ -111,7 +111,7 @@ public sealed class TranslationFileDownloaderTests
     [Fact]
     public async Task FetchAsync_UndeclaredBodyStreamingPastTheSizeCap_ShouldRejectTheDownload()
     {
-        // Arrange — no Content-Length (chunked-style), the body itself overruns the cap while
+        // Arrange: no Content-Length (chunked-style), the body itself overruns the cap while
         // streaming: the buffer limit must cut it off instead of growing without bound.
         using HttpResponseMessage response = new(HttpStatusCode.OK)
         {
@@ -131,7 +131,7 @@ public sealed class TranslationFileDownloaderTests
     [Fact]
     public async Task FetchAsync_BodyThatStallsPastTheClientTimeout_ShouldFailAsTimedOutInsteadOfHanging()
     {
-        // Arrange — ResponseHeadersRead moves the body read out of HttpClient.Timeout's scope;
+        // Arrange: ResponseHeadersRead moves the body read out of HttpClient.Timeout's scope;
         // the downloader must re-apply the timeout itself or a stalling server hangs the launch.
         using HttpResponseMessage response = new(HttpStatusCode.OK) { Content = new StallingContent() };
         using HttpClient httpClient = new(new StubHttpMessageHandler(response));
@@ -149,7 +149,7 @@ public sealed class TranslationFileDownloaderTests
     [Fact]
     public async Task FetchAsync_WellFormedCachedETag_ShouldSendItAsTheIfNoneMatchHeader()
     {
-        // Arrange — the sidecar value parses as an ETag, so the conditional header goes out
+        // Arrange: the sidecar value parses as an ETag, so the conditional header goes out
         // through the typed API (AUDIT-SEC-07 / #397).
         using HttpResponseMessage response = OkResponse(Content, $"\"{ContentHash}\"");
         StubHttpMessageHandler handler = new(response);
@@ -170,7 +170,7 @@ public sealed class TranslationFileDownloaderTests
     [InlineData("etag-without-quotes")]
     public async Task FetchAsync_MalformedCachedETag_ShouldFetchTheFullFileWithoutTheConditionalHeader(string malformedETag)
     {
-        // Arrange — a sidecar value that no longer parses as an ETag (tampering or corruption)
+        // Arrange: a sidecar value that no longer parses as an ETag (tampering or corruption)
         // must never reach the wire; the fetch degrades to a full download (AUDIT-SEC-07 / #397).
         using HttpResponseMessage response = OkResponse(Content, $"\"{ContentHash}\"");
         StubHttpMessageHandler handler = new(response);
@@ -191,7 +191,7 @@ public sealed class TranslationFileDownloaderTests
     [Fact]
     public async Task FetchAsync_ShouldRequestTheResolvedEndpointVerbatim()
     {
-        // Arrange — the endpoint arrives already resolved from discovery, so the downloader appends
+        // Arrange: the endpoint arrives already resolved from discovery, so the downloader appends
         // nothing to it: there is no route left in the patcher source to append (#611).
         Uri movedEndpoint = new("https://tms.example.com/downloads/pl.txt");
         using HttpResponseMessage response = OkResponse(Content, $"\"{ContentHash}\"");
@@ -214,7 +214,7 @@ public sealed class TranslationFileDownloaderTests
     [InlineData(HttpStatusCode.TemporaryRedirect)]
     public async Task FetchAsync_RedirectResponse_ShouldBeRejectedRatherThanFollowedOffTheOrigin(HttpStatusCode status)
     {
-        // Arrange — the resolved endpoint was validated to be on the configured origin, and a 302 is
+        // Arrange: the resolved endpoint was validated to be on the configured origin, and a 302 is
         // exactly how a hostile server would walk around that check: the body (and the ETag hashing
         // it) would then come from the redirect target, so the integrity check would confirm the
         // wrong file. The TMS client is registered with redirects OFF (#611) and a 3xx is a failure.
@@ -234,7 +234,7 @@ public sealed class TranslationFileDownloaderTests
     [Fact]
     public async Task FetchAsync_NotModifiedResponse_ShouldReportTheCachedCopyCurrentWithoutAnyCheck()
     {
-        // Arrange — a 304 carries no body, so there is nothing to verify.
+        // Arrange: a 304 carries no body, so there is nothing to verify.
         using HttpResponseMessage response = new(HttpStatusCode.NotModified);
         using HttpClient httpClient = new(new StubHttpMessageHandler(response));
         TranslationFileDownloader sut = new(httpClient);

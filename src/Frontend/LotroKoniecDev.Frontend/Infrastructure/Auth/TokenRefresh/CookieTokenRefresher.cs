@@ -12,13 +12,14 @@ using LotroKoniecDev.Frontend.Infrastructure.Auth.DeadSession;
 namespace LotroKoniecDev.Frontend.Infrastructure.Auth.TokenRefresh;
 
 /// <summary>
-/// Runs on every cookie validation (<c>OnValidatePrincipal</c>). It first consumes any reactive
-/// "dead session" marker raised by a prior 401 and signs the cookie out cleanly; otherwise it
-/// refreshes the access token shortly before expiry using the stored refresh token, and — when the
-/// token is still locally alive — proactively re-validates its signature against the cached OIDC JWKS
-/// so a key rotated upstream signs the user out cleanly instead of letting a doomed token reach the
-/// API. Any rejection raises a one-shot "session expired" notice (a deliberate <c>/auth/logout</c>
-/// does not pass through here, so it never raises the notice).
+/// Runs on every cookie validation (<c>OnValidatePrincipal</c>).
+/// First it reads any "dead session" marker a previous 401 left behind and signs the cookie out
+/// properly. Otherwise it refreshes the access token shortly before it expires, using the stored
+/// refresh token. When the token is still valid by the local clock, it also checks the token's
+/// signature against the cached OIDC keys, so a key that was rotated upstream signs the user out
+/// cleanly instead of letting a token that is already dead reach the API.
+/// Every rejection sets the one-time "session expired" notice. A user's own <c>/auth/logout</c> does not
+/// come through here, so it never sets it.
 /// </summary>
 internal sealed class CookieTokenRefresher
 {
@@ -29,8 +30,8 @@ internal sealed class CookieTokenRefresher
     private const string SubjectClaimType = "sub";
 
     /// <summary>
-    /// Refresh slightly before actual expiry so an in-flight backend call cannot land with a token that
-    /// is technically alive locally but already rejected upstream.
+    /// Refresh a little before the token really expires, so a call already on its way cannot arrive with
+    /// a token that still looks valid here but is already refused by the server.
     /// </summary>
     private static readonly TimeSpan RefreshSkew = TimeSpan.FromSeconds(60);
 
@@ -58,10 +59,10 @@ internal sealed class CookieTokenRefresher
     {
         CancellationToken cancellationToken = context.HttpContext.RequestAborted;
 
-        // Reactive backstop: a 401 observed by the TMS delegating handler on a prior request marked
-        // this subject's session dead. The response there may already have been streaming, so the clean
-        // sign-out is deferred to here, where the response has not started. This runs first so a
-        // known-dead session never reaches the API again.
+        // The fallback path: on an earlier request the TMS delegating handler saw a 401 and marked this
+        // subject's session dead. That response may already have been streaming, so the clean sign-out
+        // waits until here, where the response has not started. It runs first, so a session we know is
+        // dead never reaches the API again.
         string? subject = GetSubject(context);
         if (subject is not null
             && await _deadSessionRegistry.ConsumeAsync(subject, cancellationToken))
@@ -79,16 +80,17 @@ internal sealed class CookieTokenRefresher
 
         if (refreshOutcome is RefreshOutcome.Refreshed)
         {
-            // A token we just refreshed was minted by the IdP over TLS on this very request, so its
-            // signing key cannot have rotated out from under it yet: the proactive JWKS probe below
-            // would have nothing to catch and could only misfire against momentarily-stale local JWKS.
+            // A token we just refreshed came from the identity provider over TLS on this very request,
+            // so its signing key cannot have changed since. The signature check below would find nothing
+            // and could only fail wrongly against local keys that are a moment out of date.
             return;
         }
 
-        // Proactive local validation: even when the token is alive on the local clock, its signing key
-        // may have rotated upstream (the FE still trusts the previous JWKS). Validate the signature
-        // against the cached OIDC keys — no API round-trip. Lifetime/audience are intentionally NOT
-        // checked here: the skew window above owns expiry, and the FE is not the token's audience.
+        // A check we do ourselves: even when the token is still valid by the local clock, its signing key
+        // may have been rotated upstream while the frontend still trusts the old keys. We check the
+        // signature against the cached OIDC keys, with no call to the API.
+        // Lifetime and audience are deliberately not checked here: the window above handles expiry, and
+        // this frontend is not the token's audience.
         if (!await IsAccessTokenCryptographicallyValidAsync(context, cancellationToken))
         {
             LogProactiveInvalidToken(_logger, null);
@@ -97,10 +99,10 @@ internal sealed class CookieTokenRefresher
     }
 
     /// <returns>
-    /// <see cref="RefreshOutcome.Stop"/> when validation must stop (no expiry claim, or the principal
-    /// was already rejected); <see cref="RefreshOutcome.Refreshed"/> when a fresh token was just
-    /// obtained from the IdP, so the caller must skip the proactive signature probe; otherwise
-    /// <see cref="RefreshOutcome.Unchanged"/> when the still-alive token should be probed.
+    /// <see cref="RefreshOutcome.Stop"/> when validation must stop, because there was no expiry claim or
+    /// the principal was already rejected. <see cref="RefreshOutcome.Refreshed"/> when a new token was
+    /// just fetched, so the caller skips the signature check. Otherwise
+    /// <see cref="RefreshOutcome.Unchanged"/>, and the token that is still valid should be checked.
     /// </returns>
     private async Task<RefreshOutcome> TryRefreshIfNearExpiryAsync(
         CookieValidatePrincipalContext context,
@@ -170,7 +172,7 @@ internal sealed class CookieTokenRefresher
         string? accessToken = context.Properties.GetTokenValue(AccessTokenName);
         if (string.IsNullOrWhiteSpace(accessToken))
         {
-            // No token to validate — leave the decision to the skew/refresh path, which already ran.
+            // There is no token to check. Leave the decision to the refresh path, which already ran.
             return true;
         }
 
@@ -178,7 +180,7 @@ internal sealed class CookieTokenRefresher
             OpenIdConnectDefaults.AuthenticationScheme);
         if (oidcOptions.ConfigurationManager is null)
         {
-            // Without a configuration manager we cannot fetch JWKS; do not falsely log the user out.
+            // Without a configuration manager we cannot fetch the keys, so we must not log the user out.
             return true;
         }
 
@@ -191,8 +193,8 @@ internal sealed class CookieTokenRefresher
             return true;
         }
 
-        // A benign key roll the FE has not refetched yet would fail the first pass. Force a metadata
-        // refresh and re-validate exactly once before concluding the token is truly dead.
+        // A normal key change the frontend has not fetched yet would fail the first check. Force a
+        // metadata refresh and check once more before deciding the token is really dead.
         oidcOptions.ConfigurationManager.RequestRefresh();
         OpenIdConnectConfiguration refreshedConfiguration = await oidcOptions.ConfigurationManager
             .GetConfigurationAsync(cancellationToken);
@@ -215,10 +217,10 @@ internal sealed class CookieTokenRefresher
         string? issuer,
         CancellationToken cancellationToken)
     {
-        // Issuer is anchored on the discovery document (ConfigurationManager), the same source the
-        // provider stamps into the token 'iss' — so they cannot drift the way a hand-configured Authority
-        // can (trailing slash, internal URL, empty-by-default in prod). If discovery has not yielded an
-        // issuer yet, skip rather than falsely log the user out.
+        // The issuer comes from the discovery document through ConfigurationManager, the same source the
+        // provider writes into the token's 'iss'. So the two cannot differ the way a hand-written
+        // Authority can, with a trailing slash, an internal URL or an empty value in production.
+        // If discovery has not given us an issuer yet, skip the check instead of logging the user out.
         if (string.IsNullOrWhiteSpace(issuer))
         {
             return true;
@@ -249,35 +251,35 @@ internal sealed class CookieTokenRefresher
 
     private async Task RejectAsync(CookieValidatePrincipalContext context)
     {
-        // Raise the one-shot soft notice BEFORE sign-out so it is written while the response has not
-        // started. A deliberate /auth/logout signs out directly (not through this rejection path), so
-        // it never raises the notice — exactly the "not shown to users who logged out" rule.
+        // Set the one-time notice before signing out, so it is written while the response has not
+        // started. A user's own /auth/logout signs out directly and not through this path, so it never
+        // sets the notice. That is the rule: it is not shown to people who logged out themselves.
         _sessionExpiryNotice.Raise();
         context.RejectPrincipal();
         await context.HttpContext.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
     }
 
     /// <summary>
-    /// Result of the near-expiry refresh attempt, telling <see cref="ValidateAsync"/> whether the
-    /// proactive JWKS signature probe still has anything to validate.
+    /// The result of the refresh attempt, which tells <see cref="ValidateAsync"/> whether the signature
+    /// check still has anything to look at.
     /// </summary>
     private enum RefreshOutcome
     {
         /// <summary>
-        /// Validation must stop: there was no usable <c>expires_at</c> claim, or the principal was
-        /// already rejected inside the refresh attempt.
+        /// Validation must stop: there was no usable <c>expires_at</c> claim, or the refresh attempt has
+        /// already rejected the principal.
         /// </summary>
         Stop,
 
         /// <summary>
-        /// The token was left untouched and is still alive on the local clock — the one case worth
-        /// probing for an upstream key roll.
+        /// The token was not touched and is still valid by the local clock. This is the one case where a
+        /// key change upstream is worth checking for.
         /// </summary>
         Unchanged,
 
         /// <summary>
-        /// A fresh token was just obtained from the IdP this request, so the proactive signature probe
-        /// is skipped.
+        /// A new token was fetched from the identity provider on this request, so the signature check is
+        /// skipped.
         /// </summary>
         Refreshed
     }

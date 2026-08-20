@@ -15,11 +15,11 @@ using DeleteAccountComponent = LotroKoniecDev.Frontend.Components.Pages.Account.
 namespace LotroKoniecDev.Frontend.Tests.Unit.Components.Pages.Account;
 
 /// <summary>
-/// Renders the <c>/account/delete</c> page through bUnit over a stubbed auth client. Locks down the
-/// SSR form wiring (inputs named after the <c>[SupplyParameterFromForm]</c> model path — the M3-07
-/// binding lesson), the rel-gating (no <c>delete-account</c> rel → no form), and the
-/// already-scheduled notice. The full submit path is exercised by the browser E2E — bUnit cannot bind
-/// SSR form data.
+/// Renders the <c>/account/delete</c> page through bUnit over a stubbed auth client. It pins the form
+/// wiring, where the inputs are named after the <c>[SupplyParameterFromForm]</c> model path, which is
+/// the lesson from M3-07; the rule that no <c>delete-account</c> rel means no form; and the notice
+/// shown when a deletion is already scheduled.
+/// The full submit path is covered by the browser E2E tests, because bUnit cannot bind SSR form data.
 /// </summary>
 public sealed class DeleteAccountTests : BunitContext
 {

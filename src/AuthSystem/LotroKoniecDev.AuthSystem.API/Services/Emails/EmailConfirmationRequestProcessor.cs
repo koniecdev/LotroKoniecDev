@@ -7,16 +7,16 @@ using LotroKoniecDev.SharedKernel.Monads;
 namespace LotroKoniecDev.AuthSystem.API.Services.Emails;
 
 /// <summary>
-/// The business reaction to a consumed <see cref="EmailConfirmationRequested"/> message: load the
-/// user, mint the confirmation token at send time (see the payload's remarks on token lifetime),
-/// and dispatch the e-mail. The first entry of the <see cref="IEmailMessageProcessor"/> registry
-/// (ADR-0038).
+/// What happens when an <see cref="EmailConfirmationRequested"/> message arrives: load the user,
+/// create the confirmation token now rather than earlier (see the payload's remarks about token
+/// lifetime), and send the e-mail. It is the first entry in the
+/// <see cref="IEmailMessageProcessor"/> registry (ADR-0038).
 /// </summary>
 /// <remarks>
-/// Delivery is at-least-once (ADR-0035), so this must stay idempotent. Today that comes free:
-/// a redelivered message finds <see cref="ApplicationUser.EmailConfirmed"/> already set, or at
-/// worst re-sends a confirmation e-mail — annoying, never harmful. A new message type must
-/// re-earn this property before it may reuse the pattern.
+/// A message may arrive more than once (ADR-0035), so this has to be safe to run twice. Today it is
+/// for free: a repeat finds <see cref="ApplicationUser.EmailConfirmed"/> already set, or at worst
+/// sends the confirmation e-mail again, which is annoying but harmless. A new message type has to show
+/// the same property before it may follow this pattern.
 /// </remarks>
 internal sealed partial class EmailConfirmationRequestProcessor : IEmailMessageProcessor
 {
@@ -53,14 +53,15 @@ internal sealed partial class EmailConfirmationRequestProcessor : IEmailMessageP
     }
 
     /// <summary>
-    /// Handles one consumed message end-to-end and returns the acknowledgement decision.
+    /// Handles one message from start to finish and says whether it may be acknowledged.
     /// </summary>
     /// <returns>
-    /// NOT a business outcome — the answer to "does this message need redelivery?". Success means
-    /// "ack, drop it from the queue": either the e-mail went out, or redelivery can never change
-    /// the outcome (user vanished, address already confirmed, no address on the account) — nacking
-    /// those would loop the same message forever. Failure means "worth retrying" (e.g. the SMTP
-    /// relay is down) and drives the consumer's nack + requeue.
+    /// This is not a business result. It answers one question: does this message need to be sent
+    /// again? Success means "acknowledge it and drop it from the queue", either because the e-mail went
+    /// out or because sending again could never change anything: the user is gone, the address is
+    /// already confirmed, or the account has no address. Refusing those would repeat the same message
+    /// forever. Failure means "worth another try", for example when the SMTP relay is down, and the
+    /// consumer then rejects and requeues it.
     /// </returns>
     public async Task<Result> ProcessAsync(EmailConfirmationRequested message, CancellationToken cancellationToken)
     {

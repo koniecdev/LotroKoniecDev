@@ -113,7 +113,7 @@ public sealed class UpsertTranslationHandlerTests
     [Fact]
     public async Task Handle_WhenTranslatedTextLongerThanTheDatAllows_ShouldReturnValidationError()
     {
-        // Arrange — the patcher cannot write this row into the DAT at all, so it must be refused
+        // Arrange: the patcher cannot write this row into the DAT at all, so it must be refused
         // here rather than accepted, approved and published into the artifact (#598).
         GivenStoredRow(Untranslated());
         string tooLong = new('ż', DatFormatConstants.MaxTranslatedTextLength + 1);
@@ -130,7 +130,7 @@ public sealed class UpsertTranslationHandlerTests
     [Fact]
     public async Task Handle_WhenTranslatedTextExactlyAtTheDatLimit_ShouldPersist()
     {
-        // Arrange — the boundary itself is legal; the cap must not cost a translator the last character.
+        // Arrange: the boundary itself is legal; the cap must not cost a translator the last character.
         Translation row = Untranslated();
         GivenStoredRow(row);
         string atLimit = new('ż', DatFormatConstants.MaxTranslatedTextLength);
@@ -147,7 +147,7 @@ public sealed class UpsertTranslationHandlerTests
     [Fact]
     public async Task Handle_WhenProvisioningFails_ShouldReturnFailureAndNotPersist()
     {
-        // Arrange — a token without a parseable subject must never be attributed; the provisioner
+        // Arrange: a token without a parseable subject must never be attributed; the provisioner
         // surfaces that, and the handler must not stamp or persist.
         Translation row = Untranslated();
         GivenStoredRow(row);
@@ -182,7 +182,7 @@ public sealed class UpsertTranslationHandlerTests
     [Fact]
     public async Task Handle_WhenRowRemoved_ShouldReturnConflictAndNotPersist()
     {
-        // Arrange — a soft-removed row is excluded from translation work (spec 0001).
+        // Arrange: a soft-removed row is excluded from translation work (spec 0001).
         Translation removed = Untranslated();
         removed.ProvideTranslation("Polski", CurrentTranslator, Now);
         removed.MarkRemoved(VersionId, Now);
@@ -225,7 +225,7 @@ public sealed class UpsertTranslationHandlerTests
     [Fact]
     public async Task Handle_OnApprovedRow_ShouldMoveToDraftAndRebuildArtifact()
     {
-        // Arrange — an Approved row is in the distributed file; editing pulls it out (spec 0001 Q1).
+        // Arrange: an Approved row is in the distributed file; editing pulls it out (spec 0001 Q1).
         Translation approved = Untranslated();
         approved.ProvideTranslation("Stary polski", CurrentTranslator, Now);
         approved.Approve(CurrentTranslator, Now);
@@ -244,7 +244,7 @@ public sealed class UpsertTranslationHandlerTests
     [Fact]
     public async Task Handle_OnApprovedRow_ShouldScheduleTheRebuildAfterTheCommit()
     {
-        // Arrange — ADR-0021 §1: the dirty signal must follow SaveChanges; signalled before the
+        // Arrange: ADR-0021 §1: the dirty signal must follow SaveChanges; signalled before the
         // commit, a zero-debounce rebuild could publish a snapshot missing its own trigger and park
         // the artifact stale. Ordering is invisible in the return value, hence the call log.
         Translation approved = Untranslated();
@@ -264,7 +264,7 @@ public sealed class UpsertTranslationHandlerTests
     [Fact]
     public async Task Handle_OnNeedsReviewRow_ShouldMoveToDraftAndKeepPreviousSource()
     {
-        // Arrange — an invalidated row keeps its superseded English until approve (the re-translation path).
+        // Arrange: an invalidated row keeps its superseded English until approve (the re-translation path).
         Translation needsReview = Untranslated(source: "Old English");
         needsReview.ProvideTranslation("Stary polski", CurrentTranslator, Now);
         needsReview.ApplySourceChange(TranslationSource.Create("New English", null, null).Value, VersionId, Now);

@@ -20,21 +20,23 @@ using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.TranslatorAggregate
 namespace LotroKoniecDev.TranslationSystem.API.Features.Translations;
 
 /// <summary>
-/// Approves several translation rows in one admin action (#322), the collection counterpart of the
-/// single <see cref="ApproveTranslation"/> slice: the reviewer selects rows on the list and this
-/// publishes them together. Best-effort — the selection is a snapshot, so every requested row that is
-/// <em>still</em> approvable (a non-removed <see cref="TranslationStatus.Draft"/> /
-/// <see cref="TranslationStatus.NeedsReview"/> row) is approved and the rest are silently skipped; a
-/// single stale row never fails the batch. All approvals are stamped in one <c>SaveChanges</c>, and a
-/// single debounced artifact rebuild is scheduled after the commit (PERF-04, ADR-0021) — only when at
-/// least one row was actually approved. Requires the admin (reviewer) policy. The response reports
-/// how many were requested / approved / skipped; it never 404s or 422s on an individual row.
+/// Approves several translation rows in one admin action (#322). It is the many-row counterpart of
+/// <see cref="ApproveTranslation"/>: the reviewer ticks rows on the list and this publishes them
+/// together.
+/// The selection is a snapshot, so this does what it can: every requested row that can still be
+/// approved, meaning a <see cref="TranslationStatus.Draft"/> or
+/// <see cref="TranslationStatus.NeedsReview"/> row that is not removed, is approved, and the rest are
+/// skipped. One out-of-date row never fails the whole batch.
+/// All approvals go in one <c>SaveChanges</c>, and one artifact rebuild is scheduled after the commit
+/// (PERF-04, ADR-0021), but only when at least one row was really approved.
+/// It needs the admin (reviewer) policy. The response says how many rows were requested, approved and
+/// skipped, and it never returns 404 or 422 for an individual row.
 /// </summary>
 internal sealed class BulkApproveTranslations : IEndpoint
 {
     /// <summary>
-    /// The most ids one request may carry — the translations list's max page size, since a checkbox
-    /// selection can never span more than a single rendered page.
+    /// The most ids one request may carry. It is the translations list's largest page size, because a
+    /// selection of checkboxes can never cover more than one page.
     /// </summary>
     internal const int MaxIds = 100;
 
@@ -93,13 +95,13 @@ internal sealed class BulkApproveTranslations : IEndpoint
                 return Result.Failure<BulkApproveTranslationsResponse>(new Error("Translations.Validation", message, TypeOfError.Validation));
             }
 
-            // De-duplicate so the row lookup and the approved/skipped tally stay consistent
-            // (Approved + Skipped == Requested), even if the client repeats an id.
+            // Remove duplicates, so the row lookup and the approved and skipped counts still add up
+            // (Approved + Skipped == Requested) even when the client sends the same id twice.
             List<TranslationId> distinctIds = command.Ids.Distinct().ToList();
 
-            // First-touch lazy provisioning (ADR-0004): resolve the reviewer's local TranslatorId once,
-            // before stamping any row. A failure means the batch cannot be attributed, so it fails whole
-            // — the same guard the single approve slice applies.
+            // Resolve the reviewer's local TranslatorId once, before any row is written (ADR-0004). If
+            // that fails, nothing can be credited to anyone, so the whole batch fails, exactly as the
+            // single approve does.
             Result<TranslatorId> provisionResult = await _translatorProvisioner.ProvisionCurrentAsync(cancellationToken);
             if (provisionResult.IsFailure)
             {
@@ -112,17 +114,18 @@ internal sealed class BulkApproveTranslations : IEndpoint
             int approved = 0;
             foreach (Translation row in rows)
             {
-                // Only Draft/NeedsReview rows are approvable — mirrors the per-item `approve` affordance
-                // (the FE offers a checkbox for exactly these). Anything else (Untranslated, or an
-                // already-Approved row) is skipped, so an already-approved row keeps its original approver.
+                // Only Draft and NeedsReview rows can be approved, the same rule the per-row `approve`
+                // action uses, and the frontend offers a checkbox for exactly those. Anything else, an
+                // Untranslated row or one that is already approved, is skipped, so an approved row keeps
+                // the reviewer it already has.
                 if (row.Status is not (TranslationStatus.Draft or TranslationStatus.NeedsReview))
                 {
                     continue;
                 }
 
-                // A Draft/NeedsReview row can still fail the domain guard (e.g. it was soft-removed after
-                // the list was rendered): leave it untouched and count it as skipped — the guard is
-                // authoritative, never bypassed by the batch.
+                // A Draft or NeedsReview row can still be refused by the domain, for example because it
+                // was soft-removed after the list was drawn. Leave it as it is and count it as skipped:
+                // the domain decides, and the batch never goes around it.
                 Result approveResult = row.Approve(provisionResult.Value, now);
                 if (approveResult.IsSuccess)
                 {
@@ -134,10 +137,10 @@ internal sealed class BulkApproveTranslations : IEndpoint
             {
                 await _unitOfWork.SaveChangesAsync(cancellationToken);
 
-                // At least one row (re)entered the distributed set, so the pre-built Polish artifact is
-                // stale. Scheduled once, after the commit (PERF-04, ADR-0021 §1): the rebuild runs
-                // debounced in the background, so the response returns now. Nothing approved ⇒ nothing to
-                // publish ⇒ no rebuild.
+                // At least one row is in the distributed set again, so the ready-made Polish file is out
+                // of date. We schedule one rebuild after the commit (PERF-04, ADR-0021 §1) and do not
+                // wait for it, so the response returns now. If nothing was approved there is nothing to
+                // publish and no rebuild.
                 _rebuildScheduler.Schedule(SupportedLanguages.Polish);
             }
 
@@ -153,8 +156,8 @@ internal sealed class BulkApproveTranslations : IEndpoint
                 ICommandHandler<Command, Result<BulkApproveTranslationsResponse>> handler,
                 CancellationToken cancellationToken) =>
             {
-                // A missing/empty body binds Ids to null; normalize to an empty list so validation
-                // (not a NullReferenceException) turns it into a 400.
+                // A missing or empty body leaves Ids null. Turn it into an empty list, so validation
+                // returns a 400 instead of a NullReferenceException.
                 IReadOnlyList<Guid> ids = request.Ids ?? [];
                 Command command = new([.. ids.Select(TranslationId.FromValue)]);
 

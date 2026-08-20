@@ -6,22 +6,22 @@ internal sealed class DeadSessionRegistry : IDeadSessionRegistry
 {
     internal const string CacheKeyPrefix = "dead-session:";
 
-    // Stored value is the marked subject itself: presence is the signal, and a non-empty string is a
-    // truthier marker than a bool (which the analyzer flags as a redundant literal when cached).
+    // The stored value is the subject itself. What matters is that an entry exists, and a non-empty
+    // string reads better than a bool, which the analyzer flags as a redundant literal when cached.
     private const string AbsentMarker = "";
 
-    // Short TTL: the marker only has to survive the gap between the request that observed the dead
-    // token and the immediately-following request whose principal validation consumes it. A
-    // self-healing token (a key roll the FE refetches) must not stay flagged, so we keep it brief.
+    // A short lifetime. The marker only has to survive from the request that saw the dead token to the
+    // very next request, where the cookie validation reads it. A token that fixes itself, for example
+    // after a key change the frontend refetches, must not stay marked, so we keep it short.
     private static readonly HybridCacheEntryOptions MarkerEntryOptions = new()
     {
         Expiration = TimeSpan.FromMinutes(5),
         LocalCacheExpiration = TimeSpan.FromMinutes(5)
     };
 
-    // The consume path runs on every authenticated request (via OnValidatePrincipal) but a marker is
-    // rare. Disabling cache writes makes the read a pure probe: on a miss the factory's absent value
-    // is returned without persisting an entry, so we never pollute the cache with per-user negatives.
+    // The read runs on every authenticated request, through OnValidatePrincipal, but a marker is rare.
+    // Turning cache writes off makes it a pure lookup: on a miss the factory's "not there" value is
+    // returned without storing anything, so the cache never fills up with one negative entry per user.
     private static readonly HybridCacheEntryOptions ProbeEntryOptions = new()
     {
         Expiration = TimeSpan.FromMinutes(5),

@@ -30,7 +30,7 @@ public sealed class SpyAccountConfirmationEmailSender : IAccountConfirmationEmai
     /// Blocks until a confirmation e-mail lands or the timeout passes. Registration stopped being
     /// synchronous when it went through the outbox (commit -> relay -> delivery -> this spy), so
     /// tests reading <see cref="LastEmail"/> right after a register call must wait on state, not
-    /// assume immediacy. Returns silently either way — the assertions stay at the call site.
+    /// assume immediacy. It returns either way, and the assertions stay in the test.
     /// </summary>
     public async Task WaitForCaptureAsync(TimeSpan? timeout = null)
     {

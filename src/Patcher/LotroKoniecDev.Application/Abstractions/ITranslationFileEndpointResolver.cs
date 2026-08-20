@@ -1,16 +1,16 @@
 namespace LotroKoniecDev.Application.Abstractions;
 
 /// <summary>
-/// Resolves the absolute URI the translation file is downloaded from, by link relation, out of the
-/// TMS service document — never by composing a path. The CLI ships to players' machines and cannot
-/// be updated remotely, so a hardcoded route would be a permanent commitment (ADR-0041 / #611).
+/// Finds the absolute URI the translation file is downloaded from, by link relation, in the TMS
+/// service document. It never builds a path. The CLI runs on players' machines and we cannot update
+/// it remotely, so a hardcoded route would bind us forever (ADR-0041, #611).
 /// </summary>
 public interface ITranslationFileEndpointResolver
 {
     /// <summary>
-    /// Discovery first, the last-known-good href only as an outage safety net.
+    /// Tries discovery first. The last href that worked is used only when the server is unreachable.
     /// </summary>
-    /// <param name="baseUrl">The single configured input: the TMS root URL.</param>
-    /// <param name="cachedHref">The href a previous successful sync stored, or <c>null</c>.</param>
+    /// <param name="baseUrl">The only configured input: the TMS root URL.</param>
+    /// <param name="cachedHref">The href an earlier successful sync stored, or <c>null</c>.</param>
     Task<Result<Uri>> ResolveAsync(string baseUrl, string? cachedHref, CancellationToken cancellationToken);
 }

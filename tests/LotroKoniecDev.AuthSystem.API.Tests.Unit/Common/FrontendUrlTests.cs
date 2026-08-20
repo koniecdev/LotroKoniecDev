@@ -4,9 +4,9 @@ using LotroKoniecDev.AuthSystem.API.Settings;
 namespace LotroKoniecDev.AuthSystem.API.Tests.Unit.Common;
 
 /// <summary>
-/// The auth pages link and redirect to the frontend using the web client's app root as the only
-/// origin source, so this is what keeps a browser from being dropped on the auth host — whose root
-/// serves the API discovery JSON — or on a bogus target when the client is unconfigured.
+/// The auth pages link and redirect to the frontend using the web client's app root as their only source
+/// of an origin. That is what stops a browser from landing on the auth host, whose root serves the API
+/// discovery JSON, or on a nonsense target when the client is not configured.
 /// </summary>
 public sealed class FrontendUrlTests
 {
@@ -25,8 +25,8 @@ public sealed class FrontendUrlTests
     [Fact]
     public void For_KeepsTheOriginOnly_WhenTheAppRootCarriesAPath()
     {
-        // The app root doubles as the post-logout landing page, so it may carry a path — the frontend
-        // routes below are absolute and must not be appended to it.
+        // The app root is also the page users land on after logout, so it may include a path. The
+        // frontend routes below are absolute and must not be added to it.
         WebClientSettings webClient = new() { PostLogoutRedirectUris = ["https://lotro-translator.pl/wylogowano"] };
 
         FrontendUrl.For(webClient, "/auth/login").ShouldBe("https://lotro-translator.pl/auth/login");

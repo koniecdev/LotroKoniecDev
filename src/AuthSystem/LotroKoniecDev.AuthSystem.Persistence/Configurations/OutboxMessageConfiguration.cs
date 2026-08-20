@@ -12,23 +12,23 @@ internal sealed class OutboxMessageConfiguration : IEntityTypeConfiguration<Outb
 
         builder.HasKey(message => message.Id);
 
-        // Id, Type, Payload and OccurredOn are get-only, and EF Core's convention only discovers
-        // properties that have BOTH a getter and a setter. Every one of them therefore needs an
-        // explicit Property() call to exist in the model at all — delete a seemingly empty call
-        // below and the column silently vanishes, which the next migration renders as DropColumn.
-        // (ProcessedOn and Attempts carry a private setter, so convention does map them.)
+        // Id, Type, Payload and OccurredOn are get-only, and EF Core only finds properties that have
+        // a getter and a setter. Each one needs its own Property() call to exist in the model at all.
+        // Delete a call below that looks empty and the column quietly disappears, which the next
+        // migration writes out as DropColumn. ProcessedOn and Attempts have a private setter, so EF
+        // maps them on its own.
         builder.Property(message => message.Id)
             .ValueGeneratedNever();
 
         builder.Property(message => message.Type)
             .HasMaxLength(OutboxMessage.TypeMaxLength);
 
-        // Deliberately text, not jsonb: an outbox row must be a byte-faithful record of what was
-        // put on the wire, and jsonb stores a parsed document — it reorders keys, drops duplicates
-        // and whitespace, and normalises numbers, so a read-back would no longer equal the write.
-        // That fidelity is what any future payload hash or signature would rest on. The validation
-        // jsonb would add guards a class of failure System.Text.Json cannot produce anyway, and it
-        // would move that failure inside the registration transaction.
+        // text on purpose, not jsonb. An outbox row must record exactly what went on the wire, and
+        // jsonb stores a parsed document: it reorders keys, drops duplicates and whitespace, and
+        // rewrites numbers, so reading it back would not give the same bytes. Any future hash or
+        // signature over the payload depends on that.
+        // The checking jsonb would add guards against a kind of error System.Text.Json cannot make
+        // anyway, and it would move that error inside the registration transaction.
         builder.Property(message => message.Payload);
 
         builder.Property(message => message.OccurredOn);

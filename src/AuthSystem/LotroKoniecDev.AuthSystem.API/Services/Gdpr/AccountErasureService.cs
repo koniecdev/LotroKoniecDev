@@ -9,12 +9,13 @@ using LotroKoniecDev.SharedKernel.Monads;
 namespace LotroKoniecDev.AuthSystem.API.Services.Gdpr;
 
 /// <summary>
-/// The irreversible half of GDPR account deletion: auth-side anonymization, permanent
-/// lockout and artifact cleanup. Invoked by the deletion finalizer once the grace period
-/// has elapsed (see ADR-0031). No cross-context call is needed: the TranslationSystem
-/// stores only opaque IdentityId attribution references, which become non-attributable
-/// once the auth user is anonymized. Idempotent: callers skip users whose email already
-/// carries the anonymization marker.
+/// The part of a GDPR account deletion that cannot be undone: anonymizing the auth data, locking the
+/// account for good and cleaning up what is left. The finalizer calls it once the grace period is over
+/// (see ADR-0031).
+/// Nothing has to be called in the other context: the TranslationSystem only stores IdentityId values
+/// as credit, and once the auth user is anonymized those values point at nobody.
+/// It is safe to run twice, because callers skip users whose e-mail already carries the anonymization
+/// marker.
 /// </summary>
 internal sealed partial class AccountErasureService : IAccountErasureService
 {
@@ -39,12 +40,13 @@ internal sealed partial class AccountErasureService : IAccountErasureService
     {
         LogGdprErasureInitiated(_logger, user.Id);
 
-        // If any auth-side step fails, we must still try to lock the account
-        // so the data isn't accessible while the finalizer retries on its next run.
+        // If any step here fails we still have to try to lock the account, so the data cannot be
+        // reached while the finalizer retries on its next run.
         try
         {
-            // Anonymize auth user data first (core GDPR requirement).
-            // DeletionScheduledAt stays set as a non-PII audit trace of when erasure was requested.
+            // Anonymize the auth user data first, which is the core GDPR requirement.
+            // DeletionScheduledAt stays set. It is not personal data and it records when the erasure
+            // was asked for.
             string anonymizedGuid = Guid.NewGuid().ToString("N");
             user.UserName = anonymizedGuid;
             user.NormalizedUserName = anonymizedGuid.ToUpperInvariant();
@@ -63,10 +65,10 @@ internal sealed partial class AccountErasureService : IAccountErasureService
             user.TermsOfServiceAccepted = false;
             user.TermsOfServiceAcceptedDate = null;
 
-            // The permanent lockout rides in the SAME update as the anonymization marker.
-            // The finalizer selects pending work by the marker alone, so a user must never
-            // end up marked-but-unlocked — a later separate lockout write could fail and
-            // would then be excluded from every future retry.
+            // The permanent lockout goes in the same update as the anonymization marker. The finalizer
+            // picks its work by the marker alone, so a user must never end up marked but not locked. A
+            // separate lockout write could fail, and that user would then be skipped by every later
+            // run.
             user.LockoutEnabled = true;
             user.LockoutEnd = DateTimeOffset.MaxValue;
 
@@ -82,7 +84,7 @@ internal sealed partial class AccountErasureService : IAccountErasureService
 
             LogAuthDataAnonymized(_logger, user.Id);
 
-            // Invalidate all sessions
+            // End every session.
             await _userManager.UpdateSecurityStampAsync(user);
         }
         catch (Exception ex)
@@ -93,9 +95,8 @@ internal sealed partial class AccountErasureService : IAccountErasureService
                 "Account erasure partially failed. The account stays locked; the finalizer will retry."));
         }
 
-        // Best-effort cleanup: revoke tokens, remove roles/claims/logins.
-        // The account is already anonymized and locked at this point,
-        // so failures here don't compromise GDPR compliance.
+        // Best-effort cleanup: revoke the tokens and remove roles, claims and logins. The account is
+        // already anonymized and locked, so a failure here does not break GDPR compliance.
         await CleanupAuthArtifactsAsync(user, cancellationToken);
 
         LogAccountDeleted(_logger, user.Id);

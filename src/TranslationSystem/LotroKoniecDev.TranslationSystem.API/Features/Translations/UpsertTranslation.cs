@@ -24,15 +24,15 @@ using Microsoft.EntityFrameworkCore;
 namespace LotroKoniecDev.TranslationSystem.API.Features.Translations;
 
 /// <summary>
-/// Creates or updates the Polish content of an existing translation row (spec 0001, #100): the row
-/// is born from import (English source only), this slice attaches the translator's Polish. Any prior
-/// status moves to <see cref="TranslationStatus.Draft"/> and the submitting translator is stamped
-/// from the authenticated identity. Editing an <see cref="TranslationStatus.Approved"/> row pulls it
-/// out of the distributed set, so a debounced background rebuild of the pre-built artifact is
-/// scheduled after the change commits (PERF-04, ADR-0021);
-/// re-translating a <see cref="TranslationStatus.NeedsReview"/> row keeps its
-/// <c>PreviousSourceText</c> until approve. Placeholders are stored verbatim — the
-/// count-mismatch warning UX is M3.
+/// Creates or updates the Polish text of an existing translation row (spec 0001, #100). The row comes
+/// from the import with the English source only, and this slice adds the translator's Polish.
+/// Whatever the status was, it becomes <see cref="TranslationStatus.Draft"/>, and the translator is
+/// taken from the authenticated identity.
+/// Editing an <see cref="TranslationStatus.Approved"/> row takes it out of the distributed set, so a
+/// rebuild of the ready-made file is scheduled after the change commits (PERF-04, ADR-0021).
+/// Retranslating a <see cref="TranslationStatus.NeedsReview"/> row keeps its
+/// <c>PreviousSourceText</c> until someone approves it.
+/// Placeholders are stored exactly as they are; warning about a wrong number of them is M3's job.
 /// </summary>
 internal sealed class UpsertTranslation : IEndpoint
 {
@@ -49,9 +49,10 @@ internal sealed class UpsertTranslation : IEndpoint
             RuleFor(command => command.GossipId)
                 .GreaterThanOrEqualTo(0);
 
-            // The upper bound is a DAT-format fact, not a UX preference: past it the patcher cannot
-            // write the row at all (#598). Rejecting here turns a mid-patch failure on someone
-            // else's machine into a validation error the translator sees while editing.
+            // The upper limit comes from the DAT format and is not a matter of taste: above it the
+            // patcher cannot write the row at all (#598). Refusing here turns a failure halfway through
+            // a patch on someone else's machine into a validation message the translator sees while
+            // editing.
             RuleFor(command => command.TranslatedText)
                 .NotEmpty()
                 .MaximumLength(DatFormatConstants.MaxTranslatedTextLength);
@@ -109,23 +110,24 @@ internal sealed class UpsertTranslation : IEndpoint
 
             Translation translation = translationMaybe.Value;
 
-            // A soft-removed row was cut from the game and the distributed file — it is excluded from
-            // translation work (spec 0001), so it cannot receive new Polish.
+            // A soft-removed row was dropped from the game and from the distributed file. It is out of
+            // translation work (spec 0001), so it cannot take new Polish.
             if (translation.IsRemoved)
             {
                 return Result.Failure<TranslationDetailResponse>(DomainErrors.TranslationEntity.CannotEditRemoved);
             }
 
-            // First-touch lazy provisioning (ADR-0004): get-or-create the caller's Translator row and
-            // commit it before stamping the FK, so the submitter is a valid local TranslatorId.
+            // Create the caller's Translator row if it does not exist yet, and commit it before the
+            // foreign key is written (ADR-0004), so the submitter is a TranslatorId that really exists.
             Result<TranslatorId> provisionResult = await _translatorProvisioner.ProvisionCurrentAsync(cancellationToken);
             if (provisionResult.IsFailure)
             {
                 return Result.Failure<TranslationDetailResponse>(provisionResult.Error);
             }
 
-            // Editing an Approved row drops it from the distributed set (Status -> Draft), so the
-            // artifact must be rebuilt; an edit to any other status does not change that set.
+            // Editing an approved row takes it out of the distributed set, because the status becomes
+            // Draft, so the file has to be rebuilt. Editing a row in any other status changes nothing
+            // there.
             bool wasApproved = translation.Status is TranslationStatus.Approved;
 
             translation.ProvideTranslation(command.TranslatedText, provisionResult.Value, _timeProvider.GetUtcNow());
@@ -134,14 +136,14 @@ internal sealed class UpsertTranslation : IEndpoint
 
             if (wasApproved)
             {
-                // Scheduled, not awaited (PERF-04): the rebuild runs debounced in the background on
-                // the host lifetime, so the response returns now and a disconnect cannot strand the
-                // commit.
+                // We schedule the rebuild instead of waiting for it (PERF-04): it runs in the
+                // background, the response returns now, and a client that disconnects cannot leave the
+                // commit stranded.
                 _rebuildScheduler.Schedule(SupportedLanguages.Polish);
             }
 
-            // Re-read the committed row through the read model so the response carries the joined
-            // submitter / approver display names (ADR-0004), identical to the get-one view.
+            // Read the committed row back through the read model, so the response carries the joined
+            // display names of the submitter and the approver (ADR-0004), just like the get-one view.
             TranslationDetailResponse? response = await _readDbContext.Translations
                 .Where(row => row.Id == translation.Id)
                 .Select(TranslationProjections.ToDetail)

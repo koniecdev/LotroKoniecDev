@@ -38,7 +38,7 @@ public sealed class OutboxRelayTests : EndpointsTestBase
     [Fact]
     public async Task Relay_ShouldPublishAndMarkProcessed_WhenRegistrationCommits()
     {
-        // Arrange & Act — registration is the outbox writer under test
+        // Arrange & Act: registration is the outbox writer under test
         (RegisterRequest _, IdentityId identityId) = await UserFactory.RegisterRandomUserUnconfirmedAsync(
             ApiClient, Faker, AccountConfirmationEmailSpy);
 
@@ -70,7 +70,7 @@ public sealed class OutboxRelayTests : EndpointsTestBase
         // Act
         NotifyRelay();
 
-        // Assert — the row survives the refusal, carrying the failure diagnostics
+        // Assert: the row survives the refusal, carrying the failure diagnostics
         OutboxMessage? failed = await WaitForOutboxRowAsync(
             row => row.Id == messageId && row.Attempts > 0);
 
@@ -78,7 +78,7 @@ public sealed class OutboxRelayTests : EndpointsTestBase
         failed.IsProcessed().ShouldBeFalse();
         failed.LastError.ShouldBe("broker down");
 
-        // Act again — the broker heals and a fresh nudge retries the same row
+        // Act again: the broker works, and a new signal retries the same row.
         _messagePublisherSpy.FailWith = null;
         NotifyRelay();
 
@@ -93,7 +93,7 @@ public sealed class OutboxRelayTests : EndpointsTestBase
     [Fact]
     public async Task Registration_ShouldCommitNoOutboxRow_WhenRegistrationFails()
     {
-        // Arrange — a taken e-mail address makes the second registration fail inside the same
+        // Arrange: a taken e-mail address makes the second registration fail inside the same
         // transaction that would have written its outbox row
         (RegisterRequest existingRequest, _) = await UserFactory.RegisterRandomUserUnconfirmedAsync(
             ApiClient, Faker, AccountConfirmationEmailSpy);
@@ -110,7 +110,7 @@ public sealed class OutboxRelayTests : EndpointsTestBase
         HttpResponseMessage response = await ApiClient.Http.PostAsJsonAsync(
             new Uri("auth/register", UriKind.Relative), duplicateRequest);
 
-        // Assert — the failure rolled back atomically: only the first registration's row exists,
+        // Assert: the failure rolled back atomically: only the first registration's row exists,
         // so the pipeline can never send a confirmation e-mail for an account that was not created
         response.StatusCode.ShouldBe(HttpStatusCode.UnprocessableEntity);
 
@@ -162,7 +162,7 @@ public sealed class OutboxRelayTests : EndpointsTestBase
 
     /// <summary>
     /// Polls the database until a row matches or <see cref="RelayReactionTimeout"/> elapses, then
-    /// returns the latest snapshot (or null) — the assertions on it stay in the test body.
+    /// returns what it last read, or null. The assertions on it stay in the test.
     /// </summary>
     private async Task<OutboxMessage?> WaitForOutboxRowAsync(Func<OutboxMessage, bool> predicate)
     {

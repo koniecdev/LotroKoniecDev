@@ -5,16 +5,16 @@ using LotroKoniecDev.TranslationSystem.Primitives.Projections;
 namespace LotroKoniecDev.TranslationSystem.Projections;
 
 /// <summary>
-/// The precomputed translation file for one language (spec 0001): the serialized <c>||</c> content
-/// plus its content hash (the HTTP <c>ETag</c>), stored ready-to-serve so the distribution endpoint
-/// never rebuilds per request. An app-maintained, derived read projection — refreshed after every
-/// write that changes the distributed set (see <c>IPrecomputedTranslationFileProjector</c>) and never
-/// a source of truth. It is deliberately a plain <see cref="Entity{TId}"/>, not an
-/// <see cref="AggregateRoot{TId}"/>: it guards no business invariant and is only ever blind-upserted
-/// by its natural key (one row per language). The type is immutable — it exists to insert the first
-/// row per language; every subsequent refresh is a set-based update through
-/// <see cref="IPrecomputedTranslationFileStore"/>, which never materializes the previous multi-MB
-/// content (PERF-04). See ADR-0007.
+/// The ready-made translation file for one language (spec 0001): the serialized <c>||</c> content and
+/// its content hash, which is the HTTP <c>ETag</c>. It is stored ready to serve, so the distribution
+/// endpoint never builds it per request.
+/// The app maintains it: it is refreshed after every write that changes the distributed set (see
+/// <c>IPrecomputedTranslationFileProjector</c>) and it is never a source of truth. It is a plain
+/// <see cref="Entity{TId}"/> and not an <see cref="AggregateRoot{TId}"/> on purpose, because it holds
+/// no business rule and is only ever upserted by its natural key, one row per language.
+/// The type is immutable. It exists to insert the first row for a language; every later refresh is a
+/// single update through <see cref="IPrecomputedTranslationFileStore"/>, which never loads the
+/// previous multi-MB content (PERF-04). See ADR-0007.
 /// </summary>
 public sealed class PrecomputedTranslationFile : Entity<PrecomputedTranslationFileId>
 {

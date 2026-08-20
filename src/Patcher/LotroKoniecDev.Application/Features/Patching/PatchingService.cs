@@ -9,19 +9,19 @@ using LotroKoniecDev.Primitives.Enums;
 namespace LotroKoniecDev.Application.Features.Patching;
 
 /// <summary>
-/// Writes approved translations into the DAT, one fragment at a time, subject to the per-row source
-/// guard of ADR-0047: stale Polish never lands over changed English, on any write path.
+/// Writes approved translations into the DAT, one fragment at a time. Every row passes the source
+/// guard of ADR-0047 first, so old Polish never lands on English that has changed.
 /// </summary>
 internal sealed class PatchingService : IPatchingService
 {
     private const int ProgressReportInterval = 1000;
 
     /// <summary>
-    /// Mirrors the parser's own cap: <c>source moved</c> can hit thousands of rows after a major
-    /// update (U49 changed 1,644 sources) and <c>no source digest</c> hits every row of a
-    /// six-column file, so both are reported as a count plus a bounded sample rather than streamed.
-    /// The aggregation lives here because both consumers — <c>patch</c>, which prints the list, and
-    /// the launch strategy, which logs it line by line — meet at this summary.
+    /// The same limit the parser uses. <c>source moved</c> can hit thousands of rows after a big
+    /// update (U49 changed 1,644 sources), and <c>no source digest</c> hits every row of a six-column
+    /// file. So both are reported as a count plus a few examples instead of one line each.
+    /// The counting happens here because both users of the summary meet at this point: <c>patch</c>
+    /// prints the list, and the launch strategy logs it line by line.
     /// </summary>
     private const int MaxCollectedGuardWarnings = 100;
 
@@ -54,15 +54,15 @@ internal sealed class PatchingService : IPatchingService
 
         IReadOnlyList<Translation> translations = translationParseResult.Value.Translations;
 
-        // A line the parser rejected is reported, never swallowed (ADR-0042): its warning rides
-        // along with the per-fragment ones into the summary the CLI prints.
+        // A line the parser rejected is always reported (ADR-0042). Its warning travels with the
+        // per-fragment ones into the summary the CLI prints.
         IReadOnlyList<string> parseWarnings = translationParseResult.Value.Warnings;
 
         if (translations.Count == 0)
         {
-            // A file whose every line was rejected must say WHY. The warning list is only printed on
-            // a successful patch, so on this path the diagnosis has to ride in the error itself —
-            // otherwise the fix of ADR-0042 would stop exactly where it matters most.
+            // When every line was rejected, the user has to be told why. The warning list is printed
+            // only after a successful patch, so on this path the reason has to travel inside the error
+            // itself. Otherwise ADR-0042 would fail exactly where it matters most.
             return Result.Failure<PatchSummaryResponse>(
                 translationParseResult.Value.RejectedLineCount > 0
                     ? DomainErrors.Translation.NoTranslationsEveryLineRejected(
@@ -80,7 +80,7 @@ internal sealed class PatchingService : IPatchingService
 
         int datFileHandle = datFileOpenResult.Value;
 
-        // Read by the finally block, so it lives outside the try.
+        // The finally block reads this, so it has to be declared outside the try.
         bool datFlushed = false;
 
         try
@@ -95,10 +95,10 @@ internal sealed class PatchingService : IPatchingService
             SubFile? currentSubFile = null;
             bool currentSubFileModified = false;
 
-            // What this patcher has written before, and what it is writing now (ADR-0047 §4). The
-            // set read from disk is UPSERTED, never rebuilt: an entry for a row that left the
-            // artifact still describes what sits on that fragment, and dropping it would strand the
-            // fragment on our older Polish forever.
+            // What this patcher wrote before, and what it is writing now (ADR-0047 §4). The set read
+            // from disk is added to and updated, never rebuilt: an entry for a row that left the
+            // artifact still describes what sits on that fragment, and dropping it would leave the
+            // fragment stuck on our older Polish forever.
             Dictionary<LedgerKey, string> ledgerEntries = new(_translationLedger.Read(translationsPath));
             Dictionary<LedgerKey, string> pendingLedgerEntries = [];
             bool ledgerChanged = false;
@@ -106,13 +106,14 @@ internal sealed class PatchingService : IPatchingService
             BoundedGuardWarnings sourceMoved = new();
             BoundedGuardWarnings missingSourceDigest = new();
 
-            // A row only reaches the DAT when its whole subfile is written back, so its ledger entry
-            // is held until then and dropped when the write fails (ADR-0047 §4).
+            // A row reaches the DAT only when its whole subfile is written back, so its ledger entry
+            // waits until then and is dropped when the write fails (ADR-0047 §4).
             void WriteCurrentSubFile()
             {
-                // A subfile every row of which the guard refused holds exactly what the launcher put
-                // there, so writing it back would be a pointless mutation of the game's archive —
-                // and on update day that is most of them. "Skipped" has to mean "wrote nothing".
+                // When the guard refused every row of a subfile, that subfile still holds exactly what
+                // the launcher put there, so writing it back would change the game's archive for
+                // nothing. On update day that is most of them, and "skipped" has to mean "wrote
+                // nothing".
                 if (!currentSubFileModified)
                 {
                     pendingLedgerEntries.Clear();
@@ -166,9 +167,10 @@ internal sealed class PatchingService : IPatchingService
                     continue;
                 }
 
-                // Screened here — before a subfile is loaded, and well before one is mutated — because
-                // this is the last point at which an unwritable row is still just a row (#598, ADR-0043).
-                // A hand-edited or hostile file is the only source: the TMS caps the text at the API.
+                // Checked here, before a subfile is loaded and long before one is changed, because
+                // this is the last point where a row that cannot be written is still only a row (#598,
+                // ADR-0043). The only way to get one is a hand-edited or hostile file: the TMS already
+                // limits the text at the API.
                 string[] pieces = translation.GetPieces();
 
                 if (!pieces.All(Fragment.IsWritablePiece))
@@ -181,10 +183,10 @@ internal sealed class PatchingService : IPatchingService
                     continue;
                 }
 
-                // Screened before a subfile is loaded, like the piece-length guard above: a wholly
-                // six-column translation file is unpatchable in its entirety (ADR-0047 §3), and
-                // deciding that here spares ~800k rows a subfile load each. Nothing about the
-                // fragment is needed to know the row carries no digest to check it against.
+                // Checked before a subfile is loaded, like the piece-length guard above. A translation
+                // file that is six columns throughout cannot be patched at all (ADR-0047 §3), and
+                // deciding that here saves a subfile load for each of about 800k rows. We need nothing
+                // from the fragment to see that the row carries no digest.
                 if (translation.SourceDigest is null)
                 {
                     missingSourceDigest.Add(
@@ -232,33 +234,34 @@ internal sealed class PatchingService : IPatchingService
                 {
                     LedgerKey ledgerKey = new(translation.FileId, translation.GossipId);
 
-                    // What the fragment holds right now, and what it would hold once written — both
-                    // in the export form the digest is defined over (ADR-0047 §3).
+                    // What the fragment holds now, and what it would hold after the write. Both are in
+                    // the export form the digest is defined over (ADR-0047 §3).
                     string currentDigest = SourceDigest.ForFragment(fragment);
                     string writtenDigest = SourceDigest.ForExportForm(translation.Content, fragment.ArgRefs.Count);
 
                     bool admitted =
-                        // (a) the English this translation was made for — pristine, or collaterally
-                        //     reverted by the launcher, which is what the repair paths exist for.
+                        // (a) the English this translation was made for, either untouched or put back
+                        //     by the launcher, which is what the repair paths are for.
                         SourceDigest.Matches(currentDigest, translation.SourceDigest)
-                        // (b) what this patcher last wrote there, so a NEWER translation for the same
+                        // (b) what this patcher last wrote there, so a newer translation of the same
                         //     English can still land on a fragment that already holds Polish.
-                        //     The entries written into the subfile currently in memory count too:
-                        //     a file listing the same key twice (hand-made) used to be last-wins,
-                        //     and the second row must see the first one's write, not the disk.
+                        //     Entries written into the subfile currently in memory count too. A
+                        //     hand-made file can list the same key twice, and the last one wins, so the
+                        //     second row must see the first row's write and not the disk.
                         || (pendingLedgerEntries.TryGetValue(ledgerKey, out string? recordedDigest)
                                 || ledgerEntries.TryGetValue(ledgerKey, out recordedDigest))
                             && SourceDigest.Matches(currentDigest, recordedDigest)
-                        // (c) exactly what this row would write — the write is a no-op, nothing but
-                        //     our own patch puts that text there, and it re-seeds the ledger. This
-                        //     is what bootstraps a DAT patched before the ledger existed.
+                        // (c) exactly what this row would write. The write then changes nothing, only
+                        //     our own patch could have put that text there, and it fills the ledger
+                        //     back in. This is how a DAT patched before the ledger existed catches up.
                         || string.Equals(currentDigest, writtenDigest, StringComparison.Ordinal);
 
                     if (!admitted)
                     {
-                        // The English moved under us. Skipping writes nothing — the launcher already
-                        // put the current English there, and stale Polish would describe the old
-                        // game (ADR-0047: English is a degraded session, stale Polish a broken one).
+                        // The English changed under us. Skipping writes nothing: the launcher already
+                        // put the current English there, and old Polish would describe the old game.
+                        // ADR-0047 puts it this way: English is a worse session, wrong Polish is a
+                        // broken one.
                         sourceMoved.Add(
                             $"Fragment {translation.GossipId} in file {translation.FileId}: source moved — "
                             + "the DAT no longer holds the English this translation was made for, so it was left untouched");
@@ -311,10 +314,10 @@ internal sealed class PatchingService : IPatchingService
 
             if (ledgerChanged)
             {
-                // The DAT reaches disk before the ledger claims what it holds: a process killed between
-                // the two would otherwise leave a ledger describing writes the DAT never received, and
-                // those rows would then match nothing on the next run. The finally block is what
-                // guarantees a flush on every OTHER path, so it is skipped once this one ran.
+                // The DAT hits the disk before the ledger says what it holds. If the process were
+                // killed between the two, the ledger would describe writes the DAT never got, and
+                // those rows would match nothing on the next run. The finally block flushes on every
+                // other path, so it skips this one once it has run.
                 _datFileHandler.Flush(datFileHandle);
                 datFlushed = true;
 
@@ -322,8 +325,9 @@ internal sealed class PatchingService : IPatchingService
 
                 if (ledgerSaveResult.IsFailure)
                 {
-                    // A hint, not the truth: the next run re-reads it, and an absent entry
-                    // under-patches rather than masking. Never fatal — the DAT is already written.
+                    // The ledger is a hint, not the truth. The next run reads it again, and a missing
+                    // entry patches too little rather than hiding a change. This is never fatal: the
+                    // DAT is already written.
                     warnings.Add(ledgerSaveResult.Error.Message);
                 }
             }
@@ -350,9 +354,9 @@ internal sealed class PatchingService : IPatchingService
     }
 
     /// <summary>
-    /// One guard category's warnings as a count plus a bounded sample. Both categories can cover a
-    /// whole corpus, and the two consumers of <see cref="PatchSummaryResponse.Warnings"/> print or
-    /// log the list one entry at a time, so the bound has to live here rather than in either of them.
+    /// The warnings of one guard category, as a count plus a few examples. Either category can cover
+    /// the whole corpus, and both users of <see cref="PatchSummaryResponse.Warnings"/> print or log
+    /// the list one entry at a time, so the limit belongs here and not in either of them.
     /// </summary>
     private sealed class BoundedGuardWarnings
     {

@@ -7,9 +7,9 @@ internal static class MessagingDependencyInjection
     extension(IServiceCollection services)
     {
         /// <summary>
-        /// The publisher is a singleton because it owns a TCP connection and a channel; a scoped
-        /// registration would open and tear one down per request, which is the classic way to
-        /// exhaust a broker's connection limit.
+        /// The publisher is a singleton because it owns a TCP connection and a channel. Registering it
+        /// as scoped would open and close one per request, which is the usual way to run a broker out
+        /// of connections.
         /// </summary>
         public IServiceCollection AddMessaging()
         {

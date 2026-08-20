@@ -4,10 +4,11 @@ using LotroKoniecDev.Infrastructure.Storage;
 namespace LotroKoniecDev.Tests.Infrastructure.Tests;
 
 /// <summary>
-/// Exercises the sidecars against real files — the ETag one the conditional request depends on, and
-/// the endpoint one that is the sync's outage fallback (#611). Both are read back through the same
-/// path the launch uses, because "the value survives a round trip and still parses as a URI" is the
-/// property the whole fallback rests on.
+/// Exercises the two small files next to the translation file, against the real filesystem: the ETag
+/// one the conditional request needs, and the endpoint one the sync falls back to when the server is
+/// down (#611).
+/// Both are read back the same way the launch reads them, because the whole fallback rests on the value
+/// surviving a round trip and still parsing as a URI.
 /// </summary>
 public sealed class TranslationFileCacheTests : IDisposable
 {
@@ -33,7 +34,7 @@ public sealed class TranslationFileCacheTests : IDisposable
     [Fact]
     public void ReadEndpointHref_WithNothingCached_ShouldReturnNull()
     {
-        // Act — the first-ever run: the sidecar does not exist yet.
+        // Act: the first-ever run: the sidecar does not exist yet.
         string? href = _sut.ReadEndpointHref(TranslationFilePath);
 
         // Assert
@@ -43,7 +44,7 @@ public sealed class TranslationFileCacheTests : IDisposable
     [Fact]
     public void SaveEndpointHref_ShouldRoundTripAValueThatStillParsesAsAnAbsoluteUri()
     {
-        // Arrange — the resolver re-parses whatever comes back, so a round trip that mangles the
+        // Arrange: the resolver re-parses whatever comes back, so a round trip that mangles the
         // value (an added BOM, a stripped scheme) would silently disable the outage fallback.
         Result save = _sut.SaveEndpointHref(TranslationFilePath, EndpointHref);
 
@@ -60,7 +61,7 @@ public sealed class TranslationFileCacheTests : IDisposable
     [Fact]
     public void SaveEndpointHref_ShouldCreateTheDirectoryAndNotDisturbTheTranslationFile()
     {
-        // Arrange — the endpoint hint can be written on a 304, when no file is downloaded at all.
+        // Arrange: the endpoint hint can be written on a 304, when no file is downloaded at all.
         _sut.Save(TranslationFilePath, Content, ETag);
 
         // Act
@@ -76,7 +77,7 @@ public sealed class TranslationFileCacheTests : IDisposable
     [Fact]
     public void SaveEndpointHref_ShouldOverwriteAPreviouslyCachedEndpoint()
     {
-        // Arrange — the server legitimately moved the path behind the rel.
+        // Arrange: the server legitimately moved the path behind the rel.
         _sut.SaveEndpointHref(TranslationFilePath, EndpointHref);
 
         // Act
@@ -90,7 +91,7 @@ public sealed class TranslationFileCacheTests : IDisposable
     [Fact]
     public void ReadEndpointHref_WithABlankSidecar_ShouldReturnSomethingTheResolverTreatsAsNothingCached()
     {
-        // Arrange — a truncated or interrupted write leaves an empty file behind, which must read as
+        // Arrange: a truncated or interrupted write leaves an empty file behind, which must read as
         // "no endpoint cached" rather than as an endpoint that happens to be blank.
         Directory.CreateDirectory(Path.GetDirectoryName(TranslationFilePath)!);
         File.WriteAllText(TranslationFilePath + ".endpoint", "   ");
@@ -105,10 +106,10 @@ public sealed class TranslationFileCacheTests : IDisposable
     [Fact]
     public void ReadEndpointHref_WhenTheSidecarPathIsNotAReadableFile_ShouldDegradeToNothingCached()
     {
-        // Arrange — the launch must never die on a broken cache entry; a directory sitting where the
-        // sidecar belongs is the portable way to get a path that exists but yields no content.
-        // (The unreadable-file case — an ACL that throws UnauthorizedAccessException — is handled by
-        // the widened catch in ReadSidecar but cannot be provoked portably, so it is not asserted.)
+        // Arrange: the launch must never fail because of a broken cache entry. A directory where the
+        // file should be is the portable way to get a path that exists but has no content.
+        // The unreadable-file case, an ACL that throws UnauthorizedAccessException, is covered by the
+        // wider catch in ReadSidecar but cannot be produced on every platform, so it is not asserted.
         Directory.CreateDirectory(TranslationFilePath + ".endpoint");
 
         // Act

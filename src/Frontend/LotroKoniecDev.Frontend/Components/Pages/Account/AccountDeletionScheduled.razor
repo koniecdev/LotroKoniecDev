@@ -37,8 +37,8 @@
     [SupplyParameterFromQuery(Name = "until")]
     public string? Until { get; set; }
 
-    // Static SSR renders on the server, whose local zone is UTC in containers — the visitor's
-    // timezone is unknowable here, so the deadline is shown in the product's home timezone.
+    // Static SSR renders on the server, whose local zone is UTC in a container, and we cannot know the
+    // visitor's time zone here. So the deadline is shown in the product's home time zone.
     private static readonly TimeZoneInfo PolandTimeZone =
         TimeZoneInfo.FindSystemTimeZoneById("Europe/Warsaw");
 

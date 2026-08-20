@@ -20,10 +20,10 @@ using LotroKoniecDev.Frontend.Tests.Unit.Infrastructure.Discovery;
 namespace LotroKoniecDev.Frontend.Tests.Unit.Components.Pages.Translations;
 
 /// <summary>
-/// Renders the translation-list <see cref="TranslationsComponent"/> through bUnit over a stubbed TMS
-/// client, locking down the link-driven affordances the loader tests cannot reach (#158): the per-row
-/// Edytuj link appears iff the row carries the <c>upsert</c> rel, and the pager controls' availability
-/// is driven by the server's pagination rels rather than recomputed from page/total.
+/// Renders the translation list <see cref="TranslationsComponent"/> through bUnit over a stubbed TMS
+/// client, to pin the link-driven actions the loader tests cannot reach (#158): the per-row Edytuj link
+/// appears only when the row carries the <c>upsert</c> rel, and which pager buttons work comes from the
+/// server's pagination links and not from the page and total numbers.
 /// </summary>
 public sealed class TranslationsTests : BunitContext
 {
@@ -41,8 +41,8 @@ public sealed class TranslationsTests : BunitContext
     [Fact]
     public void Translations_AreBrowsableAnonymously_ByContract()
     {
-        // The list is the public read-only face of the catalog (#309) — a regression to [Authorize]
-        // would hide every translation behind the login wall again.
+        // The list is the public, read-only face of the catalog (#309). If it ever required a login,
+        // every translation would be hidden behind it again.
         typeof(TranslationsComponent).GetCustomAttribute<AllowAnonymousAttribute>().ShouldNotBeNull();
     }
 
@@ -59,7 +59,7 @@ public sealed class TranslationsTests : BunitContext
     [Fact]
     public void Render_WhenRowLacksTheUpsertRel_HidesTheEditLink()
     {
-        // A soft-removed row advertises `self` only — no upsert rel — so it offers no Edytuj affordance.
+        // A soft-removed row carries only `self` and no upsert rel, so it offers no Edytuj link.
         StubPage(SinglePageOf(Row(canEdit: false)));
 
         IRenderedComponent<TranslationsComponent> component = RenderPage();
@@ -80,8 +80,9 @@ public sealed class TranslationsTests : BunitContext
     [Fact]
     public void Render_WhenNextPageRelAbsent_RendersADisabledNextControl()
     {
-        // On the last page the server omits the next-page rel; the control must degrade to a disabled
-        // span (no anchor), driven by the absent rel — not recomputed from page/total.
+        // On the last page the server leaves the next-page rel out, and the control must become a
+        // disabled span with no link. That follows from the missing rel and not from the page and total
+        // numbers.
         StubPage(MultiPageOf(page: 2, links: [PageLink(Rels.PreviousPage), PageLink(Rels.FirstPage)]));
 
         IRenderedComponent<TranslationsComponent> component = RenderPage();
@@ -142,10 +143,11 @@ public sealed class TranslationsTests : BunitContext
     }
 
     /// <summary>
-    /// The two ways a page can render zero rows are not the same state (#634). Overshooting the last
-    /// page still carries the server's absolute jumps, so the pager is the only way back; a filter
-    /// that matched nothing carries no rel and has nowhere to go. The distinction is the rel set, not
-    /// the row count — which is why the pager cannot live inside the empty-state branch.
+    /// There are two ways a page can show zero rows, and they are not the same (#634). A page number past
+    /// the last page still carries the server's first and last links, so the pager is the only way back.
+    /// A filter that matched nothing carries no link and has nowhere to go.
+    /// What tells them apart is the set of links, not the number of rows, which is why the pager cannot
+    /// sit inside the empty-state branch.
     /// </summary>
     [Fact]
     public void Render_WhenPageIsOverRange_RendersTheEmptyStateWithAWayBack()
@@ -166,7 +168,7 @@ public sealed class TranslationsTests : BunitContext
     [Fact]
     public void Render_WhenNothingMatchedTheFilter_RendersTheEmptyStateWithNoPager()
     {
-        // TotalPages = 0, so the API emits no pagination rel at all — there is genuinely nowhere to go
+        // TotalPages is 0, so the API sends no pagination link at all: there really is nowhere to go.
         StubPage(OverRangePageOf(page: 1, links: []));
 
         IRenderedComponent<TranslationsComponent> component = RenderPage();
@@ -192,8 +194,9 @@ public sealed class TranslationsTests : BunitContext
     [Fact]
     public void Render_WhenCollectionLacksBulkApproveRel_HidesTheCheckboxColumnAndButton()
     {
-        // The same approvable row, but no admin collection rel (translator / anonymous): the read-only
-        // list, no checkbox column and no bulk button — server-gated, never role-recomputed.
+        // The same approvable row, but the collection carries no admin rel, which is what a translator or
+        // an anonymous visitor sees: a read-only list with no checkbox column and no bulk button. The
+        // server decides that, not a role check here.
         StubPage(SinglePageOf(Row(canEdit: true, canApprove: true)));
 
         IRenderedComponent<TranslationsComponent> component = RenderPage();
@@ -220,10 +223,10 @@ public sealed class TranslationsTests : BunitContext
     [Fact]
     public void Render_WhenRowIsApprovable_NamesItsCheckboxAfterTheDictionaryKeyBinding()
     {
-        // Regression guard for the SSR binding contract (mirrors the ImportExport name guard): the row
-        // checkbox MUST be named SelectedRows[<id>] so Blazor static-SSR maps the checked rows into the
-        // Dictionary<Guid, bool> handler property — a bare or wrong name binds nothing and bulk approve
-        // silently no-ops.
+        // The guard for the SSR binding rule, like the name guard in ImportExport: the row checkbox has
+        // to be named SelectedRows[<id>], so Blazor's static SSR puts the ticked rows into the
+        // Dictionary<Guid, bool> property. A missing or wrong name binds nothing and bulk approve quietly
+        // does nothing.
         TranslationListItemResponse row = Row(canEdit: true, canApprove: true);
         StubPage(AdminPageOf(row));
 
@@ -248,12 +251,13 @@ public sealed class TranslationsTests : BunitContext
     [Fact]
     public void Render_WhenApprovedCountIsInTheQuery_ShowsTheSuccessFlashWithSkippedCount()
     {
-        // The GET side of Post-Redirect-Get (#321/#322): after the bulk-approve redirect the result counts
-        // ride in the query, and the list surfaces the "Zatwierdzono N (Pominięto M)" confirmation with no
-        // per-user server state, so the flash survives the redirect and a reload stays a safe GET.
-        // (The checked-rows → POST → redirect leg itself is exercised at the loader seam — bUnit's
-        // SubmitAsync invokes only @onsubmit and does not model SSR form-data binding — while the
-        // DOM→form-data→dictionary bind belongs to the Playwright E2E suite, not yet populated for this flow.)
+        // The GET half of the redirect-after-post flow (#321, #322): after a bulk approve the counts are
+        // in the query string, and the list shows the "Zatwierdzono N (Pominięto M)" message with no
+        // per-user state on the server. So the message survives the redirect and a reload is a plain GET.
+        // The other half, from ticked rows to POST to redirect, is covered at the loader, because bUnit's
+        // SubmitAsync only calls @onsubmit and does not bind SSR form data. Turning the checkboxes into
+        // form data and then into the dictionary belongs to the Playwright E2E suite, which does not
+        // cover this flow yet.
         StubPage(AdminPageOf(Row(canEdit: true, canApprove: true)));
         Navigation().NavigateTo("/translations?approved=2&skipped=1");
 
@@ -267,9 +271,10 @@ public sealed class TranslationsTests : BunitContext
     [Fact]
     public void Render_WhenApprovedIsZeroInTheQuery_ShowsTheNothingApprovedNoteNotASuccessFlash()
     {
-        // A well-formed bulk approve that published nothing (every selected row was already approved or went
-        // stale between render and submit) redirects with approved=0: the list must show the "nothing
-        // approved" note, never a success flash — approved:0 is a success response, not an error.
+        // A valid bulk approve that published nothing, because every selected row was already approved or
+        // changed between the render and the submit, redirects with approved=0. The list must then show
+        // the "nothing approved" note and not a success message: approved:0 is a successful response, not
+        // an error.
         StubPage(AdminPageOf(Row(canEdit: true, canApprove: true)));
         Navigation().NavigateTo("/translations?approved=0");
 
@@ -282,8 +287,8 @@ public sealed class TranslationsTests : BunitContext
     [Fact]
     public void Render_AlwaysOffersThePageSizeSelectWithEveryOption()
     {
-        // #323: the fixed page size is now a user-facing control — the select must expose exactly the
-        // allowlisted sizes, in order, so the UI and the query builder can never drift.
+        // #323: the page size is now something the user picks, so the select must offer exactly the
+        // allowed sizes, in order, and the UI and the query builder can never disagree.
         StubPage(SinglePageOf(Row(canEdit: true)));
 
         IRenderedComponent<TranslationsComponent> component = RenderPage();
@@ -307,8 +312,8 @@ public sealed class TranslationsTests : BunitContext
     [Fact]
     public void Render_WhenPageSizeInTheQuery_MarksThatSizeSelected()
     {
-        // The dropdown reflects the size requested in the query string (what the user picked), never a
-        // locally recomputed value — so it always mirrors the page the caller asked for (#323).
+        // The dropdown shows the size from the query string, which is what the user picked, and never a
+        // value worked out here, so it always matches the page that was asked for (#323).
         StubPage(SinglePageOf(Row(canEdit: true)));
         Navigation().NavigateTo("/translations?pageSize=100");
 
@@ -322,8 +327,9 @@ public sealed class TranslationsTests : BunitContext
     [Fact]
     public void Render_WhenPageSizeInTheQueryIsUnsupported_MarksTheDefaultSelectedAndRendersNoBogusOption()
     {
-        // AC4 (#323): a hand-typed, unsupported size must snap to the default in the UI too — the select
-        // exposes no "7" option and marks the default selected, never left with nothing chosen.
+        // Acceptance criterion 4 (#323): a size typed by hand that we do not support falls back to the
+        // default in the UI too. The select has no "7" option and marks the default as selected, and is
+        // never left with nothing chosen.
         StubPage(SinglePageOf(Row(canEdit: true)));
         Navigation().NavigateTo("/translations?pageSize=7");
 
@@ -399,8 +405,8 @@ public sealed class TranslationsTests : BunitContext
     private const string BulkApproveHref = "https://tms.example/api/v1/translations/approve";
 
     /// <summary>
-    /// A page that renders zero rows. The rel set is what separates the two reasons it can be empty:
-    /// an over-range page carries the boundary jumps, a no-matches page carries nothing.
+    /// A page that shows zero rows. The set of links tells the two reasons apart: a page number past the
+    /// last page still carries the first and last links, while a page with no matches carries none.
     /// </summary>
     private static PaginationResponse<TranslationListItemResponse> OverRangePageOf(
         int page,

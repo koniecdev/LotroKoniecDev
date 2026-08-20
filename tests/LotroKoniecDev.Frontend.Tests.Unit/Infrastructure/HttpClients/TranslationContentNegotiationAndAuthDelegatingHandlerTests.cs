@@ -143,9 +143,10 @@ public sealed class TranslationContentNegotiationAndAuthDelegatingHandlerTests
             [new Claim("sub", "user-1")],
             authenticationType: "Cookies"));
 
-        // HttpContext.GetTokenAsync(name) is an extension that calls IAuthenticationService
-        // .AuthenticateAsync and reads the token out of the resulting ticket's properties — so the
-        // token is supplied via a successful AuthenticateResult, not a GetTokenAsync stub.
+        // HttpContext.GetTokenAsync(name) is an extension method that calls
+        // IAuthenticationService.AuthenticateAsync and reads the token out of the resulting ticket. So
+        // the token is supplied through a successful AuthenticateResult and not by stubbing
+        // GetTokenAsync.
         AuthenticationProperties properties = new();
         if (accessToken is not null)
         {

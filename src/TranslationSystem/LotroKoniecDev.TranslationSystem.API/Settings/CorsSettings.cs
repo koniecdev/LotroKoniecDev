@@ -1,10 +1,10 @@
 namespace LotroKoniecDev.TranslationSystem.API.Settings;
 
 /// <summary>
-/// Browser origins the production CORS policy admits, injected per environment (ADR-0008 §3).
-/// An empty list is valid only in Development/Testing — those use the permissive AllowAnyOrigin
-/// policy and never read this list; Staging/Production require at least one bare http(s) origin,
-/// enforced at startup by <see cref="CorsSettingsValidator"/>.
+/// The browser origins the production CORS policy allows. They come from the environment (ADR-0008
+/// §3). An empty list is only valid in Development and Testing, which use the open AllowAnyOrigin
+/// policy and never read this list. Staging and Production need at least one plain http or https
+/// origin, which <see cref="CorsSettingsValidator"/> checks at startup.
 /// </summary>
 internal sealed class CorsSettings
 {

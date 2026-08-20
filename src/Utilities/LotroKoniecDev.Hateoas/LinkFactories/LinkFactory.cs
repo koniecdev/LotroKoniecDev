@@ -7,18 +7,15 @@ using LotroKoniecDev.Hateoas.Abstractions;
 namespace LotroKoniecDev.Hateoas.LinkFactories;
 
 /// <summary>
-/// Resolves named endpoints to absolute URIs via ASP.NET's
-/// <see cref="LinkGenerator"/>, then emits the link only when the current caller
-/// would actually be allowed to follow it. Returns <see langword="null"/> when the
-/// endpoint cannot be resolved (e.g. typo in the endpoint name or missing
-/// <c>WithName(...)</c> on the route) or when the target endpoint's own
-/// authorization would answer 401/403; callers collect non-null links via
-/// <see cref="LinkListExtensions.AddIfPresent"/>.
+/// Turns a named endpoint into an absolute URI with ASP.NET's <see cref="LinkGenerator"/>, and emits
+/// the link only when the caller could really follow it. It returns <see langword="null"/> when the
+/// endpoint cannot be found (a typo in the name, or a missing <c>WithName(...)</c> on the route) or
+/// when the endpoint's authorization would answer 401 or 403. Callers collect the links that are not
+/// null with <see cref="LinkListExtensions.AddIfPresent"/>.
 /// <para>
-/// The authorization decision reads the <em>target</em> endpoint's metadata rather
-/// than re-stating role rules in each link factory, so an endpoint's policy stays
-/// the single source of truth and a link can never drift from what following it
-/// would really do.
+/// The check reads the target endpoint's own metadata instead of repeating role rules in each link
+/// factory. The endpoint's policy stays the one source of truth, so a link can never promise
+/// something the endpoint would refuse.
 /// </para>
 /// </summary>
 internal sealed partial class LinkFactory : ILinkFactory
@@ -69,13 +66,13 @@ internal sealed partial class LinkFactory : ILinkFactory
     }
 
     /// <summary>
-    /// Replays ASP.NET's own authorization decision for the target endpoint against the caller of
-    /// the current request. Fails closed: an endpoint that cannot be located advertises nothing.
+    /// Runs ASP.NET's own authorization check for the target endpoint against the current caller.
+    /// It fails closed: an endpoint we cannot find is never advertised.
     /// </summary>
     private async ValueTask<bool> IsCallerAuthorizedAsync(HttpContext httpContext, string endpointName)
     {
-        // The same address scheme LinkGenerator.GetUriByName just used, so this is a dictionary
-        // lookup on the very endpoint whose URI was generated — never a second, divergent match.
+        // This is the address scheme LinkGenerator.GetUriByName just used, so the lookup lands on the
+        // very endpoint whose URI was built, not on a second one that happens to match.
         Endpoint? endpoint = _endpointAddressScheme.FindEndpoints(endpointName).FirstOrDefault();
 
         if (endpoint is null)
@@ -83,18 +80,18 @@ internal sealed partial class LinkFactory : ILinkFactory
             return false;
         }
 
-        // Mirrors AuthorizationMiddleware: AllowAnonymous beats every policy, the fallback included.
-        // This check MUST come before CombineAsync: AllowAnonymousAttribute is not IAuthorizeData, so
-        // an anonymous endpoint under an authorized-by-default app still combines to the fallback
-        // policy. Evaluate that first and every public endpoint's link vanishes for guests.
+        // Same order as AuthorizationMiddleware: AllowAnonymous beats every policy, the fallback one
+        // included. It has to come before CombineAsync, because AllowAnonymousAttribute is not
+        // IAuthorizeData: in an authorized-by-default app an anonymous endpoint still combines into the
+        // fallback policy. Check the policy first and every public link disappears for guests.
         if (endpoint.Metadata.GetMetadata<IAllowAnonymous>() is not null)
         {
             return true;
         }
 
-        // CombineAsync folds in the application's fallback policy when the endpoint carries no
-        // authorize metadata of its own, so an authorized-by-default API is evaluated exactly as
-        // the middleware would evaluate it.
+        // When the endpoint has no authorize metadata of its own, CombineAsync adds the application's
+        // fallback policy. An authorized-by-default API is then judged exactly as the middleware
+        // would judge it.
         AuthorizationPolicy? policy = await AuthorizationPolicy.CombineAsync(
             _authorizationPolicyProvider,
             endpoint.Metadata.GetOrderedMetadata<IAuthorizeData>(),
@@ -105,9 +102,9 @@ internal sealed partial class LinkFactory : ILinkFactory
             return true;
         }
 
-        // No policy in either API names an authentication scheme, so the principal ASP.NET already
-        // authenticated for THIS request is the one the target endpoint would see; only the policy's
-        // requirements are left to evaluate.
+        // No policy in either API names an authentication scheme, so the user ASP.NET already
+        // authenticated for this request is the one the target endpoint would see. Only the policy's
+        // requirements are left to check.
         AuthorizationResult authorizationResult = await _authorizationService.AuthorizeAsync(
             httpContext.User,
             resource: null,

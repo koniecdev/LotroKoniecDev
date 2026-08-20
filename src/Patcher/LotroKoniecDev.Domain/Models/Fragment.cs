@@ -5,8 +5,8 @@ using LotroKoniecDev.Primitives.Constants;
 namespace LotroKoniecDev.Domain.Models;
 
 /// <summary>
-/// Represents a text fragment within a LOTRO subfile.
-/// Contains text pieces, argument references, and argument strings.
+/// One text fragment inside a LOTRO subfile: its text pieces, its argument references and its
+/// argument strings.
 /// </summary>
 public sealed class Fragment
 {
@@ -21,23 +21,17 @@ public sealed class Fragment
     public List<byte[]> ArgRefs { get; private set; } = [];
     public List<List<string>> ArgStrings { get; private set; } = [];
 
-    /// <summary>
-    /// Indicates whether this fragment has argument references.
-    /// </summary>
     public bool HasArguments => ArgRefs.Count > 0;
 
-    /// <summary>
-    /// Gets the combined text content of all pieces.
-    /// </summary>
+    /// <summary>Joins the pieces back into one string, with <paramref name="separator"/> between them.</summary>
     public string GetFullText(string separator = "") =>
         string.Join(separator, Pieces);
 
-    /// <summary>
-    /// Reorders argument references according to the specified order.
-    /// Each element in <paramref name="order"/> is a 0-indexed source position.
-    /// </summary>
-    /// <param name="order">The reordering map (e.g. [1, 0] swaps two args).</param>
-    /// <returns>True if reordering succeeded; false if order is invalid.</returns>
+    /// <param name="order">
+    /// Where each argument comes from, as 0-indexed source positions. For example [1, 0] swaps two
+    /// arguments.
+    /// </param>
+    /// <returns>False when the order does not fit this fragment's arguments.</returns>
     public bool TryReorderArgRefs(int[] order)
     {
         ArgumentNullException.ThrowIfNull(order);
@@ -63,10 +57,7 @@ public sealed class Fragment
         return true;
     }
 
-    /// <summary>
-    /// Parses a fragment from binary data.
-    /// </summary>
-    /// <param name="reader">The binary reader positioned at the fragment start.</param>
+    /// <param name="reader">A reader placed at the start of the fragment.</param>
     public void Parse(BinaryReader reader)
     {
         ArgumentNullException.ThrowIfNull(reader);
@@ -78,12 +69,12 @@ public sealed class Fragment
     }
 
     /// <summary>
-    /// Indicates whether a text piece can be written into the DAT — <see cref="Write"/>'s
-    /// precondition, exposed so callers can screen replacement content instead of discovering the
-    /// limit as an exception halfway through a subfile (#598). Pieces read out of the DAT satisfy
-    /// it by construction; only translated content can violate it.
+    /// Whether a text piece fits into the DAT. This is what <see cref="Write"/> requires, and it is
+    /// public so callers can check new content up front instead of hitting an exception halfway
+    /// through a subfile (#598). A piece read out of the DAT always passes; only translated text can
+    /// fail.
     /// </summary>
-    /// <param name="piece">The candidate text piece.</param>
+    /// <param name="piece">The piece to check.</param>
     public static bool IsWritablePiece(string piece)
     {
         ArgumentNullException.ThrowIfNull(piece);
@@ -91,13 +82,9 @@ public sealed class Fragment
         return piece.Length <= DatFileConstants.MaxTextPieceLength;
     }
 
-    /// <summary>
-    /// Writes the fragment to binary format.
-    /// </summary>
-    /// <param name="writer">The binary writer to write to.</param>
     /// <exception cref="ArgumentOutOfRangeException">
-    /// When a piece fails <see cref="IsWritablePiece"/>. Deliberate: the variable-length prefix
-    /// cannot express the length, and writing a truncated one would corrupt the whole subfile.
+    /// A piece failed <see cref="IsWritablePiece"/>. This throws on purpose: the length prefix cannot
+    /// hold that number, and writing a shortened one would corrupt the whole subfile.
     /// </exception>
     public void Write(BinaryWriter writer)
     {

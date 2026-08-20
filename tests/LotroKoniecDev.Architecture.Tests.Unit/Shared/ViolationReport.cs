@@ -3,8 +3,8 @@ using NetArchTest.Rules;
 namespace LotroKoniecDev.Architecture.Tests.Unit.Shared;
 
 /// <summary>
-/// Formats a rule's offenders into the assertion message. Pure formatting — the assertion itself stays
-/// inline in the test method, per the repo's testing conventions.
+/// Turns the types that break a rule into the assertion message. It only formats; the assertion itself
+/// stays in the test method, as the repo's testing rules require.
 /// </summary>
 internal static class ViolationReport
 {

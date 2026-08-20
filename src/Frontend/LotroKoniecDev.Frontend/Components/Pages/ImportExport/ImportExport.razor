@@ -45,8 +45,9 @@
         </div>
     </section>
 
-    @* A failed game-versions fetch hides the import panel (its admin-only `register` rel can't be read),
-       so surface the error here — outside the gate — to give an admin feedback rather than silence (#158). *@
+    @* When the game-versions call fails, the import panel is hidden, because its admin-only `register`
+       rel cannot be read. So the error is shown here, outside that check, to tell an admin what happened
+       instead of showing nothing (#158). *@
     @if (_versionsProblem is not null)
     {
         <div class="error-message" role="alert">
@@ -80,8 +81,8 @@
 
                 @if (_importProblem is not null)
                 {
-                    @* A div, not a p: the alert may render a <details> block, which a paragraph
-                       cannot legally contain. *@
+                    @* A div and not a p: the alert can render a <details> block, and a paragraph
+                       may not contain one. *@
                     <div class="status-line status-line-block status-down" role="alert">
                         <span class="dot"></span>
                         <div class="status-line-body">
@@ -111,9 +112,9 @@
                 }
                 else if (_importableVersions is { Count: 0 })
                 {
-                    @* Versions exist, but the server advertises `import` on none of them — every one is
-                       Superseded. Say so here instead of offering a selector whose every option would be
-                       refused on submit (#610). *@
+                    @* There are versions, but the server offers `import` on none of them, because they are
+                       all superseded. Say so here instead of showing a selector where every option would
+                       be refused on submit (#610). *@
                     <div class="empty">
                         <h2>Brak wersji do importu</h2>
                         <p>Żadna z zarejestrowanych wersji gry nie przyjmuje już importu. Zarejestruj nowszą wersję.</p>
@@ -121,9 +122,10 @@
                 }
                 else if (_versions is not null)
                 {
-                    @* EditForm in static SSR emits the antiforgery token itself; a manual <AntiforgeryToken/>
-                       here would render __RequestVerificationToken twice and the middleware reads the
-                       comma-joined pair as an invalid token. Plain <form> posts (Editor/NavMenu) still need it. *@
+                    @* In static SSR, EditForm adds the antiforgery token itself. A manual
+                       <AntiforgeryToken/> here would write __RequestVerificationToken twice, and the
+                       middleware reads the two joined by a comma as an invalid token. A plain <form>
+                       post, as in Editor and NavMenu, still needs one. *@
                     <EditForm Model="ImportInput" OnValidSubmit="ImportAsync"
                               FormName="import-export" method="post" enctype="multipart/form-data">
                         <div class="form-row">
@@ -226,8 +228,8 @@
     private IReadOnlyList<GameVersionResponse>? _versions;
 
     /// <summary>
-    /// The subset of <c>_versions</c> the server advertises an <c>import</c> rel for — the selector's
-    /// options and the only ids <see cref="ImportAsync"/> can resolve a target for (#610).
+    /// The versions from <c>_versions</c> that the server sent an <c>import</c> rel for. They are the
+    /// selector's options and the only ids <see cref="ImportAsync"/> can find a target for (#610).
     /// </summary>
     private IReadOnlyList<GameVersionResponse> _importableVersions = [];
 
@@ -242,8 +244,8 @@
         // here: on a non-matching render the model stays empty, on a matching post the bound model wins.
         ImportInput ??= new ImportFormModel();
 
-        // The game-versions list is open to any translator; whether the import panel shows is decided by
-        // the collection's admin-only `register` rel (#158) — not a locally recomputed role.
+        // Any translator may see the game-versions list. Whether the import panel appears is decided by
+        // the collection's admin-only `register` rel (#158) and not by a role check here.
         await LoadVersionsAsync();
     }
 
@@ -292,9 +294,9 @@
             return;
         }
 
-        // The upload target is the chosen version's own `import` rel (#610) — the API emits it for an
-        // admin on any version that is not Superseded, so a missing link means the server refuses this
-        // import. Never compose the path from the id.
+        // The upload goes to the chosen version's own `import` rel (#610). The API sends it to an admin
+        // for any version that is not superseded, so a missing link means the server refuses this import.
+        // Never build the path from the id.
         if (ImportTargets.FindImportHref(_versions, input.GameVersionId) is not { } importHref)
         {
             _importProblem = ApiProblemCopy.FrontendAuthored(
@@ -328,10 +330,10 @@
     }
 
     /// <summary>
-    /// The import form's bound model. Blazor static-SSR form mapping binds an <see cref="IFormFile"/>
-    /// only as a property of a <c>[SupplyParameterFromForm]</c> model — never as a bare top-level
-    /// parameter — so the file, the chosen version id and the override flag travel together here, with
-    /// the inputs named <c>ImportInput.&lt;Property&gt;</c> (mirrors KittySaver's upload form models).
+    /// The model the import form binds to. Blazor's static SSR form binding only binds an
+    /// <see cref="IFormFile"/> as a property of a <c>[SupplyParameterFromForm]</c> model and never as a
+    /// plain top-level parameter. So the file, the chosen version id and the override flag travel together
+    /// here, with the inputs named <c>ImportInput.&lt;Property&gt;</c>, like KittySaver's upload models.
     /// </summary>
     private sealed class ImportFormModel
     {

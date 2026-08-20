@@ -8,10 +8,9 @@ internal sealed class AuthSettings
     public required string Audience { get; init; }
 
     /// <summary>
-    /// Authority URL for OIDC metadata discovery (signing keys, endpoints).
-    /// If not set, falls back to <see cref="Issuer"/>.
-    /// Useful in Docker environments where the metadata endpoint is on an internal network address
-    /// while the Issuer must match the browser-facing URL in tokens.
+    /// The URL where the OIDC metadata lives, such as the signing keys and the endpoints. When it is
+    /// not set, <see cref="Issuer"/> is used. It helps in Docker, where the metadata endpoint sits on
+    /// an internal address while the issuer has to match the URL the browser sees in the tokens.
     /// </summary>
     public string? Authority { get; init; }
 

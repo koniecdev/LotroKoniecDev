@@ -5,20 +5,20 @@ using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.TranslationAggregat
 namespace LotroKoniecDev.TranslationSystem.API.Hateoas.TranslationAggregateFactories;
 
 /// <summary>
-/// Builds the state- and role-aware HATEOAS link set for a single translation resource: <c>self</c>
-/// plus the edit/approve transitions the caller is actually allowed to take given the row's status
-/// and removal state (dead transitions are never advertised). The list is publicly readable (#309),
-/// so a caller without the translator capability — an anonymous visitor — gets no links at all:
-/// every advertised transition (including <c>self</c>, which targets the protected detail GET)
-/// requires authentication.
+/// Builds the links for one translation. It emits <c>self</c> plus the edit and approve actions the
+/// caller may really take, given the row's status and whether it was removed. Actions that would lead
+/// nowhere are never offered.
+/// Anyone may read the list (#309), so a caller who is not a translator, such as an anonymous visitor,
+/// gets no links at all. Every link here, <c>self</c> included, points at an endpoint that needs a
+/// login.
 /// </summary>
 internal interface ITranslationAggregateLinkFactory
 {
-    /// <param name="id">The translation's identity (drives the <c>self</c> and <c>approve</c> hrefs).</param>
-    /// <param name="status">The workflow status (gates whether <c>approve</c> is meaningful).</param>
-    /// <param name="isRemoved">Whether the row is soft-removed (a removed row exposes <c>self</c> only).</param>
-    /// <param name="callerIsTranslator">Whether the caller holds the Translator (or Admin) role — anonymous readers get no links.</param>
-    /// <param name="callerIsAdmin">Whether the caller holds the reviewer (Admin) role (gates <c>approve</c>).</param>
+    /// <param name="id">The translation's id, used in the <c>self</c> and <c>approve</c> hrefs.</param>
+    /// <param name="status">The status, which decides whether <c>approve</c> makes sense.</param>
+    /// <param name="isRemoved">Whether the row is soft-removed. A removed row gets only <c>self</c>.</param>
+    /// <param name="callerIsTranslator">Whether the caller is a translator or an admin. Anonymous readers get no links.</param>
+    /// <param name="callerIsAdmin">Whether the caller is an admin, which decides <c>approve</c>.</param>
     ValueTask<List<LinkDto>> CreateTranslationLinksAsync(
         TranslationId id,
         TranslationStatus status,
@@ -27,9 +27,9 @@ internal interface ITranslationAggregateLinkFactory
         bool callerIsAdmin);
 
     /// <summary>
-    /// Builds the collection-level links for the translation list: today only the admin-only
-    /// <c>bulk-approve</c> action (#322), so a non-admin caller gets an empty list.
+    /// Builds the links for the translation list itself. Today that is only the admin action
+    /// <c>bulk-approve</c> (#322), so anyone else gets an empty list.
     /// </summary>
-    /// <param name="callerIsAdmin">Whether the caller holds the reviewer (Admin) role (gates <c>bulk-approve</c>).</param>
+    /// <param name="callerIsAdmin">Whether the caller is an admin, which decides <c>bulk-approve</c>.</param>
     ValueTask<List<LinkDto>> CreateCollectionLinksAsync(bool callerIsAdmin);
 }

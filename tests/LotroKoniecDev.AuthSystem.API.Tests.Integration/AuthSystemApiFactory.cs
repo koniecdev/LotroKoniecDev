@@ -32,9 +32,9 @@ public class AuthSystemApiFactory : WebApplicationFactory<Program>, IAsyncLifeti
     public const string TestApiClientSecret = "integration-test-secret-32-chars!";
 
     /// <summary>
-    /// Origin of the web client this host is configured with. It doubles as the frontend origin the
-    /// login page falls back to when a sign-in carries no continuation, so tests assert against it
-    /// instead of repeating the literal.
+    /// The origin of the web client this host is configured with. It is also the frontend origin the
+    /// login page falls back to when a sign-in has nowhere to continue, so tests compare against it
+    /// instead of repeating the string.
     /// </summary>
     public const string TestFrontendAppRoot = "https://localhost:5001";
 
@@ -58,19 +58,19 @@ public class AuthSystemApiFactory : WebApplicationFactory<Program>, IAsyncLifeti
                 { "AdminUser:Username", "seededadmin" },
                 { "AdminUser:Email", "admin@lotro-translator.pl" },
                 { "AdminUser:Password", "AdminTest123!" },
-                // Email identity is no longer baked into base appsettings.json (M6-06); supply it here
-                // so the unconditional EmailOptionsValidator passes at startup (the senders themselves
-                // are replaced with spies below, so these values are never used to send mail).
-                // The port is a deliberately dead one so SmtpHealthCheck is deterministically
-                // Unhealthy — the full /health test must not flip when a local mailpit (:1025) runs.
+                // The e-mail settings are no longer in the base appsettings.json (M6-06), so they are
+                // set here to satisfy EmailOptionsValidator at startup. The senders are replaced with
+                // spies below, so these values never send anything.
+                // The port is one nothing listens on, so SmtpHealthCheck is always Unhealthy. The full
+                // /health test must not change its answer when a local mailpit runs on :1025.
                 { "Email:SenderEmail", "noreply@lotro-translator.pl" },
                 { "Email:Sender", "lotro-translator.pl" },
                 { "Email:Host", "localhost" },
                 { "Email:Port", "59999" },
-                // No broker in this suite; the values only have to satisfy the unconditional
-                // RabbitMqOptionsValidator at startup. The port is a deliberately dead one (same
-                // trick as Email:Port above) so RabbitMqHealthCheck is deterministically Unhealthy
-                // — the full /health test must not flip when the dev compose broker (:5672) runs.
+                // This suite has no broker. These values only have to satisfy RabbitMqOptionsValidator
+                // at startup. The port is one nothing listens on, the same trick as Email:Port above, so
+                // RabbitMqHealthCheck is always Unhealthy. The full /health test must not change its
+                // answer when the dev compose broker runs on :5672.
                 { "RabbitMq:Host", "localhost" },
                 { "RabbitMq:Port", "59998" },
                 { "RabbitMq:Username", "rabbitmq" },
@@ -119,9 +119,9 @@ public class AuthSystemApiFactory : WebApplicationFactory<Program>, IAsyncLifeti
             services.AddSingleton<IAccountDeletionEmailSender>(sp =>
                 sp.GetRequiredService<SpyAccountDeletionEmailSender>());
 
-            // The suite runs without a broker: the consumer would loop on connection retries and
-            // spam warnings, so it is removed outright (its business logic has its own unit
-            // tests via EmailConfirmationRequestProcessor).
+            // This suite runs without a broker. The consumer would keep retrying the connection and
+            // filling the log with warnings, so it is removed. Its logic has its own unit tests through
+            // EmailConfirmationRequestProcessor.
             ServiceDescriptor? emailConsumer = services.FirstOrDefault(d =>
                 d.ServiceType == typeof(IHostedService)
                 && d.ImplementationType == typeof(EmailDispatchConsumer));
@@ -130,10 +130,10 @@ public class AuthSystemApiFactory : WebApplicationFactory<Program>, IAsyncLifeti
                 services.Remove(emailConsumer);
             }
 
-            // Replace the RabbitMQ publisher with a spy: the suite runs without a broker, and the
-            // outbox relay tests assert against what reached the (fake) wire. The spy's delivery
-            // bridge plays the removed consumer's part, so registration still ends in a captured
-            // confirmation e-mail: outbox -> relay -> spy publish -> processor -> spy sender.
+            // The RabbitMQ publisher is replaced with a spy, because this suite has no broker and the
+            // outbox relay tests check what was published. The spy also plays the part of the removed
+            // consumer, so registering a user still ends in a captured confirmation e-mail:
+            // outbox, relay, spy publish, processor, spy sender.
             ServiceDescriptor? existingMessagePublisher = services
                 .FirstOrDefault(d => d.ServiceType == typeof(IMessagePublisher));
             if (existingMessagePublisher is not null)
@@ -176,12 +176,13 @@ public class AuthSystemApiFactory : WebApplicationFactory<Program>, IAsyncLifeti
     }
 
     /// <summary>
-    /// The suite's stand-in for the broker-to-consumer hop: what the relay publishes is pushed
-    /// through the same registry-selected <see cref="IEmailMessageProcessor"/> and
-    /// <see cref="EmailDeliveryProcessor"/> the real consumer runs, in a fresh scope per message,
-    /// exactly like <c>EmailDispatchConsumer.OnDeliveredAsync</c> — selection by the message type
-    /// (never the routing key, ADR-0038) and the inbox deduplication of ADR-0037 included, which
-    /// therefore both run under this suite's real PostgreSQL.
+    /// This suite's stand-in for the step from broker to consumer. What the relay publishes goes
+    /// through the same <see cref="IEmailMessageProcessor"/> the registry selects and the same
+    /// <see cref="EmailDeliveryProcessor"/> the real consumer uses, in a new scope per message, exactly
+    /// as <c>EmailDispatchConsumer.OnDeliveredAsync</c> does.
+    /// That includes choosing the processor by message type and never by routing key (ADR-0038), and
+    /// the duplicate check through the inbox (ADR-0037), so both run against this suite's real
+    /// PostgreSQL.
     /// </summary>
     private static async Task DeliverLikeTheConsumerWouldAsync(
         IServiceProvider services,
@@ -216,9 +217,8 @@ public class AuthSystemApiFactory : WebApplicationFactory<Program>, IAsyncLifeti
         // then no-ops and this suite exercises its (older) code against the newer schema.
         await N1CompatSchemaSeam.ApplyIfConfiguredAsync(_postgresContainer, "auth.sql");
 
-        // Accessing Services triggers host startup.
-        // The seeder is skipped in Testing environment, so we seed explicitly
-        // using the test host's services (which have the correct connection string).
+        // Reading Services starts the host. The seeder is skipped in the Testing environment, so we
+        // seed here using the test host's own services, which have the right connection string.
         IWebHostEnvironment environment = Services.GetRequiredService<IWebHostEnvironment>();
         await DatabaseSeederExtensions.SeedAuthDatabaseAsync(Services, environment);
     }

@@ -11,7 +11,7 @@ public sealed class GetTranslationHandlerTests
     [Fact]
     public async Task Handle_WhenIdIsEmpty_ShouldReturnNotFound()
     {
-        // Arrange — an all-zeros id is short-circuited before the read model is queried.
+        // Arrange: an all-zeros id is short-circuited before the read model is queried.
         GetTranslation.Handler handler = new(Substitute.For<IApplicationReadDbContext>());
 
         // Act

@@ -61,7 +61,7 @@ public sealed class GetTranslationFileTests : IAsyncLifetime
     [Fact]
     public async Task Get_AfterRebuild_ShouldReturn200WithApprovedNonRemovedRowsOnly()
     {
-        // Arrange — only the approved, non-removed row belongs in the distributed file.
+        // Arrange: only the approved, non-removed row belongs in the distributed file.
         await SeedAsync(gossipId: 1, polish: "Alfa", status: SeedStatus.Approved);
         await SeedAsync(gossipId: 2, polish: "Beta", status: SeedStatus.Draft);
         await SeedAsync(gossipId: 3, polish: "Gamma", status: SeedStatus.NeedsReview);
@@ -72,7 +72,7 @@ public sealed class GetTranslationFileTests : IAsyncLifetime
         HttpResponseMessage response = await _factory.CreateClient().GetAsync(Route);
         string body = await response.Content.ReadAsStringAsync();
 
-        // Assert — Cache-Control must be the endpoint's revalidation pair, not the no-store
+        // Assert: Cache-Control must be the endpoint's revalidation pair, not the no-store
         // stamp GlobalNoCacheMiddleware applies when an endpoint sets nothing.
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
         response.Headers.ETag.ShouldNotBeNull();
@@ -95,12 +95,12 @@ public sealed class GetTranslationFileTests : IAsyncLifetime
         HttpResponseMessage first = await _factory.CreateClient().GetAsync(Route);
         EntityTagHeaderValue etag = first.Headers.ETag!;
 
-        // Act — re-request with the ETag the client already holds.
+        // Act: re-request with the ETag the client already holds.
         using HttpClient client = _factory.CreateClient();
         client.DefaultRequestHeaders.IfNoneMatch.Add(etag);
         HttpResponseMessage second = await client.GetAsync(Route);
 
-        // Assert — a 304 must re-state the current validator (RFC 9110 §15.4.5) and the
+        // Assert: a 304 must re-state the current validator (RFC 9110 §15.4.5) and the
         // revalidation Cache-Control, or intermediaries would evict the cached artifact.
         second.StatusCode.ShouldBe(HttpStatusCode.NotModified);
         (await second.Content.ReadAsStringAsync()).ShouldBeEmpty();
@@ -114,7 +114,7 @@ public sealed class GetTranslationFileTests : IAsyncLifetime
     [Fact]
     public async Task Get_WithIfNoneMatchListContainingTheETag_ShouldReturn304()
     {
-        // Arrange — If-None-Match is a list (RFC 9110); a stale tag alongside the current one still 304s.
+        // Arrange: If-None-Match is a list (RFC 9110); a stale tag alongside the current one still 304s.
         await SeedAsync(gossipId: 1, polish: "Alfa", status: SeedStatus.Approved);
         await RebuildAsync();
         EntityTagHeaderValue etag = (await _factory.CreateClient().GetAsync(Route)).Headers.ETag!;
@@ -137,13 +137,13 @@ public sealed class GetTranslationFileTests : IAsyncLifetime
         await RebuildAsync();
         EntityTagHeaderValue currentEtag = (await _factory.CreateClient().GetAsync(Route)).Headers.ETag!;
 
-        // Act — the canonical CLI update download: the held validator no longer matches.
+        // Act: the canonical CLI update download: the held validator no longer matches.
         using HttpClient client = _factory.CreateClient();
         client.DefaultRequestHeaders.IfNoneMatch.Add(new EntityTagHeaderValue("\"stale-tag\""));
         HttpResponseMessage response = await client.GetAsync(Route);
         string body = await response.Content.ReadAsStringAsync();
 
-        // Assert — full body plus the current validator, so the client re-syncs in one round-trip.
+        // Assert: full body plus the current validator, so the client re-syncs in one round-trip.
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
         response.Headers.ETag.ShouldBe(currentEtag);
         body.ShouldContain($"{FileId}||1||Alfa||NULL||NULL||1");
@@ -156,7 +156,7 @@ public sealed class GetTranslationFileTests : IAsyncLifetime
         await SeedAsync(gossipId: 1, polish: "Alfa", status: SeedStatus.Approved);
         await RebuildAsync();
 
-        // Act — "*" matches any current representation (RFC 9110 §13.1.2).
+        // Act: "*" matches any current representation (RFC 9110 §13.1.2).
         using HttpClient client = _factory.CreateClient();
         client.DefaultRequestHeaders.IfNoneMatch.Add(EntityTagHeaderValue.Any);
         HttpResponseMessage response = await client.GetAsync(Route);
@@ -180,7 +180,7 @@ public sealed class GetTranslationFileTests : IAsyncLifetime
         // Act
         HttpResponseMessage response = await client.GetAsync(Route);
 
-        // Assert — the revalidation's cost model (PERF-01/#286): the hash column is read, the
+        // Assert: the revalidation's cost model (PERF-01/#286): the hash column is read, the
         // multi-MB Content column is not. The quoted-identifier match is exact on purpose:
         // "ContentHash" contains the bare substring, so only "Content" with its closing quote
         // proves the column itself was fetched.
@@ -197,7 +197,7 @@ public sealed class GetTranslationFileTests : IAsyncLifetime
         await SeedAsync(gossipId: 1, polish: "Alfa", status: SeedStatus.Approved);
         await RebuildAsync();
 
-        // Act — no Authorization header at all.
+        // Act: no Authorization header at all.
         HttpResponseMessage response = await _factory.CreateClient().GetAsync(Route);
 
         // Assert
@@ -217,7 +217,7 @@ public sealed class GetTranslationFileTests : IAsyncLifetime
     [Fact]
     public async Task Get_WhenNoArtifactBuilt_ShouldReturn404()
     {
-        // Act — nothing imported or built yet.
+        // Act: nothing imported or built yet.
         HttpResponseMessage response = await _factory.CreateClient().GetAsync(Route);
 
         // Assert
@@ -235,7 +235,7 @@ public sealed class GetTranslationFileTests : IAsyncLifetime
         HttpResponseMessage response = await _factory.CreateClient().GetAsync(Route);
         string body = await response.Content.ReadAsStringAsync();
 
-        // Assert — the patcher rejects any download whose body does not hash-match the ETag
+        // Assert: the patcher rejects any download whose body does not hash-match the ETag
         // (AUDIT-SEC-01/#391), so the strong ETag must stay the hex SHA-256 of the UTF-8 body with
         // nothing (e.g. a BOM) added in transit. Verified with the patcher's own integrity check.
         response.Headers.ETag!.IsWeak.ShouldBeFalse();
@@ -246,13 +246,13 @@ public sealed class GetTranslationFileTests : IAsyncLifetime
     [Fact]
     public async Task Get_AfterApprovingAnotherRow_ShouldAppearInNextDownloadWithNewETag()
     {
-        // Arrange — first artifact has only Alfa.
+        // Arrange: first artifact has only Alfa.
         await SeedAsync(gossipId: 1, polish: "Alfa", status: SeedStatus.Approved);
         await RebuildAsync();
         HttpResponseMessage firstDownload = await _factory.CreateClient().GetAsync(Route);
         EntityTagHeaderValue firstEtag = firstDownload.Headers.ETag!;
 
-        // Act — approve a second row (no game-version bump) and rebuild.
+        // Act: approve a second row (no game-version bump) and rebuild.
         await SeedAsync(gossipId: 2, polish: "Beta", status: SeedStatus.Approved);
         await RebuildAsync();
         HttpResponseMessage secondDownload = await _factory.CreateClient().GetAsync(Route);
@@ -267,7 +267,7 @@ public sealed class GetTranslationFileTests : IAsyncLifetime
     [Fact]
     public async Task RoundTrip_ImportApproveDownload_ShouldParseIdenticallyWithThePatcher()
     {
-        // Arrange — import the English baseline (admin), then approve Polish for both rows.
+        // Arrange: import the English baseline (admin), then approve Polish for both rows.
         using HttpClient admin = AdminClient();
         await admin.PostAsync(
             $"/api/v1/game-versions/{_versionId.Value}/import",
@@ -278,7 +278,7 @@ public sealed class GetTranslationFileTests : IAsyncLifetime
         await ApprovePolishAsync(gossipId: 2, polish: "Polski || dwa");
         await RebuildAsync();
 
-        // Act — download, write to a temp file, and parse it with the patcher's own parser.
+        // Act: download, write to a temp file, and parse it with the patcher's own parser.
         string body = await (await _factory.CreateClient().GetAsync(Route)).Content.ReadAsStringAsync();
         string tempFile = Path.Combine(Path.GetTempPath(), $"polish_{Guid.NewGuid():N}.txt");
         await File.WriteAllTextAsync(tempFile, body);
@@ -288,7 +288,7 @@ public sealed class GetTranslationFileTests : IAsyncLifetime
             IReadOnlyList<LotroKoniecDev.Domain.Models.Translation> parsed =
                 new TranslationFileParser().ParseFile(tempFile).Value.Translations;
 
-            // Assert — both rows round-trip: args preserved, || anchoring preserved, all approved.
+            // Assert: both rows round-trip: args preserved, || anchoring preserved, all approved.
             parsed.Count.ShouldBe(2);
 
             LotroKoniecDev.Domain.Models.Translation one = parsed.Single(translation => translation.GossipId == 1);

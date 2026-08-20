@@ -3,10 +3,10 @@ using LotroKoniecDev.TranslationSystem.Contracts.Translations;
 namespace LotroKoniecDev.Frontend.Components.Pages.Dashboard;
 
 /// <summary>
-/// The mini-dashboard's view state derived from the API counters (M3-05): the four counters as-is plus
-/// the approval-progress percentage the progress bar renders. Pure and isolated from the razor so the
-/// percent math — chiefly the zero-catalog guard and rounding — is unit-testable without rendering the
-/// component (the Frontend has no bUnit).
+/// What the mini-dashboard shows, built from the API counters (M3-05): the four counters as they are,
+/// plus the percentage the progress bar draws. It is kept out of the razor file so the percentage
+/// maths, above all the empty-catalog case and the rounding, can be unit-tested without rendering the
+/// component.
 /// </summary>
 internal sealed record DashboardView
 {
@@ -27,7 +27,7 @@ internal sealed record DashboardView
 
     public int Remaining { get; }
 
-    /// <summary>Approved as a whole-number percentage of the active catalog; <c>0</c> when empty.</summary>
+    /// <summary>Approved rows as a whole percentage of the active catalog, or <c>0</c> when it is empty.</summary>
     public int ApprovedPercent { get; }
 
     public static DashboardView From(TranslationStatsResponse stats)

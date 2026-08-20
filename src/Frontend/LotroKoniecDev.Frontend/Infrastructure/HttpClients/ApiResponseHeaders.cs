@@ -3,10 +3,11 @@ using System.Net.Http.Headers;
 namespace LotroKoniecDev.Frontend.Infrastructure.HttpClients;
 
 /// <summary>
-/// Response headers captured from a successful API call, for the rare endpoints that return their
-/// payload via headers instead of a body (e.g. <c>204 No Content</c> + <c>X-Deletion-Finalizes-At</c>
-/// on account-deletion scheduling). The values are detached from the <see cref="HttpResponseMessage"/>
-/// so the message can stay disposed inside the send helper while callers keep the <c>ApiResult</c> monad.
+/// Response headers kept from a successful API call, for the few endpoints that return their data in
+/// headers instead of a body, such as a <c>204 No Content</c> with <c>X-Deletion-Finalizes-At</c> when
+/// an account deletion is scheduled. The values are copied out of the
+/// <see cref="HttpResponseMessage"/>, so the send helper can dispose it while callers still work with
+/// the <c>ApiResult</c> type.
 /// </summary>
 internal sealed class ApiResponseHeaders
 {

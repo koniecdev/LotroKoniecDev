@@ -8,21 +8,22 @@ using LotroKoniecDev.Hateoas.Abstractions;
 namespace LotroKoniecDev.Infrastructure.Network;
 
 /// <summary>
-/// Reads the TMS service document from the configured base URL — the anonymous discovery root
-/// (#608) — so the CLI can resolve its download endpoint by link relation instead of shipping a
-/// route it could never change (ADR-0041 / #611).
+/// Reads the TMS service document from the configured base URL, which is the discovery root anyone
+/// may read (#608). The CLI can then find its download endpoint by link relation instead of shipping
+/// a route it could never change (ADR-0041, #611).
 /// <para>
-/// Links are opt-in through content negotiation: the server attaches them only to a request that
-/// accepts <see cref="MediaTypes.HateoasJson"/>, which is why that constant is taken from the shared
-/// Hateoas abstractions rather than re-typed here — a drifted Accept header would silently yield a
-/// link-less document and pin every install on its cached endpoint forever.
+/// Links are opt-in: the server adds them only to a request that accepts
+/// <see cref="MediaTypes.HateoasJson"/>. That is why the constant comes from the shared Hateoas
+/// abstractions instead of being written again here. An Accept header that drifted would quietly
+/// return a document with no links, and every install would stay on its cached endpoint forever.
 /// </para>
 /// </summary>
 public sealed class TranslationSystemDiscoveryClient : ITranslationSystemDiscoveryClient
 {
     /// <summary>
-    /// Hard cap on the service document (AUDIT-SEC-04 / #394). It is a short list of links — a few KB —
-    /// so 1 MiB is generous headroom while a hostile or misbehaving server cannot exhaust process memory.
+    /// The largest service document we will read (AUDIT-SEC-04, #394). It is a short list of links, a
+    /// few KB, so 1 MiB leaves room to spare while a hostile or broken server cannot use up all our
+    /// memory.
     /// </summary>
     public const long MaxResponseContentBytes = 1024 * 1024;
 
@@ -54,9 +55,9 @@ public sealed class TranslationSystemDiscoveryClient : ITranslationSystemDiscove
             using HttpRequestMessage request = new(HttpMethod.Get, requestUri);
             request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue(MediaTypes.HateoasJson));
 
-            // ResponseHeadersRead keeps HttpClient from buffering the whole body before the size cap
-            // can run, which also moves the body read out of HttpClient.Timeout's scope — so the
-            // timeout is re-applied around the entire fetch via a linked token.
+            // ResponseHeadersRead stops HttpClient from buffering the whole body before the size
+            // limit is checked. It also takes the body read out of HttpClient.Timeout, so we apply
+            // the same timeout around the whole fetch with a linked token.
             using CancellationTokenSource timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             timeoutCts.CancelAfter(_httpClient.Timeout);
 
@@ -96,8 +97,8 @@ public sealed class TranslationSystemDiscoveryClient : ITranslationSystemDiscove
         }
         catch (JsonException ex)
         {
-            // Anything that is not the service document — a proxy error page, an HTML login wall —
-            // is a failed discovery, not a crash.
+            // Anything that is not the service document, such as a proxy error page or an HTML login
+            // page, means discovery failed. It must not crash the CLI.
             return Result.Failure<IReadOnlyList<DiscoveredLink>>(
                 DomainErrors.TranslationFileSync.NetworkError($"The service document could not be read: {ex.Message}"));
         }

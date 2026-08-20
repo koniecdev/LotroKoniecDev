@@ -13,7 +13,7 @@ internal interface ICurrentUserAccessor
     bool IsInRole(string role);
 
     /// <summary>
-    /// Currently only the Admin role can bypass every kind of privileges validation.
+    /// Today only the Admin role can skip every permission check.
     /// </summary>
     bool HasOnlyRegularUserPrivileges();
 }

@@ -3,9 +3,9 @@ using OpenIddict.Abstractions;
 namespace LotroKoniecDev.AuthSystem.API.Services.Sessions;
 
 /// <summary>
-/// Default <see cref="IUserSessionRevoker"/> backed by the OpenIddict token and authorization managers.
-/// Mirrors the revocation the DeleteAccount and Logout flows already perform, so every credential-change
-/// flow evicts sessions through one shared implementation.
+/// The <see cref="IUserSessionRevoker"/> built on the OpenIddict token and authorization managers. It
+/// does the same revocation the DeleteAccount and Logout flows already do, so every flow that changes
+/// credentials ends sessions through one shared implementation.
 /// </summary>
 internal sealed partial class UserSessionRevoker : IUserSessionRevoker
 {
@@ -25,9 +25,9 @@ internal sealed partial class UserSessionRevoker : IUserSessionRevoker
 
     public async Task RevokeAllAsync(string userId, CancellationToken cancellationToken = default)
     {
-        // Best-effort: the credential change and its security-stamp rotation have already succeeded, so a
-        // transient revocation failure must not fail the whole operation — it is logged and the surviving
-        // tokens expire at their (short) lifetimes. Same posture as DeleteAccount's artifact cleanup.
+        // Best effort. The credential change and the security stamp change have already succeeded, so a
+        // temporary failure here must not fail the whole operation. It is logged, and the tokens that
+        // survive expire soon anyway. DeleteAccount's cleanup works the same way.
         try
         {
             int revokedTokens = 0;

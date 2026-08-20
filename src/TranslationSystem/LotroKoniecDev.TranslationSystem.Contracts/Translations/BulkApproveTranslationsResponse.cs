@@ -1,8 +1,8 @@
 namespace LotroKoniecDev.TranslationSystem.Contracts.Translations;
 
 /// <summary>
-/// The outcome of a bulk approve (#322): how many distinct rows were requested, how many were
-/// actually approved and published, and how many were skipped (unknown id, already approved, or no
-/// longer approvable). <c>Approved + Skipped == Requested</c> always holds.
+/// What a bulk approve did (#322): how many different rows were asked for, how many were really
+/// approved and published, and how many were skipped because the id is unknown, the row was already
+/// approved or it can no longer be approved. <c>Approved + Skipped == Requested</c> always holds.
 /// </summary>
 public sealed record BulkApproveTranslationsResponse(int Requested, int Approved, int Skipped);

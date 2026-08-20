@@ -75,10 +75,10 @@ public sealed class E2ETestFixture : IAsyncLifetime
     }
 
     /// <summary>
-    /// Rewrites the repo's translation file with each row's <c>source_digest</c> taken from the export
-    /// of THIS DAT (ADR-0047) — exactly the step a translator performs after running <c>export</c>.
-    /// Without it the suite would depend on digests hand-copied into a committed file, which are
-    /// stale for anyone whose game is on a different version, and every row would be warn-skipped as
+    /// Rewrites the repo's translation file so each row's <c>source_digest</c> comes from the export of
+    /// this DAT (ADR-0047), which is exactly what a translator does after running <c>export</c>.
+    /// Without it the suite would rely on digests copied by hand into a committed file, which are wrong
+    /// for anyone whose game is on another version, and every row would be skipped with the warning
     /// <c>no source digest</c>.
     /// </summary>
     private static string StampSourceDigests(string translationsPath, string exportPath, string outputDir)

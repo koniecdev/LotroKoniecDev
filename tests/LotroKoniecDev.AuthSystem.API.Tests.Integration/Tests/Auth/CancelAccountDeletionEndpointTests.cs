@@ -47,7 +47,7 @@ public sealed class CancelAccountDeletionEndpointTests : EndpointsTestBase
         // Act
         HttpResponseMessage response = await SendCancelRequestAsync(registerRequest.Email, cancelToken);
 
-        // Assert — the possibly-compromised password dies with the cancellation
+        // Assert: the possibly-compromised password dies with the cancellation
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
 
         ApplicationUser user = await GetUserAsync(identityId.Value);
@@ -64,7 +64,7 @@ public sealed class CancelAccountDeletionEndpointTests : EndpointsTestBase
         (RegisterRequest registerRequest, _) = await RegisterAndScheduleDeletionAsync();
         string cancelToken = AccountDeletionEmailSpy.LastCancelToken!;
 
-        // Act — cancel, then walk the forced reset flow end to end
+        // Act: cancel, then walk the forced reset flow end to end
         HttpResponseMessage cancelResponse = await SendCancelRequestAsync(registerRequest.Email, cancelToken);
         cancelResponse.StatusCode.ShouldBe(HttpStatusCode.OK);
 
@@ -77,7 +77,7 @@ public sealed class CancelAccountDeletionEndpointTests : EndpointsTestBase
         HttpResponseMessage resetResponse = await ApiClient.Http.PostAsJsonAsync(
             new Uri("auth/reset-password", UriKind.Relative), resetRequest);
 
-        // Assert — account fully recovered with the new password
+        // Assert: account fully recovered with the new password
         resetResponse.StatusCode.ShouldBe(HttpStatusCode.OK);
 
         HttpResponseMessage newPasswordLogin = await RequestTokenAsync(registerRequest.Email, newPassword);
@@ -91,7 +91,7 @@ public sealed class CancelAccountDeletionEndpointTests : EndpointsTestBase
         (RegisterRequest registerRequest, _) = await RegisterAndScheduleDeletionAsync();
         string cancelToken = AccountDeletionEmailSpy.LastCancelToken!;
 
-        // Act — the courtesy notice arrives through the pipeline, so the capture has to be
+        // Act: the courtesy notice arrives through the pipeline, so the capture has to be
         // awaited (ADR-0038)
         HttpResponseMessage response = await SendCancelRequestAsync(registerRequest.Email, cancelToken);
         await AccountDeletionEmailSpy.WaitForCancelledCaptureAsync();
@@ -111,7 +111,7 @@ public sealed class CancelAccountDeletionEndpointTests : EndpointsTestBase
         // Act
         HttpResponseMessage response = await SendCancelRequestAsync(registerRequest.Email, "not-a-real-token");
 
-        // Assert — schedule stays in place
+        // Assert: schedule stays in place
         response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
         string body = await response.Content.ReadAsStringAsync();
         body.ShouldContain("Auth.InvalidCancelDeletionToken");
@@ -127,7 +127,7 @@ public sealed class CancelAccountDeletionEndpointTests : EndpointsTestBase
         HttpResponseMessage response = await SendCancelRequestAsync(
             "nobody@example.com", "some-token");
 
-        // Assert — same generic error as a bad token (no account-state probing)
+        // Assert: same generic error as a bad token (no account-state probing)
         response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
         string body = await response.Content.ReadAsStringAsync();
         body.ShouldContain("Auth.InvalidCancelDeletionToken");
@@ -136,7 +136,7 @@ public sealed class CancelAccountDeletionEndpointTests : EndpointsTestBase
     [Fact]
     public async Task CancelDeletion_ShouldReturnBadRequest_WhenDeletionIsNotScheduled()
     {
-        // Arrange — registered user without a scheduled deletion
+        // Arrange: registered user without a scheduled deletion
         (RegisterRequest registerRequest, _) =
             await UserFactory.RegisterRandomUserWithRequestAsync(ApiClient, Faker, AccountConfirmationEmailSpy, TestPassword);
 
@@ -159,7 +159,7 @@ public sealed class CancelAccountDeletionEndpointTests : EndpointsTestBase
         HttpResponseMessage firstResponse = await SendCancelRequestAsync(registerRequest.Email, cancelToken);
         firstResponse.StatusCode.ShouldBe(HttpStatusCode.OK);
 
-        // Act — the security stamp rotated on cancel, so the token is single-use
+        // Act: the security stamp rotated on cancel, so the token is single-use
         HttpResponseMessage replayResponse = await SendCancelRequestAsync(registerRequest.Email, cancelToken);
 
         // Assert

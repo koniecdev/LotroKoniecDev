@@ -33,7 +33,7 @@ public sealed class RegisterGameVersionTests : IAsyncLifetime
     [Fact]
     public async Task Register_WithNewVersion_ShouldReturn201UnprocessedAndAppearInList()
     {
-        // Arrange — input carries an insignificant trailing zero; it is stored canonical ("48").
+        // Arrange: input carries an insignificant trailing zero; it is stored canonical ("48").
         using HttpClient client = AdminClient();
 
         // Act
@@ -55,7 +55,7 @@ public sealed class RegisterGameVersionTests : IAsyncLifetime
     [Fact]
     public async Task Register_DuplicateAcrossEquivalentNotations_ShouldReturn422()
     {
-        // Arrange — "48" and "48.0.0" canonicalize to the same version, so the second is a conflict.
+        // Arrange: "48" and "48.0.0" canonicalize to the same version, so the second is a conflict.
         using HttpClient client = AdminClient();
         await client.PostAsJsonAsync(Route, new RegisterGameVersionRequest("48"));
 
@@ -100,7 +100,7 @@ public sealed class RegisterGameVersionTests : IAsyncLifetime
     [Fact]
     public async Task Register_AsTranslator_ShouldReturn403()
     {
-        // Arrange — manual registration is an admin-only fallback.
+        // Arrange: manual registration is an admin-only fallback.
         using HttpClient client = TranslatorClient();
 
         // Act

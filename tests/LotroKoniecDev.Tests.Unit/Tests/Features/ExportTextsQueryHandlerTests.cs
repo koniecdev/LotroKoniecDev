@@ -157,7 +157,7 @@ public sealed class ExportTextsQueryHandlerTests : IDisposable
         // Act
         Result<ExportSummaryResponse> result = await _sut.Handle(query, CancellationToken.None);
 
-        // Assert — should succeed with partial results, not fail entirely
+        // Assert: should succeed with partial results, not fail entirely
         result.IsSuccess.ShouldBeTrue();
         result.Value.TotalTextFiles.ShouldBe(2);
         result.Value.TotalFragments.ShouldBe(1);
@@ -209,8 +209,8 @@ public sealed class ExportTextsQueryHandlerTests : IDisposable
     [Fact]
     public void FormatRow_ThenParse_ShouldCarryTheDigestTheWriteGuardChecks()
     {
-        // The digest is worthless unless it survives into the parsed row — that is the value the
-        // guard compares the fragment against.
+        // The digest is useless unless it reaches the parsed row, because that is the value the guard
+        // compares the fragment against.
         string row = ExportTextsQueryHandler.FormatRow(620756992, 1001, "Some text", "NULL", "NULL", argumentCount: 0);
 
         new TranslationFileParser().ParseLine(row).Value.SourceDigest

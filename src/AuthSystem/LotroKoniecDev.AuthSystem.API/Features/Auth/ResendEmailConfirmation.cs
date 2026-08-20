@@ -33,7 +33,7 @@ internal sealed partial class ResendEmailConfirmation : IApiEndpoint
     internal sealed partial class Handler : ICommandHandler<Command, Result>
     {
         /// <summary>
-        /// Pre-computed hash for timing-equalization when user is not found.
+        /// A hash computed up front, so the not-found path takes as long as the normal one.
         /// </summary>
         private static readonly string DummyPasswordHash =
             new PasswordHasher<ApplicationUser>().HashPassword(new ApplicationUser(), "DummyP@ssw0rd!");
@@ -69,13 +69,14 @@ internal sealed partial class ResendEmailConfirmation : IApiEndpoint
 
             if (user is null)
             {
-                // Perform dummy work to prevent timing-based user enumeration
+                // Do the same work anyway, so the response time does not reveal whether the user
+                // exists.
                 _ = new PasswordHasher<ApplicationUser>()
                     .VerifyHashedPassword(new ApplicationUser(), DummyPasswordHash, "DummyP@ssw0rd!");
 
                 LogResendNonExistent(_logger, maskedEmail);
 
-                // Always return success to prevent email enumeration
+                // Always report success, so nobody can find out which e-mails are registered.
                 return Result.Success();
             }
 
@@ -83,17 +84,18 @@ internal sealed partial class ResendEmailConfirmation : IApiEndpoint
             {
                 LogResendAlreadyConfirmed(_logger, maskedEmail);
 
-                // Always return success to prevent email enumeration
+                // Always report success, so nobody can find out which e-mails are registered.
                 return Result.Success();
             }
 
             string token = await _userManager.GenerateEmailConfirmationTokenAsync(user);
 
-            // Deliberately synchronous and outbox-independent (ADR-0038 decision 4): resend is the
-            // user-driven escape hatch ADR-0035's 6 h orphan tail is priced on, so it must keep
-            // delivering when the pipeline itself (relay, broker, consumer) is what is stuck. It is
-            // the only intentional direct-SMTP call on a request path — do not migrate it to the
-            // outbox; that would silently invalidate ADR-0035's pricing.
+            // This send happens inside the request and skips the outbox on purpose (ADR-0038 decision
+            // 4). Resend is the way out a user has when the pipeline itself is stuck, whether the
+            // relay, the broker or the consumer, and ADR-0035 counts on it when it accepts a 6 hour
+            // worst case for forgotten rows.
+            // It is the only deliberate direct SMTP call on a request path. Do not move it to the
+            // outbox: that would quietly break the reasoning in ADR-0035.
             Result emailResult = await _accountConfirmationEmailSender.SendEmailConfirmationAsync(
                 user.Id, command.Email, token, cancellationToken);
             if (emailResult.IsFailure)

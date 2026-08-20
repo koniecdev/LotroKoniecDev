@@ -41,7 +41,8 @@ public sealed class UpdateCycleE2ETests : E2ETestBase
             TranslationDetailResponse edited = await admin.UpsertAsync(FileId, gossipId: 1, translatedText: "Polski jeden");
             await admin.ApproveRawAsync(edited.Id.Value);
 
-            // The approve's artifact rebuild is debounced and backgrounded (PERF-04) — poll to convergence.
+            // The rebuild after an approve happens in the background after a short delay (PERF-04), so
+            // poll until it has finished.
             (HttpResponseMessage firstDownload, string firstFile) = await TranslationFileDownloadPolling.DownloadWhenConvergedAsync(
                 anonymous,
                 Language,

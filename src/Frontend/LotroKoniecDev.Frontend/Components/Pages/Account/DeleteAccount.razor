@@ -30,9 +30,10 @@
             </p>
         </div>
 
-        @* The upstream session is already dead (account locked, tokens revoked), so the button goes
-           through the local-only sign-out and lands on the anonymous confirmation page. No inline
-           auto-submit script — the CSP is locked to script-src 'self'. *@
+        @* The session at the auth server is already gone, because the account is locked and its
+           tokens are revoked. So the button uses the local sign-out and lands on the public
+           confirmation page. There is no inline script to submit it automatically, because the CSP
+           allows script-src 'self' only. *@
         <form method="post" action="@SignOutFormAction()" data-testid="post-delete-signout">
             <AntiforgeryToken/>
             <button type="submit" class="btn btn-primary">Przejdź dalej</button>
@@ -144,8 +145,8 @@
 @code
 {
     /// <summary>
-    /// The expected confirmation phrase. Compared ordinally in the SSR form handler — the auth API
-    /// never sees it; it is "are you sure" friction on the frontend, mirroring TheKittySaver.
+    /// The confirmation phrase we expect. The SSR form handler compares it character by character and the
+    /// auth API never sees it. It is only an "are you sure" step on the frontend, like TheKittySaver's.
     /// </summary>
     internal const string ConfirmPhrase = "USUWAM";
 

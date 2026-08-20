@@ -5,13 +5,14 @@ using Microsoft.EntityFrameworkCore.Diagnostics;
 namespace LotroKoniecDev.TranslationSystem.API.Tests.Integration;
 
 /// <summary>
-/// Records the SQL text of every command the intercepted context executes — reader commands
-/// (queries, SaveChanges batches) and non-queries (<c>ExecuteUpdate</c>) alike — so a test can pin
-/// properties that are invisible in the HTTP response — e.g. that the translation-file 304 path
-/// never reads the multi-MB <c>Content</c> column (PERF-01/#286), or that a projection refresh
-/// updates in place without re-fetching it (PERF-04/#289). The DB command stream is the
-/// only observable seam for "this column was not fetched": the repo's <c>.Received()</c> policy
-/// (side effects invisible in the return value) sanctions asserting on it.
+/// Records the SQL of every command the intercepted context runs, both reads such as queries and
+/// SaveChanges batches and writes such as <c>ExecuteUpdate</c>. A test can then check things the HTTP
+/// response does not show: that the 304 path for the translation file never reads the multi-MB
+/// <c>Content</c> column (PERF-01, #286), or that a projection refresh updates in place without reading
+/// it again (PERF-04, #289).
+/// The stream of database commands is the only place "this column was not read" is visible, and the
+/// repo's <c>.Received()</c> rule, which allows asserting on side effects the return value does not
+/// show, permits it.
 /// </summary>
 public sealed class SqlCommandRecorder : DbCommandInterceptor
 {

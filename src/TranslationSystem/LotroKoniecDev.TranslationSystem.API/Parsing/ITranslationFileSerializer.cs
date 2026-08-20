@@ -1,14 +1,14 @@
 namespace LotroKoniecDev.TranslationSystem.API.Parsing;
 
 /// <summary>
-/// One Approved row to serialize into the <c>||</c> translation file. There is no approved flag —
-/// every distributed row is approved, so the serializer emits the constant <c>1</c>.
+/// One approved row on its way into the <c>||</c> translation file. There is no approved flag here,
+/// because every distributed row is approved, so the serializer always writes <c>1</c>.
 /// </summary>
 /// <param name="SourceDigest">
 /// The <c>source_digest</c> column (ADR-0047): <c>SourceHash.ToWireDigest()</c> of the row's stored
-/// <c>TranslationSource</c>. An Approved row's stored source IS the English it was approved against
-/// — a source change invalidates the row (spec 0001) and approval clears the invalidation — so this
-/// is exactly what the patcher must find on the fragment before it may overwrite it.
+/// <c>TranslationSource</c>. For an approved row that stored source is the English it was approved
+/// against, because a source change invalidates the row (spec 0001) and approving clears that again.
+/// So it is exactly what the patcher must find on the fragment before it may overwrite it.
 /// </param>
 internal sealed record ArtifactRow(
     int FileId,
@@ -19,8 +19,8 @@ internal sealed record ArtifactRow(
     string SourceDigest);
 
 /// <summary>
-/// Serializes Approved rows into the LOTRO <c>||</c> contract the patcher's parser consumes. The
-/// caller supplies the rows already filtered and sorted; the serializer only formats.
+/// Writes approved rows in the LOTRO <c>||</c> format the patcher's parser reads. The caller passes the
+/// rows already filtered and sorted; this only formats them.
 /// </summary>
 internal interface ITranslationFileSerializer
 {

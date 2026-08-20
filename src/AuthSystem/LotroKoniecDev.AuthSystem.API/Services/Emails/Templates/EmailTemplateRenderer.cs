@@ -8,17 +8,16 @@ using LotroKoniecDev.AuthSystem.Infrastructure.Emails;
 namespace LotroKoniecDev.AuthSystem.API.Services.Emails.Templates;
 
 /// <summary>
-/// Renders both bodies of a transactional message from one model. The HTML is table-based with
-/// every rule inlined, because no mail client is required to honour a <c>&lt;style&gt;</c> block,
-/// and the palette is the frontend's OKLCH design tokens converted to hex — mail clients do not
-/// support OKLCH.
+/// Builds both bodies of a message from one model. The HTML uses tables and puts every style inline,
+/// because no mail client has to honour a <c>&lt;style&gt;</c> block. The colours are the frontend's
+/// OKLCH design tokens written as hex, because mail clients do not understand OKLCH.
 /// </summary>
 /// <remarks>
-/// The layout is dark, so link colour cannot be left to the client: clients auto-link bare domains
-/// and addresses in body text and paint those anchors their own default blue, which is unreadable
-/// here. Two defences, because either alone has a gap — a <c>&lt;style&gt;</c> override recolours
-/// links this renderer never created, and the anchors it does create carry the colour inline for
-/// clients that drop the block.
+/// The layout is dark, so we cannot let the client pick the link colour. Clients turn bare domains and
+/// addresses in the text into links and paint them their own blue, which is unreadable here.
+/// We do both things, because each one alone has a gap: a <c>&lt;style&gt;</c> block recolours links
+/// this renderer never made, and the links it does make carry the colour inline for clients that throw
+/// the block away.
 /// </remarks>
 internal sealed class EmailTemplateRenderer : IEmailTemplateRenderer
 {
@@ -51,8 +50,8 @@ internal sealed class EmailTemplateRenderer : IEmailTemplateRenderer
     }
 
     /// <summary>
-    /// Wins over a client's own link colour, including on anchors it generates itself. The button
-    /// keeps dark ink, or the blanket rule would paint gold text onto a gold background.
+    /// Beats the client's own link colour, including on links it made itself. The button keeps its
+    /// dark text, or this rule would put gold text on a gold background.
     /// </summary>
     private static string RenderStyleOverrides() =>
         $$"""

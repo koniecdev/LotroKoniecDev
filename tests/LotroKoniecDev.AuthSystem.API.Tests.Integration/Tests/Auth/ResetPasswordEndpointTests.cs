@@ -59,7 +59,7 @@ public sealed class ResetPasswordEndpointTests : EndpointsTestBase
             new Uri("auth/reset-password", UriKind.Relative),
             new ResetPasswordRequest(registerRequest.Email, PasswordResetEmailSpy.LastResetToken!, newPassword));
 
-        // Act — login with new password
+        // Act: login with new password
         using FormUrlEncodedContent tokenRequest = new(new Dictionary<string, string>
         {
             ["grant_type"] = "password",
@@ -101,7 +101,7 @@ public sealed class ResetPasswordEndpointTests : EndpointsTestBase
             new Uri("auth/reset-password", UriKind.Relative),
             new ResetPasswordRequest(registerRequest.Email, PasswordResetEmailSpy.LastResetToken!, newPassword));
 
-        // Act — try login with old password
+        // Act: try login with old password
         using FormUrlEncodedContent tokenRequest = new(new Dictionary<string, string>
         {
             ["grant_type"] = "password",
@@ -120,7 +120,7 @@ public sealed class ResetPasswordEndpointTests : EndpointsTestBase
     [Fact]
     public async Task ResetPassword_ShouldRevokeExistingRefreshTokens_AfterReset()
     {
-        // Arrange — a confirmed user with an active refresh token (offline_access)
+        // Arrange: a confirmed user with an active refresh token (offline_access)
         const string originalPassword = "TestPass1!";
         const string newPassword = "NewPass99!";
 
@@ -156,7 +156,7 @@ public sealed class ResetPasswordEndpointTests : EndpointsTestBase
             new ResetPasswordRequest(registerRequest.Email, PasswordResetEmailSpy.LastResetToken!, newPassword));
         resetResponse.StatusCode.ShouldBe(HttpStatusCode.OK);
 
-        // Act — try to use the refresh token that was issued BEFORE the reset
+        // Act: try to use the refresh token that was issued BEFORE the reset
         using FormUrlEncodedContent refreshRequest = new(new Dictionary<string, string>
         {
             ["grant_type"] = "refresh_token",
@@ -167,7 +167,7 @@ public sealed class ResetPasswordEndpointTests : EndpointsTestBase
         HttpResponseMessage response = await ApiClient.Http.PostAsync(
             new Uri("connect/token", UriKind.Relative), refreshRequest);
 
-        // Assert — the pre-reset refresh token must be dead
+        // Assert: the pre-reset refresh token must be dead
         response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
     }
 
@@ -253,12 +253,12 @@ public sealed class ResetPasswordEndpointTests : EndpointsTestBase
 
         string resetToken = PasswordResetEmailSpy.LastResetToken!;
 
-        // First reset — should succeed
+        // The first reset should succeed.
         await ApiClient.Http.PostAsJsonAsync(
             new Uri("auth/reset-password", UriKind.Relative),
             new ResetPasswordRequest(registerRequest.Email, resetToken, "NewPass99!"));
 
-        // Act — second reset with same token should fail
+        // Act: second reset with same token should fail
         HttpResponseMessage response = await ApiClient.Http.PostAsJsonAsync(
             new Uri("auth/reset-password", UriKind.Relative),
             new ResetPasswordRequest(registerRequest.Email, resetToken, "AnotherPass1!"));

@@ -19,14 +19,14 @@ using JsonOptions = Microsoft.AspNetCore.Http.Json.JsonOptions;
 namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Tests.Messaging;
 
 /// <summary>
-/// The account-deletion legs of the brokered pipeline (MSG-04, ADR-0038): scheduling and
-/// cancelling each commit an id-only outbox row atomically with their state change, the real
-/// relay publishes to a real broker, and the real consumer selects the per-type processor by the
-/// AMQP <c>type</c> property. The legs mirror <see cref="PasswordResetPipelineTests"/> where the
-/// machinery is shared and add what is specific to these types: the cancel token is minted at
-/// delivery and must actually cancel the deletion, the deletion-cancelled response token must
-/// actually complete the recovery, and the drift guards ack a message whose precondition
-/// vanished between commit and delivery.
+/// The account-deletion parts of the pipeline with a real broker (MSG-04, ADR-0038). Scheduling and
+/// cancelling each commit an outbox row that carries only an id, together with their own change. The
+/// real relay publishes to a real broker, and the real consumer picks the processor by the AMQP
+/// <c>type</c> property.
+/// These tests follow <see cref="PasswordResetPipelineTests"/> where the machinery is the same, and add
+/// what is specific here: the cancel token is created at delivery and must really cancel the deletion,
+/// the token in the cancel response must really finish the recovery, and a message whose reason
+/// disappeared between the commit and the delivery is acknowledged and not sent again.
 /// </summary>
 public sealed class AccountDeletionPipelineTests : IClassFixture<BrokeredAuthSystemApiFactory>, IAsyncLifetime
 {
@@ -62,7 +62,7 @@ public sealed class AccountDeletionPipelineTests : IClassFixture<BrokeredAuthSys
         await cleaner.CleanAsync();
 
         // The host's consumer declares the topology on startup, but the first test may reach this
-        // point before that attach finished — declaring here is idempotent (proven in
+        // point before that attach finished. Declaring it here again is safe (proven in
         // DeadLetterTopologyTests) and guarantees the purges below have queues to purge.
         await using IConnection connection = await _factory.Broker.ConnectAsync(CancellationToken.None);
         await using IChannel channel = await connection.CreateChannelAsync();
@@ -76,31 +76,31 @@ public sealed class AccountDeletionPipelineTests : IClassFixture<BrokeredAuthSys
     [Fact]
     public async Task Pipeline_ShouldDeliverAScheduledEmailWhoseCancelLinkWorks_WhenDeleteAccountCommits()
     {
-        // Arrange — a confirmed account, so the only pipeline traffic left is the deletion e-mail
+        // Arrange: a confirmed account, so the only pipeline traffic left is the deletion e-mail
         (RegisterRequest request, IdentityId identityId) = await UserFactory.RegisterRandomUserWithRequestAsync(
             _apiClient, _faker, _confirmationEmailSpy, TestPassword);
         string accessToken = await GetAccessTokenAsync(request.Email);
 
-        // Act — deleting the account is the user-facing trigger of the whole pipeline
+        // Act: deleting the account is the user-facing trigger of the whole pipeline
         HttpResponseMessage deleteResponse = await SendDeleteRequestAsync(accessToken);
         await _deletionEmailSpy.WaitForScheduledCaptureAsync(DeliveryTimeout);
 
-        // Assert — the e-mail went out once, to the registered address, with the recomputed date
+        // Assert: the e-mail went out once, to the registered address, with the recomputed date
         deleteResponse.StatusCode.ShouldBe(HttpStatusCode.NoContent);
         _deletionEmailSpy.LastScheduledEmail.ShouldBe(request.Email);
         _deletionEmailSpy.LastCancelToken.ShouldNotBeNullOrWhiteSpace();
         _deletionEmailSpy.LastFinalizesAt.ShouldNotBeNull();
         _deletionEmailSpy.ScheduledCallCount.ShouldBe(1);
 
-        // The delivered token really cancels the deletion — the end-to-end proof that minting at
-        // delivery produced a link the owner can use
+        // The delivered token really cancels the deletion, which proves that creating it at delivery
+        // time produced a link the owner can use.
         HttpResponseMessage cancelResponse = await _apiClient.Http.PostAsJsonAsync(
             new Uri("auth/account/cancel-deletion", UriKind.Relative),
             new CancelAccountDeletionRequest(request.Email, _deletionEmailSpy.LastCancelToken!));
         cancelResponse.StatusCode.ShouldBe(HttpStatusCode.OK);
 
-        // The outbox row was published and marked on the first attempt — and carries the user id
-        // alone: no cancel token may ever persist in an outbox row (ADR-0038 decision 2)
+        // The outbox row was published and marked on the first attempt, and it carries the user id and
+        // nothing else: a cancel token must never sit in an outbox row (ADR-0038 decision 2).
         OutboxMessage? outboxRow = await OutboxAssertions.WaitForOutboxRowAsync(
             _factory,
             row => row.Type == nameof(AccountDeletionScheduled) && row.ProcessedOn != null,
@@ -121,26 +121,27 @@ public sealed class AccountDeletionPipelineTests : IClassFixture<BrokeredAuthSys
     [Fact]
     public async Task Pipeline_ShouldDeliverACancelledEmailAndTheResponseTokenMustCompleteRecovery_WhenCancelCommits()
     {
-        // Arrange — a scheduled deletion whose cancel link already arrived through the broker
+        // Arrange: a scheduled deletion whose cancel link already arrived through the broker
         (RegisterRequest request, IdentityId identityId) = await UserFactory.RegisterRandomUserWithRequestAsync(
             _apiClient, _faker, _confirmationEmailSpy, TestPassword);
         string accessToken = await GetAccessTokenAsync(request.Email);
         (await SendDeleteRequestAsync(accessToken)).StatusCode.ShouldBe(HttpStatusCode.NoContent);
         await _deletionEmailSpy.WaitForScheduledCaptureAsync(DeliveryTimeout);
 
-        // Act — cancelling is the second user-facing trigger; the courtesy notice rides the
+        // Act: cancelling is the second user-facing trigger; the courtesy notice rides the
         // pipeline while the forced-reset token travels in the response (ADR-0038)
         HttpResponseMessage cancelResponse = await _apiClient.Http.PostAsJsonAsync(
             new Uri("auth/account/cancel-deletion", UriKind.Relative),
             new CancelAccountDeletionRequest(request.Email, _deletionEmailSpy.LastCancelToken!));
         await _deletionEmailSpy.WaitForCancelledCaptureAsync(DeliveryTimeout);
 
-        // Assert — the courtesy notice went out once, to the registered address
+        // Assert: the courtesy notice went out once, to the registered address
         cancelResponse.StatusCode.ShouldBe(HttpStatusCode.OK);
         _deletionEmailSpy.LastCancelledEmail.ShouldBe(request.Email);
         _deletionEmailSpy.CancelledCallCount.ShouldBe(1);
 
-        // The response's reset token really completes the recovery — new password, working login
+        // The reset token in the response really finishes the recovery: a new password and a working
+        // login.
         CancelAccountDeletionResponse cancelBody = (await cancelResponse.Content
             .ReadFromJsonAsync<CancelAccountDeletionResponse>(_apiClient.JsonOptions))!;
         cancelBody.PasswordResetToken.ShouldNotBeNullOrWhiteSpace();
@@ -151,8 +152,8 @@ public sealed class AccountDeletionPipelineTests : IClassFixture<BrokeredAuthSys
         resetResponse.StatusCode.ShouldBe(HttpStatusCode.OK);
         (await RequestTokenAsync(request.Email, newPassword)).StatusCode.ShouldBe(HttpStatusCode.OK);
 
-        // The outbox row carries the user id alone — and in particular NOT the response's reset
-        // token, which must never persist in an outbox row (ADR-0038 decision 2)
+        // The outbox row carries the user id and nothing else, and above all not the reset token from
+        // the response, which must never sit in an outbox row (ADR-0038 decision 2).
         OutboxMessage? outboxRow = await OutboxAssertions.WaitForOutboxRowAsync(
             _factory,
             row => row.Type == nameof(AccountDeletionCancelled) && row.ProcessedOn != null,
@@ -171,12 +172,12 @@ public sealed class AccountDeletionPipelineTests : IClassFixture<BrokeredAuthSys
     [Fact]
     public async Task Consumer_ShouldAckWithoutEmailAndWithoutParking_WhenTheScheduleIsGoneAtDelivery()
     {
-        // Arrange — a user who is NOT deletion-scheduled: the deterministic construction of "the
+        // Arrange: a user who is NOT deletion-scheduled: the deterministic construction of "the
         // cancellation raced the scheduled message and won" (the drift guard's reason to exist)
         (_, IdentityId identityId) = await UserFactory.RegisterRandomUserWithRequestAsync(
             _apiClient, _faker, _confirmationEmailSpy, TestPassword);
 
-        // Act — the exact wire shape a stale scheduled message would have
+        // Act: the exact wire shape a stale scheduled message would have
         Guid messageId = Guid.CreateVersion7();
         IMessagePublisher publisher = _factory.Services.GetRequiredService<IMessagePublisher>();
         await publisher.PublishAsync(
@@ -186,7 +187,7 @@ public sealed class AccountDeletionPipelineTests : IClassFixture<BrokeredAuthSys
             messageId,
             CancellationToken.None);
 
-        // Assert — acked and recorded, but no stale "your account will be deleted" went out
+        // Assert: acked and recorded, but no stale "your account will be deleted" went out
         (await OutboxAssertions.WaitForInboxRowsAsync(_factory, messageId, DeliveryTimeout)).ShouldBe(1);
         _deletionEmailSpy.ScheduledCallCount.ShouldBe(0);
         (await GetWithinTimeoutAsync(RabbitMqTopology.EmailQueue, EmptyQueueGrace)).ShouldBeNull();
@@ -196,8 +197,8 @@ public sealed class AccountDeletionPipelineTests : IClassFixture<BrokeredAuthSys
     [Fact]
     public async Task Consumer_ShouldAckWithoutEmailAndWithoutParking_WhenDeletionIsScheduledAgainAtDelivery()
     {
-        // Arrange — a user who IS deletion-scheduled: the mirror drift — a cancelled notice
-        // delivered after deletion was scheduled again would announce the opposite of the truth
+        // Arrange: a user who does have a deletion scheduled. A "your account was kept" notice delivered
+        // after a deletion was scheduled again would say the opposite of the truth.
         (RegisterRequest request, IdentityId identityId) = await UserFactory.RegisterRandomUserWithRequestAsync(
             _apiClient, _faker, _confirmationEmailSpy, TestPassword);
         string accessToken = await GetAccessTokenAsync(request.Email);
@@ -214,7 +215,7 @@ public sealed class AccountDeletionPipelineTests : IClassFixture<BrokeredAuthSys
             messageId,
             CancellationToken.None);
 
-        // Assert — acked and recorded, but no "your account was kept" went out
+        // Assert: acked and recorded, but no "your account was kept" went out
         (await OutboxAssertions.WaitForInboxRowsAsync(_factory, messageId, DeliveryTimeout)).ShouldBe(1);
         _deletionEmailSpy.CancelledCallCount.ShouldBe(0);
         (await GetWithinTimeoutAsync(RabbitMqTopology.EmailQueue, EmptyQueueGrace)).ShouldBeNull();
@@ -228,7 +229,7 @@ public sealed class AccountDeletionPipelineTests : IClassFixture<BrokeredAuthSys
         string messageType,
         string routingKey)
     {
-        // Act — a valid message id and a registered deletion type, so the reject decision can
+        // Act: a valid message id and a registered deletion type, so the reject decision can
         // only come from the payload
         const string poisonPayload = """{"IdentityUserId":"not-a-guid"}""";
         Guid messageId = Guid.CreateVersion7();
@@ -240,7 +241,7 @@ public sealed class AccountDeletionPipelineTests : IClassFixture<BrokeredAuthSys
             messageId,
             CancellationToken.None);
 
-        // Assert — parked on first sight, no e-mail, no dedup record
+        // Assert: parked on first sight, no e-mail, no dedup record
         BasicGetResult dead =
             (await GetWithinTimeoutAsync(RabbitMqTopology.EmailDeadLetterQueue, DeliveryTimeout)).ShouldNotBeNull();
         Encoding.UTF8.GetString(dead.Body.ToArray()).ShouldBe(poisonPayload);
@@ -284,9 +285,9 @@ public sealed class AccountDeletionPipelineTests : IClassFixture<BrokeredAuthSys
     }
 
     /// <summary>
-    /// Polls the queue until a delivery arrives or the timeout passes — routing and dead-lettering
-    /// are asynchronous inside the broker. The read is auto-acked: every caller either asserts on
-    /// the delivery (test over either way) or expects null.
+    /// Polls the queue until a delivery arrives or the time runs out. Routing and dead-lettering happen
+    /// asynchronously inside the broker. The read acknowledges the message, which is fine: every caller
+    /// either checks the delivery or expects null.
     /// </summary>
     private async Task<BasicGetResult?> GetWithinTimeoutAsync(string queue, TimeSpan timeout)
     {

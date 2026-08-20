@@ -7,20 +7,22 @@ using RabbitMQ.Client;
 namespace LotroKoniecDev.AuthSystem.Infrastructure.Messaging;
 
 /// <summary>
-/// Publishes over one long-lived connection and one long-lived channel, both opened on the first
-/// publish instead of in the constructor: a web application must boot even while the broker is
-/// still starting, and nothing in the request pipeline needs the broker to be reachable.
+/// Publishes over one long-lived connection and one long-lived channel. Both open on the first
+/// publish and not in the constructor, because the web application must start even while the broker
+/// is still starting, and nothing in the request pipeline needs the broker.
 /// </summary>
 internal sealed partial class RabbitMqMessagePublisher : IMessagePublisher, IAsyncDisposable
 {
     private const string JsonContentType = "application/json";
 
     /// <summary>
-    /// Confirmations turn <see cref="IChannel.BasicPublishAsync{TProperties}(string,string,bool,TProperties,ReadOnlyMemory{byte},CancellationToken)"/>
-    /// from "written to the socket" into "the broker took responsibility for the message": without
-    /// them the call returns before the broker has seen anything, the relay marks the outbox row
-    /// processed, and a message lost in flight is lost for good. Tracking correlates the broker's
-    /// nack or return back to the exact publish, so both arrive as an exception on this very call.
+    /// Confirmations change what
+    /// <see cref="IChannel.BasicPublishAsync{TProperties}(string,string,bool,TProperties,ReadOnlyMemory{byte},CancellationToken)"/>
+    /// means: from "written to the socket" to "the broker has taken the message". Without them the
+    /// call returns before the broker has seen anything, the relay marks the outbox row as processed,
+    /// and a message lost on the way is lost for good.
+    /// Tracking ties the broker's nack or return back to the exact publish, so both arrive as an
+    /// exception on that very call.
     /// </summary>
     private static readonly CreateChannelOptions ChannelOptions = new(
         publisherConfirmationsEnabled: true,
@@ -60,8 +62,8 @@ internal sealed partial class RabbitMqMessagePublisher : IMessagePublisher, IAsy
 
         IChannel channel = await GetChannelAsync(cancellationToken);
 
-        // Type is the consumer's processor-selection key (ADR-0038): what the payload IS, while
-        // the routing key only says which bindings receive it.
+        // The consumer picks its processor by type (ADR-0038): the type says what the payload is,
+        // while the routing key only decides which bindings receive it.
         BasicProperties properties = new()
         {
             MessageId = messageId.ToString(),
@@ -100,8 +102,8 @@ internal sealed partial class RabbitMqMessagePublisher : IMessagePublisher, IAsy
     }
 
     /// <summary>
-    /// Returns the shared channel, opening the connection, the channel and the topology on first
-    /// use and rebuilding whichever of them the broker has since torn down.
+    /// Returns the shared channel. On first use it opens the connection, the channel and the
+    /// topology, and later it rebuilds whichever of them the broker has closed since.
     /// </summary>
     private async Task<IChannel> GetChannelAsync(CancellationToken cancellationToken)
     {
@@ -139,9 +141,9 @@ internal sealed partial class RabbitMqMessagePublisher : IMessagePublisher, IAsy
             }
             catch
             {
-                // A failed declaration (typically PRECONDITION_FAILED on drifted queue arguments)
-                // leaves a channel the broker already closed; dispose the client half instead of
-                // handing it back for the next publish to trip over.
+                // A failed declaration, usually PRECONDITION_FAILED because the queue arguments
+                // changed, leaves a channel the broker has already closed. Dispose our half instead of
+                // handing it to the next publish.
                 await CloseChannelAsync();
                 throw;
             }

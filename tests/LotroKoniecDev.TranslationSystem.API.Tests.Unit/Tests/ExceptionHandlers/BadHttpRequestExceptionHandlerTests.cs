@@ -9,9 +9,9 @@ using NSubstitute;
 namespace LotroKoniecDev.TranslationSystem.API.Tests.Unit.Tests.ExceptionHandlers;
 
 /// <summary>
-/// Pins the bad-request handler's status normalization (#208): an over-limit upload — however the
-/// framework surfaces it — is reported as a clean 413, while every other bad request stays 400 and a
-/// non-bad-request exception is left for the next handler.
+/// Pins how the bad-request handler chooses a status (#208): an upload that is too large is reported as
+/// a 413 however the framework raised it, every other bad request stays a 400, and any other exception
+/// is left to the next handler.
 /// </summary>
 public sealed class BadHttpRequestExceptionHandlerTests
 {
@@ -32,8 +32,8 @@ public sealed class BadHttpRequestExceptionHandlerTests
     [Fact]
     public async Task TryHandleAsync_ForMultipartLengthLimitWrappedAsBadRequest_ShouldReturn413()
     {
-        // The multipart form-length cap throws InvalidDataException, which minimal-API binding wraps as
-        // a generic 400 — normalized here to a clean 413.
+        // The multipart form limit throws InvalidDataException, which minimal-API binding turns into a
+        // plain 400. Here it becomes a 413.
         BadHttpRequestException exception = new(
             "Failed to read parameter \"file\" from the request body as form.",
             StatusCodes.Status400BadRequest,
@@ -67,8 +67,8 @@ public sealed class BadHttpRequestExceptionHandlerTests
     [Fact]
     public async Task TryHandleAsync_ForOrdinaryBadRequest_ShouldStay400()
     {
-        // A malformed JSON body is a genuine 400 and must NOT be relabeled "too large" — the regression
-        // guard for the over-broad payload-too-large detection.
+        // A malformed JSON body really is a 400 and must not be reported as "too large". This is the
+        // guard against a too-broad check for an oversized payload.
         BadHttpRequestException exception = new(
             "Failed to read parameter \"command\" from the request body as JSON.",
             StatusCodes.Status400BadRequest,

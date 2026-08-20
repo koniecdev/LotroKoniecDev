@@ -35,7 +35,7 @@ public sealed class TranslationFileRebuildWorkerTests
     [Fact]
     public async Task ExecuteAsync_BurstOfSignals_ShouldCoalesceIntoOneRebuild()
     {
-        // Arrange — five approves land within one debounce window.
+        // Arrange: five approves land within one debounce window.
         RecordingProjector projector = new();
         using TranslationFileRebuildWorker worker = CreateWorker(projector);
         for (int signal = 0; signal < 5; signal++)
@@ -49,7 +49,7 @@ public sealed class TranslationFileRebuildWorkerTests
         await WaitUntilIdleAsync();
         await worker.StopAsync(CancellationToken.None);
 
-        // Assert — the queue was fully drained by a single O(N) rebuild, not five serialized ones.
+        // Assert: the queue was fully drained by a single O(N) rebuild, not five serialized ones.
         projector.CallCount.ShouldBe(1);
         projector.Languages.ShouldBe(["pl"]);
         _scheduler.PendingCount.ShouldBe(0);
@@ -58,7 +58,7 @@ public sealed class TranslationFileRebuildWorkerTests
     [Fact]
     public async Task ExecuteAsync_SignalsForDistinctLanguages_ShouldRebuildEachOnce()
     {
-        // Arrange — dirty signals for two languages inside one window.
+        // Arrange: dirty signals for two languages inside one window.
         RecordingProjector projector = new();
         using TranslationFileRebuildWorker worker = CreateWorker(projector);
         _scheduler.Schedule("pl");
@@ -79,7 +79,7 @@ public sealed class TranslationFileRebuildWorkerTests
     [Fact]
     public async Task ExecuteAsync_WhenRebuildFails_ShouldRescheduleUntilTheArtifactConverges()
     {
-        // Arrange — the first rebuild attempt hits a transient fault.
+        // Arrange: the first rebuild attempt hits a transient fault.
         RecordingProjector projector = new(failuresBeforeSuccess: 1);
         using TranslationFileRebuildWorker worker = CreateWorker(projector);
         _scheduler.Schedule("pl");
@@ -90,7 +90,7 @@ public sealed class TranslationFileRebuildWorkerTests
         await WaitUntilIdleAsync();
         await worker.StopAsync(CancellationToken.None);
 
-        // Assert — the failed pass was retried on the next debounce window; the signal is only
+        // Assert: the failed pass was retried on the next debounce window; the signal is only
         // considered done once a rebuild actually succeeded.
         projector.CallCount.ShouldBe(2);
         _scheduler.PendingCount.ShouldBe(0);
@@ -99,7 +99,7 @@ public sealed class TranslationFileRebuildWorkerTests
     [Fact]
     public async Task ExecuteAsync_WhenRebuildThrowsCancellationWhileHostIsRunning_ShouldRescheduleInsteadOfStopping()
     {
-        // Arrange — a transient fault surfacing as OCE (e.g. a cancelled DB command) while the host
+        // Arrange: a transient fault surfacing as OCE (e.g. a cancelled DB command) while the host
         // is NOT shutting down; only a shutdown cancellation may escape the worker loop.
         RecordingProjector projector = new(
             failuresBeforeSuccess: 1,
@@ -113,7 +113,7 @@ public sealed class TranslationFileRebuildWorkerTests
         await WaitUntilIdleAsync();
         await worker.StopAsync(CancellationToken.None);
 
-        // Assert — the loop survived the rogue OCE and retried to convergence.
+        // Assert: the loop survived the rogue OCE and retried to convergence.
         projector.CallCount.ShouldBe(2);
         _scheduler.PendingCount.ShouldBe(0);
     }
@@ -121,7 +121,7 @@ public sealed class TranslationFileRebuildWorkerTests
     [Fact]
     public async Task ExecuteAsync_WithZeroDebounceWindow_ShouldStillRebuild()
     {
-        // Arrange — zero is a valid setting that disables the coalescing wait entirely.
+        // Arrange: zero is a valid setting that disables the coalescing wait entirely.
         RecordingProjector projector = new();
         using TranslationFileRebuildWorker worker = CreateWorker(projector, TimeSpan.Zero);
         _scheduler.Schedule("pl");
@@ -151,7 +151,7 @@ public sealed class TranslationFileRebuildWorkerTests
         bool cancelledWhileRunning = projector.LastToken.IsCancellationRequested;
         await worker.StopAsync(CancellationToken.None);
 
-        // Assert — the projector ran on the host stopping token (live while the app runs, cancelled
+        // Assert: the projector ran on the host stopping token (live while the app runs, cancelled
         // only at shutdown), so an aborted HTTP request can never cancel a scheduled rebuild.
         cancelledWhileRunning.ShouldBeFalse();
         projector.LastToken.IsCancellationRequested.ShouldBeTrue();

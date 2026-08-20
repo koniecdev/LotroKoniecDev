@@ -3,8 +3,7 @@ using LotroKoniecDev.Primitives.Constants;
 namespace LotroKoniecDev.Domain.Core.Utilities;
 
 /// <summary>
-/// Provides variable-length integer encoding/decoding utilities.
-/// Values 0-127 use 1 byte, values 128-32767 use 2 bytes.
+/// Reads and writes the DAT's variable-length integers: 0-127 fit in one byte, 128-32767 take two.
 /// </summary>
 public static class VarLenEncoder
 {
@@ -12,16 +11,10 @@ public static class VarLenEncoder
     private const int LowByteMask = 0xFF;
     private const int MaxSingleByteValue = 0x7F;
 
-    // One constant with Fragment.IsWritablePiece — a screen that disagreed with the guard it screens
-    // for would re-open #598 by letting an unwritable piece through, or by refusing a writable one.
+    // The same constant Fragment.IsWritablePiece uses. If the two disagreed, #598 would come back:
+    // we would either write a piece that does not fit, or refuse one that does.
     private const int MaxTwoByteValue = DatFileConstants.MaxVarLenValue;
 
-    /// <summary>
-    /// Reads a variable-length encoded integer from a BinaryReader.
-    /// </summary>
-    /// <param name="reader">The binary reader to read from.</param>
-    /// <returns>The decoded integer value.</returns>
-    /// <exception cref="ArgumentNullException">When reader is null.</exception>
     public static int Read(BinaryReader reader)
     {
         ArgumentNullException.ThrowIfNull(reader);
@@ -36,13 +29,8 @@ public static class VarLenEncoder
         return value;
     }
 
-    /// <summary>
-    /// Writes a variable-length encoded integer to a BinaryWriter.
-    /// </summary>
-    /// <param name="writer">The binary writer to write to.</param>
-    /// <param name="value">The integer value to encode (0-32767).</param>
-    /// <exception cref="ArgumentNullException">When writer is null.</exception>
-    /// <exception cref="ArgumentOutOfRangeException">When value is negative or exceeds maximum.</exception>
+    /// <param name="value">The value to encode. It must be between 0 and 32767.</param>
+    /// <exception cref="ArgumentOutOfRangeException">The value is negative or above the maximum.</exception>
     public static void Write(BinaryWriter writer, int value)
     {
         ArgumentNullException.ThrowIfNull(writer);
@@ -60,10 +48,6 @@ public static class VarLenEncoder
         }
     }
 
-    /// <summary>
-    /// Gets the number of bytes required to encode the given value.
-    /// </summary>
-    /// <param name="value">The value to check.</param>
     /// <returns>1 for values 0-127, 2 for values 128-32767.</returns>
     public static int GetEncodedLength(int value)
     {

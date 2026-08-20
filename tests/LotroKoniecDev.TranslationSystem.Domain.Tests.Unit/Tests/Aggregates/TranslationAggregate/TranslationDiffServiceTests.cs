@@ -120,7 +120,7 @@ public sealed class TranslationDiffServiceTests
     [InlineData(TranslationStatus.NeedsReview)]
     public async Task ComputePlanAsync_WithChangedSourceAndPolishWork_ShouldChangeAndInvalidate(TranslationStatus status)
     {
-        // Arrange — any status carrying Polish work counts as invalidated by a source change.
+        // Arrange: any status carrying Polish work counts as invalidated by a source change.
         StoredSourceDigest stored = Stored(1, 1, "Old", status: status);
         Dictionary<FragmentKeyValue, SourceHash> incoming = Map(Incoming(1, 1, "New"));
 
@@ -135,7 +135,7 @@ public sealed class TranslationDiffServiceTests
     [Fact]
     public async Task ComputePlanAsync_WithChangedArgsOnly_ShouldBeSourceChange()
     {
-        // Arrange — identical text, different argument structure is still a source change.
+        // Arrange: identical text, different argument structure is still a source change.
         StoredSourceDigest[] existing = [Stored(1, 1, "Text", argsOrder: "1-2")];
         Dictionary<FragmentKeyValue, SourceHash> incoming = Map(Incoming(1, 1, "Text", argsOrder: "2-1"));
 
@@ -214,7 +214,7 @@ public sealed class TranslationDiffServiceTests
     [Fact]
     public async Task ComputePlanAsync_RemovedFraction_ShouldBeComputedFromActiveRows()
     {
-        // Arrange — five active rows, the upload keeps four and drops one.
+        // Arrange: five active rows, the upload keeps four and drops one.
         StoredSourceDigest[] existing =
         [
             Stored(1, 1, "A"), Stored(1, 2, "B"), Stored(1, 3, "C"), Stored(1, 4, "D"), Stored(1, 5, "E")
@@ -234,7 +234,7 @@ public sealed class TranslationDiffServiceTests
     [Fact]
     public async Task ComputePlanAsync_ShouldConsumeTheIncomingMapDownToTheAddedKeys()
     {
-        // Arrange — one matched key, one new key: the diff owns the map and reduces it to the
+        // Arrange: one matched key, one new key: the diff owns the map and reduces it to the
         // added set the apply pass filters the re-streamed upload against.
         StoredSourceDigest stored = Stored(1, 1, "A");
         Dictionary<FragmentKeyValue, SourceHash> incoming = Map(Incoming(1, 1, "A"), Incoming(1, 9, "New"));
@@ -254,7 +254,7 @@ public sealed class TranslationDiffServiceTests
     [InlineData(TranslationStatus.NeedsReview)]
     public async Task ComputePlanAsync_WhenIncomingSourceIsTheRowsOwnPolish_ShouldBeUnchangedEcho(TranslationStatus status)
     {
-        // Arrange — the export came from a patched DAT, so the resident row carries our Polish as
+        // Arrange: the export came from a patched DAT, so the resident row carries our Polish as
         // its "source" (spec 0012); whatever the status, the current Polish is what would echo.
         StoredSourceDigest stored = Stored(1, 1, "Alpha", status: status, polish: "Alfa");
         Dictionary<FragmentKeyValue, SourceHash> incoming = Map(Incoming(1, 1, "Alfa"));
@@ -273,8 +273,9 @@ public sealed class TranslationDiffServiceTests
     [Fact]
     public async Task ComputePlanAsync_WhenIncomingSourceIsSomeoneElsesPolish_ShouldBeSourceChange()
     {
-        // Arrange — only the row's OWN Polish is an echo; a different Polish text is a real change
-        // (e.g. an older Polish still resident after a re-edit — the guard cannot know it).
+        // Arrange: only the row's own Polish counts as our text coming back. A different Polish text is a
+        // real change, for example an older Polish still sitting in the DAT after a re-edit, which the
+        // guard cannot recognise.
         StoredSourceDigest stored = Stored(1, 1, "Alpha", status: TranslationStatus.Approved, polish: "Alfa");
         Dictionary<FragmentKeyValue, SourceHash> incoming = Map(Incoming(1, 1, "Alfa stara"));
 
@@ -290,7 +291,7 @@ public sealed class TranslationDiffServiceTests
     [Fact]
     public async Task ComputePlanAsync_WhenRowHasNoPolish_ShouldNeverEcho()
     {
-        // Arrange — an untranslated row has nothing of ours that could come back; any differing text
+        // Arrange: an untranslated row has nothing of ours that could come back; any differing text
         // is a source change even if it happens to look Polish.
         StoredSourceDigest stored = Stored(1, 1, "Alpha");
         Dictionary<FragmentKeyValue, SourceHash> incoming = Map(Incoming(1, 1, "Alfa"));
@@ -307,7 +308,7 @@ public sealed class TranslationDiffServiceTests
     [Fact]
     public async Task ComputePlanAsync_WhenPolishEchoesWithIdenticalArgs_ShouldBeUnchangedEcho()
     {
-        // Arrange — a placeholder-bearing row: the patched DAT keeps the argument count, so the
+        // Arrange: a placeholder-bearing row: the patched DAT keeps the argument count, so the
         // export re-emits the source's identity args next to our Polish. Text AND args match the
         // echo triple.
         StoredSourceDigest stored = Stored(1, 1, "Hail <--DO_NOT_TOUCH!--> friend", argsOrder: "1-1", status: TranslationStatus.Approved, polish: "Witaj <--DO_NOT_TOUCH!--> przyjacielu");
@@ -326,7 +327,7 @@ public sealed class TranslationDiffServiceTests
     [Fact]
     public async Task ComputePlanAsync_WhenPolishEchoesWithDifferentArgs_ShouldBeSourceChange()
     {
-        // Arrange — the echo is the whole triple: our Polish text with the source's args columns. A
+        // Arrange: the echo is the whole triple: our Polish text with the source's args columns. A
         // changed argument structure is a real change even when the text is our own Polish.
         StoredSourceDigest stored = Stored(1, 1, "Alpha", argsOrder: "1-2", status: TranslationStatus.Approved, polish: "Alfa");
         Dictionary<FragmentKeyValue, SourceHash> incoming = Map(Incoming(1, 1, "Alfa", argsOrder: "1-2-3"));
@@ -343,9 +344,9 @@ public sealed class TranslationDiffServiceTests
     [Fact]
     public async Task ComputePlanAsync_WhenStoredSourceAlreadyEqualsThePolish_ShouldBePlainUnchangedNotEcho()
     {
-        // Arrange — a poisoned row (its source was overwritten with the Polish echo by a pre-guard
-        // import): the source check wins, so it is unchanged and NOT counted as an echo — the echo
-        // counter reports guard hits only.
+        // Arrange: a poisoned row, whose source an import before the guard overwrote with the Polish. The
+        // source check wins, so the row counts as unchanged and not as our text coming back. That counter
+        // only reports rows the guard caught.
         StoredSourceDigest stored = Stored(1, 1, "Alfa", status: TranslationStatus.Approved, polish: "Alfa");
         Dictionary<FragmentKeyValue, SourceHash> incoming = Map(Incoming(1, 1, "Alfa"));
 
@@ -361,7 +362,7 @@ public sealed class TranslationDiffServiceTests
     [Fact]
     public async Task ComputePlanAsync_WhenRemovedRowReappearsAsItsOwnPolish_ShouldRestoreAndCountEcho()
     {
-        // Arrange — an echo proves the fragment still holds our patch, i.e. its source never really
+        // Arrange: an echo proves the fragment still holds our patch, i.e. its source never really
         // changed, so a soft-removed row follows the identical-source re-add rule and is restored.
         StoredSourceDigest removed = Stored(1, 1, "Alpha", status: TranslationStatus.Approved, isRemoved: true, polish: "Alfa");
         Dictionary<FragmentKeyValue, SourceHash> incoming = Map(Incoming(1, 1, "Alfa"));
@@ -380,7 +381,7 @@ public sealed class TranslationDiffServiceTests
     [Fact]
     public async Task ComputePlanAsync_OnPatchedDatExport_ShouldInvalidateOnlyTheRealEnglishChange()
     {
-        // Arrange — the U49 shape (spec 0012 AC): a translated corpus, an export from the admin's
+        // Arrange: the U49 shape (spec 0012 AC): a translated corpus, an export from the admin's
         // patched DAT. Rows 1-2 echo our Polish, row 3 was collateral-reverted to its identical
         // English (a client-side repair, not a TMS event), row 4's English really changed, row 5 is
         // untranslated and untouched.

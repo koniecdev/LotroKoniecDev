@@ -10,10 +10,10 @@ using RabbitMQ.Client.Exceptions;
 namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Tests.Messaging;
 
 /// <summary>
-/// Exercises the real <see cref="RabbitMqMessagePublisher"/> against a real broker — the only
-/// suite where its lazy connect, topology declaration, publisher confirmations, mandatory
-/// returns and channel rebuild actually run (everywhere else the factory swaps in
-/// <c>SpyMessagePublisher</c>, and <c>DeadLetterTopologyTests</c> drives raw channels).
+/// Runs the real <see cref="RabbitMqMessagePublisher"/> against a real broker. This is the only suite
+/// where its late connect, its topology declaration, the publisher confirmations, the mandatory returns
+/// and the channel rebuild really happen. Everywhere else the factory uses
+/// <c>SpyMessagePublisher</c>, and <c>DeadLetterTopologyTests</c> works with raw channels.
 /// </summary>
 public sealed class RabbitMqMessagePublisherTests : IClassFixture<RabbitMqBrokerFixture>, IAsyncLifetime
 {
@@ -51,11 +51,11 @@ public sealed class RabbitMqMessagePublisherTests : IClassFixture<RabbitMqBroker
         // Arrange
         Guid messageId = Guid.CreateVersion7();
 
-        // Act — first publish on a fresh instance also opens the connection and declares topology
+        // Act: first publish on a fresh instance also opens the connection and declares topology
         await _publisher.PublishAsync(
             RabbitMqTopology.EmailConfirmationRoutingKey, MessageType, Payload, messageId, CancellationToken.None);
 
-        // Assert — the broker took responsibility and the queue holds the exact wire message
+        // Assert: the broker took responsibility and the queue holds the exact wire message
         BasicGetResult delivery = (await GetFromEmailQueueAsync()).ShouldNotBeNull();
         Encoding.UTF8.GetString(delivery.Body.ToArray()).ShouldBe(Payload);
         delivery.BasicProperties.MessageId.ShouldBe(messageId.ToString());
@@ -68,9 +68,9 @@ public sealed class RabbitMqMessagePublisherTests : IClassFixture<RabbitMqBroker
     [Fact]
     public async Task PublishAsync_ShouldSurfaceTheReturn_WhenNoQueueIsBoundToTheRoutingKey()
     {
-        // Act — "billing.invoice" matches no binding (the queue binds email.#), and the publisher
-        // sends mandatory with confirmation tracking, so the basic.return must fault this very call
-        // instead of silently dropping the message
+        // Act: "billing.invoice" matches no binding, because the queue binds email.#. The publisher
+        // sends the message as mandatory and tracks the confirmation, so the basic.return has to fail
+        // this very call instead of the message quietly disappearing.
         Task publish = _publisher.PublishAsync(
             "billing.invoice", MessageType, Payload, Guid.CreateVersion7(), CancellationToken.None);
 
@@ -81,14 +81,14 @@ public sealed class RabbitMqMessagePublisherTests : IClassFixture<RabbitMqBroker
     [Fact]
     public async Task PublishAsync_ShouldRebuildAndDeliver_WhenTheBrokerDropsEveryConnection()
     {
-        // Arrange — a first publish so the long-lived connection and channel exist to be killed
+        // Arrange: a first publish so the long-lived connection and channel exist to be killed
         await _publisher.PublishAsync(
             RabbitMqTopology.EmailConfirmationRoutingKey, MessageType, Payload, Guid.CreateVersion7(), CancellationToken.None);
         (await GetFromEmailQueueAsync()).ShouldNotBeNull();
 
         await _broker.CloseAllConnectionsAsync();
 
-        // Act — the relay's behavior on a failed pass is retry-with-backoff, so eventual success
+        // Act: the relay's behavior on a failed pass is retry-with-backoff, so eventual success
         // is the contract; the first attempt may still race the client noticing the dead socket
         Guid messageId = Guid.CreateVersion7();
         await PublishWithRetryAsync(messageId);

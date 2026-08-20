@@ -1,7 +1,7 @@
 namespace LotroKoniecDev.AuthSystem.Infrastructure;
 
 /// <summary>
-/// Event ID ranges: TranslationSystem 1000–1999, AuthSystem 2000–2999, Shared 3000–3999.
+/// Event ID ranges: TranslationSystem 1000-1999, AuthSystem 2000-2999, Shared 3000-3999.
 /// </summary>
 internal static class EventIds
 {

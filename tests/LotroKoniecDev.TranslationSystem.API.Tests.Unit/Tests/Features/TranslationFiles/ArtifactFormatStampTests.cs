@@ -3,9 +3,10 @@ using LotroKoniecDev.TranslationSystem.API.Features.TranslationFiles;
 namespace LotroKoniecDev.TranslationSystem.API.Tests.Unit.Tests.Features.TranslationFiles;
 
 /// <summary>
-/// The startup catch-up of ADR-0047 (Consequences — "Deploy ordering") turns on this one predicate:
-/// without it an upgraded CLI downloads a six-column artifact and patches nothing until somebody
-/// happens to approve a row; with it firing wrongly, every restart rebuilds a multi-MB artifact.
+/// The startup catch-up of ADR-0047, described under "Deploy ordering" in its Consequences, depends on
+/// this one check. Without it an updated CLI downloads a six-column artifact and patches nothing until
+/// somebody happens to approve a row. If it answers wrongly, every restart rebuilds a multi-MB
+/// artifact.
 /// </summary>
 public sealed class ArtifactFormatStampTests
 {
@@ -42,8 +43,8 @@ public sealed class ArtifactFormatStampTests
     [Fact]
     public void PredatesSourceDigest_ShouldJudgeTheFirstRowNotTheWholePrefix()
     {
-        // A mixed artifact cannot exist — one projector writes the whole file — so reading further
-        // would only cost a scan of the prefix for an answer the first row already gives.
+        // A file with both formats cannot exist, because one projector writes the whole thing, so
+        // reading further would only cost time for an answer the first row already gives.
         const string content = "620756992||1001||Witaj||NULL||NULL||1||a37cc1683216cd32\r\n620756992||1002||Zegnaj||NULL||NULL||1\r\n";
 
         ArtifactFormatStamp.PredatesSourceDigest(content).ShouldBeFalse();

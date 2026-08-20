@@ -3,11 +3,11 @@ using LotroKoniecDev.AuthSystem.API.Outbox;
 namespace LotroKoniecDev.AuthSystem.API.Tests.Unit.Outbox;
 
 /// <summary>
-/// Pins the write-time routability guard of <see cref="OutboxWriter"/>: a contract nobody mapped
-/// in <see cref="OutboxMessageRouting"/> must fail the writer's own request the moment it is
-/// enqueued — and with a dedicated exception type, because writers defensively filter broad
-/// exception families (<c>RegisterUser</c> catches <see cref="InvalidOperationException"/> for an
-/// Identity lookup race) and the crash must never be swallowed into a bogus business outcome.
+/// Pins the check <see cref="OutboxWriter"/> does when a row is written: a contract nobody added to
+/// <see cref="OutboxMessageRouting"/> must fail the writer's own request as soon as it is enqueued.
+/// It uses its own exception type, because writers catch broad exception types for safety, for example
+/// <c>RegisterUser</c> catches <see cref="InvalidOperationException"/> for an Identity lookup race, and
+/// this crash must never be turned into a false business outcome.
 /// </summary>
 public sealed class OutboxWriterTests
 {
@@ -16,7 +16,7 @@ public sealed class OutboxWriterTests
     [Fact]
     public void Enqueue_TypeWithoutRoutingKey_ThrowsBeforeTouchingTheUnitOfWork()
     {
-        // Arrange — the guard must fire before any dependency is used, so the writer is built
+        // Arrange: the guard must fire before any dependency is used, so the writer is built
         // with a null context on purpose: reaching the database would NRE instead of throwing
         using OutboxSignal outboxSignal = new();
         OutboxWriter sut = new(db: null!, outboxSignal, TimeProvider.System);

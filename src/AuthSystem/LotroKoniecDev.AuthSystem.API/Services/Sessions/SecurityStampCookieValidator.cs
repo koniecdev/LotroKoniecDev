@@ -6,22 +6,25 @@ using LotroKoniecDev.AuthSystem.Domain.Aggregates.ApplicationUsers.Entities;
 namespace LotroKoniecDev.AuthSystem.API.Services.Sessions;
 
 /// <summary>
-/// Cookie <c>OnValidatePrincipal</c> handler that revalidates the Identity security stamp on every
-/// request to the auth server. When a user's stamp rotates — password reset/change/delete call
-/// <see cref="UserManager{TUser}.UpdateSecurityStampAsync"/> — a still-live auth cookie is rejected on
-/// its next request, so it can no longer complete <c>/connect/authorize</c> and mint fresh tokens.
-/// This closes the ≤30-min re-mint window that survived SEC-02 (which revokes existing tokens but not a
-/// live cookie's ability to create new ones). See ticket #282 (SEC-03).
+/// The cookie <c>OnValidatePrincipal</c> handler. It checks the Identity security stamp on every
+/// request to the auth server. When the stamp changes, which a password reset, change or delete does
+/// through <see cref="UserManager{TUser}.UpdateSecurityStampAsync"/>, an auth cookie that is still
+/// valid is rejected on its next request, so it can no longer finish <c>/connect/authorize</c> and get
+/// fresh tokens.
+/// That closes the window of up to 30 minutes left by SEC-02, which revokes the tokens a user already
+/// has but not a live cookie's ability to create new ones. See ticket #282 (SEC-03).
 /// </summary>
 /// <remarks>
-/// Deliberately NOT the built-in <see cref="SecurityStampValidator.ValidatePrincipalAsync"/>: its
-/// rejection path unconditionally signs out <see cref="IdentityConstants.TwoFactorRememberMeScheme"/>,
-/// which this à-la-carte auth server (a single hardened <see cref="IdentityConstants.ApplicationScheme"/>
-/// cookie, no external-login/two-factor schemes) does not register — that sign-out would throw and turn
-/// the intended redirect-to-login into a 500. This validates the stamp through the same framework
-/// primitive the built-in validator uses (<see cref="SignInManager{TUser}.ValidateSecurityStampAsync(System.Security.Claims.ClaimsPrincipal)"/>)
-/// and evicts only the one scheme this server owns, mirroring <c>LogoutEndpoint</c>. Validating on every
-/// request is intentional — this is the auth origin (equivalent to a zero <c>ValidationInterval</c>).
+/// This is not the built-in <see cref="SecurityStampValidator.ValidatePrincipalAsync"/>, on purpose.
+/// When that one rejects a cookie it always signs out
+/// <see cref="IdentityConstants.TwoFactorRememberMeScheme"/>, which this auth server does not register:
+/// it has one hardened <see cref="IdentityConstants.ApplicationScheme"/> cookie and no external-login
+/// or two-factor schemes. That sign-out would throw and turn the intended redirect to the login page
+/// into a 500.
+/// This one checks the stamp through the same framework method the built-in validator uses,
+/// <see cref="SignInManager{TUser}.ValidateSecurityStampAsync(System.Security.Claims.ClaimsPrincipal)"/>,
+/// and signs out only the one scheme this server owns, like <c>LogoutEndpoint</c> does.
+/// Checking on every request is deliberate: this is the auth server itself, so the interval is zero.
 /// </remarks>
 internal static class SecurityStampCookieValidator
 {

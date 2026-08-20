@@ -7,24 +7,25 @@ using VerifyTests;
 namespace LotroKoniecDev.Tests.Shared;
 
 /// <summary>
-/// The repo-wide Verify configuration (#571). The file is <em>linked</em> into every suite that
-/// snapshots something, so all of them scrub identically — same idiom as the shared naughty-string
-/// theory sources (#569, <see cref="NaughtyStringCases"/>).
+/// The Verify configuration for the whole repo (#571). The file is linked into every suite that takes a
+/// snapshot, so all of them scrub values the same way, like the shared naughty-string sources (#569,
+/// <see cref="NaughtyStringCases"/>).
 /// </summary>
 /// <remarks>
 /// <para>
-/// A snapshot that churns on every run is worse than no snapshot, so every value that varies between
-/// runs, machines or environments is scrubbed here. Each scrubber is deliberately <em>shape-matched</em>
-/// and replaces as little as it can get away with: a regex only fires on text that still looks like a
-/// GUID / an instant / a digest, and the parts that carry contract meaning are left in the snapshot.
-/// A regression that changes the shape therefore leaves the raw value in place and fails the test,
+/// A snapshot that changes on every run is worse than no snapshot, so every value that differs between
+/// runs, machines or environments is scrubbed here.
+/// Each scrubber matches a shape on purpose and replaces as little as possible: a pattern only fires on
+/// text that still looks like a GUID, a timestamp or a digest, and everything that carries meaning stays
+/// in the snapshot. So a change that alters the shape leaves the raw value in place and fails the test,
 /// which is the whole point of pinning the payload.
 /// </para>
 /// <para>
-/// Ordering note: the scrubbers run over the same text, so a future one must not be able to consume
-/// what an earlier one is meant to see. Today they cannot overlap — a W3C traceparent is 32/16 hex
-/// and <c>HttpContext.TraceIdentifier</c> is <c>0Hxxx:0000001</c>, so neither is GUID- nor
-/// 64-hex-shaped, and <see cref="TraceIdPattern"/> is anchored on the property name either way.
+/// A note on order: the scrubbers run over the same text, so a new one must not eat what an earlier one
+/// is meant to see. Today they cannot overlap. A W3C traceparent is 32 or 16 hex characters and
+/// <c>HttpContext.TraceIdentifier</c> looks like <c>0Hxxx:0000001</c>, so neither has the shape of a
+/// GUID or of a 64-character hex digest, and <see cref="TraceIdPattern"/> is anchored on the property
+/// name anyway.
 /// </para>
 /// <para>
 /// Verify resolves a verified file from the test's <c>[CallerFilePath]</c>. That means enabling
@@ -70,10 +71,10 @@ internal static partial class VerifyModuleInitializer
     private static partial Regex TimestampPattern();
 
     /// <summary>
-    /// Content digests: the translation file's SHA-256 hex, which is also served verbatim as the
-    /// strong <c>ETag</c> (AUDIT-SEC-01/#391), plus any other 64-char hex digest. Word-bounded, so a
-    /// longer hex run is left whole and visible instead of being half-replaced. Defensive — no
-    /// snapshot currently carries a digest, so this is not ETag coverage.
+    /// Content digests: the translation file's SHA-256 in hex, which is also served as the strong
+    /// <c>ETag</c> (AUDIT-SEC-01, #391), plus any other 64-character hex digest. It matches whole words,
+    /// so a longer run of hex stays visible instead of being half replaced.
+    /// It is here just in case: no snapshot carries a digest today, so this does not cover the ETag.
     /// </summary>
     [GeneratedRegex(@"\b[0-9a-fA-F]{64}\b")]
     private static partial Regex HexDigestPattern();

@@ -42,7 +42,7 @@ internal sealed partial class ResetPassword : IApiEndpoint
     internal sealed partial class Handler : ICommandHandler<Command, Result>
     {
         /// <summary>
-        /// Pre-computed hash for timing-equalization when user is not found.
+        /// A hash computed up front, so the not-found path takes as long as the normal one.
         /// </summary>
         private static readonly string DummyPasswordHash =
             new PasswordHasher<ApplicationUser>().HashPassword(new ApplicationUser(), "DummyP@ssw0rd!");
@@ -76,15 +76,17 @@ internal sealed partial class ResetPassword : IApiEndpoint
 
             if (user is null)
             {
-                // Perform dummy work to prevent timing-based user enumeration
+                // Do the same work anyway, so the response time does not reveal whether the user
+                // exists.
                 _ = new PasswordHasher<ApplicationUser>()
                     .VerifyHashedPassword(new ApplicationUser(), DummyPasswordHash, "DummyP@ssw0rd!");
 
                 return Result.Failure(AuthErrors.InvalidPasswordResetToken);
             }
 
-            // While GDPR deletion is scheduled, only the emailed cancel-deletion link may
-            // restore the account. The generic invalid-token error prevents state probing.
+            // While a GDPR deletion is scheduled, only the cancel link in the e-mail can bring the
+            // account back. We return the general invalid-token error, so nobody can use this to learn
+            // the state of an account.
             if (user.DeletionScheduledAt is not null)
             {
                 LogPasswordResetBlockedDeletionScheduled(_logger, user.Id);

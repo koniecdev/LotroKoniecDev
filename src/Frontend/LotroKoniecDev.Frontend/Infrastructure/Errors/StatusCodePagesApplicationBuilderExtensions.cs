@@ -5,14 +5,14 @@ using Microsoft.AspNetCore.Routing;
 namespace LotroKoniecDev.Frontend.Infrastructure.Errors;
 
 /// <summary>
-/// Same contract as the built-in <c>UseStatusCodePagesWithReExecute(string, string?)</c> but lets the
-/// host pick a re-execute path per status code, so 401/403/404/5xx each land on a page that honestly
-/// represents what happened instead of pretending every 4xx/5xx is a 404.
+/// Works like the built-in <c>UseStatusCodePagesWithReExecute(string, string?)</c>, but the host can
+/// pick a different page per status code, so 401, 403, 404 and 5xx each land on a page that says what
+/// really happened instead of pretending every error is a 404.
 /// </summary>
 /// <remarks>
-/// Mirrors the runtime implementation: sets <see cref="IStatusCodeReExecuteFeature"/> so middleware can
-/// recognise the re-executed request, clears the routed endpoint so the rewritten path is matched
-/// again, and restores request state in <c>finally</c>.
+/// It follows the framework's own implementation: it sets <see cref="IStatusCodeReExecuteFeature"/> so
+/// middleware can tell this is a second pass, clears the matched endpoint so the new path is routed
+/// again, and restores the request state in <c>finally</c>.
 /// </remarks>
 public static class StatusCodePagesApplicationBuilderExtensions
 {
@@ -47,8 +47,8 @@ public static class StatusCodePagesApplicationBuilderExtensions
                     OriginalStatusCode = statusCode
                 });
 
-                // EndpointRoutingMiddleware short-circuits when an endpoint is already set, so the
-                // rewritten path would otherwise hit the original (now-irrelevant) endpoint.
+                // EndpointRoutingMiddleware stops early when an endpoint is already set, so without this
+                // the new path would run the original endpoint, which no longer applies.
                 httpContext.SetEndpoint(endpoint: null);
                 httpContext.Features.Get<IRouteValuesFeature>()?.RouteValues?.Clear();
 

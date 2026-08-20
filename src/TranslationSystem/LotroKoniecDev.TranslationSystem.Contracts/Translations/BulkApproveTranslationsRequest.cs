@@ -1,8 +1,8 @@
 namespace LotroKoniecDev.TranslationSystem.Contracts.Translations;
 
 /// <summary>
-/// Approves several translation rows in one admin action (#322): the ids of the rows selected on the
-/// translations list. Best-effort — rows that are no longer approvable when the request lands are
-/// skipped, not rejected (see <see cref="BulkApproveTranslationsResponse"/>).
+/// Approves several translation rows in one admin action (#322). It carries the ids selected on the
+/// translations list. A row that can no longer be approved by the time the request arrives is
+/// skipped, not treated as an error (see <see cref="BulkApproveTranslationsResponse"/>).
 /// </summary>
 public sealed record BulkApproveTranslationsRequest(IReadOnlyList<Guid> Ids);

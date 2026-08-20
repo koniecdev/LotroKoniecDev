@@ -220,7 +220,7 @@ public sealed class FragmentTests
     [Fact]
     public void Parse_WithArgStrings_ShouldParseArgStringGroups()
     {
-        // Arrange — fragment with 1 piece, 0 arg refs, 2 arg string groups
+        // Arrange: fragment with 1 piece, 0 arg refs, 2 arg string groups
         Fragment fragment = new();
         using MemoryStream stream = new();
         using BinaryWriter writer = new(stream);
@@ -345,7 +345,7 @@ public sealed class FragmentTests
         fragment.ArgRefs.Add([0x0B, 0x00, 0x00, 0x00]);
         fragment.ArgRefs.Add([0x0C, 0x00, 0x00, 0x00]);
 
-        // Act — rotate: [2, 0, 1] means new[0]=old[2], new[1]=old[0], new[2]=old[1]
+        // Act: rotate: [2, 0, 1] means new[0]=old[2], new[1]=old[0], new[2]=old[1]
         bool result = fragment.TryReorderArgRefs([2, 0, 1]);
 
         // Assert
@@ -358,7 +358,7 @@ public sealed class FragmentTests
     [Fact]
     public void ParseAndWrite_RoundTrip_WithArgStrings_ShouldPreserveData()
     {
-        // Arrange — build binary with pieces + arg refs + arg string groups
+        // Arrange: build binary with pieces + arg refs + arg string groups
         using MemoryStream originalStream = new();
         using BinaryWriter originalWriter = new(originalStream);
 
@@ -408,7 +408,7 @@ public sealed class FragmentTests
     [InlineData(-1)]
     public void Parse_ImpossiblePieceCount_ShouldThrowInvalidDataException(int declaredPieces)
     {
-        // Arrange — declares more pieces than the remaining bytes could ever hold
+        // Arrange: declares more pieces than the remaining bytes could ever hold
         Fragment fragment = new();
         using MemoryStream stream = new();
         using BinaryWriter writer = new(stream);
@@ -429,7 +429,7 @@ public sealed class FragmentTests
     [Fact]
     public void Parse_PieceLengthExceedingRemainingBytes_ShouldThrowInvalidDataException()
     {
-        // Arrange — the piece declares 300 characters (600 bytes) but only 4 bytes follow
+        // Arrange: the piece declares 300 characters (600 bytes) but only 4 bytes follow
         Fragment fragment = new();
         using MemoryStream stream = new();
         using BinaryWriter writer = new(stream);
@@ -455,7 +455,7 @@ public sealed class FragmentTests
     [InlineData(-1)]
     public void Parse_ImpossibleArgRefCount_ShouldThrowInvalidDataException(int declaredArgRefs)
     {
-        // Arrange — a valid empty piece list, then an arg-ref count with no data behind it
+        // Arrange: a valid empty piece list, then an arg-ref count with no data behind it
         Fragment fragment = new();
         using MemoryStream stream = new();
         using BinaryWriter writer = new(stream);
@@ -477,7 +477,7 @@ public sealed class FragmentTests
     [Fact]
     public void Parse_ArgRefCountLargerThanRemainingBytes_ShouldThrowInvalidDataException()
     {
-        // Arrange — declares 2 arg refs (8 bytes) but only one 4-byte ref is present
+        // Arrange: declares 2 arg refs (8 bytes) but only one 4-byte ref is present
         Fragment fragment = new();
         using MemoryStream stream = new();
         using BinaryWriter writer = new(stream);
@@ -500,7 +500,7 @@ public sealed class FragmentTests
     [Fact]
     public void Parse_ArgStringGroupCountExceedingRemainingBytes_ShouldThrowInvalidDataException()
     {
-        // Arrange — declares 255 arg string groups with no group data behind the count
+        // Arrange: declares 255 arg string groups with no group data behind the count
         Fragment fragment = new();
         using MemoryStream stream = new();
         using BinaryWriter writer = new(stream);
@@ -526,7 +526,7 @@ public sealed class FragmentTests
     [InlineData(-1)]
     public void Parse_ImpossibleArgStringCount_ShouldThrowInvalidDataException(int declaredStrings)
     {
-        // Arrange — one arg string group whose string count cannot fit in the remaining bytes
+        // Arrange: one arg string group whose string count cannot fit in the remaining bytes
         Fragment fragment = new();
         using MemoryStream stream = new();
         using BinaryWriter writer = new(stream);
@@ -550,7 +550,7 @@ public sealed class FragmentTests
     [Fact]
     public void Parse_ArgStringLengthExceedingRemainingBytes_ShouldThrowInvalidDataException()
     {
-        // Arrange — the arg string declares 300 characters (600 bytes) but only 4 bytes follow
+        // Arrange: the arg string declares 300 characters (600 bytes) but only 4 bytes follow
         Fragment fragment = new();
         using MemoryStream stream = new();
         using BinaryWriter writer = new(stream);

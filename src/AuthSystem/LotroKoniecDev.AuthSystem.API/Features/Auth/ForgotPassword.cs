@@ -33,7 +33,7 @@ internal sealed partial class ForgotPassword : IApiEndpoint
     internal sealed partial class Handler : ICommandHandler<Command, Result>
     {
         /// <summary>
-        /// Pre-computed hash for timing-equalization when user is not found.
+        /// A hash computed up front, so the not-found path takes as long as the normal one.
         /// </summary>
         private static readonly string DummyPasswordHash =
             new PasswordHasher<ApplicationUser>().HashPassword(new ApplicationUser(), "DummyP@ssw0rd!");
@@ -68,10 +68,10 @@ internal sealed partial class ForgotPassword : IApiEndpoint
 
             ApplicationUser? user = await _userManager.FindByEmailAsync(command.Email);
 
-            // Every path pays the same PBKDF2 cost. Burning the dummy hash only on the
-            // not-found branch would make existing accounts answer measurably FASTER
-            // (their path is just a cheap outbox insert), turning response time into an
-            // inverted user-enumeration oracle (ADR-0038 decision 5).
+            // Every path pays the same PBKDF2 cost. Running the dummy hash only when the user is not
+            // found would make real accounts answer measurably faster, because their path is only a
+            // cheap outbox insert, and the response time would then tell an attacker which accounts
+            // exist (ADR-0038 decision 5).
             _ = _userManager.PasswordHasher.VerifyHashedPassword(
                 new ApplicationUser(), DummyPasswordHash, "DummyP@ssw0rd!");
 
@@ -80,13 +80,13 @@ internal sealed partial class ForgotPassword : IApiEndpoint
                 string maskedEmail = command.Email.MaskEmail();
                 LogPasswordResetNonExistent(_logger, maskedEmail);
 
-                // Always return success to prevent email enumeration
+                // Always report success, so nobody can find out which e-mails are registered.
                 return Result.Success();
             }
 
-            // No token minting and no deletion-window check here: the payload carries the id
-            // alone, and the dispatch processor mints the token and owns the guard at delivery
-            // (ADR-0038 decision 2).
+            // No token is created here and the deletion window is not checked here. The payload holds
+            // only the id, and the dispatch processor creates the token and does that check when it
+            // sends (ADR-0038 decision 2).
             _outboxWriter.Enqueue(new PasswordResetRequested(user.Id));
             await _db.SaveChangesAsync(cancellationToken);
 

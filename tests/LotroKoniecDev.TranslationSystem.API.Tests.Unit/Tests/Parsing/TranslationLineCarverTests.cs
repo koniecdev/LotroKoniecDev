@@ -3,9 +3,10 @@ using LotroKoniecDev.TranslationSystem.API.Parsing;
 namespace LotroKoniecDev.TranslationSystem.API.Tests.Unit.Tests.Parsing;
 
 /// <summary>
-/// The TMS' copy of the field-boundary rule (ADR-0042). Its twin lives in the patcher suite over the
-/// patcher's own copy, and <c>ParserContractParityTests</c> pins the two against each other — the
-/// contexts share the file, never code, so nothing else stops one copy from drifting.
+/// The TMS' copy of the rule that finds the field boundaries (ADR-0042). Its twin lives in the patcher
+/// suite over the patcher's own copy, and <c>ParserContractParityTests</c> checks the two against each
+/// other. The contexts share the file and never the code, so nothing else stops one copy from changing
+/// on its own.
 /// </summary>
 public sealed class TranslationLineCarverTests
 {
@@ -20,7 +21,7 @@ public sealed class TranslationLineCarverTests
     [InlineData("")]
     public void TryCarve_ContentEndingInPipesWithEmptyArgsColumns_ShouldStillEndContentAtTheRightPipe(string content)
     {
-        // Arrange — THE case the backward pass slices for. With empty args columns the separator
+        // Arrange: THE case the backward pass slices for. With empty args columns the separator
         // pairs sit adjacent, so a search bound that let a match straddle the slice edge would take
         // the wrong pair and drag pipes out of the content. Every other test uses NULL args, which
         // pads the columns apart and hides the bug entirely.
@@ -47,7 +48,7 @@ public sealed class TranslationLineCarverTests
     public void TryCarve_WellFormedLine_ShouldCarveEveryFieldVerbatim(
         string line, string fileId, string gossipId, string content, string argsOrder, string argsId, string approved)
     {
-        // Act — the carver parses nothing and unescapes nothing; it only finds boundaries.
+        // Act: the carver parses nothing and unescapes nothing; it only finds boundaries.
         bool carved = TranslationLineCarver.TryCarve(line, out CarvedTranslationLine? fields);
 
         // Assert
@@ -71,7 +72,7 @@ public sealed class TranslationLineCarverTests
     [InlineData("|||||||||")]
     public void TryCarve_LineWithoutFiveSeparatorsOutsideTheContent_ShouldRefuseToCarve(string line)
     {
-        // Act — the two passes must not cross. A run of nine pipes carries four separators, one
+        // Act: the two passes must not cross. A run of nine pipes carries four separators, one
         // short, and the backward pass would otherwise reach behind the gossip id separator.
         bool carved = TranslationLineCarver.TryCarve(line, out CarvedTranslationLine? fields);
 
@@ -83,7 +84,7 @@ public sealed class TranslationLineCarverTests
     [Fact]
     public void TryCarve_NullLine_ShouldThrow()
     {
-        // Act & Assert — a null line is a programmer error, not a malformed file (house rule:
+        // Act & Assert: a null line is a programmer error, not a malformed file (house rule:
         // guards are for programmer errors, Results are for business failures).
         Should.Throw<ArgumentNullException>(() => TranslationLineCarver.TryCarve(null!, out _));
     }
@@ -97,7 +98,7 @@ public sealed class TranslationLineCarverTests
     public void TryCarve_SevenColumnLine_ShouldCarveTheSourceDigestWithoutDisturbingTheOtherFields(
         string line, string content, string argsOrder, string approved, string sourceDigest)
     {
-        // Act — one more backward step than a six-column line (ADR-0047 §2), taken only because the
+        // Act: one more backward step than a six-column line (ADR-0047 §2), taken only because the
         // last field IS 16 hex characters. Content that happens to look like a digest is irrelevant:
         // it is never the last field.
         bool carved = TranslationLineCarver.TryCarve(line, out CarvedTranslationLine? fields);
@@ -116,7 +117,7 @@ public sealed class TranslationLineCarverTests
     [InlineData("1||2||a||b||1-2||3-4||1")]
     public void TryCarve_SixColumnLine_ShouldCarveExactlyAsBeforeWithNoSourceDigest(string line)
     {
-        // Act — six-column files (older exports, hand-made ones, every existing fixture) must keep
+        // Act: six-column files (older exports, hand-made ones, every existing fixture) must keep
         // carving unchanged; ADR-0047 makes the seventh column optional on READ, not on write.
         bool carved = TranslationLineCarver.TryCarve(line, out CarvedTranslationLine? fields);
 
@@ -131,7 +132,7 @@ public sealed class TranslationLineCarverTests
     [InlineData("1||2||content||NULL||NULL||not-a-digest", "not-a-digest")]
     public void TryCarve_LastFieldThatOnlyResemblesADigest_ShouldStayTheApprovedColumn(string line, string approved)
     {
-        // Act — the sniff is the ONLY thing separating the two widths, so anything short of exactly
+        // Act: the sniff is the ONLY thing separating the two widths, so anything short of exactly
         // 16 hex characters has to fall back to the six-column reading rather than shift every field.
         bool carved = TranslationLineCarver.TryCarve(line, out CarvedTranslationLine? fields);
 
@@ -148,10 +149,10 @@ public sealed class TranslationLineCarverTests
     [InlineData("620756992||1001||Witaj||NULL||NULL||1||a37cc1683216cd32 \t")]
     public void TryCarve_DigestFollowedByTrailingWhitespace_ShouldStillCarveSevenColumns(string line)
     {
-        // Act — `approved` has always tolerated trailing whitespace (its readers Trim() it), so the
-        // sniff has to see past it too: otherwise the line degrades to a six-column reading whose
-        // content swallows "||NULL" and whose approved column is the digest — and the TMS import
-        // would store that as the row's source, silently.
+        // Act: `approved` has always allowed trailing spaces, because its readers trim it, so this check
+        // has to look past them too. Otherwise the line reads as six columns, its content swallows
+        // "||NULL", the approved column becomes the digest, and the TMS import would quietly store that
+        // as the row's source.
         bool carved = TranslationLineCarver.TryCarve(line, out CarvedTranslationLine? fields);
 
         // Assert
@@ -166,7 +167,7 @@ public sealed class TranslationLineCarverTests
     [Fact]
     public void TryCarve_DigestWithoutEnoughSeparatorsBeforeIt_ShouldRefuseToCarve()
     {
-        // Act — a five-separator line whose last field is a digest leaves no room for the args
+        // Act: a five-separator line whose last field is a digest leaves no room for the args
         // columns; consuming the content's separator to make one fit would silently mis-carve it.
         bool carved = TranslationLineCarver.TryCarve("1||2||content||NULL||a37cc1683216cd32", out CarvedTranslationLine? fields);
 

@@ -50,7 +50,7 @@ public sealed class EmailTests
     [Fact]
     public void Create_OverMaxLength_ShouldFail()
     {
-        // Arrange — a syntactically plausible but over-long address.
+        // Arrange: a syntactically plausible but over-long address.
         string local = new('a', Email.MaxLength);
         string tooLong = $"{local}@example.com";
 

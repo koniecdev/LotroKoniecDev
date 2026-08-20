@@ -23,9 +23,9 @@ public sealed class EmailDispatchConsumerTests
     [Fact]
     public void RedeliveryBackoffs_EveryPause_StaysUnderTheBrokerConsumerTimeout()
     {
-        // The broker kills the channel when an ack takes longer than consumer_timeout (30 min
-        // RabbitMQ default; compose does not override it) — a rung at or past it would turn a
-        // pause into a channel loss that burns a redelivery instead of waiting one out.
+        // The broker closes the channel when an ack takes longer than consumer_timeout, which is 30
+        // minutes by default in RabbitMQ and which compose does not change. A wait at or above that
+        // would turn the pause into a lost channel, which uses up a retry instead of waiting one out.
         TimeSpan consumerTimeout = TimeSpan.FromMinutes(30);
 
         EmailDispatchConsumer.RedeliveryBackoffs.ShouldAllBe(pause => pause < consumerTimeout);
@@ -39,7 +39,7 @@ public sealed class EmailDispatchConsumerTests
     [InlineData("00000000-0000-0000-0000-000000000000")]
     public void TryReadMessageId_WithUnusableValue_ReturnsFalse(string? rawMessageId)
     {
-        // Arrange — BasicProperties implements IReadOnlyBasicProperties
+        // Arrange: BasicProperties implements IReadOnlyBasicProperties
         BasicProperties properties = new() { MessageId = rawMessageId };
 
         // Act

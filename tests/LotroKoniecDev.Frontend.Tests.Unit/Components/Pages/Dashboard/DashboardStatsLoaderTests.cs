@@ -16,7 +16,7 @@ public sealed class DashboardStatsLoaderTests
 {
     private const string BaseUrl = "https://localhost:5002/";
 
-    // Mirrors the JSON options the Frontend's HTTP seam uses (HttpClientApiExtensions) so the stub
+    // The same JSON options the Frontend's HTTP layer uses (HttpClientApiExtensions), so the stub
     // body deserializes through the exact same contract the loader relies on.
     private static readonly JsonSerializerOptions ApiJsonOptions = new(JsonSerializerDefaults.Web)
     {
@@ -56,8 +56,8 @@ public sealed class DashboardStatsLoaderTests
     [Fact]
     public async Task LoadAsync_WhenTheStatsRelIsNotAdvertised_FailsWithoutCallingTheApi()
     {
-        // The rel is translator-only. An unauthorized session gets a clear failure — never a call to
-        // a locally guessed path (#610).
+        // The rel is only sent to a translator. A session without that right gets a clear failure and
+        // never a call to a path guessed here (#610).
         StubHttpMessageHandler handler = StubHttpMessageHandler.RespondWith(HttpStatusCode.OK, "{}");
         DashboardStatsLoader loader = new(StubDiscoveryCache.AdvertisingGet(Rels.Progress), CreateClient(handler));
 

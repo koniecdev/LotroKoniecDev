@@ -39,7 +39,7 @@ public sealed class ConfirmEmailEndpointTests : EndpointsTestBase
         await ApiClient.Http.PostAsJsonAsync(
             new Uri("auth/confirm-email", UriKind.Relative), confirmRequest);
 
-        // Act — login with confirmed user
+        // Act: login with confirmed user
         using FormUrlEncodedContent tokenRequest = new(new Dictionary<string, string>
         {
             ["grant_type"] = "password",
@@ -69,7 +69,7 @@ public sealed class ConfirmEmailEndpointTests : EndpointsTestBase
         (RegisterRequest registerRequest, _) =
             await UserFactory.RegisterRandomUserUnconfirmedAsync(ApiClient, Faker, AccountConfirmationEmailSpy, password);
 
-        // Act — try to login without confirming email
+        // Act: try to login without confirming email
         using FormUrlEncodedContent tokenRequest = new(new Dictionary<string, string>
         {
             ["grant_type"] = "password",
@@ -82,7 +82,7 @@ public sealed class ConfirmEmailEndpointTests : EndpointsTestBase
         HttpResponseMessage loginResponse = await ApiClient.Http.PostAsync(
             new Uri("connect/token", UriKind.Relative), tokenRequest);
 
-        // Assert — should fail because email is not confirmed
+        // Assert: should fail because email is not confirmed
         loginResponse.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
     }
 
@@ -145,12 +145,12 @@ public sealed class ConfirmEmailEndpointTests : EndpointsTestBase
         string email = AccountConfirmationEmailSpy.LastEmail!;
         string token = AccountConfirmationEmailSpy.LastConfirmationToken!;
 
-        // First confirmation — should succeed
+        // The first confirmation should succeed.
         await ApiClient.Http.PostAsJsonAsync(
             new Uri("auth/confirm-email", UriKind.Relative),
             new ConfirmEmailRequest(email, token));
 
-        // Act — second confirmation with same token should fail
+        // Act: second confirmation with same token should fail
         HttpResponseMessage response = await ApiClient.Http.PostAsJsonAsync(
             new Uri("auth/confirm-email", UriKind.Relative),
             new ConfirmEmailRequest(email, token));

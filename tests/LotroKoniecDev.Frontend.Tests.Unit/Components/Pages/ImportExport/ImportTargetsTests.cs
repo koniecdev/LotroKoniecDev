@@ -8,14 +8,13 @@ using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.GameVersionAggregat
 namespace LotroKoniecDev.Frontend.Tests.Unit.Components.Pages.ImportExport;
 
 /// <summary>
-/// The import page's target-selection rule, extracted so it can be verified at all: Blazor's static-SSR
-/// form mapping never serializes a programmatically set file input, so the page's own submit path stops
-/// at the "choose a file" guard in bUnit and this logic would otherwise ship untested.
+/// The rule that decides which versions the import page offers, pulled out so it can be tested at all.
+/// Blazor's static SSR form binding never sends a file input set from code, so in bUnit the page's own
+/// submit stops at the "choose a file" check and this logic would otherwise ship untested.
 /// <para>
-/// The rule is entirely the server's <c>import</c> rel (#610) — the API withholds it for a non-admin and
-/// for a <c>Superseded</c> version. Status is deliberately NOT re-interpreted here: a
-/// <c>Superseded</c> row that somehow carried the rel would still be offered, because the server, not
-/// this page, decides.
+/// The rule is only the server's <c>import</c> rel (#610), which the API leaves out for anyone who is
+/// not an admin and for a superseded version. The status is deliberately not read here: a superseded row
+/// that somehow carried the rel would still be offered, because the server decides, not this page.
 /// </para>
 /// </summary>
 public sealed class ImportTargetsTests
@@ -36,8 +35,8 @@ public sealed class ImportTargetsTests
     [Fact]
     public void Importable_WhenNoVersionAdvertisesTheRel_IsEmptySoThePageOffersNoSelector()
     {
-        // What a non-admin sees, and what an admin sees once every version is Superseded — the page must
-        // say so instead of rendering a selector whose every option would be refused on submit.
+        // What a non-admin sees, and what an admin sees once every version is superseded. The page must
+        // say so instead of showing a selector where every option would be refused on submit.
         IReadOnlyList<GameVersionResponse> result =
             ImportTargets.Importable([Version("47.0", importHref: null), Version("46.0", importHref: null)]);
 
@@ -63,8 +62,8 @@ public sealed class ImportTargetsTests
     [Fact]
     public void FindImportHref_WhenTheVersionWithholdsTheRel_IsNullSoTheUploadIsRefused()
     {
-        // The reachable production case: an admin posting against a Superseded version. A null here is a
-        // refusal that surfaces as a message — never a path composed from the id.
+        // The case that really happens: an admin posting against a superseded version. A null here means
+        // we refuse and show a message, never that we build a path from the id.
         GameVersionResponse version = Version("47.0", importHref: null);
 
         ImportTargets.FindImportHref([version], version.Id.Value).ShouldBeNull();

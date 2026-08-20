@@ -19,9 +19,9 @@ using LotroKoniecDev.TranslationSystem.Contracts.Hateoas;
 namespace LotroKoniecDev.Frontend.Tests.Unit.Components.Pages.Home;
 
 /// <summary>
-/// Renders the landing page (#309) through bUnit over a stubbed TMS client: the live progress band
-/// derives from the public progress counters, the page must survive an API outage with a calm notice
-/// (never a broken landing), and the hero/join CTAs follow the visitor's authentication state.
+/// Renders the landing page (#309) through bUnit over a stubbed TMS client. The progress band is built
+/// from the public counters, the page must survive an API outage with a calm message and never look
+/// broken, and the two call-to-action buttons follow whether the visitor is logged in.
 /// </summary>
 public sealed class HomeTests : BunitContext
 {
@@ -37,8 +37,8 @@ public sealed class HomeTests : BunitContext
     [Fact]
     public void Home_IsAnonymousByContract()
     {
-        // The landing page is the public face of the project — a regression to [Authorize] would
-        // lock recruiters and players out at the door.
+        // The landing page is the public face of the project. If it ever required a login, recruiters and
+        // players would be stopped at the door.
         typeof(HomeComponent).GetCustomAttribute<AllowAnonymousAttribute>().ShouldNotBeNull();
     }
 
@@ -134,10 +134,10 @@ public sealed class HomeTests : BunitContext
             .Returns(result);
 
     /// <summary>
-    /// Hosts the page inside a render fragment and resolves it via <c>FindComponent</c> — the page's
+    /// Puts the page inside a render fragment and finds it with <c>FindComponent</c>. The page's
     /// <see cref="Microsoft.AspNetCore.Components.Authorization.AuthorizeView"/> resolves
-    /// asynchronously, which the typed <c>Render&lt;Home&gt;</c> discovery does not see on its first
-    /// synchronous pass (same seam as <c>NavMenuTests</c>).
+    /// asynchronously, and the typed <c>Render&lt;Home&gt;</c> does not see that on its first pass.
+    /// <c>NavMenuTests</c> uses the same trick.
     /// </summary>
     private IRenderedComponent<HomeComponent> RenderHome()
     {

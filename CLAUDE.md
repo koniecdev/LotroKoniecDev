@@ -452,9 +452,16 @@ file_id||gossip_id||translated_text||args_order||args_id||approved||source_diges
 - **Frontend is Static SSR — enforced, not just documented.** No WebAssembly, no SignalR circuit,
   no per-user server state; forms post via `<form method="post" @formname @onsubmit>` (the SSR
   `@onsubmit` special-case) or `<EditForm OnValidSubmit>` — never interactive `@on*` handlers,
-  `@rendermode`, `StateHasChanged`, or `AddInteractive*`. `scripts/check-ssr-purity.sh` (with a
-  `.ps1` twin for local Windows devs) gates this in **both** `pr-verify` and `ci`, before
-  `setup-dotnet`. Genuinely need interactivity? That's an ADR-first architecture change.
+  `@rendermode`, `StateHasChanged`, or `AddInteractive*`. **No inline `<script>` either (#670):**
+  the Frontend's CSP sends `script-src 'self'`, so an inline script is dead on arrival and only the
+  browser console reports it — put the code in a file under `wwwroot` and load it with `src=`, or, if
+  one truly must be inline, add a nonce in `SecurityHeadersMiddleware`, never `'unsafe-inline'`. That
+  is also why `App.razor` carries no import-map component: it renders an inline script and a Static
+  SSR app never resolves a module specifier. `scripts/check-ssr-purity.sh` (with a `.ps1` twin for
+  local Windows devs) gates all of it in **both** `pr-verify` and `ci`, before `setup-dotnet`, and
+  `scripts/tests/check-ssr-purity.tests.sh` proves the guard still fires. Deploy-time backstop: smoke
+  leg 2 fails if a deployed page serves an inline script its own CSP blocks. Genuinely need
+  interactivity, or an inline script? Both are ADR-first architecture changes.
 - **No client hardcodes an API path — enforced, not just documented (#610 frontend, #611 CLI).**
   There is no gateway (ADR-0041), so every entry point is resolved by **rel name** — the Frontend
   through `IDiscoveryCache.ResolveTranslationSystemHrefAsync(Rels.<Name>)`, the CLI through

@@ -219,14 +219,22 @@ outlier and explicitly **not** the pattern here.
   revokes the OpenIddict tokens and authorizations. Same treatment as `ChangePassword`.
 - **A password change invalidates a pending e-mail change** (same stamp) but **not** a revert link
   (ADR-0048 — that is the point). The user simply requests the change again.
-- **The revert link is single-use in effect, not by stamp.** The POST refuses unless the account
-  currently sits on the address the token was issued against, so a second submit, or a token from
-  an older change, changes nothing.
+- **The revert restores the previous address from wherever the account currently sits.** Requiring
+  it to still sit on the address the token names is the trap: an attacker with the password changes
+  the address twice (A→B→C) and the owner's A→B link matches nothing, while the new revert offer
+  goes to the attacker's B. What makes the link single-use instead is the reverse check — the POST
+  refuses when the account is **already back** on the previous address, so a second submit cannot
+  clear a password the owner has since reset. An unused token does revive if the account
+  legitimately returns to the same pair inside its 14 days; ADR-0048 accepts that.
 - **Requesting a second change does not kill the first link.** Each token is bound to its own
   target address, so two outstanding links can only ever land on the address their own e-mail was
   sent to. Whichever is confirmed first wins; the other dies with the stamp rotation.
-- **The links are tamper-evident.** Addresses travel in the query string but are baked into the
-  token purpose, so editing them fails verification. `userId` is only a lookup key.
+- **The links are tamper-evident, and their values are checked for shape first.** Addresses travel
+  in the query string but are baked into the token purpose, so editing them fails verification. The
+  `userId` must parse as a `Guid` before it reaches Identity, which converts it to the key type and
+  throws on anything else, and the addresses must match `EmailConstants.RegexPattern` before the
+  page prints them — otherwise both pages become a place to put arbitrary text next to a real
+  button.
 - **The old mailbox is told the full new address**, in both the warning and the notice. The only
   recipient is whoever controls the old mailbox: the legitimate owner, who needs it to act.
 - **A stale request warning is dropped, not sent.** If `EmailChangeRequested` is delivered after
@@ -253,9 +261,10 @@ outlier and explicitly **not** the pattern here.
 - **Output:** `200 OK` with no body on the request leg, mirroring its nearest sibling
   `ChangePassword` (`DeleteAccount`'s 204 carries headers this endpoint has none of); an HTML
   form, then a success or error state, on the two page legs.
-- **Errors:** `401` no subject claim · `422` validation ·
+- **Errors:** `401` no subject claim · `400` validation ·
   `400 Auth.InvalidCurrentPassword` · `400 Auth.EmailChangeSameAddress` ·
-  `400 Auth.UserAlreadyExistsByEmail` · `400 Auth.DeletionAlreadyScheduled` · `429` rate limit.
+  `422 Auth.UserAlreadyExistsByEmail` · `422 Auth.DeletionAlreadyScheduled` · `429` rate limit.
+  (`ErrorExtensions` maps `Validation` → 400 and `DataConflict` → 422 repo-wide.)
   Both pages render `Auth.InvalidEmailChangeToken` as "link wygasł lub jest nieprawidłowy".
 - **Files touched:** none — no DAT, no translation artifact, **no EF migration**.
 

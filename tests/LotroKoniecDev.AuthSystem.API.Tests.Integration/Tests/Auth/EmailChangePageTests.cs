@@ -146,8 +146,11 @@ public sealed partial class EmailChangePageTests : EndpointsTestBase
             RevertUrl(userId, user.Email, newEmail, revertToken),
             RevertForm(userId, user.Email, newEmail, revertToken));
 
-        // The password is gone, so the page hands the visitor straight to the reset flow.
-        response.StatusCode.ShouldBeOneOf(HttpStatusCode.Redirect, HttpStatusCode.Found, HttpStatusCode.OK);
+        // The password is gone, so the page has to hand the visitor straight to the reset flow. The
+        // test client follows redirects, so the landing URL is what proves it — accepting a bare 200
+        // would also accept the failure rendering.
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        response.RequestMessage!.RequestUri!.ToString().ShouldContain("/Account/ResetPassword");
 
         ApplicationUser restored = await LoadUserByIdAsync(userId);
         restored.Email.ShouldBe(user.Email);
@@ -183,6 +186,71 @@ public sealed partial class EmailChangePageTests : EndpointsTestBase
     }
 
     [Fact]
+    public async Task RevertPage_Post_ShouldStillWorkAfterTheAddressWasChangedAgain()
+    {
+        // The takeover an earlier draft of this guard let through: whoever holds the password moves the
+        // account A -> B, confirms from B, then immediately B -> C. If the revert insisted the account
+        // still sat on B, the owner's A -> B link would match nothing, and the fresh revert offer for
+        // B -> C would be posted to B, which the attacker owns. The owner has to be able to pull the
+        // account back from wherever it has been dragged.
+        (RegisterRequest user, string firstNewEmail, Guid userId) = await CompleteChangeAsync();
+        string revertToken = EmailChangeEmailSpy.LastRevertToken!;
+
+        string secondNewEmail = Faker.Internet.Email();
+        EmailChangeEmailSpy.Reset();
+        string accessToken = await GetAccessTokenAsync(firstNewEmail, Password);
+        using HttpRequestMessage secondRequest = new(HttpMethod.Post, "auth/account/change-email");
+        secondRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+        secondRequest.Content = JsonContent.Create(new ChangeEmailRequest(secondNewEmail, Password));
+        (await ApiClient.Http.SendAsync(secondRequest)).StatusCode.ShouldBe(HttpStatusCode.OK);
+
+        await EmailChangeEmailSpy.WaitForVerificationCaptureAsync();
+        await ConfirmAsync(userId, secondNewEmail, EmailChangeEmailSpy.LastVerificationToken!);
+        (await LoadUserByIdAsync(userId)).Email.ShouldBe(secondNewEmail);
+
+        await PostToPageAsync(
+            "/Account/RevertEmailChange",
+            RevertUrl(userId, user.Email, firstNewEmail, revertToken),
+            RevertForm(userId, user.Email, firstNewEmail, revertToken));
+
+        ApplicationUser restored = await LoadUserByIdAsync(userId);
+        restored.Email.ShouldBe(user.Email);
+        restored.PasswordHash.ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task RevertPage_Post_ShouldRefuseAndKeepThePassword_WhenThePreviousAddressWasTaken()
+    {
+        // Nothing to go back to. Clearing the password here would lock the account out of both
+        // addresses at once.
+        (RegisterRequest user, string newEmail, Guid userId) = await CompleteChangeAsync();
+        string revertToken = EmailChangeEmailSpy.LastRevertToken!;
+
+        // The address was freed by the change, so somebody else can claim it. They do not need to
+        // confirm it — occupying the row is enough to make the revert impossible.
+        await ApiClient.Http.PostAsJsonAsync(
+            new Uri("auth/register", UriKind.Relative),
+            new RegisterRequest(
+                Faker.Random.AlphaNumeric(16),
+                user.Email,
+                Password,
+                AcceptedPrivacyPolicy: true,
+                AcceptedDataProcessingConsent: true,
+                AcceptedTermsOfService: true));
+
+        HttpResponseMessage response = await PostToPageAsync(
+            "/Account/RevertEmailChange",
+            RevertUrl(userId, user.Email, newEmail, revertToken),
+            RevertForm(userId, user.Email, newEmail, revertToken));
+
+        (await response.Content.ReadAsStringAsync()).ShouldContain("nieprawidłowy");
+
+        ApplicationUser untouched = await LoadUserByIdAsync(userId);
+        untouched.Email.ShouldBe(newEmail);
+        untouched.PasswordHash.ShouldNotBeNull();
+    }
+
+    [Fact]
     public async Task RevertPage_PostTwice_ShouldRefuseTheSecondTime()
     {
         // The token carries no security stamp, so what makes it single-use is the check that the
@@ -202,6 +270,29 @@ public sealed partial class EmailChangePageTests : EndpointsTestBase
 
         (await replay.Content.ReadAsStringAsync()).ShouldContain("nieprawidłowy");
         (await LoadUserByIdAsync(userId)).Email.ShouldBe(user.Email);
+    }
+
+    [Theory]
+    [InlineData("not-a-guid")]
+    [InlineData("../../etc/passwd")]
+    public async Task RevertPage_PostWithAMalformedUserId_ShouldRenderTheErrorState(string userIdInput)
+    {
+        // Identity converts the id string to the key type, so a value that is not a Guid throws deep
+        // in the store. A person who followed a link from their inbox has to see the invalid-link
+        // page, never a crash.
+        (RegisterRequest user, string newEmail, Guid userId) = await CompleteChangeAsync();
+        string revertToken = EmailChangeEmailSpy.LastRevertToken!;
+
+        Dictionary<string, string> form = RevertForm(userId, user.Email, newEmail, revertToken);
+        form["UserId"] = userIdInput;
+
+        HttpResponseMessage response = await PostToPageAsync(
+            "/Account/RevertEmailChange",
+            RevertUrl(userId, user.Email, newEmail, revertToken),
+            form);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        (await response.Content.ReadAsStringAsync()).ShouldContain("nieprawidłowy");
     }
 
     [Fact]

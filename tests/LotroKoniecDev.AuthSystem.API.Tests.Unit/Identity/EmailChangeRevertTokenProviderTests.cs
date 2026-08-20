@@ -64,7 +64,7 @@ public sealed class EmailChangeRevertTokenProviderTests
     }
 
     [Fact]
-    public async Task ValidateAsync_OnTheLastDayOfTheWindow_Accepts()
+    public async Task ValidateAsync_OneMinuteBeforeExpiry_Accepts()
     {
         ApplicationUser user = CreateUser();
         EmailChangeRevertTokenProvider issuer = CreateSut(Now);

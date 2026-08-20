@@ -93,11 +93,17 @@ internal sealed partial class RevertEmailChangeModel : PageModel
         });
     }
 
+    /// <summary>
+    /// The link's values are printed on this page and then acted on, so they are checked for shape
+    /// before either happens. It keeps arbitrary text off a branded page that carries a button which
+    /// clears a password, and it keeps a non-GUID id out of Identity's key conversion, which would
+    /// throw.
+    /// </summary>
     private bool HasEveryValue() =>
-        !string.IsNullOrWhiteSpace(UserId)
-        && !string.IsNullOrWhiteSpace(From)
-        && !string.IsNullOrWhiteSpace(To)
-        && !string.IsNullOrWhiteSpace(Token);
+        Guid.TryParse(UserId, out _)
+        && !string.IsNullOrWhiteSpace(Token)
+        && EmailLinkValue.LooksLikeAnAddress(From)
+        && EmailLinkValue.LooksLikeAnAddress(To);
 
     [LoggerMessage(EventId = EventIds.EmailChangeRevertedViaUi, Level = LogLevel.Information, Message = "E-mail change reverted via UI for {MaskedEmail}. Redirecting to the forced password reset.")]
     private static partial void LogEmailChangeRevertedViaUi(ILogger logger, string maskedEmail);

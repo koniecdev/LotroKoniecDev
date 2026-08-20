@@ -51,17 +51,19 @@ public sealed class GameVersion : AggregateRoot<GameVersionId>
     /// A processed version cannot be deleted. An import ran against it and translations point at it
     /// (spec 0001). Any other version was never imported into, so nothing references it and deleting
     /// it frees its version number again (#624).
-    /// This aggregate only owns the status rule.
+    /// The delete handler still checks that no translation points at the version. This aggregate only
+    /// owns the status rule.
     /// </summary>
     public Result EnsureCanBeDeleted()
     {
         // Written as "these statuses may be deleted", not as "anything except Processed", so a new
         // status is never deletable by accident.
-        Result ensureCanBeDeletedResult = Status is not (GameVersionStatus.Unprocessed or GameVersionStatus.Superseded) 
-            ? Result.Failure(DomainErrors.GameVersionEntity.ProcessedCannotBeDeleted(Id)) 
-            : Result.Success();
-        
-        return ensureCanBeDeletedResult;
+        if (Status is not (GameVersionStatus.Unprocessed or GameVersionStatus.Superseded))
+        {
+            return Result.Failure(DomainErrors.GameVersionEntity.ProcessedCannotBeDeleted(Id));
+        }
+
+        return Result.Success();
     }
 
     public static Result<GameVersion> Create(

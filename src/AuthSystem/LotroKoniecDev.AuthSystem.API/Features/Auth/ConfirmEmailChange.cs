@@ -2,7 +2,6 @@ using FluentValidation;
 using FluentValidation.Results;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.EntityFrameworkCore.ChangeTracking;
 using LotroKoniecDev.AuthSystem.API.ApiErrors;
 using LotroKoniecDev.AuthSystem.API.Extensions;
 using LotroKoniecDev.AuthSystem.API.Outbox;
@@ -10,7 +9,6 @@ using LotroKoniecDev.AuthSystem.API.Services.Sessions;
 using LotroKoniecDev.AuthSystem.Domain.Aggregates.ApplicationUsers.Entities;
 using LotroKoniecDev.AuthSystem.Persistence.DbContexts;
 using LotroKoniecDev.AuthSystem.Persistence.Identity;
-using LotroKoniecDev.AuthSystem.Persistence.Outbox;
 using LotroKoniecDev.SharedKernel.Constants;
 using LotroKoniecDev.SharedKernel.Messaging;
 using LotroKoniecDev.SharedKernel.Monads;
@@ -43,6 +41,13 @@ internal sealed partial class ConfirmEmailChange
         {
             RuleFor(x => x.UserId)
                 .NotEmpty().WithMessage("User ID is required.");
+
+            // The id arrives from a query string, and Identity converts it to the key type before it
+            // queries. A value that is not a GUID throws inside the store, which would turn a bad link
+            // into a crash on a page somebody opened from their inbox.
+            RuleFor(x => x.UserId)
+                .Must(userId => Guid.TryParse(userId, out _))
+                    .WithMessage("User ID must be a GUID.");
 
             RuleFor(x => x.NewEmail)
                 .NotEmpty().WithMessage("A valid email address is required.")
@@ -89,7 +94,7 @@ internal sealed partial class ConfirmEmailChange
                 return Result.Failure(AuthErrors.InvalidEmailChangeToken);
             }
 
-            string newEmail = command.NewEmail.Trim();
+            string newEmail = command.NewEmail;
 
             ApplicationUser? user = await _userManager.FindByIdAsync(command.UserId);
 
@@ -99,11 +104,6 @@ internal sealed partial class ConfirmEmailChange
             {
                 LogTokenInvalid(_logger, newEmail.MaskEmail(), command.IpAddress, command.UserAgent);
                 return Result.Failure(AuthErrors.InvalidEmailChangeToken);
-            }
-
-            if (user.DeletionScheduledAt is not null)
-            {
-                return Result.Failure(AuthErrors.DeletionAlreadyScheduled);
             }
 
             // The target address is baked into the purpose, so editing it in the link fails here.
@@ -119,13 +119,27 @@ internal sealed partial class ConfirmEmailChange
                 return Result.Failure(AuthErrors.InvalidEmailChangeToken);
             }
 
+            // Checked only after the token, so a caller without one cannot tell this state apart from
+            // any other refusal.
+            if (user.DeletionScheduledAt is not null)
+            {
+                return Result.Failure(AuthErrors.DeletionAlreadyScheduled);
+            }
+
             ApplicationUser? addressOwner = await _userManager.FindByEmailAsync(newEmail);
             if (addressOwner is not null)
             {
                 return Result.Failure(AuthErrors.UserAlreadyExistsByEmail);
             }
 
-            string previousEmail = user.Email ?? string.Empty;
+            // The notice and the revert token are both built from this address, and an empty one would
+            // produce a message its own processor refuses to read. Refuse here instead.
+            if (string.IsNullOrWhiteSpace(user.Email))
+            {
+                return Result.Failure(AuthErrors.InvalidEmailChangeToken);
+            }
+
+            string previousEmail = user.Email;
 
             user.Email = newEmail;
 
@@ -144,13 +158,13 @@ internal sealed partial class ConfirmEmailChange
             Result<IdentityResult> updateResult = await TryUpdateAsync(user);
             if (updateResult.IsFailure)
             {
-                DiscardPendingOutboxMessages();
+                DiscardPendingChanges();
                 return Result.Failure(updateResult.Error);
             }
 
             if (!updateResult.Value.Succeeded)
             {
-                DiscardPendingOutboxMessages();
+                DiscardPendingChanges();
 
                 string errors = string.Join(", ", updateResult.Value.Errors.Select(e => e.Description));
                 LogUpdateFailed(_logger, user.Id, errors);
@@ -188,17 +202,16 @@ internal sealed partial class ConfirmEmailChange
         }
 
         /// <summary>
-        /// A failed update never reaches the store, so the outbox row it was meant to travel with is
-        /// still sitting in the change tracker. Detaching it keeps a later save in this same request
-        /// from announcing a change that did not happen.
+        /// A failed update never reaches the store, so both halves of this unit of work are still
+        /// sitting in the change tracker: the outbox row as Added, and the user as Modified with the
+        /// new address already on it. This context is shared with OpenIddict for the rest of the
+        /// request, so a later save there would commit the change we just reported as failed, or
+        /// announce one that never happened. Dropping the whole unit of work is the only version that
+        /// leaves neither half behind.
         /// </summary>
-        private void DiscardPendingOutboxMessages()
+        private void DiscardPendingChanges()
         {
-            foreach (EntityEntry<OutboxMessage> entry in
-                     _db.ChangeTracker.Entries<OutboxMessage>().Where(e => e.State is EntityState.Added))
-            {
-                entry.State = EntityState.Detached;
-            }
+            _db.ChangeTracker.Clear();
         }
 
         [LoggerMessage(EventId = EventIds.EmailChangeTokenInvalid, Level = LogLevel.Warning, Message = "Invalid e-mail change token presented for {NewEmail}. IP: {IpAddress}, UserAgent: {UserAgent}")]

@@ -90,9 +90,7 @@ internal sealed partial class RequestEmailChange : IApiEndpoint
                 return Result.Failure(AuthErrors.UserNotFound);
             }
 
-            // A trailing space from a paste or from autofill must not become part of the address, the
-            // same reason the login page trims.
-            string newEmail = command.NewEmail.Trim();
+            string newEmail = command.NewEmail;
 
             // The account is locked for the whole grace period and the cancel link in the e-mail is the
             // only way back into it. Rotating the security stamp later in this flow would break that
@@ -108,7 +106,12 @@ internal sealed partial class RequestEmailChange : IApiEndpoint
                 return Result.Failure(AuthErrors.InvalidCurrentPassword);
             }
 
-            string currentEmail = user.Email ?? string.Empty;
+            if (string.IsNullOrWhiteSpace(user.Email))
+            {
+                return Result.Failure(AuthErrors.UserNotFound);
+            }
+
+            string currentEmail = user.Email;
 
             if (string.Equals(
                     _userManager.NormalizeEmail(newEmail),
@@ -170,7 +173,9 @@ internal sealed partial class RequestEmailChange : IApiEndpoint
 
                 Command command = new(
                     userId,
-                    request.NewEmail,
+                    // Trimmed before validation, not after: the address rule rejects any whitespace, so
+                    // a trailing space from a paste would otherwise fail instead of being cleaned up.
+                    request.NewEmail.Trim(),
                     request.CurrentPassword,
                     httpContext.Connection.RemoteIpAddress?.ToString(),
                     httpContext.Request.Headers.UserAgent.ToString());

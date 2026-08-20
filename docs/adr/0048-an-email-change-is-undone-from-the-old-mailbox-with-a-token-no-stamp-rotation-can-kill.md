@@ -61,7 +61,8 @@ time the victim reads their mail.
 3. **Notify + arm the undo.** `EmailChangeCompleted` carries both addresses. Its processor sends a
    notice to the new address and, to the **old** address, a notice carrying the revert link.
 4. **Revert** (`/Account/RevertEmailChange`, anonymous, token-authorized, 14 days). **GET renders a
-   confirmation form; the POST does the work.** It restores the previous address, sets
+   confirmation form; the POST does the work.** It restores the previous address *from wherever the
+   account currently sits*, sets
    `PasswordHash = null`, rotates the stamp, revokes sessions and hands the visitor into the
    password-reset flow — `CancelAccountDeletion`'s playbook, verbatim. The stolen password stops
    working at that moment.
@@ -76,9 +77,16 @@ legitimate e-mail change, and null the password, seconds after the notice arrive
 **The revert token is deliberately not bound to the security stamp.**
 `EmailChangeRevertTokenProvider` is our own `IUserTwoFactorTokenProvider<ApplicationUser>` over an
 `IDataProtector`, protecting `(createdAt, userId, purpose)` and nothing else. Its purpose embeds
-both addresses (`RevertEmailChange:{previous}->{new}`). It is single-use in effect, not by stamp
-rotation: the page refuses unless the account currently sits on the address the token was issued
-against, so a second click, or a token issued for an older change, changes nothing.
+both addresses (`RevertEmailChange:{previous}->{new}`).
+
+**The single-use guard is "the account is not already back on the previous address" — not "the
+account still sits on the address the token names".** The stricter-looking version is the one that
+fails: an attacker who knows the password simply changes the address twice, A→B then B→C. The
+owner's A→B link would then match nothing, while the fresh revert offer for B→C is delivered to B,
+which the attacker owns. Two API calls inside the hour's rate budget, and the guarantee above is
+gone. Restoring `previous` from wherever the account has been dragged is what makes the promise
+true. The second click is still refused, because by then the account *is* back on the previous
+address, so a revert cannot run twice and clear a password the owner has since reset.
 
 ## Consequences
 
@@ -101,8 +109,15 @@ against, so a second click, or a token issued for an older change, changes nothi
 - **A revert token outlives a password change by design.** That is the whole point, and it means
   the token cannot be cancelled by rotating the stamp — the usual lever in this codebase. Anyone
   touching `EmailChangeRevertTokenProvider` must understand that omitting the stamp is the
-  requirement, not an oversight, and the guard that replaces it is the current-address check on the
-  revert page.
+  requirement, not an oversight, and the guard that replaces it is the not-already-back check on
+  the revert page.
+- **A revert token revives if the account legitimately returns to the same pair.** Because the
+  guard is stateless, an A→B token that was never used starts working again if the user later moves
+  A→B once more within its 14 days. The holder of mailbox A could then undo that later, wanted
+  change and clear the password. We accept it: the power is bounded by the same 14 days, and it
+  belongs to whoever controls the address the account itself came from — the same party the token
+  was issued to. Persisting the pending change would close it, at the cost of the columns this ADR
+  rejected.
 - **The old address learns the new one.** The warning and the notice both name it in full. In the
   attack case the recipient is the legitimate owner and needs it to act; in the normal case the
   recipient is the user themselves.
@@ -169,6 +184,11 @@ against, so a second click, or a token issued for an older change, changes nothi
 - `EmailChangeRevertTokenProvider` (revert leg) is hand-written over `IDataProtector`, lifespan
   14 days, **no stamp**. Its unit tests must pin that a stamp rotation does *not* invalidate it —
   that assertion is the ADR, executable.
+- Every value that arrives in one of these links is checked for shape before the page prints it or
+  acts on it. The user id must parse as a `Guid` — Identity converts it to the key type before it
+  queries, so a non-GUID throws inside the store and a bad link becomes a 500 on a page somebody
+  opened from their inbox — and the addresses must match `EmailConstants.RegexPattern`, which also
+  keeps arbitrary text off a branded page that carries a password-clearing button.
 - Both new outbox types get a `RabbitMqTopology` routing key under `email.*`. The queue binds
   `email.#`, so no binding or queue-argument change and no `PRECONDITION_FAILED` risk (ADR-0036).
 - Neither leg may call SMTP on a request path; both go through the outbox (ADR-0038).

@@ -44,6 +44,13 @@ internal sealed partial class RevertEmailChange
             RuleFor(x => x.UserId)
                 .NotEmpty().WithMessage("User ID is required.");
 
+            // The id arrives from a query string, and Identity converts it to the key type before it
+            // queries. A value that is not a GUID throws inside the store, which would turn a bad link
+            // into a crash on a page somebody opened from their inbox.
+            RuleFor(x => x.UserId)
+                .Must(userId => Guid.TryParse(userId, out _))
+                    .WithMessage("User ID must be a GUID.");
+
             RuleFor(x => x.PreviousEmail)
                 .NotEmpty().WithMessage("A valid email address is required.")
                 .MaximumLength(EmailConstants.MaxLength)
@@ -91,8 +98,8 @@ internal sealed partial class RevertEmailChange
                 return Result.Failure<RevertedEmailChange>(AuthErrors.InvalidEmailChangeToken);
             }
 
-            string previousEmail = command.PreviousEmail.Trim();
-            string currentEmail = command.CurrentEmail.Trim();
+            string previousEmail = command.PreviousEmail;
+            string currentEmail = command.CurrentEmail;
 
             ApplicationUser? user = await _userManager.FindByIdAsync(command.UserId);
             if (user is null)
@@ -113,12 +120,17 @@ internal sealed partial class RevertEmailChange
                 return Result.Failure<RevertedEmailChange>(AuthErrors.InvalidEmailChangeToken);
             }
 
-            // This is what makes the link single-use, since the token deliberately carries no security
-            // stamp. The account has to still sit where the token said it did, so a second visit, or a
-            // link from an older change, does nothing.
-            if (!string.Equals(
+            // The guard is "the account is not already back on the previous address", NOT "the account
+            // still sits on the address the token names". The stricter version looks safer and is the
+            // opposite: an attacker who knows the password just changes the address twice, A to B then
+            // B to C, and the owner's A-to-B link no longer matches anything — while the new revert
+            // offer goes to B, which the attacker owns. This way the link keeps working from wherever
+            // the account has been dragged, which is the whole promise of ADR-0048.
+            // It still refuses the second click, because by then the account IS back on the previous
+            // address, so a revert cannot run twice and clear a freshly reset password.
+            if (string.Equals(
                     _userManager.NormalizeEmail(user.Email),
-                    _userManager.NormalizeEmail(currentEmail),
+                    _userManager.NormalizeEmail(previousEmail),
                     StringComparison.Ordinal))
             {
                 LogAlreadySettled(_logger, user.Id);
@@ -129,7 +141,7 @@ internal sealed partial class RevertEmailChange
             // go back to, and the password must stay as it is: clearing it would lock the account out
             // of both addresses at once.
             ApplicationUser? previousAddressOwner = await _userManager.FindByEmailAsync(previousEmail);
-            if (previousAddressOwner is not null)
+            if (previousAddressOwner is not null && previousAddressOwner.Id != user.Id)
             {
                 LogPreviousAddressTaken(_logger, user.Id);
                 return Result.Failure<RevertedEmailChange>(AuthErrors.UserAlreadyExistsByEmail);

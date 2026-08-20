@@ -45,7 +45,7 @@ internal sealed partial class ConfirmEmailChangeModel : PageModel
         Email = email ?? string.Empty;
         Token = token ?? string.Empty;
 
-        if (string.IsNullOrWhiteSpace(UserId) || string.IsNullOrWhiteSpace(Email) || string.IsNullOrWhiteSpace(Token))
+        if (!HasUsableLinkValues())
         {
             ErrorMessage = "Link potwierdzający zmianę adresu jest nieprawidłowy.";
         }
@@ -53,7 +53,7 @@ internal sealed partial class ConfirmEmailChangeModel : PageModel
 
     public async Task<IActionResult> OnPostAsync()
     {
-        if (string.IsNullOrWhiteSpace(UserId) || string.IsNullOrWhiteSpace(Email) || string.IsNullOrWhiteSpace(Token))
+        if (!HasUsableLinkValues())
         {
             ErrorMessage = "Link potwierdzający zmianę adresu jest nieprawidłowy.";
             return Page();
@@ -79,6 +79,16 @@ internal sealed partial class ConfirmEmailChangeModel : PageModel
         IsCompleted = true;
         return Page();
     }
+
+    /// <summary>
+    /// The link's values are printed on this page and then acted on, so they are checked for shape
+    /// before either happens. It keeps arbitrary text off a branded page that carries a real button,
+    /// and it keeps a non-GUID id out of Identity's key conversion, which would throw.
+    /// </summary>
+    private bool HasUsableLinkValues() =>
+        Guid.TryParse(UserId, out _)
+        && !string.IsNullOrWhiteSpace(Token)
+        && EmailLinkValue.LooksLikeAnAddress(Email);
 
     [LoggerMessage(EventId = EventIds.EmailChangeConfirmedViaUi, Level = LogLevel.Information, Message = "E-mail change confirmed via UI for {MaskedEmail}.")]
     private static partial void LogEmailChangeConfirmedViaUi(ILogger logger, string maskedEmail);

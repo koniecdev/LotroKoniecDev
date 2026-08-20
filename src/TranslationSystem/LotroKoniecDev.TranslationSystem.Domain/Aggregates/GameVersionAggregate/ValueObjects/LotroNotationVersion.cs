@@ -5,20 +5,18 @@ using LotroKoniecDev.TranslationSystem.Domain.Core.Errors;
 namespace LotroKoniecDev.TranslationSystem.Domain.Aggregates.GameVersionAggregate.ValueObjects;
 
 /// <summary>
-/// The LOTRO game version in dotted-numeric notation as published in the official forum release
-/// notes (e.g. <c>48.0</c>, <c>47.1.1</c>) — the reliable content-version identifier.
+/// The LOTRO game version in dotted-numeric form, as published in the official forum release notes
+/// (for example <c>48.0</c> or <c>47.1.1</c>). This is the reliable content-version identifier.
 /// </summary>
 /// <remarks>
 /// <para>
-/// Input must match the forum grammar <c>digits(.digits)*</c> (one or more non-empty
-/// dot-separated runs of ASCII digits); anything else is rejected with
+/// Input must look like <c>digits(.digits)*</c>. Anything else is rejected with
 /// <see cref="DomainErrors.GameVersionEntity.VersionProperty.InvalidFormat"/>.
 /// </para>
 /// <para>
-/// The stored <see cref="Value"/> is the <em>canonical</em> form: insignificant trailing-zero
-/// segments are collapsed, so <c>48</c>, <c>48.0</c> and <c>48.0.0</c> are one and the same
-/// version (equal <see cref="Value"/>, equal VOs). Interior zeros (<c>47.0.1</c>) are significant
-/// and preserved. See ADR-0003.
+/// <see cref="Value"/> holds the canonical form: trailing zero segments are dropped, so <c>48</c>,
+/// <c>48.0</c> and <c>48.0.0</c> are the same version. Zeros in the middle (<c>47.0.1</c>) matter and
+/// are kept. See ADR-0003.
 /// </para>
 /// </remarks>
 public sealed class LotroNotationVersion : ValueObject
@@ -38,8 +36,8 @@ public sealed class LotroNotationVersion : ValueObject
 
         value = value.Trim();
 
-        // Length is checked on the raw input deliberately: the forum producer emits short 2-3 segment
-        // versions, so a >12-char input is malformed regardless of how trailing zeros would collapse.
+        // The length is checked on the raw input on purpose. The forum publishes short 2-3 segment
+        // versions, so a longer input is wrong whatever the canonical form would be.
         if (value.Length > VersionMaxLength)
         {
             return Result.Failure<LotroNotationVersion>(DomainErrors.GameVersionEntity.VersionProperty.LongerThanAllowed);
@@ -69,9 +67,8 @@ public sealed class LotroNotationVersion : ValueObject
     }
 
     /// <summary>
-    /// Parses dotted-numeric input and returns its canonical string (each segment's leading zeros
-    /// stripped, trailing all-zero segments dropped), or <see cref="Maybe{T}.None"/> when the input
-    /// is not <c>digits(.digits)*</c>. Operates purely on the string so arbitrarily large segments
+    /// Returns the canonical string for dotted-numeric input, or <see cref="Maybe{T}.None"/> when the
+    /// input is not <c>digits(.digits)*</c>. It works on the string only, so a very long segment can
     /// never overflow a numeric type.
     /// </summary>
     private static Maybe<string> Canonicalize(string value)
@@ -99,8 +96,8 @@ public sealed class LotroNotationVersion : ValueObject
     }
 
     /// <summary>
-    /// Strips leading zeros from an all-digit segment, leaving a single <c>0</c> for an all-zero
-    /// segment (e.g. <c>047</c> → <c>47</c>, <c>000</c> → <c>0</c>).
+    /// Strips leading zeros from a digit segment and keeps a single <c>0</c> for an all-zero segment
+    /// (<c>047</c> becomes <c>47</c>, <c>000</c> becomes <c>0</c>).
     /// </summary>
     private static string StripLeadingZeros(string segment)
     {

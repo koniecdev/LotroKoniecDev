@@ -9,15 +9,15 @@ namespace LotroKoniecDev.TranslationSystem.Domain.Aggregates.TranslatorAggregate
 public interface ITranslatorRepository : IRepository<Translator, TranslatorId>
 {
     /// <summary>
-    /// Looks up the translator by the cross-context Auth user id — the key lazy provisioning is
-    /// idempotent on (ADR-0004).
+    /// Looks the translator up by the Auth user id. This is the key that makes creating a profile on
+    /// first use safe to repeat (ADR-0004).
     /// </summary>
     Task<Maybe<Translator>> GetByIdentityIdAsync(IdentityId identityId, CancellationToken cancellationToken);
 
     /// <summary>
-    /// Drops a not-yet-committed translator from change tracking. Used to discard the losing insert
-    /// after a concurrent first-write race (ADR-0004) so the provisioner's retry does not re-attempt
-    /// the row the unique index already rejected.
+    /// Drops a translator that was never committed from change tracking. When two requests create the
+    /// same profile at once, the losing insert is dropped here (ADR-0004), so the retry does not send
+    /// the row the unique index has already rejected.
     /// </summary>
     void Detach(Translator translator);
 }

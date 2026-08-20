@@ -3,11 +3,10 @@ using LotroKoniecDev.TranslationSystem.Domain.Aggregates.TranslationAggregate.Va
 namespace LotroKoniecDev.TranslationSystem.Domain.Aggregates.TranslationAggregate.Services;
 
 /// <summary>
-/// The value-type mirror of <see cref="FragmentKey"/> for the import's bulk paths (spec 0006):
-/// a map/set key over hundreds of thousands of rows, where the class VO's per-row allocation and
-/// enumerator-based equality would dominate the working set. Rows enter the diff through
-/// <see cref="FragmentKey"/> validation first, so a <see cref="FragmentKeyValue"/> always carries
-/// an already-validated identity.
+/// The struct version of <see cref="FragmentKey"/> for the import's bulk paths (spec 0006). It is
+/// used as a map or set key over hundreds of thousands of rows, where the class value object would
+/// allocate per row and compare through an enumerator. Rows pass <see cref="FragmentKey"/> validation
+/// first, so this type always carries an identity that is already valid.
 /// </summary>
 public readonly record struct FragmentKeyValue(int FileId, long GossipId)
 {

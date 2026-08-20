@@ -679,6 +679,17 @@ with `/qa-ticket #<n>` before handing it over.**
 - **Hand over at most 3 tickets at a time**, and give every filed bug a verdict the same day
   (`valid` / `by design + why` / `needs retest`). A 15-ticket batch rots; without the feedback loop a
   tester keeps applying a wrong mental model and each wrong report is paid for twice.
+- **A QA ticket closes when the run is reported, not when the bugs are fixed (owner rule, 2026-08-20).**
+  A QA ticket records a *test execution*, so its done is: every scenario has a status, every non-pass
+  has a same-day verdict, and every `valid` finding has its **own** ticket. Then it closes — with a
+  summary comment linking the results sheet. The retest obligation moves **onto the bug ticket**
+  (an acceptance criterion naming the scenario, e.g. "re-run QA-FE-01 / `S01_PUBLIC` TC01"), because
+  that is where someone will actually look. Never reopen a closed QA ticket: the product moved, so
+  the next pass is a fresh, re-baselined run (`/qa-ticket #<n>`), not a resumed one. **The exception is
+  `blocked:`** — a scenario that could not be executed produced no information, so that coverage does
+  not exist yet and the QA ticket (or a follow-up run) stays open. `FAILED` = information obtained,
+  work done; `blocked:` = work not done. Worked example: #262 closed at 6/7 with the failures carved
+  out to #670 and #672.
 - **Preconditions are the owner's job, not the tester's.** Non-default row states come from
   `scripts/qa/seed-staging.sql` (staging only; requires one approve in the UI afterwards to rebuild
   the artifact). Sample `exported.txt` files and the admin login are owner-provided — a scenario

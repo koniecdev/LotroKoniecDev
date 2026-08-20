@@ -51,6 +51,38 @@ public sealed class EmailChangeRevertTokenProviderTests
     }
 
     [Fact]
+    public async Task ValidateAsync_RevertStampRotatedAfterIssuing_Refuses()
+    {
+        // The counter-takeover this field exists for. Every revert token is a bearer credential to move
+        // the account to its previous address, and after a chain of changes the attacker holds one too.
+        // A successful revert rotates the stamp, which has to retire theirs along with the one just
+        // used.
+        ApplicationUser user = CreateUser();
+        EmailChangeRevertTokenProvider sut = CreateSut(Now);
+        string token = await sut.GenerateAsync(Purpose, _userManager, user);
+
+        user.EmailChangeRevertStamp = Guid.NewGuid();
+        bool valid = await sut.ValidateAsync(Purpose, token, _userManager, user);
+
+        valid.ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task ValidateAsync_TokenIssuedAfterAnEarlierRevert_StillAccepts()
+    {
+        // Rotating retires the old tokens, it does not disable the feature: the next change mints a
+        // token against the new stamp and that one has to work.
+        ApplicationUser user = CreateUser();
+        user.EmailChangeRevertStamp = Guid.NewGuid();
+        EmailChangeRevertTokenProvider sut = CreateSut(Now);
+
+        string token = await sut.GenerateAsync(Purpose, _userManager, user);
+        bool valid = await sut.ValidateAsync(Purpose, token, _userManager, user);
+
+        valid.ShouldBeTrue();
+    }
+
+    [Fact]
     public async Task ValidateAsync_TokenOlderThanTheWindow_Refuses()
     {
         ApplicationUser user = CreateUser();

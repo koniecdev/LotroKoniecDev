@@ -79,14 +79,26 @@ legitimate e-mail change, and null the password, seconds after the notice arrive
 `IDataProtector`, protecting `(createdAt, userId, purpose)` and nothing else. Its purpose embeds
 both addresses (`RevertEmailChange:{previous}->{new}`).
 
-**The single-use guard is "the account is not already back on the previous address" — not "the
-account still sits on the address the token names".** The stricter-looking version is the one that
-fails: an attacker who knows the password simply changes the address twice, A→B then B→C. The
-owner's A→B link would then match nothing, while the fresh revert offer for B→C is delivered to B,
-which the attacker owns. Two API calls inside the hour's rate budget, and the guarantee above is
-gone. Restoring `previous` from wherever the account has been dragged is what makes the promise
-true. The second click is still refused, because by then the account *is* back on the previous
-address, so a revert cannot run twice and clear a password the owner has since reset.
+**Two guards, because one is not enough — and this is where the "no schema change" version of this
+ADR failed twice.**
+
+1. *Restore from wherever the account sits.* Refuse only when the account is **already back** on
+   `previous`. Requiring it to still sit on the address the token names is the trap: an attacker
+   who knows the password changes the address twice, A→B then B→C, and the owner's A→B link matches
+   nothing while the fresh revert offer for B→C is delivered to B, which the attacker owns.
+2. *Rotate `ApplicationUser.EmailChangeRevertStamp` on a successful revert, and bake it into every
+   revert token.* Guard 1 alone opens the mirror attack: after that same chain the attacker holds
+   `Rev(B→C)` in **their** mailbox, so once the owner reverts and resets their password, the
+   attacker fires their own token, the account moves back to B, the password is cleared again and
+   the page hands them a live reset link — silently, because the revert leg sends no e-mail. Every
+   revert token is a bearer credential to move the account to its previous address, and nothing on
+   the row distinguishes the owner's from the attacker's. Rotating retires the whole chain at once
+   and is what actually makes a link single-use.
+
+The stamp is a **new nullable column**, so this ADR no longer ships without a migration. It is
+additive and expand-only, which is the cheapest shape ADR-0023 allows, and it buys the guarantee
+the rest of this decision only claimed. It is deliberately **not** the security stamp: a password
+change rotates that, and surviving a password change is the one thing a revert token must do.
 
 ## Consequences
 
@@ -97,8 +109,9 @@ address, so a revert cannot run twice and clear a password the owner has since r
   clicks. Two e-mails have to be missed for the takeover to stick.
 - The legitimate "I lost my old mailbox" case still self-serves. Nothing in the flow requires
   reading the old inbox.
-- No new factor, no new infrastructure, no schema change: no `PendingEmail` column, no audit table,
-  **no EF migration**, so ADR-0023 has nothing to weigh in on. Pending state lives in the token.
+- No new factor and no new infrastructure. The pending change itself still lives in the token — no
+  `PendingEmail` column, no audit table. The one schema cost is a single nullable
+  `EmailChangeRevertStamp`, additive and expand-only (ADR-0023's cheapest shape).
 - It mirrors ADR-0031, so a reader who understands deletion already understands this.
 
 **Bad / accepted**
@@ -111,13 +124,17 @@ address, so a revert cannot run twice and clear a password the owner has since r
   touching `EmailChangeRevertTokenProvider` must understand that omitting the stamp is the
   requirement, not an oversight, and the guard that replaces it is the not-already-back check on
   the revert page.
-- **A revert token revives if the account legitimately returns to the same pair.** Because the
-  guard is stateless, an A→B token that was never used starts working again if the user later moves
-  A→B once more within its 14 days. The holder of mailbox A could then undo that later, wanted
-  change and clear the password. We accept it: the power is bounded by the same 14 days, and it
-  belongs to whoever controls the address the account itself came from — the same party the token
-  was issued to. Persisting the pending change would close it, at the cost of the columns this ADR
-  rejected.
+- **Unused tokens from before the last revert are dead, including ones their owner still wanted.**
+  Rotating on revert is deliberately blunt: it cannot tell the attacker's token from a second
+  legitimate one. A user who had two changes in flight and reverts one loses the other's link and
+  must ask again. That is the right way round — a stale link that still works is what the second
+  review found, twice.
+- **The revert also cancels a scheduled deletion.** It has to: rotating the security stamp kills
+  ADR-0031's cancel token, and after an address change that cancel link was mailed to the address
+  the account was moved to. Refusing the revert instead would leave the account locked, unable to
+  log in or reset, and hard-erased by the finalizer — data loss reachable from one ordinary click.
+  So this is a second, deliberate way back into a locked account, and it is exactly as strong as
+  the first: proof of control over the mailbox the account came from.
 - **The old address learns the new one.** The warning and the notice both name it in full. In the
   attack case the recipient is the legitimate owner and needs it to act; in the normal case the
   recipient is the user themselves.
@@ -182,8 +199,11 @@ address, so a revert cannot run twice and clear a password the owner has since r
   `UpdateNormalizedEmailAsync` after validation and before the write, so a hand-set value is
   overwritten either way.
 - `EmailChangeRevertTokenProvider` (revert leg) is hand-written over `IDataProtector`, lifespan
-  14 days, **no stamp**. Its unit tests must pin that a stamp rotation does *not* invalidate it —
-  that assertion is the ADR, executable.
+  14 days, carrying `(createdAt, userId, revertStamp, purpose)`. Its unit tests must pin **both**
+  halves: a *security* stamp rotation does not invalidate it, and a *revert* stamp rotation does.
+  Those two assertions are this ADR, executable.
+- `EmailChangeCompletedProcessor` skips a redelivery whose account has already moved on, so a
+  dead-lettered replay cannot mint a fresh token and restart the fourteen days.
 - Every value that arrives in one of these links is checked for shape before the page prints it or
   acts on it. The user id must parse as a `Guid` — Identity converts it to the key type before it
   queries, so a non-GUID throws inside the store and a bad link becomes a 500 on a page somebody

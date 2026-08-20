@@ -6,6 +6,7 @@ using LotroKoniecDev.AuthSystem.API.ApiErrors;
 using LotroKoniecDev.AuthSystem.API.Extensions;
 using LotroKoniecDev.AuthSystem.API.Services.Sessions;
 using LotroKoniecDev.AuthSystem.Domain.Aggregates.ApplicationUsers.Entities;
+using LotroKoniecDev.AuthSystem.Persistence.DbContexts;
 using LotroKoniecDev.AuthSystem.Persistence.Identity;
 using LotroKoniecDev.SharedKernel.Constants;
 using LotroKoniecDev.SharedKernel.Messaging;
@@ -24,6 +25,9 @@ namespace LotroKoniecDev.AuthSystem.API.Features.Auth;
 /// <see cref="CancelAccountDeletion"/> answers the same problem the same way.
 /// No e-mail goes out afterwards. The person who needs to know is reading the page, and telling the
 /// address the account was just taken from would only warn an attacker.
+/// It also cancels a scheduled deletion. After an address change the cancel link of ADR-0031 was sent
+/// to a mailbox the owner may no longer control, so refusing here would leave the account to be erased
+/// by the very person it was taken from.
 /// </remarks>
 internal sealed partial class RevertEmailChange
 {
@@ -73,17 +77,20 @@ internal sealed partial class RevertEmailChange
     internal sealed partial class Handler : ICommandHandler<Command, Result<RevertedEmailChange>>
     {
         private readonly UserManager<ApplicationUser> _userManager;
+        private readonly AuthDbContext _db;
         private readonly IUserSessionRevoker _sessionRevoker;
         private readonly IValidator<Command> _validator;
         private readonly ILogger<Handler> _logger;
 
         public Handler(
             UserManager<ApplicationUser> userManager,
+            AuthDbContext db,
             IUserSessionRevoker sessionRevoker,
             IValidator<Command> validator,
             ILogger<Handler> logger)
         {
             _userManager = userManager;
+            _db = db;
             _sessionRevoker = sessionRevoker;
             _validator = validator;
             _logger = logger;
@@ -141,7 +148,7 @@ internal sealed partial class RevertEmailChange
             // go back to, and the password must stay as it is: clearing it would lock the account out
             // of both addresses at once.
             ApplicationUser? previousAddressOwner = await _userManager.FindByEmailAsync(previousEmail);
-            if (previousAddressOwner is not null && previousAddressOwner.Id != user.Id)
+            if (previousAddressOwner is not null)
             {
                 LogPreviousAddressTaken(_logger, user.Id);
                 return Result.Failure<RevertedEmailChange>(AuthErrors.UserAlreadyExistsByEmail);
@@ -156,14 +163,29 @@ internal sealed partial class RevertEmailChange
 
             user.SecurityStamp = Guid.NewGuid().ToString();
 
+            // Retires every revert link issued so far, including the ones further up a chain of
+            // changes. Without it the attacker's own token, mailed to an address they controlled,
+            // still works and simply undoes this recovery (ADR-0048).
+            user.EmailChangeRevertStamp = Guid.NewGuid();
+
+            // A deletion the same person may have scheduled is called off here. Its cancel link went to
+            // the address the account was moved to, so leaving the schedule in place would hand the
+            // erasure to whoever took the account over.
+            user.DeletionScheduledAt = null;
+            user.LockoutEnd = null;
+            user.AccessFailedCount = 0;
+
             Result<IdentityResult> updateResult = await TryUpdateAsync(user);
             if (updateResult.IsFailure)
             {
+                DiscardPendingChanges();
                 return Result.Failure<RevertedEmailChange>(updateResult.Error);
             }
 
             if (!updateResult.Value.Succeeded)
             {
+                DiscardPendingChanges();
+
                 string errors = string.Join(", ", updateResult.Value.Errors.Select(e => e.Description));
                 LogRevertFailed(_logger, user.Id, errors);
                 return Result.Failure<RevertedEmailChange>(AuthErrors.EmailChangeFailed(errors));
@@ -179,6 +201,17 @@ internal sealed partial class RevertEmailChange
                 _logger, user.Id, currentEmail.MaskEmail(), previousEmail.MaskEmail(), command.IpAddress, command.UserAgent);
 
             return Result.Success(new RevertedEmailChange(previousEmail, passwordResetToken));
+        }
+
+        /// <summary>
+        /// A failed update never reaches the store, so this unit of work is still in the change
+        /// tracker with the restored address and a cleared password on it. The context is shared with
+        /// OpenIddict for the rest of the request, so a later save there would commit a revert this
+        /// handler just reported as failed.
+        /// </summary>
+        private void DiscardPendingChanges()
+        {
+            _db.ChangeTracker.Clear();
         }
 
         /// <summary>

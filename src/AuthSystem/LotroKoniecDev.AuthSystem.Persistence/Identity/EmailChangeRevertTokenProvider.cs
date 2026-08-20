@@ -31,9 +31,12 @@ public sealed class EmailChangeRevertTokenProviderOptions
 /// id and the purpose, and nothing else.
 /// </para>
 /// <para>
-/// Leaving the stamp out also removes what normally makes these links single-use, so the revert page
-/// replaces it: it refuses unless the account still sits on the address the token was issued against.
-/// A second visit, or a token from an older change, therefore changes nothing.
+/// What it does carry instead is
+/// <see cref="ApplicationUser.EmailChangeRevertStamp"/>, which rotates on a successful revert and on
+/// nothing else. That is what makes these links single-use, and it is not optional: every revert
+/// token is a bearer credential to move the account to its previous address, and after a chain of
+/// changes an attacker holds one too. Without this field their token stays live and they simply undo
+/// the owner's recovery. Rotating on revert kills every token in the chain at once.
 /// </para>
 /// </remarks>
 public sealed class EmailChangeRevertTokenProvider : IUserTwoFactorTokenProvider<ApplicationUser>
@@ -68,6 +71,7 @@ public sealed class EmailChangeRevertTokenProvider : IUserTwoFactorTokenProvider
             '|',
             _timeProvider.GetUtcNow().UtcTicks.ToString(CultureInfo.InvariantCulture),
             user.Id.ToString(),
+            StampOf(user),
             purpose ?? string.Empty);
 
         // Base64, like every Identity-issued token here. The link factory runs it through
@@ -101,8 +105,8 @@ public sealed class EmailChangeRevertTokenProvider : IUserTwoFactorTokenProvider
             return Task.FromResult(false);
         }
 
-        string[] parts = Encoding.UTF8.GetString(payload).Split('|', 3);
-        if (parts.Length != 3)
+        string[] parts = Encoding.UTF8.GetString(payload).Split('|', 4);
+        if (parts.Length != 4)
         {
             return Task.FromResult(false);
         }
@@ -119,7 +123,8 @@ public sealed class EmailChangeRevertTokenProvider : IUserTwoFactorTokenProvider
         }
 
         bool matches = string.Equals(parts[1], user.Id.ToString(), StringComparison.Ordinal)
-                       && string.Equals(parts[2], purpose ?? string.Empty, StringComparison.Ordinal);
+                       && string.Equals(parts[2], StampOf(user), StringComparison.Ordinal)
+                       && string.Equals(parts[3], purpose ?? string.Empty, StringComparison.Ordinal);
 
         return Task.FromResult(matches);
     }
@@ -128,6 +133,13 @@ public sealed class EmailChangeRevertTokenProvider : IUserTwoFactorTokenProvider
     /// Never a two-factor option. This provider only backs a link we e-mail, so nothing may offer it
     /// as a login step.
     /// </summary>
+    /// <summary>
+    /// An account that has never been reverted has no stamp yet, and every token it issues shares that
+    /// same empty value. The first successful revert sets one, which is what retires them all.
+    /// </summary>
+    private static string StampOf(ApplicationUser user) =>
+        user.EmailChangeRevertStamp?.ToString() ?? string.Empty;
+
     public Task<bool> CanGenerateTwoFactorTokenAsync(UserManager<ApplicationUser> manager, ApplicationUser user) =>
         Task.FromResult(false);
 }

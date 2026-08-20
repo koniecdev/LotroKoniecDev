@@ -175,7 +175,10 @@ internal sealed partial class RequestEmailChange : IApiEndpoint
                     userId,
                     // Trimmed before validation, not after: the address rule rejects any whitespace, so
                     // a trailing space from a paste would otherwise fail instead of being cleaned up.
-                    request.NewEmail.Trim(),
+                    // The null coalesce is not decoration: the record's non-nullable string does not
+                    // stop System.Text.Json from binding a JSON null, and the validator is what should
+                    // answer for it, not a NullReferenceException.
+                    (request.NewEmail ?? string.Empty).Trim(),
                     request.CurrentPassword,
                     httpContext.Connection.RemoteIpAddress?.ToString(),
                     httpContext.Request.Headers.UserAgent.ToString());

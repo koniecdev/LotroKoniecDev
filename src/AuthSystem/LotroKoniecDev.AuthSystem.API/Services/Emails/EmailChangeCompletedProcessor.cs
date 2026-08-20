@@ -84,6 +84,17 @@ internal sealed partial class EmailChangeCompletedProcessor : IEmailMessageProce
             return Result.Success();
         }
 
+        // A redelivery that arrives after the account moved on, or after the revert already ran, would
+        // otherwise mint a brand-new token and start its fourteen days again from today.
+        if (!string.Equals(
+                _userManager.NormalizeEmail(user.Email),
+                _userManager.NormalizeEmail(message.NewEmail),
+                StringComparison.Ordinal))
+        {
+            LogStaleChange(_logger, message.IdentityUserId);
+            return Result.Success();
+        }
+
         string revertToken = await _userManager.GenerateUserTokenAsync(
             user,
             EmailChangeRevertTokenProvider.ProviderName,
@@ -107,6 +118,12 @@ internal sealed partial class EmailChangeCompletedProcessor : IEmailMessageProce
         return await _emailChangeEmailSender.SendChangedNoticeAsync(
             user.Id, message.NewEmail, message.PreviousEmail, cancellationToken);
     }
+
+    [LoggerMessage(
+        EventId = EventIds.EmailChangeDispatchStaleRequest,
+        Level = LogLevel.Information,
+        Message = "Skipping e-mail change notices for user {UserId}: the account no longer sits on the new address")]
+    private static partial void LogStaleChange(ILogger logger, Guid userId);
 
     [LoggerMessage(
         EventId = EventIds.EmailChangeDispatchUserGone,

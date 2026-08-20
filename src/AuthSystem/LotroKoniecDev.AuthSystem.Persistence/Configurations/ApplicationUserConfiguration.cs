@@ -37,6 +37,8 @@ internal sealed class ApplicationUserConfiguration : IEntityTypeConfiguration<Ap
 
         builder.Property(u => u.DeletionScheduledAt);
 
+        builder.Property(u => u.EmailChangeRevertStamp);
+
         // A partial index. The deletion job only looks at the few rows that have a date set.
         builder.HasIndex(u => u.DeletionScheduledAt)
             .HasFilter($"\"{nameof(ApplicationUser.DeletionScheduledAt)}\" IS NOT NULL");

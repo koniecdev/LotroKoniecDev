@@ -1,9 +1,10 @@
-using FluentValidation;
 using Microsoft.AspNetCore.Identity;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
 using LotroKoniecDev.AuthSystem.API.Features.Auth;
 using LotroKoniecDev.AuthSystem.API.Services.Sessions;
 using LotroKoniecDev.AuthSystem.Domain.Aggregates.ApplicationUsers.Entities;
+using LotroKoniecDev.AuthSystem.Persistence.DbContexts;
 using LotroKoniecDev.AuthSystem.Persistence.Identity;
 using NSubstitute;
 using Shouldly;
@@ -20,6 +21,7 @@ public sealed class RevertEmailChangeHandlerTests
     private const string CurrentEmail = "attacker@mordor.example";
 
     private readonly UserManager<ApplicationUser> _userManager = CreateUserManager();
+    private readonly AuthDbContext _db = CreateDetachedDbContext();
     private readonly IUserSessionRevoker _sessionRevoker = Substitute.For<IUserSessionRevoker>();
 
     public RevertEmailChangeHandlerTests()
@@ -143,6 +145,10 @@ public sealed class RevertEmailChangeHandlerTests
         user.PasswordHash.ShouldBeNull();
         user.SecurityStamp.ShouldNotBe(stampBefore);
 
+        // Retires every revert link issued so far, including the attacker's own further up a chain of
+        // changes. Without it their token still works and undoes this recovery.
+        user.EmailChangeRevertStamp.ShouldNotBeNull();
+
         // Revoking the OpenIddict artifacts leaves no trace in the return value, so it is asserted here.
         await _sessionRevoker.Received(1).RevokeAllAsync(user.Id.ToString(), Arg.Any<CancellationToken>());
     }
@@ -166,6 +172,29 @@ public sealed class RevertEmailChangeHandlerTests
         result.Error.Code.ShouldBe("Auth.EmailChangeFailed");
     }
 
+    [Fact]
+    public async Task Handle_AccountHasADeletionScheduled_CancelsItInsteadOfLeavingTheAccountToBeErased()
+    {
+        // Rotating the security stamp kills the ADR-0031 cancel token, and that link went to the
+        // address the account was moved to. Refusing here, or reverting without cancelling, would hand
+        // the erasure to whoever took the account over.
+        ApplicationUser user = CreateUser();
+        user.DeletionScheduledAt = new DateTimeOffset(2026, 8, 20, 12, 0, 0, TimeSpan.Zero);
+        user.LockoutEnd = new DateTimeOffset(2026, 9, 3, 12, 0, 0, TimeSpan.Zero);
+        user.AccessFailedCount = 4;
+        StubUser(user, tokenValid: true);
+        RevertEmailChange.Handler sut = CreateSut();
+
+        SharedKernel.Monads.Result<RevertEmailChange.RevertedEmailChange> result = await sut.Handle(
+            CommandFor(user.Id.ToString()), CancellationToken.None);
+
+        result.IsSuccess.ShouldBeTrue();
+        user.Email.ShouldBe(PreviousEmail);
+        user.DeletionScheduledAt.ShouldBeNull();
+        user.LockoutEnd.ShouldBeNull();
+        user.AccessFailedCount.ShouldBe(0);
+    }
+
     private static RevertEmailChange.Command CommandFor(string userId) =>
         new(userId, PreviousEmail, CurrentEmail, "revert-token", "203.0.113.7", "xunit");
 
@@ -186,6 +215,7 @@ public sealed class RevertEmailChangeHandlerTests
     private RevertEmailChange.Handler CreateSut() =>
         new(
             _userManager,
+            _db,
             _sessionRevoker,
             new RevertEmailChange.CommandValidator(),
             NullLogger<RevertEmailChange.Handler>.Instance);
@@ -199,6 +229,15 @@ public sealed class RevertEmailChangeHandlerTests
             PasswordHash = "hashed",
             SecurityStamp = Guid.NewGuid().ToString()
         };
+
+    /// <summary>
+    /// The handler only ever calls <c>ChangeTracker.Clear()</c> on this, which needs no connection, so
+    /// the suite stays pure: nothing here opens a socket or a file.
+    /// </summary>
+    private static AuthDbContext CreateDetachedDbContext() =>
+        new(new DbContextOptionsBuilder<AuthDbContext>()
+            .UseNpgsql("Host=unit-test;Database=none;Username=none;Password=none")
+            .Options);
 
     private static UserManager<ApplicationUser> CreateUserManager() =>
         Substitute.For<UserManager<ApplicationUser>>(

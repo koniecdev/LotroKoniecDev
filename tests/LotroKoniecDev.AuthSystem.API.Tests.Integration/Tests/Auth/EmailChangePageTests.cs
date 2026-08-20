@@ -117,6 +117,42 @@ public sealed partial class EmailChangePageTests : EndpointsTestBase
         (await LoadUserByIdAsync(userId)).Email.ShouldBe(user.Email);
     }
 
+    [Theory]
+    [InlineData("not-a-guid")]
+    [InlineData("Twoje konto zostało przejęte")]
+    public async Task ConfirmPage_GetWithAMalformedUserId_RendersTheErrorStateNotACrash(string userIdInput)
+    {
+        (RegisterRequest user, string newEmail, string token) = await RequestChangeAsync();
+
+        HttpResponseMessage response = await ApiClient.Http.GetAsync(new Uri(
+            $"/Account/ConfirmEmailChange?userId={Uri.EscapeDataString(userIdInput)}"
+            + $"&email={Uri.EscapeDataString(newEmail)}&token={Uri.EscapeDataString(token)}",
+            UriKind.Relative));
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        (await response.Content.ReadAsStringAsync()).ShouldContain("nieprawidłowy");
+        (await LoadUserByIdAsync(await UserIdOfAsync(user.Email))).Email.ShouldBe(user.Email);
+    }
+
+    [Fact]
+    public async Task ConfirmPage_GetWithATextInsteadOfAnAddress_DoesNotPrintItOnThePage()
+    {
+        // The page is on the auth origin and carries a real button, so it must not become a place to
+        // put a sentence of somebody else's choosing.
+        (RegisterRequest user, _, string token) = await RequestChangeAsync();
+        Guid userId = await UserIdOfAsync(user.Email);
+        const string injected = "Twoje konto zostalo przejete - zadzwon pod numer 500600700";
+
+        HttpResponseMessage response = await ApiClient.Http.GetAsync(new Uri(
+            $"/Account/ConfirmEmailChange?userId={userId}&email={Uri.EscapeDataString(injected)}"
+            + $"&token={Uri.EscapeDataString(token)}",
+            UriKind.Relative));
+
+        string html = await response.Content.ReadAsStringAsync();
+        html.ShouldNotContain(injected);
+        html.ShouldContain("nieprawidłowy");
+    }
+
     [Fact]
     public async Task RevertPage_Get_ShouldChangeNothing()
     {
@@ -216,6 +252,45 @@ public sealed partial class EmailChangePageTests : EndpointsTestBase
         ApplicationUser restored = await LoadUserByIdAsync(userId);
         restored.Email.ShouldBe(user.Email);
         restored.PasswordHash.ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task RevertPage_Post_ShouldNotLetAnOlderRevertTokenRepossessTheAccount()
+    {
+        // The counter-takeover. The attacker chains A -> B -> C, so the revert offer for B -> C lands
+        // in B, which is theirs. The owner reverts with their A -> B link and resets the password. If
+        // the attacker's older token still works, they fire it afterwards and take the account back
+        // for good, with no e-mail warning anybody.
+        (RegisterRequest user, string attackerFirstEmail, Guid userId) = await CompleteChangeAsync();
+        string ownerRevertToken = EmailChangeEmailSpy.LastRevertToken!;
+
+        string attackerSecondEmail = Faker.Internet.Email();
+        EmailChangeEmailSpy.Reset();
+        string accessToken = await GetAccessTokenAsync(attackerFirstEmail, Password);
+        using HttpRequestMessage secondRequest = new(HttpMethod.Post, "auth/account/change-email");
+        secondRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+        secondRequest.Content = JsonContent.Create(new ChangeEmailRequest(attackerSecondEmail, Password));
+        (await ApiClient.Http.SendAsync(secondRequest)).StatusCode.ShouldBe(HttpStatusCode.OK);
+
+        await EmailChangeEmailSpy.WaitForVerificationCaptureAsync();
+        await ConfirmAsync(userId, attackerSecondEmail, EmailChangeEmailSpy.LastVerificationToken!);
+        await EmailChangeEmailSpy.WaitForRevertOfferCaptureAsync();
+        string attackerRevertToken = EmailChangeEmailSpy.LastRevertToken!;
+
+        // The owner takes the account back.
+        await PostToPageAsync(
+            "/Account/RevertEmailChange",
+            RevertUrl(userId, user.Email, attackerFirstEmail, ownerRevertToken),
+            RevertForm(userId, user.Email, attackerFirstEmail, ownerRevertToken));
+        (await LoadUserByIdAsync(userId)).Email.ShouldBe(user.Email);
+
+        // The attacker fires the token that was mailed to the address they controlled.
+        await PostToPageAsync(
+            "/Account/RevertEmailChange",
+            RevertUrl(userId, attackerFirstEmail, attackerSecondEmail, attackerRevertToken),
+            RevertForm(userId, attackerFirstEmail, attackerSecondEmail, attackerRevertToken));
+
+        (await LoadUserByIdAsync(userId)).Email.ShouldBe(user.Email);
     }
 
     [Fact]

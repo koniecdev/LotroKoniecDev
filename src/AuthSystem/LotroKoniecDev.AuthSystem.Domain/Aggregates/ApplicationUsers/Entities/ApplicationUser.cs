@@ -11,4 +11,11 @@ public sealed class ApplicationUser : IdentityUser<Guid>
     public bool TermsOfServiceAccepted { get; set; }
     public DateTimeOffset? TermsOfServiceAcceptedDate { get; set; }
     public DateTimeOffset? DeletionScheduledAt { get; set; }
+
+    /// <summary>
+    /// Invalidates every revert link issued before the last successful revert (ADR-0048). It cannot be
+    /// the security stamp: a password change rotates that, and surviving a password change is the one
+    /// thing a revert token has to do.
+    /// </summary>
+    public Guid? EmailChangeRevertStamp { get; set; }
 }

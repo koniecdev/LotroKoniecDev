@@ -1570,10 +1570,14 @@ code {
 }
 
 /* ───────── Cookie consent bar ───────── */
+/* Sticky, never fixed (#672) — the same idiom as .nav above, at the other edge. Fixed put the bar out
+   of flow, so nothing reserved space for it and it sat on top of the end of the document, burying the
+   footer's legal links at maximum scroll. In flow as the last child of the .app column it reserves
+   exactly the height its copy wraps to, so the footer always comes to rest above it, and it is still
+   pinned to the bottom edge while anything is left to scroll. Accepted means not rendered at all, so
+   nothing is left reserved behind it. */
 .cookie-bar {
-    position: fixed;
-    left: 0;
-    right: 0;
+    position: sticky;
     bottom: 0;
     z-index: 60;
     border-top: 1px solid var(--border-hi);

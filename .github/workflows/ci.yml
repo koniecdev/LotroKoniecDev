@@ -73,13 +73,16 @@ jobs:
       - name: Hetzner deploy script self-test
         run: ./scripts/tests/hetzner-deploy.tests.sh
 
-      # Same two N-1 promotion gate self-tests as pr-verify (#534) — CD is triggered by THIS workflow
-      # concluding success, so both scripts the prod leg is about to run get checked here too.
+      # Same three N-1 promotion gate self-tests as pr-verify (#534, #679) — CD is triggered by THIS
+      # workflow concluding success, so every script the prod leg is about to run gets checked here too.
       - name: Prod-baseline resolution self-test
         run: ./scripts/tests/resolve-prod-baseline.tests.sh
 
       - name: N-1 promotion gate verdict self-test
         run: ./scripts/tests/n1-promotion-gate.tests.sh
+
+      - name: N-1 proof classification self-test
+        run: ./scripts/tests/n1-compat.tests.sh
 
       - name: Setup .NET
         uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0

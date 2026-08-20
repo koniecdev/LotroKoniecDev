@@ -5,7 +5,8 @@
 # The one property here is the operator instruction attached to each exit code of
 # scripts/n1-compat.sh. That script separates "the serving release cannot live on this schema"
 # (exit 1) from "the proof never ran" (exit 2 — dotnet tool restore, script generation, the
-# worktree, a missing seam, no integration suites found). Both block the promotion, but they demand
+# worktree, a missing seam, no integration suites found, or a serving release that no longer
+# restores/builds or executed zero tests — #679; scripts/tests/n1-compat.tests.sh pins that side). Both block the promotion, but they demand
 # OPPOSITE next actions: exit 1 means do NOT retry, promote in smaller steps; exit 2 means the batch
 # is UNJUDGED and the fix is the infra, not the batch. Collapsing them into one "your migrations
 # break prod" message sends the approver to split a healthy batch — or to the `image_tag` dispatch

@@ -87,6 +87,8 @@ expect 'code=false guards=true images=false' 'the prod N-1 promotion gate resolv
 expect 'code=false guards=true images=false' 'the resolver self-test'                     'scripts/tests/resolve-prod-baseline.tests.sh'
 expect 'code=false guards=true images=false' 'the promotion gate verdict mapping'         'scripts/ci/n1-promotion-gate.sh'
 expect 'code=false guards=true images=false' 'the verdict-mapping self-test'              'scripts/tests/n1-promotion-gate.tests.sh'
+expect 'code=false guards=true images=false' 'the N-1 proof the gate calls'               'scripts/n1-compat.sh'
+expect 'code=false guards=true images=false' 'the N-1 proof classification self-test'     'scripts/tests/n1-compat.tests.sh'
 
 echo
 echo '── images ───────────────────────────────────────────────────────────────────────────────────'

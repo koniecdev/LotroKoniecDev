@@ -10,14 +10,15 @@ using LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared.Bases;
 namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Tests.RateLimiting;
 
 /// <summary>
-/// Proves the brute-force limiter genuinely binds to the OpenIddict <c>/connect/*</c> endpoints
-/// (#347): they are mapped at the root, so the policy must ride the group they are actually mapped
-/// through — a bare <c>MapGroup("/connect")</c> convention never reaches them. Enforcement order
-/// matters too: the limiter middleware must run BEFORE authentication, because OpenIddict validates
-/// protocol requests inside the authentication stage and short-circuits invalid ones — a limiter
-/// placed after it would never count exactly the junk traffic it exists to stop. Introspection and
-/// revocation have no ASP.NET Core passthrough at all — OpenIddict middleware serves them entirely —
-/// so their limits ride metadata-only routes (#349, <c>MiddlewareServedEndpoints</c>). The suite's
+/// Proves the brute-force limiter really applies to the OpenIddict <c>/connect/*</c> endpoints (#347).
+/// They are mapped at the root, so the policy has to be on the group they are actually mapped through;
+/// a plain <c>MapGroup("/connect")</c> convention never reaches them.
+/// The order matters too: the limiter must run before authentication, because OpenIddict checks
+/// protocol requests during authentication and stops the invalid ones early. A limiter after it would
+/// never count exactly the junk traffic it exists to stop.
+/// Introspection and revocation are served entirely by OpenIddict middleware and cannot be handed to
+/// us at all, so their limits sit on routes that carry metadata only (#349,
+/// <c>MiddlewareServedEndpoints</c>). The suite's
 /// Testing host keeps the limiter middleware off; the burst tests force-arm it on a derived host to
 /// observe real 429 rejection, which a Staging-environment factory cannot do in-suite (outside
 /// Dev/Testing the settings validators demand production key material at startup).
@@ -70,8 +71,9 @@ public sealed class ConnectRateLimitingTests : EndpointsTestBase
         OpenIddictServerOptions serverOptions = Factory.Services
             .GetRequiredService<IOptionsMonitor<OpenIddictServerOptions>>().CurrentValue;
 
-        // The last three collections are empty today (no such URIs are registered) — enumerating
-        // them now means enabling device/PAR/end-user-verification later cannot slip past this pin.
+        // The last three collections are empty today, because no such URIs are registered. Listing them
+        // now means that turning on device flow, pushed authorization requests or end-user verification
+        // later cannot slip past this check.
         List<Uri> authSurfaceUris = serverOptions.TokenEndpointUris
             .Concat(serverOptions.AuthorizationEndpointUris)
             .Concat(serverOptions.UserInfoEndpointUris)
@@ -171,10 +173,9 @@ public sealed class ConnectRateLimitingTests : EndpointsTestBase
     [Fact]
     public async Task ConnectToken_BurstWithUnknownClient_RejectsRequestBeyondPermitLimit()
     {
-        // Arrange: an unknown client_id is the cheapest externally craftable junk: OpenIddict
-        // rejects it during the authentication stage, so this burst proves the limiter counts
-        // requests BEFORE OpenIddict sees them — the exact ordering a post-authentication limiter
-        // silently loses.
+        // Arrange: an unknown client_id is the cheapest junk anyone can send. OpenIddict rejects it
+        // during authentication, so this burst proves the limiter counts requests before OpenIddict sees
+        // them. A limiter placed after authentication would quietly miss exactly these.
         using WebApplicationFactory<Program> limitedHost = CreateRateLimitedHost();
         using HttpClient client = limitedHost.CreateClient();
 

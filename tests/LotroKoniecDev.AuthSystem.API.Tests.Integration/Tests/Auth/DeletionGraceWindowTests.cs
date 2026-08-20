@@ -86,11 +86,11 @@ public sealed partial class DeletionGraceWindowTests : AsyncLifetimeTestBase
             new Uri("auth/forgot-password", UriKind.Relative),
             new ForgotPasswordRequest(registerRequest.Email));
 
-        // Assert: anti-enumeration success, but the reset email must not go out. The request
-        // now only commits an outbox row (ADR-0038) and the deletion-window guard fires in the
-        // dispatch processor, so wait until the delivery was actually consumed (the inbox row is
-        // the "processor finished" marker) — asserting right after the POST would race a broken
-        // guard into a false green.
+        // Assert: the response says success, so nobody can find out which accounts exist, but the reset
+        // e-mail must not go out. The request only commits an outbox row (ADR-0038) and the check for a
+        // scheduled deletion happens in the dispatch processor. So wait until the delivery was really
+        // handled, which the inbox row tells us. Asserting right after the POST could let a broken check
+        // pass as green.
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
         OutboxMessage? outboxRow = await OutboxAssertions.WaitForOutboxRowAsync(
             Factory, row => row.Type == nameof(PasswordResetRequested));
@@ -139,8 +139,8 @@ public sealed partial class DeletionGraceWindowTests : AsyncLifetimeTestBase
         await ScheduleDeletionAsync(registerRequest.Email);
         string cancelToken = AccountDeletionEmailSpy.LastCancelToken!;
 
-        // The cancel token above was minted at delivery against the post-schedule stamp
-        // (ADR-0038 decision 2) — the attack below must not be able to invalidate it.
+        // The cancel token above was created at delivery time, against the stamp set when the deletion
+        // was scheduled (ADR-0038 decision 2). The attack below must not be able to invalidate it.
 
         ChangePasswordRequest changeRequest = new(TestPassword, "AttackerNewPass1!");
         using HttpRequestMessage request = new(HttpMethod.Post, "auth/change-password");
@@ -296,8 +296,8 @@ public sealed partial class DeletionGraceWindowTests : AsyncLifetimeTestBase
         HttpResponseMessage response = await ApiClient.Http.SendAsync(request);
         response.StatusCode.ShouldBe(HttpStatusCode.NoContent);
 
-        // The cancel token arrives through the pipeline (ADR-0038), not the request path —
-        // callers read it off the spy right after this returns, so wait for the delivery here
+        // The cancel token arrives through the pipeline (ADR-0038) and not with the request. Callers
+        // read it off the spy right after this returns, so wait for the delivery here.
         await AccountDeletionEmailSpy.WaitForScheduledCaptureAsync();
     }
 

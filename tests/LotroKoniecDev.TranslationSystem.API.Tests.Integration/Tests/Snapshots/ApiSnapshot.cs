@@ -12,13 +12,14 @@ namespace LotroKoniecDev.TranslationSystem.API.Tests.Integration.Tests.Snapshots
 /// instead of one minified blob.
 /// </summary>
 /// <remarks>
-/// Re-indenting round-trips the payload through <see cref="JsonNode"/>, so what the snapshot pins is
-/// the <em>logical</em> contract — property names, nesting, ordering, JSON types (a quoted value stays
-/// quoted) and values. The round-trip is lossy in exactly one direction: it re-encodes with a relaxed
-/// encoder of its own, erasing how the transport encoded non-ASCII. Nothing else in the repo covers
-/// that (<c>ContentNegotiationTests</c> pins the media type and <c>Vary</c>, not the bytes), so
-/// <see cref="ShouldServeUnescapedUtf8Async"/> asserts it on the raw body and every snapshot test
-/// whose payload carries Polish calls it.
+/// Re-indenting passes the payload through <see cref="JsonNode"/>, so what the snapshot pins is the
+/// logical contract: property names, nesting, order, JSON types, where a quoted value stays quoted, and
+/// the values themselves.
+/// It loses exactly one thing: it writes the JSON again with its own relaxed encoder, so how the
+/// response encoded non-ASCII is gone. Nothing else in the repo covers that, since
+/// <c>ContentNegotiationTests</c> pins the media type and <c>Vary</c> and not the bytes. So
+/// <see cref="ShouldServeUnescapedUtf8Async"/> checks it on the raw body, and every snapshot test whose
+/// payload contains Polish calls it.
 /// </remarks>
 internal static class ApiSnapshot
 {
@@ -49,11 +50,11 @@ internal static class ApiSnapshot
     }
 
     /// <summary>
-    /// Pins the wire encoding, which is the one thing <see cref="IndentAsync"/> normalizes away: the
-    /// response carries <em>no</em> charset parameter — JSON is UTF-8 by definition (RFC 8259 §8.1) —
-    /// and Polish goes out as literal UTF-8, never as <c>\uXXXX</c> escape sequences. Switching the
-    /// serializer to an escaping encoder would change the bytes every client parses while leaving the
-    /// snapshot byte-identical, so it needs an assertion of its own.
+    /// Pins the encoding on the wire, which is the one thing <see cref="IndentAsync"/> removes. The
+    /// response carries no charset parameter, because JSON is UTF-8 by definition (RFC 8259 §8.1), and
+    /// Polish goes out as real UTF-8 and never as <c>\uXXXX</c> escapes.
+    /// Switching the serializer to an escaping encoder would change the bytes every client parses while
+    /// leaving the snapshot identical, so it needs its own assertion.
     /// </summary>
     public static async Task ShouldServeUnescapedUtf8Async(HttpResponseMessage response, string expectedLiteral)
     {

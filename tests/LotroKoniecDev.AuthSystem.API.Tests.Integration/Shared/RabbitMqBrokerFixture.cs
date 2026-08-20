@@ -63,8 +63,8 @@ public sealed class RabbitMqBrokerFixture : IAsyncLifetime
     }
 
     /// <summary>
-    /// Server-side kill of every client connection — the broker-restart scenario a long-lived
-    /// publisher must survive by rebuilding its channel on the next publish.
+    /// Closes every client connection from the broker side. This is the restart a long-lived publisher
+    /// has to survive by opening a new channel on its next publish.
     /// </summary>
     public async Task CloseAllConnectionsAsync()
     {

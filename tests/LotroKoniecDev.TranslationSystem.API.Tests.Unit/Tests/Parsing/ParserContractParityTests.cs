@@ -44,8 +44,8 @@ public sealed class ParserContractParityTests
     [InlineData("620756992||1004||Multi||arg||content||1-2||1-2||1||2dcab7603ec22224")]
     [InlineData("620756992||1008||Koniec rury|||NULL||NULL||1||df0aa563e80483a5")]
     [InlineData("620756992||1009||Trzy rury|||||1-2||3-4||1||2f2d1cb2f502250a")]
-    // A digest followed by trailing whitespace stays a seven-column line on both sides — the six-
-    // column fallback would swallow "||NULL" into the content and put the digest into `approved`.
+    // A digest with trailing spaces is still a seven-column line on both sides. Reading it as six
+    // columns would swallow "||NULL" into the content and put the digest into `approved`.
     [InlineData("620756992||1001||Witaj w Srodziemiu!||NULL||NULL||1||a37cc1683216cd32 ")]
     [InlineData("620756992||1001||Witaj w Srodziemiu!||NULL||NULL||1||a37cc1683216cd32\t")]
     public async Task BothParsers_OnTheSameContractLine_ShouldAgreeOnEveryField(string line)
@@ -141,9 +141,9 @@ public sealed class ParserContractParityTests
     [MemberData(nameof(NaughtyStringCases.All), MemberType = typeof(NaughtyStringCases))]
     public void BothEscapers_OnTheSameInput_ShouldProduceIdenticalBytes(string naughty)
     {
-        // The two copies of the escape rule (ADR-0039) are duplicated by design — the contexts share
-        // the file, never code — so nothing but this test stops one of them from drifting. The twin
-        // per-context suites would both stay green through a one-sided change; this one would not.
+        // The escape rule (ADR-0039) exists twice on purpose, because the two contexts share the file
+        // and never the code, so nothing but this test stops one copy from changing on its own. Each
+        // context's own suite would stay green through a one-sided change; this one would not.
         PatcherEscaper.Escape(naughty).ShouldBe(TmsEscaper.Escape(naughty));
     }
 
@@ -257,10 +257,10 @@ public sealed class ParserContractParityTests
         => args is null ? AbsentArgs : string.Join('-', args.Select(value => value + 1));
 
     /// <summary>
-    /// The patcher collapses every spelling of "no arguments" to a null array, while the TMS keeps
-    /// the column's file form. Comparing the raw strings would therefore make an EMPTY args column
-    /// permanently inexpressible here — and an empty column next to a trailing pipe is exactly the
-    /// boundary the backward pass slices for (ADR-0042), so the guard has to reach it.
+    /// The patcher turns every way of writing "no arguments" into a null array, while the TMS keeps the
+    /// column as it appears in the file. Comparing the raw strings would therefore make an empty args
+    /// column impossible to express here, and an empty column next to a trailing pipe is exactly the
+    /// boundary the backward pass has to find (ADR-0042), so this test must be able to reach it.
     /// </summary>
     private static string NormalizeArgs(string args)
         => string.IsNullOrWhiteSpace(args) || args.Equals(AbsentArgs, StringComparison.OrdinalIgnoreCase)

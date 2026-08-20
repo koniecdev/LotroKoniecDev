@@ -18,18 +18,18 @@ using JsonOptions = Microsoft.AspNetCore.Http.Json.JsonOptions;
 namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Tests.Messaging;
 
 /// <summary>
-/// The only suite where the confirmation-e-mail pipeline runs end-to-end with nothing faked
-/// between the database and the SMTP seam: registration commits an outbox row, the real relay
-/// publishes it through the real <see cref="RabbitMqMessagePublisher"/> to a real broker, and the
-/// real <c>EmailDispatchConsumer</c> selects the registered processor, deduplicates and
-/// dispatches to the spy e-mail sender. Everywhere else the broker hop is bridged in-process (<see cref="SpyMessagePublisher"/>),
-/// so the consumer's ack/reject decisions never actually meet broker semantics — here they do.
+/// The only suite where the confirmation-e-mail pipeline runs end to end with nothing faked between the
+/// database and SMTP. Registration commits an outbox row, the real relay publishes it through the real
+/// <see cref="RabbitMqMessagePublisher"/> to a real broker, and the real <c>EmailDispatchConsumer</c>
+/// picks the registered processor, drops duplicates and hands the message to the spy sender.
+/// Everywhere else the broker step is replaced in-process by <see cref="SpyMessagePublisher"/>, so the
+/// consumer's ack and reject decisions never meet a real broker. Here they do.
 /// </summary>
 /// <remarks>
-/// The consumer's transient-failure ladder is deliberately not driven at this level: its first
-/// rung pauses 30 s before the reject, and each piece is already pinned separately — the ladder's
-/// invariants in <c>EmailDispatchConsumerTests</c>, the failed-processing inbox contract in
-/// <c>InboxDeduplicationTests</c>, and the delivery-limit parking in
+/// The consumer's retry ladder is deliberately not driven here: its first step waits 30 seconds before
+/// the reject, and each piece is already pinned elsewhere. The ladder's rules are in
+/// <c>EmailDispatchConsumerTests</c>, what a failed processing writes to the inbox is in
+/// <c>InboxDeduplicationTests</c>, and parking after the delivery limit is in
 /// <c>DeadLetterTopologyTests</c>.
 /// </remarks>
 public sealed class EmailConfirmationPipelineTests : IClassFixture<BrokeredAuthSystemApiFactory>, IAsyncLifetime
@@ -62,7 +62,7 @@ public sealed class EmailConfirmationPipelineTests : IClassFixture<BrokeredAuthS
         await cleaner.CleanAsync();
 
         // The host's consumer declares the topology on startup, but the first test may reach this
-        // point before that attach finished — declaring here is idempotent (proven in
+        // point before that attach finished. Declaring it here again is safe (proven in
         // DeadLetterTopologyTests) and guarantees the purges below have queues to purge.
         await using IConnection connection = await _factory.Broker.ConnectAsync(CancellationToken.None);
         await using IChannel channel = await connection.CreateChannelAsync();
@@ -245,9 +245,10 @@ public sealed class EmailConfirmationPipelineTests : IClassFixture<BrokeredAuthS
         (RegisterRequest secondRequest, IdentityId secondIdentityId) =
             await UserFactory.RegisterRandomUserUnconfirmedAsync(_apiClient, _faker, _confirmationEmailSpy);
 
-        // A spent nudge would leave the relay in its retry backoff (30 s first rung); production
-        // gets re-nudged by every later commit, so the wait re-nudges instead of paying that rung
-        // — what this test pins is recovery, the retry cadence is OutboxRelayTests' subject.
+        // A signal that was already used would leave the relay waiting out its first retry step of 30
+        // seconds. In production every later commit sends a new signal, so this wait sends one too
+        // instead of paying that step. What this test pins is the recovery; the retry timing belongs to
+        // OutboxRelayTests.
         OutboxSignal outboxSignal = _factory.Services.GetRequiredService<OutboxSignal>();
         using CancellationTokenSource recoveryWindow = new(RecoveryTimeout);
         while (_confirmationEmailSpy.LastEmail is null && !recoveryWindow.IsCancellationRequested)
@@ -305,9 +306,9 @@ public sealed class EmailConfirmationPipelineTests : IClassFixture<BrokeredAuthS
     }
 
     /// <summary>
-    /// Polls the queue until a delivery arrives or the timeout passes — routing and dead-lettering
-    /// are asynchronous inside the broker. The read is auto-acked: every caller either asserts on
-    /// the delivery (test over either way) or expects null.
+    /// Polls the queue until a delivery arrives or the time runs out. Routing and dead-lettering happen
+    /// asynchronously inside the broker. The read acknowledges the message, which is fine: every caller
+    /// either checks the delivery or expects null.
     /// </summary>
     private async Task<BasicGetResult?> GetWithinTimeoutAsync(string queue, TimeSpan timeout)
     {
@@ -354,7 +355,7 @@ public sealed class EmailConfirmationPipelineTests : IClassFixture<BrokeredAuthS
 
     /// <summary>
     /// Polls the outbox until a row matches or the timeout passes, then returns the latest
-    /// snapshot (or null) — the assertions on it stay in the test body.
+    /// snapshot, or null. The assertions on it stay in the test.
     /// </summary>
     private async Task<OutboxMessage?> WaitForOutboxRowAsync(Func<OutboxMessage, bool> predicate)
     {

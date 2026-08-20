@@ -6,14 +6,14 @@ using LotroKoniecDev.TranslationSystem.Domain.Aggregates.TranslationAggregate.Se
 namespace LotroKoniecDev.TranslationSystem.API.Tests.Unit.Tests.Parsing;
 
 /// <summary>
-/// Hostile-input coverage for the TMS half of the <c>||</c> contract (#569): the Big List of Naughty
-/// Strings driven through the producer/consumer pair the TMS owns — <see cref="TranslationFileSerializer"/>
-/// writing the distributed file and <see cref="TranslationExportParser"/> reading an uploaded
+/// Hostile-input coverage for the TMS half of the <c>||</c> contract (#569). It runs the Big List of
+/// Naughty Strings through the pair the TMS owns: <see cref="TranslationFileSerializer"/>, which writes
+/// the distributed file, and <see cref="TranslationExportParser"/>, which reads an uploaded
 /// <c>exported.txt</c> back.
 /// </summary>
 /// <remarks>
-/// Changing the format itself needs an ADR plus updated golden fixtures on both sides of the
-/// contract (CLAUDE.md) — ADR-0039 is the last one.
+/// Changing the format itself needs an ADR and updated golden fixtures on both sides of the contract
+/// (CLAUDE.md). ADR-0039 is the most recent one.
 /// </remarks>
 public sealed class TranslationFileNaughtyStringTests
 {
@@ -139,12 +139,12 @@ public sealed class TranslationFileNaughtyStringTests
     [InlineData("|||")]
     public async Task SerializeThenParse_ContentEndingInAnOddNumberOfPipes_ShouldRoundTripExactly(string content)
     {
-        // Arrange: the trailing boundary is found by scanning BACKWARD (ADR-0042), so the last two
-        // pipes of a run are the separator and every earlier one stays content. Split resolved the
-        // boundary greedily left to right, so the last pipe was swallowed and reappeared glued to
-        // the args column — identically in both parsers, which is exactly why the parity guard could
-        // not see it (#597). No entry of the naughty list ends in an odd pipe run, so this collision
-        // has to be composed by hand.
+        // Arrange: the boundary at the end is found by scanning backwards (ADR-0042), so the last two
+        // pipes of a run are the separator and every earlier one is content. Split took the boundary
+        // greedily from the left, so the last pipe was swallowed and turned up stuck to the args column.
+        // Both parsers did the same thing, which is exactly why the parity test could not see it (#597).
+        // No entry in the naughty list ends in an odd number of pipes, so this case has to be built by
+        // hand.
         string file = _serializer.Serialize([Row(620756992, 1001, content, "1-2", "3-4")]);
 
         // Act
@@ -247,11 +247,12 @@ public sealed class TranslationFileNaughtyStringTests
     }
 
     /// <summary>
-    /// An artifact row whose <c>source_digest</c> is the digest of its OWN triple. These suites
-    /// exercise text fidelity through the writer/reader pair, and since ADR-0047 the reader verifies
-    /// that column (a wrong-file upload must fail loudly), so an arbitrary digest would reject every
-    /// row before its content was ever compared. A real distributed row carries the digest of the
-    /// ENGLISH instead — the projector's job, pinned by the projector's own tests.
+    /// A row whose <c>source_digest</c> is the digest of its own triple. These tests check that the text
+    /// survives the writer and the reader, and since ADR-0047 the reader also verifies that column,
+    /// because the wrong file must fail loudly. So a random digest would reject every row before its
+    /// content was ever compared.
+    /// A real distributed row carries the digest of the English instead. That is the projector's job and
+    /// is pinned by the projector's own tests.
     /// </summary>
     private static ArtifactRow Row(int fileId, long gossipId, string content, string? argsOrder, string? argsId)
         => new(

@@ -71,8 +71,8 @@ public sealed class CorsSettingsValidatorTests
     public void Validate_ProductionWithMalformedOrigin_FailsNamingTheKey(string? origin)
     {
         CorsSettingsValidator validator = CreateValidator(Production);
-        // origin! — a sparse/explicit-null config binding can place a null element into the array;
-        // the validator must reject it, so the test deliberately passes one.
+        // origin! is deliberate: configuration binding can put a null element into the array, and the
+        // validator has to reject it, so the test passes one.
         CorsSettings settings = new() { AllowedOrigins = [origin!] };
 
         ValidateOptionsResult result = validator.Validate(name: null, settings);

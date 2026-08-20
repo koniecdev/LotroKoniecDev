@@ -22,10 +22,11 @@ using Microsoft.Extensions.DependencyInjection;
 namespace LotroKoniecDev.TranslationSystem.API.Tests.Integration.Tests.Hateoas;
 
 /// <summary>
-/// Verifies the translation aggregate's HATEOAS link set is both <em>role-aware</em> (only reviewers
-/// see <c>approve</c>) and <em>state-aware</em> (dead transitions — approving an untranslated/approved
-/// row, editing a removed row — are never advertised), and that pagination links preserve the active
-/// filters. Plain <c>application/json</c> requests must carry no links at all.
+/// Checks that a translation's links depend both on the caller's role, so only reviewers see
+/// <c>approve</c>, and on the row's state, so actions that lead nowhere are never offered. Those are
+/// approving a row that is untranslated or already approved, and editing a removed row.
+/// It also checks that the pagination links keep the filters that are applied. A plain
+/// <c>application/json</c> request must carry no links at all.
 /// </summary>
 [Collection("TranslationApi")]
 public sealed class TranslationAggregateHateoasTests : IAsyncLifetime

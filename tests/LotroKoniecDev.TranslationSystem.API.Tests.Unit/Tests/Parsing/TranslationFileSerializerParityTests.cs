@@ -39,8 +39,8 @@ public sealed class TranslationFileSerializerParityTests
             ((long)parsed.GossipId).ShouldBe(rows[i].GossipId);
             parsed.Content.ShouldBe(rows[i].Content);
             parsed.IsApproved.ShouldBeTrue();
-            // The seventh column is what makes the artifact patchable at all (ADR-0047) — it has to
-            // survive the writer/reader pair intact, including on the row whose content holds "||".
+            // The seventh column is what makes the file patchable at all (ADR-0047), so it has to
+            // survive the writer and the reader unchanged, including on a row whose content holds "||".
             parsed.SourceDigest.ShouldBe(rows[i].SourceDigest);
         }
     }

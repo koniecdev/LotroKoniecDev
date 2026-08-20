@@ -4,9 +4,10 @@ using LotroKoniecDev.TranslationSystem.API.Parsing;
 namespace LotroKoniecDev.TranslationSystem.API.Tests.Unit.Tests.Parsing;
 
 /// <summary>
-/// The TMS' copy of the <c>||</c> file's content escape (ADR-0039, #596). The patcher owns an
-/// identical copy in its own assembly with a twin suite — the two contexts share the file, never
-/// code — and <see cref="ParserContractParityTests"/> asserts the two copies agree byte for byte.
+/// The TMS' copy of the content escape used in the <c>||</c> file (ADR-0039, #596). The patcher has an
+/// identical copy in its own assembly with its own test suite, because the two contexts share the file
+/// and never the code, and <see cref="ParserContractParityTests"/> checks that the two copies agree byte
+/// for byte.
 /// </summary>
 public sealed class TranslationLineEscaperTests
 {

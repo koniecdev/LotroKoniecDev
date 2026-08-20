@@ -15,9 +15,9 @@ using LotroKoniecDev.SharedKernel.StronglyTypedIds;
 namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Tests.Auth;
 
 /// <summary>
-/// Drives the grace-period finalization through its scoped entry point
-/// (<see cref="IAccountDeletionFinalizer"/>) — the hosted service merely calls it on a
-/// timer — and asserts the observable outcome: anonymized rows and dead logins.
+/// Runs the finalization that happens after the grace period through its own entry point,
+/// <see cref="IAccountDeletionFinalizer"/>, which is all the hosted service does on its timer, and
+/// checks the result: anonymized rows and logins that no longer work.
 /// </summary>
 public sealed class AccountDeletionFinalizerTests : EndpointsTestBase
 {

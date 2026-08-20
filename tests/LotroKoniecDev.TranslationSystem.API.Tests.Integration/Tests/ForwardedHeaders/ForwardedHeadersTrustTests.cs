@@ -19,15 +19,16 @@ using Microsoft.Extensions.DependencyInjection;
 namespace LotroKoniecDev.TranslationSystem.API.Tests.Integration.Tests.ForwardedHeaders;
 
 /// <summary>
-/// Proves the forwarded-header TRUST boundary (#399) on the TMS host — the twin of the AuthSystem
-/// suite's <c>ForwardedHeadersTrustTests</c> (the wiring is deliberately duplicated per host, so
-/// each copy is pinned): when <c>ForwardedHeaders:KnownNetworks</c> is configured,
-/// <c>X-Forwarded-*</c> is honoured only from peers inside those CIDRs, and a malformed or
-/// mis-shaped knob aborts boot instead of silently widening trust. The observable seam is the same
-/// as <see cref="ForwardedHeadersTests"/>: the scheme-derived HATEOAS self link. The peer address
-/// is injected by a first-in-pipeline middleware (an <see cref="IStartupFilter"/>), because the
-/// in-memory TestServer connection carries no RemoteIpAddress — and the middleware skips the
-/// known-proxy check entirely for address-less connections.
+/// Proves who the forwarded headers are trusted from (#399) on the TMS host. It is the twin of the
+/// AuthSystem's <c>ForwardedHeadersTrustTests</c>: the wiring is duplicated per host on purpose, so each
+/// copy is pinned.
+/// When <c>ForwardedHeaders:KnownNetworks</c> is set, <c>X-Forwarded-*</c> is only read from peers
+/// inside those networks, and a malformed or wrongly shaped setting stops the boot instead of quietly
+/// trusting more.
+/// We look at the same thing as <see cref="ForwardedHeadersTests"/>: the HATEOAS self link built from
+/// the scheme. The peer address is set by a middleware that runs first, an
+/// <see cref="IStartupFilter"/>, because an in-memory TestServer connection has no RemoteIpAddress, and
+/// the middleware skips the trust check completely for a connection without one.
 /// </summary>
 [Collection("TranslationApi")]
 public sealed class ForwardedHeadersTrustTests : IAsyncLifetime

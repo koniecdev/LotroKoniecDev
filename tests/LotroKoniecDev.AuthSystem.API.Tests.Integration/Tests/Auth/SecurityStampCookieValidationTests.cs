@@ -47,9 +47,9 @@ public sealed partial class SecurityStampCookieValidationTests : AsyncLifetimeTe
 
         List<string> authCookies = await EstablishAuthCookieAsync(registerRequest.Email, originalPassword);
 
-        // Baseline — before the stamp changes, the live cookie authenticates /connect/authorize and an
-        // authorization code is minted (proves the cookie is genuinely usable, so the post-reset
-        // rejection below cannot pass for the wrong reason).
+        // The baseline: before the stamp changes, the cookie authenticates /connect/authorize and an
+        // authorization code is issued. That proves the cookie really works, so the rejection after the
+        // reset below cannot pass for the wrong reason.
         (HttpStatusCode beforeStatus, string beforeLocation) = await AuthorizeWithCookieAsync(authCookies);
         beforeStatus.ShouldBe(HttpStatusCode.Redirect);
         beforeLocation.ShouldContain("code=");

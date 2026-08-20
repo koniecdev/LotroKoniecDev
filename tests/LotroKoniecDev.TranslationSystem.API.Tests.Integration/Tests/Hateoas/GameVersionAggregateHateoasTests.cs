@@ -15,11 +15,11 @@ using Microsoft.Extensions.DependencyInjection;
 namespace LotroKoniecDev.TranslationSystem.API.Tests.Integration.Tests.Hateoas;
 
 /// <summary>
-/// Verifies the game-version aggregate's HATEOAS links: per-item <c>self</c> (resolving to the new
-/// item endpoint) plus the role-gated <c>delete</c> action (admins only, on anything not processed —
-/// #624) and <c>import</c> action (admins only, on anything not superseded — #608), the collection <c>self</c>,
-/// and the role-gated <c>register</c> action (admins only). Plain
-/// <c>application/json</c> requests must carry no links and still deserialize.
+/// Checks the links on game versions: <c>self</c> on each item, pointing at the item endpoint, plus
+/// <c>delete</c> for admins on any version that is not processed (#624) and <c>import</c> for admins on
+/// any version that is not superseded (#608), then <c>self</c> on the collection and <c>register</c> for
+/// admins.
+/// A plain <c>application/json</c> request must carry no links and still deserialize.
 /// </summary>
 [Collection("TranslationApi")]
 public sealed class GameVersionAggregateHateoasTests : IAsyncLifetime

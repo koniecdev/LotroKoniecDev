@@ -29,9 +29,9 @@ public sealed partial class ResendConfirmationPageTests : EndpointsTestBase
     }
 
     /// <summary>
-    /// The receiving end of the login page's unconfirmed-account link (ADR-0046). The <c>+</c> earns
-    /// the row: a link built without escaping would arrive here decoded as a space, and the prefilled
-    /// address would be a different one than the account's.
+    /// Where the login page's "account not confirmed" link leads (ADR-0046). The <c>+</c> case matters:
+    /// a link built without escaping would arrive here with a space instead, and the address in the form
+    /// would not be the account's.
     /// </summary>
     [Fact]
     public async Task ResendConfirmationPage_ShouldPrefillTheAddress_WhenItArrivesInTheQuery()
@@ -49,8 +49,8 @@ public sealed partial class ResendConfirmationPageTests : EndpointsTestBase
         string html = await response.Content.ReadAsStringAsync();
         Match input = EmailInputRegex().Match(html);
         input.Success.ShouldBeTrue("Expected the resend page to render an e-mail input.");
-        // Decoded, because Razor writes the '+' as the entity '&#x2B;' — what matters is the address
-        // the browser puts back in the field, not the encoder's spelling of it.
+        // Decoded, because Razor writes the '+' as the entity '&#x2B;'. What matters is the address the
+        // browser puts back into the field, not how the encoder spelled it.
         WebUtility.HtmlDecode(input.Value).ShouldContain($"value=\"{email}\"");
     }
 

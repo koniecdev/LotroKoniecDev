@@ -8,11 +8,12 @@ using LotroKoniecDev.TranslationSystem.Contracts.Hateoas;
 namespace LotroKoniecDev.TranslationSystem.API.Tests.Integration.Tests.Hateoas;
 
 /// <summary>
-/// Pins the service document's per-caller link set (#608). The root is anonymous so an
-/// unauthenticated client — the CLI today, the Avalonia app later — can bootstrap without hardcoding
-/// paths, and every rel is emitted only after the target endpoint's own authorization policy has said
-/// yes for this caller. The three caller shapes are asserted whole (exact sets, not "contains"), so a
-/// rel leaking to a caller who would be refused when following it fails the build.
+/// Pins which links the service document sends each kind of caller (#608). The root is open to anyone,
+/// so a client without a login, the CLI today and the Avalonia app later, can start without any
+/// hardcoded paths. Every rel is only sent after the target endpoint's own policy said yes for this
+/// caller.
+/// The three kinds of caller are checked as whole sets and not with "contains", so a rel that reaches a
+/// caller who would be refused when following it fails the build.
 /// </summary>
 [Collection("TranslationApi")]
 public sealed class DiscoveryHateoasTests

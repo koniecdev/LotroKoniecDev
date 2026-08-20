@@ -167,15 +167,16 @@ public sealed class DeleteGameVersionTests : IAsyncLifetime
         // version number for good (undeletable, un-importable, un-registrable).
         using HttpClient admin = AdminClient();
 
-        // The supersede sweep is keyed on a strict DetectedAt `<`, stamped from the real clock at
-        // registration — two HTTP round trips apart, so the typo is reliably the older row.
+        // The supersede sweep uses a strict DetectedAt `<`, taken from the real clock at registration
+        // time. The two rows are registered in separate HTTP calls, so the typo is always the older
+        // one.
         Guid mistypedId = await RegisterVersionAsync(admin, "50");
         Guid realId = await RegisterVersionAsync(admin, "49.2");
         (await ImportAsync(admin, realId, Line(1, "Alpha"))).StatusCode.ShouldBe(HttpStatusCode.OK);
         (await GetVersionAsync(admin, mistypedId)).Status.ShouldBe(GameVersionStatus.Superseded);
 
-        // Registering the number again is still a conflict while the dead row exists — deleting it is
-        // the intended way back, not a second row carrying the same version string.
+        // Registering the same number again is still a conflict while the wrong row exists. Deleting it
+        // is the way back, not adding a second row with the same version string.
         HttpResponseMessage blockedRegister =
             await admin.PostAsJsonAsync(Route, new RegisterGameVersionRequest("50"));
         blockedRegister.StatusCode.ShouldBe(HttpStatusCode.UnprocessableEntity);

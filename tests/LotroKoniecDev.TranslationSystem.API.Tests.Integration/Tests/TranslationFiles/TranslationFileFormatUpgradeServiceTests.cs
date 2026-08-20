@@ -19,11 +19,12 @@ using Microsoft.Extensions.Hosting;
 namespace LotroKoniecDev.TranslationSystem.API.Tests.Integration.Tests.TranslationFiles;
 
 /// <summary>
-/// The deploy-ordering catch-up of ADR-0047: the artifact is otherwise rebuilt only on the next
-/// approve or import, so an upgraded CLI would download a six-column file and patch NOTHING until
-/// someone happened to write. Driven against real PostgreSQL because the whole design rests on
-/// reading a bounded PREFIX of the multi-MB TOASTed column — a projection a fake DbContext cannot
-/// tell you translates to SQL, and whose failure the service deliberately swallows into a log line.
+/// The catch-up ADR-0047 needs at deploy time. Otherwise the artifact is only rebuilt on the next
+/// approve or import, so an updated CLI would download a six-column file and patch nothing until
+/// someone happened to write.
+/// It runs against a real PostgreSQL, because the whole design depends on reading only the first part of
+/// the multi-MB column, and only a real database can say whether that query translates to SQL. The
+/// service deliberately turns a failure there into a log line.
 /// </summary>
 [Collection("TranslationApi")]
 public sealed class TranslationFileFormatUpgradeServiceTests : IAsyncLifetime

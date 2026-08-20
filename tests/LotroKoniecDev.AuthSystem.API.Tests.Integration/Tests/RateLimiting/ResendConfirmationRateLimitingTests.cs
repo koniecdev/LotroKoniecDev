@@ -5,13 +5,14 @@ using LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared.Bases;
 namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Tests.RateLimiting;
 
 /// <summary>
-/// The resend limiter exists to stop e-mail bombing, so its budget belongs to the send — not to
-/// looking at the form. <c>[EnableRateLimiting]</c> sits on the PageModel and a Razor Page is one
-/// endpoint for both verbs, so without a verb-aware partition three page views exhaust a 15-minute
-/// window and the user cannot even reach the form. ADR-0046 turned that page into the advertised
-/// one-click remediation for a blocked login, which is what makes the distinction matter.
-/// The suite's Testing host keeps the limiter middleware off; these force-arm it on a derived host,
-/// mirroring <see cref="ConnectRateLimitingTests"/>.
+/// The resend limiter exists to stop e-mail flooding, so its budget belongs to sending and not to
+/// looking at the form. <c>[EnableRateLimiting]</c> sits on the PageModel, and a Razor Page is one
+/// endpoint for both GET and POST, so without a limit that knows the verb, three page views use up a
+/// 15-minute window and the user cannot even reach the form.
+/// ADR-0046 made that page the one-click fix we advertise for a blocked login, which is why the
+/// difference matters.
+/// The suite's Testing host keeps the limiter off; these tests turn it on for a derived host, like
+/// <see cref="ConnectRateLimitingTests"/>.
 /// </summary>
 public sealed class ResendConfirmationRateLimitingTests : EndpointsTestBase
 {

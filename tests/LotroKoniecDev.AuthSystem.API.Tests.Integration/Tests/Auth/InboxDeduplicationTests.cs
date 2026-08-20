@@ -12,11 +12,11 @@ using LotroKoniecDev.SharedKernel.StronglyTypedIds;
 namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Tests.Auth;
 
 /// <summary>
-/// Proves the inbox deduplication of ADR-0037 against real PostgreSQL, through
-/// <see cref="EmailDeliveryProcessor"/> — the one component both real delivery paths
-/// (the broker consumer and this suite's broker-less bridge) resolve: a processed message id is
-/// recorded, a duplicate of it is acknowledged without a second e-mail, and a failed processing
-/// leaves no record so redelivery genuinely retries.
+/// Proves the duplicate check of ADR-0037 against a real PostgreSQL, through
+/// <see cref="EmailDeliveryProcessor"/>, the one component both delivery paths use: the broker
+/// consumer and this suite's bridge that runs without a broker.
+/// A message id that was processed is recorded, a second copy of it is acknowledged without another
+/// e-mail, and a failed processing leaves no record, so sending it again really does retry.
 /// </summary>
 public sealed class InboxDeduplicationTests : EndpointsTestBase
 {
@@ -80,7 +80,7 @@ public sealed class InboxDeduplicationTests : EndpointsTestBase
         failedAckDecision.IsFailure.ShouldBeTrue();
         (await CountInboxRowsAsync(messageId)).ShouldBe(0);
 
-        // Act again — after the dependency heals, the redelivery really retries and records
+        // Act again: once the dependency works, the second delivery really retries and records it.
         AccountConfirmationEmailSpy.ShouldFail = false;
         Result redeliveryAckDecision = await ProcessOnceAsync(identityId.Value, messageId);
 

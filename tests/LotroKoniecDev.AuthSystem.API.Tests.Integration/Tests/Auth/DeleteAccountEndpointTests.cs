@@ -73,7 +73,7 @@ public sealed class DeleteAccountEndpointTests : EndpointsTestBase
         user.LockoutEnabled.ShouldBeTrue();
         user.LockoutEnd.ShouldBe(user.DeletionScheduledAt.Value.AddDays(14));
 
-        // Data stays intact during the grace window — only the finalizer anonymizes.
+        // The data stays as it is during the grace period. Only the finalizer anonymizes it.
         user.Email.ShouldBe(registerRequest.Email);
         user.UserName.ShouldBe(registerRequest.Username);
         user.PasswordHash.ShouldNotBeNull();
@@ -237,9 +237,9 @@ public sealed class DeleteAccountEndpointTests : EndpointsTestBase
             HttpResponseMessage response = await SendDeleteRequestAsync(accessToken, TestPassword);
             await AccountDeletionEmailSpy.WaitForScheduledCaptureAsync(TimeSpan.FromSeconds(5));
 
-            // Assert: the unwind compensation is gone (ADR-0038 decision 5): the request only
-            // commits the outbox row atomically with the schedule, so an SMTP failure neither
-            // fails the request nor unwinds the schedule — redelivery (or a DLQ replay) owns it.
+            // Assert: the undo step is gone (ADR-0038 decision 5). The request only commits the outbox
+            // row together with the schedule, so an SMTP failure neither fails the request nor cancels
+            // the schedule. Sending again, or replaying from the dead-letter queue, deals with it.
             response.StatusCode.ShouldBe(HttpStatusCode.NoContent);
 
             ApplicationUser user = await GetUserAsync(identityId.Value);

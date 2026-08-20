@@ -76,8 +76,8 @@ public sealed class RegisterGameVersionHandlerTests
         result.IsSuccess.ShouldBeTrue();
         result.Value.Version.ShouldBe("48");
         result.Value.Status.ShouldBe(GameVersionStatus.Unprocessed);
-        // Persistence is invisible in the returned response (built from the in-memory aggregate),
-        // so SaveChanges is the persistence proof — matching the sibling command tests.
+        // The response is built from the in-memory aggregate, so it does not show whether anything was
+        // saved. The SaveChanges call is the proof, as in the other command tests.
         await _unitOfWork.Received(1).SaveChangesAsync(Arg.Any<CancellationToken>());
     }
 }

@@ -145,7 +145,7 @@ public sealed class ConfirmEmailEndpointTests : EndpointsTestBase
         string email = AccountConfirmationEmailSpy.LastEmail!;
         string token = AccountConfirmationEmailSpy.LastConfirmationToken!;
 
-        // First confirmation — should succeed
+        // The first confirmation should succeed.
         await ApiClient.Http.PostAsJsonAsync(
             new Uri("auth/confirm-email", UriKind.Relative),
             new ConfirmEmailRequest(email, token));

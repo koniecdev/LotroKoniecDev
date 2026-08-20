@@ -7,14 +7,15 @@ using LotroKoniecDev.Hateoas.ContentNegotiation;
 namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Tests.ForwardedHeaders;
 
 /// <summary>
-/// Proves the AuthSystem honours the reverse-proxy <c>X-Forwarded-*</c> headers (Program.cs
-/// <c>UseForwardedHeaders</c>, ADR-0008 / M6-02): behind a TLS-terminating ingress the request
-/// scheme reads <c>https</c>, so every scheme-derived absolute URL is built as <c>https</c>. This is
-/// the ticket's highest-risk surface. The seam is the anonymous discovery document's HATEOAS links,
-/// generated from <c>HttpContext.Request.Scheme</c> via <c>LinkGenerator</c> — exactly what forwarded
-/// headers rewrite. (The OpenIddict token/discovery <c>iss</c> is deliberately NOT covered here: it
-/// is pinned from <c>OpenIddictSettings.Issuer</c>, independent of the request scheme, so forwarded
-/// headers cannot — and need not — affect it.)
+/// Proves the AuthSystem reads the reverse proxy's <c>X-Forwarded-*</c> headers (Program.cs
+/// <c>UseForwardedHeaders</c>, ADR-0008, M6-02). Behind an ingress that terminates TLS, the request
+/// scheme reads <c>https</c>, so every absolute URL built from the scheme is https. That is the riskiest
+/// part of this ticket.
+/// What we look at is the public discovery document's links, which <c>LinkGenerator</c> builds from
+/// <c>HttpContext.Request.Scheme</c>, exactly the value the forwarded headers change.
+/// The <c>iss</c> value in OpenIddict tokens and discovery is deliberately not covered here: it comes
+/// from <c>OpenIddictSettings.Issuer</c>, does not depend on the request scheme, and so cannot be
+/// affected by these headers.
 /// </summary>
 public sealed class ForwardedHeadersTests : EndpointsTestBase
 {

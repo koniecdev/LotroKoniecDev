@@ -306,9 +306,9 @@ public sealed class ListTranslationsTests : IAsyncLifetime
     [Fact]
     public async Task List_WithExpiredToken_ShouldServeTheAnonymousReadOnlyView()
     {
-        // Arrange: AllowAnonymous semantics: a rejected bearer does not 401 here, the caller is
-        // simply served as anonymous — readable rows, no HATEOAS action links (the dead-session
-        // backstop trips on the still-protected pages instead).
+        // Arrange: because the endpoint allows anonymous callers, a rejected token does not give a 401
+        // here. The caller is simply treated as anonymous: they can read the rows but get no action
+        // links. The dead-session check fires on the pages that still need a login.
         await SeedAsync(Row(1, "Frodo Baggins", TranslationStatus.Draft));
         HttpClient client = _factory.CreateClient();
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue(

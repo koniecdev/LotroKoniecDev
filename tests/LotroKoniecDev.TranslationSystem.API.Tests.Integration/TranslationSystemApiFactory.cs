@@ -47,8 +47,8 @@ public class TranslationSystemApiFactory : WebApplicationFactory<Program>, IAsyn
     public SqlCommandRecorder ReadContextSqlRecorder { get; } = new();
 
     /// <summary>
-    /// Same seam for the write context, so tests can pin the projection refresh's write shape —
-    /// an in-place UPDATE that never re-fetches the previous multi-MB content (PERF-04/#289).
+    /// The same hook for the write context, so tests can pin how a projection refresh writes: one UPDATE
+    /// in place that never reads the previous multi-MB content again (PERF-04, #289).
     /// </summary>
     public SqlCommandRecorder WriteContextSqlRecorder { get; } = new();
 
@@ -71,18 +71,19 @@ public class TranslationSystemApiFactory : WebApplicationFactory<Program>, IAsyn
 
         builder.ConfigureTestServices(services =>
         {
-            // The AuthSystem issuer is not running in these tests — validate tokens against
-            // a local symmetric key instead of fetching signing keys from the JWKS endpoint.
+            // The AuthSystem is not running in these tests, so tokens are validated against a local
+            // symmetric key instead of keys fetched from the JWKS endpoint.
             services.PostConfigure<JwtBearerOptions>(JwtBearerDefaults.AuthenticationScheme, options =>
             {
                 options.ConfigurationManager = null;
                 options.TokenValidationParameters.IssuerSigningKey = TestSigningKey;
             });
 
-            // AddDbContext calls compose (EF Core 9+): this appends the recording interceptors to
-            // the production registrations of the two contexts instead of replacing them. The
-            // production contexts are POOLED (singleton options), so the appended configuration must
-            // be singleton too — the default scoped optionsLifetime trips ValidateScopes (#572).
+            // In EF Core 9 and later, several AddDbContext calls add up, so this adds the recording
+            // interceptors to the two contexts instead of replacing their registrations.
+            // The production contexts are pooled, which makes their options a singleton, so this extra
+            // configuration has to be a singleton as well. The default scoped optionsLifetime fails
+            // ValidateScopes (#572).
             services.AddDbContext<ApplicationReadDbContext>(
                 options => options.AddInterceptors(ReadContextSqlRecorder),
                 contextLifetime: ServiceLifetime.Scoped,
@@ -100,13 +101,13 @@ public class TranslationSystemApiFactory : WebApplicationFactory<Program>, IAsyn
     }
 
     /// <summary>
-    /// Resets shared database state between test classes: quiesces the background artifact rebuild
-    /// (PERF-04, ADR-0021), then truncates the given tables. The quiesce is fused into the reset —
-    /// never an opt-in pairing — because a rebuild still in flight from the previous class's writes
-    /// would re-materialize an artifact row right after the TRUNCATE and poison assertions such as
-    /// the "no artifact yet" 404. Evicting the counter-cache entries (AUDIT-EF-04/#354) is fused in
-    /// for the same reason: a cached snapshot outlives the TRUNCATE and would leak the previous
-    /// test's counters into the next one.
+    /// Resets the shared database state between test classes: it waits for the background artifact
+    /// rebuild to finish (PERF-04, ADR-0021) and then truncates the given tables.
+    /// The wait is part of the reset and never something a caller has to remember, because a rebuild
+    /// still running from the previous class would write an artifact row right after the TRUNCATE and
+    /// break assertions such as the "no artifact yet" 404.
+    /// Clearing the counter cache (AUDIT-EF-04, #354) is part of it for the same reason: a cached
+    /// snapshot survives the TRUNCATE and would carry the previous test's counters into the next one.
     /// </summary>
     public async Task ResetDatabaseAsync(string truncateSql)
     {

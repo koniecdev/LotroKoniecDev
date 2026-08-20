@@ -9,11 +9,11 @@ using RabbitMQ.Client.Events;
 namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Tests.Messaging;
 
 /// <summary>
-/// Proves the safety-net semantics of <see cref="RabbitMqTopologyDeclaration"/> against a real
-/// broker: a rejected message parks in the DLQ instead of vanishing, a message that exhausts
-/// <see cref="RabbitMqTopology.EmailDeliveryLimit"/> parks instead of looping forever, and the
-/// declaration stays idempotent so publisher and consumer can keep racing to run it. These are
-/// broker guarantees, not application code — the assertions pin the queue arguments that buy
+/// Proves what <see cref="RabbitMqTopologyDeclaration"/> guarantees, against a real broker: a rejected
+/// message ends up in the dead-letter queue instead of disappearing, a message that uses up
+/// <see cref="RabbitMqTopology.EmailDeliveryLimit"/> parks there instead of looping forever, and the
+/// declaration can be run twice, so the publisher and the consumer may both run it.
+/// These are things the broker does and not our code, so the assertions pin the queue arguments that buy
 /// them (ADR-0036).
 /// </summary>
 public sealed class DeadLetterTopologyTests : IClassFixture<RabbitMqBrokerFixture>, IAsyncLifetime
@@ -91,10 +91,11 @@ public sealed class DeadLetterTopologyTests : IClassFixture<RabbitMqBrokerFixtur
         byte[] body = Encoding.UTF8.GetBytes("""{"transient":true}""");
         await PublishAsync(body);
 
-        // Act: the consumer's transient path taken to exhaustion: reject-requeue every delivery.
-        // basic.reject and a push consumer, mirroring production: only rejects (and connection
-        // losses) increment the x-delivery-count the limit is measured against — a nack-requeue
-        // or a BasicGet loop would spin forever without ever tripping it (RabbitMQ ≥ 4.3).
+        // Act: run the consumer's retry path until it runs out, by rejecting and requeueing every
+        // delivery. It uses basic.reject and a push consumer, like production, because only a reject, or
+        // a lost connection, raises the x-delivery-count the limit is measured against. A nack with
+        // requeue, or a BasicGet loop, would spin forever without ever reaching it (RabbitMQ 4.3 and
+        // later).
         List<int> redeliveryCounts = [];
         await using IChannel consumerChannel = await _connection!.CreateChannelAsync();
         AsyncEventingBasicConsumer consumer = new(consumerChannel);
@@ -125,9 +126,9 @@ public sealed class DeadLetterTopologyTests : IClassFixture<RabbitMqBrokerFixtur
         }
 
         dead.ShouldNotBeNull($"after {observed.Length} deliveries nothing was dead-lettered");
-        // The exact 0..limit sequence also pins RedeliveryCount.Read against the CLR type the
-        // real client hands over for x-delivery-count — if that bridge broke, every entry would
-        // read 0 and the consumer's exhaustion branch would never fire in production.
+        // The exact sequence from 0 to the limit also pins RedeliveryCount.Read against the .NET type
+        // the real client uses for x-delivery-count. If that broke, every entry would read 0 and the
+        // consumer would never reach its give-up branch in production.
         observed.ShouldBe(Enumerable.Range(0, RabbitMqTopology.EmailDeliveryLimit + 1).ToArray());
         dead.Body.ToArray().ShouldBe(body);
         FirstDeathReason(dead.BasicProperties).ShouldBe("delivery_limit");

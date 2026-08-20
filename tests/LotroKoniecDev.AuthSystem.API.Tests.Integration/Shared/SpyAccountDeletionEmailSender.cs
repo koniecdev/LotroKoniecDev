@@ -47,8 +47,8 @@ public sealed class SpyAccountDeletionEmailSender : IAccountDeletionEmailSender
     /// Blocks until a deletion-scheduled e-mail lands or the timeout passes. Scheduling stopped
     /// being synchronous when the e-mail went through the outbox (commit -> relay -> delivery ->
     /// this spy), so tests reading <see cref="LastCancelToken"/> right after the delete call must
-    /// wait on state, not assume immediacy. Returns silently either way — the assertions stay at
-    /// the call site.
+    /// wait for the state instead of assuming it is already there. It returns either way, and the
+    /// assertions stay in the test.
     /// </summary>
     public async Task WaitForScheduledCaptureAsync(TimeSpan? timeout = null)
     {
@@ -61,8 +61,8 @@ public sealed class SpyAccountDeletionEmailSender : IAccountDeletionEmailSender
     }
 
     /// <summary>
-    /// Blocks until a deletion-cancelled e-mail lands or the timeout passes — the courtesy
-    /// notice travels the same asynchronous pipeline as the scheduled e-mail.
+    /// Waits until a deletion-cancelled e-mail arrives or the time runs out. That notice travels the
+    /// same pipeline as the scheduled e-mail.
     /// </summary>
     public async Task WaitForCancelledCaptureAsync(TimeSpan? timeout = null)
     {

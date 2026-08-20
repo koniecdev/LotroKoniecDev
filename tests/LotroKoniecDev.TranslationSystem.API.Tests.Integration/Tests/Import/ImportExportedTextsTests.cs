@@ -95,7 +95,8 @@ public sealed class ImportExportedTextsTests : IAsyncLifetime
         summary.Added.ShouldBe(0);
         summary.Unchanged.ShouldBe(2);
         (await CountTranslationsAsync()).ShouldBe(2);
-        // Unchanged rows are a byte-for-byte no-op — the timestamp must not advance on re-import.
+        // A row that did not change is left completely alone, so its timestamp must not move on a
+        // re-import.
         (await GetTranslationAsync(1))!.UpdatedAt.ShouldBe(firstSeenAt);
     }
 
@@ -377,9 +378,9 @@ public sealed class ImportExportedTextsTests : IAsyncLifetime
     [Fact]
     public async Task Import_AgainstASupersededVersion_ShouldReturn422AndPersistNothing()
     {
-        // Arrange: process the newer version, which supersedes the older one. Then attempt a fresh
-        // (stale) import against that now-superseded older version. The upload is identical to the
-        // catalog so the mass-removal guard cannot fire first — the supersede guard is what rejects it.
+        // Arrange: process the newer version, which supersedes the older one, then try an out-of-date
+        // import against that older version. The upload matches the catalog exactly, so the
+        // mass-removal guard cannot fire first and the supersede check is what rejects it.
         GameVersionId olderVersion = await SeedVersionAsync("48.0", new DateTimeOffset(2026, 6, 1, 0, 0, 0, TimeSpan.Zero));
         GameVersionId newerVersion = await SeedVersionAsync("48.1", new DateTimeOffset(2026, 6, 8, 0, 0, 0, TimeSpan.Zero));
         using HttpClient client = AdminClient();
@@ -645,14 +646,15 @@ public sealed class ImportExportedTextsTests : IAsyncLifetime
     [Fact]
     public async Task Import_LargeBaseline_ShouldBulkInsertEveryRowWithinTheBudget()
     {
-        // Arrange: a full-catalog-scale baseline (all added rows). Per-row EF wrote ~700k rows in
-        // ~3 min (#214); the COPY path (ADR-0011) must load a hundreds-of-thousands-row baseline in
-        // seconds. Spec 0004's original < 10 s budget was calibrated before the three GameVersion
-        // pointer indexes + FKs on Translations (#439) — each COPY'd row now maintains those indexes
-        // and validates the FKs, which pushed CI runners to straddle 10 s (10.3–11.7 s observed on
-        // the N-1 gate). 20 s restores the headroom while still unambiguously separating the bulk
-        // path from any regression to the per-row write: per #214's measurement, per-row at this
-        // count alone would run ~50 s.
+        // Arrange: a baseline the size of the whole catalog, where every row is new. Writing row by row
+        // with EF took about 3 minutes for 700k rows (#214), and the COPY path (ADR-0011) has to load
+        // hundreds of thousands of rows in seconds.
+        // Spec 0004's original limit of 10 seconds was set before Translations gained the three
+        // GameVersion pointer indexes and their foreign keys (#439). Each copied row now updates those
+        // indexes and checks the keys, which pushed CI runners to around 10 seconds, measured at 10.3 to
+        // 11.7 on the N-1 gate. 20 seconds gives room again and still clearly separates the bulk path
+        // from a return to row-by-row writes, which by #214's measurement would take about 50 seconds at
+        // this row count.
         const int rowCount = 200_000;
         GameVersionId versionId = await SeedVersionAsync("48.0");
         using HttpClient client = AdminClient();
@@ -769,9 +771,9 @@ public sealed class ImportExportedTextsTests : IAsyncLifetime
         (await GetVersionStatusAsync(versionId)).ShouldBe(GameVersionStatus.Processed);
     }
 
-    // Fails the first transaction commit with a transient serialization error (SQLSTATE 40001) the
-    // Npgsql retrying execution strategy retries, then lets every later commit through — reproducing a
-    // transient fault landing exactly at commit time.
+    // Fails the first commit with a temporary serialization error (SQLSTATE 40001), which the Npgsql
+    // retrying execution strategy retries, and lets every later commit through. That reproduces a
+    // temporary fault arriving exactly at commit time.
     private sealed class FailFirstCommitInterceptor : DbTransactionInterceptor
     {
         private int _commitAttempts;
@@ -805,8 +807,8 @@ public sealed class ImportExportedTextsTests : IAsyncLifetime
         return TextContent(builder.ToString());
     }
 
-    // The pointer must reference a seeded GameVersion row — the version pointer columns carry
-    // FKs (#355), and production COPY'd rows are always stamped from a live version anyway.
+    // The pointer has to reference a GameVersion row that exists, because the version pointer columns
+    // carry foreign keys (#355), and in production copied rows always come from a real version anyway.
     private static Translation NewUntranslated(int gossipId, string text, GameVersionId versionId)
         => Translation.CreateUntranslated(
             FragmentKey.Create(FileId, gossipId).Value,
@@ -874,9 +876,10 @@ public sealed class ImportExportedTextsTests : IAsyncLifetime
     [Fact]
     public async Task Import_SevenColumnExportWithAWrongDigest_ShouldReturn422AndPersistNothing()
     {
-        // Arrange: a digest that is not the digest of its own row means a wrong file or an
-        // implementation drift between the two contexts (ADR-0047 §2). It fails loudly at import,
-        // whole upload, like any unparseable line (ADR-0042) — never as `source moved` on players.
+        // Arrange: a digest that does not match its own row means the wrong file was uploaded, or the
+        // two contexts compute the digest differently (ADR-0047 §2). It fails loudly at import time, for
+        // the whole upload, like any line that cannot be parsed (ADR-0042), and never as `source moved`
+        // on a player's machine.
         GameVersionId versionId = await SeedVersionAsync("48.0");
         using HttpClient client = AdminClient();
 

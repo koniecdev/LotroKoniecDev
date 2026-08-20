@@ -11,11 +11,12 @@ using Npgsql;
 namespace LotroKoniecDev.TranslationSystem.API.Tests.Integration.Tests.GameVersions;
 
 /// <summary>
-/// Pins the database backstop behind the DeleteGameVersion reference guard (AUDIT-EF-05): the three
-/// version pointer columns on Translations carry Restrict FKs to GameVersions, so even a delete that
-/// bypasses <c>AnyReferencesGameVersionAsync</c> (the guard's check-then-act window — e.g. a
-/// concurrent import stamping the version between the check and the delete) cannot leave dangling
-/// pointers. Deliberately drives the DbContext directly: the endpoint path is covered by
+/// Pins the database backstop behind the DeleteGameVersion guard (AUDIT-EF-05). The three version
+/// pointer columns on Translations have Restrict foreign keys to GameVersions, so even a delete that
+/// goes around <c>AnyReferencesGameVersionAsync</c> cannot leave rows pointing at nothing. That happens
+/// in the gap between the check and the delete, for example when an import stamps the version in
+/// between.
+/// It uses the DbContext directly on purpose; the endpoint path is covered by
 /// <see cref="DeleteGameVersionTests"/>.
 /// </summary>
 [Collection("TranslationApi")]

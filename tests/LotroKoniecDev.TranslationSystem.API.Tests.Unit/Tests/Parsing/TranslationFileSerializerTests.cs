@@ -5,9 +5,9 @@ namespace LotroKoniecDev.TranslationSystem.API.Tests.Unit.Tests.Parsing;
 public sealed class TranslationFileSerializerTests
 {
     /// <summary>
-    /// A stand-in for the projector's <c>SourceHash.ToWireDigest()</c> — the serializer only ever
-    /// copies the column through, so what it holds is irrelevant here. That the value is the digest
-    /// of the row's real English is the projector's job, pinned by its own tests.
+    /// A stand-in for the projector's <c>SourceHash.ToWireDigest()</c>. The serializer only copies the
+    /// column through, so what it holds does not matter here. Making sure the value is the digest of the
+    /// row's real English is the projector's job and is pinned by its own tests.
     /// </summary>
     private const string Digest = "3f9a1c0e7b2d4a55";
 

@@ -17,13 +17,13 @@ using JsonOptions = Microsoft.AspNetCore.Http.Json.JsonOptions;
 namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Tests.Messaging;
 
 /// <summary>
-/// The password-reset legs of the brokered pipeline (MSG-03, ADR-0038): forgot-password commits
-/// an id-only outbox row, the real relay publishes it to a real broker, and the real consumer
-/// selects <c>PasswordResetRequestProcessor</c> by the AMQP <c>type</c> property, mints the token
-/// at delivery and dispatches to the spy sender. The legs mirror
-/// <see cref="EmailConfirmationPipelineTests"/> where the machinery is shared and add what is
-/// specific to this type: the token must never appear in an outbox row or a parked message, and
-/// the delivered token must actually reset the password.
+/// The password-reset parts of the pipeline with a real broker (MSG-03, ADR-0038). Forgot-password
+/// commits an outbox row that carries only an id, the real relay publishes it to a real broker, and the
+/// real consumer picks <c>PasswordResetRequestProcessor</c> by the AMQP <c>type</c> property, creates
+/// the token at delivery and hands the message to the spy sender.
+/// These tests follow <see cref="EmailConfirmationPipelineTests"/> where the machinery is the same, and
+/// add what is specific here: the token must never appear in an outbox row or in a parked message, and
+/// the delivered token must really reset the password.
 /// </summary>
 public sealed class PasswordResetPipelineTests : IClassFixture<BrokeredAuthSystemApiFactory>, IAsyncLifetime
 {
@@ -57,7 +57,7 @@ public sealed class PasswordResetPipelineTests : IClassFixture<BrokeredAuthSyste
         await cleaner.CleanAsync();
 
         // The host's consumer declares the topology on startup, but the first test may reach this
-        // point before that attach finished — declaring here is idempotent (proven in
+        // point before that attach finished. Declaring it here again is safe (proven in
         // DeadLetterTopologyTests) and guarantees the purges below have queues to purge.
         await using IConnection connection = await _factory.Broker.ConnectAsync(CancellationToken.None);
         await using IChannel channel = await connection.CreateChannelAsync();
@@ -86,15 +86,15 @@ public sealed class PasswordResetPipelineTests : IClassFixture<BrokeredAuthSyste
         _passwordResetEmailSpy.LastResetToken.ShouldNotBeNullOrWhiteSpace();
         _passwordResetEmailSpy.CallCount.ShouldBe(1);
 
-        // The delivered token really resets the password — the end-to-end proof that minting at
-        // delivery produced a link the user can use
+        // The delivered token really resets the password, which proves that creating it at delivery time
+        // produced a link the user can use.
         HttpResponseMessage resetResponse = await _apiClient.Http.PostAsJsonAsync(
             new Uri("auth/reset-password", UriKind.Relative),
             new ResetPasswordRequest(request.Email, _passwordResetEmailSpy.LastResetToken!, "NewPass99!"));
         resetResponse.StatusCode.ShouldBe(HttpStatusCode.OK);
 
-        // The outbox row was published and marked on the first attempt — and carries the user id
-        // alone: no reset token may ever persist in an outbox row (ADR-0038 decision 2)
+        // The outbox row was published and marked on the first attempt, and it carries the user id and
+        // nothing else: a reset token must never sit in an outbox row (ADR-0038 decision 2).
         OutboxMessage? outboxRow = await OutboxAssertions.WaitForOutboxRowAsync(
             _factory,
             row => row.Type == nameof(PasswordResetRequested) && row.ProcessedOn != null,
@@ -197,9 +197,9 @@ public sealed class PasswordResetPipelineTests : IClassFixture<BrokeredAuthSyste
     }
 
     /// <summary>
-    /// Polls the queue until a delivery arrives or the timeout passes — routing and dead-lettering
-    /// are asynchronous inside the broker. The read is auto-acked: every caller either asserts on
-    /// the delivery (test over either way) or expects null.
+    /// Polls the queue until a delivery arrives or the time runs out. Routing and dead-lettering happen
+    /// asynchronously inside the broker. The read acknowledges the message, which is fine: every caller
+    /// either checks the delivery or expects null.
     /// </summary>
     private async Task<BasicGetResult?> GetWithinTimeoutAsync(string queue, TimeSpan timeout)
     {

@@ -17,10 +17,11 @@ using Microsoft.Extensions.DependencyInjection;
 namespace LotroKoniecDev.TranslationSystem.API.Tests.Integration.Tests.Translations;
 
 /// <summary>
-/// Proves lazy, idempotent translator provisioning (ADR-0004 + its 2026-06-24 amendment) against real
-/// PostgreSQL: the caller's first authenticated request — a plain read, before any write — provisions
-/// their <c>Translator</c>, repeat requests by the same identity add no duplicate row, distinct
-/// identities get distinct rows, and the profile refreshes from the latest claims when they change.
+/// Proves that a translator profile is created on first use and that creating it twice is safe (ADR-0004
+/// and its 2026-06-24 amendment), against a real PostgreSQL. The caller's first authenticated request, a
+/// plain read before any write, creates their <c>Translator</c>. Repeat requests from the same identity
+/// add no second row, different identities get different rows, and the profile is refreshed from the
+/// latest claims when they change.
 /// </summary>
 [Collection("TranslationApi")]
 public sealed class TranslatorProvisioningTests : IAsyncLifetime

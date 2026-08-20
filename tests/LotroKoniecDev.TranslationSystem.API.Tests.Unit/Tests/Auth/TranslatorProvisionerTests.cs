@@ -292,9 +292,9 @@ public sealed class TranslatorProvisionerTests
         await firstRequest.ProvisionCurrentAsync(CancellationToken.None);
         Result<TranslatorId> afterChange = await secondRequest.ProvisionCurrentAsync(CancellationToken.None);
 
-        // Assert: the profile converged on the latest claims (existing behaviour preserved). Had the
-        // stale entry been served the refresh would never have run, so the converged state is itself the
-        // proof the changed fingerprint bypassed the cache — whether the name, the email, or both moved.
+        // Assert: the profile now matches the latest claims, as before. If the old cache entry had been
+        // used, the refresh would never have run, so the updated profile is itself the proof that the
+        // changed fingerprint skipped the cache, whether the name, the e-mail or both changed.
         afterChange.IsSuccess.ShouldBeTrue();
         existing.DisplayName.Value.ShouldBe(secondName);
         existing.Email.ShouldNotBeNull();

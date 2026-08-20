@@ -57,8 +57,8 @@ public sealed class AuthorizationDefaultsTests
         HttpResponseMessage response = await client.GetAsync("/does-not-exist");
 
         // Assert
-        // The fallback policy covers even unmatched paths — anonymous requests cannot
-        // enumerate routes by distinguishing 401 from 404.
+        // The fallback policy covers paths that match no route too, so an anonymous caller cannot map
+        // the API by telling a 401 apart from a 404.
         response.StatusCode.ShouldBe(HttpStatusCode.Unauthorized);
     }
 

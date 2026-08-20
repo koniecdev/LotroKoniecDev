@@ -17,8 +17,9 @@ using Microsoft.Extensions.DependencyInjection;
 namespace LotroKoniecDev.TranslationSystem.API.Tests.Integration.Tests.Progress;
 
 /// <summary>
-/// The public landing-page progress endpoint (#309). Every test calls it with a token-less client —
-/// anonymous access IS the contract: the landing page renders these counters before any login exists.
+/// The public progress endpoint the landing page uses (#309). Every test calls it without a token,
+/// because being open to anyone is the point: the landing page shows these counters before anybody logs
+/// in.
 /// </summary>
 [Collection("TranslationApi")]
 public sealed class GetPublicProgressTests : IAsyncLifetime
@@ -70,7 +71,7 @@ public sealed class GetPublicProgressTests : IAsyncLifetime
         progress.Total.ShouldBe(0);
         progress.Translated.ShouldBe(0);
         progress.Approved.ShouldBe(0);
-        // The seeded base version is Unprocessed — nothing has been imported for it yet.
+        // The seeded base version is still Unprocessed, because nothing has been imported for it yet.
         progress.CurrentGameVersion.ShouldBeNull();
     }
 

@@ -15,14 +15,15 @@ using JsonOptions = Microsoft.AspNetCore.Http.Json.JsonOptions;
 namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Tests.ForwardedHeaders;
 
 /// <summary>
-/// Proves the forwarded-header TRUST boundary (#399): when <c>ForwardedHeaders:KnownNetworks</c>
-/// is configured, <c>X-Forwarded-*</c> is honoured only from peers inside those CIDRs — a spoofed
-/// header from anywhere else is ignored — and a malformed CIDR aborts boot instead of silently
-/// widening trust. The observable seam is the same as <see cref="ForwardedHeadersTests"/>: the
-/// anonymous discovery document's scheme-derived HATEOAS links. The peer address is injected by a
-/// first-in-pipeline middleware (an <see cref="IStartupFilter"/>), because the in-memory TestServer
-/// connection carries no RemoteIpAddress — and the middleware skips the known-proxy check entirely
-/// for address-less connections.
+/// Proves who the forwarded headers are trusted from (#399). When
+/// <c>ForwardedHeaders:KnownNetworks</c> is set, <c>X-Forwarded-*</c> is only read from peers inside
+/// those networks, a faked header from anywhere else is ignored, and a malformed network stops the boot
+/// instead of quietly trusting more.
+/// We look at the same thing as <see cref="ForwardedHeadersTests"/>: the public discovery document's
+/// links, which are built from the scheme.
+/// The peer address is set by a middleware that runs first, an <see cref="IStartupFilter"/>, because an
+/// in-memory TestServer connection has no RemoteIpAddress, and the middleware skips the trust check
+/// completely for a connection without one.
 /// </summary>
 [Collection("AuthApi")]
 public sealed class ForwardedHeadersTrustTests

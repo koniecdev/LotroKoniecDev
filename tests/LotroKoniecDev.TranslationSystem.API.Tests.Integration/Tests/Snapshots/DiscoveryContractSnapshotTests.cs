@@ -5,17 +5,18 @@ using LotroKoniecDev.SharedKernel.Authorization;
 namespace LotroKoniecDev.TranslationSystem.API.Tests.Integration.Tests.Snapshots;
 
 /// <summary>
-/// Pins the service document whole, for the two callers that bound the surface: the anonymous root
-/// (#608) and an admin. The anonymous snapshot is the security-relevant one — the root is reachable
-/// without credentials, so a rel leaking into it is a leaked affordance, and this file is what forces
-/// that into a reviewable diff. The admin snapshot pins the complete rel vocabulary, so a rel silently
-/// moving between tiers shows up as two diffs instead of none.
+/// Pins the whole service document for the two callers that mark its limits: the anonymous root (#608)
+/// and an admin. The anonymous snapshot is the one that matters for security: the root can be read
+/// without credentials, so a rel that appears there is an action we gave away, and this file forces that
+/// into a diff a reviewer can see. The admin snapshot pins the full list of rels, so a rel that quietly
+/// moves between the two shows up as two diffs instead of none.
 /// </summary>
 /// <remarks>
-/// <c>DiscoveryHateoasTests</c> still owns the behavior — which caller shape may see which rel is a
-/// statement about many inputs, and it asserts the sets exactly. These snapshots answer the other
-/// question: did anything at all about the document change (an href shape, a method, a property name).
-/// The API is stateless here, so no seed is needed and the payload is byte-stable per caller.
+/// <c>DiscoveryHateoasTests</c> still owns the behaviour, which caller may see which rel, and it checks
+/// the sets exactly. These snapshots answer a different question: did anything about the document change
+/// at all, such as the shape of an href, a method or a property name.
+/// The API holds no state here, so nothing has to be seeded and the payload is the same bytes every time
+/// for a given caller.
 /// </remarks>
 [Collection("TranslationApi")]
 public sealed class DiscoveryContractSnapshotTests

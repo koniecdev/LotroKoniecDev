@@ -25,9 +25,9 @@ public sealed class UniqueEmailIndexTests : EndpointsTestBase
         await using AsyncServiceScope scope = Factory.Services.CreateAsyncScope();
         AuthDbContext dbContext = scope.ServiceProvider.GetRequiredService<AuthDbContext>();
 
-        // A raw insert bypasses every app-level pre-check — the exact race window RegisterUser
-        // documents. Only the unique EmailIndex on NormalizedEmail stands between this pair and
-        // a permanent two-account login outage (ADR-0022).
+        // A direct insert skips every check the app does, which is exactly the race RegisterUser
+        // describes. Only the unique EmailIndex on NormalizedEmail stops this pair from locking two
+        // accounts out of login for good (ADR-0022).
         string username = "dup" + Faker.Random.AlphaNumeric(12);
         ApplicationUser duplicate = new()
         {

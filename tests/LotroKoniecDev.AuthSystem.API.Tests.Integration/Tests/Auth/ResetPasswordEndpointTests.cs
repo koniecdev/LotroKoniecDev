@@ -253,7 +253,7 @@ public sealed class ResetPasswordEndpointTests : EndpointsTestBase
 
         string resetToken = PasswordResetEmailSpy.LastResetToken!;
 
-        // First reset — should succeed
+        // The first reset should succeed.
         await ApiClient.Http.PostAsJsonAsync(
             new Uri("auth/reset-password", UriKind.Relative),
             new ResetPasswordRequest(registerRequest.Email, resetToken, "NewPass99!"));

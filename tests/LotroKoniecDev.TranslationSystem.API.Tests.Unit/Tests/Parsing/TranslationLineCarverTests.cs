@@ -3,9 +3,10 @@ using LotroKoniecDev.TranslationSystem.API.Parsing;
 namespace LotroKoniecDev.TranslationSystem.API.Tests.Unit.Tests.Parsing;
 
 /// <summary>
-/// The TMS' copy of the field-boundary rule (ADR-0042). Its twin lives in the patcher suite over the
-/// patcher's own copy, and <c>ParserContractParityTests</c> pins the two against each other — the
-/// contexts share the file, never code, so nothing else stops one copy from drifting.
+/// The TMS' copy of the rule that finds the field boundaries (ADR-0042). Its twin lives in the patcher
+/// suite over the patcher's own copy, and <c>ParserContractParityTests</c> checks the two against each
+/// other. The contexts share the file and never the code, so nothing else stops one copy from changing
+/// on its own.
 /// </summary>
 public sealed class TranslationLineCarverTests
 {
@@ -148,10 +149,10 @@ public sealed class TranslationLineCarverTests
     [InlineData("620756992||1001||Witaj||NULL||NULL||1||a37cc1683216cd32 \t")]
     public void TryCarve_DigestFollowedByTrailingWhitespace_ShouldStillCarveSevenColumns(string line)
     {
-        // Act: `approved` has always tolerated trailing whitespace (its readers Trim() it), so the
-        // sniff has to see past it too: otherwise the line degrades to a six-column reading whose
-        // content swallows "||NULL" and whose approved column is the digest — and the TMS import
-        // would store that as the row's source, silently.
+        // Act: `approved` has always allowed trailing spaces, because its readers trim it, so this check
+        // has to look past them too. Otherwise the line reads as six columns, its content swallows
+        // "||NULL", the approved column becomes the digest, and the TMS import would quietly store that
+        // as the row's source.
         bool carved = TranslationLineCarver.TryCarve(line, out CarvedTranslationLine? fields);
 
         // Assert

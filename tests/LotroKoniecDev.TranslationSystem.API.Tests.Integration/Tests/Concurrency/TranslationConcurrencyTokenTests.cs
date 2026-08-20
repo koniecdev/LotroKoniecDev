@@ -17,12 +17,13 @@ using Microsoft.Extensions.DependencyInjection;
 namespace LotroKoniecDev.TranslationSystem.API.Tests.Integration.Tests.Concurrency;
 
 /// <summary>
-/// The xmin optimistic-concurrency token on Translation (AUDIT-EF-01). Both write paths a game
-/// update's import can race — approve and upsert — are proven to LOSE to a concurrent commit rather
-/// than silently overwrite it: EF's version check fails, surfacing <see cref="DbUpdateConcurrencyException"/>
-/// (which the registered <c>DbUpdateConcurrencyExceptionHandler</c> maps to HTTP 409). Deterministic by
-/// construction — load a snapshot, change the row out-of-band, then save the stale snapshot — because a
-/// real HTTP interleave is a race; the endpoint fan-out lives in <c>ConcurrencyEndpointsTests</c>.
+/// The xmin concurrency token on Translation (AUDIT-EF-01). Both writes an import can race with,
+/// approve and upsert, are shown to lose to a commit that happened in between rather than overwrite it
+/// silently: EF's version check fails and throws <see cref="DbUpdateConcurrencyException"/>, which the
+/// registered <c>DbUpdateConcurrencyExceptionHandler</c> turns into an HTTP 409.
+/// The tests are built to be repeatable: load a copy of the row, change the row another way, then save
+/// the old copy. A real overlap over HTTP would be a race, and that fan-out lives in
+/// <c>ConcurrencyEndpointsTests</c>.
 /// </summary>
 [Collection("TranslationApi")]
 public sealed class TranslationConcurrencyTokenTests : IAsyncLifetime
@@ -79,8 +80,9 @@ public sealed class TranslationConcurrencyTokenTests : IAsyncLifetime
         Result approveResult = reviewerCopy.Approve(_seederId, Now);
         approveResult.IsSuccess.ShouldBeTrue();
 
-        // Act + Assert — the version check rejects the stale approve, so the import's invalidation
-        // stands, unmasked (spec 0001's core invariant); the handler maps this throw to 409.
+        // Act and assert: the version check rejects the old approve, so the import's invalidation stands
+        // and is not hidden, which is the core rule of spec 0001. The handler turns this throw into a
+        // 409.
         await Should.ThrowAsync<DbUpdateConcurrencyException>(() => reviewerContext.SaveChangesAsync());
 
         Translation persisted = await ReadFreshAsync(id);
@@ -105,7 +107,8 @@ public sealed class TranslationConcurrencyTokenTests : IAsyncLifetime
 
         editorCopy.ProvideTranslation("Drugi polski", _seederId, Now);
 
-        // Act + Assert — the version check rejects the stale upsert; the first writer's Polish survives.
+        // Act and assert: the version check rejects the old upsert, and the first writer's Polish
+        // survives.
         await Should.ThrowAsync<DbUpdateConcurrencyException>(() => editorContext.SaveChangesAsync());
 
         Translation persisted = await ReadFreshAsync(id);

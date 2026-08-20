@@ -31,10 +31,10 @@ public sealed class ConfigureOpenIddictServerSettingsTests
         configurator.Configure(options);
 
         RsaSecurityKey signingKey = SigningKeyWithId(options, "signing-key-current");
-        // JWKS exports the public key from this RSA. Against the old `using` (disposed) code the export
-        // throws ObjectDisposedException — but only on Linux/CI (RSAOpenSsl frees the native key on
-        // Dispose); macOS's RSASecurityTransforms tolerates use-after-dispose, so off-Linux it is the
-        // key-material equality below that proves the key actually survived Configure().
+        // JWKS exports the public key from this RSA. With the old code, which disposed it in a `using`,
+        // the export throws ObjectDisposedException, but only on Linux and CI, because RSAOpenSsl frees
+        // the native key on Dispose. macOS's RSASecurityTransforms still works after Dispose, so
+        // elsewhere it is the key comparison below that proves the key survived Configure().
         byte[] exportedPublicKey = signingKey.Rsa!.ExportSubjectPublicKeyInfo();
         exportedPublicKey.ShouldBe(expectedPublicKey);
     }

@@ -30,10 +30,11 @@ internal sealed class GameVersionAggregateLinkFactory : IGameVersionAggregateLin
             method: HttpMethods.Get,
             values: new { id = id.Value }));
 
-        // Deleting a mistaken manual registration is an admin action. Only a processed version is kept —
-        // it is the one translations point at (spec 0001). A superseded version was registered and then
-        // skipped, so retiring it is exactly how the admin frees its version number again (#624). Stated
-        // as an allow-list to mirror EnsureCanBeDeleted, so the rel can never outrun the domain guard.
+        // Deleting a version registered by mistake is an admin action. A processed version is kept,
+        // because translations point at it (spec 0001). A superseded version was registered and then
+        // skipped, so deleting it is how the admin frees its version number again (#624).
+        // It is written as a list of allowed statuses, like EnsureCanBeDeleted, so the link can never
+        // offer more than the domain allows.
         if (callerIsAdmin && status is GameVersionStatus.Unprocessed or GameVersionStatus.Superseded)
         {
             links.AddIfPresent(await _linkFactory.CreateAsync(
@@ -43,9 +44,9 @@ internal sealed class GameVersionAggregateLinkFactory : IGameVersionAggregateLin
                 values: new { id = id.Value }));
         }
 
-        // Importing an exported.txt is keyed by the version it lands against, so the affordance lives
-        // on the item that carries the id, not on the service document (#608). A superseded version is
-        // the one state MarkAsProcessed refuses, so importing into it is a dead transition.
+        // An import is always tied to the version it goes into, so the link lives on the item that
+        // carries the id and not on the service document (#608). MarkAsProcessed refuses a superseded
+        // version, so importing into one would lead nowhere.
         if (callerIsAdmin && status is not GameVersionStatus.Superseded)
         {
             links.AddIfPresent(await _linkFactory.CreateAsync(
@@ -67,7 +68,8 @@ internal sealed class GameVersionAggregateLinkFactory : IGameVersionAggregateLin
             rel: Rels.Self,
             method: HttpMethods.Get));
 
-        // Manually registering a version is the reviewer/admin fallback when the forum scrape breaks.
+        // Registering a version by hand is the admin's fallback for when reading the forum stops
+        // working.
         if (callerIsAdmin)
         {
             links.AddIfPresent(await _linkFactory.CreateAsync(

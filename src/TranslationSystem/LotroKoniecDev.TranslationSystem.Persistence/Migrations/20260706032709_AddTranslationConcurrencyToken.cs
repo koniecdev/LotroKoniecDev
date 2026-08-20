@@ -10,10 +10,11 @@ namespace LotroKoniecDev.TranslationSystem.Persistence.Migrations
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
         {
-            // No-op DDL by design (AUDIT-EF-01): xmin is a PostgreSQL system column that already
-            // exists on every row, so Npgsql emits zero SQL for this AddColumn — the migration only
-            // syncs the model snapshot so the optimistic-concurrency token engages. Trivially N-1-safe
-            // (ADR-0023): nothing physical changes, so the previous app revision keeps serving.
+            // This adds no SQL by design (AUDIT-EF-01). xmin is a PostgreSQL system column that every
+            // row already has, so Npgsql writes nothing for this AddColumn. The migration only updates
+            // the model snapshot, which is what turns the concurrency token on. It is N-1 safe
+            // (ADR-0023) because nothing in the database changes and the previous app revision keeps
+            // serving.
             migrationBuilder.AddColumn<uint>(
                 name: "xmin",
                 schema: "translation",

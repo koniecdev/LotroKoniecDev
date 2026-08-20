@@ -9,21 +9,21 @@ namespace LotroKoniecDev.TranslationSystem.Persistence.Migrations
     /// <see cref="ValidateTranslatedTextLengthCap"/> validates it in a separate transaction.
     /// </summary>
     /// <remarks>
-    /// MIGRATION-SAFETY: acknowledged — this tightens a constraint over existing data, so it ships as
-    /// the two-step PostgreSQL form rather than the DDL EF scaffolds, split across two migrations.
+    /// MIGRATION-SAFETY: acknowledged. This tightens a rule over data that already exists, so it uses
+    /// the two-step PostgreSQL form instead of the DDL EF would scaffold, split over two migrations.
     ///
-    /// Why not HasMaxLength: varchar(32767) would narrow the column type, and narrowing text ->
-    /// varchar rewrites the whole table and rebuilds its trigram GIN index while holding ACCESS
-    /// EXCLUSIVE. Translations carries the full ~792.5k-row corpus, so that lock is a real
-    /// deploy-window outage — precisely what ADR-0023 forbids, since the previous revision keeps
-    /// serving throughout. ADD CONSTRAINT ... NOT VALID declares the rule without reading a single
-    /// row, so this migration's ACCESS EXCLUSIVE lasts only for the catalog write.
+    /// Why not HasMaxLength: varchar(32767) would change the column type, and changing text to varchar
+    /// rewrites the whole table and rebuilds its trigram GIN index while holding ACCESS EXCLUSIVE.
+    /// Translations holds the full corpus of about 792,500 rows, so that lock is a real outage during
+    /// the deploy, and ADR-0023 forbids exactly that, because the previous revision keeps serving the
+    /// whole time. ADD CONSTRAINT ... NOT VALID declares the rule without reading a single row, so the
+    /// ACCESS EXCLUSIVE lock here lasts only for the catalog write.
     ///
-    /// Why the split: PostgreSQL holds every lock until its transaction commits, and EF applies each
-    /// migration in one transaction. Putting the VALIDATE in the same file would therefore hold this
-    /// ACCESS EXCLUSIVE for the whole scan — the exact lock profile the two-step form exists to
-    /// avoid. Two migrations are two transactions, so the lock is released here and reacquired at
-    /// the weaker SHARE UPDATE EXCLUSIVE level by the next one.
+    /// Why two files: PostgreSQL keeps every lock until its transaction commits, and EF applies each
+    /// migration in one transaction. Putting the VALIDATE in the same file would hold this ACCESS
+    /// EXCLUSIVE lock for the whole scan, which is exactly what the two-step form avoids. Two
+    /// migrations are two transactions, so the lock is released here and taken again at the weaker
+    /// SHARE UPDATE EXCLUSIVE level by the next one.
     ///
     /// N-1 (ADR-0023): the previous revision has no length rule of its own, but the only write it
     /// loses is one that the current revision would already reject and that the patcher could not

@@ -4,10 +4,10 @@ using LotroKoniecDev.TranslationSystem.API.Extensions;
 namespace LotroKoniecDev.TranslationSystem.API.Settings;
 
 /// <summary>
-/// Fails fast at startup when the configured CORS origins are missing or malformed in a deployed
-/// environment (Staging/Production), naming the offending key (ADR-0008 §3, M6-03). Development
-/// uses the permissive AllowAnyOrigin policy and Testing runs same-origin in-memory, so neither
-/// supplies origins — both skip validation, mirroring <c>OpenIddictSettingsValidator</c>.
+/// Stops the boot when the configured CORS origins are missing or malformed in a deployed environment,
+/// Staging or Production, and names the key at fault (ADR-0008 §3, M6-03). Development uses the open
+/// AllowAnyOrigin policy and Testing runs in memory on one origin, so neither supplies origins and
+/// both skip this check, like <c>OpenIddictSettingsValidator</c> does.
 /// </summary>
 internal sealed class CorsSettingsValidator : IValidateOptions<CorsSettings>
 {
@@ -55,11 +55,11 @@ internal sealed class CorsSettingsValidator : IValidateOptions<CorsSettings>
     }
 
     /// <summary>
-    /// A CORS origin is the scheme+host(+non-default-port) only — the browser's <c>Origin</c> header
-    /// carries no userinfo, path, query, or trailing slash and is always lowercase, so e.g.
-    /// <c>WithOrigins("https://x/")</c> or <c>"https://u:p@x"</c> would silently never match.
-    /// Requiring the value to equal its own (userinfo-free) authority part rejects those
-    /// misconfigurations at boot.
+    /// A CORS origin is only the scheme, the host and a non-default port. The browser's <c>Origin</c>
+    /// header carries no user info, path, query or trailing slash, and it is always lower case. So
+    /// <c>WithOrigins("https://x/")</c> or <c>"https://u:p@x"</c> would never match anything, without
+    /// saying so. Requiring the value to equal its own authority part, with no user info, catches those
+    /// mistakes at boot.
     /// </summary>
     private static bool BeBareHttpOrigin(string? value)
     {

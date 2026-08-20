@@ -12,23 +12,24 @@ using Microsoft.Extensions.Caching.Hybrid;
 namespace LotroKoniecDev.TranslationSystem.API.Features.Progress;
 
 /// <summary>
-/// The landing page's public progress snapshot (#309): the same active-catalog bucketing as the
-/// translator dashboard's <see cref="Translations.GetTranslationStats"/> (one grouped count per
-/// <see cref="TranslationStatus"/>, bucketed in memory) plus the newest
-/// <see cref="GameVersionStatus.Processed"/> game version. Deliberately a separate, explicitly
-/// anonymous slice rather than an opened-up dashboard endpoint: the public contract stays frozen
-/// while the translator dashboard evolves, and nothing beyond aggregate counters is exposed.
+/// The progress numbers on the public landing page (#309). It groups the active catalog exactly like
+/// the translator dashboard's <see cref="Translations.GetTranslationStats"/> does, one count per
+/// <see cref="TranslationStatus"/> summed in memory, and adds the newest
+/// <see cref="GameVersionStatus.Processed"/> game version.
+/// It is a separate, openly anonymous endpoint rather than the dashboard endpoint opened up, so the
+/// public contract can stay fixed while the dashboard changes, and nothing but totals is exposed.
 ///
-/// The snapshot is served from a short-TTL <see cref="HybridCache"/> entry (AUDIT-EF-04/#354):
-/// this is the most public, least protected endpoint, and recomputing approximate counters per
-/// anonymous hit only burns compute — within the TTL every request shares one computation.
-/// HTTP-level <c>no-store</c> stays; only the server-side recomputation is deduplicated.
+/// The result is cached in a short-lived <see cref="HybridCache"/> entry (AUDIT-EF-04, #354). This is
+/// the most public and least protected endpoint, and recomputing rough counters for every anonymous
+/// visitor only costs compute. While the entry is alive, every request shares one computation.
+/// The HTTP <c>no-store</c> header stays; only the work on the server is shared.
 /// </summary>
 internal sealed class GetPublicProgress : IEndpoint
 {
     /// <summary>
-    /// The single process-wide snapshot entry — the endpoint is anonymous, so every visitor shares
-    /// the same counters. Internal so the integration-test reset can evict it alongside its TRUNCATE.
+    /// The one cache entry for the whole process. The endpoint is anonymous, so every visitor sees the
+    /// same counters. It is internal so the integration tests can clear it together with their
+    /// TRUNCATE.
     /// </summary>
     internal const string CounterCacheKey = "public-progress";
 
@@ -37,8 +38,9 @@ internal sealed class GetPublicProgress : IEndpoint
     internal sealed class Handler : IQueryHandler<Query, Result<PublicProgressResponse>>
     {
         /// <summary>
-        /// Bounded staleness on counters is fine (same philosophy as the ADR-0021 debounce); 30 s
-        /// caps the grouped scan at two per minute regardless of landing-page or bot traffic.
+        /// Slightly old counters are fine here, the same idea as the delay in ADR-0021. With 30 seconds
+        /// the grouped scan runs at most twice a minute, however much traffic the landing page or bots
+        /// bring.
         /// </summary>
         private static readonly HybridCacheEntryOptions CounterTtlEntryOptions = new()
         {
@@ -68,10 +70,10 @@ internal sealed class GetPublicProgress : IEndpoint
         }
 
         /// <summary>
-        /// Computes on its OWN scope, never the calling request's: HybridCache runs ONE factory for
-        /// all concurrently joined callers, and the initiating request can abort — disposing its
-        /// request-scoped read context — while others stay joined. A fresh scope keeps the shared
-        /// computation alive for the survivors instead of faulting them with a disposed context.
+        /// This runs in its own scope and never in the calling request's. HybridCache runs one factory
+        /// for every caller waiting on the same key, and the request that started it can be cancelled,
+        /// which disposes its read context, while the others are still waiting. A fresh scope keeps the
+        /// shared work alive for them instead of failing on a disposed context.
         /// </summary>
         private async ValueTask<PublicProgressResponse> ComputeSnapshotAsync(CancellationToken cancellationToken)
         {
@@ -88,15 +90,15 @@ internal sealed class GetPublicProgress : IEndpoint
             int total = countByStatus.Values.Sum();
             int approved = countByStatus.GetValueOrDefault(TranslationStatus.Approved);
 
-            // "Translated" = the rows that carry Polish content — the domain only reaches Draft,
-            // Approved or NeedsReview once Polish exists (same bucketing as the dashboard stats).
+            // "Translated" means the rows that hold Polish. A row only reaches Draft, Approved or
+            // NeedsReview once there is Polish, the same grouping the dashboard stats use.
             int translated =
                 countByStatus.GetValueOrDefault(TranslationStatus.Draft)
                 + approved
                 + countByStatus.GetValueOrDefault(TranslationStatus.NeedsReview);
 
-            // The catalog is current for the newest PROCESSED version: merely-detected (Unprocessed)
-            // and skipped-over (Superseded) versions say nothing about the distributed content.
+            // The catalog matches the newest processed version. A version that was only detected
+            // (Unprocessed) or skipped (Superseded) says nothing about what is distributed.
             string? currentGameVersion = await readDbContext.GameVersions
                 .Where(gameVersion => gameVersion.Status == GameVersionStatus.Processed)
                 .OrderByDescending(gameVersion => gameVersion.DetectedAt)

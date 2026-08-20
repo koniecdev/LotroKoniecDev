@@ -8,17 +8,18 @@ using LotroKoniecDev.TranslationSystem.Domain.Aggregates.TranslationAggregate.Va
 namespace LotroKoniecDev.TranslationSystem.API.Parsing;
 
 /// <summary>
-/// Parses an uploaded <c>exported.txt</c> in the LOTRO <c>||</c> contract
-/// (<c>file_id||gossip_id||content||args_order||args_id||approved||source_digest</c>), carving fields
-/// by anchoring from both ends (ADR-0042) and unfolding the content escape (ADR-0039) so the catalog
-/// stores the raw source text rather than its file representation. The TMS owns its own parser;
-/// golden fixtures + round-trip tests guard it against drift from the patcher's.
+/// Reads an uploaded <c>exported.txt</c> in the LOTRO <c>||</c> format
+/// (<c>file_id||gossip_id||content||args_order||args_id||approved||source_digest</c>). It cuts the
+/// fields out by working from both ends of the line (ADR-0042) and unescapes the content (ADR-0039),
+/// so the catalog stores the raw source text and not its file form.
+/// The TMS has its own parser, and golden fixtures plus round-trip tests keep it in step with the
+/// patcher's.
 /// </summary>
 /// <remarks>
-/// The trailing <c>source_digest</c> (ADR-0047) is optional: a six-column upload — an older export,
-/// a hand-made file — imports exactly as it always did. When the column IS present it is
-/// <b>verified</b> against the row's own triple, so a wrong-file upload or a drift between the two
-/// contexts' digest implementations is a per-row rejection here (ADR-0042) instead of a silent
+/// The last column, <c>source_digest</c> (ADR-0047), is optional. A six-column upload, an older export
+/// or a hand-made file, imports exactly as before.
+/// When the column is there it is checked against the row itself, so a wrong file, or a difference
+/// between the two contexts' digest code, is rejected per row here (ADR-0042) instead of producing an
 /// artifact every player's patcher would then refuse.
 /// </remarks>
 internal sealed class TranslationExportParser : ITranslationExportParser
@@ -29,10 +30,10 @@ internal sealed class TranslationExportParser : ITranslationExportParser
     private const char ArgsPositionSeparator = '-';
 
     /// <summary>
-    /// The patcher writes <c>exported.txt</c> as UTF-8; decode it strictly. A wrong-charset or
-    /// corrupt upload then throws instead of silently mis-decoding into garbage content that the
-    /// diff would treat as a source change and mass-invalidate every Polish row — the rejection
-    /// routes through the same truncation guard as a structural parse failure.
+    /// The patcher writes <c>exported.txt</c> as UTF-8, so we decode it strictly. An upload in the wrong
+    /// encoding, or a corrupt one, then fails instead of decoding into nonsense that the diff would read
+    /// as a source change and use to invalidate every Polish row. The rejection goes through the same
+    /// truncation guard as any other parse failure.
     /// </summary>
     private static readonly UTF8Encoding StrictUtf8 = new(encoderShouldEmitUTF8Identifier: false, throwOnInvalidBytes: true);
 
@@ -109,9 +110,9 @@ internal sealed class TranslationExportParser : ITranslationExportParser
     {
         row = null;
 
-        // Anchor from both ends (matches the patcher, #29/#106): file_id, gossip_id lead;
-        // args_order, args_id, approved trail; everything between is content, so it may legally
-        // contain "||" and may end in any run of '|' (ADR-0042).
+        // Work from both ends, like the patcher does (#29, #106). file_id and gossip_id come first,
+        // args_order, args_id and approved come last, and everything in between is the content, so it
+        // may contain "||" and may end in any number of '|' (ADR-0042).
         if (!TranslationLineCarver.TryCarve(line, out CarvedTranslationLine? carved))
         {
             error = $"Expected at least {SeparatorCount} '{FieldSeparator}' separators outside the content.";
@@ -142,15 +143,15 @@ internal sealed class TranslationExportParser : ITranslationExportParser
             return false;
         }
 
-        // The escape is unfolded last (ADR-0039), so the row hands out the raw source text the DAT
-        // actually holds.
+        // The content is unescaped last (ADR-0039), so the row carries the raw source text the DAT
+        // really holds.
         string content = TranslationLineEscaper.Unescape(carved.Content);
 
         if (carved.SourceDigest is { } sourceDigest && !MatchesSourceDigest(content, carved, sourceDigest))
         {
-            // The row claims a digest that is not the digest of the row (ADR-0047 §2). That is a
-            // wrong-file upload or an implementation drift between the two contexts, and it must
-            // fail loudly here rather than as 800k `source moved` warnings on players' boxes.
+            // The row carries a digest that does not match the row (ADR-0047 §2). That means the wrong
+            // file was uploaded, or the two contexts compute the digest differently. It has to fail
+            // loudly here instead of as 800,000 `source moved` warnings on players' machines.
             error = $"The source_digest column '{sourceDigest}' does not match the row's own text and argument columns.";
             return false;
         }
@@ -169,10 +170,10 @@ internal sealed class TranslationExportParser : ITranslationExportParser
     }
 
     /// <summary>
-    /// Recomputes the row's own <c>SourceHash</c> over the triple exactly as the catalog will store
-    /// it — <see cref="TranslationSource"/>'s normalization, so an absent args column is
-    /// <see langword="null"/> and never the <c>NULL</c> literal — and compares it against the
-    /// declared column. Case-insensitive: writers emit lowercase, readers forgive a hand-edited file.
+    /// Computes the row's own <c>SourceHash</c> over the triple exactly as the catalog will store it,
+    /// using <see cref="TranslationSource"/>'s rules, so an absent args column is
+    /// <see langword="null"/> and never the literal text <c>NULL</c>, and compares it with the column in
+    /// the file. Case is ignored: writers emit lower case and readers accept a hand-edited file.
     /// </summary>
     private static bool MatchesSourceDigest(string content, CarvedTranslationLine carved, string declaredDigest)
     {
@@ -185,11 +186,12 @@ internal sealed class TranslationExportParser : ITranslationExportParser
     }
 
     /// <summary>
-    /// An args column is either absent (<c>NULL</c>, empty or blank) or a <c>-</c>-separated list of
-    /// ASCII decimal integers. Anything else rejects the row (ADR-0042) rather than being stored
-    /// verbatim, where it would be neither <see langword="null"/> nor a usable order and would still
-    /// take part in the import diff (spec 0001). Whether the positions fit the fragment is the
-    /// patcher's call, not the catalog's — the TMS never sees the argument references.
+    /// An args column is either absent, meaning <c>NULL</c>, empty or blank, or a list of ASCII decimal
+    /// numbers separated by <c>-</c>. Anything else rejects the row (ADR-0042) instead of being stored as
+    /// it is, where it would be neither <see langword="null"/> nor a usable order and would still take
+    /// part in the import diff (spec 0001).
+    /// Whether those positions fit the fragment is the patcher's decision, not the catalog's: the TMS
+    /// never sees the argument references.
     /// </summary>
     private static bool IsWellFormedArgs(string value)
     {
@@ -199,8 +201,8 @@ internal sealed class TranslationExportParser : ITranslationExportParser
             return true;
         }
 
-        // NumberStyles.None on purpose: no sign (the '-' is the separator), no surrounding
-        // whitespace, ASCII digits only. An overflowing position fails here too.
+        // NumberStyles.None on purpose: no sign, because '-' is the separator, no spaces around the
+        // number, ASCII digits only. A number too large for an int fails here as well.
         return value
             .Split(ArgsPositionSeparator)
             .All(position => int.TryParse(position, NumberStyles.None, CultureInfo.InvariantCulture, out _));

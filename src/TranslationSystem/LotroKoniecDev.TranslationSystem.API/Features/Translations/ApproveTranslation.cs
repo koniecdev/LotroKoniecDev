@@ -19,12 +19,12 @@ using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.TranslatorAggregate
 namespace LotroKoniecDev.TranslationSystem.API.Features.Translations;
 
 /// <summary>
-/// Approves a translation for distribution (spec 0001, #101): a reviewer flips the row to Approved,
-/// which stamps the approving identity, clears any invalidation (<c>PreviousSourceText</c>) and pulls
-/// the row back into the distributed set — so a debounced background rebuild of the pre-built Polish
-/// artifact is scheduled after the change commits (PERF-04, ADR-0021); the response does not wait for
-/// it. Requires the admin (reviewer) policy. A row with no Polish or a soft-removed row cannot be
-/// approved (422); an unknown id is a 404.
+/// Approves a translation for distribution (spec 0001, #101). A reviewer sets the row to Approved,
+/// which records who approved it, clears <c>PreviousSourceText</c> and brings the row back into the
+/// distributed set. So a rebuild of the ready-made Polish file is scheduled after the change commits
+/// (PERF-04, ADR-0021), and the response does not wait for it.
+/// It needs the admin (reviewer) policy. A row with no Polish, or one that was soft-removed, cannot be
+/// approved and gives a 422. An unknown id gives a 404.
 /// </summary>
 internal sealed class ApproveTranslation : IEndpoint
 {
@@ -82,8 +82,8 @@ internal sealed class ApproveTranslation : IEndpoint
 
             Translation translation = translationMaybe.Value;
 
-            // First-touch lazy provisioning (ADR-0004): get-or-create the reviewer's Translator row and
-            // commit it before stamping the FK, so the approver is a valid local TranslatorId.
+            // Create the reviewer's Translator row if it does not exist yet, and commit it before the
+            // foreign key is written (ADR-0004), so the approver is a TranslatorId that really exists.
             Result<TranslatorId> provisionResult = await _translatorProvisioner.ProvisionCurrentAsync(cancellationToken);
             if (provisionResult.IsFailure)
             {
@@ -98,9 +98,9 @@ internal sealed class ApproveTranslation : IEndpoint
 
             await _unitOfWork.SaveChangesAsync(cancellationToken);
 
-            // The row has (re)entered the distributed set, so the pre-built Polish artifact is stale.
-            // Scheduled, not awaited (PERF-04): the rebuild runs debounced in the background on the
-            // host lifetime, so the response returns now and a disconnect cannot strand the commit.
+            // The row is in the distributed set again, so the ready-made Polish file is out of date. We
+            // schedule the rebuild instead of waiting for it (PERF-04): it runs in the background, the
+            // response returns now, and a client that disconnects cannot leave the commit stranded.
             _rebuildScheduler.Schedule(SupportedLanguages.Polish);
 
             return Result.Success();

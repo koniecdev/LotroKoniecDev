@@ -27,9 +27,10 @@ internal sealed class PaginationLinkFactory : IPaginationLinkFactory
             method: HttpMethods.Get,
             values: BuildRouteValues(paginationResponse.Page, paginationResponse.PageSize, additionalRouteValues)));
 
-        // A boundary rel that points at the page you are already on is a no-op the pager renders as an
-        // enabled button (#545). Unlike previous/next these are ABSOLUTE jumps, so they survive an
-        // over-range page (?page=99 of 3) — that is the only way back for a caller who overshot.
+        // A first or last link that points at the page you are already on does nothing, but the pager
+        // still draws it as a working button (#545). Unlike previous and next these jump to a fixed
+        // page, so they stay useful when the page number is out of range, such as ?page=99 of 3. That is
+        // the only way back for a caller who went too far.
         if (paginationResponse.Page != 1)
         {
             links.AddIfPresent(await _linkFactory.CreateAsync(

@@ -12,17 +12,19 @@ using Microsoft.Net.Http.Headers;
 namespace LotroKoniecDev.TranslationSystem.API.Features.TranslationFiles;
 
 /// <summary>
-/// Serves the pre-built translation file for a language (spec 0001): streams the stored artifact
-/// with its content hash as the <c>ETag</c> and honors <c>If-None-Match</c> with a 304. Anonymous
-/// (the CLI/player downloads it). Never builds per-request — after each relevant write the artifact
-/// is regenerated in the background, debounced, by <see cref="IPrecomputedTranslationFileProjector"/>
-/// (PERF-04, ADR-0021), so a download may briefly trail a commit. The 304 decision is driven by a
-/// hash-only lookup (PERF-01/#286): the multi-MB <c>Content</c> column is TOASTed by PostgreSQL,
-/// so a revalidation that never reads it stays O(1) regardless of artifact size — content is
-/// fetched only when the client's validator no longer matches.
-/// The ETag doubles as the integrity hash (AUDIT-SEC-01/#391): the patcher recomputes the hex
-/// SHA-256 of the downloaded UTF-8 body and rejects the file on mismatch, so the hash algorithm
-/// and the strong-ETag format are a cross-context contract — change them only with the patcher.
+/// Serves the ready-made translation file for a language (spec 0001). It sends the stored artifact
+/// with its content hash as the <c>ETag</c> and answers 304 to a matching <c>If-None-Match</c>. It is
+/// open to anyone, because the CLI and the players download it.
+/// It never builds the file per request. After each write that matters,
+/// <see cref="IPrecomputedTranslationFileProjector"/> rebuilds it in the background with a short delay
+/// (PERF-04, ADR-0021), so a download can lag a commit by a moment.
+/// The 304 decision needs only the hash (PERF-01, #286). PostgreSQL stores the multi-MB
+/// <c>Content</c> column out of line, so a revalidation that never reads it costs the same whatever
+/// the artifact size. The content is fetched only when the client's ETag no longer matches.
+/// The ETag is also the integrity hash (AUDIT-SEC-01, #391): the patcher computes the hex SHA-256 of
+/// the downloaded UTF-8 body and refuses the file when it differs. So the hash algorithm and the
+/// strong-ETag format are a contract between the two contexts. Change them only together with the
+/// patcher.
 /// </summary>
 internal sealed class GetTranslationFile : IEndpoint
 {
@@ -106,8 +108,8 @@ internal sealed class GetTranslationFile : IEndpoint
 
                 EntityTagHeaderValue entityTag = new($"\"{hashResult.Value}\"");
 
-                // If-None-Match is a comma-separated list and may be "*" (RFC 9110 §13.1.2):
-                // 304 when any supplied validator matches the current strong tag.
+                // If-None-Match is a comma-separated list and may be "*" (RFC 9110 §13.1.2). We answer
+                // 304 when any of the values matches the current strong tag.
                 bool notModified = httpContext.Request.GetTypedHeaders().IfNoneMatch
                     .Any(candidate => candidate.Equals(EntityTagHeaderValue.Any)
                                       || candidate.Compare(entityTag, useStrongComparison: true));
@@ -125,8 +127,8 @@ internal sealed class GetTranslationFile : IEndpoint
                     return Results.Problem(result.Error.ToProblemDetails());
                 }
 
-                // The ETag ships from the same row read as the content: were a rebuild to land between
-                // the hash lookup and this fetch, the client still receives a matching (tag, body) pair.
+                // The ETag comes from the same row read as the content, so even if a rebuild lands
+                // between the hash lookup and this read, the client still gets a matching tag and body.
                 SetRevalidationHeaders(httpContext, new EntityTagHeaderValue($"\"{result.Value.ETag}\""));
                 return Results.Text(result.Value.Content, "text/plain", Encoding.UTF8);
             })
@@ -139,8 +141,8 @@ internal sealed class GetTranslationFile : IEndpoint
     }
 
     /// <summary>
-    /// Revalidation model: clients keep the cached file and re-check via <c>If-None-Match</c>.
-    /// Setting Cache-Control explicitly stops GlobalNoCacheMiddleware from stamping no-store.
+    /// Clients keep the file they have and ask again with <c>If-None-Match</c>. Setting Cache-Control
+    /// here stops GlobalNoCacheMiddleware from adding no-store.
     /// </summary>
     private static void SetRevalidationHeaders(HttpContext httpContext, EntityTagHeaderValue entityTag)
     {

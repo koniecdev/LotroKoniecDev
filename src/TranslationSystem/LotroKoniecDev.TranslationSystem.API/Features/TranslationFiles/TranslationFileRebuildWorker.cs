@@ -3,16 +3,18 @@ using Microsoft.Extensions.Options;
 namespace LotroKoniecDev.TranslationSystem.API.Features.TranslationFiles;
 
 /// <summary>
-/// Debounced background executor of the artifact rebuilds the write handlers schedule (PERF-04,
-/// ADR-0021). After the first dirty signal it waits one <see cref="TranslationFileRebuildSettings.DebounceWindow"/>,
-/// drains everything queued in the meantime, and runs one rebuild per distinct language — a fixed
-/// coalescing window rather than a sliding one, so a sustained write stream can never starve the
-/// rebuild. It calls the projector with the host's stopping token, never a request token: a client
-/// disconnect after commit cannot cancel the regeneration anymore. A failed rebuild is logged and
-/// re-scheduled, so the artifact still converges (paced by the debounce window). Two edges are
-/// accepted for this regenerable artifact: signals pending at process shutdown are dropped (the
-/// next write reschedules), and a second replica would not see this replica's signals — the whole
-/// pipeline is single-replica by design, like the projector's process-wide gate.
+/// Runs the artifact rebuilds the write handlers schedule (PERF-04, ADR-0021). After the first signal
+/// it waits one <see cref="TranslationFileRebuildSettings.DebounceWindow"/>, takes everything that
+/// arrived in the meantime, and runs one rebuild per language.
+/// The wait is a fixed window and not one that restarts on every signal, so a steady stream of writes
+/// can never keep the rebuild from happening.
+/// It calls the projector with the host's own cancellation token and never a request token, so a
+/// client that disconnects after a commit can no longer cancel the rebuild.
+/// A failed rebuild is logged and scheduled again, so the artifact catches up, one window at a time.
+/// Two things are accepted for this artifact, because it can always be rebuilt: signals still waiting
+/// when the process shuts down are lost, and the next write schedules a new one; and a second instance
+/// would not see this one's signals. The whole pipeline assumes a single instance by design, like the
+/// projector's gate.
 /// </summary>
 internal sealed partial class TranslationFileRebuildWorker : BackgroundService
 {
@@ -68,8 +70,9 @@ internal sealed partial class TranslationFileRebuildWorker : BackgroundService
         catch (Exception exception)
             when (exception is not OperationCanceledException || !stoppingToken.IsCancellationRequested)
         {
-            // Swallowed deliberately: an exception escaping ExecuteAsync stops the whole host.
-            // Re-scheduling keeps the artifact converging; a shutdown cancellation propagates.
+            // Ignored on purpose, because an exception leaving ExecuteAsync stops the whole host.
+            // Scheduling it again lets the artifact catch up. A shutdown cancellation still passes
+            // through.
             LogRebuildFailed(_logger, exception, language);
             _scheduler.Schedule(language);
         }

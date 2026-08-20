@@ -6,8 +6,8 @@ using LotroKoniecDev.TranslationSystem.API.Parsing;
 namespace LotroKoniecDev.TranslationSystem.API.Features.Import;
 
 /// <summary>
-/// Import-level failures (corrupt/truncated upload guards). Modelled as <see cref="TypeOfError.DataConflict"/>
-/// so the API maps them to 422 Unprocessable Entity (spec 0001 contract).
+/// Failures of the import as a whole, such as an upload that is corrupt or cut short. They are
+/// <see cref="TypeOfError.DataConflict"/>, so the API answers 422 Unprocessable Entity (spec 0001).
 /// </summary>
 internal static class ImportErrors
 {

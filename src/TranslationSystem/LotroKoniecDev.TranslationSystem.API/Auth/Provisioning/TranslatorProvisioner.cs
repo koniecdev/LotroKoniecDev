@@ -16,27 +16,29 @@ using Microsoft.Extensions.Caching.Hybrid;
 namespace LotroKoniecDev.TranslationSystem.API.Auth.Provisioning;
 
 /// <summary>
-/// Lazy idempotent translator provisioning (ADR-0004): get-or-create keyed by the authenticated
-/// identity, refreshing the display name / email from the current claims on each touch. Idempotency
-/// is guaranteed by the unique index on <c>Translators.IdentityId</c> plus a get-then-create guard
-/// that, on a concurrent first-write race (unique-constraint violation), re-reads the committed row.
+/// Creates the translator profile when it is first needed, and it is safe to call twice (ADR-0004).
+/// It gets or creates a row keyed by the authenticated identity, and refreshes the display name and
+/// e-mail from the current claims each time.
+/// Calling it twice is safe thanks to the unique index on <c>Translators.IdentityId</c> plus a check
+/// that, when two requests create the same profile at once and one hits the unique constraint, reads
+/// the committed row again.
 ///
-/// Because this runs on every authenticated request (ADR-0004 amendment 2026-06-24), the
-/// identity → (<see cref="TranslatorId"/> + claims fingerprint) resolution is cached in an L1-only
-/// <see cref="HybridCache"/> under a short TTL (PERF-07): a request whose identity-affecting claims
-/// are unchanged resolves from memory and never queries the <c>Translators</c> table. A fingerprint
-/// mismatch (the account was renamed / its e-mail changed) bypasses the cached value, refreshes the
-/// profile against the live row, and re-sets the entry; a resolution failure is never cached.
+/// This runs on every authenticated request (ADR-0004, amended 2026-06-24), so the result, the
+/// <see cref="TranslatorId"/> plus a fingerprint of the claims, is kept in an in-memory
+/// <see cref="HybridCache"/> for a short time (PERF-07). A request whose claims have not changed is
+/// answered from memory and never touches the <c>Translators</c> table. When the fingerprint differs,
+/// because the account was renamed or its e-mail changed, the cached value is ignored, the profile is
+/// refreshed from the live row and the entry is written again. A failure is never cached.
 /// </summary>
 internal sealed class TranslatorProvisioner : ITranslatorProvisioner
 {
     private const string CacheKeyPrefix = "translator-provisioning:";
 
     /// <summary>
-    /// Short TTL keyed by identity: within the window an authenticated request whose identity-affecting
-    /// claims are unchanged resolves entirely from L1 memory, skipping the <c>Translators</c> query.
-    /// Restated here at the call site (mirroring TheKittySaver's per-consumer entry-options pattern)
-    /// even though the DI default matches it, so the provisioning TTL is explicit where it is used.
+    /// A short lifetime, keyed by identity. Inside that window an authenticated request whose claims
+    /// have not changed is answered from memory and skips the <c>Translators</c> query.
+    /// The value is written out here as well, following TheKittySaver's pattern of per-consumer entry
+    /// options, even though the DI default is the same, so the lifetime is visible where it is used.
     /// </summary>
     private static readonly HybridCacheEntryOptions ShortTtlEntryOptions = new()
     {
@@ -74,10 +76,11 @@ internal sealed class TranslatorProvisioner : ITranslatorProvisioner
 
         IdentityId identityId = maybeIdentity.Value;
 
-        // The display name is the 'name' claim, falling back to the 'email' claim — an authenticated
-        // token always carries at least one; if neither is present the VO surfaces a validation error.
-        // Resolved (and validated) before the cache is touched so an unprovisionable token never lands
-        // an entry.
+        // The display name comes from the 'name' claim, or from the 'email' claim when that is
+        // missing. An authenticated token always carries at least one of them, and if neither is there
+        // the value object returns a validation error.
+        // It is resolved and checked before the cache is used, so a token we cannot provision never
+        // leaves an entry behind.
         Result<DisplayName> displayNameResult = DisplayName.Create(
             _currentUserAccessor.Username ?? _currentUserAccessor.Email ?? string.Empty);
         if (displayNameResult.IsFailure)
@@ -102,14 +105,14 @@ internal sealed class TranslatorProvisioner : ITranslatorProvisioner
 
             if (string.Equals(cached.ClaimsFingerprint, claimsFingerprint, StringComparison.Ordinal))
             {
-                // Steady state: the cached entry already reflects the current claims, so the
-                // Translators table is not queried within the TTL.
+                // The normal case: the cached entry already matches the current claims, so the
+                // Translators table is not queried while the entry is alive.
                 return Result.Success(TranslatorId.FromValue(cached.TranslatorId));
             }
 
-            // The claims changed since the entry was cached (a renamed account / changed e-mail):
-            // bypass the stale value, refresh the profile against the live row, then overwrite the
-            // entry so subsequent requests resume the fast path.
+            // The claims changed since the entry was written, because the account was renamed or its
+            // e-mail changed. Ignore the old value, refresh the profile from the live row and write the
+            // entry again, so later requests take the fast path.
             Result<TranslatorId> refreshed = await ResolveAsync(identityId, displayName, email, cancellationToken);
             if (refreshed.IsFailure)
             {
@@ -126,17 +129,18 @@ internal sealed class TranslatorProvisioner : ITranslatorProvisioner
         }
         catch (TranslatorProvisioningFailedException exception)
         {
-            // A resolution failure must never be cached: the factory rethrows it as this sentinel so
-            // HybridCache discards the entry and the next request retries against the live row.
+            // A failure must never be cached. The factory rethrows it as this exception, so HybridCache
+            // drops the entry and the next request tries the live row again.
             return Result.Failure<TranslatorId>(exception.Error);
         }
     }
 
     /// <summary>
-    /// Cache-miss factory: resolves the translator against the database and projects it into the cached
-    /// (<see cref="TranslatorId"/> + fingerprint) tuple. Throws <see cref="TranslatorProvisioningFailedException"/>
-    /// on a resolution failure so <see cref="HybridCache"/> discards the entry rather than caching a
-    /// failure. A <see cref="DbUpdateException"/> from the write path propagates unchanged.
+    /// What runs on a cache miss: it resolves the translator against the database and turns the result
+    /// into the pair we cache, the <see cref="TranslatorId"/> plus the fingerprint. On failure it throws
+    /// <see cref="TranslatorProvisioningFailedException"/>, so <see cref="HybridCache"/> drops the entry
+    /// instead of caching a failure. A <see cref="DbUpdateException"/> from the write path passes
+    /// through unchanged.
     /// </summary>
     private async ValueTask<CachedProvisioning> ResolveAndCacheAsync(
         IdentityId identityId,
@@ -155,14 +159,15 @@ internal sealed class TranslatorProvisioner : ITranslatorProvisioner
     }
 
     /// <summary>
-    /// The authoritative database resolution: returns the existing translator's id (refreshing its
-    /// profile only when the claims actually changed) or creates a new row, re-reading the committed
-    /// row on a concurrent first-write race. Runs the whole get-or-create write on its OWN scope,
-    /// never the calling request's (#435, mirroring #354): HybridCache runs ONE factory for all
-    /// concurrently joined callers, and the initiating request can abort — disposing its request
-    /// scope — while others stay joined. A fresh scope keeps the shared resolution alive for the
-    /// survivors instead of faulting them with a disposed context, and owning the unit of work here
-    /// means nothing this method tracks or saves ever leaks into a caller's pending changes.
+    /// The real database lookup. It returns the existing translator's id, refreshing the profile only
+    /// when the claims really changed, or creates a new row and reads the committed row again when two
+    /// requests create it at once.
+    /// The whole get-or-create runs in its own scope and never in the calling request's (#435, like
+    /// #354). HybridCache runs one factory for every caller waiting on the same key, and the request
+    /// that started it can be cancelled, which disposes its scope, while the others are still waiting.
+    /// A fresh scope keeps the shared lookup alive for them instead of failing on a disposed context.
+    /// Owning the unit of work here also means nothing this method tracks or saves ends up in a
+    /// caller's pending changes.
     /// </summary>
     private async ValueTask<Result<TranslatorId>> ResolveAsync(
         IdentityId identityId,
@@ -182,8 +187,8 @@ internal sealed class TranslatorProvisioner : ITranslatorProvisioner
         {
             Translator translator = existing.Value;
 
-            // A write fires only when an account was actually renamed / had its e-mail changed, never
-            // on a plain re-touch — this authoritative check backs the fast-path fingerprint gate.
+            // We write only when the account was really renamed or its e-mail changed, never on a
+            // plain repeat visit. This is the real check behind the fingerprint used on the fast path.
             bool claimsChanged = !translator.DisplayName.Equals(displayName)
                                  || !Equals(translator.Email, email);
             if (claimsChanged)
@@ -210,11 +215,10 @@ internal sealed class TranslatorProvisioner : ITranslatorProvisioner
         }
         catch (DbUpdateException)
         {
-            // Concurrent first-write race: another request inserted the row between our read and save.
-            // Drop our rejected insert from change tracking first — otherwise the retry below would
-            // re-attempt the row the unique index already rejected — then re-read the committed row
-            // and refresh it. The unit of work is owned by this scope, so the rejected insert can
-            // never re-fire on a caller's save.
+            // Another request inserted the row between our read and our save. Drop our rejected insert
+            // from change tracking first, or the retry below would send the row the unique index has
+            // already refused, then read the committed row and refresh it. The unit of work belongs to
+            // this scope, so the rejected insert can never fire again on a caller's save.
             translatorRepository.Detach(createResult.Value);
 
             Maybe<Translator> raced = await translatorRepository.GetByIdentityIdAsync(identityId, cancellationToken);
@@ -230,8 +234,8 @@ internal sealed class TranslatorProvisioner : ITranslatorProvisioner
     }
 
     /// <summary>
-    /// Resolves the optional email from the <c>email</c> claim. A malformed claim yields no email
-    /// rather than failing the whole write — the address is non-essential to attribution.
+    /// Reads the optional e-mail from the <c>email</c> claim. A malformed claim gives no e-mail instead
+    /// of failing the whole write, because the address is not needed to credit someone's work.
     /// </summary>
     private Email? ResolveEmail()
     {
@@ -247,12 +251,13 @@ internal sealed class TranslatorProvisioner : ITranslatorProvisioner
     }
 
     /// <summary>
-    /// Hashes the exact claims that determine the provisioned profile — the resolved display name and
-    /// e-mail — into a stable fingerprint. A change flips the fingerprint, so the cached entry is
-    /// bypassed and the profile refreshed; matching the fingerprint provably means the profile is
-    /// unchanged, so the DB query is safely skipped. Roles are excluded: they never alter the
-    /// <c>Translator</c> row, so including them would only trigger needless cache misses. The unit
-    /// separator keeps ("ab", "c") distinct from ("a", "bc").
+    /// Hashes exactly the claims the profile is built from, the display name and the e-mail, into one
+    /// fingerprint. When either changes the fingerprint changes, so the cached entry is ignored and the
+    /// profile is refreshed. A matching fingerprint means the profile cannot have changed, so the
+    /// database query can be skipped.
+    /// Roles are left out: they never change the <c>Translator</c> row, so including them would only
+    /// cause cache misses for nothing. The separator between the fields keeps ("ab", "c") apart from
+    /// ("a", "bc").
     /// </summary>
     private static string ComputeClaimsFingerprint(DisplayName displayName, Email? email)
     {
@@ -263,15 +268,15 @@ internal sealed class TranslatorProvisioner : ITranslatorProvisioner
 }
 
 /// <summary>
-/// The cached projection of a provisioned translator: its stable id plus a fingerprint of the claims
-/// that produced it. Kept small and JSON-serializable for <see cref="HybridCache"/>.
+/// What we cache for a provisioned translator: its id plus a fingerprint of the claims it was built
+/// from. It stays small and JSON-serializable for <see cref="HybridCache"/>.
 /// </summary>
 internal sealed record CachedProvisioning(Guid TranslatorId, string ClaimsFingerprint);
 
 /// <summary>
-/// Sentinel that bubbles a resolution <see cref="Error"/> out of the <see cref="HybridCache"/> factory
-/// so a failure is not cached as success — <c>HybridCache</c> discards the entry when the factory
-/// throws, so the next request retries the live resolution.
+/// Carries a resolution <see cref="Error"/> out of the <see cref="HybridCache"/> factory, so a failure
+/// is not stored as a success. <c>HybridCache</c> drops the entry when the factory throws, and the next
+/// request tries the live lookup again.
 /// </summary>
 internal sealed class TranslatorProvisioningFailedException : Exception
 {

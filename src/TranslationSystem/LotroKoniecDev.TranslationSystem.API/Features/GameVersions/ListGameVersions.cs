@@ -19,10 +19,10 @@ using Microsoft.EntityFrameworkCore;
 namespace LotroKoniecDev.TranslationSystem.API.Features.GameVersions;
 
 /// <summary>
-/// Lists every known game version newest-first (spec 0001): the admin watches which versions are
-/// pending (Unprocessed), already Processed, or Superseded. Reads the POCO read model — never the
-/// write aggregate (CQRS, ADR-0002 amendment). Few rows ever exist (one per game update), so this is
-/// an unpaged ordered list by design.
+/// Lists every known game version, newest first (spec 0001), so the admin can see which ones are still
+/// Unprocessed, already Processed, or Superseded. It reads the read model and never the write
+/// aggregate (CQRS, ADR-0002 amendment). There is one row per game update, so the list is deliberately
+/// ordered but not paged.
 /// </summary>
 internal sealed class ListGameVersions : IEndpoint
 {
@@ -58,11 +58,11 @@ internal sealed class ListGameVersions : IEndpoint
         }
 
         /// <summary>
-        /// Maps a <c>?sort=</c> key to the read-model column it orders by. An unknown key degrades to
-        /// <c>DetectedAt</c> <b>ascending</b> (the parser's default operand) — note this is oldest-first,
-        /// not the newest-first ordering used when <c>sort</c> is omitted. <c>version</c> sorts the
-        /// canonical version string lexicographically (no semantic version ordering); <c>status</c> sorts
-        /// by the enum's stored name (the column is persisted as a string), not its integer value.
+        /// Maps a <c>?sort=</c> key to the read-model column it orders by. An unknown key falls back to
+        /// <c>DetectedAt</c> <b>ascending</b>, which is the parser's default. Note that this is
+        /// oldest-first, not the newest-first order used when <c>sort</c> is left out.
+        /// <c>version</c> sorts the version string alphabetically and not by version number.
+        /// <c>status</c> sorts by the enum's name, because the column stores the name, not the number.
         /// </summary>
         private static Expression<Func<GameVersionReadModel, object>> GetSortProperty(string propertyName)
             => propertyName.ToLower(CultureInfo.InvariantCulture) switch

@@ -30,10 +30,10 @@ internal sealed partial class BadHttpRequestExceptionHandler : IExceptionHandler
             return false;
         }
 
-        // An oversized upload surfaces inconsistently — Kestrel's request-body cap throws a 413, while
-        // the multipart form-length cap throws an InvalidDataException that minimal-API binding wraps as
-        // a generic 400. Normalize both to a clean 413 so an admin uploading too large an exported.txt
-        // gets an actionable "too large" response rather than a bare "Bad Request" (#208).
+        // An upload that is too large arrives in two different shapes. Kestrel's request-body limit
+        // throws a 413, while the multipart form limit throws an InvalidDataException that minimal-API
+        // binding turns into a plain 400. We turn both into a 413, so an admin who uploads too large an
+        // exported.txt is told the file is too large instead of just "Bad Request" (#208).
         ProblemDetails problemDetails = IsPayloadTooLarge(badHttpRequestException)
             ? new ProblemDetails
             {
@@ -72,17 +72,17 @@ internal sealed partial class BadHttpRequestExceptionHandler : IExceptionHandler
     }
 
     /// <summary>
-    /// True when the bad request is really an over-limit upload, to be normalized to 413: a direct 413
-    /// from Kestrel's request-body cap, or — because the multipart form reader's length cap throws an
-    /// <see cref="InvalidDataException"/> that minimal-API binding wraps as a 400 — a wrapped
-    /// <see cref="InvalidDataException"/> or wrapped 413.
+    /// True when the bad request is really an upload that is too large and should become a 413. That is
+    /// either a 413 straight from Kestrel's request-body limit, or a wrapped
+    /// <see cref="InvalidDataException"/> or wrapped 413, because the multipart form reader's limit
+    /// throws an <see cref="InvalidDataException"/> that minimal-API binding turns into a 400.
     /// <para>
-    /// The <see cref="InvalidDataException"/> arm maps <em>every</em> wrapped form-read data error to
-    /// 413, not only the size one. That is acceptable today because the version-bound import upload is
-    /// the API's only form-accepting endpoint and, with the framework's default form limits, its sole
-    /// realistic form-read failure is the body-length (size) cap. Revisit this predicate before adding
-    /// another form endpoint whose other form limits (key/value/count) could legitimately trip — those
-    /// are genuine 400s, not "too large".
+    /// The <see cref="InvalidDataException"/> case turns <em>every</em> wrapped form-read error into a
+    /// 413, not only the size one. That is fine today, because the import upload is the API's only
+    /// endpoint that accepts a form, and with the framework's default limits the only failure it can
+    /// realistically hit is the body-length one. Look at this check again before adding another form
+    /// endpoint, where the other limits on key, value or count could be hit for real. Those are proper
+    /// 400s and not "too large".
     /// </para>
     /// </summary>
     private static bool IsPayloadTooLarge(BadHttpRequestException exception)

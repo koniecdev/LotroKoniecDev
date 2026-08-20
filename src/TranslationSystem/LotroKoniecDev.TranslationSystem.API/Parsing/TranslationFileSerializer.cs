@@ -4,19 +4,20 @@ using System.Text;
 namespace LotroKoniecDev.TranslationSystem.API.Parsing;
 
 /// <summary>
-/// Produces the LOTRO <c>||</c> translation file
+/// Writes the LOTRO <c>||</c> translation file
 /// (<c>file_id||gossip_id||content||args_order||args_id||approved||source_digest</c>).
-/// Byte-compatible with the patcher's own writer: content is escaped through
-/// <see cref="TranslationLineEscaper"/> (ADR-0039) so a translation carrying real newlines stays on
-/// one line, absent args become <c>NULL</c>, the approved column is always <c>1</c>, and lines are
-/// CRLF-terminated for a deterministic content hash across platforms. A golden fixture + a
-/// cross-parser round-trip test guard the contract against drift from the patcher.
+/// It produces the same bytes as the patcher's own writer: the content is escaped through
+/// <see cref="TranslationLineEscaper"/> (ADR-0039), so a translation with real newlines stays on one
+/// line, an absent args column becomes <c>NULL</c>, the approved column is always <c>1</c>, and lines
+/// end with CRLF so the content hash is the same on every platform.
+/// A golden fixture and a round-trip test through the other parser keep this in step with the patcher.
 /// </summary>
 /// <remarks>
-/// The trailing <c>source_digest</c> (ADR-0047) is what makes the artifact patchable at all: the
+/// The last column, <c>source_digest</c> (ADR-0047), is what makes the file patchable at all: the
 /// patcher writes a row only when the fragment still holds the English that digest describes. It is
-/// always emitted — the projector computes it for every row — so this writer has no six-column mode;
-/// six-column files exist only as older artifacts and hand-made ones, which the READERS still accept.
+/// always written, because the projector computes it for every row, so this writer has no six-column
+/// mode. Six-column files exist only as older artifacts and hand-made ones, which the readers still
+/// accept.
 /// </remarks>
 internal sealed class TranslationFileSerializer : ITranslationFileSerializer
 {

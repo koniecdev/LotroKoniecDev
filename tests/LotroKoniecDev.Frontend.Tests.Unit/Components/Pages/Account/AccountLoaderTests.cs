@@ -148,6 +148,26 @@ public sealed class AccountLoaderTests
         handler.LastRequestBody.ShouldContain("NewP@ss2");
     }
 
+    [Fact]
+    public async Task RequestEmailChangeAsync_PostsTheNewAddressAndThePasswordToTheGivenHref()
+    {
+        AccountLoader loader = CreateLoader(
+            StubHttpMessageHandler.RespondWith(HttpStatusCode.OK, string.Empty),
+            out StubHttpMessageHandler handler);
+
+        ApiResult result = await loader.RequestEmailChangeAsync(
+            "auth/account/change-email",
+            "frodo@rivendell.example",
+            "OldP@ss1");
+
+        result.IsSuccess.ShouldBeTrue();
+        handler.LastRequest!.Method.ShouldBe(HttpMethod.Post);
+        handler.LastRequest.RequestUri!.ToString().ShouldBe($"{BaseUrl}auth/account/change-email");
+        handler.LastRequestBody.ShouldNotBeNull();
+        handler.LastRequestBody!.ShouldContain("frodo@rivendell.example");
+        handler.LastRequestBody.ShouldContain("OldP@ss1");
+    }
+
     private void StubDiscovery(List<LinkDto> links)
     {
         AuthDiscoveryResponse discovery = new("LotroKoniecDev.AuthSystem") { Links = links };

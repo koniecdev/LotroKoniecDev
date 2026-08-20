@@ -93,6 +93,22 @@ public sealed class AccountTests : BunitContext
     }
 
     [Fact]
+    public void Render_WhenEnvelopeAdvertisesChangeEmail_ShowsTheActionRowAndTheInlineLink()
+    {
+        StubExport(AccountLoaderTests.CreateEnvelope(links:
+        [
+            new LinkDto("auth/account/change-email", Rels.ChangeEmail, "POST")
+        ]));
+
+        IRenderedComponent<AccountComponent> component = Render<AccountComponent>();
+
+        component.Find("[data-testid=account-change-email]")
+            .GetAttribute("href").ShouldBe("/account/change-email");
+        component.Find("[data-testid=account-change-email-inline]")
+            .GetAttribute("href").ShouldBe("/account/change-email");
+    }
+
+    [Fact]
     public void Render_WhenEnvelopeAdvertisesNoActionRels_HidesTheGatedActionRows()
     {
         StubExport(AccountLoaderTests.CreateEnvelope(links: []));
@@ -100,6 +116,8 @@ public sealed class AccountTests : BunitContext
         IRenderedComponent<AccountComponent> component = Render<AccountComponent>();
 
         component.FindAll("[data-testid=account-change-password]").ShouldBeEmpty();
+        component.FindAll("[data-testid=account-change-email]").ShouldBeEmpty();
+        component.FindAll("[data-testid=account-change-email-inline]").ShouldBeEmpty();
         component.FindAll("[data-testid=account-delete]").ShouldBeEmpty();
         component.FindAll("[data-testid=account-export]").ShouldHaveSingleItem();
     }

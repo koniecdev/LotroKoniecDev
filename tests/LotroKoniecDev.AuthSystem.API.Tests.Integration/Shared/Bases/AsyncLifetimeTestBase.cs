@@ -12,6 +12,7 @@ public abstract class AsyncLifetimeTestBase : IAsyncLifetime
     protected SpyAccountConfirmationEmailSender AccountConfirmationEmailSpy { get; }
     protected SpyPasswordResetEmailSender PasswordResetEmailSpy { get; }
     protected SpyAccountDeletionEmailSender AccountDeletionEmailSpy { get; }
+    protected SpyEmailChangeEmailSender EmailChangeEmailSpy { get; }
 
     protected AsyncLifetimeTestBase(AuthSystemApiFactory factory)
     {
@@ -19,11 +20,13 @@ public abstract class AsyncLifetimeTestBase : IAsyncLifetime
         AccountConfirmationEmailSpy = factory.Services.GetRequiredService<SpyAccountConfirmationEmailSender>();
         PasswordResetEmailSpy = factory.Services.GetRequiredService<SpyPasswordResetEmailSender>();
         AccountDeletionEmailSpy = factory.Services.GetRequiredService<SpyAccountDeletionEmailSender>();
+        EmailChangeEmailSpy = factory.Services.GetRequiredService<SpyEmailChangeEmailSender>();
     }
 
     public virtual async Task InitializeAsync()
     {
         AccountDeletionEmailSpy.Reset();
+        EmailChangeEmailSpy.Reset();
 
         await using AsyncServiceScope scope = Factory.Services.CreateAsyncScope();
         CleanerService cleaner = scope.ServiceProvider.GetRequiredService<CleanerService>();

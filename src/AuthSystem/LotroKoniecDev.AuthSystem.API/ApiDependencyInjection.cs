@@ -70,20 +70,27 @@ internal static class ApiDependencyInjection
             services.AddScoped<ICommandHandler<CancelAccountDeletion.Command, Result<CancelAccountDeletion.CancelledDeletion>>, CancelAccountDeletion.Handler>();
             services.AddScoped<ICommandHandler<ChangePassword.Command, Result>, ChangePassword.Handler>();
             services.AddScoped<ICommandHandler<ConfirmEmail.Command, Result>, ConfirmEmail.Handler>();
+            services.AddScoped<ICommandHandler<ConfirmEmailChange.Command, Result>, ConfirmEmailChange.Handler>();
             services.AddScoped<ICommandHandler<DeleteAccount.Command, Result<DeleteAccount.ScheduledDeletion>>, DeleteAccount.Handler>();
             services.AddScoped<IQueryHandler<ExportAccountData.Query, Result<AccountDataExportResponse>>, ExportAccountData.Handler>();
             services.AddScoped<ICommandHandler<ForgotPassword.Command, Result>, ForgotPassword.Handler>();
             services.AddScoped<ICommandHandler<RegisterUser.Command, Result<IdentityId>>, RegisterUser.Handler>();
+            services.AddScoped<ICommandHandler<RequestEmailChange.Command, Result>, RequestEmailChange.Handler>();
+            services.AddScoped<ICommandHandler<RevertEmailChange.Command, Result<RevertEmailChange.RevertedEmailChange>>, RevertEmailChange.Handler>();
             services.AddScoped<ICommandHandler<ResendEmailConfirmation.Command, Result>, ResendEmailConfirmation.Handler>();
             services.AddScoped<ICommandHandler<ResetPassword.Command, Result>, ResetPassword.Handler>();
 
             services.AddScoped<IEmailVerificationLinkFactory, EmailVerificationLinkFactory>();
             services.AddScoped<IPasswordResetLinkFactory, PasswordResetLinkFactory>();
             services.AddScoped<ICancelDeletionLinkFactory, CancelDeletionLinkFactory>();
+            services.AddScoped<EmailChangeLinkFactory>();
+            services.AddScoped<IEmailChangeVerificationLinkFactory>(sp => sp.GetRequiredService<EmailChangeLinkFactory>());
+            services.AddScoped<IEmailChangeRevertLinkFactory>(sp => sp.GetRequiredService<EmailChangeLinkFactory>());
             services.AddSingleton<IEmailTemplateRenderer, EmailTemplateRenderer>();
             services.AddScoped<IPasswordResetEmailSender, PasswordResetEmailSender>();
             services.AddScoped<IAccountConfirmationEmailSender, AccountConfirmationEmailSender>();
             services.AddScoped<IAccountDeletionEmailSender, AccountDeletionEmailSender>();
+            services.AddScoped<IEmailChangeEmailSender, EmailChangeEmailSender>();
 
             services.AddScoped<IAccountErasureService, AccountErasureService>();
             services.AddScoped<IAccountDeletionFinalizer, AccountDeletionFinalizer>();
@@ -112,6 +119,10 @@ internal static class ApiDependencyInjection
                 nameof(AccountDeletionScheduled));
             services.AddKeyedScoped<IEmailMessageProcessor, AccountDeletionCancelledProcessor>(
                 nameof(AccountDeletionCancelled));
+            services.AddKeyedScoped<IEmailMessageProcessor, EmailChangeRequestProcessor>(
+                nameof(EmailChangeRequested));
+            services.AddKeyedScoped<IEmailMessageProcessor, EmailChangeCompletedProcessor>(
+                nameof(EmailChangeCompleted));
             services.AddScoped<EmailDeliveryProcessor>();
             services.AddHostedService<EmailDispatchConsumer>();
 

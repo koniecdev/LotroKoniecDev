@@ -119,6 +119,19 @@ public class AuthSystemApiFactory : WebApplicationFactory<Program>, IAsyncLifeti
             services.AddSingleton<IAccountDeletionEmailSender>(sp =>
                 sp.GetRequiredService<SpyAccountDeletionEmailSender>());
 
+            // Replace the e-mail change sender with a spy, for capturing the confirmation and revert
+            // tokens in tests
+            ServiceDescriptor? existingEmailChangeSender = services
+                .FirstOrDefault(d => d.ServiceType == typeof(IEmailChangeEmailSender));
+            if (existingEmailChangeSender is not null)
+            {
+                services.Remove(existingEmailChangeSender);
+            }
+
+            services.AddSingleton<SpyEmailChangeEmailSender>();
+            services.AddSingleton<IEmailChangeEmailSender>(sp =>
+                sp.GetRequiredService<SpyEmailChangeEmailSender>());
+
             // This suite runs without a broker. The consumer would keep retrying the connection and
             // filling the log with warnings, so it is removed. Its logic has its own unit tests through
             // EmailConfirmationRequestProcessor.

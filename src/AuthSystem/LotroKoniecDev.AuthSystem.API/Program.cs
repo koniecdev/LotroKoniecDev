@@ -260,6 +260,7 @@ try
     const string authEndpointRateLimitPolicy = "auth-endpoint-limit";
     const string forgotPasswordRateLimitPolicy = "forgot-password-limit";
     const string resendConfirmationRateLimitPolicy = "resend-confirmation-limit";
+    const string changeEmailRateLimitPolicy = "change-email-limit";
     const string resendConfirmationPageViewPartition = "resend-confirmation-page-view";
 
     builder.Services.AddRateLimiter(options =>
@@ -293,6 +294,20 @@ try
                 {
                     PermitLimit = 3,
                     Window = TimeSpan.FromMinutes(15)
+                }));
+
+        // The e-mail change request sends mail to an address the caller typed in, so it can be used to
+        // flood a stranger's inbox. Same threat as forgot-password, same budget.
+        // The key is the IP and not the user: UseRateLimiter runs before UseAuthentication on purpose
+        // (see below), so httpContext.User is still anonymous here and a "per user" key would collapse
+        // into one bucket shared by everybody.
+        options.AddPolicy(changeEmailRateLimitPolicy, httpContext =>
+            RateLimitPartition.GetFixedWindowLimiter(
+                partitionKey: httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+                factory: _ => new FixedWindowRateLimiterOptions
+                {
+                    PermitLimit = 3,
+                    Window = TimeSpan.FromHours(1)
                 }));
 
         // A separate rate limit for resending the confirmation e-mail. The limit belongs to the send,

@@ -75,6 +75,10 @@
                         <dt>E-mail</dt>
                         <dd>
                             <span class="mono">@auth.Email</span>
+                            @if (_result.Value.Links.HasLink(Rels.ChangeEmail))
+                            {
+                                <a href="/account/change-email" data-testid="account-change-email-inline">Zmień</a>
+                            }
                             @if (auth.EmailConfirmed)
                             {
                                 <span class="badge badge-success"><span class="dot"></span>Potwierdzony</span>
@@ -180,6 +184,17 @@
                             <span class="copy">
                                 <span class="t">Zmień hasło</span>
                                 <span class="s">Ustaw nowe hasło, podając obecne.</span>
+                            </span>
+                            <span class="chev" aria-hidden="true">›</span>
+                        </a>
+                    }
+
+                    @if (_result.Value.Links.HasLink(Rels.ChangeEmail))
+                    {
+                        <a class="action-row" href="/account/change-email" data-testid="account-change-email">
+                            <span class="copy">
+                                <span class="t">Zmień e-mail</span>
+                                <span class="s">Adres e-mail jest też Twoim loginem.</span>
                             </span>
                             <span class="chev" aria-hidden="true">›</span>
                         </a>

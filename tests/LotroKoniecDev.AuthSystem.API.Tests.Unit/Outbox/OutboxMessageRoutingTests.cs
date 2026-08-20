@@ -45,6 +45,46 @@ public sealed class OutboxMessageRoutingTests
         routingKey.ShouldBe(RabbitMqTopology.DeletionCancelledRoutingKey);
     }
 
+    [Fact]
+    public void TryGetRoutingKey_EmailChangeRequested_MapsToChangeRequestedRoutingKey()
+    {
+        bool found = OutboxMessageRouting.TryGetRoutingKey(
+            nameof(EmailChangeRequested), out string? routingKey);
+
+        found.ShouldBeTrue();
+        routingKey.ShouldBe(RabbitMqTopology.EmailChangeRequestedRoutingKey);
+    }
+
+    [Fact]
+    public void TryGetRoutingKey_EmailChangeCompleted_MapsToChangeCompletedRoutingKey()
+    {
+        bool found = OutboxMessageRouting.TryGetRoutingKey(
+            nameof(EmailChangeCompleted), out string? routingKey);
+
+        found.ShouldBeTrue();
+        routingKey.ShouldBe(RabbitMqTopology.EmailChangeCompletedRoutingKey);
+    }
+
+    [Fact]
+    public void EveryRoutingKey_MatchesTheQueueBindingPattern()
+    {
+        // The queue binds "email.#", so a key that does not start with "email." would publish into a
+        // topic exchange with nothing bound to it — and a topic exchange drops those without a word.
+        string[] routingKeys =
+        [
+            RabbitMqTopology.EmailConfirmationRoutingKey,
+            RabbitMqTopology.PasswordResetRoutingKey,
+            RabbitMqTopology.DeletionScheduledRoutingKey,
+            RabbitMqTopology.DeletionCancelledRoutingKey,
+            RabbitMqTopology.EmailChangeRequestedRoutingKey,
+            RabbitMqTopology.EmailChangeCompletedRoutingKey
+        ];
+
+        string bindingPrefix = RabbitMqTopology.EmailBindingPattern.TrimEnd('#');
+
+        routingKeys.ShouldAllBe(routingKey => routingKey.StartsWith(bindingPrefix, StringComparison.Ordinal));
+    }
+
     [Theory]
     [InlineData("")]
     [InlineData("emailconfirmationrequested")]
@@ -55,6 +95,10 @@ public sealed class OutboxMessageRoutingTests
     [InlineData("email.deletion-scheduled")]
     [InlineData("accountdeletioncancelled")]
     [InlineData("email.deletion-cancelled")]
+    [InlineData("emailchangerequested")]
+    [InlineData("email.change-requested")]
+    [InlineData("emailchangecompleted")]
+    [InlineData("email.change-completed")]
     [InlineData("SomeFutureUnmappedEvent")]
     public void TryGetRoutingKey_UnknownOrMiscasedType_ReturnsFalse(string type)
     {

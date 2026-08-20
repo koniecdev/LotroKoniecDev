@@ -32,7 +32,7 @@ public sealed class AccountAggregateHateoasTests : EndpointsTestBase
     [Fact]
     public async Task ExportAccountData_ShouldReturnBaseLinksOnly_WhenEmailIsConfirmed()
     {
-        // Arrange - confirmed users see self, change-password, delete-account only
+        // Arrange - confirmed users see self, change-password, change-email, delete-account only
         (RegisterRequest registerRequest, _) = await UserFactory.RegisterRandomUserWithRequestAsync(
             ApiClient, Faker, AccountConfirmationEmailSpy, TestPassword);
         string accessToken = await GetAccessTokenAsync(registerRequest.Email, TestPassword);
@@ -41,9 +41,10 @@ public sealed class AccountAggregateHateoasTests : EndpointsTestBase
         AccountDataExportResponse response = await RequestHateoasResponseAsync(accessToken);
 
         // Assert
-        response.Links.Count.ShouldBe(3);
+        response.Links.Count.ShouldBe(4);
         response.Links.ShouldContain(l => l.Rel == Rels.Self && l.Method == "GET");
         response.Links.ShouldContain(l => l.Rel == Rels.ChangePassword && l.Method == "POST");
+        response.Links.ShouldContain(l => l.Rel == Rels.ChangeEmail && l.Method == "POST");
         response.Links.ShouldContain(l => l.Rel == Rels.DeleteAccount && l.Method == "POST");
         response.Links.ShouldNotContain(
             l => l.Rel == Rels.ResendEmailConfirmation,
@@ -68,9 +69,10 @@ public sealed class AccountAggregateHateoasTests : EndpointsTestBase
         AccountDataExportResponse response = await RequestHateoasResponseAsync(accessToken);
 
         // Assert
-        response.Links.Count.ShouldBe(4);
+        response.Links.Count.ShouldBe(5);
         response.Links.ShouldContain(l => l.Rel == Rels.Self && l.Method == "GET");
         response.Links.ShouldContain(l => l.Rel == Rels.ChangePassword && l.Method == "POST");
+        response.Links.ShouldContain(l => l.Rel == Rels.ChangeEmail && l.Method == "POST");
         response.Links.ShouldContain(l => l.Rel == Rels.DeleteAccount && l.Method == "POST");
         response.Links.ShouldContain(l => l.Rel == Rels.ResendEmailConfirmation && l.Method == "POST");
     }
@@ -100,7 +102,7 @@ public sealed class AccountAggregateHateoasTests : EndpointsTestBase
         response.Links.ShouldContain(l => l.Rel == Rels.Self && l.Method == "GET");
         response.Links.ShouldContain(l => l.Rel == Rels.CancelDeletion && l.Method == "POST");
         response.Links.ShouldNotContain(
-            l => l.Rel == Rels.ChangePassword || l.Rel == Rels.DeleteAccount,
+            l => l.Rel == Rels.ChangePassword || l.Rel == Rels.ChangeEmail || l.Rel == Rels.DeleteAccount,
             "a deletion-scheduled account must not advertise dead transitions");
     }
 

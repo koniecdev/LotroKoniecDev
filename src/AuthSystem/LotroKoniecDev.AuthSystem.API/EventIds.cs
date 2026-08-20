@@ -114,6 +114,27 @@ internal static class EventIds
     public const int DeletionCancelledRescheduled = 2381;
     public const int DeletionCancelledAddressMissing = 2382;
 
+    // Change E-mail request / confirm / revert (2500-2519)
+    public const int EmailChangeRequested = 2500;
+    public const int EmailChangeSameAddress = 2501;
+    public const int EmailChangeAddressTaken = 2502;
+    public const int EmailChangeTokenInvalid = 2503;
+    public const int EmailChangeApplied = 2504;
+    public const int EmailChangeUpdateFailed = 2505;
+    public const int EmailChangeConfirmRace = 2506;
+    public const int EmailChangeRevertTokenInvalid = 2510;
+    public const int EmailChangeReverted = 2511;
+    public const int EmailChangeRevertFailed = 2512;
+    public const int EmailChangeRevertAddressTaken = 2513;
+    public const int EmailChangeRevertAlreadySettled = 2514;
+    public const int EmailChangeRevertRace = 2515;
+
+    // Change E-mail dispatch (2520-2529)
+    public const int EmailChangeDispatchUserGone = 2520;
+    public const int EmailChangeDispatchStaleRequest = 2521;
+    public const int EmailChangeDispatchAddressMissing = 2522;
+    public const int EmailChangeDispatchWarningFailed = 2523;
+
     // Middleware (2400-2499)
     public const int UnauthorizedAccessAttempt = 2400;
     public const int ForbiddenAccessAttempt = 2401;
@@ -131,6 +152,8 @@ internal static class EventIds
     public const int PasswordResetCompletedViaUi = 2630;
     public const int RegisterCompletedViaUi = 2640;
     public const int DeletionCancelledViaUi = 2650;
+    public const int EmailChangeConfirmedViaUi = 2660;
+    public const int EmailChangeRevertedViaUi = 2661;
 
     // GDPR Deletion Scheduling internals (2700-2709). 2701-2703 and 2705 are no longer used: the undo
     // step is gone (ADR-0038 decision 5), and both deletion flows now change the security stamp inside

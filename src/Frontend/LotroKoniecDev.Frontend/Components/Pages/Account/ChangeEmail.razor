@@ -1,0 +1,218 @@
+@page "/account/change-email"
+@attribute [Authorize]
+@attribute [StreamRendering]
+@using Microsoft.AspNetCore.Authorization
+@using LotroKoniecDev.AuthSystem.Contracts.Features.Auth.Account
+@using LotroKoniecDev.AuthSystem.Contracts.Hateoas
+@using LotroKoniecDev.Frontend.Infrastructure.Hateoas
+@using LotroKoniecDev.Frontend.Infrastructure.HttpClients
+@using LotroKoniecDev.Hateoas.Abstractions
+@using LotroKoniecDev.Frontend.Infrastructure.Errors
+@inject AccountLoader Loader
+
+<PageTitle>Zmień e-mail — lotro-translator.pl</PageTitle>
+
+<section class="container page-head">
+    <div>
+        <h1>Zmień e-mail</h1>
+        <p class="lede">Adres e-mail jest też Twoim loginem — zmiana wymaga potwierdzenia z nowej skrzynki.</p>
+    </div>
+</section>
+
+<section class="container content-wrap">
+    @if (_requested)
+    {
+        <div class="status-message status-success" role="status">
+            <p>
+                Wysłaliśmy link potwierdzający na adres <strong>@_submittedEmail</strong>.
+                Adres zmieni się dopiero po kliknięciu w ten link. Link jest ważny 24 godziny.
+            </p>
+        </div>
+        <div class="status-message status-warning" role="status">
+            <p>
+                Na dotychczasowy adres wysłaliśmy ostrzeżenie o tej prośbie. Gdy zmiana dojdzie do skutku,
+                trafi tam także link, którym możesz ją cofnąć w ciągu 14 dni.
+            </p>
+        </div>
+        <a class="btn btn-primary" href="/account">Wróć do konta</a>
+    }
+    else if (_loadResult is null)
+    {
+        <div class="loading-indicator">
+            <span class="li-spin"></span> Wczytywanie…
+        </div>
+    }
+    else if (_loadResult.IsUnauthorized)
+    {
+        <RedirectToLogin/>
+    }
+    else if (_loadResult.IsFailure)
+    {
+        <div class="error-message" role="alert">
+            <span class="em-ico" aria-hidden="true">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z"/>
+                    <path d="M12 9v4"/><path d="M12 17h.01"/>
+                </svg>
+            </span>
+            <div class="em-body">
+                <ApiProblemAlert Problem="@_loadResult.ProblemDetails"
+                                 Fallback="Nie udało się wczytać danych konta."
+                                 HeadlineClass="t"/>
+            </div>
+        </div>
+    }
+    else if (_changeEmailLink is null)
+    {
+        <div class="status-message status-warning" role="status">
+            <p>Zmiana adresu e-mail jest w tej chwili niedostępna. Spróbuj ponownie później.</p>
+        </div>
+        <a class="btn btn-ghost" href="/account">Wróć do konta</a>
+    }
+    else
+    {
+        <section class="panel">
+            <header class="panel-head">
+                <h2>Nowy adres e-mail</h2>
+                <span class="panel-aside">Obecny: @_currentEmail</span>
+            </header>
+            <div class="panel-body">
+                @if (_submitProblem is not null)
+                {
+                    <div class="error-message" role="alert">
+                        <span class="em-ico" aria-hidden="true">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z"/>
+                                <path d="M12 9v4"/><path d="M12 17h.01"/>
+                            </svg>
+                        </span>
+                        <div class="em-body">
+                            <ApiProblemAlert Problem="@_submitProblem"
+                                             Fallback="Nie udało się rozpocząć zmiany adresu."
+                                             HeadlineClass="t"/>
+                        </div>
+                    </div>
+                }
+
+                <form method="post" @formname="change-email" @onsubmit="RequestChangeAsync" class="stacked-form">
+                    <AntiforgeryToken/>
+                    <div class="field">
+                        <label for="new-email">
+                            Nowy adres e-mail
+                        </label>
+                        <input id="new-email" name="EmailInput.NewEmail" type="email"
+                               autocomplete="email"/>
+                        <p class="field-hint">Musisz mieć dostęp do tej skrzynki — wyślemy na nią link potwierdzający.</p>
+                    </div>
+                    <div class="field">
+                        <label for="repeat-email">
+                            Powtórz nowy adres e-mail
+                        </label>
+                        <input id="repeat-email" name="EmailInput.RepeatEmail" type="email"
+                               autocomplete="email"/>
+                    </div>
+                    <div class="field">
+                        <label for="current-password">
+                            Obecne hasło
+                        </label>
+                        <input id="current-password" name="EmailInput.CurrentPassword" type="password"
+                               autocomplete="current-password"/>
+                    </div>
+                    <div class="form-actions">
+                        <a class="btn btn-ghost" href="/account">Anuluj</a>
+                        <button type="submit" class="btn btn-primary" data-testid="change-email-submit">Wyślij link potwierdzający</button>
+                    </div>
+                </form>
+            </div>
+        </section>
+    }
+</section>
+
+@code
+{
+    [SupplyParameterFromForm(FormName = "change-email")]
+    private ChangeEmailFormModel? EmailInput { get; set; }
+
+    private ApiResult<AccountDataExportResponse>? _loadResult;
+    private LinkDto? _changeEmailLink;
+    private string _currentEmail = string.Empty;
+    private string _submittedEmail = string.Empty;
+    private Microsoft.AspNetCore.Mvc.ProblemDetails? _submitProblem;
+    private bool _requested;
+
+    protected override async Task OnInitializedAsync()
+    {
+        // A property initializer is rejected for a [SupplyParameterFromForm] model (BL0008), so seed it
+        // here instead.
+        EmailInput ??= new ChangeEmailFormModel();
+
+        _loadResult = await Loader.LoadExportAsync(CancellationToken.None);
+        if (_loadResult.IsSuccess)
+        {
+            _changeEmailLink = _loadResult.Value.Links.FindLink(Rels.ChangeEmail);
+            _currentEmail = _loadResult.Value.AuthData.Email;
+        }
+    }
+
+    private async Task RequestChangeAsync()
+    {
+        _submitProblem = null;
+
+        if (_changeEmailLink is null)
+        {
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(EmailInput?.NewEmail)
+            || string.IsNullOrWhiteSpace(EmailInput.CurrentPassword))
+        {
+            _submitProblem = ApiProblemCopy.FrontendAuthored(
+                "Wypełnij wszystkie pola",
+                "Nowy adres e-mail i obecne hasło są wymagane.");
+            return;
+        }
+
+        if (!string.Equals(EmailInput.NewEmail.Trim(), EmailInput.RepeatEmail?.Trim(), StringComparison.OrdinalIgnoreCase))
+        {
+            _submitProblem = ApiProblemCopy.FrontendAuthored(
+                "Adresy nie są zgodne",
+                "Nowy adres i jego powtórzenie muszą być identyczne.");
+            return;
+        }
+
+        string newEmail = EmailInput.NewEmail.Trim();
+
+        ApiResult result = await Loader.RequestEmailChangeAsync(
+            _changeEmailLink.Href,
+            newEmail,
+            EmailInput.CurrentPassword,
+            CancellationToken.None);
+
+        if (result.IsSuccess)
+        {
+            _submittedEmail = newEmail;
+            _requested = true;
+            return;
+        }
+
+        if (result.IsUnauthorized)
+        {
+            _submitProblem = ApiProblemCopy.FrontendAuthored(
+                "Sesja wygasła",
+                "Zaloguj się ponownie, aby zmienić adres e-mail.");
+            return;
+        }
+
+        _submitProblem = result.ProblemDetails
+                         ?? ApiProblemCopy.FrontendAuthored("Nie udało się rozpocząć zmiany adresu.");
+    }
+
+    public sealed class ChangeEmailFormModel
+    {
+        public string? NewEmail { get; set; }
+
+        public string? RepeatEmail { get; set; }
+
+        public string? CurrentPassword { get; set; }
+    }
+}

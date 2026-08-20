@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 using LotroKoniecDev.AuthSystem.Domain.Aggregates.ApplicationUsers.Entities;
+using LotroKoniecDev.SharedKernel.Constants;
 
 namespace LotroKoniecDev.AuthSystem.Persistence.Configurations;
 
@@ -36,6 +37,11 @@ internal sealed class ApplicationUserConfiguration : IEntityTypeConfiguration<Ap
         builder.Property(u => u.TermsOfServiceAcceptedDate);
 
         builder.Property(u => u.DeletionScheduledAt);
+
+        builder.Property(u => u.EmailChangeRevertStamp);
+
+        builder.Property(u => u.EmailChangeRevertTo)
+            .HasMaxLength(EmailConstants.MaxLength);
 
         // A partial index. The deletion job only looks at the few rows that have a date set.
         builder.HasIndex(u => u.DeletionScheduledAt)

@@ -6,8 +6,8 @@ using Microsoft.Extensions.Logging;
 namespace LotroKoniecDev.Application.Features.UpdateChecking;
 
 /// <summary>
-/// Checks for LOTRO game updates by scraping the release notes forum.
-/// Reports only — never saves version data.
+/// Reads the release notes forum to see whether LOTRO published an update. It only reports and never
+/// saves the version.
 /// </summary>
 public sealed partial class GameUpdateChecker : IGameUpdateChecker
 {
@@ -60,8 +60,8 @@ public sealed partial class GameUpdateChecker : IGameUpdateChecker
     }
 
     /// <summary>
-    /// Extracts the latest game version number from forum page HTML.
-    /// The first match is the latest because the forum lists threads in reverse chronological order.
+    /// Reads the newest game version out of the forum page HTML. The first match is the newest,
+    /// because the forum lists the latest threads first.
     /// </summary>
     private static string? ParseLatestVersion(string htmlContent)
     {
@@ -72,14 +72,14 @@ public sealed partial class GameUpdateChecker : IGameUpdateChecker
         }
         catch (RegexMatchTimeoutException)
         {
-            // A timed-out match on third-party HTML is treated as "could not parse" — the caller
-            // already handles a null version gracefully.
+            // If the match times out on someone else's HTML we treat it as "could not parse". The
+            // caller already copes with a null version.
             return null;
         }
     }
 
-    // The pattern is linear, so it is not ReDoS-prone today; the timeout is a guardrail against
-    // future edits to a regex that runs on third-party HTML (AUDIT-SEC-07 / #397).
+    // The pattern is linear, so it cannot blow up on input today. The timeout protects us from a
+    // future edit to a regex that runs on someone else's HTML (AUDIT-SEC-07, #397).
     [GeneratedRegex(@"Update\s+(\d+(?:\.\d+)*)\s+Release\s+Notes", RegexOptions.IgnoreCase, matchTimeoutMilliseconds: 1000)]
     private static partial Regex VersionRegex();
 

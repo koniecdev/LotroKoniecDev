@@ -8,15 +8,15 @@ namespace LotroKoniecDev.Infrastructure.Storage;
 
 /// <summary>
 /// The write ledger of ADR-0047 §4, stored as <c>&lt;translation file&gt;.ledger</c> next to the
-/// <c>.etag</c>/<c>.endpoint</c> sidecars: one <c>file_id||gossip_id||digest</c> line per fragment
-/// this patcher has written, where the digest is the export form of what it left there.
+/// <c>.etag</c> and <c>.endpoint</c> files. It holds one <c>file_id||gossip_id||digest</c> line per
+/// fragment this patcher has written, where the digest describes what it left there.
 /// </summary>
 /// <remarks>
-/// The format is deliberately the flat, comment-free cousin of the translation file: three fields,
-/// none of which can contain a <c>|</c>, so it can be split rather than carved (ADR-0042 exists
-/// because translated content can hold the separator — a digest cannot). A malformed line is
-/// dropped rather than failing the read: the ledger is a hint, and losing an entry under-patches
-/// while refusing to patch at all would take the launch down.
+/// The format is a flat version of the translation file with no comments: three fields, none of which
+/// can hold a <c>|</c>. So this file can be split, while the translation file has to be carved
+/// (ADR-0042 exists because translated text can hold the separator, and a digest cannot).
+/// A broken line is dropped instead of failing the read. The ledger is only a hint: losing an entry
+/// means a few rows are not patched, while refusing to read it at all would stop the launch.
 /// </remarks>
 public sealed class TranslationLedger : ITranslationLedger
 {
@@ -49,10 +49,10 @@ public sealed class TranslationLedger : ITranslationLedger
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            // An unreadable ledger is an empty ledger (ADR-0047 §4): rows holding English or the
-            // current translation still pass the guard, rows holding an older Polish get skipped
-            // with a warning. Failing toward English is the correct side, and it must not take the
-            // launch down — the same reasoning as the cache sidecars'.
+            // A ledger we cannot read counts as an empty one (ADR-0047 §4). Rows that still hold the
+            // English, or the current translation, pass the guard anyway; rows holding an older Polish
+            // are skipped with a warning. Falling back to English is the safe side, and this must not
+            // stop the launch, for the same reason as the cache files above.
             return new Dictionary<LedgerKey, string>();
         }
 
@@ -77,8 +77,8 @@ public sealed class TranslationLedger : ITranslationLedger
 
             File.WriteAllLines(tempPath, entries.Select(FormatEntry));
 
-            // Atomic swap: a crash between the two leaves either the previous ledger or the new
-            // one, never a truncated file the next run would read as a wrong set of entries.
+            // Swap the file in one step. A crash leaves either the old ledger or the new one, never a
+            // half-written file the next run would read as the wrong set of entries.
             File.Move(tempPath, ledgerPath, overwrite: true);
 
             return Result.Success();

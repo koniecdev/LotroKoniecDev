@@ -10,20 +10,14 @@ using Microsoft.Extensions.DependencyInjection;
 
 namespace LotroKoniecDev.Infrastructure;
 
-/// <summary>
-/// Extension methods for registering infrastructure layer services.
-/// </summary>
 public static class InfrastructureDependencyInjection
 {
     /// <summary>
-    /// Service key for the <see cref="HttpClient"/> the TMS adapters use — the one that does not
-    /// follow redirects, so the resolved endpoint's origin cannot be escaped after validation (#611).
+    /// The service key of the <see cref="HttpClient"/> the TMS adapters use. That client does not
+    /// follow redirects, so a request cannot leave the origin we validated (#611).
     /// </summary>
     public const string TranslationSystemHttpClientKey = "translation-system";
 
-    /// <summary>
-    /// Adds infrastructure layer services to the service collection.
-    /// </summary>
     public static IServiceCollection AddInfrastructureServices(this IServiceCollection services)
     {
         services.AddScoped<DatFileHandler>();
@@ -36,11 +30,11 @@ public static class InfrastructureDependencyInjection
         services.AddSingleton<IWriteAccessChecker, WriteAccessChecker>();
         services.AddSingleton<HttpClient>(_ => CreateHttpClient(followRedirects: true));
 
-        // The TMS legs get their own client with redirects OFF (#611). The endpoint is resolved from
-        // the service document and validated to be on the configured origin — a validation a 302 would
-        // walk straight around, since the body would then come from the redirect target and its ETag
-        // would hash that body, so the AUDIT-SEC-01 integrity check would happily confirm it. The
-        // forum fetcher keeps redirects: it targets a third-party site that relies on them.
+        // The TMS calls get their own client with redirects turned off (#611). We take the endpoint
+        // from the service document and check that it is on the configured origin, and a 302 would
+        // simply walk around that check: the body would come from the redirect target, and its ETag
+        // would hash that body, so the AUDIT-SEC-01 integrity check would confirm the wrong file.
+        // The forum fetcher keeps redirects, because it calls a third-party site that needs them.
         services.AddKeyedSingleton<HttpClient>(
             TranslationSystemHttpClientKey, (_, _) => CreateHttpClient(followRedirects: false));
 
@@ -64,9 +58,9 @@ public static class InfrastructureDependencyInjection
         HttpClient client = new(new HttpClientHandler { AllowAutoRedirect = followRedirects });
         client.DefaultRequestHeaders.UserAgent.ParseAdd("LotroKoniecDev/1.0");
         client.Timeout = TimeSpan.FromSeconds(10);
-        // Defense in depth (AUDIT-SEC-04 / #394): any future caller buffering a response
-        // through the default completion option is still capped; today's callers enforce
-        // their own tighter caps via BoundedResponseReader.
+        // A second line of defence (AUDIT-SEC-04, #394). If a future caller buffers a response the
+        // default way, it is still capped here. Today's callers set their own lower caps through
+        // BoundedResponseReader.
         client.MaxResponseContentBufferSize = TranslationFileDownloader.MaxResponseContentBytes;
         return client;
     }

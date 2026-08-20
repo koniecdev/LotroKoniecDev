@@ -107,7 +107,7 @@ public sealed class DatFileLocator : IDatFileLocator
             }
             catch
             {
-                // Registry access may fail - continue silently
+                // Reading the registry can fail on a machine without the entry. Try the next source.
             }
         }
     }
@@ -144,7 +144,7 @@ public sealed class DatFileLocator : IDatFileLocator
             }
             catch
             {
-                // Drive scan failed - continue to next
+                // This drive could not be scanned. Try the next one.
             }
         }
     }

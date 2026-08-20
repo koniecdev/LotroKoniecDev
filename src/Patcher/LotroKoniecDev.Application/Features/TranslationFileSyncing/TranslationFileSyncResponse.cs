@@ -6,24 +6,30 @@ public enum TranslationFileSyncOutcome
     /// <summary>A newer file was downloaded and written to disk.</summary>
     Updated,
 
-    /// <summary>The server confirmed the cached file is current (HTTP 304) — nothing downloaded.</summary>
+    /// <summary>The server said the cached file is current (HTTP 304), so nothing was downloaded.</summary>
     UpToDate,
 
-    /// <summary>The server was unreachable; the launch continues with the local translation file so it is never blocked on the network.</summary>
+    /// <summary>
+    /// The server could not be reached. The launch goes on with the local translation file, so it is
+    /// never held up by the network.
+    /// </summary>
     OfflineUsedCache,
 
-    /// <summary>The downloaded file did not match the server's content hash and was rejected; the launch continues with the local translation file.</summary>
+    /// <summary>
+    /// The downloaded file did not match the server's content hash, so it was refused. The launch goes
+    /// on with the local translation file.
+    /// </summary>
     IntegrityCheckFailedUsedCache,
 
     /// <summary>
-    /// The download endpoint could not be resolved from the server's service document and no usable one
-    /// was cached, so nothing was fetched — a path is never guessed (#611). The launch continues with the
-    /// local translation file; when there is none, the launch path reports the missing file and exits 2.
+    /// The download endpoint was not in the server's service document and no usable one was cached, so
+    /// nothing was fetched. We never guess a path (#611). The launch goes on with the local translation
+    /// file, and when there is none the launch path reports the missing file and exits 2.
     /// </summary>
     EndpointUnresolvedUsedCache
 }
 
-/// <summary>The result of a translation-file sync, with a human-readable summary for the CLI report.</summary>
+/// <summary>The result of a translation-file sync, with a short text the CLI can print.</summary>
 public sealed record TranslationFileSyncResponse(TranslationFileSyncOutcome Outcome, string? Detail)
 {
     public override string ToString() => Outcome switch

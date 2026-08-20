@@ -29,10 +29,10 @@ public sealed class GameLauncher : IGameLauncher
 
         try
         {
-            // The DAT folder can come from an unauthenticated source (drive scan, user input), so
-            // the executable must prove its publisher before it runs — potentially elevated
-            // (AUDIT-SEC-02). The read handle is held across the verify → start window, denying
-            // writes and renames so the verified bytes cannot be swapped in between.
+            // The DAT folder can come from a source we do not trust, such as a drive scan or user
+            // input, so the executable has to prove who published it before it runs, possibly with
+            // admin rights (AUDIT-SEC-02). We keep the read handle open from the check until the
+            // start, which blocks writes and renames, so nobody can swap the bytes in between.
             using FileStream launcherGuard = new(
                 launcherPath, FileMode.Open, FileAccess.Read, FileShare.Read);
 
@@ -46,8 +46,8 @@ public sealed class GameLauncher : IGameLauncher
             {
                 FileName = launcherPath,
                 WorkingDirectory = Path.GetDirectoryName(launcherPath) ?? string.Empty,
-                // UseShellExecute = true allows the launcher to trigger UAC elevation
-                // prompts when it needs admin rights for game updates.
+                // UseShellExecute = true lets the launcher raise a UAC prompt when it needs admin
+                // rights for a game update.
                 UseShellExecute = true
             });
 
@@ -57,8 +57,7 @@ public sealed class GameLauncher : IGameLauncher
                     "Process.Start returned null — the launcher could not be started."));
             }
 
-            // Fire-and-forget: dispose immediately, don't wait for exit.
-            // The launcher will restart itself with UAC elevation anyway.
+            // We do not wait for the launcher to exit. It restarts itself with elevation anyway.
             process.Dispose();
             return Result.Success();
         }

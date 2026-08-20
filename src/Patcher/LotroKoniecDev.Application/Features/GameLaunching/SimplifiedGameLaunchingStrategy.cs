@@ -43,7 +43,7 @@ internal sealed partial class SimplifiedGameLaunchingStrategy : IGameLaunchingSt
         LogTranslationFilePath(_logger, command.TranslationFilePath);
         LogGameVersionFilePath(_logger, command.GameVersionFilePath);
 
-        // 1. Is the game already running?
+        // Step 1: is the game already running?
         if (_gameProcessDetector.IsLotroRunning())
         {
             LogBlockedGameAlreadyRunning(_logger);
@@ -51,7 +51,7 @@ internal sealed partial class SimplifiedGameLaunchingStrategy : IGameLaunchingSt
                 Result.Failure<GameLaunchingResponse>(DomainErrors.GameLaunch.GameAlreadyRunning));
         }
 
-        // 2. Has the translation file changed since last apply?
+        // Step 2: has the translation file changed since we last applied it?
         LogComputingTranslationHash(_logger);
         Result<string> hashResult = _fileHasher.ComputeHash(command.TranslationFilePath);
         if (hashResult.IsFailure)
@@ -112,8 +112,8 @@ internal sealed partial class SimplifiedGameLaunchingStrategy : IGameLaunchingSt
 
             PatchSummaryResponse patchSummary = patchResult.Value;
 
-            // The launch path runs the same parser as `patch`, so a rejected line must reach a human
-            // here too (ADR-0042). `patch` prints the summary; launch has only the log.
+            // Launch uses the same parser as `patch`, so a rejected line has to reach a person here
+            // too (ADR-0042). `patch` prints the summary; launch has only the log.
             foreach (string warning in patchSummary.Warnings)
             {
                 LogPatchWarning(_logger, warning);
@@ -125,7 +125,7 @@ internal sealed partial class SimplifiedGameLaunchingStrategy : IGameLaunchingSt
 
             LogTranslationsPatched(_logger, appliedCount, skippedCount);
 
-            // Save new hash + current vnum
+            // Save the new hash and the current vnum.
             LogReadingDatVnum(_logger);
 
             Result<DatVersionInfo> vnumResult = _datVersionReader.ReadVersion(command.DatFilePath);
@@ -158,7 +158,7 @@ internal sealed partial class SimplifiedGameLaunchingStrategy : IGameLaunchingSt
             LogSkippedTranslationUnchanged(_logger);
         }
 
-        // 3. Launch (fire-and-forget)
+        // Step 3: start the launcher and do not wait for it.
         LogStartingGame(_logger);
         Result launchResult = _gameLauncher.Launch(command.DatFilePath);
         if (launchResult.IsFailure)

@@ -3,8 +3,9 @@ using LotroKoniecDev.Domain.Models;
 namespace LotroKoniecDev.Application.Abstractions;
 
 /// <summary>
-/// Checks if LOTRO has released a game update by scraping the forum and reading the stored version.
-/// Reports only — never saves. The handler decides what to do based on the summary + DAT vnums.
+/// Tells whether LOTRO has published a game update, by reading the forum page and the version we
+/// stored last time. It only reports and never saves. The handler decides what to do from this
+/// summary and the DAT vnums.
 /// </summary>
 public interface IGameUpdateChecker
 {
@@ -12,8 +13,8 @@ public interface IGameUpdateChecker
 }
 
 /// <summary>
-/// Contains the result of a game update check: forum version + stored version info.
-/// Does NOT contain an update decision — the handler compares DAT vnums to decide.
+/// The result of an update check: the version on the forum and the version we stored. It holds no
+/// decision. The handler compares the DAT vnums and decides.
 /// </summary>
 public sealed record GameUpdateCheckSummary(
     string? ForumVersion,

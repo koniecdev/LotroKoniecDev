@@ -12,14 +12,8 @@ using Microsoft.Extensions.DependencyInjection;
 
 namespace LotroKoniecDev.Application.Extensions;
 
-/// <summary>
-/// Extension methods for registering application layer services.
-/// </summary>
 public static class ApplicationDependencyInjection
 {
-    /// <summary>
-    /// Adds application layer services to the service collection.
-    /// </summary>
     public static IServiceCollection AddApplicationServices(this IServiceCollection services)
     {
         services.AddScoped<IQueryHandler<ExportTextsQuery, Result<ExportSummaryResponse>>, ExportTextsQueryHandler>();

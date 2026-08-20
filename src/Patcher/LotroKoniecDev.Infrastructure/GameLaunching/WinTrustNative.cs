@@ -6,9 +6,9 @@ using System.Security.Cryptography.X509Certificates;
 namespace LotroKoniecDev.Infrastructure.GameLaunching;
 
 /// <summary>
-/// P/Invoke wrapper for WinVerifyTrust (wintrust.dll) — verifies the embedded Authenticode
-/// signature of a file against the Windows trust machinery and surfaces the signer subject
-/// from the very certificate chain that was validated.
+/// The P/Invoke wrapper for WinVerifyTrust (wintrust.dll). It checks a file's embedded Authenticode
+/// signature against Windows' own trust rules and returns the signer taken from the certificate chain
+/// that was checked.
 /// </summary>
 internal static partial class WinTrustNative
 {
@@ -30,20 +30,23 @@ internal static partial class WinTrustNative
     private static readonly Guid WintrustActionGenericVerifyV2 =
         new("00AAC56B-CD44-11D0-8CC2-00C04FC295EE");
 
-    // Per WinVerifyTrust docs, INVALID_HANDLE_VALUE suppresses all trust-provider UI.
+    // The WinVerifyTrust docs say INVALID_HANDLE_VALUE turns off every dialog the trust provider
+    // would show.
     private static readonly IntPtr InvalidHandleValue = new(-1);
 
     /// <summary>
-    /// Verifies the embedded Authenticode signature of <paramref name="filePath"/>.
-    /// Revocation is not checked online, and a timestamped signature whose certificate has since
-    /// expired remains valid — gaming boxes are routinely offline and launchers age.
+    /// Checks the embedded Authenticode signature of <paramref name="filePath"/>.
+    /// Revocation is not checked online, and a timestamped signature stays valid after its
+    /// certificate expires. Gaming machines are often offline, and launchers get old.
     /// </summary>
-    /// <param name="filePath">The executable whose signature is verified.</param>
-    /// <param name="signerCommonName">On success, the common name (CN) of the signing
-    /// certificate's subject, read from the validated chain itself; <c>null</c> when it
-    /// cannot be read.</param>
-    /// <returns><see cref="Success"/> (zero) for a valid, trusted signature; otherwise the
-    /// WinVerifyTrust status code (e.g. <see cref="TrustENoSignature"/>).</returns>
+    /// <param name="signerCommonName">
+    /// On success, the common name (CN) of the signing certificate, read from the chain that was
+    /// checked. <c>null</c> when it cannot be read.
+    /// </param>
+    /// <returns>
+    /// <see cref="Success"/> (zero) when the signature is valid and trusted, otherwise the
+    /// WinVerifyTrust status code, such as <see cref="TrustENoSignature"/>.
+    /// </returns>
     public static unsafe int VerifyEmbeddedSignature(string filePath, out string? signerCommonName)
     {
         signerCommonName = null;
@@ -101,7 +104,7 @@ internal static partial class WinTrustNative
             return null;
         }
 
-        // pasCertChain[0] is the end (signing) certificate of the validated chain.
+        // pasCertChain[0] is the signing certificate at the end of the checked chain.
         IntPtr certContext = signer->CertChain->CertContext;
         if (certContext == IntPtr.Zero)
         {
@@ -110,8 +113,8 @@ internal static partial class WinTrustNative
 
         try
         {
-            // The IntPtr constructor duplicates the CERT_CONTEXT, so the name outlives
-            // the WinVerifyTrust state this pointer belongs to.
+            // The IntPtr constructor copies the CERT_CONTEXT, so the name stays valid after the
+            // WinVerifyTrust state this pointer belongs to is gone.
             using X509Certificate2 signerCertificate = new(certContext);
             string commonName = signerCertificate.GetNameInfo(X509NameType.SimpleName, forIssuer: false);
             return string.IsNullOrWhiteSpace(commonName) ? null : commonName;
@@ -179,8 +182,8 @@ internal static partial class WinTrustNative
     }
 
     /// <summary>
-    /// Prefix of the native CRYPT_PROVIDER_CERT — only the leading fields are read,
-    /// so the trailing native fields are deliberately not declared.
+    /// The first fields of the native CRYPT_PROVIDER_CERT. We read only those, so the rest are left
+    /// out on purpose.
     /// </summary>
     [StructLayout(LayoutKind.Sequential)]
     private struct CryptProviderCert

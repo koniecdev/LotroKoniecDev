@@ -5,17 +5,18 @@ using LotroKoniecDev.Domain.Core.Monads;
 namespace LotroKoniecDev.Infrastructure.GameLaunching;
 
 /// <summary>
-/// Verifies the launcher's Authenticode signature via WinVerifyTrust and pins the signer subject
-/// to the known LOTRO publishers, so an executable planted next to a drive-scanned DAT is refused
-/// before it can run — potentially elevated — under the tool's identity (AUDIT-SEC-02 / #392).
+/// Checks the launcher's Authenticode signature with WinVerifyTrust and requires the signer to be one
+/// of the known LOTRO publishers. An executable someone dropped next to a DAT we found by scanning is
+/// then refused before it can run under our identity, possibly with admin rights (AUDIT-SEC-02,
+/// #392).
 /// </summary>
 public sealed class AuthenticodeLauncherSignatureVerifier : ILauncherSignatureVerifier
 {
-    // Standing Stone Games LLC signs the current launcher; Turbine, Inc. signed the legacy one
-    // (the same publisher history this repo's registry lookup already models). The signer's
-    // subject CN must equal one of these after normalization (case, commas, periods, extra
-    // whitespace) — exact equality, so a foreign "Turbine Dynamics Ltd"-style CN never matches,
-    // while legal-suffix punctuation variants of the real publishers still do.
+    // Standing Stone Games LLC signs the current launcher, and Turbine, Inc. signed the old one.
+    // This repo's registry lookup already knows the same publisher history. After we normalize case,
+    // commas, periods and extra spaces, the signer's CN must equal one of these exactly. A different
+    // company such as "Turbine Dynamics Ltd" then never matches, while punctuation variants of the
+    // real names still do.
     private static readonly string[] TrustedPublisherCommonNames =
     [
         "standing stone games",

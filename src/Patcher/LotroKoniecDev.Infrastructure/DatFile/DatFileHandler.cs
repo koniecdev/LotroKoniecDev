@@ -8,7 +8,7 @@ using LotroKoniecDev.Primitives.Enums;
 namespace LotroKoniecDev.Infrastructure.DatFile;
 
 /// <summary>
-/// Provides managed access to LOTRO DAT files through the native datexport.dll library.
+/// Managed access to LOTRO DAT files, on top of the native datexport.dll.
 /// </summary>
 public sealed class DatFileHandler : IDatFileHandler, IDatVersionReader
 {
@@ -16,18 +16,11 @@ public sealed class DatFileHandler : IDatFileHandler, IDatVersionReader
     private readonly HashSet<int> _openHandles = [];
     private bool _disposed;
 
-    /// <summary>
-    /// Opens a LOTRO DAT file given its file path and returns a handle to the open file.
-    /// </summary>
-    /// <param name="datFilePath">The file path to the DAT file to be opened. It must not be null, empty, or whitespace.</param>
     /// <param name="access">
-    /// The native open mode. <see cref="DatFileAccess.Read"/> opens without write permission on the
-    /// file — verified against the live Program Files DAT, non-elevated (#629).
+    /// How to open the file. <see cref="DatFileAccess.Read"/> opens it without asking for write
+    /// permission, which was checked against the live Program Files DAT without elevation (#629).
     /// </param>
-    /// <returns>
-    /// A <see cref="Result{TValue}"/> containing the handle to the opened DAT file if the operation is successful;
-    /// otherwise, a failure result with an error message describing why the file could not be opened.
-    /// </returns>
+    /// <returns>The handle of the open file, or a failure explaining why it could not be opened.</returns>
     public Result<int> Open(string datFilePath, DatFileAccess access)
     {
         ThrowIfDisposed();
@@ -86,7 +79,7 @@ public sealed class DatFileHandler : IDatFileHandler, IDatVersionReader
     }
 
     /// <summary>
-    /// Reads the DAT and game-data version numbers, opening the file read-only and closing it immediately.
+    /// Reads the DAT and game-data version numbers. It opens the file read-only and closes it at once.
     /// </summary>
     public Result<DatVersionInfo> ReadVersion(string datFilePath)
     {
@@ -214,18 +207,10 @@ public sealed class DatFileHandler : IDatFileHandler, IDatVersionReader
         }
     }
 
-    /// <summary>
-    /// Writes a subfile to a LOTRO DAT file, specifying its data, version, and iteration information.
-    /// </summary>
-    /// <param name="handle">The handle to the open DAT file where the subfile data will be written. Must be a valid handle.</param>
-    /// <param name="fileId">The identifier of the subfile to write. Must correspond to a valid subfile entry in the DAT file.</param>
-    /// <param name="data">The byte array containing the data to be written to the subfile. Must not be null or empty.</param>
-    /// <param name="version">The version of the subfile being written. Typically used for managing multiple subfile revisions.</param>
-    /// <param name="iteration">The iteration value of the subfile, used to track updates or changes.</param>
-    /// <returns>
-    /// A <see cref="Result"/> indicating success if the subfile was written successfully;
-    /// otherwise, a failure result containing an error message with details about the failure.
-    /// </returns>
+    /// <param name="fileId">The subfile to write. It must already exist in the DAT.</param>
+    /// <param name="data">The new content. It must not be null or empty.</param>
+    /// <param name="version">The version to give the subfile after the write.</param>
+    /// <param name="iteration">The iteration number to give the subfile after the write.</param>
     public Result PutSubfileData(
         int handle,
         int fileId,
@@ -322,7 +307,7 @@ public sealed class DatFileHandler : IDatFileHandler, IDatVersionReader
         }
         catch
         {
-            // Ignore errors during close
+            // A failure to close tells us nothing useful here, so it is ignored.
         }
     }
 
@@ -349,7 +334,7 @@ public sealed class DatFileHandler : IDatFileHandler, IDatVersionReader
             }
             catch
             {
-                // Ignore errors during dispose
+                // A failure while disposing tells us nothing useful here, so it is ignored.
             }
         }
     }

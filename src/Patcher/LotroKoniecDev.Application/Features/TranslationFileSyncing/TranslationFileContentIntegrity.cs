@@ -4,16 +4,17 @@ using System.Text;
 namespace LotroKoniecDev.Application.Features.TranslationFileSyncing;
 
 /// <summary>
-/// Verifies a downloaded translation file against the TMS distribution contract: the endpoint's
-/// strong <c>ETag</c> is the hex SHA-256 of the file's UTF-8 bytes (computed by the TMS
-/// <c>PrecomputedTranslationFileProjector</c>), so the client can detect a body corrupted or
-/// truncated in transit/storage (AUDIT-SEC-01 / #391). It is <b>not</b> an authenticity proof —
-/// the hash arrives in the same response as the body, so anyone who can speak for the server can
-/// forge a matching pair; authenticity rests entirely on TLS, which is why the sync validator
-/// refuses plain http for non-loopback hosts. A missing or weak ETag is unverifiable and
-/// therefore fails the check. Guarded on the server side by the
-/// <c>Get_ETagIsTheSha256OfTheBody_SoThePatcherIntegrityCheckAcceptsIt</c> integration test —
-/// changing either side's hash is a cross-context contract change.
+/// Checks a downloaded translation file against the TMS contract: the endpoint's strong <c>ETag</c> is
+/// the SHA-256 of the file's UTF-8 bytes in hex, computed by the TMS
+/// <c>PrecomputedTranslationFileProjector</c>. So the client can tell that a body was damaged or cut
+/// short on the way (AUDIT-SEC-01, #391).
+/// It does <b>not</b> prove who sent the file. The hash arrives in the same response as the body, so
+/// anyone who can answer for the server can make a matching pair. TLS is what proves the sender, which
+/// is why the sync validator refuses plain http for anything but loopback.
+/// A missing or weak ETag cannot be checked, so it fails.
+/// On the server side the
+/// <c>Get_ETagIsTheSha256OfTheBody_SoThePatcherIntegrityCheckAcceptsIt</c> integration test holds this
+/// up. Changing the hash on either side changes a contract between the two contexts.
 /// </summary>
 public static class TranslationFileContentIntegrity
 {

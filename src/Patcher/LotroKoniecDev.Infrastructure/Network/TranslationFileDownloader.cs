@@ -8,21 +8,21 @@ using LotroKoniecDev.Domain.Core.Monads;
 namespace LotroKoniecDev.Infrastructure.Network;
 
 /// <summary>
-/// Downloads the Polish translation file from the TMS distribution endpoint over HTTP with a
-/// conditional <c>If-None-Match</c> request, so an unchanged file returns 304 rather than its bytes.
-/// The endpoint is handed in already resolved from the service document by rel (ADR-0041 / #611) —
-/// this type knows no route, and the patcher source carries none.
-/// A downloaded body is accepted only when it hash-matches the server's ETag
-/// (<see cref="TranslationFileContentIntegrity"/>) — a corrupted or tampered file is rejected here,
-/// and the sync falls back to the cached copy (AUDIT-SEC-01 / #391).
+/// Downloads the Polish translation file from the TMS over HTTP. It sends <c>If-None-Match</c>, so an
+/// unchanged file comes back as a 304 instead of the whole body.
+/// The endpoint arrives already resolved from the service document by rel (ADR-0041, #611): this type
+/// knows no route, and neither does the rest of the patcher source.
+/// A downloaded body is accepted only when its hash matches the server's ETag
+/// (<see cref="TranslationFileContentIntegrity"/>). A damaged or altered file is refused here and the
+/// sync falls back to the cached copy (AUDIT-SEC-01, #391).
 /// </summary>
 public sealed class TranslationFileDownloader : ITranslationFileDownloader
 {
     /// <summary>
-    /// Hard cap on the downloaded body size (AUDIT-SEC-04 / #394). The full English export of the
-    /// game's text corpus measures ~82 MB in the same <c>||</c> format, and a complete Polish
-    /// translation file is the same order of magnitude, so 128 MiB leaves comfortable headroom
-    /// while a hostile or misbehaving server can no longer exhaust process memory.
+    /// The largest body we will download (AUDIT-SEC-04, #394). The full English export of the game's
+    /// text is about 82 MB in the same <c>||</c> format, and a complete Polish file is about the same
+    /// size, so 128 MiB leaves room to spare while a hostile or broken server can no longer use up all
+    /// our memory.
     /// </summary>
     public const long MaxResponseContentBytes = 128 * 1024 * 1024;
 
@@ -41,18 +41,18 @@ public sealed class TranslationFileDownloader : ITranslationFileDownloader
         try
         {
             using HttpRequestMessage request = new(HttpMethod.Get, endpoint);
-            // The stored value comes from an on-disk sidecar file, so it goes through the typed
-            // header API instead of TryAddWithoutValidation (AUDIT-SEC-07 / #397). A value that no
-            // longer parses as an ETag is simply dropped — the fetch degrades to a full download.
+            // The stored value comes from a file on disk, so it goes through the typed header API and
+            // not through TryAddWithoutValidation (AUDIT-SEC-07, #397). A value that no longer parses
+            // as an ETag is dropped, and the fetch becomes a full download.
             if (!string.IsNullOrEmpty(currentETag)
                 && EntityTagHeaderValue.TryParse(currentETag, out EntityTagHeaderValue? cachedETag))
             {
                 request.Headers.IfNoneMatch.Add(cachedETag);
             }
 
-            // ResponseHeadersRead keeps HttpClient from buffering the whole body before the size
-            // cap can run, which also moves the body read out of HttpClient.Timeout's scope — so
-            // the timeout is re-applied around the entire fetch via a linked token.
+            // ResponseHeadersRead stops HttpClient from buffering the whole body before the size
+            // limit is checked. It also takes the body read out of HttpClient.Timeout, so we apply
+            // the same timeout around the whole fetch with a linked token.
             using CancellationTokenSource timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             timeoutCts.CancelAfter(_httpClient.Timeout);
 

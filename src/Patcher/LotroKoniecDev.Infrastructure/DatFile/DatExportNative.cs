@@ -1,79 +1,47 @@
 using System.Runtime.InteropServices;
 using System.Runtime.CompilerServices;
 
-// Restricts native DLL resolution to the assembly directory and OS-safe directories, so the
-// Windows loader never probes the current working directory or %PATH% — a planted datexport.dll
-// would otherwise be loaded with admin rights via the elevated .bat wrappers (DLL planting).
+// Limits where the native DLL may be found to the assembly directory and the directories the OS
+// considers safe. The Windows loader then never looks in the current directory or in %PATH%. Without
+// this, a datexport.dll someone dropped there would be loaded with admin rights through the elevated
+// .bat wrappers.
 [assembly: DefaultDllImportSearchPaths(DllImportSearchPath.AssemblyDirectory | DllImportSearchPath.SafeDirectories)]
 
 namespace LotroKoniecDev.Infrastructure.DatFile;
 
 /// <summary>
-/// P/Invoke wrapper for the native datexport.dll library.
-/// This class provides low-level interop with the native LOTRO DAT file library.
+/// The P/Invoke declarations for the native datexport.dll.
 /// </summary>
 internal static partial class DatExportNative
 {
     private const string DllName = "datexport.dll";
 
-    /// <summary>
-    /// Flags for opening DAT files read-write: 2 | 128.
-    /// </summary>
+    /// <summary>Open flags for read-write access: 2 | 128.</summary>
     public const uint OpenFlagsReadWrite = 130;
 
-    /// <summary>
-    /// Flags for opening DAT files read-only: 2 | ReadOnly (4).
-    /// </summary>
-    // Bit 0x4 is the only flag that changes the access the native library asks the OS for: with it
-    // set, datexport.dll opens the file GENERIC_READ | FILE_SHARE_READ; without it, every open —
-    // whatever else the flags say — asks for GENERIC_READ | GENERIC_WRITE and therefore fails on a
-    // file the caller cannot write. This is NOT the 2 bit, which is present in both constants and
-    // selects nothing about access; assuming otherwise is what made #446 ship a read-only export
-    // path that still required elevation (#629). Measured, not inferred:
-    // docs/knowledge-base/datexport-readonly-open-2026-08-07.md.
+    /// <summary>Open flags for read-only access: 2 | ReadOnly (4).</summary>
+    // Bit 0x4 is the only flag that changes what access the native library asks the OS for. With it
+    // set, datexport.dll opens the file as GENERIC_READ | FILE_SHARE_READ. Without it, every open
+    // asks for GENERIC_READ | GENERIC_WRITE, whatever the other flags say, and so fails on a file the
+    // caller cannot write.
+    // It is not the 2 bit, which both constants have and which selects nothing about access. Assuming
+    // it was is why #446 shipped a read-only export path that still needed elevation (#629). This was
+    // measured, not guessed: docs/knowledge-base/datexport-readonly-open-2026-08-07.md.
     public const uint OpenFlagsRead = 6;
 
     /// <summary>
-    /// Opens a specified DAT file with extended configurations and retrieves detailed metadata about the file.
-    /// This method establishes a connection to a DAT file, preparing it for reading and writing operations along with metadata extraction.
+    /// Opens a DAT file and reads its metadata.
     /// </summary>
-    /// <param name="datFileHandle">
-    /// The requested handle for the DAT file to be opened.
-    /// This parameter is used to identify the file access context.
-    /// </param>
-    /// <param name="fileName">
-    /// The path to the DAT file that needs to be opened.
-    /// This must be a valid, accessible file path.
-    /// </param>
-    /// <param name="flags">
-    /// A set of flags determining the mode in which the DAT file is accessed;
-    /// for example, read-only or read-write operations.
-    /// </param>
-    /// <param name="didMasterMap">
-    /// Outputs an integer indicating whether the master map of the DAT file was successfully initialized.
-    /// </param>
-    /// <param name="blockSize">
-    /// Outputs the size of the block used for storing data in the DAT file.
-    /// </param>
-    /// <param name="vnumDatFile">
-    /// Outputs the version number of the DAT file format being accessed.
-    /// </param>
-    /// <param name="vnumGameData">
-    /// Outputs the version number of the game data stored in the DAT file.
-    /// </param>
-    /// <param name="datFileId">
-    /// Outputs the unique identifier associated with the opened DAT file.
-    /// </param>
-    /// <param name="datIdStamp">
-    /// Outputs an array of bytes representing the DAT file's unique identifier stamp.
-    /// </param>
-    /// <param name="firstIterGuid">
-    /// Outputs an array of bytes representing the GUID associated with the first iteration of the DAT file.
-    /// </param>
-    /// <returns>
-    /// An integer representing the handle of the opened DAT file if successful.
-    /// A different value than the requested handle indicates failure.
-    /// </returns>
+    /// <param name="datFileHandle">The handle we ask for. Later calls use it to name this file.</param>
+    /// <param name="flags">Read-only or read-write. See <see cref="OpenFlagsRead"/> and <see cref="OpenFlagsReadWrite"/>.</param>
+    /// <param name="didMasterMap">Non-zero when the master map was set up.</param>
+    /// <param name="blockSize">The block size the file stores data in.</param>
+    /// <param name="vnumDatFile">The version number of the DAT file format.</param>
+    /// <param name="vnumGameData">The version number of the game data in the file.</param>
+    /// <param name="datFileId">The id of the opened file.</param>
+    /// <param name="datIdStamp">The file's id stamp, as bytes.</param>
+    /// <param name="firstIterGuid">The GUID of the file's first iteration, as bytes.</param>
+    /// <returns>The handle of the opened file. Any other value than the one asked for means failure.</returns>
     [LibraryImport(DllName)]
     [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
     public static partial int OpenDatFileEx2(
@@ -89,29 +57,21 @@ internal static partial class DatExportNative
         [Out, MarshalAs(UnmanagedType.LPArray, SizeConst = 64)] byte[] firstIterGuid);
 
 
-    /// <summary>
-    /// Retrieves the total number of subfiles present in the specified DAT file.
-    /// This method queries the DAT file for the count of subfiles available for further operations.
-    /// </summary>
-    /// <param name="datFileHandle">The handle to the DAT file whose subfile count is being retrieved.</param>
     /// <returns>
-    /// An integer representing the total number of subfiles within the specified DAT file.
-    /// A return value of zero or less indicates either an empty file or an error in the read operation.
+    /// How many subfiles the DAT holds. Zero or less means the file is empty or the read failed.
     /// </returns>
     [LibraryImport(DllName)]
     [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
     public static partial int GetNumSubfiles(int datFileHandle);
 
     /// <summary>
-    /// Retrieves the sizes and iteration counts of subfiles within the DAT file.
-    /// This method outputs information for a specified range of subfiles, including their sizes and iteration numbers.
+    /// Reads the id, size and iteration number of a range of subfiles.
     /// </summary>
-    /// <param name="datFileHandle">The handle to the DAT file from which subfile information is being retrieved.</param>
-    /// <param name="fileIds">An output array that receives the identifiers of the subfiles being queried.</param>
-    /// <param name="sizes">An output array that receives the sizes of the corresponding subfiles, in bytes.</param>
-    /// <param name="iterations">An output array that receives the iteration numbers of the corresponding subfiles.</param>
-    /// <param name="offset">The starting index of the subfiles to retrieve information for, based on their internal listing.</param>
-    /// <param name="count">The number of subfiles to include in the retrieval starting from the offset.</param>
+    /// <param name="fileIds">Receives the subfile ids.</param>
+    /// <param name="sizes">Receives the subfile sizes, in bytes.</param>
+    /// <param name="iterations">Receives the subfile iteration numbers.</param>
+    /// <param name="offset">Where to start in the DAT's own subfile listing.</param>
+    /// <param name="count">How many subfiles to read from that point.</param>
     [LibraryImport(DllName)]
     [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
     public static partial void GetSubfileSizes(
@@ -125,20 +85,13 @@ internal static partial class DatExportNative
         int offset,
         int count);
 
-    /// <summary>
-    /// Retrieves the version of a specific subfile within the DAT file.
-    /// This operation returns the version number associated with the specified subfile.
-    /// </summary>
-    /// <param name="datFileHandle">A handle to the DAT file from which the subfile version is retrieved.</param>
-    /// <param name="fileId">The identifier of the subfile whose version is being queried.</param>
-    /// <returns>The version number of the specified subfile.</returns>
+    /// <returns>The version number of the subfile.</returns>
     [LibraryImport(DllName)]
     [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
     public static partial int GetSubfileVersion(int datFileHandle, int fileId);
 
     /// <summary>
-    /// Retrieves the data associated with a specific subfile within the DAT file.
-    /// This operation extracts the subfile's content based on its identifier.
+    /// Reads the content of one subfile.
     /// </summary>
     [LibraryImport(DllName)]
     [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
@@ -150,29 +103,22 @@ internal static partial class DatExportNative
         out int version);
 
     /// <summary>
-    /// Removes the data associated with a specified subfile within the DAT file.
-    /// This operation erases the subfile content but retains the subfile's metadata entry.
+    /// Deletes the content of one subfile. The subfile's metadata entry stays.
     /// </summary>
-    /// <param name="datFileHandle">A handle representing the open DAT file containing the subfile.</param>
-    /// <param name="fileId">The unique identifier of the subfile whose data is to be removed.</param>
-    /// <returns>An integer representing the success or failure of the operation.</returns>
     [LibraryImport(DllName)]
     [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
     public static partial int PurgeSubfileData(int datFileHandle, int fileId);
 
     /// <summary>
-    /// Writes data into a subfile within the DAT file. This operation replaces the content of the subfile
-    /// with the specified data and updates its properties, including size, version, and iteration.
+    /// Replaces the content of one subfile and updates its size, version and iteration.
     /// </summary>
-    /// <param name="datFileHandle">The handle of the open DAT file where the subfile is located.</param>
-    /// <param name="fileId">The unique identifier of the subfile being written to.</param>
-    /// <param name="buffer">A pointer to the memory containing the data to be written to the subfile.</param>
-    /// <param name="unknown">An unknown parameter used for internal purposes by the native library.</param>
-    /// <param name="size">The size, in bytes, of the new data being written to the subfile.</param>
-    /// <param name="version">The version number to assign to the subfile after the write operation.</param>
-    /// <param name="iteration">The iteration number to assign to the subfile after the write operation.</param>
-    /// <param name="unknown2">An additional unknown parameter used for internal purposes by the native library.</param>
-    /// <returns>An integer indicating the result of the operation. A non-zero value typically indicates success, while zero indicates failure.</returns>
+    /// <param name="buffer">A pointer to the data to write.</param>
+    /// <param name="unknown">We do not know what the native library does with this.</param>
+    /// <param name="size">The size of the new data, in bytes.</param>
+    /// <param name="version">The version to give the subfile after the write.</param>
+    /// <param name="iteration">The iteration number to give the subfile after the write.</param>
+    /// <param name="unknown2">We do not know what the native library does with this either.</param>
+    /// <returns>Non-zero on success, zero on failure.</returns>
     [LibraryImport(DllName)]
     [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
     public static partial int PutSubfileData(
@@ -186,18 +132,15 @@ internal static partial class DatExportNative
         byte unknown2);
 
     /// <summary>
-    /// Forces the operating system to flush any pending writes buffered for the specified DAT file to disk.
-    /// This ensures that all changes made are persisted and the file is in a consistent state.
+    /// Writes everything still buffered for this DAT file to disk, so the file is complete on disk.
     /// </summary>
-    /// <param name="datFileHandle">The handle associated with the open DAT file that should be flushed.</param>
     [LibraryImport(DllName)]
     [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
     public static partial void Flush(int datFileHandle);
 
     /// <summary>
-    /// Closes an open DAT file associated with the specified handle.
+    /// Closes an open DAT file.
     /// </summary>
-    /// <param name="datFileHandle">The handle associated with the open DAT file that needs to be closed.</param>
     [LibraryImport(DllName)]
     [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
     public static partial void CloseDatFile(int datFileHandle);

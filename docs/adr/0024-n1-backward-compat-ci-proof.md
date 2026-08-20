@@ -276,3 +276,51 @@ The PR-time `HEAD^1` job stays exactly as decided above — fast feedback next t
 deploy-time leg is the real guarantee. The staging leg stays ungated: staging deploys every push,
 so `HEAD^1` semantics still match it. Tests: `scripts/tests/resolve-prod-baseline.tests.sh` and
 `scripts/tests/n1-promotion-gate.tests.sh` (guards job, next to the other bash gates).
+
+## Amendment: only a suite that ran can call a batch bad, and the old tree is not re-judged (2026-08-20, #679)
+
+The amendment above named restore under exit 2, but `scripts/n1-compat.sh` never implemented the
+split: it ran `dotnet test` on the old worktree and mapped **any** non-zero exit to 1. A previous
+release that fails to *restore* therefore reported "your migrations are backward-incompatible".
+
+CD #236 is what that costs. The release serving prod (2026-07-27) pinned Testcontainers 4.13.0 →
+SSH.NET 2025.1.0. GHSA-q939-rpr3-3284 landed on that package **after** the release shipped, and with
+`NuGetAudit=all` + `TreatWarningsAsErrors` its restore died on NU1903 "Warning As Error". Not one
+test ran, yet the gate told the approver to split a batch nothing had judged — and pointed at the
+one escape hatch (`image_tag` dispatch) that skips the gate entirely. The PR-time leg never saw it:
+its baseline is `HEAD^1`, always a recent tree.
+
+Three corrections, all in `scripts/n1-compat.sh`:
+
+- **Restore and build are their own phase, and the run is `--no-build`.** Only a suite that compiled
+  and then failed its tests can earn exit 1; a previous release that no longer restores or builds
+  exits 2 as UNJUDGED. Where both happen at once, exit 1 wins — "promote in smaller steps" is the
+  action either way, and the build failure stays in the log.
+- **`TreatWarningsAsErrors` is waived for the previous release.** That tree is built to be
+  *executed*, not re-judged: its own PR already gated its warnings, while what decides them here
+  keeps moving under it. The live advisory feed is the sharp edge — it renders a verdict about a
+  package pinned in the past, not about this batch's schema, and it retro-fails **every** future
+  promotion until the baseline advances past it. Findings stay visible as warnings; the current tree
+  keeps its own audit and zero-warning gate, and nothing from the worktree ships. The same waiver
+  covers analyzer drift, the other way today's toolchain can condemn old code for the wrong reason.
+
+- **Only a suite that EXECUTED tests may report green.** The mirror of the rule above, and the
+  hole the first two corrections would otherwise have left as the last fail-*open* rot mode:
+  `dotnet test` exits **0** when it discovers nothing ("No test is available in ….dll" is a
+  warning — verified on VSTest 18.0.1), so an adapter that stopped resolving in the old tree would
+  have reported GREEN having proven nothing. Each run now writes a trx and the suite counts as
+  judged only when `executed > 0`; zero executed joins the exit-2 bucket. This also catches the run
+  *environment* failing before the first test (Docker down, an image that will not pull), which the
+  old collapsed mapping reported as a confident RED. Once at least one test has executed, a failure
+  is a real verdict — exit 1 — and the RED message says so rather than pretending otherwise.
+
+The trade-off is stated plainly: the proof no longer notices that the serving release depends on a
+vulnerable package. That was never its job — it judges whether old code survives a new schema — and
+`NuGetAudit` on the current tree is where a vulnerable dependency actually gets caught, on the code
+that ships.
+
+Tests: `scripts/tests/n1-compat.tests.sh` (guards job) stubs `dotnet` over a fixture git repo and
+pins both directions — a test failure is RED, a restore/build failure or a run that executed zero
+tests is UNJUDGED, the waiver reaches every compiling phase of the old tree and never leaks onto the
+current tree, and every run is handed the seam dir the HEAD schema was generated into (the one line
+that keeps the whole proof from going vacuous).

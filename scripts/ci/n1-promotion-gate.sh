@@ -8,9 +8,10 @@
 #            Retrying changes nothing; the resolution is to promote in smaller steps (ADR-0023:
 #            approve a candidate carrying only the expand, let it serve, then promote the contract).
 #   exit 2 — the proof never ran (dotnet tool restore, schema-script generation, the worktree, a
-#            missing seam, no integration suites found). The batch is UNJUDGED, not bad; the fix is
-#            the infra failure in the log, and the promotion is blocked because an unjudged batch
-#            must not ship — not because its migrations are known to break anything.
+#            missing seam, no integration suites found, or a serving release that no longer
+#            restores/builds or that executed zero tests — #679). The batch is UNJUDGED, not bad;
+#            the fix is the infra failure in the log, and the promotion is blocked because an
+#            unjudged batch must not ship — not because its migrations are known to break anything.
 #
 # Collapsing the two sends the approver to split a healthy batch on an infra flake — or worse, to
 # the `image_tag` dispatch, which skips this gate entirely. So the mapping lives here, in a script

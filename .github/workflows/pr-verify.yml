@@ -151,6 +151,14 @@ jobs:
       - name: N-1 promotion gate verdict self-test
         run: ./scripts/tests/n1-promotion-gate.tests.sh
 
+      # The proof the gate maps. Its two failures mean opposite things, and only the run itself can
+      # earn exit 1 — a previous release that no longer restores or builds has proven nothing. CD
+      # #236 is what a collapsed mapping costs: an advisory published after the serving release
+      # blocked every promotion under the message "your migrations break prod". Stubs `dotnet`, so
+      # the whole control flow runs here without Docker, .NET or a schema.
+      - name: N-1 proof classification self-test
+        run: ./scripts/tests/n1-compat.tests.sh
+
       # Everything below is the .NET gate: it runs only when the PR can actually affect it. A PR
       # that merely edits a script CI executes (or a Dockerfile) stops here, green, in seconds.
       - name: Setup .NET

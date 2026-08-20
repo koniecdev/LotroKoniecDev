@@ -635,10 +635,13 @@ two different fixes:
 
 - **`RED` — the batch's schema breaks the release prod is running right now. Do not retry:** approve
   a candidate containing only the expand, let it serve, then promote the contract.
-- **`COULD NOT RUN` — the proof itself failed to build, generate or start, so the batch is
-  UNJUDGED,** not proven bad. Fix the infra failure named in the log and re-run the job. Do **not**
-  split the batch, and do not reach for the `image_tag` dispatch: it skips the gate entirely, so
-  nothing would be proven at all.
+- **`COULD NOT RUN` — nothing was executed against the schema, so the batch is UNJUDGED,** not
+  proven bad. That covers the proof's own setup (script generation, the worktree, the seam) *and*
+  a serving release that no longer restores or builds with today's toolchain — an old tree is not
+  re-judged by today's rules, so a warning-shaped failure there is infra, never a schema verdict
+  (#679). Fix the failure named in the log and re-run the job. Do **not** split the batch, and do
+  not reach for the `image_tag` dispatch: it skips the gate entirely, so nothing would be proven
+  at all.
 
 Migration-free promotions skip in seconds. An unresolvable baseline fails closed. The
 nothing-serving-yet skip needs **two agreeing signals** — no `production` deployment on record ever

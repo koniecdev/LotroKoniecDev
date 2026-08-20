@@ -5,17 +5,12 @@ namespace LotroKoniecDev.SharedKernel.Guards;
 
 public static class Ensure
 {
-    /// <summary>
-    /// Ensures that the specified enum value is defined and not Unset (0).
-    /// </summary>
     /// <remarks>
-    /// Do not use with <see cref="FlagsAttribute"/> enums - combined flag values will fail validation.
+    /// Do not use this with a <see cref="FlagsAttribute"/> enum: a combination of flags is not a
+    /// defined value and would fail the check.
     /// </remarks>
-    /// <param name="value">The enum value to check.</param>
-    /// <param name="argumentName">Automatically resolved with CallerArgumentExpression
-    /// attribute name of the argument being checked.</param>
-    /// <exception cref="ArgumentException">if the specified value is Unset (0).</exception>
-    /// <exception cref="ArgumentOutOfRangeException">if the specified value is not defined in the enum.</exception>
+    /// <exception cref="ArgumentException">The value is Unset (0).</exception>
+    /// <exception cref="ArgumentOutOfRangeException">The value is not defined in the enum.</exception>
     public static void IsValidNonDefaultEnum<TEnum>(
         TEnum value,
         [CallerArgumentExpression(nameof(value))] string argumentName = "")
@@ -33,9 +28,6 @@ public static class Ensure
         }
     }
 
-    /// <summary>
-    /// Ensures that the specified strongly-typed ID value is not empty.
-    /// </summary>
     public static void NotEmpty<T>(
         T id,
         [CallerArgumentExpression(nameof(id))] string argumentName = "")
@@ -47,9 +39,6 @@ public static class Ensure
         }
     }
 
-    /// <summary>
-    /// Ensures that the specified strongly-typed ID value is not empty.
-    /// </summary>
     public static void NotEmpty(
         Guid id,
         [CallerArgumentExpression(nameof(id))] string argumentName = "")
@@ -61,7 +50,7 @@ public static class Ensure
     }
 
     /// <summary>
-    /// Ensures that the specified <see cref="DateTimeOffset"/> value is not the default value.
+    /// Rejects <c>default(DateTimeOffset)</c>, which usually means the caller forgot to set the time.
     /// </summary>
     public static void NotEmpty(
         DateTimeOffset value,

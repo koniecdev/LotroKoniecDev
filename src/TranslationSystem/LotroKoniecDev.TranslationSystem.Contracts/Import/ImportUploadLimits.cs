@@ -1,11 +1,12 @@
 namespace LotroKoniecDev.TranslationSystem.Contracts.Import;
 
 /// <summary>
-/// Upload-size ceiling for an <c>exported.txt</c> import, shared by both ends of the upload so they
-/// never disagree: the Frontend's Blazor SSR form (its Kestrel request-body + multipart form limits)
-/// and the TMS API's import endpoint (its per-endpoint request-body + multipart form limits). The
-/// export is ~80 MB today and grows as the game adds text, so the ceiling keeps a wide headroom while
-/// still bounding an oversized/abusive upload — the endpoint is admin-only and rate-limited.
+/// The largest <c>exported.txt</c> an import accepts. Both ends of the upload read it from here so
+/// they cannot disagree: the Frontend's Blazor SSR form (Kestrel request body and multipart limits)
+/// and the TMS API's import endpoint (its own request body and multipart limits).
+/// The export is about 80 MB today and grows as the game adds text, so the limit leaves a lot of room
+/// while still stopping an upload that is far too large. The endpoint is admin-only and rate-limited
+/// anyway.
 /// </summary>
 public static class ImportUploadLimits
 {

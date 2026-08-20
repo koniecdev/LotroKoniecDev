@@ -4,16 +4,18 @@ using System.Text.RegularExpressions;
 namespace LotroKoniecDev.Logging.Redaction;
 
 /// <summary>
-/// Scrubs secrets and personal data out of request-log fields before they reach a sink (audit #0001 /
-/// M5). Values of OAuth/OIDC and credential query parameters (e.g. <c>code</c>, <c>access_token</c>,
-/// <c>password</c>) are replaced wholesale, and any e-mail address surviving in a non-sensitive value
-/// has its local part masked, so neither a replayable token nor a piece of PII is persisted in plain
-/// text. All methods are total — a logging hot path must never throw — and operate on the raw query
-/// string without decoding, so the separator is recognised in its literal <c>@</c> form and in the
-/// single-encoded <c>%40</c> that <c>Uri.EscapeDataString</c> produces (ADR-0046). Deeper nesting is
-/// NOT covered: an address escaped twice (<c>%2540</c>, as it would be inside a <c>returnUrl</c>
-/// carrying a link that itself carries an address) matches neither form and survives the mask. No
-/// such link exists today; the fix is another alternation here, not a decode step in a hot path.
+/// Removes secrets and personal data from request-log fields before they reach a sink (audit #0001 /
+/// M5). The values of OAuth, OIDC and credential query parameters (<c>code</c>, <c>access_token</c>,
+/// <c>password</c> and friends) are replaced whole, and an e-mail address left in any other value has
+/// its local part masked. So neither a token someone could replay nor personal data is written in
+/// clear text.
+/// No method here throws, because a logging path must never fail. They work on the raw query string
+/// without decoding it, so the separator is found both as a plain <c>@</c> and as the <c>%40</c> that
+/// <c>Uri.EscapeDataString</c> produces (ADR-0046).
+/// An address escaped twice is not covered: <c>%2540</c>, as it would appear inside a
+/// <c>returnUrl</c> that carries a link that itself carries an address, matches neither form and
+/// stays unmasked. No such link exists today, and the fix would be one more alternative here, not a
+/// decode step on a hot path.
 /// </summary>
 public static partial class SensitiveDataRedactor
 {
@@ -22,10 +24,10 @@ public static partial class SensitiveDataRedactor
     private const string PercentEncodedAt = "%40";
 
     /// <summary>
-    /// Query-parameter names whose value is a secret and must never be logged. Matched
-    /// case-insensitively against the percent-decoded parameter name. This is an exact allowlist:
-    /// any new credential-bearing query parameter (a new OAuth/OIDC grant, hint, or assertion) MUST
-    /// be added here, or its value will be logged in clear.
+    /// Query-parameter names whose value is a secret and must never be logged. The name is decoded
+    /// first and matched without case. The list is exact, so any new parameter that carries a
+    /// credential (a new OAuth or OIDC grant, hint or assertion) must be added here. If it is not,
+    /// its value is logged in clear text.
     /// </summary>
     private static readonly FrozenSet<string> SensitiveQueryKeys = new[]
     {
@@ -43,9 +45,9 @@ public static partial class SensitiveDataRedactor
     }.ToFrozenSet(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
-    /// Redacts a raw query string (with or without its leading <c>?</c>). Sensitive parameter values
-    /// become <c>***</c>; e-mail addresses in the remaining values are masked. Returns the redacted
-    /// query string keeping its leading <c>?</c>, or an empty string when there is no query.
+    /// Cleans a raw query string, with or without its leading <c>?</c>. Sensitive values become
+    /// <c>***</c> and e-mail addresses in the other values are masked. The result keeps the leading
+    /// <c>?</c>, or is empty when there is no query.
     /// </summary>
     public static string RedactQueryString(string? queryString)
     {
@@ -73,9 +75,9 @@ public static partial class SensitiveDataRedactor
     }
 
     /// <summary>
-    /// Masks the local part of an e-mail, keeping only its first character (e.g.
-    /// <c>alice@example.com</c> becomes <c>a***@example.com</c>). Anything without a non-empty local
-    /// part and a separator is treated as fully sensitive and replaced with <c>***</c>.
+    /// Masks the local part of an e-mail and keeps only its first character, so
+    /// <c>alice@example.com</c> becomes <c>a***@example.com</c>. A value without a separator or with
+    /// an empty local part is treated as fully sensitive and replaced with <c>***</c>.
     /// </summary>
     public static string MaskEmail(string value)
     {
@@ -103,8 +105,8 @@ public static partial class SensitiveDataRedactor
 
         string key = pair[..separatorIndex];
 
-        // Match against the percent-decoded key so an encoded variant (e.g. "%63ode" = "code") cannot
-        // slip a secret past the allowlist; the original key text is kept verbatim in the output.
+        // Match the decoded key, so an encoded spelling like "%63ode" for "code" cannot slip a secret
+        // past the list. The output still keeps the original key text.
         if (SensitiveQueryKeys.Contains(Uri.UnescapeDataString(key)))
         {
             return key + "=" + RedactedValue;

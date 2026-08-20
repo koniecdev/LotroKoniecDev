@@ -3,17 +3,15 @@ using Microsoft.AspNetCore.Http;
 namespace LotroKoniecDev.Hateoas.ContentNegotiation;
 
 /// <summary>
-/// Factory helpers that mirror <see cref="Results"/> but perform HATEOAS
-/// content negotiation. The supplied <c>attachLinks</c> delegate is invoked
-/// only when the client has explicitly requested the HATEOAS vendor media
-/// type; clients that accept plain JSON receive the unadorned payload.
+/// Helpers that mirror <see cref="Results"/> but negotiate the links first. The <c>attachLinks</c>
+/// delegate runs only when the client asked for the vendor media type by name. Everyone else gets the
+/// payload without links.
 /// </summary>
 public static class HateoasResults
 {
     /// <summary>
-    /// Produces a 200 OK response. When the client accepts the HATEOAS
-    /// vendor media type, <paramref name="attachLinks"/> is executed to
-    /// populate the response's hypermedia links before serialization.
+    /// Returns 200 OK. When the client accepts the vendor media type,
+    /// <paramref name="attachLinks"/> fills in the links before the response is written.
     /// </summary>
     public static IResult Ok<T>(T response, Func<T, ValueTask>? attachLinks = null)
         where T : class

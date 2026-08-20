@@ -5,9 +5,9 @@ using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.GameVersionAggregat
 namespace LotroKoniecDev.TranslationSystem.Contracts.GameVersions;
 
 /// <summary>
-/// One detected (or manually registered) LOTRO game version: the dotted version string, when it was
-/// detected and its lifecycle status (Unprocessed, Processed, or Superseded when a newer version was
-/// processed first). Backs the admin's update dashboard (spec 0001).
+/// One LOTRO game version, detected or registered by hand: the dotted version string, when it was
+/// detected, and its status. Superseded means a newer version was processed first. This is what the
+/// admin update dashboard shows (spec 0001).
 /// </summary>
 public sealed record GameVersionResponse(
     GameVersionId Id,

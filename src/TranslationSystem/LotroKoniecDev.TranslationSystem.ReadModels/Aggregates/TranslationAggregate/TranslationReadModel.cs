@@ -25,9 +25,9 @@ public sealed record TranslationReadModel(
     DateTimeOffset CreatedAt,
     DateTimeOffset UpdatedAt) : IReadOnlyEntity<TranslationId>
 {
-    /// <summary>The submitting translator, joined for display-name resolution (ADR-0004).</summary>
+    /// <summary>The translator who sent the Polish, joined so the display name can be shown (ADR-0004).</summary>
     public TranslatorReadModel? SubmittedBy { get; init; }
 
-    /// <summary>The approving reviewer, joined for display-name resolution (ADR-0004).</summary>
+    /// <summary>The reviewer who approved the row, joined so the display name can be shown (ADR-0004).</summary>
     public TranslatorReadModel? ApprovedBy { get; init; }
 }

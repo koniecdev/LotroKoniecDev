@@ -4,8 +4,8 @@ public static class Rels
 {
     public const string Self = "self";
 
-    // Entry points — the vocabulary the discovery document advertises so a client never has to
-    // hardcode a path. These names are a public contract: rename one and every client breaks.
+    // Entry points. The discovery document advertises these names so a client never has to hardcode
+    // a path. The names are a public contract: rename one and every client breaks.
     public const string TranslationFile = "translation-file";
     public const string Progress = "progress";
     public const string Translations = "translations";
@@ -13,11 +13,12 @@ public static class Rels
     public const string GameVersions = "game-versions";
 
     /// <summary>
-    /// The caller's own contribution export. <b>Load-bearing beyond its endpoint:</b> its target requires
-    /// nothing but authentication, so the frontend's <c>DiscoveryCache</c> treats its absence under an
-    /// authenticated cache key as proof the bearer never reached the API, and force-signs the session out.
-    /// Tightening that endpoint's policy — or renaming this rel — signs every logged-in user out on their
-    /// next page load; change the frontend guard in the same commit.
+    /// The caller's own contribution export. <b>This rel does more than name an endpoint.</b> Its
+    /// target asks for nothing but a logged-in user, so when the frontend's <c>DiscoveryCache</c> does
+    /// not see it under an authenticated cache key, it concludes the token never reached the API and
+    /// signs the session out. If you tighten that endpoint's policy, or rename this rel, every
+    /// logged-in user is signed out on their next page load. Change the frontend guard in the same
+    /// commit.
     /// </summary>
     public const string ContributionDataExport = "contribution-data-export";
 

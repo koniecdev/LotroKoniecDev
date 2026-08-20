@@ -3,9 +3,9 @@ using LotroKoniecDev.Hateoas.Abstractions;
 namespace LotroKoniecDev.TranslationSystem.Contracts.Common;
 
 /// <summary>
-/// An unpaged collection envelope: the items plus collection-level hypermedia links (e.g. the
-/// collection <c>self</c> and create-type actions). The sibling of <see cref="PaginationResponse{T}"/>
-/// for lists that are intentionally unpaged (few rows ever exist, like game versions).
+/// A list without paging: the items plus the links that belong to the collection itself, such as
+/// <c>self</c> and the create actions. It is the counterpart of <see cref="PaginationResponse{T}"/>
+/// for lists that never need paging, like game versions, where only a few rows ever exist.
 /// </summary>
 public sealed record CollectionResponse<T> : ILinksResponse
 {

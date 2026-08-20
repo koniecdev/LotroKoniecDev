@@ -3,23 +3,22 @@ using LotroKoniecDev.Hateoas.Abstractions;
 namespace LotroKoniecDev.AuthSystem.API.Hateoas.AccountAggregateFactories;
 
 /// <summary>
-/// Builds state-aware HATEOAS links for the authenticated user's account
-/// resource. The shape of the link set varies with the account's observable
-/// state — e.g. <c>resend-email-confirmation</c> only appears while the
-/// user's email is unconfirmed.
+/// Builds the HATEOAS links for the logged-in user's account. Which links appear depends on the state
+/// of the account: <c>resend-email-confirmation</c>, for example, is only there while the address is
+/// unconfirmed.
 /// </summary>
 internal interface IAccountAggregateLinkFactory
 {
     /// <summary>
-    /// Returns the full link set for the GDPR data-export envelope.
+    /// Returns the full link set for the GDPR data export response.
     /// </summary>
     /// <param name="isEmailConfirmed">
-    /// Whether the user's email has already been confirmed. Drives the
-    /// visibility of the <c>resend-email-confirmation</c> state transition.
+    /// Whether the address is already confirmed. It decides whether
+    /// <c>resend-email-confirmation</c> appears.
     /// </param>
     /// <param name="isDeletionScheduled">
-    /// Whether GDPR deletion is scheduled for the account. While scheduled,
-    /// the only advertised transition is <c>cancel-deletion</c> (ADR-0031).
+    /// Whether a GDPR deletion is scheduled. While it is, the only link offered is
+    /// <c>cancel-deletion</c> (ADR-0031).
     /// </param>
     ValueTask<List<LinkDto>> CreateAccountLinksAsync(bool isEmailConfirmed, bool isDeletionScheduled);
 }

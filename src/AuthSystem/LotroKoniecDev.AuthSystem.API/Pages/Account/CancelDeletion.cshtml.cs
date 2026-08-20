@@ -9,10 +9,10 @@ using LotroKoniecDev.SharedKernel.Monads;
 namespace LotroKoniecDev.AuthSystem.API.Pages.Account;
 
 /// <summary>
-/// Landing page for the cancel-deletion link emailed when GDPR account deletion is
-/// scheduled (ADR-0031). GET only renders a confirmation form — a mail scanner
-/// prefetching the link must not cancel anything — and POST performs the cancellation,
-/// then sends the user straight into the forced password-reset flow.
+/// The page the cancel-deletion link in the e-mail leads to, sent when a GDPR account deletion is
+/// scheduled (ADR-0031). A GET only shows a confirmation form, so a mail scanner that opens the link
+/// cancels nothing. The POST does the cancellation and sends the user straight into the password reset
+/// flow.
 /// </summary>
 [EnableRateLimiting("auth-endpoint-limit")]
 internal sealed partial class CancelDeletionModel : PageModel

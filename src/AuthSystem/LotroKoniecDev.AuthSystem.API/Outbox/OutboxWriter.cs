@@ -5,18 +5,18 @@ using LotroKoniecDev.AuthSystem.Persistence.Outbox;
 namespace LotroKoniecDev.AuthSystem.API.Outbox;
 
 /// <summary>
-/// The one way a feature slice writes an e-mail message to the outbox: serializes the payload,
-/// stamps the row's <c>Type</c> with the contract's type name (the registry and routing key both
-/// select on it, so a writer can never typo the string), and carries the after-commit nudge —
-/// bundling the whole ADR-0035 §2 idiom in a single injected component so no future writer can
-/// reinvent half of it (ADR-0038 decision 6 keeps the nudge an explicit call, not an interceptor).
+/// The only way a feature slice writes an e-mail message to the outbox. It serializes the payload,
+/// sets the row's <c>Type</c> to the contract's type name, so no writer can mistype the string that
+/// both the registry and the routing table look up, and it carries the wake-up call after the commit.
+/// Putting the whole ADR-0035 §2 pattern in one injected component means no future writer can rebuild
+/// half of it. ADR-0038 decision 6 keeps that wake-up an explicit call and not an interceptor.
 /// </summary>
 /// <remarks>
-/// <see cref="Enqueue{TMessage}"/> only stages the row in the caller's unit of work — the caller
-/// commits it together with its own state change, which is the outbox pattern's whole point.
-/// After that commit (and only after: the relay reads committed rows, so a nudge sent inside the
-/// transaction would race it into seeing nothing) the caller calls
-/// <see cref="NotifyEnqueuedCommitted"/> exactly once.
+/// <see cref="Enqueue{TMessage}"/> only adds the row to the caller's unit of work. The caller commits
+/// it together with its own change, which is the whole point of the outbox pattern.
+/// After that commit, and only after it, the caller calls <see cref="NotifyEnqueuedCommitted"/> once.
+/// The relay reads committed rows, so a signal sent inside the transaction could arrive while there is
+/// still nothing to see.
 /// </remarks>
 internal sealed class OutboxWriter
 {
@@ -35,10 +35,10 @@ internal sealed class OutboxWriter
     {
         string type = typeof(TMessage).Name;
 
-        // Programmer-error guard: a contract nobody routed would commit fine and then jam the
-        // relay (OutboxMessageRouting fails its row loudly, but only after the fact) — failing
-        // the writer's own request surfaces the missing routing entry the moment it is written.
-        // The dedicated exception type keeps it out of writers' defensive catch filters.
+        // A guard against a programmer error. A contract with no routing entry would commit fine and
+        // then block the relay: OutboxMessageRouting fails that row loudly, but only later. Failing
+        // the writer's own request shows the missing entry as soon as it is written.
+        // It uses its own exception type, so a writer's catch block does not swallow it.
         if (!OutboxMessageRouting.TryGetRoutingKey(type, out _))
         {
             throw new UnroutableOutboxMessageTypeException(type);

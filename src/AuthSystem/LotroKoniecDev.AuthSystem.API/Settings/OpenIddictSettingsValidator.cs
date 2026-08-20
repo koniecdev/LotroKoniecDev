@@ -4,14 +4,14 @@ using LotroKoniecDev.AuthSystem.API.Extensions;
 namespace LotroKoniecDev.AuthSystem.API.Settings;
 
 /// <summary>
-/// Fails fast at startup when the OpenIddict server is misconfigured in a deployed environment
-/// (Staging/Production), naming the offending key and the environment (ADR-0008 §3, M6-05). Guards
-/// the production key material, the issuer, and — since the base <c>appsettings.json</c> no longer
-/// bakes them (M6-06) — the web client redirect URIs the seeder registers.
-/// Development and Testing mint ephemeral signing/encryption keys (see <c>OpenIddictExtensions</c>)
-/// and supply localhost redirect URIs from their own configuration, so the production values are
-/// intentionally absent there and validation is skipped — mirroring <see cref="CorsSettingsValidator"/>
-/// and the Data Protection keyring guard.
+/// Stops the boot when the OpenIddict server is misconfigured in a deployed environment, Staging or
+/// Production, and names the key and the environment at fault (ADR-0008 §3, M6-05). It checks the
+/// production keys, the issuer and, since the base <c>appsettings.json</c> no longer holds them
+/// (M6-06), the web client redirect URIs the seeder registers.
+/// Development and Testing create throwaway signing and encryption keys (see
+/// <c>OpenIddictExtensions</c>) and take localhost redirect URIs from their own configuration, so the
+/// production values are missing there on purpose and this check is skipped, like in
+/// <see cref="CorsSettingsValidator"/> and the Data Protection keyring check.
 /// </summary>
 internal sealed class OpenIddictSettingsValidator : IValidateOptions<OpenIddictSettings>
 {

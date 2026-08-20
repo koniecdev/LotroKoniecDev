@@ -9,10 +9,10 @@ using LotroKoniecDev.SharedKernel.Monads;
 namespace LotroKoniecDev.AuthSystem.API.Services.Gdpr;
 
 /// <summary>
-/// Finds accounts whose deletion grace period has elapsed and erases them.
-/// Idempotent and restart-safe: already-anonymized accounts are filtered out by the
-/// anonymization email marker, per-user failures are logged and retried on the next run,
-/// and concurrent runs lose harmlessly on the Identity concurrency stamp.
+/// Finds accounts whose deletion grace period is over and erases them.
+/// It is safe to run twice and safe to restart: accounts that are already anonymized are recognised by
+/// the marker in their e-mail address, a failure on one user is logged and retried on the next run,
+/// and if two runs overlap the second one simply loses on the Identity concurrency stamp.
 /// </summary>
 internal sealed partial class AccountDeletionFinalizer : IAccountDeletionFinalizer
 {

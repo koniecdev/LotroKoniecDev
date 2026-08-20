@@ -9,41 +9,43 @@ using RabbitMQ.Client.Events;
 namespace LotroKoniecDev.AuthSystem.API.BackgroundServices;
 
 /// <summary>
-/// The single e-mail dispatch consumer (ADR-0038): consumes
-/// <see cref="RabbitMqTopology.EmailQueue"/> and hands each delivery to the
-/// <see cref="IEmailMessageProcessor"/> registered for the AMQP <c>type</c> property — the outbox
-/// row's <c>Type</c> the publisher stamps on the wire. Selection goes by that property, never by
-/// routing key: the type says what the payload is, the routing key says which bindings receive it
-/// (<c>OutboxMessageRouting</c>'s separation, end-to-end). Push-based, not polled: after
-/// <c>BasicConsumeAsync</c> registers the subscription, the broker pushes deliveries over the open
-/// connection and the client library invokes <see cref="OnDeliveredAsync"/> per message —
-/// <see cref="ExecuteAsync"/> only sets this up and then parks until shutdown.
+/// The one e-mail consumer (ADR-0038). It consumes <see cref="RabbitMqTopology.EmailQueue"/> and
+/// gives each delivery to the <see cref="IEmailMessageProcessor"/> registered for the AMQP
+/// <c>type</c> property, which is the outbox row's <c>Type</c> the publisher put on the wire.
+/// The choice is always made on that property and never on the routing key: the type says what the
+/// payload is, the routing key says which bindings receive it. That split runs end to end, see
+/// <c>OutboxMessageRouting</c>.
+/// The broker pushes, we do not poll. Once <c>BasicConsumeAsync</c> has registered the subscription,
+/// the broker sends deliveries over the open connection and the client library calls
+/// <see cref="OnDeliveredAsync"/> for each one. <see cref="ExecuteAsync"/> only sets this up and then
+/// waits until shutdown.
 /// </summary>
 /// <remarks>
-/// Acknowledgement is manual (<c>autoAck: false</c>) and happens only after the processor
-/// finished: a crash mid-send leaves the delivery unacked, the broker returns it to the queue,
-/// and the next start redelivers — at-least-once, matching the outbox's own semantics
-/// (the processors stay idempotent, see the seam's remarks). On top of that, deliveries are
-/// deduplicated on the broker message id through the inbox (ADR-0037), so a redelivery of an
-/// already-processed message acks without a second e-mail. Failures split three ways (ADR-0036):
-/// poison payloads — including a missing or unregistered message type — are rejected into the
-/// dead-letter queue immediately, transient failures are
-/// requeued behind an escalating pause, and the broker itself parks a message that exhausts
-/// <see cref="RabbitMqTopology.EmailDeliveryLimit"/> — so no failure loops forever and none is
-/// silently lost. Failed deliveries use <c>basic.reject</c>, never <c>basic.nack</c>: since
-/// RabbitMQ 4.3 only rejects (and connection losses) increment the <c>x-delivery-count</c> the
-/// delivery limit is measured against — a nack-requeue is an "explicit return" the broker
-/// redelivers forever without counting. The broker being down must never block application
-/// startup, so connecting
-/// happens here with escalating backoff, and the client's automatic recovery re-attaches the
-/// consumer if the connection drops later.
+/// We acknowledge by hand (<c>autoAck: false</c>) and only after the processor finished. A crash while
+/// sending leaves the delivery unacked, the broker puts it back on the queue, and the next start gets
+/// it again. That is at-least-once, the same as the outbox, and the processors stay safe to run twice.
+/// On top of that, the inbox drops duplicates by broker message id (ADR-0037), so a message that was
+/// already processed is acknowledged without a second e-mail.
+/// Failures go three ways (ADR-0036). A payload we can never handle, including one with a missing or
+/// unknown message type, goes straight to the dead-letter queue. A temporary failure is put back on
+/// the queue after a growing pause. And the broker itself parks a message that uses up
+/// <see cref="RabbitMqTopology.EmailDeliveryLimit"/>. So nothing loops forever and nothing is lost in
+/// silence.
+/// A failed delivery uses <c>basic.reject</c> and never <c>basic.nack</c>. Since RabbitMQ 4.3 only a
+/// reject, or a lost connection, raises the <c>x-delivery-count</c> the delivery limit is measured
+/// against. A nack with requeue counts as an "explicit return" that the broker redelivers forever
+/// without counting.
+/// A broker that is down must never stop the application from starting, so we connect here with a
+/// growing backoff, and the client library's automatic recovery reattaches the consumer if the
+/// connection drops later.
 /// </remarks>
 internal sealed partial class EmailDispatchConsumer : BackgroundService
 {
     /// <summary>
-    /// Escalating wait between initial connection attempts. The ceiling stays low (the broker is
-    /// a container on the same box, outages are deploy-length), and unlike the outbox relay this
-    /// retry costs no database compute — it only re-tries a local TCP connect.
+    /// The growing wait between the first connection attempts. The top of the ladder stays low: the
+    /// broker is a container on the same machine and an outage lasts about as long as a deploy. Unlike
+    /// the outbox relay, this retry costs no database time, because it only tries a local TCP connect
+    /// again.
     /// </summary>
     private static readonly TimeSpan[] ConnectBackoffs =
     [
@@ -53,19 +55,20 @@ internal sealed partial class EmailDispatchConsumer : BackgroundService
     ];
 
     /// <summary>
-    /// Pause before a transient failure is rejected back to the queue, indexed by the broker's
-    /// redelivery count — one entry per redelivery that
-    /// <see cref="RabbitMqTopology.EmailDeliveryLimit"/> allows, so the two move together. With a
-    /// prefetch of one the broker redelivers immediately after the reject; without a pause a down
-    /// SMTP relay would spin the redeliver-fail loop hot and burn through the delivery limit in
-    /// seconds. Escalating instead of flat, because the ladder must in total outlast a realistic
-    /// SMTP outage (~30 min) before the message parks in the DLQ. Pausing in-process blocks this
-    /// consumer, which is harmless — every message in the queue needs the same SMTP relay, so
-    /// none of the waiting ones could succeed either. Hard ceiling: the pause holds the delivery
-    /// unacked, and the broker kills the channel when an ack takes longer than its consumer
-    /// timeout (30 min default) — every entry must stay well under that. Internal so the unit
-    /// suite can pin both invariants (one entry per allowed redelivery, ceiling under the
-    /// timeout) instead of trusting this prose.
+    /// How long to wait before a temporary failure goes back on the queue, chosen by the broker's
+    /// retry count. There is one entry per retry <see cref="RabbitMqTopology.EmailDeliveryLimit"/>
+    /// allows, so the two always change together.
+    /// With a prefetch of one, the broker redelivers right after the reject. Without a pause, an SMTP
+    /// relay that is down would spin that loop and use up the delivery limit in seconds.
+    /// The waits grow instead of staying flat, because the whole ladder has to last longer than a
+    /// realistic SMTP outage of about 30 minutes before the message ends up in the dead-letter queue.
+    /// Waiting in this process blocks the consumer, which does no harm: every message in the queue
+    /// needs the same SMTP relay, so none of them could be sent either.
+    /// There is a hard limit. The pause holds the delivery unacknowledged, and the broker closes the
+    /// channel when an ack takes longer than its consumer timeout, 30 minutes by default. Every entry
+    /// must stay well below that.
+    /// It is internal so the unit tests can check both rules, one entry per allowed retry and a top
+    /// entry under the timeout, instead of trusting this text.
     /// </summary>
     internal static readonly TimeSpan[] RedeliveryBackoffs =
     [
@@ -101,13 +104,13 @@ internal sealed partial class EmailDispatchConsumer : BackgroundService
 
             LogStarted(_logger, RabbitMqTopology.EmailQueue);
 
-            // All work happens in OnDeliveredAsync on the library's dispatch loop; this task only
-            // keeps the service (and with it the channel) alive until shutdown.
+            // All the work happens in OnDeliveredAsync, on the client library's own loop. This task
+            // only keeps the service, and with it the channel, alive until shutdown.
             await Task.Delay(Timeout.Infinite, stoppingToken);
         }
         catch (OperationCanceledException)
         {
-            // Graceful shutdown.
+            // The app is shutting down, which is not an error.
         }
         finally
         {
@@ -116,14 +119,15 @@ internal sealed partial class EmailDispatchConsumer : BackgroundService
     }
 
     /// <summary>
-    /// Connects, declares the topology and registers the consumer as one all-or-nothing attempt.
-    /// The whole attach sits inside the retry loop on purpose: any non-cancellation exception
-    /// escaping <see cref="ExecuteAsync"/> would stop the entire host
-    /// (<see cref="BackgroundServiceExceptionBehavior.StopHost"/>), and a failure between the
-    /// connect and the consume registration — a topology mismatch, a channel torn down in the gap
-    /// — must degrade e-mail delivery, never take login down with it. A failed attempt disposes
-    /// whatever it managed to open before backing off, so retrying cannot accumulate half-attached
-    /// connections (each of which automatic recovery would otherwise keep alive forever).
+    /// Connects, declares the topology and registers the consumer, all as one attempt that either
+    /// fully succeeds or fully fails.
+    /// The whole attach sits inside the retry loop on purpose. Any exception other than cancellation
+    /// leaving <see cref="ExecuteAsync"/> would stop the entire host
+    /// (<see cref="BackgroundServiceExceptionBehavior.StopHost"/>). A failure between the connect and
+    /// the consume registration, such as a topology mismatch or a channel closed in between, must only
+    /// make e-mail delivery worse and must never take login down with it.
+    /// A failed attempt disposes whatever it managed to open before it waits, so retrying cannot leave
+    /// half-attached connections behind, which automatic recovery would otherwise keep alive forever.
     /// </summary>
     private async Task AttachConsumerWithRetryAsync(CancellationToken stoppingToken)
     {
@@ -141,8 +145,8 @@ internal sealed partial class EmailDispatchConsumer : BackgroundService
                 _channel = channel;
                 await RabbitMqTopologyDeclaration.DeclareAsync(channel, stoppingToken);
 
-                // Prefetch 1: the broker hands over the next message only after the previous one
-                // was acked, so a backlog never floods this process and e-mails go out one by one.
+                // Prefetch 1: the broker sends the next message only after the previous one was
+                // acknowledged, so a backlog never floods this process and e-mails go out one by one.
                 await channel.BasicQosAsync(
                     prefetchSize: 0,
                     prefetchCount: 1,
@@ -172,9 +176,9 @@ internal sealed partial class EmailDispatchConsumer : BackgroundService
     }
 
     /// <summary>
-    /// Handles one delivery end-to-end. Every path must end in exactly one ack or reject — an
-    /// exception escaping this handler would be swallowed by the client library and leave the
-    /// delivery unacked (stuck) until the channel dies.
+    /// Handles one delivery from start to finish. Every path has to end in exactly one ack or reject.
+    /// An exception leaving this handler is swallowed by the client library, and the delivery then
+    /// stays unacknowledged and stuck until the channel dies.
     /// </summary>
     private async Task OnDeliveredAsync(
         IChannel channel,
@@ -185,9 +189,9 @@ internal sealed partial class EmailDispatchConsumer : BackgroundService
         {
             if (!TryReadMessageId(delivery.BasicProperties, out Guid messageId))
             {
-                // Poison: without a usable message id the delivery cannot be deduplicated, and
-                // processing it blind would reopen the unbounded-duplicate hole the inbox closes
-                // (ADR-0037) — so it parks in the dead-letter queue for a human instead.
+                // We can never handle this one. Without a usable message id we cannot tell a duplicate
+                // from a new message, and handling it anyway would reopen the duplicate problem the
+                // inbox solves (ADR-0037). So it waits in the dead-letter queue for a person.
                 LogMessageIdUnusable(_logger, delivery.BasicProperties.MessageId);
                 await channel.BasicRejectAsync(
                     delivery.DeliveryTag,
@@ -205,9 +209,9 @@ internal sealed partial class EmailDispatchConsumer : BackgroundService
                     : scope.ServiceProvider.GetKeyedService<IEmailMessageProcessor>(messageType);
                 if (processor is null)
                 {
-                    // Poison: a missing or unregistered type means no processor can ever read
-                    // this delivery — no redelivery fixes that, so it parks for a human
-                    // (ADR-0038), exactly like an unusable message id.
+                    // We can never handle this one. With a missing or unknown type there is no
+                    // processor for this delivery, and sending it again would not change that, so it
+                    // waits for a person (ADR-0038), like a message with an unusable id.
                     LogUnknownMessageType(_logger, delivery.BasicProperties.MessageId, messageType);
                     await channel.BasicRejectAsync(
                         delivery.DeliveryTag,
@@ -219,9 +223,9 @@ internal sealed partial class EmailDispatchConsumer : BackgroundService
                 object? message = processor.TryDeserialize(delivery.Body.Span);
                 if (message is null)
                 {
-                    // Poison: no amount of redelivery fixes an unreadable payload, so it is
-                    // rejected on first sight — the broker dead-letters it into the parking lot
-                    // for a human.
+                    // We can never handle this one. Sending an unreadable payload again would not
+                    // help, so it is rejected at once and the broker moves it to the dead-letter queue
+                    // for a person.
                     LogPoisonMessage(_logger, delivery.BasicProperties.MessageId);
                     await channel.BasicRejectAsync(
                         delivery.DeliveryTag,
@@ -245,8 +249,9 @@ internal sealed partial class EmailDispatchConsumer : BackgroundService
             int redeliveries = RedeliveryCount.Read(delivery.BasicProperties.Headers);
             if (redeliveries >= RabbitMqTopology.EmailDeliveryLimit)
             {
-                // Final attempt: this reject pushes the count past the delivery limit, so the
-                // broker parks the message in the DLQ instead of redelivering — no pause needed.
+                // This is the last attempt. The reject takes the count past the delivery limit, so the
+                // broker moves the message to the dead-letter queue instead of sending it again. No
+                // pause is needed.
                 LogRetriesExhausted(
                     _logger,
                     delivery.BasicProperties.MessageId,
@@ -270,8 +275,9 @@ internal sealed partial class EmailDispatchConsumer : BackgroundService
         }
         catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
         {
-            // Shutdown mid-message: deliberately neither ack nor reject — closing the channel
-            // returns the unacked delivery to the queue and the next start picks it up.
+            // We are shutting down in the middle of a message. We deliberately neither ack nor
+            // reject: closing the channel puts the delivery back on the queue and the next start
+            // handles it.
         }
         catch (Exception ex)
         {
@@ -281,13 +287,14 @@ internal sealed partial class EmailDispatchConsumer : BackgroundService
     }
 
     /// <summary>
-    /// Best-effort reject for the unexpected-exception path: when even the reject fails (typically
-    /// a dead channel), the delivery is unacked anyway and the broker requeues it on channel close
-    /// — and that connection loss increments the delivery count too, so even a crash loop is
-    /// bounded by the delivery limit. The pause is deliberately flat (always the ladder's first
-    /// rung, not indexed by redelivery count): an unexpected exception says nothing about SMTP
-    /// health, so this path only takes the edge off a hot loop — a persistently throwing
-    /// processor burns the delivery limit in minutes and parks, which is exactly the bound wanted.
+    /// Tries to reject the delivery after an unexpected exception. If even the reject fails, usually
+    /// because the channel is dead, the delivery is unacknowledged anyway and the broker puts it back
+    /// when the channel closes. That lost connection also raises the delivery count, so even a crash
+    /// loop ends at the delivery limit.
+    /// The pause is always the first step of the ladder and does not grow with the retry count. An
+    /// unexpected exception tells us nothing about the SMTP relay, so this only slows a hot loop down.
+    /// A processor that keeps throwing uses up the delivery limit in minutes and parks, which is
+    /// exactly the bound we want.
     /// </summary>
     private async Task TryRequeueAsync(IChannel channel, ulong deliveryTag, CancellationToken stoppingToken)
     {
@@ -298,7 +305,8 @@ internal sealed partial class EmailDispatchConsumer : BackgroundService
         }
         catch (OperationCanceledException)
         {
-            // Shutdown while backing off; the unacked delivery requeues on channel close.
+            // We are shutting down during the pause. The unacknowledged delivery goes back on the
+            // queue when the channel closes.
         }
         catch (Exception ex)
         {
@@ -307,8 +315,8 @@ internal sealed partial class EmailDispatchConsumer : BackgroundService
     }
 
     /// <summary>
-    /// Reads the broker message id the inbox deduplicates on (ADR-0037). Internal so the unit
-    /// suite can pin the poison decision: absent, non-Guid and empty-Guid ids must all fail.
+    /// Reads the broker message id the inbox uses to spot duplicates (ADR-0037). It is internal so the
+    /// unit tests can check that a missing id, an id that is not a Guid and an empty Guid all fail.
     /// </summary>
     internal static bool TryReadMessageId(IReadOnlyBasicProperties properties, out Guid messageId)
     {

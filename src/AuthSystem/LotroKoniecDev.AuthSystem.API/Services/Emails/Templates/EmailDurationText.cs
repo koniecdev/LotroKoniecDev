@@ -3,9 +3,8 @@ using System.Globalization;
 namespace LotroKoniecDev.AuthSystem.API.Services.Emails.Templates;
 
 /// <summary>
-/// Formats a token lifespan for the Polish locative phrase "wygasa po …". That form does not
-/// change with the count above one ("po 2 godzinach", "po 24 godzinach"), so only the singular
-/// needs its own case.
+/// Formats a token lifetime for the Polish phrase "wygasa po …". Above one the wording does not
+/// change ("po 2 godzinach", "po 24 godzinach"), so only the singular needs a case of its own.
 /// </summary>
 internal static class EmailDurationText
 {

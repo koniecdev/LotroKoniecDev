@@ -77,9 +77,9 @@ internal sealed class AuthorizeEndpoint : IEndpoint
                 [OpenIddictServerAspNetCoreDefaults.AuthenticationScheme]);
         }
 
-        // A live session cookie must not keep minting tokens for an account that is
-        // locked out or sitting in the GDPR deletion grace window (ADR-0031) — the
-        // session is terminated and the client is sent back through the login page.
+        // A session cookie must not keep issuing tokens for an account that is locked out or waiting
+        // in the GDPR deletion grace period (ADR-0031). We end the session and send the client back to
+        // the login page.
         if (user.DeletionScheduledAt is not null || await userManager.IsLockedOutAsync(user))
         {
             await httpContext.SignOutAsync(IdentityConstants.ApplicationScheme);

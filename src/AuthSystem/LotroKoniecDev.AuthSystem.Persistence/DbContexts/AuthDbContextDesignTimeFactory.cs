@@ -25,9 +25,8 @@ internal sealed class AuthDbContextDesignTimeFactory : IDesignTimeDbContextFacto
             npgsqlOptions.MigrationsHistoryTable("__EFMigrationsHistory", DatabaseSchemas.Auth);
         });
 
-        // OpenIddict tables are part of the AuthDbContext model.
-        // Without this call, EF Core would not see the OpenIddict entities and generate
-        // migrations that drop those tables.
+        // The OpenIddict tables belong to the AuthDbContext model. Without this call EF Core would not
+        // see them and would write migrations that drop those tables.
         optionsBuilder.UseOpenIddict();
 
         return new AuthDbContext(optionsBuilder.Options);

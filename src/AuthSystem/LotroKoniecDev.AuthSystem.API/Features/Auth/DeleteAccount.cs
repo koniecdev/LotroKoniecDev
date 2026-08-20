@@ -17,13 +17,13 @@ using LotroKoniecDev.SharedKernel.Monads;
 namespace LotroKoniecDev.AuthSystem.API.Features.Auth;
 
 /// <summary>
-/// Schedules GDPR account deletion instead of executing it immediately (ADR-0031):
-/// the account is locked for the grace period and a one-time cancellation link is emailed,
-/// so a stolen password alone can no longer erase an account irreversibly.
-/// The deletion finalizer performs the actual erasure once the grace period elapses.
-/// The cancel e-mail travels through the outbox pipeline (ADR-0038): its row commits atomically
-/// with the schedule, so "scheduled but no e-mail ever recorded" cannot exist, and delivery
-/// failures are the pipeline's to retry — not this handler's to compensate.
+/// Schedules a GDPR account deletion instead of doing it at once (ADR-0031). The account is locked
+/// for the grace period and a single-use cancel link is e-mailed, so a stolen password alone can no
+/// longer erase an account for good. The finalizer does the real erasure once the grace period is
+/// over.
+/// The cancel e-mail goes through the outbox pipeline (ADR-0038): its row commits together with the
+/// schedule, so "scheduled but no e-mail recorded" cannot happen, and retrying a failed delivery is
+/// the pipeline's job, not this handler's.
 /// </summary>
 internal sealed partial class DeleteAccount : IApiEndpoint
 {
@@ -108,17 +108,17 @@ internal sealed partial class DeleteAccount : IApiEndpoint
             DateTimeOffset scheduledAt = _timeProvider.GetUtcNow();
             DateTimeOffset finalizesAt = scheduledAt + _gdprSettings.DeletionGracePeriod;
 
-            // Lock the account for the whole grace window so neither the requester nor
-            // a potential attacker can use it. Nothing is erased here — data stays intact
-            // until the finalizer runs after the grace period.
+            // Lock the account for the whole grace period, so neither the person who asked nor a
+            // possible attacker can use it. Nothing is erased here: the data stays until the finalizer
+            // runs after the grace period.
             user.DeletionScheduledAt = scheduledAt;
             user.LockoutEnabled = true;
             user.LockoutEnd = finalizesAt;
 
-            // Invalidate all sessions by assigning the fresh stamp INSIDE the same save that
-            // commits the outbox row (ADR-0038 decision 2): the relay is signal-driven, so the
-            // dispatch processor can mint the cancel token milliseconds after commit — a stamp
-            // rotated in a later save would kill the emailed link it just minted.
+            // End every session by setting the new security stamp inside the same save that commits
+            // the outbox row (ADR-0038 decision 2). The relay works on a signal, so the dispatch
+            // processor can create the cancel token milliseconds after the commit. A stamp changed in
+            // a later save would break the link that was just created.
             user.SecurityStamp = Guid.NewGuid().ToString();
 
             _outboxWriter.Enqueue(new AccountDeletionScheduled(user.Id));
@@ -142,8 +142,8 @@ internal sealed partial class DeleteAccount : IApiEndpoint
 
         private async Task TryRevokeOpenIddictArtifactsAsync(ApplicationUser user, CancellationToken cancellationToken)
         {
-            // Best effort: refresh tokens are reference tokens, so revocation cuts them off
-            // immediately; self-contained access tokens simply expire within the hour.
+            // Best effort. Refresh tokens are reference tokens, so revoking them stops them at once.
+            // Access tokens carry their own claims and simply expire within the hour.
             try
             {
                 string userId = user.Id.ToString();

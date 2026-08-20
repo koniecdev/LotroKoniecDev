@@ -5,8 +5,8 @@ using LotroKoniecDev.AuthSystem.API.Settings;
 namespace LotroKoniecDev.AuthSystem.API.BackgroundServices;
 
 /// <summary>
-/// Periodically finalizes GDPR account deletions whose grace period has elapsed.
-/// Runs once at startup (to catch up after downtime), then on every poll interval.
+/// Finishes GDPR account deletions once their grace period is over. It runs once at startup, to catch
+/// up on anything missed while the app was down, and then on every interval.
 /// </summary>
 internal sealed partial class AccountDeletionFinalizerHostedService : BackgroundService
 {
@@ -42,7 +42,7 @@ internal sealed partial class AccountDeletionFinalizerHostedService : Background
         }
         catch (OperationCanceledException)
         {
-            // Graceful shutdown.
+            // The app is shutting down, which is not an error.
         }
     }
 

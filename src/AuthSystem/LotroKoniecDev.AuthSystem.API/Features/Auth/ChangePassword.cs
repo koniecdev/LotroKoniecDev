@@ -69,9 +69,9 @@ internal sealed partial class ChangePassword : IApiEndpoint
                 return Result.Failure(AuthErrors.UserNotFound);
             }
 
-            // A still-valid pre-schedule access token must not mutate auth state during the
-            // grace window: the security-stamp rotation below would kill the emailed cancel
-            // link — the account's only recovery path while it is locked out (ADR-0031).
+            // An access token issued before the deletion was scheduled must not change auth state
+            // during the grace period. The security stamp change below would break the cancel link in
+            // the e-mail, which is the only way back into a locked-out account (ADR-0031).
             if (user.DeletionScheduledAt is not null)
             {
                 return Result.Failure(AuthErrors.DeletionAlreadyScheduled);

@@ -3,16 +3,16 @@ using OpenIddict.Abstractions;
 namespace LotroKoniecDev.AuthSystem.API.Services.Maintenance;
 
 /// <summary>
-/// Daily background prune of stale OpenIddict tokens and authorizations (PERF-02). Rolling reference
-/// refresh tokens (<c>UseReferenceRefreshTokens()</c>) write a new token row on every refresh and
-/// nothing else ever deletes them, so without this pass the <c>OpenIddictTokens</c> and
-/// <c>OpenIddictAuthorizations</c> tables grow without bound and slow every token-endpoint lookup.
+/// Deletes old OpenIddict tokens and authorizations once a day (PERF-02). Rolling reference refresh
+/// tokens (<c>UseReferenceRefreshTokens()</c>) write a new row on every refresh and nothing else ever
+/// deletes them, so without this pass the <c>OpenIddictTokens</c> and <c>OpenIddictAuthorizations</c>
+/// tables grow forever and every lookup at the token endpoint gets slower.
 /// </summary>
 internal sealed partial class OpenIddictPruneService : BackgroundService
 {
     /// <summary>
-    /// Rows younger than this are never pruned, mirroring the default threshold of OpenIddict's own
-    /// Quartz integration; the prune only ever removes rows that are already expired or invalid.
+    /// Rows younger than this are never deleted, the same rule OpenIddict's own Quartz integration
+    /// uses by default. The prune only removes rows that are already expired or invalid.
     /// </summary>
     internal static readonly TimeSpan RetentionPeriod = TimeSpan.FromDays(14);
 
@@ -47,12 +47,12 @@ internal sealed partial class OpenIddictPruneService : BackgroundService
     }
 
     /// <summary>
-    /// Runs a single prune pass. Tokens are pruned before authorizations because OpenIddict never
-    /// deletes an authorization that still has tokens attached. The managers are scoped (they ride on
-    /// <c>AuthDbContext</c>), hence the explicit scope per pass. Every failure is logged and
-    /// swallowed — an exception escaping <see cref="ExecuteAsync"/> stops the whole host — except a
-    /// cancellation of <paramref name="cancellationToken"/> itself, which is a normal shutdown and
-    /// must propagate.
+    /// Runs one prune pass. Tokens go first, because OpenIddict never deletes an authorization that
+    /// still has tokens on it. The managers are scoped, since they use <c>AuthDbContext</c>, so each
+    /// pass creates its own scope.
+    /// Every failure is logged and then ignored, because an exception leaving
+    /// <see cref="ExecuteAsync"/> stops the whole host. The one exception is a cancellation of
+    /// <paramref name="cancellationToken"/>, which means a normal shutdown and has to pass through.
     /// </summary>
     internal async Task PruneOnceAsync(CancellationToken cancellationToken)
     {

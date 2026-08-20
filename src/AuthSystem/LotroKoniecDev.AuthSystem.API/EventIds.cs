@@ -1,25 +1,25 @@
 namespace LotroKoniecDev.AuthSystem.API;
 
 /// <summary>
-/// Event ID ranges: TranslationSystem 1000–1999, AuthSystem 2000–2999, Shared 3000–3999.
+/// Event ID ranges: TranslationSystem 1000-1999, AuthSystem 2000-2999, Shared 3000-3999.
 /// </summary>
 internal static class EventIds
 {
-    // Exception Handlers (2100–2199)
+    // Exception Handlers (2100-2199)
     public const int ArgumentException = 2100;
     public const int BadHttpRequest = 2110;
     public const int ConcurrencyConflict = 2120;
     public const int ValidationFailure = 2140;
     public const int UnhandledException = 2150;
 
-    // Change Password (2200–2209)
+    // Change Password (2200-2209)
     public const int ChangePasswordSecurityStampFailed = 2200;
     public const int ChangePasswordFailed = 2201;
 
-    // Email Confirmation (2210–2219)
+    // Email Confirmation (2210-2219)
     public const int EmailConfirmationFailed = 2210;
 
-    // GDPR Erasure (2220–2239)
+    // GDPR Erasure (2220-2239)
     public const int GdprErasureInitiated = 2220;
     public const int GdprErasureAnonymizationFailed = 2223;
     public const int GdprErasureAuthAnonymized = 2224;
@@ -29,10 +29,10 @@ internal static class EventIds
     public const int GdprErasureArtifactsCleanupFailed = 2228;
     public const int GdprErasureEmergencyLockout = 2229;
     public const int GdprErasureEmergencyLockoutFailed = 2230;
-    // 2235 (GdprDeletionScheduledEmailFailed), 2236 (GdprDeletionCancelledEmailFailed) and
-    // 2237 (GdprDeletionScheduleUnwound) retired: the deletion e-mails left the request path for
-    // the outbox pipeline (ADR-0038), so the handlers no longer observe SMTP and the unwind
-    // compensation the failure triggered is gone (decision 5)
+    // 2235 (GdprDeletionScheduledEmailFailed), 2236 (GdprDeletionCancelledEmailFailed) and 2237
+    // (GdprDeletionScheduleUnwound) are no longer used. The deletion e-mails moved out of the request
+    // and into the outbox pipeline (ADR-0038), so the handlers no longer see SMTP, and the undo step
+    // those failures triggered is gone (decision 5).
     public const int GdprDeletionScheduled = 2231;
     public const int GdprDeletionCancelled = 2232;
     public const int GdprDeletionFinalized = 2233;
@@ -40,43 +40,44 @@ internal static class EventIds
     public const int GdprDeletionFinalizerRunFailed = 2238;
     public const int GdprDeletionFinalizerUserFailed = 2239;
 
-    // Data Export (2240–2249)
+    // Data Export (2240-2249)
     public const int ExportDataCompleted = 2241;
 
-    // Forgot Password (2250–2259) — 2251 (ForgotPasswordEmailFailed) retired: the send left the
-    // request path for the outbox pipeline (ADR-0038), so the handler no longer observes SMTP
+    // Forgot Password (2250-2259). 2251 (ForgotPasswordEmailFailed) is no longer used: sending moved
+    // out of the request and into the outbox pipeline (ADR-0038), so the handler no longer sees SMTP.
     public const int ForgotPasswordNonExistent = 2250;
 
-    // Logout (2260–2269)
+    // Logout (2260-2269)
     public const int UserLoggedOut = 2260;
 
-    // Registration (2270–2279)
+    // Registration (2270-2279)
     public const int RegisterEmailFallback = 2270;
     public const int RegisterConcurrentRace = 2271;
 
-    // Resend Confirmation (2280–2289)
+    // Resend Confirmation (2280-2289)
     public const int ResendConfirmNonExistent = 2280;
     public const int ResendConfirmAlreadyConfirmed = 2281;
     public const int ResendConfirmEmailFailed = 2282;
 
-    // Reset Password (2290–2299)
+    // Reset Password (2290-2299)
     public const int ResetPasswordFailed = 2290;
     public const int ResetPasswordSecurityStampFailed = 2291;
 
-    // Token Revocation (2300–2309) — 2300 (TokenRevoked) retired with the dead RevokeEndpoint (#349)
+    // Token Revocation (2300-2309). 2300 (TokenRevoked) went away with the unused RevokeEndpoint
+    // (#349).
     public const int UserSessionsRevoked = 2301;
     public const int UserSessionsRevocationFailed = 2302;
 
-    // Token Pruning (2310–2319)
+    // Token Pruning (2310-2319)
     public const int OpenIddictPruneCompleted = 2310;
     public const int OpenIddictPruneFailed = 2311;
 
-    // Outbox Relay (2320–2329)
+    // Outbox Relay (2320-2329)
     public const int OutboxRelayPassFailed = 2320;
     public const int OutboxMessagePublishFailed = 2321;
     public const int OutboxMessageUnroutable = 2322;
 
-    // Email Dispatch Consumer (2330–2339)
+    // Email Dispatch Consumer (2330-2339)
     public const int EmailConsumerConnectFailed = 2330;
     public const int EmailConsumerStarted = 2331;
     public const int EmailConsumerPoisonMessage = 2332;
@@ -88,37 +89,37 @@ internal static class EventIds
     public const int EmailConsumerTeardownWarning = 2338;
     public const int EmailConsumerRetriesExhausted = 2339;
 
-    // Inbox deduplication (2340–2349)
+    // Inbox deduplication (2340-2349)
     public const int EmailConsumerDuplicateSkipped = 2340;
     public const int EmailConsumerInboxRaceLost = 2341;
     public const int EmailConsumerMessageIdUnusable = 2342;
     public const int EmailConsumerUnknownMessageType = 2343;
 
-    // Startup (2350–2359)
+    // Startup (2350-2359)
     public const int StartupTransientDatabaseFailure = 2350;
 
-    // Password Reset Dispatch (2360–2369)
+    // Password Reset Dispatch (2360-2369)
     public const int PasswordResetUserGone = 2360;
     public const int PasswordResetAddressMissing = 2361;
     public const int PasswordResetDeletionScheduled = 2362;
 
-    // Deletion-Scheduled Dispatch (2370–2379)
+    // Deletion-Scheduled Dispatch (2370-2379)
     public const int DeletionScheduledUserGone = 2370;
     public const int DeletionScheduledScheduleGone = 2371;
     public const int DeletionScheduledWindowOver = 2372;
     public const int DeletionScheduledAddressMissing = 2373;
 
-    // Deletion-Cancelled Dispatch (2380–2389)
+    // Deletion-Cancelled Dispatch (2380-2389)
     public const int DeletionCancelledUserGone = 2380;
     public const int DeletionCancelledRescheduled = 2381;
     public const int DeletionCancelledAddressMissing = 2382;
 
-    // Middleware (2400–2499)
+    // Middleware (2400-2499)
     public const int UnauthorizedAccessAttempt = 2400;
     public const int ForbiddenAccessAttempt = 2401;
 
-    // Pages (2600–2699) — 2610 carried PasswordResetTokenGenerated until the page stopped minting
-    // tokens (ADR-0038); the id now marks the outbox write that replaced the in-request send
+    // Pages (2600-2699). 2610 was PasswordResetTokenGenerated until the page stopped creating tokens
+    // (ADR-0038). It now marks the outbox write that replaced sending inside the request.
     public const int EmailConfirmedViaUi = 2600;
     public const int PasswordResetRequestQueued = 2610;
     public const int LoginUserNotFound = 2620;
@@ -131,14 +132,14 @@ internal static class EventIds
     public const int RegisterCompletedViaUi = 2640;
     public const int DeletionCancelledViaUi = 2650;
 
-    // GDPR Deletion Scheduling internals (2700–2709) — 2701–2703 and 2705 retired: the unwind
-    // compensation is gone (ADR-0038 decision 5) and both deletion flows now rotate the security
-    // stamp inside their single save (decision 2), so there is no separate stamp update to fail
+    // GDPR Deletion Scheduling internals (2700-2709). 2701-2703 and 2705 are no longer used: the undo
+    // step is gone (ADR-0038 decision 5), and both deletion flows now change the security stamp inside
+    // their single save (decision 2), so there is no separate stamp update that could fail.
     public const int GdprDeletionSchedulingUpdateFailed = 2700;
     public const int GdprDeletionScheduleArtifactRevocationFailed = 2704;
 
-    // Forgot/Reset Password deletion-window gates (2710–2719) — 2710
-    // (ForgotPasswordDeletionScheduled) retired: the forgot-password gate moved to the dispatch
-    // processor (ADR-0038 decision 2), which logs 2362 instead
+    // Forgot/Reset Password checks during the deletion window (2710-2719). 2710
+    // (ForgotPasswordDeletionScheduled) is no longer used: that check moved to the dispatch processor
+    // (ADR-0038 decision 2), which logs 2362 instead.
     public const int ResetPasswordDeletionScheduled = 2711;
 }

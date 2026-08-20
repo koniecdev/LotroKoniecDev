@@ -9,7 +9,7 @@ namespace LotroKoniecDev.AuthSystem.API.Pages.Account;
 internal sealed partial class ResetPasswordModel : PageModel
 {
     /// <summary>
-    /// Pre-computed hash for timing-equalization when user is not found.
+    /// A hash computed up front, so the not-found path takes as long as the normal one.
     /// </summary>
     private static readonly string DummyPasswordHash =
         new PasswordHasher<ApplicationUser>().HashPassword(new ApplicationUser(), "DummyP@ssw0rd!");
@@ -71,7 +71,7 @@ internal sealed partial class ResetPasswordModel : PageModel
 
         if (user is null)
         {
-            // Perform dummy work to prevent timing-based user enumeration
+            // Do the same work anyway, so the response time does not reveal whether the user exists.
             _ = new PasswordHasher<ApplicationUser>()
                 .VerifyHashedPassword(new ApplicationUser(), DummyPasswordHash, "DummyP@ssw0rd!");
 
@@ -80,8 +80,9 @@ internal sealed partial class ResetPasswordModel : PageModel
             return Page();
         }
 
-        // While GDPR deletion is scheduled, only the emailed cancel-deletion link may
-        // restore the account. The generic invalid-token message prevents state probing.
+        // While a GDPR deletion is scheduled, only the cancel link in the e-mail can bring the account
+        // back. We show the general invalid-token message, so nobody can learn the state of an
+        // account.
         if (user.DeletionScheduledAt is not null)
         {
             LogPasswordResetBlockedDeletionScheduled(_logger, user.Id);

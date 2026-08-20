@@ -3,14 +3,15 @@ using LotroKoniecDev.AuthSystem.API.Settings;
 namespace LotroKoniecDev.AuthSystem.API.Common;
 
 /// <summary>
-/// Builds absolute frontend URLs from the web client's app root — its first post-logout redirect URI —
-/// so the auth pages can link and redirect to the application without a frontend-origin setting of
-/// their own. The two contexts share no code, so the paths passed in mirror frontend routes and a
-/// rename there has to be repeated at the call site.
+/// Builds absolute frontend URLs from the web client's app root, which is its first post-logout
+/// redirect URI. The auth pages can then link and redirect to the application without a setting of
+/// their own for the frontend origin.
+/// The two contexts share no code, so the paths passed in here copy frontend routes by hand, and
+/// renaming a route there has to be repeated at the call site.
 /// </summary>
 /// <remarks>
-/// The scheme screen is load-bearing: on Unix a bare path such as <c>"/app"</c> parses as an absolute
-/// <c>file://</c> URI, so a misconfigured app root would otherwise yield a <c>file:///…</c> target.
+/// The scheme check matters. On Unix a bare path such as <c>"/app"</c> parses as an absolute
+/// <c>file://</c> URI, so a wrongly configured app root would produce a <c>file:///…</c> target.
 /// </remarks>
 internal static class FrontendUrl
 {

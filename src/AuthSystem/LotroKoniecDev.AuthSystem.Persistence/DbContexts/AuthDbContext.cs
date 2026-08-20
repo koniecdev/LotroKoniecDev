@@ -21,8 +21,8 @@ public sealed class AuthDbContext : IdentityDbContext<ApplicationUser, Applicati
 
     protected override void ConfigureConventions(ModelConfigurationBuilder configurationBuilder)
     {
-        // Npgsql's `timestamp with time zone` only accepts DateTimeOffset values with UTC offset.
-        // Normalize on the way in so callers don't have to remember to call ToUniversalTime().
+        // Npgsql's `timestamp with time zone` only accepts a DateTimeOffset with a UTC offset.
+        // Convert on the way in, so no caller has to remember ToUniversalTime().
         configurationBuilder
             .Properties<DateTimeOffset>()
             .HaveConversion<UtcDateTimeOffsetConverter>();

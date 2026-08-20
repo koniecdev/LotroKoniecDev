@@ -3,12 +3,13 @@ using Npgsql;
 namespace LotroKoniecDev.AuthSystem.API.Extensions;
 
 /// <summary>
-/// Bounded retry for pre-listen database work (#451): on the daily scale-from-zero cold start the
-/// Neon compute resumes slower (~31 s measured) than Npgsql's connection-open timeout, so the
-/// first physical open fails transiently. EF's <c>EnableRetryOnFailure</c> retries commands, not
-/// that initial open — without this wrapper the unhandled exception kills the process before
-/// <c>RunAsync</c> and the container restarts. Worst case (4 attempts × ~20 s open timeout +
-/// 3 × 5 s delay ≈ 95 s) stays well under the 300 s ACA startup-probe budget.
+/// A limited retry for database work that runs before the app starts listening (#451). On the daily
+/// cold start the Neon compute takes longer to wake up, about 31 seconds as measured, than Npgsql
+/// waits to open a connection, so the first open fails for a moment.
+/// EF's <c>EnableRetryOnFailure</c> retries commands but not that first open, so without this wrapper
+/// the exception kills the process before <c>RunAsync</c> and the container restarts.
+/// In the worst case this takes about 95 seconds (4 attempts of about 20 seconds plus 3 waits of 5),
+/// well under the 300 second startup probe budget.
 /// </summary>
 internal static partial class ColdStartRetry
 {

@@ -23,10 +23,9 @@ internal sealed class ResendConfirmationModel : PageModel
     public bool IsSubmitted { get; set; }
 
     /// <summary>
-    /// <paramref name="email"/> arrives from the login page's unconfirmed-account alert (ADR-0046)
-    /// and is a form default, nothing more: the POST handler still owns the anti-enumeration
-    /// behaviour, so an address typed into the query by hand reveals exactly as much as one typed
-    /// into the field.
+    /// <paramref name="email"/> comes from the login page's "account not confirmed" message
+    /// (ADR-0046). It only fills in the form. The POST handler still hides whether an account exists,
+    /// so an address typed into the query string reveals no more than one typed into the field.
     /// </summary>
     public void OnGet(string? email)
     {
@@ -36,10 +35,10 @@ internal sealed class ResendConfirmationModel : PageModel
 
     public async Task<IActionResult> OnPostAsync(CancellationToken cancellationToken)
     {
-        // The handler owns the anti-enumeration logic (find user → dummy work when absent,
-        // no-op when already confirmed, generate token + send otherwise) and always succeeds
-        // for well-formed input, so account existence never leaks. Only a malformed address —
-        // which cannot map to any account — comes back as a failure worth surfacing.
+        // The handler is what hides whether an account exists: it looks the user up, does the same
+        // work when there is none, does nothing when the address is already confirmed, and otherwise
+        // creates a token and sends. It always succeeds for a well-formed address. Only an address
+        // that is not well formed, and so can match no account, comes back as a failure worth showing.
         Result result = await _handler.Handle(new ResendEmailConfirmation.Command(Email), cancellationToken);
 
         if (result.IsFailure)

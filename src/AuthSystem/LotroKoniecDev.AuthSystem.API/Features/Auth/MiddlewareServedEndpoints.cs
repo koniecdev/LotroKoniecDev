@@ -4,16 +4,17 @@ using LotroKoniecDev.AuthSystem.API.Common;
 namespace LotroKoniecDev.AuthSystem.API.Features.Auth;
 
 /// <summary>
-/// Maps metadata-only routes for the OpenIddict endpoints that have no ASP.NET Core passthrough:
-/// <c>connect/introspect</c> and <c>connect/revoke</c>. OpenIddict exposes passthrough only for the
-/// token/authorize/userinfo/end-session (and verification/error) endpoints — introspection and
-/// revocation are always served by the OpenIddict middleware inside the authentication stage, so a
-/// routed handler here can never run (#349: the old RevokeEndpoint handler was unreachable dead
-/// code). These routes exist solely to carry the brute-force rate-limit policy: the limiter runs
-/// after routing and BEFORE authentication (#347) and reads the policy from the matched endpoint's
-/// metadata — without a routed endpoint these URIs would take unlimited client-secret guessing.
-/// Non-POST requests match no route (and thus no limiter), which is a credential-free residual:
-/// OpenIddict rejects non-POST protocol requests before client authentication ever runs.
+/// Maps routes that carry metadata only, for the two OpenIddict endpoints ASP.NET Core cannot hand
+/// over to us: <c>connect/introspect</c> and <c>connect/revoke</c>.
+/// OpenIddict only passes through the token, authorize, userinfo and end-session endpoints, plus
+/// verification and error. Introspection and revocation are always served by the OpenIddict middleware
+/// during authentication, so a handler routed here could never run. That is what #349 found: the old
+/// RevokeEndpoint handler was dead code.
+/// These routes exist only to carry the brute-force rate-limit policy. The limiter runs after routing
+/// and before authentication (#347) and reads the policy from the matched endpoint's metadata, so
+/// without a route these URIs would allow unlimited guessing of the client secret.
+/// A non-POST request matches no route and therefore no limiter, which is harmless: OpenIddict rejects
+/// a non-POST protocol request before it ever checks client credentials.
 /// </summary>
 internal sealed class MiddlewareServedEndpoints : IEndpoint
 {

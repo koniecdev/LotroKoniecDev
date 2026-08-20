@@ -47,17 +47,17 @@ internal static class ApiDependencyInjection
                 jsonOptions.SerializerOptions.Converters.Add(new JsonStringEnumConverter());
             });
 
-            // Razor renders Polish diacritics (ł, ż, ó, …) as numeric HTML entities
-            // unless the encoder is widened. Browsers handle entities fine, but the
-            // raw HTML becomes hard to read and breaks string-based assertions.
+            // Without a wider encoder, Razor writes Polish letters such as ł, ż and ó as numeric HTML
+            // entities. Browsers cope with that, but the raw HTML is hard to read and tests that
+            // compare strings break.
             services.Configure<WebEncoderOptions>(options =>
             {
                 options.TextEncoderSettings = new TextEncoderSettings(UnicodeRanges.All);
             });
-            // Registers ILinkFactory, IHttpContextAccessor, the fallback IProblemDetailsWriter
-            // for the HATEOAS vendor media type, and the JsonTypeInfo modifier that strips
-            // empty 'links' arrays from plain-JSON responses. Must follow AddProblemDetails()
-            // so ASP.NET Core's default writer handles plain JSON / RFC 7807 Accept values first.
+            // Registers ILinkFactory, IHttpContextAccessor, the fallback IProblemDetailsWriter for our
+            // vendor media type, and the JsonTypeInfo modifier that hides empty 'links' arrays in plain
+            // JSON. It has to come after AddProblemDetails(), so ASP.NET Core's own writer keeps the
+            // plain JSON and RFC 7807 Accept values.
             services.AddHateoasInfrastructure();
 
             services.AddTransient<IAccountAggregateLinkFactory, AccountAggregateLinkFactory>();
@@ -91,19 +91,19 @@ internal static class ApiDependencyInjection
 
             services.AddScoped<IUserSessionRevoker, UserSessionRevoker>();
 
-            // Signal-driven outbox relay (ADR-0035): outbox writers stage rows through the shared
-            // writer and nudge the singleton signal after their commit instead of the relay
-            // polling the database on an interval.
+            // The outbox relay works on a signal (ADR-0035). Writers add rows through the shared writer
+            // and wake the singleton signal after their commit, so the relay does not poll the database
+            // on a timer.
             services.AddSingleton<OutboxSignal>();
             services.AddScoped<OutboxWriter>();
             services.AddHostedService<OutboxRelay>();
 
-            // The consuming side of the same pipeline: broker deliveries -> e-mails. The keyed
-            // registrations ARE the processor registry (ADR-0038): one line per message type,
-            // keyed by the outbox row's Type — an explicit, compile-visible inventory (ADR-0001,
-            // no assembly scanning). Processors are scoped because the consumer resolves them per
-            // message, mirroring how a request would; the pump itself is a singleton hosted
-            // service.
+            // The other end of the same pipeline: broker deliveries become e-mails. These keyed
+            // registrations are the processor registry (ADR-0038), one line per message type, keyed by
+            // the outbox row's Type. The list is written out here and visible to the compiler, so
+            // nothing has to scan assemblies (ADR-0001).
+            // The processors are scoped because the consumer resolves one per message, the way a
+            // request would. The consumer itself is a singleton hosted service.
             services.AddKeyedScoped<IEmailMessageProcessor, EmailConfirmationRequestProcessor>(
                 nameof(EmailConfirmationRequested));
             services.AddKeyedScoped<IEmailMessageProcessor, PasswordResetRequestProcessor>(
@@ -115,15 +115,16 @@ internal static class ApiDependencyInjection
             services.AddScoped<EmailDeliveryProcessor>();
             services.AddHostedService<EmailDispatchConsumer>();
 
-            // PERF-02: reference refresh tokens accumulate one row per refresh and are never
-            // deleted otherwise; prune expired/invalid tokens and authorizations daily.
+            // PERF-02: reference refresh tokens add one row per refresh and nothing else deletes them,
+            // so expired and invalid tokens and authorizations are cleaned up once a day.
             services.AddHostedService<OpenIddictPruneService>();
 
-            // Fail-fast startup validation of the OpenIddict server config (ADR-0008 §3, M6-05): the
-            // OpenIddictSettingsValidator enforces the production key material / issuer and names the
-            // offending key + environment. No ValidateDataAnnotations() — the settings carry no
-            // DataAnnotations attributes (the `required` issuer is a binder constraint), so that call
-            // validated nothing.
+            // Checks the OpenIddict server config at startup and stops the app when it is wrong
+            // (ADR-0008 §3, M6-05). OpenIddictSettingsValidator requires real keys and an issuer in
+            // production and names the key and environment at fault.
+            // There is no ValidateDataAnnotations() call: the settings carry no DataAnnotations
+            // attributes, since the `required` issuer is enforced by the binder, so that call checked
+            // nothing.
             services.AddOptions<OpenIddictSettings>()
                 .BindConfiguration(OpenIddictSettings.ConfigurationSection)
                 .ValidateOnStart();
@@ -136,8 +137,8 @@ internal static class ApiDependencyInjection
 
             services.AddSingleton<IValidateOptions<GdprSettings>, GdprSettingsValidator>();
 
-            // The cancel-deletion token must stay valid for the whole grace period,
-            // unlike the 24h default token lifespan.
+            // The cancel-deletion token has to stay valid for the whole grace period, not for the
+            // default 24 hours.
             services.AddOptions<AccountDeletionCancellationTokenProviderOptions>()
                 .Configure<IOptions<GdprSettings>>((options, gdprSettings) =>
                 {

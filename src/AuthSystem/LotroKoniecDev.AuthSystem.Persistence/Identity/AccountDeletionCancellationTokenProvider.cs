@@ -7,11 +7,11 @@ using LotroKoniecDev.AuthSystem.Domain.Aggregates.ApplicationUsers.Entities;
 namespace LotroKoniecDev.AuthSystem.Persistence.Identity;
 
 /// <summary>
-/// Options for the cancel-deletion token provider. The default token providers cap
-/// their lifespan at 24h (<see cref="DataProtectionTokenProviderOptions"/>), while the
-/// cancellation link must stay valid for the whole deletion grace period — the API layer
-/// rebinds <see cref="DataProtectionTokenProviderOptions.TokenLifespan"/> to
-/// <c>Gdpr:DeletionGracePeriod</c> at startup.
+/// Options for the cancel-deletion token provider. The built-in providers keep a token valid for 24
+/// hours (<see cref="DataProtectionTokenProviderOptions"/>), but the cancel link has to work for the
+/// whole grace period. So the API sets
+/// <see cref="DataProtectionTokenProviderOptions.TokenLifespan"/> to <c>Gdpr:DeletionGracePeriod</c>
+/// at startup.
 /// </summary>
 public sealed class AccountDeletionCancellationTokenProviderOptions : DataProtectionTokenProviderOptions
 {
@@ -23,9 +23,9 @@ public sealed class AccountDeletionCancellationTokenProviderOptions : DataProtec
 }
 
 /// <summary>
-/// Issues the one-time, signed, time-bounded token embedded in the cancel-deletion
-/// email link. The token binds to the user's security stamp, so rotating the stamp
-/// (which both scheduling and cancelling do) makes every previously issued token unusable.
+/// Creates the signed, single-use token with a time limit that goes into the cancel-deletion e-mail
+/// link. The token is tied to the user's security stamp, and both scheduling and cancelling a deletion
+/// change that stamp, so every token issued earlier stops working.
 /// </summary>
 public sealed class AccountDeletionCancellationTokenProvider : DataProtectorTokenProvider<ApplicationUser>
 {

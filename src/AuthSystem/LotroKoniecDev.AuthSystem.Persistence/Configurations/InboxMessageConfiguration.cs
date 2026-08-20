@@ -12,9 +12,9 @@ internal sealed class InboxMessageConfiguration : IEntityTypeConfiguration<Inbox
 
         builder.HasKey(message => message.MessageId);
 
-        // Both properties are get-only, and EF Core's convention only discovers properties that
-        // have BOTH a getter and a setter — each needs an explicit Property() call to exist in
-        // the model at all (same gotcha as OutboxMessageConfiguration).
+        // Both properties are get-only, and EF Core only finds properties that have a getter and a
+        // setter. Each one needs its own Property() call to exist in the model at all. The same trap
+        // applies in OutboxMessageConfiguration.
         builder.Property(message => message.MessageId)
             .ValueGeneratedNever();
 

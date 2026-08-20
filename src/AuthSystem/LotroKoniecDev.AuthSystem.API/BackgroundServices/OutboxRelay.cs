@@ -7,31 +7,33 @@ using LotroKoniecDev.AuthSystem.Persistence.Outbox;
 namespace LotroKoniecDev.AuthSystem.API.BackgroundServices;
 
 /// <summary>
-/// Publishes committed outbox rows to the broker. Signal-driven rather than interval-polled
-/// (ADR-0035): writers nudge <see cref="OutboxSignal"/> right after their commit, so the database
-/// is only queried moments after work was created — while its compute is already awake — plus one
-/// catch-up sweep at startup and a slow safety sweep. A fixed-interval poller would keep the
-/// scale-to-zero database awake around the clock for a queue that is almost always empty.
+/// Publishes committed outbox rows to the broker. It works on a signal instead of a timer (ADR-0035):
+/// writers wake <see cref="OutboxSignal"/> right after their commit, so the database is queried only
+/// moments after the work appeared, while it is still awake. On top of that there is one catch-up
+/// sweep at startup and a slow safety sweep.
+/// A timer would keep a database that scales to zero awake all day for a queue that is almost always
+/// empty.
 /// </summary>
 internal sealed partial class OutboxRelay : BackgroundService
 {
     /// <summary>
-    /// Upper bound per fetch so a post-outage backlog is drained in slices instead of one list;
-    /// the query walks the partial index (<c>IX_OutboxMessages_Unprocessed</c>) top-down.
+    /// How many rows one fetch takes, so a backlog after an outage is handled in pieces instead of one
+    /// huge list. The query reads the partial index <c>IX_OutboxMessages_Unprocessed</c> from the top.
     /// </summary>
     private const int BatchSize = 100;
 
     /// <summary>
-    /// Ceiling on how long an orphaned row can wait: a commit that raced a crash left no nudge
-    /// behind, so a slow sweep re-checks. Six hours of cadence costs ~2.5% of the Neon Free
-    /// monthly compute budget (ADR-0035) — tighter bounds buy latency nobody needs.
+    /// The longest a forgotten row can wait. A commit that happened just before a crash left no signal
+    /// behind, so a slow sweep looks again. Running it every six hours costs about 2.5% of the Neon
+    /// Free monthly compute budget (ADR-0035), and a shorter interval would only buy speed nobody
+    /// needs.
     /// </summary>
     private static readonly TimeSpan SafetySweepInterval = TimeSpan.FromHours(6);
 
     /// <summary>
-    /// Escalating wait after a failed pass. The ceiling deliberately equals
-    /// <see cref="SafetySweepInterval"/>, so a permanently failing row degenerates into the
-    /// safety-sweep cadence instead of an around-the-clock retry poll.
+    /// The growing wait after a failed pass. The longest wait equals <see cref="SafetySweepInterval"/>
+    /// on purpose, so a row that always fails ends up retried at the safety-sweep pace instead of
+    /// being polled all day.
     /// </summary>
     private static readonly TimeSpan[] RetryBackoffs =
     [
@@ -68,8 +70,8 @@ internal sealed partial class OutboxRelay : BackgroundService
         {
             int failedPasses = 0;
 
-            // The first pass runs before any wait: the startup catch-up sweep that publishes rows
-            // whose nudge died with the previous process.
+            // The first pass runs before any wait. It is the catch-up sweep at startup, which
+            // publishes rows whose signal was lost when the previous process ended.
             while (!stoppingToken.IsCancellationRequested)
             {
                 bool passWasClean = await ProcessPendingAsync(stoppingToken);
@@ -84,14 +86,14 @@ internal sealed partial class OutboxRelay : BackgroundService
         }
         catch (OperationCanceledException)
         {
-            // Graceful shutdown.
+            // The app is shutting down, which is not an error.
         }
     }
 
     /// <summary>
-    /// Drains every pending row in <see cref="BatchSize"/> slices. Returns <c>false</c> when any
-    /// row failed (broker refusal, unroutable type, database fault), so the caller backs off
-    /// instead of re-fetching the same failing rows in a tight loop.
+    /// Works through every pending row, <see cref="BatchSize"/> at a time. It returns <c>false</c> when
+    /// any row failed, whether the broker refused it, nothing is bound to its key, or the database
+    /// failed. The caller then waits instead of fetching the same failing rows again at once.
     /// </summary>
     private async Task<bool> ProcessPendingAsync(CancellationToken stoppingToken)
     {
@@ -143,10 +145,9 @@ internal sealed partial class OutboxRelay : BackgroundService
     }
 
     /// <summary>
-    /// Publishes one row and saves its outcome immediately: marking per message rather than per
-    /// batch narrows the crash window in which an already-published message gets re-published
-    /// after a restart (the outbox is at-least-once either way; consumers deduplicate on the
-    /// message id).
+    /// Publishes one row and saves the result at once. Marking each message instead of a whole batch
+    /// shortens the window in which a crash makes us publish an already published message again after
+    /// a restart. The outbox is at-least-once either way, and consumers drop duplicates by message id.
     /// </summary>
     private async Task<bool> PublishOneAsync(
         AuthDbContext db,
@@ -172,8 +173,8 @@ internal sealed partial class OutboxRelay : BackgroundService
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
-                // MarkFailed guards against blank input, and Exception.Message is external data —
-                // an exception type with an empty message must not blow up the whole pass.
+                // MarkFailed rejects a blank value, and Exception.Message comes from outside our code.
+                // An exception type with an empty message must not break the whole pass.
                 string error = string.IsNullOrWhiteSpace(ex.Message) ? ex.GetType().Name : ex.Message;
                 message.MarkFailed(error);
                 LogMessagePublishFailed(_logger, ex, message.Id, message.Type, message.Attempts);

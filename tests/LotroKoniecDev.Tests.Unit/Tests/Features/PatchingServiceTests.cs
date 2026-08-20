@@ -27,9 +27,9 @@ public sealed class PatchingServiceTests
     private const string FixtureFragmentText = "Test";
 
     /// <summary>
-    /// The digest of the fixture fragment's own export form (ADR-0047 §3, clause (a)). A row
-    /// carrying it is one made for the English the DAT actually holds — the ordinary case, so it is
-    /// what <see cref="CreateTranslation"/> defaults to.
+    /// The digest of the fixture fragment's own export form (ADR-0047 §3, rule (a)). A row carrying it
+    /// was made for the English the DAT really holds, which is the normal case, so
+    /// <see cref="CreateTranslation"/> uses it by default.
     /// </summary>
     private static readonly string PristineSourceDigest = SourceDigest.ForExportForm(FixtureFragmentText, 0);
 
@@ -91,7 +91,7 @@ public sealed class PatchingServiceTests
             SourceDigest = sourceDigest ?? PristineSourceDigest
         };
 
-    /// <summary>A row off a six-column translation file — hand-made, or an artifact predating ADR-0047.</summary>
+    /// <summary>A row from a six-column translation file, either hand-made or written before ADR-0047.</summary>
     private static Translation CreateSixColumnTranslation() =>
         new()
         {
@@ -154,9 +154,9 @@ public sealed class PatchingServiceTests
     [Fact]
     public void ApplyTranslations_WhenEveryLineWasRejected_ShouldSayWhyInsteadOfJustNoTranslations()
     {
-        // Arrange: the failure path drops the warning list (the CLI prints it only on success), so
-        // without the reason in the Error itself a wholly corrupt polish.txt would report a bare
-        // "No translations to apply" — the exact silence ADR-0042 exists to remove.
+        // Arrange: on the failure path the warning list is dropped, because the CLI only prints it after
+        // a success. So without the reason inside the Error itself, a completely broken polish.txt would
+        // report a bare "No translations to apply", which is exactly the silence ADR-0042 removes.
         SetupAllPassingDefaults();
         SetupParsedFile([], ["Error parsing line '1||2||c||1-x||NULL||1': the args_order column is malformed."]);
 
@@ -280,8 +280,8 @@ public sealed class PatchingServiceTests
         result.Value.SkippedTranslations.ShouldBe(1);
         result.Value.Warnings.ShouldContain(w => w.Contains("32768 characters"));
 
-        // The row is screened before any subfile is loaded, so nothing is committed on its account —
-        // this is what keeps a bad row from leaving a half-patched DAT behind.
+        // The row is checked before any subfile is loaded, so nothing is written because of it. That is
+        // what stops a bad row from leaving a half-patched DAT behind.
         _datFileHandler.DidNotReceive().PutSubfileData(
             Arg.Any<int>(), Arg.Any<int>(), Arg.Any<byte[]>(), Arg.Any<int>(), Arg.Any<int>());
     }
@@ -887,9 +887,10 @@ public sealed class PatchingServiceTests
     [Fact]
     public void ApplyTranslations_MixedSubFile_ShouldWriteItOnceAndRecordOnlyTheAdmittedRow()
     {
-        // Arrange: one subfile, two rows: the first still holds its English (admitted), the second's
-        // English moved (refused). The subfile is written back exactly once, and only the admitted
-        // row reaches the ledger — a refused row's fragment holds SSG's text, not ours.
+        // Arrange: one subfile with two rows. The first still holds its English and is written, and the
+        // second's English changed and is refused. The subfile is written back exactly once, and only the
+        // written row reaches the ledger, because a refused row's fragment holds SSG's text and not
+        // ours.
         SetupAllPassingDefaults();
         _datFileHandler.GetSubfileData(DatHandle, TextFileId, 100)
             .Returns(Result.Success(TestDataFactory.CreateTextSubFileData(TextFileId, FragmentId1, 2)));

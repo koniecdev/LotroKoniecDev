@@ -187,7 +187,8 @@ public sealed class TranslationAggregateHateoasTests : IAsyncLifetime
         response.Links.ShouldNotContain(l => l.Rel == Rels.FirstPage);
         response.Links.ShouldNotContain(l => l.Rel == Rels.LastPage);
 
-        // Assert: the admin-only bulk-approve collection affordance (#322) drives the FE checkbox toolbar.
+        // Assert: the admin-only bulk-approve link on the collection (#322) is what shows the checkbox
+        // toolbar in the frontend.
         response.Links.ShouldContain(l => l.Rel == Rels.BulkApprove && l.Method == "POST");
     }
 
@@ -213,7 +214,7 @@ public sealed class TranslationAggregateHateoasTests : IAsyncLifetime
         // On page 1 the backward jumps lead nowhere, so the pager renders them disabled (#545).
         response.Links.ShouldNotContain(l => l.Rel == Rels.FirstPage);
         response.Links.ShouldNotContain(l => l.Rel == Rels.PreviousPage);
-        // The bulk-approve affordance is reviewer-only, so the anonymous envelope must not carry it.
+        // Only a reviewer may bulk-approve, so the anonymous response must not carry that link.
         response.Links.ShouldNotContain(l => l.Rel == Rels.BulkApprove);
     }
 

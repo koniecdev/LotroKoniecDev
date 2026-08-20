@@ -481,7 +481,7 @@ public sealed class TranslationFileParserTests : IDisposable
     [Fact]
     public void ParseLine_SixColumnLine_ShouldSucceedWithoutADigestRatherThanRejectTheRow()
     {
-        // Act: load-bearing (ADR-0047 §3): rejecting here would make a wholly six-column file
+        // Act: this matters (ADR-0047 §3). Rejecting here would make a file that is six columns throughout
         // NoTranslationsEveryLineRejected, which the launch path turns into RepatchFailed and
         // refuses to start the game on. The GUARD skips such rows; the parser never does.
         Result<Translation> result = new TranslationFileParser()

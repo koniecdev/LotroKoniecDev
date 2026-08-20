@@ -140,7 +140,7 @@ public sealed class AccountTests : BunitContext
     [Fact]
     public void Render_WhenTheLoadIsUnauthorized_RedirectsToLoginInsteadOfTheErrorPanel()
     {
-        // The branch order is load-bearing: IsUnauthorized must win over the generic failure panel,
+        // The order of the branches matters: IsUnauthorized has to win over the general failure panel,
         // or an expired session dead-ends on an error box instead of bouncing through login.
         StubUnauthorizedExport();
 

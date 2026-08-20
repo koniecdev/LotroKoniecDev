@@ -15,10 +15,10 @@ namespace LotroKoniecDev.Architecture.Tests.Unit.Tests;
 /// handler's dependency list.
 /// </summary>
 /// <remarks>
-/// The mirror-image rule — "a command handler may not see the read context" — is deliberately NOT
-/// asserted: <c>UpsertTranslation</c> re-reads the committed row through the read model so the response
-/// carries the joined submitter/approver display names (ADR-0004). The split that matters is
-/// one-directional: the write model never serves a query.
+/// The opposite rule, that a command handler may not use the read context, is deliberately not checked.
+/// <c>UpsertTranslation</c> reads the committed row back through the read model so the response can
+/// carry the joined display names of the submitter and approver (ADR-0004). The split that matters goes
+/// one way only: the write model never serves a query.
 /// </remarks>
 public sealed class CqrsSeparationTests
 {

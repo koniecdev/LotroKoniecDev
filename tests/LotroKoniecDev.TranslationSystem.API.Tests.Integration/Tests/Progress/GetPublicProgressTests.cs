@@ -157,7 +157,7 @@ public sealed class GetPublicProgressTests : IAsyncLifetime
         PublicProgressResponse second = await ProgressAsync();
 
         // Assert: served entirely from the cache: identical payload and zero read-context SQL
-        // (the recorded command stream is the only seam that can prove "no second query").
+        // (the recorded command stream is the only place that can prove "no second query").
         second.ShouldBe(first);
         _factory.ReadContextSqlRecorder.Commands.ShouldBeEmpty();
     }

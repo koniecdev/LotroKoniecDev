@@ -7,9 +7,9 @@ namespace LotroKoniecDev.Architecture.Tests.Unit.Tests;
 /// sealed unless another production type actually derives from it.
 /// </summary>
 /// <remarks>
-/// Types whose SHAPE is dictated by a framework are out of scope — a generated EF migration, a Razor
-/// component, view or <c>_Imports</c> marker, and the top-level-statement <c>Program</c> marker cannot
-/// carry the modifier without hand-editing generated code. Everything else has to be sealed.
+/// Types whose shape a framework decides are out of scope: a generated EF migration, a Razor component,
+/// a view, an <c>_Imports</c> marker and the <c>Program</c> marker from top-level statements cannot
+/// carry the modifier without editing generated code by hand. Everything else has to be sealed.
 /// </remarks>
 public sealed class SealedConventionTests
 {
@@ -23,8 +23,9 @@ public sealed class SealedConventionTests
     ];
 
     /// <summary>
-    /// Real violations that predate this suite, each fixed under its own ticket — #570 is a test-only
-    /// change. Keyed by type full name, valued by the ticket that removes the entry. Empty since #599.
+    /// Real violations that existed before this suite, each fixed under its own ticket. #570 only added
+    /// tests. The key is the full type name and the value is the ticket that removes the entry. It has
+    /// been empty since #599.
     /// </summary>
     private static readonly Dictionary<string, string> KnownViolations = new(StringComparer.Ordinal);
 

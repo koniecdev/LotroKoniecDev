@@ -5,13 +5,13 @@ namespace LotroKoniecDev.Tests.Shared;
 /// <summary>
 /// Shared xUnit theory sources over the Big List of Naughty Strings (the <c>NaughtyStrings</c>
 /// package, #569). The file is <em>linked</em> into every pure unit suite that hardens a
-/// string-heavy seam, so the hostile-input matrix is declared once instead of copy-pasted per
-/// project; a suite picks the narrowest source that still covers its seam.
+/// place that handles a lot of strings, so the list of hostile inputs is written once instead of copied
+/// into each project. A suite picks the smallest source that still covers what it tests.
 /// </summary>
 /// <remarks>
-/// The categories below are grouped by the hazard they pose to <em>this</em> codebase — a
-/// UTF-16 binary format on one side of the <c>||</c> contract and a line-oriented text file on the
-/// other — not by the taxonomy of the upstream list.
+/// The categories below are grouped by the danger they pose to this codebase, a UTF-16 binary format on
+/// one side of the <c>||</c> contract and a line-based text file on the other, and not by the categories
+/// the upstream list uses.
 /// </remarks>
 internal static class NaughtyStringCases
 {
@@ -22,22 +22,21 @@ internal static class NaughtyStringCases
     /// <remarks>
     /// The list carries no empty entry (its shortest is one character) and no entry ending in an
     /// odd run of <c>|</c>, so the empty-content and pipe-boundary cases of the <c>||</c> contract
-    /// have to be composed by hand — see the explicit theories in the parser suites.
+    /// have to be written by hand. See the explicit theories in the parser suites.
     /// </remarks>
     public static TheoryData<string> All => ToTheoryData(AllValues);
 
     /// <summary>
-    /// The same list as <see cref="All"/>, raw — for a suite that has to filter the corpus down to
-    /// the inputs its seam actually accepts before building its own <see cref="TheoryData{T}"/>.
-    /// Filtering at the source keeps the resulting assertion unconditional, which a branch inside
-    /// the test would not.
+    /// The same list as <see cref="All"/>, unwrapped, for a suite that has to narrow the set down to the
+    /// inputs its code actually accepts before it builds its own <see cref="TheoryData{T}"/>.
+    /// Filtering here keeps the assertion unconditional, which a branch inside the test would not.
     /// </summary>
     public static IReadOnlyList<string> AllValues { get; } =
         TheNaughtyStrings.All.Distinct(StringComparer.Ordinal).ToList();
 
     /// <summary>
     /// Strings whose UTF-16 representation is the hazard: surrogate pairs (emoji), two-byte and
-    /// astral-plane characters, combining marks, bidi controls and invisible code points. These
+    /// characters outside the basic plane, combining marks, bidi controls and invisible code points. These
     /// are what a <c>char</c>-counting binary writer gets wrong.
     /// </summary>
     public static TheoryData<string> UnicodeHazards => ToTheoryData(
@@ -57,8 +56,8 @@ internal static class NaughtyStringCases
     ]);
 
     /// <summary>
-    /// Quote, escape and punctuation soup — the strings most likely to collide with a delimited
-    /// text format: ASCII punctuation (including <c>|</c>, <c>#</c> and the backslash), smart and
+    /// A mix of quotes, escapes and punctuation: the strings most likely to clash with a delimited text
+    /// format. It includes ASCII punctuation, among it <c>|</c>, <c>#</c> and the backslash, curly and
     /// misplaced quotation marks, injection payloads and terminal escape codes.
     /// </summary>
     public static TheoryData<string> DelimiterHazards => ToTheoryData(
@@ -77,13 +76,14 @@ internal static class NaughtyStringCases
     ]);
 
     /// <summary>
-    /// Every string over the alphabet <c>{'a', '|'}</c> up to six characters — 127 entries covering
-    /// every pipe run the <c>||</c> contract can meet at either content boundary, in both parities,
-    /// including the empty string. The naughty corpus deliberately carries none of these (no entry
-    /// ends in an odd run of <c>|</c>), and hand-picked cases only sample the hazard: an odd
-    /// trailing run silently lost its last pipe into the args column for the life of the format
-    /// (#597, fixed by ADR-0042). Exhaustive is cheap here and pins the carving against a future
-    /// "simplification" back to <c>string.Split</c>.
+    /// Every string of up to six characters made of <c>a</c> and <c>|</c>: 127 entries covering every run
+    /// of pipes the <c>||</c> contract can meet at either end of the content, odd and even, including the
+    /// empty string.
+    /// The naughty list has none of these, because no entry ends in an odd run of <c>|</c>, and
+    /// hand-picked cases only sample the problem: an odd run at the end quietly lost its last pipe into
+    /// the args column for the whole life of the format (#597, fixed by ADR-0042).
+    /// Testing all of them is cheap here and protects the carving from a future "simplification" back to
+    /// <c>string.Split</c>.
     /// </summary>
     public static TheoryData<string> PipeRuns => ToTheoryData(BuildPipeRuns(maxLength: 6));
 
@@ -110,16 +110,16 @@ internal static class NaughtyStringCases
     }
 
     /// <summary>
-    /// Digits a human reads as a number but <see cref="int.TryParse(string, out int)"/> does not —
-    /// fullwidth, Arabic-Indic and other non-ASCII numerals. Aimed at the two id columns of the
-    /// <c>||</c> contract, which must reject them rather than mis-parse them into a wrong fragment.
+    /// Digits a person reads as a number but <see cref="int.TryParse(string, out int)"/> does not:
+    /// fullwidth, Arabic-Indic and other non-ASCII numerals. They target the two id columns of the
+    /// <c>||</c> contract, which must reject them and not read them as the wrong fragment.
     /// </summary>
     public static TheoryData<string> NonAsciiDigits => ToTheoryData(TheNaughtyStrings.UnicodeNumbers);
 
     /// <summary>
-    /// Every naughty string that the API's <c>NotEmpty()</c> guard lets through as translated text
-    /// (i.e. not blank once whitespace is discounted) — the exact set a translator can actually get
-    /// into the <c>TranslatedText</c> column, and therefore into the distributed file.
+    /// Every naughty string the API's <c>NotEmpty()</c> check lets through as translated text, meaning it
+    /// is not blank once whitespace is ignored. That is exactly the set a translator can really get into
+    /// the <c>TranslatedText</c> column, and therefore into the distributed file.
     /// </summary>
     public static TheoryData<string> SubmittableText
         => ToTheoryData(AllValues.Where(value => !string.IsNullOrWhiteSpace(value)));
@@ -133,10 +133,10 @@ internal static class NaughtyStringCases
         => ToTheoryData(AllValues.Where(string.IsNullOrWhiteSpace));
 
     /// <summary>
-    /// Distinct on purpose: the upstream list repeats two entries (<c>-</c> and a smart-quote tag),
-    /// and the merged category sources above overlap. xUnit derives a test-case id from the
-    /// argument, so a duplicate is dropped anyway — but only after logging a
-    /// "Skipping test case with duplicate ID" line on every single run.
+    /// Deduplicated on purpose: the upstream list repeats two entries, <c>-</c> and a curly-quote tag, and
+    /// the merged categories above overlap. xUnit builds a test-case id from the argument, so a duplicate
+    /// is dropped anyway, but only after it logs a "Skipping test case with duplicate ID" line on every
+    /// run.
     /// </summary>
     private static TheoryData<string> ToTheoryData(IEnumerable<string> values)
     {

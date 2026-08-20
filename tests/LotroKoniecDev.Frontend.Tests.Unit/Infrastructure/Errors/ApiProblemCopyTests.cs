@@ -339,7 +339,7 @@ public sealed class ApiProblemCopyTests
     [Fact]
     public async Task Describe_OnAProblemParsedFromARealApiResponse_ShowsThePolishCopy()
     {
-        // End to end across the seam that actually produces the ProblemDetails a page renders: the
+        // End to end through the code that really produces the ProblemDetails a page shows: the
         // body below is exactly what ErrorExtensions.ToProblemDetails writes for a rejected save.
         const string apiResponseBody = """
             {

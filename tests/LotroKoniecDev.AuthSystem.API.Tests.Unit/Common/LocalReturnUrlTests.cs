@@ -3,9 +3,9 @@ using LotroKoniecDev.AuthSystem.API.Common;
 namespace LotroKoniecDev.AuthSystem.API.Tests.Unit.Common;
 
 /// <summary>
-/// The auth pages reflect <c>returnUrl</c> into their own links and redirect to it after a
-/// successful sign-in, so anything this guard lets through becomes an open redirect on the auth
-/// origin — the highest-value phishing target in the stack.
+/// The auth pages put <c>returnUrl</c> into their own links and redirect to it after a successful
+/// sign-in, so anything this check lets through becomes an open redirect on the auth origin, which is
+/// the most valuable phishing target we have.
 /// </summary>
 public sealed class LocalReturnUrlTests
 {
@@ -36,10 +36,10 @@ public sealed class LocalReturnUrlTests
     }
 
     /// <summary>
-    /// Browsers strip ASCII tab and newline before parsing, so <c>/&lt;tab&gt;/evil.example</c> reads
-    /// as the protocol-relative <c>//evil.example</c> — it must never be reflected into a link on the
-    /// page. Arriving as <c>%09</c> in the query string, the value is already decoded by model
-    /// binding when it reaches the guard.
+    /// Browsers drop ASCII tab and newline before they parse a URL, so <c>/&lt;tab&gt;/evil.example</c>
+    /// reads as <c>//evil.example</c> and must never end up in a link on the page. It arrives as
+    /// <c>%09</c> in the query string, and model binding has already decoded it by the time the check
+    /// sees it.
     /// </summary>
     [Theory]
     [InlineData("/\t/evil.example")]

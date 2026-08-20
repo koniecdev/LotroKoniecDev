@@ -39,10 +39,10 @@ public sealed class SuiteSelfTests
     /// never joins <see cref="ProductionAssemblies.All"/>, so no rule ever sees it.
     /// </summary>
     /// <remarks>
-    /// Reads this suite's OWN build output — the same directory <c>Assembly.Load</c> already resolves from,
-    /// so it stays deterministic, order-free and cross-platform. <c>GetReferencedAssemblies()</c> cannot do
-    /// the job: it lists only the assemblies the compiler actually bound, and most of the search set is
-    /// reached by name, never by a compile-time reference.
+    /// It reads this suite's own build output, the same directory <c>Assembly.Load</c> already uses, so it
+    /// gives the same answer every time, in any order, on any platform.
+    /// <c>GetReferencedAssemblies()</c> cannot do this: it only lists the assemblies the compiler really
+    /// bound, and most of the search set is loaded by name and never referenced at compile time.
     /// </remarks>
     [Fact]
     public void SearchSet_EveryProductionAssemblyInTheBuildOutput_IsUnderRule()

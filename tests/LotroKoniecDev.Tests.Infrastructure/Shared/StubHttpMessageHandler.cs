@@ -1,7 +1,7 @@
 namespace LotroKoniecDev.Tests.Infrastructure.Shared;
 
 /// <summary>
-/// In-memory <see cref="HttpMessageHandler"/> returning one prepared response — no real network.
+/// An in-memory <see cref="HttpMessageHandler"/> that returns one prepared response, with no network.
 /// </summary>
 internal sealed class StubHttpMessageHandler : HttpMessageHandler
 {

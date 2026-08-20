@@ -3,10 +3,11 @@ using Microsoft.Playwright;
 namespace LotroKoniecDev.Frontend.E2E.Tests.Infrastructure;
 
 /// <summary>
-/// Base for every browser flow. Owns a per-test <see cref="IBrowserContext"/> (isolated cookies, so
-/// auth never leaks between cases) and a page off the shared in-network browser the
-/// <see cref="PlaywrightStackFixture"/> connected. The context ignores HTTPS errors — the stack
-/// serves a self-signed e2e cert. All element lookups go through role/label or <c>data-testid</c>.
+/// The base class for every browser flow. Each test gets its own <see cref="IBrowserContext"/>, so
+/// cookies and logins never leak between cases, and a page from the shared in-network browser that
+/// <see cref="PlaywrightStackFixture"/> connected.
+/// The context ignores HTTPS errors, because the stack serves a self-signed certificate. Elements are
+/// always found by role, by label or by <c>data-testid</c>.
 /// </summary>
 [Collection(E2ECollection.Name)]
 [Trait("Category", "E2E-Frontend")]

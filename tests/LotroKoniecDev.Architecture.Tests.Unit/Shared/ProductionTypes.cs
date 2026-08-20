@@ -4,14 +4,14 @@ using System.Runtime.CompilerServices;
 namespace LotroKoniecDev.Architecture.Tests.Unit.Shared;
 
 /// <summary>
-/// Hand-written types of the production assemblies — everything the compiler synthesised (closures,
-/// async state machines, <c>[GeneratedRegex]</c> helpers, the top-level-statement entry point) is
-/// dropped, because no house rule can bind code nobody wrote.
+/// The types someone wrote by hand in the production assemblies. Everything the compiler generated is
+/// left out: closures, async state machines, <c>[GeneratedRegex]</c> helpers and the entry point built
+/// from top-level statements. No house rule can apply to code nobody wrote.
 /// </summary>
 /// <remarks>
-/// Reflection, not NetArchTest, backs the CONVENTION rules: NetArchTest's predicate DSL cannot express
-/// "sealed unless another production type inherits it", nor read a validator's generic argument. The
-/// DEPENDENCY rules stay on NetArchTest, which scans the full IL of every member.
+/// The convention rules use reflection and not NetArchTest, because NetArchTest cannot express "sealed
+/// unless another production type inherits it", and it cannot read a validator's generic argument. The
+/// dependency rules stay on NetArchTest, which scans the full IL of every member.
 /// </remarks>
 internal static class ProductionTypes
 {
@@ -22,8 +22,8 @@ internal static class ProductionTypes
         assembly.GetTypes().Where(type => !IsCompilerGenerated(type)).ToList();
 
     /// <summary>
-    /// Every production type closing at least one of <paramref name="openGenericInterfaces"/> — the way
-    /// to find "all query handlers" or "all validators" without guessing at type names.
+    /// Every production type that implements at least one of <paramref name="openGenericInterfaces"/>.
+    /// This is how we find "all query handlers" or "all validators" without guessing at type names.
     /// </summary>
     internal static IReadOnlyList<Type> ImplementingAny(params Type[] openGenericInterfaces) =>
         All.Where(type => ClosedInterfacesOf(type, openGenericInterfaces).Count > 0).ToList();

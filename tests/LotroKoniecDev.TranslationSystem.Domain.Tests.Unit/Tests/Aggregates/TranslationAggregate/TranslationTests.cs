@@ -197,9 +197,10 @@ public sealed class TranslationTests
     [Fact]
     public void ProvideTranslation_TextLongerThanTheDatAllows_ShouldThrowAndLeaveTheRowUntouched()
     {
-        // Arrange: a programmer-error guard like the blank-text one beside it: UpsertTranslation's
-        // validator is what turns this into a message for the translator (#598). What matters here is
-        // that a rejected text cannot half-apply — no Polish, no submitter, no status change.
+        // Arrange: a check for a programmer error, like the blank-text one next to it.
+        // UpsertTranslation's validator is what turns this into a message for the translator (#598).
+        // What matters here is that a rejected text changes nothing at all: no Polish, no submitter and
+        // no status change.
         Translation translation = CreateUntranslated();
         string tooLong = new('ż', DatFormatConstants.MaxTranslatedTextLength + 1);
 

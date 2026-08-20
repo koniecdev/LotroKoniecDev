@@ -44,7 +44,7 @@ public sealed class ImportExportedTextsHandlerTests
         _gameVersionRepository.GetUnprocessedDetectedBeforeAsync(Arg.Any<DateTimeOffset>(), Arg.Any<CancellationToken>())
             .Returns([]);
 
-        // The transaction seam runs its operation for real against the stubbed boundaries, so the
+        // The transaction wrapper really runs its operation against the stubbed boundaries, so the
         // success path still exercises the COPY + SaveChanges orchestration the handler wraps.
         // NSubstitute 6 annotates CallInfo.Arg<T>() as possibly-null; the captured delegate is
         // always present here because the stub only ever runs against a real call.

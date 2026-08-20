@@ -223,10 +223,10 @@
     private long GossipIdField { get; set; }
 
     /// <summary>
-    /// Post-Redirect-Get success flags carried in the query string by the redirect target, so the save /
-    /// approve confirmation survives the redirect without any per-user server state — the page stays
-    /// SSR-pure (#321). They linger on a manual reload of the same URL, which is a deliberate,
-    /// harmless trade-off against the heavier one-shot-cookie flash.
+    /// Success flags the redirect puts into the query string, so the confirmation for a save or an approve
+    /// survives the redirect with no per-user state on the server and the page stays pure SSR (#321).
+    /// They stay if the user reloads the same URL by hand, which is a deliberate and harmless trade-off
+    /// against the heavier one-time cookie.
     /// </summary>
     [SupplyParameterFromQuery]
     private bool Saved { get; set; }
@@ -260,11 +260,12 @@
         _saveProblem = null;
         _draftText = DraftField ?? string.Empty;
 
-        // Follow the row's server-advertised upsert href (never a client-submitted one — that would let a
-        // tampered post redirect the bearer-token request off-host). The upsert rel is row-independent
-        // (it always points at the collection PUT), so whenever the row cannot supply it — unloadable on
-        // a recovery resubmit, or loaded but withholding the rel — we resolve the same rel from the
-        // service document instead of a compiled-in path (#610). The server still rules on the request.
+        // Follow the upsert href the server sent, never one that came with the post, because a changed
+        // post could send the request, and its token, to another host.
+        // The upsert rel does not depend on the row; it always points at the collection PUT. So whenever
+        // the row cannot give it to us, either because it could not be loaded on a recovery resubmit or
+        // because it was loaded without that rel, we read the same rel from the service document instead
+        // of using a path written into the code (#610). The server still decides on the request.
         string? upsertHref = _detail?.Links.FindLink(Rels.Upsert)?.Href;
         if (upsertHref is null)
         {
@@ -283,10 +284,10 @@
 
         if (result.IsSuccess)
         {
-            // Post-Redirect-Get (#321): redirect to the row's GET view so a browser reload becomes a safe
-            // GET (no "resubmit the post?" prompt) and the fresh load re-derives the server's HATEOAS
-            // links — the approve button appears on a just-saved row with no manual refresh. On failure we
-            // deliberately do NOT redirect, so the typed draft and the error stay on screen for recovery.
+            // Redirect after post (#321): go to the row's GET view, so a browser reload is a plain GET
+            // with no "resend this form?" prompt, and the fresh load reads the server's links again, which
+            // makes the approve button appear on a row that was just saved with no manual refresh.
+            // On failure we deliberately do not redirect, so the typed draft and the error stay on screen.
             Navigation.NavigateTo(EditorUriWithFlag("saved"));
             return;
         }
@@ -298,8 +299,9 @@
     {
         _approveProblem = null;
 
-        // Link-driven: the API emits the approve rel only for a reviewer on a Draft/NeedsReview row, so
-        // its presence on the freshly loaded detail is the whole gate — no local role/status recompute.
+        // Driven by the links: the API only sends the approve rel to a reviewer on a Draft or NeedsReview
+        // row, so its presence on the freshly loaded row is the whole check. Nothing here works out the
+        // role or the status.
         LinkDto? approveLink = _detail?.Links.FindLink(Rels.Approve);
         if (approveLink is null)
         {
@@ -309,9 +311,9 @@
         ApiResult result = await Loader.ApproveAsync(approveLink.Href, CancellationToken.None);
         if (result.IsSuccess)
         {
-            // Post-Redirect-Get (#321): the redirect's GET reloads the row, so the status badge and the
-            // now-withdrawn approve affordance reflect the approved state — replaces the inline reload and
-            // makes a browser refresh safe.
+            // Redirect after post (#321): the redirect's GET loads the row again, so the status badge and
+            // the approve button, which is now gone, show the approved state. It replaces the inline
+            // reload and makes a browser refresh safe.
             Navigation.NavigateTo(EditorUriWithFlag("approved"));
             return;
         }
@@ -320,9 +322,10 @@
     }
 
     /// <summary>
-    /// The Post-Redirect-Get target: this row's own GET view carrying a one-shot success flag. Redirecting
-    /// after a successful post turns a browser reload into a safe GET and re-runs the load, so the server's
-    /// fresh HATEOAS links render without a manual refresh — all with no per-user server state (#321).
+    /// Where the redirect after a post goes: this row's own GET view with a one-time success flag.
+    /// Redirecting after a successful post makes a browser reload a plain GET and runs the load again, so
+    /// the server's fresh links appear without a manual refresh, and all of it needs no per-user state on
+    /// the server (#321).
     /// </summary>
     private string EditorUriWithFlag(string successFlag) =>
         string.Create(CultureInfo.InvariantCulture, $"/editor/{Id}?{successFlag}=true");

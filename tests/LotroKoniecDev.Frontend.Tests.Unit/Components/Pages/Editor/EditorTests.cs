@@ -184,7 +184,7 @@ public sealed class EditorTests : BunitContext
     [Fact]
     public void Render_WhenDetailLacksTheApproveRel_HidesTheApproveButton()
     {
-        // The same authenticated non-reviewer: the affordance is gated purely by the absent rel, with no
+        // The same logged-in caller who is not a reviewer: the button is hidden purely by the missing rel, with no
         // local role/status recomputation in the editor.
         StubLoad(BuildDetail(sourceText: "Hello.", translatedText: "Cześć.", canApprove: false));
 

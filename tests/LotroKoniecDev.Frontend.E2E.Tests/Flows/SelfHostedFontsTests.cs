@@ -6,10 +6,11 @@ using Shouldly;
 namespace LotroKoniecDev.Frontend.E2E.Tests.Flows;
 
 /// <summary>
-/// LEGAL-06 — web fonts are self-hosted: no browser request may leave to
-/// <c>fonts.googleapis.com</c> / <c>fonts.gstatic.com</c> (or any other Google host) from either
-/// the frontend or the auth hosted pages, and the vendored Manrope/JetBrains Mono files must
-/// actually load so the same families keep rendering. Needs no account and no seeded database.
+/// LEGAL-06: we host the web fonts ourselves. No browser request may go to
+/// <c>fonts.googleapis.com</c>, <c>fonts.gstatic.com</c> or any other Google host, from either the
+/// frontend or the auth pages, and the Manrope and JetBrains Mono files we ship must really load so the
+/// same fonts keep rendering.
+/// It needs no account and nothing seeded.
 /// </summary>
 public sealed class SelfHostedFontsTests : E2ETestBase
 {

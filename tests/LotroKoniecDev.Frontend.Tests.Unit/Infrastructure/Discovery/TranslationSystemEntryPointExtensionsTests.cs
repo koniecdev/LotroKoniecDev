@@ -68,7 +68,7 @@ public sealed class TranslationSystemEntryPointExtensionsTests
     public async Task ResolveTranslationSystemHrefAsync_WhenTheRelIsANonGetAffordance_StillResolvesIt()
     {
         // The document carries one link per entry point; the rel is the whole lookup key. A write
-        // affordance (PUT upsert) must resolve just as a GET does.
+        // action (the PUT upsert) must resolve just as a GET does.
         IDiscoveryCache cache = StubDiscoveryCache.Advertising(
             new LinkDto("/advertised/translations", Rels.Translations, HttpMethods.Get),
             new LinkDto("/advertised/upsert", Rels.Upsert, HttpMethods.Put));

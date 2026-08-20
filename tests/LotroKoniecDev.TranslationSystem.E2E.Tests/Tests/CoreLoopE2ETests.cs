@@ -12,10 +12,11 @@ using Xunit.Abstractions;
 namespace LotroKoniecDev.TranslationSystem.E2E.Tests.Tests;
 
 /// <summary>
-/// Drives the whole M2 core loop through the public HTTP endpoints of the containerised tms-api — register a
-/// game version, import the English baseline, list, translate, approve, distribute — with a real Admin token
-/// from auth-api (Admin also satisfies the translator policy), proving the assembled slices compose end-to-end
-/// over the network and that the distributed file is ETag-cacheable.
+/// Runs the whole M2 core loop through the public HTTP endpoints of the tms-api container: register a game
+/// version, import the English baseline, list, translate, approve and distribute. It uses a real admin
+/// token from auth-api, and admin also satisfies the translator policy.
+/// That shows the separate slices work together over the network and that the distributed file can be
+/// cached with an ETag.
 /// </summary>
 public sealed class CoreLoopE2ETests : E2ETestBase
 {
@@ -56,9 +57,9 @@ public sealed class CoreLoopE2ETests : E2ETestBase
             HttpResponseMessage approve = await admin.ApproveRawAsync(edited.Id.Value);
             approve.StatusCode.ShouldBe(HttpStatusCode.NoContent);
 
-            // Download the distributed file (anonymous): the approved row is in, the untranslated one
-            // is out. The artifact is rebuilt in the background, debounced (PERF-04) — poll until the
-            // approve's rebuild has converged.
+            // Download the distributed file without logging in: the approved row is in it and the
+            // untranslated one is not. The file is rebuilt in the background after a short delay
+            // (PERF-04), so poll until the approve's rebuild has finished.
             (HttpResponseMessage download, string file) = await TranslationFileDownloadPolling.DownloadWhenConvergedAsync(
                 anonymous,
                 Language,

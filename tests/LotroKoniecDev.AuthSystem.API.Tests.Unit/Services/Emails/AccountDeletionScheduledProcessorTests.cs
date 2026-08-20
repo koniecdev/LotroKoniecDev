@@ -40,9 +40,9 @@ public sealed class AccountDeletionScheduledProcessorTests
     [Fact]
     public async Task ProcessAsync_ScheduleWasCancelledInTheGap_SucceedsWithoutSending()
     {
-        // The drift guard (ADR-0038 decision 2): a cancellation racing this message wins — a
-        // stale "your account will be deleted" must never go out, and redelivery cannot change
-        // the outcome.
+        // The check from ADR-0038 decision 2: if a cancellation arrives at the same time, it wins. An
+        // out-of-date "your account will be deleted" must never go out, and sending the message again
+        // would not change that.
         ApplicationUser user = CreateUser();
         user.DeletionScheduledAt = null;
         _userManager.FindByIdAsync(user.Id.ToString()).Returns(user);

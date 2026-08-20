@@ -7,7 +7,7 @@ using LotroKoniecDev.Hateoas.Abstractions;
 namespace LotroKoniecDev.TranslationSystem.API.Tests.Integration.Tests.Snapshots;
 
 /// <summary>
-/// The HTTP-to-snapshot seam shared by the response-contract suites (#571): issues the request with an
+/// The shared step from HTTP to snapshot used by the response-contract suites (#571). It sends the request with an
 /// explicit <c>Accept</c>, then re-indents the body so the verified file is reviewable line by line
 /// instead of one minified blob.
 /// </summary>

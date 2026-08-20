@@ -92,9 +92,9 @@
     {
         PaginationResponse<TranslationListItemResponse> pageData = _result.Value;
 
-        // The bulk-approve affordance is server-gated: the admin-only `bulk-approve` collection rel
-        // decides the checkbox column, and per-row the item's own `approve` rel decides which rows are
-        // selectable — never a locally recomputed role (#158, #322).
+        // The server decides about bulk approve: the admin-only `bulk-approve` rel on the collection
+        // decides whether the checkbox column appears, and each row's own `approve` rel decides whether
+        // that row can be ticked. Never a role check here (#158, #322).
         bool canBulkApprove = pageData.Links.HasLink(Rels.BulkApprove);
         bool anyApprovable = canBulkApprove && pageData.Items.Any(item => item.Links.HasLink(Rels.Approve));
 
@@ -307,18 +307,22 @@
     private int Page { get; set; }
 
     /// <summary>
-    /// The user-chosen rows-per-page, carried in the query by the filter form's page-size select and the
-    /// pager links (#323). Null on a fresh visit — <see cref="TranslationListQuery.From"/> then falls back
-    /// to <see cref="TranslationListQuery.DefaultPageSize"/>; an unsupported value snaps back to the default.
+    /// The page size the user chose, carried in the query string by the filter form's select and by the
+    /// pager links (#323). It is null on a first visit, and
+    /// <see cref="TranslationListQuery.From"/> then uses
+    /// <see cref="TranslationListQuery.DefaultPageSize"/>. A size we do not support also falls back to the
+    /// default.
     /// </summary>
     [SupplyParameterFromQuery]
     private int? PageSize { get; set; }
 
     /// <summary>
-    /// Post-Redirect-Get result counts carried in the query by the redirect target after a bulk approve,
-    /// so the confirmation survives the redirect with no per-user server state — the page stays SSR-pure
-    /// (#321, #322). Null on a fresh GET (no flash); 0 renders a "nothing approved" note; a positive count
-    /// renders the success flash. They linger on a manual reload, a deliberate, harmless trade-off.
+    /// The result counts the redirect puts into the query string after a bulk approve, so the confirmation
+    /// survives the redirect with no per-user state on the server and the page stays pure SSR (#321,
+    /// #322).
+    /// They are null on a plain GET, so no message is shown. A 0 shows the "nothing approved" note, and a
+    /// number above zero shows the success message. They stay if the user reloads by hand, which is a
+    /// deliberate and harmless trade-off.
     /// </summary>
     [SupplyParameterFromQuery]
     private int? Approved { get; set; }
@@ -326,9 +330,9 @@
     [SupplyParameterFromQuery]
     private int? Skipped { get; set; }
 
-    // A sparse checkbox selection maps to a dictionary keyed by row id: Blazor static-SSR form binding
-    // reads keyed names (`SelectedRows[<id>]`) — a repeated flat name does NOT bind to a collection —
-    // and only the checked rows post, so every entry that arrives is a selected row.
+    // A few ticked checkboxes map to a dictionary keyed by row id. Blazor's static SSR form binding reads
+    // keyed names such as `SelectedRows[<id>]`, and a plain name repeated many times does not bind to a
+    // collection at all. Only the ticked rows are posted, so every entry that arrives is a selected row.
     [SupplyParameterFromForm(FormName = "bulk-approve")]
     private Dictionary<Guid, bool>? SelectedRows { get; set; }
 
@@ -348,8 +352,8 @@
         _bulkProblem = null;
         _bulkNotice = null;
 
-        // Link-driven: the API emits the `bulk-approve` collection rel only for a reviewer, so its
-        // presence on the freshly loaded page is the whole gate — no local role recompute.
+        // Driven by the links: the API only sends the `bulk-approve` rel to a reviewer, so its presence on
+        // the freshly loaded page is the whole check. Nothing here works out the role.
         LinkDto? bulkLink = _result is { IsSuccess: true }
             ? _result.Value.Links.FindLink(Rels.BulkApprove)
             : null;
@@ -371,11 +375,12 @@
             await Loader.BulkApproveAsync(bulkLink.Href, ids, CancellationToken.None);
         if (result.IsSuccess)
         {
-            // Post-Redirect-Get (#321, #322): a successful mutation redirects to the list's GET view with
-            // the result counts in the query, so a browser reload is a safe GET (no "resubmit?" prompt),
-            // the fresh load re-derives the server's HATEOAS links (just-approved rows drop their checkbox),
-            // and the confirmation needs no per-user server state. On failure we deliberately do NOT
-            // redirect — the ProblemDetails and the intact pre-approval list stay on screen.
+            // Redirect after post (#321, #322): a successful change redirects to the list's GET view with
+            // the counts in the query string. A browser reload is then a plain GET with no "resend this
+            // form?" prompt, the fresh load reads the server's links again, so rows that were just
+            // approved lose their checkbox, and the confirmation needs no per-user state on the server.
+            // On failure we deliberately do not redirect, so the problem message and the list as it was
+            // before the approve stay on screen.
             Navigation.NavigateTo(
                 _query.ToPageRelativeUriWithApprovalResult(result.Value.Approved, result.Value.Skipped));
             return;

@@ -23,10 +23,11 @@ internal static class PlaywrightExtensions
             return;
         }
 
-        // Click the box, not the label's geometric center: the privacy-consent label's text wraps an
-        // <a> (the privacy-policy link), and on a wide single-line viewport the label center lands on
-        // that link — per the HTML spec a click on interactive content inside a <label> activates the
-        // link instead of toggling the control. The .box span is inert, so clicking it always toggles.
+        // Click the box and not the middle of the label. The privacy-consent label contains an <a>, the
+        // privacy-policy link, and on a wide viewport where the label fits on one line its middle lands
+        // on that link. By the HTML spec, clicking something interactive inside a <label> follows the
+        // link instead of ticking the box. The .box span does nothing on its own, so clicking it always
+        // ticks.
         await checkbox.Locator("xpath=ancestor::label[1]").Locator("span.box").ClickAsync();
     }
 }

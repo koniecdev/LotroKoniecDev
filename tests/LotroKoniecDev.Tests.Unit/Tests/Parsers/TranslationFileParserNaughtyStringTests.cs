@@ -6,22 +6,22 @@ using LotroKoniecDev.Tests.Shared;
 namespace LotroKoniecDev.Tests.Unit.Tests.Parsers;
 
 /// <summary>
-/// Hostile-input coverage for the patcher's half of the <c>||</c> contract (#569): the Big List of
-/// Naughty Strings driven through the exact producer/consumer pair the CLI uses — the escape
-/// <c>ExportTextsQueryHandler</c> applies when writing <c>exported.txt</c>, and
+/// Hostile-input coverage for the patcher's half of the <c>||</c> contract (#569). It runs the Big List
+/// of Naughty Strings through exactly the pair the CLI uses: the escape
+/// <c>ExportTextsQueryHandler</c> applies when it writes <c>exported.txt</c>, and
 /// <see cref="TranslationFileParser.ParseLine"/> reading it back.
 /// </summary>
 /// <remarks>
-/// Changing the format itself needs an ADR plus updated golden fixtures on both sides of the
-/// contract (CLAUDE.md) — ADR-0039 is the last one.
+/// Changing the format itself needs an ADR and updated golden fixtures on both sides of the contract
+/// (CLAUDE.md). ADR-0039 is the most recent one.
 /// </remarks>
 public sealed class TranslationFileParserNaughtyStringTests
 {
     private readonly TranslationFileParser _parser = new();
 
     /// <summary>
-    /// The escape the exporter applies to every fragment before writing a line — the real one
-    /// <c>ExportTextsQueryHandler</c> calls (ADR-0039), not a copy of it.
+    /// The escape the exporter applies to every fragment before it writes a line. This is the real one
+    /// <c>ExportTextsQueryHandler</c> calls (ADR-0039) and not a copy.
     /// </summary>
     private static string EscapeAsExporter(string text)
         => TranslationLineEscaper.Escape(text);

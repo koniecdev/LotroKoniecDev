@@ -34,7 +34,7 @@ namespace LotroKoniecDev.TranslationSystem.Persistence.Migrations
         {
             // Same order as the old TranslationFileParser.UnescapeContent: \r first, then \n.
             //
-            // Two literal traps, both load-bearing:
+            // Two traps in the literals, and both matter:
             //   * strpos and not LIKE. In a LIKE pattern PostgreSQL reads the backslash as an escape
             //     character, so '%\r%' would quietly mean "contains r" and rewrite every row.
             //   * E'\\r' and not '\r'. A plain literal means backslash and r only while

@@ -3,9 +3,9 @@ using System.Net;
 namespace LotroKoniecDev.Tests.Infrastructure.Shared;
 
 /// <summary>
-/// Streams the requested number of bytes without ever declaring a length
-/// (<see cref="TryComputeLength"/> returns <c>false</c>), forcing the reader onto its
-/// streaming code path — a chunked-style response from a server that may lie about size.
+/// Sends the requested number of bytes without ever declaring a length, because
+/// <see cref="TryComputeLength"/> returns <c>false</c>. That forces the reader down its streaming path,
+/// like a chunked response from a server that may lie about the size.
 /// </summary>
 internal sealed class UndeclaredLengthContent : HttpContent
 {

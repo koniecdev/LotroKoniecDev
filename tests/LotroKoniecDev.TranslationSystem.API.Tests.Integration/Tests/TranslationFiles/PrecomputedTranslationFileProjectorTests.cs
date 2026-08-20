@@ -18,7 +18,7 @@ namespace LotroKoniecDev.TranslationSystem.API.Tests.Integration.Tests.Translati
 /// Pins the projector's write shape against real PostgreSQL (PERF-04/#289): the first build per
 /// language inserts the artifact row; every later rebuild refreshes it with one set-based UPDATE
 /// and never re-fetches the previous multi-MB content. The DB command stream is the only
-/// observable seam for "the old content was not loaded", mirroring the PERF-01 idiom.
+/// only way to see that "the old content was not loaded", the same approach PERF-01 uses.
 /// </summary>
 [Collection("TranslationApi")]
 public sealed class PrecomputedTranslationFileProjectorTests : IAsyncLifetime

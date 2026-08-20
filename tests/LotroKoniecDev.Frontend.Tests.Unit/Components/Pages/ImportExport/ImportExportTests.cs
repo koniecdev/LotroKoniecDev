@@ -172,7 +172,7 @@ public sealed class ImportExportTests : BunitContext
     private void AuthorizeAs(string userName) =>
         AddAuthorization().SetAuthorized(userName);
 
-    /// <summary>A version the API offers an admin an <c>import</c> affordance for (not Superseded).</summary>
+    /// <summary>A version the API offers an admin an <c>import</c> link for, so not a superseded one.</summary>
     private static GameVersionResponse ImportableVersion(string version) =>
         new(GameVersionId.Create(Guid.NewGuid()), version, DateTimeOffset.UnixEpoch, GameVersionStatus.Unprocessed)
         {

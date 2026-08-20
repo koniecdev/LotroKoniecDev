@@ -154,7 +154,7 @@ public sealed class DiscoveryHateoasTests
     [Fact]
     public async Task Discovery_AsAdmin_ShouldCarryTheCorrectMethodOnEveryWriteRel()
     {
-        // Arrange: a client follows Method blindly; a GET on an upsert rel is a broken affordance.
+        // Arrange: a client follows Method without thinking, so a GET on an upsert rel is broken.
         using HttpClient client = ClientForRole(AuthConstants.Roles.Admin);
 
         // Act

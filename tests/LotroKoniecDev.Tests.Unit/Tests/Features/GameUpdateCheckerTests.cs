@@ -27,7 +27,7 @@ public sealed class GameUpdateCheckerTests
         _checker = new GameUpdateChecker(_mockFetcher, _mockStore, _mockLogger);
     }
 
-    // ───────────────────────────── CheckForUpdateAsync — normal flow ─────────────────────────────
+    // ───────────────────────────── CheckForUpdateAsync: normal flow ─────────────────────────────
 
     [Fact]
     public async Task CheckForUpdateAsync_ShouldReturnForumVersionChanged_WhenNewVersionDetected()
@@ -115,7 +115,7 @@ public sealed class GameUpdateCheckerTests
         result.Error.Code.ShouldBe("GameUpdateCheck.VersionFileError");
     }
 
-    // ───────────────────────────── CheckForUpdateAsync — graceful degradation ─────────────────────────────
+    // ───────────────────────────── CheckForUpdateAsync: graceful degradation ─────────────────────────────
 
     [Fact]
     public async Task CheckForUpdateAsync_ShouldReturnNoForumVersion_WhenForumFetchFails()
@@ -156,7 +156,7 @@ public sealed class GameUpdateCheckerTests
         result.Value.StoredInfo.ShouldBe(StoredInfo401);
     }
 
-    // ───────────────────────────── CheckForUpdateAsync — first run ─────────────────────────────
+    // ───────────────────────────── CheckForUpdateAsync: first run ─────────────────────────────
 
     [Fact]
     public async Task CheckForUpdateAsync_ShouldReturnFirstLaunch_WhenNoStoredVersion()
@@ -216,7 +216,7 @@ public sealed class GameUpdateCheckerTests
         result.Value.StoredInfo.ShouldBeNull();
     }
 
-    // ───────────────────────────── CheckForUpdateAsync — input validation ─────────────────────────────
+    // ───────────────────────────── CheckForUpdateAsync: input validation ─────────────────────────────
 
     [Fact]
     public async Task CheckForUpdateAsync_ShouldThrow_WhenNullPath()
@@ -238,7 +238,7 @@ public sealed class GameUpdateCheckerTests
         await act.ShouldThrowAsync<ArgumentException>();
     }
 
-    // ───────────────────────────── CheckForUpdateAsync — parsing ─────────────────────────────
+    // ───────────────────────────── CheckForUpdateAsync: parsing ─────────────────────────────
 
     [Fact]
     public async Task CheckForUpdateAsync_ShouldPickFirstVersion_WhenMultipleVersionsInHtml()

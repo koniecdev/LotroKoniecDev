@@ -49,7 +49,7 @@ public abstract class E2ETestBase : IAsyncLifetime
 
     /// <summary>
     /// Registers a fresh user (granted the Translator role), confirms its e-mail through the
-    /// fixture's database seam (this network has no broker, so the confirmation e-mail never
+    /// fixture's direct database access (this network has no broker, so the confirmation e-mail never
     /// arrives) and logs it in.
     /// </summary>
     protected async Task<RegisteredTranslator> RegisterAndLoginTranslatorAsync()

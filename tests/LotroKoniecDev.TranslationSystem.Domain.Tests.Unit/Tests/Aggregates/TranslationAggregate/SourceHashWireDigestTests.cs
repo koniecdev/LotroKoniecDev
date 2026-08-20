@@ -13,9 +13,9 @@ public sealed class SourceHashWireDigestTests
     [MemberData(nameof(SourceDigestGoldenCases.All), MemberType = typeof(SourceDigestGoldenCases))]
     public void ToWireDigest_OnTheGoldenTriple_ShouldProduceTheContractDigest(
         string text, string? argsOrder, string? argsId, string expected)
-        // The twin of this test lives in the patcher's Tests.Unit over the same fixture. Both must
-        // agree with a value neither implementation produced — that is the only thing standing
-        // between a one-sided framing change and every row of every artifact becoming unpatchable.
+        // The twin of this test lives in the patcher's Tests.Unit over the same fixture. Both have to
+        // agree with a value neither implementation produced. That is the only thing between a one-sided
+        // change to the framing and every row of every artifact becoming unpatchable.
         => SourceHash.Compute(text, argsOrder, argsId).ToWireDigest().ShouldBe(expected);
 
     [Fact]

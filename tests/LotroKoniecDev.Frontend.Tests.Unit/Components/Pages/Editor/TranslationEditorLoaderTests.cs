@@ -29,7 +29,7 @@ public sealed class TranslationEditorLoaderTests
     private static readonly string ResolvedTranslationsUri =
         BaseUrl.TrimEnd('/') + StubDiscoveryCache.HrefFor(Rels.Translations);
 
-    // Mirrors the JSON options the Frontend's HTTP seam uses (HttpClientApiExtensions) so the stub
+    // The same JSON options the Frontend's HTTP layer uses (HttpClientApiExtensions), so the stub
     // body deserializes through the exact same contract the loader relies on.
     private static readonly JsonSerializerOptions ApiJsonOptions = new(JsonSerializerDefaults.Web)
     {

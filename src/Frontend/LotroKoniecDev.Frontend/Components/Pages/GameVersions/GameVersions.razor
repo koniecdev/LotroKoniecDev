@@ -153,9 +153,9 @@
 @code
 {
     /// <summary>
-    /// Mirrors the server's <c>LotroNotationVersion.VersionMaxLength</c> (12) as a client-side input cap.
-    /// The Frontend cannot reference the Domain constant, and the server validation (ADR-0003 grammar)
-    /// stays authoritative — this is only a UX nicety.
+    /// Repeats the server's <c>LotroNotationVersion.VersionMaxLength</c> of 12 as a limit on the input.
+    /// The Frontend cannot reference the Domain constant, and the server's validation (the ADR-0003
+    /// grammar) still decides. This is only a convenience for the user.
     /// </summary>
     private const int MaxVersionLength = 12;
 
@@ -168,8 +168,9 @@
     private string? _actionMessage;
 
     /// <summary>
-    /// The collection's server-advertised <c>register</c> href — admin-only, so its presence is both the
-    /// affordance gate and the URI the form posts to (#610). Null means "not offered to this caller".
+    /// The collection's <c>register</c> href, as the server sent it. It goes only to admins, so its
+    /// presence both decides whether the form is shown and gives the URL it posts to (#610). Null means
+    /// this caller is not offered it.
     /// </summary>
     private string? _registerHref;
 
@@ -179,8 +180,8 @@
         // here: on a non-matching render the model stays empty, on a matching post the bound model wins.
         RegisterInput ??= new RegisterFormModel();
 
-        // The list is open to any translator; whether the register form and per-item delete buttons show
-        // is decided by the server's admin-only rels (#158) — not a locally recomputed role.
+        // Any translator may see the list. Whether the register form and the per-row delete buttons appear
+        // is decided by the admin-only rels the server sends (#158) and not by a role check here.
         await LoadVersionsAsync();
     }
 
@@ -255,9 +256,9 @@
     }
 
     /// <summary>
-    /// A per-row form name so each delete posts to its own row. Blazor static SSR dispatches the post to
-    /// the matching <c>@@formname</c> and re-creates this row's <c>@@onsubmit</c> closure over the freshly
-    /// loaded version id — the same per-item action idiom the editor uses for a single row.
+    /// A form name per row, so each delete posts to its own row. Blazor's static SSR sends the post to the
+    /// matching <c>@@formname</c> and rebuilds this row's <c>@@onsubmit</c> closure around the freshly
+    /// loaded version id. The editor uses the same pattern for a single row.
     /// </summary>
     private static string DeleteFormName(GameVersionId id) =>
         string.Create(CultureInfo.InvariantCulture, $"delete-{id.Value}");

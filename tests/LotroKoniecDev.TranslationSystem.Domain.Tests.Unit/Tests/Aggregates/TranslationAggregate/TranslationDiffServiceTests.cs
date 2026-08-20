@@ -273,8 +273,9 @@ public sealed class TranslationDiffServiceTests
     [Fact]
     public async Task ComputePlanAsync_WhenIncomingSourceIsSomeoneElsesPolish_ShouldBeSourceChange()
     {
-        // Arrange: only the row's OWN Polish is an echo; a different Polish text is a real change
-        // (e.g. an older Polish still resident after a re-edit — the guard cannot know it).
+        // Arrange: only the row's own Polish counts as our text coming back. A different Polish text is a
+        // real change, for example an older Polish still sitting in the DAT after a re-edit, which the
+        // guard cannot recognise.
         StoredSourceDigest stored = Stored(1, 1, "Alpha", status: TranslationStatus.Approved, polish: "Alfa");
         Dictionary<FragmentKeyValue, SourceHash> incoming = Map(Incoming(1, 1, "Alfa stara"));
 
@@ -343,9 +344,9 @@ public sealed class TranslationDiffServiceTests
     [Fact]
     public async Task ComputePlanAsync_WhenStoredSourceAlreadyEqualsThePolish_ShouldBePlainUnchangedNotEcho()
     {
-        // Arrange: a poisoned row (its source was overwritten with the Polish echo by a pre-guard
-        // import): the source check wins, so it is unchanged and NOT counted as an echo — the echo
-        // counter reports guard hits only.
+        // Arrange: a poisoned row, whose source an import before the guard overwrote with the Polish. The
+        // source check wins, so the row counts as unchanged and not as our text coming back. That counter
+        // only reports rows the guard caught.
         StoredSourceDigest stored = Stored(1, 1, "Alfa", status: TranslationStatus.Approved, polish: "Alfa");
         Dictionary<FragmentKeyValue, SourceHash> incoming = Map(Incoming(1, 1, "Alfa"));
 

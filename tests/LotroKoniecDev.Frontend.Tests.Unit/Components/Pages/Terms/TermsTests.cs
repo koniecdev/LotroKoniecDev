@@ -86,7 +86,7 @@ public sealed class TermsTests : BunitContext
     public void Render_IpSection_StatesTakedownComplianceAndPolishOnlyPublishedFile()
     {
         // The promise that the published file contains only the community's Polish text and never the
-        // English source is load-bearing (spec 0011 E6). Changing it needs an ADR, so a change in this
+        // English source matters (spec 0011 E6). Changing it needs an ADR, so a change in this
         // wording has to fail loudly.
         IRenderedComponent<TermsComponent> component = Render<TermsComponent>();
 

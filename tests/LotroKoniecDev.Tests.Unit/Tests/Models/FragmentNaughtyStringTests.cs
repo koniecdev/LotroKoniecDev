@@ -6,10 +6,11 @@ using LotroKoniecDev.Tests.Shared;
 namespace LotroKoniecDev.Tests.Unit.Tests.Models;
 
 /// <summary>
-/// Hostile-input coverage for the binary half of the patcher (#569): a fragment's UTF-16 pieces and
-/// argument strings are length-prefixed with <see cref="VarLenEncoder"/>, so anything that makes a
-/// character count disagree with its byte count — surrogate pairs, combining marks, astral-plane
-/// characters — corrupts every following fragment in the subfile, not just its own.
+/// Hostile-input coverage for the binary half of the patcher (#569). A fragment's UTF-16 pieces and
+/// argument strings carry a length prefix written by <see cref="VarLenEncoder"/>, so anything that makes
+/// the character count disagree with the byte count, such as surrogate pairs, combining marks or
+/// characters outside the basic plane, corrupts every following fragment in the subfile and not only its
+/// own.
 /// </summary>
 public sealed class FragmentNaughtyStringTests
 {
@@ -85,10 +86,11 @@ public sealed class FragmentNaughtyStringTests
     [Fact]
     public void Write_PieceOfAstralPlaneCharacters_ShouldPrefixItWithItsUtf16CodeUnitCount()
     {
-        // Arrange: the length prefix counts UTF-16 code units, NOT runes. These four emoji are
-        // eight code units; a rune-counting writer would halve the declared length and shred every
-        // following fragment in the subfile. The round-trip theories above would catch that too —
-        // this states the wire rule outright, on the one input where runes and code units differ.
+        // Arrange: the length prefix counts UTF-16 code units and not characters. These four emoji are
+        // eight code units, so a writer that counted characters would declare half the length and destroy
+        // every following fragment in the subfile.
+        // The round-trip tests above would catch that too. This one states the rule directly, on the one
+        // input where the two counts differ.
         const string naughty = "😀😀😀😀";
         Fragment fragment = new() { Pieces = [naughty] };
         using MemoryStream stream = new();

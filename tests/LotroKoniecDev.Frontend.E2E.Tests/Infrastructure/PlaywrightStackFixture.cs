@@ -12,18 +12,20 @@ using Testcontainers.PostgreSql;
 namespace LotroKoniecDev.Frontend.E2E.Tests.Infrastructure;
 
 /// <summary>
-/// Boots the whole browser-facing stack — Postgres + the one-shot migrator + RabbitMQ + auth-api +
-/// tms-api + the Blazor SSR Frontend + Mailpit + a headless Chromium — as real containers on one
-/// private network, then connects Playwright to the in-network browser over WebSocket. (The browser
-/// container is built by hand rather than via the <c>Testcontainers.Playwright</c> module — see
-/// <see cref="StartBrowserAsync"/> for why that module is unusable with current Playwright images.)
-/// Every service has a DNS alias, so
-/// <c>https://auth-api:8443</c> resolves identically for the in-container browser front-channel AND
-/// the Frontend's server-side OIDC back-channel — the single-<c>Authority</c> property ADR-0006
-/// secured on the host via <c>localhost</c>, here secured in-network via DNS (ADR-0009). HTTPS is
-/// mandatory (the OIDC correlation cookie is <c>SameSite=None</c>); the cert is generated in C# and
-/// the back-channel services trust it via an inline root entrypoint. Mailpit receives the real
-/// confirmation e-mail, so registration is NOT auto-confirmed and the confirm-link step is genuine.
+/// Starts the whole stack the browser talks to as real containers on one private network: Postgres, the
+/// one-shot migrator, RabbitMQ, auth-api, tms-api, the Blazor SSR frontend, Mailpit and a headless
+/// Chromium. It then connects Playwright to that browser over a WebSocket.
+/// The browser container is built by hand instead of through the <c>Testcontainers.Playwright</c>
+/// module; see <see cref="StartBrowserAsync"/> for why that module does not work with current Playwright
+/// images.
+/// Every service has a DNS alias, so <c>https://auth-api:8443</c> means the same thing to the browser in
+/// the container and to the frontend's server-side OIDC calls. That is the single <c>Authority</c>
+/// ADR-0006 achieved on the host through <c>localhost</c>, achieved here inside the network through DNS
+/// (ADR-0009).
+/// HTTPS is required, because the OIDC correlation cookie is <c>SameSite=None</c>. The certificate is
+/// generated in C#, and the services trust it through an inline entrypoint that installs the root.
+/// Mailpit receives the real confirmation e-mail, so registration is not confirmed automatically and the
+/// confirm-link step is real.
 /// </summary>
 public sealed class PlaywrightStackFixture : IAsyncLifetime
 {
@@ -34,20 +36,20 @@ public sealed class PlaywrightStackFixture : IAsyncLifetime
     private const string MailpitImage = "axllent/mailpit:latest";
 
     /// <summary>
-    /// Pinned in lockstep with the compose stacks and the integration suite's
-    /// RabbitMqBrokerFixture — the confirmation e-mail rides the outbox → broker → consumer
-    /// pipeline, so without a broker in this network Mailpit would never receive the link the
-    /// register flow waits for.
+    /// Kept at the same version as the compose stacks and the integration suite's
+    /// RabbitMqBrokerFixture. The confirmation e-mail travels the outbox, broker and consumer pipeline,
+    /// so without a broker in this network Mailpit would never receive the link the register flow waits
+    /// for.
     /// </summary>
     private const string RabbitMqImage = "rabbitmq:4.3.4-alpine";
 
     private const int PlaywrightPort = 8080;
 
     /// <summary>
-    /// run-server command — identical to the one the <c>Testcontainers.Playwright</c> module emits
-    /// (the driver version is read from the image at startup so it matches the client protocol), but
-    /// with <c>--host 0.0.0.0</c> appended. Without it, Playwright v1.55+ binds the WebSocket server
-    /// to the container loopback, which the host can never reach through the published port.
+    /// The run-server command. It is the same one the <c>Testcontainers.Playwright</c> module produces,
+    /// with the driver version read from the image at startup so it matches the client protocol, plus
+    /// <c>--host 0.0.0.0</c>. Without that, Playwright 1.55 and later bind the WebSocket server to the
+    /// container's loopback address, which the host can never reach through the published port.
     /// </summary>
     private const string PlaywrightServerCommand =
         "npx -y playwright@$(sed --quiet 's/.*\\\"driverVersion\\\": *\"\\([^\"]*\\)\".*/\\1/p' ms-playwright/.docker-info) "
@@ -85,8 +87,8 @@ public sealed class PlaywrightStackFixture : IAsyncLifetime
     private const string AdminEmail = "fe-e2e-admin@lotro-translator.pl";
     private const string AdminPassword = "FeE2eAdminPass123!";
 
-    // The image's built-in guest account only connects from the broker's own host, so the
-    // in-network auth-api needs an explicit user — same reasoning as the compose stacks.
+    // The image's built-in guest account can only connect from the broker's own host, so auth-api inside
+    // the network needs a user of its own. The compose stacks do the same.
     private const string RabbitMqUsername = "rabbitmq";
     private const string RabbitMqPassword = "fe-e2e-rabbitmq-password";
 
@@ -140,8 +142,8 @@ public sealed class PlaywrightStackFixture : IAsyncLifetime
 
     private async Task StartPostgresAsync()
     {
-        // POSTGRES_DB creates lotro_translation on first boot; the bind-mounted init script adds the
-        // second database (lotro_auth) the AuthSystem needs — identical to the compose stack.
+        // POSTGRES_DB creates lotro_translation on the first boot, and the mounted init script adds the
+        // second database, lotro_auth, that the AuthSystem needs. The compose stack does the same.
         string initScriptPath = Path.Combine(FindSolutionDirectory(), "scripts", "init-postgres.sh");
         _postgres = new PostgreSqlBuilder("postgres:17-alpine")
             .WithNetwork(_network)
@@ -293,10 +295,11 @@ public sealed class PlaywrightStackFixture : IAsyncLifetime
             .WithResourceMapping(Encoding.ASCII.GetBytes(_certPem), "/certs/e2e.crt")
             .WithResourceMapping(Encoding.ASCII.GetBytes(_keyPem), "/certs/e2e.key")
             .WithEntrypoint("/bin/sh", "-c", TrustThenRun("LotroKoniecDev.Frontend.dll"))
-            // The FE has no health endpoint, and UseHttpsRedirection turns every HTTP request into a 307
-            // to the HTTPS origin — which the wait's HttpClient follows to an unpublished port and fails.
-            // So gate on the host startup log line instead: redirect-proof and deterministic. The browser
-            // still reaches the FE over in-network HTTPS (:8443) regardless.
+            // The frontend has no health endpoint, and UseHttpsRedirection turns every HTTP request into
+            // a 307 to the HTTPS origin, which the waiting HttpClient follows to a port that is not
+            // published, and fails.
+            // So we wait for the startup log line instead: redirects cannot affect it and it is always
+            // the same. The browser still reaches the frontend over HTTPS inside the network on :8443.
             .WithWaitStrategy(Wait.ForUnixContainer().UntilMessageIsLogged("Application started"))
             .Build();
 
@@ -331,9 +334,9 @@ public sealed class PlaywrightStackFixture : IAsyncLifetime
     }
 
     /// <summary>
-    /// Installs the e2e CA into the OS trust store (root) then execs the app — .NET validates the
-    /// back-channel leaf against the OS store (it ignores SSL_CERT_FILE), so the cert must land there
-    /// before Kestrel/HttpClient start. Inline, so it needs no committed entrypoint script.
+    /// Installs the test CA into the OS trust store as root and then starts the app. .NET checks the
+    /// certificate against the OS store and ignores SSL_CERT_FILE, so the CA has to be there before
+    /// Kestrel and HttpClient start. It is written inline, so no entrypoint script has to be committed.
     /// </summary>
     private static string TrustThenRun(string dll) =>
         "cp /certs/e2e.crt /usr/local/share/ca-certificates/lotro-e2e.crt && " +
@@ -369,8 +372,8 @@ public sealed class PlaywrightStackFixture : IAsyncLifetime
 
     private static async Task StartWithDiagnosticsAsync(IContainer container, string name)
     {
-        // Bound the readiness wait so a genuinely unhealthy container fails in minutes — the default
-        // strategy otherwise retries for ~1 hour.
+        // Limit how long we wait, so a container that is really unhealthy fails within minutes. The
+        // default strategy would keep retrying for about an hour.
         using CancellationTokenSource cts = new(TimeSpan.FromMinutes(5));
         try
         {
@@ -387,8 +390,8 @@ public sealed class PlaywrightStackFixture : IAsyncLifetime
     }
 
     /// <summary>
-    /// auth-api container logs — the only visibility into the outbox relay and the broker
-    /// consumer when an e-mail fails to reach Mailpit (mirrors the TMS E2E fixture's helper).
+    /// The auth-api container's logs. They are the only way to see what the outbox relay and the broker
+    /// consumer did when an e-mail does not reach Mailpit. The TMS E2E fixture has the same helper.
     /// </summary>
     public async Task<string> GetAuthApiLogsAsync()
     {

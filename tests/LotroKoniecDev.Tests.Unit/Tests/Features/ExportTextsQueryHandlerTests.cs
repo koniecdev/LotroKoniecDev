@@ -209,8 +209,8 @@ public sealed class ExportTextsQueryHandlerTests : IDisposable
     [Fact]
     public void FormatRow_ThenParse_ShouldCarryTheDigestTheWriteGuardChecks()
     {
-        // The digest is worthless unless it survives into the parsed row — that is the value the
-        // guard compares the fragment against.
+        // The digest is useless unless it reaches the parsed row, because that is the value the guard
+        // compares the fragment against.
         string row = ExportTextsQueryHandler.FormatRow(620756992, 1001, "Some text", "NULL", "NULL", argumentCount: 0);
 
         new TranslationFileParser().ParseLine(row).Value.SourceDigest

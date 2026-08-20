@@ -10,10 +10,10 @@ using LotroKoniecDev.Tests.Infrastructure.Shared;
 namespace LotroKoniecDev.Tests.Infrastructure.Tests;
 
 /// <summary>
-/// Exercises the downloader's integrity enforcement point (AUDIT-SEC-01 / #391) over an in-memory
-/// stub handler — no real network. The pure hash comparison itself is covered in
-/// <c>Tests.Unit/TranslationFileContentIntegrityTests</c>; these tests prove the downloader actually
-/// applies it before handing content to the sync.
+/// Exercises the downloader's integrity check (AUDIT-SEC-01, #391) over an in-memory stub handler, with
+/// no network. The hash comparison itself is covered in
+/// <c>Tests.Unit/TranslationFileContentIntegrityTests</c>. These tests prove the downloader really
+/// applies it before it hands the content to the sync.
 /// </summary>
 public sealed class TranslationFileDownloaderTests
 {

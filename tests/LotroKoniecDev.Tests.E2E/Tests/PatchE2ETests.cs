@@ -120,8 +120,8 @@ public sealed class PatchE2ETests
     }
 
     /// <summary>
-    /// Option A (#443) feasibility gate on real Windows: the read-write open path must still
-    /// genuinely demand write access — patching a read-only DAT copy fails without changing a byte.
+    /// The feasibility check for option A (#443) on real Windows: the read-write open path must still
+    /// really require write access, so patching a read-only copy of the DAT fails and changes nothing.
     /// </summary>
     [SkippableFact]
     public async Task Patch_ShouldFailAndLeaveDatUnchanged_WhenDatCopyIsReadOnly()
@@ -148,8 +148,8 @@ public sealed class PatchE2ETests
         }
         finally
         {
-            // The .backup copy inherits ReadOnly via File.Copy — clear the attribute on every
-            // file so the fixture's temp-dir cleanup does not fail on Windows.
+            // File.Copy carries the ReadOnly attribute over to the .backup copy, so clear it on every
+            // file, or the fixture's cleanup of the temp directory fails on Windows.
             foreach (string file in Directory.GetFiles(tempDir))
             {
                 File.SetAttributes(file, File.GetAttributes(file) & ~FileAttributes.ReadOnly);

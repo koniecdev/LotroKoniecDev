@@ -87,7 +87,7 @@ public sealed class GameVersionAggregateHateoasTests : IAsyncLifetime
         response.Links.ShouldContain(l => l.Rel == Rels.Self && l.Method == "GET");
         response.Links.ShouldContain(l => l.Rel == Rels.Register && l.Method == "POST");
 
-        // Assert: each item carries its own self plus the admin delete affordance
+        // Assert: each item carries its own self link plus the admin delete link.
         GameVersionResponse item = response.Items.First(i => i.Id == id);
         item.Links.ShouldContain(l => l.Rel == Rels.Self && l.Href.Contains($"{Route}/{id.Value}"));
         item.Links.ShouldContain(l => l.Rel == Rels.Delete && l.Method == "DELETE" && l.Href.Contains($"{Route}/{id.Value}"));
@@ -173,7 +173,7 @@ public sealed class GameVersionAggregateHateoasTests : IAsyncLifetime
     [Fact]
     public async Task GetGameVersion_AsAdmin_WhenUnprocessed_AdvertisesImportAgainstTheVersion()
     {
-        // Arrange: import is keyed by the version it lands against, so the affordance lives on the
+        // Arrange: an import is tied to the version it goes into, so the link lives on the
         // item that carries the id rather than on the service document (#608).
         GameVersionId id = await SeedAsync("48.0");
 
@@ -191,7 +191,7 @@ public sealed class GameVersionAggregateHateoasTests : IAsyncLifetime
     public async Task GetGameVersion_AsAdmin_WhenProcessed_StillAdvertisesImport()
     {
         // Arrange: re-importing into an already processed version is legal (MarkAsProcessed refuses
-        // only a superseded one), so the affordance survives processing even though delete does not.
+        // only a superseded one), so the link survives processing even though delete does not.
         GameVersionId id = await SeedProcessedAsync("48.0");
 
         // Act

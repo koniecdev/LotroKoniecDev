@@ -33,8 +33,8 @@ public sealed class PasswordResetRequestProcessorTests
     [Fact]
     public async Task ProcessAsync_DeletionIsScheduled_SucceedsWithoutSending()
     {
-        // While GDPR deletion is scheduled, the emailed cancel-deletion link is the only recovery
-        // path — the processor is the single home of this guard (ADR-0038 decision 2).
+        // While a GDPR deletion is scheduled, the cancel link in the e-mail is the only way back, and
+        // the processor is the one place that checks this (ADR-0038 decision 2).
         ApplicationUser user = CreateUser();
         user.DeletionScheduledAt = DateTimeOffset.UtcNow;
         _userManager.FindByIdAsync(user.Id.ToString()).Returns(user);

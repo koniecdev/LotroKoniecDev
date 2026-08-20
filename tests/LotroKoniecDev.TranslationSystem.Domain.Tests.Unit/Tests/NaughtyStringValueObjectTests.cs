@@ -10,11 +10,11 @@ using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.TranslatorAggregate
 namespace LotroKoniecDev.TranslationSystem.Domain.Tests.Unit.Tests;
 
 /// <summary>
-/// Hostile-input coverage for the constrained-string value objects (#569). Every one of them is fed
-/// from something a stranger controls — an uploaded export, an OIDC claim, a form post — so the
-/// house rule that business failures are values and exceptions are for programmer errors has to hold
-/// for the whole Big List of Naughty Strings, not just for the hand-picked cases in the per-VO
-/// suites: a factory that throws turns a 400 into a 500.
+/// Hostile-input coverage for the value objects that constrain a string (#569). Every one of them is fed
+/// from something a stranger controls: an uploaded export, an OIDC claim or a form post. So the house
+/// rule that business failures are values and exceptions are for programmer errors has to hold for the
+/// whole Big List of Naughty Strings and not only for the cases each value object's own suite picked. A
+/// factory that throws turns a 400 into a 500.
 /// </summary>
 public sealed class NaughtyStringValueObjectTests
 {
@@ -47,9 +47,9 @@ public sealed class NaughtyStringValueObjectTests
     }
 
     /// <summary>
-    /// The naughty strings a display name is allowed to be — non-blank and within the length limit.
-    /// Filtering here rather than branching inside the test keeps the assertion unconditional, so a
-    /// regression that rejected everything would fail it instead of passing vacuously.
+    /// The naughty strings a display name may legitimately be: not blank and within the length limit.
+    /// Filtering here instead of branching inside the test keeps the assertion unconditional, so a change
+    /// that rejected everything would fail it instead of passing without testing anything.
     /// </summary>
     public static TheoryData<string> AcceptableDisplayNames
     {

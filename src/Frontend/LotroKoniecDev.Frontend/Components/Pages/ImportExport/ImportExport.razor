@@ -228,8 +228,8 @@
     private IReadOnlyList<GameVersionResponse>? _versions;
 
     /// <summary>
-    /// The subset of <c>_versions</c> the server advertises an <c>import</c> rel for — the selector's
-    /// options and the only ids <see cref="ImportAsync"/> can resolve a target for (#610).
+    /// The versions from <c>_versions</c> that the server sent an <c>import</c> rel for. They are the
+    /// selector's options and the only ids <see cref="ImportAsync"/> can find a target for (#610).
     /// </summary>
     private IReadOnlyList<GameVersionResponse> _importableVersions = [];
 
@@ -244,8 +244,8 @@
         // here: on a non-matching render the model stays empty, on a matching post the bound model wins.
         ImportInput ??= new ImportFormModel();
 
-        // The game-versions list is open to any translator; whether the import panel shows is decided by
-        // the collection's admin-only `register` rel (#158) — not a locally recomputed role.
+        // Any translator may see the game-versions list. Whether the import panel appears is decided by
+        // the collection's admin-only `register` rel (#158) and not by a role check here.
         await LoadVersionsAsync();
     }
 
@@ -294,9 +294,9 @@
             return;
         }
 
-        // The upload target is the chosen version's own `import` rel (#610) — the API emits it for an
-        // admin on any version that is not Superseded, so a missing link means the server refuses this
-        // import. Never compose the path from the id.
+        // The upload goes to the chosen version's own `import` rel (#610). The API sends it to an admin
+        // for any version that is not superseded, so a missing link means the server refuses this import.
+        // Never build the path from the id.
         if (ImportTargets.FindImportHref(_versions, input.GameVersionId) is not { } importHref)
         {
             _importProblem = ApiProblemCopy.FrontendAuthored(
@@ -330,10 +330,10 @@
     }
 
     /// <summary>
-    /// The import form's bound model. Blazor static-SSR form mapping binds an <see cref="IFormFile"/>
-    /// only as a property of a <c>[SupplyParameterFromForm]</c> model — never as a bare top-level
-    /// parameter — so the file, the chosen version id and the override flag travel together here, with
-    /// the inputs named <c>ImportInput.&lt;Property&gt;</c> (mirrors KittySaver's upload form models).
+    /// The model the import form binds to. Blazor's static SSR form binding only binds an
+    /// <see cref="IFormFile"/> as a property of a <c>[SupplyParameterFromForm]</c> model and never as a
+    /// plain top-level parameter. So the file, the chosen version id and the override flag travel together
+    /// here, with the inputs named <c>ImportInput.&lt;Property&gt;</c>, like KittySaver's upload models.
     /// </summary>
     private sealed class ImportFormModel
     {

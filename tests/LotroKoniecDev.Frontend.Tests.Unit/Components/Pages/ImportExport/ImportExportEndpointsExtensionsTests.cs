@@ -91,7 +91,7 @@ public sealed class ImportExportEndpointsExtensionsTests
     [Fact]
     public async Task DownloadTranslationFileAsync_WhenTransportFails_FallsBackToABadGatewayProblem()
     {
-        // A transport failure yields a synthesized ProblemDetails (503) from the HTTP seam; the route
+        // A transport failure produces a ProblemDetails with a 503 from the HTTP layer, and the route
         // passes it through. The 502 fallback only fires for the (defensive) null-ProblemDetails case.
         ImportExportLoader loader = new(
             StubDiscoveryCache.AdvertisingGet(Rels.TranslationFile),

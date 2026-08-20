@@ -5,10 +5,11 @@ using Shouldly;
 namespace LotroKoniecDev.Frontend.E2E.Tests.Flows;
 
 /// <summary>
-/// Golden path: a brand-new visitor registers on the Auth server, confirms their e-mail through the
-/// link Mailpit captured, logs in via the Frontend's OIDC challenge, and logs out — proving the whole
-/// account-onboarding loop across both origins (Frontend + Auth). Needs no seeded database and no
-/// <c>exported.txt</c>: the user, the e-mail and the session are all created by the flow itself.
+/// The happy path: a new visitor registers on the auth server, confirms their e-mail through the link
+/// Mailpit received, logs in through the frontend's OIDC challenge and logs out. That proves the whole
+/// onboarding loop across both origins, the frontend and the auth server.
+/// Nothing has to be seeded and no <c>exported.txt</c> is needed: the user, the e-mail and the session
+/// are all created by the flow.
 /// </summary>
 public sealed class RegisterConfirmLoginLogoutTests : E2ETestBase
 {
@@ -22,24 +23,26 @@ public sealed class RegisterConfirmLoginLogoutTests : E2ETestBase
         // Arrange
         TestUser user = TestUser.CreateRandom();
 
-        // Act + Assert — registration shows the "check your email" confirmation panel.
+        // Act and assert: registration shows the "check your email" panel.
         await AuthActions.RegisterAsync(Page, Fixture, user);
         (await ByTestId(TestIds.RegisterSuccess).IsVisibleAsync()).ShouldBeTrue();
 
-        // Confirm via the Mailpit link — the Auth page reports success.
+        // Confirm through the link in Mailpit, and the auth page reports success.
         await AuthActions.ConfirmEmailAsync(Page, Fixture, user);
         (await ByTestId(TestIds.ConfirmEmailSuccess).IsVisibleAsync()).ShouldBeTrue();
 
-        // Log in through the FE OIDC challenge — the authenticated nav (the logout button) appears.
+        // Log in through the frontend's OIDC challenge, and the logged-in navigation, with its logout
+        // button, appears.
         await AuthActions.LoginAsync(Page, Fixture, user);
         (await Page.GetByRole(AriaRole.Button, new() { Name = Buttons.Logout, Exact = true }).IsVisibleAsync())
             .ShouldBeTrue();
 
-        // The nav greets with the USERNAME (the `name` claim), not the e-mail the user logged in
-        // with — the display-only-handle half of ADR-0022, proven across the whole OIDC loop.
+        // The navigation greets the user by their username, from the `name` claim, and not by the e-mail
+        // they logged in with. That is the "username is only a display handle" half of ADR-0022, shown
+        // across the whole OIDC loop.
         (await Page.GetByText(user.Username).IsVisibleAsync()).ShouldBeTrue();
 
-        // Log out — the anonymous nav (the login link) returns.
+        // Log out, and the anonymous navigation with its login link comes back.
         await AuthActions.LogoutAsync(Page);
         (await Page.GetByRole(AriaRole.Link, new() { Name = Links.Login, Exact = true }).IsVisibleAsync())
             .ShouldBeTrue();

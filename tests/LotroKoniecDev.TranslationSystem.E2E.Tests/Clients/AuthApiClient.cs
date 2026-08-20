@@ -47,7 +47,7 @@ public sealed class AuthApiClient : IDisposable
 
     private async Task<HttpResponseMessage> PostPasswordGrantAsync(string email, string password)
     {
-        // The OIDC "username" wire key is a protocol constant — it carries the e-mail (ADR-0022).
+        // "username" is a fixed name in the OIDC protocol. What it carries is the e-mail (ADR-0022).
         Dictionary<string, string> parameters = new()
         {
             ["grant_type"] = "password",

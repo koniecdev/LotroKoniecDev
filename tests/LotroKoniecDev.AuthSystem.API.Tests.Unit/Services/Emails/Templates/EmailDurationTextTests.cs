@@ -3,8 +3,8 @@ using LotroKoniecDev.AuthSystem.API.Services.Emails.Templates;
 namespace LotroKoniecDev.AuthSystem.API.Tests.Unit.Services.Emails.Templates;
 
 /// <summary>
-/// The copy reads "Link wygasa po …", so every rendering has to fit that locative phrase — the
-/// lifespans come from configuration and must never produce a sentence that reads wrong.
+/// The text reads "Link wygasa po …", so every value has to fit that phrase. The lifetimes come from
+/// configuration and must never produce a sentence that sounds wrong.
 /// </summary>
 public sealed class EmailDurationTextTests
 {

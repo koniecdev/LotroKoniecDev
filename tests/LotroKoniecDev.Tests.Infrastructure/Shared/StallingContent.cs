@@ -3,9 +3,9 @@ using System.Net;
 namespace LotroKoniecDev.Tests.Infrastructure.Shared;
 
 /// <summary>
-/// Declares no length and stalls the body write until the caller's cancellation token fires —
-/// a hostile server that accepts the request and then feeds no bytes. The stall is bounded by a
-/// fallback delay, so a mis-wired cancellation token fails the test instead of hanging the run.
+/// Declares no length and holds the body back until the caller's cancellation token fires. It plays a
+/// hostile server that accepts the request and then sends nothing. The wait has a maximum length, so a
+/// cancellation token that was wired up wrongly fails the test instead of hanging the run.
 /// </summary>
 internal sealed class StallingContent : HttpContent
 {

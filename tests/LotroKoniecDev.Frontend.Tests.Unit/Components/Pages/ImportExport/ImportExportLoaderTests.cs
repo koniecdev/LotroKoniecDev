@@ -32,7 +32,7 @@ public sealed class ImportExportLoaderTests
     private static readonly string ResolvedGameVersionsUri =
         BaseUrl.TrimEnd('/') + StubDiscoveryCache.HrefFor(Rels.GameVersions);
 
-    // Mirrors the JSON options the Frontend's HTTP seam uses (HttpClientApiExtensions) so the stub
+    // The same JSON options the Frontend's HTTP layer uses (HttpClientApiExtensions), so the stub
     // body deserializes through the exact same contract the loader relies on.
     private static readonly JsonSerializerOptions ApiJsonOptions = new(JsonSerializerDefaults.Web)
     {

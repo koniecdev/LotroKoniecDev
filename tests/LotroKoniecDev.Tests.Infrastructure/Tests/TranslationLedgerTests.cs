@@ -6,9 +6,9 @@ namespace LotroKoniecDev.Tests.Infrastructure.Tests;
 
 /// <summary>
 /// Exercises the write ledger of ADR-0047 §4 against real files. It is the only record of what this
-/// patcher put into which fragment, and the write guard's second clause is the only way a NEWER
-/// translation can ever land on a fragment that already holds Polish — so "the entries survive a
-/// round trip, and a broken file degrades to empty rather than throwing" is the whole property.
+/// patcher put into which fragment, and the guard's second rule is the only way a newer translation can
+/// land on a fragment that already holds Polish. So the whole property is: the entries survive a round
+/// trip, and a broken file counts as empty instead of throwing.
 /// </summary>
 public sealed class TranslationLedgerTests : IDisposable
 {

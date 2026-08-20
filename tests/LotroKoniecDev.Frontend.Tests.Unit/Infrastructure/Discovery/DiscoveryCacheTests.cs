@@ -44,7 +44,7 @@ public sealed class DiscoveryCacheTests
         DiscoveryCache cache = CreateCache(authenticated: true);
 
         ApiResult<AuthDiscoveryResponse> first = await cache.GetAuthSystemDiscoveryAsync();
-        // The second call must be served from the cache — the client's queued failure never surfaces.
+        // The second call must come from the cache, so the client's queued failure never appears.
         ApiResult<AuthDiscoveryResponse> second = await cache.GetAuthSystemDiscoveryAsync();
 
         first.IsSuccess.ShouldBeTrue();
@@ -64,7 +64,7 @@ public sealed class DiscoveryCacheTests
         // Degrades to a successful anonymous link set instead of an error box…
         result.IsSuccess.ShouldBeTrue();
         result.Value.Links.ShouldNotContain(link => link.Rel == Rels.ExportAccountData);
-        // …and the sign-out is invisible in the return value — the .Received() is the only proof.
+        // The sign-out does not show up in the return value, so the .Received() check is the only proof.
         await _deadSessionRegistry.Received(1).MarkDeadAsync(Subject, Arg.Any<CancellationToken>());
     }
 
@@ -125,8 +125,8 @@ public sealed class DiscoveryCacheTests
     [Fact]
     public async Task GetAuthSystemDiscoveryAsync_WhenTheFallbackFetchAlsoFails_ReturnsTheProblem()
     {
-        // Degraded set under the user key, then the API dies before the anonymous fallback fetch —
-        // the sentinel must not escape as an exception; errors stay values.
+        // An incomplete set under the user key, and then the API fails before the anonymous fallback
+        // call. The exception must not escape: errors stay values.
         _authClient.GetDiscoveryAsync(Arg.Any<CancellationToken>())
             .Returns(
                 ApiResult.Success(AnonymousDiscovery()),
@@ -149,7 +149,7 @@ public sealed class DiscoveryCacheTests
         DiscoveryCache cache = CreateCache(authenticated: true);
 
         ApiResult<TranslationDiscoveryResponse> first = await cache.GetTranslationSystemDiscoveryAsync();
-        // The second call must be served from the cache — the client's queued failure never surfaces.
+        // The second call must come from the cache, so the client's queued failure never appears.
         ApiResult<TranslationDiscoveryResponse> second = await cache.GetTranslationSystemDiscoveryAsync();
 
         first.IsSuccess.ShouldBeTrue();
@@ -170,7 +170,7 @@ public sealed class DiscoveryCacheTests
         result.IsSuccess.ShouldBeTrue();
         result.Value.Links.ShouldNotContain(link => link.Rel == TranslationRels.ContributionDataExport);
         result.Value.Links.ShouldContain(link => link.Rel == TranslationRels.Progress);
-        // …and the sign-out is invisible in the return value — the .Received() is the only proof.
+        // The sign-out does not show up in the return value, so the .Received() check is the only proof.
         await _deadSessionRegistry.Received(1).MarkDeadAsync(Subject, Arg.Any<CancellationToken>());
     }
 
@@ -233,8 +233,8 @@ public sealed class DiscoveryCacheTests
     [Fact]
     public async Task GetTranslationSystemDiscoveryAsync_WhenTheFallbackFetchAlsoFails_ReturnsTheProblem()
     {
-        // Degraded set under the user key, then the API dies before the anonymous fallback fetch —
-        // the sentinel must not escape as an exception; errors stay values.
+        // An incomplete set under the user key, and then the API fails before the anonymous fallback
+        // call. The exception must not escape: errors stay values.
         _translationClient.GetDiscoveryAsync(Arg.Any<CancellationToken>())
             .Returns(
                 ApiResult.Success(AnonymousTranslationDiscovery()),

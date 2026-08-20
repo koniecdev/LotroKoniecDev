@@ -3,16 +3,18 @@ using Microsoft.Playwright;
 namespace LotroKoniecDev.Frontend.E2E.Tests.Infrastructure;
 
 /// <summary>
-/// Reusable building blocks for the account loop: register on the Auth server's Razor Pages, confirm
-/// via the Mailpit link, and log in through the Frontend's OIDC challenge (so the FE — not only the
-/// Auth server — ends up authenticated). Registration is on the Auth origin (<c>/Account/Register</c>),
-/// not the Frontend, and is single-culture (the pages are Polish-only). Elements are reached by
-/// role/label, with <c>data-testid</c> only for the consent checkboxes and the state panels.
+/// The reusable steps of the account loop: register on the auth server's Razor Pages, confirm through
+/// the link in Mailpit, and log in through the frontend's OIDC challenge, so the frontend ends up logged
+/// in too and not only the auth server.
+/// Registration happens on the auth origin at <c>/Account/Register</c> and not on the frontend, and the
+/// pages exist in Polish only.
+/// Elements are found by role or label, and <c>data-testid</c> is used only for the consent checkboxes
+/// and the state panels.
 /// </summary>
 internal static class AuthActions
 {
-    // Contains-match against the real subject ("Potwierdź konto — <brand>", #541) — brand-agnostic
-    // on purpose, so a rename does not break the flow again.
+    // Matches part of the real subject, "Potwierdź konto - <brand>" (#541). It ignores the brand name on
+    // purpose, so renaming it does not break this flow again.
     private const string ConfirmationSubject = "Potwierdź konto";
     private const string ConfirmationLinkPath = "/Account/ConfirmEmail";
     private static readonly TimeSpan MailTimeout = TimeSpan.FromSeconds(45);

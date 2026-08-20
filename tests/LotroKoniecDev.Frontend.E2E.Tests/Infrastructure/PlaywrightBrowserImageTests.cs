@@ -5,9 +5,10 @@ using Shouldly;
 namespace LotroKoniecDev.Frontend.E2E.Tests.Infrastructure;
 
 /// <summary>
-/// Locks the browser-image tag derivation so a <c>Microsoft.Playwright</c> bump can never silently
-/// drift the in-container server's protocol away from the client (the failure mode behind ADR-0015).
-/// Pure and Docker-free — it joins no collection, so it never boots the stack fixture.
+/// Pins how the browser-image tag is derived, so updating <c>Microsoft.Playwright</c> can never leave
+/// the server in the container speaking a different protocol from the client. That is the failure
+/// ADR-0015 is about.
+/// It is a pure test and needs no Docker: it joins no collection, so it never starts the stack.
 /// </summary>
 public sealed class PlaywrightBrowserImageTests
 {

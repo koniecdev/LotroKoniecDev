@@ -9,9 +9,9 @@ using NSubstitute;
 namespace LotroKoniecDev.AuthSystem.API.Tests.Unit.Pages.Account;
 
 /// <summary>
-/// The login page both reflects <c>returnUrl</c> into its own form action and uses it as the
-/// post-sign-in redirect target, so the value has to be sanitized on the way in — a raw query value
-/// must never reach the property. Pins the wiring the register page already had.
+/// The login page puts <c>returnUrl</c> into its own form action and also uses it as the redirect target
+/// after sign-in, so the value has to be checked on the way in and a raw query value must never reach
+/// the property. This pins the same wiring the register page already had.
 /// </summary>
 public sealed class LoginModelTests
 {
@@ -39,8 +39,9 @@ public sealed class LoginModelTests
     public async Task OnPostAsync_KeepsOnlyALocalReturnUrl_EvenWhenTheCredentialsAreRejected(
         string returnUrl, string? expected)
     {
-        // The empty-credentials branch returns before any store call, so the re-rendered page is
-        // observable without a user — and that page carries ReturnUrl back into the form action.
+        // With empty credentials the page returns before it touches the store, so we can see the
+        // re-rendered page without creating a user, and that page puts ReturnUrl back into the form
+        // action.
         LoginModel sut = CreateSut();
 
         await sut.OnPostAsync(returnUrl);
@@ -49,10 +50,10 @@ public sealed class LoginModelTests
     }
 
     /// <summary>
-    /// The sign-in falls back to this URL when it carries no local continuation, so it must point at
-    /// the frontend's own login route — this host's root serves the API discovery JSON and dead-ends a
-    /// browser arriving from the reset-password or confirm-email pages. The URL-building rules
-    /// themselves are pinned by <c>FrontendUrlTests</c>.
+    /// The sign-in falls back to this URL when it has nowhere else to continue, so it has to point at the
+    /// frontend's own login route. This host's root serves the API discovery JSON, which is a dead end
+    /// for a browser coming from the reset-password or confirm-email pages.
+    /// How the URL is built is pinned by <c>FrontendUrlTests</c>.
     /// </summary>
     [Fact]
     public void FrontendLoginUrl_PointsAtTheFrontendLoginRoute()

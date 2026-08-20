@@ -3,13 +3,13 @@ using Microsoft.Playwright;
 namespace LotroKoniecDev.Frontend.E2E.Tests.Infrastructure;
 
 /// <summary>
-/// Resolves the Playwright browser-server image tag from the referenced <c>Microsoft.Playwright</c>
-/// client, instead of hard-coding it. The in-container <c>run-server</c> must speak the client's wire
-/// protocol — a version mismatch fails
-/// <see cref="IBrowserType.ConnectAsync(string, BrowserTypeConnectOptions)"/> with HTTP 428 — and
-/// Microsoft publishes one image per release as <c>v{version}-{os}</c>. Deriving the tag keeps a
-/// single source of truth in the package version: when Dependabot bumps the client the image follows
-/// automatically, so the two can never drift apart (see ADR-0015).
+/// Works out the Playwright browser-server image tag from the <c>Microsoft.Playwright</c> package we
+/// reference, instead of writing it down.
+/// The <c>run-server</c> inside the container has to speak the client's protocol: a version mismatch
+/// makes <see cref="IBrowserType.ConnectAsync(string, BrowserTypeConnectOptions)"/> fail with HTTP 428.
+/// Microsoft publishes one image per release, tagged <c>v{version}-{os}</c>.
+/// Deriving the tag keeps one source of truth in the package version, so when Dependabot updates the
+/// client the image follows and the two can never disagree (see ADR-0015).
 /// </summary>
 internal static class PlaywrightBrowserImage
 {
@@ -34,9 +34,9 @@ internal static class PlaywrightBrowserImage
 
     private static string ResolveClientVersion()
     {
-        // Microsoft.Playwright ships a placeholder "1.0.0" InformationalVersion; the real release
-        // (e.g. 1.61.0) — the version its published images are tagged with — lives in the assembly
-        // version. Key off that, not InformationalVersion, so the derived tag tracks the package.
+        // Microsoft.Playwright ships a placeholder InformationalVersion of "1.0.0". The real release,
+        // such as 1.61.0, which is what its published images are tagged with, is in the assembly version.
+        // We read that one and not InformationalVersion, so the derived tag follows the package.
         Version version = typeof(IPlaywright).Assembly.GetName().Version
             ?? throw new InvalidOperationException("The Microsoft.Playwright assembly has no version.");
 

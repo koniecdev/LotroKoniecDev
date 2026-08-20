@@ -1,8 +1,8 @@
 namespace LotroKoniecDev.Tests.Shared;
 
 /// <summary>
-/// The <c>source_digest</c> parity fixture of ADR-0047 §6 — the one place the two contexts' digest
-/// implementations are pinned against a value neither of them produced.
+/// The <c>source_digest</c> parity fixture of ADR-0047 §6. It is the one place where the two contexts'
+/// digest implementations are compared with a value neither of them produced.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -21,10 +21,10 @@ namespace LotroKoniecDev.Tests.Shared;
 /// implementation would defeat the entire point of the fixture.
 /// </para>
 /// <para>
-/// Coverage is chosen for what the framing can get wrong: absent versus present versus empty args,
-/// the piece placeholder, RAW newlines and backslashes (the ADR-0039 escape is unfolded long before
-/// a digest is taken — it never reaches this function), a surrogate pair, an empty text, and the
-/// <c>("ab","c")</c> / <c>("a","bc")</c> pair that only length framing keeps apart.
+/// The cases are chosen for what the framing can get wrong: args that are absent, present or empty, the
+/// piece placeholder, real newlines and backslashes, since the ADR-0039 escape is undone long before a
+/// digest is taken and never reaches this function, a surrogate pair, an empty text, and the
+/// <c>("ab","c")</c> and <c>("a","bc")</c> pair that only the length framing keeps apart.
 /// </para>
 /// </remarks>
 public static class SourceDigestGoldenCases

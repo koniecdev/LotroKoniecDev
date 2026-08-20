@@ -7,7 +7,7 @@ using LotroKoniecDev.TranslationSystem.Contracts.Translations;
 namespace LotroKoniecDev.TranslationSystem.API.Tests.Integration.Tests.ErrorContract;
 
 /// <summary>
-/// Pins the API error contract at the HTTP seam (the existing suites assert only the status code).
+/// Pins the API's error contract at the HTTP level; the other suites only check the status code.
 /// Domain failures are served as <c>application/problem+json</c> carrying a typed <c>errorCode</c>, a
 /// status-family <c>title</c> and the <c>status</c> (ErrorExtensions.ToProblemDetails: 400 Validation,
 /// 404 NotFound, 422 DataConflict). Auth rejections (401/403) are also served as

@@ -11,10 +11,10 @@ using LotroKoniecDev.Tests.Infrastructure.Shared;
 namespace LotroKoniecDev.Tests.Infrastructure.Tests;
 
 /// <summary>
-/// Drives the CLI's discovery adapter over an in-memory stub handler — no real network. It proves
-/// the wire details the resolver's pure tests cannot see: the root is requested at the configured
-/// base URL, the HATEOAS vendor media type is negotiated (without it the server serves a link-less
-/// document), and a body that is not the service document degrades to a failure instead of throwing.
+/// Drives the CLI's discovery adapter over an in-memory stub handler, with no network. It proves the
+/// details of the request that the resolver's own tests cannot see: the root is requested at the
+/// configured base URL, our vendor media type is asked for, without which the server sends a document
+/// with no links, and a body that is not the service document becomes a failure instead of throwing.
 /// </summary>
 public sealed class TranslationSystemDiscoveryClientTests
 {

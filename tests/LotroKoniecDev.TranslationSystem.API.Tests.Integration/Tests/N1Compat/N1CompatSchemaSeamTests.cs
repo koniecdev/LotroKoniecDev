@@ -3,10 +3,11 @@ using Shouldly;
 namespace LotroKoniecDev.TranslationSystem.API.Tests.Integration.Tests.N1Compat;
 
 /// <summary>
-/// Pure unit coverage for the N-1 seam's schema-script parser (ADR-0024 / #340). It lives in the
-/// integration project because the seam is internal to it; it instantiates no factory and starts
-/// no container. The parser is the seam's vacuity guard: if it finds no history inserts in a
-/// generated script, the seam throws instead of letting the suite silently migrate its own
+/// Pure unit coverage for the schema-script parser used by the N-1 check (ADR-0024, #340). It lives in
+/// the integration project because that code is internal to it, and it creates no factory and starts no
+/// container.
+/// The parser is what stops the check from testing nothing: if it finds no history inserts in a
+/// generated script, the code throws instead of letting the suite quietly migrate its own
 /// (old) schema.
 /// </summary>
 public sealed class N1CompatSchemaSeamTests

@@ -46,9 +46,9 @@ public sealed class SourceDigestTests
     [InlineData(1, "1")]
     [InlineData(3, "1-2-3")]
     public void ForExportForm_ShouldUseIdentityArgumentColumnsFromTheArgumentCount(int argumentCount, string? expectedArgs)
-        // `export` writes identity args derived from the fragment's own ArgRefs.Count, and NULL when
-        // it has none. The guard has to derive them the same way, from the fragment — never from a
-        // hand-made row's own args columns.
+        // `export` writes the args columns from the fragment's own ArgRefs.Count, and NULL when it has
+        // none. The guard has to work them out the same way, from the fragment, and never from the args
+        // columns of a hand-made row.
         => SourceDigest.ForExportForm("Tekst", argumentCount)
             .ShouldBe(SourceDigest.Compute("Tekst", expectedArgs, expectedArgs));
 

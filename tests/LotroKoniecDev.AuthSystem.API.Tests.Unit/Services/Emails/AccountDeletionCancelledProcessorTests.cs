@@ -33,9 +33,9 @@ public sealed class AccountDeletionCancelledProcessorTests
     [Fact]
     public async Task ProcessAsync_DeletionIsScheduledAgain_SucceedsWithoutSending()
     {
-        // The mirror drift guard (ADR-0038 decision 2): if deletion was re-scheduled in the gap,
-        // "your account was kept" is a lie — and post-finalization DLQ replays land here too,
-        // because erasure keeps DeletionScheduledAt set as its audit trace.
+        // The mirror check (ADR-0038 decision 2): if a deletion was scheduled again in the meantime,
+        // "your account was kept" would be wrong. Replays from the dead-letter queue after the deletion
+        // finished land here too, because erasure leaves DeletionScheduledAt set as its record.
         ApplicationUser user = CreateUser();
         user.DeletionScheduledAt = DateTimeOffset.UtcNow;
         _userManager.FindByIdAsync(user.Id.ToString()).Returns(user);

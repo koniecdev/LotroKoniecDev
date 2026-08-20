@@ -54,7 +54,7 @@ public sealed class EmailLinkFactoryTests : EndpointsTestBase
     {
         // Arrange: the suite's default spy replaces the whole sender and never invokes the real
         // link factory, so spin up a host running the real sender -> factory chain and capture the
-        // outgoing email at the SMTP boundary. This drives the actual attack seam: a forged Host
+        // outgoing email at the SMTP boundary. This drives the real attack: a forged Host
         // header on the (anonymous) forgot-password request.
         const string forgedHost = "evil.attacker.com";
         SpyEmailService emailServiceSpy = new();

@@ -36,7 +36,7 @@
     public string Fallback { get; set; } = ApiProblemCopy.GenericMessage;
 
     /// <summary>
-    /// Class for the headline element, so the component fits the caller's box unchanged — the rich
+    /// The class for the headline element, so the component fits the caller's box as it is. The richer
     /// <c>error-message</c> box styles its title through <c>.em-body .t</c>.
     /// </summary>
     [Parameter]
@@ -46,10 +46,11 @@
     {
         _view = ApiProblemCopy.Describe(Problem, Fallback);
 
-        // An API error that shipped before its Polish copy did. The user already sees the degraded
-        // message, so this is the moment the gap is worth reporting — but OnParametersSet runs on
-        // every parameter set, and a parent that re-renders after setting the problem (ImportExport
-        // reloads its version list) would otherwise log the same gap twice per request.
+        // An API error that shipped before its Polish text existed. The user already sees the fallback
+        // message, so this is the moment to report the gap.
+        // OnParametersSet runs every time a parameter is set, and a parent that renders again after
+        // setting the problem, as ImportExport does when it reloads its version list, would otherwise log
+        // the same gap twice per request.
         if (_view.UnmappedErrorCode is { } unmappedErrorCode && unmappedErrorCode != _reportedErrorCode)
         {
             _reportedErrorCode = unmappedErrorCode;

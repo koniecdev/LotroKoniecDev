@@ -77,7 +77,7 @@ public sealed class UpsertTranslationTests : IAsyncLifetime
             Route, new UpsertTranslationRequest(FileId, 1, "Witaj w Srodziemiu!"));
         TranslationDetailResponse? body = await response.Content.ReadFromJsonAsync<TranslationDetailResponse>(JsonOptions);
 
-        // Assert — the submitter is the lazily provisioned Translator, carrying the JWT display name.
+        // Assert: the submitter is the lazily provisioned Translator, carrying the JWT display name.
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
         body.ShouldNotBeNull();
         body.Status.ShouldBe(TranslationStatus.Draft);
@@ -89,7 +89,7 @@ public sealed class UpsertTranslationTests : IAsyncLifetime
     [Fact]
     public async Task Upsert_OnApprovedRow_ShouldMoveToDraftAndRegenerateArtifact()
     {
-        // Arrange — two approved rows in the distributed file; editing row 1 must pull it out (spec 0001 Q1).
+        // Arrange: two approved rows in the distributed file; editing row 1 must pull it out (spec 0001 Q1).
         await SeedAsync(gossipId: 1, source: "One", SeedStatus.Approved, polish: "Alfa");
         await SeedAsync(gossipId: 2, source: "Two", SeedStatus.Approved, polish: "Beta");
         await RebuildArtifactAsync();
@@ -108,7 +108,7 @@ public sealed class UpsertTranslationTests : IAsyncLifetime
             FileRoute,
             (candidate, content) => candidate.IsSuccessStatusCode && !content.Contains($"{FileId}||1||"));
 
-        // Assert — the edited row is now a draft and gone from the freshly rebuilt file; row 2 stays.
+        // Assert: the edited row is now a draft and gone from the freshly rebuilt file; row 2 stays.
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
         body!.Status.ShouldBe(TranslationStatus.Draft);
         download.Headers.ETag.ShouldNotBe(firstEtag);
@@ -119,7 +119,7 @@ public sealed class UpsertTranslationTests : IAsyncLifetime
     [Fact]
     public async Task Upsert_ForUnknownFragment_ShouldReturn404()
     {
-        // Arrange — rows are born from import; there is no row for this pair.
+        // Arrange: rows are born from import; there is no row for this pair.
         using HttpClient client = TranslatorClient(Guid.NewGuid());
 
         // Act
@@ -133,7 +133,7 @@ public sealed class UpsertTranslationTests : IAsyncLifetime
     [Fact]
     public async Task Upsert_OnRemovedRow_ShouldReturn422()
     {
-        // Arrange — a soft-removed row is excluded from translation work.
+        // Arrange: a soft-removed row is excluded from translation work.
         await SeedAsync(gossipId: 3, source: "Three", SeedStatus.ApprovedThenRemoved, polish: "Gamma");
         using HttpClient client = TranslatorClient(Guid.NewGuid());
 
@@ -163,7 +163,7 @@ public sealed class UpsertTranslationTests : IAsyncLifetime
     [Fact]
     public async Task Upsert_WithTextLongerThanTheDatAllows_ShouldReturn400()
     {
-        // Arrange — over the DAT's per-piece ceiling the patcher cannot write the row at all, so the
+        // Arrange: over the DAT's per-piece ceiling the patcher cannot write the row at all, so the
         // API must refuse it rather than let it reach the artifact and fail on a player's machine (#598).
         await SeedAsync(gossipId: 1, source: "One", SeedStatus.Untranslated);
         using HttpClient client = TranslatorClient(Guid.NewGuid());
@@ -180,7 +180,7 @@ public sealed class UpsertTranslationTests : IAsyncLifetime
     [Fact]
     public async Task Upsert_WithTextExactlyAtTheDatLimit_ShouldPersistTheWholeText()
     {
-        // Arrange — the boundary is legal, and the check constraint added alongside the validator must
+        // Arrange: the boundary is legal, and the check constraint added alongside the validator must
         // accept it too: a cap that silently truncated the last character would corrupt the artifact.
         await SeedAsync(gossipId: 1, source: "One", SeedStatus.Untranslated);
         using HttpClient client = TranslatorClient(Guid.NewGuid());
@@ -200,7 +200,7 @@ public sealed class UpsertTranslationTests : IAsyncLifetime
     [Fact]
     public async Task TranslatedTextCheckConstraint_ShouldRejectAnOverLongWriteThatBypassesTheApi()
     {
-        // Arrange — the backstop of #598 sits below both the validator and the domain guard, so the
+        // Arrange: the backstop of #598 sits below both the validator and the domain guard, so the
         // only way to exercise it is to write past them. Pinned because a check constraint dropped by
         // a later model change would leave no other trace.
         await SeedAsync(gossipId: 1, source: "One", SeedStatus.Untranslated);

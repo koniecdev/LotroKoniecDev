@@ -267,7 +267,7 @@ public sealed partial class AuthorizationCodeFlowTests : AsyncLifetimeTestBase
     [Fact]
     public async Task Login_ShouldNotAuthenticate_WhenEmailIsNotConfirmed()
     {
-        // Arrange — a registered but UNCONFIRMED user, logging in with the CORRECT credentials.
+        // Arrange: a registered but UNCONFIRMED user, logging in with the CORRECT credentials.
         // RequireConfirmedEmail is enabled, so the interactive login must reject this user.
         const string password = "TestPass1!";
         (RegisterRequest registerRequest, _) =
@@ -305,7 +305,7 @@ public sealed partial class AuthorizationCodeFlowTests : AsyncLifetimeTestBase
         // Act
         HttpResponseMessage response = await _noRedirectClient.SendAsync(request);
 
-        // Assert — login is rejected: the page is re-rendered (200) with the unconfirmed-account
+        // Assert: login is rejected: the page is re-rendered (200) with the unconfirmed-account
         // error (ADR-0046), NOT a redirect (302), which is what a successful sign-in would return.
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
 

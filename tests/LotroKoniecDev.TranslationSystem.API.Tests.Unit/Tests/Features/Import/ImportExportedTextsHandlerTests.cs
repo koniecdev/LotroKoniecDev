@@ -128,7 +128,7 @@ public sealed class ImportExportedTextsHandlerTests
     [Fact]
     public async Task Handle_WhenCommandInvalid_ShouldReturnValidationError()
     {
-        // Arrange — a default (empty) version id fails the command validator.
+        // Arrange: a default (empty) version id fails the command validator.
         ImportExportedTexts.Command command = Command(default, Export(Line(1, "A")));
 
         // Act
@@ -157,7 +157,7 @@ public sealed class ImportExportedTextsHandlerTests
     [Fact]
     public async Task Handle_WhenParseHasErrors_ShouldRejectAndNotPersist()
     {
-        // Arrange — the second line is missing its trailing fields.
+        // Arrange: the second line is missing its trailing fields.
         GivenVersion(UnprocessedVersion());
         string export = Export(Line(1, "A"), "620756992||2||truncated line");
 
@@ -173,7 +173,7 @@ public sealed class ImportExportedTextsHandlerTests
     [Fact]
     public async Task Handle_WhenUploadHasMoreBadLinesThanTheCap_ShouldRejectWithCappedErrorCount()
     {
-        // Arrange — 150 unparseable lines; the import stops collecting at the 100-error cap
+        // Arrange: 150 unparseable lines; the import stops collecting at the 100-error cap
         // (spec 0006) but still rejects the whole upload.
         GivenVersion(UnprocessedVersion());
         string export = Export([.. Enumerable.Range(1, 150).Select(index => $"620756992||{index}||missing trailing fields")]);
@@ -191,7 +191,7 @@ public sealed class ImportExportedTextsHandlerTests
     [Fact]
     public async Task Handle_WhenMassRemovalExceedsThresholdWithoutOverride_ShouldBlockAndNotPersist()
     {
-        // Arrange — five active rows, the upload keeps three (40% would be removed).
+        // Arrange: five active rows, the upload keeps three (40% would be removed).
         GivenVersion(UnprocessedVersion());
         GivenExisting(ExistingRow(1, "A"), ExistingRow(2, "B"), ExistingRow(3, "C"), ExistingRow(4, "D"), ExistingRow(5, "E"));
         string export = Export(Line(1, "A"), Line(2, "B"), Line(3, "C"));
@@ -225,7 +225,7 @@ public sealed class ImportExportedTextsHandlerTests
     [Fact]
     public async Task Handle_WhenRemovedFractionEqualsThreshold_ShouldSucceedWithoutOverride()
     {
-        // Arrange — five active rows, the upload drops exactly one (20%); "exceeds" is strict.
+        // Arrange: five active rows, the upload drops exactly one (20%); "exceeds" is strict.
         GivenVersion(UnprocessedVersion());
         GivenExisting(ExistingRow(1, "A"), ExistingRow(2, "B"), ExistingRow(3, "C"), ExistingRow(4, "D"), ExistingRow(5, "E"));
         string export = Export(Line(1, "A"), Line(2, "B"), Line(3, "C"), Line(4, "D"));
@@ -241,7 +241,7 @@ public sealed class ImportExportedTextsHandlerTests
     [Fact]
     public async Task Handle_WhenRowFailsValueObjectValidation_ShouldReturnInvalidRow()
     {
-        // Arrange — file id 0 parses but fails FragmentKey validation.
+        // Arrange: file id 0 parses but fails FragmentKey validation.
         GivenVersion(UnprocessedVersion());
 
         // Act
@@ -257,7 +257,7 @@ public sealed class ImportExportedTextsHandlerTests
     [Fact]
     public async Task Handle_WhenUploadHasDuplicateFragmentKey_ShouldReturnDuplicateError()
     {
-        // Arrange — two rows share (FileId, GossipId).
+        // Arrange: two rows share (FileId, GossipId).
         GivenVersion(UnprocessedVersion());
 
         // Act
@@ -291,7 +291,7 @@ public sealed class ImportExportedTextsHandlerTests
     [Fact]
     public async Task Handle_WhenUploadHasNoRows_ShouldRejectAndNotPersist()
     {
-        // Arrange — a comments-and-blanks-only file parses cleanly to zero rows.
+        // Arrange: a comments-and-blanks-only file parses cleanly to zero rows.
         GivenVersion(UnprocessedVersion());
 
         // Act
@@ -324,7 +324,7 @@ public sealed class ImportExportedTextsHandlerTests
     [Fact]
     public async Task Handle_WhenOlderUnprocessedVersionsExist_ShouldMarkThemSupersededAndWarn()
     {
-        // Arrange — the target is processed while two older versions are still unprocessed. The
+        // Arrange: the target is processed while two older versions are still unprocessed. The
         // stub keys on the target's DetectedAt, so this also pins that the handler queries with the
         // processed version's timestamp (a wrong argument falls through to the default empty stub).
         GameVersion target = UnprocessedVersion();
@@ -349,7 +349,7 @@ public sealed class ImportExportedTextsHandlerTests
     [Fact]
     public async Task Handle_WhenRemovedKeyReappearsWithIdenticalSource_ShouldRestoreTheRowAndWarn()
     {
-        // Arrange — the stored digest is soft-removed and the upload carries the identical source,
+        // Arrange: the stored digest is soft-removed and the upload carries the identical source,
         // so the plan's only outcome is the restore leg (spec 0001 re-add).
         GivenVersion(UnprocessedVersion());
         Translation removed = ExistingRow(1, "A");
@@ -364,7 +364,7 @@ public sealed class ImportExportedTextsHandlerTests
         Result<ImportSummary> result = await CreateHandler().Handle(
             Command(VersionId, Export(Line(1, "A"))), CancellationToken.None);
 
-        // Assert — the handler applied the plan's restored ids (removal cleared, nothing counted
+        // Assert: the handler applied the plan's restored ids (removal cleared, nothing counted
         // elsewhere) and surfaced the restore through the summary warnings.
         result.IsSuccess.ShouldBeTrue();
         removed.IsRemoved.ShouldBeFalse();
@@ -376,7 +376,7 @@ public sealed class ImportExportedTextsHandlerTests
     [Fact]
     public async Task Handle_WhenUploadEchoesTheRowsOwnPolish_ShouldLeaveTheRowUntouchedAndCountTheEcho()
     {
-        // Arrange — an export from the admin's patched DAT (spec 0012): row 1 comes back as our own
+        // Arrange: an export from the admin's patched DAT (spec 0012): row 1 comes back as our own
         // Polish, row 2 as an untouched English source; neither is a source change.
         GivenVersion(UnprocessedVersion());
         Translation resident = TranslatedRow(1, "Alpha", "Alfa");
@@ -392,7 +392,7 @@ public sealed class ImportExportedTextsHandlerTests
         // Act
         Result<ImportSummary> result = await CreateHandler().Handle(Command(VersionId, export), CancellationToken.None);
 
-        // Assert — the echo is reported and counted inside Unchanged; the row's English source,
+        // Assert: the echo is reported and counted inside Unchanged; the row's English source,
         // Polish and status stand.
         result.IsSuccess.ShouldBeTrue();
         result.Value.Echoed.ShouldBe(1);
@@ -408,7 +408,7 @@ public sealed class ImportExportedTextsHandlerTests
     [Fact]
     public async Task Handle_WhenNoOlderUnprocessedVersions_ShouldNotEmitSupersedeWarning()
     {
-        // Arrange — the default stub returns no older versions, so a plain baseline import warns nothing.
+        // Arrange: the default stub returns no older versions, so a plain baseline import warns nothing.
         GivenVersion(UnprocessedVersion());
 
         // Act

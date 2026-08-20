@@ -15,7 +15,7 @@ public sealed class DatFileHandlerExtensionsTests
     [Fact]
     public void LoadSubFile_SubFileDeclaringImpossibleFragmentCount_ShouldReturnParseFailure()
     {
-        // Arrange — subfile declaring the VarLen maximum of fragments with no fragment data behind the count
+        // Arrange: subfile declaring the VarLen maximum of fragments with no fragment data behind the count
         IDatFileHandler handler = Substitute.For<IDatFileHandler>();
         byte[] corruptData = TestDataFactory.CreateTextSubFileDataWithImpossibleFragmentCount(TextFileId, 0x7FFF);
         handler.GetSubfileData(Handle, TextFileId, corruptData.Length).Returns(Result.Success(corruptData));

@@ -27,7 +27,7 @@ public sealed class CookieConsentBannerTests : E2ETestBase
     [Fact]
     public async Task Banner_shows_for_new_visitor_and_accepting_without_javascript_hides_it_across_navigation()
     {
-        // Arrange — a dedicated JS-less context: the acceptance path must be pure SSR.
+        // Arrange: a dedicated JS-less context: the acceptance path must be pure SSR.
         await using IBrowserContext jsLessContext = await Fixture.Browser.NewContextAsync(new BrowserNewContextOptions
         {
             IgnoreHTTPSErrors = true,

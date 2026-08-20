@@ -28,7 +28,7 @@ public sealed class AccountGdprSelfServiceTests : E2ETestBase
     [Fact]
     public async Task Export_then_delete_then_cancel_via_email_then_reset_password_and_login_again()
     {
-        // Arrange — a fresh confirmed account, signed in through the FE.
+        // Arrange: a fresh confirmed account, signed in through the FE.
         TestUser user = TestUser.CreateRandom();
         await AuthActions.RegisterAsync(Page, Fixture, user);
         await AuthActions.ConfirmEmailAsync(Page, Fixture, user);

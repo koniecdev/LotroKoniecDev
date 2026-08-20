@@ -38,7 +38,7 @@ public sealed class OutboxRelayTests : EndpointsTestBase
     [Fact]
     public async Task Relay_ShouldPublishAndMarkProcessed_WhenRegistrationCommits()
     {
-        // Arrange & Act — registration is the outbox writer under test
+        // Arrange & Act: registration is the outbox writer under test
         (RegisterRequest _, IdentityId identityId) = await UserFactory.RegisterRandomUserUnconfirmedAsync(
             ApiClient, Faker, AccountConfirmationEmailSpy);
 
@@ -70,7 +70,7 @@ public sealed class OutboxRelayTests : EndpointsTestBase
         // Act
         NotifyRelay();
 
-        // Assert — the row survives the refusal, carrying the failure diagnostics
+        // Assert: the row survives the refusal, carrying the failure diagnostics
         OutboxMessage? failed = await WaitForOutboxRowAsync(
             row => row.Id == messageId && row.Attempts > 0);
 
@@ -93,7 +93,7 @@ public sealed class OutboxRelayTests : EndpointsTestBase
     [Fact]
     public async Task Registration_ShouldCommitNoOutboxRow_WhenRegistrationFails()
     {
-        // Arrange — a taken e-mail address makes the second registration fail inside the same
+        // Arrange: a taken e-mail address makes the second registration fail inside the same
         // transaction that would have written its outbox row
         (RegisterRequest existingRequest, _) = await UserFactory.RegisterRandomUserUnconfirmedAsync(
             ApiClient, Faker, AccountConfirmationEmailSpy);
@@ -110,7 +110,7 @@ public sealed class OutboxRelayTests : EndpointsTestBase
         HttpResponseMessage response = await ApiClient.Http.PostAsJsonAsync(
             new Uri("auth/register", UriKind.Relative), duplicateRequest);
 
-        // Assert — the failure rolled back atomically: only the first registration's row exists,
+        // Assert: the failure rolled back atomically: only the first registration's row exists,
         // so the pipeline can never send a confirmation e-mail for an account that was not created
         response.StatusCode.ShouldBe(HttpStatusCode.UnprocessableEntity);
 

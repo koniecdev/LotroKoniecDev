@@ -77,7 +77,7 @@ public sealed class GetPublicProgressTests : IAsyncLifetime
     [Fact]
     public async Task Progress_WithMixedStatuses_ShouldBucketEachCounter()
     {
-        // Arrange — one untranslated, two drafts, three approved, one invalidated (NeedsReview).
+        // Arrange: one untranslated, two drafts, three approved, one invalidated (NeedsReview).
         await SeedAsync(
             Row(1, "a"),
             Row(2, "b", TranslationStatus.Draft),
@@ -118,7 +118,7 @@ public sealed class GetPublicProgressTests : IAsyncLifetime
     [Fact]
     public async Task Progress_WithProcessedVersions_ShouldReturnTheNewestProcessedOne()
     {
-        // Arrange — an older and a newer processed version plus a newest merely-detected one: the
+        // Arrange: an older and a newer processed version plus a newest merely-detected one: the
         // catalog is current for the newest PROCESSED version, not the newest known version.
         await SeedVersionAsync("47.2", Now.AddDays(-30), processed: true);
         await SeedVersionAsync("48.1", Now.AddDays(-1), processed: true);
@@ -134,7 +134,7 @@ public sealed class GetPublicProgressTests : IAsyncLifetime
     [Fact]
     public async Task Progress_WithOnlyUnprocessedVersions_ShouldReturnNullVersion()
     {
-        // Arrange — the InitializeAsync base version is already Unprocessed; add another one.
+        // Arrange: the InitializeAsync base version is already Unprocessed; add another one.
         await SeedVersionAsync("48.3", Now, processed: false);
 
         // Act
@@ -147,7 +147,7 @@ public sealed class GetPublicProgressTests : IAsyncLifetime
     [Fact]
     public async Task Progress_RepeatedWithinTtl_ShouldNotRerunTheCounterQueries()
     {
-        // Arrange — the first call populates the server-side cache (AUDIT-EF-04/#354).
+        // Arrange: the first call populates the server-side cache (AUDIT-EF-04/#354).
         await SeedAsync(Row(1, "a", TranslationStatus.Approved), Row(2, "b"));
         PublicProgressResponse first = await ProgressAsync();
         _factory.ReadContextSqlRecorder.Clear();
@@ -155,7 +155,7 @@ public sealed class GetPublicProgressTests : IAsyncLifetime
         // Act
         PublicProgressResponse second = await ProgressAsync();
 
-        // Assert — served entirely from the cache: identical payload and zero read-context SQL
+        // Assert: served entirely from the cache: identical payload and zero read-context SQL
         // (the recorded command stream is the only seam that can prove "no second query").
         second.ShouldBe(first);
         _factory.ReadContextSqlRecorder.Commands.ShouldBeEmpty();

@@ -168,7 +168,7 @@ public sealed class GameVersionTests
     [Fact]
     public void EnsureCanBeDeleted_WhenSuperseded_ShouldSucceed()
     {
-        // Arrange — superseded means "registered, then skipped": MarkSuperseded refuses a processed
+        // Arrange: superseded means "registered, then skipped": MarkSuperseded refuses a processed
         // version, so no import ever landed against this one and nothing references it (#624).
         GameVersion gameVersion = CreateGameVersion();
         gameVersion.MarkSuperseded();

@@ -70,7 +70,7 @@ public sealed class DeleteGameVersionTests : IAsyncLifetime
     [Fact]
     public async Task Delete_ProcessedVersion_ShouldReturn422WithTheProcessedErrorCodeAndKeepIt()
     {
-        // Arrange — a processed version is the one an import landed against and cannot be removed. The
+        // Arrange: a processed version is the one an import landed against and cannot be removed. The
         // literal errorCode is asserted on purpose: it is the wire contract the Frontend's Polish copy
         // is keyed on, and comparing a Result against its own factory would not catch a rename.
         using HttpClient client = AdminClient();
@@ -88,7 +88,7 @@ public sealed class DeleteGameVersionTests : IAsyncLifetime
     [Fact]
     public async Task Delete_SupersededVersion_ShouldReturn204AndRemoveItFromTheList()
     {
-        // Arrange — superseded means "registered, then skipped": no import ever landed against it, so
+        // Arrange: superseded means "registered, then skipped": no import ever landed against it, so
         // it is exactly the row an admin must be able to clean up (#624).
         using HttpClient client = AdminClient();
         GameVersionId id = await SeedVersionAsync("48.0", GameVersionStatus.Superseded);
@@ -104,7 +104,7 @@ public sealed class DeleteGameVersionTests : IAsyncLifetime
     [Fact]
     public async Task Delete_SupersededVersionReferencedByATranslation_ShouldReturn422AndKeepIt()
     {
-        // Arrange — the cross-aggregate net is the safety line the relaxed status guard leans on, so it
+        // Arrange: the cross-aggregate net is the safety line the relaxed status guard leans on, so it
         // must still refuse a referenced version whatever its status.
         using HttpClient client = AdminClient();
         GameVersionId id = await SeedVersionAsync("48.0", GameVersionStatus.Superseded);
@@ -122,7 +122,7 @@ public sealed class DeleteGameVersionTests : IAsyncLifetime
     [Fact]
     public async Task Delete_VersionReferencedByATranslation_ShouldReturn422AndKeepIt()
     {
-        // Arrange — an unprocessed version that a translation references (the defense-in-depth guard,
+        // Arrange: an unprocessed version that a translation references (the defense-in-depth guard,
         // exercised against real PostgreSQL so AnyReferencesGameVersionAsync is proven to translate).
         using HttpClient client = AdminClient();
         GameVersionId id = await SeedVersionAsync("48.0", GameVersionStatus.Unprocessed);
@@ -139,7 +139,7 @@ public sealed class DeleteGameVersionTests : IAsyncLifetime
     [Fact]
     public async Task Delete_AsTranslator_ShouldReturn403()
     {
-        // Arrange — deletion is an admin-only action.
+        // Arrange: deletion is an admin-only action.
         GameVersionId id = await SeedVersionAsync("48.0", GameVersionStatus.Unprocessed);
 
         // Act
@@ -162,7 +162,7 @@ public sealed class DeleteGameVersionTests : IAsyncLifetime
     [Fact]
     public async Task MistypedVersion_AfterBeingSuperseded_CanBeDeletedAndItsNumberReusedForTheRealUpdate()
     {
-        // Arrange — the whole trap of #624 over the public endpoints only: a typo registers "50", the
+        // Arrange: the whole trap of #624 over the public endpoints only: a typo registers "50", the
         // real "49.2" is registered and imported, which supersedes the typo and used to seal its
         // version number for good (undeletable, un-importable, un-registrable).
         using HttpClient admin = AdminClient();
@@ -180,7 +180,7 @@ public sealed class DeleteGameVersionTests : IAsyncLifetime
             await admin.PostAsJsonAsync(Route, new RegisterGameVersionRequest("50"));
         blockedRegister.StatusCode.ShouldBe(HttpStatusCode.UnprocessableEntity);
 
-        // Act — retire the dead row, then walk the real Update 50 in.
+        // Act: retire the dead row, then walk the real Update 50 in.
         HttpResponseMessage delete = await admin.DeleteAsync($"{Route}/{mistypedId}");
         Guid reRegisteredId = await RegisterVersionAsync(admin, "50");
         HttpResponseMessage import = await ImportAsync(admin, reRegisteredId, Line(1, "Alpha"), Line(2, "Beta"));

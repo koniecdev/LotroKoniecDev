@@ -25,7 +25,7 @@ public sealed class SourceHashWireDigestTests
     [Fact]
     public void ToWireDigest_ShouldBeTheDigestBytesInDigestOrderNotTheUlongsHexRendering()
     {
-        // Arrange — High is those same bytes read LITTLE-endian, so rendering the ulong as x16
+        // Arrange: High is those same bytes read LITTLE-endian, so rendering the ulong as x16
         // reverses them. That mistake produces a perfectly well-formed 16-hex column which no
         // patcher would ever match, and nothing but this assertion would notice.
         SourceHash hash = SourceHash.Compute("Witaj w Srodziemiu!", null, null);

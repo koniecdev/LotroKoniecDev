@@ -16,7 +16,7 @@ public sealed class AuthorizationDefaultsTests
     [Fact]
     public async Task GetDiscovery_WithoutToken_ShouldReturn200()
     {
-        // Arrange — the service document is the one deliberate hole in authorized-by-default (#608):
+        // Arrange: the service document is the one deliberate hole in authorized-by-default (#608):
         // it advertises only endpoints the caller may already reach, and an unauthenticated client
         // has no other way to bootstrap. What it hands back per caller is
         // DiscoveryHateoasTests' subject; here the point is only that the root is not walled off.
@@ -80,7 +80,7 @@ public sealed class AuthorizationDefaultsTests
     [Fact]
     public async Task GetProtectedResource_WithExpiredToken_ShouldReturn401()
     {
-        // Arrange — token rejection is enforced on every protected route, not just discovery.
+        // Arrange: token rejection is enforced on every protected route, not just discovery.
         // (/api/v1/game-versions: the translations list itself is publicly readable since #309.)
         using HttpClient client = _factory.CreateClient();
         client.DefaultRequestHeaders.Authorization =
@@ -111,7 +111,7 @@ public sealed class AuthorizationDefaultsTests
     [Fact]
     public async Task GetTranslatorResource_WithUnrecognizedRole_ShouldReturn403()
     {
-        // Arrange — a correctly-signed token whose role is neither Admin nor Translator is
+        // Arrange: a correctly-signed token whose role is neither Admin nor Translator is
         // authenticated, but the RequireTranslatorRole policy still rejects it.
         using HttpClient client = _factory.CreateClient();
         client.DefaultRequestHeaders.Authorization =
@@ -131,7 +131,7 @@ public sealed class AuthorizationDefaultsTests
     [InlineData("GET", "/api/v1/game-versions/11111111-1111-1111-1111-111111111111")]
     public async Task TranslatorGatedEndpoint_WithUnrecognizedRole_ShouldReturn403(string method, string route)
     {
-        // Arrange — the same unrecognized-role token as above, sent at each translator-gated
+        // Arrange: the same unrecognized-role token as above, sent at each translator-gated
         // route so every endpoint's own RequireTranslatorRole binding is proven, not just the
         // policy definition. Authorization short-circuits before the endpoint runs, so the write
         // route needs no request body.

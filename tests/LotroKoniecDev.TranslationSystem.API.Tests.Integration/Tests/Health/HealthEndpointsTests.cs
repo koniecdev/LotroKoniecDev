@@ -49,7 +49,7 @@ public sealed class HealthEndpointsTests
         HttpResponseMessage response = await client.GetAsync("/health/ready");
         string body = await response.Content.ReadAsStringAsync();
 
-        // Assert — ACA probes this path every few seconds; it must never touch Postgres (ADR-0025).
+        // Assert: ACA probes this path every few seconds; it must never touch Postgres (ADR-0025).
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
         body.ShouldContain("\"status\": \"Healthy\"");
         body.ShouldNotContain("translationdb");

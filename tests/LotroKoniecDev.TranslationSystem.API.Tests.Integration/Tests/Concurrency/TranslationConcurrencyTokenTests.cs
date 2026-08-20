@@ -65,7 +65,7 @@ public sealed class TranslationConcurrencyTokenTests : IAsyncLifetime
     [Fact]
     public async Task Approve_WhenAConcurrentImportInvalidatesTheRowFirst_ThrowsConcurrencyAndKeepsTheInvalidation()
     {
-        // Arrange — a reviewer opens a Draft row to approve it (captures its version token).
+        // Arrange: a reviewer opens a Draft row to approve it (captures its version token).
         Guid id = await SeedDraftRowAsync(gossipId: 1, polish: "Witaj");
 
         using IServiceScope reviewerScope = _factory.Services.CreateScope();
@@ -92,7 +92,7 @@ public sealed class TranslationConcurrencyTokenTests : IAsyncLifetime
     [Fact]
     public async Task Upsert_WhenAnotherTranslatorSavedFirst_ThrowsConcurrencyAndDoesNotOverwrite()
     {
-        // Arrange — a translator opens an untranslated row to attach Polish (captures its version token).
+        // Arrange: a translator opens an untranslated row to attach Polish (captures its version token).
         Guid id = await SeedUntranslatedRowAsync(gossipId: 2);
 
         using IServiceScope editorScope = _factory.Services.CreateScope();

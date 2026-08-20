@@ -6,17 +6,17 @@ using Testcontainers.RabbitMq;
 namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared;
 
 /// <summary>
-/// One real RabbitMQ container per test class — the rest of the suite deliberately runs
-/// broker-less behind <see cref="SpyMessagePublisher"/>, but dead-letter routing, quorum-queue
-/// redelivery counting and the delivery limit are broker behavior: only the broker itself can
-/// prove our declared topology actually has them.
+/// One real RabbitMQ container per test class. The rest of the suite runs without a broker, behind
+/// <see cref="SpyMessagePublisher"/>, on purpose. But dead-letter routing, the retry counting of a
+/// quorum queue and the delivery limit are things the broker does, so only a real broker can show that
+/// the topology we declare really has them.
 /// </summary>
 public sealed class RabbitMqBrokerFixture : IAsyncLifetime
 {
     /// <summary>
-    /// Pinned to the exact compose.yaml version (management UI stripped — dead weight in a
-    /// test), so the suite proves the topology against the broker generation the stack actually
-    /// runs. compose.yaml points back here: a bump must touch both.
+    /// Pinned to the exact version in compose.yaml, without the management UI, which a test does not
+    /// need. So the suite checks the topology against the same broker version the stack runs.
+    /// compose.yaml points back here: an upgrade has to change both.
     /// </summary>
     private readonly RabbitMqContainer _container = new RabbitMqBuilder("rabbitmq:4.3.4-alpine")
         .Build();

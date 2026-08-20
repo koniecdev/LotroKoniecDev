@@ -88,7 +88,7 @@ public sealed class DeleteAccountEndpointTests : EndpointsTestBase
 
         string accessToken = await GetAccessTokenAsync(registerRequest.Email, TestPassword);
 
-        // Act — the request only commits the outbox row; the e-mail arrives through the
+        // Act: the request only commits the outbox row; the e-mail arrives through the
         // pipeline (relay -> delivery -> spy), so the capture has to be awaited (ADR-0038)
         HttpResponseMessage response = await SendDeleteRequestAsync(accessToken, TestPassword);
         await AccountDeletionEmailSpy.WaitForScheduledCaptureAsync();
@@ -113,7 +113,7 @@ public sealed class DeleteAccountEndpointTests : EndpointsTestBase
         HttpResponseMessage response = await SendDeleteRequestAsync(accessToken, TestPassword);
         await AccountDeletionEmailSpy.WaitForScheduledCaptureAsync();
 
-        // Assert — the payload carries the user id and nothing else: the cancel token is minted
+        // Assert: the payload carries the user id and nothing else: the cancel token is minted
         // at delivery and must never persist in an outbox row (ADR-0038 decision 2)
         response.StatusCode.ShouldBe(HttpStatusCode.NoContent);
         OutboxMessage? outboxRow = await OutboxAssertions.WaitForOutboxRowAsync(
@@ -136,10 +136,10 @@ public sealed class DeleteAccountEndpointTests : EndpointsTestBase
         string accessToken = await GetAccessTokenAsync(registerRequest.Email, TestPassword);
         await SendDeleteRequestAsync(accessToken, TestPassword);
 
-        // Act — try to login with the (still correct) credentials
+        // Act: try to login with the (still correct) credentials
         HttpResponseMessage loginResponse = await RequestTokenAsync(registerRequest.Email, TestPassword);
 
-        // Assert — the dedicated error lets clients show the "scheduled for deletion" state
+        // Assert: the dedicated error lets clients show the "scheduled for deletion" state
         loginResponse.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
         string body = await loginResponse.Content.ReadAsStringAsync();
         body.ShouldContain("account_deletion_scheduled");
@@ -155,7 +155,7 @@ public sealed class DeleteAccountEndpointTests : EndpointsTestBase
         string accessToken = await GetAccessTokenAsync(registerRequest.Email, TestPassword);
         await SendDeleteRequestAsync(accessToken, TestPassword);
 
-        // Act — wrong password must not reveal that deletion is scheduled
+        // Act: wrong password must not reveal that deletion is scheduled
         HttpResponseMessage loginResponse = await RequestTokenAsync(registerRequest.Email, "WrongPassword1!");
 
         // Assert
@@ -176,10 +176,10 @@ public sealed class DeleteAccountEndpointTests : EndpointsTestBase
         firstResponse.StatusCode.ShouldBe(HttpStatusCode.NoContent);
         await AccountDeletionEmailSpy.WaitForScheduledCaptureAsync();
 
-        // Act — the JWT is self-contained, so it stays usable within its lifetime
+        // Act: the JWT is self-contained, so it stays usable within its lifetime
         HttpResponseMessage secondResponse = await SendDeleteRequestAsync(accessToken, TestPassword);
 
-        // Assert — the rejected retry must not have queued a second e-mail
+        // Assert: the rejected retry must not have queued a second e-mail
         secondResponse.StatusCode.ShouldBe(HttpStatusCode.UnprocessableEntity);
         string body = await secondResponse.Content.ReadAsStringAsync();
         body.ShouldContain("Auth.DeletionAlreadyScheduled");
@@ -237,7 +237,7 @@ public sealed class DeleteAccountEndpointTests : EndpointsTestBase
             HttpResponseMessage response = await SendDeleteRequestAsync(accessToken, TestPassword);
             await AccountDeletionEmailSpy.WaitForScheduledCaptureAsync(TimeSpan.FromSeconds(5));
 
-            // Assert — the unwind compensation is gone (ADR-0038 decision 5): the request only
+            // Assert: the unwind compensation is gone (ADR-0038 decision 5): the request only
             // commits the outbox row atomically with the schedule, so an SMTP failure neither
             // fails the request nor unwinds the schedule — redelivery (or a DLQ replay) owns it.
             response.StatusCode.ShouldBe(HttpStatusCode.NoContent);

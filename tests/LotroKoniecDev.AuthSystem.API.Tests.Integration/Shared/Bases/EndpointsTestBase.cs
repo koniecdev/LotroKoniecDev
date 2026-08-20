@@ -19,7 +19,7 @@ public abstract class EndpointsTestBase : AsyncLifetimeTestBase
 
     protected async Task<string> GetAccessTokenAsync(string email, string password)
     {
-        // The OIDC "username" wire key is a protocol constant — it carries the e-mail (ADR-0022).
+        // "username" is a fixed name in the OIDC protocol. What it carries is the e-mail (ADR-0022).
         using FormUrlEncodedContent tokenRequest = new(new Dictionary<string, string>
         {
             ["grant_type"] = "password",

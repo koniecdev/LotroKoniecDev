@@ -81,7 +81,7 @@ public sealed class TranslationTests
             Content = "Test"
         };
 
-        // Assert — the old int-backed GossipId would have truncated anything above int.MaxValue.
+        // Assert: the old int-backed GossipId would have truncated anything above int.MaxValue.
         translation.FragmentId.ShouldBe(ulong.MaxValue);
     }
 

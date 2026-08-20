@@ -13,7 +13,7 @@ public sealed partial class ResetPasswordPageTests : EndpointsTestBase
     [Fact]
     public async Task ResetPasswordPage_ShouldRevokeExistingRefreshTokens_AfterReset()
     {
-        // Arrange — a confirmed user with an active refresh token (offline_access)
+        // Arrange: a confirmed user with an active refresh token (offline_access)
         const string originalPassword = "TestPass1!";
         const string newPassword = "NewPass99!";
 
@@ -58,7 +58,7 @@ public sealed partial class ResetPasswordPageTests : EndpointsTestBase
         string resetHtml = await resetPageResponse.Content.ReadAsStringAsync();
         resetHtml.ShouldContain("Hasło zmienione"); // the IsCompleted success panel
 
-        // Act — try to use the refresh token that was issued BEFORE the reset
+        // Act: try to use the refresh token that was issued BEFORE the reset
         using FormUrlEncodedContent refreshRequest = new(new Dictionary<string, string>
         {
             ["grant_type"] = "refresh_token",
@@ -69,7 +69,7 @@ public sealed partial class ResetPasswordPageTests : EndpointsTestBase
         HttpResponseMessage response = await ApiClient.Http.PostAsync(
             new Uri("connect/token", UriKind.Relative), refreshRequest);
 
-        // Assert — the pre-reset refresh token must be dead
+        // Assert: the pre-reset refresh token must be dead
         response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
     }
 

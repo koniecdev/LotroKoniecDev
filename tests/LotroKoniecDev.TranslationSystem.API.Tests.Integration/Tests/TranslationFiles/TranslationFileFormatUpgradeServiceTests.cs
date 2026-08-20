@@ -66,7 +66,7 @@ public sealed class TranslationFileFormatUpgradeServiceTests : IAsyncLifetime
     [Fact]
     public async Task UpgradeAsync_WithAnArtifactPredatingTheColumn_ShouldRegenerateItWithTheDigest()
     {
-        // Arrange — exactly the state a deploy lands in: rows already Approved, and a stored
+        // Arrange: exactly the state a deploy lands in: rows already Approved, and a stored
         // artifact written by the previous release in the six-column format.
         await SeedApprovedAsync(gossipId: 1, polish: "Alfa", english: "Alpha source");
         await StoreArtifactAsync($"{FileId}||1||Alfa||NULL||NULL||1\r\n");
@@ -82,7 +82,7 @@ public sealed class TranslationFileFormatUpgradeServiceTests : IAsyncLifetime
     [Fact]
     public async Task UpgradeAsync_WithAnArtifactThatAlreadyCarriesTheColumn_ShouldLeaveItUntouched()
     {
-        // Arrange — a current artifact whose Content deliberately does NOT match the Approved set.
+        // Arrange: a current artifact whose Content deliberately does NOT match the Approved set.
         // If the upgrade fired it would rewrite the row, so an unchanged body proves it did not.
         await SeedApprovedAsync(gossipId: 1, polish: "Alfa", english: "Alpha source");
         string current = $"{FileId}||1||Cos calkiem innego||NULL||NULL||1||a37cc1683216cd32\r\n";
@@ -99,7 +99,7 @@ public sealed class TranslationFileFormatUpgradeServiceTests : IAsyncLifetime
     [Fact]
     public async Task UpgradeAsync_WithNoArtifactStoredYet_ShouldDoNothing()
     {
-        // Arrange — a fresh deployment. There is nothing to upgrade, and building one here would
+        // Arrange: a fresh deployment. There is nothing to upgrade, and building one here would
         // race the ordinary rebuild path for no benefit.
         await SeedApprovedAsync(gossipId: 1, polish: "Alfa", english: "Alpha source");
 

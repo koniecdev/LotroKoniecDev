@@ -62,7 +62,7 @@ public sealed class BulkApproveTranslationsTests : IAsyncLifetime
     [Fact]
     public async Task BulkApprove_OnDraftAndNeedsReviewRows_ShouldApproveBothAndPublish()
     {
-        // Arrange — both a plain draft and an invalidated (NeedsReview) row are approvable; approving
+        // Arrange: both a plain draft and an invalidated (NeedsReview) row are approvable; approving
         // publishes both and rebuilds the distributed artifact (spec 0001, #322).
         Guid draftId = await SeedAsync(gossipId: 1, SeedStatus.Draft, polish: "Witaj");
         Guid needsReviewId = await SeedAsync(gossipId: 2, SeedStatus.NeedsReview, polish: "Stary polski");
@@ -94,7 +94,7 @@ public sealed class BulkApproveTranslationsTests : IAsyncLifetime
     [Fact]
     public async Task BulkApprove_WithApprovableUntranslatedAndUnknownIds_ShouldApproveOnlyTheApprovableOne()
     {
-        // Arrange — best-effort: a Draft is approved, an Untranslated row and an unknown id are skipped;
+        // Arrange: best-effort: a Draft is approved, an Untranslated row and an unknown id are skipped;
         // one stale/invalid id must never fail the whole batch.
         Guid draftId = await SeedAsync(gossipId: 1, SeedStatus.Draft, polish: "Witaj");
         Guid untranslatedId = await SeedAsync(gossipId: 2, SeedStatus.Untranslated, polish: null);
@@ -118,7 +118,7 @@ public sealed class BulkApproveTranslationsTests : IAsyncLifetime
     [Fact]
     public async Task BulkApprove_WhenNoRowIsApprovable_ShouldReturnZeroApproved()
     {
-        // Arrange — an untranslated row has no Polish to publish; the request is well-formed but
+        // Arrange: an untranslated row has no Polish to publish; the request is well-formed but
         // publishes nothing, which is still a success (200, approved:0).
         Guid untranslatedId = await SeedAsync(gossipId: 1, SeedStatus.Untranslated, polish: null);
         using HttpClient client = AdminClient(Guid.NewGuid());
@@ -153,7 +153,7 @@ public sealed class BulkApproveTranslationsTests : IAsyncLifetime
     [Fact]
     public async Task BulkApprove_WithMoreThanOneHundredIds_ShouldReturn400()
     {
-        // Arrange — the cap mirrors the list's max page size.
+        // Arrange: the cap mirrors the list's max page size.
         Guid[] ids = [.. Enumerable.Range(0, 101).Select(_ => Guid.NewGuid())];
         using HttpClient client = AdminClient(Guid.NewGuid());
 
@@ -168,7 +168,7 @@ public sealed class BulkApproveTranslationsTests : IAsyncLifetime
     [Fact]
     public async Task BulkApprove_AsTranslator_ShouldReturn403()
     {
-        // Arrange — bulk approve is an admin (reviewer) action; the translator role must not approve.
+        // Arrange: bulk approve is an admin (reviewer) action; the translator role must not approve.
         Guid draftId = await SeedAsync(gossipId: 1, SeedStatus.Draft, polish: "Witaj");
         using HttpClient client = TranslatorClient(Guid.NewGuid());
 
@@ -197,7 +197,7 @@ public sealed class BulkApproveTranslationsTests : IAsyncLifetime
     [Fact]
     public async Task BulkApprove_WithNullIdsBody_ShouldReturn400()
     {
-        // Arrange — a raw body whose ids field is null (or a missing field) binds Ids to null; the endpoint
+        // Arrange: a raw body whose ids field is null (or a missing field) binds Ids to null; the endpoint
         // must normalize it to an empty list and fail validation with 400, never 500 from a null dereference.
         using HttpClient client = AdminClient(Guid.NewGuid());
         using StringContent body = new("""{"ids":null}""");

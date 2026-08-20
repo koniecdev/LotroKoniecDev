@@ -239,7 +239,7 @@ public sealed class TranslationFileParserTests : IDisposable
     [InlineData("100||18446744073709551616||Content||NULL||NULL||1")]        // ulong.MaxValue + 1 — beyond the 8-byte range
     public void ParseLine_GossipIdOutsideUnsignedRange_ShouldReturnFailure(string line)
     {
-        // Act — the tolerant parser must report a per-line failure (warn-skip), not let the
+        // Act: the tolerant parser must report a per-line failure (warn-skip), not let the
         // OverflowException abort the whole file.
         Result<Translation> result = _parser.ParseLine(line);
 
@@ -286,7 +286,7 @@ public sealed class TranslationFileParserTests : IDisposable
     [Fact]
     public void ParseLine_FiveFields_ShouldReturnFailure()
     {
-        // Act — missing approved field
+        // Act: missing approved field
         Result<Translation> result = _parser.ParseLine("100||200||Content||NULL||NULL");
 
         // Assert
@@ -348,7 +348,7 @@ public sealed class TranslationFileParserTests : IDisposable
     [InlineData("Witaj||w Srodziemiu||przyjacielu")]
     public void ParseLine_ContentWithSeparators_ShouldRoundTripToIdenticalContent(string content)
     {
-        // Arrange — serialize via the canonical export line format (file_id||gossip_id||content||args_order||args_id||approved)
+        // Arrange: serialize via the canonical export line format (file_id||gossip_id||content||args_order||args_id||approved)
         string serializedLine = $"100||200||{content}||NULL||NULL||1";
 
         // Act
@@ -374,7 +374,7 @@ public sealed class TranslationFileParserTests : IDisposable
         // Act
         Result<TranslationParseResult> result = _parser.ParseFile(filePath);
 
-        // Assert — a rejected line is reported, never silently dropped (ADR-0042); the warning
+        // Assert: a rejected line is reported, never silently dropped (ADR-0042); the warning
         // travels into PatchSummaryResponse.Warnings, which the CLI prints.
         result.IsSuccess.ShouldBeTrue();
         result.Value.Translations.Count.ShouldBe(2);
@@ -385,7 +385,7 @@ public sealed class TranslationFileParserTests : IDisposable
     [Fact]
     public void ParseFile_WithMoreRejectedLinesThanTheWarningCap_ShouldQuoteTheCapAndCountTheRest()
     {
-        // Arrange — 150 malformed rows. Every warning quotes a whole line, and a real polish.txt is
+        // Arrange: 150 malformed rows. Every warning quotes a whole line, and a real polish.txt is
         // ~790k rows, so an uncapped list would bury the console (the TMS import caps for the same
         // reason, spec 0006). The COUNT must stay exact even though the list is truncated.
         string filePath = Path.Combine(_tempDirectory, "all-bad.txt");
@@ -411,7 +411,7 @@ public sealed class TranslationFileParserTests : IDisposable
     [InlineData("100||200||Content||99999999999||NULL||1", "args_order")]
     public void ParseLine_MalformedArgsColumn_ShouldFailInsteadOfSwallowingIt(string line, string column)
     {
-        // Act — a bare catch used to turn an unparsable args column into null, so a fragment with
+        // Act: a bare catch used to turn an unparsable args column into null, so a fragment with
         // reordered arguments was patched without its ordering and nobody was told (#597).
         Result<Translation> result = _parser.ParseLine(line);
 
@@ -428,7 +428,7 @@ public sealed class TranslationFileParserTests : IDisposable
     [InlineData("   ")]
     public void ParseLine_AbsentArgsColumn_ShouldParseAsNoArguments(string absent)
     {
-        // Act — every spelling of "this row carries no argument order" stays a success.
+        // Act: every spelling of "this row carries no argument order" stays a success.
         Result<Translation> result = _parser.ParseLine($"100||200||Content||{absent}||{absent}||1");
 
         // Assert
@@ -448,7 +448,7 @@ public sealed class TranslationFileParserTests : IDisposable
     [InlineData("a|b|")]
     public void ParseLine_ContentEndingInPipes_ShouldKeepEveryPipeAndLeaveTheArgsColumnsClean(string content)
     {
-        // Arrange — the boundary is found by scanning backward (ADR-0042), so the last two pipes of
+        // Arrange: the boundary is found by scanning backward (ADR-0042), so the last two pipes of
         // a run are the separator and everything before them stays content. Split resolved this
         // greedily left to right and lost the last pipe into the args column (#597).
         string line = $"620756992||1001||{content}||1-2||3-4||1";
@@ -466,7 +466,7 @@ public sealed class TranslationFileParserTests : IDisposable
     [Fact]
     public void ParseLine_SevenColumnLine_ShouldCarryTheSourceDigest()
     {
-        // Act — the digest is the value the write guard compares the fragment against, so it has to
+        // Act: the digest is the value the write guard compares the fragment against, so it has to
         // reach the parsed row intact (ADR-0047).
         Result<Translation> result = new TranslationFileParser()
             .ParseLine("620756992||1001||Witaj w Srodziemiu!||NULL||NULL||1||a37cc1683216cd32");
@@ -481,7 +481,7 @@ public sealed class TranslationFileParserTests : IDisposable
     [Fact]
     public void ParseLine_SixColumnLine_ShouldSucceedWithoutADigestRatherThanRejectTheRow()
     {
-        // Act — load-bearing (ADR-0047 §3): rejecting here would make a wholly six-column file
+        // Act: load-bearing (ADR-0047 §3): rejecting here would make a wholly six-column file
         // NoTranslationsEveryLineRejected, which the launch path turns into RepatchFailed and
         // refuses to start the game on. The GUARD skips such rows; the parser never does.
         Result<Translation> result = new TranslationFileParser()
@@ -495,7 +495,7 @@ public sealed class TranslationFileParserTests : IDisposable
     [Fact]
     public void ParseLine_SevenColumnLineWhoseContentHoldsTheSeparatorAndTrailingPipes_ShouldCarveBothEnds()
     {
-        // Act — the seventh column adds one backward step; the content boundary must not move.
+        // Act: the seventh column adds one backward step; the content boundary must not move.
         Result<Translation> result = new TranslationFileParser()
             .ParseLine("620756992||1009||Trzy rury|||||1-2||3-4||1||2f2d1cb2f502250a");
 

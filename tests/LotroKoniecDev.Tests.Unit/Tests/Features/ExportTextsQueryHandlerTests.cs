@@ -157,7 +157,7 @@ public sealed class ExportTextsQueryHandlerTests : IDisposable
         // Act
         Result<ExportSummaryResponse> result = await _sut.Handle(query, CancellationToken.None);
 
-        // Assert — should succeed with partial results, not fail entirely
+        // Assert: should succeed with partial results, not fail entirely
         result.IsSuccess.ShouldBeTrue();
         result.Value.TotalTextFiles.ShouldBe(2);
         result.Value.TotalFragments.ShouldBe(1);

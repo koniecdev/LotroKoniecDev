@@ -62,7 +62,7 @@ public sealed class ConcurrencyEndpointsTests : IAsyncLifetime
     [Fact]
     public async Task ConcurrentUpsert_SameFragmentByOneNewIdentity_ShouldSerializeToWinnersAndProvisionExactlyOneTranslator()
     {
-        // Arrange — one untranslated row and a single never-before-seen identity firing every write,
+        // Arrange: one untranslated row and a single never-before-seen identity firing every write,
         // so the lazy-provisioning insert races with itself.
         await SeedUntranslatedRowAsync(gossipId: 1);
         using HttpClient client = TranslatorClient(Guid.NewGuid());
@@ -73,7 +73,7 @@ public sealed class ConcurrencyEndpointsTests : IAsyncLifetime
             .ToArray();
         HttpResponseMessage[] responses = await Task.WhenAll(tasks);
 
-        // Assert — the xmin token (AUDIT-EF-01) serializes the racing writers instead of letting them
+        // Assert: the xmin token (AUDIT-EF-01) serializes the racing writers instead of letting them
         // silently overwrite each other: at least one commits and every loser is a clean 409 (never a
         // 500). The row settles Draft, and the unique identity index plus the first-write-race re-read
         // still converge on exactly one Translator.
@@ -93,7 +93,7 @@ public sealed class ConcurrencyEndpointsTests : IAsyncLifetime
     [Fact]
     public async Task ConcurrentApprove_SameDraftRow_ShouldSerializeToWinnersAndEndApproved()
     {
-        // Arrange — a single draft row, every approve fired by one admin identity in parallel.
+        // Arrange: a single draft row, every approve fired by one admin identity in parallel.
         Guid id = await SeedDraftRowAsync(gossipId: 2, polish: "Witaj");
         using HttpClient client = AdminClient(Guid.NewGuid());
 
@@ -103,7 +103,7 @@ public sealed class ConcurrencyEndpointsTests : IAsyncLifetime
             .ToArray();
         HttpResponseMessage[] responses = await Task.WhenAll(tasks);
 
-        // Assert — the xmin token (AUDIT-EF-01) serializes the racing approves rather than letting each
+        // Assert: the xmin token (AUDIT-EF-01) serializes the racing approves rather than letting each
         // blindly re-stamp the row: at least one publishes and every loser is a clean 409 (never a 500).
         // The row settles Approved and the admin approver is provisioned once (the seeded submitter is
         // the only other Translator).

@@ -38,7 +38,7 @@ public sealed partial class SecurityStampCookieValidationTests : AsyncLifetimeTe
     [Fact]
     public async Task Authorize_WithLiveCookie_IsBouncedToLogin_AfterPasswordResetRotatesSecurityStamp()
     {
-        // Arrange — a confirmed user with an established interactive auth-server cookie.
+        // Arrange: a confirmed user with an established interactive auth-server cookie.
         const string originalPassword = "TestPass1!";
         const string newPassword = "NewPass99!";
 
@@ -55,11 +55,11 @@ public sealed partial class SecurityStampCookieValidationTests : AsyncLifetimeTe
         beforeLocation.ShouldContain("code=");
         beforeLocation.ShouldNotContain("/Account/Login");
 
-        // Act — reset the password through the browser page; this rotates the Identity security stamp.
+        // Act: reset the password through the browser page; this rotates the Identity security stamp.
         string resetHtml = await ResetPasswordAsync(registerRequest.Email, newPassword);
         resetHtml.ShouldContain("Hasło zmienione"); // reset completed → the security stamp rotated
 
-        // Assert — the SAME cookie can no longer complete /connect/authorize; it is bounced to login.
+        // Assert: the SAME cookie can no longer complete /connect/authorize; it is bounced to login.
         (HttpStatusCode afterStatus, string afterLocation) = await AuthorizeWithCookieAsync(authCookies);
         afterStatus.ShouldBe(HttpStatusCode.Redirect);
         afterLocation.ShouldContain("/Account/Login");

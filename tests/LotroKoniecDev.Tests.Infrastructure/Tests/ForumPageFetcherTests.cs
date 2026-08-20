@@ -35,7 +35,7 @@ public sealed class ForumPageFetcherTests
     [Fact]
     public async Task FetchReleaseNotesPageAsync_ResponseDeclaringABodyOverTheSizeCap_ShouldReturnFailure()
     {
-        // Arrange — a Content-Length above the cap must be refused before any body byte is read.
+        // Arrange: a Content-Length above the cap must be refused before any body byte is read.
         using HttpResponseMessage response = OkResponse(PageContent);
         response.Content.Headers.ContentLength = ForumPageFetcher.MaxResponseContentBytes + 1;
         using HttpClient httpClient = new(new StubHttpMessageHandler(response));
@@ -52,7 +52,7 @@ public sealed class ForumPageFetcherTests
     [Fact]
     public async Task FetchReleaseNotesPageAsync_UndeclaredBodyStreamingPastTheSizeCap_ShouldReturnFailure()
     {
-        // Arrange — no Content-Length (chunked-style), the body itself overruns the cap while
+        // Arrange: no Content-Length (chunked-style), the body itself overruns the cap while
         // streaming: the buffer limit must cut it off instead of growing without bound.
         using HttpResponseMessage response = new(HttpStatusCode.OK)
         {
@@ -72,7 +72,7 @@ public sealed class ForumPageFetcherTests
     [Fact]
     public async Task FetchReleaseNotesPageAsync_BodyThatStallsPastTheClientTimeout_ShouldFailAsTimedOutInsteadOfHanging()
     {
-        // Arrange — ResponseHeadersRead moves the body read out of HttpClient.Timeout's scope;
+        // Arrange: ResponseHeadersRead moves the body read out of HttpClient.Timeout's scope;
         // the fetcher must re-apply the timeout itself or a stalling server hangs preflight.
         using HttpResponseMessage response = new(HttpStatusCode.OK) { Content = new StallingContent() };
         using HttpClient httpClient = new(new StubHttpMessageHandler(response));

@@ -54,10 +54,10 @@ public sealed class InboxDeduplicationTests : EndpointsTestBase
         await ProcessOnceAsync(identityId.Value, messageId);
         int sendsAfterFirstDelivery = AccountConfirmationEmailSpy.CallCount;
 
-        // Act — the same message id delivered again (redelivery or relay re-publish)
+        // Act: the same message id delivered again (redelivery or relay re-publish)
         Result duplicateAckDecision = await ProcessOnceAsync(identityId.Value, messageId);
 
-        // Assert — acked, no second e-mail, still exactly one row
+        // Assert: acked, no second e-mail, still exactly one row
         duplicateAckDecision.IsSuccess.ShouldBeTrue();
         AccountConfirmationEmailSpy.CallCount.ShouldBe(sendsAfterFirstDelivery);
         (await CountInboxRowsAsync(messageId)).ShouldBe(1);
@@ -73,7 +73,7 @@ public sealed class InboxDeduplicationTests : EndpointsTestBase
         Guid messageId = Guid.CreateVersion7();
         AccountConfirmationEmailSpy.ShouldFail = true;
 
-        // Act — the failed send must not be remembered as processed
+        // Act: the failed send must not be remembered as processed
         Result failedAckDecision = await ProcessOnceAsync(identityId.Value, messageId);
 
         // Assert

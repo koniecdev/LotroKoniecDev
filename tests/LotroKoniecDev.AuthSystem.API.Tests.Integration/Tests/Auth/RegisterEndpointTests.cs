@@ -105,7 +105,7 @@ public sealed class RegisterEndpointTests : EndpointsTestBase
     [Fact]
     public async Task Register_ShouldReturnUnprocessableEntity_WhenUsernameDiffersOnlyByCase()
     {
-        // Arrange — Identity normalization makes the handle uniqueness case-insensitive (ADR-0022)
+        // Arrange: Identity normalization makes the handle uniqueness case-insensitive (ADR-0022)
         (RegisterRequest existingRequest, _) =
             await UserFactory.RegisterRandomUserWithRequestAsync(ApiClient, Faker, AccountConfirmationEmailSpy);
 
@@ -155,7 +155,7 @@ public sealed class RegisterEndpointTests : EndpointsTestBase
         HttpResponseMessage response = await ApiClient.Http.PostAsJsonAsync(
             new Uri("auth/register", UriKind.Relative), request);
 
-        // Assert — the explicit validator message, never Identity's raw English error surfacing late
+        // Assert: the explicit validator message, never Identity's raw English error surfacing late
         response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
         string content = await response.Content.ReadAsStringAsync();
         content.ShouldContain("Username may contain only letters and digits, without spaces.");

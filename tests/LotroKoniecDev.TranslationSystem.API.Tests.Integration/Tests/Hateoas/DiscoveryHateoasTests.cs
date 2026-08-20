@@ -97,7 +97,7 @@ public sealed class DiscoveryHateoasTests
     [Fact]
     public async Task Discovery_WithAnUnrecognizedRole_ShouldSeeOnlyWhatAnAuthenticatedCallerMayReach()
     {
-        // Arrange — a correctly-signed token whose role is neither Admin nor Translator. It clears
+        // Arrange: a correctly-signed token whose role is neither Admin nor Translator. It clears
         // RequireAuthenticatedUser but not the role policies, which is the case a hand-written role
         // check in the discovery factory would get wrong.
         using HttpClient client = ClientForRole("Reviewer");
@@ -115,7 +115,7 @@ public sealed class DiscoveryHateoasTests
     [InlineData("unknown-key")]
     public async Task Discovery_WithARejectedToken_ShouldDegradeToTheAnonymousSetInsteadOf401(string tokenKind)
     {
-        // Arrange — the root allows anonymous, so a bearer the API refuses is simply not a caller
+        // Arrange: the root allows anonymous, so a bearer the API refuses is simply not a caller
         // identity: the request succeeds and advertises exactly what a guest may reach. Rejection of
         // such tokens is still enforced on every protected route (AuthorizationDefaultsTests).
         using HttpClient client = _factory.CreateClient();
@@ -136,7 +136,7 @@ public sealed class DiscoveryHateoasTests
     [Fact]
     public async Task Discovery_ShouldResolveTheTranslationFileRelToThePolishArtifact()
     {
-        // Arrange — the rel exists so the CLI stops hardcoding /api/v1/translation-files/pl.
+        // Arrange: the rel exists so the CLI stops hardcoding /api/v1/translation-files/pl.
         using HttpClient client = _factory.CreateClient();
 
         // Act
@@ -153,7 +153,7 @@ public sealed class DiscoveryHateoasTests
     [Fact]
     public async Task Discovery_AsAdmin_ShouldCarryTheCorrectMethodOnEveryWriteRel()
     {
-        // Arrange — a client follows Method blindly; a GET on an upsert rel is a broken affordance.
+        // Arrange: a client follows Method blindly; a GET on an upsert rel is a broken affordance.
         using HttpClient client = ClientForRole(AuthConstants.Roles.Admin);
 
         // Act

@@ -86,7 +86,7 @@ public sealed class ExportMyContributionDataTests : IAsyncLifetime
         // Act
         TranslatorDataExportResponse export = await ExportAsync();
 
-        // Assert — the seeded profile is returned; nothing is attributed yet.
+        // Assert: the seeded profile is returned; nothing is attributed yet.
         export.Profile.ShouldNotBeNull();
         export.Profile.TranslatorId.ShouldBe(_callerId);
         export.Profile.IdentityId.Value.ShouldBe(_callerIdentity);
@@ -101,7 +101,7 @@ public sealed class ExportMyContributionDataTests : IAsyncLifetime
     [Fact]
     public async Task Export_ShouldSummarizeAndListOnlyTheCallersAttribution()
     {
-        // Arrange — caller submitted a draft (1001) and an approved row (1002), approved another
+        // Arrange: caller submitted a draft (1001) and an approved row (1002), approved another
         // translator's row (1003); rows 1004/1005 belong entirely to the other translator.
         await SeedAsync(
             SubmittedRow(1001, _callerId),
@@ -127,7 +127,7 @@ public sealed class ExportMyContributionDataTests : IAsyncLifetime
     [Fact]
     public async Task Export_ShouldCountAnInvalidatedSubmissionAsNeedsReview()
     {
-        // Arrange — a game update reworded the source under the caller's translation.
+        // Arrange: a game update reworded the source under the caller's translation.
         Translation invalidated = SubmittedRow(1001, _callerId);
         invalidated.ApplySourceChange(
             TranslationSource.Create("Reworded source", null, null).Value, _versionId, Now);
@@ -145,7 +145,7 @@ public sealed class ExportMyContributionDataTests : IAsyncLifetime
     [Fact]
     public async Task Export_ShouldIncludeSoftRemovedRows()
     {
-        // Arrange — the attribution stays the caller's personal data even after the row left the
+        // Arrange: the attribution stays the caller's personal data even after the row left the
         // game catalog (ADR-0032).
         Translation removed = SubmittedRow(1001, _callerId);
         removed.MarkRemoved(_versionId, Now);

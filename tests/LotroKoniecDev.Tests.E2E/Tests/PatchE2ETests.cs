@@ -77,7 +77,7 @@ public sealed class PatchE2ETests
     {
         Skip.If(!_fixture.IsDatFileAvailable, "DAT file not found in TestData/");
 
-        //Arrange — first patch creates backup
+        //Arrange: first patch creates backup
         string tempDatPath = _fixture.CreateTempDatCopy();
         CliResult firstPatch = await _fixture.RunCliAsync(
             $"patch \"{_fixture.TranslationsPolishPath}\" -d \"{tempDatPath}\"");
@@ -86,7 +86,7 @@ public sealed class PatchE2ETests
         string backupPath = tempDatPath + ".backup";
         DateTime backupModifiedAfterFirst = File.GetLastWriteTimeUtc(backupPath);
 
-        //Act — second patch should reuse existing backup
+        //Act: second patch should reuse existing backup
         CliResult secondPatch = await _fixture.RunCliAsync(
             $"patch \"{_fixture.TranslationsPolishPath}\" -d \"{tempDatPath}\"");
 
@@ -101,7 +101,7 @@ public sealed class PatchE2ETests
     {
         Skip.If(!_fixture.IsDatFileAvailable, "DAT file not found in TestData/");
 
-        //Arrange — working dir with translations/polish.txt (mimics production layout)
+        //Arrange: working dir with translations/polish.txt (mimics production layout)
         string workDir = _fixture.CreateTempDir();
         string translationsDir = Path.Combine(workDir, "translations");
         Directory.CreateDirectory(translationsDir);
@@ -109,12 +109,12 @@ public sealed class PatchE2ETests
 
         string tempDatPath = _fixture.CreateTempDatCopy();
 
-        //Act — use short name "polish" (no path separators, no .txt extension)
+        //Act: use short name "polish" (no path separators, no .txt extension)
         CliResult result = await _fixture.RunCliAsync(
             $"patch polish -d \"{tempDatPath}\"",
             workingDirectory: workDir);
 
-        //Assert — should resolve "polish" → "translations/polish.txt" and succeed
+        //Assert: should resolve "polish" → "translations/polish.txt" and succeed
         result.ExitCode.ShouldBe((int)CliExitCode.Success,
             $"Short name 'polish' should resolve to translations/polish.txt. stdout: {result.Stdout}");
     }

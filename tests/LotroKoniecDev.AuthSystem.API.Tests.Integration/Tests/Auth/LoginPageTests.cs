@@ -27,11 +27,11 @@ public sealed partial class LoginPageTests : EndpointsTestBase
     [Fact]
     public async Task LoginPage_ShouldNameTheUnconfirmedAccount_WhenThePasswordIsCorrect()
     {
-        // Arrange — a registered account whose e-mail was never confirmed, with a valid password
+        // Arrange: a registered account whose e-mail was never confirmed, with a valid password
         (RegisterRequest request, _) =
             await UserFactory.RegisterRandomUserUnconfirmedAsync(ApiClient, Faker, AccountConfirmationEmailSpy);
 
-        // Act — the correct credentials, but the account is still unconfirmed
+        // Act: the correct credentials, but the account is still unconfirmed
         HttpResponseMessage response = await PostToLoginPageAsync(new Dictionary<string, string>
         {
             ["Email"] = request.Email,
@@ -75,11 +75,11 @@ public sealed partial class LoginPageTests : EndpointsTestBase
     [Fact]
     public async Task LoginPage_ShouldRejectLogin_WhenIdentifierIsUsernameInsteadOfEmail()
     {
-        // Arrange — a confirmed account; the login identifier is the e-mail (ADR-0022)
+        // Arrange: a confirmed account; the login identifier is the e-mail (ADR-0022)
         (RegisterRequest request, _) =
             await UserFactory.RegisterRandomUserWithRequestAsync(ApiClient, Faker, AccountConfirmationEmailSpy);
 
-        // Act — the valid username with the valid password must behave like any wrong credential
+        // Act: the valid username with the valid password must behave like any wrong credential
         HttpResponseMessage response = await PostToLoginPageAsync(new Dictionary<string, string>
         {
             ["Email"] = request.Username,
@@ -102,7 +102,7 @@ public sealed partial class LoginPageTests : EndpointsTestBase
     [Fact]
     public async Task LoginPage_ShouldReturnIdenticalMessage_ForEveryFailureReachableWithoutThePassword()
     {
-        // Arrange — a confirmed account (wrong-password + lockout branches) and an unconfirmed one
+        // Arrange: a confirmed account (wrong-password + lockout branches) and an unconfirmed one
         (RegisterRequest confirmed, _) =
             await UserFactory.RegisterRandomUserWithRequestAsync(ApiClient, Faker, AccountConfirmationEmailSpy);
         (RegisterRequest unconfirmed, _) =
@@ -111,7 +111,7 @@ public sealed partial class LoginPageTests : EndpointsTestBase
             await UserFactory.RegisterRandomUserWithRequestAsync(ApiClient, Faker, AccountConfirmationEmailSpy);
         await LockOutAsync(lockedOut.Username);
 
-        // Act — one probe per credential-failure branch a caller can reach without the password
+        // Act: one probe per credential-failure branch a caller can reach without the password
         string nonExistentMessage = await PostAndExtractRenderedAlertAsync(new Dictionary<string, string>
         {
             ["Email"] = "nobody-" + Faker.Random.AlphaNumeric(8) + "@example.com",
@@ -133,7 +133,7 @@ public sealed partial class LoginPageTests : EndpointsTestBase
             ["Password"] = lockedOut.Password // correct password — the lockout branch must still win
         });
 
-        // Assert — no branch reveals which check failed: identical text is the anti-enumeration invariant
+        // Assert: no branch reveals which check failed: identical text is the anti-enumeration invariant
         nonExistentMessage.ShouldNotBeNullOrWhiteSpace();
         wrongPasswordMessage.ShouldBe(nonExistentMessage);
         unconfirmedWrongPasswordMessage.ShouldBe(nonExistentMessage);
@@ -153,7 +153,7 @@ public sealed partial class LoginPageTests : EndpointsTestBase
     [InlineData("https://evil.example/harvest")]
     public async Task LoginPage_ShouldRedirectToTheFrontend_WhenReturnUrlIsNotLocal(string returnUrl)
     {
-        // Arrange — a confirmed account, so the login itself succeeds and reaches the redirect
+        // Arrange: a confirmed account, so the login itself succeeds and reaches the redirect
         (RegisterRequest request, _) =
             await UserFactory.RegisterRandomUserWithRequestAsync(ApiClient, Faker, AccountConfirmationEmailSpy);
 
@@ -166,7 +166,7 @@ public sealed partial class LoginPageTests : EndpointsTestBase
             },
             returnUrl);
 
-        // Assert — the off-site target is dropped; the fallback comes from configuration, not the query
+        // Assert: the off-site target is dropped; the fallback comes from configuration, not the query
         response.StatusCode.ShouldBe(HttpStatusCode.Found);
         response.Headers.Location.ShouldNotBeNull();
         response.Headers.Location!.OriginalString.ShouldBe(ExpectedFrontendLoginUrl);
@@ -181,7 +181,7 @@ public sealed partial class LoginPageTests : EndpointsTestBase
     [Fact]
     public async Task LoginPage_ShouldRedirectToTheFrontend_WhenThereIsNoReturnUrl()
     {
-        // Arrange — a confirmed account, mirroring a user who just reset their password
+        // Arrange: a confirmed account, mirroring a user who just reset their password
         (RegisterRequest request, _) =
             await UserFactory.RegisterRandomUserWithRequestAsync(ApiClient, Faker, AccountConfirmationEmailSpy);
 
@@ -201,7 +201,7 @@ public sealed partial class LoginPageTests : EndpointsTestBase
     [Fact]
     public async Task LoginPage_ShouldResumeTheContinuation_WhenReturnUrlIsLocal()
     {
-        // Arrange — the interrupted authorization the login flow is expected to resume
+        // Arrange: the interrupted authorization the login flow is expected to resume
         const string continuation = "/connect/authorize?client_id=lotrokoniecdev-test&response_type=code";
         (RegisterRequest request, _) =
             await UserFactory.RegisterRandomUserWithRequestAsync(ApiClient, Faker, AccountConfirmationEmailSpy);
@@ -215,7 +215,7 @@ public sealed partial class LoginPageTests : EndpointsTestBase
             },
             continuation);
 
-        // Assert — hardening must not break the flow it protects
+        // Assert: hardening must not break the flow it protects
         response.StatusCode.ShouldBe(HttpStatusCode.Found);
         response.Headers.Location.ShouldNotBeNull();
         response.Headers.Location!.OriginalString.ShouldBe(continuation);

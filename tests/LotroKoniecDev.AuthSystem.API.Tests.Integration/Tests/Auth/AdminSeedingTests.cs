@@ -20,10 +20,10 @@ public sealed class AdminSeedingTests : EndpointsTestBase
     [Fact]
     public async Task SeedAuthDatabase_WithAdminConfiguration_AdminAuthenticatesWithAdminRole()
     {
-        // Arrange — the cleaner wipes users before every test, so re-run the (idempotent) seed
+        // Arrange: the cleaner wipes users before every test, so re-run the (idempotent) seed
         await ReseedAsync();
 
-        // Act — the seeded admin logs in by e-mail (ADR-0022)
+        // Act: the seeded admin logs in by e-mail (ADR-0022)
         string accessToken = await GetAccessTokenAsync(AdminEmail, AdminPassword);
 
         // Assert
@@ -60,7 +60,7 @@ public sealed class AdminSeedingTests : EndpointsTestBase
     [Fact]
     public async Task SeedAuthDatabase_UsernameAlreadyTaken_SkipsAdminSeedingWithoutCrashing()
     {
-        // Arrange — a regular user grabs the admin username before the seed runs
+        // Arrange: a regular user grabs the admin username before the seed runs
         await using (AsyncServiceScope scope = Factory.Services.CreateAsyncScope())
         {
             UserManager<ApplicationUser> userManager =
@@ -80,7 +80,7 @@ public sealed class AdminSeedingTests : EndpointsTestBase
         // Act
         await ReseedAsync();
 
-        // Assert — seeding skipped instead of crashing the startup path
+        // Assert: seeding skipped instead of crashing the startup path
         await using AsyncServiceScope assertScope = Factory.Services.CreateAsyncScope();
         UserManager<ApplicationUser> assertUserManager =
             assertScope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();

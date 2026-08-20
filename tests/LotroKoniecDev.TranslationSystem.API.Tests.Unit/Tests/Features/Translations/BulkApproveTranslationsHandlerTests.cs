@@ -104,7 +104,7 @@ public sealed class BulkApproveTranslationsHandlerTests
     [Fact]
     public async Task Handle_WhenMoreThanOneHundredIds_ShouldReturnValidationError()
     {
-        // Arrange — the cap mirrors the list's max page size; a selection can never span more.
+        // Arrange: the cap mirrors the list's max page size; a selection can never span more.
         TranslationId[] ids = [.. Enumerable.Range(0, BulkApproveTranslations.MaxIds + 1).Select(_ => TranslationId.Create())];
 
         // Act
@@ -133,7 +133,7 @@ public sealed class BulkApproveTranslationsHandlerTests
     [Fact]
     public async Task Handle_WhenProvisioningFails_ShouldReturnFailureAndNotPersist()
     {
-        // Arrange — a token without a parseable subject must never be attributed to an empty approver;
+        // Arrange: a token without a parseable subject must never be attributed to an empty approver;
         // the batch fails whole and nothing is approved or persisted.
         Translation row = Draft(1);
         GivenStoredRows(row);
@@ -155,7 +155,7 @@ public sealed class BulkApproveTranslationsHandlerTests
     [Fact]
     public async Task Handle_WithMixedBatch_ShouldApproveOnlyApprovableRowsSkipTheRestPersistOnceAndRebuildOnce()
     {
-        // Arrange — a Draft and a NeedsReview row are approvable; an Untranslated row, a removed Draft
+        // Arrange: a Draft and a NeedsReview row are approvable; an Untranslated row, a removed Draft
         // and an unknown id (no row returned) are not. Best-effort: approve the two, skip the three.
         Translation draft = Draft(1, "Witaj");
         Translation needsReview = NeedsReview(2, "Stary");
@@ -187,7 +187,7 @@ public sealed class BulkApproveTranslationsHandlerTests
     [Fact]
     public async Task Handle_WhenNoRowIsApprovable_ShouldReturnZeroApprovedAndNeitherPersistNorRebuild()
     {
-        // Arrange — an already-Approved row keeps its original approver (it is skipped, not re-stamped),
+        // Arrange: an already-Approved row keeps its original approver (it is skipped, not re-stamped),
         // and an untranslated row has no Polish to publish; nothing enters the distributed set.
         Translation approved = Draft(1, "Zatwierdzony");
         approved.Approve(Submitter, Now);
@@ -211,7 +211,7 @@ public sealed class BulkApproveTranslationsHandlerTests
     [Fact]
     public async Task Handle_WithDuplicateIds_ShouldCountDistinctOnce()
     {
-        // Arrange — a client that repeats an id must not double-count it (Approved + Skipped == Requested).
+        // Arrange: a client that repeats an id must not double-count it (Approved + Skipped == Requested).
         Translation draft = Draft(1, "Witaj");
         GivenStoredRows(draft);
 
@@ -229,7 +229,7 @@ public sealed class BulkApproveTranslationsHandlerTests
     [Fact]
     public async Task Handle_OnSuccess_ShouldScheduleTheRebuildAfterTheCommit()
     {
-        // Arrange — ADR-0021 §1: the dirty signal must follow SaveChanges, so a zero-debounce rebuild can
+        // Arrange: ADR-0021 §1: the dirty signal must follow SaveChanges, so a zero-debounce rebuild can
         // never publish a snapshot missing its own trigger. Ordering is invisible in the return value.
         Translation draft = Draft(1, "Witaj");
         GivenStoredRows(draft);

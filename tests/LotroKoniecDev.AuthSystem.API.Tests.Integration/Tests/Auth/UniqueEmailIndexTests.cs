@@ -15,7 +15,7 @@ public sealed class UniqueEmailIndexTests : EndpointsTestBase
     [Fact]
     public async Task Users_ShouldRejectCaseVariantDuplicateEmail_AtTheDatabaseLevel()
     {
-        // Arrange — first account through the normal path
+        // Arrange: first account through the normal path
         (RegisterRequest request, _) =
             await UserFactory.RegisterRandomUserWithRequestAsync(ApiClient, Faker, AccountConfirmationEmailSpy);
 

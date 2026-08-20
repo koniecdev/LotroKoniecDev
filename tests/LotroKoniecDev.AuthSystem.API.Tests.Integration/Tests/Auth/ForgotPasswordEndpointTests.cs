@@ -33,7 +33,7 @@ public sealed class ForgotPasswordEndpointTests : EndpointsTestBase
     [Fact]
     public async Task ForgotPassword_ShouldReturnOk_WhenEmailDoesNotExist()
     {
-        // Arrange — prevent email enumeration by always returning 200
+        // Arrange: prevent email enumeration by always returning 200
         ForgotPasswordRequest forgotRequest = new("nonexistent@example.com");
 
         // Act
@@ -69,7 +69,7 @@ public sealed class ForgotPasswordEndpointTests : EndpointsTestBase
 
         ForgotPasswordRequest forgotRequest = new(request.Email);
 
-        // Act — the request only commits the outbox row; the e-mail arrives through the
+        // Act: the request only commits the outbox row; the e-mail arrives through the
         // pipeline (relay -> delivery -> spy), so the capture has to be awaited (ADR-0038)
         await ApiClient.Http.PostAsJsonAsync(
             new Uri("auth/forgot-password", UriKind.Relative), forgotRequest);
@@ -95,7 +95,7 @@ public sealed class ForgotPasswordEndpointTests : EndpointsTestBase
             new Uri("auth/forgot-password", UriKind.Relative), new ForgotPasswordRequest(request.Email));
         await PasswordResetEmailSpy.WaitForCaptureAsync();
 
-        // Assert — the payload carries the user id and nothing else: the reset token is minted
+        // Assert: the payload carries the user id and nothing else: the reset token is minted
         // at delivery and must never persist in an outbox row (ADR-0038 decision 2)
         OutboxMessage? outboxRow = await OutboxAssertions.WaitForOutboxRowAsync(
             Factory, row => row.Type == nameof(PasswordResetRequested));
@@ -119,7 +119,7 @@ public sealed class ForgotPasswordEndpointTests : EndpointsTestBase
         await ApiClient.Http.PostAsJsonAsync(
             new Uri("auth/forgot-password", UriKind.Relative), forgotRequest);
 
-        // Assert — the row is written inside the request, so its absence after the response is
+        // Assert: the row is written inside the request, so its absence after the response is
         // definitive: nothing was queued, nothing will ever be delivered
         OutboxMessage? outboxRow = await OutboxAssertions.WaitForOutboxRowAsync(
             Factory, row => row.Type == nameof(PasswordResetRequested), TimeSpan.FromSeconds(1));

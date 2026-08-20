@@ -16,7 +16,7 @@ public sealed class OutboxWriterTests
     [Fact]
     public void Enqueue_TypeWithoutRoutingKey_ThrowsBeforeTouchingTheUnitOfWork()
     {
-        // Arrange — the guard must fire before any dependency is used, so the writer is built
+        // Arrange: the guard must fire before any dependency is used, so the writer is built
         // with a null context on purpose: reaching the database would NRE instead of throwing
         using OutboxSignal outboxSignal = new();
         OutboxWriter sut = new(db: null!, outboxSignal, TimeProvider.System);

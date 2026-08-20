@@ -35,7 +35,7 @@ public sealed class RegisterGameVersionHandlerTests
     [Fact]
     public async Task Handle_WhenVersionTooLong_ShouldReturnValidationError()
     {
-        // Arrange — past the LotroNotationVersion max length.
+        // Arrange: past the LotroNotationVersion max length.
         string tooLong = new('9', LotroNotationVersion.VersionMaxLength + 1);
 
         // Act
@@ -67,9 +67,9 @@ public sealed class RegisterGameVersionHandlerTests
     [Fact]
     public async Task Handle_WhenNew_ShouldCreateUnprocessedAndPersist()
     {
-        // Arrange — repository reports the version is new (default substitute returns false).
+        // Arrange: repository reports the version is new (default substitute returns false).
 
-        // Act — input is trimmed and normalized to canonical ("48.0" → "48").
+        // Act: input is trimmed and normalized to canonical ("48.0" → "48").
         Result<GameVersionResponse> result = await CreateHandler().Handle(new RegisterGameVersion.Command(" 48.0 "), CancellationToken.None);
 
         // Assert

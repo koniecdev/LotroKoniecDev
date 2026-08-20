@@ -91,7 +91,7 @@ public sealed class TokenEndpointTests : EndpointsTestBase
     [Fact]
     public async Task PasswordGrant_ShouldReturnBadRequest_WhenIdentifierIsUsernameInsteadOfEmail()
     {
-        // Arrange — the login identifier is the e-mail (ADR-0022); a valid username must not authenticate
+        // Arrange: the login identifier is the e-mail (ADR-0022); a valid username must not authenticate
         const string password = "TestPass1!";
         (RegisterRequest request, _) =
             await UserFactory.RegisterRandomUserWithRequestAsync(ApiClient, Faker, AccountConfirmationEmailSpy, password);

@@ -57,7 +57,7 @@ public sealed class DeadLetterTopologyTests : IClassFixture<RabbitMqBrokerFixtur
     [Fact]
     public async Task Declaration_ShouldStayIdempotent_WhenDeclaredAgainOnAnotherChannel()
     {
-        // Act — the publisher and the consumer both declare on channel open; a drifted argument
+        // Act: the publisher and the consumer both declare on channel open; a drifted argument
         // set would fail here with PRECONDITION_FAILED instead of being a no-op
         await using IChannel secondChannel = await _connection!.CreateChannelAsync();
         Task declareAgain = RabbitMqTopologyDeclaration.DeclareAsync(secondChannel, CancellationToken.None);
@@ -74,10 +74,10 @@ public sealed class DeadLetterTopologyTests : IClassFixture<RabbitMqBrokerFixtur
         await PublishAsync(body);
         BasicGetResult delivery = (await GetWithinTimeoutAsync(RabbitMqTopology.EmailQueue, DeliveryTimeout)).ShouldNotBeNull();
 
-        // Act — the consumer's poison path: reject without requeue
+        // Act: the consumer's poison path: reject without requeue
         await Channel.BasicRejectAsync(delivery.DeliveryTag, requeue: false);
 
-        // Assert — the message parked instead of vanishing, keeping its routing key for replay
+        // Assert: the message parked instead of vanishing, keeping its routing key for replay
         BasicGetResult dead = (await GetWithinTimeoutAsync(RabbitMqTopology.EmailDeadLetterQueue, DeliveryTimeout)).ShouldNotBeNull();
         dead.Body.ToArray().ShouldBe(body);
         dead.RoutingKey.ShouldBe(RabbitMqTopology.EmailConfirmationRoutingKey);
@@ -91,7 +91,7 @@ public sealed class DeadLetterTopologyTests : IClassFixture<RabbitMqBrokerFixtur
         byte[] body = Encoding.UTF8.GetBytes("""{"transient":true}""");
         await PublishAsync(body);
 
-        // Act — the consumer's transient path taken to exhaustion: reject-requeue every delivery.
+        // Act: the consumer's transient path taken to exhaustion: reject-requeue every delivery.
         // basic.reject and a push consumer, mirroring production: only rejects (and connection
         // losses) increment the x-delivery-count the limit is measured against — a nack-requeue
         // or a BasicGet loop would spin forever without ever tripping it (RabbitMQ ≥ 4.3).
@@ -114,7 +114,7 @@ public sealed class DeadLetterTopologyTests : IClassFixture<RabbitMqBrokerFixtur
             autoAck: false,
             consumer: consumer);
 
-        // Assert — 1 initial delivery + the allowed redeliveries, then the parking lot
+        // Assert: 1 initial delivery + the allowed redeliveries, then the parking lot
         BasicGetResult? dead = await GetWithinTimeoutAsync(RabbitMqTopology.EmailDeadLetterQueue, DeliveryTimeout);
         await consumerChannel.BasicCancelAsync(consumerTag);
 

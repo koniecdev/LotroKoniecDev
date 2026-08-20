@@ -77,7 +77,7 @@ public sealed class ApproveTranslationHandlerTests
     [Fact]
     public async Task Handle_WhenProvisioningFails_ShouldReturnFailureAndNotPersist()
     {
-        // Arrange — defensive guard: a token without a parseable subject must never be attributed to
+        // Arrange: defensive guard: a token without a parseable subject must never be attributed to
         // an empty approver; the provisioner surfaces that and the handler must not approve or persist.
         Translation row = Untranslated();
         row.ProvideTranslation("Polski", Submitter, Now);
@@ -116,7 +116,7 @@ public sealed class ApproveTranslationHandlerTests
     [Fact]
     public async Task Handle_WhenRowHasNoTranslation_ShouldReturnConflictAndNotPersist()
     {
-        // Arrange — an untranslated row has no Polish to publish (spec 0001).
+        // Arrange: an untranslated row has no Polish to publish (spec 0001).
         Translation row = Untranslated();
         GivenStoredRow(row);
 
@@ -133,7 +133,7 @@ public sealed class ApproveTranslationHandlerTests
     [Fact]
     public async Task Handle_WhenRowRemoved_ShouldReturnConflictAndNotPersist()
     {
-        // Arrange — a soft-removed row is excluded from the distributed file (spec 0001).
+        // Arrange: a soft-removed row is excluded from the distributed file (spec 0001).
         Translation row = Untranslated();
         row.ProvideTranslation("Polski", Submitter, Now);
         row.MarkRemoved(VersionId, Now);
@@ -172,7 +172,7 @@ public sealed class ApproveTranslationHandlerTests
     [Fact]
     public async Task Handle_OnSuccess_ShouldScheduleTheRebuildAfterTheCommit()
     {
-        // Arrange — ADR-0021 §1: the dirty signal must follow SaveChanges; signalled before the
+        // Arrange: ADR-0021 §1: the dirty signal must follow SaveChanges; signalled before the
         // commit, a zero-debounce rebuild could publish a snapshot missing its own trigger and park
         // the artifact stale. Ordering is invisible in the return value, hence the call log.
         Translation row = Untranslated();
@@ -190,7 +190,7 @@ public sealed class ApproveTranslationHandlerTests
     [Fact]
     public async Task Handle_OnNeedsReviewRow_ShouldClearInvalidationAndRebuild()
     {
-        // Arrange — a re-translated invalidated row: approving resolves the invalidation (spec 0001).
+        // Arrange: a re-translated invalidated row: approving resolves the invalidation (spec 0001).
         Translation row = Untranslated(source: "Old English");
         row.ProvideTranslation("Stary polski", Submitter, Now);
         row.ApplySourceChange(TranslationSource.Create("New English", null, null).Value, VersionId, Now);

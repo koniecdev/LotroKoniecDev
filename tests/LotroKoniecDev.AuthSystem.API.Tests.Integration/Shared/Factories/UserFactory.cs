@@ -10,7 +10,8 @@ internal static class UserFactory
     private const string DefaultPassword = "TestPass1!";
 
     public static RegisterRequest GenerateRandomRegisterRequest(Faker faker, string? password = null) => new(
-        // Faker.Internet.UserName() emits dots/underscores — illegal since ADR-0022 (letters + digits only).
+        // Faker.Internet.UserName() produces dots and underscores, which ADR-0022 forbids: letters and
+        // digits only.
         faker.Random.AlphaNumeric(16),
         faker.Internet.Email(),
         password ?? DefaultPassword,

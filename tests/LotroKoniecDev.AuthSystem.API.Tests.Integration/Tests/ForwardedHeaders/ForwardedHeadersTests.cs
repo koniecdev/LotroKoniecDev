@@ -44,7 +44,7 @@ public sealed class ForwardedHeadersTests : EndpointsTestBase
     [Fact]
     public async Task Discovery_WithoutForwardedProto_BuildsHttpAbsoluteLinks()
     {
-        // Arrange — the test server speaks plain http; with no X-Forwarded-Proto the scheme stays
+        // Arrange: the test server speaks plain http; with no X-Forwarded-Proto the scheme stays
         // http, proving the header (not some unrelated default) is what flips the scheme to https.
         using HttpRequestMessage request = HateoasRequest();
 

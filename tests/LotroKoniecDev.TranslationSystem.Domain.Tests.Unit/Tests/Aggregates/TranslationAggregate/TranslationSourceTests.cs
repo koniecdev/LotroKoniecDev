@@ -50,7 +50,7 @@ public sealed class TranslationSourceTests
     [Fact]
     public void Equals_WithSameTextButDifferentArgs_ShouldNotBeEqual()
     {
-        // Arrange — args are part of the source: a placeholder-structure change is a source change.
+        // Arrange: args are part of the source: a placeholder-structure change is a source change.
         TranslationSource first = TranslationSource.Create("Text", "1-2", "1-2").Value;
         TranslationSource second = TranslationSource.Create("Text", "2-1", "1-2").Value;
 
@@ -65,7 +65,7 @@ public sealed class TranslationSourceTests
         TranslationSource first = TranslationSource.Create("Text", null, null).Value;
         TranslationSource second = TranslationSource.Create("Text", "NULL", "NULL").Value;
 
-        // Assert — NULL and absent collapse to the same value.
+        // Assert: NULL and absent collapse to the same value.
         first.ShouldBe(second);
     }
 }

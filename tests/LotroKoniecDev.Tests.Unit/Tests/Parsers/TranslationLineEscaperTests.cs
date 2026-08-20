@@ -84,7 +84,7 @@ public sealed class TranslationLineEscaperTests
         // Act
         string escaped = TranslationLineEscaper.Escape(raw);
 
-        // Assert — the whole point of the escape: one row is one line.
+        // Assert: the whole point of the escape: one row is one line.
         escaped.ShouldNotContain("\r");
         escaped.ShouldNotContain("\n");
     }

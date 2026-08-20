@@ -39,7 +39,7 @@ public sealed class EmailDispatchConsumerTests
     [InlineData("00000000-0000-0000-0000-000000000000")]
     public void TryReadMessageId_WithUnusableValue_ReturnsFalse(string? rawMessageId)
     {
-        // Arrange — BasicProperties implements IReadOnlyBasicProperties
+        // Arrange: BasicProperties implements IReadOnlyBasicProperties
         BasicProperties properties = new() { MessageId = rawMessageId };
 
         // Act

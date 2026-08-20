@@ -9,21 +9,21 @@ using LotroKoniecDev.AuthSystem.Infrastructure.Messaging;
 namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared;
 
 /// <summary>
-/// The brokered twin of <see cref="AuthSystemApiFactory"/>: the base host swaps the publisher for
-/// a spy and removes the consumer (no broker in that suite), and this factory undoes exactly that
-/// against a real broker container — the real <see cref="RabbitMqMessagePublisher"/> returns, the
-/// real <see cref="EmailDispatchConsumer"/> is put back, and the RabbitMq configuration points
-/// at the container. The SMTP seam stays spied, so tests still observe delivered e-mails without
-/// sending any. This is the only host where the full outbox → relay → broker → consumer pipeline
-/// exists in one process.
+/// The twin of <see cref="AuthSystemApiFactory"/> that uses a real broker. The base host replaces the
+/// publisher with a spy and removes the consumer, because that suite has no broker, and this factory
+/// undoes exactly that against a real broker container: the real
+/// <see cref="RabbitMqMessagePublisher"/> comes back, the real <see cref="EmailDispatchConsumer"/> is
+/// added again, and the RabbitMq settings point at the container.
+/// SMTP is still a spy, so tests can see the e-mails without sending any. This is the only host where
+/// the whole pipeline, outbox to relay to broker to consumer, exists in one process.
 /// </summary>
 public sealed class BrokeredAuthSystemApiFactory : AuthSystemApiFactory
 {
     public RabbitMqBrokerFixture Broker { get; } = new();
 
     /// <summary>
-    /// The broker container's coordinates, available once <see cref="InitializeAsync"/> started it
-    /// — tests use them to open raw assertion channels next to the host's own clients.
+    /// The broker container's address and credentials, available once <see cref="InitializeAsync"/>
+    /// has started it. Tests use them to open their own channels next to the host's clients.
     /// </summary>
     public RabbitMqOptions BrokerOptions
     {

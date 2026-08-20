@@ -27,7 +27,7 @@ public sealed class ResendConfirmationRateLimitingTests : EndpointsTestBase
     [Fact]
     public async Task ResendConfirmationPage_ShouldNeverThrottleAPageView()
     {
-        // Arrange — well past the permit limit, the traffic a user generates by opening the page,
+        // Arrange: well past the permit limit, the traffic a user generates by opening the page,
         // going back to the login and following the resend link again
         using WebApplicationFactory<Program> limitedHost = CreateRateLimitedHost();
         using HttpClient client = limitedHost.CreateClient();
@@ -48,7 +48,7 @@ public sealed class ResendConfirmationRateLimitingTests : EndpointsTestBase
     [Fact]
     public async Task ResendConfirmationPage_ShouldStillThrottleSends()
     {
-        // Arrange — page views must not have widened the hole the limiter exists to close
+        // Arrange: page views must not have widened the hole the limiter exists to close
         using WebApplicationFactory<Program> limitedHost = CreateRateLimitedHost();
         using HttpClient client = limitedHost.CreateClient();
 

@@ -136,7 +136,7 @@ public sealed partial class RegisterPageTests : EndpointsTestBase
         // Act
         HttpResponseMessage response = await PostToRegisterPageAsync(form);
 
-        // Assert — the explicit Polish charset rule, never the misleading password hint
+        // Assert: the explicit Polish charset rule, never the misleading password hint
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
 
         string html = await response.Content.ReadAsStringAsync();

@@ -18,7 +18,7 @@ public sealed class TranslationFileContentIntegrityTests
         // Act
         bool matches = TranslationFileContentIntegrity.Matches(Content, eTag);
 
-        // Assert — quoted or bare, upper- or lowercase hex: all are the same strong validator.
+        // Assert: quoted or bare, upper- or lowercase hex: all are the same strong validator.
         matches.ShouldBeTrue();
     }
 
@@ -32,7 +32,7 @@ public sealed class TranslationFileContentIntegrityTests
         // Act
         bool matches = TranslationFileContentIntegrity.Matches(Content, eTag);
 
-        // Assert — an unverifiable (missing/weak) validator must fail closed, like a wrong hash.
+        // Assert: an unverifiable (missing/weak) validator must fail closed, like a wrong hash.
         matches.ShouldBeFalse();
     }
 
@@ -49,7 +49,7 @@ public sealed class TranslationFileContentIntegrityTests
     [Fact]
     public void Matches_ContentWithPolishDiacritics_ShouldHashTheUtf8Bytes()
     {
-        // Act — hash computed independently over the UTF-8 bytes of the text.
+        // Act: hash computed independently over the UTF-8 bytes of the text.
         bool matches = TranslationFileContentIntegrity.Matches(
             "Witaj w Śródziemiu!",
             "\"8D58291BE990D0EAD8E30D5F350961AF361C1E15E5ACB892DE796C2B22AAA2FA\"");
@@ -61,7 +61,7 @@ public sealed class TranslationFileContentIntegrityTests
     [Fact]
     public void Matches_EmptyContentWithTheEmptyHash_ShouldBeTrue()
     {
-        // Act — SHA-256 of zero bytes; an empty artifact is still a verifiable artifact.
+        // Act: SHA-256 of zero bytes; an empty artifact is still a verifiable artifact.
         bool matches = TranslationFileContentIntegrity.Matches(
             string.Empty,
             "\"E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855\"");

@@ -53,7 +53,7 @@ public sealed class ChangePasswordEndpointTests : EndpointsTestBase
 
         await ApiClient.Http.SendAsync(changeReq);
 
-        // Act — login with new password
+        // Act: login with new password
         using FormUrlEncodedContent tokenRequest = new(new Dictionary<string, string>
         {
             ["grant_type"] = "password",
@@ -73,7 +73,7 @@ public sealed class ChangePasswordEndpointTests : EndpointsTestBase
     [Fact]
     public async Task ChangePassword_ShouldRevokeExistingRefreshTokens_AfterChange()
     {
-        // Arrange — a confirmed user with an active refresh token (offline_access)
+        // Arrange: a confirmed user with an active refresh token (offline_access)
         const string currentPassword = "TestPass1!";
         const string newPassword = "NewPass99!";
 
@@ -106,7 +106,7 @@ public sealed class ChangePasswordEndpointTests : EndpointsTestBase
         HttpResponseMessage changeResponse = await ApiClient.Http.SendAsync(changeReq);
         changeResponse.StatusCode.ShouldBe(HttpStatusCode.OK);
 
-        // Act — try to use the refresh token that was issued BEFORE the change
+        // Act: try to use the refresh token that was issued BEFORE the change
         using FormUrlEncodedContent refreshRequest = new(new Dictionary<string, string>
         {
             ["grant_type"] = "refresh_token",
@@ -117,7 +117,7 @@ public sealed class ChangePasswordEndpointTests : EndpointsTestBase
         HttpResponseMessage response = await ApiClient.Http.PostAsync(
             new Uri("connect/token", UriKind.Relative), refreshRequest);
 
-        // Assert — the pre-change refresh token must be dead
+        // Assert: the pre-change refresh token must be dead
         response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
     }
 

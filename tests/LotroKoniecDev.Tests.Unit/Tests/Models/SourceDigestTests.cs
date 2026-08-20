@@ -32,7 +32,7 @@ public sealed class SourceDigestTests
     [Fact]
     public void ForFragment_ShouldComposeTheSameTripleTheExporterWrites()
     {
-        // Arrange — the whole guard rests on this equivalence: what `export` would write for this
+        // Arrange: the whole guard rests on this equivalence: what `export` would write for this
         // fragment, and what the guard computes from it, must be the same triple.
         Fragment fragment = new() { Pieces = ["Part1", "Part2"] };
 

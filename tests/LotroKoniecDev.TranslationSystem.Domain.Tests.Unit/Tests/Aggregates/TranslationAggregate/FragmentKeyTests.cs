@@ -47,7 +47,7 @@ public sealed class FragmentKeyTests
     [Fact]
     public void Create_WithZeroGossipId_ShouldSucceed()
     {
-        // Act — the patcher applies no lower bound; a zero id must not fail the import.
+        // Act: the patcher applies no lower bound; a zero id must not fail the import.
         Result<FragmentKey> result = FragmentKey.Create(620756992, 0);
 
         // Assert

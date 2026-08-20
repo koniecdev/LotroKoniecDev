@@ -35,7 +35,7 @@ public sealed class ResendEmailConfirmationEndpointTests : EndpointsTestBase
     [Fact]
     public async Task ResendEmailConfirmation_ShouldReturnOk_WhenEmailDoesNotExist()
     {
-        // Arrange — prevent email enumeration by always returning 200
+        // Arrange: prevent email enumeration by always returning 200
         ResendEmailConfirmationRequest resendRequest = new("nonexistent@example.com");
 
         // Act
@@ -144,7 +144,7 @@ public sealed class ResendEmailConfirmationEndpointTests : EndpointsTestBase
             new Uri("auth/resend-email-confirmation", UriKind.Relative),
             new ResendEmailConfirmationRequest(request.Email));
 
-        // Act — use the new token to confirm
+        // Act: use the new token to confirm
         ConfirmEmailRequest confirmRequest = new(AccountConfirmationEmailSpy.LastEmail!, AccountConfirmationEmailSpy.LastConfirmationToken!);
 
         HttpResponseMessage confirmResponse = await ApiClient.Http.PostAsJsonAsync(
@@ -157,7 +157,7 @@ public sealed class ResendEmailConfirmationEndpointTests : EndpointsTestBase
     [Fact]
     public async Task ResendEmailConfirmation_ShouldReturnOk_WhenEmailAlreadyConfirmed()
     {
-        // Arrange — prevent email enumeration by always returning 200, even for confirmed emails
+        // Arrange: prevent email enumeration by always returning 200, even for confirmed emails
         (RegisterRequest request, _) =
             await UserFactory.RegisterRandomUserWithRequestAsync(ApiClient, Faker, AccountConfirmationEmailSpy);
 
@@ -174,7 +174,7 @@ public sealed class ResendEmailConfirmationEndpointTests : EndpointsTestBase
     [Fact]
     public async Task ResendEmailConfirmation_AfterUsed_ShouldNotAllowOldTokenConfirmation()
     {
-        // Arrange — register and capture the original token from registration
+        // Arrange: register and capture the original token from registration
         (RegisterRequest request, _) =
             await UserFactory.RegisterRandomUserUnconfirmedAsync(ApiClient, Faker, AccountConfirmationEmailSpy);
 
@@ -194,19 +194,19 @@ public sealed class ResendEmailConfirmationEndpointTests : EndpointsTestBase
             new ConfirmEmailRequest(request.Email, newToken));
         confirmResponse.StatusCode.ShouldBe(HttpStatusCode.OK);
 
-        // Act — try the original token after email is already confirmed
+        // Act: try the original token after email is already confirmed
         HttpResponseMessage response = await ApiClient.Http.PostAsJsonAsync(
             new Uri("auth/confirm-email", UriKind.Relative),
             new ConfirmEmailRequest(request.Email, originalToken));
 
-        // Assert — should fail because email is already confirmed
+        // Assert: should fail because email is already confirmed
         response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
     }
 
     [Fact]
     public async Task ResendEmailConfirmation_ShouldSendDirectlyAndWriteNoOutboxRow_WhenBrokerIsDown()
     {
-        // Arrange — resend is the deliberate escape hatch of ADR-0038 decision 4: it must keep
+        // Arrange: resend is the deliberate escape hatch of ADR-0038 decision 4: it must keep
         // delivering precisely when the pipeline is the thing that is broken, so the spy broker
         // refuses every publish for the duration of the act.
         (RegisterRequest request, _) =
@@ -226,7 +226,7 @@ public sealed class ResendEmailConfirmationEndpointTests : EndpointsTestBase
                 new Uri("auth/resend-email-confirmation", UriKind.Relative),
                 new ResendEmailConfirmationRequest(request.Email));
 
-            // Assert — the e-mail was captured before the response returned (in-request, direct
+            // Assert: the e-mail was captured before the response returned (in-request, direct
             // path) and the outbox grew by nothing: with zero new rows and a refusing broker, the
             // pipeline cannot be what delivered it. A refactor routing resend through the outbox
             // flips both assertions.

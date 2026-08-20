@@ -52,7 +52,7 @@ public sealed class GameVersionPointerForeignKeyTests : IAsyncLifetime
     public async Task DeleteGameVersion_RowStillReferencedByAPointerColumn_ShouldBeRejectedByTheForeignKey(
         VersionPointer pointer)
     {
-        // Arrange — a translation whose given pointer references the version under deletion (the
+        // Arrange: a translation whose given pointer references the version under deletion (the
         // other pointers reference a different version, so each FK is exercised in isolation).
         GameVersionId baseVersionId = await SeedVersionAsync("47.0");
         GameVersionId referencedVersionId = await SeedVersionAsync("48.0");
@@ -62,7 +62,7 @@ public sealed class GameVersionPointerForeignKeyTests : IAsyncLifetime
         DbUpdateException thrown = await Should.ThrowAsync<DbUpdateException>(
             () => DeleteVersionAsync(referencedVersionId));
 
-        // Assert — a PostgreSQL foreign-key violation (23503) blocked the delete and the row survived.
+        // Assert: a PostgreSQL foreign-key violation (23503) blocked the delete and the row survived.
         PostgresException postgresException = thrown.InnerException.ShouldBeOfType<PostgresException>();
         postgresException.SqlState.ShouldBe(PostgresErrorCodes.ForeignKeyViolation);
         (await VersionExistsAsync(referencedVersionId)).ShouldBeTrue();

@@ -43,7 +43,7 @@ public sealed class TranslationFileEndpointResolverTests
     [Fact]
     public async Task ResolveAsync_WhenDiscoveryAdvertisesTheRel_ShouldReturnItsHref()
     {
-        // Arrange — the document carries other entry points too; only the rel decides.
+        // Arrange: the document carries other entry points too; only the rel decides.
         DiscoveryReturns(
             new DiscoveredLink($"{BaseUrl}/", "self", "GET"),
             TranslationFileLink(),
@@ -60,7 +60,7 @@ public sealed class TranslationFileEndpointResolverTests
     [Fact]
     public async Task ResolveAsync_WhenDiscoveryIsUnreachableAndAnHrefIsCached_ShouldFallBackToIt()
     {
-        // Arrange — the cache is the outage safety net: the sync keeps working while the root is down.
+        // Arrange: the cache is the outage safety net: the sync keeps working while the root is down.
         DiscoveryFails();
 
         // Act
@@ -80,7 +80,7 @@ public sealed class TranslationFileEndpointResolverTests
     public async Task ResolveAsync_WhenDiscoveryIsUnreachableAndNothingIsCached_ShouldFailWithoutGuessingAPath(
         string? cachedHref)
     {
-        // Arrange — the first-ever run against an unreachable server: there is nothing safe to guess.
+        // Arrange: the first-ever run against an unreachable server: there is nothing safe to guess.
         DiscoveryFails();
 
         // Act
@@ -95,7 +95,7 @@ public sealed class TranslationFileEndpointResolverTests
     [Fact]
     public async Task ResolveAsync_WhenTheDocumentDoesNotAdvertiseTheRel_ShouldFailWithoutUsingTheCache()
     {
-        // Arrange — the server answered and did not offer the affordance. That is a statement about
+        // Arrange: the server answered and did not offer the affordance. That is a statement about
         // what is on offer, not an outage, so the cached href must not paper over it.
         DiscoveryReturns(new DiscoveredLink($"{BaseUrl}/", "self", "GET"));
 
@@ -127,7 +127,7 @@ public sealed class TranslationFileEndpointResolverTests
     [InlineData("https://tms.exаmple.com/api/v1/translation-files/pl")]
     public async Task ResolveAsync_WhenTheAdvertisedHrefLeavesTheConfiguredOrigin_ShouldRejectIt(string href)
     {
-        // Arrange — the href is attacker-influenceable whenever the base URL is, so the document may
+        // Arrange: the href is attacker-influenceable whenever the base URL is, so the document may
         // move the path but never the origin, and never off TLS.
         DiscoveryReturns(TranslationFileLink(href));
 
@@ -165,7 +165,7 @@ public sealed class TranslationFileEndpointResolverTests
     [Fact]
     public async Task ResolveAsync_WhenTheCachedHrefLeavesTheConfiguredOrigin_ShouldRejectItToo()
     {
-        // Arrange — the sidecar is on-disk data, and it is stale the moment --tms-url is repointed.
+        // Arrange: the sidecar is on-disk data, and it is stale the moment --tms-url is repointed.
         DiscoveryFails();
 
         // Act
@@ -183,7 +183,7 @@ public sealed class TranslationFileEndpointResolverTests
     [InlineData("http://127.0.0.1:5002")]
     public async Task ResolveAsync_WhenTheDeploymentIsLoopback_ShouldAllowPlainHttp(string baseUrl)
     {
-        // Arrange — loopback has no network hop, the one place the TLS rule bends (dev host Kestrel).
+        // Arrange: loopback has no network hop, the one place the TLS rule bends (dev host Kestrel).
         DiscoveryReturns(new DiscoveredLink(
             $"{baseUrl}/api/v1/translation-files/pl", TranslationFileEndpointResolver.TranslationFileRel, "GET"));
 
@@ -198,7 +198,7 @@ public sealed class TranslationFileEndpointResolverTests
     [Fact]
     public async Task ResolveAsync_WhenTheRelIsAdvertisedForAnotherVerb_ShouldNotTreatItAsTheDownload()
     {
-        // Arrange — a rel names an affordance together with its method; a POST link is a different one.
+        // Arrange: a rel names an affordance together with its method; a POST link is a different one.
         DiscoveryReturns(new DiscoveredLink(
             DownloadHref, TranslationFileEndpointResolver.TranslationFileRel, "POST"));
 

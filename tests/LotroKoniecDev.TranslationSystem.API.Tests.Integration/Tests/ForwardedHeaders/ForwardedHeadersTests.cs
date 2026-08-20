@@ -68,7 +68,7 @@ public sealed class ForwardedHeadersTests : IAsyncLifetime
     [Fact]
     public async Task GetResource_WithoutForwardedProto_BuildsHttpAbsoluteLinks()
     {
-        // Arrange — the test server speaks plain http; with no X-Forwarded-Proto the scheme stays
+        // Arrange: the test server speaks plain http; with no X-Forwarded-Proto the scheme stays
         // http, proving the header (not some unrelated default) is what flips the scheme to https.
         GameVersionId id = await SeedAsync("48.0");
         using HttpClient client = TranslatorClient();
@@ -106,7 +106,7 @@ public sealed class ForwardedHeadersTests : IAsyncLifetime
     [Fact]
     public async Task GetResource_WithForwardedProtoHttps_IsServedDirectlyWithoutRedirect()
     {
-        // Arrange — a proxied request that already declares https must be served directly, not
+        // Arrange: a proxied request that already declares https must be served directly, not
         // bounced with a 3xx. NOTE: this asserts only that forwarded headers introduce no spurious
         // redirect; it does NOT exercise UseHttpsRedirection, which is gated out of the Testing
         // environment (Program.cs: `!IsDevelopment() && !IsTesting()`). The live "ForwardedProto

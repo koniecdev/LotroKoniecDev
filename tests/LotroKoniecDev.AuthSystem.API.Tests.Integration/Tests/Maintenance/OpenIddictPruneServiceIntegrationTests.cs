@@ -92,7 +92,7 @@ public sealed class OpenIddictPruneServiceIntegrationTests
         // Act
         await ResolvePruneService().PruneOnceAsync(CancellationToken.None);
 
-        // Assert — the permanent valid grant is a user's live consent and must never be pruned
+        // Assert: the permanent valid grant is a user's live consent and must never be pruned
         await using AsyncServiceScope assertScope = _factory.Services.CreateAsyncScope();
         IOpenIddictAuthorizationManager assertAuthorizationManager =
             assertScope.ServiceProvider.GetRequiredService<IOpenIddictAuthorizationManager>();

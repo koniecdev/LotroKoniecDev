@@ -62,7 +62,7 @@ public sealed class ListTranslationsTests : IAsyncLifetime
     [Fact]
     public async Task List_ShouldReturnRowsSortedByFileIdThenGossipId()
     {
-        // Arrange — seeded out of order, across two file ids.
+        // Arrange: seeded out of order, across two file ids.
         await SeedAsync(Row(1, "B", fileId: 200), Row(2, "A", fileId: 100), Row(1, "C", fileId: 100));
 
         // Act
@@ -77,7 +77,7 @@ public sealed class ListTranslationsTests : IAsyncLifetime
     [Fact]
     public async Task List_ShouldPaginate()
     {
-        // Arrange — five rows, two per page.
+        // Arrange: five rows, two per page.
         await SeedAsync(Row(1, "a"), Row(2, "b"), Row(3, "c"), Row(4, "d"), Row(5, "e"));
 
         // Act
@@ -126,13 +126,13 @@ public sealed class ListTranslationsTests : IAsyncLifetime
     [Fact]
     public async Task List_WithSearch_ShouldAlsoMatchTheTranslatedText()
     {
-        // Arrange — only the drafted row carries Polish ("Polski tekst").
+        // Arrange: only the drafted row carries Polish ("Polski tekst").
         await SeedAsync(Row(1, "Aragorn"), Row(2, "Boromir", TranslationStatus.Draft));
 
         // Act
         PaginationResponse<TranslationListItemResponse> page = await ListAsync("?search=tekst");
 
-        // Assert — the list item joins the submitter's display name (ADR-0004).
+        // Assert: the list item joins the submitter's display name (ADR-0004).
         TranslationListItemResponse item = page.Items.Single();
         item.GossipId.ShouldBe(2);
         item.Submitter.ShouldNotBeNull();
@@ -142,7 +142,7 @@ public sealed class ListTranslationsTests : IAsyncLifetime
     [Fact]
     public async Task List_WithLikeMetacharacterInSearch_ShouldMatchItLiterally()
     {
-        // Arrange — '%' must be a literal, not a LIKE wildcard, or "100%" would also match "1000".
+        // Arrange: '%' must be a literal, not a LIKE wildcard, or "100%" would also match "1000".
         await SeedAsync(Row(1, "Reward 100% bonus"), Row(2, "Reward 1000 bonus"));
 
         // Act
@@ -155,7 +155,7 @@ public sealed class ListTranslationsTests : IAsyncLifetime
     [Fact]
     public async Task List_WithStatusNeedsReview_ShouldReturnOnlyInvalidatedRows()
     {
-        // Arrange — one of each status; NeedsReview is the "needs re-translation" view.
+        // Arrange: one of each status; NeedsReview is the "needs re-translation" view.
         await SeedAsync(
             Row(1, "untranslated"),
             Row(2, "drafted", TranslationStatus.Draft),
@@ -187,7 +187,7 @@ public sealed class ListTranslationsTests : IAsyncLifetime
     [Fact]
     public async Task List_WithSortGossipIdDescending_ReturnsRowsDescending()
     {
-        // Arrange — seeded ascending; the descending sort must reverse them.
+        // Arrange: seeded ascending; the descending sort must reverse them.
         await SeedAsync(Row(1, "a"), Row(2, "b"), Row(3, "c"));
 
         // Act
@@ -200,7 +200,7 @@ public sealed class ListTranslationsTests : IAsyncLifetime
     [Fact]
     public async Task List_WithMultiKeySort_AppliesStatusDescThenFileIdAsc()
     {
-        // Arrange — the AC's example: Status is stored as its enum name, so "desc" orders
+        // Arrange: the AC's example: Status is stored as its enum name, so "desc" orders
         // "NeedsReview" before "Draft"; FileId breaks the tie between the two Draft rows.
         await SeedAsync(
             Row(1, "needs", TranslationStatus.NeedsReview, fileId: 300),
@@ -222,7 +222,7 @@ public sealed class ListTranslationsTests : IAsyncLifetime
     [Fact]
     public async Task List_WithUnknownSortKey_FallsBackToDefaultOrdering()
     {
-        // Arrange — seeded out of FileId order; an unrecognized key degrades to the default
+        // Arrange: seeded out of FileId order; an unrecognized key degrades to the default
         // (FileId ascending), the primary leg of today's default ordering.
         await SeedAsync(Row(1, "b", fileId: 200), Row(1, "a", fileId: 100), Row(1, "c", fileId: 300));
 
@@ -236,13 +236,13 @@ public sealed class ListTranslationsTests : IAsyncLifetime
     [Fact]
     public async Task List_WithTiedSortKey_WalksEveryPageWithoutDuplicatesOrGaps()
     {
-        // Arrange — five rows sharing one Status (Untranslated) and one UpdatedAt (a baseline import
+        // Arrange: five rows sharing one Status (Untranslated) and one UpdatedAt (a baseline import
         // stamps every row the same timestamp), seeded out of key order. Sorting only by the tied
         // Status leaves the tie order to PostgreSQL unless a unique final key pins it, so paging can
         // repeat a row on one page and drop it from another.
         await SeedAsync(Row(5, "e"), Row(3, "c"), Row(1, "a"), Row(4, "d"), Row(2, "b"));
 
-        // Act — walk every page of the tied sort.
+        // Act: walk every page of the tied sort.
         List<long> walked = [];
         PaginationResponse<TranslationListItemResponse> pageResult;
         int page = 0;
@@ -253,14 +253,14 @@ public sealed class ListTranslationsTests : IAsyncLifetime
         }
         while (pageResult.HasNextPage);
 
-        // Assert — the union of pages is the full set with no repeats, in the unique tiebreaker order.
+        // Assert: the union of pages is the full set with no repeats, in the unique tiebreaker order.
         walked.ShouldBe([1L, 2L, 3L, 4L, 5L]);
     }
 
     [Fact]
     public async Task List_WithTiedSortKey_EndsWithTheUniqueTiebreaker()
     {
-        // Arrange — every row shares one UpdatedAt (a baseline import's single timestamp), seeded out
+        // Arrange: every row shares one UpdatedAt (a baseline import's single timestamp), seeded out
         // of (FileId, GossipId) order. Sorting by the tied submittedAt alone leaves no defined order.
         await SeedAsync(
             Row(1, "x", fileId: 200),
@@ -270,7 +270,7 @@ public sealed class ListTranslationsTests : IAsyncLifetime
         // Act
         PaginationResponse<TranslationListItemResponse> resultPage = await ListAsync("?sort=submittedAt");
 
-        // Assert — the tie resolves to the unique (FileId, GossipId) key, ascending.
+        // Assert: the tie resolves to the unique (FileId, GossipId) key, ascending.
         resultPage.Items.Select(item => (item.FileId, item.GossipId))
             .ShouldBe([(100, 1L), (100, 2L), (200, 1L)]);
     }
@@ -288,7 +288,7 @@ public sealed class ListTranslationsTests : IAsyncLifetime
     [Fact]
     public async Task List_WithoutToken_ShouldServeReadOnlyRows()
     {
-        // Arrange — the list is publicly browsable (#309): anonymous visitors read the catalog.
+        // Arrange: the list is publicly browsable (#309): anonymous visitors read the catalog.
         await SeedAsync(Row(1, "Frodo Baggins", TranslationStatus.Draft));
 
         // Act
@@ -306,7 +306,7 @@ public sealed class ListTranslationsTests : IAsyncLifetime
     [Fact]
     public async Task List_WithExpiredToken_ShouldServeTheAnonymousReadOnlyView()
     {
-        // Arrange — AllowAnonymous semantics: a rejected bearer does not 401 here, the caller is
+        // Arrange: AllowAnonymous semantics: a rejected bearer does not 401 here, the caller is
         // simply served as anonymous — readable rows, no HATEOAS action links (the dead-session
         // backstop trips on the still-protected pages instead).
         await SeedAsync(Row(1, "Frodo Baggins", TranslationStatus.Draft));
@@ -328,7 +328,7 @@ public sealed class ListTranslationsTests : IAsyncLifetime
     [Fact]
     public async Task List_WithoutToken_ShouldSupportSearchAndStatusFilter()
     {
-        // Arrange — the read-only public view keeps the full browsing surface, not a crippled subset.
+        // Arrange: the read-only public view keeps the full browsing surface, not a crippled subset.
         await SeedAsync(
             Row(1, "Frodo Baggins", TranslationStatus.Draft),
             Row(2, "Samwise Gamgee"));

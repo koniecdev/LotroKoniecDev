@@ -34,7 +34,7 @@ public sealed class SourceHashTests
     [Fact]
     public void Compute_NullArgsVersusEmptyArgs_ShouldDiffer()
     {
-        // Arrange — the null-marker framing keeps an absent field distinct from an empty one.
+        // Arrange: the null-marker framing keeps an absent field distinct from an empty one.
         SourceHash withNull = SourceHash.Compute("Text", null, null);
         SourceHash withEmpty = SourceHash.Compute("Text", string.Empty, string.Empty);
 
@@ -45,7 +45,7 @@ public sealed class SourceHashTests
     [Fact]
     public void Compute_FieldBoundaryShift_ShouldDiffer()
     {
-        // Arrange — length framing: the concatenated bytes are identical, the field split is not.
+        // Arrange: length framing: the concatenated bytes are identical, the field split is not.
         SourceHash first = SourceHash.Compute("ab", "c", null);
         SourceHash second = SourceHash.Compute("a", "bc", null);
 
@@ -67,7 +67,7 @@ public sealed class SourceHashTests
     [Fact]
     public void Compute_FromValueObjectAndFromStoredColumns_ShouldMatch()
     {
-        // Arrange — the incoming side hashes through the VO (which normalizes the raw "NULL" args
+        // Arrange: the incoming side hashes through the VO (which normalizes the raw "NULL" args
         // column to null); the catalog side hashes the stored columns, which were written from the
         // VO. Both must land on the same hash or the diff would report phantom source changes.
         TranslationSource source = TranslationSource.Create("Witaj w Srodziemiu!", "NULL", "NULL").Value;
@@ -83,7 +83,7 @@ public sealed class SourceHashTests
     [Fact]
     public void Compute_EmptyText_ShouldBeLegalAndDeterministic()
     {
-        // Arrange — empty fragments are legal game content and must round-trip (TranslationSource).
+        // Arrange: empty fragments are legal game content and must round-trip (TranslationSource).
         SourceHash first = SourceHash.Compute(string.Empty, null, null);
         SourceHash second = SourceHash.Compute(string.Empty, null, null);
 
@@ -94,7 +94,7 @@ public sealed class SourceHashTests
     [Fact]
     public void ComputeEcho_WithoutPolish_ShouldBeNull()
     {
-        // Act — an untranslated row has nothing of ours that could echo back from a patched DAT.
+        // Act: an untranslated row has nothing of ours that could echo back from a patched DAT.
         SourceHash? echo = SourceHash.ComputeEcho(null, "1-2", "1-2");
 
         // Assert
@@ -104,7 +104,7 @@ public sealed class SourceHashTests
     [Fact]
     public void ComputeEcho_WithPolish_ShouldEqualTheIncomingHashOfThePatchedTriple()
     {
-        // Arrange — the incoming side of an echo is the exported row (our Polish as text, the
+        // Arrange: the incoming side of an echo is the exported row (our Polish as text, the
         // source's identity args), hashed through the VO like every upload row (spec 0012).
         TranslationSource echoedRow = TranslationSource.Create("Witaj <--DO_NOT_TOUCH!--> przyjacielu", "1-1", "1-1").Value;
 
@@ -118,7 +118,7 @@ public sealed class SourceHashTests
     [Fact]
     public void Compute_LargeText_ShouldHashWithoutError()
     {
-        // Arrange — a multi-kilobyte fragment exercises the pooled-buffer path beyond typical sizes.
+        // Arrange: a multi-kilobyte fragment exercises the pooled-buffer path beyond typical sizes.
         string largeText = new('x', 100_000);
 
         // Act

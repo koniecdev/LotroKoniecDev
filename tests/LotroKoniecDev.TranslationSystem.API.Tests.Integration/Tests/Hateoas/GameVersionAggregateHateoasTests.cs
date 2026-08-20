@@ -76,18 +76,18 @@ public sealed class GameVersionAggregateHateoasTests : IAsyncLifetime
     [Fact]
     public async Task ListGameVersions_AsAdmin_ReturnsCollectionSelfRegisterAndPerItemSelfAndDelete()
     {
-        // Arrange — the seeded version is unprocessed, so an admin may delete it.
+        // Arrange: the seeded version is unprocessed, so an admin may delete it.
         GameVersionId id = await SeedAsync("48.0");
 
         // Act
         CollectionResponse<GameVersionResponse> response =
             await GetHateoasAsync<CollectionResponse<GameVersionResponse>>(AdminClient(), Route);
 
-        // Assert — collection links (admin sees register)
+        // Assert: collection links (admin sees register)
         response.Links.ShouldContain(l => l.Rel == Rels.Self && l.Method == "GET");
         response.Links.ShouldContain(l => l.Rel == Rels.Register && l.Method == "POST");
 
-        // Assert — each item carries its own self plus the admin delete affordance
+        // Assert: each item carries its own self plus the admin delete affordance
         GameVersionResponse item = response.Items.First(i => i.Id == id);
         item.Links.ShouldContain(l => l.Rel == Rels.Self && l.Href.Contains($"{Route}/{id.Value}"));
         item.Links.ShouldContain(l => l.Rel == Rels.Delete && l.Method == "DELETE" && l.Href.Contains($"{Route}/{id.Value}"));
@@ -96,7 +96,7 @@ public sealed class GameVersionAggregateHateoasTests : IAsyncLifetime
     [Fact]
     public async Task ListGameVersions_AsAdmin_WhenEmpty_StillCarriesCollectionLinks()
     {
-        // Arrange — no versions seeded; the collection links must not depend on item count.
+        // Arrange: no versions seeded; the collection links must not depend on item count.
 
         // Act
         CollectionResponse<GameVersionResponse> response =
@@ -111,7 +111,7 @@ public sealed class GameVersionAggregateHateoasTests : IAsyncLifetime
     [Fact]
     public async Task ListGameVersions_AsTranslator_DoesNotAdvertiseRegister()
     {
-        // Arrange — register is the admin fallback; a translator must not see it.
+        // Arrange: register is the admin fallback; a translator must not see it.
         _ = await SeedAsync("48.0");
 
         // Act
@@ -126,7 +126,7 @@ public sealed class GameVersionAggregateHateoasTests : IAsyncLifetime
     [Fact]
     public async Task ListGameVersions_AsAdmin_WhenVersionIsProcessed_DoesNotAdvertiseDeleteOnTheItem()
     {
-        // Arrange — a processed version is the one an import landed against, so it is never deletable.
+        // Arrange: a processed version is the one an import landed against, so it is never deletable.
         GameVersionId id = await SeedProcessedAsync("48.0");
 
         // Act
@@ -142,7 +142,7 @@ public sealed class GameVersionAggregateHateoasTests : IAsyncLifetime
     [Fact]
     public async Task ListGameVersions_AsTranslator_DoesNotAdvertiseDeleteOnTheItem()
     {
-        // Arrange — delete is the admin action; a translator sees self only on an unprocessed version.
+        // Arrange: delete is the admin action; a translator sees self only on an unprocessed version.
         GameVersionId id = await SeedAsync("48.0");
 
         // Act
@@ -173,7 +173,7 @@ public sealed class GameVersionAggregateHateoasTests : IAsyncLifetime
     [Fact]
     public async Task GetGameVersion_AsAdmin_WhenUnprocessed_AdvertisesImportAgainstTheVersion()
     {
-        // Arrange — import is keyed by the version it lands against, so the affordance lives on the
+        // Arrange: import is keyed by the version it lands against, so the affordance lives on the
         // item that carries the id rather than on the service document (#608).
         GameVersionId id = await SeedAsync("48.0");
 
@@ -190,7 +190,7 @@ public sealed class GameVersionAggregateHateoasTests : IAsyncLifetime
     [Fact]
     public async Task GetGameVersion_AsAdmin_WhenProcessed_StillAdvertisesImport()
     {
-        // Arrange — re-importing into an already processed version is legal (MarkAsProcessed refuses
+        // Arrange: re-importing into an already processed version is legal (MarkAsProcessed refuses
         // only a superseded one), so the affordance survives processing even though delete does not.
         GameVersionId id = await SeedProcessedAsync("48.0");
 
@@ -206,7 +206,7 @@ public sealed class GameVersionAggregateHateoasTests : IAsyncLifetime
     [Fact]
     public async Task GetGameVersion_AsAdmin_WhenSuperseded_DoesNotAdvertiseImport()
     {
-        // Arrange — a superseded version is the one state MarkAsProcessed refuses, so importing into
+        // Arrange: a superseded version is the one state MarkAsProcessed refuses, so importing into
         // it is a dead transition and must not be advertised.
         GameVersionId id = await SeedSupersededAsync("47.0");
 
@@ -222,7 +222,7 @@ public sealed class GameVersionAggregateHateoasTests : IAsyncLifetime
     [Fact]
     public async Task GetGameVersion_AsAdmin_WhenSuperseded_AdvertisesDelete()
     {
-        // Arrange — retiring a skipped version is how the admin frees its version number, so the button
+        // Arrange: retiring a skipped version is how the admin frees its version number, so the button
         // has to be on the page rather than reachable only by calling the API by hand (#624).
         GameVersionId id = await SeedSupersededAsync("47.0");
 
@@ -239,7 +239,7 @@ public sealed class GameVersionAggregateHateoasTests : IAsyncLifetime
     [Fact]
     public async Task ListGameVersions_AsAdmin_WhenVersionIsSuperseded_AdvertisesDeleteOnTheItem()
     {
-        // Arrange — the versions page renders its delete button off the list's per-item rel.
+        // Arrange: the versions page renders its delete button off the list's per-item rel.
         GameVersionId id = await SeedSupersededAsync("47.0");
 
         // Act
@@ -256,7 +256,7 @@ public sealed class GameVersionAggregateHateoasTests : IAsyncLifetime
     [Fact]
     public async Task GetGameVersion_AsTranslator_DoesNotAdvertiseImport()
     {
-        // Arrange — import is admin-only; the endpoint's own policy is what drops the rel.
+        // Arrange: import is admin-only; the endpoint's own policy is what drops the rel.
         GameVersionId id = await SeedAsync("48.0");
 
         // Act
@@ -281,7 +281,7 @@ public sealed class GameVersionAggregateHateoasTests : IAsyncLifetime
         CollectionResponse<GameVersionResponse> response =
             (await httpResponse.Content.ReadFromJsonAsync<CollectionResponse<GameVersionResponse>>(JsonOptions))!;
 
-        // Assert — plain JSON still deserializes; no links anywhere.
+        // Assert: plain JSON still deserializes; no links anywhere.
         httpResponse.Content.Headers.ContentType?.MediaType.ShouldBe(MediaTypes.Json);
         response.Links.Count.ShouldBe(0);
         response.Items.First(i => i.Id == id).Links.Count.ShouldBe(0);

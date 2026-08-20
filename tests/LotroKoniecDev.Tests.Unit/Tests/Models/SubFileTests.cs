@@ -197,7 +197,7 @@ public sealed class SubFileTests
     [InlineData(1)]
     public void Parse_ImpossibleFragmentCount_ShouldThrowInvalidDataException(int declaredFragments)
     {
-        // Arrange — declares fragments with no fragment data behind the count
+        // Arrange: declares fragments with no fragment data behind the count
         SubFile subFile = new();
         byte[] data = TestDataFactory.CreateTextSubFileDataWithImpossibleFragmentCount(0x25000001, declaredFragments);
 
@@ -211,7 +211,7 @@ public sealed class SubFileTests
     [Fact]
     public void Parse_FragmentCountLargerThanRemainingData_ShouldThrowInvalidDataException()
     {
-        // Arrange — declares 2 fragments but contains only one
+        // Arrange: declares 2 fragments but contains only one
         SubFile subFile = new();
         using MemoryStream stream = new();
         using BinaryWriter writer = new(stream);
@@ -240,7 +240,7 @@ public sealed class SubFileTests
     [Fact]
     public void Parse_FragmentAtExactStructuralMinimum_ShouldParse()
     {
-        // Arrange — one fragment with no pieces, arg refs or arg string groups (17 bytes exactly),
+        // Arrange: one fragment with no pieces, arg refs or arg string groups (17 bytes exactly),
         // proving the bounds check is not off-by-one against the structural minimum
         SubFile subFile = new();
         using MemoryStream stream = new();

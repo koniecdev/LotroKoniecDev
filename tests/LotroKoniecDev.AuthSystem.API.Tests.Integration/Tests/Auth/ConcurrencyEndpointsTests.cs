@@ -85,7 +85,7 @@ public sealed class ConcurrencyEndpointsTests : EndpointsTestBase
 
         HttpResponseMessage[] responses = await Task.WhenAll(tasks);
 
-        // Assert — no 500 errors, all concurrent logins should be handled gracefully
+        // Assert: no 500 errors, all concurrent logins should be handled gracefully
         foreach (HttpResponseMessage response in responses)
         {
             ((int)response.StatusCode).ShouldBeLessThan(500,
@@ -172,7 +172,7 @@ public sealed class ConcurrencyEndpointsTests : EndpointsTestBase
 
         HttpResponseMessage[] responses = await Task.WhenAll(tasks);
 
-        // Assert — no 500 errors
+        // Assert: no 500 errors
         foreach (HttpResponseMessage response in responses)
         {
             ((int)response.StatusCode).ShouldBeLessThan(500,

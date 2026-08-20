@@ -30,7 +30,7 @@ public sealed class TranslationExportParserTests
         // Act
         ParsedExport result = await ParseFixtureAsync("exported-sample.txt");
 
-        // Assert — the comments and the blank line are skipped, nine rows remain.
+        // Assert: the comments and the blank line are skipped, nine rows remain.
         result.HasErrors.ShouldBeFalse();
         result.Rows.Count.ShouldBe(9);
         result.Rows[0].FileId.ShouldBe(620756992);
@@ -45,7 +45,7 @@ public sealed class TranslationExportParserTests
         // Act
         ParsedExport result = await ParseFixtureAsync("exported-sample.txt");
 
-        // Assert — the catalog stores raw text, never the file representation (ADR-0039). The
+        // Assert: the catalog stores raw text, never the file representation (ADR-0039). The
         // backslash row is what proves the transform is injective: it must NOT become a newline.
         result.Rows.Single(row => row.GossipId == 1006).Content
             .ShouldBe("Wiersz jeden\nWiersz dwa\r\nWiersz trzy");
@@ -59,7 +59,7 @@ public sealed class TranslationExportParserTests
         // Act
         ParsedExport result = await ParseFixtureAsync("exported-sample.txt");
 
-        // Assert — the separator is not escaped; the boundary is recovered by scanning backward, so
+        // Assert: the separator is not escaped; the boundary is recovered by scanning backward, so
         // the run's last two pipes are the separator and every earlier one is content (ADR-0042).
         ParsedExportRow singlePipe = result.Rows.Single(row => row.GossipId == 1008);
         singlePipe.Content.ShouldBe("Koniec rury|");
@@ -115,7 +115,7 @@ public sealed class TranslationExportParserTests
         // Act
         ParsedExport result = await ParseFixtureAsync("exported-truncated.txt");
 
-        // Assert — one good line, two failures (too few fields, non-numeric file id).
+        // Assert: one good line, two failures (too few fields, non-numeric file id).
         result.HasErrors.ShouldBeTrue();
         result.Rows.Count.ShouldBe(1);
         result.Errors.Count.ShouldBe(2);
@@ -159,7 +159,7 @@ public sealed class TranslationExportParserTests
     [Fact]
     public async Task ParseAsync_WithUtf8Bom_ShouldStripItAndParseTheFirstRow()
     {
-        // Arrange — the patcher writes UTF-8, which can carry a BOM; it must not corrupt the file id.
+        // Arrange: the patcher writes UTF-8, which can carry a BOM; it must not corrupt the file id.
         byte[] content = [0xEF, 0xBB, 0xBF, .. Encoding.UTF8.GetBytes("620756992||1001||Witaj||NULL||NULL||1")];
 
         // Act
@@ -174,7 +174,7 @@ public sealed class TranslationExportParserTests
     [Fact]
     public async Task ParseAsync_WithInvalidUtf8Bytes_ShouldRejectTheUpload()
     {
-        // Arrange — a stray 0xFF is never valid UTF-8. A wrong-charset/corrupt upload must be rejected,
+        // Arrange: a stray 0xFF is never valid UTF-8. A wrong-charset/corrupt upload must be rejected,
         // not silently mis-decoded into content the diff would then treat as a mass source change.
         byte[] content =
         [
@@ -194,7 +194,7 @@ public sealed class TranslationExportParserTests
     [Fact]
     public async Task ParseLinesAsync_WithMixedContent_ShouldStreamRowsAndErrorsInFileOrder()
     {
-        // Arrange — comment, valid row, unparseable line, valid row: the stream must interleave
+        // Arrange: comment, valid row, unparseable line, valid row: the stream must interleave
         // rows and errors exactly as the file reads, with 1-based line numbers.
         string content = "# comment\n620756992||1||Alpha||NULL||NULL||1\nbroken line\n620756992||2||Beta||NULL||NULL||1";
         using MemoryStream stream = new(Encoding.UTF8.GetBytes(content));
@@ -216,7 +216,7 @@ public sealed class TranslationExportParserTests
     [Fact]
     public async Task ParseLinesAsync_WithInvalidUtf8MidStream_ShouldYieldOneErrorAndStop()
     {
-        // Arrange — a valid first line, then bytes that fail strict UTF-8 decoding.
+        // Arrange: a valid first line, then bytes that fail strict UTF-8 decoding.
         byte[] content =
         [
             .. Encoding.UTF8.GetBytes("620756992||1||Alpha||NULL||NULL||1\n"),
@@ -232,7 +232,7 @@ public sealed class TranslationExportParserTests
             lines.Add(line);
         }
 
-        // Assert — the decode failure ends the stream; nothing after it is parseable anyway.
+        // Assert: the decode failure ends the stream; nothing after it is parseable anyway.
         lines[^1].Error.ShouldNotBeNull();
         lines[^1].Error!.Message.ShouldContain("not valid UTF-8");
         lines.Count(line => line.Error is not null).ShouldBe(1);
@@ -258,7 +258,7 @@ public sealed class TranslationExportParserTests
     [Fact]
     public async Task ParseAsync_WithTheSevenColumnGoldenFixture_ShouldParseEveryRowAndKeepItsDigest()
     {
-        // Act — the seven-column golden fixture (ADR-0047). Its digests were computed outside both
+        // Act: the seven-column golden fixture (ADR-0047). Its digests were computed outside both
         // implementations, so a row surviving here means the parser AND the verification agree with
         // the contract rather than merely with themselves.
         ParsedExport parsed = await ParseFixtureAsync("exported-sample-digested.txt");
@@ -274,7 +274,7 @@ public sealed class TranslationExportParserTests
     [Fact]
     public async Task ParseAsync_BothGoldenFixtures_ShouldAgreeOnEveryContentField()
     {
-        // Act — the two fixtures are the same rows at the two widths, so the seventh column must
+        // Act: the two fixtures are the same rows at the two widths, so the seventh column must
         // change nothing about how the first six are read.
         ParsedExport sixColumn = await ParseFixtureAsync("exported-sample.txt");
         ParsedExport sevenColumn = await ParseFixtureAsync("exported-sample-digested.txt");
@@ -290,7 +290,7 @@ public sealed class TranslationExportParserTests
     [Fact]
     public async Task ParseAsync_SixColumnUpload_ShouldStillImportWithoutADigest()
     {
-        // Act — an older export or a hand-made file. A missing digest is "no parity check for this
+        // Act: an older export or a hand-made file. A missing digest is "no parity check for this
         // row" on the import side; refusing it would break every existing exported.txt.
         ParsedExport parsed = await ParseAsync("620756992||1001||Witaj w Srodziemiu!||NULL||NULL||1\r\n");
 
@@ -305,7 +305,7 @@ public sealed class TranslationExportParserTests
     [InlineData("620756992||1002||Tekst z <--DO_NOT_TOUCH!--> argumentem||1||1||1||a37cc1683216cd32")]
     public async Task ParseAsync_SevenColumnUploadWhoseDigestDoesNotMatchTheRow_ShouldRejectThatRow(string line)
     {
-        // Act — a wrong-file upload, or a drift between the two contexts' digest implementations.
+        // Act: a wrong-file upload, or a drift between the two contexts' digest implementations.
         // It has to fail HERE, loudly, instead of shipping an artifact whose every row every
         // player's patcher would then refuse as "source moved" (ADR-0047 §2).
         ParsedExport parsed = await ParseAsync($"{line}\r\n");
@@ -320,7 +320,7 @@ public sealed class TranslationExportParserTests
     [InlineData("A37CC1683216CD32")]
     public async Task ParseAsync_SevenColumnUploadWithAMatchingDigest_ShouldAcceptItInEitherCase(string digest)
     {
-        // Act — writers emit lowercase; a hand-edited file that upper-cased the column is still
+        // Act: writers emit lowercase; a hand-edited file that upper-cased the column is still
         // unambiguously the same digest, so rejecting it would be pedantry with a real cost.
         ParsedExport parsed = await ParseAsync($"620756992||1001||Witaj w Srodziemiu!||NULL||NULL||1||{digest}\r\n");
 
@@ -332,7 +332,7 @@ public sealed class TranslationExportParserTests
     [Fact]
     public async Task ParseAsync_SevenColumnRowWhoseArgsColumnsAreBlankRatherThanNull_ShouldStillVerify()
     {
-        // Act — the verification hashes the row the way the CATALOG will store it, so blank and
+        // Act: the verification hashes the row the way the CATALOG will store it, so blank and
         // NULL must both normalize to an absent column. Hashing the literal would reject a row the
         // import then stores under a different triple.
         ParsedExport parsed = await ParseAsync("620756992||1001||Witaj w Srodziemiu!||||||1||a37cc1683216cd32\r\n");

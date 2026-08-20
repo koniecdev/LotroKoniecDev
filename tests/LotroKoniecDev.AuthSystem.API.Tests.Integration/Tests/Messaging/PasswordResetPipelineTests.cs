@@ -71,16 +71,16 @@ public sealed class PasswordResetPipelineTests : IClassFixture<BrokeredAuthSyste
     [Fact]
     public async Task Pipeline_ShouldDeliverAResetEmailWhoseTokenWorks_WhenForgotPasswordCommits()
     {
-        // Arrange — a confirmed account, so the only pipeline traffic left is the reset e-mail
+        // Arrange: a confirmed account, so the only pipeline traffic left is the reset e-mail
         (RegisterRequest request, IdentityId identityId) = await UserFactory.RegisterRandomUserWithRequestAsync(
             _apiClient, _faker, _confirmationEmailSpy);
 
-        // Act — forgot-password is the user-facing trigger of the whole pipeline
+        // Act: forgot-password is the user-facing trigger of the whole pipeline
         HttpResponseMessage forgotResponse = await _apiClient.Http.PostAsJsonAsync(
             new Uri("auth/forgot-password", UriKind.Relative), new ForgotPasswordRequest(request.Email));
         await _passwordResetEmailSpy.WaitForCaptureAsync(DeliveryTimeout);
 
-        // Assert — the e-mail went out once, to the registered address, with a usable token
+        // Assert: the e-mail went out once, to the registered address, with a usable token
         forgotResponse.StatusCode.ShouldBe(HttpStatusCode.OK);
         _passwordResetEmailSpy.LastEmail.ShouldBe(request.Email);
         _passwordResetEmailSpy.LastResetToken.ShouldNotBeNullOrWhiteSpace();
@@ -116,7 +116,7 @@ public sealed class PasswordResetPipelineTests : IClassFixture<BrokeredAuthSyste
     [Fact]
     public async Task Consumer_ShouldAckWithoutSecondEmail_WhenTheSameMessageIdIsDeliveredAgain()
     {
-        // Arrange — a fully delivered reset request, then its exact wire message published again
+        // Arrange: a fully delivered reset request, then its exact wire message published again
         // (the relay's crash window: published but not yet marked processed → re-published later)
         (RegisterRequest request, _) = await UserFactory.RegisterRandomUserWithRequestAsync(
             _apiClient, _faker, _confirmationEmailSpy);
@@ -130,7 +130,7 @@ public sealed class PasswordResetPipelineTests : IClassFixture<BrokeredAuthSyste
         outboxRow.ShouldNotBeNull();
         int sendsAfterFirstDelivery = _passwordResetEmailSpy.CallCount;
 
-        // Act — same payload, same type, same message id, over the real wire
+        // Act: same payload, same type, same message id, over the real wire
         IMessagePublisher publisher = _factory.Services.GetRequiredService<IMessagePublisher>();
         await publisher.PublishAsync(
             RabbitMqTopology.PasswordResetRoutingKey,
@@ -139,7 +139,7 @@ public sealed class PasswordResetPipelineTests : IClassFixture<BrokeredAuthSyste
             outboxRow.Id,
             CancellationToken.None);
 
-        // Assert — the duplicate is consumed (queue drains), acked (no parking) and suppressed
+        // Assert: the duplicate is consumed (queue drains), acked (no parking) and suppressed
         await WaitUntilQueueEmptyAsync(RabbitMqTopology.EmailQueue, DeliveryTimeout);
         await Task.Delay(TimeSpan.FromSeconds(1));
         _passwordResetEmailSpy.CallCount.ShouldBe(sendsAfterFirstDelivery);
@@ -153,7 +153,7 @@ public sealed class PasswordResetPipelineTests : IClassFixture<BrokeredAuthSyste
     [InlineData("""{"IdentityUserId":"not-a-guid"}""")]
     public async Task Consumer_ShouldParkDeliveryInDeadLetterQueue_WhenThePayloadIsPoison(string poisonPayload)
     {
-        // Act — a valid message id and the registered reset type, so the reject decision can only
+        // Act: a valid message id and the registered reset type, so the reject decision can only
         // come from the payload
         Guid messageId = Guid.CreateVersion7();
         IMessagePublisher publisher = _factory.Services.GetRequiredService<IMessagePublisher>();
@@ -164,7 +164,7 @@ public sealed class PasswordResetPipelineTests : IClassFixture<BrokeredAuthSyste
             messageId,
             CancellationToken.None);
 
-        // Assert — parked on first sight, no e-mail, no dedup record
+        // Assert: parked on first sight, no e-mail, no dedup record
         BasicGetResult dead =
             (await GetWithinTimeoutAsync(RabbitMqTopology.EmailDeadLetterQueue, DeliveryTimeout)).ShouldNotBeNull();
         Encoding.UTF8.GetString(dead.Body.ToArray()).ShouldBe(poisonPayload);
@@ -176,7 +176,7 @@ public sealed class PasswordResetPipelineTests : IClassFixture<BrokeredAuthSyste
     [Fact]
     public async Task Consumer_ShouldAckWithoutEmailAndWithoutParking_WhenTheUserNoLongerExists()
     {
-        // Act — a payload whose user id matches no account (requested, then erased): redelivery
+        // Act: a payload whose user id matches no account (requested, then erased): redelivery
         // could never change the outcome, so the ack-and-record contract applies, not the DLQ
         Guid messageId = Guid.CreateVersion7();
         string payload = JsonSerializer.Serialize(new PasswordResetRequested(Guid.CreateVersion7()));
@@ -188,7 +188,7 @@ public sealed class PasswordResetPipelineTests : IClassFixture<BrokeredAuthSyste
             messageId,
             CancellationToken.None);
 
-        // Assert — the inbox record doubles as the "consumer finished" signal
+        // Assert: the inbox record doubles as the "consumer finished" signal
         int inboxRows = await OutboxAssertions.WaitForInboxRowsAsync(_factory, messageId, DeliveryTimeout);
         inboxRows.ShouldBe(1);
         _passwordResetEmailSpy.CallCount.ShouldBe(0);

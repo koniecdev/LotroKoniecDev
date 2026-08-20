@@ -20,18 +20,18 @@ public sealed class RoundtripE2ETests
     {
         Skip.If(!_fixture.IsDatFileAvailable, "DAT file not found in TestData/");
 
-        //Arrange — parse polish.txt to get target IDs and expected content
+        //Arrange: parse polish.txt to get target IDs and expected content
         TranslationFileParser parser = new();
         Result<TranslationParseResult> polishResult = parser.ParseFile(_fixture.TranslationsPolishPath);
         polishResult.IsSuccess.ShouldBeTrue(
             $"polish.txt should parse. Error: {(polishResult.IsFailure ? polishResult.Error.Message : "")}");
         polishResult.Value.Translations.ShouldNotBeEmpty("polish.txt should contain translations");
 
-        //Arrange — use cached export as "before" (original English DAT)
+        //Arrange: use cached export as "before" (original English DAT)
         _fixture.CachedExportResult!.ExitCode.ShouldBe((int)CliExitCode.Success,
             $"Cached export failed: {_fixture.CachedExportResult.Stderr}");
 
-        //Arrange — copy DAT to temp and patch it
+        //Arrange: copy DAT to temp and patch it
         string tempDatPath = _fixture.CreateTempDatCopy();
         CliResult patch = await _fixture.RunCliAsync(
             $"patch \"{_fixture.TranslationsPolishPath}\" -d \"{tempDatPath}\"");
@@ -39,7 +39,7 @@ public sealed class RoundtripE2ETests
         patch.Stderr.ShouldBeNullOrWhiteSpace(
             "Patch should not produce stderr output");
 
-        //Act — export the patched DAT
+        //Act: export the patched DAT
         string afterPath = Path.Combine(_fixture.CreateTempDir(), "after.txt");
         CliResult exportAfter = await _fixture.RunCliAsync(
             $"export -d \"{tempDatPath}\" -o \"{afterPath}\"");
@@ -47,7 +47,7 @@ public sealed class RoundtripE2ETests
         exportAfter.Stderr.ShouldBeNullOrWhiteSpace(
             "Export after should not produce stderr output");
 
-        //Assert — build O(1) lookup indexes for both exports
+        //Assert: build O(1) lookup indexes for both exports
         Dictionary<string, string> beforeIndex = BuildLineIndex(_fixture.CachedExportPath);
         Dictionary<string, string> afterIndex = BuildLineIndex(afterPath);
 
@@ -78,7 +78,7 @@ public sealed class RoundtripE2ETests
     {
         Skip.If(!_fixture.IsDatFileAvailable, "DAT file not found in TestData/");
 
-        //Arrange — get set of translated IDs to exclude
+        //Arrange: get set of translated IDs to exclude
         TranslationFileParser parser = new();
         Result<TranslationParseResult> polishResult = parser.ParseFile(_fixture.TranslationsPolishPath);
         polishResult.IsSuccess.ShouldBeTrue(
@@ -88,23 +88,23 @@ public sealed class RoundtripE2ETests
             .Select(t => $"{t.FileId}||{t.GossipId}||")
             .ToHashSet();
 
-        //Arrange — use cached export as "before"
+        //Arrange: use cached export as "before"
         _fixture.CachedExportResult!.ExitCode.ShouldBe((int)CliExitCode.Success,
             $"Cached export failed: {_fixture.CachedExportResult.Stderr}");
 
-        //Arrange — patch a temp copy
+        //Arrange: patch a temp copy
         string tempDatPath = _fixture.CreateTempDatCopy();
         CliResult patch = await _fixture.RunCliAsync(
             $"patch \"{_fixture.TranslationsPolishPath}\" -d \"{tempDatPath}\"");
         patch.ExitCode.ShouldBe((int)CliExitCode.Success, $"Patch failed: {patch.Stderr}");
 
-        //Act — export patched DAT
+        //Act: export patched DAT
         string afterPath = Path.Combine(_fixture.CreateTempDir(), "after.txt");
         CliResult exportAfter = await _fixture.RunCliAsync(
             $"export -d \"{tempDatPath}\" -o \"{afterPath}\"");
         exportAfter.ExitCode.ShouldBe((int)CliExitCode.Success, $"Export after failed: {exportAfter.Stderr}");
 
-        //Assert — sample untranslated lines and verify they're identical
+        //Assert: sample untranslated lines and verify they're identical
         Dictionary<string, string> beforeIndex = BuildLineIndex(_fixture.CachedExportPath);
         Dictionary<string, string> afterIndex = BuildLineIndex(afterPath);
 

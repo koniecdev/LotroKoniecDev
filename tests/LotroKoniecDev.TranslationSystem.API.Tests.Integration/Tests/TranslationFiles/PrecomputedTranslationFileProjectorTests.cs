@@ -68,7 +68,7 @@ public sealed class PrecomputedTranslationFileProjectorTests : IAsyncLifetime
         // Act
         await RebuildAsync();
 
-        // Assert — no row existed, so the set-based refresh missed and the first build inserted.
+        // Assert: no row existed, so the set-based refresh missed and the first build inserted.
         HttpResponseMessage download = await _factory.CreateClient().GetAsync(Route);
         download.StatusCode.ShouldBe(HttpStatusCode.OK);
         (await download.Content.ReadAsStringAsync()).ShouldContain($"{FileId}||1||Alfa||NULL||NULL||1");
@@ -79,7 +79,7 @@ public sealed class PrecomputedTranslationFileProjectorTests : IAsyncLifetime
     [Fact]
     public async Task Rebuild_WhenArtifactExists_ShouldRefreshInPlaceWithoutFetchingPreviousContent()
     {
-        // Arrange — the artifact already exists from a first build.
+        // Arrange: the artifact already exists from a first build.
         await SeedApprovedAsync(gossipId: 1, polish: "Alfa");
         await RebuildAsync();
         await SeedApprovedAsync(gossipId: 2, polish: "Beta");
@@ -88,7 +88,7 @@ public sealed class PrecomputedTranslationFileProjectorTests : IAsyncLifetime
         // Act
         await RebuildAsync();
 
-        // Assert — one set-based UPDATE refreshed the row (PERF-04); nothing on the write context
+        // Assert: one set-based UPDATE refreshed the row (PERF-04); nothing on the write context
         // SELECTed the artifact table, so the previous multi-MB Content was never materialized
         // just to be overwritten.
         HttpResponseMessage download = await _factory.CreateClient().GetAsync(Route);
@@ -106,7 +106,7 @@ public sealed class PrecomputedTranslationFileProjectorTests : IAsyncLifetime
     [Fact]
     public async Task Rebuild_ShouldStampEachRowWithTheDigestOfItsEnglishSourceNotItsPolish()
     {
-        // Arrange — the row ships Polish, but the seventh column must describe the ENGLISH it was
+        // Arrange: the row ships Polish, but the seventh column must describe the ENGLISH it was
         // approved against (ADR-0047 §2). Getting this backwards is invisible in the file's shape
         // and would make every pristine fragment on every player's box report "source moved".
         await SeedApprovedAsync(gossipId: 1, polish: "Alfa", english: "Alpha source");
@@ -125,7 +125,7 @@ public sealed class PrecomputedTranslationFileProjectorTests : IAsyncLifetime
     [Fact]
     public async Task Rebuild_ForARowWithArgumentColumns_ShouldHashTheSourcesOwnArgumentColumns()
     {
-        // Arrange — the triple is (text, args_order, args_id), so a row whose placeholder structure
+        // Arrange: the triple is (text, args_order, args_id), so a row whose placeholder structure
         // differs must land on a different digest even when the text matches.
         await SeedApprovedAsync(gossipId: 2, polish: "Beta", english: "Beta source", argsOrder: "1-2", argsId: "1-2");
 

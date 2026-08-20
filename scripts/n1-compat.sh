@@ -14,11 +14,18 @@
 #   2. Check out the previous release (default: HEAD^1 — on a PR merge commit that is the main
 #      tip being merged into, i.e. the deployed release; the repo has no version tags and CD
 #      ships every main commit) into a temporary git worktree.
-#   3. Run every *.Tests.Integration.csproj the OLD checkout discovers (the same convention
-#      pr-verify.yml gates on — no silent narrowing) with N1_COMPAT_SCHEMA_SCRIPTS_DIR pointing
-#      at the generated scripts. Each old test fixture applies the HEAD schema to its container
-#      before its own MigrateAsync (which then no-ops). Red = the old release cannot live on the
-#      new schema = a backward-incompatible migration.
+#   3. Restore and build every *.Tests.Integration.csproj the OLD checkout discovers (the same
+#      convention pr-verify.yml gates on — no silent narrowing), THEN run it with
+#      N1_COMPAT_SCHEMA_SCRIPTS_DIR pointing at the generated scripts. Each old test fixture
+#      applies the HEAD schema to its container before its own MigrateAsync (which then no-ops).
+#      Red = the old release cannot live on the new schema = a backward-incompatible migration.
+#
+# Restore/build is its own phase because only the run after it can produce the exit-1 verdict. A
+# previous release that no longer restores or compiles has proven NOTHING about this batch's
+# schema, and calling that "backward-incompatible" sends the approver to split a healthy batch
+# (ADR-0024's deploy-time amendment lists restore under exit 2 for exactly this reason; CD #236
+# is the run where the collapsed mapping actually misfired). The mirror rule holds on the way up:
+# only a suite that EXECUTED tests may report green, so a run discovering zero tests is exit 2 too.
 #
 # Bootstrap: if the previous release predates the seam (no N1_COMPAT_SCHEMA_SCRIPTS_DIR marker in
 # its tests/), there is nothing it can prove — report loudly and pass. The window closes at the
@@ -33,7 +40,8 @@
 #                                           # deliberate-red experiment from #340's AC)
 #
 # Requires: Docker (Testcontainers), the pinned dotnet-ef tool (dotnet tool restore runs here).
-# Exit codes: 0 = compatible (or bootstrap), 1 = N-1 incompatibility (old suite red), 2 = cannot run.
+# Exit codes: 0 = compatible (or bootstrap), 1 = N-1 incompatibility (old suite's TESTS red),
+# 2 = cannot run (incl. an old suite that no longer restores or builds).
 set -euo pipefail
 
 CODE_REF="${1:-HEAD^1}"
@@ -64,6 +72,7 @@ say() {
 }
 
 schema_dir=""
+results_dir=""
 worktree_parent=""
 worktree_dir=""
 cleanup() {
@@ -76,6 +85,9 @@ cleanup() {
   fi
   if [ -n "$schema_dir" ] && [ -d "$schema_dir" ]; then
     rm -rf "$schema_dir"
+  fi
+  if [ -n "$results_dir" ] && [ -d "$results_dir" ]; then
+    rm -rf "$results_dir"
   fi
 }
 trap cleanup EXIT
@@ -161,15 +173,62 @@ if ! grep -rq "$SEAM_MARKER" "$worktree_dir/tests" --include="*.cs" 2>/dev/null;
 fi
 
 # --- 3. Run the OLD release's integration suites against the NEW schema. ----------------------
+# TreatWarningsAsErrors is deliberately OFF for the previous release. That tree is built to be
+# EXECUTED, not to be re-judged: its own PR already gated its warnings, while everything that
+# decides them here keeps moving underneath it. The live NuGet advisory feed is the sharpest
+# edge — it retro-fails any release pinning a package an advisory has since covered, which is a
+# verdict about the past, not about this batch's schema. CD #236: the serving release pinned
+# Testcontainers 4.13.0 -> SSH.NET 2025.1.0 -> NU1903 "Warning As Error", its restore died, and
+# no promotion could ever run again. Findings stay VISIBLE as warnings in the log; the CURRENT
+# tree keeps its own audit and its own zero-warning gate, and nothing from this worktree ships.
+# WarningsAsErrors is cleared alongside it: an explicit <WarningsAsErrors>NU1903</WarningsAsErrors>
+# promotes a code past TreatWarningsAsErrors and would re-open this hole. No project here carries
+# one today — it is a global property so it wins if one ever appears.
+OLD_TREE_BUILD_ARGS=(-p:TreatWarningsAsErrors=false -p:WarningsAsErrors=)
+
+# How many tests a run actually EXECUTED, from its trx. `dotnet test` exits 0 when it discovers
+# nothing at all ("No test is available in ….dll" is a WARNING — verified on VSTest 18.0.1), so
+# without this floor an adapter that stopped resolving in the old tree would report a confident
+# GREEN having proven exactly nothing. Same reasoning as the suites=0 guard below, one level down.
+trx_executed_count() {
+  local trx="$1"
+  local count=''
+  [ -f "$trx" ] || { echo 0; return; }
+  count="$(grep -o 'executed="[0-9]*"' "$trx" | head -1 | grep -o '[0-9]*' || true)"
+  echo "${count:-0}"
+}
+
+results_dir="$(canonical_tmp_dir)"
 status=0
+unbuildable=0
+unrun=0
 suites=0
 while IFS= read -r proj; do
   suites=$((suites + 1))
+  suite_name="$(basename "$proj" .csproj)"
   echo "::group::$(basename "$proj") (previous release, HEAD schema)"
-  if ! (cd "$worktree_dir" && \
-        N1_COMPAT_SCHEMA_SCRIPTS_DIR="$schema_dir" \
-        dotnet test "$proj" --configuration Release --logger "console;verbosity=minimal"); then
-    status=1
+  # Restore and build BEFORE the run, so the run itself can only fail for one reason: the old
+  # release's tests genuinely reject the new schema. That is the exit-1 verdict; a tree that never
+  # compiled cannot earn it.
+  if ! (cd "$worktree_dir" && dotnet restore "$proj" "${OLD_TREE_BUILD_ARGS[@]}") \
+     || ! (cd "$worktree_dir" && dotnet build "$proj" --configuration Release --no-restore "${OLD_TREE_BUILD_ARGS[@]}"); then
+    echo "ERROR: '$suite_name' from the previous release no longer restores or builds with today's toolchain — it can prove nothing about this schema." >&2
+    unbuildable=$((unbuildable + 1))
+  else
+    test_status=0
+    (cd "$worktree_dir" && \
+      N1_COMPAT_SCHEMA_SCRIPTS_DIR="$schema_dir" \
+      dotnet test "$proj" --configuration Release --no-build \
+        --logger "console;verbosity=minimal" \
+        --logger "trx;LogFileName=$suite_name.trx" \
+        --results-directory "$results_dir") || test_status=$?
+
+    if [ "$(trx_executed_count "$results_dir/$suite_name.trx")" -eq 0 ]; then
+      echo "ERROR: '$suite_name' executed ZERO tests — it proved nothing about this schema. Check the log for a discovery failure or a run that died before the first test." >&2
+      unrun=$((unrun + 1))
+    elif [ "$test_status" -ne 0 ]; then
+      status=1
+    fi
   fi
   echo "::endgroup::"
 done < <(find "$worktree_dir/tests" -name '*.Tests.Integration.csproj' | sort)
@@ -179,9 +238,23 @@ if [ "$suites" -eq 0 ]; then
   exit 2
 fi
 
+unjudged=$((unbuildable + unrun))
+
+# A suite whose tests ran and failed outranks a sibling that never ran: "promote in smaller steps"
+# is the action the operator must take either way. But say so — an approver who splits the batch on
+# this verdict must know the split does not restore the coverage the silent suites never gave.
 if [ "$status" -ne 0 ]; then
-  say "N-1 compat: RED — the previous release ($prev_sha) fails on the current schema. A migration in this change is backward-incompatible (ADR-0023): ship it as expand → backfill → contract, or fix the breaking DDL. (If the old suite failed to build or start rather than failing tests, it's an infra problem — check the log above.)"
+  blind=''
+  if [ "$unjudged" -ne 0 ]; then
+    blind=" NOTE: $unjudged of $suites suite(s) produced no verdict of their own (see the log) — that part of the batch stays UNJUDGED even after you split it."
+  fi
+  say "N-1 compat: RED — the previous release ($prev_sha) fails on the current schema. A migration in this change is backward-incompatible (ADR-0023): ship it as expand → backfill → contract, or fix the breaking DDL.${blind} (A failure of the run ENVIRONMENT — Docker, an image pull, a test host that died mid-run — can also land here once at least one test has executed; read the failures before you split.)"
   exit 1
+fi
+
+if [ "$unjudged" -ne 0 ]; then
+  say "N-1 compat: COULD NOT RUN — $unjudged of $suites integration suite(s) from the previous release ($prev_sha) produced no verdict ($unbuildable did not restore or build, $unrun executed no tests), so this batch is UNJUDGED, not proven bad. Fix the failure in the log above; splitting the batch would only hide the fact that nothing was proven."
+  exit 2
 fi
 
 say "N-1 compat: GREEN — previous release $prev_sha passes all $suites integration suite(s) on the current schema."

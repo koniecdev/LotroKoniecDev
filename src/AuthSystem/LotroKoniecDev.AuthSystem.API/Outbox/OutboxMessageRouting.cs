@@ -16,7 +16,9 @@ internal static class OutboxMessageRouting
         [nameof(EmailConfirmationRequested)] = RabbitMqTopology.EmailConfirmationRoutingKey,
         [nameof(PasswordResetRequested)] = RabbitMqTopology.PasswordResetRoutingKey,
         [nameof(AccountDeletionScheduled)] = RabbitMqTopology.DeletionScheduledRoutingKey,
-        [nameof(AccountDeletionCancelled)] = RabbitMqTopology.DeletionCancelledRoutingKey
+        [nameof(AccountDeletionCancelled)] = RabbitMqTopology.DeletionCancelledRoutingKey,
+        [nameof(EmailChangeRequested)] = RabbitMqTopology.EmailChangeRequestedRoutingKey,
+        [nameof(EmailChangeCompleted)] = RabbitMqTopology.EmailChangeCompletedRoutingKey
     };
 
     public static bool TryGetRoutingKey(string type, [NotNullWhen(true)] out string? routingKey)

@@ -6,6 +6,7 @@ public static class Rels
 
     // Account aggregate
     public const string ChangePassword = "change-password";
+    public const string ChangeEmail = "change-email";
     public const string DeleteAccount = "delete-account";
     public const string CancelDeletion = "cancel-deletion";
     public const string ResendEmailConfirmation = "resend-email-confirmation";

@@ -48,6 +48,17 @@ public static class RabbitMqTopology
     public const string DeletionCancelledRoutingKey = "email.deletion-cancelled";
 
     /// <summary>
+    /// Routing key of the e-mail change request: the verification link for the new address and the
+    /// warning for the old one.
+    /// </summary>
+    public const string EmailChangeRequestedRoutingKey = "email.change-requested";
+
+    /// <summary>
+    /// Routing key of the e-mail change notice, which also carries the revert link to the old address.
+    /// </summary>
+    public const string EmailChangeCompletedRoutingKey = "email.change-completed";
+
+    /// <summary>
     /// The dead-letter exchange. The broker sends here every message <see cref="EmailQueue"/> gives up
     /// on, either because the consumer rejected it or because it passed
     /// <see cref="EmailDeliveryLimit"/>. It is a fanout, because everything that fails goes to the same

@@ -80,4 +80,19 @@ internal static class AuthErrors
         new("Auth.CancelDeletionFailed",
             details,
             TypeOfError.Failure);
+
+    public static Error InvalidEmailChangeToken =>
+        new("Auth.InvalidEmailChangeToken",
+            "The email change link is invalid or has expired.",
+            TypeOfError.Validation);
+
+    public static Error EmailChangeSameAddress =>
+        new("Auth.EmailChangeSameAddress",
+            "The new email address is the same as the current one.",
+            TypeOfError.Validation);
+
+    public static Error EmailChangeFailed(string details) =>
+        new("Auth.EmailChangeFailed",
+            details,
+            TypeOfError.Failure);
 }

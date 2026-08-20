@@ -1,0 +1,391 @@
+@page
+@model LotroKoniecDev.AuthSystem.API.Pages.Account.ConfirmEmailChangeModel
+@{
+    Layout = null;
+}
+
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Potwierdzenie nowego adresu e-mail — lotro-translator.pl</title>
+    <link rel="stylesheet" href="/fonts.css" />
+    <style>
+        :root {
+            --bg:        oklch(0.16 0.011 80);
+            --bg-2:      oklch(0.20 0.013 80);
+            --surface:   oklch(0.23 0.014 80);
+            --surface-hi:oklch(0.28 0.016 80);
+            --border:    oklch(0.34 0.016 80);
+            --border-hi: oklch(0.44 0.020 80);
+
+            --text:      oklch(0.96 0.008 85);
+            --text-mute: oklch(0.80 0.012 85);
+            --text-dim:  oklch(0.68 0.014 85);
+
+            --accent:     oklch(0.78 0.11 84);
+            --accent-hi:  oklch(0.85 0.12 84);
+            --accent-dim: oklch(0.48 0.07 84);
+            --accent-soft:oklch(0.32 0.05 84);
+
+            --danger:      oklch(0.68 0.16 25);
+            --danger-hi:   oklch(0.76 0.18 25);
+            --danger-dim:  oklch(0.42 0.10 25);
+            --danger-soft: oklch(0.30 0.07 25);
+
+            --radius: 14px;
+            --radius-sm: 8px;
+            --shadow: 0 1px 0 oklch(0.38 0.013 80 / 0.5) inset, 0 8px 24px -12px rgba(0,0,0,0.55);
+
+            --font-sans: "Manrope", ui-sans-serif, system-ui, -apple-system, "Helvetica Neue", sans-serif;
+            --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+        }
+
+        * { box-sizing: border-box; }
+        html, body { margin: 0; padding: 0; }
+        body {
+            background: var(--bg);
+            color: var(--text);
+            font-family: var(--font-sans);
+            font-size: 15px;
+            line-height: 1.55;
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+            min-height: 100vh;
+        }
+        a { color: inherit; text-decoration: none; }
+        button { font-family: inherit; cursor: pointer; }
+
+        .app {
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            background:
+                radial-gradient(1200px 600px at 80% -200px, oklch(0.28 0.055 84 / 0.35), transparent 60%),
+                radial-gradient(900px 500px at -100px 100px, oklch(0.22 0.025 80 / 0.5), transparent 60%);
+        }
+
+        .auth-top {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 16px;
+            padding: 16px 28px;
+            border-bottom: 1px solid var(--border);
+            background: oklch(0.15 0.011 80 / 0.7);
+            backdrop-filter: blur(10px);
+        }
+        .brand {
+            display: inline-flex;
+            align-items: center;
+            gap: 10px;
+            color: var(--text);
+            font-weight: 700;
+            font-size: 16px;
+            letter-spacing: -0.01em;
+        }
+        .brand-mark {
+            width: 30px; height: 30px;
+            border-radius: 8px;
+            background: linear-gradient(160deg, var(--accent), var(--accent-dim));
+            color: oklch(0.16 0.012 80);
+            display: grid;
+            place-items: center;
+            box-shadow: 0 0 0 1px oklch(0.60 0.07 84 / 0.5) inset;
+        }
+        .brand-mark svg { width: 17px; height: 17px; }
+        .brand-accent { color: var(--accent-hi); }
+        .auth-top .top-link {
+            display: inline-flex;
+            align-items: center;
+            gap: 7px;
+            font-family: var(--font-mono);
+            font-size: 11px;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            color: var(--text-mute);
+            padding: 7px 13px;
+            border: 1px solid var(--border);
+            border-radius: 999px;
+            background: var(--bg-2);
+            transition: color .15s, border-color .15s, background .15s;
+        }
+        .auth-top .top-link:hover { color: var(--text); border-color: var(--border-hi); background: var(--surface-hi); }
+        .auth-top .top-link svg { width: 13px; height: 13px; }
+
+        .auth-main {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 48px 24px 56px;
+        }
+        .auth-stack { width: 100%; max-width: 416px; }
+
+        .auth-eyebrow {
+            font-family: var(--font-mono);
+            font-size: 11px;
+            letter-spacing: 0.18em;
+            color: var(--accent);
+            text-align: center;
+            margin: 0 0 16px;
+            text-transform: uppercase;
+        }
+        .auth-eyebrow.danger { color: var(--danger-hi); }
+
+        .auth-panel {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            box-shadow: var(--shadow);
+            overflow: hidden;
+            width: 100%;
+        }
+        .auth-panel-head {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            padding: 18px 24px;
+            border-bottom: 1px solid var(--border);
+            background: linear-gradient(to bottom,
+                oklch(0.25 0.016 80 / 0.6),
+                oklch(0.22 0.014 80 / 0));
+        }
+        .auth-panel-head h2 {
+            margin: 0;
+            font-size: 16px;
+            font-weight: 700;
+            letter-spacing: -0.005em;
+            color: var(--text);
+            display: inline-flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .auth-panel-head .panel-icon {
+            width: 30px; height: 30px;
+            border-radius: 8px;
+            background: var(--bg-2);
+            border: 1px solid var(--border);
+            color: var(--accent-hi);
+            display: grid;
+            place-items: center;
+            flex: 0 0 30px;
+        }
+        .auth-panel-head .panel-icon svg { width: 16px; height: 16px; }
+        .auth-panel-head .panel-aside {
+            font-family: var(--font-mono);
+            font-size: 10.5px;
+            color: var(--text-mute);
+            letter-spacing: 0.1em;
+            text-transform: uppercase;
+        }
+        .auth-panel-body {
+            padding: 22px 24px;
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }
+        .auth-lead {
+            margin: -2px 0 0;
+            font-size: 13.5px;
+            color: var(--text-mute);
+            line-height: 1.5;
+        }
+
+        .auth-alert {
+            display: flex;
+            align-items: flex-start;
+            gap: 10px;
+            padding: 13px 15px;
+            background: oklch(0.30 0.07 25 / 0.4);
+            border: 1px solid var(--danger-dim);
+            border-radius: var(--radius-sm);
+            color: oklch(0.92 0.04 25);
+            font-size: 13px;
+            line-height: 1.45;
+        }
+        .auth-alert > svg { width: 18px; height: 18px; flex: 0 0 18px; color: var(--danger-hi); margin-top: 1px; }
+        .auth-alert .t { font-weight: 600; display: block; }
+        .auth-alert .s {
+            display: block;
+            margin-top: 3px;
+            color: oklch(0.82 0.06 25);
+            font-size: 12.5px;
+        }
+
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            padding: 13px 20px;
+            border-radius: var(--radius-sm);
+            border: 1px solid transparent;
+            font-weight: 600;
+            font-size: 14.5px;
+            transition: transform .08s, background .15s, border-color .15s, color .15s;
+        }
+        .btn:active { transform: translateY(1px); }
+        .btn svg { width: 16px; height: 16px; flex: 0 0 16px; }
+        .btn-primary {
+            background: var(--accent);
+            color: oklch(0.16 0.012 80);
+            border-color: oklch(0.62 0.09 84);
+        }
+        .btn-primary:hover { background: var(--accent-hi); }
+        .btn-ghost {
+            background: transparent;
+            color: var(--text-mute);
+            border-color: var(--border);
+        }
+        .btn-ghost:hover { color: var(--text); border-color: var(--border-hi); background: var(--surface-hi); }
+        .btn-block { width: 100%; }
+
+        .auth-actions { display: flex; flex-direction: column; gap: 10px; margin-top: 2px; }
+
+        .auth-meta {
+            margin-top: 16px;
+            font-family: var(--font-mono);
+            font-size: 10.5px;
+            letter-spacing: 0.08em;
+            color: var(--text-dim);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            text-transform: uppercase;
+        }
+        .auth-meta svg { width: 12px; height: 12px; color: var(--accent-hi); }
+
+        .foot {
+            padding: 22px 28px 26px;
+            border-top: 1px solid var(--border);
+            text-align: center;
+        }
+        .foot p {
+            margin: 0;
+            font-family: var(--font-mono);
+            font-size: 11px;
+            letter-spacing: 0.08em;
+            color: var(--text-mute);
+        }
+
+        @@media (max-width: 640px) {
+            .auth-top { padding: 14px 18px; }
+            .auth-top .top-link span { display: none; }
+        }
+    </style>
+</head>
+<body>
+    <div class="app">
+        <div class="auth-top">
+            <a href="https://lotro-translator.pl" class="brand">
+                <span class="brand-mark" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="1.1" fill="currentColor"/></svg></span>
+                <span class="brand-text">lotro-<span class="brand-accent">translator</span>.pl</span>
+            </a>
+            <a href="/Account/Login" class="top-link"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><path d="m10 17 5-5-5-5"/><path d="M15 12H3"/></svg><span>Zaloguj się</span></a>
+        </div>
+
+        <div class="auth-main">
+            <div class="auth-stack">
+                @if (Model.IsCompleted)
+                {
+                    <p class="auth-eyebrow">Dostęp do konta</p>
+                    <section class="auth-panel" aria-labelledby="confirm-change-h">
+                        <header class="auth-panel-head">
+                            <h2 id="confirm-change-h">
+                                <span class="panel-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 8 9 6 9-6"/></svg></span>
+                                Nowy adres e-mail
+                            </h2>
+                            <span class="panel-aside">Gotowe</span>
+                        </header>
+                        <div class="auth-panel-body">
+                            <div class="auth-alert success" role="status" data-testid="confirm-email-change-success">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
+                                <div>
+                                    <span class="t">Adres e-mail Twojego konta został zmieniony</span>
+                                    <span class="s">Od teraz logujesz się adresem <strong>@Model.Email</strong>. Ze względów bezpieczeństwa zakończyliśmy wszystkie sesje — zaloguj się ponownie.</span>
+                                </div>
+                            </div>
+                            <div class="auth-actions">
+                                <a href="/Account/Login" class="btn btn-primary btn-block">
+                                    Zaloguj się
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m13 5 7 7-7 7"/></svg>
+                                </a>
+                            </div>
+                        </div>
+                    </section>
+                }
+                else if (!string.IsNullOrEmpty(Model.ErrorMessage))
+                {
+                    <p class="auth-eyebrow danger">Dostęp do konta</p>
+                    <section class="auth-panel" aria-labelledby="confirm-change-h">
+                        <header class="auth-panel-head">
+                            <h2 id="confirm-change-h">
+                                <span class="panel-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 8 9 6 9-6"/></svg></span>
+                                Nowy adres e-mail
+                            </h2>
+                            <span class="panel-aside">Błąd</span>
+                        </header>
+                        <div class="auth-panel-body">
+                            <div class="auth-alert" role="alert" data-testid="confirm-email-change-error">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 9v4"/><path d="M12 17h.01"/><path d="M10.3 3.86 1.82 18a2 2 0 0 0 1.7 3h16.94a2 2 0 0 0 1.7-3L13.69 3.86a2 2 0 0 0-3.4 0z"/></svg>
+                                <div>
+                                    <span class="t">Link wygasł lub jest nieprawidłowy</span>
+                                    <span class="s">@Model.ErrorMessage Link jest ważny 24 godziny i można go użyć tylko raz. Zaloguj się i poproś o zmianę adresu jeszcze raz.</span>
+                                </div>
+                            </div>
+                            <div class="auth-actions">
+                                <a href="/Account/Login" class="btn btn-ghost btn-block">
+                                    Powrót do logowania
+                                </a>
+                            </div>
+                        </div>
+                    </section>
+                }
+                else
+                {
+                    <p class="auth-eyebrow">Dostęp do konta</p>
+                    <section class="auth-panel" aria-labelledby="confirm-change-h">
+                        <header class="auth-panel-head">
+                            <h2 id="confirm-change-h">
+                                <span class="panel-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 8 9 6 9-6"/></svg></span>
+                                Potwierdź nowy adres e-mail
+                            </h2>
+                            <span class="panel-aside">Krok 2/2</span>
+                        </header>
+                        <div class="auth-panel-body">
+                            <p class="auth-lead">
+                                Twoje konto ma od teraz działać na adresie <strong>@Model.Email</strong>.
+                                Adres e-mail jest jednocześnie loginem, więc kolejne logowanie wykonasz już tym adresem.
+                            </p>
+                            <p class="auth-lead">
+                                Na dotychczasowy adres wyślemy wiadomość z linkiem, którym w razie potrzeby cofniesz tę zmianę.
+                            </p>
+                            <form method="post" data-testid="confirm-email-change-form">
+                                <input type="hidden" asp-for="UserId" />
+                                <input type="hidden" asp-for="Email" />
+                                <input type="hidden" asp-for="Token" />
+                                <div class="auth-actions">
+                                    <button type="submit" class="btn btn-primary btn-block" data-testid="confirm-email-change-submit">
+                                        Potwierdź nowy adres
+                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m13 5 7 7-7 7"/></svg>
+                                    </button>
+                                </div>
+                            </form>
+                        </div>
+                    </section>
+                }
+                <p class="auth-meta"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg> Połączenie szyfrowane · TLS 1.3</p>
+            </div>
+        </div>
+
+        <footer class="foot">
+            <p>lotro-translator.pl — niekomercyjny projekt społeczności polskich graczy LOTRO</p>
+        </footer>
+    </div>
+</body>
+</html>

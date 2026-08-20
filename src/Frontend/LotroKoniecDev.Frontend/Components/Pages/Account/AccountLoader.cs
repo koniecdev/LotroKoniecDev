@@ -77,6 +77,22 @@ internal sealed class AccountLoader
             cancellationToken);
     }
 
+    /// <summary>
+    /// Starts an e-mail change. Nothing on the account moves yet: the address changes only when the
+    /// link sent to the new mailbox is used (ADR-0048).
+    /// </summary>
+    public Task<ApiResult> RequestEmailChangeAsync(
+        string href,
+        string newEmail,
+        string currentPassword,
+        CancellationToken cancellationToken = default)
+    {
+        return _client.PostApiResultAsync(
+            href,
+            new ChangeEmailRequest(newEmail, currentPassword),
+            cancellationToken);
+    }
+
     public Task<ApiResult> ChangePasswordAsync(
         string href,
         string currentPassword,

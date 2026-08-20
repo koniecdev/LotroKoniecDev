@@ -44,6 +44,11 @@ internal sealed class AccountAggregateLinkFactory : IAccountAggregateLinkFactory
             method: HttpMethods.Post));
 
         links.AddIfPresent(await _linkFactory.CreateAsync(
+            endpoint: nameof(RequestEmailChange),
+            rel: Rels.ChangeEmail,
+            method: HttpMethods.Post));
+
+        links.AddIfPresent(await _linkFactory.CreateAsync(
             endpoint: nameof(DeleteAccount),
             rel: Rels.DeleteAccount,
             method: HttpMethods.Post));

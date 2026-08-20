@@ -9,11 +9,12 @@ using Microsoft.IdentityModel.Protocols.OpenIdConnect;
 namespace LotroKoniecDev.Frontend.Infrastructure.Auth;
 
 /// <summary>
-/// Wires the OpenID Connect relying-party: a cookie session as the default scheme, the OpenIddict
-/// AuthSystem as the challenge/sign-out scheme (authorization-code + PKCE), and
-/// <see cref="CookieTokenRefresher"/> on <c>OnValidatePrincipal</c>. The interactive login/logout UX,
-/// protected-vs-public page policy, and navbar user info land in the M3-02 auth-session slice; this
-/// lifts the RP infrastructure so that slice is pure activation.
+/// Sets up this app as an OpenID Connect client: a cookie session as the default scheme, the OpenIddict
+/// AuthSystem for login and logout with the authorization-code flow and PKCE, and
+/// <see cref="CookieTokenRefresher"/> on <c>OnValidatePrincipal</c>.
+/// The login and logout UI, the rules for which pages need a login, and the user info in the navbar come
+/// with the M3-02 slice. This file only puts the client infrastructure in place, so that slice just
+/// switches it on.
 /// </summary>
 internal static class AuthenticationDependencyInjectionExtensions
 {
@@ -42,9 +43,9 @@ internal static class AuthenticationDependencyInjectionExtensions
             services.AddCascadingAuthenticationState();
             services.AddAuthorization();
 
-            // Scoped, not singleton — ITokenEndpointClient wraps an HttpClient supplied by
-            // IHttpClientFactory. Capturing a transient typed client inside a singleton would defeat the
-            // factory's connection lifecycle and DNS-refresh story.
+            // Scoped and not singleton, because ITokenEndpointClient wraps an HttpClient that
+            // IHttpClientFactory provides. Holding a short-lived typed client inside a singleton would
+            // break how the factory recycles connections and picks up DNS changes.
             services.AddScoped<CookieTokenRefresher>();
             services.AddHttpClient<ITokenEndpointClient, TokenEndpointClient>((sp, client) =>
             {
@@ -64,10 +65,11 @@ internal static class AuthenticationDependencyInjectionExtensions
                     options.Cookie.Name = ".lotrokoniecdev.auth";
                     options.Cookie.HttpOnly = true;
                     options.Cookie.SameSite = SameSiteMode.Lax;
-                    // SecurePolicy is environment-dependent — set in ConfigureCookieSecurePolicy below.
-                    // Lock path so SignIn/SignOut cookies always match — without this, a future code path
-                    // that signs in under a non-root PathBase would produce a cookie that /auth/logout
-                    // (PathBase="") cannot delete.
+                    // SecurePolicy depends on the environment and is set in ConfigureCookieSecurePolicy
+                    // below.
+                    // The path is fixed so the sign-in and sign-out cookies always match. Without it, a
+                    // future code path that signs in under a non-root PathBase would write a cookie that
+                    // /auth/logout, which runs with an empty PathBase, could not delete.
                     options.Cookie.Path = "/";
                     options.ExpireTimeSpan = TimeSpan.FromHours(8);
                     options.SlidingExpiration = true;
@@ -96,12 +98,12 @@ internal static class AuthenticationDependencyInjectionExtensions
     }
 
     /// <summary>
-    /// AUDIT-SEC-10 (#400): outside Development the session cookie is unconditionally <c>Secure</c>.
-    /// <see cref="CookieSecurePolicy.SameAsRequest"/> would tie the flag to <c>Request.Scheme</c>,
-    /// which behind the TLS-terminating proxy is derived from <c>X-Forwarded-Proto</c> — a single
-    /// scheme mismatch would write the cookie without <c>Secure</c> and let the browser send it over
-    /// plain HTTP. Development keeps <see cref="CookieSecurePolicy.SameAsRequest"/> so a plain-HTTP
-    /// local run still produces a cookie the browser accepts.
+    /// AUDIT-SEC-10 (#400): outside Development the session cookie is always <c>Secure</c>.
+    /// <see cref="CookieSecurePolicy.SameAsRequest"/> would tie that flag to <c>Request.Scheme</c>, which
+    /// behind the TLS-terminating proxy comes from <c>X-Forwarded-Proto</c>. One wrong scheme would write
+    /// the cookie without <c>Secure</c> and let the browser send it over plain HTTP.
+    /// Development keeps <see cref="CookieSecurePolicy.SameAsRequest"/>, so a local run over plain HTTP
+    /// still produces a cookie the browser accepts.
     /// </summary>
     private static void ConfigureCookieSecurePolicy(
         CookieAuthenticationOptions options,
@@ -124,10 +126,11 @@ internal static class AuthenticationDependencyInjectionExtensions
             "http://", StringComparison.OrdinalIgnoreCase);
 
         options.ResponseType = OpenIdConnectResponseType.Code;
-        // Not the handler's form_post default: form_post makes the authorize endpoint render
-        // OpenIddict's bare white interstitial (visible flash before a dark app repaints), while query
-        // keeps the whole login return a 302 chain the browser never paints. Code-in-URL is the
-        // RFC 9700 baseline shape — PKCE below is the mitigation that makes an intercepted code useless.
+        // Not the handler's form_post default. With form_post the authorize endpoint renders OpenIddict's
+        // plain white page, which flashes before the dark app repaints. With query the whole login return
+        // is a chain of redirects the browser never draws.
+        // Putting the code in the URL is the baseline shape RFC 9700 describes, and PKCE below is what
+        // makes a stolen code useless.
         options.ResponseMode = OpenIdConnectResponseMode.Query;
         options.UsePkce = true;
         options.SaveTokens = true;
@@ -147,10 +150,10 @@ internal static class AuthenticationDependencyInjectionExtensions
         options.TokenValidationParameters.NameClaimType = "name";
         options.TokenValidationParameters.RoleClaimType = "role";
 
-        // Without these handlers, OIDC remote failures (AuthSystem down, correlation cookie lost, user
-        // denied consent) propagate as 500s and the user lands on the generic /Error page with no
-        // actionable context. Redirecting to dedicated pages keeps the trace ID flow intact
-        // (UseExceptionHandler/UseStatusCodePages re-execute with the rewritten path).
+        // Without these handlers an OIDC failure, such as the AuthSystem being down, a lost correlation
+        // cookie or a user who refused consent, becomes a 500 and the user lands on the generic /Error
+        // page with nothing useful. Redirecting to our own pages keeps the trace id working, because
+        // UseExceptionHandler and UseStatusCodePages run again with the new path.
         options.Events.OnRemoteFailure = OnRemoteFailureAsync;
         options.Events.OnAccessDenied = OnAccessDeniedAsync;
     }

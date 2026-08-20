@@ -8,12 +8,12 @@ using LotroKoniecDev.TranslationSystem.Contracts.Hateoas;
 namespace LotroKoniecDev.Frontend.Components.Pages.GameVersions;
 
 /// <summary>
-/// Drives the game-versions page's TMS calls through the typed client (#209). The list is the one entry
-/// point, resolved from the service document's <c>game-versions</c> rel (#610); everything past it is
-/// link-driven — the collection envelope's <c>register</c> rel and each item's <c>delete</c> rel are
-/// both the affordance gate and the URI to call (#158), so the server alone decides who may do what and
-/// where. Kept as a thin injectable seam so the page's data flow is unit-testable end-to-end over a
-/// stubbed HTTP handler and so a bUnit render test can drive the page through a substituted loader.
+/// Makes the game-versions page's calls to the TMS through the typed client (#209). The list is the only
+/// entry point and comes from the service document's <c>game-versions</c> rel (#610). Everything after
+/// that follows links: the collection's <c>register</c> rel and each item's <c>delete</c> rel are both
+/// the permission and the URL to call (#158), so the server alone decides who may do what and where.
+/// It stays a thin injectable class, so the page's data flow can be unit-tested end to end against a
+/// stubbed HTTP handler and a bUnit render test can drive the page through a substituted loader.
 /// </summary>
 internal sealed class GameVersionsLoader
 {
@@ -27,9 +27,9 @@ internal sealed class GameVersionsLoader
     }
 
     /// <summary>
-    /// Lists every known version as the HATEOAS collection envelope, <b>keeping its <c>Links</c></b> so
-    /// the page can gate — and address — the admin <c>register</c> / per-item <c>delete</c> actions from
-    /// the server-advertised rels rather than recomputing the role locally.
+    /// Lists every known version and <b>keeps the <c>Links</c></b> the API sent, so the page can decide
+    /// whether to show the admin <c>register</c> and per-item <c>delete</c> actions, and where to send
+    /// them, from those links instead of working the role out itself.
     /// </summary>
     public async Task<ApiResult<CollectionResponse<GameVersionResponse>>> ListGameVersionsAsync(
         CancellationToken cancellationToken = default)
@@ -48,9 +48,9 @@ internal sealed class GameVersionsLoader
     }
 
     /// <summary>
-    /// Registers a version manually (#107) by POSTing to the collection's <c>register</c> link.
-    /// <paramref name="registerHref"/> is the server-advertised URI — emitted admin-only, never a
-    /// FE-constructed path.
+    /// Registers a version by hand (#107) with a POST to the collection's <c>register</c> link.
+    /// <paramref name="registerHref"/> is the URI the server sent, which it only sends to an admin, and
+    /// never a path built here.
     /// </summary>
     public Task<ApiResult<GameVersionResponse>> RegisterGameVersionAsync(
         string registerHref,
@@ -66,9 +66,9 @@ internal sealed class GameVersionsLoader
     }
 
     /// <summary>
-    /// Deletes a mistaken entry by following its own <c>delete</c> link.
-    /// <paramref name="deleteHref"/> is the server-advertised URI — present only for an admin on a row
-    /// no import has landed against (#624), which is the whole gate.
+    /// Deletes an entry added by mistake by following its own <c>delete</c> link.
+    /// <paramref name="deleteHref"/> is the URI the server sent, and it is only there for an admin on a
+    /// row no import has run against (#624). That is the whole permission check.
     /// </summary>
     public Task<ApiResult> DeleteGameVersionAsync(
         string deleteHref,

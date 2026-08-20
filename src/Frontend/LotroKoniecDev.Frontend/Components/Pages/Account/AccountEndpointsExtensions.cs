@@ -14,16 +14,18 @@ namespace LotroKoniecDev.Frontend.Components.Pages.Account;
 
 /// <summary>
 /// Maps the GDPR data-export download route (LEGAL-02). The account page links here so the export
-/// lands as a JSON <em>file</em> in the browser — a Blazor SSR page cannot return a file result, so
-/// this server route fetches the export envelope through the same loader seam the page uses and
-/// re-serves it with a <c>Content-Disposition</c> attachment header. Authorized like the upstream
-/// auth endpoint; the bearer of the caller's session flows through the typed clients. The route
-/// composes the full Art. 15 document (ADR-0032): the auth leg plus the TMS contribution leg —
-/// a TMS failure degrades the file (<c>isComplete: false</c>) instead of failing the download.
+/// arrives in the browser as a JSON file. A Blazor SSR page cannot return a file, so this server route
+/// fetches the export through the same loader the page uses and sends it again with a
+/// <c>Content-Disposition</c> attachment header.
+/// It is authorized like the auth endpoint behind it, and the caller's session token travels through
+/// the typed clients.
+/// The route builds the full Art. 15 document (ADR-0032): the auth part plus the TMS contribution part.
+/// A TMS failure only makes the file incomplete (<c>isComplete: false</c>) and does not fail the
+/// download.
 /// </summary>
 internal static class AccountEndpointsExtensions
 {
-    /// <summary>The download URL — linked from the account page's export action.</summary>
+    /// <summary>The download URL the account page's export button links to.</summary>
     internal const string ExportDownloadPath = "/account/export";
 
     private static readonly JsonSerializerOptions ExportSerializerOptions = new()
@@ -45,10 +47,10 @@ internal static class AccountEndpointsExtensions
     }
 
     /// <summary>
-    /// The download route's request delegate, exposed internally so it can be unit-tested without a
-    /// web host: it returns a file result with the indented camelCase JSON dump on success, or a
-    /// problem result (the upstream's, or a 502 fallback) on failure. Only the auth leg can fail the
-    /// download; the TMS leg degrades to <c>translationData: null</c> + <c>isComplete: false</c>.
+    /// The route's handler, internal so a unit test can call it without a web host. On success it
+    /// returns a file with the indented camelCase JSON, and on failure a problem result, either the one
+    /// from the API or a 502 of our own. Only the auth part can fail the download; when the TMS part
+    /// fails, the file simply has <c>translationData: null</c> and <c>isComplete: false</c>.
     /// </summary>
     internal static async Task<IResult> DownloadAccountExportAsync(
         AccountLoader loader,
@@ -70,11 +72,12 @@ internal static class AccountEndpointsExtensions
 
         TranslatorDataExportResponse? translationData = null;
 
-        // The TMS leg is addressed by the 'contribution-data-export' rel (#610). An unresolvable
-        // rel degrades exactly like a failed call does — it never falls back to a guessed path,
-        // and it never fails the download (ADR-0032). A 200 whose body does not parse, or is
-        // empty, is a failed call too — the HTTP seam owns that degradation (#638, #653) — so a
-        // success here always carries a value, and every other outcome leaves translationData null.
+        // The TMS part is found through the 'contribution-data-export' rel (#610). A rel we cannot
+        // resolve is treated exactly like a failed call: we never guess a path, and it never fails the
+        // download (ADR-0032).
+        // A 200 whose body is empty or does not parse counts as a failed call too, and the HTTP layer
+        // decides that (#638, #653). So a success here always carries a value, and anything else leaves
+        // translationData null.
         ApiResult<string> contributionHref = await discoveryCache.ResolveTranslationSystemHrefAsync(
             Rels.ContributionDataExport,
             cancellationToken);

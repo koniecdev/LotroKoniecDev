@@ -34,9 +34,9 @@
     {
         @if (_saveProblem is not null && _draftText is not null)
         {
-            @* Recovery path: the row could not be reloaded AND the save failed in the same request.
-               Surface the error and keep the translator's typed text in a resubmittable form so it is
-               never silently lost (the hidden key fields survived the post). *@
+            @* The recovery path: the row could not be loaded again and the save failed in the same
+               request. Show the error and keep what the translator typed in a form they can send
+               again, so it is never lost without a word. The hidden key fields survived the post. *@
             <div class="error-message" role="alert">
                 <span class="em-ico" aria-hidden="true">
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -107,8 +107,9 @@
             </span>
         </div>
 
-        @* A success flag lingers in the URL from its redirect; suppress the stale flash when the OTHER
-           action just failed on this render, so a fresh error is never sat next to a stale confirmation. *@
+        @* A success flag stays in the URL after its redirect. Hide that old message when the other
+           action has just failed on this render, so a new error never sits next to an old
+           confirmation. *@
         @if (_saveProblem is not null)
         {
             <div class="status-message status-error" role="alert">

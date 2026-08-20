@@ -176,8 +176,8 @@
                                 @if (canBulkApprove)
                                 {
                                     <td class="col-check">
-                                        @* A checkbox appears only on a row the server marks approvable — the same
-                                           `approve` rel that gates the editor's per-row Zatwierdź. *@
+                                        @* A checkbox appears only on a row the server says can be approved, from the
+                                           same `approve` rel the editor's Zatwierdź button uses. *@
                                         @if (item.Links.HasLink(Rels.Approve))
                                         {
                                             <input type="checkbox" name="SelectedRows[@item.Id.Value]" value="true"
@@ -234,19 +234,19 @@
             }
         }
 
-        @* The pager controls' availability is driven by the server's pagination link rels (#158); the
-           user-facing /translations?... URLs stay FE-built via ToPageRelativeUri so they remain clean.
+        @* Which pager buttons appear comes from the server's pagination links (#158). The URLs the user
+           sees, /translations?..., are still built here through ToPageRelativeUri so they stay short.
 
-           It sits OUTSIDE the empty-state branch on purpose (#634). An over-range page (?page=99 of 3)
-           is empty yet still carries first-page/last-page — the API emits those absolute jumps
-           precisely so an overshooting caller has a way back (#545) — and rendering the empty state
-           without a pager left the user with no control at all, only the URL bar. A genuine
-           no-matches page carries no pagination rel whatsoever, so it stays pager-less on the same
-           rule; nothing here recomputes availability from Page/TotalPages.
+           The pager sits outside the empty-state branch on purpose (#634). A page number that is too
+           high, such as ?page=99 of 3, returns no rows but still carries first-page and last-page. The
+           API sends those two exactly so a caller who went too far has a way back (#545), and showing
+           the empty state without a pager left the user with nothing but the URL bar.
+           A page that really has no matches carries no pagination link at all, so it has no pager for
+           the same reason. Nothing here works the buttons out from Page and TotalPages.
 
-           The gate names all four rels rather than previous||next: those two happen to accompany the
-           boundary rels in every reachable state today, but that is a coupling across two codebases,
-           not a rule anything enforces. *@
+           The check names all four rels instead of previous or next. Those two happen to come with the
+           first and last links in every state we can reach today, but that is an assumption about
+           another codebase and not a rule anything enforces. *@
         @if (pageData.Links.HasLink(Rels.FirstPage)
              || pageData.Links.HasLink(Rels.PreviousPage)
              || pageData.Links.HasLink(Rels.NextPage)

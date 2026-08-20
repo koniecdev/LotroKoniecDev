@@ -10,13 +10,13 @@ internal static class DataProtectionDependencyInjectionExtensions
     extension(IServiceCollection services)
     {
         /// <summary>
-        /// Configures ASP.NET Core Data Protection: a stable application name in every environment (so a
-        /// key minted by one instance/path is readable by another), and filesystem key persistence only
-        /// when a keyring path is configured. In Development the path is left empty and the framework
-        /// default location is used (it already persists on the host). The keyring path is read straight
-        /// from configuration at registration time — Data Protection is set up before the DI container is
-        /// built, so there is no validated options instance to resolve yet, and binding
-        /// <see cref="IServiceProvider"/> here would trip ASP0000.
+        /// Sets up ASP.NET Core Data Protection: the same application name in every environment, so a key
+        /// one instance created can be read by another, and keys written to disk only when a keyring path
+        /// is configured. In Development the path stays empty and the framework's default location is
+        /// used, which already survives a restart.
+        /// The path is read straight from configuration here, because Data Protection is set up before the
+        /// DI container exists: there is no validated options object yet, and resolving
+        /// <see cref="IServiceProvider"/> at this point would trigger ASP0000.
         /// </summary>
         public IServiceCollection AddFrontendDataProtection(IConfiguration configuration, IHostEnvironment environment)
         {
@@ -24,9 +24,10 @@ internal static class DataProtectionDependencyInjectionExtensions
                 .GetSection(DataProtectionSettings.ConfigurationSection)
                 .Get<DataProtectionSettings>() ?? new DataProtectionSettings();
 
-            // Loud over silent: an ephemeral keyring outside Development is never intended — it silently
-            // invalidates every auth cookie / antiforgery token / OIDC correlation cookie on each deploy
-            // and makes multi-replica impossible. Fail fast at startup rather than degrade in prod.
+            // Better to fail loudly than to fail quietly. A keyring that lives only in one process is
+            // never what anyone wants outside Development: it invalidates every auth cookie, antiforgery
+            // token and OIDC correlation cookie on each deploy, without a word, and makes more than one
+            // replica impossible. Stop at startup instead of running badly in production.
             if (!environment.IsDevelopment() && string.IsNullOrWhiteSpace(settings.KeyRingPath))
             {
                 throw new InvalidOperationException(

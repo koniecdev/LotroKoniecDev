@@ -3,9 +3,9 @@ using FluentValidation;
 namespace LotroKoniecDev.Frontend.Settings;
 
 /// <summary>
-/// Fail-fast startup validation of the TMS API base address the Frontend calls (ADR-0008 §3, M6-05).
-/// Required in every environment; the message names the full configuration key so a missing value
-/// aborts boot rather than failing the first API call at runtime.
+/// Checks the TMS API base address the Frontend calls, and stops the boot when it is missing (ADR-0008
+/// §3, M6-05). Every environment needs it. The message names the full configuration key, so a missing
+/// value fails the boot instead of failing the first API call later.
 /// </summary>
 internal sealed class TranslationSystemSettingsValidator : AbstractValidator<TranslationSystemSettings>
 {

@@ -1,10 +1,10 @@
 namespace LotroKoniecDev.Frontend.Settings;
 
 /// <summary>
-/// Binds the OpenID Connect relying-party configuration the Frontend uses to authenticate
-/// translators against the self-hosted AuthSystem (OpenIddict). <see cref="BaseUrl"/> is the
-/// token endpoint host used by <c>CookieTokenRefresher</c>; <see cref="Authority"/> is the OIDC
-/// metadata/discovery host stamped into tokens.
+/// The OpenID Connect settings the Frontend uses to log translators in against our own AuthSystem
+/// (OpenIddict). <see cref="BaseUrl"/> is the host of the token endpoint that
+/// <c>CookieTokenRefresher</c> calls. <see cref="Authority"/> is the host the OIDC metadata comes from
+/// and the value written into the tokens.
 /// </summary>
 internal sealed class AuthSystemSettings
 {

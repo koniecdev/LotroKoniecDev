@@ -45,8 +45,9 @@
         </div>
     </section>
 
-    @* A failed game-versions fetch hides the import panel (its admin-only `register` rel can't be read),
-       so surface the error here — outside the gate — to give an admin feedback rather than silence (#158). *@
+    @* When the game-versions call fails, the import panel is hidden, because its admin-only `register`
+       rel cannot be read. So the error is shown here, outside that check, to tell an admin what happened
+       instead of showing nothing (#158). *@
     @if (_versionsProblem is not null)
     {
         <div class="error-message" role="alert">
@@ -80,8 +81,8 @@
 
                 @if (_importProblem is not null)
                 {
-                    @* A div, not a p: the alert may render a <details> block, which a paragraph
-                       cannot legally contain. *@
+                    @* A div and not a p: the alert can render a <details> block, and a paragraph
+                       may not contain one. *@
                     <div class="status-line status-line-block status-down" role="alert">
                         <span class="dot"></span>
                         <div class="status-line-body">
@@ -111,9 +112,9 @@
                 }
                 else if (_importableVersions is { Count: 0 })
                 {
-                    @* Versions exist, but the server advertises `import` on none of them — every one is
-                       Superseded. Say so here instead of offering a selector whose every option would be
-                       refused on submit (#610). *@
+                    @* There are versions, but the server offers `import` on none of them, because they are
+                       all superseded. Say so here instead of showing a selector where every option would
+                       be refused on submit (#610). *@
                     <div class="empty">
                         <h2>Brak wersji do importu</h2>
                         <p>Żadna z zarejestrowanych wersji gry nie przyjmuje już importu. Zarejestruj nowszą wersję.</p>
@@ -121,9 +122,10 @@
                 }
                 else if (_versions is not null)
                 {
-                    @* EditForm in static SSR emits the antiforgery token itself; a manual <AntiforgeryToken/>
-                       here would render __RequestVerificationToken twice and the middleware reads the
-                       comma-joined pair as an invalid token. Plain <form> posts (Editor/NavMenu) still need it. *@
+                    @* In static SSR, EditForm adds the antiforgery token itself. A manual
+                       <AntiforgeryToken/> here would write __RequestVerificationToken twice, and the
+                       middleware reads the two joined by a comma as an invalid token. A plain <form>
+                       post, as in Editor and NavMenu, still needs one. *@
                     <EditForm Model="ImportInput" OnValidSubmit="ImportAsync"
                               FormName="import-export" method="post" enctype="multipart/form-data">
                         <div class="form-row">

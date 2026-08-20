@@ -7,15 +7,15 @@ namespace LotroKoniecDev.Frontend.Infrastructure.Discovery;
 internal interface IDiscoveryCache
 {
     /// <summary>
-    /// Returns the TMS HATEOAS discovery root, cached per auth state for a day. Pages resolve their
-    /// API links from it instead of hardcoding routes.
+    /// Returns the TMS discovery root, cached for a day per login state. Pages take their API links from
+    /// it instead of holding routes in code.
     /// </summary>
     Task<ApiResult<TranslationDiscoveryResponse>> GetTranslationSystemDiscoveryAsync(
         CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Returns the auth server's HATEOAS discovery root, cached per auth state for a day. The
-    /// account pages resolve <c>export-account-data</c> from it instead of hardcoding routes.
+    /// Returns the auth server's discovery root, cached for a day per login state. The account pages take
+    /// <c>export-account-data</c> from it instead of holding routes in code.
     /// </summary>
     Task<ApiResult<AuthDiscoveryResponse>> GetAuthSystemDiscoveryAsync(
         CancellationToken cancellationToken = default);

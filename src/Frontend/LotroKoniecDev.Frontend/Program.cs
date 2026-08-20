@@ -20,14 +20,14 @@ using OpenTelemetry.Trace;
 using Serilog;
 using Serilog.Sinks.OpenTelemetry;
 
-// Deliberately NOT CreateBootstrapLogger(): the reloadable bootstrap logger lives in the shared
-// static Log.Logger slot, and AddSerilog freezes it on the host's first logger resolution. Any
-// test run that boots a second host from this Program (a WithWebHostBuilder child, a second
-// class fixture) lets one host freeze the bootstrap logger another host just installed — the
-// second freeze then dies with "The logger is already frozen". A plain console logger keeps
-// startup logging (and the catch/finally below) working while AddSerilog builds each host its
-// own fully-configured pipeline; in production nothing changes — the single host's final logger
-// still replaces this one.
+// Not CreateBootstrapLogger(), on purpose. That logger lives in the shared static Log.Logger slot, and
+// AddSerilog freezes it the first time a host resolves a logger. Any test run that starts a second host
+// from this Program, such as a WithWebHostBuilder child or a second class fixture, lets one host freeze
+// the bootstrap logger another host has just installed, and the second freeze fails with "The logger is
+// already frozen".
+// A plain console logger keeps startup logging, and the catch and finally below, working while
+// AddSerilog builds each host its own pipeline. Nothing changes in production: the single host's final
+// logger still replaces this one.
 Log.Logger = new LoggerConfiguration()
     .WriteTo.Console(formatProvider: CultureInfo.InvariantCulture)
     .CreateLogger();
@@ -38,11 +38,12 @@ try
 
     WebApplicationBuilder builder = WebApplication.CreateBuilder(args);
 
-    // DI validation in EVERY environment, not just Development (#572): a captive dependency or an
-    // unresolvable constructor that only manifests under Production config fails the container at
-    // startup — where CD smokes the 0%-traffic candidate — instead of surfacing as a 500 on first
-    // hit. Registered-services-only: a forgotten closed handler registration is still resolved at
-    // request time, so endpoint integration tests remain the guard for that.
+    // DI validation runs in every environment, not only in Development (#572). A captive dependency or
+    // a constructor that cannot be resolved, even one that only appears under production config, then
+    // fails at startup, where CD smoke-tests the candidate before it takes traffic, instead of turning
+    // into a 500 on the first request.
+    // It only checks registered services. A forgotten closed handler registration is still resolved at
+    // request time, so endpoint integration tests stay the guard for that.
     builder.Host.UseDefaultServiceProvider(static (_, options) =>
     {
         options.ValidateScopes = true;
@@ -86,27 +87,27 @@ try
             .AddAspNetCoreInstrumentation()
             .AddRuntimeInstrumentation());
 
-    // Wire the OTLP exporter only when an endpoint is configured; otherwise the SDK keeps retrying
-    // against the default localhost:4317 collector, which does not exist in the cloud runtime.
+    // Add the OTLP exporter only when an endpoint is configured. Otherwise the SDK keeps retrying
+    // against the default localhost:4317 collector, which does not exist in the cloud.
     if (!string.IsNullOrWhiteSpace(otlpEndpoint))
     {
         openTelemetryBuilder.UseOtlpExporter();
     }
 
-    // Behind the reverse proxy TLS terminates at the proxy and the container receives plain HTTP
-    // with X-Forwarded-* headers. Honour them so Request.Scheme is https, which keeps the OIDC
-    // redirect_uri, antiforgery/Secure cookies, and UseHttpsRedirection correct.
+    // Behind the reverse proxy, TLS ends at the proxy and the container gets plain HTTP with
+    // X-Forwarded-* headers. We read them so Request.Scheme is https, which keeps the OIDC redirect_uri,
+    // the antiforgery and Secure cookies and UseHttpsRedirection correct.
     //
-    // Trust policy (#399): ForwardedHeaders:KnownNetworks restricts trust to the proxy's CIDR, and
-    // every deployed stack pins it — compose.hetzner.yaml (the Hetzner boxes) and compose.prod.yaml
-    // (the local parity stack) both set the Caddy network. An empty list trusts EVERY upstream; that
-    // fallback is safe only under the recorded invariant that the container port is never published
-    // directly (both stacks use expose:, not ports: — Caddy is the sole route), and since the move
-    // off ACA (ADR-0034) no environment relies on it.
-    // ForwardLimit = 1 is explicit either way: exactly one proxy hop sets these headers, so only
-    // the right-most X-Forwarded-* entry (the ingress-observed client) is ever applied. A malformed
-    // CIDR — or a knob that is set yet yields no entries (e.g. a scalar value missing the __0
-    // index) — aborts boot here (fail-fast, ADR-0008 §3 spirit), never silently widens trust.
+    // Who we trust (#399): ForwardedHeaders:KnownNetworks limits trust to the proxy's network, and
+    // every deployed stack sets it. compose.hetzner.yaml for the Hetzner boxes and compose.prod.yaml
+    // for the local parity stack both point at the Caddy network. An empty list would trust every
+    // upstream. That is only safe because the container port is never published directly: both stacks
+    // use expose: and not ports:, so Caddy is the only way in. Since the move off ACA (ADR-0034) no
+    // environment relies on that fallback.
+    // ForwardLimit = 1 is written out either way: exactly one proxy sets these headers, so only the
+    // right-most X-Forwarded-* entry, the client the ingress saw, is used. A malformed network, or a
+    // setting that exists but produces no entries, for example a scalar value missing the __0 index,
+    // stops the boot here instead of quietly trusting more (ADR-0008 §3).
     IConfigurationSection trustedProxyNetworksSection =
         builder.Configuration.GetSection("ForwardedHeaders:KnownNetworks");
     System.Net.IPNetwork[] trustedProxyNetworks = (trustedProxyNetworksSection.Get<string[]>() ?? [])
@@ -133,9 +134,9 @@ try
         }
     });
 
-    // HSTS hardening (audit #0001 / M7): a one-year max-age covering subdomains and flagged for the
-    // preload list. Only emitted by UseHsts() outside Development (the deployed stack is HTTPS-only
-    // behind the ingress); the dev host loop never sends it, so localhost HTTP is unaffected.
+    // HSTS settings (audit #0001, M7): a max-age of one year, covering subdomains and marked for the
+    // preload list. UseHsts() only sends it outside Development, where the deployed stack is HTTPS only
+    // behind the ingress. The local dev loop never sends it, so localhost over HTTP still works.
     builder.Services.AddHsts(options =>
     {
         options.MaxAge = TimeSpan.FromDays(365);
@@ -143,10 +144,10 @@ try
         options.Preload = true;
     });
 
-    // The Blazor SSR import form (admin-only) uploads exported.txt, which is ~80 MB and grows — far
-    // past Kestrel's 30 MB default body cap and the framework's multipart form-length limit. Lift both
-    // to the shared upload ceiling so the whole file posts to this host in one request, then streams on
-    // to the TMS API (spec 0003, #208).
+    // The admin-only import form uploads exported.txt, which is about 80 MB and keeps growing, far past
+    // Kestrel's 30 MB default body limit and the framework's multipart form limit. Both are raised to
+    // the shared upload size, so the whole file reaches this host in one request and is then sent on to
+    // the TMS API (spec 0003, #208).
     builder.WebHost.ConfigureKestrel(kestrelOptions =>
         kestrelOptions.Limits.MaxRequestBodySize = ImportUploadLimits.MaxUploadBytes);
     builder.Services.Configure<FormOptions>(formOptions =>
@@ -154,8 +155,8 @@ try
 
     builder.Services.AddRazorComponents();
 
-    // Liveness/readiness endpoints for the cloud ingress probes (ACA). The Frontend has no backing
-    // store, so an empty check set is enough — they report healthy once the host is serving requests.
+    // The liveness and readiness endpoints the ingress probes. The Frontend has no database, so an empty
+    // set of checks is enough: they report healthy as soon as the host is serving requests.
     builder.Services.AddHealthChecks();
 
     builder.Services
@@ -165,27 +166,28 @@ try
 
     builder.Services.AddHttpContextAccessor();
 
-    // Configured before the host is built and read straight from configuration: the keyring must be
-    // persistent + the application name pinned so cookies/antiforgery/OIDC correlation survive restarts
-    // and are shared across replicas.
+    // Set up before the host is built, straight from configuration. The keyring has to be kept and the
+    // application name has to stay the same, so the cookies, the antiforgery tokens and the OIDC
+    // correlation survive a restart and work across replicas.
     builder.Services.AddFrontendDataProtection(builder.Configuration, builder.Environment);
 
     builder.Services.AddFrontend();
 
     WebApplication app = builder.Build();
 
-    // Must run before anything that reads the request scheme/host (logging, HSTS, redirect, OIDC
-    // correlation). Skipped in Development so the host-run dev workflow keeps its plain behaviour
-    // unchanged; active in Testing + Production where a TLS-terminating proxy sets X-Forwarded-Proto.
-    // With the proto honoured first, UseHttpsRedirection below is a no-op (the scheme already reads
-    // https) — there is no redirect loop.
+    // This has to run before anything that reads the request scheme or host: logging, HSTS, the redirect
+    // and the OIDC correlation. It is skipped in Development so the local dev loop keeps working as it
+    // is, and it is on in Testing and Production, where a proxy terminates TLS and sets
+    // X-Forwarded-Proto. Because the scheme is read first, UseHttpsRedirection below does nothing and
+    // there is no redirect loop.
     if (!app.Environment.IsDevelopment())
     {
         app.UseForwardedHeaders();
     }
 
-    // Redact the request log (audit #0001 / M5): keep RequestPath query-free and log the query
-    // separately with secrets stripped and e-mails masked, so no OAuth code/token or PII is persisted.
+    // Clean the request log (audit #0001, M5): keep the query string out of RequestPath and log it
+    // separately with secrets removed and e-mails masked, so no OAuth code, token or personal data is
+    // stored.
     app.UseSerilogRequestLogging(options =>
     {
         options.IncludeQueryInRequestPath = false;
@@ -248,7 +250,7 @@ finally
 }
 
 /// <summary>
-/// Exposed so the integration test host (<c>WebApplicationFactory</c>) can reference the Frontend's
+/// Public so the integration test host (<c>WebApplicationFactory</c>) can reference the Frontend's
 /// entry-point assembly.
 /// </summary>
 public partial class Program;

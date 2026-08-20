@@ -5,10 +5,10 @@ internal sealed class SessionExpiryNotice : ISessionExpiryNotice
     internal const string CookieName = ".lotrokoniecdev.session-expired";
     private const string CookieValue = "1";
 
-    // Deliberately tiny: the cookie only needs to survive the redirect that follows the forced
-    // sign-out until the next render reads it. If the consuming Delete cannot be written (the SSR
-    // response already started streaming), the short max-age guarantees the banner self-clears
-    // within seconds instead of lingering across navigation.
+    // Very short on purpose. The cookie only has to survive the redirect after a forced sign-out until
+    // the next render reads it. If the delete that clears it cannot be written, because the SSR response
+    // has already started, the short max-age makes the banner disappear within seconds instead of
+    // following the user from page to page.
     private static readonly TimeSpan CookieLifetime = TimeSpan.FromSeconds(30);
 
     private readonly IHttpContextAccessor _httpContextAccessor;
@@ -51,11 +51,11 @@ internal sealed class SessionExpiryNotice : ISessionExpiryNotice
         return true;
     }
 
-    // Path "/" mirrors the auth + antiforgery cookies so the post-redirect read on any path finds it.
-    // HttpOnly because no client JS reads it. Secure mirrors the request scheme: set on HTTPS (the dev
-    // https profile, prod behind the proxy via forwarded headers) and omitted on the plain-http dev
-    // profile so the marker still round-trips there — it carries no sensitive value, only a one-shot
-    // "show the banner" flag.
+    // Path "/" like the auth and antiforgery cookies, so the read after the redirect finds it on any
+    // path. HttpOnly because no script reads it. Secure follows the request scheme: it is set over HTTPS,
+    // in the dev https profile and in production behind the proxy through the forwarded headers, and left
+    // out on the plain-http dev profile so the cookie still works there. It carries nothing sensitive,
+    // only a one-time "show the banner" flag.
     private static CookieOptions BuildOptions(bool isHttps) => new()
     {
         Path = "/",

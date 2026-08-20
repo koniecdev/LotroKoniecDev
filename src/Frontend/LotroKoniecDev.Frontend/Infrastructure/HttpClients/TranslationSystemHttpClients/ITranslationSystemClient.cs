@@ -3,14 +3,14 @@ using LotroKoniecDev.TranslationSystem.Contracts.Discovery;
 namespace LotroKoniecDev.Frontend.Infrastructure.HttpClients.TranslationSystemHttpClients;
 
 /// <summary>
-/// Typed client over the TMS API (<c>TranslationSystem.API</c>). It owns the base address and the
-/// content-negotiation + bearer-token delegating handler; pages compose relative URIs (preferring
-/// HATEOAS links from <see cref="GetDiscoveryAsync"/>) and call through the verb helpers.
+/// The typed client for the TMS API (<c>TranslationSystem.API</c>). It holds the base address and the
+/// handler that negotiates the content type and adds the token. Pages pass relative URIs, taken where
+/// possible from the links in <see cref="GetDiscoveryAsync"/>, and call the verb helpers.
 /// </summary>
 internal interface ITranslationSystemClient
 {
     /// <summary>
-    /// Fetches the HATEOAS discovery root (<c>GET /</c>) — the entry point pages use to resolve links.
+    /// Fetches the discovery root (<c>GET /</c>), where pages look up their links.
     /// </summary>
     Task<ApiResult<DiscoveryResponse>> GetDiscoveryAsync(CancellationToken cancellationToken = default);
 
@@ -19,8 +19,8 @@ internal interface ITranslationSystemClient
         CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Fetches an endpoint that returns a raw <c>text/plain</c> body (the pre-built translation file)
-    /// rather than JSON, so the caller can stream it to the browser as a download.
+    /// Fetches an endpoint that returns plain text instead of JSON, which is the ready-made translation
+    /// file, so the caller can pass it to the browser as a download.
     /// </summary>
     Task<ApiResult<string>> GetTextAsync(
         string relativeUri,

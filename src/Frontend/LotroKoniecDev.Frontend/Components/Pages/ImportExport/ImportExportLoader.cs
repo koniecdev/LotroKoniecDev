@@ -11,25 +11,26 @@ using Microsoft.AspNetCore.WebUtilities;
 namespace LotroKoniecDev.Frontend.Components.Pages.ImportExport;
 
 /// <summary>
-/// Drives the import/export page's TMS calls through the typed client (M3-07). Two entry points come
-/// from the service document (#610): the <c>game-versions</c> rel to pick the import target (#103) and
-/// the <c>translation-file</c> rel for the pre-built <c>polish.txt</c> artifact (#102, anonymous). The
-/// import itself (#97) is keyed by the version it lands against, so it follows the <c>import</c> rel the
-/// chosen version advertises — emitted admin-only, and never for a superseded version. Kept as a thin
-/// injectable seam so the page's data flow is unit-testable end-to-end over a stubbed HTTP handler and
-/// so a bUnit render test can drive the page through a substituted loader.
+/// Makes the import/export page's calls to the TMS through the typed client (M3-07). Two entry points
+/// come from the service document (#610): the <c>game-versions</c> rel to choose where an import goes
+/// (#103), and the <c>translation-file</c> rel for the ready-made <c>polish.txt</c> (#102, open to
+/// anyone).
+/// The import itself (#97) is tied to the version it goes into, so it follows the <c>import</c> rel that
+/// version offers, which the API sends only to an admin and never for a superseded version.
+/// It stays a thin injectable class, so the page's data flow can be unit-tested end to end against a
+/// stubbed HTTP handler and a bUnit render test can drive the page through a substituted loader.
 /// </summary>
 internal sealed class ImportExportLoader
 {
     private const string FileFieldName = "file";
 
-    /// <summary>The caller's per-upload override; the server cannot know it when it emits the link.</summary>
+    /// <summary>The caller's choice for this one upload. The server cannot know it when it builds the link.</summary>
     private const string AllowMassRemovalParameter = "allowMassRemoval";
 
-    /// <summary>The export is the <c>||</c>-format plain-text file (mirrors the API's <c>IFormFile</c> import part).</summary>
+    /// <summary>The export is the plain-text <c>||</c> file, the same shape the API's import part expects.</summary>
     private const string UploadContentType = "text/plain";
 
-    /// <summary>The downloaded artifact's filename, as the patcher's <c>patch</c> command expects it.</summary>
+    /// <summary>The name of the downloaded file, as the patcher's <c>patch</c> command expects it.</summary>
     public const string DownloadFileName = "polish.txt";
 
     private readonly IDiscoveryCache _discoveryCache;
@@ -42,10 +43,10 @@ internal sealed class ImportExportLoader
     }
 
     /// <summary>
-    /// Lists the game versions as the HATEOAS collection envelope (M2-25), <b>keeping its
-    /// <c>Links</c></b> (#158): the page reads the collection-level <c>register</c> rel — emitted
-    /// admin-only by the API — to gate the import panel, and each item's <c>import</c> rel to address
-    /// the upload, instead of recomputing the role locally.
+    /// Lists the game versions and <b>keeps the <c>Links</c></b> the API sent (M2-25, #158). The page
+    /// uses the collection's <c>register</c> rel, which the API sends only to an admin, to decide whether
+    /// to show the import panel, and each item's <c>import</c> rel as the upload URL, instead of working
+    /// the role out itself.
     /// </summary>
     public async Task<ApiResult<CollectionResponse<GameVersionResponse>>> ListGameVersionsAsync(
         CancellationToken cancellationToken = default)
@@ -64,10 +65,10 @@ internal sealed class ImportExportLoader
     }
 
     /// <summary>
-    /// Uploads an <c>exported.txt</c> against the version whose <c>import</c> link is
-    /// <paramref name="importHref"/> — the server-advertised URI, which already carries the version id.
-    /// Only <c>allowMassRemoval</c> is appended, because it is the caller's choice for this one upload
-    /// and nothing the server could have known when it emitted the link.
+    /// Uploads an <c>exported.txt</c> to the version whose <c>import</c> link is
+    /// <paramref name="importHref"/>. That URI comes from the server and already carries the version id.
+    /// Only <c>allowMassRemoval</c> is added, because it is the caller's choice for this one upload and
+    /// something the server could not have known when it built the link.
     /// </summary>
     public async Task<ApiResult<ImportSummary>> ImportAsync(
         string importHref,

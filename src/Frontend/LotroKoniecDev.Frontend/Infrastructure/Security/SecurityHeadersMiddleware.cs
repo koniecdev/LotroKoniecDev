@@ -4,13 +4,14 @@ using Microsoft.Extensions.Options;
 namespace LotroKoniecDev.Frontend.Infrastructure.Security;
 
 /// <summary>
-/// Stamps the browser-facing security response headers on every response (audit #0001 / M6): a
-/// Content-Security-Policy locked to <c>'self'</c> plus the auth origin,
-/// <c>X-Content-Type-Options: nosniff</c>, <c>Referrer-Policy: no-referrer</c>, and
-/// <c>X-Frame-Options: DENY</c> alongside the CSP <c>frame-ancestors 'none'</c>. The header set is
-/// computed once from configuration and written via <see cref="HttpResponse.OnStarting"/> so it also
-/// reaches re-executed error/status-code responses. Only registered outside Development, mirroring
-/// <c>UseHsts()</c>, so the host-run dev loop (and its hot-reload inline script) stays unchanged.
+/// Adds the security headers the browser needs to every response (audit #0001, M6): a
+/// Content-Security-Policy limited to <c>'self'</c> plus the auth origin,
+/// <c>X-Content-Type-Options: nosniff</c>, <c>Referrer-Policy: no-referrer</c> and
+/// <c>X-Frame-Options: DENY</c> next to the CSP's <c>frame-ancestors 'none'</c>.
+/// The headers are built once from configuration and written through
+/// <see cref="HttpResponse.OnStarting"/>, so they also reach error and status-code pages that run a
+/// second time. It is only registered outside Development, like <c>UseHsts()</c>, so the local dev loop
+/// and its hot-reload script keep working.
 /// </summary>
 internal sealed class SecurityHeadersMiddleware
 {
@@ -49,12 +50,12 @@ internal sealed class SecurityHeadersMiddleware
         };
 
     /// <summary>
-    /// Builds the CSP. <c>script-src</c> stays at <c>'self'</c> (Blazor's <c>blazor.web.js</c> and
-    /// streaming updates are external/markup, never inline script); <c>style-src</c> needs
-    /// <c>'unsafe-inline'</c> for the dynamic inline <c>style</c> width on the dashboard progress
-    /// bar; fonts are self-hosted (LEGAL-06), so <c>font-src</c> stays at <c>'self'</c>; the auth
-    /// origin is admitted for <c>connect-src</c>/<c>form-action</c> so the OIDC login flow is not
-    /// blocked.
+    /// Builds the CSP. <c>script-src</c> stays at <c>'self'</c>, because Blazor's <c>blazor.web.js</c>
+    /// and its streaming updates are separate files or markup and never inline script.
+    /// <c>style-src</c> needs <c>'unsafe-inline'</c> for the inline <c>style</c> width on the dashboard
+    /// progress bar. The fonts are hosted by us (LEGAL-06), so <c>font-src</c> stays at <c>'self'</c>.
+    /// The auth origin is allowed in <c>connect-src</c> and <c>form-action</c>, so the OIDC login flow is
+    /// not blocked.
     /// </summary>
     internal static string BuildContentSecurityPolicy(string authOrigin) => string.Join("; ",
     [
@@ -71,8 +72,8 @@ internal sealed class SecurityHeadersMiddleware
     ]);
 
     /// <summary>
-    /// Reduces a configured authority URL to its bare origin (scheme + host + non-default port), which
-    /// is the form a CSP source expression accepts — no path, no trailing slash.
+    /// Cuts a configured authority URL down to its origin, the scheme, host and non-default port. That is
+    /// the form a CSP source accepts: no path and no trailing slash.
     /// </summary>
     internal static string AuthOrigin(string authority) =>
         new Uri(authority).GetLeftPart(UriPartial.Authority);

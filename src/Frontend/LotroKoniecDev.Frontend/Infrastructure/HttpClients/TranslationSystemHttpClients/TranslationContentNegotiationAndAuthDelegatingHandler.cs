@@ -7,12 +7,12 @@ using Microsoft.AspNetCore.Authentication;
 namespace LotroKoniecDev.Frontend.Infrastructure.HttpClients.TranslationSystemHttpClients;
 
 /// <summary>
-/// Negotiates the TMS API's opt-in HATEOAS representation (sends
-/// <see cref="MediaTypes.HateoasJson"/> in <c>Accept</c>) and forwards the signed-in translator's
-/// bearer access token. The token only flows once the OIDC session exists; anonymous requests (e.g.
-/// the public <c>GET /health</c> probe) pass through unauthenticated. A <c>401</c> on an
-/// authenticated call marks the session dead so the next <c>OnValidatePrincipal</c> signs it out
-/// cleanly (the reactive backstop to the proactive JWKS check).
+/// Asks the TMS API for the link-carrying representation, by sending
+/// <see cref="MediaTypes.HateoasJson"/> in <c>Accept</c>, and passes on the logged-in translator's
+/// access token. The token is only added once an OIDC session exists; anonymous requests, such as the
+/// public <c>GET /health</c> probe, go through without one.
+/// A <c>401</c> on a logged-in call marks the session dead, so the next <c>OnValidatePrincipal</c> signs
+/// it out cleanly. That is the fallback behind the signature check we do ourselves.
 /// </summary>
 internal sealed class TranslationContentNegotiationAndAuthDelegatingHandler : DelegatingHandler
 {
@@ -49,11 +49,12 @@ internal sealed class TranslationContentNegotiationAndAuthDelegatingHandler : De
 
         HttpResponseMessage response = await base.SendAsync(request, cancellationToken);
 
-        // Reactive backstop: the bearer token authenticated locally but was rejected upstream
-        // (typically the stale-JWKS window). Mark the session dead so the next OnValidatePrincipal
-        // signs it out cleanly — we cannot SignOutAsync here because the SSR response may already be
-        // streaming. The proactive JWKS check is the primary path; this only catches the gap before the
-        // FE refetches the rotated keys.
+        // The fallback path: the token was accepted here but refused by the API, usually in the window
+        // where our copy of the signing keys is out of date. Mark the session dead, so the next
+        // OnValidatePrincipal signs it out cleanly. We cannot call SignOutAsync here, because the SSR
+        // response may already be streaming.
+        // The signature check we do ourselves is the main path; this only covers the gap before the
+        // frontend fetches the new keys.
         if (response.StatusCode == HttpStatusCode.Unauthorized)
         {
             await MarkSessionDeadAsync(httpContext, cancellationToken);

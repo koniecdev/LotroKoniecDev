@@ -56,7 +56,8 @@
         </div>
     }
 
-    @* The register affordance is the collection's admin-only `register` rel (#158) — not a local role check. *@
+    @* Whether to show "register" comes from the collection's admin-only `register` rel (#158) and not
+       from a role check here. *@
     @if (_registerHref is not null)
     {
         <section class="panel">
@@ -129,9 +130,9 @@
                                 </span>
                             </td>
                             <td class="col-actions">
-                                @* The `delete` rel is emitted only for an admin on a version no import has
-                                   landed against (#158, #624), and it carries the URI to call — the page
-                                   never composes one (#610). *@
+                                @* The `delete` rel is sent only to an admin, and only for a version no import
+                                   has run against (#158, #624). It carries the URL to call, and the page
+                                   never builds one (#610). *@
                                 @if (version.Links.FindLink(Rels.Delete) is { } deleteLink)
                                 {
                                     <form method="post" @formname="@DeleteFormName(version.Id)"

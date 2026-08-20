@@ -8,11 +8,11 @@ using LotroKoniecDev.TranslationSystem.Contracts.Translations;
 namespace LotroKoniecDev.Frontend.Components.Pages.Translations;
 
 /// <summary>
-/// Fetches a page of translations for the list view through the typed TMS client, given the page's
-/// normalized <see cref="TranslationListQuery"/>. The collection's address comes from the service
-/// document's <c>translations</c> rel (#610) — anonymous, like the page itself. Kept as a thin
-/// injectable seam so the page's search / status-filter / pagination behavior is unit-testable
-/// end-to-end over a stubbed HTTP handler (the Frontend has no bUnit for component-level rendering tests).
+/// Fetches one page of translations for the list through the typed TMS client, from the page's
+/// <see cref="TranslationListQuery"/>. The collection's address comes from the service document's
+/// <c>translations</c> rel (#610), which is open to anyone, like the page itself.
+/// It stays a thin injectable class, so the search, the status filter and the paging can be unit-tested
+/// end to end against a stubbed HTTP handler.
 /// </summary>
 internal sealed class TranslationListLoader
 {
@@ -45,9 +45,9 @@ internal sealed class TranslationListLoader
     }
 
     /// <summary>
-    /// Approves several rows at once (#322) by POSTing the selected ids to the collection
-    /// <c>bulk-approve</c> link. <paramref name="bulkApproveHref"/> is the server-advertised URI —
-    /// present only when the API deems the caller a reviewer — never a FE-constructed path.
+    /// Approves several rows at once (#322) with a POST of the selected ids to the collection's
+    /// <c>bulk-approve</c> link. <paramref name="bulkApproveHref"/> is the URI the server sent, which it
+    /// only sends to a reviewer, and never a path built here.
     /// </summary>
     public Task<ApiResult<BulkApproveTranslationsResponse>> BulkApproveAsync(
         string bulkApproveHref,

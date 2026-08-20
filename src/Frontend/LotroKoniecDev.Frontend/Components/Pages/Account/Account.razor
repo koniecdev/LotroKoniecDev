@@ -173,7 +173,7 @@
                         <span class="chev" aria-hidden="true">›</span>
                     </a>
 
-                    @* Affordances come from the API's HATEOAS links, never from local role checks. *@
+                    @* Which actions to show comes from the API's links, never from a role check here. *@
                     @if (_result.Value.Links.HasLink(Rels.ChangePassword))
                     {
                         <a class="action-row" href="/account/change-password" data-testid="account-change-password">

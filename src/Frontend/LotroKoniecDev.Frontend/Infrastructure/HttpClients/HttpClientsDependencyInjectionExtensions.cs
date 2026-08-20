@@ -22,9 +22,9 @@ public static class HttpClientsDependencyInjectionExtensions
                         .GetRequiredService<IOptions<TranslationSystemSettings>>().Value;
                     client.BaseAddress = new Uri(settings.BaseUrl);
 
-                    // Let the resilience pipeline own the time budget: HttpClient.Timeout is a single cap
-                    // across the whole pipeline (and would otherwise default to 100 s, cutting a large
-                    // upload short), whereas the per-attempt timeout below scales with the request kind.
+                    // The resilience pipeline owns the time limit. HttpClient.Timeout is one limit for the
+                    // whole pipeline and would default to 100 seconds, which would cut a large upload
+                    // short. The per-attempt timeout below is chosen per kind of request instead.
                     client.Timeout = Timeout.InfiniteTimeSpan;
                 })
                 .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler
@@ -76,29 +76,30 @@ public static class HttpClientsDependencyInjectionExtensions
             ShouldHandle = args => ValueTask.FromResult(IsHandledTransientFailure(args.Outcome, args.Context))
         });
 
-        // A normal JSON call keeps the tight default budget, but a multipart upload carries exported.txt
-        // (~80 MB and growing) and then waits on the API's synchronous import — minutes, not seconds. The
-        // body is forward-only so it is already excluded from retries (below); the single attempt simply
-        // needs a wider window than the default, or a healthy upload is aborted mid-flight (spec 0003).
+        // A normal JSON call keeps the short default, but a multipart upload carries exported.txt, about
+        // 80 MB and growing, and then waits for the API's import, which takes minutes and not seconds.
+        // The body can only be read once, so it is already excluded from retries below. The single
+        // attempt simply needs more time than the default, or a healthy upload is cut off halfway
+        // (spec 0003).
         pipeline.AddTimeout(new TimeoutStrategyOptions
         {
             TimeoutGenerator = args => ValueTask.FromResult(ResolveTimeout(args.Context.GetRequestMessage()))
         });
     }
 
-    /// <summary>The per-attempt budget for ordinary (JSON) calls — kept tight so a stalled API fails fast.</summary>
+    /// <summary>The time limit per attempt for ordinary JSON calls. It is short, so a stalled API fails fast.</summary>
     internal static readonly TimeSpan DefaultRequestTimeout = TimeSpan.FromSeconds(10);
 
     /// <summary>
-    /// The per-attempt budget for a multipart upload: it must cover transferring exported.txt (~80 MB)
-    /// plus the API's synchronous import (parse + full diff + save + artifact rebuild), so it is far
-    /// longer than <see cref="DefaultRequestTimeout"/> (spec 0003, #208).
+    /// The time limit per attempt for a multipart upload. It has to cover sending exported.txt, about
+    /// 80 MB, plus the API's import, which parses the file, computes the whole diff, saves it and rebuilds
+    /// the artifact. So it is much longer than <see cref="DefaultRequestTimeout"/> (spec 0003, #208).
     /// </summary>
     internal static readonly TimeSpan UploadRequestTimeout = TimeSpan.FromMinutes(5);
 
     /// <summary>
-    /// Picks the resilience timeout for a request: the wide upload budget when the body is a multipart
-    /// form (the exported.txt upload), otherwise the tight default for ordinary JSON calls.
+    /// Picks the timeout for a request: the long upload one when the body is a multipart form, which is
+    /// the exported.txt upload, and otherwise the short default for ordinary JSON calls.
     /// </summary>
     internal static TimeSpan ResolveTimeout(HttpRequestMessage? request) =>
         request?.Content is MultipartFormDataContent
@@ -106,10 +107,10 @@ public static class HttpClientsDependencyInjectionExtensions
             : DefaultRequestTimeout;
 
     /// <summary>
-    /// Multipart uploads are excluded: their body stream is forward-only and cannot be replayed, so a
-    /// retry would re-send an exhausted stream, and a rejected oversized upload (413 surfacing as a
-    /// broken-pipe write error) is not transient. Replaying it only multiplies the load and stalls the
-    /// request through every attempt and timeout.
+    /// Multipart uploads are left out. Their body can only be read once, so a retry would send an
+    /// already-consumed stream, and an upload refused for being too large, which shows up as a broken
+    /// pipe rather than a 413, will not succeed on a second try either. Retrying it only multiplies the
+    /// load and keeps the request waiting through every attempt and timeout.
     /// </summary>
     private static bool IsHandledTransientFailure(Outcome<HttpResponseMessage> outcome, ResilienceContext context)
     {

@@ -3,16 +3,16 @@ using LotroKoniecDev.AuthSystem.Contracts.Discovery;
 namespace LotroKoniecDev.Frontend.Infrastructure.HttpClients.AuthSystemHttpClients;
 
 /// <summary>
-/// Typed client over the auth server's account API (<c>AuthSystem.API</c>). It owns the base address
-/// and the content-negotiation + bearer-token delegating handler; pages compose relative URIs
-/// (preferring HATEOAS links from <see cref="GetDiscoveryAsync"/> and the account export envelope)
-/// and call through the verb helpers.
+/// The typed client for the auth server's account API (<c>AuthSystem.API</c>). It holds the base
+/// address and the handler that negotiates the content type and adds the token. Pages pass relative
+/// URIs, taken where possible from the links in <see cref="GetDiscoveryAsync"/> and in the account
+/// export, and call the verb helpers.
 /// </summary>
 internal interface IAuthSystemClient
 {
     /// <summary>
-    /// Fetches the auth HATEOAS discovery root (<c>GET /</c>) — advertises
-    /// <c>export-account-data</c> for authenticated callers.
+    /// Fetches the auth discovery root (<c>GET /</c>), which offers <c>export-account-data</c> to
+    /// logged-in callers.
     /// </summary>
     Task<ApiResult<DiscoveryResponse>> GetDiscoveryAsync(CancellationToken cancellationToken = default);
 
@@ -31,8 +31,8 @@ internal interface IAuthSystemClient
         CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// POST for endpoints whose success payload travels in response headers rather than a body
-    /// (<c>204</c> + <c>X-Deletion-Finalizes-At</c> on account-deletion scheduling).
+    /// A POST for endpoints that return their data in response headers instead of a body, such as a
+    /// <c>204</c> with <c>X-Deletion-Finalizes-At</c> when an account deletion is scheduled.
     /// </summary>
     Task<ApiResult<ApiResponseHeaders>> PostForHeadersApiResultAsync(
         string relativeUri,

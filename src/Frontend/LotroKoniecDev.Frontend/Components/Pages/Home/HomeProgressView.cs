@@ -4,17 +4,18 @@ using LotroKoniecDev.TranslationSystem.Contracts.Progress;
 namespace LotroKoniecDev.Frontend.Components.Pages.Home;
 
 /// <summary>
-/// The landing page's view state derived from the public progress counters (#309): the two-segment
-/// approval meter's whole-number percentages (zero-catalog guarded; the segments are derived from the
-/// already-rounded percentages so they always tile without overlap) plus grouped number strings for
-/// the stat tiles. Pure and isolated from the razor so the math and formatting are unit-testable
-/// without rendering the component (mirrors <see cref="Dashboard.DashboardView"/>).
+/// What the landing page shows, built from the public progress counters (#309): the whole percentages
+/// for the two-part progress bar, with the empty-catalog case handled and the second part computed from
+/// the already-rounded first one so the two never overlap, plus the numbers formatted with group
+/// separators for the tiles.
+/// It is kept out of the razor file so the maths and the formatting can be unit-tested without rendering
+/// the component, like <see cref="Dashboard.DashboardView"/>.
 /// </summary>
 internal sealed record HomeProgressView
 {
-    // A fixed group separator (NBSP, Polish convention) instead of pl-PL's "N0": the culture's
-    // separator character differs across ICU versions, which would make the rendering (and its
-    // tests) environment-dependent.
+    // A fixed group separator, a non-breaking space as Polish uses, instead of pl-PL's "N0". The
+    // culture's separator character differs between ICU versions, which would make the output, and the
+    // tests, depend on the machine.
     private static readonly NumberFormatInfo GroupedFormat = new()
     {
         NumberGroupSeparator = " ",
@@ -45,20 +46,20 @@ internal sealed record HomeProgressView
 
     public int Approved { get; }
 
-    /// <summary>Rows carrying Polish that still await approval (<c>Translated - Approved</c>).</summary>
+    /// <summary>Rows that have Polish and are still waiting for approval (<c>Translated - Approved</c>).</summary>
     public int AwaitingApproval { get; }
 
-    /// <summary>Approved as a whole-number percentage of the active catalog; <c>0</c> when empty.</summary>
+    /// <summary>Approved rows as a whole percentage of the active catalog, or <c>0</c> when it is empty.</summary>
     public int ApprovedPercent { get; }
 
     /// <summary>
-    /// The meter's second segment: translated-but-unapproved as a whole-number percentage. Derived as
-    /// the difference of the two rounded percentages, so both segments never sum past the translated
-    /// share (rounding each side independently could).
+    /// The second part of the bar: rows that are translated but not approved, as a whole percentage. It
+    /// is the difference between the two rounded percentages, so the two parts together never exceed the
+    /// translated share. Rounding each of them on its own could push them over.
     /// </summary>
     public int AwaitingApprovalPercent { get; }
 
-    /// <summary>The newest processed game version's dotted notation, or <c>null</c> before a first import.</summary>
+    /// <summary>The dotted notation of the newest processed game version, or <c>null</c> before the first import.</summary>
     public string? CurrentGameVersion { get; }
 
     public string TotalDisplay => Format(Total);

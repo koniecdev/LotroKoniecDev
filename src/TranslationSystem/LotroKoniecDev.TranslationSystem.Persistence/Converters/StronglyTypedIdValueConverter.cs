@@ -4,10 +4,10 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace LotroKoniecDev.TranslationSystem.Persistence.Converters;
 
 /// <summary>
-/// Maps any <see cref="IStronglyTypedId{TSelf}"/> to its underlying Guid column. Rehydrates via the
-/// non-validating <see cref="IStronglyTypedId{TSelf}.FromValue"/> — the database is the source of
-/// truth. The conversions are routed through static helpers so the expression trees contain no
-/// access to a static-abstract interface member (which the compiler forbids in an expression tree).
+/// Maps any <see cref="IStronglyTypedId{TSelf}"/> onto its Guid column. It reads values back through
+/// <see cref="IStronglyTypedId{TSelf}.FromValue"/>, which does not validate, because the database is
+/// the source of truth. Both directions go through static helpers, because an expression tree may not
+/// call a static abstract interface member.
 /// </summary>
 public sealed class StronglyTypedIdValueConverter<TId> : ValueConverter<TId, Guid>
     where TId : struct, IStronglyTypedId<TId>

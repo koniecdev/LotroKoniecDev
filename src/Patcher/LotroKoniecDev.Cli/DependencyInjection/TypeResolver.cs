@@ -11,9 +11,9 @@ public sealed class TypeResolver : ITypeResolver, IDisposable
     public TypeResolver(ServiceProvider provider)
     {
         _provider = provider;
-        // One scope for the whole process: the CLI runs exactly one command per invocation, so the
-        // scope's lifetime is the command's. Resolving from the root provider instead would throw
-        // once ValidateScopes is on, because the commands depend on scoped handlers.
+        // One scope for the whole process. The CLI runs exactly one command per run, so the scope
+        // lives as long as that command. Resolving from the root provider would throw once
+        // ValidateScopes is on, because the commands depend on scoped handlers.
         _scope = provider.CreateScope();
     }
 

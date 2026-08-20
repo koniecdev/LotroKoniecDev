@@ -73,7 +73,8 @@ internal sealed class PatchCommand : AsyncCommand<PatchCommand.Settings>
             return ErrorMapper.MapErrorToExitCode(preflightCheckResponse.Error);
         }
 
-        // Read DAT version before patching — avoids reopening the file after native DLL closes it
+        // Read the DAT version before patching, so we do not have to reopen the file after the native
+        // DLL closes it.
         Result<DatVersionInfo> datVersionResult = _datVersionReader.ReadVersion(actualResolvedPaths.Value.DatFilePath);
 
         Result backupResult = _backupManager.Create(actualResolvedPaths.Value.DatFilePath);
@@ -108,7 +109,8 @@ internal sealed class PatchCommand : AsyncCommand<PatchCommand.Settings>
 
             _reporter.Report(result.Value.ToString());
 
-            // Save version baseline after successful patch so next `launch` doesn't falsely detect an update
+            // Save the version after a successful patch, so the next `launch` does not report an
+            // update that never happened.
             if (datVersionResult.IsSuccess)
             {
                 string? forumVersion = preflightCheckResponse.Value.GameUpdateCheckResult is { IsSuccess: true }

@@ -1,33 +1,30 @@
 namespace LotroKoniecDev.Primitives.Constants;
 
 /// <summary>
-/// Constants related to LOTRO DAT file handling.
+/// Constants of the LOTRO DAT file format.
 /// </summary>
 public static class DatFileConstants
 {
-    /// <summary>
-    /// Marker byte indicating a text file in the DAT archive.
-    /// Text files have 0x25 as the high byte of their file ID.
-    /// </summary>
+    /// <summary>A text file in the DAT archive has 0x25 as the high byte of its file id.</summary>
     public const int TextFileMarker = 0x25;
 
     /// <summary>
-    /// Separator used between text pieces in translation files.
-    /// This marker indicates positions where game variables are inserted.
+    /// Sits between text pieces in a translation file and marks where the game inserts its own
+    /// variables.
     /// </summary>
     public const string PieceSeparator = "<--DO_NOT_TOUCH!-->";
 
     /// <summary>
-    /// Largest value the DAT's variable-length integer encoding can express: its two-byte form
-    /// spends one bit on the continuation flag, leaving 15.
+    /// The largest value the DAT's variable-length integer can hold. Its two-byte form spends one bit
+    /// on the continuation flag and keeps 15 for the number.
     /// </summary>
     public const int MaxVarLenValue = 0x7FFF;
 
     /// <summary>
-    /// Maximum length, in UTF-16 code units, of a single text piece written into the DAT.
-    /// A piece is length-prefixed with <see cref="MaxVarLenValue"/>'s encoding, so it inherits that
-    /// ceiling exactly — and a truncated prefix would desynchronise every following fragment in the
-    /// subfile, so an over-long piece can only ever be refused.
+    /// The longest single text piece the DAT can hold, in UTF-16 code units. A piece carries a length
+    /// prefix in the encoding of <see cref="MaxVarLenValue"/>, so it has exactly that limit. A prefix
+    /// that had to be cut short would throw off every following fragment in the subfile, so a piece
+    /// that is too long can only be refused.
     /// </summary>
     public const int MaxTextPieceLength = MaxVarLenValue;
 }

@@ -1,9 +1,9 @@
 namespace LotroKoniecDev.Domain.Core.Monads;
 
 /// <summary>
-/// Represents a wrapper around a value that may or may not be present.
+/// Holds a value that may or may not be there, so the absent case cannot be forgotten.
 /// </summary>
-/// <typeparam name="T">The value type (must be a reference type).</typeparam>
+/// <typeparam name="T">The value type. It must be a reference type.</typeparam>
 public sealed class Maybe<T> : IEquatable<Maybe<T>> where T : class
 {
     private readonly T? _value;
@@ -13,31 +13,17 @@ public sealed class Maybe<T> : IEquatable<Maybe<T>> where T : class
         _value = value;
     }
 
-    /// <summary>
-    /// Gets a value indicating whether the value exists.
-    /// </summary>
     public bool HasValue => !HasNoValue;
 
-    /// <summary>
-    /// Gets a value indicating whether the value does not exist.
-    /// </summary>
     public bool HasNoValue => _value is null;
 
-    /// <summary>
-    /// Gets the value. Throws if no value is present.
-    /// </summary>
+    /// <summary>Throws when there is no value, so check <see cref="HasValue"/> first.</summary>
     public T Value => HasValue
         ? _value!
         : throw new InvalidOperationException("The value cannot be accessed because it does not exist.");
 
-    /// <summary>
-    /// Gets the default empty instance.
-    /// </summary>
     public static Maybe<T> None => new(null);
 
-    /// <summary>
-    /// Creates a new <see cref="Maybe{T}"/> instance from the specified value.
-    /// </summary>
     public static Maybe<T> From(T? value) => new(value);
 
     public static implicit operator Maybe<T>(T value) => From(value);

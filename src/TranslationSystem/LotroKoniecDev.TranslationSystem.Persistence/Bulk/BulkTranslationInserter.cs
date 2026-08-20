@@ -10,10 +10,11 @@ namespace LotroKoniecDev.TranslationSystem.Persistence.Bulk;
 internal sealed class BulkTranslationInserter : IBulkTranslationInserter
 {
     /// <summary>
-    /// The column list mirrors <c>TranslationConfiguration</c> and the model snapshot exactly. The
-    /// binary <c>COPY</c> bypasses the EF mapping, so this list plus the value writes below are the
-    /// second place that must track a schema change to <c>Translations</c> (the ADR-0011 trade-off);
-    /// the import integration suite asserts the written column state, so any drift fails a test.
+    /// This column list must match <c>TranslationConfiguration</c> and the model snapshot exactly.
+    /// The binary <c>COPY</c> goes around the EF mapping, so this list and the value writes below are
+    /// a second place that has to follow every schema change to <c>Translations</c>. That is the
+    /// trade-off ADR-0011 accepted. The import integration tests check the written columns, so a
+    /// mismatch fails a test.
     /// </summary>
     private const string CopyCommand =
         """
@@ -36,11 +37,11 @@ internal sealed class BulkTranslationInserter : IBulkTranslationInserter
     {
         ArgumentNullException.ThrowIfNull(translations);
 
-        // The COPY opens lazily on the first row: an empty stream must stay a no-op, and stream
-        // emptiness is only observable by enumerating. While the COPY is open the connection is in
-        // CopyIn state, so the producing stream must not touch the database — the import's producer
-        // reads the buffered upload file, never the connection. Disposing without CompleteAsync
-        // aborts the COPY, so a producer failure mid-stream discards the partial rows.
+        // The COPY opens on the first row, not before: an empty stream must do nothing, and the only
+        // way to know a stream is empty is to enumerate it. While the COPY is open the connection is
+        // in CopyIn state, so the producing stream must not use the database. The import's producer
+        // reads the buffered upload file instead. Disposing without CompleteAsync aborts the COPY, so
+        // a producer that fails halfway leaves no partial rows behind.
         NpgsqlBinaryImporter? writer = null;
         try
         {
@@ -48,9 +49,9 @@ internal sealed class BulkTranslationInserter : IBulkTranslationInserter
             {
                 if (writer is null)
                 {
-                    // The write context's own connection: when the caller has opened a transaction
-                    // (the import does, via ExecuteInTransactionAsync), it is already open and the
-                    // COPY joins that transaction.
+                    // The write context's own connection. When the caller already opened a
+                    // transaction, as the import does through ExecuteInTransactionAsync, the
+                    // connection is open and the COPY joins that transaction.
                     NpgsqlConnection connection = (NpgsqlConnection)_dbContext.Database.GetDbConnection();
                     if (connection.State != ConnectionState.Open)
                     {

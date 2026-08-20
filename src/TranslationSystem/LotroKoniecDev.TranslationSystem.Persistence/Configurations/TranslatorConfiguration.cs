@@ -14,14 +14,15 @@ internal sealed class TranslatorConfiguration : IEntityTypeConfiguration<Transla
         builder.Property(translator => translator.Id)
             .ValueGeneratedNever();
 
-        // The cross-context Auth user id is the lazy-provisioning idempotency key (ADR-0004): a
-        // unique index guarantees one row per identity even under a concurrent first-write race.
+        // The Auth user id is the key that makes creating a profile on first use safe to repeat
+        // (ADR-0004). The unique index keeps it at one row per identity even when two requests create
+        // the profile at the same time.
         builder.Property(translator => translator.IdentityId);
         builder.HasIndex(translator => translator.IdentityId)
             .IsUnique();
 
-        // Pure value types with no index needed — ComplexProperty (the semantically correct VO
-        // mapping); Email is optional so its complex property is nullable.
+        // Plain value objects that need no index, so ComplexProperty is the right mapping. Email is
+        // optional, so its complex property is nullable.
         builder.ComplexProperty(translator => translator.DisplayName, complexBuilder =>
         {
             complexBuilder.Property(displayName => displayName.Value)
@@ -37,7 +38,7 @@ internal sealed class TranslatorConfiguration : IEntityTypeConfiguration<Transla
                 .HasMaxLength(Email.MaxLength);
         });
 
-        // Get-only property — EF Core convention skips it without an explicit mapping.
+        // A get-only property. EF Core skips it unless it is mapped here.
         builder.Property(translator => translator.ProvisionedAt);
     }
 }

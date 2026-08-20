@@ -59,9 +59,10 @@ internal sealed class LaunchCommand : AsyncCommand<LaunchCommand.Settings>
     {
         ConsoleWriter.WriteNotice(RiskNotice.Text);
 
-        // Auto-download the current translation file before launch (spec 0001 Q5, freeze exception):
-        // skipped when disabled or no TMS URL is configured. Never blocks launch on the network — an
-        // offline server with a cached file proceeds; only "offline + nothing cached" aborts here.
+        // Download the current translation file before launching (spec 0001 Q5). It is skipped when
+        // the user turned it off or no TMS URL is set. The launch never waits on the network: if the
+        // server is unreachable but a file is cached, we go on. Only "no server and nothing cached"
+        // stops here.
         if (!settings.SkipSync && !string.IsNullOrWhiteSpace(settings.TmsBaseUrl))
         {
             int? syncFailureExitCode = await SyncTranslationFileAsync(settings, cancellationToken);

@@ -1,8 +1,8 @@
 namespace LotroKoniecDev.Cli;
 
 /// <summary>
-/// Player-facing risk note (spec 0011 / LEGAL-12) printed by <c>patch</c> and <c>launch</c>.
-/// Informational only — never a prompt, never affects behavior or exit codes.
+/// The risk note for players (spec 0011, LEGAL-12) that <c>patch</c> and <c>launch</c> print. It only
+/// informs. It never asks a question and never changes behaviour or exit codes.
 /// </summary>
 internal static class RiskNotice
 {

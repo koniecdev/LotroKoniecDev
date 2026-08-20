@@ -1,7 +1,7 @@
 namespace LotroKoniecDev.Domain.Core.BuildingBlocks;
 
 /// <summary>
-/// Base class for value objects implementing value equality semantics.
+/// Base class for value objects. Two instances are equal when they carry the same values.
 /// </summary>
 public abstract class ValueObject : IEquatable<ValueObject>
 {
@@ -32,9 +32,7 @@ public abstract class ValueObject : IEquatable<ValueObject>
         GetAtomicValues().Aggregate(0,
             (hashcode, value) => HashCode.Combine(hashcode, value.GetHashCode()));
 
-    /// <summary>
-    /// Gets the atomic values that define this value object's identity.
-    /// </summary>
+    /// <summary>The values equality is built from. Return every field that makes the object what it is.</summary>
     protected abstract IEnumerable<object> GetAtomicValues();
 
     private bool ValuesAreEqual(ValueObject valueObject) =>

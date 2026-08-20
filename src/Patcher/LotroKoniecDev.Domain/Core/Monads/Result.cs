@@ -3,7 +3,8 @@ using LotroKoniecDev.Domain.Core.BuildingBlocks;
 namespace LotroKoniecDev.Domain.Core.Monads;
 
 /// <summary>
-/// Represents a result of an operation with status information and possibly an error.
+/// The outcome of an operation: either success, or a failure carrying an <see cref="BuildingBlocks.Error"/>.
+/// Business failures are returned this way instead of thrown.
 /// </summary>
 public class Result
 {
@@ -18,46 +19,26 @@ public class Result
         Error = error;
     }
 
-    /// <summary>
-    /// Gets a value indicating whether the result is successful.
-    /// </summary>
     public bool IsSuccess { get; }
 
-    /// <summary>
-    /// Gets a value indicating whether the result is a failure.
-    /// </summary>
     public bool IsFailure => !IsSuccess;
 
-    /// <summary>
-    /// Gets the error if the result is a failure.
-    /// </summary>
+    /// <summary><see cref="BuildingBlocks.Error.None"/> when the result is a success.</summary>
     public Error Error { get; }
 
-    /// <summary>
-    /// Creates a successful result.
-    /// </summary>
     public static Result Success() => new(true, Error.None);
 
-    /// <summary>
-    /// Creates a successful result with a value.
-    /// </summary>
     public static Result<TValue> Success<TValue>(TValue value) => new(value, true, Error.None);
 
-    /// <summary>
-    /// Creates a failure result with an error.
-    /// </summary>
     public static Result Failure(Error error) => new(false, error);
 
-    /// <summary>
-    /// Creates a failure result with an error for a typed result.
-    /// </summary>
     public static Result<TValue> Failure<TValue>(Error error) => new(default!, false, error);
 }
 
 /// <summary>
-/// Represents a result of an operation with status information, a value, and possibly an error.
+/// A <see cref="Result"/> that also carries a value when it succeeded.
 /// </summary>
-/// <typeparam name="TValue">The type of the result value.</typeparam>
+/// <typeparam name="TValue">The type of the value.</typeparam>
 public sealed class Result<TValue> : Result
 {
     private readonly TValue _value;
@@ -68,15 +49,9 @@ public sealed class Result<TValue> : Result
         _value = value;
     }
 
-    /// <summary>
-    /// Implicit conversion from value to successful result.
-    /// </summary>
     public static implicit operator Result<TValue>(TValue value) => Success(value);
 
-    /// <summary>
-    /// Gets the result value if the result is successful.
-    /// </summary>
-    /// <exception cref="InvalidOperationException">Thrown when accessing value of a failure result.</exception>
+    /// <exception cref="InvalidOperationException">The result is a failure and has no value.</exception>
     public TValue Value => IsSuccess
         ? _value
         : throw new InvalidOperationException("Cannot access the value of a failure result.");

@@ -7,31 +7,32 @@ using LotroKoniecDev.Primitives.Constants;
 namespace LotroKoniecDev.Domain.Models;
 
 /// <summary>
-/// The patcher's half of the <c>source_digest</c> contract (ADR-0047): 16 lowercase hex characters
-/// identifying the export-form triple <c>(text, args_order, args_id)</c> a fragment holds. The TMS
-/// computes the same value from its stored <c>TranslationSource</c> (its <c>SourceHash</c>), ships it
-/// as the translation file's seventh column, and the patcher recomputes it from the loaded fragment
-/// to decide whether a row may be written over what the DAT currently holds.
+/// The patcher's half of the <c>source_digest</c> contract (ADR-0047): 16 lower-case hex characters
+/// that identify the export-form triple <c>(text, args_order, args_id)</c> a fragment holds.
+/// The TMS computes the same value from its stored <c>TranslationSource</c>, where it is called
+/// <c>SourceHash</c>, and ships it as the seventh column of the translation file. The patcher
+/// recomputes it from the loaded fragment to decide whether a row may overwrite what the DAT holds
+/// right now.
 /// </summary>
 /// <remarks>
 /// <para>
-/// <b>Framing.</b> SHA-256 over the three fields concatenated as <c>marker | UTF-16 code-unit count
-/// (little-endian int32) | UTF-16LE bytes</c>, where an absent field is the single marker byte
-/// <c>0</c> and a present one is <c>1</c> plus its header and bytes. The framing is what keeps
-/// <c>null</c> distinct from the empty string and <c>("ab","c")</c> distinct from <c>("a","bc")</c>.
-/// The wire value is the first eight <b>bytes</b> of the digest in digest order, hex-encoded and
-/// lower-cased — never a <c>ulong</c>'s <c>x16</c> rendering, which is the opposite byte order.
+/// <b>Framing.</b> SHA-256 over the three fields, each written as <c>marker | UTF-16 code-unit count
+/// (little-endian int32) | UTF-16LE bytes</c>. A missing field is the single marker byte <c>0</c>, a
+/// present one is <c>1</c> followed by its header and bytes. This framing is what keeps <c>null</c>
+/// apart from the empty string, and <c>("ab","c")</c> apart from <c>("a","bc")</c>.
+/// The value on the wire is the first eight <b>bytes</b> of the digest, in digest order, as lower-case
+/// hex. It is never a <c>ulong</c> printed with <c>x16</c>, which would reverse the byte order.
 /// </para>
 /// <para>
-/// <b>Duplicated by design.</b> The two bounded contexts share the file, never code (CLAUDE.md), so
-/// this is an independent implementation of the TMS' <c>SourceHash</c>. A golden fixture pinned by a
-/// unit test in both contexts is what stops the copies drifting (ADR-0047 §6) — drift would fail a
-/// build instead of an update day.
+/// <b>Two copies on purpose.</b> The two bounded contexts share the file and never the code
+/// (CLAUDE.md), so this is written separately from the TMS' <c>SourceHash</c>. A golden fixture
+/// pinned by a unit test in both contexts is what keeps the copies the same (ADR-0047 §6). If they
+/// drift, a build fails instead of an update day.
 /// </para>
 /// </remarks>
 public static class SourceDigest
 {
-    /// <summary>Length, in characters, of the wire form — the first 8 digest bytes as hex.</summary>
+    /// <summary>Length in characters of the wire form: the first 8 digest bytes as hex.</summary>
     public const int WireLength = 16;
 
     private const byte NullFieldMarker = 0;
@@ -41,9 +42,9 @@ public static class SourceDigest
     private const char ArgsPositionSeparator = '-';
 
     /// <summary>
-    /// The digest of what <paramref name="fragment"/> currently holds, composed exactly the way
-    /// <c>export</c> writes it: the pieces joined with the placeholder, and identity argument columns
-    /// derived from the fragment's own argument-reference count.
+    /// The digest of what <paramref name="fragment"/> holds right now, built exactly the way
+    /// <c>export</c> writes it: the pieces joined with the placeholder, and args columns counted up
+    /// from the fragment's own number of argument references.
     /// </summary>
     public static string ForFragment(Fragment fragment)
     {
@@ -55,10 +56,10 @@ public static class SourceDigest
     }
 
     /// <summary>
-    /// The digest of <paramref name="text"/> as the exporter would frame it for a fragment carrying
-    /// <paramref name="argumentCount"/> argument references — identity args <c>1-2-…-n</c>, or absent
-    /// when the fragment carries none. Used for the fragment's current content and, with a row's
-    /// translated text, for the digest that row would leave behind once written.
+    /// The digest of <paramref name="text"/> as the exporter would write it for a fragment with
+    /// <paramref name="argumentCount"/> argument references: the args columns are <c>1-2-…-n</c>, or
+    /// absent when the fragment has none. It is used for the fragment's current content, and with a
+    /// row's translated text for the digest that row would leave behind once written.
     /// </summary>
     public static string ForExportForm(string text, int argumentCount)
     {
@@ -71,8 +72,8 @@ public static class SourceDigest
     }
 
     /// <summary>
-    /// Hashes the triple in its value-object form — an absent args column is <see langword="null"/>,
-    /// never the file's <c>NULL</c> literal, or the two contexts would disagree.
+    /// Hashes the triple in its value-object form. An absent args column is <see langword="null"/>
+    /// and never the literal text <c>NULL</c> the file uses, or the two contexts would not agree.
     /// </summary>
     public static string Compute(string text, string? argsOrder, string? argsId)
     {
@@ -99,10 +100,10 @@ public static class SourceDigest
     }
 
     /// <summary>
-    /// Whether <paramref name="value"/> can be a wire digest — exactly 16 hex characters. This is
-    /// what lets both carvers tell a seventh column from a six-column line's <c>approved</c> field
-    /// (ADR-0047 §2): nothing else can occupy that slot, and hex can never hold a <c>|</c>.
-    /// Case-insensitive on read (a hand-edited file is forgiven); writers always emit lowercase.
+    /// Whether <paramref name="value"/> can be a wire digest: exactly 16 hex characters. This is how
+    /// both carvers tell a seventh column from a six-column line's <c>approved</c> field (ADR-0047
+    /// §2). Nothing else can sit in that slot, and hex never holds a <c>|</c>. Reading accepts upper
+    /// case as well, so a hand-edited file still works; writers always emit lower case.
     /// </summary>
     public static bool IsWireForm(string? value)
     {
@@ -122,7 +123,7 @@ public static class SourceDigest
         return true;
     }
 
-    /// <summary>Compares two wire digests — case-insensitively, since reading forgives case.</summary>
+    /// <summary>Compares two wire digests without case, because reading accepts either case.</summary>
     public static bool Matches(string? left, string? right)
         => left is not null && right is not null && left.Equals(right, StringComparison.OrdinalIgnoreCase);
 

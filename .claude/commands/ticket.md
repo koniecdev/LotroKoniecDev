@@ -66,6 +66,18 @@ Step 0 already left you on a clean, fresh `main`; anything dirty now is this ses
 - **Never work on `main` directly.** If for any reason you find yourself past step 0 with commits
   to make and no ticket branch yet, cut the branch first — nothing is ever committed to `main`.
 
+## 4.5 Buddy the plan — run it when you judge it's worth it
+
+Before writing code, ask whether the approach rests on something you never actually checked. If it
+does, run **`/buddy`** on the plan: a fresh isolated agent that receives your reasoning as numbered
+claims and a mandate to refute them against the code. This is your call — no permission needed,
+just run it and say you did.
+
+Signals it earns its cost: the ticket was spec-worthy, you picked between approaches, you leaned on
+a `docs/knowledge-base/` finding or an ADR ruling, or one load-bearing assumption decides the whole
+slice. A crisp small bug/refactor does not need it — same spirit as "small diff = zero agents".
+Running it here is cheaper than learning the same thing from `code-reviewer` after 250 lines.
+
 ## 5. Implement
 
 Follow the `/feature` discipline: mirror the sibling slice; slim SRP handler (record + handler +

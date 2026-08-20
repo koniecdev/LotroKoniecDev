@@ -153,6 +153,11 @@ internal sealed partial class ConfirmEmailChange
             // processor creates moments later is built from the stamp that was actually stored.
             user.SecurityStamp = Guid.NewGuid().ToString();
 
+            // Only the first change since the last revert arms the undo, and it arms it at the address
+            // the chain started from. A second change must not make itself a target: after A to B to C
+            // that would hand an undo link to B, which is whoever took the account over (ADR-0048).
+            user.EmailChangeRevertTo ??= previousEmail;
+
             _outboxWriter.Enqueue(new EmailChangeCompleted(user.Id, previousEmail, newEmail));
 
             Result<IdentityResult> updateResult = await TryUpdateAsync(user);

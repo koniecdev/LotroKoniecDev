@@ -19,6 +19,14 @@ public sealed class EmailChangeCompletedProcessorTests
     private readonly UserManager<ApplicationUser> _userManager = CreateUserManager();
     private readonly IEmailChangeEmailSender _emailSender = Substitute.For<IEmailChangeEmailSender>();
 
+    public EmailChangeCompletedProcessorTests()
+    {
+        // Without this the substitute answers null on both sides of every address comparison, and
+        // string.Equals(null, null) is true — so the arming check would silently pass in every test.
+        _userManager.NormalizeEmail(Arg.Any<string?>())
+            .Returns(callInfo => callInfo.Arg<string?>()?.ToUpperInvariant());
+    }
+
     [Fact]
     public async Task ProcessAsync_UserNoLongerExists_SucceedsWithoutSending()
     {
@@ -129,6 +137,67 @@ public sealed class EmailChangeCompletedProcessorTests
             EmailChangeRevertTokenProvider.PurposeFor(PreviousEmail, NewEmail));
     }
 
+    [Fact]
+    public async Task ProcessAsync_AnEarlierChangeAlreadyArmedTheUndo_SendsTheNoticeWithoutALink()
+    {
+        // The second hop of A -> B -> C. The armed target is still A, so this message must hand B
+        // nothing: B is whoever took the account over, and a link there undoes the owner's recovery.
+        ApplicationUser user = CreateUser();
+        user.EmailChangeRevertTo = "someone-else@shire.me";
+        _userManager.FindByIdAsync(user.Id.ToString()).Returns(user);
+        _emailSender.SendChangedNoticeAsync(user.Id, NewEmail, PreviousEmail, Arg.Any<CancellationToken>())
+            .Returns(Result.Success());
+        EmailChangeCompletedProcessor sut = CreateSut();
+
+        Result result = await sut.ProcessAsync(
+            new EmailChangeCompleted(user.Id, PreviousEmail, NewEmail), CancellationToken.None);
+
+        result.IsSuccess.ShouldBeTrue();
+        await _emailSender.DidNotReceiveWithAnyArgs()
+            .SendChangedNoticeWithRevertAsync(default, default!, default!, default!, default, default);
+        await _emailSender.Received(1)
+            .SendChangedNoticeAsync(user.Id, NewEmail, PreviousEmail, Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task ProcessAsync_NothingArmedAtAll_SendsTheNoticeWithoutALink()
+    {
+        ApplicationUser user = CreateUser();
+        user.EmailChangeRevertTo = null;
+        _userManager.FindByIdAsync(user.Id.ToString()).Returns(user);
+        _emailSender.SendChangedNoticeAsync(user.Id, NewEmail, PreviousEmail, Arg.Any<CancellationToken>())
+            .Returns(Result.Success());
+        EmailChangeCompletedProcessor sut = CreateSut();
+
+        Result result = await sut.ProcessAsync(
+            new EmailChangeCompleted(user.Id, PreviousEmail, NewEmail), CancellationToken.None);
+
+        result.IsSuccess.ShouldBeTrue();
+        await _emailSender.DidNotReceiveWithAnyArgs()
+            .SendChangedNoticeWithRevertAsync(default, default!, default!, default!, default, default);
+    }
+
+    [Fact]
+    public async Task ProcessAsync_ArmedTargetDiffersOnlyByCase_StillSendsTheLink()
+    {
+        ApplicationUser user = CreateUser();
+        user.EmailChangeRevertTo = PreviousEmail.ToUpperInvariant();
+        _userManager.FindByIdAsync(user.Id.ToString()).Returns(user);
+        _emailSender.SendChangedNoticeWithRevertAsync(
+                user.Id, PreviousEmail, NewEmail, Arg.Any<string>(), Arg.Any<TimeSpan>(), Arg.Any<CancellationToken>())
+            .Returns(Result.Success());
+        _emailSender.SendChangedNoticeAsync(user.Id, NewEmail, PreviousEmail, Arg.Any<CancellationToken>())
+            .Returns(Result.Success());
+        EmailChangeCompletedProcessor sut = CreateSut();
+
+        Result result = await sut.ProcessAsync(
+            new EmailChangeCompleted(user.Id, PreviousEmail, NewEmail), CancellationToken.None);
+
+        result.IsSuccess.ShouldBeTrue();
+        await _emailSender.Received(1).SendChangedNoticeWithRevertAsync(
+            user.Id, PreviousEmail, NewEmail, Arg.Any<string>(), Arg.Any<TimeSpan>(), Arg.Any<CancellationToken>());
+    }
+
     [Theory]
     [InlineData("this is not json at all")]
     [InlineData("{}")]
@@ -165,7 +234,8 @@ public sealed class EmailChangeCompletedProcessorTests
         {
             Id = Guid.NewGuid(),
             UserName = "frodo",
-            Email = NewEmail
+            Email = NewEmail,
+            EmailChangeRevertTo = PreviousEmail
         };
 
     private EmailChangeCompletedProcessor CreateSut() =>

@@ -255,12 +255,39 @@ public sealed partial class EmailChangePageTests : EndpointsTestBase
     }
 
     [Fact]
-    public async Task RevertPage_Post_ShouldNotLetAnOlderRevertTokenRepossessTheAccount()
+    public async Task ConfirmPage_Post_ShouldArmNoUndoLink_ForASecondChangeInTheSameChain()
     {
-        // The counter-takeover. The attacker chains A -> B -> C, so the revert offer for B -> C lands
-        // in B, which is theirs. The owner reverts with their A -> B link and resets the password. If
-        // the attacker's older token still works, they fire it afterwards and take the account back
-        // for good, with no e-mail warning anybody.
+        // Only the change that moved the account away from its starting address may arm an undo. A
+        // second change would otherwise mail a working link to the address the attacker just took
+        // over, and they would use it to reverse the owner's recovery.
+        (RegisterRequest user, string firstNewEmail, Guid userId) = await CompleteChangeAsync();
+
+        string secondNewEmail = Faker.Internet.Email();
+        EmailChangeEmailSpy.Reset();
+        string accessToken = await GetAccessTokenAsync(firstNewEmail, Password);
+        using HttpRequestMessage secondRequest = new(HttpMethod.Post, "auth/account/change-email");
+        secondRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+        secondRequest.Content = JsonContent.Create(new ChangeEmailRequest(secondNewEmail, Password));
+        (await ApiClient.Http.SendAsync(secondRequest)).StatusCode.ShouldBe(HttpStatusCode.OK);
+
+        await EmailChangeEmailSpy.WaitForVerificationCaptureAsync();
+        await ConfirmAsync(userId, secondNewEmail, EmailChangeEmailSpy.LastVerificationToken!);
+
+        // The plain notice still goes out; the one carrying a link does not.
+        await EmailChangeEmailSpy.WaitForChangedNoticeCaptureAsync();
+        EmailChangeEmailSpy.RevertOfferCallCount.ShouldBe(0);
+
+        // And the account still points home, so the owner's link from the first change works.
+        (await LoadUserByIdAsync(userId)).EmailChangeRevertTo.ShouldBe(user.Email);
+    }
+
+    [Fact]
+    public async Task RevertPage_Post_ShouldKeepTheOwnersLinkAlive_WhenTheAttackerRevertsFirst()
+    {
+        // The attacker does not have to beat the owner to the inbox, only to the click. They chain
+        // A -> B -> C, then immediately fire whatever undo the chain handed them, so that by the time
+        // the owner opens their own e-mail the account is already the attacker's with a password they
+        // chose. Only the address the chain STARTED from may ever be an undo target.
         (RegisterRequest user, string attackerFirstEmail, Guid userId) = await CompleteChangeAsync();
         string ownerRevertToken = EmailChangeEmailSpy.LastRevertToken!;
 
@@ -274,23 +301,28 @@ public sealed partial class EmailChangePageTests : EndpointsTestBase
 
         await EmailChangeEmailSpy.WaitForVerificationCaptureAsync();
         await ConfirmAsync(userId, attackerSecondEmail, EmailChangeEmailSpy.LastVerificationToken!);
-        await EmailChangeEmailSpy.WaitForRevertOfferCaptureAsync();
-        string attackerRevertToken = EmailChangeEmailSpy.LastRevertToken!;
 
-        // The owner takes the account back.
+        // Whatever the second change handed the attacker, they fire it at once - before the owner has
+        // even opened their mail.
+        await EmailChangeEmailSpy.WaitForRevertOfferCaptureAsync(TimeSpan.FromSeconds(3));
+        string? attackerRevertToken = EmailChangeEmailSpy.LastRevertToken;
+        if (attackerRevertToken is not null)
+        {
+            await PostToPageAsync(
+                "/Account/RevertEmailChange",
+                RevertUrl(userId, attackerFirstEmail, attackerSecondEmail, attackerRevertToken),
+                RevertForm(userId, attackerFirstEmail, attackerSecondEmail, attackerRevertToken));
+        }
+
+        // The owner opens their link afterwards and still gets the account back.
         await PostToPageAsync(
             "/Account/RevertEmailChange",
             RevertUrl(userId, user.Email, attackerFirstEmail, ownerRevertToken),
             RevertForm(userId, user.Email, attackerFirstEmail, ownerRevertToken));
-        (await LoadUserByIdAsync(userId)).Email.ShouldBe(user.Email);
 
-        // The attacker fires the token that was mailed to the address they controlled.
-        await PostToPageAsync(
-            "/Account/RevertEmailChange",
-            RevertUrl(userId, attackerFirstEmail, attackerSecondEmail, attackerRevertToken),
-            RevertForm(userId, attackerFirstEmail, attackerSecondEmail, attackerRevertToken));
-
-        (await LoadUserByIdAsync(userId)).Email.ShouldBe(user.Email);
+        ApplicationUser restored = await LoadUserByIdAsync(userId);
+        restored.Email.ShouldBe(user.Email);
+        restored.PasswordHash.ShouldBeNull();
     }
 
     [Fact]
@@ -328,8 +360,8 @@ public sealed partial class EmailChangePageTests : EndpointsTestBase
     [Fact]
     public async Task RevertPage_PostTwice_ShouldRefuseTheSecondTime()
     {
-        // The token carries no security stamp, so what makes it single-use is the check that the
-        // account still sits on the address the token was issued against.
+        // The token carries no security stamp, so what makes it single-use is that a successful revert
+        // rotates the revert stamp and disarms the chain.
         (RegisterRequest user, string newEmail, Guid userId) = await CompleteChangeAsync();
         string revertToken = EmailChangeEmailSpy.LastRevertToken!;
 

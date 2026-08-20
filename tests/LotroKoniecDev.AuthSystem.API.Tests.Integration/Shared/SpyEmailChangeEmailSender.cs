@@ -82,6 +82,13 @@ public sealed class SpyEmailChangeEmailSender : IEmailChangeEmailSender
     public Task WaitForRevertOfferCaptureAsync(TimeSpan? timeout = null) =>
         WaitForAsync(() => LastRevertToken is not null, timeout);
 
+    /// <summary>
+    /// Waits for the notice sent to the new address. A change that arms no undo link sends only this
+    /// one, so it is the signal that the dispatch finished at all.
+    /// </summary>
+    public Task WaitForChangedNoticeCaptureAsync(TimeSpan? timeout = null) =>
+        WaitForAsync(() => LastNoticeRecipient is not null, timeout);
+
     private static async Task WaitForAsync(Func<bool> arrived, TimeSpan? timeout)
     {
         using CancellationTokenSource waitWindow = new(timeout ?? TimeSpan.FromSeconds(15));

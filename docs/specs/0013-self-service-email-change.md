@@ -180,8 +180,9 @@ outlier and explicitly **not** the pattern here.
 - **Changing the username.** `UserName` is separate from `Email` here (`RegisterUser` takes both),
   and nothing in the ticket asks for it.
 - **A `PendingEmail` column or an audit table.** The pending change itself lives in the token. The
-  one schema change is a single nullable `EmailChangeRevertStamp` (additive, expand-only —
-  ADR-0023's cheapest shape), which is what makes a revert link single-use. The audit trail the
+  schema change is two nullable columns, `EmailChangeRevertStamp` and `EmailChangeRevertTo`
+  (additive, expand-only — ADR-0023's cheapest shape), which are what make a revert link both
+  single-use and impossible to point somewhere the owner did not start from. The audit trail the
   ticket asks for is structured logging with masked addresses + IP + user agent, which is what
   `DeleteAccount` and `CancelAccountDeletion` already do.
 - **Two-factor / step-up auth** on the change. The password is the factor the product has.
@@ -220,13 +221,12 @@ outlier and explicitly **not** the pattern here.
   revokes the OpenIddict tokens and authorizations. Same treatment as `ChangePassword`.
 - **A password change invalidates a pending e-mail change** (same stamp) but **not** a revert link
   (ADR-0048 — that is the point). The user simply requests the change again.
-- **The revert restores the previous address from wherever the account currently sits**, and
-  rotates `ApplicationUser.EmailChangeRevertStamp`, which every revert token carries. Both halves
-  are load-bearing (ADR-0048): requiring the account to still sit on the address the token names
-  lets an attacker chain A→B→C and orphan the owner's link, while omitting the stamp lets the
-  attacker's own `B→C` token — mailed to the mailbox they control — undo the owner's recovery
-  afterwards and hand them a fresh reset link. Rotating retires the whole chain, which is what
-  makes a link single-use.
+- **Only the first change since the last revert arms an undo, and it arms
+  `ApplicationUser.EmailChangeRevertTo` at the address the chain started from.** A later change in
+  the same chain sends its notices without a link. A revert restores that armed address — never the
+  one its link names — and clears it, rotating `EmailChangeRevertStamp` so every issued token dies.
+  All three parts are load-bearing; ADR-0048 records the two shapes that looked sufficient and were
+  each defeated.
 - **The revert cancels a scheduled deletion too.** Rotating the security stamp kills ADR-0031's
   cancel token, and after an address change that cancel link went to the address the account was
   moved to. Refusing instead would leave the account locked, unable to log in or reset, and erased
@@ -272,7 +272,7 @@ outlier and explicitly **not** the pattern here.
   (`ErrorExtensions` maps `Validation` → 400 and `DataConflict` → 422 repo-wide.)
   Both pages render `Auth.InvalidEmailChangeToken` as "link wygasł lub jest nieprawidłowy".
 - **Files touched:** no DAT and no translation artifact. One EF migration,
-  `AddEmailChangeRevertStampToUsers` — a nullable `uuid` column, additive and N-1 safe.
+  `AddEmailChangeRevertFieldsToUsers` — two nullable columns, additive and N-1 safe.
 
 ## Acceptance criteria
 
@@ -300,8 +300,9 @@ outlier and explicitly **not** the pattern here.
       sends the visitor into the password-reset flow.
 - [ ] **The revert link still works after the password has been changed** — the stamp rotation does
       not invalidate it (ADR-0048).
-- [ ] The revert refuses when the account no longer sits on the address it was issued against, and
-      refuses when the previous address has been taken meanwhile — without nulling the password.
+- [ ] The revert refuses when the account is already back on the armed address, when nothing is
+      armed, and when the armed address has been taken meanwhile — the last without nulling the
+      password.
 - [ ] A uniqueness race on either write leg renders the error state, not a 500.
 - [ ] After the change the user logs in with the new address, and the old address is rejected.
 - [ ] The 4th request within an hour is answered `429` (own factory, `RateLimiting:ForceEnable`).
@@ -340,9 +341,10 @@ outlier and explicitly **not** the pattern here.
   `RegisterUser.RegisterAsync` already returns `UserAlreadyExistsByEmail` to an anonymous caller.
 - *Does a new routing key need a broker topology change?* No — `EmailQueue` binds `email.#` and
   queue arguments are untouched (ADR-0036).
-- *Is a DB migration needed?* One, and only for the revert stamp — the pending change itself is
-  stateless. Two review passes proved a stateless single-use guard cannot exist here: the owner's
-  token and the attacker's are structurally identical, so only server state can retire one. The TMS
+- *Is a DB migration needed?* One, for the two revert fields — the pending change itself is still
+  stateless. Three review passes proved a stateless guard cannot exist here: the owner's token and
+  the attacker's are structurally identical, so only server state can say which address is a legal
+  destination and which links are spent. The TMS
   side needs nothing (no unique index on `Translator.Email`).
 - *Does #670's CSP affect the new auth pages?* No — the CSP comes only from the frontend's
   `SecurityHeadersMiddleware`; the auth origin emits none.

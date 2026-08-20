@@ -130,16 +130,16 @@ public sealed class EmailChangeRevertTokenProvider : IUserTwoFactorTokenProvider
     }
 
     /// <summary>
-    /// Never a two-factor option. This provider only backs a link we e-mail, so nothing may offer it
-    /// as a login step.
-    /// </summary>
-    /// <summary>
     /// An account that has never been reverted has no stamp yet, and every token it issues shares that
     /// same empty value. The first successful revert sets one, which is what retires them all.
     /// </summary>
     private static string StampOf(ApplicationUser user) =>
         user.EmailChangeRevertStamp?.ToString() ?? string.Empty;
 
+    /// <summary>
+    /// Never a two-factor option. This provider only backs a link we e-mail, so nothing may offer it
+    /// as a login step.
+    /// </summary>
     public Task<bool> CanGenerateTwoFactorTokenAsync(UserManager<ApplicationUser> manager, ApplicationUser user) =>
         Task.FromResult(false);
 }

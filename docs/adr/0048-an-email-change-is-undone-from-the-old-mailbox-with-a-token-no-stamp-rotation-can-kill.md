@@ -76,29 +76,41 @@ legitimate e-mail change, and null the password, seconds after the notice arrive
 
 **The revert token is deliberately not bound to the security stamp.**
 `EmailChangeRevertTokenProvider` is our own `IUserTwoFactorTokenProvider<ApplicationUser>` over an
-`IDataProtector`, protecting `(createdAt, userId, purpose)` and nothing else. Its purpose embeds
-both addresses (`RevertEmailChange:{previous}->{new}`).
+`IDataProtector`, protecting `(createdAt, userId, revertStamp, purpose)`. Its purpose embeds both
+addresses (`RevertEmailChange:{previous}->{new}`).
 
-**Two guards, because one is not enough — and this is where the "no schema change" version of this
-ADR failed twice.**
+**Three rules, because the first two were each defeated in review.**
 
-1. *Restore from wherever the account sits.* Refuse only when the account is **already back** on
-   `previous`. Requiring it to still sit on the address the token names is the trap: an attacker
-   who knows the password changes the address twice, A→B then B→C, and the owner's A→B link matches
-   nothing while the fresh revert offer for B→C is delivered to B, which the attacker owns.
-2. *Rotate `ApplicationUser.EmailChangeRevertStamp` on a successful revert, and bake it into every
-   revert token.* Guard 1 alone opens the mirror attack: after that same chain the attacker holds
-   `Rev(B→C)` in **their** mailbox, so once the owner reverts and resets their password, the
-   attacker fires their own token, the account moves back to B, the password is cleared again and
-   the page hands them a live reset link — silently, because the revert leg sends no e-mail. Every
-   revert token is a bearer credential to move the account to its previous address, and nothing on
-   the row distinguishes the owner's from the attacker's. Rotating retires the whole chain at once
-   and is what actually makes a link single-use.
+1. *Arm at most one undo per chain, at the address the chain started from.*
+   `ApplicationUser.EmailChangeRevertTo` is set by the first change since the last revert and never
+   overwritten. Only the change that armed it carries a link. This is what makes a second change
+   worthless to an attacker: after A→B→C nothing is mailed to B, so there is no token in their
+   hands at all.
+2. *The row decides the destination, never the link.* A revert restores `EmailChangeRevertTo`, not
+   the address the presented token names. Even a leaked token can only put the account back where
+   the owner started.
+3. *Rotate `EmailChangeRevertStamp` on a successful revert, and bake it into every token.* This is
+   what makes a link single-use, together with the refusal when the account is already back on the
+   armed address.
 
-The stamp is a **new nullable column**, so this ADR no longer ships without a migration. It is
-additive and expand-only, which is the cheapest shape ADR-0023 allows, and it buys the guarantee
-the rest of this decision only claimed. It is deliberately **not** the security stamp: a password
-change rotates that, and surviving a password change is the one thing a revert token must do.
+The two rejected shapes, kept because each looks correct until it is attacked:
+
+- *"Refuse unless the account still sits on the address the token names."* An attacker chains
+  A→B then B→C, and the owner's A→B link matches nothing.
+- *"Restore from wherever the account sits, and rotate a stamp for single use."* Rotation is
+  symmetric and the attacker held `Rev(B→C)` in their own mailbox, so they simply clicked first:
+  the stamp rotated, the owner's link died, and the account was theirs at B with a password they
+  chose. Whoever clicks first wins, and the attacker is not waiting for an e-mail.
+
+Both fell to the same thing — a token that names its own destination is a bearer credential, and
+after a chain of changes the attacker holds one. Rule 1 stops one being issued to them; rule 2
+makes it useless if one ever is.
+
+The two columns are **new nullable fields**, so this ADR no longer ships without a migration. They
+are additive and expand-only, which is the cheapest shape ADR-0023 allows, and they buy the
+guarantee the rest of this decision only claimed. The revert stamp is deliberately **not** the
+security stamp: a password change rotates that, and surviving a password change is the one thing a
+revert token must do.
 
 ## Consequences
 
@@ -122,8 +134,12 @@ change rotates that, and surviving a password change is the one thing a revert t
 - **A revert token outlives a password change by design.** That is the whole point, and it means
   the token cannot be cancelled by rotating the stamp — the usual lever in this codebase. Anyone
   touching `EmailChangeRevertTokenProvider` must understand that omitting the stamp is the
-  requirement, not an oversight, and the guard that replaces it is the not-already-back check on
-  the revert page.
+  requirement, not an oversight. What replaces it is `EmailChangeRevertStamp`, rotated on revert
+  and only on revert.
+- **A second change in a chain gets no undo link.** If the *owner* legitimately changes twice, the
+  second change sends its notices without one, and their outstanding link still restores to where
+  the chain started rather than to the intermediate address. Slightly surprising, and the safe way
+  round: the alternative hands a working link to whoever holds the intermediate mailbox.
 - **Unused tokens from before the last revert are dead, including ones their owner still wanted.**
   Rotating on revert is deliberately blunt: it cannot tell the attacker's token from a second
   legitimate one. A user who had two changes in flight and reverts one loses the other's link and
@@ -202,8 +218,11 @@ change rotates that, and surviving a password change is the one thing a revert t
   14 days, carrying `(createdAt, userId, revertStamp, purpose)`. Its unit tests must pin **both**
   halves: a *security* stamp rotation does not invalidate it, and a *revert* stamp rotation does.
   Those two assertions are this ADR, executable.
-- `EmailChangeCompletedProcessor` skips a redelivery whose account has already moved on, so a
-  dead-lettered replay cannot mint a fresh token and restart the fourteen days.
+- `EmailChangeCompletedProcessor` mints and sends a revert link only when `EmailChangeRevertTo`
+  still names the address this message came from. A redelivery therefore cannot arm a second link,
+  and a later change in the chain cannot arm one at all. Its unit tests must stub
+  `UserManager.NormalizeEmail`: an unstubbed substitute returns null on both sides and
+  `string.Equals(null, null)` is true, which silently walks every test past that branch.
 - Every value that arrives in one of these links is checked for shape before the page prints it or
   acts on it. The user id must parse as a `Guid` — Identity converts it to the key type before it
   queries, so a non-GUID throws inside the store and a bad link becomes a 500 on a page somebody

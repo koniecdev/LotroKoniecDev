@@ -17,9 +17,12 @@ namespace LotroKoniecDev.AuthSystem.API.Services.Emails;
 /// The revert token is created here, at send time, like every other token in this pipeline. It can be
 /// built from the payload alone, which matters: by now the user row no longer holds the previous
 /// address, and that address is half of the token's purpose.
+/// Only the change that armed the undo carries a link. A later change in the same chain sends the
+/// notices without one, so an attacker who moved the account on a second time gets nothing they could
+/// use to undo the owner's recovery.
 /// A message may arrive more than once (ADR-0035), so this has to be safe to run twice. It is: a
-/// repeat sends the same two notices with a fresh revert token that opens the same page and reaches
-/// the same decision.
+/// repeat sends the same notices with a fresh revert token that opens the same page and reaches the
+/// same decision, and the armed target it reads does not move.
 /// </remarks>
 internal sealed partial class EmailChangeCompletedProcessor : IEmailMessageProcessor
 {
@@ -84,35 +87,39 @@ internal sealed partial class EmailChangeCompletedProcessor : IEmailMessageProce
             return Result.Success();
         }
 
-        // A redelivery that arrives after the account moved on, or after the revert already ran, would
-        // otherwise mint a brand-new token and start its fourteen days again from today.
-        if (!string.Equals(
-                _userManager.NormalizeEmail(user.Email),
-                _userManager.NormalizeEmail(message.NewEmail),
-                StringComparison.Ordinal))
+        // Only the change that armed the undo may carry its link. After A to B to C the armed target
+        // is still A, so the B-to-C message sends no link at all — there is nothing to hand whoever
+        // took the account over, and nothing for them to burn before the owner clicks (ADR-0048).
+        bool armedByThisChange = string.Equals(
+            _userManager.NormalizeEmail(user.EmailChangeRevertTo),
+            _userManager.NormalizeEmail(message.PreviousEmail),
+            StringComparison.Ordinal);
+
+        if (armedByThisChange)
         {
-            LogStaleChange(_logger, message.IdentityUserId);
-            return Result.Success();
+            string revertToken = await _userManager.GenerateUserTokenAsync(
+                user,
+                EmailChangeRevertTokenProvider.ProviderName,
+                EmailChangeRevertTokenProvider.PurposeFor(message.PreviousEmail, message.NewEmail));
+
+            // The old address goes first. It is the one that can still undo this, so if only one of
+            // the two messages ever gets through, it has to be that one.
+            Result revertOfferResult = await _emailChangeEmailSender.SendChangedNoticeWithRevertAsync(
+                user.Id,
+                message.PreviousEmail,
+                message.NewEmail,
+                revertToken,
+                _revertTokenOptions.TokenLifespan,
+                cancellationToken);
+
+            if (revertOfferResult.IsFailure)
+            {
+                return revertOfferResult;
+            }
         }
-
-        string revertToken = await _userManager.GenerateUserTokenAsync(
-            user,
-            EmailChangeRevertTokenProvider.ProviderName,
-            EmailChangeRevertTokenProvider.PurposeFor(message.PreviousEmail, message.NewEmail));
-
-        // The old address goes first. It is the one that can still undo this, so if only one of the
-        // two messages ever gets through, it has to be that one.
-        Result revertOfferResult = await _emailChangeEmailSender.SendChangedNoticeWithRevertAsync(
-            user.Id,
-            message.PreviousEmail,
-            message.NewEmail,
-            revertToken,
-            _revertTokenOptions.TokenLifespan,
-            cancellationToken);
-
-        if (revertOfferResult.IsFailure)
+        else
         {
-            return revertOfferResult;
+            LogNoUndoArmed(_logger, message.IdentityUserId);
         }
 
         return await _emailChangeEmailSender.SendChangedNoticeAsync(
@@ -122,8 +129,8 @@ internal sealed partial class EmailChangeCompletedProcessor : IEmailMessageProce
     [LoggerMessage(
         EventId = EventIds.EmailChangeDispatchStaleRequest,
         Level = LogLevel.Information,
-        Message = "Skipping e-mail change notices for user {UserId}: the account no longer sits on the new address")]
-    private static partial void LogStaleChange(ILogger logger, Guid userId);
+        Message = "No undo link for user {UserId}: an earlier change in the chain already armed one")]
+    private static partial void LogNoUndoArmed(ILogger logger, Guid userId);
 
     [LoggerMessage(
         EventId = EventIds.EmailChangeDispatchUserGone,

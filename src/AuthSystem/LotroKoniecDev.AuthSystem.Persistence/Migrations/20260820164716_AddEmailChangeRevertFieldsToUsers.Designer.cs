@@ -12,8 +12,8 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace LotroKoniecDev.AuthSystem.Persistence.Migrations
 {
     [DbContext(typeof(AuthDbContext))]
-    [Migration("20260820162701_AddEmailChangeRevertStampToUsers")]
-    partial class AddEmailChangeRevertStampToUsers
+    [Migration("20260820164716_AddEmailChangeRevertFieldsToUsers")]
+    partial class AddEmailChangeRevertFieldsToUsers
     {
         /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)
@@ -86,6 +86,10 @@ namespace LotroKoniecDev.AuthSystem.Persistence.Migrations
 
                     b.Property<Guid?>("EmailChangeRevertStamp")
                         .HasColumnType("uuid");
+
+                    b.Property<string>("EmailChangeRevertTo")
+                        .HasMaxLength(250)
+                        .HasColumnType("character varying(250)");
 
                     b.Property<bool>("EmailConfirmed")
                         .HasColumnType("boolean");

@@ -84,6 +84,10 @@ namespace LotroKoniecDev.AuthSystem.Persistence.Migrations
                     b.Property<Guid?>("EmailChangeRevertStamp")
                         .HasColumnType("uuid");
 
+                    b.Property<string>("EmailChangeRevertTo")
+                        .HasMaxLength(250)
+                        .HasColumnType("character varying(250)");
+
                     b.Property<bool>("EmailConfirmed")
                         .HasColumnType("boolean");
 

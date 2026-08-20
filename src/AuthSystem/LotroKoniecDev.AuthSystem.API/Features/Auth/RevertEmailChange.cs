@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using LotroKoniecDev.AuthSystem.API.ApiErrors;
 using LotroKoniecDev.AuthSystem.API.Extensions;
+using LotroKoniecDev.AuthSystem.API.Outbox;
 using LotroKoniecDev.AuthSystem.API.Services.Sessions;
 using LotroKoniecDev.AuthSystem.Domain.Aggregates.ApplicationUsers.Entities;
 using LotroKoniecDev.AuthSystem.Persistence.DbContexts;
@@ -78,6 +79,7 @@ internal sealed partial class RevertEmailChange
     {
         private readonly UserManager<ApplicationUser> _userManager;
         private readonly AuthDbContext _db;
+        private readonly OutboxWriter _outboxWriter;
         private readonly IUserSessionRevoker _sessionRevoker;
         private readonly IValidator<Command> _validator;
         private readonly ILogger<Handler> _logger;
@@ -85,12 +87,14 @@ internal sealed partial class RevertEmailChange
         public Handler(
             UserManager<ApplicationUser> userManager,
             AuthDbContext db,
+            OutboxWriter outboxWriter,
             IUserSessionRevoker sessionRevoker,
             IValidator<Command> validator,
             ILogger<Handler> logger)
         {
             _userManager = userManager;
             _db = db;
+            _outboxWriter = outboxWriter;
             _sessionRevoker = sessionRevoker;
             _validator = validator;
             _logger = logger;
@@ -127,17 +131,22 @@ internal sealed partial class RevertEmailChange
                 return Result.Failure<RevertedEmailChange>(AuthErrors.InvalidEmailChangeToken);
             }
 
-            // The guard is "the account is not already back on the previous address", NOT "the account
-            // still sits on the address the token names". The stricter version looks safer and is the
-            // opposite: an attacker who knows the password just changes the address twice, A to B then
-            // B to C, and the owner's A-to-B link no longer matches anything — while the new revert
-            // offer goes to B, which the attacker owns. This way the link keeps working from wherever
-            // the account has been dragged, which is the whole promise of ADR-0048.
-            // It still refuses the second click, because by then the account IS back on the previous
-            // address, so a revert cannot run twice and clear a freshly reset password.
+            // Where the account goes is decided by the row, never by the link. The token proves who is
+            // asking; the armed target says where they may put it. That is what makes a second change
+            // useless to an attacker: it cannot arm a target of its own, so there is no link to hand
+            // them and no way for one to move the account somewhere the owner did not start from.
+            string? revertTarget = user.EmailChangeRevertTo;
+            if (string.IsNullOrWhiteSpace(revertTarget))
+            {
+                LogAlreadySettled(_logger, user.Id);
+                return Result.Failure<RevertedEmailChange>(AuthErrors.InvalidEmailChangeToken);
+            }
+
+            // Already back where it started, so there is nothing to undo. This is what stops a second
+            // click clearing a password the owner has since reset.
             if (string.Equals(
                     _userManager.NormalizeEmail(user.Email),
-                    _userManager.NormalizeEmail(previousEmail),
+                    _userManager.NormalizeEmail(revertTarget),
                     StringComparison.Ordinal))
             {
                 LogAlreadySettled(_logger, user.Id);
@@ -147,14 +156,14 @@ internal sealed partial class RevertEmailChange
             // Somebody may have registered the freed address in the meantime. Then there is nothing to
             // go back to, and the password must stay as it is: clearing it would lock the account out
             // of both addresses at once.
-            ApplicationUser? previousAddressOwner = await _userManager.FindByEmailAsync(previousEmail);
+            ApplicationUser? previousAddressOwner = await _userManager.FindByEmailAsync(revertTarget);
             if (previousAddressOwner is not null)
             {
                 LogPreviousAddressTaken(_logger, user.Id);
                 return Result.Failure<RevertedEmailChange>(AuthErrors.UserAlreadyExistsByEmail);
             }
 
-            user.Email = previousEmail;
+            user.Email = revertTarget;
             user.EmailConfirmed = true;
 
             // Whoever moved the address knew the password, so the password goes. Only the reset flow
@@ -163,17 +172,26 @@ internal sealed partial class RevertEmailChange
 
             user.SecurityStamp = Guid.NewGuid().ToString();
 
-            // Retires every revert link issued so far, including the ones further up a chain of
-            // changes. Without it the attacker's own token, mailed to an address they controlled,
-            // still works and simply undoes this recovery (ADR-0048).
+            // Retires every revert link issued so far and disarms the chain, so the next change starts
+            // a fresh one from here.
             user.EmailChangeRevertStamp = Guid.NewGuid();
+            user.EmailChangeRevertTo = null;
 
             // A deletion the same person may have scheduled is called off here. Its cancel link went to
             // the address the account was moved to, so leaving the schedule in place would hand the
             // erasure to whoever took the account over.
+            bool cancelledADeletion = user.DeletionScheduledAt is not null;
             user.DeletionScheduledAt = null;
             user.LockoutEnd = null;
             user.AccessFailedCount = 0;
+
+            // ADR-0031 wants every cancellation announced, and this is one. The notice rides the same
+            // save as the change, so "cancelled but nobody told" cannot happen, and it reaches the
+            // restored address rather than the one it was taken to.
+            if (cancelledADeletion)
+            {
+                _outboxWriter.Enqueue(new AccountDeletionCancelled(user.Id));
+            }
 
             Result<IdentityResult> updateResult = await TryUpdateAsync(user);
             if (updateResult.IsFailure)
@@ -191,6 +209,11 @@ internal sealed partial class RevertEmailChange
                 return Result.Failure<RevertedEmailChange>(AuthErrors.EmailChangeFailed(errors));
             }
 
+            if (cancelledADeletion)
+            {
+                _outboxWriter.NotifyEnqueuedCommitted();
+            }
+
             await _sessionRevoker.RevokeAllAsync(user.Id.ToString(), cancellationToken);
 
             // Created after the save, from the stored stamp. A token made before it would be
@@ -198,9 +221,9 @@ internal sealed partial class RevertEmailChange
             string passwordResetToken = await _userManager.GeneratePasswordResetTokenAsync(user);
 
             LogReverted(
-                _logger, user.Id, currentEmail.MaskEmail(), previousEmail.MaskEmail(), command.IpAddress, command.UserAgent);
+                _logger, user.Id, currentEmail.MaskEmail(), revertTarget.MaskEmail(), command.IpAddress, command.UserAgent);
 
-            return Result.Success(new RevertedEmailChange(previousEmail, passwordResetToken));
+            return Result.Success(new RevertedEmailChange(revertTarget, passwordResetToken));
         }
 
         /// <summary>

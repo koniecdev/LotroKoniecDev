@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
 using LotroKoniecDev.AuthSystem.API.Features.Auth;
+using LotroKoniecDev.AuthSystem.API.Outbox;
 using LotroKoniecDev.AuthSystem.API.Services.Sessions;
 using LotroKoniecDev.AuthSystem.Domain.Aggregates.ApplicationUsers.Entities;
 using LotroKoniecDev.AuthSystem.Persistence.DbContexts;
@@ -74,7 +75,44 @@ public sealed class RevertEmailChangeHandlerTests
     }
 
     [Fact]
-    public async Task Handle_AccountAlreadyBackOnThePreviousAddress_RefusesSoASecondClickDoesNothing()
+    public async Task Handle_NothingArmed_RefusesEvenWithAValidToken()
+    {
+        // A revert may only put the account where an earlier change armed it. With nothing armed there
+        // is no target, and a token alone must not be able to invent one.
+        ApplicationUser user = CreateUser();
+        user.EmailChangeRevertTo = null;
+        StubUser(user, tokenValid: true);
+        RevertEmailChange.Handler sut = CreateSut();
+
+        SharedKernel.Monads.Result<RevertEmailChange.RevertedEmailChange> result = await sut.Handle(
+            CommandFor(user.Id.ToString()), CancellationToken.None);
+
+        result.IsFailure.ShouldBeTrue();
+        user.Email.ShouldBe(CurrentEmail);
+        user.PasswordHash.ShouldNotBeNull();
+    }
+
+    [Fact]
+    public async Task Handle_LinkNamesADifferentAddressThanTheArmedOne_RestoresTheArmedOne()
+    {
+        // The link says where it came from; the row says where the account may go. If a token could
+        // choose the destination, a second change in a chain would become an undo target of its own.
+        ApplicationUser user = CreateUser();
+        user.EmailChangeRevertTo = "chain-start@shire.me";
+        StubUser(user, tokenValid: true);
+        _userManager.FindByEmailAsync("chain-start@shire.me").Returns((ApplicationUser?)null);
+        RevertEmailChange.Handler sut = CreateSut();
+
+        SharedKernel.Monads.Result<RevertEmailChange.RevertedEmailChange> result = await sut.Handle(
+            CommandFor(user.Id.ToString()), CancellationToken.None);
+
+        result.IsSuccess.ShouldBeTrue();
+        user.Email.ShouldBe("chain-start@shire.me");
+        result.Value.RestoredEmail.ShouldBe("chain-start@shire.me");
+    }
+
+    [Fact]
+    public async Task Handle_AccountAlreadyBackOnTheArmedAddress_RefusesSoASecondClickDoesNothing()
     {
         // The token carries no security stamp, so this check is what stops a replay from clearing a
         // password the owner has already reset.
@@ -145,9 +183,10 @@ public sealed class RevertEmailChangeHandlerTests
         user.PasswordHash.ShouldBeNull();
         user.SecurityStamp.ShouldNotBe(stampBefore);
 
-        // Retires every revert link issued so far, including the attacker's own further up a chain of
-        // changes. Without it their token still works and undoes this recovery.
+        // Retires every link issued so far and disarms the chain, so the next change starts a fresh
+        // one from here.
         user.EmailChangeRevertStamp.ShouldNotBeNull();
+        user.EmailChangeRevertTo.ShouldBeNull();
 
         // Revoking the OpenIddict artifacts leaves no trace in the return value, so it is asserted here.
         await _sessionRevoker.Received(1).RevokeAllAsync(user.Id.ToString(), Arg.Any<CancellationToken>());
@@ -193,6 +232,11 @@ public sealed class RevertEmailChangeHandlerTests
         user.DeletionScheduledAt.ShouldBeNull();
         user.LockoutEnd.ShouldBeNull();
         user.AccessFailedCount.ShouldBe(0);
+
+        // ADR-0031 wants every cancellation announced, and the notice has to ride the same save.
+        _db.ChangeTracker.Entries<Persistence.Outbox.OutboxMessage>()
+            .Count(entry => entry.Entity.Type == nameof(AccountDeletionCancelled))
+            .ShouldBe(1);
     }
 
     private static RevertEmailChange.Command CommandFor(string userId) =>
@@ -216,6 +260,7 @@ public sealed class RevertEmailChangeHandlerTests
         new(
             _userManager,
             _db,
+            new OutboxWriter(_db, new OutboxSignal(), TimeProvider.System),
             _sessionRevoker,
             new RevertEmailChange.CommandValidator(),
             NullLogger<RevertEmailChange.Handler>.Instance);
@@ -227,7 +272,8 @@ public sealed class RevertEmailChangeHandlerTests
             UserName = "frodo",
             Email = CurrentEmail,
             PasswordHash = "hashed",
-            SecurityStamp = Guid.NewGuid().ToString()
+            SecurityStamp = Guid.NewGuid().ToString(),
+            EmailChangeRevertTo = PreviousEmail
         };
 
     /// <summary>

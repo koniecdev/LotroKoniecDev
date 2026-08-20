@@ -94,10 +94,21 @@ jobs:
           fetch-depth: 2
           persist-credentials: false
 
-      # Fast, dependency-free gate: the Frontend must stay Static SSR. Runs before
-      # the .NET setup so a stray @rendermode/@onclick fails in seconds, not minutes.
-      - name: Pure-SSR guard
+      # Fast, dependency-free gate: the Frontend must stay Static SSR, and must not carry an
+      # inline <script> our CSP would block (#670). Runs before the .NET setup so a stray
+      # @rendermode/@onclick/<script> fails in seconds, not minutes.
+      # The self-test runs FIRST: a guard that never fires passes a clean tree just as happily
+      # as a correct one, so its own cases are what prove it still catches anything.
+      - name: Frontend markup guard self-test
+        run: ./scripts/tests/check-ssr-purity.tests.sh
+
+      - name: Frontend markup guard
         run: ./scripts/check-ssr-purity.sh
+
+      # Leg 2 of the post-deploy smoke decides whether a bad frontend rolls the box back, and
+      # nothing else in CI executes smoke.sh. These cases pin its CSP ladder (#670).
+      - name: Smoke CSP ladder self-test
+        run: ./scripts/tests/smoke-csp.tests.sh
 
       # Same shape, the other client invariant: no hardcoded API paths, in the Frontend and in
       # the CLI alike. There is no gateway (ADR-0041), so a client resolves every entry point by

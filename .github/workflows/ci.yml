@@ -44,9 +44,15 @@ jobs:
           fetch-depth: 2
           persist-credentials: false
 
-      # Same Static-SSR gate as pr-verify — backstops direct pushes to main.
-      - name: Pure-SSR guard
+      # Same Frontend markup gate as pr-verify — backstops direct pushes to main.
+      - name: Frontend markup guard self-test
+        run: ./scripts/tests/check-ssr-purity.tests.sh
+
+      - name: Frontend markup guard
         run: ./scripts/check-ssr-purity.sh
+
+      - name: Smoke CSP ladder self-test
+        run: ./scripts/tests/smoke-csp.tests.sh
 
       # Same hypermedia gate as pr-verify — backstops direct pushes to main.
       - name: Client hypermedia guard

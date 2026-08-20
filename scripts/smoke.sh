@@ -12,6 +12,9 @@
 #                    passes leg 1 while every asset 404s and the browser spins forever (#414). The
 #                    fingerprint in `blazor.web.<hash>.js` is the tell — `@Assets[]` emits it only when
 #                    it resolved the manifest, so an unfingerprinted src means the manifest is empty.
+#                    The same leg also checks that the CSP we send does not block the HTML we send: an
+#                    inline <script> under `script-src 'self'` is dead, the page still renders, and only
+#                    the browser console says so, so no other check here can see it (#670).
 #   3. Auth token  — a client-credentials token round-trip against auth-api's /connect/token. This is
 #                    the only non-interactive OIDC grant available in staging/production (the web
 #                    client needs a browser; the password-flow client is seeded only in Testing).
@@ -49,6 +52,9 @@ Options:
   --lang          LANG   translation-file language  (env SMOKE_LANG,       default pl)
   --timeout       SECS   per-request timeout        (env SMOKE_TIMEOUT,    default 15)
   --insecure, -k         skip TLS verification (local CA / dev cert stacks; env SMOKE_INSECURE=1)
+  --require-csp          a frontend response with no Content-Security-Policy FAILS instead of
+                         warning (env SMOKE_REQUIRE_CSP=1). CD passes it: only a Development
+                         stack legitimately serves no CSP, and CD never smokes one.
   -h, --help             show this help
 
 Examples:
@@ -75,6 +81,7 @@ SCOPE="${SMOKE_SCOPE:-service}"
 LANG_CODE="${SMOKE_LANG:-pl}"
 TIMEOUT="${SMOKE_TIMEOUT:-15}"
 INSECURE="${SMOKE_INSECURE:-0}"
+REQUIRE_CSP="${SMOKE_REQUIRE_CSP:-0}"
 
 # A value-taking flag given as the last token (no value follows) must be a clean usage error (exit 2),
 # not a raw `set -u` "unbound variable" abort. $1 = flag, $2 = remaining arg count ($#).
@@ -98,6 +105,7 @@ while [ "$#" -gt 0 ]; do
         --lang)          require_value "$1" "$#"; LANG_CODE="$2"; shift 2 ;;
         --timeout)       require_value "$1" "$#"; TIMEOUT="$2"; shift 2 ;;
         --insecure|-k)   INSECURE=1; shift ;;
+        --require-csp)   REQUIRE_CSP=1; shift ;;
         -h|--help)       usage; exit 0 ;;
         *) echo "Unknown argument: $1" >&2; echo >&2; usage >&2; exit 2 ;;
     esac
@@ -171,8 +179,9 @@ else
 fi
 echo
 
-echo "[2/5] Frontend static web assets (#414)"
-home_html="$(curl -s --max-time "$TIMEOUT" $TLS_FLAG "$FRONTEND_URL/" 2>/dev/null || true)"
+echo "[2/5] Frontend static web assets + CSP consistency (#414, #670)"
+: > "$HDR_FILE"
+home_html="$(curl -s -D "$HDR_FILE" --max-time "$TIMEOUT" $TLS_FLAG "$FRONTEND_URL/" 2>/dev/null || true)"
 # `@Assets["_framework/blazor.web.js"]` renders a fingerprinted src ONLY when MapStaticAssets
 # resolved the publish manifest. A bare `blazor.web.js` means the manifest shipped empty.
 asset_path="$(printf '%s' "$home_html" | grep -oE '_framework/blazor\.web\.[A-Za-z0-9]+\.js' | head -n 1 || true)"
@@ -182,6 +191,35 @@ else
     pass "frontend / references $asset_path (manifest resolved)"
     code="$(get_status "$FRONTEND_URL/$asset_path")"
     [ "$code" = "200" ] && pass "frontend /$asset_path -> 200" || fail "frontend /$asset_path -> $code (expected 200)"
+
+    # Only runs once the fingerprint above proved the body is real HTML: an empty body has no inline
+    # script either, so this check would otherwise go green exactly when the site is down.
+    # Keep the VALUE only, like leg 5 does for the ETag, so the twins compare the same string.
+    csp="$(grep -i '^content-security-policy:' "$HDR_FILE" | head -n 1 | tr -d '\r' | sed -E 's/^[^:]*:[[:space:]]*//' || true)"
+    script_src="$(printf '%s' "$csp" | tr ';' '\n' | grep -i 'script-src' | head -n 1 || true)"
+    if [ -z "$csp" ]; then
+        # Development skips the whole security-headers middleware, so a local dev stack lands here.
+        if [ "$REQUIRE_CSP" = "1" ]; then
+            fail "frontend / sends no Content-Security-Policy header (--require-csp)"
+        else
+            warn "frontend / sends no Content-Security-Policy header (expected only on a Development stack)"
+        fi
+    elif printf '%s' "$script_src" | grep -qi "unsafe-inline"; then
+        fail "frontend / script-src allows 'unsafe-inline' — injected script is no longer blocked (#670)"
+    elif printf '%s' "$script_src" | grep -qiE "nonce-|sha(256|384|512)-"; then
+        # A nonce or hash is the documented way to allow one specific inline script, so the count below
+        # would prove nothing.
+        pass "frontend / script-src admits inline script only by nonce or hash"
+    else
+        # HTML tag and attribute names are case-insensitive, so match them that way. Newlines are
+        # folded first, because grep works line by line and a tag may be split over two lines.
+        inline_scripts="$(printf '%s' "$home_html" | tr '\n' ' ' | grep -oiE '<script[^>]*>' | grep -c -iv 'src=' || true)"
+        if [ "$inline_scripts" = "0" ]; then
+            pass "frontend / serves no inline <script> (nothing for script-src to block)"
+        else
+            fail "frontend / serves $inline_scripts inline <script> element(s), which its own script-src blocks (#670)"
+        fi
+    fi
 fi
 echo
 

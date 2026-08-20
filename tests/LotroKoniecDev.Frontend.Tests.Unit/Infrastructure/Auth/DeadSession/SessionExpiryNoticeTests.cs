@@ -63,8 +63,8 @@ public sealed class SessionExpiryNoticeTests
 
         notice.Consume();
 
-        // Deletion (not a re-append) is expressed as a Set-Cookie for the same name carrying the Unix
-        // epoch expiry — asserting on that distinguishes a genuine delete from any other Set-Cookie.
+        // A delete, rather than another write, appears as a Set-Cookie for the same name with an expiry
+        // in 1970. Checking for that tells a real delete apart from any other Set-Cookie.
         string setCookie = httpContext.Response.Headers.SetCookie.ToString();
         setCookie.ShouldContain(SessionExpiryNotice.CookieName);
         setCookie.ShouldContain("expires=Thu, 01 Jan 1970", Case.Insensitive);

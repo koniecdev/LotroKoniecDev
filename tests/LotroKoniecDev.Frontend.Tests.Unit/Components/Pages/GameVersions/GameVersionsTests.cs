@@ -17,21 +17,23 @@ using LotroKoniecDev.Frontend.Tests.Unit.Infrastructure.Discovery;
 namespace LotroKoniecDev.Frontend.Tests.Unit.Components.Pages.GameVersions;
 
 /// <summary>
-/// Renders the <see cref="GameVersionsComponent"/> through bUnit over a stubbed TMS client, locking
-/// down the render wiring the loader tests cannot reach: the list shows every version with its Polish
-/// status label; the manual-register form is gated on the collection's admin-only <c>register</c> rel
-/// and the per-row delete button on the item's admin-only <c>delete</c> rel (#158) — not a locally
-/// recomputed role; submitting the register form with no version surfaces the validation notice without
-/// posting; and submitting a delete form follows through to the loader and confirms or surfaces a problem.
+/// Renders the <see cref="GameVersionsComponent"/> through bUnit over a stubbed TMS client, to pin what
+/// the loader tests cannot reach: the list shows every version with its Polish status label; the
+/// register form appears only when the collection carries the admin-only <c>register</c> rel and the
+/// per-row delete button only when the item carries the admin-only <c>delete</c> rel (#158), never
+/// because of a role check in the page; submitting the register form with no version shows the
+/// validation notice without posting; and submitting a delete form reaches the loader and then either
+/// confirms or shows a problem.
 /// <para>
-/// The shared post-action render blocks — the <c>_actionMessage</c> success line and the
-/// <c>_actionProblem</c> error line, both reused verbatim by register and delete — are pinned at the
-/// page level by the two delete-submit tests (success + API refusal), and the empty-register test pins
-/// the page-level validation-failure render plus list survival. The register submit that carries a typed
-/// version cannot be driven here: bUnit's static-SSR form submission does not serialize a programmatically
-/// set text field (mirrors why <c>ImportExportTests</c>/<c>EditorTests</c> never populate SSR text inputs),
-/// so the register POST request shape and its success/422 result mapping are covered by
-/// <c>GameVersionsLoaderTests</c>, and the full typed-form flow by the Playwright E2E (ADR-0009).
+/// The two blocks both actions render through, the <c>_actionMessage</c> success line and the
+/// <c>_actionProblem</c> error line, are pinned here by the two delete-submit tests, one success and one
+/// refusal from the API. The empty-register test pins the validation-failure render and that the list
+/// survives it.
+/// A register submit with a typed version cannot be driven here, because bUnit's static SSR form
+/// submission does not send a text field set from code. That is the same reason
+/// <c>ImportExportTests</c> and <c>EditorTests</c> never fill SSR text inputs. So the register POST
+/// request and its success and 422 handling are covered by <c>GameVersionsLoaderTests</c>, and the full
+/// typed-form flow by the Playwright E2E tests (ADR-0009).
 /// </para>
 /// </summary>
 public sealed class GameVersionsTests : BunitContext
@@ -160,9 +162,9 @@ public sealed class GameVersionsTests : BunitContext
     [Fact]
     public async Task Delete_WhenTheApiRefusesInEnglish_ShowsPolishInTheSharedActionErrorBlock()
     {
-        // #548: the shared _actionProblem block (reused verbatim by register) used to paint the API's
-        // English straight into the Polish page. Register's own submit is undrivable in bUnit SSR —
-        // see the class summary — so delete pins the block both actions render through.
+        // #548: the shared _actionProblem block, which register uses too, used to print the API's English
+        // straight into the Polish page. Register's own submit cannot be driven in bUnit, see the class
+        // summary above, so the delete test pins the block both actions render through.
         AuthorizeAs("Sam");
         StubVersions(Version("48.0", GameVersionStatus.Unprocessed, canDelete: true));
         _client.DeleteApiResultAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
@@ -219,13 +221,13 @@ public sealed class GameVersionsTests : BunitContext
     private void AuthorizeAs(string userName) =>
         AddAuthorization().SetAuthorized(userName);
 
-    /// <summary>Stubs the versions list as a plain translator sees it — no admin <c>register</c> rel.</summary>
+    /// <summary>Stubs the versions list as a plain translator sees it, with no admin <c>register</c> rel.</summary>
     private void StubVersions(params GameVersionResponse[] versions) =>
         _client
             .GetApiResultAsync<CollectionResponse<GameVersionResponse>>(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(ApiResult.Success(new CollectionResponse<GameVersionResponse> { Items = versions }));
 
-    /// <summary>Stubs the versions list as an admin sees it — the collection carries the <c>register</c> rel.</summary>
+    /// <summary>Stubs the versions list as an admin sees it, where the collection carries <c>register</c>.</summary>
     private void StubVersionsWithRegisterRel(params GameVersionResponse[] versions) =>
         _client
             .GetApiResultAsync<CollectionResponse<GameVersionResponse>>(Arg.Any<string>(), Arg.Any<CancellationToken>())

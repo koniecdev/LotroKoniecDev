@@ -18,12 +18,11 @@ using TranslationRels = LotroKoniecDev.TranslationSystem.Contracts.Hateoas.Rels;
 namespace LotroKoniecDev.Frontend.Tests.Unit.Infrastructure.Discovery;
 
 /// <summary>
-/// Both legs of the discovery cache over a real <see cref="HybridCache"/> and substituted clients. Each
-/// leg runs the same poisoning guard: it must never cache an anonymous link set under an authenticated
-/// key (that would strip every signed-in user of the affordances their session actually has — for a
-/// full day), a degraded response must mark the session dead and fall back to the anonymous links, and
-/// a genuine outage stays a ProblemDetails failure — never cached, never reclassified as "session
-/// expired".
+/// Both halves of the discovery cache, over a real <see cref="HybridCache"/> and substituted clients.
+/// Both follow the same rule: an anonymous set of links must never be cached under a logged-in key,
+/// because that would take away, for a whole day, everything a signed-in user is allowed to do. Such a
+/// response must mark the session dead and fall back to the anonymous links. A real outage stays a
+/// ProblemDetails failure, is never cached, and is never turned into "session expired".
 /// </summary>
 public sealed class DiscoveryCacheTests
 {
@@ -72,9 +71,9 @@ public sealed class DiscoveryCacheTests
     [Fact]
     public async Task GetAuthSystemDiscoveryAsync_NeverCachesAnonymousLinksUnderTheAuthenticatedKey()
     {
-        // First call: the bearer never reached the API → anonymous set. Second call: the API answers
-        // correctly. If the degraded set had been cached under the "user" key, the second call would
-        // still be missing the export rel — for a full day.
+        // First call: the token never reached the API, so we get the anonymous set. Second call: the API
+        // answers properly. If the first, incomplete set had been cached under the "user" key, the second
+        // call would still be missing the export rel, for a whole day.
         _authClient.GetDiscoveryAsync(Arg.Any<CancellationToken>())
             .Returns(
                 ApiResult.Success(AnonymousDiscovery()),
@@ -99,7 +98,7 @@ public sealed class DiscoveryCacheTests
         ApiResult<AuthDiscoveryResponse> result = await cache.GetAuthSystemDiscoveryAsync();
 
         result.IsSuccess.ShouldBeTrue();
-        // An anonymous link set under the anonymous key is the correct state — no forced sign-out.
+        // An anonymous set of links under the anonymous key is correct, so nobody is signed out.
         await _deadSessionRegistry.DidNotReceive().MarkDeadAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
     }
 
@@ -167,7 +166,7 @@ public sealed class DiscoveryCacheTests
 
         ApiResult<TranslationDiscoveryResponse> result = await cache.GetTranslationSystemDiscoveryAsync();
 
-        // Degrades to the anonymous link set — the public pages keep rendering on the way out…
+        // It falls back to the anonymous set of links, so the public pages still render on the way out.
         result.IsSuccess.ShouldBeTrue();
         result.Value.Links.ShouldNotContain(link => link.Rel == TranslationRels.ContributionDataExport);
         result.Value.Links.ShouldContain(link => link.Rel == TranslationRels.Progress);
@@ -178,9 +177,9 @@ public sealed class DiscoveryCacheTests
     [Fact]
     public async Task GetTranslationSystemDiscoveryAsync_NeverCachesAnonymousLinksUnderTheAuthenticatedKey()
     {
-        // First call: the bearer never reached the API → anonymous set. Second call: the API answers
-        // correctly. If the degraded set had been cached under the "user" key, the second call would
-        // still be missing the authenticated entry points — for a full day.
+        // First call: the token never reached the API, so we get the anonymous set. Second call: the API
+        // answers properly. If the first, incomplete set had been cached under the "user" key, the second
+        // call would still be missing the logged-in entry points, for a whole day.
         _translationClient.GetDiscoveryAsync(Arg.Any<CancellationToken>())
             .Returns(
                 ApiResult.Success(AnonymousTranslationDiscovery()),
@@ -281,9 +280,9 @@ public sealed class DiscoveryCacheTests
         };
 
     /// <summary>
-    /// What the TMS root answers an authenticated caller: the public entry points plus at least
-    /// <c>contribution-data-export</c>, whose endpoint requires nothing beyond authentication — the
-    /// sentinel the guard reads.
+    /// What the TMS root sends a logged-in caller: the public entry points plus at least
+    /// <c>contribution-data-export</c>, whose endpoint needs nothing but a login. That is the marker the
+    /// check looks for.
     /// </summary>
     private static TranslationDiscoveryResponse AuthenticatedTranslationDiscovery() =>
         new("LotroKoniecDev.TranslationSystem")
@@ -295,7 +294,7 @@ public sealed class DiscoveryCacheTests
             ]
         };
 
-    /// <summary>What the TMS root answers a guest — the three anonymous endpoints, and nothing more.</summary>
+    /// <summary>What the TMS root sends a guest: the three public endpoints and nothing else.</summary>
     private static TranslationDiscoveryResponse AnonymousTranslationDiscovery() =>
         new("LotroKoniecDev.TranslationSystem")
         {

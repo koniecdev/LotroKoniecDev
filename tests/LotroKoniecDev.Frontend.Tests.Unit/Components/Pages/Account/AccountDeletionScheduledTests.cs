@@ -3,9 +3,9 @@ using LotroKoniecDev.Frontend.Components.Pages.Account;
 namespace LotroKoniecDev.Frontend.Tests.Unit.Components.Pages.Account;
 
 /// <summary>
-/// The anonymous "deletion scheduled" confirmation page: the <c>until</c> query value is
-/// user-tamperable, so the date line must parse it defensively — a valid ISO instant renders in
-/// Polish time, anything else falls back to the generic 14-day phrasing.
+/// The public "deletion scheduled" page. A user can change the <c>until</c> value in the URL, so the
+/// date line has to be careful: a valid ISO date is shown in Polish time, and anything else falls back
+/// to the general "14 days" wording.
 /// </summary>
 public sealed class AccountDeletionScheduledTests : BunitContext
 {

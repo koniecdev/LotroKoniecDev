@@ -14,10 +14,10 @@ using NSubstitute;
 namespace LotroKoniecDev.Frontend.Tests.Unit.Infrastructure.Auth;
 
 /// <summary>
-/// Drives the login route's request delegate directly (no web host): when the OIDC authority is
-/// reachable it must produce the OIDC challenge (302), but when the discovery fetch fails — the auth
-/// server is down — it must warm-fail into a 503 so the status-code pages serve the friendly
-/// "login unavailable" page instead of letting the challenge bubble a raw 500 (#311).
+/// Calls the login route's handler directly, with no web host. When the OIDC authority answers, it has
+/// to produce the challenge and a 302. When the discovery fetch fails, because the auth server is down,
+/// it has to return a 503, so the status-code pages show the friendly "login unavailable" page instead
+/// of the challenge throwing a raw 500 (#311).
 /// </summary>
 public sealed class AuthEndpointsExtensionsTests
 {
@@ -114,7 +114,8 @@ public sealed class AuthEndpointsExtensionsTests
 
         RedirectHttpResult redirect = result.ShouldBeOfType<RedirectHttpResult>();
         redirect.Url.ShouldBe("/account/deletion-scheduled?until=2026-07-25T10%3A00%3A00Z");
-        // Cookie sign-out is invisible in the return value — the .Received() is the only observable proof.
+        // The cookie sign-out does not show up in the return value, so the .Received() check is the only
+        // way to see it happened.
         await authenticationService.Received(1).SignOutAsync(
             context,
             CookieAuthenticationDefaults.AuthenticationScheme,

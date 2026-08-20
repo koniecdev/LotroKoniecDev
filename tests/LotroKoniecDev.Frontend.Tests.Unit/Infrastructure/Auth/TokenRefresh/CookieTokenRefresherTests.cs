@@ -31,8 +31,8 @@ public sealed class CookieTokenRefresherTests : IDisposable
     [Fact]
     public async Task ValidateAsync_WithUnexpiredTokenSignedByRotatedKey_RejectsPrincipalAndSignsOut()
     {
-        // The token is alive on the local clock but its signature does not verify against the only key
-        // the FE currently trusts — the upstream key has rotated.
+        // The token is still valid by the local clock, but its signature does not match the only key the
+        // frontend trusts right now, because the key upstream has changed.
         RsaSecurityKey actualSigningKey = CreateRsaKey();
         RsaSecurityKey trustedKey = CreateRsaKey();
         string accessToken = MintAccessToken(actualSigningKey, tokenIssuer: DiscoveryIssuer);
@@ -92,8 +92,8 @@ public sealed class CookieTokenRefresherTests : IDisposable
     [Fact]
     public async Task ValidateAsync_WhenDiscoveryIssuerIsEmpty_KeepsPrincipal()
     {
-        // Discovery has not yielded an issuer yet. The empty-issuer guard must skip the proactive check
-        // rather than falsely log the user out — even with a key the FE doesn't trust.
+        // Discovery has not given us an issuer yet. With no issuer we skip the signature check instead of
+        // logging the user out by mistake, even when the key is one the frontend does not trust.
         RsaSecurityKey actualSigningKey = CreateRsaKey();
         RsaSecurityKey trustedKey = CreateRsaKey();
         string accessToken = MintAccessToken(actualSigningKey, tokenIssuer: DiscoveryIssuer);
@@ -111,9 +111,10 @@ public sealed class CookieTokenRefresherTests : IDisposable
     [Fact]
     public async Task ValidateAsync_WhenTokenRefreshedNearExpiry_SkipsProactiveProbeAndStoresFreshToken()
     {
-        // A token inside the 60s pre-expiry skew is refreshed. The fresh token is signed by a key the FE
-        // does not (yet) trust — the momentarily-stale-JWKS window. Because the token was just minted
-        // upstream, the proactive probe must be skipped: the session survives and the token is stored.
+        // A token within 60 seconds of expiry is refreshed. The new token is signed with a key the
+        // frontend does not trust yet, which is the short window where our copy of the keys is out of
+        // date. Because the token was just issued upstream, the signature check is skipped, the session
+        // survives and the token is stored.
         RsaSecurityKey trustedKey = CreateRsaKey();
         RsaSecurityKey freshUpstreamKey = CreateRsaKey();
         string staleAccessToken = MintAccessToken(trustedKey, tokenIssuer: DiscoveryIssuer);
@@ -163,8 +164,9 @@ public sealed class CookieTokenRefresherTests : IDisposable
     [Fact]
     public async Task ValidateAsync_WhenSessionMarkedDead_RejectsPrincipalAndSignsOut()
     {
-        // A prior 401 marked this subject dead. The reactive backstop must reject before any refresh or
-        // proactive probe runs — even though the token is alive and signed by a trusted key.
+        // An earlier 401 marked this subject dead. That check has to reject the session before any
+        // refresh or signature check runs, even though the token is still valid and signed with a trusted
+        // key.
         RsaSecurityKey signingKey = CreateRsaKey();
         string accessToken = MintAccessToken(signingKey, tokenIssuer: DiscoveryIssuer);
 

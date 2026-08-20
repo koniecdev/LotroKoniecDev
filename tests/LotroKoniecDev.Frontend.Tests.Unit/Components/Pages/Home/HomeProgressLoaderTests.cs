@@ -70,9 +70,9 @@ public sealed class HomeProgressLoaderTests
     [Fact]
     public async Task LoadAsync_WhenTheAdvertisedHrefIsAbsolute_CallsItInsteadOfTheClientsBaseAddress()
     {
-        // The production shape: LinkGenerator emits absolute hrefs, so every real TMS call now travels
-        // to whatever origin discovery names — not to the typed client's configured base address. The
-        // other stubs here use relative hrefs, so without this the absolute path is never exercised.
+        // How it works in production: LinkGenerator produces absolute hrefs, so every real TMS call goes
+        // to the origin discovery names and not to the typed client's configured base address. The other
+        // stubs here use relative hrefs, so without this the absolute case would never be tested.
         const string AbsoluteHref = "https://tms.lotro.test/api/v1/progress";
         StubHttpMessageHandler handler = StubHttpMessageHandler.RespondWith(
             HttpStatusCode.OK,

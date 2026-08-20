@@ -3,9 +3,9 @@ using LotroKoniecDev.Frontend.Infrastructure.Security;
 namespace LotroKoniecDev.Frontend.Tests.Unit.Infrastructure.Security;
 
 /// <summary>
-/// Guards the login challenge, the local sign-out and the cookie-consent bounce-back — every route
-/// that redirects to a caller-supplied target. Twin of the auth server's <c>LocalReturnUrlTests</c>:
-/// the two guards must stay behaviourally identical.
+/// Covers the login challenge, the local sign-out and the cookie-consent bounce-back, which are every
+/// route that redirects to a target the caller supplied. It is the twin of the auth server's
+/// <c>LocalReturnUrlTests</c>, and the two must behave identically.
 /// </summary>
 public sealed class LocalReturnUrlTests
 {
@@ -36,9 +36,9 @@ public sealed class LocalReturnUrlTests
     }
 
     /// <summary>
-    /// Browsers strip ASCII tab and newline before parsing a URL, so
-    /// <c>Location: /&lt;tab&gt;/evil.example</c> is followed as the protocol-relative
-    /// <c>//evil.example</c> — a prefix-only check would call that value local.
+    /// Browsers drop ASCII tab and newline before they parse a URL, so
+    /// <c>Location: /&lt;tab&gt;/evil.example</c> is followed as <c>//evil.example</c>. A check that only
+    /// looked at the first characters would call that value local.
     /// </summary>
     [Theory]
     [InlineData("/\t/evil.example")]

@@ -19,13 +19,14 @@ using LotroKoniecDev.Frontend.Tests.Unit.Infrastructure.Discovery;
 namespace LotroKoniecDev.Frontend.Tests.Unit.Components.Pages.Editor;
 
 /// <summary>
-/// Renders the side-by-side <see cref="EditorComponent"/> through bUnit over a stubbed TMS client,
-/// locking down the render wiring the pure <see cref="PlaceholderAnalyzer"/> tests cannot reach: that
-/// every <c>&lt;--DO_NOT_TOUCH!--&gt;</c> marker in the English source is wrapped in a highlight span,
-/// and that a placeholder-count mismatch between source and the persisted Polish surfaces the advisory
-/// warning (the M3-04 placeholder validation feature). Also covers the Post-Redirect-Get flow (#321):
-/// a successful save / approve redirects to the row's GET view with a one-shot success flag, while a
-/// failed save stays put so the typed draft survives.
+/// Renders the side-by-side <see cref="EditorComponent"/> through bUnit over a stubbed TMS client, to
+/// pin what the pure <see cref="PlaceholderAnalyzer"/> tests cannot reach: that every
+/// <c>&lt;--DO_NOT_TOUCH!--&gt;</c> marker in the English source is wrapped in a highlight span, and
+/// that a different number of placeholders in the source and in the stored Polish shows the warning
+/// (the M3-04 feature).
+/// It also covers the redirect after a post (#321): a successful save or approve redirects to the row's
+/// GET view with a one-time success flag, while a failed save stays on the page so the typed draft is
+/// not lost.
 /// </summary>
 public sealed class EditorTests : BunitContext
 {
@@ -195,8 +196,9 @@ public sealed class EditorTests : BunitContext
     [Fact]
     public async Task Save_WhenSucceeds_RedirectsToTheRowWithASavedFlagFollowingTheUpsertLinkHref()
     {
-        // Post-Redirect-Get (#321): a successful save redirects to the row's GET view so a browser reload
-        // is a safe GET and the fresh load re-derives the approve affordance — no inline render after post.
+        // Redirect after post (#321): a successful save redirects to the row's GET view, so a browser
+        // reload is a plain GET and the fresh load works out the approve action again. Nothing is
+        // rendered inline after the post.
         Guid id = Guid.NewGuid();
         StubLoad(BuildDetail(sourceText: "Hello.", translatedText: "Cześć.", canEdit: true));
         _client
@@ -230,9 +232,9 @@ public sealed class EditorTests : BunitContext
     [Fact]
     public async Task Save_WhenSaveFails_DoesNotRedirectAndShowsTheErrorInline()
     {
-        // On a rejected save there is deliberately NO redirect, so the error (and the still-mounted save
-        // form the translator can resubmit) stays on screen instead of being lost to a PRG round-trip.
-        // The resubmittable-draft structure itself is pinned by the recovery test below.
+        // A rejected save deliberately does not redirect, so the error, and the form the translator can
+        // send again, stay on screen instead of being lost in the redirect. The shape of that form is
+        // pinned by the recovery test below.
         Guid id = Guid.NewGuid();
         StubLoad(BuildDetail(sourceText: "Hello.", translatedText: "Cześć.", canEdit: true));
         _client
@@ -298,9 +300,9 @@ public sealed class EditorTests : BunitContext
     [Fact]
     public async Task Approve_WhenFailsWhileASavedFlagLingers_SuppressesTheStaleSaveBannerAndShowsTheError()
     {
-        // The lingering-flag guard: the `?saved=true` from an earlier save redirect is still in the URL, so
-        // a failed approve on that page must show ONLY its own error — never the stale "saved" confirmation
-        // next to it.
+        // The check for a flag left over in the URL: `?saved=true` from an earlier save redirect is still
+        // there, so a failed approve on that page must show only its own error and never the old "saved"
+        // message next to it.
         Guid id = Guid.NewGuid();
         StubLoad(BuildDetail(sourceText: "Hello.", translatedText: "Cześć.", canApprove: true));
         _client
@@ -318,9 +320,10 @@ public sealed class EditorTests : BunitContext
     [Fact]
     public async Task Save_WhenSaveFailsAndTheRowCannotBeReloaded_KeepsTheDraftInAResubmittableRecoveryForm()
     {
-        // The SSR recovery guarantee: when the post's reload AND the PUT fail in the same request, the
-        // translator's typed text must come back in a resubmittable form (hidden key fields + textarea)
-        // instead of vanishing. First GET succeeds (the form renders), every later GET fails (the reload).
+        // The recovery promise: when both the reload and the PUT fail in the same request, the
+        // translator's text must come back in a form they can send again, with the hidden key fields and
+        // the textarea, instead of disappearing. The first GET succeeds, so the form renders, and every
+        // later GET fails, which is the reload.
         _client
             .GetApiResultAsync<TranslationDetailResponse>(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(
@@ -332,8 +335,8 @@ public sealed class EditorTests : BunitContext
         IRenderedComponent<EditorComponent> component = RenderEditor();
 
         await component.Find("form").SubmitAsync();
-        // The failed save keeps the draft in component state; the next lifecycle pass re-runs the load,
-        // which now fails — exactly the state a real SSR resubmit request lands in.
+        // The failed save keeps the draft in the component's state, and the next render runs the load
+        // again, which now fails. That is exactly the state a real resubmit request arrives in.
         component.Render();
 
         component.Find(".error-message").TextContent.ShouldContain("Zapis odrzucony.");
@@ -348,9 +351,9 @@ public sealed class EditorTests : BunitContext
     [Fact]
     public async Task Save_RecoveryForm_CapsItsTextareaAtTheDatPieceLimitToo()
     {
-        // The recovery textarea is a second, independently written control (Editor.razor renders it in
-        // its own branch), so the cap it carries has to be pinned separately from the main one — the
-        // draft it holds is resubmitted to the same API rule (#598).
+        // The recovery textarea is a second control, written separately in its own branch of
+        // Editor.razor, so its length limit has to be pinned on its own. The draft it holds is sent to
+        // the same API rule (#598).
         _client
             .GetApiResultAsync<TranslationDetailResponse>(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(
@@ -371,9 +374,9 @@ public sealed class EditorTests : BunitContext
     [Fact]
     public async Task Save_FromTheRecoveryFormWithNoLoadedRow_PutsToTheUpsertHrefFromTheServiceDocument()
     {
-        // With no row to advertise the upsert rel, the recovery resubmit resolves it from TMS discovery
-        // (#610) instead of a compiled-in collection path. Only a PUT to that exact advertised href is
-        // stubbed to succeed, so the redirect happens iff the discovered href was the one used.
+        // With no row to carry the upsert rel, the recovery resubmit reads it from TMS discovery (#610)
+        // instead of using a path written into the code. Only a PUT to that exact href is stubbed to
+        // succeed, so the redirect happens only if the discovered href was the one used.
         Guid id = Guid.NewGuid();
         _client
             .GetApiResultAsync<TranslationDetailResponse>(Arg.Any<string>(), Arg.Any<CancellationToken>())
@@ -390,8 +393,8 @@ public sealed class EditorTests : BunitContext
         BunitNavigationManager navigation = Navigation();
         IRenderedComponent<EditorComponent> component = RenderEditor(id);
 
-        // First submit follows the loaded row's href and is rejected; the reload then fails, leaving the
-        // recovery form with no row — exactly the state a real SSR resubmit request lands in.
+        // The first submit follows the loaded row's href and is rejected, then the reload fails, so the
+        // recovery form has no row. That is exactly the state a real resubmit request arrives in.
         await component.Find("form").SubmitAsync();
         component.Render();
         await component.Find("form").SubmitAsync();
@@ -402,9 +405,9 @@ public sealed class EditorTests : BunitContext
     [Fact]
     public async Task Save_FromTheRecoveryFormWhenTheUpsertRelIsNotAdvertised_ShowsTheErrorAndDoesNotPut()
     {
-        // The other half of the recovery path: discovery answers, but withholds `upsert` (a reader, or a
-        // session whose bearer stopped being accepted). The page must surface that instead of PUTting to
-        // a guessed collection URL (#610).
+        // The other half of the recovery path: discovery answers but leaves `upsert` out, which happens
+        // for a read-only caller or a session whose token is no longer accepted. The page must say so
+        // instead of sending a PUT to a guessed URL (#610).
         BunitContext context = new();
         context.Services.AddAntiforgery();
         ITranslationSystemClient client = Substitute.For<ITranslationSystemClient>();
@@ -427,8 +430,8 @@ public sealed class EditorTests : BunitContext
         component.Render();
         await component.Find("form").SubmitAsync();
 
-        // Exactly one PUT — the first submit's, which followed the loaded row's href. The recovery
-        // resubmit never reached the client because the rel could not be resolved.
+        // Exactly one PUT, the first submit's, which followed the loaded row's href. The recovery
+        // resubmit never reached the client, because the rel could not be resolved.
         await client.Received(1).PutApiResultAsync<TranslationDetailResponse>(
             Arg.Any<string>(), Arg.Any<object>(), Arg.Any<CancellationToken>());
         component.Markup.ShouldContain("Ta funkcja jest niedostępna");

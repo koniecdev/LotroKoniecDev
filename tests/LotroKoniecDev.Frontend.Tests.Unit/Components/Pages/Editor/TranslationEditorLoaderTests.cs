@@ -19,8 +19,9 @@ public sealed class TranslationEditorLoaderTests
 {
     private const string BaseUrl = "https://localhost:5002/";
 
-    // Deliberately distinctive server hrefs — on a different host/path than any FE-built path — so the
-    // assertions prove the loader follows the link the server hands it, not a hardcoded route (#158).
+    // These server hrefs look unusual on purpose, on a different host and path than anything this app
+    // would build, so the assertions prove the loader follows the link the server sent and not a route
+    // written into the code (#158).
     private const string UpsertHref = "https://tms.example/hateoas/translations";
     private const string ApproveHref = "https://tms.example/hateoas/translations/abc/approve";
 
@@ -103,7 +104,8 @@ public sealed class TranslationEditorLoaderTests
 
         handler.LastRequest.ShouldNotBeNull();
         handler.LastRequest!.Method.ShouldBe(HttpMethod.Put);
-        // The request goes to the server's upsert href verbatim — not a FE-constructed /api/v1/translations.
+        // The request goes to the server's upsert href exactly, not to an /api/v1/translations path
+        // built here.
         handler.LastRequest.RequestUri!.ToString().ShouldBe(UpsertHref);
         handler.LastRequestBody.ShouldNotBeNull();
         // Deserialize the sent JSON rather than substring-match it: System.Text.Json escapes '<', '>'
@@ -155,7 +157,8 @@ public sealed class TranslationEditorLoaderTests
         result.IsSuccess.ShouldBeTrue();
         handler.LastRequest.ShouldNotBeNull();
         handler.LastRequest!.Method.ShouldBe(HttpMethod.Post);
-        // The request goes to the server's approve href verbatim — not a FE-constructed {id}/approve path.
+        // The request goes to the server's approve href exactly, not to an {id}/approve path built
+        // here.
         handler.LastRequest.RequestUri!.ToString().ShouldBe(ApproveHref);
     }
 
@@ -192,8 +195,9 @@ public sealed class TranslationEditorLoaderTests
     [Fact]
     public async Task LoadAsync_WhenTheTranslationsRelIsNotAdvertised_FailsWithoutCallingTheApi()
     {
-        // `translations` is anonymous today, but the editor route is [Authorize] and the loader must not
-        // assume the rel is there — an absent rel is a refusal to call, not a path to compose (#610).
+        // `translations` is open to anyone today, but the editor route needs a login, and the loader must
+        // not assume the rel is there. A missing rel means we do not call, not that we build a path
+        // (#610).
         StubHttpMessageHandler handler = StubHttpMessageHandler.RespondWith(HttpStatusCode.OK, "{}");
         TranslationEditorLoader loader = new(StubDiscoveryCache.AdvertisingGet(Rels.Progress), CreateClient(handler));
 
@@ -220,8 +224,9 @@ public sealed class TranslationEditorLoaderTests
     [Fact]
     public async Task ResolveCollectionUpsertHrefAsync_WhenTheUpsertRelIsAdvertised_ReturnsThatHref()
     {
-        // The recovery path (a resubmit whose row could not be reloaded) has no row to read the upsert
-        // rel from, so it resolves the same rel from the service document — never a compiled-in path.
+        // The recovery path, a resubmit whose row could not be loaded again, has no row to read the
+        // upsert rel from, so it reads the same rel from the service document and never uses a path
+        // written into the code.
         TranslationEditorLoader loader = CreateLoader(HttpStatusCode.OK, "{}", out _);
 
         ApiResult<string> result = await loader.ResolveCollectionUpsertHrefAsync();
@@ -233,8 +238,8 @@ public sealed class TranslationEditorLoaderTests
     [Fact]
     public async Task ResolveCollectionUpsertHrefAsync_WhenTheUpsertRelIsNotAdvertised_Fails()
     {
-        // The API emits `upsert` only for a translator. A reader who somehow reaches the recovery path
-        // gets a failure the page can render — not a PUT to a guessed collection URL.
+        // The API only sends `upsert` to a translator. A read-only caller who reaches the recovery path
+        // gets a failure the page can show, not a PUT to a guessed URL.
         TranslationEditorLoader loader = new(
             StubDiscoveryCache.AdvertisingGet(Rels.Translations),
             CreateClient(StubHttpMessageHandler.RespondWith(HttpStatusCode.OK, "{}")));

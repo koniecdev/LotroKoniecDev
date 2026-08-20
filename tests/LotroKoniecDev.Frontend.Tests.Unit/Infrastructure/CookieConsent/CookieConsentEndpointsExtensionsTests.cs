@@ -6,9 +6,9 @@ using Microsoft.Extensions.Primitives;
 namespace LotroKoniecDev.Frontend.Tests.Unit.Infrastructure.CookieConsent;
 
 /// <summary>
-/// Drives the accept route's request delegate directly (no web host): acceptance must persist the
-/// year-long consent cookie and bounce the visitor back to the page the plain-HTML form was posted
-/// from — with the open-redirect guard collapsing any non-local target to the home page (LEGAL-04).
+/// Calls the accept route's handler directly, with no web host. Accepting has to write the consent
+/// cookie, which lasts a year, and send the visitor back to the page the form was posted from. Any
+/// target outside this site is replaced by the home page (LEGAL-04).
 /// </summary>
 public sealed class CookieConsentEndpointsExtensionsTests
 {
@@ -24,8 +24,8 @@ public sealed class CookieConsentEndpointsExtensionsTests
         setCookie.ShouldContain("httponly", Case.Insensitive);
         setCookie.ShouldContain("path=/", Case.Insensitive);
         setCookie.ShouldContain("samesite=lax", Case.Insensitive);
-        // A persistent expiry is the "survives navigation" contract — a session cookie would
-        // re-show the banner on the next browser start.
+        // An explicit expiry is what makes the cookie survive. A session cookie would show the banner
+        // again the next time the browser starts.
         setCookie.ShouldContain("expires=", Case.Insensitive);
     }
 

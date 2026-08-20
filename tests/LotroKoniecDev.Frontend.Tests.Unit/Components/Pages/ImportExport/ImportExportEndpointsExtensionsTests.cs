@@ -13,9 +13,9 @@ using Microsoft.Extensions.Logging.Abstractions;
 namespace LotroKoniecDev.Frontend.Tests.Unit.Components.Pages.ImportExport;
 
 /// <summary>
-/// Drives the download route's request delegate directly (no web host): the TMS distribution endpoint
-/// serves <c>text/plain</c>, and this route must re-serve it as a <c>polish.txt</c> file attachment on
-/// success, or surface a problem (the upstream's, or a 502 fallback) on failure.
+/// Calls the download route's handler directly, with no web host. The TMS endpoint serves
+/// <c>text/plain</c>, and this route has to pass it on as a <c>polish.txt</c> attachment on success, or
+/// return a problem on failure, either the API's own or our 502.
 /// </summary>
 public sealed class ImportExportEndpointsExtensionsTests
 {
@@ -65,8 +65,8 @@ public sealed class ImportExportEndpointsExtensionsTests
     [Fact]
     public async Task DownloadTranslationFileAsync_WhenUpstreamReturnsAnEnglishProblem_RewritesItInPolish()
     {
-        // The browser shows this body verbatim — it is a download route, not a rendered page — so the
-        // same errorCode→Polish rule applies here as on a page (#548 / ADR-0044).
+        // The browser shows this body as it is, because this is a download route and not a page. So the
+        // same rule applies: the errorCode decides the Polish text (#548, ADR-0044).
         ImportExportLoader loader = CreateLoader(
             HttpStatusCode.NotFound,
             """

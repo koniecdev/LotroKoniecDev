@@ -9,10 +9,10 @@ using TermsComponent = LotroKoniecDev.Frontend.Components.Pages.Terms.Terms;
 namespace LotroKoniecDev.Frontend.Tests.Unit.Components.Pages.Terms;
 
 /// <summary>
-/// Renders the terms-of-service page (#453). The page is the contractual anchor for the erasure
-/// design: the contribution-license section must name distribution in polish.txt and post-deletion
-/// retention of anonymized contributions, and the fan-project disclaimer must name the IP owners —
-/// a wording regression there would silently void what LEGAL-01 assumes.
+/// Renders the terms-of-service page (#453). This page is what the erasure design rests on: the
+/// contribution licence section has to mention distribution in polish.txt and that anonymized
+/// contributions are kept after an account is deleted, and the fan-project disclaimer has to name the IP
+/// owners. A change in that wording would quietly break what LEGAL-01 assumes.
 /// </summary>
 public sealed class TermsTests : BunitContext
 {
@@ -32,8 +32,8 @@ public sealed class TermsTests : BunitContext
     [Fact]
     public void Terms_IsAnonymousByContract()
     {
-        // Registration links here for the consent checkbox — an anonymous visitor must never be
-        // bounced to login while reading what they are asked to accept.
+        // The registration form links here for the consent checkbox, so a visitor who is not logged in
+        // must never be sent to the login page while reading what they are asked to accept.
         typeof(TermsComponent).GetCustomAttribute<AllowAnonymousAttribute>().ShouldNotBeNull();
     }
 
@@ -85,9 +85,9 @@ public sealed class TermsTests : BunitContext
     [Fact]
     public void Render_IpSection_StatesTakedownComplianceAndPolishOnlyPublishedFile()
     {
-        // The "published file contains only community Polish text, never the English source"
-        // property is load-bearing (spec 0011 E6) — changing it is ADR-worthy, so a wording
-        // regression here must fail loudly.
+        // The promise that the published file contains only the community's Polish text and never the
+        // English source is load-bearing (spec 0011 E6). Changing it needs an ADR, so a change in this
+        // wording has to fail loudly.
         IRenderedComponent<TermsComponent> component = Render<TermsComponent>();
 
         IElement ipSection = component.Find("#wlasnosc-intelektualna");

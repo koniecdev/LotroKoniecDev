@@ -14,21 +14,22 @@ using LotroKoniecDev.TranslationSystem.Contracts.Hateoas;
 namespace LotroKoniecDev.Frontend.Tests.Unit.Snapshots;
 
 /// <summary>
-/// Pins the rendered markup of the landing page (#571). <c>HomeTests</c> asserts the handful of
-/// selectors each behavior is about; the snapshot covers everything between them — the section order,
-/// the CTA set, the meter segments, the download affordance — so an unintended markup regression on
-/// the public face of the project fails loudly instead of shipping.
+/// Pins the rendered markup of the landing page (#571). <c>HomeTests</c> checks the few selectors each
+/// behaviour is about, and the snapshot covers everything in between: the order of the sections, the
+/// buttons, the parts of the progress bar and the download link. So an accidental change to the public
+/// face of the project fails loudly instead of shipping.
 /// </summary>
 /// <remarks>
-/// The counters are deliberately five-figure: <c>HomeProgressView.Format</c> renders them through a
-/// fixed <c>NumberFormatInfo</c> whose NBSP group separator only appears above 999, and that separator
-/// exists precisely so the rendering never becomes culture-dependent — a snapshot seeded with small
-/// numbers would never see it. The zero-catalog state gets its own snapshot for the same reason: it is
-/// the branch that swaps the counter classes and collapses the meter.
+/// The counters have five digits on purpose. <c>HomeProgressView.Format</c> prints them with a fixed
+/// <c>NumberFormatInfo</c> whose group separator, a non-breaking space, only appears above 999, and that
+/// separator exists so the output never depends on the machine's culture. A snapshot with small numbers
+/// would never show it.
+/// The empty-catalog state has its own snapshot for the same reason: it is the branch that changes the
+/// counter classes and collapses the bar.
 /// <para>
-/// The page is Static SSR, so its markup is a pure function of the stubbed progress result and the
-/// authentication state; nothing here depends on a clock, an ambient culture or a build fingerprint.
-/// Re-accepting a verified file is a deliberate, reviewed act — read the diff before you do it.
+/// The page is static SSR, so its markup depends only on the stubbed progress result and on whether the
+/// visitor is logged in. Nothing here depends on the clock, the culture or a build fingerprint.
+/// Accepting a new verified file is a deliberate act: read the diff before you do it.
 /// </para>
 /// </remarks>
 public sealed class HomeMarkupSnapshotTests : BunitContext
@@ -100,9 +101,9 @@ public sealed class HomeMarkupSnapshotTests : BunitContext
             .Returns(result);
 
     /// <summary>
-    /// Hosts the page inside a render fragment and resolves it via <c>FindComponent</c> — the page's
-    /// <c>AuthorizeView</c> resolves asynchronously, which the typed <c>Render&lt;Home&gt;</c>
-    /// discovery does not see on its first synchronous pass (same seam as <c>HomeTests</c>).
+    /// Puts the page inside a render fragment and finds it with <c>FindComponent</c>. The page's
+    /// <c>AuthorizeView</c> resolves asynchronously, and the typed <c>Render&lt;Home&gt;</c> does not see
+    /// that on its first pass. <c>HomeTests</c> uses the same trick.
     /// </summary>
     private IRenderedComponent<HomeComponent> RenderHome()
     {

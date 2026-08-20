@@ -29,10 +29,10 @@ using Microsoft.Extensions.Logging.Abstractions;
 namespace LotroKoniecDev.Frontend.Tests.Unit.Components.Pages.Account;
 
 /// <summary>
-/// Drives the GDPR export download route's request delegate directly (no web host): on success it must
-/// compose the auth leg with the TMS contribution leg (ADR-0032) into an indented camelCase JSON file
-/// attachment, on an auth-leg failure it must surface the upstream problem (or the defensive 502
-/// fallback), and on a TMS-leg failure it must still serve the file with <c>isComplete: false</c>.
+/// Calls the GDPR export download route's handler directly, with no web host. On success it has to join
+/// the auth part with the TMS contribution part (ADR-0032) into an indented camelCase JSON attachment.
+/// When the auth part fails it has to return the API's problem, or our own 502. When the TMS part fails
+/// it must still serve the file, marked <c>isComplete: false</c>.
 /// </summary>
 public sealed class AccountEndpointsExtensionsTests
 {
@@ -130,9 +130,9 @@ public sealed class AccountEndpointsExtensionsTests
     [Fact]
     public async Task DownloadAccountExportAsync_WhenTheContributionRelIsNotAdvertised_ServesTheFileWithIsCompleteFalse()
     {
-        // An unresolvable rel degrades exactly like a failed TMS call (ADR-0032): the Art. 15 document
-        // still downloads, honestly flagged incomplete — it must never fall back to a guessed path, and
-        // must never fail the auth leg's download either.
+        // A rel we cannot resolve is treated exactly like a failed TMS call (ADR-0032): the Art. 15
+        // document still downloads and is honestly marked incomplete. It must never fall back to a
+        // guessed path, and it must never fail the auth part's download either.
         AccountLoader loader = CreateLoaderReturning(AccountLoaderTests.CreateEnvelope());
         _discoveryCache.GetTranslationSystemDiscoveryAsync(Arg.Any<CancellationToken>())
             .Returns(ApiResult.Success(new TranslationDiscoveryResponse("LotroKoniecDev.TranslationSystem")));
@@ -147,14 +147,14 @@ public sealed class AccountEndpointsExtensionsTests
         string json = Encoding.UTF8.GetString(file.FileContents.ToArray());
         json.ShouldContain("\"translationData\": null");
         json.ShouldContain("\"isComplete\": false");
-        // No rel, no call — the contribution endpoint was never guessed at.
+        // No rel means no call: we never guessed the contribution endpoint.
         tmsHandler.LastRequest.ShouldBeNull();
     }
 
     [Fact]
     public async Task DownloadAccountExportAsync_WhenTmsDiscoveryIsUnavailable_ServesTheFileWithIsCompleteFalse()
     {
-        // A TMS outage degrades the file rather than failing the download — only the auth leg can do that.
+        // A TMS outage only makes the file incomplete. Only the auth part can fail the download.
         AccountLoader loader = CreateLoaderReturning(AccountLoaderTests.CreateEnvelope());
         _discoveryCache.GetTranslationSystemDiscoveryAsync(Arg.Any<CancellationToken>())
             .Returns(ApiResult.Failure<TranslationDiscoveryResponse>(new ProblemDetails { Status = 503 }));
@@ -171,8 +171,9 @@ public sealed class AccountEndpointsExtensionsTests
     [Fact]
     public async Task DownloadAccountExportAsync_WhenTmsReturnsAMalformedBody_StillServesTheFileWithIsCompleteFalse()
     {
-        // A 200 whose body is not JSON is a failed TMS leg — the seam degrades it (#638), and the
-        // route degrades the file rather than failing the download (ADR-0032).
+        // A 200 whose body is not JSON counts as a failed TMS part. The HTTP layer turns it into a
+        // failure (#638), and the route marks the file incomplete instead of failing the download
+        // (ADR-0032).
         AccountLoader loader = CreateLoaderReturning(AccountLoaderTests.CreateEnvelope());
         ITranslationSystemClient tmsClient = CreateTmsClient(
             StubHttpMessageHandler.RespondWith(HttpStatusCode.OK, "this is not json"));
@@ -240,9 +241,9 @@ public sealed class AccountEndpointsExtensionsTests
     [Fact]
     public async Task DownloadAccountExportAsync_WhenTheAuthLegAnswersAMaintenancePageWithA200_ServesThePolishStatusCopyInsteadOfThrowing()
     {
-        // The #637 outage class wearing a success status: the proxy's maintenance page comes back as
-        // 200 + HTML. That used to throw JsonException out of the route (#638); it is a failed auth
-        // leg like any other and answers with the same Polish sentence the proxy's own 502 does.
+        // The #637 outage with a success status: the proxy's maintenance page arrives as 200 with HTML.
+        // That used to throw a JsonException out of the route (#638). It is a failed auth part like any
+        // other and gives the same Polish sentence the proxy's own 502 does.
         StubDiscoveryWithExportLink();
         AccountLoader loader = new(
             _discoveryCache,

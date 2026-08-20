@@ -18,10 +18,10 @@ using AuthDiscoveryResponse = LotroKoniecDev.AuthSystem.Contracts.Discovery.Disc
 namespace LotroKoniecDev.Frontend.Tests.Unit.Components.Pages.Account;
 
 /// <summary>
-/// Renders the <c>/account</c> page through bUnit over a stubbed auth client, locking down the render
-/// wiring the loader tests cannot reach: the identity/consent data lands in the markup, the export
-/// download always targets the server download route, and the change-password / delete action rows are
-/// gated on the envelope's HATEOAS rels — never on a locally recomputed role.
+/// Renders the <c>/account</c> page through bUnit over a stubbed auth client, to pin the parts the
+/// loader tests cannot reach: the identity and consent data appear in the markup, the export download
+/// always points at the server download route, and the change-password and delete rows appear only when
+/// the API's links say so, never because of a role check in the page.
 /// </summary>
 public sealed class AccountTests : BunitContext
 {
@@ -53,8 +53,8 @@ public sealed class AccountTests : BunitContext
     [Fact]
     public void Render_WhenTermsNotAccepted_ShowsTheGrandfatheredConsentState()
     {
-        // Accounts registered before the terms shipped are grandfathered (spec 0010) — the row
-        // must render the neutral state, never a fake acceptance.
+        // Accounts created before the terms existed keep their old status (spec 0010), so the row must
+        // show the neutral state and never pretend they accepted.
         StubExport(AccountLoaderTests.CreateEnvelope(termsOfServiceAccepted: false));
 
         IRenderedComponent<AccountComponent> component = Render<AccountComponent>();
@@ -126,8 +126,8 @@ public sealed class AccountTests : BunitContext
         _discoveryCache.GetAuthSystemDiscoveryAsync(Arg.Any<CancellationToken>())
             .Returns(ApiResult.Success(discovery));
         _client.GetApiResultAsync<AccountDataExportResponse>(Arg.Any<string>(), Arg.Any<CancellationToken>())
-            // A Frontend-authored failure (the shape HttpClientApiExtensions produces for a transport
-            // error) — already Polish, so it renders verbatim rather than through the copy map.
+            // A failure the Frontend wrote, the shape HttpClientApiExtensions produces for a transport
+            // error. It is already Polish, so it is shown as it is and not translated.
             .Returns(ApiResult.Failure<AccountDataExportResponse>(ApiProblemCopy.FrontendAuthored(
                 "Nie udało się wczytać danych konta",
                 status: (int)HttpStatusCode.BadGateway)));

@@ -3,9 +3,9 @@ using System.Net;
 namespace LotroKoniecDev.Frontend.Tests.Unit.Infrastructure.HttpClients;
 
 /// <summary>
-/// A controllable <see cref="HttpMessageHandler"/> for the HTTP seam: it records the last request it
-/// saw and returns a canned response (or throws a supplied transport exception), so the typed client
-/// and delegating handler can be tested without a live API.
+/// An <see cref="HttpMessageHandler"/> the tests control. It records the last request it saw and returns
+/// a prepared response, or throws a transport exception you give it, so the typed client and the
+/// delegating handler can be tested without a running API.
 /// </summary>
 internal sealed class StubHttpMessageHandler : HttpMessageHandler
 {
@@ -19,9 +19,9 @@ internal sealed class StubHttpMessageHandler : HttpMessageHandler
     public HttpRequestMessage? LastRequest { get; private set; }
 
     /// <summary>
-    /// The body of the last request, captured at send time. Read here because the typed client disposes
-    /// the request (and its content) right after sending, so <see cref="LastRequest"/>.Content can no
-    /// longer be read once <c>SendAsync</c> returns.
+    /// The body of the last request, read while it is being sent. It has to be read there, because the
+    /// typed client disposes the request and its content right after sending, so
+    /// <see cref="LastRequest"/>.Content can no longer be read once <c>SendAsync</c> returns.
     /// </summary>
     public string? LastRequestBody { get; private set; }
 
@@ -39,8 +39,8 @@ internal sealed class StubHttpMessageHandler : HttpMessageHandler
     }
 
     /// <summary>
-    /// A body-less response carrying custom headers — for endpoints whose success payload travels in
-    /// response headers (e.g. <c>204</c> + <c>X-Deletion-Finalizes-At</c>).
+    /// A response with no body but with the headers you pass, for endpoints that return their data in
+    /// headers, such as a <c>204</c> with <c>X-Deletion-Finalizes-At</c>.
     /// </summary>
     public static StubHttpMessageHandler RespondWithHeaders(
         HttpStatusCode statusCode,

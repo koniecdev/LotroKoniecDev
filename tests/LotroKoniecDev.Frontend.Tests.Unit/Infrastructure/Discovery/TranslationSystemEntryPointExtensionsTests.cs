@@ -7,10 +7,10 @@ using Microsoft.AspNetCore.Http;
 namespace LotroKoniecDev.Frontend.Tests.Unit.Infrastructure.Discovery;
 
 /// <summary>
-/// The seam every page now uses to get its first TMS URL (#610 / ADR-0041). Three outcomes and no
-/// fourth: the advertised href, the discovery outage passed through verbatim, or a 403 saying the
-/// server does not offer this caller that affordance. There is deliberately no path that composes a
-/// URL locally, so a rel the server withheld can never turn into a request.
+/// The one place every page gets its first TMS URL (#610, ADR-0041). There are three outcomes and no
+/// fourth: the href the server sent, the discovery outage passed on unchanged, or a 403 saying the
+/// server does not offer this caller that action. There is deliberately no code path that builds a URL,
+/// so a rel the server left out can never become a request.
 /// </summary>
 public sealed class TranslationSystemEntryPointExtensionsTests
 {
@@ -28,8 +28,8 @@ public sealed class TranslationSystemEntryPointExtensionsTests
     [Fact]
     public async Task ResolveTranslationSystemHrefAsync_WhenTheRelIsAbsent_ReturnsForbidden()
     {
-        // A rel the service document does not carry is an affordance this session does not have —
-        // the answer is a failure, never a locally built path.
+        // A rel the service document does not carry is something this session may not do. The answer is
+        // a failure and never a path built here.
         IDiscoveryCache cache = StubDiscoveryCache.AdvertisingGet(Rels.Progress);
 
         ApiResult<string> result = await cache.ResolveTranslationSystemHrefAsync(Rels.GameVersions);
@@ -54,8 +54,8 @@ public sealed class TranslationSystemEntryPointExtensionsTests
     [Fact]
     public async Task ResolveTranslationSystemHrefAsync_WhenDiscoveryIsUnavailable_PassesThatProblemThrough()
     {
-        // An outage is NOT a "you may not do this" — the caller must see the real cause, so a transient
-        // 503 never renders as a permissions message.
+        // An outage does not mean "you may not do this". The caller has to see the real cause, so a
+        // temporary 503 never appears as a permissions message.
         IDiscoveryCache cache = StubDiscoveryCache.Unavailable();
 
         ApiResult<string> result = await cache.ResolveTranslationSystemHrefAsync(Rels.Progress);

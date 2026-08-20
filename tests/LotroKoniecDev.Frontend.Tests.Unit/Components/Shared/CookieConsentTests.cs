@@ -9,11 +9,11 @@ using NSubstitute;
 namespace LotroKoniecDev.Frontend.Tests.Unit.Components.Shared;
 
 /// <summary>
-/// Renders the cookie information banner (LEGAL-04). The show/hide decision is a one-shot
-/// server-side read of the request cookie — no JS, no interactivity — so these tests lock down the
-/// SSR wiring: the plain-HTML accept form (action + hidden returnPath), the privacy-policy link
-/// with the <c>#cookies</c> anchor, and the banner disappearing once the consent cookie rides the
-/// request. The full accept round-trip is the endpoint's unit tests plus the browser E2E.
+/// Renders the cookie banner (LEGAL-04). Whether it is shown is decided once on the server by reading
+/// the request cookie, with no script and no interactivity, so these tests pin the SSR parts: the plain
+/// HTML accept form with its action and hidden returnPath, the privacy-policy link with the
+/// <c>#cookies</c> anchor, and the banner disappearing once the request carries the consent cookie.
+/// The whole accept round trip is covered by the endpoint's unit tests and by the browser E2E tests.
 /// </summary>
 public sealed class CookieConsentTests : BunitContext
 {
@@ -82,8 +82,8 @@ public sealed class CookieConsentTests : BunitContext
     [Fact]
     public void Render_Banner_ContainsNoInteractiveHandlers()
     {
-        // The SSR-purity contract: acceptance must work with JavaScript disabled, so the accept
-        // control is a plain form submit — never an @on* handler.
+        // The SSR rule: accepting has to work with JavaScript turned off, so the button is a plain form
+        // submit and never an @on* handler.
         IRenderedComponent<CookieConsent> component = Render<CookieConsent>();
 
         component.Find("button[type=submit]").TextContent.Trim().ShouldBe("Akceptuję");

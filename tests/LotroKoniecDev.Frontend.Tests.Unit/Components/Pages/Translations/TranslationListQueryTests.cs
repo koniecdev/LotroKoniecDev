@@ -6,9 +6,9 @@ namespace LotroKoniecDev.Frontend.Tests.Unit.Components.Pages.Translations;
 public sealed class TranslationListQueryTests
 {
     /// <summary>
-    /// Stands in for the <c>translations</c> href the TMS service document advertises (#610). It looks
-    /// nothing like the real route on purpose — this type must only ever append a query string to
-    /// whatever the server handed it, never know an API path of its own.
+    /// Stands in for the <c>translations</c> href the TMS service document sends (#610). It looks nothing
+    /// like the real route on purpose: this type may only add a query string to whatever the server gave
+    /// it and must never know an API path of its own.
     /// </summary>
     private const string CollectionHref = "/resolved-by-discovery/translations";
 
@@ -174,9 +174,9 @@ public sealed class TranslationListQueryTests
     [Fact]
     public void ToPageRelativeUriWithApprovalResult_PreservesTheActiveFiltersAndPageAndAppendsTheCounts()
     {
-        // AC #7 (#322): the bulk-approve Post-Redirect-Get target must land back on the current filtered
-        // page with search+status intact, plus the approved/skipped result counts — so a reload is a safe
-        // GET showing the same filtered list with the confirmation flash.
+        // Acceptance criterion 7 (#322): after a bulk approve the redirect must land back on the current
+        // filtered page with the search and status still set, plus the approved and skipped counts. A
+        // reload is then a plain GET that shows the same filtered list with the confirmation message.
         TranslationListQuery query = TranslationListQuery.From(search: "Bilbo", status: "Draft", page: 3);
 
         string uri = query.ToPageRelativeUriWithApprovalResult(approved: 2, skipped: 1);
@@ -218,8 +218,9 @@ public sealed class TranslationListQueryTests
     [InlineData(1000)]
     public void From_WithUnsupportedPageSize_SnapsBackToTheDefault(int pageSize)
     {
-        // The list snaps an out-of-allowlist size back to the default (unlike the API's raw 1–100 clamp),
-        // so the rendered dropdown can always mark a real option selected (#323).
+        // The list falls back to the default for any size that is not on its own list, unlike the API,
+        // which simply clamps to 1 to 100. So the dropdown can always mark one of its real options as
+        // selected (#323).
         TranslationListQuery query = TranslationListQuery.From(search: null, status: null, page: 1, pageSize: pageSize);
 
         query.PageSize.ShouldBe(TranslationListQuery.DefaultPageSize);

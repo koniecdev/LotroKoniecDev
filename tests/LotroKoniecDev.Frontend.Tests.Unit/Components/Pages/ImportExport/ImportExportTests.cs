@@ -17,14 +17,14 @@ using LotroKoniecDev.Frontend.Tests.Unit.Infrastructure.Discovery;
 namespace LotroKoniecDev.Frontend.Tests.Unit.Components.Pages.ImportExport;
 
 /// <summary>
-/// Renders the <see cref="ImportExportComponent"/> through bUnit over a stubbed TMS client, locking
-/// down the render wiring the loader tests cannot reach: the export download link is offered to every
-/// authenticated translator and targets the server download route; the import panel is gated on the
-/// game-versions collection's admin-only <c>register</c> rel (#158) — not a locally recomputed role;
-/// the game-version selector is populated from the listed versions; and — the regression guard for the
-/// M3-07 SSR binding bug — every import input is named after the <c>[SupplyParameterFromForm]</c>
-/// form-model property path (<c>ImportInput.*</c>) so a fresh <c>exported.txt</c> actually binds on
-/// post. Submitting with no file surfaces the validation notice, proving the submit reaches the handler.
+/// Renders the <see cref="ImportExportComponent"/> through bUnit over a stubbed TMS client, to pin what
+/// the loader tests cannot reach: the export download link is shown to every logged-in translator and
+/// points at the server download route; the import panel appears only when the game-versions collection
+/// carries the admin-only <c>register</c> rel (#158), never because of a role check in the page; the
+/// version selector is filled from the listed versions; and every import input is named after the
+/// <c>[SupplyParameterFromForm]</c> model path (<c>ImportInput.*</c>), which is the guard against the
+/// M3-07 binding bug and what makes a fresh <c>exported.txt</c> bind on post.
+/// Submitting with no file shows the validation notice, which proves the submit reaches the handler.
 /// </summary>
 public sealed class ImportExportTests : BunitContext
 {
@@ -54,8 +54,9 @@ public sealed class ImportExportTests : BunitContext
     [Fact]
     public void Render_WhenCollectionLacksTheRegisterRel_DoesNotShowTheImportPanel()
     {
-        // A non-admin translator can list versions but the collection carries no `register` rel, so the
-        // admin-only import panel stays hidden — driven by the server's affordance, not a local role check.
+        // A translator who is not an admin can list the versions, but the collection carries no
+        // `register` rel, so the import panel stays hidden. The server decides that, not a role check
+        // here.
         AuthorizeAs("Frodo");
         StubVersions(NonImportableVersion("48.0"));
 
@@ -79,9 +80,9 @@ public sealed class ImportExportTests : BunitContext
     [Fact]
     public void Render_WhenCollectionHasTheRegisterRel_NamesEveryImportInputAfterTheFormModelPropertyPath()
     {
-        // Regression guard for the SSR binding bug: Blazor static-SSR maps an IFormFile only as a
-        // property of a [SupplyParameterFromForm] model, so the inputs MUST be named ImportInput.* —
-        // a bare name (e.g. "UploadFile") binds null and the import can never run.
+        // The guard against the SSR binding bug: Blazor's static SSR only binds an IFormFile as a
+        // property of a [SupplyParameterFromForm] model, so the inputs have to be named ImportInput.*.
+        // A plain name such as "UploadFile" binds null and the import can never run.
         AuthorizeAs("Sam");
         StubVersionsWithRegisterRel(ImportableVersion("48.0"));
 
@@ -150,9 +151,9 @@ public sealed class ImportExportTests : BunitContext
     [Fact]
     public void Render_WhenTheCollectionFailsToLoad_HidesTheImportPanelButSurfacesTheErrorAndKeepsTheDownload()
     {
-        // The register rel can't be read from a failed fetch, so the import panel is hidden — but the
-        // error is surfaced (outside the gate) so an admin gets feedback, and the export download
-        // (open to any translator) stays available.
+        // A failed fetch means we cannot read the register rel, so the import panel is hidden. The error
+        // is still shown, outside that check, so an admin sees what happened, and the export download,
+        // which any translator may use, stays available.
         AuthorizeAs("Sam");
         _client
             .GetApiResultAsync<CollectionResponse<GameVersionResponse>>(Arg.Any<string>(), Arg.Any<CancellationToken>())
@@ -178,17 +179,17 @@ public sealed class ImportExportTests : BunitContext
             Links = [new LinkDto($"https://tms.example/hateoas/import/{version}", Rels.Import, "POST")]
         };
 
-    /// <summary>A version carrying no <c>import</c> rel — what a non-admin sees, and what an admin sees on a Superseded row.</summary>
+    /// <summary>A version with no <c>import</c> rel: what a non-admin sees, and what an admin sees on a superseded row.</summary>
     private static GameVersionResponse NonImportableVersion(string version) =>
         new(GameVersionId.Create(Guid.NewGuid()), version, DateTimeOffset.UnixEpoch, GameVersionStatus.Superseded);
 
-    /// <summary>Stubs the versions list as a plain translator sees it — no admin <c>register</c> rel.</summary>
+    /// <summary>Stubs the versions list as a plain translator sees it, with no admin <c>register</c> rel.</summary>
     private void StubVersions(params GameVersionResponse[] versions) =>
         _client
             .GetApiResultAsync<CollectionResponse<GameVersionResponse>>(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(ApiResult.Success(new CollectionResponse<GameVersionResponse> { Items = versions }));
 
-    /// <summary>Stubs the versions list as an admin sees it — the collection carries the <c>register</c> rel.</summary>
+    /// <summary>Stubs the versions list as an admin sees it, where the collection carries <c>register</c>.</summary>
     private void StubVersionsWithRegisterRel(params GameVersionResponse[] versions) =>
         _client
             .GetApiResultAsync<CollectionResponse<GameVersionResponse>>(Arg.Any<string>(), Arg.Any<CancellationToken>())

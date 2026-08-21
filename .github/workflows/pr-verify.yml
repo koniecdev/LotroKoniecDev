@@ -146,6 +146,12 @@ jobs:
       - name: Hetzner deploy script self-test
         run: ./scripts/tests/hetzner-deploy.tests.sh
 
+      # The other half of the box scripts (OBS-01 / #708): bootstrap.sh's swap leg mutates
+      # persistent host state (a swapfile, /etc/fstab, a sysctl drop-in), so its idempotence is
+      # what this proves — the reason swap was kept out of bootstrap for a year.
+      - name: Hetzner bootstrap swap self-test
+        run: ./scripts/tests/hetzner-bootstrap-swap.tests.sh
+
       # The prod-promotion N-1 gate (#534) runs inside CD's prod leg, where its real inputs (the
       # deployments API, the box .env, a schema) exist nowhere in CI — so both halves get a stubbed
       # suite here. The resolver's cases pin the properties the safety story rests on: an

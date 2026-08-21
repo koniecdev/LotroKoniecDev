@@ -36,6 +36,19 @@ public sealed class LocalReturnUrlTests
     }
 
     /// <summary>
+    /// A quote or an angle bracket inside a path is still a path, so the check keeps the value. It is not
+    /// an HTML escaper: the pages that print it HTML-encode it themselves (#681). Pinned here so nobody
+    /// reads this check as the escaping step and drops the encoding somewhere else.
+    /// </summary>
+    [Theory]
+    [InlineData("""/x" onfocus="alert(1)""")]
+    [InlineData("/x<script>alert(1)</script>")]
+    public void Sanitize_WhenALocalPathCarriesHtmlCharacters_KeepsItVerbatim(string returnUrl)
+    {
+        LocalReturnUrl.Sanitize(returnUrl).ShouldBe(returnUrl);
+    }
+
+    /// <summary>
     /// Browsers drop ASCII tab and newline before they parse a URL, so <c>/&lt;tab&gt;/evil.example</c>
     /// reads as <c>//evil.example</c> and must never end up in a link on the page. It arrives as
     /// <c>%09</c> in the query string, and model binding has already decoded it by the time the check

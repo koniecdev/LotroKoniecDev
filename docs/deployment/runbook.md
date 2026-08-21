@@ -115,10 +115,12 @@ variable that does not appear there does nothing, whatever this table says.
   production-parity stack (`compose.prod.yaml`) wires the very same keys with `*.lotro.test`
   hostnames.
 
-Purely optional tuning knobs with safe defaults are omitted (e.g. `OpenIddict:AccessTokenLifetimeMinutes`
-= 60, `OpenIddict:RefreshTokenLifetimeDays` = 14, `Import:*`, `TranslationFileRebuild:DebounceWindow`
+Purely optional tuning knobs with safe defaults are omitted (e.g.
+`OpenIddict:RefreshTokenLifetimeDays` = 14, `Import:*`, `TranslationFileRebuild:DebounceWindow`
 = 2 s (ADR-0021), `Email:TimeoutSeconds`/`MaxSendAttempts`, `RabbitMq:Port` = 5672,
-`RabbitMq:VirtualHost` = `/`, `AllowedHosts` = `*`).
+`RabbitMq:VirtualHost` = `/`, `AllowedHosts` = `*`). `OpenIddict:AccessTokenLifetimeMinutes` used to
+sit in that list at 60; it is listed in the table below instead, because it turned out to be the
+delay on every session revocation in the system rather than a tuning knob (ADR-0049, #686).
 
 > ⚠️ **Live prod domain is `lotro-translator.pl`** — auth → `https://auth.lotro-translator.pl`,
 > tms → `https://tms.lotro-translator.pl`, frontend → `https://lotro-translator.pl`. The three
@@ -134,6 +136,7 @@ Purely optional tuning knobs with safe defaults are omitted (e.g. `OpenIddict:Ac
 | `ConnectionStrings__AuthDatabase` | `…;Database=lotro_auth;…;Password=changeme` (appsettings.Development) | Neon: `Host=…;Database=lotro_auth;Username=…;Password=…;Ssl Mode=Require;Timeout=60` | ✅ all | **secret** | Carries the DB password. **Keyword format only** — Npgsql does not parse `postgres://` URIs. `Timeout=60` rides out Neon's ~31 s scale-to-zero resume. |
 | `OpenIddict__Issuer` | `https://localhost:5003` | `https://auth.lotro-translator.pl` | ✅ non-dev | plain | **THE token `iss`.** Absolute http(s), no `localhost`. Must equal tms `Auth__Issuer`. |
 | `OpenIddict__SigningKey__RsaPrivateKeyXml` | — (ephemeral) | base64 of RSA XML (≥2048-bit) | ✅ non-dev | **secret** | Generate with `gen-openiddict-keys`. |
+| `OpenIddict__AccessTokenLifetimeMinutes` | `5` (appsettings) | `5` (appsettings) | ❌ optional | plain | **A security parameter, not a tuning knob.** The TMS validates JWTs locally, so this is how long a revoked session keeps working after a password change, an e-mail-change undo or a scheduled deletion. Raising it lengthens that window everywhere — read ADR-0049 first. |
 | `OpenIddict__EncryptionKey__Key` | — (ephemeral) | base64 of a ≥32-byte key | ✅ non-dev | **secret** | Generate with `gen-openiddict-keys`. |
 | `OpenIddict__ApiClientSecret` | `dev-api-secret-min-32-characters-long` | ≥32-char random secret | ✅ non-dev | **secret** | Generate with `gen-openiddict-keys`. **Seeds a DB row** — rotating it needs the [reseed](#reseed-traps--the-auth-seeder-is-create-if-missing). Must equal that environment's `SMOKE_CLIENT_SECRET`. |
 | `OpenIddict__WebClient__RedirectUris__0` | `https://localhost:7017/callback` | `https://lotro-translator.pl/callback` | ✅ non-dev | plain | MUST equal the Frontend callback (its public origin + `AuthSystem__CallbackPath`). Written to the DB **only at client creation** — see the reseed traps. |

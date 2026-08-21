@@ -700,8 +700,9 @@ The system uses the standard web login flow. In plain words:
 3. auth-api checks the password (with brute-force protections — Part 7.4), then redirects your
    browser back to the frontend with a short-lived, one-time **authorization code**.
 4. The frontend's server exchanges that code (plus the PKCE secret) at `/connect/token` for:
-   - an **access token** — a signed JWT, valid **60 minutes**; it carries `sub` (your account
-     ID), `name`, `email`, and `role`;
+   - an **access token** — a signed JWT, valid **5 minutes**; it carries `sub` (your account
+     ID), `name`, `email`, and `role`. It is short on purpose: the TMS validates it locally, so
+     this is also how long a revoked session keeps working (ADR-0049);
    - a **refresh token** — a *reference* token, valid **14 days**, stored server-side in the
      auth database, so it can be revoked; it is *rolling*: every use replaces it.
 5. The frontend stores the tokens **inside an encrypted cookie** (`.lotrokoniecdev.auth`,
@@ -991,9 +992,10 @@ consciously; Part 12, question 10.
 
 ### 7.2 Tokens, keys, sessions
 
-- **Access token**: signed JWT, 60 minutes, **signed but not encrypted** — a deliberate switch
+- **Access token**: signed JWT, 5 minutes, **signed but not encrypted** — a deliberate switch
   (`DisableAccessTokenEncryption`) so any standard JwtBearer middleware can validate it.
-  Tamper-proof (signature) but readable — never put secrets in claims.
+  Tamper-proof (signature) but readable — never put secrets in claims. Because nothing checks it
+  against the database, its lifetime is the delay on every session revocation — ADR-0049.
 - **Refresh token**: *reference* token — the client holds a random handle; the real state
   lives in the auth database. Revocable (logout revokes all of a user's tokens) and **rolling**
   (each use issues a replacement, so a stolen old one is useless).

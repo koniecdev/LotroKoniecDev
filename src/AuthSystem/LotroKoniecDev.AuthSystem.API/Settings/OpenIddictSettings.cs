@@ -13,7 +13,12 @@ internal sealed class OpenIddictSettings
     /// </summary>
     public string? InternalIssuer { get; init; }
 
-    public int AccessTokenLifetimeMinutes { get; init; } = 60;
+    /// <summary>
+    /// How long an access token stays valid. It is also how long any revocation takes to bite: the
+    /// TMS validates JWTs on its own, so a token keeps working until it expires even after
+    /// RevokeAllAsync has killed it in the database. Five minutes is the agreed window (ADR-0049).
+    /// </summary>
+    public int AccessTokenLifetimeMinutes { get; init; } = 5;
     public int RefreshTokenLifetimeDays { get; init; } = 14;
     public EncryptionKeySettings EncryptionKey { get; init; } = new();
     public SigningKeySettings SigningKey { get; init; } = new();

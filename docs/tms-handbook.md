@@ -1071,9 +1071,9 @@ product; the one place it shows is "select all pages" style features, which are 
 of scope.
 
 This is **enforced, not just documented**: `scripts/check-ssr-purity.sh` runs first in CI and
-fails the build if anyone introduces `@rendermode`, interactive `@on*` handlers, or
-`StateHasChanged` (`@onsubmit` is the single allowed exception — it is the SSR form-submit
-hook). Wanting interactivity means writing an ADR first.
+fails the build if anyone introduces `@rendermode`, interactive `@on*` handlers,
+`StateHasChanged`, or an inline `<script>` the Frontend's CSP would block (#670) — `@onsubmit`
+and a `<script src=…>` are the allowed exceptions. Wanting interactivity means writing an ADR first.
 
 ### 8.2 The pages
 

@@ -16,6 +16,9 @@
                      passes leg 1 while every asset 404s and the browser spins forever (#414). The
                      fingerprint in blazor.web.<hash>.js is the tell — @Assets[] emits it only when it
                      resolved the manifest, so an unfingerprinted src means the manifest is empty.
+                     The same leg also checks that the CSP we send does not block the HTML we send: an
+                     inline <script> under script-src 'self' is dead, the page still renders, and only
+                     the browser console says so, so no other check here can see it (#670).
       3. Auth token  a client-credentials token round-trip against auth-api's /connect/token — the
                      only non-interactive OIDC grant available in staging/production (the web client
                      needs a browser; the password-flow client is seeded only in Testing).
@@ -51,12 +54,16 @@ param(
     [string] $Scope        = $(if ($env:SMOKE_SCOPE) { $env:SMOKE_SCOPE } else { 'service' }),
     [string] $Lang         = $(if ($env:SMOKE_LANG) { $env:SMOKE_LANG } else { 'pl' }),
     [int]    $TimeoutSec   = $(if ($env:SMOKE_TIMEOUT) { [int]$env:SMOKE_TIMEOUT } else { 15 }),
-    [switch] $Insecure
+    [switch] $Insecure,
+    # A frontend response with no Content-Security-Policy FAILS instead of warning. CD passes it:
+    # only a Development stack legitimately serves no CSP, and CD never smokes one.
+    [switch] $RequireCsp
 )
 
 $ErrorActionPreference = 'Stop'
 
 if (-not $Insecure -and $env:SMOKE_INSECURE -eq '1') { $Insecure = $true }
+if (-not $RequireCsp -and $env:SMOKE_REQUIRE_CSP -eq '1') { $RequireCsp = $true }
 
 $missing = @()
 if (-not $AuthUrl)      { $missing += '-AuthUrl' }
@@ -138,10 +145,25 @@ $code = Get-Status "$FrontendUrl/"
 if ($code -ge 200 -and $code -lt 400) { Add-Pass "frontend / -> $code (serving)" } else { Add-Fail "frontend / -> $code (expected 2xx/3xx)" }
 Write-Host ""
 
-Write-Host "[2/5] Frontend static web assets (#414)"
+Write-Host "[2/5] Frontend static web assets + CSP consistency (#414, #670)"
 $homeHtml = ''
-try { $homeHtml = (Invoke-Smoke -Url "$FrontendUrl/").Content } catch { $homeHtml = '' }
+$csp = ''
+$homeResponse = $null
+try {
+    $homeResponse = Invoke-Smoke -Url "$FrontendUrl/"
+    $homeHtml = $homeResponse.Content
+} catch { $homeHtml = '' }
 if ($null -eq $homeHtml) { $homeHtml = '' }
+# Header extraction sits OUTSIDE that try on purpose: a throw in here must not blank an already
+# fetched body, or the leg would report "static web assets did not ship" and roll the box back.
+# HTTP/2 lower-cases header names, so match on the name instead of indexing by exact case.
+if ($null -ne $homeResponse) {
+    try {
+        foreach ($headerName in $homeResponse.Headers.Keys) {
+            if ($headerName -eq 'Content-Security-Policy') { $csp = ($homeResponse.Headers[$headerName] -join ' ') }
+        }
+    } catch { $csp = '' }
+}
 # @Assets["_framework/blazor.web.js"] renders a fingerprinted src ONLY when MapStaticAssets resolved
 # the publish manifest. A bare `blazor.web.js` means the manifest shipped empty.
 $assetMatch = [regex]::Match($homeHtml, '_framework/blazor\.web\.[A-Za-z0-9]+\.js')
@@ -152,6 +174,35 @@ if (-not $assetMatch.Success) {
     Add-Pass "frontend / references $assetPath (manifest resolved)"
     $code = Get-Status "$FrontendUrl/$assetPath"
     if ($code -eq 200) { Add-Pass "frontend /$assetPath -> 200" } else { Add-Fail "frontend /$assetPath -> $code (expected 200)" }
+
+    # Only runs once the fingerprint above proved the body is real HTML: an empty body has no inline
+    # script either, so this check would otherwise go green exactly when the site is down.
+    $scriptSrc = @($csp -split ';' | Where-Object { $_ -match 'script-src' }) | Select-Object -First 1
+    if ([string]::IsNullOrWhiteSpace($csp)) {
+        # Development skips the whole security-headers middleware, so a local dev stack lands here.
+        if ($RequireCsp) {
+            Add-Fail "frontend / sends no Content-Security-Policy header (-RequireCsp)"
+        } else {
+            Add-Warn "frontend / sends no Content-Security-Policy header (expected only on a Development stack)"
+        }
+    } elseif ($scriptSrc -match 'unsafe-inline') {
+        Add-Fail "frontend / script-src allows 'unsafe-inline' - injected script is no longer blocked (#670)"
+    } elseif ($scriptSrc -match 'nonce-|sha(256|384|512)-') {
+        # A nonce or hash is the documented way to allow one specific inline script, so the count below
+        # would prove nothing.
+        Add-Pass "frontend / script-src admits inline script only by nonce or hash"
+    } else {
+        # HTML tag and attribute names are case-insensitive, so match them that way ((?i), and
+        # -notmatch is already case-insensitive). [^>] matches newlines, so a tag split over two
+        # lines is still counted; the bash twin folds newlines first because grep works line by line.
+        $scriptTags = [regex]::Matches($homeHtml, '(?i)<script[^>]*>')
+        $inlineScripts = @($scriptTags | Where-Object { $_.Value -notmatch 'src=' }).Count
+        if ($inlineScripts -eq 0) {
+            Add-Pass "frontend / serves no inline <script> (nothing for script-src to block)"
+        } else {
+            Add-Fail "frontend / serves $inlineScripts inline <script> element(s), which its own script-src blocks (#670)"
+        }
+    }
 }
 Write-Host ""
 

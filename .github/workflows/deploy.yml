@@ -474,6 +474,7 @@ jobs:
             --auth-url "$AUTH_URL" \
             --tms-url "$TMS_URL" \
             --frontend-url "$FRONTEND_URL" \
+            --require-csp \
             --timeout 30
 
       # Auto-rollback — restore the WHOLE previous deploy unit, not just its images: the config this

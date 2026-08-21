@@ -1,5 +1,10 @@
 #!/usr/bin/env bash
-# Pure-SSR guard for the Frontend.
+# Frontend markup guard: Static SSR purity, plus no inline <script> (CSP).
+#
+# The second rule is newer (#670): our CSP sends `script-src 'self'`, so an inline <script>
+# in a component is dead on arrival and only the browser console reports it. It lives here
+# rather than in a fifth guard script because this is already the frontend-markup gate CI
+# runs in both workflows; the trade-off is that the file name now says less than it checks.
 #
 # The Frontend is Static SSR on purpose: no WebAssembly download, no SignalR circuit,
 # no per-user server state. A single stray @rendermode, @onclick or StateHasChanged
@@ -57,13 +62,24 @@ check 'StateHasChanged' \
     'StateHasChanged only works in interactive mode. In SSR the next request re-renders the page — delete the call.'
 check 'AddInteractiveServerComponents|AddInteractiveWebAssemblyComponents|AddInteractiveServerRenderMode|AddInteractiveWebAssemblyRenderMode' \
     'Interactive Blazor registered in Program.cs. Keep only AddRazorComponents() and MapRazorComponents<App>().'
+# HTML tag and attribute names are case-insensitive, so spell both out. The other rules stay
+# case-sensitive on purpose: they match C#/Razor identifiers, where case is part of the name.
+# Known gaps, accepted: the scan is line-based, so an opening tag split over two lines slips
+# through (the smoke test folds newlines and still catches it), and a literal "<script>" inside
+# a C# string would be flagged with no way to opt out.
+check '<[sS][cC][rR][iI][pP][tT][^>]*>' \
+    "Inline <script> in the Frontend. Our CSP sends script-src 'self', so the browser blocks it and only the console says so (#670). Move the code to a file under wwwroot and load it with src=, or drop it." \
+    '<[sS][cC][rR][iI][pP][tT][^>]*[sS][rR][cC]=[^>]*>'
+# The trailing class keeps List<ImportMapDefinition> and friends out of the match.
+check '<ImportMap[[:space:]/>]' \
+    "Blazor's import-map component renders an inline <script type=\"importmap\">, which script-src 'self' blocks on every page (#670). A Static SSR app never resolves a module specifier, so it has no job here."
 
 if [ "$fail" -ne 0 ]; then
     echo "──────────────────────────────────────────────────────────────────────"
-    echo "Pure-SSR guard FAILED — the Frontend must stay Static SSR."
-    echo "See CLAUDE.md → 'Frontend is Static SSR'. Genuinely need interactivity?"
-    echo "That is an architecture change — write an ADR first (docs/adr/, /adr)."
+    echo "Frontend markup guard FAILED."
+    echo "See CLAUDE.md → 'Frontend is Static SSR'. Genuinely need interactivity, or an"
+    echo "inline script? Both are architecture changes — write an ADR first (docs/adr/, /adr)."
     exit 1
 fi
 
-echo "✓ Pure-SSR guard passed — Frontend is clean."
+echo "✓ Frontend markup guard passed — Static SSR, no inline script."

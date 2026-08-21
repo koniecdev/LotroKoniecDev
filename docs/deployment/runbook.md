@@ -1086,20 +1086,21 @@ queue with the *default* delivery limit (20) and no DLX of its own, so a reject-
 One command that gives a green/red signal that a deployed environment came up correctly, without
 manual clicking — run it as the final [bring-up](#bringing-the-stack-up) step and after every
 subsequent deploy (CD runs it for you). `scripts/smoke.sh` (with a `scripts/smoke.ps1` twin) takes the
-three base URLs + the OpenIddict API client secret and exercises the four legs that actually break on
+three base URLs + the OpenIddict API client secret and exercises the five legs that actually break on
 a deploy:
 
 | # | Check | Pass condition |
 |---|---|---|
 | 1 | **Health** | `GET {auth}/health/ready` = 200, `GET {tms}/health/ready` = 200, `GET {frontend}/` = 2xx/3xx |
-| 2 | **OIDC token** | `POST {auth}/connect/token` (client_credentials) = 200 + an `access_token` |
-| 3 | **Token accepted by tms** | anonymous `GET {tms}/api/v1/game-versions` = **401**; the same call **with** the bearer token is **NOT 401** |
-| 4 | **File distribution** | `GET {tms}/api/v1/translation-files/{lang}` = 200 + `ETag`, then a re-GET with `If-None-Match` = 304 |
+| 2 | **Frontend assets + CSP** | `GET {frontend}/` references a fingerprinted `_framework/blazor.web.<hash>.js` that serves 200, and the page carries no inline `<script>` its own `script-src` would block (#414, #670) |
+| 3 | **OIDC token** | `POST {auth}/connect/token` (client_credentials) = 200 + an `access_token` |
+| 4 | **Token accepted by tms** | anonymous `GET {tms}/api/v1/game-versions` = **401**; the same call **with** the bearer token is **NOT 401** |
+| 5 | **File distribution** | `GET {tms}/api/v1/translation-files/{lang}` = 200 + `ETag`, then a re-GET with `If-None-Match` = 304 |
 
 It prints a `✓`/`✗`/`⚠` per check and **exits non-zero (1) on any failure** (a usage/config problem
 exits 2). Two behaviours are deliberate and worth knowing before you read a result:
 
-- **Leg 3 expects 403, and that is success.** The only non-interactive OIDC grant in a deployed
+- **Leg 4 expects 403, and that is success.** The only non-interactive OIDC grant in a deployed
   environment is **client-credentials**. Such a token carries **no user role**, and every TMS endpoint
   is role-gated — so a *validated* token is **403 Forbidden**, not 200. The check therefore proves the
   token is **accepted** (got past authentication), pairing it with an anonymous 401 to prove the
@@ -1107,7 +1108,7 @@ exits 2). Two behaviours are deliberate and worth knowing before you read a resu
   rejected it — almost always an issuer / audience / JWKS mismatch (see
   [Consistency rules that bite](#consistency-rules-that-bite), rules #1–#2), or a **stale
   `SMOKE_CLIENT_SECRET`**.
-- **Leg 4 warns (does not fail) on 404.** A freshly deployed but not-yet-imported environment has no
+- **Leg 5 warns (does not fail) on 404.** A freshly deployed but not-yet-imported environment has no
   translation artifact, so the endpoint returns 404 — the endpoint is up, there is just nothing to
   distribute yet.
 
@@ -1136,16 +1137,24 @@ Each flag has a `SMOKE_*` environment fallback (`--auth-url`/`SMOKE_AUTH_URL`, `
 `--frontend-url`/`SMOKE_FRONTEND_URL`, `--client-secret`/`SMOKE_CLIENT_SECRET`,
 `--client-id`/`SMOKE_CLIENT_ID` (default `lotrokoniecdev-api`), `--scope`/`SMOKE_SCOPE` (default
 `service`), `--lang`/`SMOKE_LANG` (default `pl`), `--timeout`/`SMOKE_TIMEOUT` (default 15),
-`--insecure`/`SMOKE_INSECURE=1`). `bash scripts/smoke.sh --help` prints the full reference.
+`--insecure`/`SMOKE_INSECURE=1`, `--require-csp`/`SMOKE_REQUIRE_CSP=1`). `bash scripts/smoke.sh --help`
+prints the full reference.
+
+`--require-csp` makes a frontend response with **no** `Content-Security-Policy` header a failure
+instead of a warning. Pass it against any deployed environment — CD and the reusable workflow both do.
+Leave it off only for a local Development stack, which skips the security-headers middleware on
+purpose and would otherwise always report red.
 
 **In CI:** `deploy.yml` runs it against the environment's public origins after `up -d`; a red smoke
 triggers the automatic rollback. The [`Smoke test`](../../.github/workflows/smoke.yml) reusable
 workflow stays runnable **on demand** (`workflow_dispatch` — enter the three URLs).
 
 > **`GET / -> 200` never proves the frontend works.** A `[StreamRendering]` page returns 200 with its
-> spinner frame before it fetches anything. Smoke leg 1's frontend check is paired with the
+> spinner frame before it fetches anything. Smoke leg 1's frontend check is paired with leg 2's
 > **fingerprint** assertion — `@Assets[]` renders `_framework/blazor.web.<hash>.js` only when
-> `MapStaticAssets` resolved its manifest. That is the signature of a healthy image.
+> `MapStaticAssets` resolved its manifest. That is the signature of a healthy image. Leg 2 also
+> catches the other invisible frontend break: an inline `<script>` the page's own CSP blocks, which
+> shows up nowhere but the browser console (#670).
 
 ## Observability & monitoring
 

@@ -77,4 +77,7 @@ jobs:
           SMOKE_FRONTEND_URL: ${{ inputs.frontend_url }}
           SMOKE_CLIENT_ID: ${{ inputs.client_id }}
           SMOKE_CLIENT_SECRET: ${{ secrets.SMOKE_CLIENT_SECRET }}
+          # Same strictness as CD: this workflow only ever targets a deployed environment,
+          # and only a Development stack legitimately serves no CSP (#670).
+          SMOKE_REQUIRE_CSP: '1'
         run: ./scripts/smoke.sh

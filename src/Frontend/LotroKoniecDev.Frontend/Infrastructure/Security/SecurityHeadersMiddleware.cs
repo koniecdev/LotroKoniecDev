@@ -50,8 +50,9 @@ internal sealed class SecurityHeadersMiddleware
         };
 
     /// <summary>
-    /// Builds the CSP. <c>script-src</c> stays at <c>'self'</c>, because Blazor's <c>blazor.web.js</c>
-    /// and its streaming updates are separate files or markup and never inline script.
+    /// Builds the CSP. <c>script-src</c> stays at <c>'self'</c>: <c>blazor.web.js</c> is a normal file
+    /// and streaming updates arrive as markup, so no page needs an inline script. A new inline script
+    /// needs a nonce here, never <c>'unsafe-inline'</c> (#670).
     /// <c>style-src</c> needs <c>'unsafe-inline'</c> for the inline <c>style</c> width on the dashboard
     /// progress bar. The fonts are hosted by us (LEGAL-06), so <c>font-src</c> stays at <c>'self'</c>.
     /// The auth origin is allowed in <c>connect-src</c> and <c>form-action</c>, so the OIDC login flow is

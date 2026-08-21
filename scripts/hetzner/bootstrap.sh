@@ -145,6 +145,11 @@ ensure_swap() {
         # nobody should learn about an unparsable fstab at the next reboot.
         findmnt --verify --fstab > /dev/null 2>&1 \
             || echo "WARNING: $fstab does not verify cleanly — check it before rebooting." >&2
+        # systemd builds its .swap units from fstab at boot, so the reboot is covered either way —
+        # this only stops the RUNNING systemd from disagreeing with the file until someone reloads it.
+        if command -v systemctl > /dev/null 2>&1; then
+            systemctl daemon-reload
+        fi
     fi
 
     if write_file "$swappiness_conf" 0644 << EOF

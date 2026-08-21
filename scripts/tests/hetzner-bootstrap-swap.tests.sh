@@ -128,6 +128,11 @@ cat > "$BOX/bin/findmnt" <<'EOF'
 echo "findmnt $*" >> "$BOX/calls.log"
 EOF
 
+cat > "$BOX/bin/systemctl" <<'EOF'
+#!/usr/bin/env bash
+echo "systemctl $*" >> "$BOX/calls.log"
+EOF
+
     chmod +x "$BOX"/bin/*
 }
 
@@ -195,6 +200,7 @@ run_swap
 [ "$(calls_matching "^swapon $BOX/swapfile$")" -eq 0 ] || fail 'a re-run re-activated an active swapfile'
 [ "$(fstab_swap_lines)" -eq 1 ] || fail 'a re-run duplicated the fstab entry'
 [ "$(calls_matching '^sysctl ')" -eq 0 ] || fail 'a re-run re-applied an unchanged sysctl drop-in'
+[ "$(calls_matching '^systemctl ')" -eq 0 ] || fail 'a re-run reloaded systemd for an fstab it did not touch'
 pass 'changes nothing at all'
 
 # ---------------------------------------------------------------------------------------------
@@ -269,7 +275,9 @@ run_swap
     || fail 'the swap entry was glued onto the root entry — that box does not boot'
 [ "$(fstab_swap_lines)" -eq 1 ] || fail 'the swap entry did not land on its own line'
 [ "$(calls_matching '^findmnt --verify --fstab$')" -eq 1 ] || fail 'the edited fstab was never verified'
-pass 'keeps the entry on its own line and verifies the result'
+[ "$(calls_matching '^systemctl daemon-reload$')" -eq 1 ] \
+    || fail 'systemd was left disagreeing with the fstab this run just edited'
+pass 'keeps the entry on its own line, verifies it and reloads systemd'
 
 # ---------------------------------------------------------------------------------------------
 # A box swapping to a partition can still carry a stale /swapfile. An fstab line for a file that is

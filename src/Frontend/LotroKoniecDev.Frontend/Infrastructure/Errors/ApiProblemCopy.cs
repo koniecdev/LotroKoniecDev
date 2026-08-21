@@ -44,6 +44,20 @@ internal static class ApiProblemCopy
     internal const string GenericMessage = "Operacja nie powiodła się. Spróbuj ponownie za chwilę.";
 
     /// <summary>
+    /// The password rules, spelled out. Both layers that reject a password answer with a mapped code, so
+    /// since #703 hid the English drawer this sentence is the only place a user learns which rule they
+    /// broke. It must list <em>every</em> rule: a rule missing here is a rule the message silently
+    /// contradicts, which is the defect #703 exists to remove.
+    /// <para>
+    /// The wording is shared with the change-password hint, so the Frontend states the rules once. The
+    /// API states the same ones in <c>PasswordValidationRules</c> and in the Identity options; the
+    /// contexts share no code, so keep those in step by hand.
+    /// </para>
+    /// </summary>
+    internal const string PasswordRules =
+        "od 8 do 128 znaków, mała i wielka litera, cyfra oraz znak specjalny.";
+
+    /// <summary>
     /// The Polish text for each API error code. It covers every code <c>TranslationSystem.API</c> and
     /// <c>AuthSystem.API</c> can produce: the domain error lists, the per-slice validation errors and the
     /// shared exception handlers. A code that is missing here falls back to
@@ -134,17 +148,18 @@ internal static class ApiProblemCopy
             ["Auth.UserAlreadyExistsByUsername"] =
                 "Konto z tą nazwą użytkownika już istnieje.",
             ["Auth.RegistrationFailed"] =
-                "Nie udało się założyć konta. Sprawdź podane dane i spróbuj ponownie.",
+                "Nie udało się założyć konta. Sprawdź adres e-mail, nazwę użytkownika oraz wymagania hasła: "
+                + PasswordRules,
             ["Auth.UserNotFound"] =
                 "Nie znaleziono konta.",
             ["Auth.InvalidCurrentPassword"] =
                 "Aktualne hasło jest nieprawidłowe.",
             ["Auth.PasswordChangeFailed"] =
-                "Nie udało się zmienić hasła. Nowe hasło może nie spełniać wymagań.",
+                "Nie udało się zmienić hasła. Nowe hasło musi spełniać wymagania: " + PasswordRules,
             ["Auth.InvalidPasswordResetToken"] =
                 "Link do zmiany hasła jest nieprawidłowy lub wygasł. Poproś o nowy.",
             ["Auth.PasswordResetFailed"] =
-                "Nie udało się ustawić nowego hasła. Może ono nie spełniać wymagań.",
+                "Nie udało się ustawić nowego hasła. Musi ono spełniać wymagania: " + PasswordRules,
             ["Auth.InvalidEmailConfirmationToken"] =
                 "Link potwierdzający adres e-mail jest nieprawidłowy lub wygasł. Poproś o nowy.",
             ["Auth.EmailConfirmationFailed"] =
@@ -159,16 +174,26 @@ internal static class ApiProblemCopy
                 "Link anulujący usunięcie konta jest nieprawidłowy lub wygasł.",
             ["Auth.CancelDeletionFailed"] =
                 "Nie udało się anulować usunięcia konta. Spróbuj ponownie później.",
+            ["Auth.EmailChangeSameAddress"] =
+                "Podany adres e-mail jest taki sam jak obecny.",
+            ["Auth.InvalidEmailChangeToken"] =
+                "Link zmieniający adres e-mail jest nieprawidłowy lub wygasł. Poproś o nowy.",
+            ["Auth.EmailChangeFailed"] =
+                "Nie udało się zmienić adresu e-mail. Mógł on zostać w międzyczasie zajęty przez inne konto.",
 
             // ── Auth · per-slice request validation ────────────────────────────────────────────
+            // Registration and password reset live on the auth server's own Razor Pages, so these three
+            // entries are unreachable from the Frontend today. They stay for map completeness, and they
+            // name every rule their validator enforces in case those pages ever move here.
             ["RegisterUser.Validation"] =
-                "Formularz rejestracji zawiera nieprawidłowe dane.",
+                "Formularz rejestracji zawiera nieprawidłowe dane. Sprawdź adres e-mail, nazwę użytkownika "
+                + "i wymagane zgody, a hasło musi mieć " + PasswordRules,
             ["ChangePassword.Validation"] =
-                "Formularz zmiany hasła zawiera nieprawidłowe dane.",
+                "Nowe hasło nie spełnia wymagań: " + PasswordRules,
             ["ForgotPassword.Validation"] =
                 "Podany adres e-mail jest nieprawidłowy.",
             ["ResetPassword.Validation"] =
-                "Formularz zmiany hasła zawiera nieprawidłowe dane.",
+                "Nowe hasło nie spełnia wymagań: " + PasswordRules,
             ["ConfirmEmail.Validation"] =
                 "Link potwierdzający adres e-mail jest niekompletny lub nieprawidłowy.",
             ["ResendEmailConfirmation.Validation"] =
@@ -177,6 +202,8 @@ internal static class ApiProblemCopy
                 "Formularz usunięcia konta zawiera nieprawidłowe dane.",
             ["CancelAccountDeletion.Validation"] =
                 "Link anulujący usunięcie konta jest niekompletny lub nieprawidłowy.",
+            ["RequestEmailChange.Validation"] =
+                "Podany adres e-mail jest nieprawidłowy.",
 
             // ── Shared exception handlers (both APIs) ──────────────────────────────────────────
             ["Validation.FluentValidation"] =
@@ -192,6 +219,28 @@ internal static class ApiProblemCopy
             ["Internal.UnhandledException"] =
                 "Wystąpił nieoczekiwany błąd serwera. Spróbuj ponownie za chwilę."
         }.ToFrozenDictionary(StringComparer.Ordinal);
+
+    /// <summary>
+    /// The mapped codes whose English message says something the Polish text cannot: a line number, a
+    /// row key, a duplicate fragment key, or the removal counters. Only for those is the API wording
+    /// worth showing (ADR-0044 §4, amended by #703). Everywhere else the English only restates the
+    /// Polish headline, which reads like a leak.
+    /// <para>
+    /// The list is short on purpose, and it is a trade, not a free win: a few other codes do carry a
+    /// runtime message (the Identity failures behind <c>Auth.*Failed</c>, the rule names behind
+    /// <c>*.Validation</c>). Hiding those is the accepted cost, paid back in Polish copy that says the
+    /// same thing — see <see cref="PasswordRules"/>. Adding a code here is the wrong way to pay it,
+    /// because the drawer is English on a Polish page.
+    /// </para>
+    /// </summary>
+    private static readonly FrozenSet<string> CodesWhoseApiMessageCarriesData =
+        FrozenSet.ToFrozenSet(
+        [
+            "Import.ParseFailed",
+            "Import.InvalidRow",
+            "Import.DuplicateFragmentKey",
+            "Import.MassRemovalBlocked"
+        ], StringComparer.Ordinal);
 
     /// <summary>
     /// The fallback for an API failure whose code has no text yet: say what the status means, in Polish,
@@ -377,17 +426,36 @@ internal static class ApiProblemCopy
     }
 
     /// <summary>
-    /// The code and the API's own wording, whichever of the two the problem carries. A problem with
-    /// neither, which is a status with no body, has nothing worth showing.
+    /// The code and the API's own wording, whichever of the two the problem carries — but only when
+    /// they add something. A problem with neither, which is a status with no body, has nothing worth
+    /// showing either.
     /// </summary>
     private static string? BuildTechnicalDetail(string? errorCode, ProblemDetails problem)
-        => (errorCode, FirstNonBlank(problem.Detail, problem.Title)) switch
+    {
+        if (errorCode is not null && AddsNothingToThePolishCopy(errorCode))
+        {
+            return null;
+        }
+
+        return (errorCode, FirstNonBlank(problem.Detail, problem.Title)) switch
         {
             (not null, { } apiMessage) => $"{errorCode} — {apiMessage}",
             (not null, null) => errorCode,
             (null, { } apiMessage) => apiMessage,
             _ => null
         };
+    }
+
+    /// <summary>
+    /// True when the Polish headline is already the whole message: the code has copy here, and its
+    /// English carries no data that copy is missing (#703).
+    /// <para>
+    /// An unmapped code is never hidden. The user only sees the generic sentence there, so the code and
+    /// the API's wording are the one thing that makes such a failure reportable.
+    /// </para>
+    /// </summary>
+    private static bool AddsNothingToThePolishCopy(string errorCode)
+        => PolishByErrorCode.ContainsKey(errorCode) && !CodesWhoseApiMessageCarriesData.Contains(errorCode);
 
     private static string? FirstNonBlank(params string?[] candidates)
         => Array.Find(candidates, candidate => !string.IsNullOrWhiteSpace(candidate));

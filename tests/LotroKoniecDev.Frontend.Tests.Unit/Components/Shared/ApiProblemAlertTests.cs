@@ -10,8 +10,9 @@ namespace LotroKoniecDev.Frontend.Tests.Unit.Components.Shared;
 
 /// <summary>
 /// The one component every page renders a failed call through (#548 / ADR-0044). These lock down what
-/// reaches the screen: Polish copy for an API failure, the API's English kept behind a collapsed
-/// <c>details</c>, and a logged warning when a code shipped without copy.
+/// reaches the screen: Polish copy for an API failure, the API's English behind a collapsed
+/// <c>details</c> only where it adds information (#703), and a logged warning when a code shipped
+/// without copy.
 /// </summary>
 public sealed class ApiProblemAlertTests : BunitContext
 {
@@ -55,7 +56,7 @@ public sealed class ApiProblemAlertTests : BunitContext
     }
 
     [Fact]
-    public void Render_ForAnApiFailure_KeepsTheCodeAndEnglishInACollapsedDetailsBlock()
+    public void Render_ForAnImportFailureWhoseEnglishCarriesData_KeepsTheCodeAndEnglishInACollapsedDetailsBlock()
     {
         ProblemDetails problem = ApiProblem(
             "Import.ParseFailed",
@@ -72,6 +73,42 @@ public sealed class ApiProblemAlertTests : BunitContext
         details.QuerySelector("summary")!.TextContent.ShouldBe("Szczegóły techniczne");
         details.QuerySelector(".problem-tech-body")!.TextContent
             .ShouldBe("Import.ParseFailed — The upload has 3 unparseable line(s); first failure — line 42: unexpected pipe.");
+    }
+
+    [Fact]
+    public void Render_ForAMappedFailureWhoseEnglishOnlyRestatesThePolish_RendersNoDetailsElementAtAll()
+    {
+        // The defect of #703, reported from /account/change-password: the drawer held
+        // "Auth.InvalidCurrentPassword — The current password is incorrect.", which is the headline
+        // again in English. Nothing to expand means nothing that reads like a leak.
+        ProblemDetails problem = ApiProblem(
+            "Auth.InvalidCurrentPassword",
+            400,
+            "Validation Error",
+            "The current password is incorrect.");
+
+        IRenderedComponent<ApiProblemAlert> component = Render<ApiProblemAlert>(parameters => parameters
+            .Add(alert => alert.Problem, problem)
+            .Add(alert => alert.Fallback, "Nie udało się zmienić hasła."));
+
+        component.Find(".problem-headline").TextContent.ShouldBe("Aktualne hasło jest nieprawidłowe.");
+        component.FindAll("details").ShouldBeEmpty();
+        component.Markup.ShouldNotContain("Szczegóły techniczne");
+    }
+
+    [Fact]
+    public void Render_ForAnUnmappedErrorCode_StillShowsTheCodeAndTheApiWording()
+    {
+        // Here the user only gets the generic status sentence, so the English is the one thing that
+        // makes the failure reportable. It stays until the code has Polish copy.
+        ProblemDetails problem = ApiProblem("Catalog.SomethingNobodyMappedYet", 403, "Forbidden", "Not your row.");
+
+        IRenderedComponent<ApiProblemAlert> component = Render<ApiProblemAlert>(parameters => parameters
+            .Add(alert => alert.Problem, problem)
+            .Add(alert => alert.Fallback, "Operacja nie powiodła się."));
+
+        component.Find("details.problem-tech .problem-tech-body").TextContent
+            .ShouldBe("Catalog.SomethingNobodyMappedYet — Not your row.");
     }
 
     [Fact]

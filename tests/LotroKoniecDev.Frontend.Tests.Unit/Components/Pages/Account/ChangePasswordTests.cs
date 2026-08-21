@@ -48,6 +48,27 @@ public sealed class ChangePasswordTests : BunitContext
     }
 
     [Fact]
+    public void Render_TheNewPasswordHint_NamesEveryRuleTheApiEnforces()
+    {
+        // The API rejects a weak password with a mapped code, and #703 stopped showing the English that
+        // used to name the broken rule. So the hint is now the user's only warning up front, and it has
+        // to match PasswordValidationRules — it used to omit the special character both it and the
+        // Identity options require, which turned a wrong password into a dead end.
+        StubExport(AccountLoaderTests.CreateEnvelope(links:
+        [
+            new LinkDto("auth/change-password", Rels.ChangePassword, "POST")
+        ]));
+
+        IRenderedComponent<ChangePasswordComponent> component = Render<ChangePasswordComponent>();
+
+        string hint = component.Find(".field-hint").TextContent;
+        hint.ShouldContain("od 8 do 128 znaków");
+        hint.ShouldContain("mała i wielka litera");
+        hint.ShouldContain("cyfra");
+        hint.ShouldContain("znak specjalny");
+    }
+
+    [Fact]
     public void Render_WhenChangePasswordRelMissing_ShowsTheUnavailableNoticeAndNoForm()
     {
         StubExport(AccountLoaderTests.CreateEnvelope(links: []));

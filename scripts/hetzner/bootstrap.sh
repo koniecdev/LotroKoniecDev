@@ -11,6 +11,8 @@
 #   ssh root@<ip> 'GHCR_USER=<user> GHCR_TOKEN=<pat> bash -s' < scripts/hetzner/bootstrap.sh
 #
 # What it sets up:
+#   * a 2 GiB /swapfile, persisted in /etc/fstab, + vm.swappiness=10 — the Hetzner images ship with
+#     no swap, so a memory spike on a 4 GB box is an instant OOM-kill instead of a slowdown (#708)
 #   * Docker Engine + compose plugin — ADOPTS whatever working engine the box already has, and
 #     installs docker-ce from Docker's apt repo only when there is none (see the leg below)
 #   * ufw: deny incoming except 22/80/443, allow outgoing
@@ -34,19 +36,6 @@ export NEEDRESTART_MODE=a
 
 log() { printf '\n==> %s\n' "$*"; }
 
-if [ "$(id -u)" -ne 0 ]; then
-    echo "bootstrap.sh must run as root (fresh Hetzner boxes ssh you in as root)." >&2
-    exit 1
-fi
-
-# shellcheck disable=SC1091
-CODENAME="$(. /etc/os-release && echo "${VERSION_CODENAME:-}")"
-if [ -z "$CODENAME" ]; then
-    echo "WARNING: could not detect the Ubuntu codename — using 'noble' (24.04) for the Docker apt repo." >&2
-    CODENAME="noble"
-fi
-echo "Detected Ubuntu codename: $CODENAME"
-
 # Writes stdin to $1 with mode $2 only when the content differs; returns 1 when nothing changed,
 # so callers can gate service reloads behind `if write_file ...; then`. A failed write exits the
 # script outright — callers run in if-context, where set -e is suspended and a plain error would
@@ -66,6 +55,134 @@ write_file() {
     fi
     rm -f "$tmp"
 }
+
+# Gives the box the shock absorber its image ships without (#708). With no swap a memory spike is
+# not a slowdown: the kernel OOM-kills a container and picks the victim by score, not by importance.
+# Swappiness stays low because this is an emergency buffer, not a working tier — reach for it under
+# real pressure, never page out a warm container just to grow the page cache.
+#
+# Every step is guarded, so a second pass on a live box changes nothing. Two guards are there for
+# safety rather than for idempotence, because this leg edits state that can break a boot: mkswap
+# never runs on an area the kernel is using, and only an ACTIVE swapfile is written to fstab — a
+# line pointing at a file that is not a swap area fails every `swapon -a` from the next boot on.
+#
+# The paths and the size are variables so scripts/tests/hetzner-bootstrap-swap.tests.sh can drive
+# this function against a temp root with stubbed swap tools. Nothing sets them on a real run.
+ensure_swap() {
+    local swapfile="${SWAPFILE:-/swapfile}"
+    local size_mb="${SWAP_SIZE_MB:-2048}"
+    local fstab="${FSTAB:-/etc/fstab}"
+    local swappiness_conf="${SWAPPINESS_CONF:-/etc/sysctl.d/99-swappiness.conf}"
+    local want_bytes=$((size_mb * 1024 * 1024))
+
+    if [ -n "$(swapon --show=NAME --noheadings 2> /dev/null)" ]; then
+        echo "Swap is already active — not adding another one:"
+        swapon --show
+    else
+        # A file of the wrong size is a leftover from a run that died mid-write (a full disk is the
+        # way to get one). Adopting it would hand the box a buffer far smaller than it asked for and
+        # still report success, so re-create it instead. Nothing is active here, so nothing is lost.
+        if [ -e "$swapfile" ] && [ "$(wc -c < "$swapfile")" -ne "$want_bytes" ]; then
+            echo "$swapfile is not ${size_mb} MiB — replacing the leftover."
+            rm -f "$swapfile"
+        fi
+
+        local created=0
+        if [ ! -e "$swapfile" ]; then
+            echo "No swap on this box — creating $swapfile (${size_mb} MiB)."
+            # fallocate is instant on ext4, what the Hetzner image lays down. dd is the fallback for
+            # a filesystem that cannot fallocate at all; a failed write leaves a partial file, so it
+            # is removed on the way out rather than left for the next run to puzzle over.
+            if ! fallocate -l "${size_mb}M" "$swapfile" 2> /dev/null; then
+                echo "fallocate failed — writing the file with dd instead."
+                rm -f "$swapfile"
+                if ! dd if=/dev/zero of="$swapfile" bs=1M count="$size_mb" status=none; then
+                    rm -f "$swapfile"
+                    echo "FATAL: could not write $swapfile — is the disk full?" >&2
+                    exit 1
+                fi
+            fi
+            created=1
+        fi
+        chmod 600 "$swapfile"   # before mkswap, which complains about a world-readable file
+
+        # mkswap over an active swap area corrupts the pages the kernel holds there. It runs on a
+        # file this pass just created, or on one swapon refuses — an interrupted earlier pass leaves
+        # a full-size file with no swap signature. swapon can also refuse an ACTIVE file (EBUSY), so
+        # that case is checked outright instead of being left to the branch above to rule out.
+        if [ "$created" -eq 1 ] || ! swapon "$swapfile" 2> /dev/null; then
+            if swapon --show=NAME --noheadings 2> /dev/null | grep -qxF "$swapfile"; then
+                echo "FATAL: $swapfile is in use but swapon refused it — refusing to mkswap it." >&2
+                exit 1
+            fi
+            mkswap "$swapfile" > /dev/null
+            swapon "$swapfile"
+        fi
+        swapon --show
+    fi
+
+    # Also converges a swapfile that was already active when this ran: the branch above never
+    # touched it, and a world-readable swapfile is a copy of memory paged out of other processes.
+    if [ -e "$swapfile" ]; then
+        chmod 600 "$swapfile"
+    fi
+
+    # Persist whatever is active, whoever enabled it — a swapfile someone turned on by hand is one
+    # reboot away from being gone. Keyed on ACTIVE, not on "the file exists": a box whose swap comes
+    # from a partition may still have a stale /swapfile lying around, and an fstab line for that file
+    # would break `swapon -a` at every boot. awk compares the first field exactly, so a path with a
+    # regex metacharacter in it cannot loosen the match.
+    if swapon --show=NAME --noheadings 2> /dev/null | grep -qxF "$swapfile" \
+        && ! awk -v f="$swapfile" '$1 == f { found = 1 } END { exit !found }' "$fstab" 2> /dev/null; then
+        echo "Persisting $swapfile in $fstab."
+        # An fstab whose last line has no newline would swallow the entry into it, and a malformed
+        # root entry is a box that does not boot.
+        if [ -s "$fstab" ] && [ -n "$(tail -c 1 "$fstab")" ]; then
+            printf '\n' >> "$fstab"
+        fi
+        printf '%s none swap sw 0 0\n' "$swapfile" >> "$fstab"
+        # Warn, never fail: a pre-existing complaint elsewhere in fstab is not this leg's to fix, but
+        # nobody should learn about an unparsable fstab at the next reboot.
+        findmnt --verify --fstab > /dev/null 2>&1 \
+            || echo "WARNING: $fstab does not verify cleanly — check it before rebooting." >&2
+    fi
+
+    if write_file "$swappiness_conf" 0644 << EOF
+# Swap on this box is an emergency buffer, not a working tier (#708).
+vm.swappiness = 10
+EOF
+    then
+        sysctl -q -p "$swappiness_conf"
+    fi
+}
+
+# Test seam: `BOOTSTRAP_SOURCE_ONLY=1 . bootstrap.sh` defines the helpers above and stops here,
+# before the script touches anything. It is what lets the swap self-test drive ensure_swap against a
+# temp root, and how an already-bootstrapped box gets this one leg without a full re-run (#708).
+if [ "${BOOTSTRAP_SOURCE_ONLY:-0}" = "1" ]; then
+    # `return` is the sourced path; the fallback catches someone EXECUTING the script with the seam
+    # set, where a bare `return` would be an error. SC2317: not dead code, just conditionally reached.
+    # shellcheck disable=SC2317
+    return 0 2> /dev/null || exit 0
+fi
+
+if [ "$(id -u)" -ne 0 ]; then
+    echo "bootstrap.sh must run as root (fresh Hetzner boxes ssh you in as root)." >&2
+    exit 1
+fi
+
+# shellcheck disable=SC1091
+CODENAME="$(. /etc/os-release && echo "${VERSION_CODENAME:-}")"
+if [ -z "$CODENAME" ]; then
+    echo "WARNING: could not detect the Ubuntu codename — using 'noble' (24.04) for the Docker apt repo." >&2
+    CODENAME="noble"
+fi
+echo "Detected Ubuntu codename: $CODENAME"
+
+# First leg on purpose: every step below it (apt, the image pulls a later deploy runs) is a memory
+# spike on a box that has no buffer until this returns.
+log "swap (2 GiB emergency buffer + vm.swappiness=10)"
+ensure_swap
 
 log "apt update + base packages"
 apt-get update -q

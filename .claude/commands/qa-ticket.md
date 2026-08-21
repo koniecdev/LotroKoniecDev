@@ -53,6 +53,8 @@ Watch specifically for the failure modes that already bit us:
   "optional": optional invites improvisation, and improvisation is what produced #602 and #604.
 - `**blocked: <what is missing>**` — the precondition does not exist yet (no sample `exported.txt`,
   no seeded NeedsReview row, no admin login handed over). Say what is missing and who provides it.
+  A ticket handed over with any blocked scenario also carries the **`qa-blocked`** label, so the gap
+  sits in `gh issue list --label qa-blocked` instead of hiding inside an open ticket.
 
 If more than half the ticket lands in owner-assisted/blocked, the ticket is not ready to hand over —
 say so and fix the precondition first (`scripts/qa/seed-staging.sql` exists for the data half).
@@ -75,9 +77,11 @@ Every QA ticket carries this at the very top, unchanged:
 > unless the owner runs them with you.
 >
 > **3. Do not improvise a missing precondition.** If a scenario needs data or a role you do not have
-> (a superseded row, an admin login, a sample `exported.txt`), leave the box unchecked and write
-> `blocked: <what is missing>` in your report. A guessed substitute produces a false bug, which costs
-> more than the untested scenario.
+> (a superseded row, an admin login, a sample `exported.txt`), leave the box unchecked, write
+> `blocked: <what is missing>` in your report, and **add the `qa-blocked` label to this ticket** so
+> the owner sees it is waiting on them. A guessed substitute produces a false bug, which costs more
+> than the untested scenario. A blocked scenario is the one case that keeps a finished run's ticket
+> open — a scenario that simply failed is a result, so it does not block anything.
 >
 > **4. Ask before filing a security or "this looks wrong" bug.** One comment on this ticket is
 > cheaper than a bug report that turns out to be by design. Vague auth messages and public download
@@ -93,7 +97,7 @@ Every QA ticket carries this at the very top, unchanged:
 Mirror the existing QA-FE tickets (`gh issue list --label qa`): read-first block → `## Context` →
 `### Environment & accounts (staging — browser only)` → `## Test scenarios` (checkboxes) →
 `## Acceptance criteria`. Title convention `QA-FE-{nn}: Area — what is covered`, labels `qa` + `test`
-+ a priority.
++ a priority, plus `qa-blocked` if any scenario ships blocked.
 
 State the concrete environment (`https://staging.lotro-translator.pl`) and exactly which account
 each leg needs. Where a scenario depends on a specific row, **name the FileId/GossipId** — do not

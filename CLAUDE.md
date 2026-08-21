@@ -718,10 +718,18 @@ with `/qa-ticket #<n>` before handing it over.**
   not exist yet and the QA ticket (or a follow-up run) stays open. `FAILED` = information obtained,
   work done; `blocked:` = work not done. Worked example: #262 closed at 6/7 with the failures carved
   out to #670 and #672.
+- **A blocked run is labelled `qa-blocked`, by the tester (owner rule, 2026-08-21).** An open QA
+  ticket does not say *why* it is open, so a run stalled on a missing precondition looks exactly like
+  one nobody has started. The tester applies the label themselves (they hold write access) and names
+  the missing precondition in a comment; `gh issue list --label qa-blocked` is then the owner's queue
+  of things only the owner can clear. The owner removes the label when the precondition lands — that
+  removal is the tester's signal to finish the run. The label tracks the *ticket*, so it comes off
+  once nothing on it is blocked any more, not once the first blocked scenario clears.
 - **Preconditions are the owner's job, not the tester's.** Non-default row states come from
   `scripts/qa/seed-staging.sql` (staging only; requires one approve in the UI afterwards to rebuild
   the artifact). Sample `exported.txt` files and the admin login are owner-provided — a scenario
-  without its precondition ships as `blocked:`, never as a hopeful checkbox.
+  without its precondition ships as `blocked:`, never as a hopeful checkbox, and the ticket is handed
+  over already carrying `qa-blocked` so the gap is on the owner's queue from day one.
 
 ### Loop mode — one ticket = one closed PR, in its own fresh headless process
 

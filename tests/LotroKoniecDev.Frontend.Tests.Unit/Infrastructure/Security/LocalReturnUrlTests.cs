@@ -36,6 +36,19 @@ public sealed class LocalReturnUrlTests
     }
 
     /// <summary>
+    /// A quote or an angle bracket inside a path is still a path, so the check keeps the value. It only
+    /// decides whether a target is local, and this copy is only ever redirected to, never printed. Kept in
+    /// step with the twin (#681).
+    /// </summary>
+    [Theory]
+    [InlineData("""/x" onfocus="alert(1)""")]
+    [InlineData("/x<script>alert(1)</script>")]
+    public void Sanitize_WhenALocalPathCarriesHtmlCharacters_KeepsItVerbatim(string returnUrl)
+    {
+        LocalReturnUrl.Sanitize(returnUrl).ShouldBe(returnUrl);
+    }
+
+    /// <summary>
     /// Browsers drop ASCII tab and newline before they parse a URL, so
     /// <c>Location: /&lt;tab&gt;/evil.example</c> is followed as <c>//evil.example</c>. A check that only
     /// looked at the first characters would call that value local.

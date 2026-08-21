@@ -223,6 +223,139 @@ public sealed partial class LoginPageTests : EndpointsTestBase
         response.Headers.Location!.OriginalString.ShouldBe(continuation);
     }
 
+    /// <summary>
+    /// The evidence for #681. A quote followed by an event handler is still a path that starts with one
+    /// <c>/</c>, so the local-target check keeps the value and the page prints it. What makes it harmless
+    /// is the encoding of the attribute, not the check, so the proof has to read the rendered body.
+    /// </summary>
+    [Theory]
+    [InlineData("""/x" onfocus="alert(1)""", "/x&quot; onfocus=&quot;alert(1)")]
+    [InlineData("/x<script>alert(1)</script>", "/x&lt;script&gt;alert(1)&lt;/script&gt;")]
+    public async Task LoginPage_ShouldEncodeTheReturnUrl_WhenALocalPathCarriesHtmlCharacters(
+        string returnUrl,
+        string expectedAttributeValue)
+    {
+        // Act
+        HttpResponseMessage response = await GetLoginPageAsync(returnUrl);
+
+        // Assert
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        string html = await response.Content.ReadAsStringAsync();
+        html.ShouldContain($"""<input type="hidden" name="returnUrl" value="{expectedAttributeValue}" />""");
+        html.ShouldNotContain(returnUrl);
+    }
+
+    /// <summary>
+    /// Dropping the tag-helper route value also dropped the generated action attribute, and the form tag
+    /// helper decides on the antiforgery token from exactly that: it only leaves the token out when the
+    /// markup sets an action itself. Without the token every login POST would answer 400.
+    /// </summary>
+    [Fact]
+    public async Task LoginPage_ShouldStillEmitTheAntiforgeryToken_WhenTheFormCarriesNoAction()
+    {
+        // Act
+        HttpResponseMessage response = await GetLoginPageAsync("/connect/authorize?client_id=web");
+
+        // Assert
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        string html = await response.Content.ReadAsStringAsync();
+        ExtractAntiForgeryToken(html).ShouldNotBeNullOrWhiteSpace();
+    }
+
+    /// <summary>
+    /// A target the check rejects must leave no trace in the page, so the field is rendered only when
+    /// there is something to continue to.
+    /// </summary>
+    [Theory]
+    [InlineData("//evil.example")]
+    [InlineData("/\t/evil.example")]
+    [InlineData("https://evil.example/harvest")]
+    public async Task LoginPage_ShouldNotRenderTheHiddenField_WhenReturnUrlIsNotLocal(string returnUrl)
+    {
+        // Act
+        HttpResponseMessage response = await GetLoginPageAsync(returnUrl);
+
+        // Assert
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        string html = await response.Content.ReadAsStringAsync();
+        html.ShouldNotContain("name=\"returnUrl\"");
+    }
+
+    /// <summary>
+    /// Since #681 the form no longer puts the continuation into its action, so the hidden field is the
+    /// only part of the page that carries it. The POST goes to the bare page path, so a regression that
+    /// drops the field cannot hide behind the query string a browser would send as well.
+    /// </summary>
+    [Fact]
+    public async Task LoginPage_ShouldResumeTheContinuation_WhenOnlyTheRenderedFormCarriesIt()
+    {
+        // Arrange
+        const string continuation = "/connect/authorize?client_id=lotrokoniecdev-test&response_type=code";
+        (RegisterRequest request, _) =
+            await UserFactory.RegisterRandomUserWithRequestAsync(ApiClient, Faker, AccountConfirmationEmailSpy);
+
+        using HttpClient browser = Factory.CreateClient(
+            new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
+        string renderedPage = await GetLoginPageBodyAsync(browser, continuation);
+
+        Match hiddenField = HiddenReturnUrlRegex().Match(renderedPage);
+        hiddenField.Success.ShouldBeTrue("The login form must carry the return target in a hidden field.");
+
+        // Act
+        HttpResponseMessage response = await PostLoginFormAsync(
+            browser,
+            renderedPage,
+            new Dictionary<string, string>
+            {
+                ["Email"] = request.Email,
+                ["Password"] = request.Password,
+                ["returnUrl"] = WebUtility.HtmlDecode(hiddenField.Groups[1].Value)
+            });
+
+        // Assert
+        response.StatusCode.ShouldBe(HttpStatusCode.Found);
+        response.Headers.Location.ShouldNotBeNull();
+        response.Headers.Location!.OriginalString.ShouldBe(continuation);
+    }
+
+    /// <summary>
+    /// The shape a browser really posts: the action-less form goes back to the address the page was loaded
+    /// from, so the query string arrives together with the hidden field. Model binding reads the form
+    /// before the query, and both carry the same target, so the continuation survives either way.
+    /// </summary>
+    [Fact]
+    public async Task LoginPage_ShouldResumeTheContinuation_WhenTheQueryAndTheFormBothCarryIt()
+    {
+        // Arrange
+        const string continuation = "/connect/authorize?client_id=lotrokoniecdev-test&response_type=code";
+        (RegisterRequest request, _) =
+            await UserFactory.RegisterRandomUserWithRequestAsync(ApiClient, Faker, AccountConfirmationEmailSpy);
+
+        using HttpClient browser = Factory.CreateClient(
+            new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
+        string renderedPage = await GetLoginPageBodyAsync(browser, continuation);
+
+        Match hiddenField = HiddenReturnUrlRegex().Match(renderedPage);
+        hiddenField.Success.ShouldBeTrue("The login form must carry the return target in a hidden field.");
+
+        // Act
+        HttpResponseMessage response = await PostLoginFormAsync(
+            browser,
+            renderedPage,
+            new Dictionary<string, string>
+            {
+                ["Email"] = request.Email,
+                ["Password"] = request.Password,
+                ["returnUrl"] = WebUtility.HtmlDecode(hiddenField.Groups[1].Value)
+            },
+            $"/Account/Login?returnUrl={Uri.EscapeDataString(continuation)}");
+
+        // Assert
+        response.StatusCode.ShouldBe(HttpStatusCode.Found);
+        response.Headers.Location.ShouldNotBeNull();
+        response.Headers.Location!.OriginalString.ShouldBe(continuation);
+    }
+
     private async Task LockOutAsync(string username)
     {
         await using AsyncServiceScope scope = Factory.Services.CreateAsyncScope();
@@ -282,6 +415,42 @@ public sealed partial class LoginPageTests : EndpointsTestBase
         return await browser.SendAsync(request);
     }
 
+    private async Task<HttpResponseMessage> GetLoginPageAsync(string returnUrl) =>
+        await ApiClient.Http.GetAsync(
+            new Uri($"/Account/Login?returnUrl={Uri.EscapeDataString(returnUrl)}", UriKind.Relative));
+
+    private static async Task<string> GetLoginPageBodyAsync(HttpClient browser, string returnUrl)
+    {
+        HttpResponseMessage pageResponse = await browser.GetAsync(
+            new Uri($"/Account/Login?returnUrl={Uri.EscapeDataString(returnUrl)}", UriKind.Relative));
+        pageResponse.StatusCode.ShouldBe(HttpStatusCode.OK);
+
+        return await pageResponse.Content.ReadAsStringAsync();
+    }
+
+    /// <summary>
+    /// Posts the given fields on the same client that rendered the page, so the antiforgery cookie and the
+    /// token in the body belong together. <paramref name="postUrl"/> defaults to the bare page path, which
+    /// is where a test sends the form when the hidden field alone has to carry the target.
+    /// </summary>
+    private static async Task<HttpResponseMessage> PostLoginFormAsync(
+        HttpClient browser,
+        string renderedPage,
+        Dictionary<string, string> formFields,
+        string postUrl = "/Account/Login")
+    {
+        if (ExtractAntiForgeryToken(renderedPage) is { } antiForgeryToken)
+        {
+            formFields["__RequestVerificationToken"] = antiForgeryToken;
+        }
+
+        using FormUrlEncodedContent content = new(formFields);
+        using HttpRequestMessage request = new(HttpMethod.Post, postUrl);
+        request.Content = content;
+
+        return await browser.SendAsync(request);
+    }
+
     private static string? ExtractAntiForgeryToken(string html)
     {
         Match match = AntiForgeryTokenRegex().Match(html);
@@ -290,6 +459,9 @@ public sealed partial class LoginPageTests : EndpointsTestBase
 
     [GeneratedRegex("""name="__RequestVerificationToken".*?value="([^"]+)""")]
     private static partial Regex AntiForgeryTokenRegex();
+
+    [GeneratedRegex("""name="returnUrl"[^>]*value="([^">]*)""")]
+    private static partial Regex HiddenReturnUrlRegex();
 
     [GeneratedRegex("""<span class="s">(.*?)</span>""", RegexOptions.Singleline)]
     private static partial Regex AlertMessageRegex();

@@ -9,7 +9,7 @@ using NSubstitute;
 namespace LotroKoniecDev.AuthSystem.API.Tests.Unit.Pages.Account;
 
 /// <summary>
-/// The login page puts <c>returnUrl</c> into its own form action and also uses it as the redirect target
+/// The login page puts <c>returnUrl</c> into a hidden field and also uses it as the redirect target
 /// after sign-in, so the value has to be checked on the way in and a raw query value must never reach
 /// the property. This pins the same wiring the register page already had.
 /// </summary>

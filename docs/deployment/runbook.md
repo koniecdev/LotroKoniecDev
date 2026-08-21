@@ -45,6 +45,7 @@ staging.
 | Location | Nuremberg (nbg1), Germany |
 | OS | Ubuntu 26.04 LTS (resolute); `bootstrap.sh` is verified on 24.04 and 26.04 |
 | Backups | Hetzner backups on **lotro-prod only** (~20% surcharge); staging is disposable |
+| Memory | 4 GB RAM + a **2 GiB `/swapfile`** at `vm.swappiness = 10`, laid down by `bootstrap.sh` and persisted in `/etc/fstab` (OBS-01 / #708). The Hetzner image ships no swap at all, which turns any spike into an OOM-kill instead of a slowdown |
 | Users | `root` (key-only) · `deploy` (docker group, key-only, locked password — CD and day-2 ops run as this user) |
 | Firewall | ufw: deny incoming except **22/80/443**, allow outgoing |
 | Intrusion / patching | fail2ban (sshd jail, systemd backend) · unattended-upgrades |
@@ -527,8 +528,9 @@ docker compose -f compose.prod.yaml --env-file .env.prod --profile local-smtp --
    Then re-check the [consistency rules](#consistency-rules-that-bite) across services, and run the
    [smoke test](#post-deploy-smoke-test) against the public origins from an external network —
    remember `GET / -> 200` proves nothing; smoke's fingerprint leg is the real check.
-6. **Add swap on the prod box** and re-pin the CD host key (`ssh-keyscan`) — see
-   [Gotchas](#gotchas) and [One-time setup per environment](#one-time-setup-per-environment).
+6. **Re-pin the CD host key** (`ssh-keyscan`) — see
+   [One-time setup per environment](#one-time-setup-per-environment). Swap is not a step here: step
+   3's bootstrap provisions it ([Gotchas](#gotchas)).
 
 ### One-time: cutting a live box over to the two segregated networks (#506)
 
@@ -1252,16 +1254,40 @@ Recovery = **new VPS → `bootstrap.sh` → scp stack files → restore/re-mint 
 - **First cold hit after Neon scale-to-zero** can race auth's 20 s connection-open against Neon's
   ~31 s resume (known pre-existing bug; connection strings carry `Timeout=60`). The always-on box
   shrinks the window but does not fix it.
-- **4 GB box + ~9 containers → add swap on the prod box.** Hetzner images ship without swap. One-time,
-  as root — safe on a running box (no restart), idempotent by the guards:
+- **4 GB box + ~9 containers → swap is mandatory, and `bootstrap.sh` provisions it** (OBS-01 / #708).
+  Hetzner images ship with none, and a box with no swap does not slow down under a memory spike — the
+  kernel OOM-kills a container and picks the victim by score, not by importance. The bootstrap's first
+  leg lays down a **2 GiB `/swapfile`**, persists it in `/etc/fstab` and sets **`vm.swappiness = 10`**
+  (`/etc/sysctl.d/99-swappiness.conf`) — an emergency buffer, not a working tier. Safe on a running
+  box: no restart, and every step is guarded, so a re-run changes nothing.
+
+  This bullet used to say the opposite — "deliberately NOT in `bootstrap.sh`: swapfile creation +
+  `/etc/fstab` edits can't be faithfully proven in the container idempotency harness". There was no
+  such harness, and the manual step that replaced it was never executed on either box. It is proven
+  the same way `deploy.sh` is: `scripts/tests/hetzner-bootstrap-swap.tests.sh` stubs `swapon`/`mkswap`/
+  `fallocate`/`dd`/`sysctl` and drives the real `ensure_swap` against a throwaway root, asserting the
+  no-op shape from every state a box can be in. It runs in the `guards` job of both `pr-verify` and `ci`.
+
+  To apply the leg alone to a box that is already bootstrapped — no full re-bootstrap, no restart:
 
   ```bash
-  swapon --show | grep -q . || { fallocate -l 2G /swapfile && chmod 600 /swapfile && mkswap /swapfile && swapon /swapfile; }
-  grep -q '^/swapfile ' /etc/fstab || echo '/swapfile none swap sw 0 0' >> /etc/fstab
+  scp scripts/hetzner/bootstrap.sh root@<ip>:/root/
+  ssh root@<ip> "bash -c 'BOOTSTRAP_SOURCE_ONLY=1 . /root/bootstrap.sh && ensure_swap'"
   ```
 
-  Deliberately NOT in `bootstrap.sh`: swapfile creation + `/etc/fstab` edits can't be faithfully
-  proven in the container idempotency harness.
+  `BOOTSTRAP_SOURCE_ONLY=1` is the script's source seam: it defines the helpers and stops before the
+  script touches anything, so you run one function instead of the whole bootstrap. `bash -c` because
+  the script needs bash — `. file` alone would run it in whatever login shell root has.
+
+  Verify without a reboot. `swapon -a` re-reads `/etc/fstab`, which is exactly what boot does, and
+  `findmnt --verify` catches the fstab damage that otherwise only shows up at the next boot:
+
+  ```bash
+  ssh root@<ip> 'swapon --show; findmnt --verify --fstab; swapoff /swapfile && swapon -a && swapon --show; cat /proc/sys/vm/swappiness'
+  ```
+
+  Only run that `swapoff` right after creation, while nothing is paged out (`swapon --show` USED = 0B)
+  — on a box that is actually using swap it forces every page back into RAM at once.
 - **Container log rotation is unbounded by default** (json-file driver, small VPS disk). Cap it at the
   compose level (`logging: { driver: json-file, options: { max-size: "10m", max-file: "3" } }` per
   service) — NOT via `/etc/docker/daemon.json` on the live boxes, since a daemon-config change

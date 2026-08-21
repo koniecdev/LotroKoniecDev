@@ -183,9 +183,10 @@ public sealed class GameVersionsTests : BunitContext
         error.QuerySelector(".problem-headline")!.TextContent
             .ShouldBe("Tej wersji gry nie można usunąć, bo są z nią powiązane tłumaczenia.");
         error.QuerySelector(".problem-headline")!.TextContent.ShouldNotContain("Data Conflict");
-        // The API's own wording survives for a bug report, but only behind the technical-details block.
-        error.QuerySelector("details.problem-tech .problem-tech-body")!.TextContent
-            .ShouldContain("is referenced by one or more translations");
+        // The API's wording only restates the Polish here, so it is not rendered at all (#703). It is
+        // kept behind the technical-details block for the import codes whose English carries data.
+        error.QuerySelectorAll("details.problem-tech").ShouldBeEmpty();
+        error.TextContent.ShouldNotContain("is referenced by one or more translations");
     }
 
     [Fact]

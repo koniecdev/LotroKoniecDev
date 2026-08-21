@@ -166,6 +166,29 @@ public sealed class ImportExportTests : BunitContext
         component.Find("a[download]").GetAttribute("href").ShouldBe("/download/polish.txt");
     }
 
+    [Fact]
+    public void Render_WhenTheVersionsLoadFailsWithAnUnmappedCode_StillOffersTheTechnicalDetails()
+    {
+        // #703 hides the drawer for mapped codes, and this page is the one that must never lose it: the
+        // import codes carry the line number and the removal counters. The exact import wording is
+        // pinned on the component (ApiProblemAlertTests), which is the seam this page renders through;
+        // this keeps a page-level pin that the block still reaches the screen at all.
+        AuthorizeAs("Frodo");
+        _client.GetApiResultAsync<CollectionResponse<GameVersionResponse>>(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(ApiResult.Failure<CollectionResponse<GameVersionResponse>>(new()
+            {
+                Title = "Data Conflict",
+                Detail = "Not your row.",
+                Status = 422,
+                Extensions = { ["errorCode"] = "Catalog.SomethingNobodyMappedYet" }
+            }));
+
+        IRenderedComponent<ImportExportComponent> component = RenderPage();
+
+        component.Find("details.problem-tech .problem-tech-body").TextContent
+            .ShouldBe("Catalog.SomethingNobodyMappedYet — Not your row.");
+    }
+
     private IRenderedComponent<ImportExportComponent> RenderPage() =>
         Render<ImportExportComponent>();
 

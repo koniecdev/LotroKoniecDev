@@ -84,8 +84,8 @@ public sealed class ImportExportEndpointsExtensionsTests
         problem.ProblemDetails.Status.ShouldBe(404);
         problem.ProblemDetails.Title.ShouldBe(
             "Plik z tłumaczeniami nie został jeszcze zbudowany. Zatwierdź przynajmniej jedno tłumaczenie i spróbuj ponownie.");
-        problem.ProblemDetails.Extensions[ApiProblemCopy.TechnicalDetailExtensionKey]
-            .ShouldBe("TranslationFiles.NotFound — No translation file has been built for 'pl' yet.");
+        // The English only restates the Polish, so it is dropped here exactly as it is on a page (#703).
+        problem.ProblemDetails.Extensions.ShouldNotContainKey(ApiProblemCopy.TechnicalDetailExtensionKey);
     }
 
     [Fact]

@@ -462,6 +462,18 @@ file_id||gossip_id||translated_text||args_order||args_id||approved||source_diges
   `scripts/tests/check-ssr-purity.tests.sh` proves the guard still fires. Deploy-time backstop: smoke
   leg 2 fails if a deployed page serves an inline script its own CSP blocks. Genuinely need
   interactivity, or an inline script? Both are ADR-first architecture changes.
+- **Auth Razor Pages: never put a caller-supplied value in an `asp-route-*` attribute (#681, #682).**
+  Razor writes a tag-helper attribute through `WriteLiteral` with the encoder switched off, and
+  `RazorPageBase.WriteLiteral` is the page-output sink CodeQL's `cs/web/xss` recognises — so
+  `asp-route-returnUrl="@Model.ReturnUrl"` raised two high alerts that sat open on `main` and blocked
+  every merge (`scripts/claude/work-ticket.sh` refuses a PR with open alerts). The tag helper encodes
+  the value before the browser sees it, so it was never exploitable — but "not exploitable" does not
+  clear an alert, and neither does a sanitizer that returns its input (the failed attempt in #536).
+  Use a plain attribute: `<input type="hidden" name="returnUrl" value="@Model.ReturnUrl" />` compiles
+  to `WriteAttributeValue`, is HTML-encoded, and is not a sink. A `<form>` with no `asp-*` attribute
+  still emits its antiforgery token and posts to the current URL, and handler binding reads the form
+  field before the query string. `LocalReturnUrl.Sanitize` only answers "is this target local"; the
+  encoding at each print site is what keeps these pages safe. (`Html.Raw` is a sink of its own.)
 - **No client hardcodes an API path — enforced, not just documented (#610 frontend, #611 CLI).**
   There is no gateway (ADR-0041), so every entry point is resolved by **rel name** — the Frontend
   through `IDiscoveryCache.ResolveTranslationSystemHrefAsync(Rels.<Name>)`, the CLI through

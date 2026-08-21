@@ -6,6 +6,7 @@ using LotroKoniecDev.Frontend.Tests.Unit.Infrastructure.HttpClients;
 using LotroKoniecDev.Frontend.Tests.Unit.Shared;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace LotroKoniecDev.Frontend.Tests.Unit.Infrastructure.Errors;
 
@@ -148,43 +149,68 @@ public sealed class ApiProblemCopyTests
         view.UnmappedErrorCode.ShouldBeNull();
     }
 
-    [Fact]
-    public void Describe_WhenTheErrorCodeIsMapped_KeepsTheApiWordingAsTechnicalDetailOnly()
+    [Theory]
+    [InlineData("Import.ParseFailed", "The upload has 3 unparseable line(s); first failure — line 42: unexpected pipe.")]
+    [InlineData("Import.InvalidRow", "Row (620756992, 1001) is invalid: args_order must be NULL or dash-separated positions.")]
+    [InlineData("Import.DuplicateFragmentKey", "The upload contains more than one row for fragment (620756992, 1001).")]
+    [InlineData("Import.MassRemovalBlocked", "The upload would remove 812 of 1000 active row(s) (81%), exceeding the 30% safety threshold.")]
+    public void Describe_WhenTheMappedCodesApiMessageCarriesData_KeepsItAsTechnicalDetailOnly(
+        string errorCode,
+        string apiMessage)
     {
-        // The numbers an admin needs, such as line numbers and row counts, are in the API's own message,
-        // so we keep it one click away and never use it as the message itself.
-        ProblemDetails problem = ApiProblem(
-            "Import.MassRemovalBlocked",
-            422,
-            "Data Conflict",
-            "The upload would remove 812 of 1000 active row(s) (81%), exceeding the 30% safety threshold.");
+        // The numbers an admin needs, such as line numbers, row keys and removal counts, live only in the
+        // API's own message, so we keep it one click away and never use it as the message itself. These
+        // four codes are the whole reason ADR-0044 §4 exists.
+        ProblemDetails problem = ApiProblem(errorCode, 422, "Data Conflict", apiMessage);
 
         ApiProblemView view = ApiProblemCopy.Describe(problem, PageFallback);
 
-        view.Message.ShouldNotContain("The upload would remove");
-        view.TechnicalDetail.ShouldBe(
-            "Import.MassRemovalBlocked — The upload would remove 812 of 1000 active row(s) (81%), "
-            + "exceeding the 30% safety threshold.");
+        view.Message.ShouldNotContain(apiMessage);
+        view.TechnicalDetail.ShouldBe($"{errorCode} — {apiMessage}");
+        // Without this the theory would also pass if the code fell off PolishByErrorCode, because an
+        // unmapped code keeps its detail too. The set is only meaningful for codes that are mapped.
+        view.UnmappedErrorCode.ShouldBeNull();
+    }
+
+    [Theory]
+    [InlineData("Auth.InvalidCurrentPassword", 400, "The current password is incorrect.")]
+    [InlineData("Translations.Validation", 400, "'Translated Text' must not be empty.")]
+    [InlineData("GameVersionEntity.LotroNotationVersion.AlreadyTaken", 422, "The lotronotationversion value '48.0' is already taken.")]
+    [InlineData("Import.EmptyUpload", 422, "The upload contains no translatable rows.")]
+    [InlineData("Import.Validation", 400, "'File' must not be empty.")]
+    [InlineData("Internal.UnhandledException", 500, "An unexpected error occurred.")]
+    public void Describe_WhenTheMappedCodesApiMessageOnlyRestatesThePolish_HidesTheTechnicalDetail(
+        string errorCode,
+        int status,
+        string apiMessage)
+    {
+        // #703: the drawer repeated the headline in English and read like a leak. The Polish sentence is
+        // the whole message unless the API's wording carries data it cannot reproduce.
+        ProblemDetails problem = ApiProblem(errorCode, status, "Validation Error", apiMessage);
+
+        ApiProblemView view = ApiProblemCopy.Describe(problem, PageFallback);
+
+        view.TechnicalDetail.ShouldBeNull();
     }
 
     [Fact]
-    public void Describe_WhenTheApiSendsNoDetail_FallsBackToTheApiTitleForTheTechnicalDetail()
+    public void Describe_WhenADataCarryingCodeSendsNoDetail_FallsBackToTheApiTitleForTheTechnicalDetail()
     {
-        ProblemDetails problem = ApiProblem("Internal.UnhandledException", 500, "Internal Server Error", detail: null);
+        ProblemDetails problem = ApiProblem("Import.ParseFailed", 422, "Data Conflict", detail: null);
 
         ApiProblemView view = ApiProblemCopy.Describe(problem, PageFallback);
 
-        view.TechnicalDetail.ShouldBe("Internal.UnhandledException — Internal Server Error");
+        view.TechnicalDetail.ShouldBe("Import.ParseFailed — Data Conflict");
     }
 
     [Fact]
-    public void Describe_WhenTheApiSendsNeitherTitleNorDetail_UsesTheBareCodeAsTechnicalDetail()
+    public void Describe_WhenADataCarryingCodeSendsNeitherTitleNorDetail_UsesTheBareCodeAsTechnicalDetail()
     {
-        ProblemDetails problem = ApiProblem("Internal.UnhandledException", 500, title: null, detail: null);
+        ProblemDetails problem = ApiProblem("Import.ParseFailed", 422, title: null, detail: null);
 
         ApiProblemView view = ApiProblemCopy.Describe(problem, PageFallback);
 
-        view.TechnicalDetail.ShouldBe("Internal.UnhandledException");
+        view.TechnicalDetail.ShouldBe("Import.ParseFailed");
     }
 
     [Theory]
@@ -360,7 +386,7 @@ public sealed class ApiProblemCopyTests
 
         result.IsFailure.ShouldBeTrue();
         view.Message.ShouldBe("Tłumaczenie nie może być puste i nie może przekraczać dozwolonej długości.");
-        view.TechnicalDetail.ShouldBe("Translations.Validation — 'Translated Text' must not be empty.");
+        view.TechnicalDetail.ShouldBeNull();
     }
 
     [Fact]
@@ -397,6 +423,86 @@ public sealed class ApiProblemCopyTests
             502);
 
         loggerProvider.Entries.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public void Localize_ForAMappedErrorCode_DropsTheEnglishButKeepsTheTraceId()
+    {
+        // The download routes answer with a raw body the browser shows as it is. Once #703 removes the
+        // English from it, the trace id is the only thing left that links a report to the server log.
+        ProblemDetails problem = ApiProblem("TranslationFiles.NotFound", 404, "Not Found", "No translation file yet.");
+        problem.Extensions[ApiProblemCopy.TraceIdExtensionKey] = "00-abc-def-01";
+        ProblemDetails localized = ApiProblemCopy.Localize(
+            NullLoggerFactory.Instance, problem, PageFallback, 502);
+
+        localized.Extensions.ShouldNotContainKey(ApiProblemCopy.TechnicalDetailExtensionKey);
+        localized.Extensions[ApiProblemCopy.TraceIdExtensionKey].ShouldBe("00-abc-def-01");
+    }
+
+    [Fact]
+    public void Describe_WhenTheCodeDiffersOnlyByCase_TreatsItAsUnmappedRatherThanHidingTheEnglish()
+    {
+        // Both lookups are Ordinal, so a mis-cased code is simply a code we do not know. It must keep
+        // its detail: hiding it would leave the user with a generic sentence and nothing to report.
+        ProblemDetails problem = ApiProblem("import.parsefailed", 422, "Data Conflict", "Line 42 is bad.");
+
+        ApiProblemView view = ApiProblemCopy.Describe(problem, PageFallback);
+
+        view.UnmappedErrorCode.ShouldBe("import.parsefailed");
+        view.TechnicalDetail.ShouldBe("import.parsefailed — Line 42 is bad.");
+    }
+
+    [Fact]
+    public void Describe_WhenADataCarryingCodeSendsOnlyBlankText_UsesTheBareCodeAsTechnicalDetail()
+    {
+        ProblemDetails problem = ApiProblem("Import.ParseFailed", 422, "   ", "  ");
+
+        ApiProblemView view = ApiProblemCopy.Describe(problem, PageFallback);
+
+        view.TechnicalDetail.ShouldBe("Import.ParseFailed");
+    }
+
+    [Theory]
+    [InlineData("ChangePassword.Validation", "Password must contain at least one special character.")]
+    [InlineData("ChangePassword.Validation", "Password must not exceed 128 characters.")]
+    [InlineData("ResetPassword.Validation", "Password must contain at least one special character.")]
+    [InlineData("RegisterUser.Validation", "Password must contain at least one special character.")]
+    [InlineData("Auth.PasswordChangeFailed", "Passwords must have at least one non alphanumeric character.")]
+    [InlineData("Auth.PasswordResetFailed", "Passwords must have at least one digit ('0'-'9').")]
+    [InlineData("Auth.RegistrationFailed", "Passwords must have at least one uppercase ('A'-'Z').")]
+    public void Describe_ForACodeThatRejectsAPassword_NamesEveryRuleInPolish(string errorCode, string apiMessage)
+    {
+        // #703 hid the English that used to name the broken rule, so the Polish has to name it instead.
+        // Every rule has to be listed, both bounds included: the special character is what the page hint
+        // used to omit, and a pasted 129-character passphrase satisfies every other rule on the list.
+        ProblemDetails problem = ApiProblem(errorCode, 400, "Validation Error", apiMessage);
+
+        ApiProblemView view = ApiProblemCopy.Describe(problem, PageFallback);
+
+        view.Message.ShouldContain("od 8 do 128 znaków");
+        view.Message.ShouldContain("mała i wielka litera");
+        view.Message.ShouldContain("cyfra");
+        view.Message.ShouldContain("znak specjalny");
+    }
+
+    [Theory]
+    [InlineData("Auth.EmailChangeSameAddress", 400, "Podany adres e-mail jest taki sam jak obecny.")]
+    [InlineData("Auth.InvalidEmailChangeToken", 400, "Link zmieniający adres e-mail jest nieprawidłowy lub wygasł. Poproś o nowy.")]
+    [InlineData("Auth.EmailChangeFailed", 500, "Nie udało się zmienić adresu e-mail. Mógł on zostać w międzyczasie zajęty przez inne konto.")]
+    [InlineData("RequestEmailChange.Validation", 400, "Podany adres e-mail jest nieprawidłowy.")]
+    public void Describe_ForAnEmailChangeCode_ShowsThePolishCopyInsteadOfDegrading(
+        string errorCode,
+        int status,
+        string expectedMessage)
+    {
+        // These four shipped with #683 and had no copy, so /account/change-email showed the generic
+        // sentence plus an English drawer. Hiding the drawer (#703) makes covering them mandatory.
+        ProblemDetails problem = ApiProblem(errorCode, status, "Validation Error", "English.");
+
+        ApiProblemView view = ApiProblemCopy.Describe(problem, PageFallback);
+
+        view.Message.ShouldBe(expectedMessage);
+        view.UnmappedErrorCode.ShouldBeNull();
     }
 
     private static ProblemDetails ApiProblem(string errorCode, int status, string? title, string? detail)

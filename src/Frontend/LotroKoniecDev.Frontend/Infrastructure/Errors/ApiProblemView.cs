@@ -11,7 +11,8 @@ namespace LotroKoniecDev.Frontend.Infrastructure.Errors;
 /// </param>
 /// <param name="TechnicalDetail">
 /// The API's error code and its own English wording, hidden behind a toggle so a bug report can quote
-/// it. Null for a problem the Frontend wrote, which has nothing to hide.
+/// it. Null far more often than not: a problem the Frontend wrote has nothing to hide, and a mapped
+/// code whose English only restates the Polish headline hides it too (#703).
 /// </param>
 /// <param name="UnmappedErrorCode">
 /// Set only when the API sent a code <see cref="ApiProblemCopy"/> has no text for, so the page can log

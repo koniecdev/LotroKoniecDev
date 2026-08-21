@@ -285,8 +285,11 @@ public sealed class AccountEndpointsExtensionsTests
         ProblemHttpResult problem = result.ShouldBeOfType<ProblemHttpResult>();
         problem.ProblemDetails.Status.ShouldBe(404);
         problem.ProblemDetails.Title.ShouldBe("Nie znaleziono konta.");
-        problem.ProblemDetails.Extensions[ApiProblemCopy.TechnicalDetailExtensionKey]
-            .ShouldBe("Auth.UserNotFound — User not found.");
+        // The English only restates the Polish, so it is dropped here exactly as it is on a page (#703),
+        // which leaves the trace id as the only thing tying a user's report to the server log.
+        problem.ProblemDetails.Extensions.ShouldNotContainKey(ApiProblemCopy.TechnicalDetailExtensionKey);
+        // Read off the wire, so the value is a JsonElement rather than a string.
+        problem.ProblemDetails.Extensions[ApiProblemCopy.TraceIdExtensionKey]!.ToString().ShouldBe("00-abc-def-01");
     }
 
     [Fact]

@@ -1,9 +1,9 @@
 # ADR-0044: The Frontend owns the Polish copy for API failures, and translates by default
 
-**Status:** Accepted
+**Status:** Accepted (amended 2026-08-21 — #703 narrows §4 to the codes whose API message adds information; see the in-body amendment)
 **Date:** 2026-08-06
 **Decision-makers:** Solo maintainer
-**Related:** #548 (the defect), #268 / #272 (the QA reports that found it), ADR-0041 (no gateway — the API is a shared contract surface), ADR-0040 (rel names are a frozen public contract), `ApiProblemCopy`, `HttpClientApiExtensions`
+**Related:** #548 (the defect), #268 / #272 (the QA reports that found it), #703 (the §4 amendment) / #669 (the QA report that found it), ADR-0041 (no gateway — the API is a shared contract surface), ADR-0040 (rel names are a frozen public contract), `ApiProblemCopy`, `HttpClientApiExtensions`
 
 ## Context
 
@@ -106,7 +106,7 @@ statystyk."` says only that something failed; `"Nie masz uprawnień do wykonania
 what to do about it. The call-site fallback stays for the one case nothing else covers — no problem
 object at all.
 
-### 4. The original English survives as collapsible technical detail
+### 4. The original English survives as collapsible technical detail *(narrowed — see the amendment below)*
 
 Some API messages carry numbers a static Polish string cannot reproduce: `Import.ParseFailed` names
 the first bad line, `Import.MassRemovalBlocked` names how many rows of how many would be removed.
@@ -121,6 +121,71 @@ The alternative of adding structured extensions to the API's import errors (`lin
 `removedCount`, …) so the Polish string could interpolate them was rejected as scope: it changes the
 API for one page's copy, and the nested parser messages inside `Import.ParseFailed` would stay
 English regardless.
+
+**Amendment (2026-08-21, #703) — the block is shown only where the API message adds information.**
+
+§4 was written from the import slice and then applied to every code. For most codes the English is a
+word-for-word restatement of the Polish headline, which adds nothing and reads like a leak — which is
+how QA reported it (#669 / TC-CP-06, filed as #703):
+
+```
+Aktualne hasło jest nieprawidłowe.
+▸ Szczegóły techniczne
+    Auth.InvalidCurrentPassword — The current password is incorrect.
+```
+
+There is also an audience split the original §4 never made: the data-carrying import codes only appear
+on `/import-export`, which is admin-only, while `/account/*` is used by every translator.
+
+**This is a trade, not a free win.** Four codes carry data no Polish string can reproduce, all in
+`ImportErrors.cs`: `Import.ParseFailed` (the first unparseable line number), `Import.InvalidRow` (the
+`(fileId, gossipId)` of the bad row), `Import.DuplicateFragmentKey` (the duplicate key) and
+`Import.MassRemovalBlocked` (the removal counters). Those keep the block. But they are not the only
+codes whose English is composed at runtime: the seven `Auth.*Failed` errors pass ASP.NET Identity's own
+descriptions straight through, and every `*.Validation` code carries the FluentValidation messages,
+which name the **rule** that failed. Hiding those is a real loss of information, and the ADR should
+not pretend otherwise.
+
+The loss is paid back in Polish, not bought back in English (§1 — the page is Polish). Concretely, the
+password rules now appear in the copy itself: `ApiProblemCopy.PasswordRules` spells out the 8-to-128
+length, case, digit and special character — the change-password hint renders the same constant, so the
+warning up front and the message after the fact cannot drift — and `ChangePassword.Validation`, `ResetPassword.Validation`,
+`RegisterUser.Validation`, `Auth.PasswordChangeFailed`, `Auth.PasswordResetFailed` and
+`Auth.RegistrationFailed` all end in it. Before #703 the drawer was the only place a user learned
+which rule they broke — and `/account/change-password`'s own hint did not even mention the special
+character both the validator and the Identity options require. **Adding a code to
+`CodesWhoseApiMessageCarriesData` is the wrong way to pay this debt**; better Polish copy is the right
+one, and a code whose English is a rule name is a copy gap, not a data carrier.
+
+So `BuildTechnicalDetail` returns `null` when the code **is mapped** and is **not** on
+`CodesWhoseApiMessageCarriesData`:
+
+| Case | Technical detail |
+|---|---|
+| Mapped code, not on the list | **hidden** — the Polish headline is the whole message |
+| Mapped code, on the list | shown, as before |
+| Unmapped code, or no code at all | shown, as before |
+
+The unmapped case stays because the user only sees the generic "Operacja nie powiodła się…" there,
+and the code plus the API's wording is the one thing that makes such a failure reportable. It is
+already logged as a warning (§3), so it is a known, temporary state by definition. The same PR closed
+the four `Auth.*EmailChange*` gaps that shipped uncovered with #683, so the map covers every code both
+APIs can produce again.
+
+**The no-code case stays for a narrower reason.** For a `UseStatusCodePages` body (§2 — 401, 403, 404,
+405, 415, 429) the drawer still shows the bare reason phrase next to the Polish, so
+`Nie masz uprawnień do wykonania tej operacji.` still carries `Szczegóły techniczne → Forbidden`. That
+is the same cosmetic blemish this amendment removes elsewhere, and it is kept deliberately: the rule
+here is "hide the English **when the Polish already says it**", and with no code there is nothing to
+look up, so the rule cannot be evaluated. Guessing from the status instead would re-introduce the
+absence-of-a-code discriminator §2 rejected. Revisit only with a real report; one English word with no
+code is a blemish, not the leak §2 exists to prevent.
+
+Nothing changes on the wire. `errorCode` is still stamped on every failure and is still a frozen
+contract token (§1); only the rendering changes. Both renderers follow the amendment, because both go
+through the same `BuildTechnicalDetail`: `ApiProblemAlert` emits no `<details>` element at all, and
+`Localize` omits the `technicalDetail` extension from the download routes' problem body. The `traceId`
+is untouched either way — that, not the English, is what links a support report to the server log.
 
 ### 5. One component, both existing shells
 

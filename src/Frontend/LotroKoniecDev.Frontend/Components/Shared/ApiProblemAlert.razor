@@ -2,9 +2,10 @@
 @using LotroKoniecDev.Frontend.Infrastructure.Errors
 @inject ILogger<ApiProblemAlert> Logger
 
-@* The only way a page shows a failed call (ADR-0044): Polish text chosen by the API's errorCode, with
-   the API's own English wording one click away for a bug report. The caller provides the box
-   (`error-message` or `status-message status-error`) and this fills in its content. *@
+@* The only way a page shows a failed call (ADR-0044): Polish text chosen by the API's errorCode. The
+   API's English is one click away only where it adds information the Polish cannot carry, so for most
+   codes no details block is rendered at all (#703). The caller provides the box (`error-message` or
+   `status-message status-error`) and this fills in its content. *@
 
 <span class="problem-headline @HeadlineClass">@_view.Message</span>
 @if (_view.SecondaryMessage is not null)

@@ -131,6 +131,11 @@ revert token must do.
 - **The window is not a lock.** For up to 14 days the attacker really does control the account and
   can read and write translations. We accept it: the alternative locks out the users the feature
   exists for. Deletion could afford the lockout because the account was on its way out anyway.
+- **The undo does not stop a live access token straight away.** `IUserSessionRevoker` kills the
+  tokens in the database and the stamp rotation drops the auth cookie, but the TMS validates JWTs
+  on its own, so a token already in the attacker's hands keeps working until it expires. That
+  lifetime is **five minutes**, and this undo is the reason it is five and not sixty — ADR-0049,
+  #686. The ability to mint a *new* token dies immediately.
 - **A revert token outlives a password change by design.** That is the whole point, and it means
   the token cannot be cancelled by rotating the stamp — the usual lever in this codebase. Anyone
   touching `EmailChangeRevertTokenProvider` must understand that omitting the stamp is the

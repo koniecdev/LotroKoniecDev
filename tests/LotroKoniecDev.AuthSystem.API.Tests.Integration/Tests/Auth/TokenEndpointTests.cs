@@ -46,6 +46,46 @@ public sealed class TokenEndpointTests : EndpointsTestBase
     }
 
     [Fact]
+    public async Task PasswordGrant_ShouldMintAnAccessTokenThatExpiresInFiveMinutes()
+    {
+        // Arrange
+        // This number is a security contract, not a tuning knob. The TMS validates JWTs on its own, so
+        // a token that RevokeAllAsync already killed in the database keeps working until it expires.
+        // That makes this value the delay on every revocation in the system (#686, ADR-0049).
+        const int expectedLifetimeSeconds = 300;
+
+        // expires_in counts down from the moment the server stamped the token, so it can land a
+        // second short. The range is still nowhere near the hour this used to be.
+        const int shortestAcceptableLifetimeSeconds = 290;
+
+        const string password = "TestPass1!";
+        (RegisterRequest request, _) =
+            await UserFactory.RegisterRandomUserWithRequestAsync(ApiClient, Faker, AccountConfirmationEmailSpy, password);
+
+        using FormUrlEncodedContent tokenRequest = new(new Dictionary<string, string>
+        {
+            ["grant_type"] = "password",
+            ["username"] = request.Email,
+            ["password"] = password,
+            ["client_id"] = "lotrokoniecdev-test",
+            ["scope"] = "email profile roles api offline_access"
+        });
+
+        // Act
+        HttpResponseMessage response = await ApiClient.Http.PostAsync(
+            new Uri("connect/token", UriKind.Relative), tokenRequest);
+
+        // Assert
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+
+        string content = await response.Content.ReadAsStringAsync();
+        using JsonDocument json = JsonDocument.Parse(content);
+
+        json.RootElement.GetProperty("expires_in").GetInt32()
+            .ShouldBeInRange(shortestAcceptableLifetimeSeconds, expectedLifetimeSeconds);
+    }
+
+    [Fact]
     public async Task PasswordGrant_ShouldReturnBadRequest_WhenPasswordIsInvalid()
     {
         // Arrange

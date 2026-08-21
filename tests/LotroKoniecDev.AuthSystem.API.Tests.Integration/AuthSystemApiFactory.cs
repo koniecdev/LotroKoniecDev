@@ -48,8 +48,9 @@ public class AuthSystemApiFactory : WebApplicationFactory<Program>, IAsyncLifeti
             {
                 { "ConnectionStrings:AuthDatabase", _connectionString },
                 { "OpenIddict:Issuer", "https://localhost:5002" },
-                { "OpenIddict:AccessTokenLifetimeMinutes", "60" },
-                { "OpenIddict:RefreshTokenLifetimeDays", "14" },
+                // The token lifetimes are deliberately NOT pinned here. They come from the shipped
+                // appsettings.json, so a test host can never keep running an old window after
+                // production moved to a new one (#686).
                 { "OpenIddict:EncryptionKey:Key", "RGV2RW5jcnlwdGlvbktleTMyQnl0ZXNMb25nMTIzNDU=" },
                 { "OpenIddict:SigningKey:Key", "RGV2U2lnbmluZ0tleTMyQnl0ZXNMb25nRW5vdWdoMTI=" },
                 { "OpenIddict:ApiClientSecret", TestApiClientSecret },

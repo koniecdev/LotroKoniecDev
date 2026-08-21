@@ -143,7 +143,8 @@ internal sealed partial class DeleteAccount : IApiEndpoint
         private async Task TryRevokeOpenIddictArtifactsAsync(ApplicationUser user, CancellationToken cancellationToken)
         {
             // Best effort. Refresh tokens are reference tokens, so revoking them stops them at once.
-            // Access tokens carry their own claims and simply expire within the hour.
+            // Access tokens carry their own claims, so one already issued keeps working until it
+            // expires. That is five minutes, and ADR-0049 is why.
             try
             {
                 string userId = user.Id.ToString();

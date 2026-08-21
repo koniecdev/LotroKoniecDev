@@ -195,6 +195,41 @@ public sealed partial class EmailChangePageTests : EndpointsTestBase
     }
 
     [Fact]
+    public async Task RevertPage_Post_ShouldLeaveTheTakeoverSessionUnableToRenewItself()
+    {
+        // The undo exists to end a takeover. The session below is minted after the address already
+        // moved, so it belongs to whoever took the account over, and only the undo can end it.
+        (RegisterRequest user, string newEmail, Guid userId) = await CompleteChangeAsync();
+        string revertToken = EmailChangeEmailSpy.LastRevertToken!;
+        string takeoverRefreshToken = await GetRefreshTokenAsync(newEmail, Password);
+
+        HttpResponseMessage revertResponse = await PostToPageAsync(
+            "/Account/RevertEmailChange",
+            RevertUrl(userId, user.Email, newEmail, revertToken),
+            RevertForm(userId, user.Email, newEmail, revertToken));
+        revertResponse.StatusCode.ShouldBe(HttpStatusCode.OK);
+
+        // Without this the test would also pass when the undo silently failed and the refresh was
+        // refused for some unrelated reason.
+        (await LoadUserByIdAsync(userId)).Email.ShouldBe(user.Email);
+
+        using FormUrlEncodedContent refreshRequest = new(new Dictionary<string, string>
+        {
+            ["grant_type"] = "refresh_token",
+            ["refresh_token"] = takeoverRefreshToken,
+            ["client_id"] = "lotrokoniecdev-test"
+        });
+
+        HttpResponseMessage response = await ApiClient.Http.PostAsync(
+            new Uri("connect/token", UriKind.Relative), refreshRequest);
+
+        // The access token they already hold still works until it expires, which is why that lifetime
+        // is five minutes (#686, ADR-0049). What must never survive the undo is the ability to mint a
+        // new one, because that would make the takeover permanent.
+        response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+    }
+
+    [Fact]
     public async Task RevertPage_Post_ShouldStillWorkAfterThePasswordWasChanged()
     {
         // This is ADR-0048's whole reason for a hand-written token provider. Whoever took the account
@@ -464,6 +499,29 @@ public sealed partial class EmailChangePageTests : EndpointsTestBase
             });
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
+    }
+
+    /// <summary>
+    /// The base class helper does not ask for <c>offline_access</c>, so it never gets a refresh token.
+    /// </summary>
+    private async Task<string> GetRefreshTokenAsync(string email, string password)
+    {
+        using FormUrlEncodedContent tokenRequest = new(new Dictionary<string, string>
+        {
+            ["grant_type"] = "password",
+            ["username"] = email,
+            ["password"] = password,
+            ["client_id"] = "lotrokoniecdev-test",
+            ["scope"] = "email profile roles api offline_access"
+        });
+
+        HttpResponseMessage tokenResponse = await ApiClient.Http.PostAsync(
+            new Uri("connect/token", UriKind.Relative), tokenRequest);
+        tokenResponse.StatusCode.ShouldBe(HttpStatusCode.OK);
+
+        string content = await tokenResponse.Content.ReadAsStringAsync();
+        using JsonDocument json = JsonDocument.Parse(content);
+        return json.RootElement.GetProperty("refresh_token").GetString()!;
     }
 
     private static Dictionary<string, string> RevertForm(Guid userId, string from, string to, string token) =>

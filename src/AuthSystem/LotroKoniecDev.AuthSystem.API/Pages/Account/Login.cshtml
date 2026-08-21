@@ -553,7 +553,15 @@
                             <span class="panel-aside">E-mail + hasło</span>
                         </header>
 
-                        <form id="login-form" method="post" asp-route-returnUrl="@Model.ReturnUrl" class="auth-panel-body">
+                        @* The return target rides in a hidden field, not in the form action: an asp-route-*
+                           value is a raw write that CodeQL reads as an XSS sink (#681). The field is
+                           hand-rolled rather than asp-for because the handler sets ReturnUrl after checking
+                           it, so there is no bound property to render. *@
+                        <form id="login-form" method="post" class="auth-panel-body">
+                            @if (!string.IsNullOrEmpty(Model.ReturnUrl))
+                            {
+                                <input type="hidden" name="returnUrl" value="@Model.ReturnUrl" />
+                            }
                             @if (!string.IsNullOrEmpty(Model.ErrorMessage))
                             {
                                 <div class="auth-alert" role="alert" aria-live="assertive">

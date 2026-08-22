@@ -444,11 +444,81 @@ restrukturyzuje pliki między point-release'ami częściej, niż sugerował sam 
    to warstwa admisji zapisu, komplementarna wobec detekcji (zgodnie z komentarzem na #565
    z 2026-08-17).
 
+## Powtórka E5 na drugim realnym update — 49.3 → 49.4 (2026-08-22) — ✅ **sygnał potwierdzony, size złapany na przegapieniu**
+
+**Po co:** wnioski E5 (a przez to przeprojektowany #565) stały na **jednym** realnym update
+(49.1→49.3). 49.4 wszedł na żywo 5 dni później i dał drugi punkt pomiarowy za ~10 minut,
+bez pisania kodu. Protokół ten sam, tym razem wykonany zgodnie z planem (nie przez odchylenie).
+
+**Przebieg:** snapshot `pre-49.4` na zapatchowanym DAT → czysty start `LotroLauncher.exe`
+(bez `-disablePatch`) → launcher pobrał i nałożył 49.4 w ~55 s od startu → launcher zamknięty
+przed logowaniem (kill pre-creds wg E4) → snapshot `after-real-update-49.4`.
+
+Stany: 49.3 = 310,895 SubFile'ów (281,366 text) · **49.4 = 310,939 (281,410)**.
+Rozmiar pliku DAT **bez zmiany** (1,894,856,432 B w obie strony) — trzecie potwierdzenie, że
+SSG mieści update w slack space i whole-file fingerprint jest martwy (E1-F1).
+
+| Diff | size | iteration | added | removed |
+|---|---|---|---|---|
+| **Kontrola negatywna** (17.08 `after-plain-launch` ↔ 22.08 `pre-49.4`) | **0** | **0** | **0** | **0** |
+| **Realny update 49.3→49.4** | 7 (7 text) | **8 (8 text)** | 44 (44 text) | 0 |
+
+**Kontrola negatywna jest tu mocniejsza niż w E5:** obejmuje **5 dni i wiele startów launchera**
+(mtime DAT przesunął się w tym czasie na 17.08 16:53, a potem znowu przy starcie 22.08 16:05:07
+z deltą rozmiaru 0), a per-SubFile metadata nie drgnęła ani razu. E5 mierzył jeden start
+w oknie 10 minut — teraz wiadomo, że sygnał nie dryfuje od zwykłej eksploatacji.
+
+**Twardy dowód `iteration ⊋ size`** — pełna tabelka 8 dotkniętych SubFile'ów:
+
+| FileId | size przed → po | iteration przed → po |
+|---|---|---|
+| 621072883 | 3424 → 3456 | 26739 → 26751 |
+| 621107670 | 56 → 60 | 26739 → 26751 |
+| 621107676 | 56 → 58 | 26739 → 26751 |
+| **621107677** | **92 → 92 (bez ruchu)** | **26739 → 26751** |
+| 621127898 | 295 → 147 | 26749 → 26751 |
+| 621127899 | 301 → 227 | 26749 → 26751 |
+| 621127900 | 303 → 185 | 26749 → 26751 |
+| 621128111 | 312 → 254 | 26749 → 26751 |
+
+**621107677 to zmierzony miss detektora po rozmiarze** — chunk wymieniony, treść zmieniona,
+rozmiar identyczny co do bajta. W E5 przewaga iteration nad size była policzona zbiorczo
+(1 zgubiony SubFile z 57); tutaj widać konkretny wiersz i mechanizm. Predykat z #565
+(`iteration się ruszyła ∨ FileId zniknął`) łapie go bez pudła.
+
+**Nowy fakt o naturze `iteration`: to globalny, monotoniczny stempel zapisu, nie licznik
+per-SubFile.** Przed update'em dotknięte SubFile'e miały dwie różne wartości (26739 z jednej
+generacji, 26749 z drugiej); po update'cie **wszystkie osiem ma dokładnie 26751**. Wniosek
+praktyczny dla #565: detektor może trzymać w mapie samą wartość i porównywać na równość — nie
+ma potrzeby zakładać monotoniczności per SubFile ani obsługiwać przepełnienia licznika lokalnie.
+
+**Przeżywalność naszych tłumaczeń: 8/8.** Dotknięte SubFile'e (621072883, 621107670/76/77,
+621127898/99/900, 621128111) są rozłączne z rezydentnym setem (620757027, 620757435, 620759036,
+620861331, 620871150) — 49.4 ruszył wyłącznie zakres 6210–6211, nasze wiersze siedzą w 6207–6208.
+Zero collateral revertów, więc ten update nie dostarcza nowego przypadku scenariusza B.
+
+**Koszt detektora:** open + `GetSubfileSizes` = **1.37 s cold / 0.22 s warm**, bez elevacji —
+zgodne z E5 (0.21–0.23 s warm), na DAT większym o 44 SubFile'e.
+
+### Gotcha operacyjna — `export` w powłoce nieinteraktywnej wymaga `-d`
+
+`DatPathResolver` znajduje dziś dwie instalacje (Program Files + stary `data/client_local_English.dat`)
+i pyta `Choose installation (1-2)`. W sesji bez stdin `Console.ReadLine()` zwraca null →
+`Invalid choice` → `ExitCodes.FileNotFound`. Skryptowany export musi podawać ścieżkę jawnie:
+`export -d "C:\Program Files (x86)\StandingStoneGames\The Lord of the Rings Online\client_local_English.dat"`.
+
 ## Pliki intel (gitignored `intel/update-49/`)
 
 DAT backupy 48.8 + 49 + write-test (po ~1.76 GB), pełne exporty 48.8/49 (82.6/83.1 MB), pełny
 diff (1.76 MB), snapshoty polish.txt (resident pre-LEGAL-08 + repo post-LEGAL-08) i version file,
 snapshoty E5 (`e5-*.csv` + `.meta.txt`, ~7 MB każdy: after-patch, after-real-update-49.3,
 after-plain-launch, backup-48.8-offline + listy zmienionych tekstowych FileId).
+Dołożone 2026-08-22 przy 49.4: backup DAT `client_local_English.49.3.pre-49.4.dat` (1.76 GB —
+domyka symulator forced-downgrade dla cyklu 49.3→49.4, przydatny w #566/#567) oraz snapshoty
+`e5-pre-49.4-*` i `e5-after-real-update-49.4-*`.
 Committed tutaj: BASELINE.md + RESULTS.md (synthetic). Kopia robocza `data/exported.txt` =
-export 49.1 (SHA256 `56F6D046…32B00`) — deliverable do importu w TMS (GameVersion **49.1**).
+**export 49.4 z 2026-08-22** (801,179 fragmentów w 281,410 plikach tekstowych, 97.77 MB,
+SHA256 `DF2A12A3…D45F`) — deliverable do importu w TMS. Uwaga: to **nowy 7-kolumnowy format
+z `source_digest`** (ADR-0047), a nie 6-kolumnowy format eksportu 49.1; stąd +14.7 MB przy
+śladowym przyroście treści (~18 B/wiersz). Poprzedni export 49.1 (SHA256 `56F6D046…32B00`,
+6 kolumn) zachowany jako `intel/update-49/export-49.txt`.

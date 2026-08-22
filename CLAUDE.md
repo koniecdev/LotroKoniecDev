@@ -1,8 +1,9 @@
 # CLAUDE.md — LotroKoniecDev
 
 > Project memory — **self-contained**: a fresh clone has everything the AI needs, with no
-> machine-local config required. When a doc and the code disagree, **the code wins**: read the
-> file, use what's there, and fix or flag the stale doc.
+> machine-local config required. When a doc in this repo and the code disagree, **the code wins**:
+> read the file, use what's there, and fix or flag the stale doc. The **wiki** is the one exception
+> and outranks both — see "Source of truth" below.
 
 ## What this is
 
@@ -132,6 +133,36 @@ A KittySaver slice is one file: `internal sealed class <Action> : IEndpoint` con
 5. Pipeline behaviours don't exist here: validation — **command** handlers inject
    `IValidator<TCommand>` and map failures to `Result` (queries validate inline); logging —
    `ILogger<Handler>` inside the handler.
+
+## Source of truth — the wiki outranks specs, ADRs and code
+
+The GitHub wiki (`koniecdev/LotroKoniecDev.wiki`, cloned **beside** the repo, never inside it) is
+where the owner writes down how the product is meant to behave. It is the **highest authority in
+the project**: above `docs/specs/`, above `docs/adr/`, above the code. The code-wins rule in the
+preamble settles a repo doc against the code — it does not outrank the wiki.
+
+The wiki is also the only source a manual tester has. Testers write and run QA tickets from it,
+with no repo access, so a wiki that disagrees with the product does not produce a stale document —
+it produces false bug reports that someone pays to close.
+
+**When the wiki and the product disagree, never fix it silently and never "just align the wiki".**
+The order is fixed:
+
+1. **Open a ticket for the inconsistency.** State what the wiki says, what the product does, and
+   which of the two is asserted where (file, ADR section, wiki line). Do not decide it yourself:
+   the wiki holds business intent and only the owner rules on intent.
+2. **The verdict lands in the wiki first.** Whatever the owner decides, the wiki is updated to say
+   it plainly. Until that edit exists, the question is not settled, and nothing downstream may be
+   built on the answer.
+3. **Then open a second ticket to bring code, specs and ADRs in line with the corrected wiki.**
+   That ticket cites the wiki as its authority. An ADR that now contradicts the wiki is amended or
+   superseded like any other reversed decision — the ADR does not win because it was written first.
+
+Worked example (2026-08-22): the wiki says a LOTRO version has one to three dot-separated segments;
+`LotroNotationVersion` accepts any count, and ADR-0003 §3 records that as deliberate ("no maximum
+segment count is imposed"). A tester writing a ticket from the wiki hit the gap. The resolution is
+**not** to soften the wiki sentence to match the validator — it is the owner ruling on the domain
+rule, the wiki stating it, and a follow-up ticket amending ADR-0003 and the validator.
 
 ## Read-first routing (do this BEFORE touching the area)
 

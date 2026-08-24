@@ -43,7 +43,7 @@ This makes the post-merge loop self-contained: after merging the previous PR on 
 
 ## 3. BRD/spec — decide the weight
 
-- **Spec-worthy** (new feature, fuzzy rules, contract change, `feature` label on M-level scope):
+- **Spec-worthy** (new feature, fuzzy rules, contract change, `type-feature` label on M-level scope):
   copy `docs/specs/_TEMPLATE.md` → `docs/specs/NNNN-kebab-title.md` (next free number). Fill
   Business context / Goal / scope / rules / Contract / Acceptance criteria from the ticket plus
   what the code implies — concrete types and paths, not placeholders. Refine the ticket's

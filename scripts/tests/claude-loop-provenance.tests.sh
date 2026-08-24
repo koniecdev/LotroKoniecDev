@@ -332,27 +332,27 @@ run_case 3 "work-ticket: a non-numeric issue argument is rejected" "$WORK" "1 2"
 picker() { env LOOP_SKIP_ISSUES= LOOP_SKIP_TITLES= "$NEXT" "$@"; }
 
 reset_fixtures
-fixture_list 30:high
+fixture_list 30:priority-high
 fixture_issue 30 outsider NONE
 run_case 1 "next-ticket: an externally-authored issue is never returned" picker
 expect_stdout ""
 
 reset_fixtures
-fixture_list 31:high
+fixture_list 31:priority-high
 fixture_issue 31 maintainer OWNER
 run_case 0 "next-ticket: a maintainer-authored issue is still returned" picker
 expect_stdout "31"
 
-# Priority must not outrank provenance: the attacker's `critical` ticket sorts first and loses.
+# Priority must not outrank provenance: the attacker's `priority-critical` ticket sorts first and loses.
 reset_fixtures
-fixture_list 32:critical 33:low
+fixture_list 32:priority-critical 33:priority-low
 fixture_issue 32 outsider NONE
 fixture_issue 33 maintainer OWNER
 run_case 0 "next-ticket: a critical untrusted issue never outranks a low trusted one" picker
 expect_stdout "33"
 
 reset_fixtures
-fixture_list 34:high
+fixture_list 34:priority-high
 fixture_issue 34 maintainer OWNER
 fixture_comments 34 outsider:NONE
 run_case 1 "next-ticket: an outsider comment disqualifies a maintainer ticket" picker
@@ -360,7 +360,7 @@ expect_stdout ""
 
 # `audit` findings are triaged by a human before the loop may touch them.
 reset_fixtures
-fixture_list 35:medium,audit
+fixture_list 35:priority-medium,audit
 fixture_issue 35 maintainer OWNER
 run_case 1 "next-ticket: audit findings are skipped by default" picker
 expect_stdout ""
@@ -371,14 +371,14 @@ expect_stdout "35"
 
 # The dependency gate still works behind the provenance gate.
 reset_fixtures
-fixture_list 36:high
+fixture_list 36:priority-high
 fixture_issue 36 maintainer OWNER OPEN "Depends on #37"
 fixture_issue 37 maintainer OWNER OPEN
 run_case 1 "next-ticket: an open dependency still blocks a trusted ticket" picker
 expect_stdout ""
 
 reset_fixtures
-fixture_list 38:high
+fixture_list 38:priority-high
 fixture_issue 38 maintainer OWNER OPEN "Depends on #39"
 fixture_issue 39 maintainer OWNER CLOSED
 run_case 0 "next-ticket: a closed dependency releases a trusted ticket" picker

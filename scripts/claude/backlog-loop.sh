@@ -99,7 +99,7 @@ trap 'rm -rf "$LOCK"' EXIT INT TERM HUP
 RUN_DIR="$REPO_ROOT/logs/claude-loop/$(date +%Y%m%d-%H%M%S)"
 mkdir -p "$RUN_DIR"
 
-gh label create loop-blocked --color D93F0B \
+gh label create loop-blocked --color e36209 \
     --description "claude-loop: needs human input" --force >/dev/null 2>&1 || true
 
 attempted=""

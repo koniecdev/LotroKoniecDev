@@ -63,13 +63,15 @@ to the loop.
 
 Open issue, not `[Epic]`/`[Tracking]`, none of the skip labels, **written only by trusted
 maintainers** (see the provenance gate below), and every `Depends on #X` in the body already CLOSED
-(a ticket is closed by its merged PR, so closed = merged). Order: `critical` > `high` > `medium` >
-`low` > unlabeled, then lowest number first — but priority never outranks provenance.
+(a ticket is closed by its merged PR, so closed = merged). Order: `priority-critical` >
+`priority-high` > `priority-medium` > `priority-low` > unlabeled, then lowest number first — but
+priority never outranks provenance. Full label taxonomy: `docs/labels.md`.
 
 Default exclusions (all overridable via env):
 
-- labels `loop-blocked`, `qa` (manual/human passes), `post-mvp` (deliberately cut from MVP),
-  `audit` (audit findings are triaged by a human — name one explicitly to work it),
+- labels `loop-blocked`, `epic` (a tracking parent has no work of its own), `qa` (manual/human
+  passes), `post-mvp` (deliberately cut from MVP), `audit` (audit findings are triaged by a
+  human — name one explicitly to work it),
 - titles matching `^M4-` (the desktop-app milestone — Avalonia per ADR-0033 — targets the Windows
   patcher runtime; its E2E criterion cannot run on the macOS host),
 - issue `#85` (M2-18 forum watcher — deferred post-MVP; work it only by naming it explicitly).
@@ -106,7 +108,7 @@ one ticket with `LOOP_TRUST_GATE=0`, or add the commenter to `LOOP_TRUSTED_LOGIN
 | `LOOP_TICKET_TIMEOUT_MIN` | `90` | wall-clock kill switch per ticket; leftovers are committed on a `loop-salvage/…` branch |
 | `LOOP_CHECKS_TIMEOUT_MIN` | `30` | wait for pr-verify before falling back to `--auto` merge |
 | `LOOP_GH_USER` | `koniecdev` | gh account whose token backs the loop's gh write calls (PR merge, labels, issue comments); an existing `GH_TOKEN` in the environment wins |
-| `LOOP_SKIP_LABELS` | `loop-blocked,qa,post-mvp,audit` | picker label exclusions |
+| `LOOP_SKIP_LABELS` | `loop-blocked,epic,qa,post-mvp,audit` | picker label exclusions |
 | `LOOP_SKIP_TITLES` | `^M4-` | picker title-regex exclusion |
 | `LOOP_SKIP_ISSUES` | `85` | picker number exclusions |
 | `LOOP_TRUSTED_ASSOCIATIONS` | `OWNER,MEMBER,COLLABORATOR` | provenance gate: associations that carry write access |

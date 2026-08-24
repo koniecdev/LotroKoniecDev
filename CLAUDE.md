@@ -170,6 +170,7 @@ rule, the wiki stating it, and a follow-up ticket amending ADR-0003 and the vali
 |---|---|
 | Build/change a **TMS slice** | the nearest existing sibling slice in `TranslationSystem.API/Features/…`; no fitting sibling → the KittySaver original (`AdoptionSystem.API/Features/…`) + the de-mediatorization recipe |
 | Work a GitHub ticket end-to-end | run **`/ticket <number>`** (mind the this-file-wins rule in Project status) |
+| Label an issue (or wonder which label to use) | `docs/labels.md` — the four axes (`priority-*`, `type-*`, `area-*`, process), **shared 1:1 with TheKittySaver**; a change in one repo is ported to the other |
 | Run the backlog autonomously (Loop mode) | **`/backlog`** → `scripts/claude/backlog-loop.sh` — one fresh headless session per ticket; manual: `docs/claude-loop.md` |
 | Touch DAT binary parsing / writing / native interop | delegate to the **`dat-format-expert`** agent |
 | Re-investigate update behavior, vnum, translation survival, launch flow | **don't** — empirically settled in `docs/knowledge-base/` (start at its README) |
@@ -689,8 +690,9 @@ structure.
 
 ## Workflow (the loop that compounds)
 
-1. **Ticket before code.** Work flows from GitHub issues (`M{milestone}-{nn}: Title`, labels
-   `critical/high/medium/low` + `bug/refactor/infra/feature/test`). Run **`/ticket <n>`**.
+1. **Ticket before code.** Work flows from GitHub issues (`M{milestone}-{nn}: Title`, one
+   `priority-*` + one `type-*` + any `area-*` — full taxonomy in **`docs/labels.md`**, kept in
+   sync with TheKittySaver). Run **`/ticket <n>`**.
 2. **Spec before code.** Anything non-trivial gets `docs/specs/NNNN-*.md` (via `/ticket` or
    `/spec`). Open questions are **extracted for the user, never invented**. Implementation starts
    only at **Status: Agreed**.

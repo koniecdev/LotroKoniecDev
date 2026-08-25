@@ -1,10 +1,10 @@
 @page "/account"
 @attribute [Authorize]
 @attribute [StreamRendering]
-@using System.Globalization
 @using Microsoft.AspNetCore.Authorization
 @using LotroKoniecDev.AuthSystem.Contracts.Features.Auth.Account
 @using LotroKoniecDev.AuthSystem.Contracts.Hateoas
+@using LotroKoniecDev.Frontend.Infrastructure.Formatting
 @using LotroKoniecDev.Frontend.Infrastructure.Hateoas
 @using LotroKoniecDev.Frontend.Infrastructure.HttpClients
 @using LotroKoniecDev.SharedKernel.Authorization
@@ -235,5 +235,5 @@
     private static string FormatDateTime(DateTimeOffset? value) =>
         value is null
             ? string.Empty
-            : value.Value.ToString("yyyy-MM-dd HH:mm 'UTC'", CultureInfo.InvariantCulture);
+            : value.Value.ToPolandTimeText();
 }

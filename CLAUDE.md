@@ -506,6 +506,15 @@ file_id||gossip_id||translated_text||args_order||args_id||approved||source_diges
   still emits its antiforgery token and posts to the current URL, and handler binding reads the form
   field before the query string. `LocalReturnUrl.Sanitize` only answers "is this target local"; the
   encoding at each print site is what keeps these pages safe. (`Html.Raw` is a sink of its own.)
+- **Every user-visible date is Poland time, never raw UTC (#736).** Static SSR has no reader time
+  zone: the server's own zone is UTC in a container and the request carries none. The product serves a
+  Polish audience, so a stored instant is converted to `Europe/Warsaw` at the moment it is printed —
+  page, e-mail or download file name alike — through the context's own extension
+  (`Frontend.Infrastructure.Formatting.DateTimeOffsetExtensions`,
+  `AuthSystem.API.Extensions.DateTimeOffsetExtensions`). A timestamp that stands alone carries the
+  words `czasu polskiego`; a sentence that already names the zone uses the unlabelled overload. UTC
+  stays the wire and storage format — the conversion is presentation only, and the runtime images ship
+  `tzdata`, so the zone lookup is safe.
 - **No client hardcodes an API path — enforced, not just documented (#610 frontend, #611 CLI).**
   There is no gateway (ADR-0041), so every entry point is resolved by **rel name** — the Frontend
   through `IDiscoveryCache.ResolveTranslationSystemHrefAsync(Rels.<Name>)`, the CLI through

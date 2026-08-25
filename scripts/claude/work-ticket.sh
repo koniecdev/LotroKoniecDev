@@ -196,7 +196,7 @@ fi
 # ── Judge the worker's final message (STATUS contract from /work-ticket) ───────────────────────
 if echo "$result" | grep -qE '^STATUS:[[:space:]]*BLOCKED'; then
     meta outcome blocked
-    gh label create loop-blocked --color D93F0B \
+    gh label create loop-blocked --color e36209 \
         --description "claude-loop: needs human input" --force >/dev/null 2>&1 || true
     gh issue edit "$ISSUE" --add-label loop-blocked >/dev/null 2>&1 || true
     comment="$(printf '🤖 **claude-loop: BLOCKED** — needs your input before the loop retries this ticket.\n\n%s' \

@@ -96,7 +96,7 @@ Every QA ticket carries this at the very top, unchanged:
 
 Mirror the existing QA-FE tickets (`gh issue list --label qa`): read-first block → `## Context` →
 `### Environment & accounts (staging — browser only)` → `## Test scenarios` (checkboxes) →
-`## Acceptance criteria`. Title convention `QA-FE-{nn}: Area — what is covered`, labels `qa` + `test`
+`## Acceptance criteria`. Title convention `QA-FE-{nn}: Area — what is covered`, labels `qa` + `type-test`
 + a priority, plus `qa-blocked` if any scenario ships blocked.
 
 State the concrete environment (`https://staging.lotro-translator.pl`) and exactly which account

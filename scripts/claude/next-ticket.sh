@@ -5,11 +5,13 @@
 # "Ready" = open, not skip-labeled, not an [Epic]/[Tracking] title, written only by trusted
 # maintainers (issue-trust.sh — ADR-0026), and every "Depends on #X" reference in the body points
 # at a CLOSED issue (a ticket is closed by its merged PR, so closed == merged in this repo's
-# workflow). Order: priority label (critical > high > medium > low > none), then issue number.
+# workflow). Order: priority label (priority-critical > -high > -medium > -low > none), then issue
+# number. Label taxonomy: docs/labels.md (kept in sync with TheKittySaver).
 #
 # Usage: next-ticket.sh [--exclude "296 293"]     # numbers already attempted this run
 # Env:   LOOP_SKIP_LABELS   comma-separated labels that exclude a ticket
-#                           (default: loop-blocked,qa,post-mvp,audit — qa passes are manual/human,
+#                           (default: loop-blocked,epic,qa,post-mvp,audit — an epic is a tracking
+#                           parent with no work of its own, qa passes are manual/human,
 #                           post-mvp is deliberately cut from MVP per CLAUDE.md, and audit findings
 #                           are triaged by a human first: name one explicitly to work it)
 #        LOOP_SKIP_TITLES   regex over titles to exclude (default: ^M4- — the desktop-app milestone
@@ -30,7 +32,7 @@ if [ "${1:-}" = "--exclude" ]; then
 fi
 EXCLUDE="$EXCLUDE ${LOOP_SKIP_ISSUES-85}"
 
-SKIP_LABELS="${LOOP_SKIP_LABELS:-loop-blocked,qa,post-mvp,audit}"
+SKIP_LABELS="${LOOP_SKIP_LABELS:-loop-blocked,epic,qa,post-mvp,audit}"
 SKIP_TITLES="${LOOP_SKIP_TITLES:-^M4-}"
 
 for tool in gh jq; do
@@ -45,10 +47,10 @@ candidates="$(gh issue list --state open --limit 200 --json number,title,labels 
         | map(select(.title | test("^\\[(Epic|Tracking)\\]"; "i") | not))
         | map(select(if $skipTitles == "" then true else (.title | test($skipTitles) | not) end))
         | map(. + {prio: (
-            if   (.labels | index("critical")) then 0
-            elif (.labels | index("high"))     then 1
-            elif (.labels | index("medium"))   then 2
-            elif (.labels | index("low"))      then 3
+            if   (.labels | index("priority-critical")) then 0
+            elif (.labels | index("priority-high"))     then 1
+            elif (.labels | index("priority-medium"))   then 2
+            elif (.labels | index("priority-low"))      then 3
             else 4 end)})
         | sort_by(.prio, .number)
         | .[].number')"

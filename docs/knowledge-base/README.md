@@ -95,7 +95,7 @@ Detailed analysis: [game-version-sources-2026-08-25.md](game-version-sources-202
 - The launcher beacon: GLS `GetDatacenters` → `lotrolauncher.server.config.xml` → `Game.Version` = `3601.0066.7272.4024`, **identical to the 2025-08-29 Wayback snapshot** — installer image version, dead like vnum; the real "patch needed" is `patchclient.dll`'s binary protocol on `patch.lotro.com:6015` comparing per-file stamps ("files differ", never a number)
 - LOTRO Companion tags releases by hand (`On24.4`) — not a signal (#384 closed)
 - **Steam News API** (`ISteamNews/GetNewsForApp?appid=212500`) carries every "Update X Release Notes" as JSON with timestamps — the watcher's source from now on (#85); forum RSS is the fallback, never the HTML
-- Still open (Windows, 2 min): `lotroclient64.exe` file version + client logs; differential check across the next update
+- Windows check the same day: `ProjectVersion` file (`120`, install-day mtime, dead), exe build `4704.0070.4459.4020` logged in `lotroclient64.log` while the server config says `3601.…` (Game.Version is detached from the running client), zero "49.x" in any launcher/client log; `PatchClient.log` downloads `…/patch/iterations/client_cell_5.dat-7381` — per-DAT iterations are literal, monotonic URL segments
 - Consequence: the version is a human label on an export; the deterministic local identity is the per-SubFile fingerprint (E5); player safety is the `source_digest` guard, not the watcher
 
 ### DAT Vnum — definitively schema-version, not content-version

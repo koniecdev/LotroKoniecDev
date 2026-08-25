@@ -1,7 +1,7 @@
 # Where the game version comes from — and where it does not (2026-08-25)
 
-**Status:** settled for every source we could reach from a Mac. Two local candidates remain
-unchecked (see "Still open") and need one look on a Windows box with LOTRO installed.
+**Status:** settled. Every reachable remote source checked from a Mac, the local candidates checked
+the same day on a Windows box with a live install.
 
 ## The question
 
@@ -64,17 +64,32 @@ exported from — see "Design consequence".
 The one shared weakness: the title is typed by an SSG employee. The regex
 `Update\s+(\d+(?:\.\d+)*)\s+Release\s+Notes` stays, and it is the only fragile piece left.
 
-## Still open (Windows, owner-run, two minutes)
+## The Windows check (same day, owner's box — closes the open items)
 
-```powershell
-(Get-Item "$env:LOTRO\lotroclient64.exe").VersionInfo | fl FileVersion,ProductVersion
-Select-String -Path "$env:LOCALAPPDATA\The Lord of the Rings Online\*.txt","$env:LOCALAPPDATA\The Lord of the Rings Online\LotroLauncher*.log" -Pattern "49\.4" | select -First 20
-```
+Read-only look at a live install (unpatched since 2026-04-18, so the numbers are ~4 months old;
+that does not change any conclusion):
 
-Expected: build numbers in the `3601.66.…` style, nothing that says `49.4`. The real test is
-differential — the same search right after the next update; a file that went `49.4` → `49.5` is a
-candidate, a file that kept `49.4` is noise. Note that `LotroLauncher.log` "Product Token" lines are
-owned expansions, not the client version (a forum thread often quoted for this is about purchases).
+- **`ProjectVersion`** — a 3-byte file in the game root, value `120`. Looked like the answer; it is
+  not. mtime = install day (2024-12-27) while the DATs were patched on 2026-02-08 and 2026-04-18.
+  The patcher never touches it. Third dead installer artifact, next to `Game.Version` and vnum.
+- **The exe knows its build and logs it.** `lotroclient64.exe`, `lotroclient.exe`,
+  `LotroLauncher.exe`: FileVersion `4704.0070.4459.4020` (ProductVersion adds `lotro_live`).
+  `lotroclient64.log` first line: `Initializing client - build version is [4704.0070.4459.4020.RELEASE]`.
+  The same machine's server config says `Game.Version = 3601.…` — hard proof on one box that
+  `Game.Version` is detached from the running client. The exe build is a local marker, but it is a
+  build, not "49.4", and it moves only when the exe is patched, not on content-only updates.
+- **Logs: zero "49.x".** `LotroLauncher*.log` (10 files), `lotroclient64.log`, `PatchClient.log`,
+  `TTEPatchClient.log`, `PatchClient.1.old` — the only regex hit was a fragment of an IP address.
+  The launcher logs exactly the predicted thing: per-file, per-iteration patching, no version label.
+- **Iterations are addressable URLs.** `PatchClient.log` shows the raw patch downloads:
+  `akamai.lotro.com/lotro/patch/iterations/client_cell_5.dat-7381`, `-7382`, … — per-DAT
+  iterations are literal, monotonic path segments. `lotroclient64.log` stamps every DAT
+  (`datpack versions eng:112, game:3`, "GUID version stamp"). The identity of a game state is
+  `(file, iteration)`, which is what `GetSubfileVersion` / `GetSubfileSizes` already read.
+
+Not done: a byte-level grep for `49.4` across the multi-GB DATs (would grind the disk during play,
+and we already read those through datexport). Any such hit would be text content anyway — an MOTD or
+loading-screen string — not a version field.
 
 ## Design consequence
 

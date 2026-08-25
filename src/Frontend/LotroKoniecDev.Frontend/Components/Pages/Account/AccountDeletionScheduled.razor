@@ -1,5 +1,6 @@
 @page "/account/deletion-scheduled"
 @using System.Globalization
+@using LotroKoniecDev.Frontend.Infrastructure.Formatting
 
 <PageTitle>Usunięcie konta zaplanowane — lotro-translator.pl</PageTitle>
 
@@ -37,11 +38,6 @@
     [SupplyParameterFromQuery(Name = "until")]
     public string? Until { get; set; }
 
-    // Static SSR renders on the server, whose local zone is UTC in a container, and we cannot know the
-    // visitor's time zone here. So the deadline is shown in the product's home time zone.
-    private static readonly TimeZoneInfo PolandTimeZone =
-        TimeZoneInfo.FindSystemTimeZoneById("Europe/Warsaw");
-
     private string? _deletionDateLine;
 
     protected override void OnInitialized()
@@ -62,9 +58,7 @@
                 DateTimeStyles.RoundtripKind,
                 out DateTimeOffset finalizesAt))
         {
-            string formattedDate = TimeZoneInfo.ConvertTime(finalizesAt, PolandTimeZone)
-                .ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture);
-            return $"Konto zostanie trwale usunięte {formattedDate} (czasu polskiego).";
+            return $"Konto zostanie trwale usunięte {finalizesAt.ToPolandTimeTextWithoutZone()} (czasu polskiego).";
         }
 
         return "Konto zostanie trwale usunięte po upływie 14 dni od zgłoszenia.";

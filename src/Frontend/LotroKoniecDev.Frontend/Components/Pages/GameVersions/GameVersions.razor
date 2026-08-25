@@ -10,6 +10,7 @@
 @using LotroKoniecDev.TranslationSystem.Contracts.Hateoas
 @using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.GameVersionAggregate
 @using LotroKoniecDev.Frontend.Infrastructure.Errors
+@using LotroKoniecDev.Frontend.Infrastructure.Formatting
 @inject GameVersionsLoader Loader
 
 <PageTitle>Wersje gry — lotro-translator.pl</PageTitle>
@@ -123,7 +124,7 @@
                     {
                         <tr>
                             <td class="mono">@version.Version</td>
-                            <td>@version.DetectedAt.ToString("yyyy-MM-dd HH:mm 'UTC'", CultureInfo.InvariantCulture)</td>
+                            <td>@version.DetectedAt.ToPolandTimeText()</td>
                             <td class="col-status">
                                 <span class="badge @GameVersionStatusDisplay.BadgeClass(version.Status)">
                                     <span class="dot"></span>@GameVersionStatusDisplay.Label(version.Status)

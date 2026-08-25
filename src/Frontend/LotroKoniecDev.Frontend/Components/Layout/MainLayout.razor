@@ -1,5 +1,6 @@
 @inherits LayoutComponentBase
 @using LotroKoniecDev.Frontend.Infrastructure.Auth.DeadSession
+@using LotroKoniecDev.Frontend.Infrastructure.Formatting
 @using LotroKoniecDev.Frontend.Settings
 @using Microsoft.Extensions.Options
 @inject ISessionExpiryNotice SessionExpiryNotice
@@ -34,7 +35,7 @@
 
     <footer class="foot">
         <div class="container">
-            <p>© @DateTime.UtcNow.Year lotro-translator.pl — polskie tłumaczenie The Lord of the Rings Online</p>
+            <p>© @DateTimeOffset.UtcNow.ToPolandTime().Year lotro-translator.pl — polskie tłumaczenie The Lord of the Rings Online</p>
             <p class="foot-links">
                 <a href="/regulamin">Regulamin</a>
                 <a href="@PrivacyPolicyUrl" target="_blank" rel="noopener">Polityka prywatności</a>

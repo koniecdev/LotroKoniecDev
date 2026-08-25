@@ -4,6 +4,7 @@ using System.Text.Json.Serialization;
 using LotroKoniecDev.AuthSystem.Contracts.Features.Auth.Account;
 using LotroKoniecDev.Frontend.Infrastructure.Discovery;
 using LotroKoniecDev.Frontend.Infrastructure.Errors;
+using LotroKoniecDev.Frontend.Infrastructure.Formatting;
 using LotroKoniecDev.Frontend.Infrastructure.HttpClients;
 using LotroKoniecDev.Frontend.Infrastructure.HttpClients.TranslationSystemHttpClients;
 using LotroKoniecDev.TranslationSystem.Contracts.Hateoas;
@@ -101,10 +102,12 @@ internal static class AccountEndpointsExtensions
             IsComplete: translationData is not null && result.Value.IsComplete);
 
         byte[] payload = JsonSerializer.SerializeToUtf8Bytes(exportFile, ExportSerializerOptions);
+        // Stamped in Poland time, like every other date the user reads (#736): the file name is what they
+        // sort their downloads by, so it has to match the clock they downloaded it on.
         string fileName = string.Format(
             CultureInfo.InvariantCulture,
             "lotro-translator-moje-dane-{0:yyyyMMdd-HHmmss}.json",
-            DateTime.UtcNow);
+            DateTimeOffset.UtcNow.ToPolandTime());
 
         return Results.File(payload, "application/json", fileName);
     }

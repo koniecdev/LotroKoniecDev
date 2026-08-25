@@ -67,6 +67,24 @@ public sealed class GameVersionsTests : BunitContext
     }
 
     [Fact]
+    public void Render_WhenVersionsExist_ShowsTheDetectionTimeInPolandTime()
+    {
+        // The API sends the instant in UTC, the page shows the clock the reader is looking at (#736):
+        // 21:48 UTC on a summer day is 23:48 in Poland.
+        AuthorizeAs("Frodo");
+        StubVersions(Version(
+            "49.4",
+            GameVersionStatus.Unprocessed,
+            detectedAt: new DateTimeOffset(2026, 8, 24, 21, 48, 0, TimeSpan.Zero)));
+
+        IRenderedComponent<GameVersionsComponent> component = RenderPage();
+
+        string table = component.Find("table.data-table").TextContent;
+        table.ShouldContain("2026-08-24 23:48 czasu polskiego");
+        table.ShouldNotContain("UTC");
+    }
+
+    [Fact]
     public void Render_WhenCollectionLacksTheRegisterRel_DoesNotShowTheRegisterForm()
     {
         AuthorizeAs("Frodo");
@@ -238,7 +256,11 @@ public sealed class GameVersionsTests : BunitContext
                 Links = [new LinkDto("https://tms.example/api/v1/game-versions", Rels.Register, "POST")]
             }));
 
-    private static GameVersionResponse Version(string version, GameVersionStatus status, bool canDelete = false)
+    private static GameVersionResponse Version(
+        string version,
+        GameVersionStatus status,
+        bool canDelete = false,
+        DateTimeOffset? detectedAt = null)
     {
         GameVersionId id = GameVersionId.Create(Guid.NewGuid());
         List<LinkDto> links = [];
@@ -247,6 +269,6 @@ public sealed class GameVersionsTests : BunitContext
             links.Add(new LinkDto($"https://tms.example/api/v1/game-versions/{id.Value}", Rels.Delete, "DELETE"));
         }
 
-        return new GameVersionResponse(id, version, DateTimeOffset.UnixEpoch, status) { Links = links };
+        return new GameVersionResponse(id, version, detectedAt ?? DateTimeOffset.UnixEpoch, status) { Links = links };
     }
 }

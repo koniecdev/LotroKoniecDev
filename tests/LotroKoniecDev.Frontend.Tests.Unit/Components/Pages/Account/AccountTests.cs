@@ -45,7 +45,8 @@ public sealed class AccountTests : BunitContext
         component.Markup.ShouldContain("frodo");
         component.Markup.ShouldContain("frodo@shire.me");
         component.Markup.ShouldContain("Tłumacz");
-        component.Markup.ShouldContain("2026-06-01 12:00 UTC");
+        // The API sends UTC; the page shows Poland time (#736) — 12:00 UTC is 14:00 in summer.
+        component.Markup.ShouldContain("2026-06-01 14:00 czasu polskiego");
         component.Markup.ShouldContain("Regulamin serwisu");
         component.Markup.ShouldContain("Zaakceptowany");
     }
@@ -131,7 +132,7 @@ public sealed class AccountTests : BunitContext
         IRenderedComponent<AccountComponent> component = Render<AccountComponent>();
 
         component.Markup.ShouldContain("Usunięcie tego konta zostało zaplanowane");
-        component.Markup.ShouldContain("2026-07-11 08:00 UTC");
+        component.Markup.ShouldContain("2026-07-11 10:00 czasu polskiego");
     }
 
     [Fact]

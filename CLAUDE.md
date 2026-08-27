@@ -746,6 +746,13 @@ with `/qa-ticket #<n>` before handing it over.**
 - **Every QA ticket carries the read-first block** (the SSR/fault-injection/do-not-improvise briefing
   — verbatim copy lives in `.claude/commands/qa-ticket.md`). It is the tester briefing, delivered
   where they actually read it.
+- **Every test step carries a stable id (owner rule, 2026-08-27, #742).** Each checkbox under
+  `## Test scenarios` opens with `TC01`, `TC02`, … The id belongs to the **step, not its position**:
+  a deleted step leaves a gap, a new one takes the next unused number, and a retired number is never
+  reused — ids travel into the run sheet, bug titles and other tickets (#736 is titled after one),
+  so renumbering invalidates those citations silently. Ids are unique per ticket and never restart
+  inside the next scenario; `### S01 — name` grouping is optional and never enters the id, so the
+  full id is always `QA-FE-{nn}-TC{kk}`. The wiki's `Workflow-testera.md` §13 owns this rule.
 - **Hand over at most 3 tickets at a time**, and give every filed bug a verdict the same day
   (`valid` / `by design + why` / `needs retest`). A 15-ticket batch rots; without the feedback loop a
   tester keeps applying a wrong mental model and each wrong report is paid for twice.

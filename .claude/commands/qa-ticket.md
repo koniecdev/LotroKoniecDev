@@ -94,10 +94,44 @@ Every QA ticket carries this at the very top, unchanged:
 
 ## 4. Ticket shape
 
-Mirror the existing QA-FE tickets (`gh issue list --label qa`): read-first block → `## Context` →
-`### Environment & accounts (staging — browser only)` → `## Test scenarios` (checkboxes) →
-`## Acceptance criteria`. Title convention `QA-FE-{nn}: Area — what is covered`, labels `qa` + `type-test`
-+ a priority, plus `qa-blocked` if any scenario ships blocked.
+Structure: read-first block → `## Context` → `### Environment & accounts (staging — browser only)`
+→ `## Test scenarios` → `## Acceptance criteria`. Title convention `QA-FE-{nn}: Area — what is
+covered`, labels `qa` + `type-test` + a priority, plus `qa-blocked` if any scenario ships blocked.
+
+**Every step under `## Test scenarios` opens with its own id.** That id is what the run sheet's
+`Test ID` column copies and what every later bug title cites:
+
+```markdown
+## Test scenarios
+
+### S01 — Cookie bar and the legal links   <!-- optional grouping — omit it on a short ticket -->
+
+- [ ] **TC01** — Open a private window. Go to `https://staging.lotro-translator.pl`. …
+- [ ] **TC02** — Scroll to the footer. The links "Regulamin" and "Polityka prywatności" …
+- [ ] **TC03** — _(owner-assisted — SKIP unless the owner runs it)_ Stop the API, then …
+```
+
+Three rules, all owner decisions (2026-08-27, #742). The wiki (`Workflow-testera.md` §13) is
+their source of truth — if it and this file ever disagree, the wiki wins:
+
+1. **Ids are unique per ticket.** Numbering never restarts inside the next scenario.
+2. **The id belongs to the step, not to its position.** Editing a ticket never renumbers it:
+   a deleted step leaves a gap, a new step takes the next unused number, and a retired number is
+   never reused. Ids leave the ticket — into the sheet, into bug titles, into other tickets — so
+   renumbering invalidates those citations silently and retroactively. A visible gap is harmless;
+   a silently reused number is not.
+3. **`### S01 — name` grouping is optional, and never enters the id.** It earns its place on a
+   long ticket covering several areas; on a short single-flow ticket it is ceremony. The full id
+   a bug title carries is always `QA-FE-{nn}-TC{kk}`.
+
+**Do not mirror the existing QA-FE tickets for the step format.** 29 of the 30 written before
+2026-08-27 are flat checkbox lists with no ids at all, and the one exception (#701) restarts TC
+numbering inside every scenario, which rule 1 now forbids. Copy their tone and their level of
+detail; take the shape from the block above.
+
+Bug titles already filed against the old shape keep it — `BUG: QA-FE-24-S03-TC06 …` (#719) and
+`BUG: QA-FE-27-S01-TC02 …` (#736) stay exactly as they are. Each still resolves against the ticket
+it cites, and rewriting a citation is the precise failure rule 2 exists to prevent.
 
 State the concrete environment (`https://staging.lotro-translator.pl`) and exactly which account
 each leg needs. Where a scenario depends on a specific row, **name the FileId/GossipId** — do not
@@ -119,9 +153,19 @@ When the argument is an issue number, do not rewrite the ticket — audit it:
 
 1. Read the current body and run §1 against **every** line.
 2. Fix only what is provably wrong; quote the code that proves it in the edit.
-3. Add a dated `> **Corrected YYYY-MM-DD.** <what changed and why>` note so the tester can see the
-   ticket moved under them, and cross-reference any bug report the old wording caused.
-4. Keep the tester's already-checked boxes — do not silently reset their work.
+3. **Assign ids to steps that have none** — `TC01`, `TC02`, … following the order the steps are
+   already in, so the numbering matches what a tester running the ticket today would have counted
+   by position. Where the ticket already carries ids, **keep every one of them exactly as it is**:
+   §4 rule 2 holds during a re-baseline too, so fixing a line never renumbers it, a step you drop
+   leaves its number vacant, and a step you add takes the next unused one. A pre-rule ticket whose
+   numbering restarts per scenario cannot satisfy rule 1 without a renumber; #701 is the only one,
+   it is closed, and a closed QA ticket is replaced by a fresh run rather than re-baselined — so
+   the case does not arise, and the answer is never to renumber a ticket someone has already run.
+4. Add a dated `> **Corrected YYYY-MM-DD.** <what changed and why>` note so the tester can see the
+   ticket moved under them, and cross-reference any bug report the old wording caused. If the
+   ticket had already been run, say that its old numbers were positional, so anything filed
+   against them can still be traced.
+5. Keep the tester's already-checked boxes — do not silently reset their work.
 
 ## 7. Hand back
 

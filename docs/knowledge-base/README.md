@@ -90,6 +90,14 @@ Detailed analysis: [update-49/RESULTS.md](update-49/RESULTS.md) §E5 · tool: `s
 - Redesigns Tier-0 (#565): metadata snapshot replaces content sampling; the diff set is the repair set; the ADR-0047 row-level guard stays (write admission, complementary)
 - PowerShell interop trap: loading datexport.dll by absolute path needs `LoadLibraryExW` + `LOAD_WITH_ALTERED_SEARCH_PATH` or its beside-the-DLL dependencies (msvcr71 & co.) don't resolve (win32 error 126)
 
+### Game version sources — nothing local knows "49.4"; the announcement is the signal (2026-08-25)
+Detailed analysis: [game-version-sources-2026-08-25.md](game-version-sources-2026-08-25.md)
+- The launcher beacon: GLS `GetDatacenters` → `lotrolauncher.server.config.xml` → `Game.Version` = `3601.0066.7272.4024`, **identical to the 2025-08-29 Wayback snapshot** — installer image version, dead like vnum; the real "patch needed" is `patchclient.dll`'s binary protocol on `patch.lotro.com:6015` comparing per-file stamps ("files differ", never a number)
+- LOTRO Companion tags releases by hand (`On24.4`) — not a signal (#384 closed)
+- **Steam News API** (`ISteamNews/GetNewsForApp?appid=212500`) carries every "Update X Release Notes" as JSON with timestamps — the watcher's source from now on (#85); forum RSS is the fallback, never the HTML
+- Windows check the same day: `ProjectVersion` file (`120`, install-day mtime, dead), exe build `4704.0070.4459.4020` logged in `lotroclient64.log` while the server config says `3601.…` (Game.Version is detached from the running client), zero "49.x" in any launcher/client log; `PatchClient.log` downloads `…/patch/iterations/client_cell_5.dat-7381` — per-DAT iterations are literal, monotonic URL segments
+- Consequence: the version is a human label on an export; the deterministic local identity is the per-SubFile fingerprint (E5); player safety is the `source_digest` guard, not the watcher
+
 ### DAT Vnum — definitively schema-version, not content-version
 Detailed analysis: [vnum-observations.md](vnum-observations.md)
 - Vnum 112/3 unchanged across 45.x → 47.x → **48.0 major** → 48.7 → 48.8 → **49.1 major** — 6 cycles (two majors), zero movement (latest: [live-test-2026-08-02.md](live-test-2026-08-02.md))

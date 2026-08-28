@@ -35,16 +35,17 @@ public sealed class LotroNotationVersionTests
     [InlineData("48.0.0", "48")]
     [InlineData("47.1", "47.1")]
     [InlineData("47.1.0", "47.1")]
-    [InlineData("47.1.0.0", "47.1")]
     [InlineData("47.1.1", "47.1.1")]
     [InlineData("47.0.1", "47.0.1")]
     [InlineData("0", "0")]
     [InlineData("0.0", "0")]
     [InlineData("0.0.0", "0")]
-    [InlineData("0.0.0.0", "0")]
     [InlineData("047", "47")]
     [InlineData("48.01", "48.1")]
-    [InlineData("4.8.15.16", "4.8.15.16")]
+    [InlineData("001.001.001", "1.1.1")]
+    [InlineData("000.001.000", "0.1")]
+    [InlineData("000.000.000", "0")]
+    [InlineData("123.456.789", "123.456.789")]
     public void Create_WithVariousNotations_ShouldNormalizeToCanonicalValue(string input, string expectedCanonical)
     {
         // Act
@@ -60,7 +61,8 @@ public sealed class LotroNotationVersionTests
     [InlineData("48", "48.0.0")]
     [InlineData("48.0", "48.0.0")]
     [InlineData("47.1", "47.1.0")]
-    [InlineData("47.1", "47.1.0.0")]
+    [InlineData("47.1", "47.1.000")]
+    [InlineData("001.001.000", "1.1")]
     public void Create_WithTrailingZeroEquivalents_ShouldProduceEqualValueObjects(string left, string right)
     {
         // Act
@@ -79,6 +81,7 @@ public sealed class LotroNotationVersionTests
     [InlineData("48.1", "48.2")]
     [InlineData("47.0.1", "47.1")]
     [InlineData("48.0.1", "48")]
+    [InlineData("00.0.1", "1")]
     public void Create_WithDifferentVersions_ShouldProduceUnequalValueObjects(string left, string right)
     {
         // Act
@@ -131,6 +134,33 @@ public sealed class LotroNotationVersionTests
         // Assert
         result.IsSuccess.ShouldBeTrue();
         result.Value.Value.ShouldBe(value);
+    }
+
+    [Theory]
+    [InlineData("47.1.0.0")]
+    [InlineData("1.2.3.4")]
+    [InlineData("48.1.2.3.4")]
+    [InlineData("0.0.0.0")]
+    public void Create_WithMoreSegmentsThanAllowed_ShouldReturnMoreSegmentsThanAllowedError(string value)
+    {
+        // Act
+        Result<LotroNotationVersion> result = LotroNotationVersion.Create(value);
+
+        // Assert
+        result.IsFailure.ShouldBeTrue();
+        result.Error.ShouldBe(DomainErrors.GameVersionEntity.VersionProperty.MoreSegmentsThanAllowed);
+        result.Error.Type.ShouldBe(TypeOfError.Validation);
+    }
+
+    [Fact]
+    public void Create_WithThreeSegmentsLongerThanMaxLength_ShouldReturnTooLongError()
+    {
+        // Act
+        Result<LotroNotationVersion> result = LotroNotationVersion.Create("123.456.7890");
+
+        // Assert
+        result.IsFailure.ShouldBeTrue();
+        result.Error.ShouldBe(DomainErrors.GameVersionEntity.VersionProperty.LongerThanAllowed);
     }
 
     [Theory]

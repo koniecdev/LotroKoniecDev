@@ -49,6 +49,12 @@ public static partial class DomainErrors
 
             public static Error InvalidFormat
                 => InvalidDottedNumericFormat(nameof(GameVersionEntity), nameof(GameVersion.LotroNotationVersion));
+
+            public static Error MoreSegmentsThanAllowed
+                => TooManySegments(
+                    nameof(GameVersionEntity),
+                    nameof(GameVersion.LotroNotationVersion),
+                    LotroNotationVersion.VersionMaxSegmentsCount);
         }
     }
 }

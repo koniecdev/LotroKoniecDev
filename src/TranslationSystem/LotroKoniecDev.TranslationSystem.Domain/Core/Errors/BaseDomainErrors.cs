@@ -40,4 +40,9 @@ public static partial class DomainErrors
         => new($"{entity}.{property}.InvalidFormat",
             $"The {property.ToLowerInvariant()} must be dotted-numeric notation (e.g. '48.0', '47.1.1').",
             TypeOfError.Validation);
+
+    private static Error TooManySegments(string entity, string property, int maxSegmentsCount)
+        => new($"{entity}.{property}.MoreSegmentsThanAllowed",
+            $"The {property.ToLowerInvariant()} must not have more than {maxSegmentsCount} dot-separated segments.",
+            TypeOfError.Validation);
 }

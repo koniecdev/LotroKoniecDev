@@ -67,7 +67,7 @@ public sealed class GameVersionsTests : BunitContext
     }
 
     [Fact]
-    public void Render_WhenVersionsExist_ShowsTheDetectionTimeInPolandTime()
+    public void Render_WhenVersionsExist_ShowsTheRegistrationTimeInPolandTime()
     {
         // The API sends the instant in UTC, the page shows the clock the reader is looking at (#736):
         // 21:48 UTC on a summer day is 23:48 in Poland.
@@ -82,6 +82,21 @@ public sealed class GameVersionsTests : BunitContext
         string table = component.Find("table.data-table").TextContent;
         table.ShouldContain("2026-08-24 23:48 czasu polskiego");
         table.ShouldNotContain("UTC");
+    }
+
+    [Fact]
+    public void Render_WhenVersionsExist_NamesTheDateColumnAfterRegistrationAndNeverClaimsDetection()
+    {
+        // #741: the wiki says plainly that nothing finds a version by itself — an admin types it in.
+        // The page used to head this column "Wykryto" and promise a forum reader that was cut to
+        // post-MVP (ADR-0030), which sent testers hunting for a mechanism that does not exist.
+        AuthorizeAs("Frodo");
+        StubVersions(Version("49.4", GameVersionStatus.Unprocessed));
+
+        IRenderedComponent<GameVersionsComponent> component = RenderPage();
+
+        component.Find("table.data-table thead").TextContent.ShouldContain("Data rejestracji");
+        component.Markup.ToLowerInvariant().ShouldNotContain("wykry");
     }
 
     [Fact]
@@ -217,6 +232,18 @@ public sealed class GameVersionsTests : BunitContext
 
         component.Find(".empty").TextContent.ShouldContain("Brak wersji gry");
         component.FindAll("table.data-table").ShouldBeEmpty();
+    }
+
+    [Fact]
+    public void Render_WhenNoVersionsExist_SaysNoneWasRegisteredRatherThanNoneDetected()
+    {
+        AuthorizeAs("Frodo");
+        StubVersions();
+
+        IRenderedComponent<GameVersionsComponent> component = RenderPage();
+
+        component.Find(".empty").TextContent.ShouldContain("Nie zarejestrowano jeszcze żadnej wersji gry.");
+        component.Markup.ToLowerInvariant().ShouldNotContain("wykry");
     }
 
     [Fact]

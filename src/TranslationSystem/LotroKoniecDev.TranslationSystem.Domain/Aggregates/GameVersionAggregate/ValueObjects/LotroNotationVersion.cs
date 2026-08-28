@@ -47,10 +47,9 @@ public sealed class LotroNotationVersion : ValueObject
 
         value = value.Trim();
 
-        // Both bounds are checked on the raw input on purpose. The forum publishes short two or three
-        // segment versions, so a longer input is wrong whatever the canonical form would be: "47.1.0.0"
-        // is refused even though it would collapse to "47.1".
-        if (value.Count(SegmentSeparator) + 1 > VersionMaxSegmentsCount)
+        string[] segments = value.Split(SegmentSeparator);
+
+        if (segments.Length > VersionMaxSegmentsCount)
         {
             return Result.Failure<LotroNotationVersion>(
                 DomainErrors.GameVersionEntity.VersionProperty.MoreSegmentsThanAllowed);
@@ -61,7 +60,7 @@ public sealed class LotroNotationVersion : ValueObject
             return Result.Failure<LotroNotationVersion>(DomainErrors.GameVersionEntity.VersionProperty.LongerThanAllowed);
         }
 
-        Maybe<string> canonical = Canonicalize(value);
+        Maybe<string> canonical = Canonicalize(segments);
         if (canonical.HasNoValue)
         {
             return Result.Failure<LotroNotationVersion>(DomainErrors.GameVersionEntity.VersionProperty.InvalidFormat);
@@ -85,14 +84,12 @@ public sealed class LotroNotationVersion : ValueObject
     }
 
     /// <summary>
-    /// Returns the canonical string for dotted-numeric input, or <see cref="Maybe{T}.None"/> when the
-    /// input is not <c>digits(.digits)*</c>. It works on the string only, so a very long segment can
+    /// Returns the canonical string for dotted-numeric segments, or <see cref="Maybe{T}.None"/> when
+    /// any segment is not a run of digits. It works on the strings only, so a very long segment can
     /// never overflow a numeric type.
     /// </summary>
-    private static Maybe<string> Canonicalize(string value)
+    private static Maybe<string> Canonicalize(string[] segments)
     {
-        string[] segments = value.Split(SegmentSeparator);
-
         string[] normalizedSegments = new string[segments.Length];
         for (int i = 0; i < segments.Length; i++)
         {

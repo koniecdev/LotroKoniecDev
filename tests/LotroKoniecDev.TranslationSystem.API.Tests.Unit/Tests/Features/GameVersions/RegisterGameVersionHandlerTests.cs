@@ -48,6 +48,19 @@ public sealed class RegisterGameVersionHandlerTests
     }
 
     [Fact]
+    public async Task Handle_WhenVersionHasFourSegments_ShouldReturnValidationErrorAndNotPersist()
+    {
+        // Act
+        Result<GameVersionResponse> result = await CreateHandler().Handle(new RegisterGameVersion.Command("47.1.0.0"), CancellationToken.None);
+
+        // Assert
+        result.IsFailure.ShouldBeTrue();
+        result.Error.Code.ShouldBe("GameVersionEntity.LotroNotationVersion.MoreSegmentsThanAllowed");
+        _gameVersionRepository.DidNotReceive().Insert(Arg.Any<GameVersion>());
+        await _unitOfWork.DidNotReceive().SaveChangesAsync(Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
     public async Task Handle_WhenVersionAlreadyRegistered_ShouldReturnConflictAndNotPersist()
     {
         // Arrange

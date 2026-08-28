@@ -154,11 +154,11 @@
 @code
 {
     /// <summary>
-    /// Repeats the server's <c>LotroNotationVersion.VersionMaxLength</c> of 12 as a limit on the input.
+    /// Repeats the server's <c>LotroNotationVersion.VersionMaxLength</c> of 11 as a limit on the input.
     /// The Frontend cannot reference the Domain constant, and the server's validation (the ADR-0003
-    /// grammar) still decides. This is only a convenience for the user.
+    /// grammar and its three-segment cap) still decides. This is only a convenience for the user.
     /// </summary>
-    private const int MaxVersionLength = 12;
+    private const int MaxVersionLength = 11;
 
     [SupplyParameterFromForm(FormName = "register-version")]
     private RegisterFormModel? RegisterInput { get; set; }

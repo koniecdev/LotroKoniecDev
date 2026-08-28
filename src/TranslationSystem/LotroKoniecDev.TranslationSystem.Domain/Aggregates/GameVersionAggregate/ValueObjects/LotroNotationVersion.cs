@@ -10,8 +10,9 @@ namespace LotroKoniecDev.TranslationSystem.Domain.Aggregates.GameVersionAggregat
 /// </summary>
 /// <remarks>
 /// <para>
-/// Input must look like <c>digits(.digits)*</c>. Anything else is rejected with
-/// <see cref="DomainErrors.GameVersionEntity.VersionProperty.InvalidFormat"/>.
+/// Input must look like <c>digits(.digits)*</c> and may carry at most three segments. Anything else
+/// is rejected with <see cref="DomainErrors.GameVersionEntity.VersionProperty.InvalidFormat"/> or
+/// <see cref="DomainErrors.GameVersionEntity.VersionProperty.MoreSegmentsThanAllowed"/>.
 /// </para>
 /// <para>
 /// <see cref="Value"/> holds the canonical form: trailing zero segments are dropped, so <c>48</c>,
@@ -21,7 +22,17 @@ namespace LotroKoniecDev.TranslationSystem.Domain.Aggregates.GameVersionAggregat
 /// </remarks>
 public sealed class LotroNotationVersion : ValueObject
 {
-    public const int VersionMaxLength = 12;
+    /// <summary>
+    /// The longest input the domain accepts, which is three segments of three digits plus the two
+    /// separators (<c>123.456.789</c>). See ADR-0003, amendment 2026-08-28.
+    /// </summary>
+    public const int VersionMaxLength = 11;
+
+    /// <summary>
+    /// The forum has never published a four-segment version, so a fourth segment can only be a typo.
+    /// See ADR-0003, amendment 2026-08-28.
+    /// </summary>
+    public const int VersionMaxSegmentsCount = 3;
 
     private const char SegmentSeparator = '.';
 
@@ -36,14 +47,20 @@ public sealed class LotroNotationVersion : ValueObject
 
         value = value.Trim();
 
-        // The length is checked on the raw input on purpose. The forum publishes short 2-3 segment
-        // versions, so a longer input is wrong whatever the canonical form would be.
+        string[] segments = value.Split(SegmentSeparator);
+
+        if (segments.Length > VersionMaxSegmentsCount)
+        {
+            return Result.Failure<LotroNotationVersion>(
+                DomainErrors.GameVersionEntity.VersionProperty.MoreSegmentsThanAllowed);
+        }
+
         if (value.Length > VersionMaxLength)
         {
             return Result.Failure<LotroNotationVersion>(DomainErrors.GameVersionEntity.VersionProperty.LongerThanAllowed);
         }
 
-        Maybe<string> canonical = Canonicalize(value);
+        Maybe<string> canonical = Canonicalize(segments);
         if (canonical.HasNoValue)
         {
             return Result.Failure<LotroNotationVersion>(DomainErrors.GameVersionEntity.VersionProperty.InvalidFormat);
@@ -67,14 +84,12 @@ public sealed class LotroNotationVersion : ValueObject
     }
 
     /// <summary>
-    /// Returns the canonical string for dotted-numeric input, or <see cref="Maybe{T}.None"/> when the
-    /// input is not <c>digits(.digits)*</c>. It works on the string only, so a very long segment can
+    /// Returns the canonical string for dotted-numeric segments, or <see cref="Maybe{T}.None"/> when
+    /// any segment is not a run of digits. It works on the strings only, so a very long segment can
     /// never overflow a numeric type.
     /// </summary>
-    private static Maybe<string> Canonicalize(string value)
+    private static Maybe<string> Canonicalize(string[] segments)
     {
-        string[] segments = value.Split(SegmentSeparator);
-
         string[] normalizedSegments = new string[segments.Length];
         for (int i = 0; i < segments.Length; i++)
         {

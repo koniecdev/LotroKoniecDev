@@ -81,7 +81,8 @@ and delete a still-unprocessed version they registered by mistake.
   be read), mirroring import/export.
 - After a successful register or delete, **refresh the list** so it reflects the new state.
 - Version input is trimmed; the field carries the same `maxlength` as
-  `LotroNotationVersion.VersionMaxLength` (12). Real format validation is server-side (ADR-0003 grammar).
+  `LotroNotationVersion.VersionMaxLength` (11). Real format validation is server-side (ADR-0003 grammar
+  plus the three-segment cap of its 2026-08-28 amendment).
 
 ## Contract
 

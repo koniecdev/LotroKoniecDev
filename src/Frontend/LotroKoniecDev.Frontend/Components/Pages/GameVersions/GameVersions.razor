@@ -19,9 +19,9 @@
     <div>
         <h1>Wersje gry</h1>
         <p class="lede">
-            Przeglądaj wykryte wersje gry LOTRO i ich stan w cyklu aktualizacji. Administrator może ręcznie
-            zarejestrować wersję, gdy odczyt z forum jest niedostępny, oraz usunąć błędnie dodaną wersję —
-            dopóki nie zaimportowano do niej tekstów.
+            Przeglądaj zarejestrowane wersje gry LOTRO i ich stan w cyklu aktualizacji. Wersje nie pojawiają
+            się tu same — wpisuje je ręcznie administrator. Może też usunąć błędnie dodaną wersję, dopóki nie
+            zaimportowano do niej tekstów.
         </p>
     </div>
 </section>
@@ -104,7 +104,7 @@
                 </svg>
             </span>
             <h2>Brak wersji gry</h2>
-            <p>Nie wykryto jeszcze żadnej wersji gry.</p>
+            <p>Nie zarejestrowano jeszcze żadnej wersji gry.</p>
         </div>
     }
     else if (_versions is not null)
@@ -114,7 +114,7 @@
                 <thead>
                     <tr>
                         <th scope="col">Wersja</th>
-                        <th scope="col">Wykryto</th>
+                        <th scope="col">Data rejestracji</th>
                         <th scope="col" class="col-status">Status</th>
                         <th scope="col" class="col-actions"><span class="visually-hidden">Akcje</span></th>
                     </tr>

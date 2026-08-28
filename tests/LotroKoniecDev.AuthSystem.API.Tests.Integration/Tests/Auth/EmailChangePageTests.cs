@@ -64,6 +64,32 @@ public sealed partial class EmailChangePageTests : EndpointsTestBase
     }
 
     [Fact]
+    public async Task ConfirmPage_Post_ShouldStyleTheDoneMessageAsASuccessNotAsAnError()
+    {
+        // #719: the done message carried the success modifier, but this page never defined the rule
+        // for it, so the plain .auth-alert styling won and a completed change was reported in a red
+        // error box. Each auth page ships its own copy of the stylesheet, so the modifier has to be
+        // present in the very document that uses it.
+        (RegisterRequest user, string newEmail, string token) = await RequestChangeAsync();
+        Guid userId = await UserIdOfAsync(user.Email);
+
+        HttpResponseMessage response = await PostToPageAsync(
+            "/Account/ConfirmEmailChange",
+            ConfirmUrl(userId, newEmail, token),
+            new Dictionary<string, string>
+            {
+                ["UserId"] = userId.ToString(),
+                ["Email"] = newEmail,
+                ["Token"] = token
+            });
+
+        string html = await response.Content.ReadAsStringAsync();
+
+        html.ShouldContain("class=\"auth-alert success\"");
+        html.ShouldContain(".auth-alert.success");
+    }
+
+    [Fact]
     public async Task ConfirmPage_Post_ShouldMakeTheNewAddressTheLogin()
     {
         (RegisterRequest user, string newEmail, string token) = await RequestChangeAsync();

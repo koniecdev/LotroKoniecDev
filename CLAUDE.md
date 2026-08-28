@@ -743,9 +743,15 @@ with `/qa-ticket #<n>` before handing it over.**
   it)_, or **blocked: what is missing**. Never "optional" — optional invites improvisation, and
   improvisation is what produced #602/#604. DevTools "Offline" is not API downtime: it cuts
   browser→frontend, and nothing server-rendered can render at all.
-- **Every QA ticket carries the read-first block** (the SSR/fault-injection/do-not-improvise briefing
-  — verbatim copy lives in `.claude/commands/qa-ticket.md`). It is the tester briefing, delivered
-  where they actually read it.
+- **Every QA ticket carries a pointer to the wiki, never a copy of its rules (wiki verdict,
+  2026-08-26).** The ticket opens with one line telling the tester to paste
+  `Workflow-testera.md` into their assistant first; the exact wording lives in
+  `.claude/commands/qa-ticket.md` §3, and `Workflow-testera.md` §13 owns it. Tickets used to
+  carry a ~25-line "Read this before testing" frame, which was a copy of wiki §10 — so every rule
+  change meant editing a dozen tickets, and they drifted from the page that outranks them. Rules
+  live in exactly one place. The ticket says **what** to check; the wiki says **how** to test.
+  Old tickets keep their frame until a `/qa-ticket #<n>` re-baseline strips it — a closed QA
+  ticket is never re-run, so editing it buys nothing.
 - **Every test step carries a stable id (owner rule, 2026-08-27, #742).** Each checkbox under
   `## Test scenarios` opens with `TC01`, `TC02`, … The id belongs to the **step, not its position**:
   a deleted step leaves a gap, a new one takes the next unused number, and a retired number is never

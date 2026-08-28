@@ -59,42 +59,30 @@ Watch specifically for the failure modes that already bit us:
 If more than half the ticket lands in owner-assisted/blocked, the ticket is not ready to hand over —
 say so and fix the precondition first (`scripts/qa/seed-staging.sql` exists for the data half).
 
-## 3. Prepend the read-first block, verbatim
+## 3. Prepend the pointer to the wiki — never the rules themselves
 
-Every QA ticket carries this at the very top, unchanged:
+Every QA ticket opens with this one line, unchanged:
 
 ```markdown
-> ### Read this before testing (applies to every QA ticket)
->
-> **1. This app is Blazor Static SSR, not a SPA.** Pages are rendered on the server and arrive as
-> finished HTML. There is no client-side state, no `fetch` from your browser to our API, and no
-> service worker. Every API call happens server-to-server and is **invisible in the browser Network
-> tab** — blocking or inspecting `/api/*` there shows nothing and proves nothing.
->
-> **2. DevTools "Offline" does not simulate API downtime.** It cuts browser → frontend, so no page
-> can be delivered at all — no server-rendered app can show a friendly banner when it cannot deliver
-> any HTML. Scenarios marked _(owner-assisted)_ need the backend stopped server-side: **skip them**
-> unless the owner runs them with you.
->
-> **3. Do not improvise a missing precondition.** If a scenario needs data or a role you do not have
-> (a superseded row, an admin login, a sample `exported.txt`), leave the box unchecked, write
-> `blocked: <what is missing>` in your report, and **add the `qa-blocked` label to this ticket** so
-> the owner sees it is waiting on them. A guessed substitute produces a false bug, which costs more
-> than the untested scenario. A blocked scenario is the one case that keeps a finished run's ticket
-> open — a scenario that simply failed is a result, so it does not block anything.
->
-> **4. Ask before filing a security or "this looks wrong" bug.** One comment on this ticket is
-> cheaper than a bug report that turns out to be by design. Vague auth messages and public download
-> URLs are usually deliberate — ask which one it is.
->
-> **5. If the app contradicts this ticket, the app is probably right.** These scenarios are written
-> from the spec and can go stale. Report the contradiction as a question; do not assume it is a
-> defect.
+> **Before you start:** paste the whole [tester workflow](https://github.com/koniecdev/LotroKoniecDev/wiki/Workflow-testera)
+> into your assistant first. That page owns every rule — statuses, evidence, the report, when something
+> is a bug. This ticket only says **what** to check.
 ```
+
+**Do not paste a "Read this before testing" frame into the ticket.** Tickets used to carry a
+~25-line copy of the wiki's pitfalls section, and the wiki removed it on 2026-08-26
+(`Workflow-testera.md` §13): the frame was a copy of §10, so every rule change meant editing a
+dozen tickets, and the tickets drifted from the page that outranks them. The rules live in exactly
+one place; the ticket links to it.
+
+Same rule for anything else the wiki already owns — statuses, the evidence standard, the report
+format, when something counts as a bug. If you feel the urge to restate it "so the tester sees it
+here", that is the drift the pointer exists to prevent. The ticket says **what** to check; the
+wiki says **how** to test.
 
 ## 4. Ticket shape
 
-Structure: read-first block → `## Context` → `### Environment & accounts (staging — browser only)`
+Structure: the §3 pointer line → `## Context` → `### Environment & accounts (staging — browser only)`
 → `## Test scenarios` → `## Acceptance criteria`. Title convention `QA-FE-{nn}: Area — what is
 covered`, labels `qa` + `type-test` + a priority, plus `qa-blocked` if any scenario ships blocked.
 
@@ -161,11 +149,16 @@ When the argument is an issue number, do not rewrite the ticket — audit it:
    numbering restarts per scenario cannot satisfy rule 1 without a renumber; #701 is the only one,
    it is closed, and a closed QA ticket is replaced by a fresh run rather than re-baselined — so
    the case does not arise, and the answer is never to renumber a ticket someone has already run.
-4. Add a dated `> **Corrected YYYY-MM-DD.** <what changed and why>` note so the tester can see the
+4. **Swap an old read-first frame for the §3 pointer** if the ticket still carries one. Tickets
+   written before 2026-08-26 open with the ~25-line block the wiki has since dropped, and it is
+   already stale in every one of them. Strip it **only here, on re-baseline** — do not go back and
+   edit tickets nobody is about to re-run: a closed QA ticket is never resumed (a fresh run replaces
+   it), so the edit would buy nothing.
+5. Add a dated `> **Corrected YYYY-MM-DD.** <what changed and why>` note so the tester can see the
    ticket moved under them, and cross-reference any bug report the old wording caused. If the
    ticket had already been run, say that its old numbers were positional, so anything filed
    against them can still be traced.
-5. Keep the tester's already-checked boxes — do not silently reset their work.
+6. Keep the tester's already-checked boxes — do not silently reset their work.
 
 ## 7. Hand back
 

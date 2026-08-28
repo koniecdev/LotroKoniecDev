@@ -89,6 +89,9 @@ dotted-numeric/semver intuition. No maximum **segment count** is imposed beyond 
 `VersionMaxLength = 12` character cap (which already bounds practical depth); the format check
 rejects garbage, the length check rejects the absurd.
 
+> **Superseded by the 2026-08-28 amendment below (#728):** a version carries at most three segments,
+> and `VersionMaxLength` is 11. `47.1 == 47.1.0` still holds; `47.1.0.0` is now refused outright.
+
 ### 4. Ordering — out of scope, no `IComparable`
 
 `LotroNotationVersion` does **not** become `IComparable`. Supersede/processing order is `DetectedAt`
@@ -112,3 +115,38 @@ identity/equality only; version ordering would be a separate decision if ever ne
   requires.
 - **Data.** Pre-release, zero users, no rows to migrate; the unique index already exists on the
   canonical column, so no schema change.
+## Amendment (2026-08-28) — a version has at most three segments
+
+**Ticket:** #728 (UR-31). **Authority:** the wiki (`Wersja-gry-GameVersion`: "od jednego do trzech czlonow (...) Cztery
+czlony lub wiecej to niepoprawny numer wersji"),
+ruled by the owner on 2026-08-22 in #726 point 2. **Supersedes:** §3's sentence "No maximum segment
+count is imposed beyond the existing `VersionMaxLength = 12` character cap".
+
+§3 skipped a segment cap by YAGNI. That settled a business question the ADR had no authority to
+settle: the wiki sentence is a **rule**, not a description of what SSG happens to publish. A tester
+writing a ticket from the wiki hit the gap, and the wiki outranks this ADR (`CLAUDE.md`, "Source of
+truth").
+
+**What changes.**
+
+- `LotroNotationVersion` accepts **one to three segments**. A fourth segment is refused with
+  `DomainErrors.GameVersionEntity.VersionProperty.MoreSegmentsThanAllowed`, a `Validation` error that
+  the existing `ErrorExtensions` mapping turns into HTTP 400 like every other `VersionProperty` error.
+- The cap is checked on the **raw trimmed input, before canonicalization** — the same reasoning the
+  length check already used. `47.1.0.0` is refused even though it would collapse to `47.1`, because
+  the forum never publishes four segments, so the input is wrong whatever its canonical form is.
+- The §3 equivalence example `47.1 == 47.1.0 == 47.1.0.0` loses its last term. `47.1 == 47.1.0` still
+  holds, and trailing-zero collapsing is otherwise unchanged.
+- **`VersionMaxLength` drops from 12 to 11.** With three segments as the ceiling, the longest input
+  worth accepting is three three-digit segments plus two separators (`123.456.789`). There is still
+  **no per-segment digit cap** as a rule — `123.456.789` registers, so "Update 100" is fine — but the
+  character bound no longer needs the twelfth character, and a tighter bound refuses more typos.
+- The column follows the constant, so this ships a narrowing `AlterColumn` migration
+  (`CapGameVersionNotationToThreeSegments`) carrying the ADR-0023 §4 acknowledgment: the widest
+  registered notation is 6 characters, the N-1 revision can only write values the new column still
+  accepts except for 12-character typos the new code refuses anyway, and a too-long row would fail
+  the ALTER at the deploy gate before any traffic moves.
+
+**What does not change.** The canonical form, the equality semantics, the `digits(.digits)*` grammar,
+the absence of `IComparable`, and the forum-watcher path (#85, post-MVP) — a hypothetical
+four-segment forum title now surfaces as a visible validation error instead of silent data.

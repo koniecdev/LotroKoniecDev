@@ -26,19 +26,27 @@ left that epic unable to close on a decision taken in a repo it does not own.
 prediction to be corrected by measurement rather than trusted. Measured on `lotro-staging` on
 2026-08-29, first run, all five components up:
 
-| Component | ADR-0050 predicted | Measured RSS | Ceiling now |
+| Component | ADR-0050 predicted | Measured peak | Ceiling now |
 |---|---|---|---|
 | Grafana | ~120 MiB | **215 MiB** | 384 MiB |
-| Loki | ~200 MiB | 182 MiB | 384 MiB |
-| Prometheus | ~250 MiB | 99 MiB | 320 MiB |
-| Alloy | ~120 MiB | 144 MiB | 256 MiB |
-| Tempo | — | **18 MiB** | 256 MiB |
-| **Total** | ~690 MiB predicted | **658 MiB measured** | **1600 MiB** |
+| Alloy | ~120 MiB | **253 MiB** | 384 MiB |
+| Loki | ~200 MiB | 182 MiB | 256 MiB |
+| Prometheus | ~250 MiB | 102 MiB | 256 MiB |
+| Tempo | — | 95 MiB | 256 MiB |
+| **Total** | ~690 MiB predicted | **~660 MiB steady** | **1536 MiB** |
 
-Grafana was underestimated by 80% and would have been OOM-killed against its proposed 256 MiB
-ceiling. Prometheus was overestimated by two and a half times. And Tempo — the component alternative
-F called the heaviest — is the **smallest thing in the stack** at this volume: a trickle of spans
-from six containers keeps it near idle.
+Two of the five predictions were wrong in the dangerous direction. **Grafana** was underestimated by
+80% and would have been OOM-killed against its proposed 256 MiB ceiling. **Alloy** was worse: it was
+found sitting at **253 MiB against a 256 MiB ceiling — 99%** — and would have been killed within the
+hour, which for an agent means telemetry stops *silently*, the one failure mode an observability
+component must not have. Its cadvisor exporter keeps an in-memory ring of per-container stats;
+cutting `storage_duration` from 5m to 2m brought it to 169 MiB.
+
+Prometheus, meanwhile, was overestimated by two and a half times. And Tempo — the component
+alternative F called the heaviest — is among the *smallest* things in the stack at this volume.
+
+The total ceiling is **1536 MiB**, exactly ADR-0050 §5's budget, now covering a Tempo that budget
+never included. The correction paid for the addition.
 
 The box has 3.7 GiB with 1.7 GiB available alongside both application stacks, plus the 2 GiB of swap
 #708 added.
@@ -49,8 +57,8 @@ The box has 3.7 GiB with 1.7 GiB available alongside both application stacks, pl
 retention matching Loki's so a log line and its trace expire together.
 
 Every component keeps a hard `mem_limit`, re-derived from the measurement above rather than from the
-prediction. The total ceiling is **1600 MiB**, which is lower than ADR-0050 §5's 1536 MiB budget plus
-a Tempo the ADR never budgeted — the correction paid for the addition.
+prediction. The total ceiling is **1536 MiB** — ADR-0050 §5's budget unchanged, now covering a fifth component
+it never included.
 
 The rest of ADR-0050 stands unchanged and is explicitly **not** reopened: the backend still runs on
 staging (§1), still ships as its own compose project (§2), still keeps Caddy as the only component on

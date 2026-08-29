@@ -87,7 +87,7 @@ services:
       - alloy-data:/var/lib/alloy/data
     networks:
       - obs
-    mem_limit: 256m
+    mem_limit: 384m
     logging:
       driver: json-file
       options:
@@ -108,7 +108,7 @@ services:
       - loki-data:/loki
     networks:
       - obs
-    mem_limit: 384m
+    mem_limit: 256m
     logging:
       driver: json-file
       options:
@@ -136,7 +136,7 @@ services:
       - prometheus-data:/prometheus
     networks:
       - obs
-    mem_limit: 320m
+    mem_limit: 256m
     logging:
       driver: json-file
       options:

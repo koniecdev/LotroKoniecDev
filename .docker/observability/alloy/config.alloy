@@ -161,7 +161,10 @@ prometheus.exporter.unix "host" {
 
 prometheus.exporter.cadvisor "containers" {
   docker_host      = "unix:///var/run/docker.sock"
-  storage_duration = "5m"
+  // Kept short deliberately: this is an in-memory ring of per-container stats across every
+  // container on the box, and it is the single biggest contributor to Alloy's RSS. Nothing
+  // reads it directly — Prometheus holds the history — so it only has to outlive one scrape.
+  storage_duration = "2m"
 }
 
 prometheus.scrape "host" {

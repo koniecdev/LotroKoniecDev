@@ -59,13 +59,42 @@ try
         reloadOnChange: true);
 
     string? otlpEndpoint = builder.Configuration["OTEL_EXPORTER_OTLP_ENDPOINT"];
+    bool otlpExportEnabled = !string.IsNullOrWhiteSpace(otlpEndpoint);
+
+    // Logs reach Loki by exactly ONE path: the box agent tailing this container's stdout (ADR-0050
+    // §7). That set is strictly larger than the OTLP sink's - it also catches a crash that happens
+    // before the logging pipeline is up, and it covers the containers that speak no OTLP at all
+    // (Caddy, RabbitMQ, the migrator). So the OTLP log sink stays OFF even when the endpoint is set,
+    // and only a stack with no tailer in front of it turns it back on.
+    //
+    // Alloy drops OTLP log records regardless (ADR-0051), so setting this cannot actually duplicate
+    // a line today. The switch exists so the app stops SENDING what nothing will accept.
+    bool otlpLogExportEnabled = otlpExportEnabled && string.Equals(
+        builder.Configuration["OTEL_LOGS_EXPORTER"],
+        "otlp",
+        StringComparison.OrdinalIgnoreCase);
+
+    // Both projects' containers share a box and both boxes report ASPNETCORE_ENVIRONMENT
+    // "Production", so once a signal leaves the process neither the container nor the hosting
+    // environment can place it. These two attributes do: service.namespace separates
+    // LotroKoniecDev from TheKittySaver, deployment.environment separates staging from prod.
+    // OTEL_DEPLOYMENT_ENVIRONMENT is set per box; absent, the attribute is omitted, never guessed.
+    string? deploymentEnvironment = builder.Configuration["OTEL_DEPLOYMENT_ENVIRONMENT"];
+    Dictionary<string, object> telemetryResourceAttributes = new()
+    {
+        ["service.namespace"] = "lotrokoniecdev"
+    };
+    if (!string.IsNullOrWhiteSpace(deploymentEnvironment))
+    {
+        telemetryResourceAttributes["deployment.environment"] = deploymentEnvironment;
+    }
 
     builder.Services.AddSerilog((services, lc) =>
     {
         lc.ReadFrom.Configuration(builder.Configuration)
           .ReadFrom.Services(services);
 
-        if (!string.IsNullOrWhiteSpace(otlpEndpoint))
+        if (otlpLogExportEnabled)
         {
             lc.WriteTo.OpenTelemetry(opts =>
             {
@@ -76,7 +105,7 @@ try
                     StringComparison.OrdinalIgnoreCase)
                     ? OtlpProtocol.HttpProtobuf
                     : OtlpProtocol.Grpc;
-                opts.ResourceAttributes = new Dictionary<string, object>
+                opts.ResourceAttributes = new Dictionary<string, object>(telemetryResourceAttributes)
                 {
                     ["service.name"] = builder.Environment.ApplicationName
                 };
@@ -120,7 +149,13 @@ try
     builder.Services.AddOpenApi();
 
     IOpenTelemetryBuilder openTelemetryBuilder = builder.Services.AddOpenTelemetry()
-        .ConfigureResource(resource => resource.AddService(builder.Environment.ApplicationName))
+        .ConfigureResource(resource => resource
+            // No auto-generated service.instance.id: it is a fresh GUID per process, and the agent
+            // promotes resource attributes to Prometheus labels - so keeping it would start a new
+            // series on every restart and break rate() across a deploy. One container per service
+            // makes the id redundant anyway.
+            .AddService(builder.Environment.ApplicationName, autoGenerateServiceInstanceId: false)
+            .AddAttributes(telemetryResourceAttributes))
         .WithTracing(tracing => tracing
             .AddHttpClientInstrumentation()
             .AddAspNetCoreInstrumentation()
@@ -133,8 +168,8 @@ try
             .AddMeter("Npgsql"));
 
     // Add the OTLP exporter only when an endpoint is configured. Otherwise the SDK keeps retrying
-    // against the default localhost:4317 collector, which does not exist in the cloud.
-    if (!string.IsNullOrWhiteSpace(otlpEndpoint))
+    // against its own default localhost:4317, which exists on no box we run.
+    if (otlpExportEnabled)
     {
         openTelemetryBuilder.UseOtlpExporter();
     }

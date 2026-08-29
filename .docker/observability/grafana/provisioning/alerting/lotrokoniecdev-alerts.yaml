@@ -28,10 +28,12 @@ groups:
         annotations:
           summary: '{{ $labels.name }} restarted repeatedly on {{ $labels.environment }}'
           description: >-
-            This container's CPU counter reset more than twice in the last 15 minutes, which means
-            Docker restarted it in place more than twice — a crash-loop, not a deploy. This is the
-            failure the daily health ping cannot see: between two pings a container can die and come
-            back indefinitely with nobody watching, which is exactly the gap ADR-0050 exists to close.
+            This container's CPU counter reset more than once in the last 15 minutes, which means
+            Docker restarted it in place more than once — a crash-loop, not a deploy. On this fleet
+            containers run for weeks, so two unexplained in-place restarts inside fifteen minutes is
+            already abnormal. This is the failure the daily health ping cannot see: between two pings
+            a container can die and come back indefinitely with nobody watching, which is exactly the
+            gap ADR-0050 exists to close.
         data:
           - refId: A
             relativeTimeRange: { from: 1800, to: 0 }
@@ -49,6 +51,13 @@ groups:
               #
               # Counting resets also ignores deploys for free: recreating a container mints a new
               # container id, so a rollout starts a NEW series rather than resetting this one.
+              #
+              # The threshold is >1, not >2, because resets() UNDERCOUNTS. It can only see a restart
+              # if a scrape lands between two of them, so restarts closer together than the 30 s
+              # scrape interval coalesce. Measured on staging: three deliberate restarts 85 s apart
+              # were still counted as 2. A real crash-loop restarts faster than that, so a rule that
+              # demanded three observed resets would be the least likely to fire exactly when it
+              # matters most.
               expr: >-
                 max by (name, environment) (resets(container_cpu_usage_seconds_total{project="lotrokoniecdev", name!=""}[15m]))
           - refId: C
@@ -58,7 +67,7 @@ groups:
               type: threshold
               expression: A
               conditions:
-                - evaluator: { type: gt, params: [2] }
+                - evaluator: { type: gt, params: [1] }
                   operator: { type: and }
                   query: { params: [C] }
                   reducer: { type: last, params: [] }

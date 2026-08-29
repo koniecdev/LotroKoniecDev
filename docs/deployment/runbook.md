@@ -64,6 +64,7 @@ pull error by enabling emulation.
 |---|---|---|
 | `/opt/lotro` | LotroKoniecDev stack: `compose.hetzner.yaml`, `.docker/hetzner/Caddyfile`, `.env` (`chmod 600`, never committed — template: `.env.hetzner.example`), `deploy.sh`, `.previous/` (the last-good config snapshot) | `deploy` |
 | `/opt/tks` | TheKittySaver stack (its own epic; joins the same Caddy via parametrized vhosts) | `deploy` |
+| `/opt/obs` | The observability stack: `compose.observability.yaml`, the Alloy/Loki/Prometheus/Tempo configs, Grafana provisioning, `.env` (`chmod 600` — template: `.env.observability.example`). Its **own** compose project, deployed by hand, never by CD (ADR-0050 §2) | `deploy` |
 
 ## Services & the container contract
 
@@ -121,6 +122,12 @@ Purely optional tuning knobs with safe defaults are omitted (e.g.
 `RabbitMq:VirtualHost` = `/`, `AllowedHosts` = `*`). `OpenIddict:AccessTokenLifetimeMinutes` used to
 sit in that list at 60; it is listed in the table below instead, because it turned out to be the
 delay on every session revocation in the system rather than a tuning knob (ADR-0049, #686).
+
+The four `OTEL_*` variables the three app services take are omitted here for the same reason — all
+four default to empty and empty means "no exporter at all". They are documented where they are
+actually used, in [Observability & monitoring](#observability--monitoring). One of them is **not** a
+tuning knob and is called out there: `OTEL_DEPLOYMENT_ENVIRONMENT` is the only thing that separates
+staging from prod in Grafana, because both boxes run `ASPNETCORE_ENVIRONMENT=Production`.
 
 > ⚠️ **Live prod domain is `lotro-translator.pl`** — auth → `https://auth.lotro-translator.pl`,
 > tms → `https://tms.lotro-translator.pl`, frontend → `https://lotro-translator.pl`. The three
@@ -1176,16 +1183,77 @@ workflow stays runnable **on demand** (`workflow_dispatch` — enter the three U
   Trigger on demand: `gh workflow run health-ping.yml`.
 - **Post-deploy smoke** — every CD rollout, with automatic rollback on red.
 
-**The gap, stated plainly (ADR-0034 §Consequences).** The move off Azure **deleted the alerting
-stack**: the Azure Monitor alert rules (replica restart, 5xx spike, memory/CPU saturation, log-error
-spike), the Log Analytics workspace and Application Insights (traces, Application Map, KQL) are all
-gone with the subscription. Today there is **no metric alerting and no trace backend** — a crash-loop
-between two daily pings is invisible unless a user reports it.
+- **Grafana** — logs, metrics and traces for **both projects and both environments**, on the stack
+  described below (epic #707).
 
-`OTEL_EXPORTER_OTLP_ENDPOINT` stays wired in every app (empty ⇒ exporter off), so pointing the stack
-at a collector is a one-variable change; the `aspire-dashboard` profile remains for local traces.
-**A real telemetry sink is a later, deliberate decision** — ADR-0034 accepted the shrink on purpose
-(pre-launch, zero users, cost-driven migration); revisit when real translators depend on the site.
+### The observability stack
+
+Grafana, Loki, Prometheus, Tempo and Alloy, deployed from `compose.observability.yaml` as its **own
+compose project** in `/opt/obs` — outside CD, because CD overwrites `compose.hetzner.yaml` and
+recreates every service in it on each rollout, and monitoring must not have its lifetime tied to the
+thing it monitors (ADR-0050 §2).
+
+| | |
+|---|---|
+| Backend box | **`lotro-staging`**, on purpose. A backend co-hosted with the workload it observes dies in the same outage and takes the evidence with it; on staging, a *prod* outage leaves the dashboards up and prod's last minutes readable (ADR-0050 §1) |
+| Agent | Alloy, on every box. Tails the Docker socket, accepts OTLP, scrapes the host and containers |
+| Retention | Loki 14 d · Prometheus 15 d **and** 4 GB (whichever first, size enforced by the store) · Tempo 14 d |
+| Memory | hard `mem_limit` on every component, 1536 MiB of ceilings against ~660 MiB measured (ADR-0051) |
+| Reaching it | **no public hostname.** `ssh -L 3000:127.0.0.1:3000 lotro-staging` → `http://localhost:3000`. Password: `ssh lotro-staging 'grep GF_SECURITY_ADMIN_PASSWORD /opt/obs/.env'` |
+| Dashboards & alerts | provisioned as code: ours from `.docker/observability/`, TheKittySaver's from its own repo into `/opt/obs/grafana/dashboards/tks/` |
+
+**Nothing is published to the internet.** Grafana binds to loopback. Alloy's OTLP receiver binds the
+two docker **bridge gateways** (`10.60.0.1` ours, `10.61.0.1` the guest stack's) and never `0.0.0.0`
+— a port published on `0.0.0.0` is internet-reachable *regardless of `ufw`*, because Docker inserts
+its DNAT rules ahead of the ufw chain (`bootstrap.sh`). Loki, Prometheus and Tempo publish nothing.
+No observability container joins `default` or `tks`: the agent reads the Docker socket, containerd
+and `/proc`, so it never needs a route to an app container and does not have one (ADR-0050 §3).
+
+**Alerts (#713)** — the four ADR-0034 deleted, restored, plus a disk backstop. Three are
+project-scoped (crash-loop, 5xx rate, error-log spike; TheKittySaver ships its own mirror set) and
+five are fleet-scoped, because box saturation belongs to neither project:
+
+| Folder | Rules |
+|---|---|
+| LotroKoniecDev | crash-loop · 5xx above 5% · error-level log spike |
+| Fleet | memory > 85% · swapping · CPU > 85% · disk < 20% · disk < 10% |
+| TheKittySaver | its own four (that repo's #511) |
+
+All of them deliver to **one** contact point, `owner-email`, over the Brevo relay the apps already
+use. There is deliberately no second channel.
+
+**The daily health ping stays.** It is not superseded — it is the *off-box* backstop, and it is the
+answer to this stack's own failure mode: a dead staging box means no dashboards, no alert evaluation
+and no alert delivery, including alerts about prod. The health ping runs on GitHub, probes the prod
+origins on the deep `/health`, and is the one check that proves the database is reachable. Keep both.
+
+**Turning telemetry on for a box** is an `.env` edit and a restart, never an image rebuild:
+
+```bash
+# /opt/lotro/.env
+OTEL_EXPORTER_OTLP_ENDPOINT=http://10.60.0.1:4317
+OTEL_EXPORTER_OTLP_PROTOCOL=grpc
+OTEL_LOGS_EXPORTER=                  # keep EMPTY
+OTEL_DEPLOYMENT_ENVIRONMENT=staging  # or production
+docker compose -f compose.hetzner.yaml up -d
+```
+
+`OTEL_LOGS_EXPORTER` stays empty because **logs have exactly one path**: Alloy tailing stdout, which
+is the strictly larger set (it catches a crash before the logging pipeline is up, and it covers Caddy,
+RabbitMQ and the migrator, which speak no OTLP). Alloy drops OTLP log records outright, so a box that
+sets it by mistake still cannot produce duplicates (ADR-0051).
+
+`OTEL_DEPLOYMENT_ENVIRONMENT` is the **only** thing separating the two environments in Grafana —
+both boxes run `ASPNETCORE_ENVIRONMENT=Production`. Set it wrong and every metric and trace that box
+emits is filed under the other environment.
+
+### Not done yet
+
+- **The prod box has no agent.** Prod telemetry has to cross a box boundary to reach the backend on
+  staging, and that route — a DNS record plus a Caddy vhost gated to one source IP and basic auth
+  (ADR-0050 §4) — does not exist. Until it does, prod is watched only by the daily health ping and
+  the CD smoke.
+- **A dead staging box means no alerting at all**, for either environment. See the health ping above.
 
 ## Disaster recovery
 
@@ -1199,6 +1267,7 @@ Each box is **fully disposable** — nothing on it is the source of truth for an
 | Secrets | `/opt/lotro/.env` per box — owner's backup + every value re-mintable ([Secrets](#secrets)) | restore or re-mint |
 | TLS certs | Caddy volume; Let's Encrypt re-issues | automatic on first bring-up |
 | DP keyrings | `auth-keys` / `frontend-keys` volumes | losing them logs everyone out; nothing to restore |
+| Telemetry history | the `obs_*` volumes on **lotro-staging** only | **nothing to restore, on purpose** — telemetry is not a source of truth. A rebuilt box gets the dashboards, datasources and alert rules back from this repo; the history is gone and that is accepted (ADR-0050) |
 
 Recovery = **new VPS → `bootstrap.sh` → scp stack files → restore/re-mint the box's `.env` →
 `docker compose up -d` → re-point DNS A records → re-pin `HETZNER_SSH_KNOWN_HOSTS`**. Hetzner backups

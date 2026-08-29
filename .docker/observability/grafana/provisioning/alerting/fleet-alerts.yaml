@@ -1,0 +1,204 @@
+# Fleet alert rules (#713) — the half that belongs to neither project.
+#
+# Box saturation is not a project's property. Both stacks share the hardware, so when a box runs out
+# of memory the kernel picks a victim by its own accounting and it may well belong to the project
+# that did not cause it. These rules therefore live in their own folder, name the box rather than a
+# project, and say so in their descriptions.
+#
+# Delivery reuses the single `owner-email` contact point (#713 wanted exactly one channel).
+apiVersion: 1
+
+groups:
+  - orgId: 1
+    name: fleet
+    folder: Fleet
+    interval: 1m
+    rules:
+
+      - uid: fleet-memory-saturation
+        title: Fleet — box memory is nearly exhausted
+        condition: C
+        for: 10m
+        labels:
+          severity: page
+        annotations:
+          summary: '{{ $labels.box }} has under 15% of its memory available'
+          description: >-
+            THE BOX IS SHARED between LotroKoniecDev and TheKittySaver. The container the kernel
+            kills is not necessarily the one that caused this — check the per-project memory panel
+            before attributing it. Swap (#708) turns what used to be an instant OOM-kill into a slow
+            box, so this alert now arrives with time to act rather than after the fact.
+        data:
+          - refId: A
+            relativeTimeRange: { from: 900, to: 0 }
+            datasourceUid: prometheus
+            model:
+              refId: A
+              instant: true
+              editorMode: code
+              expr: >-
+                1 - (max by (box) (node_memory_MemAvailable_bytes) / max by (box) (node_memory_MemTotal_bytes))
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: { type: gt, params: [0.85] }
+                  operator: { type: and }
+                  query: { params: [C] }
+                  reducer: { type: last, params: [] }
+                  type: query
+        noDataState: NoData
+        execErrState: Error
+
+      - uid: fleet-swap-in-use
+        title: Fleet — the box is swapping
+        condition: C
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: '{{ $labels.box }} is using more than a quarter of its swap'
+          description: >-
+            This is the early warning the boxes could not give before #708 added swap. Before it,
+            memory pressure went straight to an OOM-kill with no intermediate state to observe;
+            sustained swap use now means the box is over-committed and something should be trimmed
+            before the memory alert fires.
+        data:
+          - refId: A
+            relativeTimeRange: { from: 1800, to: 0 }
+            datasourceUid: prometheus
+            model:
+              refId: A
+              instant: true
+              editorMode: code
+              # clamp_min guards a box with swap disabled: without it the ratio is 0/0 = NaN.
+              expr: >-
+                1 - (max by (box) (node_memory_SwapFree_bytes) / clamp_min(max by (box) (node_memory_SwapTotal_bytes), 1))
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: { type: gt, params: [0.25] }
+                  operator: { type: and }
+                  query: { params: [C] }
+                  reducer: { type: last, params: [] }
+                  type: query
+        noDataState: NoData
+        execErrState: Error
+
+      - uid: fleet-cpu-saturation
+        title: Fleet — box CPU is saturated
+        condition: C
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: '{{ $labels.box }} has been above 85% CPU for 15 minutes'
+          description: >-
+            Sustained, not a spike — a build, a backup or a compaction is expected to pin these two
+            vCPUs briefly. Shared box: the load may belong to either project.
+        data:
+          - refId: A
+            relativeTimeRange: { from: 1800, to: 0 }
+            datasourceUid: prometheus
+            model:
+              refId: A
+              instant: true
+              editorMode: code
+              expr: >-
+                1 - avg by (box) (rate(node_cpu_seconds_total{mode="idle"}[10m]))
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: { type: gt, params: [0.85] }
+                  operator: { type: and }
+                  query: { params: [C] }
+                  reducer: { type: last, params: [] }
+                  type: query
+        noDataState: NoData
+        execErrState: Error
+
+      - uid: fleet-disk-low
+        title: Fleet — box disk below 20% free
+        condition: C
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: '{{ $labels.box }} has under 20% disk free'
+          description: >-
+            ADR-0050 §8's backstop. Prometheus is hard-capped at 4 GB by the store itself, but Loki
+            has NO size-based retention — its 14-day window is bounded only by ingestion rate limits,
+            which bound the pathological case without turning retention into a byte ceiling. This
+            alert is what catches the difference between those two guarantees before the disk fills.
+        data:
+          - refId: A
+            relativeTimeRange: { from: 3600, to: 0 }
+            datasourceUid: prometheus
+            model:
+              refId: A
+              instant: true
+              editorMode: code
+              expr: >-
+                max by (box) (node_filesystem_avail_bytes{mountpoint="/"}) / max by (box) (node_filesystem_size_bytes{mountpoint="/"})
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: { type: lt, params: [0.20] }
+                  operator: { type: and }
+                  query: { params: [C] }
+                  reducer: { type: last, params: [] }
+                  type: query
+        noDataState: NoData
+        execErrState: Error
+
+      - uid: fleet-disk-critical
+        title: Fleet — box disk below 10% free
+        condition: C
+        for: 5m
+        labels:
+          severity: page
+        annotations:
+          summary: '{{ $labels.box }} has under 10% disk free'
+          description: >-
+            The second of ADR-0050 §8's two thresholds. At this point stop reading and free space:
+            a full disk takes Postgres, the container runtime and the observability stack itself with
+            it, and the stack going down is how you stop finding out about any of this.
+        data:
+          - refId: A
+            relativeTimeRange: { from: 900, to: 0 }
+            datasourceUid: prometheus
+            model:
+              refId: A
+              instant: true
+              editorMode: code
+              expr: >-
+                max by (box) (node_filesystem_avail_bytes{mountpoint="/"}) / max by (box) (node_filesystem_size_bytes{mountpoint="/"})
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: { type: lt, params: [0.10] }
+                  operator: { type: and }
+                  query: { params: [C] }
+                  reducer: { type: last, params: [] }
+                  type: query
+        noDataState: NoData
+        execErrState: Error

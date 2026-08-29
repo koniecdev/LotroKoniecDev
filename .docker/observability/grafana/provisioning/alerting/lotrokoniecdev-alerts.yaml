@@ -1,0 +1,155 @@
+# LotroKoniecDev alert rules (#713) — the project-scoped half.
+#
+# ADR-0034 §Consequences named exactly what the Azure migration deleted: "the Azure Monitor alert
+# rules (replica restart, 5xx spike, memory/CPU saturation, log-error spike)". Three of the four are
+# project-scoped and live here; box saturation is not ours alone and lives in fleet-alerts.yaml.
+#
+# Both projects run on the same boxes, so every rule here is scoped to `lotrokoniecdev` — by
+# `service_namespace` for app metrics and `project` for logs and container metrics. TheKittySaver
+# ships the mirror-image set from its own repo (koniecdev/TheKittySaver#511).
+#
+# Delivery reuses the single `owner-email` contact point. There is deliberately no second channel.
+apiVersion: 1
+
+groups:
+  - orgId: 1
+    name: lotrokoniecdev
+    folder: LotroKoniecDev
+    interval: 1m
+    rules:
+
+      - uid: lotro-crash-loop
+        title: LOTRO — container is crash-looping
+        condition: C
+        for: 5m
+        labels:
+          project: lotrokoniecdev
+          severity: page
+        annotations:
+          summary: '{{ $labels.name }} restarted repeatedly on {{ $labels.environment }}'
+          description: >-
+            This container's CPU counter reset more than twice in the last 15 minutes, which means
+            Docker restarted it in place more than twice — a crash-loop, not a deploy. This is the
+            failure the daily health ping cannot see: between two pings a container can die and come
+            back indefinitely with nobody watching, which is exactly the gap ADR-0050 exists to close.
+        data:
+          - refId: A
+            relativeTimeRange: { from: 1800, to: 0 }
+            datasourceUid: prometheus
+            model:
+              refId: A
+              instant: true
+              editorMode: code
+              # A counter RESET is the signal, not the start time. cadvisor reports
+              # container_start_time_seconds as the container's CREATION time, so it does not move
+              # when `restart: unless-stopped` brings a crashed container back in place — which is
+              # the case this rule exists for. Verified on lotro-staging: three deliberate restarts
+              # left changes(container_start_time_seconds[15m]) at 0 while
+              # resets(container_cpu_usage_seconds_total[20m]) read 3.
+              #
+              # Counting resets also ignores deploys for free: recreating a container mints a new
+              # container id, so a rollout starts a NEW series rather than resetting this one.
+              expr: >-
+                max by (name, environment) (resets(container_cpu_usage_seconds_total{project="lotrokoniecdev", name!=""}[15m]))
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: { type: gt, params: [2] }
+                  operator: { type: and }
+                  query: { params: [C] }
+                  reducer: { type: last, params: [] }
+                  type: query
+        noDataState: OK
+        execErrState: Error
+
+      - uid: lotro-5xx-rate
+        title: LOTRO — 5xx rate above 5%
+        condition: C
+        for: 5m
+        labels:
+          project: lotrokoniecdev
+          severity: page
+        annotations:
+          summary: '{{ $labels.service_name }} is returning 5xx on {{ $labels.deployment_environment }}'
+          description: >-
+            More than 5% of the requests this service served in the last 10 minutes failed with a
+            5xx. Measured from the app's own OTLP metrics, so it counts what actually reached the
+            app rather than what the shared Caddy saw. Start from the error-log panel on the
+            LotroKoniecDev dashboard and follow a line's TraceID.
+        data:
+          - refId: A
+            relativeTimeRange: { from: 900, to: 0 }
+            datasourceUid: prometheus
+            model:
+              refId: A
+              instant: true
+              editorMode: code
+              # The `or 0 *` term gives a service with traffic and NO 5xx an explicit zero. Without
+              # it the numerator is an empty vector, the division yields nothing, and the rule sits
+              # in NoData — which at a glance is indistinguishable from a rule that is broken.
+              expr: >-
+                (
+                  sum by (service_name, deployment_environment) (rate(http_server_request_duration_seconds_count{service_namespace="lotrokoniecdev", http_response_status_code=~"5.."}[10m]))
+                  or 0 * sum by (service_name, deployment_environment) (rate(http_server_request_duration_seconds_count{service_namespace="lotrokoniecdev"}[10m]))
+                )
+                / clamp_min(sum by (service_name, deployment_environment) (rate(http_server_request_duration_seconds_count{service_namespace="lotrokoniecdev"}[10m])), 0.001)
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: { type: gt, params: [0.05] }
+                  operator: { type: and }
+                  query: { params: [C] }
+                  reducer: { type: last, params: [] }
+                  type: query
+        noDataState: OK
+        execErrState: Error
+
+      - uid: lotro-error-log-spike
+        title: LOTRO — error-level log rate spike
+        condition: C
+        for: 5m
+        labels:
+          project: lotrokoniecdev
+          severity: warning
+        annotations:
+          summary: '{{ $labels.container }} is logging errors on {{ $labels.environment }}'
+          description: >-
+            More than one error- or fatal-level line per second over five minutes. This is the one
+            of the four restored rules that catches failures which never become a 5xx — a background
+            worker that cannot reach the broker, a retry loop, an outbox that will not drain.
+        data:
+          - refId: A
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: loki
+            model:
+              refId: A
+              instant: true
+              queryType: instant
+              editorMode: code
+              # Matches Serilog's CompactJsonFormatter level field. Caddy, RabbitMQ and the migrator
+              # log plain text and are deliberately not matched here: their failure modes surface as
+              # crash-loops or 5xx, and a text-level regex across them is a false-positive machine.
+              expr: >-
+                sum by (container, environment) (rate({project="lotrokoniecdev"} |~ `(?i)"@l":"(error|fatal)"` [5m]))
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: { type: gt, params: [1] }
+                  operator: { type: and }
+                  query: { params: [C] }
+                  reducer: { type: last, params: [] }
+                  type: query
+        noDataState: OK
+        execErrState: Error

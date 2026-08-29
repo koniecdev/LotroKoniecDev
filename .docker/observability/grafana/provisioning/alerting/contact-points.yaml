@@ -1,0 +1,15 @@
+# ONE delivery channel across both projects (#713, and koniecdev/TheKittySaver#511 explicitly
+# reuses it rather than building a second). E-mail over the Brevo relay the apps already send
+# through — a sender Brevo has not authenticated is dropped SILENTLY, so the from-address must stay
+# a verified one.
+apiVersion: 1
+
+contactPoints:
+  - orgId: 1
+    name: owner-email
+    receivers:
+      - uid: owner-email
+        type: email
+        settings:
+          addresses: $OBS_ALERT_EMAIL
+          singleEmail: false

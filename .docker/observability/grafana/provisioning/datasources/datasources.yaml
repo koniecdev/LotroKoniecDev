@@ -1,0 +1,54 @@
+# Datasources are provisioned, never clicked. A rebuilt box gets the whole backend back from this
+# repo — everything except the history, which is accepted (ADR-0050, DR consequences).
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    uid: prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    jsonData:
+      timeInterval: 30s
+      httpMethod: POST
+      exemplarTraceIdDestinations:
+        - name: trace_id
+          datasourceUid: tempo
+
+  - name: Loki
+    uid: loki
+    type: loki
+    access: proxy
+    url: http://loki:3100
+    jsonData:
+      maxLines: 2000
+      # Log line → trace. Both projects log through Serilog's CompactJsonFormatter, which writes
+      # the active Activity's ids as `@tr`/`@sp`, so ONE field definition covers every service on
+      # every box. `$$` escapes the `$` that Grafana would otherwise read as an env var.
+      derivedFields:
+        - name: TraceID
+          matcherType: regex
+          matcherRegex: '"@tr":"(\w+)"'
+          datasourceUid: tempo
+          url: '$${__value.raw}'
+          urlDisplayLabel: 'View trace'
+
+  - name: Tempo
+    uid: tempo
+    type: tempo
+    access: proxy
+    url: http://tempo:3200
+    jsonData:
+      # Trace → the log lines that produced it. The span's service.name is matched against the
+      # `container` label, so the jump lands in the right stream on a box that hosts two projects.
+      tracesToLogsV2:
+        datasourceUid: loki
+        spanStartTimeShift: '-2m'
+        spanEndTimeShift: '2m'
+        filterByTraceID: true
+        tags:
+          - key: 'service.name'
+            value: 'service_name'
+      nodeGraph:
+        enabled: true

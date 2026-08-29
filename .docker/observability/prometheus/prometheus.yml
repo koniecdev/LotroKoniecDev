@@ -1,0 +1,14 @@
+# Prometheus — a remote-write SINK, not a scraper.
+#
+# There are no scrape_configs on purpose. Every series arrives pushed from the box-local Alloy: the
+# host and container exporters on the backend box itself, and (once the prod agent lands) the same
+# two from the other box. A scrape_config here would mean this process opening connections into the
+# networks it observes, which ADR-0050 §3 rules out.
+#
+# Retention is set on the command line in compose.observability.yaml — 15d AND 4GB, whichever hits
+# first, with the size cap enforced by the store itself.
+global:
+  scrape_interval: 30s
+  evaluation_interval: 30s
+  external_labels:
+    backend: lotro-staging

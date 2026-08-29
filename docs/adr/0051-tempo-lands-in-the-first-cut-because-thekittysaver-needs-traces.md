@@ -28,11 +28,11 @@ prediction to be corrected by measurement rather than trusted. Measured on `lotr
 
 | Component | ADR-0050 predicted | Measured peak | Ceiling now |
 |---|---|---|---|
+| **Alloy** | ~120 MiB | **285 MiB** | **512 MiB** |
 | Grafana | ~120 MiB | **215 MiB** | 384 MiB |
-| Alloy | ~120 MiB | **253 MiB** | 384 MiB |
-| Loki | ~200 MiB | 182 MiB | 256 MiB |
 | Prometheus | ~250 MiB | 102 MiB | 256 MiB |
-| Tempo | — | 95 MiB | 256 MiB |
+| Loki | ~200 MiB | 182 MiB | 192 MiB |
+| Tempo | — | 95 MiB | 192 MiB |
 | **Total** | ~690 MiB predicted | **~660 MiB steady** | **1536 MiB** |
 
 Two of the five predictions were wrong in the dangerous direction. **Grafana** was underestimated by
@@ -44,6 +44,14 @@ cutting `storage_duration` from 5m to 2m brought it to 169 MiB.
 
 Prometheus, meanwhile, was overestimated by two and a half times. And Tempo — the component
 alternative F called the heaviest — is among the *smallest* things in the stack at this volume.
+
+**Alloy is the heaviest component here, not the lightest**, and the ADR predicted the opposite. It
+carries the cadvisor exporter across every container on the box *and* the whole OTLP pipeline for
+both projects; it went from 144 MiB to 285 MiB the moment the second project started exporting
+(#712). It therefore ends up with the largest ceiling and the most headroom, which is also the right
+place to spend it: Alloy is the one component whose death stops **all** telemetry, and stops it
+silently. Loki and Tempo give the room back — both sit near 90 MiB and neither grows with retention
+the way Prometheus does.
 
 The total ceiling is **1536 MiB**, exactly ADR-0050 §5's budget, now covering a Tempo that budget
 never included. The correction paid for the addition.

@@ -98,7 +98,12 @@ services:
       - alloy-data:/var/lib/alloy/data
     networks:
       - obs
-    mem_limit: 384m
+    # 512m, not 256m as ADR-0050 predicted: Alloy is the heaviest component here, not the
+    # lightest. It carries the cadvisor exporter across every container on the box AND the
+    # whole OTLP pipeline for both projects, and it grew from 144 MiB to 285 MiB the moment
+    # the second project started exporting. It also gets the most headroom on purpose: it is
+    # the one component whose death stops ALL telemetry, and stops it silently.
+    mem_limit: 512m
     logging:
       driver: json-file
       options:
@@ -119,7 +124,7 @@ services:
       - loki-data:/loki
     networks:
       - obs
-    mem_limit: 256m
+    mem_limit: 192m
     logging:
       driver: json-file
       options:
@@ -165,7 +170,7 @@ services:
       - tempo-data:/var/tempo
     networks:
       - obs
-    mem_limit: 256m
+    mem_limit: 192m
     logging:
       driver: json-file
       options:

@@ -1,0 +1,228 @@
+// Grafana Alloy — the only observability component that runs on EVERY box (#711, ADR-0050).
+//
+// Three jobs, and one rule that governs all of them: Alloy never joins an application network.
+// Everything below reads the Docker socket, /proc or /sys, or accepts a connection the apps open
+// themselves. Nothing here can reach `auth-api:8080` — that route is the cross-stack pivot #506
+// closed, and re-opening it for a metrics scrape would undo the whole point (ADR-0050 §3).
+//
+//   1. tail every container's stdout            → Loki
+//   2. accept OTLP from the apps (traces/metrics) → Tempo / Prometheus
+//   3. scrape the host and the containers        → Prometheus
+//
+// Both projects share every box, so the FIRST thing every signal gets is a `project` label. Without
+// it a 5xx spike in TheKittySaver reads as a spike in LotroKoniecDev and vice versa.
+
+logging {
+  level  = "warn"
+  format = "logfmt"
+}
+
+// ------------------------------------------------------------------------------------------------
+// 1. Container logs
+// ------------------------------------------------------------------------------------------------
+
+discovery.docker "containers" {
+  host             = "unix:///var/run/docker.sock"
+  refresh_interval = "15s"
+}
+
+discovery.relabel "containers" {
+  targets = discovery.docker.containers.targets
+
+  // Docker reports the name with a leading slash.
+  rule {
+    source_labels = ["__meta_docker_container_name"]
+    regex         = "/?(.*)"
+    target_label  = "container"
+  }
+
+  // The project label. `replace` only writes when the regex matches, so each rule claims its own
+  // containers and leaves the rest alone. Anything matching neither prefix (an ad-hoc container,
+  // a one-off `docker run`) is deliberately left unlabelled rather than guessed into a project.
+  rule {
+    source_labels = ["__meta_docker_container_name"]
+    regex         = "/?tks-.*"
+    target_label  = "project"
+    replacement   = "thekittysaver"
+  }
+  rule {
+    source_labels = ["__meta_docker_container_name"]
+    regex         = "/?lotro-.*"
+    target_label  = "project"
+    replacement   = "lotrokoniecdev"
+  }
+  rule {
+    source_labels = ["__meta_docker_container_name"]
+    regex         = "/?obs-.*"
+    target_label  = "project"
+    replacement   = "observability"
+  }
+
+  // Drop Alloy's own log stream: shipping it to Loki through itself makes a feedback loop that
+  // only becomes visible when something is already going wrong.
+  rule {
+    source_labels = ["__meta_docker_container_name"]
+    regex         = "/?obs-alloy"
+    action        = "drop"
+  }
+}
+
+loki.source.docker "containers" {
+  host       = "unix:///var/run/docker.sock"
+  targets    = discovery.relabel.containers.output
+  labels     = {
+    box         = sys.env("OBS_BOX"),
+    environment = sys.env("OBS_ENVIRONMENT"),
+  }
+  forward_to = [loki.write.backend.receiver]
+}
+
+// ------------------------------------------------------------------------------------------------
+// 2. OTLP from the applications
+// ------------------------------------------------------------------------------------------------
+
+otelcol.receiver.otlp "apps" {
+  // 0.0.0.0 INSIDE the container only. The host-side publish in compose.observability.yaml pins
+  // this to a docker bridge gateway, so it is reachable from the app containers and from nowhere
+  // else.
+  grpc { endpoint = "0.0.0.0:4317" }
+  http { endpoint = "0.0.0.0:4318" }
+
+  output {
+    traces  = [otelcol.processor.batch.apps.input]
+    metrics = [otelcol.processor.batch.apps.input]
+    logs    = [otelcol.processor.batch.apps.input]
+  }
+}
+
+otelcol.processor.batch "apps" {
+  output {
+    traces  = [otelcol.exporter.otlp.tempo.input]
+    metrics = [otelcol.exporter.prometheus.apps.input]
+    logs    = [otelcol.processor.filter.drop_otlp_logs.input]
+  }
+}
+
+// "Logs have exactly one path" (ADR-0050 §7) is an invariant, so it is enforced HERE rather than
+// trusted to every app's configuration. An app that turns its own OTLP log sink on — deliberately,
+// or because its build predates the separate switch — gets a clean 200 back and its records are
+// dropped, instead of every line landing in Loki twice next to the stdout copy.
+//
+// Accepting-then-dropping is the point: refusing them instead would leave the app retrying an
+// export forever and writing that failure into the logs it CAN still ship.
+otelcol.processor.filter "drop_otlp_logs" {
+  error_mode = "ignore"
+
+  logs {
+    log_record = ["true"]
+  }
+
+  output {
+    logs = [otelcol.exporter.loki.apps.input]
+  }
+}
+
+otelcol.exporter.otlp "tempo" {
+  client {
+    endpoint = sys.env("OBS_TEMPO_URL")
+    tls { insecure = true }
+  }
+}
+
+// The apps' identity travels as RESOURCE attributes (service.name, service.namespace,
+// deployment.environment). Without this they would land in a side-car `target_info` series and
+// every dashboard query would need a join to answer "which project, which environment"; with it
+// they are ordinary labels. Safe here only because the apps disable the auto-generated
+// service.instance.id — otherwise each restart would mint a fresh label value and a new series.
+otelcol.exporter.prometheus "apps" {
+  forward_to                       = [prometheus.remote_write.backend.receiver]
+  resource_to_telemetry_conversion = true
+}
+
+// Wired but normally silent: the apps ship logs over stdout, not OTLP (ADR-0050 §7). This exists
+// so that a service which turns OTEL_LOGS_EXPORTER on lands somewhere sane instead of nowhere.
+otelcol.exporter.loki "apps" {
+  forward_to = [loki.write.backend.receiver]
+}
+
+// ------------------------------------------------------------------------------------------------
+// 3. Host and container metrics
+// ------------------------------------------------------------------------------------------------
+
+prometheus.exporter.unix "host" {
+  rootfs_path = "/host/root"
+  procfs_path = "/host/proc"
+  sysfs_path  = "/host/sys"
+
+  filesystem {
+    fs_types_exclude = "^(autofs|binfmt_misc|bpf|cgroup2?|configfs|debugfs|devpts|devtmpfs|fusectl|hugetlbfs|iso9660|mqueue|nsfs|overlay|proc|procfs|pstore|rpc_pipefs|securityfs|selinuxfs|squashfs|sysfs|tracefs)$"
+  }
+}
+
+prometheus.exporter.cadvisor "containers" {
+  docker_host      = "unix:///var/run/docker.sock"
+  // Kept short deliberately: this is an in-memory ring of per-container stats across every
+  // container on the box, and it is the single biggest contributor to Alloy's RSS. Nothing
+  // reads it directly — Prometheus holds the history — so it only has to outlive one scrape.
+  storage_duration = "2m"
+}
+
+prometheus.scrape "host" {
+  targets         = prometheus.exporter.unix.host.targets
+  forward_to      = [prometheus.remote_write.backend.receiver]
+  scrape_interval = "30s"
+  job_name        = "host"
+}
+
+prometheus.scrape "containers" {
+  targets         = prometheus.exporter.cadvisor.containers.targets
+  forward_to      = [prometheus.relabel.containers.receiver]
+  scrape_interval = "30s"
+  job_name        = "containers"
+}
+
+// cadvisor labels every series with the container `name`; the same prefix split as the log path
+// turns that into a project label, so container memory and log volume can be filtered alike.
+prometheus.relabel "containers" {
+  forward_to = [prometheus.remote_write.backend.receiver]
+
+  rule {
+    source_labels = ["name"]
+    regex         = "tks-.*"
+    target_label  = "project"
+    replacement   = "thekittysaver"
+  }
+  rule {
+    source_labels = ["name"]
+    regex         = "lotro-.*"
+    target_label  = "project"
+    replacement   = "lotrokoniecdev"
+  }
+  rule {
+    source_labels = ["name"]
+    regex         = "obs-.*"
+    target_label  = "project"
+    replacement   = "observability"
+  }
+}
+
+// ------------------------------------------------------------------------------------------------
+// Ship
+// ------------------------------------------------------------------------------------------------
+
+loki.write "backend" {
+  endpoint {
+    url = sys.env("OBS_LOKI_URL")
+  }
+  external_labels = {}
+}
+
+prometheus.remote_write "backend" {
+  endpoint {
+    url = sys.env("OBS_PROMETHEUS_URL")
+  }
+  external_labels = {
+    box         = sys.env("OBS_BOX"),
+    environment = sys.env("OBS_ENVIRONMENT"),
+  }
+}

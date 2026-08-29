@@ -1,0 +1,27 @@
+# Two providers, one per project, each pointed at its own directory. TheKittySaver ships its own
+# dashboards from ITS repo into tks/ (koniecdev/TheKittySaver#511) — this file only has to make
+# sure they are picked up, so the two projects never edit the same file.
+apiVersion: 1
+
+providers:
+  - name: 'lotrokoniecdev'
+    orgId: 1
+    folder: 'LotroKoniecDev'
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 30
+    allowUiUpdates: false
+    options:
+      path: /var/lib/grafana/dashboards/lotro
+      foldersFromFilesStructure: false
+
+  - name: 'thekittysaver'
+    orgId: 1
+    folder: 'TheKittySaver'
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 30
+    allowUiUpdates: false
+    options:
+      path: /var/lib/grafana/dashboards/tks
+      foldersFromFilesStructure: false

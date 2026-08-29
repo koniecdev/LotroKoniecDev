@@ -1,0 +1,222 @@
+# Observability stack for the Hetzner fleet — the first cut of epic #707, decided by ADR-0050.
+#
+# This is deliberately NOT a service block inside compose.hetzner.yaml. That file is a CD artifact:
+# deploy.sh overwrites it and runs `up -d --remove-orphans` on every rollout, which would tie the
+# lifetime of the monitoring to the lifetime of the thing it monitors (ADR-0050 §2). This file is
+# its own compose project, lives in /opt/obs, and is deployed by hand.
+#
+# ONE file serves both roles; the env file next to it picks which (see .env.observability.example):
+#
+#   staging box  COMPOSE_PROFILES=backend   Grafana + Loki + Prometheus + Tempo + Alloy
+#   prod box     COMPOSE_PROFILES=          Alloy only, pushing to the backend on staging
+#
+# The backend runs on STAGING on purpose. A backend co-hosted with the workload it observes dies in
+# the same outage and takes the evidence with it; on staging, a prod outage — the one that matters —
+# leaves the dashboards and prod's last minutes of telemetry readable (ADR-0050 §1).
+#
+# NOTHING here is published to the internet:
+#   * Grafana binds to 127.0.0.1 on the box. Reach it with an ssh tunnel:
+#       ssh -L 3000:127.0.0.1:3000 lotro-staging   → http://localhost:3000
+#     A public vhost needs a DNS record and a Caddyfile change, and the Caddyfile ships through CD;
+#     it is deliberately left for the prod-agent step (see docs/deployment/observability.md).
+#   * Alloy's OTLP receiver binds to OBS_OTLP_BIND_ADDRESS, which is a DOCKER BRIDGE GATEWAY
+#     (10.61.0.1 = the tks network's gateway on the staging box), never 0.0.0.0. A published port
+#     on 0.0.0.0 would be reachable from the internet: Docker's iptables rules are inserted ahead
+#     of ufw, so `ufw deny` does not cover a published port (bootstrap.sh:286).
+#   * Loki, Prometheus and Tempo publish nothing at all; only Grafana and Alloy reach them, over
+#     this project's own network.
+#
+# No container here joins `default` or `tks`. Alloy reads the Docker socket and /proc — it never
+# needs a route to an application container, and it must not have one (ADR-0050 §3: the cross-stack
+# pivot #506 closed does not get reopened under a friendlier name).
+
+name: obs
+
+services:
+  # ---------------------------------------------------------------------------------------------
+  # Agent — runs on EVERY box. Three jobs: tail every container's stdout, accept OTLP from the
+  # apps, and scrape the host and the containers.
+  # ---------------------------------------------------------------------------------------------
+  alloy:
+    image: grafana/alloy:v1.19.2
+    container_name: obs-alloy
+    restart: unless-stopped
+    command:
+      - run
+      - --server.http.listen-addr=0.0.0.0:12345
+      - --storage.path=/var/lib/alloy/data
+      - /etc/alloy/config.alloy
+    environment:
+      # The two labels every signal off this box carries. `environment` is the ONLY thing that
+      # separates staging from prod in Grafana — both boxes run ASPNETCORE_ENVIRONMENT=Production.
+      OBS_BOX: ${OBS_BOX:?OBS_BOX must be set (lotro-staging | lotro-prod)}
+      OBS_ENVIRONMENT: ${OBS_ENVIRONMENT:?OBS_ENVIRONMENT must be set (staging | production)}
+      # Where the agent ships. On the backend box these resolve on this project's own network; on
+      # an agent-only box they are the backend's public ingest URLs.
+      OBS_LOKI_URL: ${OBS_LOKI_URL:-http://loki:3100/loki/api/v1/push}
+      OBS_PROMETHEUS_URL: ${OBS_PROMETHEUS_URL:-http://prometheus:9090/api/v1/write}
+      OBS_TEMPO_URL: ${OBS_TEMPO_URL:-tempo:4317}
+    ports:
+      # OTLP in, from the application containers. Bound to a bridge gateway, never 0.0.0.0.
+      - "${OBS_OTLP_BIND_ADDRESS:-127.0.0.1}:4317:4317"
+      - "${OBS_OTLP_BIND_ADDRESS:-127.0.0.1}:4318:4318"
+    volumes:
+      - ./alloy/config.alloy:/etc/alloy/config.alloy:ro
+      # Read-only socket: the log tailer and the cadvisor exporter both read container state
+      # through it. Read-only is not a real security boundary (the socket is root-equivalent by
+      # design) but it does stop this container from creating or killing one by accident.
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      # cadvisor needs containerd too, not just Docker: with the overlayfs storage driver it
+      # asks containerd for the container metadata, and without this socket it fails EVERY
+      # docker cgroup with "cannot unix dial containerd api service" — while still happily
+      # reporting the host's systemd slices, so the scrape looks alive and simply has no
+      # containers in it.
+      - /run/containerd/containerd.sock:/run/containerd/containerd.sock:ro
+      # Two exporters, two mount conventions, and they are NOT interchangeable:
+      #   * the unix (node) exporter is pointed at /host/* by its own path options;
+      #   * the embedded cadvisor has no path options — it reads /sys/fs/cgroup and
+      #     /var/lib/docker at their REAL paths. Give it only /host/sys and it discovers exactly
+      #     one cgroup (the root), which looks like "metrics are working" right up until you try
+      #     to break them down per container.
+      - /:/host/root:ro,rslave
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /sys:/sys:ro
+      - /var/lib/docker:/var/lib/docker:ro
+      - /dev/disk:/dev/disk:ro
+      - alloy-data:/var/lib/alloy/data
+    networks:
+      - obs
+    mem_limit: 384m
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ---------------------------------------------------------------------------------------------
+  # Backend — staging box only (COMPOSE_PROFILES=backend).
+  # ---------------------------------------------------------------------------------------------
+  loki:
+    image: grafana/loki:3.7.7
+    container_name: obs-loki
+    profiles: ["backend"]
+    restart: unless-stopped
+    command: ["-config.file=/etc/loki/loki.yaml"]
+    volumes:
+      - ./loki/loki.yaml:/etc/loki/loki.yaml:ro
+      - loki-data:/loki
+    networks:
+      - obs
+    mem_limit: 256m
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  prometheus:
+    image: prom/prometheus:v3.14.0
+    container_name: obs-prometheus
+    profiles: ["backend"]
+    restart: unless-stopped
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      # Two caps, whichever hits first. The SIZE cap is the one that matters: it is enforced by the
+      # store, so no upstream mistake can make Prometheus outgrow it (ADR-0050 §8).
+      - --storage.tsdb.retention.time=15d
+      - --storage.tsdb.retention.size=4GB
+      # Alloy pushes; Prometheus scrapes nothing. Scraping an app container would put this process
+      # on an application network, which is exactly what ADR-0050 §3 forbids.
+      - --web.enable-remote-write-receiver
+      - --web.listen-address=0.0.0.0:9090
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    networks:
+      - obs
+    mem_limit: 256m
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  tempo:
+    image: grafana/tempo:2.10.8
+    container_name: obs-tempo
+    profiles: ["backend"]
+    restart: unless-stopped
+    command: ["-config.file=/etc/tempo/tempo.yaml"]
+    volumes:
+      - ./tempo/tempo.yaml:/etc/tempo/tempo.yaml:ro
+      - tempo-data:/var/tempo
+    networks:
+      - obs
+    mem_limit: 256m
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  grafana:
+    image: grafana/grafana:13.0.7
+    container_name: obs-grafana
+    profiles: ["backend"]
+    restart: unless-stopped
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GF_SECURITY_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GF_SECURITY_ADMIN_PASSWORD:?GF_SECURITY_ADMIN_PASSWORD must be set}
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+      GF_NEWS_NEWS_FEED_ENABLED: "false"
+      # Alert delivery. Reuses the Brevo sender the apps already use — an unauthenticated sender is
+      # silently DROPPED by Brevo, so this must stay a verified address (runbook, Brevo gotcha).
+      GF_SMTP_ENABLED: ${GF_SMTP_ENABLED:-true}
+      GF_SMTP_HOST: ${GF_SMTP_HOST:-smtp-relay.brevo.com:587}
+      GF_SMTP_USER: ${GF_SMTP_USER:?GF_SMTP_USER must be set}
+      GF_SMTP_PASSWORD: ${GF_SMTP_PASSWORD:?GF_SMTP_PASSWORD must be set}
+      GF_SMTP_FROM_ADDRESS: ${GF_SMTP_FROM_ADDRESS:?GF_SMTP_FROM_ADDRESS must be set}
+      GF_SMTP_FROM_NAME: ${GF_SMTP_FROM_NAME:-Grafana (Hetzner fleet)}
+      GF_SMTP_STARTTLS_POLICY: "MandatoryStartTLS"
+      # Read by the provisioned contact point.
+      OBS_ALERT_EMAIL: ${OBS_ALERT_EMAIL:?OBS_ALERT_EMAIL must be set}
+    ports:
+      # LOOPBACK ONLY. Reach it over an ssh tunnel; see the header.
+      - "127.0.0.1:${OBS_GRAFANA_PORT:-3000}:3000"
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    networks:
+      - obs
+    depends_on:
+      - loki
+      - prometheus
+      - tempo
+    mem_limit: 384m
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+# This project owns its network outright. compose.hetzner.yaml is untouched by design: every edit
+# to it rides a CD rollout, and a monitoring stack must not need one.
+networks:
+  obs:
+    name: obs_obs
+    ipam:
+      config:
+        - subnet: 10.62.0.0/24
+
+volumes:
+  alloy-data:
+  loki-data:
+  prometheus-data:
+  tempo-data:
+  grafana-data:

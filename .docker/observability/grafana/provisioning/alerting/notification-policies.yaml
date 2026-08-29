@@ -1,0 +1,15 @@
+# Grouping is what keeps a shared box from turning one bad night into fifty e-mails: alerts are
+# grouped by project and environment first, so a memory event that trips three containers in one
+# stack arrives as one message naming three.
+apiVersion: 1
+
+policies:
+  - orgId: 1
+    receiver: owner-email
+    group_by:
+      - alertname
+      - project
+      - environment
+    group_wait: 30s
+    group_interval: 5m
+    repeat_interval: 6h

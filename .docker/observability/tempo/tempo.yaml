@@ -1,0 +1,41 @@
+# Tempo — single binary, local blocks, no object store.
+#
+# Pinned to the 2.x line on purpose. Tempo 3.0 replaced the single-binary ingester/compactor config
+# with a backend-scheduler + block-builder architecture (`ingester` and `compactor` are no longer
+# top-level fields and the process refuses to parse a config that has them), which is a rework this
+# fleet has no reason to take on for a trickle of spans from six containers.
+#
+# ADR-0050 §6 deferred traces out of the first cut, on the grounds that the four alert rules the
+# Azure migration deleted are all reachable without them and Tempo is the heaviest component. That
+# reasoning holds for LotroKoniecDev; it does NOT hold for TheKittySaver, whose own epic
+# (koniecdev/TheKittySaver#508) names traces in its acceptance criteria and whose apps already
+# emit them. Tempo is therefore in the first cut after all — see ADR-0051 for the reversal and the
+# memory measurement it rests on.
+server:
+  http_listen_port: 3200
+  log_level: warn
+
+distributor:
+  receivers:
+    otlp:
+      protocols:
+        grpc:
+          endpoint: 0.0.0.0:4317
+
+ingester:
+  # Small blocks: this fleet produces a trickle of spans, and a long block duration would keep the
+  # most recent traces unsearchable for as long as it lasts.
+  max_block_duration: 5m
+
+compactor:
+  compaction:
+    # 14 days, matching Loki, so a log line and its trace expire together.
+    block_retention: 336h
+
+storage:
+  trace:
+    backend: local
+    local:
+      path: /var/tempo/blocks
+    wal:
+      path: /var/tempo/wal

@@ -10,6 +10,7 @@
 !.env.example
 !.env.prod.example
 !.env.hetzner.example
+!.env.observability.example
 appsettings.Local.json
 **/secrets.json
 

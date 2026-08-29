@@ -57,9 +57,20 @@ services:
       OBS_PROMETHEUS_URL: ${OBS_PROMETHEUS_URL:-http://prometheus:9090/api/v1/write}
       OBS_TEMPO_URL: ${OBS_TEMPO_URL:-tempo:4317}
     ports:
-      # OTLP in, from the application containers. Bound to a bridge gateway, never 0.0.0.0.
-      - "${OBS_OTLP_BIND_ADDRESS:-127.0.0.1}:4317:4317"
-      - "${OBS_OTLP_BIND_ADDRESS:-127.0.0.1}:4318:4318"
+      # OTLP in, from the application containers. Bound to bridge GATEWAYS, never 0.0.0.0 and never
+      # the public IP: a port published on 0.0.0.0 is reachable from the internet regardless of ufw,
+      # because Docker inserts its DNAT rules ahead of the ufw chain.
+      #
+      # Two of them, because the two stacks sit on two segregated networks and Alloy joins neither
+      # (ADR-0050 §3 - an agent that could reach an app container is the cross-stack pivot #506
+      # closed). Each stack reaches the agent through its own gateway instead:
+      #   OBS_OTLP_BIND_LOTRO = 10.60.0.1  → our own apps
+      #   OBS_OTLP_BIND_TKS   = 10.61.0.1  → the guest TheKittySaver stack
+      # The defaults differ only so that an unset pair does not collide on one loopback port.
+      - "${OBS_OTLP_BIND_LOTRO:-127.0.0.1}:4317:4317"
+      - "${OBS_OTLP_BIND_LOTRO:-127.0.0.1}:4318:4318"
+      - "${OBS_OTLP_BIND_TKS:-127.0.0.2}:4317:4317"
+      - "${OBS_OTLP_BIND_TKS:-127.0.0.2}:4318:4318"
     volumes:
       - ./alloy/config.alloy:/etc/alloy/config.alloy:ro
       # Read-only socket: the log tailer and the cadvisor exporter both read container state

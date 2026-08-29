@@ -27,6 +27,7 @@
         <PackageReference Include="Serilog" VersionOverride="4.4.0" />
         <PackageReference Include="Serilog.AspNetCore" />
         <PackageReference Include="Serilog.Enrichers.Environment" />
+        <PackageReference Include="Serilog.Formatting.Compact" />
         <PackageReference Include="Serilog.Enrichers.Thread" />
         <PackageReference Include="Serilog.Sinks.Console" />
         <PackageReference Include="Serilog.Sinks.File" />

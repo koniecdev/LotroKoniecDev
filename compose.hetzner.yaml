@@ -126,6 +126,14 @@ services:
       AdminUser__Password: ${AUTH_ADMIN_PASSWORD:-}
       OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
       OTEL_EXPORTER_OTLP_PROTOCOL: grpc
+      # Logs have exactly ONE path to Loki: Alloy tails this container's stdout (ADR-0050 §7).
+      # Leave EMPTY. Alloy drops OTLP log records outright (ADR-0051), so this only stops the app
+      # sending what nothing will accept.
+      OTEL_LOGS_EXPORTER: ${OTEL_LOGS_EXPORTER:-}
+      # `staging` | `production`. The ONLY thing separating the two boxes in Grafana - both run
+      # ASPNETCORE_ENVIRONMENT=Production, so no dashboard can derive it, and getting it wrong
+      # files every metric and trace the box emits under the other environment.
+      OTEL_DEPLOYMENT_ENVIRONMENT: ${OTEL_DEPLOYMENT_ENVIRONMENT:-}
     volumes:
       - auth-keys:/keys
     depends_on:
@@ -152,6 +160,14 @@ services:
       Cors__AllowedOrigins__0: "https://${DOMAIN_APP}"
       OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
       OTEL_EXPORTER_OTLP_PROTOCOL: grpc
+      # Logs have exactly ONE path to Loki: Alloy tails this container's stdout (ADR-0050 §7).
+      # Leave EMPTY. Alloy drops OTLP log records outright (ADR-0051), so this only stops the app
+      # sending what nothing will accept.
+      OTEL_LOGS_EXPORTER: ${OTEL_LOGS_EXPORTER:-}
+      # `staging` | `production`. The ONLY thing separating the two boxes in Grafana - both run
+      # ASPNETCORE_ENVIRONMENT=Production, so no dashboard can derive it, and getting it wrong
+      # files every metric and trace the box emits under the other environment.
+      OTEL_DEPLOYMENT_ENVIRONMENT: ${OTEL_DEPLOYMENT_ENVIRONMENT:-}
       Bootstrap__Enabled: "false"
     depends_on:
       migrator:
@@ -175,6 +191,14 @@ services:
       DataProtection__KeyRingPath: "/keys"
       OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
       OTEL_EXPORTER_OTLP_PROTOCOL: grpc
+      # Logs have exactly ONE path to Loki: Alloy tails this container's stdout (ADR-0050 §7).
+      # Leave EMPTY. Alloy drops OTLP log records outright (ADR-0051), so this only stops the app
+      # sending what nothing will accept.
+      OTEL_LOGS_EXPORTER: ${OTEL_LOGS_EXPORTER:-}
+      # `staging` | `production`. The ONLY thing separating the two boxes in Grafana - both run
+      # ASPNETCORE_ENVIRONMENT=Production, so no dashboard can derive it, and getting it wrong
+      # files every metric and trace the box emits under the other environment.
+      OTEL_DEPLOYMENT_ENVIRONMENT: ${OTEL_DEPLOYMENT_ENVIRONMENT:-}
     volumes:
       - frontend-keys:/keys
     depends_on:

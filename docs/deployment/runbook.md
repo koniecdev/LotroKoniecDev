@@ -1182,9 +1182,8 @@ workflow stays runnable **on demand** (`workflow_dispatch` — enter the three U
   that proves the database is reachable. A failed run e-mails the last committer of that file.
   Trigger on demand: `gh workflow run health-ping.yml`.
 - **Post-deploy smoke** — every CD rollout, with automatic rollback on red.
-
-- **Grafana** — logs, metrics and traces for **both projects and both environments**, on the stack
-  described below (epic #707).
+- **Grafana** — logs, metrics and traces for **both projects** on the stack described below
+  (epic #707). **Staging only** so far: the prod box has no agent yet (#755).
 
 ### The observability stack
 

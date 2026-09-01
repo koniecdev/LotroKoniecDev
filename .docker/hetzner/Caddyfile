@@ -46,10 +46,6 @@
 	reverse_proxy tks-frontend:8080
 }
 
-{$TKS_DOMAIN_AUTH} {
-	reverse_proxy tks-auth-api:8080
-}
-
 {$TKS_DOMAIN_API} {
 	reverse_proxy tks-adoption-api:8080
 }

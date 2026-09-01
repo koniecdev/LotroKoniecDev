@@ -39,7 +39,6 @@ x-caddy-environment: &caddy-environment
   # Caddy also sits on — #506; this Caddy terminates TLS for it). Optional: a box without TKS keeps
   # the *.localhost defaults — internal cert, no ACME, requests just 502.
   TKS_DOMAIN_APP: ${TKS_DOMAIN_APP:-tks-app.localhost}
-  TKS_DOMAIN_AUTH: ${TKS_DOMAIN_AUTH:-tks-auth.localhost}
   TKS_DOMAIN_API: ${TKS_DOMAIN_API:-tks-api.localhost}
   # SEO crawler control (#531): the Caddyfile stamps this on every LOTRO vhost response as
   # X-Robots-Tag. Prod leaves it unset (`all` = explicit no-op); the staging box sets
@@ -242,7 +241,6 @@ services:
         # proxy. Moved here from the default network by #506 so the two stacks no longer share one.
         aliases:
           - ${TKS_DOMAIN_APP:-tks-app.localhost}
-          - ${TKS_DOMAIN_AUTH:-tks-auth.localhost}
           - ${TKS_DOMAIN_API:-tks-api.localhost}
     depends_on:
       auth-api:

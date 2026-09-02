@@ -5,8 +5,9 @@ Same names, same colours, same descriptions in both repos — only the `area-*` 
 release-gate label differ, because the codebases differ. A label change in one repo is ported
 to the other in the same session.
 
-Four axes. A well-formed ticket carries **one `priority-*`**, **one `type-*`**, and
-**zero or more `area-*`**.
+Five axes. A well-formed ticket carries **one `priority-*`**, **one `type-*`**, and
+**zero or more `area-*`**. A bug carries **one `severity-*`** on top of that — priority and
+severity answer different questions and are documented together below.
 
 ## `priority-*` — how urgent (the loop reads this)
 
@@ -19,6 +20,29 @@ Four axes. A well-formed ticket carries **one `priority-*`**, **one `type-*`**, 
 
 `scripts/claude/next-ticket.sh` sorts by exactly these four, then by issue number.
 An unlabelled ticket sorts last.
+
+## `severity-*` — how bad it is for the user
+
+Priority says how urgent a bug is **for us**. Severity says how much damage it does **to the user**.
+The two drift apart, and that is exactly why both exist: a typo on the landing page can be
+`priority-critical` (embarrassing in front of users) and `severity-trivial` (nobody loses anything)
+at the same time. A data-loss bug in a panel five people use is the reverse.
+
+| Label | Meaning |
+|---|---|
+| `severity-critical` | Data loss, security hole, or the app is unusable for the user |
+| `severity-major` | A main function is broken for the user, no workaround |
+| `severity-minor` | Works but wrongly; the user has a workaround — the default choice |
+| `severity-trivial` | The user loses nothing: cosmetics, typo, visual detail |
+
+Testers set `severity-*` themselves on every bug they file — it is their judgement and nobody is
+better placed to make it. `priority-*` stays a queue decision the owner can correct afterwards.
+The tester wiki (`Workflow-testera` §8) carries the same two tables in Polish.
+
+One more label lives next to these: `escaped-to-prod`, applied by the owner to any bug a **user**
+found — not QA, not CI. It is not an axis and testers never set it. It is the only signal that says
+whether this QA program is worth what it costs, so it gets applied every time or the count means
+nothing.
 
 ## `type-*` — what kind of work
 
@@ -50,6 +74,7 @@ An unlabelled ticket sorts last.
 | `loop-blocked` | `claude-loop`: needs human input |
 | `qa` | Manual QA / test scenario |
 | `qa-blocked` | Manual QA: a scenario cannot run until the owner supplies a precondition |
+| `escaped-to-prod` | Found by a user in production, not by QA and not by CI — the escape-rate signal |
 | `post-mvp` | Parked beyond the current release gate — do not work it before MVP ships |
 
 `post-mvp` is this repo's release gate. TheKittySaver, already past MVP, uses `post-v1` plus

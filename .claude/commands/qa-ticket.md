@@ -51,6 +51,11 @@ Watch specifically for the failure modes that already bit us:
 - `_(owner-assisted — SKIP unless the owner runs it with you)_` — needs the backend stopped, a
   container killed, keys rotated, a broker outage, an admin-only import. Never phrase these as
   "optional": optional invites improvisation, and improvisation is what produced #602 and #604.
+- `_(one-time — screenshot even on PASSED)_` — a step that changes or destroys state
+  (an import, a deletion, a status transition): its "before" cannot be shown again
+  tomorrow, so the wiki (§5) demands evidence even when it passes. The tag makes that visible in
+  the ticket and machine-checkable by `/qa-run check`; the wiki default applies to untagged
+  one-time steps too, so tag generously.
 - `**blocked: <what is missing>**` — the precondition does not exist yet (no sample `exported.txt`,
   no seeded NeedsReview row, no admin login handed over). Say what is missing and who provides it.
   A ticket handed over with any blocked scenario also carries the **`qa-blocked`** label, so the gap
@@ -83,11 +88,11 @@ wiki says **how** to test.
 ## 4. Ticket shape
 
 Structure: the §3 pointer line → `## Context` → `### Environment & accounts (staging — browser only)`
-→ `## Test scenarios` → `## Acceptance criteria`. Title convention `QA-FE-{nn}: Area — what is
+→ `## Test scenarios` → `## Acceptance criteria` → `## Run report`. Title convention `QA-FE-{nn}: Area — what is
 covered`, labels `qa` + `type-test` + a priority, plus `qa-blocked` if any scenario ships blocked.
 
-**Every step under `## Test scenarios` opens with its own id.** That id is what the run sheet's
-`Test ID` column copies and what every later bug title cites:
+**Every step under `## Test scenarios` opens with its own id.** That id is what every line of the
+tester's run report (wiki §5) and every later bug title cites:
 
 ```markdown
 ## Test scenarios
@@ -105,7 +110,7 @@ their source of truth — if it and this file ever disagree, the wiki wins:
 1. **Ids are unique per ticket.** Numbering never restarts inside the next scenario.
 2. **The id belongs to the step, not to its position.** Editing a ticket never renumbers it:
    a deleted step leaves a gap, a new step takes the next unused number, and a retired number is
-   never reused. Ids leave the ticket — into the sheet, into bug titles, into other tickets — so
+   never reused. Ids leave the ticket — into the run report, into bug titles, into other tickets — so
    renumbering invalidates those citations silently and retroactively. A visible gap is harmless;
    a silently reused number is not.
 3. **`### S01 — name` grouping is optional, and never enters the id.** It earns its place on a
@@ -120,6 +125,38 @@ detail; take the shape from the block above.
 Bug titles already filed against the old shape keep it — `BUG: QA-FE-24-S03-TC06 …` (#719) and
 `BUG: QA-FE-27-S01-TC02 …` (#736) stay exactly as they are. Each still resolves against the ticket
 it cites, and rewriting a citation is the precise failure rule 2 exists to prevent.
+
+**Every ticket ends with `## Run report`** — the skeleton of the one comment per execution that
+replaced the per-run sheet and the Drive folder (#767; wiki §5 owns the format and every rule
+about it). One line of instruction, then a fenced block the tester copies with the code block's
+copy button, posts as a comment when the run starts, and edits until it ends:
+
+````markdown
+## Run report
+
+Copy the block below (copy button, top-right), post it as a new comment when you start, and edit
+that comment as you go. The rules are in the wiki, §5.
+
+```markdown
+## Run — YYYY-MM-DD — @your-nick
+
+**Environment:** https://staging.lotro-translator.pl — <browser / OS>
+**Result:** 0 PASSED / 0 FAILED / 0 BLOCKED / 12 NOT RUN
+
+- TC01 NOT RUN
+- TC02 NOT RUN
+- TC03 NOT RUN — owner-assisted
+…
+
+**Conclusion:**
+```
+````
+
+One `- TCkk NOT RUN` per step, in document order, gaps kept; owner-assisted steps carry
+`— owner-assisted` from the start; the `NOT RUN` count in `Result` is the step count. Nothing
+else goes in — no status legend, no evidence rule, no column table: that is the wiki's, and §3
+applies to this block as much as to the rest of the ticket. `/qa-run <n>` builds the same block
+for a ticket that predates it, and `/qa-run <n> check` is the counterpart at the end of the run.
 
 State the concrete environment (`https://staging.lotro-translator.pl`) and exactly which account
 each leg needs. Where a scenario depends on a specific row, **name the FileId/GossipId** — do not
@@ -159,6 +196,9 @@ When the argument is an issue number, do not rewrite the ticket — audit it:
    ticket had already been run, say that its old numbers were positional, so anything filed
    against them can still be traced.
 6. Keep the tester's already-checked boxes — do not silently reset their work.
+7. **Regenerate the `## Run report` block** from the ids the ticket carries after the edit, and
+   append it if the ticket predates it. Ids never change here, so a run already posted under the
+   ticket stays valid; only the skeleton for the *next* run moves.
 
 ## 7. Hand back
 

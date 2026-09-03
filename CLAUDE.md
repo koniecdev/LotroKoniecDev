@@ -755,7 +755,7 @@ with `/qa-ticket #<n>` before handing it over.**
 - **Every test step carries a stable id (owner rule, 2026-08-27, #742).** Each checkbox under
   `## Test scenarios` opens with `TC01`, `TC02`, … The id belongs to the **step, not its position**:
   a deleted step leaves a gap, a new one takes the next unused number, and a retired number is never
-  reused — ids travel into the run sheet, bug titles and other tickets (#736 is titled after one),
+  reused — ids travel into the run report, bug titles and other tickets (#736 is titled after one),
   so renumbering invalidates those citations silently. Ids are unique per ticket and never restart
   inside the next scenario; `### S01 — name` grouping is optional and never enters the id, so the
   full id is always `QA-FE-{nn}-TC{kk}`. The wiki's `Workflow-testera.md` §13 owns this rule.
@@ -765,7 +765,7 @@ with `/qa-ticket #<n>` before handing it over.**
 - **A QA ticket closes when the run is reported, not when the bugs are fixed (owner rule, 2026-08-20).**
   A QA ticket records a *test execution*, so its done is: every scenario has a status, every non-pass
   has a same-day verdict, and every `valid` finding has its **own** ticket. Then it closes — with a
-  summary comment linking the results sheet. The retest obligation moves **onto the bug ticket**
+  run report — one comment per execution (wiki §5, #767). The retest obligation moves **onto the bug ticket**
   (an acceptance criterion naming the scenario, e.g. "re-run QA-FE-01 / `S01_PUBLIC` TC01"), because
   that is where someone will actually look. Never reopen a closed QA ticket: the product moved, so
   the next pass is a fresh, re-baselined run (`/qa-ticket #<n>`), not a resumed one. **The exception is

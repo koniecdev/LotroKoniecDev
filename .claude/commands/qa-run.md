@@ -1,6 +1,6 @@
 ---
-description: Manual-QA run report — build the run skeleton for a QA ticket, or check a posted run comment against the tester wiki's rules before the ticket is closed
-argument-hint: #<qa-issue> [template | check]
+description: Manual-QA run report — build the run skeleton for a QA ticket, write and post the run comment from a tester's dictated results, or check a posted run against the tester wiki's rules
+argument-hint: #<qa-issue> [template | report | check]
 ---
 
 Work with the **run report** of a manual-QA ticket — the one comment per execution that replaced
@@ -12,7 +12,7 @@ The tester wiki (`Workflow-testera.md` §5) owns the format and every rule about
 applies those rules; it never restates them inside a ticket and never invents new ones. If the wiki
 and this file disagree, the wiki wins — fix this file.
 
-Modes: `template` (the default) and `check`. The argument is the QA issue number.
+Modes: `template` (the default), `report` and `check`. The argument is the QA issue number.
 
 ## What a run report is
 
@@ -64,6 +64,42 @@ every ticket written before 2026-09-03.
    runs that pile up below it — but both are outward-facing edits to a ticket a real person is
    about to act on: ask first.
 
+## `report` — the tester dictates, you write and post (#769)
+
+For a tester who runs Claude Code in this repo (kyomeo, and the owner running a ticket with Claude in Chrome). The tester does the clicking; you do every
+byte of markdown. Nobody types the grammar above by hand.
+
+1. `gh auth status` — the comment will carry the identity that is logged in. Say whose name it is
+   before anything is posted; if it is not the tester's, stop.
+2. Read the ticket as `template` does: ids in order, `_(owner-assisted …)_` and `_(one-time …)_`
+   tags, checkbox state. List the run comments already there — a run by this user on this date is
+   **continued** (edited in place), never duplicated; anything else means a new comment.
+3. Take the results the way the tester gives them — Polish, shorthand, out of order, a note per
+   step, a pasted error text: `1–5 ok`, `6 padł: lista dalej pokazuje stary tytuł`,
+   `9 pomijam, owner-assisted`. Map them onto the ids. Ask **only** for what the wiki makes
+   mandatory and the tester did not give: the bug number of a `FAILED` (offer to draft the bug from
+   the wiki §8 template and file it with `gh issue create` on a yes — title `BUG: QA-…-TCkk — …`,
+   labels per the wiki), the reason of a `BLOCKED` / `NOT RUN`, the actual result of a `FAILED` and
+   of a one-time `PASSED`, browser / OS once. Do not ask about steps the tester has not reached —
+   they stay `NOT RUN` in this edit and the comment is edited again later.
+4. Build the comment in the grammar above: date, the tester's nick, `Environment`, the `Result`
+   line computed from the list, one line per id, `Conclusion` from the tester's last word. Under
+   every line that needs evidence and has none yet, put the placeholder
+   `  - _screenshot needed — drop it here_`.
+5. Show the comment, then post it on a yes: new run →
+   `gh api repos/{owner}/{repo}/issues/<n>/comments -F body=@<file>`; continued run →
+   `gh api -X PATCH repos/{owner}/{repo}/issues/comments/<id> -F body=@<file>`. Print the comment
+   URL. It is outward-facing and carries the tester's name, so the yes is not optional.
+6. Screenshots — `gh` cannot upload an image, so:
+   - with the Claude in Chrome tools available: open the comment's edit box in the browser, upload
+     each file the tester named (`file_upload` on the editor's file input), replace its placeholder
+     with the `![…](…)` line GitHub inserted, save;
+   - without them: print `TC03, TC04 still need a screenshot — edit the comment, drag the file
+     where the placeholder is`, and stop there. The placeholders are what `check` will flag.
+7. Checkboxes are the tester's: on a yes, tick every `PASSED` step in the body with
+   `gh issue edit <n> --body-file …` (touch nothing else in the body); otherwise list the ids to
+   tick. Then run `check` on what was posted and print its verdict.
+
 ## `check` — lint the newest run before anyone closes the ticket
 
 1. Read the body (ids, tags, checkbox state) and every comment
@@ -105,5 +141,6 @@ posts the comment.
 
 ## Hand back
 
-Print the skeleton or the check table with its verdict, then name the outward-facing action you
-propose (append the block, post the comment, edit the ticket) and wait for a yes.
+Print the skeleton, the drafted comment, or the check table with its verdict, then name the
+outward-facing action you propose (append the block, post or edit the comment, file the bug, tick
+the boxes) and wait for a yes.

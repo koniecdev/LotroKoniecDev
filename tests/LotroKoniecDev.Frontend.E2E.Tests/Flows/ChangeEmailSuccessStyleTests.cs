@@ -45,6 +45,7 @@ public sealed class ChangeEmailSuccessStyleTests : E2ETestBase
         // error alert may sit next to it. Waiting for the success box alone would still pass if the page
         // rendered both, which is exactly the shape the bug had.
         await Page.Locator(".status-message.status-success").WaitForAsync(LongWait);
+        (await Page.Locator(".status-message.status-success").InnerTextAsync()).ShouldContain(newEmail);
         (await Page.Locator(".error-message").CountAsync()).ShouldBe(0);
     }
 }

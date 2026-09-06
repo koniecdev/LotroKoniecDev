@@ -114,7 +114,7 @@ byte of markdown. Nobody types the grammar above by hand.
    | 1 | Every id from the ticket appears exactly once; no id the ticket does not carry; positional numbering is declared under the header when the ticket has no ids |
    | 2 | The status is one of `PASSED` / `FAILED` / `BLOCKED` / `NOT RUN`, upper-case, nothing else |
    | 3 | Every `FAILED` line names exactly one bug `#n`, has an `Actual:` sub-bullet and an evidence sub-bullet (an image, a video, or a quoted message) |
-   | 4 | That bug exists (`gh issue view`), carries `type-bug`, and its title cites `QA-FE-nn-TCkk` for this ticket and this step |
+   | 4 | That issue exists (`gh issue view`), carries `type-bug` or `type-feature`, and its title cites `QA-FE-nn-TCkk` for this ticket and this step. A step fails when it does not do what the ticket says, which includes a feature that is not there yet; the owner decides which of the two it is and the check does not overrule that call |
    | 5 | Every `BLOCKED` and every `NOT RUN` line has a reason after ` — ` |
    | 6 | Every `PASSED` on a step the ticket tags `_(one-time …)_`, and every line the tester marked `— one-time`, has an evidence sub-bullet |
    | 7 | The `Result` counts equal the list; pass rate = PASSED / (PASSED + FAILED), executed steps only; `Conclusion` is present and not empty |

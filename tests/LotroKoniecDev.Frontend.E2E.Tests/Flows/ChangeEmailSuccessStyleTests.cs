@@ -50,14 +50,14 @@ public sealed class ChangeEmailSuccessStyleTests : E2ETestBase
     [Fact]
     public async Task Confirming_the_new_address_shows_the_result_in_the_success_style()
     {
-        // Arrange: a fresh confirmed account, signed in through the FE.
+        // Arrange
         TestUser user = TestUser.CreateRandom();
         await AuthActions.RegisterAsync(Page, Fixture, user);
         await AuthActions.ConfirmEmailAsync(Page, Fixture, user);
         await AuthActions.LoginAsync(Page, Fixture, user);
         await AuthActions.AcceptCookieBannerAsync(Page);
 
-        // Act, step 1 of 2: ask for the new address on the frontend.
+        // Act
         string newEmail = TestUser.CreateRandomEmail();
         await Page.GetByTestId("nav-account").ClickAsync();
         await Page.GetByTestId("account-change-email").ClickAsync();
@@ -67,8 +67,6 @@ public sealed class ChangeEmailSuccessStyleTests : E2ETestBase
         await Page.Locator("#current-password").FillAsync(user.Password);
         await Page.GetByTestId("change-email-submit").ClickAsync();
 
-        // Act, step 2 of 2: open the link from the new mailbox and confirm there. This is the page #719
-        // was reported on.
         string confirmLink = await MailpitClient.WaitForLinkAsync(
             Fixture.MailpitBaseUrl,
             newEmail,

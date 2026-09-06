@@ -21,12 +21,18 @@ internal sealed class TestUser
 
     public string Password { get; }
 
+    /// <summary>
+    /// One address nobody has used yet, in the domain Mailpit accepts. A flow that only needs a free
+    /// address calls this instead of building a whole second user.
+    /// </summary>
+    public static string CreateRandomEmail() => $"e2e{Guid.NewGuid().ToString("N")[..10]}@example.com";
+
     public static TestUser CreateRandom()
     {
-        string suffix = Guid.NewGuid().ToString("N")[..10];
+        string email = CreateRandomEmail();
         return new TestUser(
-            username: $"e2e{suffix}",
-            email: $"e2e{suffix}@example.com",
+            username: email[..email.IndexOf('@')],
+            email: email,
             password: "E2ePassw0rd!");
     }
 }

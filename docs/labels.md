@@ -65,6 +65,25 @@ nothing.
 | `area-auth` | Authentication and identity |
 | `area-patcher` | **This repo only** — the Patcher CLI: DAT export/patch/launch |
 
+## Title convention
+
+A title carries only what the labels can't say. No cargo-cult prefix.
+
+- **No `type-*`/`area-*` echo.** Drop a leading `BUG:` / `[Bug / UX]`, or a bare area word like
+  `Patcher:` (= `area-patcher`) — the label already says it, so the tag is pure decoration.
+  Default shape is a plain sentence: capitalize the first word (unless it's a literal, e.g. a
+  filename like `patch.bat` — don't re-case those), no trailing period.
+- **Keep a prefix only when it is a real identifier used elsewhere** — this repo's milestone/epic
+  codes: `M{n}-NN:`, `TP-NN:`, `UR-NN:`, `SEC-NN:`, `PERF-NN:`, `LEGAL-NN:`, `OBS-NN:`,
+  `QA-FE-NN:`, `[Epic] <SERIES>-00:`. Those double as the release-gate tracking this repo uses
+  instead of `release-*` labels (see above) — never drop them, and never invent a new one without
+  a real cross-reference behind it.
+- A **topic lead-in that isn't a label synonym** (e.g. "Game versions: …", "Flaky test: …") is
+  fine to keep — it adds information the labels don't carry. Only the label-echoing tags go.
+- This was retrofitted onto the 3 open issues that had drifted (#544, #658, #738) on 2026-09-07,
+  mirroring the same cleanup in TheKittySaver (~35 titles there) — see that repo's `docs/labels.md`
+  for the full before/after list.
+
 ## Process and state
 
 | Label | Meaning |

@@ -122,12 +122,7 @@ otelcol.processor.filter "drop_otlp_logs" {
   }
 }
 
-otelcol.exporter.otlp "tempo" {
-  client {
-    endpoint = sys.env("OBS_TEMPO_URL")
-    tls { insecure = true }
-  }
-}
+// otelcol.exporter.otlp "tempo" is in the role's ship file — see "Ship" at the end of this file.
 
 // The apps' identity travels as RESOURCE attributes (service.name, service.namespace,
 // deployment.environment). Without this they would land in a side-car `target_info` series and
@@ -207,22 +202,10 @@ prometheus.relabel "containers" {
 }
 
 // ------------------------------------------------------------------------------------------------
-// Ship
+// Ship — NOT here. The three writers every pipeline above forwards to,
+//   loki.write "backend" · prometheus.remote_write "backend" · otelcol.exporter.otlp "tempo",
+// live in ship.alloy, which compose mounts from ship.backend.alloy or ship.agent.alloy by role
+// (#755). On the backend box they write to the containers next door; on an agent-only box they
+// cross the box boundary over TLS with a basic-auth credential (ADR-0050 §4). Alloy loads every
+// *.alloy in /etc/alloy, so the references above resolve exactly as if the blocks were in this file.
 // ------------------------------------------------------------------------------------------------
-
-loki.write "backend" {
-  endpoint {
-    url = sys.env("OBS_LOKI_URL")
-  }
-  external_labels = {}
-}
-
-prometheus.remote_write "backend" {
-  endpoint {
-    url = sys.env("OBS_PROMETHEUS_URL")
-  }
-  external_labels = {
-    box         = sys.env("OBS_BOX"),
-    environment = sys.env("OBS_ENVIRONMENT"),
-  }
-}

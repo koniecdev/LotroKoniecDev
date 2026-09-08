@@ -1255,12 +1255,16 @@ emits is filed under the other environment.
 
 The route and the role are in the repo since #755 (the sister ticket koniecdev/TheKittySaver#599
 covers the TKS half); what remains is operator work on both boxes, in this order. Every step is
-idempotent, and none of them touches a running app container.
+idempotent, none of them touches a running app container, and only step 4 interrupts anything
+(telemetry, for about a minute).
 
 1. **DNS** — registrar panel → `A obs.lotro-translator.pl → 91.98.74.228` (the **staging** box:
    that is where the backend runs), TTL 300. ACME needs it resolving before the vhost's first
    request, and `remote_ip` needs the prod box's egress to still be `167.233.159.221`
-   (`ssh lotro-prod curl -4s https://ifconfig.me`).
+   (`ssh lotro-prod curl -4s https://ifconfig.me`). **An `A` record and no `AAAA`**: the gate is an
+   IPv4 `/32`, and an `AAAA` would let the agent's resolver prefer IPv6, whose source address Caddy
+   sees as a bridge gateway — every push would then be a 404 for a reason the runbook's own
+   diagnosis below would not name. No vhost on this fleet has an `AAAA` today.
 2. **Mint the push credential.** One password, two forms, and the two never travel together:
    ```bash
    openssl rand -base64 24                                  # the password → prod /opt/obs/.env (step 5)
@@ -1280,25 +1284,38 @@ idempotent, and none of them touches a running app container.
    with `x-robots-tag: noindex, nofollow`, and `curl -sI https://obs.lotro-translator.pl/loki/api/v1/push`
    → **also 404**: from a source the vhost does not admit, the push paths do not exist.
 4. **Staging box, re-plumb `/opt/obs` onto the new network** — about a minute without telemetry;
-   the volumes, and the history in them, survive a `down` without `-v`:
+   the volumes, and the history in them, survive a `down` without `-v`. **Check the network exists
+   before taking the stack down**: it is created by step 3's rollout, and a `down` followed by an
+   `up -d` that cannot find it leaves the whole backend — and all alerting, for both environments —
+   off until someone notices.
    ```bash
    rsync -az .docker/observability/ lotro-staging:/opt/obs/ && scp compose.observability.yaml lotro-staging:/opt/obs/
-   ssh lotro-staging 'cd /opt/obs && printf "OBS_NETWORK=lotro-staging_obs\n" >> .env \
-     && docker compose down && docker compose up -d && docker network rm obs_obs && docker compose ps'
+   ssh lotro-staging 'docker network inspect lotro-staging_obs >/dev/null'   # step 3 landed? if not, STOP
+   ssh lotro-staging 'cd /opt/obs && grep -q "^OBS_NETWORK=" .env || printf "OBS_NETWORK=lotro-staging_obs\n" >> .env'
+   ssh lotro-staging 'cd /opt/obs && docker compose down && docker compose up -d && docker compose ps'
+   ssh lotro-staging 'docker network rm obs_obs'      # only once the stack is back up
    ```
-   `docker network rm obs_obs` is not optional: the old project-owned network stays behind
-   otherwise, and it is what `compose down` used to remove. The rsync also lands the new alert rule
-   (*Fleet — a box has gone silent*); `docker restart obs-grafana` if the stack was not recreated.
-5. **Prod box, `/opt/obs`** — the first time: `install -d -o deploy -g deploy /opt/obs`
-   (`bootstrap.sh` predates the directory), the same `rsync` + `scp` as above pointed at
+   Separate commands on purpose: chained with `&&`, a failure after the `down` would leave the
+   backend stopped and the rest of the line unrun. `docker network rm obs_obs` is not optional —
+   the old project-owned network stays behind otherwise, and it is what `compose down` used to
+   remove. The rsync also lands the new alert rule (*Fleet — a box has gone silent*);
+   `docker restart obs-grafana` if the stack was not recreated.
+5. **Prod box, `/opt/obs`** — the first time, **as root**:
+   `install -d -o deploy -g deploy /opt/obs` (`bootstrap.sh` predates the directory), then the same
+   `rsync` + `scp` as above **as `deploy`** (the `/opt/lotro` root-ownership gotcha applies here
+   too), pointed at
    `lotro-prod`, and a `/opt/obs/.env` in the agent-only form of `.env.observability.example`
    (`COMPOSE_PROFILES=` empty, `OBS_BOX=lotro-prod`, `OBS_ENVIRONMENT=production`,
    `OBS_NETWORK=lotro-prod_obs`, `OBS_BACKEND_HOST=obs.lotro-translator.pl`,
    `OBS_PUSH_USER=prod-agent`, `OBS_PUSH_PASSWORD=<step 2>`, both `OBS_OTLP_BIND_*` gateways),
-   `chmod 600`. The network exists once the prod rollout carrying #755 has been **approved**
-   (`deploy-prod` waits on the `production` environment): `docker network ls | grep lotro-prod_obs`.
-   Then `docker compose up -d` and `docker logs -f obs-alloy` — a wrong credential or a wrong
-   admitted IP shows up within seconds as a 401 or a 404 on every push; a right one is silent.
+   `chmod 600` — including the `GF_*` and `OBS_ALERT_EMAIL` placeholders the template carries for
+   this role (compose interpolates every service before it applies profiles, so their guards are
+   evaluated even though Grafana never starts here). The network exists once the prod rollout
+   carrying #755 has been **approved** (`deploy-prod` waits on the `production` environment):
+   `docker network ls | grep lotro-prod_obs`. Then `docker compose up -d` — never
+   `--profile` anything, the env file is the only switch — and `docker logs -f obs-alloy`: a wrong
+   credential shows up within seconds as a 401 on every push, a source address the vhost does not
+   admit as a 404; a correct pair is silent.
 6. **Prod box, the apps** — `/opt/lotro/.env`: the same `OTEL_*` lines as staging with
    `OTEL_DEPLOYMENT_ENVIRONMENT=production`, then `docker compose -f compose.hetzner.yaml up -d`.
    TheKittySaver's half is the same four-line edit in `/opt/tks/.env` (its runbook, #599).

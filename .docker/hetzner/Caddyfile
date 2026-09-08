@@ -56,8 +56,10 @@
 #   * exactly three paths exist — the Loki push, the Prometheus remote-write, and the OTLP trace
 #     gRPC method (the only one Tempo's receiver speaks, hence h2c);
 #   * each is admitted only from ONE source address (the other box's static public IP, as a /32)
-#     AND with one basic-auth credential — a request failing either gate falls through to a plain
-#     404 before it reaches any backend container.
+#     AND with one basic-auth credential. The two gates fail differently, and both are useful when
+#     reading a log: an unadmitted SOURCE never matches the route at all and gets the plain 404 the
+#     rest of the vhost serves — the push paths do not exist for it — while an admitted source with
+#     a wrong credential gets Caddy's own 401. Neither reaches a backend container.
 # Nothing else is served here: Grafana stays on loopback behind an ssh tunnel (runbook). A box
 # without the backend keeps the compose defaults — an inert `obs.localhost` site whose push routes
 # admit loopback only.

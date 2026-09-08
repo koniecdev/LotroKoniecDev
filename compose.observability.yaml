@@ -92,7 +92,8 @@ services:
       # into ship.agent.alloy. One switch, so the two cannot disagree — but only while the value is
       # EXACTLY `backend` or empty, which `preflight` below enforces, and only while the value comes
       # from the env file: `docker compose --profile backend` sets the profile without setting the
-      # variable, so this project is brought up with the env file and never that flag.
+      # variable, so this project is brought up with the env file and never that flag. `preflight`
+      # below catches both halves of that — see its comment.
       #
       # Long syntax for `create_host_path: false`. The short form would CREATE a missing source as an
       # empty directory and mount it over the config — Alloy then loads no ship file, every pipeline
@@ -216,10 +217,17 @@ services:
   # it, and alloy + grafana wait for it) and knows the role, so it can check the two things that
   # decide whether this box works at all:
   #
-  #   * COMPOSE_PROFILES is exactly `backend` or empty. Any other value — a comma list, a typo,
-  #     the CLI `--profile` flag leaving the variable unset on a backend box — silently selects the
-  #     WRONG ship file above, which is the one mistake that leaves a box looking healthy while it
-  #     ships nothing.
+  #   * The role and the box agree. Each branch asserts what the OTHER role's variables must look
+  #     like, because the value that picks the role also picks the ship file, and picking it wrong is
+  #     the one mistake that leaves a box looking healthy while it ships nothing. The live line in
+  #     the template is `COMPOSE_PROFILES=backend`; left unedited on the prod box it would start a
+  #     whole backend there, mount the wrong ship file, and — because the absence rule self-arms on
+  #     first sight of a box — leave prod unwatched with nothing anywhere saying so. Push variables
+  #     alongside `backend` are that contradiction, and they fail here.
+  #     (A value naming no file at all — a comma list, a typo — never reaches this check: the bind
+  #     mount fails first, on a missing source. The values this catches are the ones that name a
+  #     real file, and the CLI `--profile backend` case, which leaves the variable empty and so
+  #     lands in the agent branch below with nothing to push with.)
   #   * On an agent-only box the push target and credential are set. They cannot be `:?`-guarded:
   #     the backend box leaves them blank on purpose, and its ship file never reads them. Blank on
   #     an agent box builds `https:///loki/api/v1/push` and an OTLP endpoint of `:443`, which retry
@@ -239,7 +247,13 @@ services:
       - |
         case "$$OBS_COMPOSE_PROFILES" in
           backend)
-            echo "preflight: backend role (Grafana, Loki, Prometheus, Tempo + the agent)" ;;
+            echo "preflight: backend role (Grafana, Loki, Prometheus, Tempo + the agent)"
+            for v in OBS_BACKEND_HOST OBS_PUSH_USER OBS_PUSH_PASSWORD; do
+              printenv "$$v" | grep -q . && {
+                echo "preflight: $$v is set, but this box claims the BACKEND role -- a backend box pushes to the containers next door and has nothing to authenticate to. Did COMPOSE_PROFILES=backend survive a copy of the template onto an agent-only box? (.env.observability.example)" >&2
+                exit 1; }
+            done
+            true ;;
           "")
             echo "preflight: agent-only role"
             for v in OBS_BACKEND_HOST OBS_PUSH_USER OBS_PUSH_PASSWORD; do

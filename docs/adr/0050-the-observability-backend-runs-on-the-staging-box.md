@@ -134,7 +134,17 @@ which is `all` on prod.
 
 **Why this does not weaken #506.** #506 is about who may talk to whom *inside* a box, and it is
 enforced by network topology plus a `/32` trust pin. This change adds no container to a network it
-was not already alone on, moves no alias, and widens no `KnownNetworks` value. What it adds is one
+was not already alone on, moves no alias, and widens no `KnownNetworks` value.
+
+> **Amended 2026-09-08 (#755).** The first sentence of that argument is **not** true as built. Caddy
+> — the internet-facing process — joins the `obs` network, because the three ingest routes have to
+> reach Loki, Prometheus and Tempo, which publish nothing. So it now sits alongside them, Alloy and
+> Grafana, and on an agent-only box it joins that network for uniformity while there is nothing there
+> to proxy to. What survives unchanged is the part that carries the weight: no alias moved, no
+> `KnownNetworks` widened, no application container gained a route to another stack, and the
+> credential is not reachable from Caddy's side (checked: Alloy renders it as `(secret)` in its own
+> component API and it is absent from a `/-/support` bundle). The residual is real and accepted — a
+> compromised Caddy reaches the observability components directly, none of which authenticate. What it adds is one
 more public hostname on the component that is already the single public ingress and already the
 single shared trust boundary. The ingest routes are narrowed twice over — to one source address and
 to one credential — so the surface is public in name only. WireGuard would be a stronger posture and

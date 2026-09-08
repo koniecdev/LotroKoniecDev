@@ -251,7 +251,7 @@ which is why they are named volumes and not bind mounts.
 | `Email__Password` | auth-api | **Brevo** (owner pastes) | Generate a new SMTP key in Brevo. Shown **once** and never readable back — the copies in the box `.env` and in GitHub secrets are both write-only, so a lost key is re-generated, never recovered. |
 | `AUTH_ADMIN_PASSWORD` (+ `AUTH_ADMIN_USERNAME`, `AUTH_ADMIN_EMAIL`) | auth-api → `AdminUser__*` seeder | **owner-chosen** | Seeded **only when missing**, so editing `.env` never rotates a live admin — see the reseed traps. `AUTH_ADMIN_USERNAME` must match `^[a-zA-Z0-9]+$` (ADR-0022) or auth-api fails at startup. |
 | `RABBITMQ_PASSWORD` (→ auth-api `RabbitMq__Password` **and** the broker's `RABBITMQ_DEFAULT_PASS`) | rabbitmq, auth-api | **box-local** — generate: `openssl rand -base64 24` | ⚠️ Same create-if-missing shape as the admin seed: the broker applies `RABBITMQ_DEFAULT_PASS` on **first boot only** (empty data volume), so editing `.env` later rotates what auth-api presents but **not** what the broker expects. Rotate in lockstep: `docker compose -f compose.hetzner.yaml exec rabbitmq rabbitmqctl change_password rabbitmq '<new>'` → update `.env` → `docker compose -f compose.hetzner.yaml up -d auth-api`. |
-| `OBS_PUSH_PASSWORD` (prod `/opt/obs/.env`) ↔ `OBS_PUSH_PASSWORD_HASH` (staging `/opt/lotro/.env`) | the prod agent (Alloy, `ship.agent.alloy`) ↔ the staging Caddy's ingest vhost | **box-local** — generate: `openssl rand -base64 24`; hash it with `docker run --rm -it caddy:2-alpine caddy hash-password` (prompts, never on argv) | One password, two forms, and the plaintext exists on the prod box only. Rotate hash-first: new hash into staging `.env` → `deploy.sh` (reloads Caddy) → new password into prod `.env` → `docker compose up -d` in `/opt/obs`. The window in between is a few 401s in `obs-alloy`'s log and nothing lost — both writers queue and retry. **Single-quote the hash in `.env`**: unquoted, compose interpolates `$2a$14$` as variables and the hash silently becomes something else. |
+| `OBS_PUSH_PASSWORD` (prod `/opt/obs/.env`) ↔ `OBS_PUSH_PASSWORD_HASH` (staging `/opt/lotro/.env`) | the prod agent (Alloy, `ship.agent.alloy`) ↔ the staging Caddy's ingest vhost | **box-local** — generate: `openssl rand -base64 24`; hash it with `docker run --rm -it caddy:2-alpine caddy hash-password` (prompts, never on argv) | One password, two forms, and the plaintext exists on the prod box only. Rotate hash-first: new hash into staging `.env` → `deploy.sh` (reloads Caddy) → new password into prod `.env` → `docker compose up -d` in `/opt/obs`. **The window in between loses telemetry, it does not delay it** — a 401 is a permanent error for all three writers and each drops the batch — so pick a window you are willing to have a hole in, or give the vhost a second `basic_auth` account first so the two credentials overlap. **Single-quote the hash in `.env`**: bare *and* double-quoted both corrupt it, compose expands the salt after the third `$` to nothing, and `caddy validate` accepts the wreckage — prove it landed with the probe in "Bringing up the prod agent" step 3. |
 | `SMOKE_CLIENT_SECRET` *(GitHub secret, per environment — **not** a box var)* | `scripts/smoke.sh`, CD | == `OpenIddict__ApiClientSecret` of that env | `gh secret set SMOKE_CLIENT_SECRET --env <staging\|production> --body "$VALUE"` — **never `--body -`**: gh takes `-` literally and the smoke leg then 401s. |
 | GHCR pull token *(not an env var — `docker login` state in `/home/deploy/.docker/config.json`)* | `docker compose pull` | **GitHub PAT**, scope `read:packages` **only** | Re-run `scripts/hetzner/bootstrap.sh` (its login leg prompts for user + PAT on a TTY). |
 | `HETZNER_SSH_KEY` *(GitHub secret, per environment — **not** a box var)* | CD over ssh (`deploy.yml`) | generated for CD — one key per box | The `deploy` user's key, never `root`'s. Mint + install + pin the host key: [One-time setup per environment](#one-time-setup-per-environment). |
@@ -1275,7 +1275,9 @@ idempotent, none of them touches a running app container, and only step 4 interr
    DOMAIN_OBS=obs.lotro-translator.pl
    OBS_ALLOWED_PUSH_IP=167.233.159.221/32
    OBS_PUSH_USER=prod-agent
-   OBS_PUSH_PASSWORD_HASH='$2a$14$…'      # SINGLE quotes — unquoted, compose expands the $2a$14$
+   OBS_PUSH_PASSWORD_HASH='$2a$14$…'      # SINGLE quotes. Bare or "double" both corrupt it:
+                                          # compose expands the salt after the third $ to nothing,
+                                          # and caddy validate accepts the result — see the probe below
    ```
    Then a rollout to staging — any merge, or re-apply the current tag by hand:
    `sudo -u deploy env IMAGE_TAG=$(sed -n 's/^IMAGE_TAG=//p' /opt/lotro/.env) bash /opt/lotro/deploy.sh`.
@@ -1283,6 +1285,21 @@ idempotent, none of them touches a running app container, and only step 4 interr
    issues the certificate. Check from anywhere: `curl -sI https://obs.lotro-translator.pl/` → `404`
    with `x-robots-tag: noindex, nofollow`, and `curl -sI https://obs.lotro-translator.pl/loki/api/v1/push`
    → **also 404**: from a source the vhost does not admit, the push paths do not exist.
+
+   Then prove the credential actually landed, **from the prod box** (the only source the vhost
+   admits), before any agent exists there. This is the check that catches a hash mangled by the
+   wrong quoting, which nothing in the rollout catches:
+
+   ```bash
+   # -u with no password makes curl prompt for it: it never reaches argv or shell history.
+   ssh -t lotro-prod 'curl -s -o /dev/null -w "%{http_code}\n" -u prod-agent \
+     -X POST -H "Content-Type: application/json" --data-binary "{}" \
+     https://obs.lotro-translator.pl/loki/api/v1/push'
+   ```
+
+   **422** = route and credential both good (that is Loki rejecting an empty push, which means it
+   received it). **401** = the credential does not match — most likely the hash was corrupted by
+   quoting. **404** = this source address is not the one `OBS_ALLOWED_PUSH_IP` admits.
 4. **Staging box, re-plumb `/opt/obs` onto the new network** — about a minute without telemetry;
    the volumes, and the history in them, survive a `down` without `-v`. **Check the network exists
    before taking the stack down**: it is created by step 3's rollout, and a `down` followed by an
@@ -1295,8 +1312,9 @@ idempotent, none of them touches a running app container, and only step 4 interr
    ssh lotro-staging 'cd /opt/obs && docker compose down && docker compose up -d && docker compose ps'
    ssh lotro-staging 'docker network rm obs_obs'      # only once the stack is back up
    ```
-   Separate commands on purpose: chained with `&&`, a failure after the `down` would leave the
-   backend stopped and the rest of the line unrun. `docker network rm obs_obs` is not optional —
+   The network check and the `docker network rm` are separate commands on purpose: on one `&&`
+   chain, a failure anywhere after the `down` would leave the backend stopped and the rest unrun.
+   `docker network rm obs_obs` is not optional —
    the old project-owned network stays behind otherwise, and it is what `compose down` used to
    remove. The rsync also lands the new alert rule (*Fleet — a box has gone silent*);
    `docker restart obs-grafana` if the stack was not recreated.

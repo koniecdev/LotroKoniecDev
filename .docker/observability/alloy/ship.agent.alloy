@@ -7,8 +7,16 @@
 // The vhost admits a push only from this box's public IP AND with this credential; anything else
 // is a 404 before any backend container is reached. The credential lives in plaintext in this
 // box's /opt/obs/.env and as a bcrypt hash in the backend box's /opt/lotro/.env — the two never
-// travel together. Both writers below queue and retry, so a short outage of the route (a Caddy
-// reload, a certificate renewal, a credential rotation) costs nothing but a few log lines here.
+// travel together.
+//
+// What an outage of the route costs depends on how it fails, and the difference is worth knowing
+// before you plan one. A Caddy reload, a certificate renewal, a restart of the backend — connection
+// errors and 5xx — are retried, and the batch survives. A **401 or a 404 is permanent** for all
+// three writers below: each logs "dropping data" (or "non-recoverable error") and discards the
+// batch. So a credential rotation, or a change to the source address the vhost admits, is a hole in
+// the dashboards for exactly as long as the two sides disagree — not a delay. Rotate in a window you
+// are willing to lose, or give the vhost a second `basic_auth` account so the old and new
+// credentials overlap.
 //
 // Same three component names as ship.backend.alloy: config.alloy forwards to them by name.
 

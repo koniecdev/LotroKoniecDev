@@ -213,13 +213,17 @@ groups:
           summary: 'No telemetry from {{ $labels.box }} for 20 minutes'
           description: >-
             Fifteen minutes with nothing from this box, held for another five before paging — the
-            wait the bring-up procedure tells you to expect. The box's agent has stopped pushing: the agent died, the box died, or — for the box that
-            ships across the boundary (ADR-0050 §4) — the ingest route is broken. Whatever it is,
-            every panel for that box is now a flat line that LOOKS healthy, and every other rule is
-            blind to it. This is the absence alert ADR-0050 §1 promised. If it is the prod box, the
-            daily health ping is the only thing still watching it; check the box first
-            (`ssh lotro-prod uptime`), then `docker logs obs-alloy` there — a 401 or 404 on every
-            push means the credential or the source IP the vhost admits no longer matches.
+            wait the bring-up procedure tells you to expect. The box's agent has stopped pushing:
+            the agent died, the box died, or — for the box that ships across the boundary
+            (ADR-0050 §4) — the ingest route is broken. Whatever it is, every panel for that box is
+            now a flat line that LOOKS healthy, and every other rule is blind to it. This is the
+            absence alert ADR-0050 §1 promised. If it is the prod box, the daily health ping is the
+            only thing still watching it; check the box first (`ssh lotro-prod uptime`), then
+            `docker logs obs-alloy` there — a 401 on every push means the credential no longer
+            matches, a 404 means the source address the vhost admits does not. What this does NOT
+            cover: it keys on a metric, and the vhost carries metrics, logs and traces on three
+            separate routes, so a break confined to the Loki or the Tempo route leaves this rule
+            quiet. If one signal is missing and this has not fired, check all three.
         data:
           - refId: A
             relativeTimeRange: { from: 900, to: 0 }

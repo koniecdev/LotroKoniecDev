@@ -49,3 +49,43 @@
 {$TKS_DOMAIN_API} {
 	reverse_proxy tks-adoption-api:8080
 }
+
+# --- Observability ingest (ADR-0050 §4; #755 / koniecdev/TheKittySaver#599). The backend of the shared
+# Grafana stack runs in /opt/obs on the STAGING box (ADR-0050 §1), so the prod box's agent has to
+# cross a box boundary to reach it. This vhost is that route, and it is deliberately narrow:
+#   * exactly three paths exist — the Loki push, the Prometheus remote-write, and the OTLP trace
+#     gRPC method (the only one Tempo's receiver speaks, hence h2c);
+#   * each is admitted only from ONE source address (the other box's static public IP, as a /32)
+#     AND with one basic-auth credential. The two gates fail differently, and both are useful when
+#     reading a log: an unadmitted SOURCE never matches the route at all and gets the plain 404 the
+#     rest of the vhost serves — the push paths do not exist for it — while an admitted source with
+#     a wrong credential gets Caddy's own 401. Neither reaches a backend container.
+# Nothing else is served here: Grafana stays on loopback behind an ssh tunnel (runbook). A box
+# without the backend keeps the compose defaults — an inert `obs.localhost` site whose push routes
+# admit loopback only.
+{$DOMAIN_OBS} {
+	# Explicit, never `import seo_headers`: that snippet reads XROBOTS, which is `all` on prod.
+	header X-Robots-Tag "noindex, nofollow"
+
+	@push {
+		remote_ip {$OBS_ALLOWED_PUSH_IP}
+		path /loki/api/v1/push /api/v1/write /opentelemetry.proto.collector.trace.v1.TraceService/*
+	}
+	handle @push {
+		basic_auth {
+			{$OBS_PUSH_USER} {$OBS_PUSH_PASSWORD_HASH}
+		}
+		handle /loki/api/v1/push {
+			reverse_proxy loki:3100
+		}
+		handle /api/v1/write {
+			reverse_proxy prometheus:9090
+		}
+		handle /opentelemetry.proto.collector.trace.v1.TraceService/* {
+			reverse_proxy h2c://tempo:4317
+		}
+	}
+	handle {
+		respond 404
+	}
+}

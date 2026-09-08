@@ -1,0 +1,64 @@
+// The "ship" leg of the agent on a box WITHOUT the backend (COMPOSE_PROFILES= empty — prod). Every
+// write crosses the box boundary to the backend on lotro-staging, through the ingest vhost its
+// Caddy serves as obs.<domain> (ADR-0050 §4, #755). Three things differ from ship.backend.alloy and
+// they are the whole point of the file: TLS (Caddy's Let's Encrypt certificate, verified against the
+// image's CA bundle), one basic-auth credential on every request, and the public URLs.
+//
+// The vhost admits a push only from this box's public IP AND with this credential; anything else
+// is a 404 before any backend container is reached. The credential lives in plaintext in this
+// box's /opt/obs/.env and as a bcrypt hash in the backend box's /opt/lotro/.env — the two never
+// travel together.
+//
+// What an outage of the route costs depends on how it fails, and the difference is worth knowing
+// before you plan one. A Caddy reload, a certificate renewal, a restart of the backend — connection
+// errors and 5xx — are retried, and the batch survives. A **401 or a 404 is permanent** for all
+// three writers below: each logs "dropping data" (or "non-recoverable error") and discards the
+// batch. So a credential rotation, or a change to the source address the vhost admits, is a hole in
+// the dashboards for exactly as long as the two sides disagree — not a delay. Rotate in a window you
+// are willing to lose, or give the vhost a second `basic_auth` account so the old and new
+// credentials overlap.
+//
+// Same three component names as ship.backend.alloy: config.alloy forwards to them by name.
+
+loki.write "backend" {
+  endpoint {
+    url = "https://" + sys.env("OBS_BACKEND_HOST") + "/loki/api/v1/push"
+    basic_auth {
+      username = sys.env("OBS_PUSH_USER")
+      password = sys.env("OBS_PUSH_PASSWORD")
+    }
+  }
+  external_labels = {}
+}
+
+prometheus.remote_write "backend" {
+  endpoint {
+    url = "https://" + sys.env("OBS_BACKEND_HOST") + "/api/v1/write"
+    basic_auth {
+      username = sys.env("OBS_PUSH_USER")
+      password = sys.env("OBS_PUSH_PASSWORD")
+    }
+  }
+  external_labels = {
+    box         = sys.env("OBS_BOX"),
+    environment = sys.env("OBS_ENVIRONMENT"),
+  }
+}
+
+// Traces travel as gRPC over TLS on 443: Caddy matches the TraceService path and proxies the
+// stream to Tempo over h2c. The basic-auth extension refuses to attach a credential to a plaintext
+// connection, which is one more reason `tls { insecure = true }` is absent here on purpose.
+//
+// Top-level username/password, not the `client_auth` block the current docs prefer: on the pinned
+// v1.19.2 the block builds to "no credential source provided" (proven locally, #755).
+otelcol.auth.basic "backend" {
+  username = sys.env("OBS_PUSH_USER")
+  password = sys.env("OBS_PUSH_PASSWORD")
+}
+
+otelcol.exporter.otlp "tempo" {
+  client {
+    endpoint = sys.env("OBS_BACKEND_HOST") + ":443"
+    auth     = otelcol.auth.basic.backend.handler
+  }
+}

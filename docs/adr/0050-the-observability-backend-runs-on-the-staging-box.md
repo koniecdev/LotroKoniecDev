@@ -94,6 +94,14 @@ A third network `obs` (`10.62.0.0/24`, `name: ${COMPOSE_PROJECT_NAME}_obs`) is d
 attaches to it with a pinned `10.62.0.100`. This is the `tks` pattern applied a second time, not a
 new idea.
 
+> **Amended 2026-09-08 (#755).** Built as written — the network is declared in
+> `compose.hetzner.yaml` as `${COMPOSE_PROJECT_NAME}_obs` and the observability project joins it as
+> `external` — but **unpinned**: nothing on it trusts an address, so the `10.62.0.0/24` subnet and
+> Caddy's `10.62.0.100` were dropped. The first cut (#710) had the project own an `obs_obs` network
+> instead; the prod route made that untenable, because Caddy has to reach the backend containers, and
+> a CD artifact cannot join a hand-deployed project's network without an ordering hazard on every
+> fresh box.
+
 ### 3. Caddy stays the only component on more than one network
 
 No observability container joins `default` or `tks`. In particular:
@@ -132,8 +140,27 @@ single shared trust boundary. The ingest routes are narrowed twice over — to o
 to one credential — so the surface is public in name only. WireGuard would be a stronger posture and
 was rejected on cost (§B below); an ssh tunnel was rejected as fragile.
 
+> **Amended 2026-09-08 (#755).** The claim that this change *adds no container to a network it was
+> not already alone on* is **not** true as built. Caddy — the internet-facing process — joins the
+> `obs` network, because the three ingest routes have to reach Loki, Prometheus and Tempo, which
+> publish nothing. So it now sits alongside them, Alloy and Grafana, and on an agent-only box it
+> joins that network for uniformity while there is nothing there to proxy to. What survives is the
+> part that carries the weight: no alias moved, no `KnownNetworks` widened, no application container
+> gained a route to another stack, and the credential is not reachable from Caddy's side (checked:
+> Alloy renders it as `(secret)` in its own component API and it is absent from a `/-/support`
+> bundle). The residual is real and accepted — a compromised Caddy reaches the observability
+> components directly, none of which authenticate.
+
 The backend box's own agent does not use this path. It writes to `loki:3100` on the `obs` network,
 which never leaves the box.
+
+> **Amended 2026-09-08 (#755).** Three ingest paths, not two: ADR-0051 put Tempo in the first cut, so
+> the vhost also proxies the OTLP trace gRPC method
+> (`/opentelemetry.proto.collector.trace.v1.TraceService/*`, h2c to Tempo). And **Grafana is not
+> behind the vhost**: a request from an address the vhost does not admit gets a plain 404 (the push
+> paths do not exist for it), a wrong credential from the admitted address gets Caddy's own 401, and
+> Grafana stays on loopback behind the ssh tunnel (runbook). Exposing it would be a separate decision with its own
+> attack surface, and nothing in the epic needs it.
 
 ### 5. Memory budget: 1.5 GiB of ceilings on the backend box, 256 MiB on the other
 
@@ -300,15 +327,23 @@ express a backend on one box only.
 
 ## Implementation Notes
 
-- `compose.hetzner.yaml` — declare the `obs` network (`10.62.0.0/24`,
-  `name: ${COMPOSE_PROJECT_NAME}_obs`) next to `tks`; attach Caddy with `ipv4_address: 10.62.0.100`
-  and the `${DOMAIN_OBS}` alias. No app service changes.
-- `.docker/hetzner/Caddyfile` — the `{$DOMAIN_OBS}` vhost with the two route groups of §4, the
-  explicit `noindex, nofollow` header, and a `log` directive on the LOTRO and TKS vhosts so the 5xx
-  alert has a source.
-- `.env.hetzner.example` — `DOMAIN_OBS`, `OBS_ALLOWED_PUSH_IP`, `OBS_PUSH_BASIC_AUTH_HASH`,
-  `GF_SECURITY_ADMIN_PASSWORD`, with the prod/staging split documented the way the file already does
-  for `DOMAIN_*` and `XROBOTS`.
+> **Amended 2026-09-08 (#755).** The first three bullets are corrected to what shipped — read them,
+> not the originals struck through in the git history: an operator who set the planned
+> `OBS_PUSH_BASIC_AUTH_HASH` would leave the compose default hash in force and every prod push would
+> answer 401 with nothing in any log to say why.
+
+- `compose.hetzner.yaml` — declare the `obs` network (`name: ${COMPOSE_PROJECT_NAME}_obs`, **no
+  subnet**) next to `tks`; attach Caddy to it with **no pinned address and no alias** — nothing on
+  that network trusts an address, and on an agent-only box there is no backend behind it, so Caddy
+  joins it there for uniformity alone. No app service changes.
+- `.docker/hetzner/Caddyfile` — the `{$DOMAIN_OBS}` vhost with the **three** route groups of §4
+  (Tempo landed in the first cut after all — ADR-0051), the explicit `noindex, nofollow` header, and
+  a 404 for everything else. The `log` directive on the LOTRO and TKS vhosts is **not** part of this
+  change: the 5xx alerts are served by the apps' own OTLP metrics instead.
+- `.env.hetzner.example` — `DOMAIN_OBS`, `OBS_ALLOWED_PUSH_IP`, `OBS_PUSH_USER` and
+  `OBS_PUSH_PASSWORD_HASH` (that name, not `OBS_PUSH_BASIC_AUTH_HASH`), with the backend/agent split
+  documented the way the file already does for `DOMAIN_*` and `XROBOTS`. `GF_SECURITY_ADMIN_PASSWORD`
+  is **not** here — it belongs to the observability project's own `.env`.
 - `compose.observability.yaml` (new) — the backend services plus the agent, `mem_limit` on each per
   §5, joining `${COMPOSE_PROJECT_NAME}_obs` as `external`. Deployed to `/opt/obs`, owned by `deploy`
   (the `/opt/lotro` root-ownership gotcha applies here too).

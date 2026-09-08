@@ -53,7 +53,7 @@ staging.
 | Registry | `deploy` is `docker login`-ed to **ghcr.io** with a **read-only** (`read:packages`) PAT |
 | DB | none on the box — **Neon** is the database for prod AND staging (ADR-0034 §2) |
 | Ingress | **Caddy**, one vhost per app, automatic Let's Encrypt certificates |
-| Networks | **Two segregated Docker networks per box** (#506): `${project}_default` (`10.60.0.0/24`, our stack) and `${project}_tks` (`10.61.0.0/24`, the guest TheKittySaver stack). **Caddy is the only container on both** (static IPs `10.60.0.100` / `10.61.0.100`); nothing else crosses. The apps trust `X-Forwarded-*` from Caddy's `10.60.0.100/32` only — keep that /32 in lockstep with Caddy's `ipv4_address`. |
+| Networks | **Two segregated Docker networks per box** (#506): `${project}_default` (`10.60.0.0/24`, our stack) and `${project}_tks` (`10.61.0.0/24`, the guest TheKittySaver stack). **Caddy is the only container on both** (static IPs `10.60.0.100` / `10.61.0.100`); nothing else crosses. The apps trust `X-Forwarded-*` from Caddy's `10.60.0.100/32` only — keep that /32 in lockstep with Caddy's `ipv4_address`. A third, `${project}_obs`, carries the hand-deployed observability project (ADR-0050 §2): Caddy is on it too, unpinned, only so the ingest vhost can reach the backend containers (#755). |
 
 Images are `linux/amd64` only (no multi-arch buildx) — the box is amd64 on purpose; never "fix" a
 pull error by enabling emulation.
@@ -217,8 +217,10 @@ for the full strategy):
 These decide **which environment a box is** — full list with placeholders in `.env.hetzner.example`:
 `COMPOSE_PROJECT_NAME` (`lotro-prod` | `lotro-staging`), `IMAGE_NAMESPACE`, `IMAGE_TAG`,
 `DOMAIN_APP` / `DOMAIN_AUTH` / `DOMAIN_TMS`, `ACME_EMAIL`, `TKS_DOMAIN_*` (the guest TheKittySaver
-vhosts), `XROBOTS` (SEO crawler control, #531 — Caddy stamps it as `X-Robots-Tag` on every LOTRO
-vhost response; prod leaves it unset → `all` (explicit no-op), the **staging box sets
+vhosts), `DOMAIN_OBS` / `OBS_ALLOWED_PUSH_IP` / `OBS_PUSH_USER` (the observability ingest vhost —
+**backend box only**, the other box keeps the inert compose defaults; #755), `XROBOTS` (SEO
+crawler control, #531 — Caddy stamps it as `X-Robots-Tag` on every LOTRO vhost response; prod
+leaves it unset → `all` (explicit no-op), the **staging box sets
 `XROBOTS="noindex, nofollow"`** so the deliberately-public staging trio never gets indexed as
 duplicate content of prod. The TKS vhosts are excluded on purpose — TKS stamps the header
 app-side, koniecdev/TheKittySaver#390).
@@ -249,6 +251,7 @@ which is why they are named volumes and not bind mounts.
 | `Email__Password` | auth-api | **Brevo** (owner pastes) | Generate a new SMTP key in Brevo. Shown **once** and never readable back — the copies in the box `.env` and in GitHub secrets are both write-only, so a lost key is re-generated, never recovered. |
 | `AUTH_ADMIN_PASSWORD` (+ `AUTH_ADMIN_USERNAME`, `AUTH_ADMIN_EMAIL`) | auth-api → `AdminUser__*` seeder | **owner-chosen** | Seeded **only when missing**, so editing `.env` never rotates a live admin — see the reseed traps. `AUTH_ADMIN_USERNAME` must match `^[a-zA-Z0-9]+$` (ADR-0022) or auth-api fails at startup. |
 | `RABBITMQ_PASSWORD` (→ auth-api `RabbitMq__Password` **and** the broker's `RABBITMQ_DEFAULT_PASS`) | rabbitmq, auth-api | **box-local** — generate: `openssl rand -base64 24` | ⚠️ Same create-if-missing shape as the admin seed: the broker applies `RABBITMQ_DEFAULT_PASS` on **first boot only** (empty data volume), so editing `.env` later rotates what auth-api presents but **not** what the broker expects. Rotate in lockstep: `docker compose -f compose.hetzner.yaml exec rabbitmq rabbitmqctl change_password rabbitmq '<new>'` → update `.env` → `docker compose -f compose.hetzner.yaml up -d auth-api`. |
+| `OBS_PUSH_PASSWORD` (prod `/opt/obs/.env`) ↔ `OBS_PUSH_PASSWORD_HASH` (staging `/opt/lotro/.env`) | the prod agent (Alloy, `ship.agent.alloy`) ↔ the staging Caddy's ingest vhost | **box-local** — generate: `openssl rand -base64 24`; hash it with `docker run --rm -it caddy:2-alpine caddy hash-password` (prompts, never on argv) | One password, two forms, and the plaintext exists on the prod box only. Rotate hash-first: new hash into staging `.env` → `deploy.sh` (reloads Caddy) → new password into prod `.env` → `docker compose up -d` in `/opt/obs`. **The window in between loses telemetry, it does not delay it** — a 401 is a permanent error for all three writers and each drops the batch — so pick a window you are willing to have a hole in, or give the vhost a second `basic_auth` account first so the two credentials overlap. **Single-quote the hash in `.env`**: bare *and* double-quoted both corrupt it, compose expands the salt after the third `$` to nothing, and `caddy validate` accepts the wreckage — prove it landed with the probe in "Bringing up the prod agent" step 3. |
 | `SMOKE_CLIENT_SECRET` *(GitHub secret, per environment — **not** a box var)* | `scripts/smoke.sh`, CD | == `OpenIddict__ApiClientSecret` of that env | `gh secret set SMOKE_CLIENT_SECRET --env <staging\|production> --body "$VALUE"` — **never `--body -`**: gh takes `-` literally and the smoke leg then 401s. |
 | GHCR pull token *(not an env var — `docker login` state in `/home/deploy/.docker/config.json`)* | `docker compose pull` | **GitHub PAT**, scope `read:packages` **only** | Re-run `scripts/hetzner/bootstrap.sh` (its login leg prompts for user + PAT on a TTY). |
 | `HETZNER_SSH_KEY` *(GitHub secret, per environment — **not** a box var)* | CD over ssh (`deploy.yml`) | generated for CD — one key per box | The `deploy` user's key, never `root`'s. Mint + install + pin the host key: [One-time setup per environment](#one-time-setup-per-environment). |
@@ -1183,7 +1186,8 @@ workflow stays runnable **on demand** (`workflow_dispatch` — enter the three U
   Trigger on demand: `gh workflow run health-ping.yml`.
 - **Post-deploy smoke** — every CD rollout, with automatic rollback on red.
 - **Grafana** — logs, metrics and traces for **both projects** on the stack described below
-  (epic #707). **Staging only** so far: the prod box has no agent yet (#755).
+  (epic #707), from both boxes once the prod agent has been brought up (#755, the procedure is
+  below) — until then staging only.
 
 ### The observability stack
 
@@ -1199,9 +1203,10 @@ thing it monitors (ADR-0050 §2).
 | Retention | Loki 14 d · Prometheus 15 d **and** 4 GB (whichever first, size enforced by the store) · Tempo 14 d |
 | Memory | hard `mem_limit` on every component, 1536 MiB of ceilings against ~660 MiB measured (ADR-0051) |
 | Reaching it | **no public hostname.** `ssh -L 3000:127.0.0.1:3000 lotro-staging` → `http://localhost:3000`. Password: `ssh lotro-staging 'grep GF_SECURITY_ADMIN_PASSWORD /opt/obs/.env'` |
+| The other box | pushes over **`obs.lotro-translator.pl`** — a Caddy vhost on the backend box with exactly three ingest paths (the Loki push, the Prometheus remote-write, the OTLP trace gRPC method), each admitted only from the prod box's public `/32` **and** with one basic-auth credential; everything else answers 404, and Grafana is deliberately not behind it (ADR-0050 §4, #755). Agent side: `alloy/ship.agent.alloy` (TLS + the credential) versus `alloy/ship.backend.alloy` (the containers next door), picked by `COMPOSE_PROFILES` |
 | Dashboards & alerts | provisioned as code: ours from `.docker/observability/`, TheKittySaver's from its own repo into `/opt/obs/grafana/dashboards/tks/` |
 
-**Nothing is published to the internet.** Grafana binds to loopback. Alloy's OTLP receiver binds the
+**Nothing is published to the internet by the observability project itself.** Grafana binds to loopback. Alloy's OTLP receiver binds the
 two docker **bridge gateways** (`10.60.0.1` ours, `10.61.0.1` the guest stack's) and never `0.0.0.0`
 — a port published on `0.0.0.0` is internet-reachable *regardless of `ufw`*, because Docker inserts
 its DNAT rules ahead of the ufw chain (`bootstrap.sh`). Loki, Prometheus and Tempo publish nothing.
@@ -1246,12 +1251,105 @@ sets it by mistake still cannot produce duplicates (ADR-0051).
 both boxes run `ASPNETCORE_ENVIRONMENT=Production`. Set it wrong and every metric and trace that box
 emits is filed under the other environment.
 
+### Bringing up the prod agent (the agent-only role)
+
+The route and the role are in the repo since #755 (the sister ticket koniecdev/TheKittySaver#599
+covers the TKS half); what remains is operator work on both boxes, in this order. Every step is
+idempotent, none of them touches a running app container, and only step 4 interrupts anything
+(telemetry, for about a minute).
+
+1. **DNS** — registrar panel → `A obs.lotro-translator.pl → 91.98.74.228` (the **staging** box:
+   that is where the backend runs), TTL 300. ACME needs it resolving before the vhost's first
+   request, and `remote_ip` needs the prod box's egress to still be `167.233.159.221`
+   (`ssh lotro-prod curl -4s https://ifconfig.me`). **An `A` record and no `AAAA`**: the gate is an
+   IPv4 `/32`, and an `AAAA` would let the agent's resolver prefer IPv6, whose source address Caddy
+   sees as a bridge gateway — every push would then be a 404 for a reason the runbook's own
+   diagnosis below would not name. No vhost on this fleet has an `AAAA` today.
+2. **Mint the push credential.** One password, two forms, and the two never travel together:
+   ```bash
+   openssl rand -base64 24                                  # the password → prod /opt/obs/.env (step 5)
+   docker run --rm -it caddy:2-alpine caddy hash-password   # prompts for it; the hash → staging /opt/lotro/.env
+   ```
+3. **Staging box, `/opt/lotro/.env`** (as `deploy`; the block is in `.env.hetzner.example`):
+   ```
+   DOMAIN_OBS=obs.lotro-translator.pl
+   OBS_ALLOWED_PUSH_IP=167.233.159.221/32
+   OBS_PUSH_USER=prod-agent
+   OBS_PUSH_PASSWORD_HASH='$2a$14$…'      # SINGLE quotes. Bare or "double" both corrupt it:
+                                          # compose expands the salt after the third $ to nothing,
+                                          # and caddy validate accepts the result — see the probe below
+   ```
+   Then a rollout to staging — any merge, or re-apply the current tag by hand:
+   `sudo -u deploy env IMAGE_TAG=$(sed -n 's/^IMAGE_TAG=//p' /opt/lotro/.env) bash /opt/lotro/deploy.sh`.
+   It creates `lotro-staging_obs`, attaches Caddy, validates and reloads the Caddyfile, and ACME
+   issues the certificate. Check from anywhere: `curl -sI https://obs.lotro-translator.pl/` → `404`
+   with `x-robots-tag: noindex, nofollow`, and `curl -sI https://obs.lotro-translator.pl/loki/api/v1/push`
+   → **also 404**: from a source the vhost does not admit, the push paths do not exist.
+
+   Then prove the credential actually landed, **from the prod box** (the only source the vhost
+   admits), before any agent exists there. This is the check that catches a hash mangled by the
+   wrong quoting, which nothing in the rollout catches:
+
+   ```bash
+   # -u with no password makes curl prompt for it: it never reaches argv or shell history.
+   ssh -t lotro-prod 'curl -s -o /dev/null -w "%{http_code}\n" -u prod-agent \
+     -X POST -H "Content-Type: application/json" --data-binary "{}" \
+     https://obs.lotro-translator.pl/loki/api/v1/push'
+   ```
+
+   **422** = route and credential both good (that is Loki rejecting an empty push, which means it
+   received it). **401** = the credential does not match — most likely the hash was corrupted by
+   quoting. **404** = this source address is not the one `OBS_ALLOWED_PUSH_IP` admits.
+4. **Staging box, re-plumb `/opt/obs` onto the new network** — about a minute without telemetry;
+   the volumes, and the history in them, survive a `down` without `-v`. **Check the network exists
+   before taking the stack down**: it is created by step 3's rollout, and a `down` followed by an
+   `up -d` that cannot find it leaves the whole backend — and all alerting, for both environments —
+   off until someone notices.
+   ```bash
+   rsync -az .docker/observability/ lotro-staging:/opt/obs/ && scp compose.observability.yaml lotro-staging:/opt/obs/
+   ssh lotro-staging 'docker network inspect lotro-staging_obs >/dev/null'   # step 3 landed? if not, STOP
+   ssh lotro-staging 'cd /opt/obs && grep -q "^OBS_NETWORK=" .env || printf "OBS_NETWORK=lotro-staging_obs\n" >> .env'
+   ssh lotro-staging 'cd /opt/obs && docker compose down && docker compose up -d && docker compose ps'
+   ssh lotro-staging 'docker network rm obs_obs'      # only once the stack is back up
+   ```
+   The network check and the `docker network rm` are separate commands on purpose: on one `&&`
+   chain, a failure anywhere after the `down` would leave the backend stopped and the rest unrun.
+   `docker network rm obs_obs` is not optional —
+   the old project-owned network stays behind otherwise, and it is what `compose down` used to
+   remove. The rsync also lands the new alert rule (*Fleet — a box has gone silent*);
+   `docker restart obs-grafana` if the stack was not recreated.
+5. **Prod box, `/opt/obs`** — the first time, **as root**:
+   `install -d -o deploy -g deploy /opt/obs` (`bootstrap.sh` predates the directory), then the same
+   `rsync` + `scp` as above **as `deploy`** (the `/opt/lotro` root-ownership gotcha applies here
+   too), pointed at
+   `lotro-prod`, and a `/opt/obs/.env` in the agent-only form of `.env.observability.example`
+   (`COMPOSE_PROFILES=` empty, `OBS_BOX=lotro-prod`, `OBS_ENVIRONMENT=production`,
+   `OBS_NETWORK=lotro-prod_obs`, `OBS_BACKEND_HOST=obs.lotro-translator.pl`,
+   `OBS_PUSH_USER=prod-agent`, `OBS_PUSH_PASSWORD=<step 2>`, both `OBS_OTLP_BIND_*` gateways),
+   `chmod 600` — including the `GF_*` and `OBS_ALERT_EMAIL` placeholders the template carries for
+   this role (compose interpolates every service before it applies profiles, so their guards are
+   evaluated even though Grafana never starts here). The network exists once the prod rollout
+   carrying #755 has been **approved** (`deploy-prod` waits on the `production` environment):
+   `docker network ls | grep lotro-prod_obs`. Then `docker compose up -d` — never
+   `--profile` anything, the env file is the only switch — and `docker logs -f obs-alloy`: a wrong
+   credential shows up within seconds as a 401 on every push, a source address the vhost does not
+   admit as a 404; a correct pair is silent.
+6. **Prod box, the apps** — `/opt/lotro/.env`: the same `OTEL_*` lines as staging with
+   `OTEL_DEPLOYMENT_ENVIRONMENT=production`, then `docker compose -f compose.hetzner.yaml up -d`.
+   TheKittySaver's half is the same four-line edit in `/opt/tks/.env` (its runbook, #599).
+7. **Prove it in Grafana** (tunnel): Explore → Loki `{box="lotro-prod"}` lists every prod
+   container; the LotroKoniecDev dashboard's environment picker offers `production` with data behind
+   it; a trace from a prod request opens from its log line. Then **prove the absence rule**:
+   `ssh lotro-prod docker stop obs-alloy`, wait ~20 minutes for *Fleet — a box has gone silent*
+   to fire and the e-mail to arrive, `docker start obs-alloy`, and watch it resolve.
+8. Delete the first bullet under "Not done yet", and close #755 with that evidence.
+
 ### Not done yet
 
-- **The prod box has no agent.** Prod telemetry has to cross a box boundary to reach the backend on
-  staging, and that route — a DNS record plus a Caddy vhost gated to one source IP and basic auth
-  (ADR-0050 §4) — does not exist. Until it does, prod is watched only by the daily health ping and
-  the CD smoke.
+- **The prod agent has not been brought up yet.** The route, the agent role and the absence rule
+  are in the repo (#755); the procedure above is what remains. Until it has run, prod is watched
+  only by the daily health ping and the CD smoke, and *Fleet — a box has gone silent* stays
+  unarmed for `lotro-prod` by design — it arms itself on the first data it sees.
 - **A dead staging box means no alerting at all**, for either environment. See the health ping above.
 
 ## Disaster recovery

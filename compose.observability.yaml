@@ -8,27 +8,36 @@
 # ONE file serves both roles; the env file next to it picks which (see .env.observability.example):
 #
 #   staging box  COMPOSE_PROFILES=backend   Grafana + Loki + Prometheus + Tempo + Alloy
-#   prod box     COMPOSE_PROFILES=          Alloy only, pushing to the backend on staging
+#   prod box     COMPOSE_PROFILES=          Alloy only, pushing to the backend on staging through
+#                                           the obs.<domain> ingest vhost (ADR-0050 §4, #755)
+#
+# The same switch picks the agent's "ship" file: alloy/ship.backend.alloy writes to the backend
+# containers next door in plain HTTP/gRPC, alloy/ship.agent.alloy crosses the box boundary over TLS
+# with one basic-auth credential. Everything else about the agent is identical on both boxes.
 #
 # The backend runs on STAGING on purpose. A backend co-hosted with the workload it observes dies in
 # the same outage and takes the evidence with it; on staging, a prod outage — the one that matters —
 # leaves the dashboards and prod's last minutes of telemetry readable (ADR-0050 §1).
 #
-# NOTHING here is published to the internet:
+# NOTHING here is published to the internet by THIS file:
 #   * Grafana binds to 127.0.0.1 on the box. Reach it with an ssh tunnel:
 #       ssh -L 3000:127.0.0.1:3000 lotro-staging   → http://localhost:3000
-#     A public vhost needs a DNS record and a Caddyfile change, and the Caddyfile ships through CD;
-#     it is deliberately left for the prod-agent step (see docs/deployment/observability.md).
+#     The only public entry point is the ingest vhost the LotroKoniecDev Caddy serves on the backend
+#     box — three push paths, one source /32, one credential, everything else a 404 (ADR-0050 §4).
+#     Grafana is deliberately not behind it (runbook → "Observability & monitoring").
 #   * Alloy's OTLP receiver binds to OBS_OTLP_BIND_ADDRESS, which is a DOCKER BRIDGE GATEWAY
 #     (10.61.0.1 = the tks network's gateway on the staging box), never 0.0.0.0. A published port
 #     on 0.0.0.0 would be reachable from the internet: Docker's iptables rules are inserted ahead
 #     of ufw, so `ufw deny` does not cover a published port (bootstrap.sh:286).
-#   * Loki, Prometheus and Tempo publish nothing at all; only Grafana and Alloy reach them, over
-#     this project's own network.
+#   * Loki, Prometheus and Tempo publish nothing at all; Grafana, Alloy and — for the other box's
+#     pushes — Caddy reach them over the `obs` network.
 #
 # No container here joins `default` or `tks`. Alloy reads the Docker socket and /proc — it never
 # needs a route to an application container, and it must not have one (ADR-0050 §3: the cross-stack
-# pivot #506 closed does not get reopened under a friendlier name).
+# pivot #506 closed does not get reopened under a friendlier name). The `obs` network itself belongs
+# to the LotroKoniecDev stack (`${COMPOSE_PROJECT_NAME}_obs`, joined here as external) so that Caddy
+# can sit on it — the same shape as `tks`, and the reason that stack must have deployed at least
+# once since #755 before this project can start.
 
 name: obs
 
@@ -45,17 +54,22 @@ services:
       - run
       - --server.http.listen-addr=0.0.0.0:12345
       - --storage.path=/var/lib/alloy/data
-      - /etc/alloy/config.alloy
+      # A directory, not a file: Alloy loads every *.alloy in it — config.alloy (the same on every
+      # box) plus the role's ship file, mounted as ship.alloy below. It relies on those two being the
+      # ONLY *.alloy files there: the image ships /etc/alloy/config.alloy, which the mount replaces,
+      # and a third file (a future image, a scratch file mounted next to these) would load as well
+      # and collide on the component names.
+      - /etc/alloy
     environment:
       # The two labels every signal off this box carries. `environment` is the ONLY thing that
       # separates staging from prod in Grafana — both boxes run ASPNETCORE_ENVIRONMENT=Production.
       OBS_BOX: ${OBS_BOX:?OBS_BOX must be set (lotro-staging | lotro-prod)}
       OBS_ENVIRONMENT: ${OBS_ENVIRONMENT:?OBS_ENVIRONMENT must be set (staging | production)}
-      # Where the agent ships. On the backend box these resolve on this project's own network; on
-      # an agent-only box they are the backend's public ingest URLs.
-      OBS_LOKI_URL: ${OBS_LOKI_URL:-http://loki:3100/loki/api/v1/push}
-      OBS_PROMETHEUS_URL: ${OBS_PROMETHEUS_URL:-http://prometheus:9090/api/v1/write}
-      OBS_TEMPO_URL: ${OBS_TEMPO_URL:-tempo:4317}
+      # Agent-only boxes: the backend's public hostname and the credential its Caddy checks
+      # (ship.agent.alloy). Blank on the backend box, whose ship file never reads them.
+      OBS_BACKEND_HOST: ${OBS_BACKEND_HOST:-}
+      OBS_PUSH_USER: ${OBS_PUSH_USER:-}
+      OBS_PUSH_PASSWORD: ${OBS_PUSH_PASSWORD:-}
     ports:
       # OTLP in, from the application containers. Bound to bridge GATEWAYS, never 0.0.0.0 and never
       # the public IP: a port published on 0.0.0.0 is reachable from the internet regardless of ufw,
@@ -73,6 +87,23 @@ services:
       - "${OBS_OTLP_BIND_TKS:-127.0.0.2}:4318:4318"
     volumes:
       - ./alloy/config.alloy:/etc/alloy/config.alloy:ro
+      # The role's ship file, picked by the SAME switch that picks the role: COMPOSE_PROFILES is
+      # `backend` on the backend box and empty on an agent-only box, and `:-agent` turns that empty
+      # into ship.agent.alloy. One switch, so the two cannot disagree — but only while the value is
+      # EXACTLY `backend` or empty, which `preflight` below enforces, and only while the value comes
+      # from the env file: `docker compose --profile backend` sets the profile without setting the
+      # variable, so this project is brought up with the env file and never that flag. `preflight`
+      # below catches both halves of that — see its comment.
+      #
+      # Long syntax for `create_host_path: false`. The short form would CREATE a missing source as an
+      # empty directory and mount it over the config — Alloy then loads no ship file, every pipeline
+      # forwards to a component that does not exist, and a stray directory is left in /opt/obs/alloy.
+      - type: bind
+        source: ./alloy/ship.${COMPOSE_PROFILES:-agent}.alloy
+        target: /etc/alloy/ship.alloy
+        read_only: true
+        bind:
+          create_host_path: false
       # Read-only socket: the log tailer and the cadvisor exporter both read container state
       # through it. Read-only is not a real security boundary (the socket is root-equivalent by
       # design) but it does stop this container from creating or killing one by accident.
@@ -98,6 +129,9 @@ services:
       - alloy-data:/var/lib/alloy/data
     networks:
       - obs
+    depends_on:
+      preflight:
+        condition: service_completed_successfully
     # 512m, not 256m as ADR-0050 predicted: Alloy is the heaviest component here, not the
     # lightest. It carries the cadvisor exporter across every container on the box AND the
     # whole OTLP pipeline for both projects, and it grew from 144 MiB to 285 MiB the moment
@@ -177,6 +211,60 @@ services:
         max-size: "10m"
         max-file: "3"
 
+  # What `${VAR:?}` cannot express. Interpolation guards a variable, one at a time, with no idea
+  # which role the box is in — and it runs for EVERY service before profiles are applied, so a
+  # backend-only guard also breaks the agent-only role. This one-shot has no profile (both roles run
+  # it, and alloy + grafana wait for it) and knows the role, so it can check the two things that
+  # decide whether this box works at all:
+  #
+  #   * The role and the box agree. Each branch asserts what the OTHER role's variables must look
+  #     like, because the value that picks the role also picks the ship file, and picking it wrong is
+  #     the one mistake that leaves a box looking healthy while it ships nothing. The live line in
+  #     the template is `COMPOSE_PROFILES=backend`; left unedited on the prod box it would start a
+  #     whole backend there, mount the wrong ship file, and — because the absence rule self-arms on
+  #     first sight of a box — leave prod unwatched with nothing anywhere saying so. Push variables
+  #     alongside `backend` are that contradiction, and they fail here.
+  #     (A value naming no file at all — a comma list, a typo — never reaches this check: the bind
+  #     mount fails first, on a missing source. The values this catches are the ones that name a
+  #     real file, and the CLI `--profile backend` case, which leaves the variable empty and so
+  #     lands in the agent branch below with nothing to push with.)
+  #   * On an agent-only box the push target and credential are set. They cannot be `:?`-guarded:
+  #     the backend box leaves them blank on purpose, and its ship file never reads them. Blank on
+  #     an agent box builds `https:///loki/api/v1/push` and an OTLP endpoint of `:443`, which retry
+  #     against nothing at warn level while the self-arming absence rule — never having seen this
+  #     box — stays quiet. A misconfigured agent would be indistinguishable from an absent one.
+  preflight:
+    image: alpine:3.22
+    network_mode: none
+    environment:
+      OBS_COMPOSE_PROFILES: ${COMPOSE_PROFILES:-}
+      OBS_BACKEND_HOST: ${OBS_BACKEND_HOST:-}
+      OBS_PUSH_USER: ${OBS_PUSH_USER:-}
+      OBS_PUSH_PASSWORD: ${OBS_PUSH_PASSWORD:-}
+    command:
+      - sh
+      - -ec
+      - |
+        case "$$OBS_COMPOSE_PROFILES" in
+          backend)
+            echo "preflight: backend role (Grafana, Loki, Prometheus, Tempo + the agent)"
+            for v in OBS_BACKEND_HOST OBS_PUSH_USER OBS_PUSH_PASSWORD; do
+              printenv "$$v" | grep -q . && {
+                echo "preflight: $$v is set, but this box claims the BACKEND role -- a backend box pushes to the containers next door and has nothing to authenticate to. Did COMPOSE_PROFILES=backend survive a copy of the template onto an agent-only box? (.env.observability.example)" >&2
+                exit 1; }
+            done
+            true ;;
+          "")
+            echo "preflight: agent-only role"
+            for v in OBS_BACKEND_HOST OBS_PUSH_USER OBS_PUSH_PASSWORD; do
+              printenv "$$v" | grep -q . || {
+                echo "preflight: $$v must be set in /opt/obs/.env on an agent-only box" >&2; exit 1; }
+            done ;;
+          *)
+            echo "preflight: COMPOSE_PROFILES must be exactly 'backend' or empty, not '$$OBS_COMPOSE_PROFILES' -- it picks the ship file" >&2
+            exit 1 ;;
+        esac
+
   grafana:
     image: grafana/grafana:13.0.7
     container_name: obs-grafana
@@ -184,7 +272,11 @@ services:
     restart: unless-stopped
     environment:
       GF_SECURITY_ADMIN_USER: ${GF_SECURITY_ADMIN_USER:-admin}
-      GF_SECURITY_ADMIN_PASSWORD: ${GF_SECURITY_ADMIN_PASSWORD:?GF_SECURITY_ADMIN_PASSWORD must be set}
+      # `:?` and not the preflight: this one has to fire on EVERY invocation that renders this
+      # service, `docker compose up -d --no-deps grafana` included — empty is not an error to
+      # Grafana, it is a silent fall back to the built-in admin/admin. An agent-only box carries a
+      # placeholder for it (.env.observability.example) because interpolation runs before profiles.
+      GF_SECURITY_ADMIN_PASSWORD: ${GF_SECURITY_ADMIN_PASSWORD:?GF_SECURITY_ADMIN_PASSWORD must be set; on an agent-only box set it to any placeholder — see .env.observability.example}
       GF_AUTH_ANONYMOUS_ENABLED: "false"
       GF_USERS_ALLOW_SIGN_UP: "false"
       GF_ANALYTICS_REPORTING_ENABLED: "false"
@@ -194,13 +286,14 @@ services:
       # silently DROPPED by Brevo, so this must stay a verified address (runbook, Brevo gotcha).
       GF_SMTP_ENABLED: ${GF_SMTP_ENABLED:-true}
       GF_SMTP_HOST: ${GF_SMTP_HOST:-smtp-relay.brevo.com:587}
-      GF_SMTP_USER: ${GF_SMTP_USER:?GF_SMTP_USER must be set}
-      GF_SMTP_PASSWORD: ${GF_SMTP_PASSWORD:?GF_SMTP_PASSWORD must be set}
-      GF_SMTP_FROM_ADDRESS: ${GF_SMTP_FROM_ADDRESS:?GF_SMTP_FROM_ADDRESS must be set}
+      GF_SMTP_USER: ${GF_SMTP_USER:?GF_SMTP_USER must be set; placeholder on an agent-only box}
+      GF_SMTP_PASSWORD: ${GF_SMTP_PASSWORD:?GF_SMTP_PASSWORD must be set; placeholder on an agent-only box}
+      GF_SMTP_FROM_ADDRESS: ${GF_SMTP_FROM_ADDRESS:?GF_SMTP_FROM_ADDRESS must be set; placeholder on an agent-only box}
       GF_SMTP_FROM_NAME: ${GF_SMTP_FROM_NAME:-Grafana (Hetzner fleet)}
       GF_SMTP_STARTTLS_POLICY: "MandatoryStartTLS"
-      # Read by the provisioned contact point.
-      OBS_ALERT_EMAIL: ${OBS_ALERT_EMAIL:?OBS_ALERT_EMAIL must be set}
+      # Read by the provisioned contact point — empty renders a contact point with no address, and
+      # every alert is then delivered nowhere, in silence.
+      OBS_ALERT_EMAIL: ${OBS_ALERT_EMAIL:?OBS_ALERT_EMAIL must be set; placeholder on an agent-only box}
     ports:
       # LOOPBACK ONLY. Reach it over an ssh tunnel; see the header.
       - "127.0.0.1:${OBS_GRAFANA_PORT:-3000}:3000"
@@ -211,9 +304,14 @@ services:
     networks:
       - obs
     depends_on:
-      - loki
-      - prometheus
-      - tempo
+      preflight:
+        condition: service_completed_successfully
+      loki:
+        condition: service_started
+      prometheus:
+        condition: service_started
+      tempo:
+        condition: service_started
     mem_limit: 384m
     logging:
       driver: json-file
@@ -221,14 +319,16 @@ services:
         max-size: "10m"
         max-file: "3"
 
-# This project owns its network outright. compose.hetzner.yaml is untouched by design: every edit
-# to it rides a CD rollout, and a monitoring stack must not need one.
+# The network belongs to the LotroKoniecDev stack (compose.hetzner.yaml declares it as
+# `${COMPOSE_PROJECT_NAME}_obs`, next to `tks`) and this project joins it — the reverse of the first
+# cut, which owned `obs_obs` outright. Caddy has to sit on this network to proxy the other box's
+# pushes to loki/prometheus/tempo (ADR-0050 §4), and a CD artifact cannot join a hand-deployed
+# project's network without an ordering hazard on every fresh box, while a hand-deployed project
+# joining the CD stack's network has none: that stack always exists first (ADR-0050 §2, #755).
 networks:
   obs:
-    name: obs_obs
-    ipam:
-      config:
-        - subnet: 10.62.0.0/24
+    external: true
+    name: ${OBS_NETWORK:?OBS_NETWORK must be set (lotro-staging_obs | lotro-prod_obs)}
 
 volumes:
   alloy-data:

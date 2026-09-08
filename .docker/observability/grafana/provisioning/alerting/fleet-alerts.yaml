@@ -202,3 +202,62 @@ groups:
                   type: query
         noDataState: NoData
         execErrState: Error
+
+      - uid: fleet-box-telemetry-absent
+        title: Fleet — a box has gone silent
+        condition: C
+        for: 5m
+        labels:
+          severity: page
+        annotations:
+          summary: 'No telemetry from {{ $labels.box }} for 20 minutes'
+          description: >-
+            Fifteen minutes with nothing from this box, held for another five before paging — the
+            wait the bring-up procedure tells you to expect. The box's agent has stopped pushing:
+            the agent died, the box died, or — for the box that ships across the boundary
+            (ADR-0050 §4) — the ingest route is broken. Whatever it is, every panel for that box is
+            now a flat line that LOOKS healthy, and every other rule is blind to it. This is the
+            absence alert ADR-0050 §1 promised. If it is the prod box, the daily health ping is the
+            only thing still watching it; check the box first (`ssh lotro-prod uptime`), then
+            `docker logs obs-alloy` there — a 401 on every push means the credential no longer
+            matches, a 404 means the source address the vhost admits does not. What this does NOT
+            cover: it keys on a metric, and the vhost carries metrics, logs and traces on three
+            separate routes, so a break confined to the Loki or the Tempo route leaves this rule
+            quiet. If one signal is missing and this has not fired, check all three.
+        data:
+          - refId: A
+            relativeTimeRange: { from: 900, to: 0 }
+            datasourceUid: prometheus
+            model:
+              refId: A
+              instant: true
+              editorMode: code
+              # Self-arming: a box that has NEVER reported is not alerted on, a box that reported
+              # within the last 7 days and went quiet is. This is what lets the rule ship before the
+              # prod agent exists without firing permanently and training its reader to ignore it —
+              # the reason it was left out of #713. Two consequences of the 7-day arm, both accepted:
+              # a box silent for longer than that stops alerting (by then 28 repeat mails have gone
+              # out, at repeat_interval 6h), and a DECOMMISSIONED box pages for a week — silence the
+              # rule for it, or take the box out of the expression, when that day comes.
+              expr: >-
+                (
+                  absent_over_time(node_uname_info{box="lotro-prod"}[15m])
+                  and on() count(count_over_time(node_uname_info{box="lotro-prod"}[7d])) > 0
+                ) or (
+                  absent_over_time(node_uname_info{box="lotro-staging"}[15m])
+                  and on() count(count_over_time(node_uname_info{box="lotro-staging"}[7d])) > 0
+                )
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: { type: gt, params: [0] }
+                  operator: { type: and }
+                  query: { params: [C] }
+                  reducer: { type: last, params: [] }
+                  type: query
+        noDataState: OK
+        execErrState: Error

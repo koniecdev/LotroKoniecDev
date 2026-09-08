@@ -1,0 +1,31 @@
+// The "ship" leg of the agent on the BACKEND box (COMPOSE_PROFILES=backend). Every write goes to
+// a container of this same project, in plain HTTP / gRPC and with no credential: the `obs` network
+// is the boundary (ADR-0050 §3), and nothing written here ever leaves the box.
+//
+// config.alloy is identical on every box and forwards to the three components below BY NAME;
+// compose mounts this file or ship.agent.alloy as /etc/alloy/ship.alloy depending on the role.
+// Keep the three names identical in both files — they are the contract.
+
+loki.write "backend" {
+  endpoint {
+    url = "http://loki:3100/loki/api/v1/push"
+  }
+  external_labels = {}
+}
+
+prometheus.remote_write "backend" {
+  endpoint {
+    url = "http://prometheus:9090/api/v1/write"
+  }
+  external_labels = {
+    box         = sys.env("OBS_BOX"),
+    environment = sys.env("OBS_ENVIRONMENT"),
+  }
+}
+
+otelcol.exporter.otlp "tempo" {
+  client {
+    endpoint = "tempo:4317"
+    tls { insecure = true }
+  }
+}

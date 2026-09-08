@@ -202,3 +202,55 @@ groups:
                   type: query
         noDataState: NoData
         execErrState: Error
+
+      - uid: fleet-box-telemetry-absent
+        title: Fleet — a box has gone silent
+        condition: C
+        for: 5m
+        labels:
+          severity: page
+        annotations:
+          summary: 'No telemetry from {{ $labels.box }} for 15 minutes'
+          description: >-
+            The box's agent has stopped pushing: the agent died, the box died, or — for the box that
+            ships across the boundary (ADR-0050 §4) — the ingest route is broken. Whatever it is,
+            every panel for that box is now a flat line that LOOKS healthy, and every other rule is
+            blind to it. This is the absence alert ADR-0050 §1 promised. If it is the prod box, the
+            daily health ping is the only thing still watching it; check the box first
+            (`ssh lotro-prod uptime`), then `docker logs obs-alloy` there — a 401 or 404 on every
+            push means the credential or the source IP the vhost admits no longer matches.
+        data:
+          - refId: A
+            relativeTimeRange: { from: 900, to: 0 }
+            datasourceUid: prometheus
+            model:
+              refId: A
+              instant: true
+              editorMode: code
+              # Self-arming: a box that has NEVER reported is not alerted on, a box that reported
+              # within the last 7 days and went quiet is. This is what lets the rule ship before the
+              # prod agent exists without firing permanently and training its reader to ignore it —
+              # the reason it was left out of #713. The price is that a box silent for more than
+              # 7 days stops alerting; by then 28 repeat mails have gone out.
+              expr: >-
+                (
+                  absent_over_time(node_uname_info{box="lotro-prod"}[15m])
+                  and on() count(count_over_time(node_uname_info{box="lotro-prod"}[7d])) > 0
+                ) or (
+                  absent_over_time(node_uname_info{box="lotro-staging"}[15m])
+                  and on() count(count_over_time(node_uname_info{box="lotro-staging"}[7d])) > 0
+                )
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: { type: gt, params: [0] }
+                  operator: { type: and }
+                  query: { params: [C] }
+                  reducer: { type: last, params: [] }
+                  type: query
+        noDataState: OK
+        execErrState: Error

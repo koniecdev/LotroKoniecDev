@@ -92,6 +92,14 @@ on that either way, and the box runs Ubuntu's `docker-compose-v2` at an unpinned
 A third network `obs` (`10.62.0.0/24`, `name: ${COMPOSE_PROJECT_NAME}_obs`) is declared in
 `compose.hetzner.yaml` next to `tks`, and the observability project joins it as `external`. Caddy
 attaches to it with a pinned `10.62.0.100`. This is the `tks` pattern applied a second time, not a
+
+> **Amended 2026-09-08 (#755).** Built as written — the network is declared in
+> `compose.hetzner.yaml` as `${COMPOSE_PROJECT_NAME}_obs` and the observability project joins it as
+> `external` — but **unpinned**: nothing on it trusts an address, so the `10.62.0.0/24` subnet and
+> Caddy's `10.62.0.100` were dropped. The first cut (#710) had the project own an `obs_obs` network
+> instead; the prod route made that untenable, because Caddy has to reach the backend containers, and
+> a CD artifact cannot join a hand-deployed project's network without an ordering hazard on every
+> fresh box.
 new idea.
 
 ### 3. Caddy stays the only component on more than one network
@@ -133,6 +141,13 @@ to one credential — so the surface is public in name only. WireGuard would be 
 was rejected on cost (§B below); an ssh tunnel was rejected as fragile.
 
 The backend box's own agent does not use this path. It writes to `loki:3100` on the `obs` network,
+
+> **Amended 2026-09-08 (#755).** Three ingest paths, not two: ADR-0051 put Tempo in the first cut, so
+> the vhost also proxies the OTLP trace gRPC method
+> (`/opentelemetry.proto.collector.trace.v1.TraceService/*`, h2c to Tempo). And **Grafana is not
+> behind the vhost**: everything that is not an admitted push answers 404, and Grafana stays on
+> loopback behind the ssh tunnel (runbook). Exposing it would be a separate decision with its own
+> attack surface, and nothing in the epic needs it.
 which never leaves the box.
 
 ### 5. Memory budget: 1.5 GiB of ceilings on the backend box, 256 MiB on the other

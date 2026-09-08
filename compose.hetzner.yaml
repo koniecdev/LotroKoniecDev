@@ -272,9 +272,9 @@ services:
   # service definition, including the static IPs the `caddy` service pins (#506) — which the RUNNING
   # Caddy already holds. The first deploy would pass (no Caddy up yet) and every deploy after it would
   # die with "failed to set up container networking: Address already in use" (reproduced on Docker
-  # 29.6.1; both boxes report 29.1.3 today, checked 2026-09-08 — the behaviour is not version-bound,
-  # but the parenthesis used to claim that version WAS what they run, and it never was). Hence: same image, same Caddyfile, same environment (the anchor
-  # keeps it honest) — but NO network at all, and a profile so `up` never starts it.
+  # 29.6.1; the boxes run 29.1.3 as of 2026-09-08, and the collision is not version-bound). Hence:
+  # same image, same Caddyfile, same environment (the anchor keeps it honest) — but NO network at
+  # all, and a profile so `up` never starts it.
   caddy-validate:
     image: caddy:2-alpine
     profiles: ["validate"]

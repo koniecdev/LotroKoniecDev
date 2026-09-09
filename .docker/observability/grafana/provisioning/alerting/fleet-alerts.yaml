@@ -53,6 +53,56 @@ groups:
         noDataState: NoData
         execErrState: Error
 
+      - uid: fleet-container-near-memory-limit
+        title: Fleet — a container is close to its memory limit
+        condition: C
+        for: 3m
+        labels:
+          severity: page
+        annotations:
+          summary: '{{ $labels.name }} on {{ $labels.box }} is above 85% of its own memory limit'
+          description: >-
+            A cgroup OOM-kill is invisible to every other rule here. The box keeps its free memory,
+            so the saturation rule stays quiet; the container restarts in place, so the crash-loop
+            rule sees no new start time; and Docker's restart policy brings it back within seconds,
+            so nothing is down long enough to notice. That is exactly how Tempo died unobserved on
+            2026-09-09 (#782) with 1.5 GiB free on the box.
+            THE OOM COUNTERS DO NOT WORK HERE. Both `container_oom_events_total` and
+            `container_memory_failcnt` stayed at 0 across that kill — the counter belongs to the
+            cgroup, and the restart makes a new one. The ratio below peaked at 0.9995 in the same
+            window and is the only signal that saw it, which is why this rule watches the approach
+            rather than the event.
+            Containers with no `mem_limit` report a limit of 0 and are excluded by the `> 0` guard.
+            They are not covered by this rule and cannot be — for those the box-level saturation
+            rule is the only net.
+        data:
+          - refId: A
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: prometheus
+            model:
+              refId: A
+              instant: true
+              editorMode: code
+              expr: >-
+                max by (box, name) (
+                  container_memory_working_set_bytes{name!=""}
+                  / (container_spec_memory_limit_bytes{name!=""} > 0)
+                )
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: { type: gt, params: [0.85] }
+                  operator: { type: and }
+                  query: { params: [C] }
+                  reducer: { type: last, params: [] }
+                  type: query
+        noDataState: NoData
+        execErrState: Error
+
       - uid: fleet-swap-in-use
         title: Fleet — the box is swapping
         condition: C

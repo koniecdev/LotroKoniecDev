@@ -14,7 +14,7 @@
     <!-- Security override: bunit 2.7.2 transitively pulls AngleSharp 1.4.0, which carries advisory
          GHSA-pgww-w46g-26qg. Pin the first patched 1.x release; Frontend.Tests.Unit references it
          directly to force the fixed version into the graph. -->
-    <PackageVersion Include="AngleSharp" Version="1.7.2" />
+    <PackageVersion Include="AngleSharp" Version="1.8.0" />
     <!-- Security override: OpenIddict.*.DataProtection 7.5.0 transitively pulls System.Security.Cryptography.Xml
          10.0.7, which carries CVE-2026-50648 (GHSA-23rf-6693-g89p and four sibling advisories, all fixed in
          10.0.10). Pin the patched release; the AuthSystem test projects reference it directly to force the fixed
@@ -23,12 +23,12 @@
     <PackageVersion Include="Microsoft.AspNetCore.Authentication.OpenIdConnect" Version="10.0.11" />
     <PackageVersion Include="Microsoft.Extensions.Caching.Hybrid" Version="10.9.0" />
     <PackageVersion Include="Microsoft.Extensions.Http.Resilience" Version="10.9.0" />
-    <PackageVersion Include="Scalar.AspNetCore" Version="2.17.2" />
+    <PackageVersion Include="Scalar.AspNetCore" Version="2.17.3" />
     <PackageVersion Include="AspNetCore.HealthChecks.NpgSql" Version="9.0.0" />
     <!-- Authentication & Identity -->
     <PackageVersion Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.11" />
-    <PackageVersion Include="OpenIddict.AspNetCore" Version="7.6.1" />
-    <PackageVersion Include="OpenIddict.EntityFrameworkCore" Version="7.6.1" />
+    <PackageVersion Include="OpenIddict.AspNetCore" Version="7.7.0" />
+    <PackageVersion Include="OpenIddict.EntityFrameworkCore" Version="7.7.0" />
     <PackageVersion Include="Microsoft.AspNetCore.Identity.EntityFrameworkCore" Version="10.0.11" />
     <!-- Entity Framework Core -->
     <PackageVersion Include="Microsoft.EntityFrameworkCore" Version="10.0.11" />
@@ -90,9 +90,9 @@
     <!-- 4.14.0 is the first Testcontainers that depends on SSH.NET 2026.0.0; every earlier version
          pins SSH.NET 2025.1.0, which GHSA-q939-rpr3-3284 (high) covers, so NuGetAudit fails restore
          for every Testcontainers-using suite. Keep the three in lockstep. -->
-    <PackageVersion Include="Testcontainers" Version="4.14.0" />
-    <PackageVersion Include="Testcontainers.PostgreSql" Version="4.14.0" />
-    <PackageVersion Include="Testcontainers.RabbitMq" Version="4.14.0" />
+    <PackageVersion Include="Testcontainers" Version="4.15.0" />
+    <PackageVersion Include="Testcontainers.PostgreSql" Version="4.15.0" />
+    <PackageVersion Include="Testcontainers.RabbitMq" Version="4.15.0" />
     <PackageVersion Include="Microsoft.Playwright" Version="1.62.0" />
   </ItemGroup>
 </Project>

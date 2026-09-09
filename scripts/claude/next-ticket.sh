@@ -10,10 +10,12 @@
 #
 # Usage: next-ticket.sh [--exclude "296 293"]     # numbers already attempted this run
 # Env:   LOOP_SKIP_LABELS   comma-separated labels that exclude a ticket
-#                           (default: loop-blocked,epic,qa,post-mvp,audit — an epic is a tracking
-#                           parent with no work of its own, qa passes are manual/human,
-#                           post-mvp is deliberately cut from MVP per CLAUDE.md, and audit findings
-#                           are triaged by a human first: name one explicitly to work it)
+#                           (default: loop-blocked,epic,question,wontfix,invalid,duplicate,qa,
+#                           qa-blocked,audit,post-mvp — an epic is a tracking parent with no work
+#                           of its own, question/wontfix/invalid/duplicate are not decided work,
+#                           qa passes are manual/human, audit findings are triaged by a human
+#                           first, post-mvp is deliberately cut from MVP per CLAUDE.md: name one
+#                           explicitly to work it. Same list as TheKittySaver plus the parking label)
 #        LOOP_SKIP_TITLES   regex over titles to exclude (default: ^M4- — the desktop-app milestone
 #                           targets the Windows patcher runtime; its E2E can't run on the macOS host)
 #        LOOP_SKIP_ISSUES   space-separated numbers to exclude (default: 85 — the M2-18 forum
@@ -32,7 +34,7 @@ if [ "${1:-}" = "--exclude" ]; then
 fi
 EXCLUDE="$EXCLUDE ${LOOP_SKIP_ISSUES-85}"
 
-SKIP_LABELS="${LOOP_SKIP_LABELS:-loop-blocked,epic,qa,post-mvp,audit}"
+SKIP_LABELS="${LOOP_SKIP_LABELS:-loop-blocked,epic,question,wontfix,invalid,duplicate,qa,qa-blocked,audit,post-mvp}"
 SKIP_TITLES="${LOOP_SKIP_TITLES:-^M4-}"
 
 for tool in gh jq; do

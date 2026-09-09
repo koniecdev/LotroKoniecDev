@@ -98,7 +98,8 @@ correct in one repo and a violation in the other.
 - **A bug tied to one QA test case** names the test case as a trailing parenthetical —
   `… (QA-FE-09-TC11)` — never as a leading `BUG: QA-FE-09-TC11 — …`.
 - **An epic carries three signals and needs all three**: the `epic` label, an `[Epic] ` title
-  prefix, and a ` (tracking)` suffix. The first two are **deliberately redundant to the tooling** —
+  prefix, and a trailing `tracking)` marker — extra words in the same parenthetical are fine,
+  as in `(post-M7, tracking)`. The first two are **deliberately redundant to the tooling** —
   the picker's jq drops a ticket that carries the `epic` label *or* whose title starts with
   `[Epic]`/`[Tracking]`, that second test hard-coded and independent of `LOOP_SKIP_TITLES`
   (`scripts/claude/next-ticket.sh`). Either one alone keeps the loop off it, so neither repo's
@@ -116,7 +117,7 @@ correct in one repo and a violation in the other.
 
 | Label | Meaning |
 |---|---|
-| `epic` | Tracking parent that only groups child tickets — the loop never works it |
+| `epic` | Tracking parent that only groups child tickets — the loop never works it. The title carries `[Epic] ` and ` (tracking)` too; see **Title convention** |
 | `audit` | Finding from an autonomous audit session — triage before `/backlog` |
 | `loop-blocked` | `claude-loop`: needs human input |
 | `qa` | Manual QA / test scenario |

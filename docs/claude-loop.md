@@ -69,9 +69,14 @@ priority never outranks provenance. Full label taxonomy: `docs/labels.md`.
 
 Default exclusions (all overridable via env):
 
-- labels `loop-blocked`, `epic` (a tracking parent has no work of its own), `qa` (manual/human
-  passes), `post-mvp` (deliberately cut from MVP), `audit` (audit findings are triaged by a
-  human — name one explicitly to work it),
+- labels `loop-blocked`, `epic` (a tracking parent has no work of its own), `question`, `wontfix`,
+  `invalid`, `duplicate` (not decided work), `qa` (manual/human passes), `qa-blocked`, `audit`
+  (audit findings are triaged by a human — name one explicitly to work it), `post-mvp`
+  (deliberately cut from MVP) — the same set TheKittySaver uses, with this repo's parking label
+  in place of its `post-v1`. An epic is caught **twice over**: the `epic` label is on the skip
+  list, and the jq also drops any title starting `[Epic]`/`[Tracking]` regardless of
+  `LOOP_SKIP_TITLES`. Either signal alone is enough — until #787 no epic here carried the label
+  and the title test was what kept all five out,
 - titles matching `^M4-` (the desktop-app milestone — Avalonia per ADR-0033 — targets the Windows
   patcher runtime; its E2E criterion cannot run on the macOS host),
 - issue `#85` (M2-18 forum watcher — deferred post-MVP; work it only by naming it explicitly).

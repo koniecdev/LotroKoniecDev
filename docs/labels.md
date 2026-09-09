@@ -6,8 +6,10 @@ release-gate label differ, because the codebases differ. A label change in one r
 to the other in the same session.
 
 Five axes. A well-formed ticket carries **one `priority-*`**, **one `type-*`**, and
-**zero or more `area-*`**. A bug carries **one `severity-*`** on top of that — priority and
-severity answer different questions and are documented together below.
+**zero or more `area-*`**. `type-*` has no exception: a QA scenario is `type-test`, a decision
+ticket carries the type of the work it will produce plus `question`. A bug **a tester filed** also
+carries **one `severity-*`** — priority and severity answer different questions and are documented
+together below.
 
 ## `priority-*` — how urgent (the loop reads this)
 
@@ -35,8 +37,15 @@ at the same time. A data-loss bug in a panel five people use is the reverse.
 | `severity-minor` | Works but wrongly; the user has a workaround — the default choice |
 | `severity-trivial` | The user loses nothing: cosmetics, typo, visual detail |
 
-Testers set `severity-*` themselves on every bug they file — it is their judgement and nobody is
-better placed to make it. `priority-*` stays a queue decision the owner can correct afterwards.
+`severity-*` is **required on a bug a tester filed and on any `escaped-to-prod` bug, optional
+everywhere else**. Testers set it themselves on every bug they file — it is their judgement and
+nobody is better placed to make it. A bug the owner or an agent session filed may go without one;
+`priority-*` already answers the queue question. That asymmetry is deliberate, not laziness: a
+guessed severity is worse than a blank, because `escaped-to-prod` crossed with severity is the only
+number that says whether this QA program pays for what it costs, and invented values turn it into
+noise. Backfilling the 27 open bugs that predate this wording was considered and rejected for
+exactly that reason (TheKittySaver #752, LotroKoniecDev #787). `priority-*` stays a queue decision
+the owner can correct afterwards.
 The tester wiki (`Workflow-testera` §8) carries the same two tables in Polish.
 
 One more label lives next to these: `escaped-to-prod`, applied by the owner to any bug a **user**
@@ -67,28 +76,48 @@ nothing.
 
 ## Title convention
 
-A title carries only what the labels can't say. No cargo-cult prefix.
+A title carries only what the labels can't say. No cargo-cult prefix. **The rules below are the
+same in both repos**; only the identifier list, the examples and the retrofit history are per-repo.
+They drifted apart once (TheKittySaver #752, LotroKoniecDev #787) and the drift made the same title
+correct in one repo and a violation in the other.
 
-- **No `type-*`/`area-*` echo.** Drop a leading `BUG:` / `[Bug / UX]`, or a bare area word like
-  `Patcher:` (= `area-patcher`) — the label already says it, so the tag is pure decoration.
+- **No `type-*`/`area-*` echo.** Drop a leading tag that is *nothing but* a label's own word —
+  `BUG:` / `Bug:` / `[BUG]` / `[Bug / UX]`, `Perf:`, `FE:`, `API:`, `Infra:`, `CI:`, `Docs:`,
+  `Domain:`, `Tests:`, `Patcher:` — the label already says it, so the tag is pure decoration.
   Default shape is a plain sentence: capitalize the first word (unless it's a literal, e.g. a
   filename like `patch.bat` — don't re-case those), no trailing period.
-- **Keep a prefix only when it is a real identifier used elsewhere** — this repo's milestone/epic
+- **A topic lead-in that is not a label synonym stays.** `Game versions:`, `Flaky test:`,
+  `Search:`, `Org badge:`, `GetPersons:`, `File storage:` name a subsystem, screen, endpoint or
+  file, which is information no label carries. Only the label-echoing tags go. A named system can
+  also go **into** the sentence where that reads better, but leading with it is not a violation.
+- **Keep a prefix when it is a real identifier used elsewhere** — this repo's milestone/epic
   codes: `M{n}-NN:`, `TP-NN:`, `UR-NN:`, `SEC-NN:`, `PERF-NN:`, `LEGAL-NN:`, `OBS-NN:`,
-  `QA-FE-NN:`, `[Epic] <SERIES>-00:`. Those double as the release-gate tracking this repo uses
+  `QA-FE-NN:`, `WIKI-NN:`, `[Epic] …`. Those double as the release-gate tracking this repo uses
   instead of `release-*` labels (see above) — never drop them, and never invent a new one without
   a real cross-reference behind it.
-- A **topic lead-in that isn't a label synonym** (e.g. "Game versions: …", "Flaky test: …") is
-  fine to keep — it adds information the labels don't carry. Only the label-echoing tags go.
+- **A bug tied to one QA test case** names the test case as a trailing parenthetical —
+  `… (QA-FE-09-TC11)` — never as a leading `BUG: QA-FE-09-TC11 — …`.
+- **An epic carries three signals and needs all three**: the `epic` label, an `[Epic] ` title
+  prefix, and a trailing `tracking)` marker — extra words in the same parenthetical are fine,
+  as in `(post-M7, tracking)`. The first two are **deliberately redundant to the tooling** —
+  the picker's jq drops a ticket that carries the `epic` label *or* whose title starts with
+  `[Epic]`/`[Tracking]`, that second test hard-coded and independent of `LOOP_SKIP_TITLES`
+  (`scripts/claude/next-ticket.sh`). Either one alone keeps the loop off it, so neither repo's
+  drift was ever a loop bug. The reason to require both anyway is the person reading the list:
+  GitHub has no native epic, the label chip is easy to miss in a filtered list or a search result,
+  and the title is always read — an epic without the prefix reads as ordinary work. The suffix says
+  the ticket has no work of its own. Each repo had drifted to a different half: all five epics here
+  carried prefix and suffix with no label at all, and in TheKittySaver #748 carried the label with
+  no prefix (TheKittySaver #752, LotroKoniecDev #787).
 - This was retrofitted onto the 3 open issues that had drifted (#544, #658, #738) on 2026-09-07,
   mirroring the same cleanup in TheKittySaver (~35 titles there) — see that repo's `docs/labels.md`
-  for the full before/after list.
+  for the full before/after list. Closed issues were left alone then and stay out of scope.
 
 ## Process and state
 
 | Label | Meaning |
 |---|---|
-| `epic` | Tracking parent that only groups child tickets — the loop never works it |
+| `epic` | Tracking parent that only groups child tickets — the loop never works it. The title carries `[Epic] ` and ` (tracking)` too; see **Title convention** |
 | `audit` | Finding from an autonomous audit session — triage before `/backlog` |
 | `loop-blocked` | `claude-loop`: needs human input |
 | `qa` | Manual QA / test scenario |
@@ -100,8 +129,10 @@ A title carries only what the labels can't say. No cargo-cult prefix.
 `release-mvp` / `release-v1` for "required for that release"; this repo tracks the same thing
 through the `M{milestone}-{nn}` title prefix instead.
 
-The picker skips `loop-blocked`, `epic`, `qa`, `post-mvp` and `audit` by default
-(`LOOP_SKIP_LABELS`) — see `docs/claude-loop.md`.
+The picker skips `loop-blocked`, `epic`, `question`, `wontfix`, `invalid`, `duplicate`, `qa`,
+`qa-blocked`, `audit` and `post-mvp` by default (`LOOP_SKIP_LABELS`) — **the same list as
+TheKittySaver**, whose last entry is its own parking label `post-v1` instead. See
+`docs/claude-loop.md`.
 
 ## Housekeeping
 

@@ -1262,9 +1262,10 @@ emits is filed under the other environment.
 ### Bringing up the prod agent (the agent-only role)
 
 The route and the role are in the repo since #755 (the sister ticket koniecdev/TheKittySaver#599
-covers the TKS half); what remains is operator work on both boxes, in this order. Every step is
-idempotent, none of them touches a running app container, and only step 4 interrupts anything
-(telemetry, for about a minute).
+covers the TKS half). **This ran on 2026-09-09 and prod has been shipping since** — what follows is
+the reference: how it was done, and what to repeat when the prod box is rebuilt or the credential
+is rotated. Every step is idempotent, none of them touches a running app container, and only step 4
+interrupts anything (telemetry, for about a minute).
 
 1. **DNS** — registrar panel → `A obs.lotro-translator.pl → 91.98.74.228` (the **staging** box:
    that is where the backend runs), TTL 300. ACME needs it resolving before the vhost's first
@@ -1273,6 +1274,16 @@ idempotent, none of them touches a running app container, and only step 4 interr
    IPv4 `/32`, and an `AAAA` would let the agent's resolver prefer IPv6, whose source address Caddy
    sees as a bridge gateway — every push would then be a 404 for a reason the runbook's own
    diagnosis below would not name. No vhost on this fleet has an `AAAA` today.
+
+   **Do this step FIRST, and do not let anything look the name up before it exists.** A failed
+   lookup is cached as hard as a successful one: the zone's negative TTL is
+   `min(SOA TTL, SOA minimum)` — three hours here — and it is Hetzner's recursive resolvers
+   (`185.12.64.1/2` and their v6 twins, which is all four the boxes use) that hold it, so
+   `resolvectl flush-caches` on the box does nothing. That is what happened on 2026-09-09: the
+   record went in after the agent had already tried, and the prod box could not resolve it for
+   another 35 minutes while every public resolver already could. `dig @185.12.64.1 obs.<domain>`
+   shows the remaining time as the TTL on the SOA in the authority section. Waiting it out is the
+   only clean fix — the agent retries on its own — and it is why this step is first.
 2. **Mint the push credential.** One password, two forms, and the two never travel together:
    ```bash
    openssl rand -base64 24                                  # the password → prod /opt/obs/.env (step 5)
@@ -1382,6 +1393,14 @@ idempotent, none of them touches a running app container, and only step 4 interr
    `--profile` anything, the env file is the only switch — and `docker logs -f obs-alloy`: a wrong
    credential shows up within seconds as a 401 on every push, a source address the vhost does not
    admit as a 404; a correct pair is silent.
+
+   **If the agent was ever up while the name did not resolve, restart it once it does** —
+   `docker restart obs-alloy`. The three writers do not recover equally. `prometheus.remote_write`
+   re-resolves and catches up on its own; `otelcol.exporter.otlp` does not — its gRPC client keeps
+   the empty address list it built at startup and every trace after that dies with
+   `Unavailable desc = no children to pick from`, which reads like the backend is down rather than
+   like a stale resolver. Observed on 2026-09-09: metrics were already arriving in Grafana while
+   traces had been dropping for four minutes. One restart fixes all three, and it costs nothing.
 6. **Prod box, the apps** — `/opt/lotro/.env`: the same `OTEL_*` lines as staging with
    `OTEL_DEPLOYMENT_ENVIRONMENT=production`, then `docker compose -f compose.hetzner.yaml up -d`.
    TheKittySaver's half is the same four-line edit in `/opt/tks/.env` (its runbook, #599).
@@ -1390,21 +1409,23 @@ idempotent, none of them touches a running app container, and only step 4 interr
    it; a trace from a prod request opens from its log line. Then **prove the absence rule**:
    `ssh lotro-prod docker stop obs-alloy`, wait ~20 minutes for *Fleet — a box has gone silent*
    to fire and the e-mail to arrive, `docker start obs-alloy`, and watch it resolve.
+
+   **`{box="lotro-prod"}` lists the containers that WRITE, which is not all of them.** Caddy and
+   RabbitMQ produce zero stdout lines in a quiet half-hour — Caddy has no `log` directive, so it
+   says nothing about a request it served, and RabbitMQ is silent after boot — and `obs-alloy` is
+   dropped on purpose (shipping its own log through itself is a feedback loop that only shows up
+   once something is already wrong). So the expected list is the five **application** containers,
+   and it is the same list on the staging box: check against that one before believing discovery is
+   broken. Nothing filters discovery — `discovery.docker` takes every container on the socket.
+
+   Timings, measured on 2026-09-09 so the wait is not a guess: the last sample was at 01:00, the
+   rules went `pending` at 01:15 (the 15-minute window) and `firing` at 01:20 (the 5-minute `for`),
+   both e-mails arrived within 90 seconds of that, and the agent coming back cleared both rules in
+   under two minutes.
 8. Delete the first bullet under "Not done yet", and close #755 with that evidence.
 
 ### Not done yet
 
-- **The prod agent is up and shipping nothing: `obs.lotro-translator.pl` has no DNS record.**
-  Steps 2 to 6 above ran on 2026-09-09 — the vhost is loaded on the staging box with the real
-  source `/32` and credential, the backend moved onto `lotro-staging_obs`, `/opt/obs` on the prod
-  box runs Alloy in the agent-only role, and both prod stacks export to their box-local gateway
-  with `OTEL_DEPLOYMENT_ENVIRONMENT=production`. The credential pair is proven (the loopback probe
-  in step 3). What is missing is step 1: `A obs.lotro-translator.pl → 91.98.74.228`, which only
-  the registrar's owner can add. Until it exists, ACME cannot issue, every push fails name
-  resolution, and Alloy logs *"Failed to send batch, retrying"* — a retryable error, so the
-  backlog is held rather than dropped and telemetry starts on its own once the record resolves.
-  Meanwhile prod is watched only by the daily health ping and the CD smoke, and *Fleet — a box has
-  gone silent* stays unarmed for `lotro-prod` by design — it arms itself on the first data it sees.
 - **A dead staging box means no alerting at all**, for either environment. See the health ping above.
 
 ## Disaster recovery

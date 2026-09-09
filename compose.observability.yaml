@@ -204,7 +204,12 @@ services:
       - tempo-data:/var/tempo
     networks:
       - obs
-    mem_limit: 192m
+    # 384m, not the 192m ADR-0051 measured. That measurement was taken with nobody querying: it is
+    # Tempo's ingest footprint, and serving a search decompresses blocks on top of it. One Grafana
+    # user browsing traces on 2026-09-09 took this container from 95 MiB steady to an OOM-kill at
+    # anon-rss 184 MB (#782). The query path is capped in tempo.yaml as well — the limit and the
+    # cap belong together, because either one alone still lets a query ask for the whole container.
+    mem_limit: 384m
     logging:
       driver: json-file
       options:
@@ -312,7 +317,12 @@ services:
         condition: service_started
       tempo:
         condition: service_started
-    mem_limit: 384m
+    # 512m, up from 384m. Grafana was found at 86% of the old ceiling during the same trace-browsing
+    # session that killed Tempo (#782): a dashboard or a Drilldown query holds its result sets in the
+    # process, so the peak follows whoever is looking at it, not the size of the fleet. It is second
+    # only to Alloy for the same reason Alloy leads — being killed here is being killed while someone
+    # is trying to look at an incident.
+    mem_limit: 512m
     logging:
       driver: json-file
       options:

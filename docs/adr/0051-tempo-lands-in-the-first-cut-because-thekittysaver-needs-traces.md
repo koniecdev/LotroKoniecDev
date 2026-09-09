@@ -59,14 +59,46 @@ never included. The correction paid for the addition.
 The box has 3.7 GiB with 1.7 GiB available alongside both application stacks, plus the 2 GiB of swap
 #708 added.
 
+> **Amendment (2026-09-09, #782): the measurement above is an INGEST measurement, and two ceilings
+> derived from it were wrong.** Every number in the table was taken while the stack was receiving
+> telemetry and nobody was reading it. Reading costs memory too, in the two components a person
+> actually touches. Tempo was **OOM-killed** serving a single Grafana user browsing traces — it went
+> from the 95 MiB steady above to `anon-rss:184236kB` against its 192 MiB ceiling — and Grafana was
+> found at **86%** of its own in the same session. The kill was silent: the box still had 1.5 GiB
+> free, so no fleet rule fired, and Docker restarted the container in place before anything was down
+> long enough to notice.
+>
+> | Component | Ceiling in the table above | Ceiling now | Why |
+> |---|---|---|---|
+> | Tempo | 192 MiB | **384 MiB** | ingest is 95 MiB; serving a search decompresses blocks on top of it |
+> | Grafana | 384 MiB | **512 MiB** | peak follows whoever is looking at it, not the size of the fleet |
+> | **Total** | 1536 MiB | **1856 MiB** | still inside the box: worst case 3280 MiB of 3814 MiB with both app stacks at their current usage |
+>
+> A ceiling alone was not the fix. Tempo's query path also kept Tempo's cluster defaults — 1000
+> concurrent search jobs of up to 100 MiB each — so any ceiling was reachable by one query;
+> `tempo.yaml` now caps the fan-out, and the cap and the limit ship together.
+>
+> **What made it silent is now a rule.** A cgroup OOM-kill is invisible to every existing fleet
+> rule, and the two obvious metrics do not work: `container_oom_events_total` and
+> `container_memory_failcnt` both stayed at **0** across this kill, because the counter lives in the
+> cgroup and the restart makes a new one. `container_memory_working_set_bytes` over
+> `container_spec_memory_limit_bytes` peaked at **0.9995** and was the only signal that saw it, so
+> *Fleet — a container is close to its memory limit* watches that ratio at 85%.
+>
+> **The uncapped half is still uncapped.** The seven application containers on the staging box run
+> with no `mem_limit` at all, so this rule cannot see them and no cgroup bounds them. That is a
+> separate decision and a separate ticket — the ceilings here protect the box **from** the
+> observability stack, and were never a bound on the applications.
+
 ## Decision
 
 **Tempo runs in the first cut**, pinned to the 2.x line, single binary, local blocks, 14-day
 retention matching Loki's so a log line and its trace expire together.
 
 Every component keeps a hard `mem_limit`, re-derived from the measurement above rather than from the
-prediction. The total ceiling is **1536 MiB** — ADR-0050 §5's budget unchanged, now covering a fifth component
-it never included.
+prediction. The total ceiling was **1536 MiB** — ADR-0050 §5's budget unchanged, now covering a fifth component
+it never included — and is **1856 MiB** since the #782 amendment, which corrected the two ceilings that
+were derived from an ingest-only measurement.
 
 The rest of ADR-0050 stands unchanged and is explicitly **not** reopened: the backend still runs on
 staging (§1), still ships as its own compose project (§2), still keeps Caddy as the only component on

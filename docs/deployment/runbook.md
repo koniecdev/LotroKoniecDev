@@ -1209,7 +1209,7 @@ this file, and a second entry point is a second thing to keep in step.
 | Backend box | **`lotro-staging`**, on purpose. A backend co-hosted with the workload it observes dies in the same outage and takes the evidence with it; on staging, a *prod* outage leaves the dashboards up and prod's last minutes readable (ADR-0050 §1) |
 | Agent | Alloy, on every box. Tails the Docker socket, accepts OTLP, scrapes the host and containers |
 | Retention | Loki 14 d · Prometheus 15 d **and** 4 GB (whichever first, size enforced by the store) · Tempo 14 d |
-| Memory | hard `mem_limit` on every component, 1536 MiB of ceilings against ~660 MiB measured (ADR-0051) |
+| Memory | hard `mem_limit` on every component, **1856 MiB** of ceilings against ~810 MiB measured (ADR-0051 + its #782 amendment: Tempo 384 MiB, Grafana 512 MiB — the original numbers were measured with nobody querying, and Tempo was OOM-killed by one person browsing traces) |
 | Reaching it | **no public hostname.** `ssh -L 3000:127.0.0.1:3000 lotro-staging` → `http://localhost:3000`. Password: `ssh lotro-staging 'grep GF_SECURITY_ADMIN_PASSWORD /opt/obs/.env'` |
 | The other box | pushes over **`obs.lotro-translator.pl`** — a Caddy vhost on the backend box with exactly three ingest paths (the Loki push, the Prometheus remote-write, the OTLP trace gRPC method), each admitted only from the prod box's public `/32` **and** with one basic-auth credential; everything else answers 404, and Grafana is deliberately not behind it (ADR-0050 §4, #755). Agent side: `alloy/ship.agent.alloy` (TLS + the credential) versus `alloy/ship.backend.alloy` (the containers next door), picked by `COMPOSE_PROFILES` |
 | Dashboards & alerts | provisioned as code: ours from `.docker/observability/`, TheKittySaver's from its own repo into `/opt/obs/grafana/dashboards/tks/` |
@@ -1223,13 +1223,14 @@ and `/proc`, so it never needs a route to an app container and does not have one
 
 **Alerts (#713)** — the four ADR-0034 deleted, restored, plus a disk backstop. Three are
 project-scoped (crash-loop, 5xx rate, error-log spike; TheKittySaver ships its own mirror set) and
-five are fleet-scoped, because box saturation belongs to neither project:
+seven are fleet-scoped, because box saturation belongs to neither project. Fifteen rules in total,
+counted off the running Grafana on 2026-09-09:
 
 | Folder | Rules |
 |---|---|
 | LotroKoniecDev | crash-loop · 5xx above 5% · error-level log spike |
-| Fleet | memory > 85% · swapping · CPU > 85% · disk < 20% · disk < 10% |
-| TheKittySaver | its own four (that repo's #511) |
+| Fleet | memory > 85% · swapping · CPU > 85% · disk < 20% · disk < 10% · a box has gone silent · a container above 85% of its own `mem_limit` |
+| TheKittySaver | its own five (that repo's #511, plus the prod-absence rule) |
 
 All of them deliver to **one** contact point, `owner-email`, over the Brevo relay the apps already
 use. There is deliberately no second channel.

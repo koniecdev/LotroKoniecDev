@@ -32,6 +32,24 @@ compactor:
     # 14 days, matching Loki, so a log line and its trace expire together.
     block_retention: 336h
 
+# A query must not be able to ask for more memory than the container has. Tempo's defaults are sized
+# for a cluster — 1000 concurrent search jobs of up to 100 MiB each, 20 concurrent queries per
+# querier — and this is a single binary in a 384 MiB cgroup on a shared 4 GB box. On 2026-09-09 one
+# person browsing traces in Grafana walked it into an OOM-kill against the old 192 MiB ceiling
+# (#782). Raising the ceiling alone would only move the wall: without these caps a single query is
+# still allowed to reach for more than the container owns. The numbers are deliberately far below
+# what the fleet needs — total block bytes here are measured in hundreds of kilobytes, so a job cap
+# this small costs nothing and bounds the worst case at roughly 128 MiB above the idle footprint.
+querier:
+  max_concurrent_queries: 4
+
+query_frontend:
+  search:
+    concurrent_jobs: 8
+    target_bytes_per_job: 16777216
+  metrics:
+    concurrent_jobs: 4
+
 storage:
   trace:
     backend: local

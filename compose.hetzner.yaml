@@ -57,6 +57,29 @@ x-caddy-environment: &caddy-environment
   # `$$` is compose's escape for a literal `$`, and bcrypt hashes are full of them.
   OBS_PUSH_PASSWORD_HASH: ${OBS_PUSH_PASSWORD_HASH:-$$2a$$14$$4RPQokPEOhwXYs1Tbek6EuBbKEMGFJ2uCzRPSN.8xs2Cwctnu7kda}
 
+# Who the kernel kills when the BOX runs out of memory (#786). A box-level OOM picks its victim by
+# size and nothing else, and on these boxes size barely speaks: the whole RSS spread across a box is
+# worth ~45 points of oom_score, while ONE unit of oom_score_adj is worth 0.66 of a point. The
+# adjustment decides the ranking outright, so leaving every container at the default 0 is not
+# neutrality — it is letting the fattest process be the most expendable one, whatever it does.
+#
+# The two boxes are deliberately NOT symmetric; the order follows what each one actually serves:
+#
+#   staging box   the observability stack is the PRODUCTION-critical workload here — it is the
+#                 backend that serves prod, which is why ADR-0050 §1 put it on this box — and the
+#                 applications serve one developer and one tester. The applications go first.
+#   prod box      inverted. The applications are the product; the only observability component is
+#                 the Alloy agent, whose death costs telemetry rather than the service.
+#
+# One file serves both boxes, so the application side reads a per-box knob (OOM_SCORE_ADJ_APP: 500
+# on staging, 0 on prod). Caddy does not: it is the only ingress on EITHER box and, on the staging
+# box, it also carries the obs ingest vhost the prod agent pushes through (ADR-0050 §4) — it, not the
+# staging agent, is what prod's telemetry actually crosses — so it is protected on both, by a
+# literal. The observability half of the same policy lives in compose.observability.yaml.
+#
+# Do NOT restore symmetry between the boxes because it looks tidier: the asymmetry IS the decision.
+# docs/deployment/runbook.md -> "Memory pressure: who the kernel kills first" has the read-back.
+
 services:
   migrator:
     image: ghcr.io/${IMAGE_NAMESPACE:-koniecdev}/lotrokoniecdev-migrator:${IMAGE_TAG:-latest}
@@ -65,6 +88,11 @@ services:
       ConnectionStrings__TranslationDatabase: ${ConnectionStrings__TranslationDatabase}
       ConnectionStrings__AuthDatabase: ${ConnectionStrings__AuthDatabase}
     restart: "no"
+    # Neutral on BOTH boxes, and deliberately not the app knob: this is the deploy gate, not a
+    # workload to sacrifice. It lives for seconds under `compose run` (deploy.sh) and holds no
+    # steady-state memory, so the knob would buy nothing and would make the migration the staging
+    # box's FIRST victim during a rollout — turning a memory spike into a failed deploy for free.
+    oom_score_adj: 0
 
   rabbitmq:
     # Version pinned in lockstep with the dev compose.yaml and the integration suite's
@@ -73,6 +101,9 @@ services:
     # one this stack runs.
     image: rabbitmq:4.3.4-management-alpine
     restart: unless-stopped
+    # Application tier — see the header. Staging: expendable. Prod: the outbox relay and the e-mail
+    # consumer both hang off this broker, so it ranks with the apps it serves, not below them.
+    oom_score_adj: ${OOM_SCORE_ADJ_APP:?OOM_SCORE_ADJ_APP must be set in the box .env — 500 on the staging box, 0 on the prod box (see the header of this file and .env.hetzner.example)}
     # RabbitMQ keys its on-disk state (users, quorum-queue membership, parked dead letters) by node
     # name, which defaults to rabbit@<hostname> — and compose hostnames are random per container.
     # Without this pin every recreation would boot a FRESH node next to the old data and silently
@@ -100,6 +131,9 @@ services:
   auth-api:
     image: ghcr.io/${IMAGE_NAMESPACE:-koniecdev}/lotrokoniecdev-auth-api:${IMAGE_TAG:-latest}
     restart: unless-stopped
+    # Application tier — see the header. Staging: expendable, it serves one developer and one
+    # tester. Prod: it is the product, and it ranks above every observability container on that box.
+    oom_score_adj: ${OOM_SCORE_ADJ_APP:?OOM_SCORE_ADJ_APP must be set in the box .env — 500 on the staging box, 0 on the prod box (see the header of this file and .env.hetzner.example)}
     expose:
       - "8080"
     environment:
@@ -154,6 +188,8 @@ services:
   tms-api:
     image: ghcr.io/${IMAGE_NAMESPACE:-koniecdev}/lotrokoniecdev-tms-api:${IMAGE_TAG:-latest}
     restart: unless-stopped
+    # Application tier — see the header (same reasoning as auth-api).
+    oom_score_adj: ${OOM_SCORE_ADJ_APP:?OOM_SCORE_ADJ_APP must be set in the box .env — 500 on the staging box, 0 on the prod box (see the header of this file and .env.hetzner.example)}
     expose:
       - "8080"
     environment:
@@ -189,6 +225,8 @@ services:
   frontend:
     image: ghcr.io/${IMAGE_NAMESPACE:-koniecdev}/lotrokoniecdev-frontend:${IMAGE_TAG:-latest}
     restart: unless-stopped
+    # Application tier — see the header (same reasoning as auth-api).
+    oom_score_adj: ${OOM_SCORE_ADJ_APP:?OOM_SCORE_ADJ_APP must be set in the box .env — 500 on the staging box, 0 on the prod box (see the header of this file and .env.hetzner.example)}
     expose:
       - "8080"
     environment:
@@ -221,6 +259,15 @@ services:
   caddy:
     image: caddy:2-alpine
     restart: unless-stopped
+    # Literal, and the same on both boxes — Caddy is the one component whose value must NOT follow
+    # the box's role. It is the only ingress on either box, it fronts the guest TheKittySaver stack
+    # as well as ours, and on the staging box it additionally serves the obs ingest vhost that the
+    # prod agent pushes through (ADR-0050 §4). Protected below every application, but deliberately
+    # NOT below the observability stack it feeds: the staging ordering the ticket asks for is that
+    # no observability container outranks an application, and this is one. -100 is enough because
+    # it restarts in seconds and the prod agent retries what it could not push, so the worst case
+    # is a bounded ingest gap rather than lost data.
+    oom_score_adj: -100
     ports:
       - "80:80"
       - "443:443"
@@ -278,6 +325,9 @@ services:
   caddy-validate:
     image: caddy:2-alpine
     profiles: ["validate"]
+    # Same value as the proxy it stands in for, so the gate cannot be ranked differently from the
+    # thing it validates. It is a one-shot with no network that exits in about a second.
+    oom_score_adj: -100
     network_mode: none
     environment: *caddy-environment
     volumes:

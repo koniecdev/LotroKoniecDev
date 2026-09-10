@@ -113,11 +113,41 @@ correct in one repo and a violation in the other.
   mirroring the same cleanup in TheKittySaver (~35 titles there) — see that repo's `docs/labels.md`
   for the full before/after list. Closed issues were left alone then and stay out of scope.
 
+## Epics — how children are attached
+
+The three signals above say a ticket **is** an epic. This says what is **under** it.
+
+**An epic's children are GitHub sub-issues, never a list in the body.** GitHub renders them as a
+panel above the description — the child rows plus a progress bar — and stamps a parent link on each
+child. That panel is the record of what belongs to the epic, and it is the whole reason an epic
+exists: opening one answers "which tickets are under this?" without reading prose. Wire them with
+`gh issue edit <epic> --add-sub-issue 12,13,14`, in the order the series reads rather than by issue
+number.
+
+Three things to know before you wire one:
+
+- **One parent per issue, and a second `--add-sub-issue` does not error — it silently reparents.**
+  Adding a ticket that already sits under another epic *steals* it, with a success response and no
+  warning. Run `gh issue view <n> --json parent` first whenever a ticket could belong to two epics.
+  When two epics both want one, the epic whose identifier series the ticket carries wins — unless
+  the other epic's body explicitly claims it out of that series, which is a deliberate promotion
+  and beats the prefix.
+- **A markdown task list creates no relationship at all.** `- [ ] #123` in a body renders a
+  checkbox and binds nothing: the child's `trackedInIssues` stays `0`. It was pure decoration in
+  six of the nine epics across both repos until TheKittySaver #754 / LotroKoniecDev #789.
+- **An epic can nest under another epic** (GitHub allows 8 levels, 100 children per parent). That
+  is the answer when a tracking parent would otherwise have to steal another epic's tickets —
+  TheKittySaver's release gate holds its two QA epics that way.
+
+**Checkboxes in an epic body mean acceptance criteria for the epic itself, and nothing else.** A
+child list in the body is commentary — running order, dependencies, notes — so it uses plain
+bullets. Two sources of completion state, one live and one hand-ticked, is how they drift.
+
 ## Process and state
 
 | Label | Meaning |
 |---|---|
-| `epic` | Tracking parent that only groups child tickets — the loop never works it. The title carries `[Epic] ` and ` (tracking)` too; see **Title convention** |
+| `epic` | Tracking parent that only groups child tickets — the loop never works it. The title carries `[Epic] ` and ` (tracking)` too (**Title convention**), and the children are sub-issues (**Epics**) |
 | `audit` | Finding from an autonomous audit session — triage before `/backlog` |
 | `loop-blocked` | `claude-loop`: needs human input |
 | `qa` | Manual QA / test scenario |

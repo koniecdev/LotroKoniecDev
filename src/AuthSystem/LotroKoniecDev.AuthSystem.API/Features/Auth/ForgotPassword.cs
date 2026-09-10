@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Identity;
 using LotroKoniecDev.AuthSystem.API.Common;
 using LotroKoniecDev.AuthSystem.API.Extensions;
 using LotroKoniecDev.AuthSystem.API.Outbox;
+using LotroKoniecDev.AuthSystem.API.Services.RateLimiting;
 using LotroKoniecDev.AuthSystem.Contracts.Features.Auth.Password;
 using LotroKoniecDev.AuthSystem.Domain.Aggregates.ApplicationUsers.Entities;
 using LotroKoniecDev.AuthSystem.Persistence.DbContexts;
@@ -41,6 +42,7 @@ internal sealed partial class ForgotPassword : IApiEndpoint
         private readonly UserManager<ApplicationUser> _userManager;
         private readonly AuthDbContext _db;
         private readonly OutboxWriter _outboxWriter;
+        private readonly IPasswordResetRequestThrottle _throttle;
         private readonly IValidator<Command> _validator;
         private readonly ILogger<Handler> _logger;
 
@@ -48,12 +50,14 @@ internal sealed partial class ForgotPassword : IApiEndpoint
             UserManager<ApplicationUser> userManager,
             AuthDbContext db,
             OutboxWriter outboxWriter,
+            IPasswordResetRequestThrottle throttle,
             IValidator<Command> validator,
             ILogger<Handler> logger)
         {
             _userManager = userManager;
             _db = db;
             _outboxWriter = outboxWriter;
+            _throttle = throttle;
             _validator = validator;
             _logger = logger;
         }
@@ -84,6 +88,15 @@ internal sealed partial class ForgotPassword : IApiEndpoint
                 return Result.Success();
             }
 
+            // The same per-account send budget the page uses. This endpoint has no caller in the product
+            // today, but it is public, so leaving it out would make it the way around the budget. The
+            // refusal answers Success like every other branch here, so it reveals nothing.
+            if (!_throttle.TryAcquire(user.Id))
+            {
+                LogPasswordResetThrottled(_logger, command.Email.MaskEmail());
+                return Result.Success();
+            }
+
             // No token is created here and the deletion window is not checked here. The payload holds
             // only the id, and the dispatch processor creates the token and does that check when it
             // sends (ADR-0038 decision 2).
@@ -97,6 +110,9 @@ internal sealed partial class ForgotPassword : IApiEndpoint
 
         [LoggerMessage(EventId = EventIds.ForgotPasswordNonExistent, Level = LogLevel.Information, Message = "Password reset requested for non-existent email {Email}")]
         private static partial void LogPasswordResetNonExistent(ILogger logger, string email);
+
+        [LoggerMessage(EventId = EventIds.PasswordResetRequestThrottled, Level = LogLevel.Warning, Message = "Password reset request throttled for {Email}: the per-account send budget is spent")]
+        private static partial void LogPasswordResetThrottled(ILogger logger, string email);
     }
 
     public void MapEndpoint(IEndpointRouteBuilder endpointRouteBuilder)

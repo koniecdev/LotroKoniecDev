@@ -165,4 +165,5 @@ internal static class EventIds
     // (ForgotPasswordDeletionScheduled) is no longer used: that check moved to the dispatch processor
     // (ADR-0038 decision 2), which logs 2362 instead.
     public const int ResetPasswordDeletionScheduled = 2711;
+    public const int PasswordResetRequestThrottled = 2712;
 }

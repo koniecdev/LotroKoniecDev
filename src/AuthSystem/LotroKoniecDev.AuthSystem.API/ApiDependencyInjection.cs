@@ -16,6 +16,7 @@ using LotroKoniecDev.AuthSystem.API.Services.Emails;
 using LotroKoniecDev.AuthSystem.API.Services.Emails.Templates;
 using LotroKoniecDev.AuthSystem.API.Services.Gdpr;
 using LotroKoniecDev.AuthSystem.API.Services.Maintenance;
+using LotroKoniecDev.AuthSystem.API.Services.RateLimiting;
 using LotroKoniecDev.AuthSystem.API.Services.Sessions;
 using LotroKoniecDev.AuthSystem.API.Settings;
 using LotroKoniecDev.AuthSystem.Contracts.Features.Auth.Account;
@@ -97,6 +98,11 @@ internal static class ApiDependencyInjection
             services.AddHostedService<AccountDeletionFinalizerHostedService>();
 
             services.AddScoped<IUserSessionRevoker, UserSessionRevoker>();
+
+            // A singleton, because the budget has to be shared by every request. The IP policies live in
+            // the limiter's own options; this one counts sends per account, which a policy cannot do
+            // because it runs before anything is known about the account (#692).
+            services.AddSingleton<IPasswordResetRequestThrottle, PasswordResetRequestThrottle>();
 
             // The outbox relay works on a signal (ADR-0035). Writers add rows through the shared writer
             // and wake the singleton signal after their commit, so the relay does not poll the database

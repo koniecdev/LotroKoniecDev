@@ -131,6 +131,32 @@ forgot-password and resend-confirmation carry stricter 3/15 min policies, and th
 endpoints fall under the generic 20/min policy (health probes and the OpenIddict discovery/JWKS
 documents are deliberately unlimited).
 
+The browser-facing account pages are limited too, and the limit is the **default for the whole Razor
+group** — a page opts out with an attribute, it does not opt in (#692). `auth-page-limit` counts
+**POSTs only**, 10 per 15 minutes, keyed by route **and** client IP, so each page keeps its own budget
+and page views are never throttled: `/Account/Login` is where every sign-in lands, and a whole mobile
+carrier can share one address. `/Account/ForgotPassword` keeps the stricter `forgot-password-limit`
+instead, shared with its API twin so using both buys no extra budget, and the four link-landing pages
+keep `auth-endpoint-limit`.
+
+Password-reset mail carries a second budget that belongs to **the account the mail would reach**, 3 sends
+per 15 minutes, because no IP policy can stop an attacker who rotates IPs from flooding one inbox. It is
+keyed by the account id, not by the typed text: Identity resolves an address through `NormalizeEmail`,
+which runs `Normalize()` first, so a Polish address written with a combining accent finds the same
+account as the composed spelling — two identical-looking strings that a text key would give a budget
+each.
+
+The budget refuses silently and still answers with the neutral "if the account exists" panel, so it
+cannot be used to find out that somebody recently asked for a reset. The trade-off is that an attacker
+who knows an address can spend that account's window and the owner's own request is then dropped without
+explanation. That is acceptable for one reason: every permit spent **delivered a reset link to that same
+inbox**, and a link lives 24 hours against a 15-minute window, so a usable one is always already sitting
+there. Both budgets are in process, so two running containers mean two budgets — the same trade-off the
+IP policies already make.
+
+Every 429 carries `Retry-After`, and a browser gets a Polish page explaining the wait instead of the
+framework's bare status text.
+
 ---
 
 ## 3. Strongly-typed IDs and enums

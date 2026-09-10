@@ -296,7 +296,10 @@ try
     const string forgotPasswordRateLimitPolicy = "forgot-password-limit";
     const string resendConfirmationRateLimitPolicy = "resend-confirmation-limit";
     const string changeEmailRateLimitPolicy = "change-email-limit";
+    const string authPageRateLimitPolicy = "auth-page-limit";
     const string resendConfirmationPageViewPartition = "resend-confirmation-page-view";
+    const string forgotPasswordPageViewPartition = "forgot-password-page-view";
+    const string authPageViewPartition = "auth-page-view";
 
     builder.Services.AddRateLimiter(options =>
     {
@@ -321,15 +324,23 @@ try
                     Window = TimeSpan.FromMinutes(1)
                 }));
 
-        // A very strict rate limit on forgot-password, so nobody can flood an inbox.
+        // A very strict rate limit on forgot-password, so nobody can flood an inbox. The API endpoint
+        // and the Razor page share it on purpose: using both must not buy a caller twice the budget.
+        // It skips page views for the same reason resend-confirmation does. The page is one endpoint for
+        // GET and POST, so a budget sized for sends would be spent on opening the form, and three views
+        // in a quarter of an hour would leave the user unable to ask for a reset at all.
+        // The per-account half of this budget lives in PasswordResetRequestThrottle, because a policy runs
+        // before the endpoint and knows nothing about the account yet.
         options.AddPolicy(forgotPasswordRateLimitPolicy, httpContext =>
-            RateLimitPartition.GetFixedWindowLimiter(
-                partitionKey: httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown",
-                factory: _ => new FixedWindowRateLimiterOptions
-                {
-                    PermitLimit = 3,
-                    Window = TimeSpan.FromMinutes(15)
-                }));
+            HttpMethods.IsPost(httpContext.Request.Method)
+                ? RateLimitPartition.GetFixedWindowLimiter(
+                    partitionKey: httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+                    factory: _ => new FixedWindowRateLimiterOptions
+                    {
+                        PermitLimit = 3,
+                        Window = TimeSpan.FromMinutes(15)
+                    })
+                : RateLimitPartition.GetNoLimiter<string>(forgotPasswordPageViewPartition));
 
         // The e-mail change request sends mail to an address the caller typed in, so it can be used to
         // flood a stranger's inbox. Same threat as forgot-password, same budget.
@@ -362,7 +373,55 @@ try
                         Window = TimeSpan.FromMinutes(15)
                     })
                 : RateLimitPartition.GetNoLimiter<string>(resendConfirmationPageViewPartition));
+
+        // The default for every account page (#692). A login POST is a full PBKDF2 verify and a register
+        // or reset POST is a hash plus a queued e-mail, and none of it used to be counted.
+        // POST-only, for the reason spelled out on resend-confirmation above. The key carries the route as
+        // well as the IP, so a few wrong passwords cannot eat the budget for registering.
+        // The budget is per IP, so everyone behind one office router or one mobile carrier shares it. That
+        // is deliberate: production issues no password grant (only the Testing host does), so this form is
+        // the single place a password can be guessed, and the cost of a shared budget is bounded — the
+        // refusal is a Polish page that says when to come back, not a dead end.
+        options.AddPolicy(authPageRateLimitPolicy, httpContext =>
+            HttpMethods.IsPost(httpContext.Request.Method)
+                ? RateLimitPartition.GetFixedWindowLimiter(
+                    partitionKey: BuildPagePostPartitionKey(httpContext),
+                    factory: _ => new FixedWindowRateLimiterOptions
+                    {
+                        // A person mistypes a password a few times and then asks for a reset. Ten posts
+                        // in a quarter of an hour is room for that and far too little to spray with.
+                        PermitLimit = 10,
+                        Window = TimeSpan.FromMinutes(15)
+                    })
+                : RateLimitPartition.GetNoLimiter<string>(authPageViewPartition));
+
+        // 429 is the one rejection a caller can act on, so it says when to come back. Rounding up, because
+        // a remainder under a second would otherwise tell the caller to retry immediately.
+        // A browser gets a page instead of the bare "Status Code: 429" UseStatusCodePages writes: this is
+        // now reachable from the login and register forms, and an English dead end there is no answer.
+        options.OnRejected = async (context, cancellationToken) =>
+        {
+            if (context.Lease.TryGetMetadata(MetadataName.RetryAfter, out TimeSpan retryAfter))
+            {
+                context.HttpContext.Response.Headers.RetryAfter =
+                    ((int)Math.Ceiling(retryAfter.TotalSeconds)).ToString(NumberFormatInfo.InvariantInfo);
+            }
+
+            await TooManyRequestsPage.WriteIfBrowserRequestAsync(context.HttpContext, retryAfter, cancellationToken);
+        };
     });
+
+    // The route template, never Request.Path. Routing matches a path whatever its casing, so
+    // "/account/login" and "/Account/Login" are the same page — keying on the path would hand a caller
+    // a fresh budget for every spelling of it.
+    static string BuildPagePostPartitionKey(HttpContext httpContext)
+    {
+        string route = httpContext.GetEndpoint() is RouteEndpoint routeEndpoint
+            ? routeEndpoint.RoutePattern.RawText ?? string.Empty
+            : string.Empty;
+
+        return $"{route}:{httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown"}";
+    }
 
     WebApplication app = builder.Build();
 
@@ -473,7 +532,11 @@ try
 
     app.MapRootEndpoints(rootEndpointsGroup);
 
-    app.MapRazorPages();
+    // Every account page is limited, and a page that wants something else says so with
+    // [EnableRateLimiting] or [DisableRateLimiting]. Opting out is the deliberate act now, which is the
+    // part attribute-per-page got wrong: five of the ten pages here, login and register among them, were
+    // simply never given one (#692).
+    app.MapRazorPages().RequireRateLimitingByDefault(authPageRateLimitPolicy);
 
     // Serves the web fonts the account pages use, which we host ourselves (LEGAL-06). It sets its own
     // Cache-Control with ETag revalidation, so GlobalNoCacheMiddleware leaves these responses alone.

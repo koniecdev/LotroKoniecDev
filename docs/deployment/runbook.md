@@ -17,7 +17,7 @@
 ## Contents
 
 - [Topology](#topology) — the fleet, the boxes, the filesystem layout
-- [Services & the container contract](#services--the-container-contract)
+- [Services & the container contract](#services--the-container-contract) — incl. [who the kernel kills first](#memory-pressure-who-the-kernel-kills-first) when a box runs out of memory
 - [Environment variable matrix](#environment-variable-matrix) — the single source of truth, per service × environment
 - [Secrets](#secrets) — where they live, how to generate them, how to rotate them
 - [Consistency rules that bite](#consistency-rules-that-bite) — issuer / redirect / authority / CORS
@@ -87,6 +87,94 @@ apps use `expose:` and are reachable **only** through the proxy (the broker's ma
 one loopback exception — `127.0.0.1:15672`, reachable exclusively over an ssh tunnel, see
 [Message broker](#message-broker-rabbitmq)). The migrator runs to completion *before* the
 APIs serve traffic, so there is never half-migrated serving.
+
+### Memory pressure: who the kernel kills first
+
+When a **box** runs out of memory the kernel picks its victim by size and nothing else, and on these
+boxes size barely speaks: the entire RSS spread across a box is worth about **45 points** of
+`oom_score`, while one unit of `oom_score_adj` is worth **0.66** of a point. Until #786 every
+container ran at the default `0`, so the ranking was decided by which process happened to be fattest
+— which on the staging box put `obs-alloy` at the very top, the one component whose death stops all
+telemetry for both boxes and stops it *silently* (ADR-0051), ahead of a staging frontend nobody was
+using.
+
+**The two boxes are ordered in opposite directions, and that is deliberate.** The observability
+backend lives on the *staging* box because a backend co-hosted with the workload it observes dies in
+the same outage (ADR-0050 §1) — so on that box the observability stack is the production-critical
+workload and the applications serve one developer and one tester. On the prod box the applications
+are the product and the only observability component is the agent, whose death costs telemetry
+rather than the service.
+
+| Container | staging | prod | Why |
+|---|---|---|---|
+| `auth-api`, `tms-api`, `frontend`, `rabbitmq` | **+500** | **0** | `${OOM_SCORE_ADJ_APP}` in `/opt/lotro/.env`. First to go on staging; on prod they sit on the host daemons' own line |
+| `tks-adoption-api`, `tks-frontend` | **+500** | **0** | `${OOM_SCORE_ADJ_APP}` in `/opt/tks/.env` — same knob, same values, koniecdev/TheKittySaver#757 |
+| `migrator`, `tks-migrator` | 0 | 0 | literal, on both boxes. The deploy gate is not a workload to sacrifice: the app knob would make a rollout the staging box's first victim for nothing |
+| `caddy`, `caddy-validate` | −100 | −100 | literal. The only ingress on either box, and on staging it also serves the obs ingest vhost prod pushes through (ADR-0050 §4) |
+| `loki`, `prometheus`, `tempo`, `grafana` | −200 | *(staging only)* | literal — the `backend` profile pins them to one box, so their role never changes |
+| `preflight` | −200 | −200 | literal. It carries no profile, so unlike the four above it runs in **both** roles; it is a one-shot that exits in milliseconds |
+| `obs-alloy` | **−300** | **+300** | `${OBS_ALLOY_OOM_SCORE_ADJ}` in `/opt/obs/.env`. The only value in that project that inverts, because `alloy` carries no profile and runs on both boxes from one definition |
+
+**What the agent does not carry.** Prod does **not** ship through the staging box's agent. The prod
+agent pushes through the ingest vhost on Caddy straight into `loki` / `prometheus` / `tempo`
+(ADR-0050 §4), so on the staging box the agent carries only that box's own signals — which is why
+Caddy, not the agent, is the container prod's telemetry actually depends on there. The agent still
+takes the deepest protection on that box: it is the single OTLP receiver and log tailer for **both**
+application stacks on it, the only source of the host and container metrics the fleet rules read
+(including the rule watching this stack's own memory), and the fattest container in the project, so
+it is exactly what an unguided kernel would pick first.
+
+**Why the agent needs a knob and not a literal.** Its role inverts between the boxes, and the host's
+own daemons (`fail2ban`, `unattended-upgrades`, `networkd-dispatcher`, …) sit at `0` on both, forming
+a fixed line at ~672 that the agent has to be *below* on staging and *above* on prod. A negative
+literal would also be self-defeating on prod: with `mem_limit: 512m`, an agent at −200 tops out at an
+`oom_score` of about 590 however much memory it holds, so the kernel would take the box apart daemon
+by daemon before reaching the container the policy names. `preflight` refuses to start the stack if
+the value's sign does not match the box's role — the template ships the backend value live, and a
+wrong sign is silent everywhere else.
+
+**Read it back from the kernel, never from the compose file** — `oom_score` is what decides, and it
+moves with RSS:
+
+```bash
+for c in $(docker ps --format '{{.Names}}'); do
+  pid=$(docker inspect -f '{{.State.Pid}}' "$c")
+  printf '%-32s adj=%-6s score=%s\n' "$c" "$(cat /proc/$pid/oom_score_adj)" "$(cat /proc/$pid/oom_score)"
+done | sort -t= -k3 -rn
+```
+
+Read back after the first rollout, 2026-09-10. Scores move by a few points as RSS moves, so treat
+these as bands, not constants — the ordering is what the policy fixes:
+
+| `lotro-staging` — first victim at the top | score | | `lotro-prod` | score |
+|---|---|---|---|---|
+| the six application containers, both projects | 1011–1026 | | **`obs-alloy`** | **~910** |
+| `lotro-staging-caddy` | ~606 | | the seven application containers, both projects | 678–700 |
+| `obs-grafana`, `obs-prometheus`, `obs-tempo`, `obs-loki` | 550–566 | | `lotro-prod-caddy` | ~606 |
+| **`obs-alloy`** | **~511** | | | |
+
+On staging the six application containers are the six top processes on the whole box. On prod the
+agent is the top process on the box, above even the host's own lingering `user@.service` at 734 —
+which is the point of the positive value there, and what a negative one could not have achieved.
+
+**A service added to either compose file gets its `oom_score_adj` in the same commit.** Nothing in CI
+can see a missing one — `scripts/ci/classify-changes.sh` treats compose files as inert — so the
+default `0` would be silent, and on the prod box a `0` outranks the agent.
+
+Both halves need a rollout to take effect, and they are **two different deploys**: `/opt/lotro` is a
+CD artifact (it lands with the next `deploy.sh`), `/opt/obs` is hand-deployed (ADR-0050 §2). Changing
+the value forces a container **recreate** on `up -d`, so the observability half costs a short
+telemetry gap.
+
+**Do not restore symmetry between the boxes because it looks tidier.** The asymmetry is the whole
+decision; a "consistent" ordering means one of the two boxes is ordered backwards.
+
+**What this does not cover.** `oom_score_adj` decides only the **box-level** OOM. A container that
+hits its own `mem_limit` is killed by the *cgroup* OOM killer, where the adjustment plays no part and
+the ranking is irrelevant — that is the failure mode #782 hit, and the one the fleet rule watches at
+85% of the ceiling. Neither box has ever had a box-level OOM (prod: none in the 60 days since it was
+built; staging: one, and it was a cgroup kill), so this is cheap insurance, not a fix for something
+observed.
 
 ## Environment variable matrix
 
@@ -223,7 +311,10 @@ crawler control, #531 — Caddy stamps it as `X-Robots-Tag` on every LOTRO vhost
 leaves it unset → `all` (explicit no-op), the **staging box sets
 `XROBOTS="noindex, nofollow"`** so the deliberately-public staging trio never gets indexed as
 duplicate content of prod. The TKS vhosts are excluded on purpose — TKS stamps the header
-app-side, koniecdev/TheKittySaver#390).
+app-side, koniecdev/TheKittySaver#390), `OOM_SCORE_ADJ_APP` (**opposite on the two boxes** —
+`500` on staging, `0` on prod; see [Memory pressure](#memory-pressure-who-the-kernel-kills-first)).
+The observability project has its own `/opt/obs/.env` with `OBS_ALLOY_OOM_SCORE_ADJ`, which inverts
+the same way (`-300` staging, `300` prod).
 
 ## Secrets
 

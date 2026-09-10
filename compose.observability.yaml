@@ -39,6 +39,21 @@
 # can sit on it — the same shape as `tks`, and the reason that stack must have deployed at least
 # once since #755 before this project can start.
 
+# Who the kernel kills when the BOX runs out of memory (#786) — the observability half of the
+# policy whose application half lives in compose.hetzner.yaml (read that header first).
+#
+# The four backend components are staging-only (the `backend` profile), so their value is a literal:
+# they exist on exactly one box and their role never changes. `alloy` is NOT one of them. It carries
+# no profile, it runs on BOTH boxes from this single definition, and its role INVERTS between them —
+# production-critical on the staging box, the designated first victim on prod. No literal can
+# express that, because the host's own daemons sit at oom_score_adj 0 on both boxes and form a fixed
+# line the agent has to be BELOW on staging and ABOVE on prod. Hence a per-box knob, the same shape
+# as OBS_BOX and OBS_ENVIRONMENT: one file, both roles, the env file next to it picks which.
+#
+# (A literal here would also be self-defeating on prod. The agent is capped at mem_limit 512m below,
+# so a negative value pins its oom_score under the host daemons' ~672 no matter how much memory it
+# is holding — the box would be taken apart daemon by daemon before the container the policy names.)
+
 name: obs
 
 services:
@@ -132,6 +147,19 @@ services:
     depends_on:
       preflight:
         condition: service_completed_successfully
+    # The one value in this file that differs per box — see the header.
+    #   staging (backend role): -300, the most protected container in the project. Note what that
+    #     is NOT for: prod does not push through this agent. The prod box's agent goes through the
+    #     ingest vhost on Caddy straight into loki / prometheus / tempo (ADR-0050 §4), so nothing
+    #     here is in prod's path. It earns the depth on its own box — it is the only OTLP receiver
+    #     and the only log tailer for BOTH application stacks, and the only source of the host and
+    #     container metrics the fleet rules read, including the rule watching this stack's own
+    #     memory. It is also the fattest container here (512 MiB ceiling), which is exactly what
+    #     would make the kernel pick it first if nothing said otherwise.
+    #   prod (agent-only role): +300, the box's designated first victim. Losing it costs telemetry;
+    #     losing anything else there costs the product. The positive value is what puts it above the
+    #     host's own daemons, so the kernel reaches it FIRST instead of a dozen system services.
+    oom_score_adj: ${OBS_ALLOY_OOM_SCORE_ADJ:?OBS_ALLOY_OOM_SCORE_ADJ must be set in /opt/obs/.env — -300 on the backend (staging) box, 300 on an agent-only (prod) box (see the header of this file and .env.observability.example)}
     # 512m, not 256m as ADR-0050 predicted: Alloy is the heaviest component here, not the
     # lightest. It carries the cadvisor exporter across every container on the box AND the
     # whole OTLP pipeline for both projects, and it grew from 144 MiB to 285 MiB the moment
@@ -158,6 +186,9 @@ services:
       - loki-data:/loki
     networks:
       - obs
+    # Backend tier — staging only, so a literal. Recoverable and loud: Alloy retries what it
+    # could not push, and an operator notices a gap in Explore.
+    oom_score_adj: -200
     mem_limit: 192m
     logging:
       driver: json-file
@@ -186,6 +217,8 @@ services:
       - prometheus-data:/prometheus
     networks:
       - obs
+    # Backend tier — staging only, so a literal (same reasoning as loki).
+    oom_score_adj: -200
     mem_limit: 256m
     logging:
       driver: json-file
@@ -209,6 +242,8 @@ services:
     # user browsing traces on 2026-09-09 took this container from 95 MiB steady to an OOM-kill at
     # anon-rss 184 MB (#782). The query path is capped in tempo.yaml as well — the limit and the
     # cap belong together, because either one alone still lets a query ask for the whole container.
+    # Backend tier — staging only, so a literal (same reasoning as loki).
+    oom_score_adj: -200
     mem_limit: 384m
     logging:
       driver: json-file
@@ -219,7 +254,7 @@ services:
   # What `${VAR:?}` cannot express. Interpolation guards a variable, one at a time, with no idea
   # which role the box is in — and it runs for EVERY service before profiles are applied, so a
   # backend-only guard also breaks the agent-only role. This one-shot has no profile (both roles run
-  # it, and alloy + grafana wait for it) and knows the role, so it can check the two things that
+  # it, and alloy + grafana wait for it) and knows the role, so it can check the three things that
   # decide whether this box works at all:
   #
   #   * The role and the box agree. Each branch asserts what the OTHER role's variables must look
@@ -238,14 +273,24 @@ services:
   #     an agent box builds `https:///loki/api/v1/push` and an OTLP endpoint of `:443`, which retry
   #     against nothing at warn level while the self-arming absence rule — never having seen this
   #     box — stays quiet. A misconfigured agent would be indistinguishable from an absent one.
+  #   * The agent's OOM ranking carries the SIGN its role requires (#786). Interpolation can only
+  #     demand that the value exists, and one that exists with the wrong sign is silent everywhere
+  #     else — the box comes up healthy and ships telemetry, and the only symptom is that a
+  #     box-level OOM would kill exactly the wrong container. It is the same mistake the role line
+  #     invites (the template ships the BACKEND value live), so it is caught in the same place.
   preflight:
     image: alpine:3.22
     network_mode: none
+    # Backend tier, although this one-shot runs in BOTH roles: it exits in milliseconds and holds no
+    # memory, and ranking it with the project it gates keeps "no observability container outranks an
+    # application" true of every service in this file without an exception to remember.
+    oom_score_adj: -200
     environment:
       OBS_COMPOSE_PROFILES: ${COMPOSE_PROFILES:-}
       OBS_BACKEND_HOST: ${OBS_BACKEND_HOST:-}
       OBS_PUSH_USER: ${OBS_PUSH_USER:-}
       OBS_PUSH_PASSWORD: ${OBS_PUSH_PASSWORD:-}
+      OBS_ALLOY_OOM_SCORE_ADJ: ${OBS_ALLOY_OOM_SCORE_ADJ:-}
     command:
       - sh
       - -ec
@@ -258,13 +303,20 @@ services:
                 echo "preflight: $$v is set, but this box claims the BACKEND role -- a backend box pushes to the containers next door and has nothing to authenticate to. Did COMPOSE_PROFILES=backend survive a copy of the template onto an agent-only box? (.env.observability.example)" >&2
                 exit 1; }
             done
+            [ "$${OBS_ALLOY_OOM_SCORE_ADJ:-0}" -lt 0 ] || {
+              echo "preflight: OBS_ALLOY_OOM_SCORE_ADJ is '$$OBS_ALLOY_OOM_SCORE_ADJ', but a BACKEND box needs a NEGATIVE value (-300): here the agent is protected, and only an agent-only box makes it the first victim. Did the template reach the wrong box? (#786)" >&2
+              exit 1; }
             true ;;
           "")
             echo "preflight: agent-only role"
             for v in OBS_BACKEND_HOST OBS_PUSH_USER OBS_PUSH_PASSWORD; do
               printenv "$$v" | grep -q . || {
                 echo "preflight: $$v must be set in /opt/obs/.env on an agent-only box" >&2; exit 1; }
-            done ;;
+            done
+            [ "$${OBS_ALLOY_OOM_SCORE_ADJ:-0}" -gt 0 ] || {
+              echo "preflight: OBS_ALLOY_OOM_SCORE_ADJ is '$$OBS_ALLOY_OOM_SCORE_ADJ', but an AGENT-ONLY box needs a POSITIVE value (300): the agent is this box's designated first victim and the host's own daemons sit at 0, so a negative value hides it behind them. Did the backend value survive a copy of the template? (#786)" >&2
+              exit 1; }
+            ;;
           *)
             echo "preflight: COMPOSE_PROFILES must be exactly 'backend' or empty, not '$$OBS_COMPOSE_PROFILES' -- it picks the ship file" >&2
             exit 1 ;;
@@ -308,6 +360,9 @@ services:
       - grafana-data:/var/lib/grafana
     networks:
       - obs
+    # Backend tier — staging only, so a literal. It is the alerting engine as well as the UI, but it
+    # restarts in seconds and its absence is the most visible thing on the box.
+    oom_score_adj: -200
     depends_on:
       preflight:
         condition: service_completed_successfully

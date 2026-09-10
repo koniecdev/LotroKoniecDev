@@ -51,8 +51,9 @@
 # as OBS_BOX and OBS_ENVIRONMENT: one file, both roles, the env file next to it picks which.
 #
 # (A literal here would also be self-defeating on prod. The agent is capped at mem_limit 512m below,
-# so a negative value pins its oom_score under the host daemons' ~672 no matter how much memory it
-# is holding — the box would be taken apart daemon by daemon before the container the policy names.)
+# so the negative value the other box uses pins its oom_score under the host daemons' ~672 no matter
+# how much memory it holds — the box would be taken apart daemon by daemon before the container the
+# policy names.)
 
 name: obs
 

@@ -94,8 +94,8 @@ When a **box** runs out of memory the kernel picks its victim by size and nothin
 boxes size barely speaks: the entire RSS spread across a box is worth about **45 points** of
 `oom_score`, while one unit of `oom_score_adj` is worth **0.66** of a point. Until #786 every
 container ran at the default `0`, so the ranking was decided by which process happened to be fattest
-— which on the staging box put `obs-alloy` at the very top, the one component whose death stops all
-telemetry for both boxes and stops it *silently* (ADR-0051), ahead of a staging frontend nobody was
+— which on the staging box put `obs-alloy` at the very top: the container that carries every signal
+that box produces, for both application stacks on it, ranked above a staging frontend nobody was
 using.
 
 **The two boxes are ordered in opposite directions, and that is deliberate.** The observability
@@ -110,7 +110,7 @@ rather than the service.
 | `auth-api`, `tms-api`, `frontend`, `rabbitmq` | **+500** | **0** | `${OOM_SCORE_ADJ_APP}` in `/opt/lotro/.env`. First to go on staging; on prod they sit on the host daemons' own line |
 | `tks-adoption-api`, `tks-frontend` | **+500** | **0** | `${OOM_SCORE_ADJ_APP}` in `/opt/tks/.env` — same knob, same values, koniecdev/TheKittySaver#757 |
 | `migrator`, `tks-migrator` | 0 | 0 | literal, on both boxes. The deploy gate is not a workload to sacrifice: the app knob would make a rollout the staging box's first victim for nothing |
-| `caddy`, `caddy-validate` | −100 | −100 | literal. The only ingress on either box, and on staging it also serves the obs ingest vhost prod pushes through (ADR-0050 §4) |
+| `caddy`, `caddy-validate` | −100 | −100 | literal. The only ingress on either box, and on staging it also serves the obs ingest vhost prod pushes through (ADR-0050 §4). −100 rather than deeper because it restarts in seconds and the prod agent retries connection errors and 5xx, so the worst case is a bounded ingest gap |
 | `loki`, `prometheus`, `tempo`, `grafana` | −200 | *(staging only)* | literal — the `backend` profile pins them to one box, so their role never changes |
 | `preflight` | −200 | −200 | literal. It carries no profile, so unlike the four above it runs in **both** roles; it is a one-shot that exits in milliseconds |
 | `obs-alloy` | **−300** | **+300** | `${OBS_ALLOY_OOM_SCORE_ADJ}` in `/opt/obs/.env`. The only value in that project that inverts, because `alloy` carries no profile and runs on both boxes from one definition |
@@ -149,7 +149,7 @@ these as bands, not constants — the ordering is what the policy fixes:
 | `lotro-staging` — first victim at the top | score | | `lotro-prod` | score |
 |---|---|---|---|---|
 | the six application containers, both projects | 1011–1026 | | **`obs-alloy`** | **~910** |
-| `lotro-staging-caddy` | ~606 | | the seven application containers, both projects | 678–700 |
+| `lotro-staging-caddy` | ~606 | | the six application containers, both projects | 678–700 |
 | `obs-grafana`, `obs-prometheus`, `obs-tempo`, `obs-loki` | 550–566 | | `lotro-prod-caddy` | ~606 |
 | **`obs-alloy`** | **~511** | | | |
 

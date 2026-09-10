@@ -159,7 +159,8 @@ which is the point of the positive value there, and what a negative one could no
 
 **A service added to either compose file gets its `oom_score_adj` in the same commit.** Nothing in CI
 can see a missing one — `scripts/ci/classify-changes.sh` treats compose files as inert — so the
-default `0` would be silent, and on the prod box a `0` outranks the agent.
+default `0` would be silent — and on the prod box it lands the new container in the **product** tier,
+better protected than the agent the policy wants killed first.
 
 Both halves need a rollout to take effect, and they are **two different deploys**: `/opt/lotro` is a
 CD artifact (it lands with the next `deploy.sh`), `/opt/obs` is hand-deployed (ADR-0050 §2). Changing

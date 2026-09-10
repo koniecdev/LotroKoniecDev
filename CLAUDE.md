@@ -506,6 +506,22 @@ file_id||gossip_id||translated_text||args_order||args_id||approved||source_diges
   still emits its antiforgery token and posts to the current URL, and handler binding reads the form
   field before the query string. `LocalReturnUrl.Sanitize` only answers "is this target local"; the
   encoding at each print site is what keeps these pages safe. (`Html.Raw` is a sink of its own.)
+- **Auth Razor Pages are rate limited by default; opting out is the explicit act (#692).**
+  `app.MapRazorPages().RequireRateLimitingByDefault("auth-page-limit")` gives every account page a limit,
+  so a new page is covered without anyone remembering an attribute — five of the ten pages, login and
+  register among them, were missed exactly that way. A page that needs a different budget says
+  `[EnableRateLimiting]`, one that needs none says `[DisableRateLimiting]`, and the convention leaves
+  both alone. **Never replace it with a plain `RequireRateLimiting` on that group:** `GetMetadata`
+  returns the last match and a group convention is appended *after* a PageModel attribute, so the group
+  would silently eat the page's own policy. On a minimal-API endpoint it is the other way round, because
+  there the endpoint's own call runs after its group's — same method, opposite winner. A page budget also
+  counts **POSTs only**: a Razor Page is one endpoint for GET and POST, so a send-sized budget gets spent
+  on page views and locks the user out of the form (ADR-0046's lesson, now in `forgot-password-limit`
+  too). Mail sent to a caller-typed address needs a second budget keyed by **the account**, not the IP
+  (`PasswordResetRequestThrottle`) — an attacker rotating IPs gets a fresh IP budget every time. Key it on
+  the **id**, never the address text: Identity's `NormalizeEmail` runs `Normalize()` first, so a Polish
+  address written with a combining accent resolves to the same account while a text key would hand the two
+  identical-looking spellings a budget each.
 - **Every user-visible date is Poland time, never raw UTC (#736).** Static SSR has no reader time
   zone: the server's own zone is UTC in a container and the request carries none. The product serves a
   Polish audience, so a stored instant is converted to `Europe/Warsaw` at the moment it is printed —

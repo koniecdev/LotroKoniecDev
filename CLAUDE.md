@@ -193,6 +193,7 @@ rule, the wiki stating it, and a follow-up ticket amending ADR-0003 and the vali
 dotnet build LotroKoniecDev.slnx
 
 # Tests
+# The unfiltered run is the gate before EVERY push — the filtered ones are for iterating only.
 dotnet test                                            # everything runnable on this OS
 dotnet test tests/LotroKoniecDev.Tests.Unit            # fast, pure unit (must always be green)
 dotnet test tests/LotroKoniecDev.Tests.E2E             # full pipeline — auto-skips off-Windows
@@ -677,6 +678,15 @@ structure.
   `.Received()` is forbidden — a behavior-preserving refactor must never break a test.
 - **Unit tests are pure:** no filesystem, no network, no DB, no order dependence. Real-resource
   verification belongs to integration projects.
+- **The whole suite green locally before every push — unconditional.** `dotnet test`, no filter:
+  everything runnable on this OS (the Windows-only `.Tests.Infrastructure` / `.Tests.E2E` suites
+  auto-skip elsewhere). Never narrow it to the touched area, and never run integration only "when
+  the slice ships an endpoint" — deciding from the diff which suites a change can reach is the
+  mistake, not the shortcut. `pr-verify` runs unit **and** integration on every PR here, so a leg
+  you skip locally does not disappear: it fails on a runner, at GitHub's expense, minutes after a
+  local run would have shown it for free. Precedent from the sibling repo: TheKittySaver #567,
+  where a CSS-only frontend fix broke four full-page snapshot tests nobody thought it could reach.
+  A suite that genuinely cannot run here is unproven — say which, and do not open the PR.
 - **Edge cases are first-class.** Happy path is the floor. `[Theory]` + `[InlineData]` for the
   unhappy-path/boundary matrix (empty, max, malformed, already-in-state).
 - **AAA always; assertions inline in the test method.** DRY the Arrange (builders), never the

@@ -87,8 +87,13 @@ a non-trivial modeling decision emerges mid-flight. Honor every constraint the s
 ## 6. Verify "done"
 
 - `dotnet build LotroKoniecDev.slnx` — green with **zero warnings** (TreatWarningsAsErrors).
-- `dotnet test tests/LotroKoniecDev.Tests.Unit` — green; new behavior covered (happy path +
-  failure modes + boundary `[Theory]` cases).
+- **The whole suite, locally, on every ticket — unconditional.** `dotnet test` (no filter) runs
+  everything runnable on this OS; E2E auto-skips off-Windows. Never narrow it to
+  `tests/LotroKoniecDev.Tests.Unit` because the diff "cannot reach" the rest — that judgement is
+  the mistake. New behavior covered (happy path + failure modes + boundary `[Theory]` cases), and
+  report the counts rather than "tests pass". Local minutes cost nothing; GitHub Actions minutes
+  are the scarce resource, so a suite skipped here and run on a runner is pure waste. Anything
+  that will not run locally is unproven: say which, and do not open the PR.
 - Launch the **`code-reviewer`** agent with the ticket's acceptance criteria; fix what it finds.
   Re-run until clean.
 

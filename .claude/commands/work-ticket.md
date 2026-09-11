@@ -47,9 +47,10 @@ push → `gh pr create` (the interactive "ask before pushing" rule is waived). Y
    SRP handlers, CQRS read/write split, ValueObjects over primitives, EF Fluent-only + `nameof()`
    columns, sealed types, explicit ctors, LINQ methods, zero warnings). A clear modeling decision
    emerging mid-flight → author an ADR in the house format; a genuinely contested one → `BLOCKED`.
-6. **Verify "done".** `dotnet build LotroKoniecDev.slnx` — green, **zero warnings**. Run the unit
-   tests for the touched area (+ the matching `.API.Tests.Integration` when the slice ships an
-   endpoint) — green, with happy path + failure modes + boundary `[Theory]` cases. Then spawn the
+6. **Verify "done".** `dotnet build LotroKoniecDev.slnx` — green, **zero warnings**. Run the **whole**
+   suite in the foreground — `dotnet test`, no filter, everything runnable on this OS — never just
+   the touched area and never "integration only when the slice ships an endpoint". Green, with
+   happy path + failure modes + boundary `[Theory]` cases, and report the counts. Then spawn the
    **`code-reviewer`** agent with the ticket's acceptance criteria; fix every finding; repeat until
    **APPROVE**. Run `/security-review` if the diff touches native interop, file protection, or
    auth. Cannot reach green/clean → `STATUS: BLOCKED` with the reason — never push broken work.

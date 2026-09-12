@@ -22,7 +22,7 @@ authoritative) — **two bounded contexts in one repo**, integrating through a f
 (`~/RiderProjects/TheKittySaver` — the canonical reference for Vertical Slice Architecture, DDD
 domain, Result monad, the OpenIddict auth server, Docker/compose, testing discipline), with
 **one repo-wide deviation: NO MEDIATOR (ADR-0001)**. KittySaver uses `Mediator.SourceGenerator`;
-every lifted slice is de-mediatorized on entry (recipe below). `Mediator`/`MediatR` packages are
+every lifted slice is de-mediatorized on entry (recipe: `docs/kittysaver-lift-map.md`). `Mediator`/`MediatR` packages are
 forbidden — never add them back.
 
 ## Project status — deployed, pre-launch (no real users yet)
@@ -58,7 +58,7 @@ src/
 ```
 
 (`TranslationSystem.Projections` is the in-house precomputed-translation-file store behind the
-distribution endpoint — not part of the KittySaver lift map below.)
+distribution endpoint — not part of the KittySaver lift map in `docs/kittysaver-lift-map.md`.)
 
 **The contexts share a data contract, not code: the `||` translation file.** CLI `export` →
 `exported.txt` → TMS import; TMS export → `polish.txt` → CLI `patch`. Each context owns its own
@@ -92,47 +92,19 @@ tiny building blocks it needs (Result/Maybe/Error shapes, messaging interfaces �
 inside the lifted SharedKernel); consolidating that duplication is an opt-in cleanup, not a
 mandate. The DAT/`||` file format still changes only via ADR + updated golden fixtures.
 
-### TMS — the KittySaver lift map
+### TMS — lifted 1:1 from TheKittySaver
 
-The lift itself is **done** — every row below exists in the repo. The map stays as the pattern
-reference: a **new** TMS slice mirrors the nearest existing sibling slice in this repo first,
-and falls back to the KittySaver original (+ the de-mediatorization recipe) when no sibling fits.
-
-| Building… | Mirror from `~/RiderProjects/TheKittySaver` | Lift notes |
-|---|---|---|
-| `SharedKernel` | `src/SharedKernel/TheKittySaver.SharedKernel` | Drop the `Mediator.Abstractions` package; add `Messaging/` with in-house `ICommand(Handler)`/`IQuery(Handler)` (same shapes as patcher `Application/Abstractions/Messaging/`). Keep monads, BuildingBlocks, `Ensure`, `StronglyTypedId` |
-| `TranslationSystem.Primitives` | `…AdoptionSystem.Primitives` | Strongly-typed ID types + enums per aggregate (`Aggregates/<X>Aggregate/`), shared by Domain, ReadModels and Contracts; the `StronglyTypedId` base stays in SharedKernel (ADR-0002 amendment 2026-06-12) |
-| `TranslationSystem.Domain` | `src/AdoptionSystem/…AdoptionSystem.Domain` | `Aggregates/<X>Aggregate/{Entities,ValueObjects,Repositories}` + `Core/Errors`; our aggregates are far simpler than `Cat` — don't inflate them |
-| `TranslationSystem.ReadModels` + `…ReadModels.EntityFramework` | `…AdoptionSystem.ReadModels` + `…ReadModels.EntityFramework` | POCO read models per aggregate (`IReadOnlyEntity<TId>`) + their EF configurations; query handlers read them via `IApplicationReadDbContext` — never the write model (ADR-0002 amendment 2026-06-12) |
-| `TranslationSystem.Persistence` | `…AdoptionSystem.Persistence` | Write + read DbContexts (`ApplicationWriteDbContext` = the UoW + owns migrations; `ApplicationReadDbContext` behind `IApplicationReadDbContext`, applies the ReadModels.EntityFramework configurations) + design-time factory; EF house rules below |
-| `TranslationSystem.Contracts` | `…AdoptionSystem.Contracts` | Request/response DTOs per feature; referenced by Frontend |
-| `TranslationSystem.API` | `…AdoptionSystem.API` | `IEndpoint` + assembly-scan `AddEndpoints`/`MapEndpoints`; slices in `Features/<Area>/<Action>.cs`; `ExceptionHandlers/`, `Auth/` (JwtBearer + policies + `CurrentUserAccessor` + ownership guards), health checks, Serilog + OTel bootstrap |
-| `AuthSystem` (whole module) | `src/AuthSystem/*` | Self-hosted OpenIddict + Identity server — lift wholesale. **Do NOT lift the synchronous `RegisterUser`→`CreatePersonAsync` saga**: provision the translator profile lazily & idempotently on first authenticated TMS request (pattern: KittySaver ADR-0007 §4) |
-| `Frontend` (infra) | `src/Frontend/TheKittySaver.Frontend` | Lift `Infrastructure/` (OIDC RP, `CookieTokenRefresher`, `DiscoveryCache`, `ApiResult`, typed HttpClients, error pages); pages are written fresh for translations; reference `TranslationSystem.Contracts` directly |
-| Docker / compose | `compose.yaml`, `Dockerfile.migrator`, `Dockerfile.tests` | **Infra-only dev stack (ADR-0006 as amended by #190/M6-14): postgres + migrator + mailpit + aspire-dashboard.** All three apps (auth-api, tms-api, frontend) run on the HOST via `dotnet run` / the Rider compound `.run/TMS dev (all hosts)` — like TheKittySaver. `compose.prod.yaml` is the separate containerized/parity stack |
+The lift is **done** — every TMS project mirrors its `~/RiderProjects/TheKittySaver` original. The
+per-project map and the **de-mediatorization recipe** (record → in-house `ICommand`/`IQuery`,
+explicit closed-handler DI registration, validation and logging inside the handler) live in
+**`docs/kittysaver-lift-map.md`**: a **new** TMS slice mirrors the nearest existing sibling slice
+in this repo first and reads that map only when no sibling fits.
 
 **Deliberate non-lifts (YAGNI — revisit only on a real, present need):** `Calculators`, domain
 events (KittySaver dispatches them via Mediator notifications; the TMS core loop doesn't need
 them — if a need appears, design an in-house dispatcher via ADR first). `ReadModels(+EF)` and
 per-system `Primitives` were on this list and are now lifted from day 1 (ADR-0002 amendment
 2026-06-12).
-
-### De-mediatorization recipe (apply to every lifted slice)
-
-A KittySaver slice is one file: `internal sealed class <Action> : IEndpoint` containing a nested
-`Command`/`Query` record + nested `Handler`; the endpoint dispatches via `ISender`. Transform:
-
-1. The record implements in-house `ICommand<Result<TResponse>>` / `IQuery<Result<TResponse>>`
-   from `SharedKernel.Messaging`.
-2. `Handler` implements `ICommandHandler<Command, Result<TResponse>>` — explicit constructor DI,
-   `ValueTask Handle(...)`.
-3. Register the **closed** interface explicitly in the system's DI:
-   `services.AddScoped<ICommandHandler<<Action>.Command, Result<TResponse>>, <Action>.Handler>();`
-4. The endpoint's route delegate takes the closed handler interface as a parameter (instead of
-   `ISender`) and calls `handler.Handle(request, cancellationToken)`.
-5. Pipeline behaviours don't exist here: validation — **command** handlers inject
-   `IValidator<TCommand>` and map failures to `Result` (queries validate inline); logging —
-   `ILogger<Handler>` inside the handler.
 
 ## Source of truth — the wiki outranks specs, ADRs and code
 
@@ -168,8 +140,10 @@ rule, the wiki stating it, and a follow-up ticket amending ADR-0003 and the vali
 
 | You're about to… | Read first |
 |---|---|
-| Build/change a **TMS slice** | the nearest existing sibling slice in `TranslationSystem.API/Features/…`; no fitting sibling → the KittySaver original (`AdoptionSystem.API/Features/…`) + the de-mediatorization recipe |
+| Build/change a **TMS slice** | the nearest existing sibling slice in `TranslationSystem.API/Features/…`; no fitting sibling → the KittySaver original (`AdoptionSystem.API/Features/…`) + the lift map and de-mediatorization recipe in `docs/kittysaver-lift-map.md` |
 | Work a GitHub ticket end-to-end | run **`/ticket <number>`** (mind the this-file-wins rule in Project status) |
+| Triage a pile of tickets before working them (premise check, no implementation) | run **`/preflight <numbers…>`** — wiki-first READY/CLARIFY/BOUNCE verdict comment + lane per ticket; then fire `/ticket` per READY one, each in a fresh session |
+| Touch the `\|\|` translation file (parser, serializer, a column) | `README.md` → "Translation file format" for the format, the rules digest below, ADRs 0039/0042/0043/0047 for the reasoning; golden fixtures on both sides; the format changes only via ADR |
 | **File** an issue, label one, or title one | `docs/labels.md` — the five axes (`priority-*`, `type-*`, `severity-*`, `area-*`, process), the title convention and the three-signal epic rule, **shared 1:1 with TheKittySaver**; a change in one repo is ported to the other in the same session. Read it *before* `gh issue create`, not after |
 | Run the backlog autonomously (Loop mode) | **`/backlog`** → `scripts/claude/backlog-loop.sh` — one fresh headless session per ticket; manual: `docs/claude-loop.md` |
 | Touch DAT binary parsing / writing / native interop | delegate to the **`dat-format-expert`** agent |
@@ -305,82 +279,46 @@ both bootstrapped by `scripts/up-prod.{sh,ps1}`.
 Exit codes (CLI): `0` success, `1` invalid arguments (incl. `ErrorType.Validation`), `2` file not
 found, `3` operation failed, `4` cancelled.
 
-## DAT binary format (digest — full notes in `docs/knowledge-base/`)
+## DAT binary format
 
-```
-SubFile (text, FileId high byte = 0x25):
-  FileId (4B) | Unknown1 (4B) | Unknown2 (1B) | FragCount (VarLen)
-  Fragment[]:
-    FragmentId (8B ulong = GossipId) | PieceCount (int)
-    Piece[]: VarLen length + UTF-16LE bytes
-    ArgRefCount (int) | ArgRef[]: 4B each
-    ArgStringGroupCount (byte) | Group[]: Count(int) + VarLen UTF-16LE strings
-
-VarLen: 0-127 = 1 byte; 128-32767 = 2 bytes (high bit flag)
-```
+The SubFile / Fragment / VarLen layout is pre-catalogued in the **`dat-format-expert`** agent (the
+routing row above — every DAT parse, serialize or interop change goes through it) and lives in the
+patcher's Domain parsers; the empirical findings (chunk patching, survival, vnum) are in
+`docs/knowledge-base/` (start at its README). Texts are SubFiles with FileId high byte `0x25`.
 
 ## Translation file format — THE inter-context contract
 
-```
-# Comments start with #
-file_id||gossip_id||translated_text||args_order||args_id||approved||source_digest
-620756992||1001||Witaj w Srodziemiu!||NULL||NULL||1||3f9a1c0e7b2d4a55
-620756992||1002||Tekst z <--DO_NOT_TOUCH!--> argumentem||1||1||1||9c02e4d1a7f0b366
-```
+Format, columns and worked examples: `README.md` → "Translation file format" (the one copy;
+`<--DO_NOT_TOUCH!-->` is the argument placeholder). Each context owns its own parser/serializer and
+**golden fixtures + round-trip tests on both sides** pin the contract; results are sorted by FileId
+then GossipId for sequential DAT I/O. The rules below stay in force — each ADR holds the reasoning:
 
-- `<--DO_NOT_TOUCH!-->` = argument placeholder
-- `args_order` / `args_id`: `NULL` or `1-2-3` (1-indexed in file, 0-indexed internally). Anything
-  else **rejects the row and is reported** (ADR-0042) — the CLI prints it as a patch warning, the
-  import fails the whole upload. Whether the positions FIT the fragment is checked downstream in
-  `Fragment.TryReorderArgRefs`, the only place that knows how many argument references there are.
-- **Content escape (ADR-0039): `\`→`\\`, CR→`\r`, LF→`\n`.** It escapes its own escape character, so
-  it is injective and `Unescape(Escape(x)) == x`. **Every writer escapes and every reader unescapes**
-  — all four ends (patcher exporter + parser, TMS serializer + import parser), each via its context's
-  own `TranslationLineEscaper`. Text held anywhere else — in the DAT, in `TranslationSource.Text`, in
-  `TranslatedText` — is always the RAW form; the escape exists only between `Serialize` and `Parse`.
-  A sequence no writer can produce (`\t`, a trailing lone `\`) reads back verbatim.
-- **Content is bounded by the DAT, not by the file (ADR-0043).** A text piece is written behind a
-  2-byte VarLen prefix, so it cannot exceed **32767 UTF-16 code units**. The TMS refuses a longer
-  `TranslatedText` at the API (`UpsertTranslation.Validator` + a `CHECK` constraint — never a
-  `varchar(n)` narrowing, which would rewrite the ~780k-row table under `ACCESS EXCLUSIVE`); the
-  patcher warn-skips such a row **before** it loads or mutates a subfile
-  (`Fragment.IsWritablePiece`). `Fragment.Write` still throws — deliberately, as the last resort —
-  and `PatchingService` never catches mid-write.
-- **Stale Polish never lands over changed English — an INVARIANT, enforced per row at write time
-  (ADR-0047, #659).** Owner's rule (2026-08-17): if SSG changed a row's English in version N+1 and
-  the newest approved translation is still for N, the player sees English — *whatever path writes
-  the DAT* (routine `launch` hash-patch, `patch`, the spec-0012 sentinel, the update-day
-  orchestrator). TMS-side exclusion of invalidated rows (spec 0001) holds only after the new export
-  is imported; the client closes the pre-import window: the artifact carries per row a
-  `source_digest` (7th column — 16 hex of the framed SHA-256 the TMS computes as `SourceHash`), and
-  the patcher writes a row only when the fragment holds that English or what the patcher itself
-  last wrote there (`<file>.ledger` sidecar); anything else is skipped and reported as
-  `source moved`. No verdict, registration or watcher is load-bearing for this, and there is no
-  operator override. A six-column translation file is not patchable. Digest parity between the two
-  contexts is a golden fixture pinned on both sides.
-- **The `||` separator is deliberately NOT escaped — the line is CARVED, never `Split` (ADR-0042).**
-  Each context's `TranslationLineCarver` scans **forward** for the two id separators and **backward**
-  for the trailing ones — three or four, sniffed from the last field: `0`/`1` is `approved`, 16 hex
-  is `source_digest` (ADR-0047) — slicing before each backward search, so content may contain `||` and
-  may end in any run of `|`. `string.Split` resolves every boundary greedily left to right, which
-  silently ate a trailing pipe into the args column (#597); never reintroduce it here. Nothing but
-  content can hold a `|`, so both boundaries are recoverable by construction — no escape needed.
-- Results sorted by FileId then GossipId for sequential DAT I/O
-- **Changing this format requires an ADR + updated golden fixtures in BOTH contexts** (patcher
-  parser tests and TMS import/export tests).
+- `args_order` / `args_id`: `NULL` or `1-2-3` (1-indexed in file, 0-indexed internally); anything
+  else **rejects the row and is reported** (ADR-0042) — a CLI patch warning, a failed TMS upload;
+  whether the positions fit is checked downstream in `Fragment.TryReorderArgRefs`.
+- **The line is CARVED, never `Split`** (ADR-0042, #597): `||` inside content and a trailing run of
+  `|` are legal; each context's `TranslationLineCarver` scans forward for the id separators and
+  backward for the tail (three or four, sniffed from the last field). Never reintroduce `Split`.
+- **Content escape `\`→`\\`, CR→`\r`, LF→`\n`, injective** (ADR-0039): every writer escapes, every
+  reader unescapes, via each context's `TranslationLineEscaper`; text held anywhere else is RAW.
+- **Content ≤ 32767 UTF-16 code units — bounded by the DAT, not the file** (ADR-0043): refused at
+  the TMS API (`UpsertTranslation.Validator` + a `CHECK` constraint, never a `varchar(n)` narrowing),
+  warn-skipped by the patcher before any write (`Fragment.IsWritablePiece`); `Fragment.Write` still
+  throws as the last resort.
+- **Stale Polish never lands over changed English — an INVARIANT enforced per row at write time**
+  (ADR-0047, #659): the 7th column `source_digest` (16 hex of the framed SHA-256 `SourceHash`) must
+  match the fragment's English or what the patcher last wrote there (`<file>.ledger`), whatever path
+  writes the DAT; otherwise the row is skipped and reported as `source moved`. No operator override;
+  a six-column file is not patchable; digest parity is a golden fixture pinned on both sides.
+- **Changing this format requires an ADR + updated golden fixtures in BOTH contexts.**
 
-## Game update behavior (empirically proven — do not re-test, see knowledge base)
+## Game update behavior — empirically settled, do not re-test
 
-- **Forum version** (regex `Update\s+(\d+(?:\.\d+)*)\s+Release\s+Notes` on lotro.com) is the
-  reliable game-version identifier. **DAT vnum is useless as a content version** (112/3 unchanged
-  across 45.x→49.1 — six cycles incl. two majors — even while the DAT was actively patched).
-- Launcher patches the DAT **chunk-based**; **translations survive updates per-SubFile** — proven
-  across 9 live tests incl. the 48.0 and 49 majors. Fragments in untouched SubFiles survive
-  byte-for-byte; an update that modifies a SubFile replaces the whole chunk and **reverts our
-  fragments inside it** (first observed 48.8→49.1: 1/8; repair = normal re-patch, TMS-side =
-  the spec-0001 invalidation loop). `attrib +R` protection is unnecessary either way.
-- Simplified launch flow (translation-hash check → patch only if changed → fire-and-forget launch)
-  is fully validated.
+`docs/knowledge-base/` (README index) holds the proof: the **forum version** is the reliable game
+version (DAT vnum 112/3 is dead as a content signal), the launcher patches **chunk-based** so
+translations survive updates per-SubFile (9 live tests incl. two majors; a modified SubFile reverts
+its fragments — repair is the normal re-patch / the spec-0001 invalidation loop), and the simplified
+hash-check → patch → launch flow is validated. Re-investigating any of it is a BOUNCE.
 
 ## Project house rules
 
@@ -482,6 +420,23 @@ file_id||gossip_id||translated_text||args_order||args_id||approved||source_diges
   maintainer pins their own tier machine-locally (a central model policy outside the repo), which
   is deliberately **not** something a clone inherits. If this prose and the frontmatter ever
   disagree, the frontmatter wins.
+- **Token discipline.** Measured 2026-09-12 over 30 days across the maintainer's account: ~54% of
+  spend is cache reads — context length × turn count — and this repo boots the largest context of
+  the three projects (median first-turn cache write ~84k tokens vs ~58k in TheKittySaver), so the
+  levers are fewer turns and shorter contexts, not prose golf. Batch independent tool calls into
+  one message; chain dependent shell steps with `&&` when only the final result gates (build + the
+  whole suite = one call). One ticket = one session: `/clear` after the PR — a second ticket in
+  the same context pays the first one's whole conversation as cache reads on every turn.
+  Questions to the user belong in `/ticket`'s step-2 gate and nowhere later: the prompt cache dies
+  after 1h idle, so a parked fat context re-primes at full price — deliver on documented
+  assumptions and fix from the Ticket report instead. Fable and Opus 5 run a native 1M window in
+  Claude Code and auto-compaction stays at its ~967k default on purpose (never set
+  `autoCompactWindow`, `CLAUDE_CODE_AUTO_COMPACT_WINDOW` or `CLAUDE_CODE_DISABLE_1M_CONTEXT` —
+  compaction is not wanted here), so only you cap a session: past ~200k in `/context` a ticket
+  session is a marathon — finish, report, `/clear`. Pick model and effort before the first prompt:
+  `/model` mid-session is a full cache miss on every model, `/effort` on every model except
+  Fable 5.1. Back-to-back sessions reuse only the tool layer of the cache (the rest re-primes with
+  the git snapshot) — batch them for focus, not for cache.
 - **Frontend is Static SSR — enforced, not just documented.** No WebAssembly, no SignalR circuit,
   no per-user server state; forms post via `<form method="post" @formname @onsubmit>` (the SSR
   `@onsubmit` special-case) or `<EditForm OnValidSubmit>` — never interactive `@on*` handlers,
@@ -737,7 +692,9 @@ structure.
    diff (**`/security-review`** for anything touching native interop, file protection, or auth).
    **Green build + zero warnings + clean review = "done" — not before.**
 5. **PR closes the ticket.** Title mirrors the ticket; body contains `Closes #<n>`.
-   Ask before pushing. **No merge with open CodeQL alerts:** green checks are not enough — the
+   Push and open the PR without asking — the ticket is the authorization, and the PR is the last
+   step, opened only when every gate is green (`/ticket` step 8); **merging is the one step that
+   always needs a separate explicit ask.** **No merge with open CodeQL alerts:** green checks are not enough — the
    CodeQL check succeeds even when it uploads findings. Before any merge (interactive or loop),
    list `gh api "repos/{owner}/{repo}/code-scanning/alerts?ref=refs/pull/<n>/merge&state=open"`
    and fix every alert (dismiss only with a stated reason); the loop's merge gate enforces this
@@ -847,8 +804,8 @@ worker clears them first, see §5). BLOCKED tickets get the
 never invented** — that rule binds the worker and the conductor alike.
 
 Entering loop mode (`/backlog`, or an explicit "work through the backlog") **is** the standing
-authorization for commit → push → PR → merge — the interactive "ask before pushing" rule (§5 above)
-is waived for the duration of the loop. A single wholesale lift (e.g. the AuthSystem module) is
+authorization for commit → push → PR → merge — the merge, which `/ticket` never takes on its own
+(§5 above), belongs to the conductor for the duration of the loop. A single wholesale lift (e.g. the AuthSystem module) is
 **one ticket**: a large diff there is expected and fine — what's not fine is two tickets' worth of
 files sitting uncommitted at once, or two tickets sharing one context. Full manual (overnight
 runs, env knobs, triage, troubleshooting): **`docs/claude-loop.md`**.
@@ -905,6 +862,9 @@ The `/ticket`, `/spec`, `/feature`, `/adr`, `/qa-ticket` workflows are model-inv
 them yourself when the request matches, without waiting for the user to type the slash:
 
 - User references **a ticket number or pastes an issue** → run **`/ticket`**.
+- User asks **which tickets are worth working / whether they make sense** ("czy te tickety mają
+  sens", "co brać najpierw", "przejrzyj backlog zanim zaczniemy") → run **`/preflight`** over
+  them — verdicts and lanes only, never start implementing from a list.
 - User wants a **manual QA scenario written, refreshed or handed to a tester** → **`/qa-ticket`**.
   Same when triaging a tester's bug report: verify the claim against the code before answering, and
   re-baseline the QA ticket that produced it.

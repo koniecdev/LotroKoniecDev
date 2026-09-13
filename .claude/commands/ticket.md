@@ -1,5 +1,5 @@
 ---
-description: Work a GitHub issue end-to-end — interrogate the ticket first (READY/CLARIFY/BOUNCE, wiki-first), one question gate, then autonomous to PR + Ticket report
+description: Work a GitHub issue end-to-end — interrogate the ticket first (READY/CLARIFY/BOUNCE, wiki-first), one question gate, then autonomous to PR + Ticket report + a plain-English pass
 argument-hint: <issue number> [extra context]
 ---
 
@@ -188,10 +188,19 @@ The PR body (or the issue comment, when there is no PR) ends with:
 ```
 
 This report is the hand-off contract: a later session fixes what it lists without re-deriving the
-whole ticket. Your final reply to the user: the verdicts in one line each, the PR link, and
-"session done — `/clear` before the next ticket". If at any point the ticket turned out mis-scoped
-(wrong layer, contradicts the wiki, an ADR or the knowledge base), that is a late BOUNCE: stop,
-report, and propose the correction as a comment draft for the issue.
+whole ticket. Before the final reply, run step 10. Your final reply to the user: the verdicts in
+one line each, the PR link, and "session done — `/clear` before the next ticket". If at any point
+the ticket turned out mis-scoped (wrong layer, contradicts the wiki, an ADR or the knowledge base),
+that is a late BOUNCE: stop, report, and propose the correction as a comment draft for the issue.
+
+## 10. Plain-English pass — the last step
+
+Run **`/b2-english <PR number>`** on the finished PR, after CodeQL is clear (or
+`/b2-english <comment URL>` on the report comment when there is no PR). It rewrites the body into
+plain B2 English for a non-native reader and keeps every fact, number, heading and Polish string.
+Write the body in steps 8–9 as usual — do not try to write B2 on the first pass; this separate pass
+is what works (koniecdev/TheKittySaver#815 is the precedent). Editing a PR body re-runs no
+workflow, so the pass costs no runner minutes.
 
 ## Token discipline (applies to the whole run)
 
@@ -199,7 +208,7 @@ report, and propose the correction as a comment draft for the issue.
   command when only the final result gates (`build && test` is one call, not two).
 - Never re-read a file already in context; prefer one targeted `grep -n` over `cat`-ing whole files.
 - Subagents only where the lane says so — the repo cap is 4 parallel, and an S-lane run uses zero.
-- The session dies after step 9. A second ticket in this context pays this ticket's whole
+- The session dies after step 10. A second ticket in this context pays this ticket's whole
   conversation as cache reads on every turn — a fresh boot is cheaper. Back-to-back `/ticket`
   sessions reuse only the tool layer of the prompt cache (the rest re-primes with the git
   snapshot), so batch your queue for focus, not for cache.

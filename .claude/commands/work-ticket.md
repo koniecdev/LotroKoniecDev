@@ -82,6 +82,11 @@ push → `gh pr create` (exactly as `/ticket` has it). You never merge —
    Fix every alert and push again (re-check after the re-run); dismissal instead of a fix is
    allowed only with a real stated reason. The conductor's merge gate refuses any PR with open
    alerts, so leaving one means the ticket ends in triage, not in a merge.
+9. **Plain-English pass — after CodeQL is clear, before the final message.** Run
+   **`/b2-english <PR number>`**: it rewrites the body into plain B2 English for a non-native
+   reader and keeps every fact, heading and Polish string (same step as `/ticket` step 10).
+   Editing a PR body re-runs no workflow. If the pass fails, the PR still stands — note it in
+   `LESSONS:` and report DONE.
 
 ## Scope & safety
 

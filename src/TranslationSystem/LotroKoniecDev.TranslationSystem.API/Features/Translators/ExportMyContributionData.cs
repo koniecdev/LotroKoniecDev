@@ -22,6 +22,14 @@ namespace LotroKoniecDev.TranslationSystem.API.Features.Translators;
 /// Soft-removed rows are included, because the credit is the caller's personal data whether or not the
 /// row still ships in the game.
 /// The frontend's download route puts this response into the exported file next to the auth half.
+/// This half asks for no password, while the auth half does (#690, ADR-0052). Three reasons, and the
+/// ADR holds the full argument: the payload is the caller's own profile plus the ids of rows they
+/// submitted or approved, all of which the same session already sees in the TMS UI; a password check
+/// here would need the auth server to mint a step-up token this context could verify, which is the
+/// cross-context back-channel ADR-0032 deliberately did not build; and the rel below is the frontend's
+/// proof that the token reached this API, so a tighter policy signs every logged-in user out. The file
+/// that the ticket is really about — the composed Art. 15 document — is gated at the frontend, which
+/// fetches this endpoint only after the auth server has accepted the password.
 /// </summary>
 internal sealed partial class ExportMyContributionData : IEndpoint
 {

@@ -70,6 +70,24 @@ public sealed class AccountDeletionFinalizerTests : EndpointsTestBase
     }
 
     [Fact]
+    public async Task Finalizer_ShouldClearTheArmedRevertTarget_WhenItAnonymizesTheAccount()
+    {
+        // The armed target is a former address of this person, so erasure has to take it with the
+        // rest. It also releases the reservation of #684 — an erased account must not keep somebody
+        // else's address blocked.
+        (_, IdentityId identityId) = await RegisterAndScheduleDeletionAsync();
+        await ArmRevertTargetAsync(identityId.Value, "poprzedni@shire.me");
+        await BackdateScheduleAsync(identityId.Value, TimeSpan.FromDays(15));
+
+        await RunFinalizerAsync();
+
+        ApplicationUser user = await GetUserAsync(identityId.Value);
+        user.EmailChangeRevertTo.ShouldBeNull();
+        user.NormalizedEmailChangeRevertTo.ShouldBeNull();
+        user.EmailChangeRevertArmedAt.ShouldBeNull();
+    }
+
+    [Fact]
     public async Task Finalizer_ShouldNotTouchAccount_BeforeGracePeriodElapses()
     {
         // Arrange: freshly scheduled, still well inside the 14-day window
@@ -168,6 +186,18 @@ public sealed class AccountDeletionFinalizerTests : EndpointsTestBase
         });
 
         return await ApiClient.Http.PostAsync(new Uri("connect/token", UriKind.Relative), tokenRequest);
+    }
+
+    private async Task ArmRevertTargetAsync(Guid userId, string previousEmail)
+    {
+        await using AsyncServiceScope scope = Factory.Services.CreateAsyncScope();
+        AuthDbContext db = scope.ServiceProvider.GetRequiredService<AuthDbContext>();
+
+        ApplicationUser user = await db.Users.SingleAsync(row => row.Id == userId);
+        user.EmailChangeRevertTo = previousEmail;
+        user.NormalizedEmailChangeRevertTo = previousEmail.ToUpperInvariant();
+        user.EmailChangeRevertArmedAt = DateTimeOffset.UtcNow;
+        await db.SaveChangesAsync();
     }
 
     private async Task<ApplicationUser> GetUserAsync(Guid userId)

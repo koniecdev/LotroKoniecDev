@@ -394,24 +394,22 @@ public sealed partial class EmailChangePageTests : EndpointsTestBase
         (RegisterRequest user, string newEmail, Guid userId) = await CompleteChangeAsync();
         string revertToken = EmailChangeEmailSpy.LastRevertToken!;
 
-        // The address was freed by the change, so somebody else can claim it. They do not need to
-        // confirm it — occupying the row is enough to make the revert impossible.
-        await ApiClient.Http.PostAsJsonAsync(
-            new Uri("auth/register", UriKind.Relative),
-            new RegisterRequest(
-                Faker.Random.AlphaNumeric(16),
-                user.Email,
-                Password,
-                AcceptedPrivacyPolicy: true,
-                AcceptedDataProcessingConsent: true,
-                AcceptedTermsOfService: true));
+        // The reservation of #684 closes every ordinary way onto that address while the link lives,
+        // so the row is seeded through the store instead. This branch is the backstop for what the
+        // reservation cannot cover: a row armed before it shipped, and the short tail where the
+        // arming has expired but the token has not.
+        await SeedUserOnAsync(user.Email);
 
         HttpResponseMessage response = await PostToPageAsync(
             "/Account/RevertEmailChange",
             RevertUrl(userId, user.Email, newEmail, revertToken),
             RevertForm(userId, user.Email, newEmail, revertToken));
 
-        (await response.Content.ReadAsStringAsync()).ShouldContain("nieprawidłowy");
+        // Its own message, not the generic dead-link one: nothing is wrong with the link, and the
+        // visitor needs to be told that their password still works and that support is the way on.
+        string html = await response.Content.ReadAsStringAsync();
+        html.ShouldContain("Poprzedni adres należy już do innego konta");
+        html.ShouldNotContain("Link wygasł lub jest nieprawidłowy");
 
         ApplicationUser untouched = await LoadUserByIdAsync(userId);
         untouched.Email.ShouldBe(newEmail);
@@ -478,6 +476,25 @@ public sealed partial class EmailChangePageTests : EndpointsTestBase
         ApplicationUser untouched = await LoadUserByIdAsync(userId);
         untouched.Email.ShouldBe(newEmail);
         untouched.PasswordHash.ShouldNotBeNull();
+    }
+
+    /// <summary>
+    /// Creates an account directly through the store, which is the only way to occupy an address the
+    /// reservation of #684 holds: every HTTP route onto it now refuses.
+    /// </summary>
+    private async Task SeedUserOnAsync(string email)
+    {
+        await using AsyncServiceScope scope = Factory.Services.CreateAsyncScope();
+        UserManager<ApplicationUser> userManager =
+            scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
+
+        ApplicationUser squatter = new()
+        {
+            UserName = Faker.Random.AlphaNumeric(16),
+            Email = email
+        };
+
+        (await userManager.CreateAsync(squatter, Password)).Succeeded.ShouldBeTrue();
     }
 
     private async Task<(RegisterRequest User, string NewEmail, string Token)> RequestChangeAsync()

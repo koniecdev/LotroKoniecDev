@@ -255,6 +255,59 @@ public sealed class DeleteAccountEndpointTests : EndpointsTestBase
         }
     }
 
+    [Fact]
+    public async Task DeleteAccount_ShouldAlsoMailTheAddressAnArmedUndoWouldRestore_WhenSchedulingInsideThatWindow()
+    {
+        // #685. An attacker who moved the account to their own address would otherwise be the only
+        // person holding the cancel link, and the erasure would land after the owner's undo had
+        // expired. The link is the same one, carrying the CURRENT address, because that is what
+        // CancelAccountDeletion looks the account up with.
+        (RegisterRequest registerRequest, IdentityId identityId) =
+            await UserFactory.RegisterRandomUserWithRequestAsync(ApiClient, Faker, AccountConfirmationEmailSpy, TestPassword);
+        await ArmRevertTargetAsync(identityId.Value, "poprzedni@shire.me", TimeSpan.FromDays(13));
+
+        string accessToken = await GetAccessTokenAsync(registerRequest.Email, TestPassword);
+        HttpResponseMessage response = await SendDeleteRequestAsync(accessToken, TestPassword);
+        await AccountDeletionEmailSpy.WaitForScheduledCaptureAsync();
+
+        response.StatusCode.ShouldBe(HttpStatusCode.NoContent);
+        AccountDeletionEmailSpy.PreviousAddressCallCount.ShouldBe(1);
+        AccountDeletionEmailSpy.LastPreviousAddressRecipient.ShouldBe("poprzedni@shire.me");
+        AccountDeletionEmailSpy.LastPreviousAddressCurrentEmail.ShouldBe(registerRequest.Email);
+        AccountDeletionEmailSpy.LastPreviousAddressCancelToken.ShouldBe(AccountDeletionEmailSpy.LastCancelToken);
+        AccountDeletionEmailSpy.LastScheduledEmail.ShouldBe(registerRequest.Email);
+    }
+
+    [Fact]
+    public async Task DeleteAccount_ShouldMailOnlyTheCurrentAddress_WhenTheArmedUndoHasAlreadyExpired()
+    {
+        // Past the undo window ADR-0048 already concedes the account, so the old address has no say in
+        // a deletion it can no longer undo.
+        (RegisterRequest registerRequest, IdentityId identityId) =
+            await UserFactory.RegisterRandomUserWithRequestAsync(ApiClient, Faker, AccountConfirmationEmailSpy, TestPassword);
+        await ArmRevertTargetAsync(identityId.Value, "poprzedni@shire.me", TimeSpan.FromDays(15));
+
+        string accessToken = await GetAccessTokenAsync(registerRequest.Email, TestPassword);
+        HttpResponseMessage response = await SendDeleteRequestAsync(accessToken, TestPassword);
+        await AccountDeletionEmailSpy.WaitForScheduledCaptureAsync();
+
+        response.StatusCode.ShouldBe(HttpStatusCode.NoContent);
+        AccountDeletionEmailSpy.ScheduledCallCount.ShouldBe(1);
+        AccountDeletionEmailSpy.PreviousAddressCallCount.ShouldBe(0);
+    }
+
+    private async Task ArmRevertTargetAsync(Guid userId, string previousEmail, TimeSpan armedAge)
+    {
+        await using AsyncServiceScope scope = Factory.Services.CreateAsyncScope();
+        AuthDbContext db = scope.ServiceProvider.GetRequiredService<AuthDbContext>();
+
+        ApplicationUser user = await db.Users.SingleAsync(row => row.Id == userId);
+        user.EmailChangeRevertTo = previousEmail;
+        user.NormalizedEmailChangeRevertTo = previousEmail.ToUpperInvariant();
+        user.EmailChangeRevertArmedAt = DateTimeOffset.UtcNow - armedAge;
+        await db.SaveChangesAsync();
+    }
+
     private async Task<HttpResponseMessage> SendDeleteRequestAsync(string accessToken, string password)
     {
         DeleteAccountRequest deleteRequest = new(password);

@@ -95,10 +95,12 @@ internal static class ApiDependencyInjection
             services.AddScoped<IEmailChangeEmailSender, EmailChangeEmailSender>();
 
             services.AddScoped<IAccountErasureService, AccountErasureService>();
+            services.AddScoped<IAccountDeletionSchedule, AccountDeletionSchedule>();
             services.AddScoped<IAccountDeletionFinalizer, AccountDeletionFinalizer>();
             services.AddHostedService<AccountDeletionFinalizerHostedService>();
 
             services.AddScoped<IUserSessionRevoker, UserSessionRevoker>();
+            services.AddScoped<IEmailChangeRevertWindow, EmailChangeRevertWindow>();
             services.AddScoped<IEmailChangeRevertReservation, EmailChangeRevertReservation>();
 
             // A singleton, because the budget has to be shared by every request. The IP policies live in

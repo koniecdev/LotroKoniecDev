@@ -1,8 +1,8 @@
 using System.Text.Json;
 using Microsoft.AspNetCore.Identity;
-using Microsoft.Extensions.Options;
 using LotroKoniecDev.AuthSystem.API.Outbox;
-using LotroKoniecDev.AuthSystem.API.Settings;
+using LotroKoniecDev.AuthSystem.API.Services.Accounts;
+using LotroKoniecDev.AuthSystem.API.Services.Gdpr;
 using LotroKoniecDev.AuthSystem.Domain.Aggregates.ApplicationUsers.Entities;
 using LotroKoniecDev.AuthSystem.Persistence.Identity;
 using LotroKoniecDev.SharedKernel.Monads;
@@ -15,6 +15,9 @@ namespace LotroKoniecDev.AuthSystem.API.Services.Emails;
 /// remarks about token lifetime), and send the e-mail with the cancel link.
 /// The check lives here (ADR-0038 decision 2): if a cancellation arrives at the same time, it wins. An
 /// out-of-date "your account will be deleted" must never go out after the schedule is gone.
+/// While an undo of ADR-0048 is armed and still live, the same link also goes to the address that undo
+/// would restore (#685). After an e-mail change the current address may belong to whoever took the
+/// account, and a cancel link only they can read is no protection at all.
 /// </summary>
 /// <remarks>
 /// A message may arrive more than once (ADR-0035), so this has to be safe to run twice. It is: at
@@ -25,21 +28,24 @@ internal sealed partial class AccountDeletionScheduledProcessor : IEmailMessageP
 {
     private readonly UserManager<ApplicationUser> _userManager;
     private readonly IAccountDeletionEmailSender _accountDeletionEmailSender;
+    private readonly IAccountDeletionSchedule _deletionSchedule;
+    private readonly IEmailChangeRevertWindow _revertWindow;
     private readonly TimeProvider _timeProvider;
-    private readonly GdprSettings _gdprSettings;
     private readonly ILogger<AccountDeletionScheduledProcessor> _logger;
 
     public AccountDeletionScheduledProcessor(
         UserManager<ApplicationUser> userManager,
         IAccountDeletionEmailSender accountDeletionEmailSender,
+        IAccountDeletionSchedule deletionSchedule,
+        IEmailChangeRevertWindow revertWindow,
         TimeProvider timeProvider,
-        IOptions<GdprSettings> gdprSettings,
         ILogger<AccountDeletionScheduledProcessor> logger)
     {
         _userManager = userManager;
         _accountDeletionEmailSender = accountDeletionEmailSender;
+        _deletionSchedule = deletionSchedule;
+        _revertWindow = revertWindow;
         _timeProvider = timeProvider;
-        _gdprSettings = gdprSettings.Value;
         _logger = logger;
     }
 
@@ -90,14 +96,15 @@ internal sealed partial class AccountDeletionScheduledProcessor : IEmailMessageP
         }
 
         // Guards against a delivery that arrives much later, such as a replay from the dead-letter
-        // queue. Once the grace period is over, the e-mail's "cancel until <date>" is wrong. Erasure
-        // also leaves DeletionScheduledAt set, with a made-up address on the row, so the check above
-        // on its own would let a late replay create a working cancel token for an anonymized
-        // account.
-        DateTimeOffset finalizesAt = user.DeletionScheduledAt.Value + _gdprSettings.DeletionGracePeriod;
-        if (finalizesAt <= _timeProvider.GetUtcNow())
+        // queue. Once the cancel token's own window is over, the e-mail's "cancel until <date>" is
+        // wrong and the link in it is dead. Erasure also leaves DeletionScheduledAt set, with a
+        // made-up address on the row, so the check above on its own would let a late replay create a
+        // working cancel token for an anonymized account.
+        DateTimeOffset now = _timeProvider.GetUtcNow();
+        DateTimeOffset cancellableUntil = _deletionSchedule.CancellableUntil(user.DeletionScheduledAt.Value);
+        if (cancellableUntil <= now)
         {
-            LogWindowOver(_logger, message.IdentityUserId, finalizesAt);
+            LogWindowOver(_logger, message.IdentityUserId, cancellableUntil);
             return Result.Success();
         }
 
@@ -107,18 +114,58 @@ internal sealed partial class AccountDeletionScheduledProcessor : IEmailMessageP
             return Result.Success();
         }
 
+        // The date in the text is the one the account is really erased on, which an armed undo can
+        // push past the cancel window above. Nobody is left without a way out in that tail: it only
+        // exists while the undo is live, and following the undo cancels the deletion too.
+        DateTimeOffset finalizesAt =
+            _deletionSchedule.FinalizesAt(user.DeletionScheduledAt.Value, user.EmailChangeRevertArmedAt);
+
         string cancelToken = await _userManager.GenerateUserTokenAsync(
             user,
             AccountDeletionCancellationTokenProvider.ProviderName,
             AccountDeletionCancellationTokenProvider.CancelDeletionPurpose);
 
-        Result sendDeletionScheduledResult = await _accountDeletionEmailSender.SendDeletionScheduledEmailAsync(
+        // The armed address is tried first, for the reason EmailChangeCompletedProcessor gives: it is
+        // the one that can still save the account. It is only ordered first, never allowed to cancel
+        // the other send — this link is ADR-0031's only recovery path, and a mailbox that has been
+        // abandoned since the address changed would otherwise burn every delivery attempt and leave
+        // the account holder with no cancel link at all.
+        Result previousAddressResult = Result.Success();
+
+        if (_revertWindow.IsLiveAt(user.EmailChangeRevertArmedAt, now)
+            && !string.IsNullOrWhiteSpace(user.EmailChangeRevertTo))
+        {
+            previousAddressResult =
+                await _accountDeletionEmailSender.SendDeletionScheduledNoticeToPreviousAddressAsync(
+                    user.Id,
+                    user.EmailChangeRevertTo,
+                    user.Email,
+                    cancelToken,
+                    finalizesAt,
+                    cancellationToken);
+
+            if (previousAddressResult.IsFailure)
+            {
+                LogPreviousAddressSendFailed(
+                    _logger, message.IdentityUserId, previousAddressResult.Error.Message);
+            }
+            else
+            {
+                LogPreviousAddressNotified(_logger, message.IdentityUserId);
+            }
+        }
+
+        Result currentAddressResult = await _accountDeletionEmailSender.SendDeletionScheduledEmailAsync(
             user.Id,
             user.Email,
             cancelToken,
             finalizesAt,
             cancellationToken);
-        return sendDeletionScheduledResult;
+
+        // Either failure requeues the message and re-sends both, which is the at-least-once bar of
+        // ADR-0038 — the same link arriving twice changes nothing. The current address wins when both
+        // failed, because its copy is the one ADR-0031 promises.
+        return currentAddressResult.IsFailure ? currentAddressResult : previousAddressResult;
     }
 
     [LoggerMessage(
@@ -136,8 +183,20 @@ internal sealed partial class AccountDeletionScheduledProcessor : IEmailMessageP
     [LoggerMessage(
         EventId = EventIds.DeletionScheduledWindowOver,
         Level = LogLevel.Warning,
-        Message = "Skipping deletion-scheduled e-mail for user {UserId}: the grace window ended at {FinalizesAt}")]
-    private static partial void LogWindowOver(ILogger logger, Guid userId, DateTimeOffset finalizesAt);
+        Message = "Skipping deletion-scheduled e-mail for user {UserId}: the cancel window ended at {CancellableUntil}")]
+    private static partial void LogWindowOver(ILogger logger, Guid userId, DateTimeOffset cancellableUntil);
+
+    [LoggerMessage(
+        EventId = EventIds.DeletionScheduledPreviousAddressNotified,
+        Level = LogLevel.Information,
+        Message = "Deletion-scheduled e-mail for user {UserId} also went to the address an armed undo would restore")]
+    private static partial void LogPreviousAddressNotified(ILogger logger, Guid userId);
+
+    [LoggerMessage(
+        EventId = EventIds.DeletionScheduledPreviousAddressFailed,
+        Level = LogLevel.Warning,
+        Message = "Could not notify the armed undo address for user {UserId}: {Error}. The current address is still served.")]
+    private static partial void LogPreviousAddressSendFailed(ILogger logger, Guid userId, string error);
 
     [LoggerMessage(
         EventId = EventIds.DeletionScheduledAddressMissing,

@@ -1,6 +1,9 @@
 using LotroKoniecDev.AuthSystem.API.Pages.Account;
+using LotroKoniecDev.AuthSystem.API.Services.Accounts;
+using LotroKoniecDev.AuthSystem.API.Services.Gdpr;
 using LotroKoniecDev.AuthSystem.API.Settings;
 using LotroKoniecDev.AuthSystem.Domain.Aggregates.ApplicationUsers.Entities;
+using LotroKoniecDev.AuthSystem.Persistence.Identity;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
@@ -79,7 +82,10 @@ public sealed class LoginModelTests
                 Issuer = "https://auth.localhost",
                 WebClient = new WebClientSettings { PostLogoutRedirectUris = postLogoutRedirectUris }
             }),
-            Microsoft.Extensions.Options.Options.Create(new GdprSettings()),
+            new AccountDeletionSchedule(
+                new EmailChangeRevertWindow(
+                    Microsoft.Extensions.Options.Options.Create(new EmailChangeRevertTokenProviderOptions())),
+                Microsoft.Extensions.Options.Options.Create(new GdprSettings())),
             NullLogger<LoginModel>.Instance);
 
     private static UserManager<ApplicationUser> CreateUserManager() =>

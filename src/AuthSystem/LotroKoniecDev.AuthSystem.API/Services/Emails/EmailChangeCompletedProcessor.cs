@@ -1,7 +1,7 @@
 using System.Text.Json;
 using Microsoft.AspNetCore.Identity;
-using Microsoft.Extensions.Options;
 using LotroKoniecDev.AuthSystem.API.Outbox;
+using LotroKoniecDev.AuthSystem.API.Services.Accounts;
 using LotroKoniecDev.AuthSystem.Domain.Aggregates.ApplicationUsers.Entities;
 using LotroKoniecDev.AuthSystem.Persistence.Identity;
 using LotroKoniecDev.SharedKernel.Monads;
@@ -30,18 +30,18 @@ internal sealed partial class EmailChangeCompletedProcessor : IEmailMessageProce
 {
     private readonly UserManager<ApplicationUser> _userManager;
     private readonly IEmailChangeEmailSender _emailChangeEmailSender;
-    private readonly EmailChangeRevertTokenProviderOptions _revertTokenOptions;
+    private readonly IEmailChangeRevertWindow _revertWindow;
     private readonly ILogger<EmailChangeCompletedProcessor> _logger;
 
     public EmailChangeCompletedProcessor(
         UserManager<ApplicationUser> userManager,
         IEmailChangeEmailSender emailChangeEmailSender,
-        IOptions<EmailChangeRevertTokenProviderOptions> revertTokenOptions,
+        IEmailChangeRevertWindow revertWindow,
         ILogger<EmailChangeCompletedProcessor> logger)
     {
         _userManager = userManager;
         _emailChangeEmailSender = emailChangeEmailSender;
-        _revertTokenOptions = revertTokenOptions.Value;
+        _revertWindow = revertWindow;
         _logger = logger;
     }
 
@@ -111,7 +111,7 @@ internal sealed partial class EmailChangeCompletedProcessor : IEmailMessageProce
                 message.PreviousEmail,
                 message.NewEmail,
                 revertToken,
-                _revertTokenOptions.TokenLifespan,
+                _revertWindow.Lifespan,
                 cancellationToken);
 
             if (revertOfferResult.IsFailure)

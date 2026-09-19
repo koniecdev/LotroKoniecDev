@@ -2,13 +2,12 @@ using System.Security.Claims;
 using FluentValidation;
 using FluentValidation.Results;
 using Microsoft.AspNetCore.Identity;
-using Microsoft.Extensions.Options;
 using OpenIddict.Abstractions;
 using LotroKoniecDev.AuthSystem.API.ApiErrors;
 using LotroKoniecDev.AuthSystem.API.Common;
 using LotroKoniecDev.AuthSystem.API.Extensions;
 using LotroKoniecDev.AuthSystem.API.Outbox;
-using LotroKoniecDev.AuthSystem.API.Settings;
+using LotroKoniecDev.AuthSystem.API.Services.Gdpr;
 using LotroKoniecDev.AuthSystem.Contracts.Features.Auth.Account;
 using LotroKoniecDev.AuthSystem.Domain.Aggregates.ApplicationUsers.Entities;
 using LotroKoniecDev.SharedKernel.Messaging;
@@ -55,8 +54,8 @@ internal sealed partial class DeleteAccount : IApiEndpoint
         private readonly IOpenIddictTokenManager _tokenManager;
         private readonly IOpenIddictAuthorizationManager _authorizationManager;
         private readonly OutboxWriter _outboxWriter;
+        private readonly IAccountDeletionSchedule _deletionSchedule;
         private readonly TimeProvider _timeProvider;
-        private readonly GdprSettings _gdprSettings;
         private readonly IValidator<Command> _validator;
         private readonly ILogger<Handler> _logger;
 
@@ -65,8 +64,8 @@ internal sealed partial class DeleteAccount : IApiEndpoint
             IOpenIddictTokenManager tokenManager,
             IOpenIddictAuthorizationManager authorizationManager,
             OutboxWriter outboxWriter,
+            IAccountDeletionSchedule deletionSchedule,
             TimeProvider timeProvider,
-            IOptions<GdprSettings> gdprSettings,
             IValidator<Command> validator,
             ILogger<Handler> logger)
         {
@@ -74,8 +73,8 @@ internal sealed partial class DeleteAccount : IApiEndpoint
             _tokenManager = tokenManager;
             _authorizationManager = authorizationManager;
             _outboxWriter = outboxWriter;
+            _deletionSchedule = deletionSchedule;
             _timeProvider = timeProvider;
-            _gdprSettings = gdprSettings.Value;
             _validator = validator;
             _logger = logger;
         }
@@ -106,11 +105,16 @@ internal sealed partial class DeleteAccount : IApiEndpoint
             }
 
             DateTimeOffset scheduledAt = _timeProvider.GetUtcNow();
-            DateTimeOffset finalizesAt = scheduledAt + _gdprSettings.DeletionGracePeriod;
 
-            // Lock the account for the whole grace period, so neither the person who asked nor a
-            // possible attacker can use it. Nothing is erased here: the data stays until the finalizer
-            // runs after the grace period.
+            // An armed undo pushes this date out, so the account cannot be erased while a link that
+            // cancels the deletion is still in somebody's inbox (#685). The finalizer reads the same
+            // rule, so the header below is a promise it keeps.
+            DateTimeOffset finalizesAt =
+                _deletionSchedule.FinalizesAt(scheduledAt, user.EmailChangeRevertArmedAt);
+
+            // Lock the account for as long as the deletion is pending, so neither the person who asked
+            // nor a possible attacker can use it. Nothing is erased here: the data stays until the
+            // finalizer runs.
             user.DeletionScheduledAt = scheduledAt;
             user.LockoutEnabled = true;
             user.LockoutEnd = finalizesAt;

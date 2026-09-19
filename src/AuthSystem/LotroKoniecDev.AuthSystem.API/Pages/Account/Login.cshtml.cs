@@ -7,6 +7,7 @@ using Microsoft.AspNetCore.Mvc.RazorPages;
 using Microsoft.Extensions.Options;
 using LotroKoniecDev.AuthSystem.API.Common;
 using LotroKoniecDev.AuthSystem.API.Extensions;
+using LotroKoniecDev.AuthSystem.API.Services.Gdpr;
 using LotroKoniecDev.AuthSystem.API.Settings;
 using LotroKoniecDev.AuthSystem.Domain.Aggregates.ApplicationUsers.Entities;
 
@@ -50,18 +51,18 @@ internal sealed partial class LoginModel : PageModel
 
     private readonly UserManager<ApplicationUser> _userManager;
     private readonly IOptions<OpenIddictSettings> _openIddictSettings;
-    private readonly GdprSettings _gdprSettings;
+    private readonly IAccountDeletionSchedule _deletionSchedule;
     private readonly ILogger<LoginModel> _logger;
 
     public LoginModel(
         UserManager<ApplicationUser> userManager,
         IOptions<OpenIddictSettings> openIddictSettings,
-        IOptions<GdprSettings> gdprSettings,
+        IAccountDeletionSchedule deletionSchedule,
         ILogger<LoginModel> logger)
     {
         _userManager = userManager;
         _openIddictSettings = openIddictSettings;
-        _gdprSettings = gdprSettings.Value;
+        _deletionSchedule = deletionSchedule;
         _logger = logger;
     }
 
@@ -148,9 +149,10 @@ internal sealed partial class LoginModel : PageModel
             }
 
             LogDeletionScheduled(_logger, user.Id, HttpContext.Connection.RemoteIpAddress);
-            DateTimeOffset deletionDate = user.DeletionScheduledAt.Value + _gdprSettings.DeletionGracePeriod;
+            DateTimeOffset deletionDate =
+                _deletionSchedule.FinalizesAt(user.DeletionScheduledAt.Value, user.EmailChangeRevertArmedAt);
             ErrorMessage =
-                $"Twoje konto jest zaplanowane do usunięcia dnia {deletionDate.ToPolandTime().ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)}. " +
+                $"Twoje konto jest zaplanowane do usunięcia dnia {deletionDate.ToPolandTime().ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)} czasu polskiego. " +
                 "Jeśli chcesz je zachować, kliknij w link anulujący usunięcie, który wysłaliśmy na Twój adres e-mail.";
             return Page();
         }

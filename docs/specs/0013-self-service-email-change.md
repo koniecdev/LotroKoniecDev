@@ -241,6 +241,18 @@ outlier and explicitly **not** the pattern here.
   already accept.
 - **A scheduled deletion blocks the change**, for ADR-0031's reason: the account is locked and the
   emailed cancel link is the only way back in; a stamp rotation here would break it.
+- **A deletion cannot be timed to outlive the undo (#685, SEC-07).** The block above runs one way
+  only: a change cannot start while a deletion is pending, but a deletion can start while an undo is
+  armed — and the two clocks are anchored to different events. Scheduled on day 13 of the undo
+  window, the deletion's cancel link goes to the address the account was moved to, the owner's undo
+  dies on day 14, and the finalizer erases irreversibly around day 27. So the deletion-cancel e-mail
+  now also goes to `EmailChangeRevertTo` while that undo is live — the *same* link, carrying the
+  **current** address, because `CancelAccountDeletion` resolves the account with `FindByEmailAsync`
+  on that value — and the erasure waits for
+  `max(scheduledAt + grace, armedAt + revertLifespan)`, owned by `IAccountDeletionSchedule` and read
+  by the finalizer, the response header, the lockout end, the e-mail and the login page alike. How
+  long an undo counts as live is `IEmailChangeRevertWindow`'s call, the same clock the reservation
+  above reads. The full reasoning is in **ADR-0031's amendment**; ADR-0048 carries it as rule 5.
 - **Confirming and reverting both rotate the security stamp**, which makes each link single-use,
   ends every cookie session via `SecurityStampCookieValidator` and — with `IUserSessionRevoker` —
   revokes the OpenIddict tokens and authorizations. Same treatment as `ChangePassword`.

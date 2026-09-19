@@ -2,7 +2,9 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using LotroKoniecDev.AuthSystem.API.Outbox;
+using LotroKoniecDev.AuthSystem.API.Services.Accounts;
 using LotroKoniecDev.AuthSystem.API.Services.Emails;
+using LotroKoniecDev.AuthSystem.API.Services.Gdpr;
 using LotroKoniecDev.AuthSystem.API.Settings;
 using LotroKoniecDev.AuthSystem.Domain.Aggregates.ApplicationUsers.Entities;
 using LotroKoniecDev.AuthSystem.Persistence.Identity;
@@ -17,6 +19,10 @@ public sealed class AccountDeletionScheduledProcessorTests
 {
     private static readonly DateTimeOffset Now = new(2026, 8, 4, 12, 0, 0, TimeSpan.Zero);
     private static readonly GdprSettings Gdpr = new();
+    private static readonly EmailChangeRevertTokenProviderOptions RevertTokenOptions = new();
+
+    private static readonly IEmailChangeRevertWindow RevertWindow =
+        new EmailChangeRevertWindow(Microsoft.Extensions.Options.Options.Create(RevertTokenOptions));
 
     private readonly UserManager<ApplicationUser> _userManager = CreateUserManager();
     private readonly IAccountDeletionEmailSender _emailSender =
@@ -117,6 +123,136 @@ public sealed class AccountDeletionScheduledProcessorTests
     }
 
     [Fact]
+    public async Task ProcessAsync_AnUndoIsArmedAndStillLive_AlsoSendsTheSameLinkToTheAddressItWouldRestore()
+    {
+        // The whole of #685. After an e-mail change the current address may belong to whoever took the
+        // account, so a cancel link only they can read protects nobody. The link is the same one — it
+        // has to carry the current address, because that is what CancelAccountDeletion finds the
+        // account with.
+        ApplicationUser user = CreateUser();
+        user.DeletionScheduledAt = Now - TimeSpan.FromDays(13);
+        user.EmailChangeRevertTo = "bilbo@shire.me";
+        user.EmailChangeRevertArmedAt = Now - TimeSpan.FromDays(13);
+        StubUserAndToken(user);
+        _emailSender.SendDeletionScheduledNoticeToPreviousAddressAsync(
+                user.Id, "bilbo@shire.me", user.Email!, "fresh-cancel-token", Arg.Any<DateTimeOffset>(),
+                Arg.Any<CancellationToken>())
+            .Returns(Result.Success());
+        _emailSender.SendDeletionScheduledEmailAsync(
+                user.Id, user.Email!, "fresh-cancel-token", Arg.Any<DateTimeOffset>(), Arg.Any<CancellationToken>())
+            .Returns(Result.Success());
+        AccountDeletionScheduledProcessor sut = CreateSut();
+
+        Result result = await sut.ProcessAsync(new AccountDeletionScheduled(user.Id), CancellationToken.None);
+
+        result.IsSuccess.ShouldBeTrue();
+        await _emailSender.Received(1).SendDeletionScheduledNoticeToPreviousAddressAsync(
+            user.Id, "bilbo@shire.me", user.Email!, "fresh-cancel-token",
+            user.DeletionScheduledAt.Value + Gdpr.DeletionGracePeriod, Arg.Any<CancellationToken>());
+        await _emailSender.Received(1).SendDeletionScheduledEmailAsync(
+            user.Id, user.Email!, "fresh-cancel-token", Arg.Any<DateTimeOffset>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task ProcessAsync_TheArmedUndoHasExpired_SendsOnlyToTheCurrentAddress()
+    {
+        // Past the undo window ADR-0048 already concedes the account, so there is nothing left to
+        // protect and the old address gets no say in a deletion it can no longer undo.
+        ApplicationUser user = CreateUser();
+        user.DeletionScheduledAt = Now - TimeSpan.FromHours(1);
+        user.EmailChangeRevertTo = "bilbo@shire.me";
+        user.EmailChangeRevertArmedAt = Now - RevertTokenOptions.TokenLifespan - TimeSpan.FromDays(1);
+        StubUserAndToken(user);
+        _emailSender.SendDeletionScheduledEmailAsync(
+                user.Id, user.Email!, "fresh-cancel-token", Arg.Any<DateTimeOffset>(), Arg.Any<CancellationToken>())
+            .Returns(Result.Success());
+        AccountDeletionScheduledProcessor sut = CreateSut();
+
+        Result result = await sut.ProcessAsync(new AccountDeletionScheduled(user.Id), CancellationToken.None);
+
+        result.IsSuccess.ShouldBeTrue();
+        await _emailSender.DidNotReceiveWithAnyArgs().SendDeletionScheduledNoticeToPreviousAddressAsync(
+            default, default!, default!, default!, default, default);
+    }
+
+    [Fact]
+    public async Task ProcessAsync_ARowArmedBeforeTheTimestampExisted_SendsOnlyToTheCurrentAddress()
+    {
+        // A target with no timestamp is a row armed before #684. It reads as nothing armed, here and
+        // in the address reservation alike.
+        ApplicationUser user = CreateUser();
+        user.DeletionScheduledAt = Now - TimeSpan.FromHours(1);
+        user.EmailChangeRevertTo = "bilbo@shire.me";
+        user.EmailChangeRevertArmedAt = null;
+        StubUserAndToken(user);
+        _emailSender.SendDeletionScheduledEmailAsync(
+                user.Id, user.Email!, "fresh-cancel-token", Arg.Any<DateTimeOffset>(), Arg.Any<CancellationToken>())
+            .Returns(Result.Success());
+        AccountDeletionScheduledProcessor sut = CreateSut();
+
+        Result result = await sut.ProcessAsync(new AccountDeletionScheduled(user.Id), CancellationToken.None);
+
+        result.IsSuccess.ShouldBeTrue();
+        await _emailSender.DidNotReceiveWithAnyArgs().SendDeletionScheduledNoticeToPreviousAddressAsync(
+            default, default!, default!, default!, default, default);
+    }
+
+    [Fact]
+    public async Task ProcessAsync_TheNoticeToTheArmedAddressFails_StillServesTheCurrentAddressAndAsksForARetry()
+    {
+        // The armed address is only ordered first, never allowed to cancel the other send. An old
+        // mailbox abandoned since the address changed would otherwise burn every delivery attempt and
+        // leave the account holder without the link ADR-0031 calls the only recovery path.
+        ApplicationUser user = CreateUser();
+        user.DeletionScheduledAt = Now - TimeSpan.FromHours(1);
+        user.EmailChangeRevertTo = "bilbo@shire.me";
+        user.EmailChangeRevertArmedAt = Now - TimeSpan.FromDays(1);
+        StubUserAndToken(user);
+        Error smtpError = new("Email.SendFailed", "SMTP relay refused the message.");
+        _emailSender.SendDeletionScheduledNoticeToPreviousAddressAsync(
+                user.Id, "bilbo@shire.me", user.Email!, "fresh-cancel-token", Arg.Any<DateTimeOffset>(),
+                Arg.Any<CancellationToken>())
+            .Returns(Result.Failure(smtpError));
+        _emailSender.SendDeletionScheduledEmailAsync(
+                user.Id, user.Email!, "fresh-cancel-token", Arg.Any<DateTimeOffset>(), Arg.Any<CancellationToken>())
+            .Returns(Result.Success());
+        AccountDeletionScheduledProcessor sut = CreateSut();
+
+        Result result = await sut.ProcessAsync(new AccountDeletionScheduled(user.Id), CancellationToken.None);
+
+        result.IsFailure.ShouldBeTrue();
+        result.Error.ShouldBe(smtpError);
+        await _emailSender.Received(1).SendDeletionScheduledEmailAsync(
+            user.Id, user.Email!, "fresh-cancel-token", Arg.Any<DateTimeOffset>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task ProcessAsync_BothSendsFail_ReportsTheCurrentAddressFailure()
+    {
+        // Both need another try, and the one ADR-0031 promises is the one worth naming in the log.
+        ApplicationUser user = CreateUser();
+        user.DeletionScheduledAt = Now - TimeSpan.FromHours(1);
+        user.EmailChangeRevertTo = "bilbo@shire.me";
+        user.EmailChangeRevertArmedAt = Now - TimeSpan.FromDays(1);
+        StubUserAndToken(user);
+        Error previousAddressError = new("Email.SendFailed", "The old mailbox no longer exists.");
+        Error currentAddressError = new("Email.SendFailed", "SMTP relay refused the message.");
+        _emailSender.SendDeletionScheduledNoticeToPreviousAddressAsync(
+                user.Id, "bilbo@shire.me", user.Email!, "fresh-cancel-token", Arg.Any<DateTimeOffset>(),
+                Arg.Any<CancellationToken>())
+            .Returns(Result.Failure(previousAddressError));
+        _emailSender.SendDeletionScheduledEmailAsync(
+                user.Id, user.Email!, "fresh-cancel-token", Arg.Any<DateTimeOffset>(), Arg.Any<CancellationToken>())
+            .Returns(Result.Failure(currentAddressError));
+        AccountDeletionScheduledProcessor sut = CreateSut();
+
+        Result result = await sut.ProcessAsync(new AccountDeletionScheduled(user.Id), CancellationToken.None);
+
+        result.IsFailure.ShouldBeTrue();
+        result.Error.ShouldBe(currentAddressError);
+    }
+
+    [Fact]
     public async Task ProcessAsync_SendingFails_PropagatesTheFailure()
     {
         ApplicationUser user = CreateUser();
@@ -165,6 +301,16 @@ public sealed class AccountDeletionScheduledProcessorTests
         typed.IdentityUserId.ShouldBe(userId);
     }
 
+    private void StubUserAndToken(ApplicationUser user)
+    {
+        _userManager.FindByIdAsync(user.Id.ToString()).Returns(user);
+        _userManager.GenerateUserTokenAsync(
+                user,
+                AccountDeletionCancellationTokenProvider.ProviderName,
+                AccountDeletionCancellationTokenProvider.CancelDeletionPurpose)
+            .Returns("fresh-cancel-token");
+    }
+
     private static ApplicationUser CreateUser() =>
         new()
         {
@@ -177,8 +323,9 @@ public sealed class AccountDeletionScheduledProcessorTests
         new(
             _userManager,
             _emailSender,
+            new AccountDeletionSchedule(RevertWindow, Microsoft.Extensions.Options.Options.Create(Gdpr)),
+            RevertWindow,
             _timeProvider,
-            Microsoft.Extensions.Options.Options.Create(Gdpr),
             NullLogger<AccountDeletionScheduledProcessor>.Instance);
 
     private static TimeProvider CreateTimeProvider()

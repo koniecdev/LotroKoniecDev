@@ -1,10 +1,12 @@
 # ADR-0031: GDPR Account Deletion Runs Through a 14-Day Soft-Delete Grace Period
 
-**Status:** Accepted
+**Status:** Accepted (amended 2026-09-19 by #685 — the cancel link reaches the armed address and the
+erasure waits for the undo, see the amendment below)
 **Date:** 2026-07-11
-**Decision-makers:** Solo maintainer (ticket #452, legal & GDPR compliance pack #459)
+**Decision-makers:** Solo maintainer (ticket #452, legal & GDPR compliance pack #459; amendment #685, SEC-07)
 **Related:** `DeleteAccount` / `CancelAccountDeletion` (AuthSystem), `AccountErasureService`,
-`AccountDeletionFinalizer`, TKS ADR-0017 (the ported original), tickets #452, #459
+`AccountDeletionFinalizer`, `AccountDeletionSchedule`, ADR-0048 (the undo this window has to survive),
+TKS ADR-0017 (the ported original), tickets #452, #459, #685
 
 ## Context
 
@@ -65,6 +67,62 @@ TranslationSystem stores only opaque `IdentityId` attribution references
 (`SubmittedById`/`ApprovedById`), which become non-attributable the moment the auth user is
 anonymized — no TMS-side call is needed, so the erasure service is auth-local and the
 eventual-consistency failure mode TKS ticket #175 documented cannot occur.
+
+## Amendment (2026-09-19, #685 — SEC-07): the window has to survive an e-mail change
+
+This ADR says the emailed cancel link is the only recovery path during the grace window, and it says
+the erasure lands one grace period after the schedule. ADR-0048 later put a second recovery path next
+to it — a 14-day undo mailed to the address an e-mail change left behind — and the two clocks did not
+know about each other.
+
+The attack that fell out of the gap: whoever holds the password moves the account to an address of
+their own at T0, waits until day 13 of the owner's undo window, and only then schedules the deletion.
+The cancel link goes to `user.Email`, which is theirs by now. The owner's undo link dies at T0+14.
+The finalizer erases at about T+27, and `AccountErasureService` is not reversible. Every other door is
+shut by design: the account is locked, `ChangePassword` answers `DeletionAlreadyScheduled`, and a
+scheduled deletion refuses both legs of an e-mail change.
+
+**Two rules close it.**
+
+1. **The cancel link goes to the armed address too, while that undo is still live.**
+   `AccountDeletionScheduledProcessor` sends a second, separately worded copy to
+   `EmailChangeRevertTo`. It is the *same* link, carrying the account's **current** address, because
+   `CancelAccountDeletion` resolves the account with `FindByEmailAsync` on that value — a link
+   rewritten to the old address would verify against nothing. The armed address goes first, for the
+   reason `EmailChangeCompletedProcessor` already gives: it is the one that can still save the
+   account, so if only one of the two ever gets through it has to be that one.
+
+   This hands the old mailbox no power it did not already hold. An armed address is by definition one
+   the account confirmed, and it already holds a revert link that clears the password (ADR-0048
+   rule 4). Past the undo window nothing is sent there, because past it this ADR's sibling has already
+   conceded the account.
+
+2. **The erasure waits for the undo:** `finalizesAt = max(scheduledAt + grace, armedAt + revertLifespan)`,
+   read by the finalizer's query, by the `X-Deletion-Finalizes-At` header, by the lockout end, by the
+   date in the e-mail and by the login page — `IAccountDeletionSchedule` owns both the scalar and the
+   EF-translatable predicate, and a unit test checks the two readings against each other over a grid,
+   because only one of them actually erases data.
+
+   **Under the shipped configuration this rule never fires, and that is not a mistake.** A scheduled
+   deletion already refuses `RequestEmailChange` and `ConfirmEmailChange`, so `armedAt <= scheduledAt`
+   is an invariant, and with both clocks at 14 days the grace date always wins. Rule 1 is what closes
+   the attack. Rule 2 is the invariant written down where it can be executed: it is what stops a
+   shortened `Gdpr:DeletionGracePeriod` from erasing an account whose undo link still works, and it is
+   why the date the header promises is the date the finalizer keeps.
+
+**What the fix does not claim.** The owner who cancels from the old mailbox stops the erasure and
+destroys the password, but the account still sits on the address it was moved to, and whoever reads
+that mailbox can reset the password and schedule again. That is a stalemate, not a recovery — and a
+stalemate in which nothing is erased, which is the acceptance criterion. The full recovery is the
+undo link of ADR-0048, and it is why rule 1 only runs while that link is alive. Mailing a *fresh*
+revert link instead was considered and rejected: it would recover the account outright, but it
+extends the undo past its 14 days and drags #684's address reservation along with it.
+
+Refusing to schedule a deletion at all while an undo is armed was the other candidate — simpler, and
+symmetric with the existing "a scheduled deletion blocks the e-mail change" rule. Rejected: it makes
+an honest user who just changed their address wait up to 14 days to delete, and 14 + 30 days at this
+ADR's own configured cap would break the Art. 12(3) budget that cap exists to protect. It is also the
+"block the action" shape this ADR and ADR-0048 have now both declined twice.
 
 ## Consequences
 

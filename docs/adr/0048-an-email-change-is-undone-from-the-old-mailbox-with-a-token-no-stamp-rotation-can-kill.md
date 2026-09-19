@@ -1,8 +1,10 @@
 # ADR-0048: An E-mail Change Is Undone From the Old Mailbox, With a Token No Stamp Rotation Can Kill
 
-**Status:** Accepted (amended 2026-09-19 by #684 — the freed address is reserved, see rule 4)
+**Status:** Accepted (amended 2026-09-19 by #684 — the freed address is reserved, see rule 4 — and by
+#685 — a scheduled deletion may not outlive the undo, see rule 5)
 **Date:** 2026-08-20
-**Decision-makers:** Solo maintainer (ticket #671, LEGAL-14, legal & GDPR pack #459; amendment #684, SEC-06)
+**Decision-makers:** Solo maintainer (ticket #671, LEGAL-14, legal & GDPR pack #459; amendments #684, SEC-06
+and #685, SEC-07)
 **Related:** ADR-0031 (the same threat, answered for deletion), ADR-0038 (the one dispatch
 pipeline every e-mail here rides), ADR-0046 (what may be said behind a verified password),
 spec 0013, `Features/Auth/RequestEmailChange`, `Pages/Account/ConfirmEmailChange`,
@@ -79,7 +81,8 @@ legitimate e-mail change, and null the password, seconds after the notice arrive
 `IDataProtector`, protecting `(createdAt, userId, revertStamp, purpose)`. Its purpose embeds both
 addresses (`RevertEmailChange:{previous}->{new}`).
 
-**Three rules, because the first two were each defeated in review.**
+**Five rules. The first two were each defeated in review; the last two were added by later tickets,
+after the same threat was found reaching the undo from a direction the token could not see.**
 
 1. *Arm at most one undo per chain, at the address the chain started from.*
    `ApplicationUser.EmailChangeRevertTo` is set by the first change since the last revert and never
@@ -115,6 +118,19 @@ addresses (`RevertEmailChange:{previous}->{new}`).
    is this ticket's own bug again. Only someone reading the armed mailbox can reach that branch: the
    confirm link goes there. Re-arming then starts a new window, which is what rule 1 always meant —
    "never re-aim the target" is about where the undo points, not about when the chain ends.
+
+5. *A scheduled deletion may not outlive the undo* (added by #685, SEC-07). Rule 4 protects the
+   address; this one protects the account behind it. The revert cancels a scheduled deletion — that is
+   already in the consequences below — but it can only do so while the link works, and the deletion
+   window is anchored to a different event. An attacker changes the address at T0, waits until day 13,
+   then schedules the deletion: the cancel link of ADR-0031 goes to the address they now hold, the
+   owner's undo dies at T0+14, and the finalizer erases at about T+27. So while an undo is armed and
+   unexpired the deletion-cancel e-mail now goes to `EmailChangeRevertTo` as well, carrying the same
+   link, and the erasure waits for `max(scheduledAt + grace, armedAt + revertLifespan)`. The reasoning,
+   the two rejected shapes and why the second half is a dormant invariant rather than the fix live in
+   **ADR-0031's own amendment**, because it is that ADR's window that moved.
+   How long "unexpired" means is `IEmailChangeRevertWindow`'s call, the same clock rule 4's reservation
+   reads, so an address cannot be freed while the erasure still treats its link as live.
 
 The two rejected shapes, kept because each looks correct until it is attacked:
 
@@ -177,12 +193,15 @@ revert token must do.
   legitimate one. A user who had two changes in flight and reverts one loses the other's link and
   must ask again. That is the right way round — a stale link that still works is what the second
   review found, twice.
-- **The revert also cancels a scheduled deletion.** It has to: rotating the security stamp kills
+- **The revert also cancels a scheduled deletion, and the deletion now waits for it.** It has to: rotating the security stamp kills
   ADR-0031's cancel token, and after an address change that cancel link was mailed to the address
   the account was moved to. Refusing the revert instead would leave the account locked, unable to
   log in or reset, and hard-erased by the finalizer — data loss reachable from one ordinary click.
   So this is a second, deliberate way back into a locked account, and it is exactly as strong as
-  the first: proof of control over the mailbox the account came from.
+  the first: proof of control over the mailbox the account came from. #685 completed the other
+  direction: a deletion scheduled inside the undo window now mails its cancel link to the armed
+  address too, and the erasure is held until the undo expires, so the cancellation this bullet
+  promises cannot be timed out of reach (rule 5).
 - **The old address learns the new one.** The warning and the notice both name it in full. In the
   attack case the recipient is the legitimate owner and needs it to act; in the normal case the
   recipient is the user themselves.

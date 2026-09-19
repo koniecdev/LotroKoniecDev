@@ -116,8 +116,12 @@ extending would be a way to refuse erasure for ever. It is not one: `RequestEmai
 cancels, so `EmailChangeRevertArmedAt` cannot move once a deletion is pending. With
 `armedAt <= scheduledAt` the whole rule collapses to
 `finalizesAt <= scheduledAt + max(grace, revertLifespan)`, and the 30-day cap in
-`GdprSettingsValidator` bounds it exactly as it did before this amendment. The one thing to check if
-that cap is ever raised past the undo's 14 days is this sentence, not the code.
+`GdprSettingsValidator` bounds the grace term exactly as it did before this amendment.
+
+The term that cap does **not** cover is the other one. `EmailChangeRevertTokenProviderOptions` is
+registered with a plain `AddOptions` and no `BindConfiguration`, so its 14 days can only change in
+code — but nothing validates it, and a lifespan raised past 30 days would push `finalizesAt` past the
+month this ADR is written to respect. Whoever changes that number owns this paragraph.
 
 **What the fix does not claim.** The owner who cancels from the old mailbox stops the erasure and
 destroys the password, but the account still sits on the address it was moved to, and whoever reads

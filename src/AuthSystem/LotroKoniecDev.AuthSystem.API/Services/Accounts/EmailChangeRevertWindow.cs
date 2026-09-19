@@ -13,6 +13,8 @@ internal sealed class EmailChangeRevertWindow : IEmailChangeRevertWindow
         _revertTokenOptions = revertTokenOptions.Value;
     }
 
+    public TimeSpan Lifespan => _revertTokenOptions.TokenLifespan;
+
     public DateTimeOffset? ExpiresAt(DateTimeOffset? armedAt) =>
         armedAt is { } armed ? armed + _revertTokenOptions.TokenLifespan : null;
 

@@ -42,7 +42,8 @@ internal sealed class AccountDeletionEmailSender : IAccountDeletionEmailSender
             Paragraphs =
             [
                 $"Otrzymaliśmy prośbę o usunięcie Twojego konta na {EmailBranding.Name}.",
-                $"Konto zostanie trwale usunięte dnia {deletionDate}. Do tego czasu pozostaje zablokowane, a usunięcie możesz anulować."
+                $"Konto zostanie trwale usunięte dnia {deletionDate} czasu polskiego i do tego czasu pozostaje zablokowane.",
+                "Usunięcie możesz anulować przyciskiem poniżej."
             ],
             CallToAction = new EmailCallToAction("Anuluj usunięcie konta", link),
             SecurityNote =

@@ -10,8 +10,9 @@ namespace LotroKoniecDev.AuthSystem.API.Outbox;
 /// frame or in a dead-lettered message, and creating it late also ties it to the current security
 /// stamp. That stamp is already final when the row becomes visible, because the writer changes it in
 /// the same save that commits this row.
-/// The deletion date in the e-mail can be computed, so it is computed at send time as well:
-/// <c>DeletionScheduledAt + GdprSettings.DeletionGracePeriod</c>, the same formula the finalizer
-/// uses. Storing it here could drift from what the finalizer really does.
+/// The deletion date in the e-mail can be computed, so it is computed at send time as well, through
+/// <c>IAccountDeletionSchedule</c> — the same call the finalizer's query is built from, which since
+/// #685 also waits for an armed undo. Storing the date here could drift from what the finalizer
+/// really does.
 /// </remarks>
 public sealed record AccountDeletionScheduled(Guid IdentityUserId);

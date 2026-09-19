@@ -110,6 +110,15 @@ scheduled deletion refuses both legs of an e-mail change.
    shortened `Gdpr:DeletionGracePeriod` from erasing an account whose undo link still works, and it is
    why the date the header promises is the date the finalizer keeps.
 
+**The hold cannot be pushed forward, so Art. 12(3) still holds.** A hold that a user could keep
+extending would be a way to refuse erasure for ever. It is not one: `RequestEmailChange` and
+`ConfirmEmailChange` both refuse while a deletion is scheduled, and a revert disarms the row as it
+cancels, so `EmailChangeRevertArmedAt` cannot move once a deletion is pending. With
+`armedAt <= scheduledAt` the whole rule collapses to
+`finalizesAt <= scheduledAt + max(grace, revertLifespan)`, and the 30-day cap in
+`GdprSettingsValidator` bounds it exactly as it did before this amendment. The one thing to check if
+that cap is ever raised past the undo's 14 days is this sentence, not the code.
+
 **What the fix does not claim.** The owner who cancels from the old mailbox stops the erasure and
 destroys the password, but the account still sits on the address it was moved to, and whoever reads
 that mailbox can reset the password and schedule again. That is a stalemate, not a recovery — and a

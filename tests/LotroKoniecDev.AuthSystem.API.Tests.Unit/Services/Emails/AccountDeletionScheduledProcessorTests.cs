@@ -198,10 +198,11 @@ public sealed class AccountDeletionScheduledProcessorTests
     }
 
     [Fact]
-    public async Task ProcessAsync_TheNoticeToTheArmedAddressFails_PropagatesItAndDoesNotSendTheOtherOne()
+    public async Task ProcessAsync_TheNoticeToTheArmedAddressFails_StillServesTheCurrentAddressAndAsksForARetry()
     {
-        // The armed address goes first because it is the one that can still save the account. Getting
-        // that order wrong would acknowledge the message once the second-best recipient was served.
+        // The armed address is only ordered first, never allowed to cancel the other send. An old
+        // mailbox abandoned since the address changed would otherwise burn every delivery attempt and
+        // leave the account holder without the link ADR-0031 calls the only recovery path.
         ApplicationUser user = CreateUser();
         user.DeletionScheduledAt = Now - TimeSpan.FromHours(1);
         user.EmailChangeRevertTo = "bilbo@shire.me";
@@ -212,14 +213,43 @@ public sealed class AccountDeletionScheduledProcessorTests
                 user.Id, "bilbo@shire.me", user.Email!, "fresh-cancel-token", Arg.Any<DateTimeOffset>(),
                 Arg.Any<CancellationToken>())
             .Returns(Result.Failure(smtpError));
+        _emailSender.SendDeletionScheduledEmailAsync(
+                user.Id, user.Email!, "fresh-cancel-token", Arg.Any<DateTimeOffset>(), Arg.Any<CancellationToken>())
+            .Returns(Result.Success());
         AccountDeletionScheduledProcessor sut = CreateSut();
 
         Result result = await sut.ProcessAsync(new AccountDeletionScheduled(user.Id), CancellationToken.None);
 
         result.IsFailure.ShouldBeTrue();
         result.Error.ShouldBe(smtpError);
-        await _emailSender.DidNotReceiveWithAnyArgs()
-            .SendDeletionScheduledEmailAsync(default, default!, default!, default, default);
+        await _emailSender.Received(1).SendDeletionScheduledEmailAsync(
+            user.Id, user.Email!, "fresh-cancel-token", Arg.Any<DateTimeOffset>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task ProcessAsync_BothSendsFail_ReportsTheCurrentAddressFailure()
+    {
+        // Both need another try, and the one ADR-0031 promises is the one worth naming in the log.
+        ApplicationUser user = CreateUser();
+        user.DeletionScheduledAt = Now - TimeSpan.FromHours(1);
+        user.EmailChangeRevertTo = "bilbo@shire.me";
+        user.EmailChangeRevertArmedAt = Now - TimeSpan.FromDays(1);
+        StubUserAndToken(user);
+        Error previousAddressError = new("Email.SendFailed", "The old mailbox no longer exists.");
+        Error currentAddressError = new("Email.SendFailed", "SMTP relay refused the message.");
+        _emailSender.SendDeletionScheduledNoticeToPreviousAddressAsync(
+                user.Id, "bilbo@shire.me", user.Email!, "fresh-cancel-token", Arg.Any<DateTimeOffset>(),
+                Arg.Any<CancellationToken>())
+            .Returns(Result.Failure(previousAddressError));
+        _emailSender.SendDeletionScheduledEmailAsync(
+                user.Id, user.Email!, "fresh-cancel-token", Arg.Any<DateTimeOffset>(), Arg.Any<CancellationToken>())
+            .Returns(Result.Failure(currentAddressError));
+        AccountDeletionScheduledProcessor sut = CreateSut();
+
+        Result result = await sut.ProcessAsync(new AccountDeletionScheduled(user.Id), CancellationToken.None);
+
+        result.IsFailure.ShouldBeTrue();
+        result.Error.ShouldBe(currentAddressError);
     }
 
     [Fact]

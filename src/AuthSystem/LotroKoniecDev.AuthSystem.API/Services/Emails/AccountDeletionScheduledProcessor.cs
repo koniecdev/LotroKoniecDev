@@ -125,14 +125,17 @@ internal sealed partial class AccountDeletionScheduledProcessor : IEmailMessageP
             AccountDeletionCancellationTokenProvider.ProviderName,
             AccountDeletionCancellationTokenProvider.CancelDeletionPurpose);
 
-        // The armed address goes first, for the reason EmailChangeCompletedProcessor gives: it is the
-        // one that can still save the account, so if only one of the two ever gets through it has to
-        // be that one. A retry re-sends both, which is the at-least-once bar of ADR-0038 — the same
-        // link arriving twice changes nothing.
+        // The armed address is tried first, for the reason EmailChangeCompletedProcessor gives: it is
+        // the one that can still save the account. It is only ordered first, never allowed to cancel
+        // the other send — this link is ADR-0031's only recovery path, and a mailbox that has been
+        // abandoned since the address changed would otherwise burn every delivery attempt and leave
+        // the account holder with no cancel link at all.
+        Result previousAddressResult = Result.Success();
+
         if (_revertWindow.IsLiveAt(user.EmailChangeRevertArmedAt, now)
             && !string.IsNullOrWhiteSpace(user.EmailChangeRevertTo))
         {
-            Result previousAddressResult =
+            previousAddressResult =
                 await _accountDeletionEmailSender.SendDeletionScheduledNoticeToPreviousAddressAsync(
                     user.Id,
                     user.EmailChangeRevertTo,
@@ -143,19 +146,26 @@ internal sealed partial class AccountDeletionScheduledProcessor : IEmailMessageP
 
             if (previousAddressResult.IsFailure)
             {
-                return previousAddressResult;
+                LogPreviousAddressSendFailed(
+                    _logger, message.IdentityUserId, previousAddressResult.Error.Message);
             }
-
-            LogPreviousAddressNotified(_logger, message.IdentityUserId);
+            else
+            {
+                LogPreviousAddressNotified(_logger, message.IdentityUserId);
+            }
         }
 
-        Result sendDeletionScheduledResult = await _accountDeletionEmailSender.SendDeletionScheduledEmailAsync(
+        Result currentAddressResult = await _accountDeletionEmailSender.SendDeletionScheduledEmailAsync(
             user.Id,
             user.Email,
             cancelToken,
             finalizesAt,
             cancellationToken);
-        return sendDeletionScheduledResult;
+
+        // Either failure requeues the message and re-sends both, which is the at-least-once bar of
+        // ADR-0038 — the same link arriving twice changes nothing. The current address wins when both
+        // failed, because its copy is the one ADR-0031 promises.
+        return currentAddressResult.IsFailure ? currentAddressResult : previousAddressResult;
     }
 
     [LoggerMessage(
@@ -181,6 +191,12 @@ internal sealed partial class AccountDeletionScheduledProcessor : IEmailMessageP
         Level = LogLevel.Information,
         Message = "Deletion-scheduled e-mail for user {UserId} also went to the address an armed undo would restore")]
     private static partial void LogPreviousAddressNotified(ILogger logger, Guid userId);
+
+    [LoggerMessage(
+        EventId = EventIds.DeletionScheduledPreviousAddressFailed,
+        Level = LogLevel.Warning,
+        Message = "Could not notify the armed undo address for user {UserId}: {Error}. The current address is still served.")]
+    private static partial void LogPreviousAddressSendFailed(ILogger logger, Guid userId, string error);
 
     [LoggerMessage(
         EventId = EventIds.DeletionScheduledAddressMissing,

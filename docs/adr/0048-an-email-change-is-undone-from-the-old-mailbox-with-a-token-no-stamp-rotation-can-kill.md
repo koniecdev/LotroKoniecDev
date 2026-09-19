@@ -204,7 +204,11 @@ revert token must do.
   promises cannot be timed out of reach (rule 5).
 - **The old address learns the new one.** The warning and the notice both name it in full. In the
   attack case the recipient is the legitimate owner and needs it to act; in the normal case the
-  recipient is the user themselves.
+  recipient is the user themselves. Since #685 this reaches one step further than those two
+  messages do: after a chain A→B→C only C is notified, so the deletion notice is the first thing
+  telling A that the account now sits on C. It changes nothing substantive — rule 2 means whoever
+  reads A can pull the account back from wherever it is, C included — but the disclosure is wider
+  than "the address it moved to", and this is where that is written down.
 - **At-least-once delivery can double a send.** `EmailChangeRequested` sends two e-mails from one
   message, so a failure on the second retries the first. Duplicated warnings and duplicated
   verification links are harmless — a resent link is the same link — which is the bar ADR-0038's

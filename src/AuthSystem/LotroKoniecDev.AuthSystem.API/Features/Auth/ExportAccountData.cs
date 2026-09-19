@@ -14,6 +14,13 @@ using LotroKoniecDev.SharedKernel.Monads;
 
 namespace LotroKoniecDev.AuthSystem.API.Features.Auth;
 
+/// <summary>
+/// The account representation: the data the "Moje konto" page renders, carrying the links that say what
+/// else this caller may do. Its rel is also the frontend's proof that the token reached this API, so it
+/// stays a GET that needs nothing but a login — see <c>Rels.ExportAccountData</c>.
+/// It is <b>not</b> the GDPR export, even though the payload is the same. Handing the export over asks
+/// for the current password, and that is <see cref="DownloadAccountData"/> (#690, ADR-0052).
+/// </summary>
 internal sealed partial class ExportAccountData : IApiEndpoint
 {
     internal sealed record Query(string UserId) : IQuery<Result<AccountDataExportResponse>>;
@@ -40,32 +47,20 @@ internal sealed partial class ExportAccountData : IApiEndpoint
                 return Result.Failure<AccountDataExportResponse>(AuthErrors.UserNotFound);
             }
 
-            IList<string> roles = await _userManager.GetRolesAsync(appUser);
+            AuthDataExportDto authData = await AccountDataExportMapper.ToDtoAsync(_userManager, appUser);
 
-            AccountDataExportResponse response = new(
-                new AuthDataExportDto(
-                    appUser.Id,
-                    appUser.UserName ?? string.Empty,
-                    appUser.Email ?? string.Empty,
-                    appUser.PhoneNumber,
-                    appUser.EmailConfirmed,
-                    roles.ToList(),
-                    appUser.DataProcessingConsentGiven,
-                    appUser.DataProcessingConsentDate,
-                    appUser.PrivacyPolicyAccepted,
-                    appUser.PrivacyPolicyAcceptedDate,
-                    appUser.TermsOfServiceAccepted,
-                    appUser.TermsOfServiceAcceptedDate,
-                    appUser.DeletionScheduledAt),
-                IsComplete: true);
+            AccountDataExportResponse response = new(authData, IsComplete: true);
 
-            LogGdprExportCompleted(_logger, appUser.Id);
+            // Every visit to the account page passes through here, so this line says "read", not
+            // "export". The export has its own two lines, and mixing the two made the audit log unable
+            // to answer who took a file (#690).
+            LogAccountDataRead(_logger, appUser.Id);
 
             return Result.Success(response);
         }
 
-        [LoggerMessage(EventId = EventIds.ExportDataCompleted, Level = LogLevel.Information, Message = "GDPR data export completed for user {UserId}")]
-        private static partial void LogGdprExportCompleted(ILogger logger, Guid userId);
+        [LoggerMessage(EventId = EventIds.AccountDataRead, Level = LogLevel.Information, Message = "Account data read for user {UserId}")]
+        private static partial void LogAccountDataRead(ILogger logger, Guid userId);
     }
 
     public void MapEndpoint(IEndpointRouteBuilder endpointRouteBuilder)

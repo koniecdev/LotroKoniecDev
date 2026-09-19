@@ -39,6 +39,11 @@ internal sealed class AccountAggregateLinkFactory : IAccountAggregateLinkFactory
 
         // Actions an active, logged-in account can always take.
         links.AddIfPresent(await _linkFactory.CreateAsync(
+            endpoint: nameof(DownloadAccountData),
+            rel: Rels.DownloadAccountData,
+            method: HttpMethods.Post));
+
+        links.AddIfPresent(await _linkFactory.CreateAsync(
             endpoint: nameof(ChangePassword),
             rel: Rels.ChangePassword,
             method: HttpMethods.Post));

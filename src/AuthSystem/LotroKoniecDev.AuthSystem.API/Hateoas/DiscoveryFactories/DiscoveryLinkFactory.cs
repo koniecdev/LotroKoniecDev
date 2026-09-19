@@ -30,6 +30,11 @@ internal sealed class DiscoveryLinkFactory : IDiscoveryLinkFactory
                 endpoint: nameof(ExportAccountData),
                 rel: Rels.ExportAccountData,
                 method: HttpMethods.Get));
+
+            links.AddIfPresent(await _linkFactory.CreateAsync(
+                endpoint: nameof(DownloadAccountData),
+                rel: Rels.DownloadAccountData,
+                method: HttpMethods.Post));
         }
         else
         {

@@ -67,9 +67,12 @@ public sealed class DiscoveryHateoasTests : EndpointsTestBase
 
         // Assert
         response.Name.ShouldBe("LotroKoniecDev.AuthSystem");
-        response.Links.Count.ShouldBe(2);
+        response.Links.Count.ShouldBe(3);
         response.Links.ShouldContain(l => l.Rel == Rels.Self && l.Method == "GET");
+        // A GET, and it must stay one: the frontend reads this exact link as proof that its token
+        // reached the API, and signs the session out when it is missing.
         response.Links.ShouldContain(l => l.Rel == Rels.ExportAccountData && l.Method == "GET");
+        response.Links.ShouldContain(l => l.Rel == Rels.DownloadAccountData && l.Method == "POST");
         response.Links.ShouldNotContain(l => l.Rel == Rels.Register);
         response.Links.ShouldNotContain(l => l.Rel == Rels.ForgotPassword);
     }

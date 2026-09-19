@@ -41,8 +41,9 @@ public sealed class AccountAggregateHateoasTests : EndpointsTestBase
         AccountDataExportResponse response = await RequestHateoasResponseAsync(accessToken);
 
         // Assert
-        response.Links.Count.ShouldBe(4);
+        response.Links.Count.ShouldBe(5);
         response.Links.ShouldContain(l => l.Rel == Rels.Self && l.Method == "GET");
+        response.Links.ShouldContain(l => l.Rel == Rels.DownloadAccountData && l.Method == "POST");
         response.Links.ShouldContain(l => l.Rel == Rels.ChangePassword && l.Method == "POST");
         response.Links.ShouldContain(l => l.Rel == Rels.ChangeEmail && l.Method == "POST");
         response.Links.ShouldContain(l => l.Rel == Rels.DeleteAccount && l.Method == "POST");
@@ -69,8 +70,9 @@ public sealed class AccountAggregateHateoasTests : EndpointsTestBase
         AccountDataExportResponse response = await RequestHateoasResponseAsync(accessToken);
 
         // Assert
-        response.Links.Count.ShouldBe(5);
+        response.Links.Count.ShouldBe(6);
         response.Links.ShouldContain(l => l.Rel == Rels.Self && l.Method == "GET");
+        response.Links.ShouldContain(l => l.Rel == Rels.DownloadAccountData && l.Method == "POST");
         response.Links.ShouldContain(l => l.Rel == Rels.ChangePassword && l.Method == "POST");
         response.Links.ShouldContain(l => l.Rel == Rels.ChangeEmail && l.Method == "POST");
         response.Links.ShouldContain(l => l.Rel == Rels.DeleteAccount && l.Method == "POST");
@@ -102,7 +104,8 @@ public sealed class AccountAggregateHateoasTests : EndpointsTestBase
         response.Links.ShouldContain(l => l.Rel == Rels.Self && l.Method == "GET");
         response.Links.ShouldContain(l => l.Rel == Rels.CancelDeletion && l.Method == "POST");
         response.Links.ShouldNotContain(
-            l => l.Rel == Rels.ChangePassword || l.Rel == Rels.ChangeEmail || l.Rel == Rels.DeleteAccount,
+            l => l.Rel == Rels.ChangePassword || l.Rel == Rels.ChangeEmail || l.Rel == Rels.DeleteAccount
+                 || l.Rel == Rels.DownloadAccountData,
             "a deletion-scheduled account must not advertise dead transitions");
     }
 

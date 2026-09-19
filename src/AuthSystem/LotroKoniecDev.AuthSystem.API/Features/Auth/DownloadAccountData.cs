@@ -30,6 +30,9 @@ internal sealed partial class DownloadAccountData : IApiEndpoint
 
     internal sealed partial class Handler : IQueryHandler<Query, Result<AccountDataExportResponse>>
     {
+        /// <summary>Stands in for an address the account does not have, so a log line never reads as blank.</summary>
+        private const string UnknownEmail = "***";
+
         private readonly UserManager<ApplicationUser> _userManager;
         private readonly ILogger<Handler> _logger;
 
@@ -44,12 +47,8 @@ internal sealed partial class DownloadAccountData : IApiEndpoint
         public async ValueTask<Result<AccountDataExportResponse>> Handle(
             Query query, CancellationToken cancellationToken)
         {
-            // A query validates inline, because FluentValidation is for commands only (house rule).
-            if (string.IsNullOrWhiteSpace(query.Password))
-            {
-                return Result.Failure<AccountDataExportResponse>(AuthErrors.ExportPasswordRequired);
-            }
-
+            // The account is found first, so that every attempt by a logged-in caller can be logged
+            // against the account it named.
             ApplicationUser? user = await _userManager.FindByIdAsync(query.UserId);
             if (user is null)
             {
@@ -57,13 +56,20 @@ internal sealed partial class DownloadAccountData : IApiEndpoint
             }
 
             string maskedEmail = string.IsNullOrWhiteSpace(user.Email)
-                ? "***"
+                ? UnknownEmail
                 : user.Email.MaskEmail();
+
+            // A query validates inline, because FluentValidation is for commands only (house rule).
+            if (string.IsNullOrWhiteSpace(query.Password))
+            {
+                LogExportRefused(_logger, user.Id, maskedEmail, "no password was sent", query.IpAddress, query.UserAgent);
+                return Result.Failure<AccountDataExportResponse>(AuthErrors.ExportPasswordRequired);
+            }
 
             bool passwordValid = await _userManager.CheckPasswordAsync(user, query.Password);
             if (!passwordValid)
             {
-                LogExportRefused(_logger, user.Id, maskedEmail, query.IpAddress, query.UserAgent);
+                LogExportRefused(_logger, user.Id, maskedEmail, "the password did not match", query.IpAddress, query.UserAgent);
                 return Result.Failure<AccountDataExportResponse>(AuthErrors.InvalidCurrentPassword);
             }
 
@@ -81,8 +87,8 @@ internal sealed partial class DownloadAccountData : IApiEndpoint
         [LoggerMessage(EventId = EventIds.ExportDataDownloaded, Level = LogLevel.Information, Message = "GDPR data export handed over for user {UserId} ({MaskedEmail}). IP: {IpAddress}, UserAgent: {UserAgent}")]
         private static partial void LogExportDownloaded(ILogger logger, Guid userId, string maskedEmail, string? ipAddress, string? userAgent);
 
-        [LoggerMessage(EventId = EventIds.ExportDataRefused, Level = LogLevel.Warning, Message = "GDPR data export refused for user {UserId} ({MaskedEmail}): the password did not match. IP: {IpAddress}, UserAgent: {UserAgent}")]
-        private static partial void LogExportRefused(ILogger logger, Guid userId, string maskedEmail, string? ipAddress, string? userAgent);
+        [LoggerMessage(EventId = EventIds.ExportDataRefused, Level = LogLevel.Warning, Message = "GDPR data export refused for user {UserId} ({MaskedEmail}): {Reason}. IP: {IpAddress}, UserAgent: {UserAgent}")]
+        private static partial void LogExportRefused(ILogger logger, Guid userId, string maskedEmail, string reason, string? ipAddress, string? userAgent);
     }
 
     public void MapEndpoint(IEndpointRouteBuilder endpointRouteBuilder)

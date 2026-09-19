@@ -43,6 +43,18 @@ internal sealed class ApplicationUserConfiguration : IEntityTypeConfiguration<Ap
         builder.Property(u => u.EmailChangeRevertTo)
             .HasMaxLength(EmailConstants.MaxLength);
 
+        builder.Property(u => u.NormalizedEmailChangeRevertTo)
+            .HasMaxLength(EmailConstants.MaxLength);
+
+        builder.Property(u => u.EmailChangeRevertArmedAt);
+
+        // A partial index, like the deletion one below. Registration asks "is this address reserved"
+        // on every attempt, and only the handful of rows with an armed undo can answer yes, so the
+        // check must never become a scan of the whole table (#684). Not unique: once an arming
+        // expires its value stays behind, and a later account may arm the same address.
+        builder.HasIndex(u => u.NormalizedEmailChangeRevertTo)
+            .HasFilter($"\"{nameof(ApplicationUser.NormalizedEmailChangeRevertTo)}\" IS NOT NULL");
+
         // A partial index. The deletion job only looks at the few rows that have a date set.
         builder.HasIndex(u => u.DeletionScheduledAt)
             .HasFilter($"\"{nameof(ApplicationUser.DeletionScheduledAt)}\" IS NOT NULL");

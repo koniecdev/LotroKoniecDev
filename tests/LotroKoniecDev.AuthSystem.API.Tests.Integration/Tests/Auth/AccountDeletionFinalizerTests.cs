@@ -76,7 +76,7 @@ public sealed class AccountDeletionFinalizerTests : EndpointsTestBase
         // rest. It also releases the reservation of #684 — an erased account must not keep somebody
         // else's address blocked.
         (_, IdentityId identityId) = await RegisterAndScheduleDeletionAsync();
-        await ArmRevertTargetAsync(identityId.Value, "poprzedni@shire.me");
+        await ArmRevertTargetAsync(identityId.Value, "poprzedni@shire.me", TimeSpan.FromDays(15));
         await BackdateScheduleAsync(identityId.Value, TimeSpan.FromDays(15));
 
         await RunFinalizerAsync();
@@ -85,6 +85,47 @@ public sealed class AccountDeletionFinalizerTests : EndpointsTestBase
         user.EmailChangeRevertTo.ShouldBeNull();
         user.NormalizedEmailChangeRevertTo.ShouldBeNull();
         user.EmailChangeRevertArmedAt.ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task Finalizer_ShouldNotTouchAccount_WhileAnArmedUndoIsStillLive()
+    {
+        // #685's invariant: no path erases an account while a live undo link for it exists, because
+        // following that link cancels the deletion. The row is written by hand because the flows
+        // cannot produce it — a scheduled deletion refuses both e-mail-change legs, so arming always
+        // comes first — and the guard has to hold whatever order the two timestamps arrive in.
+        (RegisterRequest registerRequest, IdentityId identityId) = await RegisterAndScheduleDeletionAsync();
+        await BackdateScheduleAsync(identityId.Value, TimeSpan.FromDays(20));
+        await ArmRevertTargetAsync(identityId.Value, "poprzedni@shire.me", TimeSpan.FromDays(1));
+
+        int finalizedCount = await RunFinalizerAsync();
+
+        finalizedCount.ShouldBe(0);
+
+        ApplicationUser user = await GetUserAsync(identityId.Value);
+        user.Email.ShouldBe(registerRequest.Email);
+        user.DeletionScheduledAt.ShouldNotBeNull();
+    }
+
+    [Fact]
+    public async Task Finalizer_ShouldAnonymizeAccount_OnceTheHeldUndoWindowHasExpired()
+    {
+        // The other half of the hold: it releases. An undo that can no longer be used stops protecting
+        // anything, and the deletion the owner never cancelled goes through.
+        (_, IdentityId identityId) = await RegisterAndScheduleDeletionAsync();
+        await BackdateScheduleAsync(identityId.Value, TimeSpan.FromDays(20));
+        await ArmRevertTargetAsync(identityId.Value, "poprzedni@shire.me", TimeSpan.FromDays(1));
+
+        int heldRunCount = await RunFinalizerAsync();
+
+        await ArmRevertTargetAsync(identityId.Value, "poprzedni@shire.me", TimeSpan.FromDays(15));
+        int releasedRunCount = await RunFinalizerAsync();
+
+        heldRunCount.ShouldBe(0);
+        releasedRunCount.ShouldBe(1);
+
+        ApplicationUser user = await GetUserAsync(identityId.Value);
+        user.Email.ShouldStartWith(AnonymizationConstants.EmailPrefix);
     }
 
     [Fact]
@@ -188,7 +229,11 @@ public sealed class AccountDeletionFinalizerTests : EndpointsTestBase
         return await ApiClient.Http.PostAsync(new Uri("connect/token", UriKind.Relative), tokenRequest);
     }
 
-    private async Task ArmRevertTargetAsync(Guid userId, string previousEmail)
+    /// <summary>
+    /// Arms an undo at a chosen moment. The moment is a parameter because #685 made it decide whether
+    /// the row is due at all: an undo armed a second ago holds the erasure back for its whole window.
+    /// </summary>
+    private async Task ArmRevertTargetAsync(Guid userId, string previousEmail, TimeSpan armedAge)
     {
         await using AsyncServiceScope scope = Factory.Services.CreateAsyncScope();
         AuthDbContext db = scope.ServiceProvider.GetRequiredService<AuthDbContext>();
@@ -196,7 +241,7 @@ public sealed class AccountDeletionFinalizerTests : EndpointsTestBase
         ApplicationUser user = await db.Users.SingleAsync(row => row.Id == userId);
         user.EmailChangeRevertTo = previousEmail;
         user.NormalizedEmailChangeRevertTo = previousEmail.ToUpperInvariant();
-        user.EmailChangeRevertArmedAt = DateTimeOffset.UtcNow;
+        user.EmailChangeRevertArmedAt = DateTimeOffset.UtcNow - armedAge;
         await db.SaveChangesAsync();
     }
 

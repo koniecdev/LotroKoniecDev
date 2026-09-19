@@ -78,6 +78,35 @@ public sealed partial class EmailChangeRevertReservationTests : EndpointsTestBas
         restored.EmailChangeRevertArmedAt.ShouldBeNull();
     }
 
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Register_ShouldBeRefused_WhateverCaseTheSquatterTypesTheAddressIn(bool upperCase)
+    {
+        // Both sides go through Identity's key normalizer, so a re-spelling is the same address. A
+        // lookup that quietly degraded to a raw comparison would pass every other test in this file.
+        (RegisterRequest user, _, _) = await CompleteChangeAsync();
+        string respelled = upperCase ? user.Email.ToUpperInvariant() : MixCase(user.Email);
+
+        HttpResponseMessage response = await RegisterOnAsync(respelled);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.UnprocessableEntity);
+        (await response.Content.ReadAsStringAsync()).ShouldContain("Auth.UserAlreadyExistsByEmail");
+    }
+
+    [Fact]
+    public async Task Register_ShouldSucceed_WhenTheAddressOnlyLooksLikeTheArmedOne()
+    {
+        // Identity upper-cases and nothing else, so a plus tag is a different address. Pinned so
+        // nobody later "improves" the normalizer into treating the two as one.
+        (RegisterRequest user, _, _) = await CompleteChangeAsync();
+        string tagged = user.Email.Replace("@", "+tag@", StringComparison.Ordinal);
+
+        HttpResponseMessage response = await RegisterOnAsync(tagged);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.Created);
+    }
+
     [Fact]
     public async Task Register_ShouldSucceed_OnceTheArmingHasExpired()
     {
@@ -88,6 +117,22 @@ public sealed partial class EmailChangeRevertReservationTests : EndpointsTestBas
         HttpResponseMessage response = await RegisterOnAsync(user.Email);
 
         response.StatusCode.ShouldBe(HttpStatusCode.Created);
+    }
+
+    [Theory]
+    [InlineData(13, false)]
+    [InlineData(14, true)]
+    [InlineData(20, true)]
+    public async Task Register_ShouldFollowTheTokenLifespan_AtTheBoundary(int armedDaysAgo, bool allowed)
+    {
+        // The window is the revert token's own 14 days, measured from the arming. Day 14 is already
+        // out: the reservation may not outlive the link it protects.
+        (RegisterRequest user, _, Guid userId) = await CompleteChangeAsync();
+        await BackdateArmingAsync(userId, TimeSpan.FromDays(armedDaysAgo));
+
+        HttpResponseMessage response = await RegisterOnAsync(user.Email);
+
+        response.StatusCode.ShouldBe(allowed ? HttpStatusCode.Created : HttpStatusCode.UnprocessableEntity);
     }
 
     [Fact]
@@ -157,6 +202,56 @@ public sealed partial class EmailChangeRevertReservationTests : EndpointsTestBas
     }
 
     [Fact]
+    public async Task ConfirmPage_Post_ShouldLetTheAccountBackOntoItsOwnArmedAddress()
+    {
+        // The recovery path this whole ticket protects. Exclude the caller's own row by mistake and
+        // the account could never go home again.
+        (RegisterRequest user, string newEmail, Guid userId) = await CompleteChangeAsync();
+
+        await ChangeAndConfirmAsync(userId, newEmail, user.Email);
+
+        (await LoadUserByIdAsync(userId)).Email.ShouldBe(user.Email);
+    }
+
+    [Fact]
+    public async Task ConfirmPage_Post_ShouldSettleTheChain_WhenTheAccountComesBackToTheArmedAddress()
+    {
+        // Coming home by changing back is as final as clicking the undo, so the row is disarmed. Left
+        // armed, its timestamp would stay frozen at the first change while a later change still minted
+        // a fresh 14-day link — a link outliving the reservation that keeps its address free (#684).
+        (RegisterRequest user, string newEmail, Guid userId) = await CompleteChangeAsync();
+
+        await ChangeAndConfirmAsync(userId, newEmail, user.Email);
+
+        ApplicationUser settled = await LoadUserByIdAsync(userId);
+        settled.EmailChangeRevertTo.ShouldBeNull();
+        settled.NormalizedEmailChangeRevertTo.ShouldBeNull();
+        settled.EmailChangeRevertArmedAt.ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task ConfirmPage_Post_ShouldReArmWithAFreshWindow_WhenTheAccountLeavesAgainAfterComingBack()
+    {
+        // The chain restarts from here, so the next change arms afresh and its reservation covers the
+        // link it hands out. Before #684 this branch re-used the very first timestamp.
+        (RegisterRequest user, string newEmail, Guid userId) = await CompleteChangeAsync();
+        DateTimeOffset firstArming = (await LoadUserByIdAsync(userId)).EmailChangeRevertArmedAt!.Value;
+
+        await ChangeAndConfirmAsync(userId, newEmail, user.Email);
+        await BackdateArmingAsync(userId, TimeSpan.FromDays(20));
+
+        string thirdEmail = Faker.Internet.Email();
+        await ChangeAndConfirmAsync(userId, user.Email, thirdEmail);
+
+        ApplicationUser reArmed = await LoadUserByIdAsync(userId);
+        reArmed.EmailChangeRevertTo.ShouldBe(user.Email);
+        reArmed.EmailChangeRevertArmedAt!.Value.ShouldBeGreaterThan(firstArming);
+
+        // And the address the fresh link points at is reserved again.
+        (await RegisterOnAsync(user.Email)).StatusCode.ShouldBe(HttpStatusCode.UnprocessableEntity);
+    }
+
+    [Fact]
     public async Task ConfirmPage_Post_ShouldNotRefreshTheArming_WhenTheChainMovesAgain()
     {
         // A later change may not re-aim the undo target, and it may not extend its reservation
@@ -165,14 +260,32 @@ public sealed partial class EmailChangeRevertReservationTests : EndpointsTestBas
         DateTimeOffset? armedAtAfterFirstChange = (await LoadUserByIdAsync(userId)).EmailChangeRevertArmedAt;
         armedAtAfterFirstChange.ShouldNotBeNull();
 
-        string accessToken = await GetAccessTokenAsync(firstNewEmail, Password);
-        string secondNewEmail = Faker.Internet.Email();
-        (await RequestChangeAsync(accessToken, secondNewEmail)).StatusCode.ShouldBe(HttpStatusCode.OK);
-        await EmailChangeEmailSpy.WaitForVerificationCaptureAsync();
-        await ConfirmAsync(userId, secondNewEmail, EmailChangeEmailSpy.LastVerificationToken!);
+        await ChangeAndConfirmAsync(userId, firstNewEmail, Faker.Internet.Email());
 
         (await LoadUserByIdAsync(userId)).EmailChangeRevertArmedAt.ShouldBe(armedAtAfterFirstChange);
     }
+
+    /// <summary>
+    /// Moves an account from one address to another the ordinary way: request, then confirm. The spy
+    /// is reset first, or the wait below returns the previous change's token straight away and the
+    /// confirm quietly does nothing — the page answers 200 either way.
+    /// </summary>
+    private async Task ChangeAndConfirmAsync(Guid userId, string currentEmail, string targetEmail)
+    {
+        string accessToken = await GetAccessTokenAsync(currentEmail, Password);
+        EmailChangeEmailSpy.Reset();
+
+        (await RequestChangeAsync(accessToken, targetEmail)).StatusCode.ShouldBe(HttpStatusCode.OK);
+        await EmailChangeEmailSpy.WaitForVerificationCaptureAsync();
+
+        await ConfirmAsync(userId, targetEmail, EmailChangeEmailSpy.LastVerificationToken!);
+
+        (await LoadUserByIdAsync(userId)).Email.ShouldBe(targetEmail);
+    }
+
+    private static string MixCase(string email) =>
+        string.Concat(email.Select((character, index) =>
+            index % 2 == 0 ? char.ToUpperInvariant(character) : char.ToLowerInvariant(character)));
 
     private async Task<(RegisterRequest User, string NewEmail, Guid UserId)> CompleteChangeAsync()
     {

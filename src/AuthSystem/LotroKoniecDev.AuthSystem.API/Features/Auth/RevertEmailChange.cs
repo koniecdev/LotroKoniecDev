@@ -176,9 +176,7 @@ internal sealed partial class RevertEmailChange
             // a fresh one from here. Disarming also releases the address reservation of #684: the
             // account is back on that address now, so ordinary uniqueness is what guards it again.
             user.EmailChangeRevertStamp = Guid.NewGuid();
-            user.EmailChangeRevertTo = null;
-            user.NormalizedEmailChangeRevertTo = null;
-            user.EmailChangeRevertArmedAt = null;
+            user.DisarmEmailChangeRevert();
 
             // A deletion the same person may have scheduled is called off here. Its cancel link went to
             // the address the account was moved to, so leaving the schedule in place would hand the

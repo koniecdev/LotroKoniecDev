@@ -123,13 +123,14 @@ internal static class EventIds
     public const int EmailChangeApplied = 2504;
     public const int EmailChangeUpdateFailed = 2505;
     public const int EmailChangeConfirmRace = 2506;
+    public const int EmailChangeRequestAddressReserved = 2507;
+    public const int EmailChangeConfirmAddressReserved = 2508;
     public const int EmailChangeRevertTokenInvalid = 2510;
     public const int EmailChangeReverted = 2511;
     public const int EmailChangeRevertFailed = 2512;
     public const int EmailChangeRevertAddressTaken = 2513;
     public const int EmailChangeRevertAlreadySettled = 2514;
     public const int EmailChangeRevertRace = 2515;
-    public const int EmailChangeReservedAddressRefused = 2516;
 
     // Change E-mail dispatch (2520-2529)
     public const int EmailChangeDispatchUserGone = 2520;

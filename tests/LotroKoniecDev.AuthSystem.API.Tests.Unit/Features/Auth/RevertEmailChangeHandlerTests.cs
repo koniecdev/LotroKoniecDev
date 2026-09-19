@@ -184,9 +184,12 @@ public sealed class RevertEmailChangeHandlerTests
         user.SecurityStamp.ShouldNotBe(stampBefore);
 
         // Retires every link issued so far and disarms the chain, so the next change starts a fresh
-        // one from here.
+        // one from here. All three revert fields go together: a leftover reservation would keep the
+        // address blocked for an undo that no longer exists (#684).
         user.EmailChangeRevertStamp.ShouldNotBeNull();
         user.EmailChangeRevertTo.ShouldBeNull();
+        user.NormalizedEmailChangeRevertTo.ShouldBeNull();
+        user.EmailChangeRevertArmedAt.ShouldBeNull();
 
         // Revoking the OpenIddict artifacts leaves no trace in the return value, so it is asserted here.
         await _sessionRevoker.Received(1).RevokeAllAsync(user.Id.ToString(), Arg.Any<CancellationToken>());

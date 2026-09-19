@@ -104,6 +104,17 @@ addresses (`RevertEmailChange:{previous}->{new}`).
    the account that armed it, and it expires with the link, so no address is blocked for good.
    The refusal reuses `UserAlreadyExistsByEmail`, which leaks nothing: the address really was in
    use a moment earlier.
+   The reservation cannot be turned against a stranger, and that is what makes it safe to have:
+   arming an address means having confirmed it, because `SignIn.RequireConfirmedEmail` blocks the
+   login and `RequestEmailChange` wants the password too. Nobody can reserve an address they do not
+   already own.
+   **Coming back settles the chain.** A confirm that lands the account on the armed address disarms
+   the row and rotates `EmailChangeRevertStamp`, exactly as a successful revert does. Without it the
+   row would stay armed at the first change's timestamp, and a later change away would still mint a
+   fresh 14-day link off it — a link outliving the reservation meant to protect its address, which
+   is this ticket's own bug again. Only someone reading the armed mailbox can reach that branch: the
+   confirm link goes there. Re-arming then starts a new window, which is what rule 1 always meant —
+   "never re-aim the target" is about where the undo points, not about when the chain ends.
 
 The two rejected shapes, kept because each looks correct until it is attacked:
 
@@ -194,9 +205,12 @@ revert token must do.
   stranger silently disarm somebody's only recovery path — is far worse.
 - **Two gaps the reservation does not cover, both answered by the old refusal.** A row armed before
   #684 has no timestamp and is read as unreserved. And the arming is stamped at confirm time while
-  the token is minted a moment later by the outbox processor, so the reservation closes marginally
-  before the token does. `RevertEmailChange` keeps refusing when the armed address belongs to
-  somebody else, with its own page message, and the password is left alone.
+  the token is minted later, by the outbox processor at send time, so the reservation closes that
+  much before the token does. Normally the gap is the dispatch delay, seconds; a failing relay
+  stretches it, but delivery is capped at `RabbitMqTopology.EmailDeliveryLimit` (5) attempts before
+  the message is dead-lettered, so it cannot grow to days. `RevertEmailChange` keeps refusing when
+  the armed address belongs to somebody else, with its own page message, and the password is left
+  alone.
 - **The uniqueness check is application-level and racy.** `UserManager.UpdateAsync` validates with
   `FindByEmailAsync` *before* the write, so the unique index from `UniqueEmailIndex` is the only
   real arbiter. `UserStore.UpdateAsync` catches only `DbUpdateConcurrencyException`, so a Postgres

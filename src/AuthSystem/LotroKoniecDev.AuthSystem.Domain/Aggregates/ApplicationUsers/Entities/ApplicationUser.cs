@@ -43,4 +43,32 @@ public sealed class ApplicationUser : IdentityUser<Guid>
     /// shipped has no timestamp and is not reserved.
     /// </summary>
     public DateTimeOffset? EmailChangeRevertArmedAt { get; set; }
+
+    /// <summary>
+    /// Arms the undo at the address the account is leaving. The three fields only mean something
+    /// together — a target with no timestamp is reserved by nobody, a timestamp with no target
+    /// reserves nothing — so they are written in one place instead of three.
+    /// </summary>
+    /// <param name="previousEmail">The address to go back to, as the user typed it.</param>
+    /// <param name="normalizedPreviousEmail">The same address through Identity's key normalizer.</param>
+    /// <param name="armedAt">When the undo was armed, which starts the reservation window.</param>
+    public void ArmEmailChangeRevert(
+        string previousEmail, string? normalizedPreviousEmail, DateTimeOffset armedAt)
+    {
+        EmailChangeRevertTo = previousEmail;
+        NormalizedEmailChangeRevertTo = normalizedPreviousEmail;
+        EmailChangeRevertArmedAt = armedAt;
+    }
+
+    /// <summary>
+    /// Settles the chain: there is nothing left to undo and nothing left to reserve. The caller
+    /// rotates <see cref="EmailChangeRevertStamp"/> alongside this when outstanding links have to
+    /// die with it.
+    /// </summary>
+    public void DisarmEmailChangeRevert()
+    {
+        EmailChangeRevertTo = null;
+        NormalizedEmailChangeRevertTo = null;
+        EmailChangeRevertArmedAt = null;
+    }
 }

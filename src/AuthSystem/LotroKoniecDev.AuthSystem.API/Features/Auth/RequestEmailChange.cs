@@ -141,7 +141,7 @@ internal sealed partial class RequestEmailChange : IApiEndpoint
             bool reserved = await _revertReservation.IsReservedAsync(newEmail, user.Id, cancellationToken);
             if (reserved)
             {
-                LogAddressTaken(_logger, user.Id, newEmail.MaskEmail());
+                LogAddressReserved(_logger, user.Id, newEmail.MaskEmail());
                 return Result.Failure(AuthErrors.UserAlreadyExistsByEmail);
             }
 
@@ -166,6 +166,9 @@ internal sealed partial class RequestEmailChange : IApiEndpoint
 
         [LoggerMessage(EventId = EventIds.EmailChangeAddressTaken, Level = LogLevel.Information, Message = "E-mail change refused for user {UserId}: {NewEmail} belongs to another account")]
         private static partial void LogAddressTaken(ILogger logger, Guid userId, string newEmail);
+
+        [LoggerMessage(EventId = EventIds.EmailChangeRequestAddressReserved, Level = LogLevel.Information, Message = "E-mail change refused for user {UserId}: {NewEmail} is still reserved as another account's undo target")]
+        private static partial void LogAddressReserved(ILogger logger, Guid userId, string newEmail);
     }
 
     public void MapEndpoint(IEndpointRouteBuilder endpointRouteBuilder)

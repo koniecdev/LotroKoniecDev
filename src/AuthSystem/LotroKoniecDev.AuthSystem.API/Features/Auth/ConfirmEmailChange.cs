@@ -170,17 +170,34 @@ internal sealed partial class ConfirmEmailChange
             // processor creates moments later is built from the stamp that was actually stored.
             user.SecurityStamp = Guid.NewGuid().ToString();
 
-            // Only the first change since the last revert arms the undo, and it arms it at the address
-            // the chain started from. A second change must not make itself a target: after A to B to C
-            // that would hand an undo link to B, which is whoever took the account over (ADR-0048).
-            // The timestamp starts the reservation that keeps the armed address out of anyone else's
-            // hands for as long as the revert token lives (#684); a later change must not refresh it,
-            // for the same reason it must not re-aim the target.
-            if (user.EmailChangeRevertTo is null)
+            string? armedTarget = _userManager.NormalizeEmail(user.EmailChangeRevertTo);
+            bool backOnTheArmedAddress = armedTarget is not null
+                                         && string.Equals(
+                                             armedTarget,
+                                             _userManager.NormalizeEmail(newEmail),
+                                             StringComparison.Ordinal);
+
+            if (backOnTheArmedAddress)
             {
-                user.EmailChangeRevertTo = previousEmail;
-                user.NormalizedEmailChangeRevertTo = _userManager.NormalizeEmail(previousEmail);
-                user.EmailChangeRevertArmedAt = _timeProvider.GetUtcNow();
+                // The account is where the chain started, so the chain is over and is settled exactly
+                // as a revert settles it. Leaving it armed would freeze the reservation at the first
+                // change's timestamp while a later change still minted a fresh 14-day link off it
+                // (#684) — the link would then outlive the reservation that protects its address.
+                // Only somebody reading the armed mailbox can reach this: the confirm link went there.
+                user.DisarmEmailChangeRevert();
+                user.EmailChangeRevertStamp = Guid.NewGuid();
+            }
+            else if (user.EmailChangeRevertTo is null)
+            {
+                // Only the first change since the last revert arms the undo, and it arms it at the
+                // address the chain started from. A second change must not make itself a target: after
+                // A to B to C that would hand an undo link to B, which is whoever took the account
+                // over (ADR-0048). The timestamp starts the reservation that keeps that address out of
+                // anyone else's hands for as long as the revert token lives (#684).
+                user.ArmEmailChangeRevert(
+                    previousEmail,
+                    _userManager.NormalizeEmail(previousEmail),
+                    _timeProvider.GetUtcNow());
             }
 
             _outboxWriter.Enqueue(new EmailChangeCompleted(user.Id, previousEmail, newEmail));
@@ -256,7 +273,7 @@ internal sealed partial class ConfirmEmailChange
         [LoggerMessage(EventId = EventIds.EmailChangeConfirmRace, Level = LogLevel.Warning, Message = "E-mail change for user {UserId} lost a race for the new address")]
         private static partial void LogUpdateRace(ILogger logger, Exception exception, Guid userId);
 
-        [LoggerMessage(EventId = EventIds.EmailChangeReservedAddressRefused, Level = LogLevel.Warning, Message = "E-mail change for user {UserId} refused: {NewEmail} is still reserved as another account's undo target")]
+        [LoggerMessage(EventId = EventIds.EmailChangeConfirmAddressReserved, Level = LogLevel.Warning, Message = "E-mail change for user {UserId} refused: {NewEmail} is still reserved as another account's undo target")]
         private static partial void LogReservedAddressRefused(ILogger logger, Guid userId, string newEmail);
     }
 }

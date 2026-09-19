@@ -220,11 +220,15 @@ outlier and explicitly **not** the pattern here.
   `UserAlreadyExistsByEmail` they already give a taken address, because it was taken a moment ago.
   The reservation is one indexed lookup, it excludes the account that armed it (going back is the
   move it protects), and it dies with the revert token's own 14-day lifespan, so no address is ever
-  blocked for good. A later change in the chain re-arms nothing and does not extend the window.
+  blocked for good. A later change in the chain re-arms nothing and does not extend the window, and
+  a confirm that brings the account **back** to the armed address settles the chain — it disarms the
+  row and rotates `EmailChangeRevertStamp`, like a revert, so the next change away arms afresh
+  instead of minting a link off a reservation that has already expired.
 - **The revert can still find its old address taken, and now says so.** Two cases survive the
   reservation: a row armed before #684, which carries no timestamp and is read as unreserved, and
-  the few seconds between the arming expiring and the token expiring (the token is minted by the
-  outbox processor, a moment after the stamp). `RevertEmailChange` keeps its refusal for both — the
+  the gap between the arming expiring and the token expiring (the token is minted by the outbox
+  processor at send time, normally seconds after the stamp and bounded by the 5-attempt delivery
+  limit). `RevertEmailChange` keeps its refusal for both — the
   account stays where it is and the password is **not** nulled — and `RevertEmailChange.cshtml` now
   renders it as its own state, saying the password still works and pointing the visitor at support,
   instead of the generic dead-link message.

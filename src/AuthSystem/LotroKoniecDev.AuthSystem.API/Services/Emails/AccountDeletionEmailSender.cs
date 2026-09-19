@@ -63,6 +63,49 @@ internal sealed class AccountDeletionEmailSender : IAccountDeletionEmailSender
                 cancellationToken: cancellationToken);
     }
 
+    public async Task<Result> SendDeletionScheduledNoticeToPreviousAddressAsync(
+        Guid userId,
+        string previousEmail,
+        string currentEmail,
+        string cancelToken,
+        DateTimeOffset finalizesAt,
+        CancellationToken cancellationToken)
+    {
+        // The link carries the address the account sits on now, not the one reading this. That is the
+        // value CancelAccountDeletion looks the account up with, so it is the same link the current
+        // address gets — only the wording differs.
+        string link = _cancelDeletionLinkFactory.Create(currentEmail, cancelToken);
+        string deletionDate = finalizesAt.ToPolandTime().ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+
+        EmailTemplateModel template = new()
+        {
+            Preheader = $"Konto, które działało na tym adresie, zostanie usunięte {deletionDate}.",
+            Heading = "Zaplanowano usunięcie konta powiązanego z tym adresem",
+            Paragraphs =
+            [
+                $"Adres e-mail konta w {EmailBranding.Name}, które działało na tym adresie, został niedawno zmieniony na {currentEmail}. Teraz ktoś zaplanował trwałe usunięcie tego konta.",
+                $"Konto zostanie trwale usunięte dnia {deletionDate} czasu polskiego.",
+                "Jeśli to nie Ty, użyj przycisku poniżej. Anuluje on usunięcie i unieważni obecne hasło, a następnie pozwoli Ci ustawić nowe."
+            ],
+            CallToAction = new EmailCallToAction("Anuluj usunięcie konta", link),
+            SecurityNote =
+                "Jeśli to Ty zmieniłeś(-aś) adres i usuwasz konto, zignoruj tę wiadomość — usunięcie odbędzie się w podanym terminie."
+        };
+
+        using IDisposable? scope = _logger.BeginScope(new Dictionary<string, object?>
+        {
+            ["EmailOperation"] = "AccountDeletionScheduledPreviousAddress",
+            ["RecipientUserId"] = userId
+        });
+
+        return await _emailService
+            .SendAsync(
+                receiverEmail: previousEmail,
+                subject: $"Zaplanowano usunięcie konta powiązanego z tym adresem — {EmailBranding.Name}",
+                body: _templateRenderer.Render(template),
+                cancellationToken: cancellationToken);
+    }
+
     public async Task<Result> SendDeletionCancelledEmailAsync(
         Guid userId,
         string email,

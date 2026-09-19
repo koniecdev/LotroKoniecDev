@@ -109,6 +109,7 @@ internal static class EventIds
     public const int DeletionScheduledScheduleGone = 2371;
     public const int DeletionScheduledWindowOver = 2372;
     public const int DeletionScheduledAddressMissing = 2373;
+    public const int DeletionScheduledPreviousAddressNotified = 2374;
 
     // Deletion-Cancelled Dispatch (2380-2389)
     public const int DeletionCancelledUserGone = 2380;

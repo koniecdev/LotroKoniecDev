@@ -6,6 +6,7 @@ using LotroKoniecDev.AuthSystem.API.ApiErrors;
 using LotroKoniecDev.AuthSystem.API.Common;
 using LotroKoniecDev.AuthSystem.API.Extensions;
 using LotroKoniecDev.AuthSystem.API.Outbox;
+using LotroKoniecDev.AuthSystem.API.Services.Accounts;
 using LotroKoniecDev.AuthSystem.Contracts.Features.Auth.Register;
 using LotroKoniecDev.AuthSystem.Domain.Aggregates.ApplicationUsers.Entities;
 using LotroKoniecDev.AuthSystem.Persistence.DbContexts;
@@ -67,6 +68,7 @@ internal sealed partial class RegisterUser : IApiEndpoint
         private readonly ILogger<Handler> _logger;
         private readonly AuthDbContext _db;
         private readonly OutboxWriter _outboxWriter;
+        private readonly IEmailChangeRevertReservation _revertReservation;
 
         public Handler(
             UserManager<ApplicationUser> userManager,
@@ -74,7 +76,8 @@ internal sealed partial class RegisterUser : IApiEndpoint
             IValidator<Command> validator,
             ILogger<Handler> logger,
             AuthDbContext db,
-            OutboxWriter outboxWriter)
+            OutboxWriter outboxWriter,
+            IEmailChangeRevertReservation revertReservation)
         {
             _userManager = userManager;
             _timeProvider = timeProvider;
@@ -82,6 +85,7 @@ internal sealed partial class RegisterUser : IApiEndpoint
             _logger = logger;
             _db = db;
             _outboxWriter = outboxWriter;
+            _revertReservation = revertReservation;
         }
 
         public async ValueTask<Result<IdentityId>> Handle(
@@ -118,6 +122,22 @@ internal sealed partial class RegisterUser : IApiEndpoint
                 ApplicationUser? existingUser = await _userManager.FindByEmailAsync(command.Email);
                 if (existingUser is not null)
                 {
+                    return Result.Failure<IdentityId>(AuthErrors.UserAlreadyExistsByEmail);
+                }
+
+                // An address freed by an e-mail change is not free while its owner still holds a
+                // working undo link (#684). Occupying the row is all it takes to make that link fail
+                // forever, and the row is occupied by whoever types the address in here: CreateAsync
+                // writes it before anything is confirmed, RequireConfirmedEmail only blocks login, and
+                // no job ever removes an unconfirmed registration. The refusal is the one this
+                // endpoint already gives a taken address, because the address really was taken a
+                // moment ago.
+                bool reserved = await _revertReservation.IsReservedAsync(
+                    command.Email, exceptUserId: null, cancellationToken);
+
+                if (reserved)
+                {
+                    LogReservedAddressRefused(_logger, command.Email.MaskEmail());
                     return Result.Failure<IdentityId>(AuthErrors.UserAlreadyExistsByEmail);
                 }
 
@@ -199,6 +219,9 @@ internal sealed partial class RegisterUser : IApiEndpoint
 
         [LoggerMessage(EventId = EventIds.RegisterConcurrentRace, Level = LogLevel.Warning, Message = "Concurrent registration race condition for email {Email}")]
         private static partial void LogConcurrentRegistration(ILogger logger, Exception exception, string email);
+
+        [LoggerMessage(EventId = EventIds.RegisterReservedAddressRefused, Level = LogLevel.Warning, Message = "Registration refused for {Email}: the address is still reserved as another account's e-mail-change undo target")]
+        private static partial void LogReservedAddressRefused(ILogger logger, string email);
     }
 
     public void MapEndpoint(IEndpointRouteBuilder endpointRouteBuilder)

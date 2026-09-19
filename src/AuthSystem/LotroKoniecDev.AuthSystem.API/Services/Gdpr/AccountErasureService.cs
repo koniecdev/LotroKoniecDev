@@ -65,6 +65,12 @@ internal sealed partial class AccountErasureService : IAccountErasureService
             user.TermsOfServiceAccepted = false;
             user.TermsOfServiceAcceptedDate = null;
 
+            // The armed undo target is a former address of this person, so it is personal data and
+            // goes with the rest. Clearing it also releases the address reservation of #684 — an
+            // erased account must not keep somebody else's address blocked — and closes the undo on
+            // an account there is no longer anything to undo for.
+            user.DisarmEmailChangeRevert();
+
             // The permanent lockout goes in the same update as the anonymization marker. The finalizer
             // picks its work by the marker alone, so a user must never end up marked but not locked. A
             // separate lockout write could fail, and that user would then be skipped by every later

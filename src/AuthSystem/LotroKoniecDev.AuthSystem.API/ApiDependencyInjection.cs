@@ -12,6 +12,7 @@ using LotroKoniecDev.AuthSystem.API.Features.Auth;
 using LotroKoniecDev.AuthSystem.API.Hateoas.AccountAggregateFactories;
 using LotroKoniecDev.AuthSystem.API.Hateoas.DiscoveryFactories;
 using LotroKoniecDev.AuthSystem.API.Outbox;
+using LotroKoniecDev.AuthSystem.API.Services.Accounts;
 using LotroKoniecDev.AuthSystem.API.Services.Emails;
 using LotroKoniecDev.AuthSystem.API.Services.Emails.Templates;
 using LotroKoniecDev.AuthSystem.API.Services.Gdpr;
@@ -98,6 +99,7 @@ internal static class ApiDependencyInjection
             services.AddHostedService<AccountDeletionFinalizerHostedService>();
 
             services.AddScoped<IUserSessionRevoker, UserSessionRevoker>();
+            services.AddScoped<IEmailChangeRevertReservation, EmailChangeRevertReservation>();
 
             // A singleton, because the budget has to be shared by every request. The IP policies live in
             // the limiter's own options; this one counts sends per account, which a policy cannot do

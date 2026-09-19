@@ -1,8 +1,8 @@
 # ADR-0048: An E-mail Change Is Undone From the Old Mailbox, With a Token No Stamp Rotation Can Kill
 
-**Status:** Accepted
+**Status:** Accepted (amended 2026-09-19 by #684 — the freed address is reserved, see rule 4)
 **Date:** 2026-08-20
-**Decision-makers:** Solo maintainer (ticket #671, LEGAL-14, legal & GDPR pack #459)
+**Decision-makers:** Solo maintainer (ticket #671, LEGAL-14, legal & GDPR pack #459; amendment #684, SEC-06)
 **Related:** ADR-0031 (the same threat, answered for deletion), ADR-0038 (the one dispatch
 pipeline every e-mail here rides), ADR-0046 (what may be said behind a verified password),
 spec 0013, `Features/Auth/RequestEmailChange`, `Pages/Account/ConfirmEmailChange`,
@@ -92,6 +92,29 @@ addresses (`RevertEmailChange:{previous}->{new}`).
 3. *Rotate `EmailChangeRevertStamp` on a successful revert, and bake it into every token.* This is
    what makes a link single-use, together with the refusal when the account is already back on the
    armed address.
+4. *Reserve the armed address for as long as the link lives* (added by #684, SEC-06). The original
+   three rules all protect the token, and the attack that got through did not touch it: take the
+   address instead. `RevertEmailChange` refuses when the armed address belongs to another account,
+   and anyone can make that true with one anonymous `POST auth/register` — `CreateAsync` writes the
+   row before any confirmation, `RequireConfirmedEmail` only blocks login, and nothing ever removes
+   an unconfirmed registration. Free, permanent, no mailbox needed. So arming now also stamps
+   `EmailChangeRevertArmedAt` and `NormalizedEmailChangeRevertTo`, and
+   `IEmailChangeRevertReservation` refuses that address to `RegisterUser`, `RequestEmailChange` and
+   `ConfirmEmailChange` for the revert token's own lifespan. It is one indexed lookup, it excludes
+   the account that armed it, and it expires with the link, so no address is blocked for good.
+   The refusal reuses `UserAlreadyExistsByEmail`, which leaks nothing: the address really was in
+   use a moment earlier.
+   The reservation cannot be turned against a stranger, and that is what makes it safe to have:
+   arming an address means having confirmed it, because `SignIn.RequireConfirmedEmail` blocks the
+   login and `RequestEmailChange` wants the password too. Nobody can reserve an address they do not
+   already own.
+   **Coming back settles the chain.** A confirm that lands the account on the armed address disarms
+   the row and rotates `EmailChangeRevertStamp`, exactly as a successful revert does. Without it the
+   row would stay armed at the first change's timestamp, and a later change away would still mint a
+   fresh 14-day link off it — a link outliving the reservation meant to protect its address, which
+   is this ticket's own bug again. Only someone reading the armed mailbox can reach that branch: the
+   confirm link goes there. Re-arming then starts a new window, which is what rule 1 always meant —
+   "never re-aim the target" is about where the undo points, not about when the chain ends.
 
 The two rejected shapes, kept because each looks correct until it is attacked:
 
@@ -106,9 +129,13 @@ Both fell to the same thing — a token that names its own destination is a bear
 after a chain of changes the attacker holds one. Rule 1 stops one being issued to them; rule 2
 makes it useless if one ever is.
 
-The two columns are **new nullable fields**, so this ADR no longer ships without a migration. They
+The four columns are **new nullable fields**, so this ADR no longer ships without a migration. They
 are additive and expand-only, which is the cheapest shape ADR-0023 allows, and they buy the
-guarantee the rest of this decision only claimed. The revert stamp is deliberately **not** the
+guarantee the rest of this decision only claimed. Two arrived with the ADR
+(`EmailChangeRevertStamp`, `EmailChangeRevertTo`) and two with rule 4
+(`NormalizedEmailChangeRevertTo`, `EmailChangeRevertArmedAt`); the normalized twin exists so the
+display form stays as the user typed it, exactly as Identity keeps `Email` beside
+`NormalizedEmail`. The revert stamp is deliberately **not** the
 security stamp: a password change rotates that, and surviving a password change is the one thing a
 revert token must do.
 
@@ -171,6 +198,19 @@ revert token must do.
   14 days and, because this ADR deliberately persists nothing, there is no server-side record from
   which to mint a replacement. The keyring volume (M6-04 / ADR-0005) is now load-bearing for two
   weeks instead of one day.
+- **An armed address is unavailable to everyone else for 14 days** (rule 4). Registering it,
+  changing onto it and confirming a change onto it all answer "already in use", and to the person
+  refused that is indistinguishable from a real account holding it. The window is bounded, it only
+  ever covers an address that genuinely was in use minutes earlier, and the alternative — letting a
+  stranger silently disarm somebody's only recovery path — is far worse.
+- **Two gaps the reservation does not cover, both answered by the old refusal.** A row armed before
+  #684 has no timestamp and is read as unreserved. And the arming is stamped at confirm time while
+  the token is minted later, by the outbox processor at send time, so the reservation closes that
+  much before the token does. Normally the gap is the dispatch delay, seconds; a failing relay
+  stretches it, but delivery is capped at `RabbitMqTopology.EmailDeliveryLimit` (5) attempts before
+  the message is dead-lettered, so it cannot grow to days. `RevertEmailChange` keeps refusing when
+  the armed address belongs to somebody else, with its own page message, and the password is left
+  alone.
 - **The uniqueness check is application-level and racy.** `UserManager.UpdateAsync` validates with
   `FindByEmailAsync` *before* the write, so the unique index from `UniqueEmailIndex` is the only
   real arbiter. `UserStore.UpdateAsync` catches only `DbUpdateConcurrencyException`, so a Postgres

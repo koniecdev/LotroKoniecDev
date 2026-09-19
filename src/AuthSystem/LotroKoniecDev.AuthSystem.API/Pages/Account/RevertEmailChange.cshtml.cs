@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
 using Microsoft.AspNetCore.RateLimiting;
+using LotroKoniecDev.AuthSystem.API.ApiErrors;
 using LotroKoniecDev.AuthSystem.API.Extensions;
 using LotroKoniecDev.AuthSystem.API.Features.Auth;
 using LotroKoniecDev.SharedKernel.Messaging;
@@ -42,6 +43,8 @@ internal sealed partial class RevertEmailChangeModel : PageModel
     [BindProperty]
     public string Token { get; set; } = string.Empty;
 
+    public string? ErrorTitle { get; set; }
+
     public string? ErrorMessage { get; set; }
 
     public void OnGet(string? userId = null, string? from = null, string? to = null, string? token = null)
@@ -53,7 +56,7 @@ internal sealed partial class RevertEmailChangeModel : PageModel
 
         if (!HasEveryValue())
         {
-            ErrorMessage = "Link cofający zmianę adresu jest nieprawidłowy.";
+            ShowInvalidLink();
         }
     }
 
@@ -61,7 +64,7 @@ internal sealed partial class RevertEmailChangeModel : PageModel
     {
         if (!HasEveryValue())
         {
-            ErrorMessage = "Link cofający zmianę adresu jest nieprawidłowy.";
+            ShowInvalidLink();
             return Page();
         }
 
@@ -78,7 +81,21 @@ internal sealed partial class RevertEmailChangeModel : PageModel
 
         if (commandResult.IsFailure)
         {
-            ErrorMessage = "Link cofający zmianę adresu jest nieprawidłowy lub wygasł.";
+            // The address the account would go back to now belongs to somebody else, which is a
+            // different problem from a dead link and has a different answer: nothing was changed,
+            // the password still works, and only support can sort it out. Saying so tells the
+            // visitor nothing they could not learn by trying to register that address — and they
+            // already proved they hold a valid revert link for this account.
+            if (string.Equals(
+                    commandResult.Error.Code,
+                    AuthErrors.UserAlreadyExistsByEmail.Code,
+                    StringComparison.Ordinal))
+            {
+                ShowPreviousAddressTaken();
+                return Page();
+            }
+
+            ShowInvalidLink();
             return Page();
         }
 
@@ -91,6 +108,21 @@ internal sealed partial class RevertEmailChangeModel : PageModel
             email = commandResult.Value.RestoredEmail,
             token = commandResult.Value.PasswordResetToken
         });
+    }
+
+    private void ShowInvalidLink()
+    {
+        ErrorTitle = "Link wygasł lub jest nieprawidłowy";
+        ErrorMessage = "Linku cofającego zmianę adresu można użyć tylko raz i działa on przez 14 dni "
+                       + "od zmiany adresu. Jeśli nadal nie masz dostępu do konta, skontaktuj się z nami.";
+    }
+
+    private void ShowPreviousAddressTaken()
+    {
+        ErrorTitle = "Poprzedni adres należy już do innego konta";
+        ErrorMessage = "Nie możemy wrócić na poprzedni adres, bo korzysta z niego inne konto. "
+                       + "Nic nie zmieniliśmy — Twoje hasło działa tak jak wcześniej. "
+                       + "Napisz do nas, a pomożemy odzyskać konto.";
     }
 
     /// <summary>

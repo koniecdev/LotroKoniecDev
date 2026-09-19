@@ -207,9 +207,34 @@ outlier and explicitly **not** the pattern here.
   `Result` failure — never a 500 on a page a user reached from an e-mail.
 - **Do not set `NormalizedEmail` by hand.** `UpdateAsync` recomputes it after validation and before
   the write, so a hand-set value is dead code.
-- **The revert can find its old address taken.** Between the change and the click, somebody may
-  have registered the freed address. The revert then fails with the generic invalid-link state; the
-  account stays where it is and the password is **not** nulled.
+- **The freed address is reserved for as long as the undo link lives (#684, SEC-06).** This was
+  first written down as an accident — "somebody may have registered the freed address" — and it is
+  not one. Taking that address is a deliberate, free and permanent way to defeat the whole feature:
+  change the address, confirm it, then register the one the account came from with a single
+  anonymous POST, and the owner's undo fails with `UserAlreadyExistsByEmail` for ever.
+  `RegisterUser` writes the row on `CreateAsync`, `RequireConfirmedEmail` only blocks login, and no
+  job removes an unconfirmed registration — so occupying the address needs no mailbox at all.
+  `ConfirmEmailChange` therefore stamps `ApplicationUser.EmailChangeRevertArmedAt` and
+  `NormalizedEmailChangeRevertTo` when it arms the undo, and `IEmailChangeRevertReservation`
+  refuses that address to `RegisterUser`, `RequestEmailChange` and `ConfirmEmailChange` — with the
+  `UserAlreadyExistsByEmail` they already give a taken address, because it was taken a moment ago.
+  The reservation is one indexed lookup, it excludes the account that armed it (going back is the
+  move it protects), and it dies with the revert token's own 14-day lifespan, so no address is ever
+  blocked for good. A later change in the chain re-arms nothing and does not extend the window, and
+  a confirm that brings the account **back** to the armed address settles the chain — it disarms the
+  row and rotates `EmailChangeRevertStamp`, like a revert, so the next change away arms afresh
+  instead of minting a link off a reservation that has already expired.
+- **The revert can still find its old address taken, and now says so.** Two cases survive the
+  reservation: a row armed before #684, which carries no timestamp and is read as unreserved, and
+  the gap between the arming expiring and the token expiring (the token is minted by the outbox
+  processor at send time, normally seconds after the stamp and bounded by the 5-attempt delivery
+  limit). `RevertEmailChange` keeps its refusal for both — the
+  account stays where it is and the password is **not** nulled — and `RevertEmailChange.cshtml` now
+  renders it as its own state, saying the password still works and pointing the visitor at support,
+  instead of the generic dead-link message.
+- **GDPR erasure releases the reservation.** `AccountErasureService` clears all three revert fields
+  with the rest of the personal data: the armed target is a former address of that person, and an
+  erased account must not keep somebody else's address blocked.
 - **"Already in use" is said out loud.** `RegisterUser.RegisterAsync` already returns
   `UserAlreadyExistsByEmail` to an *anonymous* caller, so telling an authenticated,
   password-verified, rate-limited caller the same thing adds no exposure the product does not

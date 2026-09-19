@@ -53,6 +53,7 @@ internal static class EventIds
     // Registration (2270-2279)
     public const int RegisterEmailFallback = 2270;
     public const int RegisterConcurrentRace = 2271;
+    public const int RegisterReservedAddressRefused = 2272;
 
     // Resend Confirmation (2280-2289)
     public const int ResendConfirmNonExistent = 2280;
@@ -122,6 +123,8 @@ internal static class EventIds
     public const int EmailChangeApplied = 2504;
     public const int EmailChangeUpdateFailed = 2505;
     public const int EmailChangeConfirmRace = 2506;
+    public const int EmailChangeRequestAddressReserved = 2507;
+    public const int EmailChangeConfirmAddressReserved = 2508;
     public const int EmailChangeRevertTokenInvalid = 2510;
     public const int EmailChangeReverted = 2511;
     public const int EmailChangeRevertFailed = 2512;

@@ -194,10 +194,13 @@ internal sealed partial class ConfirmEmailChange
                 // A to B to C that would hand an undo link to B, which is whoever took the account
                 // over (ADR-0048). The timestamp starts the reservation that keeps that address out of
                 // anyone else's hands for as long as the revert token lives (#684).
+                // The key normalizer is always registered, so a non-empty address always normalizes
+                // to a non-empty value. An armed target without its twin is unreservable, which is
+                // the one state ArmEmailChangeRevert exists to refuse.
+                string normalizedPreviousEmail = _userManager.NormalizeEmail(previousEmail)!;
+
                 user.ArmEmailChangeRevert(
-                    previousEmail,
-                    _userManager.NormalizeEmail(previousEmail),
-                    _timeProvider.GetUtcNow());
+                    previousEmail, normalizedPreviousEmail, _timeProvider.GetUtcNow());
             }
 
             _outboxWriter.Enqueue(new EmailChangeCompleted(user.Id, previousEmail, newEmail));

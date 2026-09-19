@@ -333,6 +333,7 @@ public sealed partial class EmailChangePageTests : EndpointsTestBase
 
         await EmailChangeEmailSpy.WaitForVerificationCaptureAsync();
         await ConfirmAsync(userId, secondNewEmail, EmailChangeEmailSpy.LastVerificationToken!);
+        (await LoadUserByIdAsync(userId)).Email.ShouldBe(secondNewEmail);
 
         // The plain notice still goes out; the one carrying a link does not.
         await EmailChangeEmailSpy.WaitForChangedNoticeCaptureAsync();
@@ -362,6 +363,7 @@ public sealed partial class EmailChangePageTests : EndpointsTestBase
 
         await EmailChangeEmailSpy.WaitForVerificationCaptureAsync();
         await ConfirmAsync(userId, attackerSecondEmail, EmailChangeEmailSpy.LastVerificationToken!);
+        (await LoadUserByIdAsync(userId)).Email.ShouldBe(attackerSecondEmail);
 
         // Whatever the second change handed the attacker, they fire it at once - before the owner has
         // even opened their mail.

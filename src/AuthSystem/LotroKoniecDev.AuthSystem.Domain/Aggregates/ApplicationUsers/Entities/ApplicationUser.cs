@@ -53,8 +53,12 @@ public sealed class ApplicationUser : IdentityUser<Guid>
     /// <param name="normalizedPreviousEmail">The same address through Identity's key normalizer.</param>
     /// <param name="armedAt">When the undo was armed, which starts the reservation window.</param>
     public void ArmEmailChangeRevert(
-        string previousEmail, string? normalizedPreviousEmail, DateTimeOffset armedAt)
+        string previousEmail, string normalizedPreviousEmail, DateTimeOffset armedAt)
     {
+        ArgumentException.ThrowIfNullOrWhiteSpace(previousEmail);
+        ArgumentException.ThrowIfNullOrWhiteSpace(normalizedPreviousEmail);
+
+
         EmailChangeRevertTo = previousEmail;
         NormalizedEmailChangeRevertTo = normalizedPreviousEmail;
         EmailChangeRevertArmedAt = armedAt;

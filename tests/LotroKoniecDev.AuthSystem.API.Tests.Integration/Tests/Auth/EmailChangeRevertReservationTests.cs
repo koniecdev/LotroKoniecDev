@@ -238,6 +238,10 @@ public sealed partial class EmailChangeRevertReservationTests : EndpointsTestBas
         DateTimeOffset firstArming = (await LoadUserByIdAsync(userId)).EmailChangeRevertArmedAt!.Value;
 
         await ChangeAndConfirmAsync(userId, newEmail, user.Email);
+
+        // The row is settled by now, so this backdates a leftover timestamp rather than a live
+        // arming. It stands in for the calendar: it is what the old code would have re-used, so the
+        // asserts below fail against it and pass against a fresh window.
         await BackdateArmingAsync(userId, TimeSpan.FromDays(20));
 
         string thirdEmail = Faker.Internet.Email();

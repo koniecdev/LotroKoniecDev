@@ -22,7 +22,9 @@ namespace LotroKoniecDev.AuthSystem.API.Services.Emails;
 /// use to undo the owner's recovery.
 /// A message may arrive more than once (ADR-0035), so this has to be safe to run twice. It is: a
 /// repeat sends the same notices with a fresh revert token that opens the same page and reaches the
-/// same decision, and the armed target it reads does not move.
+/// same decision. The armed target can move in between, because a confirm that brings the account
+/// back to it settles the chain (#684); the repeat then reads a disarmed row and sends the plain
+/// notice with no link, which is the right answer for an account that is already home.
 /// </remarks>
 internal sealed partial class EmailChangeCompletedProcessor : IEmailMessageProcessor
 {

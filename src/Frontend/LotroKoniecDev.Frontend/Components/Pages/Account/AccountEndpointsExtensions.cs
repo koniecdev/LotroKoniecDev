@@ -68,13 +68,18 @@ internal static class AccountEndpointsExtensions
     /// the confirmation page. Only the auth part can fail the download; when the TMS part fails, the file
     /// simply has <c>translationData: null</c> and <c>isComplete: false</c>.
     /// </summary>
+    /// <remarks>
+    /// The services are marked explicitly. Once one parameter comes from the form, every other one that
+    /// is not obviously a service is read as a JSON body, and the endpoint refuses to build at all — so
+    /// the attributes are what keep the binding unambiguous.
+    /// </remarks>
     internal static async Task<IResult> DownloadAccountExportAsync(
         [FromForm(Name = PasswordFormField)] string? password,
         HttpContext httpContext,
-        AccountLoader loader,
-        IDiscoveryCache discoveryCache,
-        ITranslationSystemClient translationSystemClient,
-        ILoggerFactory loggerFactory,
+        [FromServices] AccountLoader loader,
+        [FromServices] IDiscoveryCache discoveryCache,
+        [FromServices] ITranslationSystemClient translationSystemClient,
+        [FromServices] ILoggerFactory loggerFactory,
         CancellationToken cancellationToken)
     {
         ILogger logger = loggerFactory.CreateLogger(typeof(AccountEndpointsExtensions).FullName!);

@@ -18,7 +18,11 @@ using LotroKoniecDev.TranslationSystem.Contracts.Translators;
 using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.TranslationAggregate;
 using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.TranslationAggregate.Enums;
 using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.TranslatorAggregate;
+using Microsoft.AspNetCore.Antiforgery;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Routing;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.Mvc;
 using NSubstitute;
@@ -435,6 +439,26 @@ public sealed class AccountEndpointsExtensionsTests
 
         ProblemHttpResult problem = result.ShouldBeOfType<ProblemHttpResult>();
         problem.ProblemDetails.Status.ShouldBe(StatusCodes.Status403Forbidden);
+    }
+
+    [Fact]
+    public void MapAccountEndpoints_TheDownloadRoute_IsAPostThatNeedsBothLoginAndAnAntiforgeryToken()
+    {
+        // Two properties nothing else can prove: the route is not reachable by a GET a link could
+        // trigger, and the framework demands the antiforgery token. The token requirement comes from
+        // binding a form field, so removing that binding would silently remove the CSRF protection.
+        WebApplication app = WebApplication.CreateBuilder().Build();
+        IEndpointRouteBuilder routes = app;
+        routes.MapAccountEndpoints();
+
+        Endpoint endpoint = routes.DataSources
+            .SelectMany(source => source.Endpoints)
+            .OfType<RouteEndpoint>()
+            .Single(route => route.RoutePattern.RawText == AccountEndpointsExtensions.ExportDownloadPath);
+
+        endpoint.Metadata.GetMetadata<HttpMethodMetadata>()!.HttpMethods.ShouldBe(["POST"]);
+        endpoint.Metadata.GetMetadata<IAuthorizeData>().ShouldNotBeNull();
+        endpoint.Metadata.GetMetadata<IAntiforgeryMetadata>()!.RequiresValidation.ShouldBeTrue();
     }
 
     private static HttpContext HttpContextWithClient()

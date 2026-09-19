@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Identity;
 using Microsoft.Extensions.Logging.Abstractions;
 using LotroKoniecDev.AuthSystem.API.Outbox;
+using LotroKoniecDev.AuthSystem.API.Services.Accounts;
 using LotroKoniecDev.AuthSystem.API.Services.Emails;
 using LotroKoniecDev.AuthSystem.Domain.Aggregates.ApplicationUsers.Entities;
 using LotroKoniecDev.AuthSystem.Persistence.Identity;
@@ -242,7 +243,8 @@ public sealed class EmailChangeCompletedProcessorTests
         new(
             _userManager,
             _emailSender,
-            Microsoft.Extensions.Options.Options.Create(new EmailChangeRevertTokenProviderOptions()),
+            new EmailChangeRevertWindow(
+                Microsoft.Extensions.Options.Options.Create(new EmailChangeRevertTokenProviderOptions())),
             NullLogger<EmailChangeCompletedProcessor>.Instance);
 
     private static UserManager<ApplicationUser> CreateUserManager() =>

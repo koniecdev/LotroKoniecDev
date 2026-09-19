@@ -1,4 +1,3 @@
-using System.Linq.Expressions;
 using LotroKoniecDev.AuthSystem.API.Services.Accounts;
 using LotroKoniecDev.AuthSystem.API.Services.Gdpr;
 using LotroKoniecDev.AuthSystem.API.Settings;
@@ -32,6 +31,8 @@ public sealed class AccountDeletionScheduleTests
     [Fact]
     public void FinalizesAt_IsTheGracePeriod_WhenNoUndoIsArmed()
     {
+        // Also the pre-#684 row: it carries a target but no timestamp, so it reads as nothing armed,
+        // which is the behavior it shipped under. There is no honest value to backfill it with.
         IAccountDeletionSchedule sut = CreateSut();
 
         sut.FinalizesAt(ScheduledAt, revertArmedAt: null).ShouldBe(ScheduledAt + Grace);
@@ -59,16 +60,6 @@ public sealed class AccountDeletionScheduleTests
         sut.FinalizesAt(ScheduledAt, armedAt).ShouldBe(ScheduledAt + Grace);
     }
 
-    [Fact]
-    public void FinalizesAt_IsTheGracePeriod_WhenTheRowWasArmedBeforeTheTimestampExisted()
-    {
-        // A row armed before #684 carries a target but no timestamp. It reads as nothing armed, which
-        // is the behavior it shipped under; there is no honest value to backfill it with.
-        IAccountDeletionSchedule sut = CreateSut();
-
-        sut.FinalizesAt(ScheduledAt, revertArmedAt: null).ShouldBe(ScheduledAt + Grace);
-    }
-
     [Theory]
     [InlineData(0)]
     [InlineData(-1)]
@@ -87,6 +78,29 @@ public sealed class AccountDeletionScheduleTests
         due.ShouldBe(finalizesAt <= moment);
     }
 
+    [Theory]
+    [InlineData(-1, false)]
+    [InlineData(0, true)]
+    [InlineData(1, true)]
+    public void IsDueBy_HoldsTheRowUntilTheUndoItselfHasExpired_ToTheSecond(
+        int secondsPastTheUndoExpiry, bool expectedDue)
+    {
+        // The comparison this exercises is the one that decides whether data survives, and the grid
+        // below cannot reach it: it is day-granular, and every cell where the armed clause sits on its
+        // boundary is already answered by the grace clause. Grace is deliberately short here so the
+        // armed term is the only thing left deciding, which is what makes a <= / < slip fail.
+        IAccountDeletionSchedule sut = CreateSut(grace: TimeSpan.FromDays(7));
+        DateTimeOffset armedAt = ScheduledAt - TimeSpan.FromDays(2);
+        ApplicationUser user = CreateUser(ScheduledAt, armedAt);
+        DateTimeOffset undoExpiresAt = armedAt + RevertLifespan;
+        DateTimeOffset moment = undoExpiresAt + TimeSpan.FromSeconds(secondsPastTheUndoExpiry);
+
+        // The grace term is long past, so it cannot mask the armed one.
+        moment.ShouldBeGreaterThan(ScheduledAt + TimeSpan.FromDays(7));
+
+        sut.IsDueBy(moment).Compile()(user).ShouldBe(expectedDue);
+    }
+
     [Fact]
     public void IsDueBy_NeverPicksUpAnAccount_WhoseUndoIsStillLive()
     {
@@ -103,33 +117,41 @@ public sealed class AccountDeletionScheduleTests
         sut.FinalizesAt(ScheduledAt, armedAt).ShouldBeGreaterThan(whileUndoIsLive);
     }
 
-    [Fact]
-    public void IsDueBy_AndFinalizesAt_AgreeOnEveryCombinationOfTheTwoClocks()
+    public static TheoryData<int, int?> ClockCombinations()
     {
-        // The whole point of one service owning both forms. The query is what erases data and the
-        // scalar is what every promise quotes; a disagreement between them is either an account
-        // erased early or a deletion date nobody keeps.
-        IAccountDeletionSchedule sut = CreateSut(grace: TimeSpan.FromDays(7));
-        DateTimeOffset moment = ScheduledAt + TimeSpan.FromDays(10);
-        Expression<Func<ApplicationUser, bool>> predicate = sut.IsDueBy(moment);
-        Func<ApplicationUser, bool> isDue = predicate.Compile();
+        TheoryData<int, int?> data = new();
 
         foreach (int scheduledDaysAgo in new[] { 0, 3, 7, 8, 11, 30 })
         {
-            foreach (int? armedDaysBeforeSchedule in new int?[] { null, 0, 1, 5, 14, 20 })
+            foreach (int? armedDaysBeforeSchedule in new int?[] { null, 0, 1, 5, 13, 14, 15, 20 })
             {
-                DateTimeOffset scheduledAt = moment - TimeSpan.FromDays(scheduledDaysAgo);
-                DateTimeOffset? armedAt = armedDaysBeforeSchedule is { } days
-                    ? scheduledAt - TimeSpan.FromDays(days)
-                    : null;
-
-                ApplicationUser user = CreateUser(scheduledAt, armedAt);
-
-                isDue(user).ShouldBe(
-                    sut.FinalizesAt(scheduledAt, armedAt) <= moment,
-                    $"scheduled {scheduledDaysAgo}d ago, armed {armedDaysBeforeSchedule?.ToString() ?? "never"}d before that");
+                data.Add(scheduledDaysAgo, armedDaysBeforeSchedule);
             }
         }
+
+        return data;
+    }
+
+    [Theory]
+    [MemberData(nameof(ClockCombinations))]
+    public void IsDueBy_AndFinalizesAt_AgreeOnEveryCombinationOfTheTwoClocks(
+        int scheduledDaysAgo, int? armedDaysBeforeSchedule)
+    {
+        // The whole point of one service owning both forms. The query is what erases data and the
+        // scalar is what every promise quotes; a disagreement between them is either an account
+        // erased early or a deletion date nobody keeps. Grace is short here so both terms get to
+        // decide some of the cells - at the shipped 14/14 the grace term would answer them all.
+        IAccountDeletionSchedule sut = CreateSut(grace: TimeSpan.FromDays(7));
+        DateTimeOffset moment = ScheduledAt + TimeSpan.FromDays(10);
+        DateTimeOffset scheduledAt = moment - TimeSpan.FromDays(scheduledDaysAgo);
+        DateTimeOffset? armedAt = armedDaysBeforeSchedule is { } days
+            ? scheduledAt - TimeSpan.FromDays(days)
+            : null;
+        ApplicationUser user = CreateUser(scheduledAt, armedAt);
+
+        bool due = sut.IsDueBy(moment).Compile()(user);
+
+        due.ShouldBe(sut.FinalizesAt(scheduledAt, armedAt) <= moment);
     }
 
     [Fact]

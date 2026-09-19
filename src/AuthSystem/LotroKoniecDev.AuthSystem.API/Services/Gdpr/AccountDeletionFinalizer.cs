@@ -1,6 +1,4 @@
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Options;
-using LotroKoniecDev.AuthSystem.API.Settings;
 using LotroKoniecDev.AuthSystem.Domain.Aggregates.ApplicationUsers.Entities;
 using LotroKoniecDev.AuthSystem.Persistence.DbContexts;
 using LotroKoniecDev.SharedKernel.Constants;
@@ -13,37 +11,37 @@ namespace LotroKoniecDev.AuthSystem.API.Services.Gdpr;
 /// It is safe to run twice and safe to restart: accounts that are already anonymized are recognised by
 /// the marker in their e-mail address, a failure on one user is logged and retried on the next run,
 /// and if two runs overlap the second one simply loses on the Identity concurrency stamp.
+/// When an account is due is <see cref="IAccountDeletionSchedule"/>'s call, not this class's: the
+/// date it erases on has to be the one the response header, the e-mail and the login page promised
+/// (#685).
 /// </summary>
 internal sealed partial class AccountDeletionFinalizer : IAccountDeletionFinalizer
 {
     private readonly AuthDbContext _dbContext;
     private readonly IAccountErasureService _accountErasureService;
+    private readonly IAccountDeletionSchedule _deletionSchedule;
     private readonly TimeProvider _timeProvider;
-    private readonly GdprSettings _gdprSettings;
     private readonly ILogger<AccountDeletionFinalizer> _logger;
 
     public AccountDeletionFinalizer(
         AuthDbContext dbContext,
         IAccountErasureService accountErasureService,
+        IAccountDeletionSchedule deletionSchedule,
         TimeProvider timeProvider,
-        IOptions<GdprSettings> gdprSettings,
         ILogger<AccountDeletionFinalizer> logger)
     {
         _dbContext = dbContext;
         _accountErasureService = accountErasureService;
+        _deletionSchedule = deletionSchedule;
         _timeProvider = timeProvider;
-        _gdprSettings = gdprSettings.Value;
         _logger = logger;
     }
 
     public async Task<int> FinalizeDueAccountsAsync(CancellationToken cancellationToken)
     {
-        DateTimeOffset dueBefore = _timeProvider.GetUtcNow() - _gdprSettings.DeletionGracePeriod;
-
         List<ApplicationUser> dueUsers = await _dbContext.Users
-            .Where(u => u.DeletionScheduledAt != null
-                        && u.DeletionScheduledAt <= dueBefore
-                        && !u.Email!.EndsWith(AnonymizationConstants.EmailDomain))
+            .Where(_deletionSchedule.IsDueBy(_timeProvider.GetUtcNow()))
+            .Where(u => !u.Email!.EndsWith(AnonymizationConstants.EmailDomain))
             .ToListAsync(cancellationToken);
 
         int finalizedCount = 0;

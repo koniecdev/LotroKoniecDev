@@ -1,38 +1,35 @@
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Options;
 using LotroKoniecDev.AuthSystem.Domain.Aggregates.ApplicationUsers.Entities;
 using LotroKoniecDev.AuthSystem.Persistence.DbContexts;
-using LotroKoniecDev.AuthSystem.Persistence.Identity;
 
 namespace LotroKoniecDev.AuthSystem.API.Services.Accounts;
 
 /// <inheritdoc />
 /// <remarks>
 /// One indexed lookup on <see cref="ApplicationUser.NormalizedEmailChangeRevertTo"/>, which
-/// registration runs on every attempt. The window is the revert token's own lifespan measured from
-/// <see cref="ApplicationUser.EmailChangeRevertArmedAt"/>, so no address is ever blocked for longer
-/// than the link that needs it. The token is minted a moment later, by the outbox processor, so the
-/// reservation closes marginally before the token does; the address-taken refusal in
-/// <c>RevertEmailChange</c> is what still answers for that tail.
+/// registration runs on every attempt. How long the address stays held is
+/// <see cref="IEmailChangeRevertWindow"/>'s call, so this reservation and the erasure hold of #685
+/// cannot disagree about when an undo dies. The address-taken refusal in <c>RevertEmailChange</c> is
+/// what still answers for the tail between the window closing and the token itself expiring.
 /// </remarks>
 internal sealed class EmailChangeRevertReservation : IEmailChangeRevertReservation
 {
     private readonly AuthDbContext _db;
     private readonly ILookupNormalizer _keyNormalizer;
+    private readonly IEmailChangeRevertWindow _revertWindow;
     private readonly TimeProvider _timeProvider;
-    private readonly EmailChangeRevertTokenProviderOptions _revertTokenOptions;
 
     public EmailChangeRevertReservation(
         AuthDbContext db,
         ILookupNormalizer keyNormalizer,
-        TimeProvider timeProvider,
-        IOptions<EmailChangeRevertTokenProviderOptions> revertTokenOptions)
+        IEmailChangeRevertWindow revertWindow,
+        TimeProvider timeProvider)
     {
         _db = db;
         _keyNormalizer = keyNormalizer;
+        _revertWindow = revertWindow;
         _timeProvider = timeProvider;
-        _revertTokenOptions = revertTokenOptions.Value;
     }
 
     public async Task<bool> IsReservedAsync(string email, Guid? exceptUserId, CancellationToken cancellationToken)
@@ -46,7 +43,7 @@ internal sealed class EmailChangeRevertReservation : IEmailChangeRevertReservati
             return false;
         }
 
-        DateTimeOffset armedAfter = _timeProvider.GetUtcNow() - _revertTokenOptions.TokenLifespan;
+        DateTimeOffset armedAfter = _revertWindow.LiveSince(_timeProvider.GetUtcNow());
 
         IQueryable<ApplicationUser> holders = _db.Users
             .Where(user => user.NormalizedEmailChangeRevertTo == normalized

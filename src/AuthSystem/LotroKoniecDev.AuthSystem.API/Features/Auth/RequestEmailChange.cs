@@ -7,6 +7,7 @@ using LotroKoniecDev.AuthSystem.API.ApiErrors;
 using LotroKoniecDev.AuthSystem.API.Common;
 using LotroKoniecDev.AuthSystem.API.Extensions;
 using LotroKoniecDev.AuthSystem.API.Outbox;
+using LotroKoniecDev.AuthSystem.API.Services.Accounts;
 using LotroKoniecDev.AuthSystem.Contracts.Features.Auth.Account;
 using LotroKoniecDev.AuthSystem.Domain.Aggregates.ApplicationUsers.Entities;
 using LotroKoniecDev.AuthSystem.Persistence.DbContexts;
@@ -59,6 +60,7 @@ internal sealed partial class RequestEmailChange : IApiEndpoint
         private readonly UserManager<ApplicationUser> _userManager;
         private readonly AuthDbContext _db;
         private readonly OutboxWriter _outboxWriter;
+        private readonly IEmailChangeRevertReservation _revertReservation;
         private readonly IValidator<Command> _validator;
         private readonly ILogger<Handler> _logger;
 
@@ -66,12 +68,14 @@ internal sealed partial class RequestEmailChange : IApiEndpoint
             UserManager<ApplicationUser> userManager,
             AuthDbContext db,
             OutboxWriter outboxWriter,
+            IEmailChangeRevertReservation revertReservation,
             IValidator<Command> validator,
             ILogger<Handler> logger)
         {
             _userManager = userManager;
             _db = db;
             _outboxWriter = outboxWriter;
+            _revertReservation = revertReservation;
             _validator = validator;
             _logger = logger;
         }
@@ -126,6 +130,16 @@ internal sealed partial class RequestEmailChange : IApiEndpoint
             // a caller who just proved they know this account's password reveals nothing new.
             ApplicationUser? addressOwner = await _userManager.FindByEmailAsync(newEmail);
             if (addressOwner is not null)
+            {
+                LogAddressTaken(_logger, user.Id, newEmail.MaskEmail());
+                return Result.Failure(AuthErrors.UserAlreadyExistsByEmail);
+            }
+
+            // The confirm leg refuses a reserved address anyway (#684). Saying so here means the user
+            // learns it on the form instead of after following a link, and no mail goes out for a
+            // change that cannot land. Reserved reads as taken, which for this caller it was.
+            bool reserved = await _revertReservation.IsReservedAsync(newEmail, user.Id, cancellationToken);
+            if (reserved)
             {
                 LogAddressTaken(_logger, user.Id, newEmail.MaskEmail());
                 return Result.Failure(AuthErrors.UserAlreadyExistsByEmail);

@@ -5,6 +5,7 @@ using Microsoft.EntityFrameworkCore;
 using LotroKoniecDev.AuthSystem.API.ApiErrors;
 using LotroKoniecDev.AuthSystem.API.Extensions;
 using LotroKoniecDev.AuthSystem.API.Outbox;
+using LotroKoniecDev.AuthSystem.API.Services.Accounts;
 using LotroKoniecDev.AuthSystem.API.Services.Sessions;
 using LotroKoniecDev.AuthSystem.Domain.Aggregates.ApplicationUsers.Entities;
 using LotroKoniecDev.AuthSystem.Persistence.DbContexts;
@@ -67,6 +68,8 @@ internal sealed partial class ConfirmEmailChange
         private readonly AuthDbContext _db;
         private readonly OutboxWriter _outboxWriter;
         private readonly IUserSessionRevoker _sessionRevoker;
+        private readonly IEmailChangeRevertReservation _revertReservation;
+        private readonly TimeProvider _timeProvider;
         private readonly IValidator<Command> _validator;
         private readonly ILogger<Handler> _logger;
 
@@ -75,6 +78,8 @@ internal sealed partial class ConfirmEmailChange
             AuthDbContext db,
             OutboxWriter outboxWriter,
             IUserSessionRevoker sessionRevoker,
+            IEmailChangeRevertReservation revertReservation,
+            TimeProvider timeProvider,
             IValidator<Command> validator,
             ILogger<Handler> logger)
         {
@@ -82,6 +87,8 @@ internal sealed partial class ConfirmEmailChange
             _db = db;
             _outboxWriter = outboxWriter;
             _sessionRevoker = sessionRevoker;
+            _revertReservation = revertReservation;
+            _timeProvider = timeProvider;
             _validator = validator;
             _logger = logger;
         }
@@ -132,6 +139,16 @@ internal sealed partial class ConfirmEmailChange
                 return Result.Failure(AuthErrors.UserAlreadyExistsByEmail);
             }
 
+            // Registration is not the only way onto a free address, so the reservation of #684 has to
+            // hold here too. The caller's own armed address is excluded: going back to where the chain
+            // started is the move this reservation protects, never one it blocks.
+            bool reserved = await _revertReservation.IsReservedAsync(newEmail, user.Id, cancellationToken);
+            if (reserved)
+            {
+                LogReservedAddressRefused(_logger, user.Id, newEmail.MaskEmail());
+                return Result.Failure(AuthErrors.UserAlreadyExistsByEmail);
+            }
+
             // The notice and the revert token are both built from this address, and an empty one would
             // produce a message its own processor refuses to read. Refuse here instead.
             if (string.IsNullOrWhiteSpace(user.Email))
@@ -156,7 +173,15 @@ internal sealed partial class ConfirmEmailChange
             // Only the first change since the last revert arms the undo, and it arms it at the address
             // the chain started from. A second change must not make itself a target: after A to B to C
             // that would hand an undo link to B, which is whoever took the account over (ADR-0048).
-            user.EmailChangeRevertTo ??= previousEmail;
+            // The timestamp starts the reservation that keeps the armed address out of anyone else's
+            // hands for as long as the revert token lives (#684); a later change must not refresh it,
+            // for the same reason it must not re-aim the target.
+            if (user.EmailChangeRevertTo is null)
+            {
+                user.EmailChangeRevertTo = previousEmail;
+                user.NormalizedEmailChangeRevertTo = _userManager.NormalizeEmail(previousEmail);
+                user.EmailChangeRevertArmedAt = _timeProvider.GetUtcNow();
+            }
 
             _outboxWriter.Enqueue(new EmailChangeCompleted(user.Id, previousEmail, newEmail));
 
@@ -230,5 +255,8 @@ internal sealed partial class ConfirmEmailChange
 
         [LoggerMessage(EventId = EventIds.EmailChangeConfirmRace, Level = LogLevel.Warning, Message = "E-mail change for user {UserId} lost a race for the new address")]
         private static partial void LogUpdateRace(ILogger logger, Exception exception, Guid userId);
+
+        [LoggerMessage(EventId = EventIds.EmailChangeReservedAddressRefused, Level = LogLevel.Warning, Message = "E-mail change for user {UserId} refused: {NewEmail} is still reserved as another account's undo target")]
+        private static partial void LogReservedAddressRefused(ILogger logger, Guid userId, string newEmail);
     }
 }

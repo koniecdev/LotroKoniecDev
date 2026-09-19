@@ -62,6 +62,37 @@ internal sealed class AccountLoader
     }
 
     /// <summary>
+    /// Asks the auth API to hand the export over, which it does only when the current password comes
+    /// with the request (#690, ADR-0052). The target is the <c>download-account-data</c> link in auth
+    /// discovery: a rel we cannot find is a refusal, never a locally composed path (#610).
+    /// </summary>
+    public async Task<ApiResult<AccountDataExportResponse>> DownloadExportAsync(
+        string password,
+        CancellationToken cancellationToken = default)
+    {
+        ApiResult<AuthDiscoveryResponse> discoveryResult =
+            await _discoveryCache.GetAuthSystemDiscoveryAsync(cancellationToken);
+        if (discoveryResult.IsFailure)
+        {
+            return ApiResult.Failure<AccountDataExportResponse>(discoveryResult.ProblemDetails!);
+        }
+
+        LinkDto? downloadLink = discoveryResult.Value.Links.FindLink(Rels.DownloadAccountData);
+        if (downloadLink is null)
+        {
+            return ApiResult.Failure<AccountDataExportResponse>(ApiProblemCopy.FrontendAuthored(
+                "Pobieranie danych jest niedostępne",
+                "Serwer nie udostępnia tej operacji dla tej sesji. Zaloguj się ponownie.",
+                StatusCodes.Status403Forbidden));
+        }
+
+        return await _client.PostApiResultAsync<AccountDataExportResponse>(
+            downloadLink.Href,
+            new DownloadAccountDataRequest(password),
+            cancellationToken);
+    }
+
+    /// <summary>
     /// Schedules an account deletion, which happens in two phases (ADR-0031). On success the data comes
     /// back in response headers, <c>X-Deletion-Scheduled-At</c> and <c>X-Deletion-Finalizes-At</c>, and
     /// not in a body.

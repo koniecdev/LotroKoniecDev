@@ -6,7 +6,8 @@ namespace LotroKoniecDev.Frontend.E2E.Tests.Flows;
 
 /// <summary>
 /// LEGAL-02: the self-service loop the privacy policy promises under "Moje konto". A logged-in
-/// translator downloads their data export as a JSON file, schedules an account deletion, first with the
+/// translator downloads their data export as a JSON file after confirming their password, schedules an
+/// account deletion, first with the
 /// wrong confirmation phrase so nothing happens, ends up signed out on the public "deletion scheduled"
 /// page with the real finalization date, cannot log in any more, then cancels through the link in
 /// Mailpit, which is a page on the auth server, sets a new password in the forced reset and logs back in
@@ -45,11 +46,23 @@ public sealed class AccountGdprSelfServiceTests : E2ETestBase
         await Page.GetByTestId("account-export").WaitForAsync(LongWait);
         (await Page.GetByText(user.Email).First.IsVisibleAsync()).ShouldBeTrue();
 
-        // Data export downloads as a JSON file named after the account dump.
+        // The data export now asks for the current password first (#690, ADR-0052). A wrong one comes
+        // back to the same form with a Polish sentence and hands over no file; the right one downloads
+        // the JSON named after the account dump.
+        await Page.GetByTestId("account-export").ClickAsync();
+        await Page.Locator("#export-password").WaitForAsync(LongWait);
+        await Page.Locator("#export-password").FillAsync("Wr0ng-Current!");
+        await Page.GetByTestId("export-submit").ClickAsync();
+        await Page.GetByTestId("export-error").WaitForAsync(LongWait);
+
+        await Page.Locator("#export-password").FillAsync(user.Password);
         IDownload download = await Page.RunAndWaitForDownloadAsync(
-            () => Page.GetByTestId("account-export").ClickAsync());
+            () => Page.GetByTestId("export-submit").ClickAsync());
         download.SuggestedFilename.ShouldStartWith("lotro-translator-moje-dane-");
         download.SuggestedFilename.ShouldEndWith(".json");
+
+        await Page.GetByTestId("nav-account").ClickAsync();
+        await Page.GetByTestId("account-change-password").WaitForAsync(LongWait);
 
         // Change the password. A wrong current password shows the API error, and the correct one really
         // changes it: the old password stops working and every later login uses the new one.

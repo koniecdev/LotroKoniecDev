@@ -1,4 +1,5 @@
 using System.Net;
+using System.Net.Http;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -39,6 +40,7 @@ public sealed class AccountEndpointsExtensionsTests
     private const string BaseUrl = "https://localhost:5003/";
     private const string TmsBaseUrl = "https://localhost:5002/";
     private const string ExportHref = "auth/account/data-export";
+    private const string CorrectPassword = "Correct-Horse-1!";
     private const string ContributionExportHref = "/advertised/my-contribution-export";
 
     private static readonly JsonSerializerOptions ApiJsonOptions = new(JsonSerializerDefaults.Web)
@@ -54,7 +56,7 @@ public sealed class AccountEndpointsExtensionsTests
         AccountLoader loader = CreateLoaderReturning(AccountLoaderTests.CreateEnvelope());
 
         IResult result = await AccountEndpointsExtensions.DownloadAccountExportAsync(
-            loader, _discoveryCache, CreateTmsClientReturningContribution(), NullLoggerFactory.Instance, CancellationToken.None);
+            CorrectPassword, HttpContextWithClient(), loader, _discoveryCache, CreateTmsClientReturningContribution(), NullLoggerFactory.Instance, CancellationToken.None);
 
         FileContentHttpResult file = result.ShouldBeOfType<FileContentHttpResult>();
         file.ContentType.ShouldBe("application/json");
@@ -68,7 +70,7 @@ public sealed class AccountEndpointsExtensionsTests
         AccountLoader loader = CreateLoaderReturning(AccountLoaderTests.CreateEnvelope());
 
         IResult result = await AccountEndpointsExtensions.DownloadAccountExportAsync(
-            loader, _discoveryCache, CreateTmsClientReturningContribution(), NullLoggerFactory.Instance, CancellationToken.None);
+            CorrectPassword, HttpContextWithClient(), loader, _discoveryCache, CreateTmsClientReturningContribution(), NullLoggerFactory.Instance, CancellationToken.None);
 
         FileContentHttpResult file = result.ShouldBeOfType<FileContentHttpResult>();
         string json = Encoding.UTF8.GetString(file.FileContents.ToArray());
@@ -83,7 +85,7 @@ public sealed class AccountEndpointsExtensionsTests
         AccountLoader loader = CreateLoaderReturning(AccountLoaderTests.CreateEnvelope());
 
         IResult result = await AccountEndpointsExtensions.DownloadAccountExportAsync(
-            loader, _discoveryCache, CreateTmsClientReturningContribution(), NullLoggerFactory.Instance, CancellationToken.None);
+            CorrectPassword, HttpContextWithClient(), loader, _discoveryCache, CreateTmsClientReturningContribution(), NullLoggerFactory.Instance, CancellationToken.None);
 
         FileContentHttpResult file = result.ShouldBeOfType<FileContentHttpResult>();
         string json = Encoding.UTF8.GetString(file.FileContents.ToArray());
@@ -102,7 +104,7 @@ public sealed class AccountEndpointsExtensionsTests
             """{ "title": "Usługa chwilowo niedostępna", "status": 503 }"""));
 
         IResult result = await AccountEndpointsExtensions.DownloadAccountExportAsync(
-            loader, _discoveryCache, tmsClient, NullLoggerFactory.Instance, CancellationToken.None);
+            CorrectPassword, HttpContextWithClient(), loader, _discoveryCache, tmsClient, NullLoggerFactory.Instance, CancellationToken.None);
 
         FileContentHttpResult file = result.ShouldBeOfType<FileContentHttpResult>();
         string json = Encoding.UTF8.GetString(file.FileContents.ToArray());
@@ -120,7 +122,7 @@ public sealed class AccountEndpointsExtensionsTests
             """{ "title": "Błąd serwera", "status": 500 }"""));
 
         IResult result = await AccountEndpointsExtensions.DownloadAccountExportAsync(
-            loader, _discoveryCache, tmsClient, NullLoggerFactory.Instance, CancellationToken.None);
+            CorrectPassword, HttpContextWithClient(), loader, _discoveryCache, tmsClient, NullLoggerFactory.Instance, CancellationToken.None);
 
         FileContentHttpResult file = result.ShouldBeOfType<FileContentHttpResult>();
         file.ContentType.ShouldBe("application/json");
@@ -141,7 +143,7 @@ public sealed class AccountEndpointsExtensionsTests
             JsonSerializer.Serialize(CreateContribution(), ApiJsonOptions));
 
         IResult result = await AccountEndpointsExtensions.DownloadAccountExportAsync(
-            loader, _discoveryCache, CreateTmsClient(tmsHandler), NullLoggerFactory.Instance, CancellationToken.None);
+            CorrectPassword, HttpContextWithClient(), loader, _discoveryCache, CreateTmsClient(tmsHandler), NullLoggerFactory.Instance, CancellationToken.None);
 
         FileContentHttpResult file = result.ShouldBeOfType<FileContentHttpResult>();
         string json = Encoding.UTF8.GetString(file.FileContents.ToArray());
@@ -160,7 +162,7 @@ public sealed class AccountEndpointsExtensionsTests
             .Returns(ApiResult.Failure<TranslationDiscoveryResponse>(new ProblemDetails { Status = 503 }));
 
         IResult result = await AccountEndpointsExtensions.DownloadAccountExportAsync(
-            loader, _discoveryCache, CreateTmsClientReturningContribution(), NullLoggerFactory.Instance, CancellationToken.None);
+            CorrectPassword, HttpContextWithClient(), loader, _discoveryCache, CreateTmsClientReturningContribution(), NullLoggerFactory.Instance, CancellationToken.None);
 
         FileContentHttpResult file = result.ShouldBeOfType<FileContentHttpResult>();
         string json = Encoding.UTF8.GetString(file.FileContents.ToArray());
@@ -179,7 +181,7 @@ public sealed class AccountEndpointsExtensionsTests
             StubHttpMessageHandler.RespondWith(HttpStatusCode.OK, "this is not json"));
 
         IResult result = await AccountEndpointsExtensions.DownloadAccountExportAsync(
-            loader, _discoveryCache, tmsClient, NullLoggerFactory.Instance, CancellationToken.None);
+            CorrectPassword, HttpContextWithClient(), loader, _discoveryCache, tmsClient, NullLoggerFactory.Instance, CancellationToken.None);
 
         FileContentHttpResult file = result.ShouldBeOfType<FileContentHttpResult>();
         string json = Encoding.UTF8.GetString(file.FileContents.ToArray());
@@ -195,7 +197,7 @@ public sealed class AccountEndpointsExtensionsTests
             StubHttpMessageHandler.RespondWith(HttpStatusCode.OK, string.Empty));
 
         IResult result = await AccountEndpointsExtensions.DownloadAccountExportAsync(
-            loader, _discoveryCache, tmsClient, NullLoggerFactory.Instance, CancellationToken.None);
+            CorrectPassword, HttpContextWithClient(), loader, _discoveryCache, tmsClient, NullLoggerFactory.Instance, CancellationToken.None);
 
         FileContentHttpResult file = result.ShouldBeOfType<FileContentHttpResult>();
         string json = Encoding.UTF8.GetString(file.FileContents.ToArray());
@@ -214,7 +216,7 @@ public sealed class AccountEndpointsExtensionsTests
                 """{ "title": "Nie znaleziono użytkownika", "status": 404 }""")));
 
         IResult result = await AccountEndpointsExtensions.DownloadAccountExportAsync(
-            loader, _discoveryCache, CreateTmsClientReturningContribution(), NullLoggerFactory.Instance, CancellationToken.None);
+            CorrectPassword, HttpContextWithClient(), loader, _discoveryCache, CreateTmsClientReturningContribution(), NullLoggerFactory.Instance, CancellationToken.None);
 
         ProblemHttpResult problem = result.ShouldBeOfType<ProblemHttpResult>();
         problem.ProblemDetails.Status.ShouldBe(404);
@@ -231,7 +233,7 @@ public sealed class AccountEndpointsExtensionsTests
                 "<html><head><title>502 Bad Gateway</title></head><body></body></html>")));
 
         IResult result = await AccountEndpointsExtensions.DownloadAccountExportAsync(
-            loader, _discoveryCache, CreateTmsClientReturningContribution(), NullLoggerFactory.Instance, CancellationToken.None);
+            CorrectPassword, HttpContextWithClient(), loader, _discoveryCache, CreateTmsClientReturningContribution(), NullLoggerFactory.Instance, CancellationToken.None);
 
         ProblemHttpResult problem = result.ShouldBeOfType<ProblemHttpResult>();
         problem.ProblemDetails.Status.ShouldBe(StatusCodes.Status502BadGateway);
@@ -252,7 +254,7 @@ public sealed class AccountEndpointsExtensionsTests
                 "<html><head><title>Maintenance</title></head><body>Back soon</body></html>")));
 
         IResult result = await AccountEndpointsExtensions.DownloadAccountExportAsync(
-            loader, _discoveryCache, CreateTmsClientReturningContribution(), NullLoggerFactory.Instance, CancellationToken.None);
+            CorrectPassword, HttpContextWithClient(), loader, _discoveryCache, CreateTmsClientReturningContribution(), NullLoggerFactory.Instance, CancellationToken.None);
 
         ProblemHttpResult problem = result.ShouldBeOfType<ProblemHttpResult>();
         problem.ProblemDetails.Status.ShouldBe(StatusCodes.Status502BadGateway);
@@ -280,7 +282,7 @@ public sealed class AccountEndpointsExtensionsTests
                 """)));
 
         IResult result = await AccountEndpointsExtensions.DownloadAccountExportAsync(
-            loader, _discoveryCache, CreateTmsClientReturningContribution(), NullLoggerFactory.Instance, CancellationToken.None);
+            CorrectPassword, HttpContextWithClient(), loader, _discoveryCache, CreateTmsClientReturningContribution(), NullLoggerFactory.Instance, CancellationToken.None);
 
         ProblemHttpResult problem = result.ShouldBeOfType<ProblemHttpResult>();
         problem.ProblemDetails.Status.ShouldBe(404);
@@ -306,10 +308,141 @@ public sealed class AccountEndpointsExtensionsTests
             CreateClient(StubHttpMessageHandler.RespondWith(HttpStatusCode.OK, "{}")));
 
         IResult result = await AccountEndpointsExtensions.DownloadAccountExportAsync(
-            loader, _discoveryCache, CreateTmsClientReturningContribution(), NullLoggerFactory.Instance, CancellationToken.None);
+            CorrectPassword, HttpContextWithClient(), loader, _discoveryCache, CreateTmsClientReturningContribution(), NullLoggerFactory.Instance, CancellationToken.None);
 
         ProblemHttpResult problem = result.ShouldBeOfType<ProblemHttpResult>();
         problem.ProblemDetails.Status.ShouldBe(503);
+    }
+
+    [Fact]
+    public async Task DownloadAccountExportAsync_WhenThePasswordFieldIsEmpty_SendsTheUserBackToTheFormWithoutCallingTheApi()
+    {
+        StubDiscoveryWithExportLink();
+        StubHttpMessageHandler authHandler = StubHttpMessageHandler.RespondWith(
+            HttpStatusCode.OK,
+            JsonSerializer.Serialize(AccountLoaderTests.CreateEnvelope(), ApiJsonOptions));
+        AccountLoader loader = new(_discoveryCache, CreateClient(authHandler));
+
+        IResult result = await AccountEndpointsExtensions.DownloadAccountExportAsync(
+            "   ", HttpContextWithClient(), loader, _discoveryCache, CreateTmsClientReturningContribution(),
+            NullLoggerFactory.Instance, CancellationToken.None);
+
+        RedirectHttpResult redirect = result.ShouldBeOfType<RedirectHttpResult>();
+        redirect.Url.ShouldBe("/account/export?error=password");
+        // An empty field never reaches the auth API: there is nothing for it to check.
+        authHandler.LastRequest.ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task DownloadAccountExportAsync_WhenThePasswordIsWrong_SendsTheUserBackToTheFormAndServesNoFile()
+    {
+        StubDiscoveryWithExportLink();
+        AccountLoader loader = new(
+            _discoveryCache,
+            CreateClient(StubHttpMessageHandler.RespondWith(
+                HttpStatusCode.BadRequest,
+                """
+                {
+                  "title": "Validation Error",
+                  "status": 400,
+                  "detail": "The current password is incorrect.",
+                  "errorCode": "Auth.InvalidCurrentPassword"
+                }
+                """)));
+
+        IResult result = await AccountEndpointsExtensions.DownloadAccountExportAsync(
+            "wrong", HttpContextWithClient(), loader, _discoveryCache, CreateTmsClientReturningContribution(),
+            NullLoggerFactory.Instance, CancellationToken.None);
+
+        RedirectHttpResult redirect = result.ShouldBeOfType<RedirectHttpResult>();
+        redirect.Url.ShouldBe("/account/export?error=password");
+    }
+
+    [Fact]
+    public async Task DownloadAccountExportAsync_WhenTheSessionExpired_SendsTheUserBackToTheFormWithTheSessionMarker()
+    {
+        StubDiscoveryWithExportLink();
+        AccountLoader loader = new(
+            _discoveryCache,
+            CreateClient(StubHttpMessageHandler.RespondWith(
+                HttpStatusCode.Unauthorized,
+                """{ "title": "Unauthorized", "status": 401 }""")));
+
+        IResult result = await AccountEndpointsExtensions.DownloadAccountExportAsync(
+            CorrectPassword, HttpContextWithClient(), loader, _discoveryCache, CreateTmsClientReturningContribution(),
+            NullLoggerFactory.Instance, CancellationToken.None);
+
+        RedirectHttpResult redirect = result.ShouldBeOfType<RedirectHttpResult>();
+        redirect.Url.ShouldBe("/account/export?error=session");
+    }
+
+    [Fact]
+    public async Task DownloadAccountExportAsync_WhenTheAuthApiRefusesThePassword_NeverCallsTheTmsLeg()
+    {
+        // The password gates the whole composed document, not only the auth half (#690, ADR-0052).
+        StubDiscoveryWithExportLink();
+        AccountLoader loader = new(
+            _discoveryCache,
+            CreateClient(StubHttpMessageHandler.RespondWith(
+                HttpStatusCode.BadRequest,
+                """{ "title": "Validation Error", "status": 400 }""")));
+        StubHttpMessageHandler tmsHandler = StubHttpMessageHandler.RespondWith(
+            HttpStatusCode.OK,
+            JsonSerializer.Serialize(CreateContribution(), ApiJsonOptions));
+
+        await AccountEndpointsExtensions.DownloadAccountExportAsync(
+            "wrong", HttpContextWithClient(), loader, _discoveryCache, CreateTmsClient(tmsHandler),
+            NullLoggerFactory.Instance, CancellationToken.None);
+
+        tmsHandler.LastRequest.ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task DownloadAccountExportAsync_OnSuccess_SendsThePasswordToTheAuthApiAsAPost()
+    {
+        StubDiscoveryWithExportLink();
+        StubHttpMessageHandler authHandler = StubHttpMessageHandler.RespondWith(
+            HttpStatusCode.OK,
+            JsonSerializer.Serialize(AccountLoaderTests.CreateEnvelope(), ApiJsonOptions));
+        AccountLoader loader = new(_discoveryCache, CreateClient(authHandler));
+
+        await AccountEndpointsExtensions.DownloadAccountExportAsync(
+            CorrectPassword, HttpContextWithClient(), loader, _discoveryCache, CreateTmsClientReturningContribution(),
+            NullLoggerFactory.Instance, CancellationToken.None);
+
+        authHandler.LastRequest.ShouldNotBeNull();
+        authHandler.LastRequest.Method.ShouldBe(HttpMethod.Post);
+    }
+
+    [Fact]
+    public async Task DownloadAccountExportAsync_WhenTheDownloadRelIsNotAdvertised_ServesAProblemAndNoFile()
+    {
+        // A missing rel means the server does not offer the operation to this caller. We never compose
+        // the path ourselves (#610).
+        AuthDiscoveryResponse discovery = new("LotroKoniecDev.AuthSystem")
+        {
+            Links = [new LinkDto(ExportHref, Rels.ExportAccountData, "GET")]
+        };
+        _discoveryCache.GetAuthSystemDiscoveryAsync(Arg.Any<CancellationToken>())
+            .Returns(ApiResult.Success(discovery));
+        AccountLoader loader = new(
+            _discoveryCache,
+            CreateClient(StubHttpMessageHandler.RespondWith(HttpStatusCode.OK, "{}")));
+
+        IResult result = await AccountEndpointsExtensions.DownloadAccountExportAsync(
+            CorrectPassword, HttpContextWithClient(), loader, _discoveryCache, CreateTmsClientReturningContribution(),
+            NullLoggerFactory.Instance, CancellationToken.None);
+
+        ProblemHttpResult problem = result.ShouldBeOfType<ProblemHttpResult>();
+        problem.ProblemDetails.Status.ShouldBe(StatusCodes.Status403Forbidden);
+    }
+
+    private static HttpContext HttpContextWithClient()
+    {
+        DefaultHttpContext httpContext = new();
+        httpContext.Connection.RemoteIpAddress = IPAddress.Parse("203.0.113.7");
+        httpContext.Request.Headers.UserAgent = "Mozilla/5.0 (QA)";
+        return httpContext;
     }
 
     private AccountLoader CreateLoaderReturning(AccountDataExportResponse envelope)
@@ -326,7 +459,11 @@ public sealed class AccountEndpointsExtensionsTests
     {
         AuthDiscoveryResponse discovery = new("LotroKoniecDev.AuthSystem")
         {
-            Links = [new LinkDto(ExportHref, Rels.ExportAccountData, "GET")]
+            Links =
+            [
+                new LinkDto(ExportHref, Rels.ExportAccountData, "GET"),
+                new LinkDto(ExportHref, Rels.DownloadAccountData, "POST")
+            ]
         };
         _discoveryCache.GetAuthSystemDiscoveryAsync(Arg.Any<CancellationToken>())
             .Returns(ApiResult.Success(discovery));

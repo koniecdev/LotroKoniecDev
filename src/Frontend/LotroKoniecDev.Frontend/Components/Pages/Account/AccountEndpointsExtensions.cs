@@ -14,20 +14,33 @@ using Microsoft.AspNetCore.Mvc;
 namespace LotroKoniecDev.Frontend.Components.Pages.Account;
 
 /// <summary>
-/// Maps the GDPR data-export download route (LEGAL-02). The account page links here so the export
-/// arrives in the browser as a JSON file. A Blazor SSR page cannot return a file, so this server route
-/// fetches the export through the same loader the page uses and sends it again with a
-/// <c>Content-Disposition</c> attachment header.
-/// It is authorized like the auth endpoint behind it, and the caller's session token travels through
-/// the typed clients.
+/// Maps the GDPR data-export download route (LEGAL-02). A Blazor SSR page cannot return a file, so this
+/// server route builds the export and sends it with a <c>Content-Disposition</c> attachment header.
+/// Since #690 it is a <b>POST</b> that carries the current password, because the export is the one
+/// sensitive action that used to ask for nothing. The password is checked by the auth API, not here, so
+/// a session alone is never enough (ADR-0052). The confirmation form lives on the
+/// <see cref="ExportAccountData"/> page, and a wrong password sends the user back to it with a marker
+/// in the query string, because a redirect cannot carry a problem body.
 /// The route builds the full Art. 15 document (ADR-0032): the auth part plus the TMS contribution part.
 /// A TMS failure only makes the file incomplete (<c>isComplete: false</c>) and does not fail the
 /// download.
 /// </summary>
 internal static class AccountEndpointsExtensions
 {
-    /// <summary>The download URL the account page's export button links to.</summary>
-    internal const string ExportDownloadPath = "/account/export";
+    /// <summary>The page that asks for the password. The account page's export button links here.</summary>
+    internal const string ExportPagePath = "/account/export";
+
+    /// <summary>The form target that checks the password and returns the file.</summary>
+    internal const string ExportDownloadPath = "/account/export/download";
+
+    /// <summary>The form field the password arrives in.</summary>
+    internal const string PasswordFormField = "password";
+
+    /// <summary>Tells the export page which sentence to show after a refused download.</summary>
+    internal const string ErrorQueryKey = "error";
+
+    internal const string PasswordErrorCode = "password";
+    internal const string SessionErrorCode = "session";
 
     private static readonly JsonSerializerOptions ExportSerializerOptions = new()
     {
@@ -40,7 +53,9 @@ internal static class AccountEndpointsExtensions
     {
         public IEndpointRouteBuilder MapAccountEndpoints()
         {
-            endpoints.MapGet(ExportDownloadPath, DownloadAccountExportAsync)
+            // A form parameter is what makes the framework demand the antiforgery token, so the binding
+            // below is part of the protection, not only a convenience.
+            endpoints.MapPost(ExportDownloadPath, DownloadAccountExportAsync)
                 .RequireAuthorization();
 
             return endpoints;
@@ -48,27 +63,46 @@ internal static class AccountEndpointsExtensions
     }
 
     /// <summary>
-    /// The route's handler, internal so a unit test can call it without a web host. On success it
-    /// returns a file with the indented camelCase JSON, and on failure a problem result, either the one
-    /// from the API or a 502 of our own. Only the auth part can fail the download; when the TMS part
-    /// fails, the file simply has <c>translationData: null</c> and <c>isComplete: false</c>.
+    /// The route's handler, internal so a unit test can call it without a web host. With the right
+    /// password it returns a file with the indented camelCase JSON; with a wrong one it redirects back to
+    /// the confirmation page. Only the auth part can fail the download; when the TMS part fails, the file
+    /// simply has <c>translationData: null</c> and <c>isComplete: false</c>.
     /// </summary>
     internal static async Task<IResult> DownloadAccountExportAsync(
+        [FromForm(Name = PasswordFormField)] string? password,
+        HttpContext httpContext,
         AccountLoader loader,
         IDiscoveryCache discoveryCache,
         ITranslationSystemClient translationSystemClient,
         ILoggerFactory loggerFactory,
         CancellationToken cancellationToken)
     {
-        ApiResult<AccountDataExportResponse> result = await loader.LoadExportAsync(cancellationToken);
+        ILogger logger = loggerFactory.CreateLogger(typeof(AccountEndpointsExtensions).FullName!);
+
+        if (string.IsNullOrWhiteSpace(password))
+        {
+            return RedirectToExportPage(PasswordErrorCode);
+        }
+
+        ApiResult<AccountDataExportResponse> result =
+            await loader.DownloadExportAsync(password, cancellationToken);
 
         if (result.IsFailure)
         {
-            return Results.Problem(ApiProblemCopy.Localize(
-                loggerFactory,
-                result.ProblemDetails,
-                "Nie udało się pobrać danych konta.",
-                StatusCodes.Status502BadGateway));
+            LogExportRefused(logger, result.ProblemDetails?.Status, ClientIpAddress(httpContext), UserAgent(httpContext), null);
+
+            // A mistyped password and an expired session belong on the form the user just used, so they
+            // go back to it with a marker. Everything else keeps answering with the Polish problem body
+            // this route has always returned, trace id included (#548, #703, ADR-0044): those are the
+            // failures somebody has to diagnose.
+            string? formError = FormErrorFor(result);
+            return formError is null
+                ? Results.Problem(ApiProblemCopy.Localize(
+                    loggerFactory,
+                    result.ProblemDetails,
+                    "Nie udało się pobrać danych konta.",
+                    StatusCodes.Status502BadGateway))
+                : RedirectToExportPage(formError);
         }
 
         TranslatorDataExportResponse? translationData = null;
@@ -109,6 +143,55 @@ internal static class AccountEndpointsExtensions
             "lotro-translator-moje-dane-{0:yyyyMMdd-HHmmss}.json",
             DateTimeOffset.UtcNow.ToPolandTime());
 
+        // The auth API writes its own line, but it only ever sees this service as the caller: nothing
+        // forwards the reader's address between the two. This line carries the real one (#690).
+        LogExportDownloaded(
+            logger,
+            result.Value.AuthData.UserId,
+            result.Value.AuthData.Email.MaskEmail(),
+            ClientIpAddress(httpContext),
+            UserAgent(httpContext),
+            exportFile.IsComplete,
+            null);
+
         return Results.File(payload, "application/json", fileName);
     }
+
+    /// <summary>
+    /// The marker to send the user back to the form with, or <c>null</c> when the failure is not theirs
+    /// to fix. The auth API answers a wrong password with a validation problem, and once the field is
+    /// non-empty a wrong password is the only validation failure this call can produce.
+    /// </summary>
+    private static string? FormErrorFor(ApiResult result)
+    {
+        if (result.IsUnauthorized)
+        {
+            return SessionErrorCode;
+        }
+
+        return result.ProblemDetails?.Status is StatusCodes.Status400BadRequest
+            ? PasswordErrorCode
+            : null;
+    }
+
+    private static IResult RedirectToExportPage(string errorCode) =>
+        Results.Redirect($"{ExportPagePath}?{ErrorQueryKey}={errorCode}");
+
+    private static string? ClientIpAddress(HttpContext httpContext) =>
+        httpContext.Connection.RemoteIpAddress?.ToString();
+
+    private static string UserAgent(HttpContext httpContext) =>
+        httpContext.Request.Headers.UserAgent.ToString();
+
+    private static readonly Action<ILogger, Guid, string, string?, string, bool, Exception?> LogExportDownloaded =
+        LoggerMessage.Define<Guid, string, string?, string, bool>(
+            LogLevel.Information,
+            new EventId(3690, nameof(LogExportDownloaded)),
+            "GDPR data export downloaded by user {UserId} ({MaskedEmail}). IP: {IpAddress}, UserAgent: {UserAgent}, complete: {IsComplete}");
+
+    private static readonly Action<ILogger, int?, string?, string, Exception?> LogExportRefused =
+        LoggerMessage.Define<int?, string?, string>(
+            LogLevel.Warning,
+            new EventId(3691, nameof(LogExportRefused)),
+            "GDPR data export refused by the auth API with status {Status}. IP: {IpAddress}, UserAgent: {UserAgent}");
 }

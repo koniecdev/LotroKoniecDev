@@ -154,6 +154,8 @@ internal static class ApiProblemCopy
                 "Nie znaleziono konta.",
             ["Auth.InvalidCurrentPassword"] =
                 "Aktualne hasło jest nieprawidłowe.",
+            ["Auth.ExportPasswordRequired"] =
+                "Podaj obecne hasło, aby pobrać swoje dane.",
             ["Auth.PasswordChangeFailed"] =
                 "Nie udało się zmienić hasła. Nowe hasło musi spełniać wymagania: " + PasswordRules,
             ["Auth.InvalidPasswordResetToken"] =

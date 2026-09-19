@@ -1,0 +1,78 @@
+@page "/account/export"
+@attribute [Authorize]
+@using Microsoft.AspNetCore.Authorization
+
+<PageTitle>Pobierz moje dane — lotro-translator.pl</PageTitle>
+
+<section class="container page-head">
+    <div>
+        <h1>Pobierz moje dane</h1>
+        <p class="lede">Kopia wszystkich danych Twojego konta w pliku JSON — zgodnie z art. 15 RODO.</p>
+    </div>
+</section>
+
+<section class="container content-wrap">
+    <section class="panel">
+        <header class="panel-head">
+            <h2>Potwierdź hasłem</h2>
+            <span class="panel-aside">Operacja wrażliwa</span>
+        </header>
+        <div class="panel-body">
+            <p>
+                Plik zawiera Twoją nazwę użytkownika, adres e-mail, role, historię zgód oraz listę
+                tłumaczeń, które zgłosiłeś lub zatwierdziłeś. Dlatego — tak jak przy zmianie hasła,
+                zmianie adresu e-mail i usunięciu konta — prosimy o podanie obecnego hasła.
+            </p>
+
+            @if (ErrorMessage is not null)
+            {
+                <div class="error-message" role="alert" data-testid="export-error">
+                    <span class="em-ico" aria-hidden="true">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z"/>
+                            <path d="M12 9v4"/><path d="M12 17h.01"/>
+                        </svg>
+                    </span>
+                    <div class="em-body">
+                        <p class="t">@ErrorMessage</p>
+                    </div>
+                </div>
+            }
+
+            @* A plain form, not an SSR form handler: the response is a file, and a Razor component can
+               only render markup. The POST route checks the password and returns the attachment. *@
+            <form method="post" action="@AccountEndpointsExtensions.ExportDownloadPath"
+                  class="stacked-form" data-testid="export-form">
+                <AntiforgeryToken/>
+                <div class="field">
+                    <label for="export-password">Hasło</label>
+                    <input id="export-password" name="@AccountEndpointsExtensions.PasswordFormField"
+                           type="password" autocomplete="current-password"
+                           placeholder="Twoje obecne hasło"/>
+                </div>
+                <div class="form-actions">
+                    <a class="btn btn-ghost" href="/account">Anuluj</a>
+                    <button type="submit" class="btn btn-primary" data-testid="export-submit">Pobierz plik</button>
+                </div>
+            </form>
+        </div>
+    </section>
+</section>
+
+@code
+{
+    [SupplyParameterFromQuery(Name = AccountEndpointsExtensions.ErrorQueryKey)]
+    private string? Error { get; set; }
+
+    /// <summary>
+    /// The Polish sentence for a refused download. The download route redirects here with a short code
+    /// instead of a problem body, because a redirect carries no body — so the copy lives here, which is
+    /// where the Frontend's Polish belongs anyway (ADR-0044).
+    /// </summary>
+    private string? ErrorMessage => Error switch
+    {
+        AccountEndpointsExtensions.PasswordErrorCode => "Hasło jest nieprawidłowe. Spróbuj ponownie.",
+        AccountEndpointsExtensions.SessionErrorCode => "Sesja wygasła. Zaloguj się ponownie i spróbuj jeszcze raz.",
+        _ => null
+    };
+}

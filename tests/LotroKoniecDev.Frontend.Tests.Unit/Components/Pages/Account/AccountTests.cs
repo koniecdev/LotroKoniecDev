@@ -65,15 +65,20 @@ public sealed class AccountTests : BunitContext
     }
 
     [Fact]
-    public void Render_WhenExportLoads_AlwaysOffersTheExportDownloadLink()
+    public void Render_WhenEnvelopeAdvertisesTheDownload_LinksToThePasswordConfirmationPage()
     {
-        StubExport(AccountLoaderTests.CreateEnvelope());
+        // Not a direct download any more (#690): the export asks for the password first, so the row
+        // points at the confirmation page and carries no 'download' attribute.
+        StubExport(AccountLoaderTests.CreateEnvelope(links:
+        [
+            new LinkDto("auth/account/data-export", Rels.DownloadAccountData, "POST")
+        ]));
 
         IRenderedComponent<AccountComponent> component = Render<AccountComponent>();
 
         IElement download = component.Find("[data-testid=account-export]");
         download.GetAttribute("href").ShouldBe("/account/export");
-        download.HasAttribute("download").ShouldBeTrue();
+        download.HasAttribute("download").ShouldBeFalse();
     }
 
     [Fact]
@@ -120,7 +125,7 @@ public sealed class AccountTests : BunitContext
         component.FindAll("[data-testid=account-change-email]").ShouldBeEmpty();
         component.FindAll("[data-testid=account-change-email-inline]").ShouldBeEmpty();
         component.FindAll("[data-testid=account-delete]").ShouldBeEmpty();
-        component.FindAll("[data-testid=account-export]").ShouldHaveSingleItem();
+        component.FindAll("[data-testid=account-export]").ShouldBeEmpty();
     }
 
     [Fact]

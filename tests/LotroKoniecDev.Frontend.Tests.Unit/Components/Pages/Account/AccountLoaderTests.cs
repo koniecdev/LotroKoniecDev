@@ -1,4 +1,5 @@
 using System.Net;
+using System.Net.Http;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using LotroKoniecDev.AuthSystem.Contracts.Features.Auth.Account;
@@ -183,6 +184,73 @@ public sealed class AccountLoaderTests
             BaseAddress = new Uri(BaseUrl)
         };
         return new AccountLoader(_discoveryCache, new AuthSystemClient(httpClient));
+    }
+
+    [Fact]
+    public async Task DownloadExportAsync_WhenTheLinkIsMissing_ReturnsForbiddenWithoutCallingTheApi()
+    {
+        // Only the read rel is offered, so this caller is not offered the gated download (#690).
+        StubDiscovery(links: [new LinkDto(ExportHref, Rels.ExportAccountData, "GET")]);
+        AccountLoader loader = CreateLoader(
+            StubHttpMessageHandler.RespondWith(HttpStatusCode.OK, "{}"),
+            out StubHttpMessageHandler handler);
+
+        ApiResult<AccountDataExportResponse> result = await loader.DownloadExportAsync("Correct-Horse-1!");
+
+        result.IsFailure.ShouldBeTrue();
+        result.ProblemDetails!.Status.ShouldBe(403);
+        handler.LastRequest.ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task DownloadExportAsync_WhenDiscoveryFails_PassesTheProblemThrough()
+    {
+        _discoveryCache.GetAuthSystemDiscoveryAsync(Arg.Any<CancellationToken>())
+            .Returns(ApiResult.Failure<AuthDiscoveryResponse>(new ProblemDetails
+            {
+                Title = "Usługa chwilowo niedostępna",
+                Status = 503
+            }));
+        AccountLoader loader = CreateLoader(StubHttpMessageHandler.RespondWith(HttpStatusCode.OK, "{}"), out _);
+
+        ApiResult<AccountDataExportResponse> result = await loader.DownloadExportAsync("Correct-Horse-1!");
+
+        result.IsFailure.ShouldBeTrue();
+        result.ProblemDetails!.Status.ShouldBe(503);
+    }
+
+    [Fact]
+    public async Task DownloadExportAsync_WhenLinkAdvertised_PostsThePasswordToTheAdvertisedHref()
+    {
+        StubDiscovery(links: [new LinkDto(ExportHref, Rels.DownloadAccountData, "POST")]);
+        AccountDataExportResponse envelope = CreateEnvelope();
+        AccountLoader loader = CreateLoader(
+            StubHttpMessageHandler.RespondWith(HttpStatusCode.OK, JsonSerializer.Serialize(envelope, ApiJsonOptions)),
+            out StubHttpMessageHandler handler);
+
+        ApiResult<AccountDataExportResponse> result = await loader.DownloadExportAsync("Correct-Horse-1!");
+
+        result.IsSuccess.ShouldBeTrue();
+        result.Value.AuthData.Username.ShouldBe("frodo");
+        handler.LastRequest!.Method.ShouldBe(HttpMethod.Post);
+        handler.LastRequest.RequestUri!.AbsolutePath.ShouldEndWith("/auth/account/data-export");
+        handler.LastRequestBody!.ShouldContain("Correct-Horse-1!");
+    }
+
+    [Fact]
+    public async Task DownloadExportAsync_WhenTheApiRefusesThePassword_ReturnsThatProblem()
+    {
+        StubDiscovery(links: [new LinkDto(ExportHref, Rels.DownloadAccountData, "POST")]);
+        AccountLoader loader = CreateLoader(
+            StubHttpMessageHandler.RespondWith(
+                HttpStatusCode.BadRequest,
+                """{ "title": "Validation Error", "status": 400, "errorCode": "Auth.InvalidCurrentPassword" }"""),
+            out _);
+
+        ApiResult<AccountDataExportResponse> result = await loader.DownloadExportAsync("wrong");
+
+        result.IsFailure.ShouldBeTrue();
+        result.ProblemDetails!.Status.ShouldBe(400);
     }
 
     internal static AccountDataExportResponse CreateEnvelope(

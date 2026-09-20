@@ -62,7 +62,8 @@ logged-in caller.**
 ## Consequences
 
 - **A token holder can still read the account representation off the GET, so the ticket's first
-  acceptance criterion is met in spirit and not to the letter.** This is the deviation to sign off.
+  acceptance criterion is met in spirit and not to the letter.** The maintainer accepted this
+  deviation on 2026-09-20, before #814 was merged.
   The GET now returns exactly what the account page renders, and a caller holding a token can render
   that page anyway — the ticket says as much ("an attacker who is already inside the account can read
   most of these values off the account page anyway"). What needs the password is the packaged file:

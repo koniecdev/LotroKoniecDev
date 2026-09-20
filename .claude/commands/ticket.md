@@ -177,7 +177,10 @@ a non-trivial modeling decision emerges mid-flight. Honor every constraint the s
   pipeline could send three times and an export that spent two rate-limit permits per click. Fix
   every finding that is real, write a one-line reason for each one you reject, then re-run the
   build, the whole suite and the guards on the final commit. This pass runs **before** the push:
-  a finding that lands after `gh pr create` costs a pr-verify run.
+  a finding that lands after `gh pr create` costs a pr-verify run. Effort decides what it finds,
+  more than the model does: on #690's PR the same command gave 2 and 4 findings in two runs at
+  effort medium, and 14 and 15 at xhigh (one run each on the two top tiers, about 6 and 20 USD).
+  A session below effort high should not count this pass as proof.
 
 ## 8. Ship
 

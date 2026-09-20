@@ -6,7 +6,7 @@
 **Related:** ADR-0032 (the export's TMS leg is composed by the frontend), ADR-0040
 (authorization-aware links), ADR-0041 (no gateway — discovery is the contract surface),
 ADR-0049 (the revocation window is the access-token lifetime), tickets #686 (SEC-08),
-#689 (SEC-11, TOTP), #690
+#689 (SEC-11, TOTP), #690, #813
 
 ## Context
 
@@ -38,8 +38,11 @@ logged-in caller.**
 - **New `POST auth/account/data-export`** (`DownloadAccountData`, rel `download-account-data`). The
   body carries the current password; the handler verifies it with `CheckPasswordAsync`, exactly like
   `DeleteAccount`, and returns the payload only then. Both outcomes are written to the audit log.
-- **`GET auth/account/data-export` is unchanged in shape, rel and method.** Its log line no longer
-  says "GDPR data export completed" — it fired on every account page view, which is what made the
+- **`GET auth/account/data-export` keeps its route, rel and method**, and is trimmed to what the
+  account page actually renders. The contact details — today the phone number — move to the POST, so
+  the password buys the reader something the page does not already hand over. Both endpoints read
+  through one `AccountDataExportReader`, so they cannot drift apart. Its log line no longer says
+  "GDPR data export completed" either: it fired on every account page view, which is what made the
   audit log unable to answer who took a file. It now says "account data read", and the two export
   lines belong to the POST.
 - **The frontend download route is a POST** at `/account/export/download`, fed by a
@@ -58,18 +61,37 @@ logged-in caller.**
 
 ## Consequences
 
-- **A token holder can still read the auth payload off the GET.** The account page renders those
-  same values, so this is not a new disclosure — and the ticket says as much ("an attacker who is
-  already inside the account can read most of these values off the account page anyway"). What now
-  needs the password is the packaged file, which adds the TMS contribution list and the phone number
-  and is the artefact worth stealing. Closing the GET as well means splitting it from the account
-  representation, and that is only worth doing if a second API consumer ever appears.
-- **Two rels now describe the same data.** `export-account-data` (GET) is the representation,
-  `download-account-data` (POST) is the export. Rel names are a frozen contract (ADR-0041) and this
-  is an addition, which is the cheap direction; both are offered to every logged-in caller, so the
-  sign-in probe is untouched and the change is safe in either deploy order.
-- **A wrong password does not count toward Identity's lockout**, mirroring `DeleteAccount`. The
-  endpoint's rate limit is the only brake, which is enough for a caller who already holds a session.
+- **A token holder can still read the account representation off the GET, so the ticket's first
+  acceptance criterion is met in spirit and not to the letter.** This is the deviation to sign off.
+  The GET now returns exactly what the account page renders, and a caller holding a token can render
+  that page anyway — the ticket says as much ("an attacker who is already inside the account can read
+  most of these values off the account page anyway"). What needs the password is the packaged file:
+  the contact details plus the TMS contribution list, which is the artefact worth stealing. Note what
+  this does **not** stop: the SEC batch's own premise is an attacker who knows the password, and
+  against that reader a password step-up is worth nothing. It stops the caller who holds a token or a
+  session but not the password. The second factor of #689 is what raises that bar, and this endpoint
+  is where it plugs in.
+  The phone number is empty for every account today, because nothing collects one — so the tightening
+  above is structural, not a leak closed. Closing the GET completely means splitting it from the
+  account representation, and that is only worth doing if a second API consumer ever appears.
+- **Two rels describe the account's data.** `export-account-data` (GET) is the representation,
+  `download-account-data` (POST) is the export. Rel names are a frozen contract (ADR-0041) and this is
+  an addition, which is the cheap direction, and the GET rel keeps its sign-in-probe duty untouched.
+  The new rel is advertised **on the account resource only**, next to `change-password` and
+  `delete-account`, and deliberately not in the discovery document: discovery is cached for a day
+  under one shared key, so a document fetched while an older auth server was still answering would
+  keep the export broken long after the deploy finished, and signing out would not clear it. Read from
+  the representation, the client always sees what the server offers right now, and the account page's
+  button and the download route can never disagree.
+- **The export survives a scheduled deletion.** Taking a copy of your own data is a right, so the
+  representation advertises it in the deletion-scheduled branch too, where every other action is
+  withdrawn, and the endpoint serves it there.
+- **A wrong password does not count toward Identity's lockout**, mirroring `DeleteAccount`, and the
+  brake behind it is weaker than it looks. `auth-endpoint-limit` partitions on the remote address, and
+  every call from the frontend arrives from the frontend itself, so one 10-per-minute bucket is shared
+  by every logged-in user of every endpoint on that policy. It is therefore not a per-account brake at
+  all, and it is not new: `DeleteAccount` and `ChangePassword` have always sat behind it. A per-account
+  throttle in the shape of `PasswordResetRequestThrottle` is the fix, filed as #813.
 - **The confirm page is one more click** before a download the user asked for. That is the intended
   cost, and it is the same cost the other three sensitive actions already charge.
 - **When TOTP lands (#689)**, this POST is where the second factor goes for the export. Nothing in

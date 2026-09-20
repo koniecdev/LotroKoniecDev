@@ -47,11 +47,16 @@ emailed link (auth-side page, already shipped).
   password, delete account (gated on the HATEOAS rels from the export envelope). No
   resend-confirmation row: Identity runs with `RequireConfirmedEmail = true`, so a signed-in user
   always has a confirmed e-mail — the rel can never appear for a browser session.
-- **Export download** `GET /account/export` (server endpoint in
-  `Components/Pages/Account/AccountEndpointsExtensions.cs`, `RequireAuthorization()`): proxies the
-  auth export (discovery → `export-account-data` link → typed client), serializes the envelope as
-  indented camelCase JSON, serves it as `lotro-translator-moje-dane-<yyyyMMdd-HHmmss>.json`.
-  Razor SSR pages cannot return file results — same reasoning as the polish.txt download proxy.
+- **Export download** — amended by #690 / ADR-0052: the file now costs the current password.
+  `GET /account/export` is a page that asks for it (`Components/Pages/Account/ExportAccountData.razor`),
+  and its form posts to `POST /account/export/download` (server endpoint in
+  `Components/Pages/Account/AccountEndpointsExtensions.cs`, `RequireAuthorization()` plus the
+  antiforgery token the form binding demands). That route follows the account resource's
+  `download-account-data` link, sends the password, and the **auth API** decides — a session alone is
+  not enough. It then serializes the envelope as indented camelCase JSON and serves it as
+  `lotro-translator-moje-dane-<yyyyMMdd-HHmmss>.json`. Razor SSR pages cannot return file results —
+  same reasoning as the polish.txt download proxy. A wrong password or an expired session comes back
+  to the page with `?error=`; other failures keep the Polish problem body.
 - **`/account/delete` page** (`DeleteAccount.razor`, `[Authorize]`): consequences list, password +
   confirmation-phrase (`USUWAM`) form → POSTs `DeleteAccountRequest` to the `delete-account` rel →
   on 204 reads `X-Deletion-Finalizes-At` from headers → success state with an explicit
@@ -115,8 +120,9 @@ emailed link (auth-side page, already shipped).
 
 ## Contract
 
-- **FE routes:** `GET /account` (authorized page), `GET /account/export` (authorized file
-  download), `GET/POST /account/delete` (authorized page + SSR form), `GET
+- **FE routes:** `GET /account` (authorized page), `GET /account/export` (authorized page that asks
+  for the password), `POST /account/export/download` (authorized file download, antiforgery-checked —
+  #690), `GET/POST /account/delete` (authorized page + SSR form), `GET
   /account/deletion-scheduled?until=<iso>` (anonymous page), `GET/POST /account/change-password`
   (authorized page + SSR form), `POST /auth/local-signout` (cookie-only sign-out, local returnUrl).
 - **Upstream:** `GET {auth}/` discovery → `GET {auth}/auth/account/data-export` →

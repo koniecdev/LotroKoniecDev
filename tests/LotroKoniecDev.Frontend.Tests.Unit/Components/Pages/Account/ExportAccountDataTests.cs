@@ -54,8 +54,7 @@ public sealed class ExportAccountDataTests : BunitContext
     }
 
     [Theory]
-    [InlineData("password", "Hasło jest nieprawidłowe. Spróbuj ponownie.")]
-    [InlineData("session", "Sesja wygasła. Zaloguj się ponownie i spróbuj jeszcze raz.")]
+    [InlineData("password", "Hasło jest nieprawidłowe.")]
     [InlineData("throttled", "Zbyt wiele prób. Odczekaj chwilę i spróbuj ponownie.")]
     public void Render_WithAnErrorMarker_ShowsTheMatchingPolishSentence(string errorCode, string expected)
     {
@@ -67,7 +66,32 @@ public sealed class ExportAccountDataTests : BunitContext
     }
 
     [Theory]
+    [InlineData("password")]
+    [InlineData("throttled")]
+    public void Render_WithAnErrorMarker_OffersAWayBackInsteadOfTheForm(string errorCode)
+    {
+        // A successful download answers with a file, so the browser stays on the page it posted from.
+        // A form next to the banner would therefore hand the file over under "wrong password". The
+        // refused state has no form at all, only a link back to a clean one.
+        Navigation().NavigateTo($"/account/export?error={errorCode}");
+
+        IRenderedComponent<ExportAccountData> component = Render<ExportAccountData>();
+
+        component.FindAll("[data-testid=export-form]").ShouldBeEmpty();
+        component.Find("[data-testid=export-retry]").GetAttribute("href").ShouldBe("/account/export");
+    }
+
+    [Fact]
+    public void Render_WithoutAnErrorMarker_OffersNoRetryLink()
+    {
+        IRenderedComponent<ExportAccountData> component = Render<ExportAccountData>();
+
+        component.FindAll("[data-testid=export-retry]").ShouldBeEmpty();
+    }
+
+    [Theory]
     [InlineData("nonsense")]
+    [InlineData("session")]
     [InlineData("<script>alert(1)</script>")]
     public void Render_WithATamperedErrorMarker_ShowsNoErrorPanel(string errorCode)
     {

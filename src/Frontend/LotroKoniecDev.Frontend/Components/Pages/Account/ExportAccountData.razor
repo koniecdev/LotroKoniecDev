@@ -24,6 +24,9 @@
                 zmianie adresu e-mail i usunięciu konta — prosimy o podanie obecnego hasła.
             </p>
 
+            @* A refused attempt shows the sentence and a way back, never the form. A successful download
+               answers with a file, so the browser stays on the page it posted from — a form next to this
+               banner would hand the file over under "wrong password" (#690). *@
             @if (ErrorMessage is not null)
             {
                 <div class="error-message" role="alert" data-testid="export-error">
@@ -37,24 +40,30 @@
                         <p class="t">@ErrorMessage</p>
                     </div>
                 </div>
-            }
-
-            @* A plain form, not an SSR form handler: the response is a file, and a Razor component can
-               only render markup. The POST route checks the password and returns the attachment. *@
-            <form method="post" action="@AccountEndpointsExtensions.ExportDownloadPath"
-                  class="stacked-form" data-testid="export-form">
-                <AntiforgeryToken/>
-                <div class="field">
-                    <label for="export-password">Hasło</label>
-                    <input id="export-password" name="@AccountEndpointsExtensions.PasswordFormField"
-                           type="password" autocomplete="current-password"
-                           placeholder="Twoje obecne hasło"/>
-                </div>
                 <div class="form-actions">
                     <a class="btn btn-ghost" href="/account">Anuluj</a>
-                    <button type="submit" class="btn btn-primary" data-testid="export-submit">Pobierz plik</button>
+                    <a class="btn btn-primary" href="@AccountEndpointsExtensions.ExportPagePath" data-testid="export-retry">Spróbuj ponownie</a>
                 </div>
-            </form>
+            }
+            else
+            {
+                @* A plain form, not an SSR form handler: the response is a file, and a Razor component
+                   can only render markup. The POST route checks the password and returns the attachment. *@
+                <form method="post" action="@AccountEndpointsExtensions.ExportDownloadPath"
+                      class="stacked-form" data-testid="export-form">
+                    <AntiforgeryToken/>
+                    <div class="field">
+                        <label for="export-password">Hasło</label>
+                        <input id="export-password" name="@AccountEndpointsExtensions.PasswordFormField"
+                               type="password" autocomplete="current-password"
+                               placeholder="Twoje obecne hasło"/>
+                    </div>
+                    <div class="form-actions">
+                        <a class="btn btn-ghost" href="/account">Anuluj</a>
+                        <button type="submit" class="btn btn-primary" data-testid="export-submit">Pobierz plik</button>
+                    </div>
+                </form>
+            }
         </div>
     </section>
 </section>
@@ -71,8 +80,7 @@
     /// </summary>
     private string? ErrorMessage => Error switch
     {
-        AccountEndpointsExtensions.PasswordErrorCode => "Hasło jest nieprawidłowe. Spróbuj ponownie.",
-        AccountEndpointsExtensions.SessionErrorCode => "Sesja wygasła. Zaloguj się ponownie i spróbuj jeszcze raz.",
+        AccountEndpointsExtensions.PasswordErrorCode => "Hasło jest nieprawidłowe.",
         AccountEndpointsExtensions.ThrottledErrorCode => "Zbyt wiele prób. Odczekaj chwilę i spróbuj ponownie.",
         _ => null
     };

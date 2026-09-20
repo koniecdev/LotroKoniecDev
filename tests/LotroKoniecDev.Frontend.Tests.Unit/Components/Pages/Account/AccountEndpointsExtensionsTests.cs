@@ -1,4 +1,5 @@
 using System.Net;
+using System.Security.Claims;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -11,6 +12,7 @@ using LotroKoniecDev.Frontend.Infrastructure.HttpClients;
 using LotroKoniecDev.Frontend.Infrastructure.HttpClients.AuthSystemHttpClients;
 using LotroKoniecDev.Frontend.Infrastructure.HttpClients.TranslationSystemHttpClients;
 using LotroKoniecDev.Frontend.Tests.Unit.Infrastructure.HttpClients;
+using LotroKoniecDev.Frontend.Tests.Unit.Shared;
 using LotroKoniecDev.Hateoas.Abstractions;
 using LotroKoniecDev.SharedKernel.StronglyTypedIds;
 using LotroKoniecDev.TranslationSystem.Contracts.Translators;
@@ -28,6 +30,8 @@ using NSubstitute;
 using AuthDiscoveryResponse = LotroKoniecDev.AuthSystem.Contracts.Discovery.DiscoveryResponse;
 using TranslationDiscoveryResponse = LotroKoniecDev.TranslationSystem.Contracts.Discovery.DiscoveryResponse;
 using TranslationRels = LotroKoniecDev.TranslationSystem.Contracts.Hateoas.Rels;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 
 namespace LotroKoniecDev.Frontend.Tests.Unit.Components.Pages.Account;
@@ -43,6 +47,9 @@ public sealed class AccountEndpointsExtensionsTests
     private const string BaseUrl = "https://localhost:5003/";
     private const string TmsBaseUrl = "https://localhost:5002/";
     private const string ExportHref = "auth/account/data-export";
+    private const string DownloadHref = "advertised/account-download";
+    private const string ClientIpAddress = "203.0.113.7";
+    private const string ClientUserAgent = "Mozilla/5.0 (QA)";
     private const string CorrectPassword = "Correct-Horse-1!";
     private const string ContributionExportHref = "/advertised/my-contribution-export";
 
@@ -364,8 +371,10 @@ public sealed class AccountEndpointsExtensionsTests
     }
 
     [Fact]
-    public async Task DownloadAccountExportAsync_WhenTheSessionExpired_SendsTheUserBackToTheFormWithTheSessionMarker()
+    public async Task DownloadAccountExportAsync_WhenTheSessionExpired_SendsTheUserBackToTheCleanPage()
     {
+        // No marker. The 401 marked the session dead, so the redirected request signs the user out and
+        // sends them to log in; a "session expired" sentence would greet them right after they did.
         StubDiscoveryWithExportLink();
         AccountLoader loader = new(
             _discoveryCache,
@@ -380,7 +389,7 @@ public sealed class AccountEndpointsExtensionsTests
             NullLoggerFactory.Instance, CancellationToken.None);
 
         RedirectHttpResult redirect = result.ShouldBeOfType<RedirectHttpResult>();
-        redirect.Url.ShouldBe("/account/export?error=session");
+        redirect.Url.ShouldBe("/account/export");
     }
 
     [Fact]
@@ -466,6 +475,120 @@ public sealed class AccountEndpointsExtensionsTests
 
         authHandler.LastRequest.ShouldNotBeNull();
         authHandler.LastRequest.Method.ShouldBe(HttpMethod.Post);
+        authHandler.LastRequest.RequestUri!.ToString().ShouldBe($"{BaseUrl}{DownloadHref}");
+    }
+
+    [Fact]
+    public async Task DownloadAccountExportAsync_WhenTheExportIsA200WithNoAuthData_ServesABadGatewayInsteadOfThrowing()
+    {
+        StubDiscoveryWithExportLink();
+        AccountLoader loader = new(
+            _discoveryCache,
+            CreateClient(StubHttpMessageHandler.RespondWith(
+                HttpStatusCode.OK,
+                RepresentationJson(),
+                HttpStatusCode.OK,
+                "{}")));
+
+        IResult result = await AccountEndpointsExtensions.DownloadAccountExportAsync(
+            CorrectPassword, HttpContextWithClient(), loader, _discoveryCache, CreateTmsClientReturningContribution(),
+            NullLoggerFactory.Instance, CancellationToken.None);
+
+        ProblemHttpResult problem = result.ShouldBeOfType<ProblemHttpResult>();
+        problem.ProblemDetails.Status.ShouldBe(StatusCodes.Status502BadGateway);
+    }
+
+    [Fact]
+    public async Task DownloadAccountExportAsync_OnSuccess_LogsWhoTookTheFileAndFromWhere()
+    {
+        // The auth API only ever sees this service as the caller, so this line is the one that carries
+        // the reader's real address (#690). A log line does not show in the result, so it is pinned.
+        AccountDataExportResponse envelope = AccountLoaderTests.CreateEnvelope();
+        AccountLoader loader = CreateLoaderReturning(envelope);
+        using CapturingLoggerProvider logs = new();
+        using LoggerFactory loggerFactory = new([logs]);
+
+        await AccountEndpointsExtensions.DownloadAccountExportAsync(
+            CorrectPassword, HttpContextWithClient(), loader, _discoveryCache, CreateTmsClientReturningContribution(),
+            loggerFactory, CancellationToken.None);
+
+        CapturingLoggerProvider.LogEntry entry = logs.Entries.ShouldHaveSingleItem();
+        entry.Level.ShouldBe(LogLevel.Information);
+        entry.Message.ShouldContain(envelope.AuthData.UserId.ToString());
+        entry.Message.ShouldContain(ClientIpAddress);
+        entry.Message.ShouldContain(ClientUserAgent);
+        entry.Message.ShouldNotContain(envelope.AuthData.Email);
+    }
+
+    [Fact]
+    public async Task DownloadAccountExportAsync_WhenThePasswordIsWrong_LogsTheRefusalWithTheApisReason()
+    {
+        StubDiscoveryWithExportLink();
+        AccountLoader loader = new(
+            _discoveryCache,
+            CreateClient(StubHttpMessageHandler.RespondWith(
+                HttpStatusCode.OK,
+                RepresentationJson(),
+                HttpStatusCode.BadRequest,
+                """{ "title": "Validation Error", "status": 400, "errorCode": "Auth.InvalidCurrentPassword" }""")));
+        using CapturingLoggerProvider logs = new();
+        using LoggerFactory loggerFactory = new([logs]);
+
+        await AccountEndpointsExtensions.DownloadAccountExportAsync(
+            "wrong", HttpContextWithClient(subject: "subject-42"), loader, _discoveryCache,
+            CreateTmsClientReturningContribution(), loggerFactory, CancellationToken.None);
+
+        CapturingLoggerProvider.LogEntry entry = logs.Entries.ShouldHaveSingleItem();
+        entry.Level.ShouldBe(LogLevel.Warning);
+        entry.Message.ShouldContain("subject-42");
+        entry.Message.ShouldContain("400");
+        entry.Message.ShouldContain("Auth.InvalidCurrentPassword");
+        entry.Message.ShouldContain(ClientIpAddress);
+    }
+
+    [Fact]
+    public async Task DownloadAccountExportAsync_WhenThePasswordFieldIsEmpty_LogsTheRefusalWithItsReason()
+    {
+        StubDiscoveryWithExportLink();
+        AccountLoader loader = new(
+            _discoveryCache,
+            CreateClient(StubHttpMessageHandler.RespondWith(HttpStatusCode.OK, RepresentationJson())));
+        using CapturingLoggerProvider logs = new();
+        using LoggerFactory loggerFactory = new([logs]);
+
+        await AccountEndpointsExtensions.DownloadAccountExportAsync(
+            "   ", HttpContextWithClient(subject: "subject-42"), loader, _discoveryCache,
+            CreateTmsClientReturningContribution(), loggerFactory, CancellationToken.None);
+
+        CapturingLoggerProvider.LogEntry entry = logs.Entries.ShouldHaveSingleItem();
+        entry.Level.ShouldBe(LogLevel.Warning);
+        entry.Message.ShouldContain("subject-42");
+        entry.Message.ShouldContain("no password was sent");
+        entry.Message.ShouldContain(ClientIpAddress);
+    }
+
+    [Fact]
+    public async Task DownloadAccountExportAsync_WhenTheAuthApiIsDown_LogsARefusalThatDoesNotReadLikeATypo()
+    {
+        StubDiscoveryWithExportLink();
+        AccountLoader loader = new(
+            _discoveryCache,
+            CreateClient(StubHttpMessageHandler.RespondWith(
+                HttpStatusCode.OK,
+                RepresentationJson(),
+                HttpStatusCode.ServiceUnavailable,
+                """{ "title": "Service Unavailable", "status": 503 }""")));
+        using CapturingLoggerProvider logs = new();
+        using LoggerFactory loggerFactory = new([logs]);
+
+        await AccountEndpointsExtensions.DownloadAccountExportAsync(
+            CorrectPassword, HttpContextWithClient(), loader, _discoveryCache,
+            CreateTmsClientReturningContribution(), loggerFactory, CancellationToken.None);
+
+        logs.Entries.ShouldContain(entry =>
+            entry.Level == LogLevel.Warning
+            && entry.Message.Contains("503", StringComparison.Ordinal)
+            && entry.Message.Contains("the auth API call failed", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -489,33 +612,60 @@ public sealed class AccountEndpointsExtensionsTests
     }
 
     [Fact]
-    public async Task MapAccountEndpoints_TheDownloadRoute_IsAPostThatNeedsBothLoginAndAnAntiforgeryToken()
+    public void MapAccountEndpoints_TheDownloadRoute_AnswersOnlyToAPost()
     {
-        // Two properties nothing else can prove: the route is not reachable by a GET a link could
-        // trigger, and the framework demands the antiforgery token. The token requirement comes from
-        // binding a form field, so removing that binding would silently remove the CSRF protection.
-        // A real builder, because route metadata is only readable off a built host, and an empty one
-        // cannot be built without a server registration. It is disposed, and it touches nothing outside
-        // the test output directory.
-        await using WebApplication app = WebApplication.CreateBuilder().Build();
-        IEndpointRouteBuilder routes = app;
+        // A GET would be reachable by a link somebody else wrote.
+        DownloadRoute().Metadata.GetMetadata<HttpMethodMetadata>()!.HttpMethods.ShouldBe(["POST"]);
+    }
+
+    [Fact]
+    public void MapAccountEndpoints_TheDownloadRoute_NeedsALogin()
+    {
+        DownloadRoute().Metadata.GetMetadata<IAuthorizeData>().ShouldNotBeNull();
+    }
+
+    [Fact]
+    public void MapAccountEndpoints_TheDownloadRoute_DemandsTheAntiforgeryToken()
+    {
+        // The requirement comes from binding a form field, so removing that binding would silently
+        // remove the CSRF protection.
+        DownloadRoute().Metadata.GetMetadata<IAntiforgeryMetadata>()!.RequiresValidation.ShouldBeTrue();
+    }
+
+    /// <summary>
+    /// Route metadata is read off a bare route builder, with no host behind it: a web host would read
+    /// configuration files and start watching them, and this suite is pure.
+    /// </summary>
+    private static RouteEndpoint DownloadRoute()
+    {
+        BareEndpointRouteBuilder routes = new();
         routes.MapAccountEndpoints();
 
-        Endpoint endpoint = routes.DataSources
+        return routes.DataSources
             .SelectMany(source => source.Endpoints)
             .OfType<RouteEndpoint>()
             .Single(route => route.RoutePattern.RawText == AccountEndpointsExtensions.ExportDownloadPath);
-
-        endpoint.Metadata.GetMetadata<HttpMethodMetadata>()!.HttpMethods.ShouldBe(["POST"]);
-        endpoint.Metadata.GetMetadata<IAuthorizeData>().ShouldNotBeNull();
-        endpoint.Metadata.GetMetadata<IAntiforgeryMetadata>()!.RequiresValidation.ShouldBeTrue();
     }
 
-    private static HttpContext HttpContextWithClient()
+    private sealed class BareEndpointRouteBuilder : IEndpointRouteBuilder
+    {
+        public IServiceProvider ServiceProvider { get; } = new ServiceCollection().BuildServiceProvider();
+
+        public ICollection<EndpointDataSource> DataSources { get; } = [];
+
+        public IApplicationBuilder CreateApplicationBuilder() => new ApplicationBuilder(ServiceProvider);
+    }
+
+    private static HttpContext HttpContextWithClient(string? subject = null)
     {
         DefaultHttpContext httpContext = new();
-        httpContext.Connection.RemoteIpAddress = IPAddress.Parse("203.0.113.7");
-        httpContext.Request.Headers.UserAgent = "Mozilla/5.0 (QA)";
+        httpContext.Connection.RemoteIpAddress = IPAddress.Parse(ClientIpAddress);
+        httpContext.Request.Headers.UserAgent = ClientUserAgent;
+        if (subject is not null)
+        {
+            httpContext.User = new ClaimsPrincipal(new ClaimsIdentity([new Claim("sub", subject)], "test"));
+        }
+
         return httpContext;
     }
 
@@ -538,9 +688,13 @@ public sealed class AccountEndpointsExtensionsTests
     private static string RepresentationJson() =>
         JsonSerializer.Serialize(WithDownloadLink(AccountLoaderTests.CreateEnvelope()), ApiJsonOptions);
 
+    /// <summary>
+    /// Adds the link to whatever the envelope already advertises, as the API does. Its href differs from
+    /// the discovery one on purpose, so a POST sent to the wrong document's link shows up in a test.
+    /// </summary>
     private static AccountDataExportResponse WithDownloadLink(AccountDataExportResponse envelope)
     {
-        envelope.Links = [new LinkDto(ExportHref, Rels.DownloadAccountData, "POST")];
+        envelope.Links = [.. envelope.Links, new LinkDto(DownloadHref, Rels.DownloadAccountData, "POST")];
         return envelope;
     }
 

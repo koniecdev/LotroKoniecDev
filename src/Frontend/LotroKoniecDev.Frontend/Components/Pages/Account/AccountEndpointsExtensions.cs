@@ -43,11 +43,7 @@ internal static class AccountEndpointsExtensions
     /// <summary>The claim naming the caller, so a refusal can be tied to an account.</summary>
     private const string SubjectClaimType = "sub";
 
-    private const string InvalidCurrentPasswordCode = "Auth.InvalidCurrentPassword";
-    private const string ExportPasswordRequiredCode = "Auth.ExportPasswordRequired";
-
     internal const string PasswordErrorCode = "password";
-    internal const string SessionErrorCode = "session";
     internal const string ThrottledErrorCode = "throttled";
 
     private static readonly JsonSerializerOptions ExportSerializerOptions = new()
@@ -94,7 +90,14 @@ internal static class AccountEndpointsExtensions
 
         if (string.IsNullOrWhiteSpace(password))
         {
-            LogExportRefused(logger, SubjectId(httpContext), null, ClientIpAddress(httpContext), UserAgent(httpContext), null);
+            LogExportRefused(
+                logger,
+                SubjectId(httpContext),
+                null,
+                "no password was sent",
+                ClientIpAddress(httpContext),
+                UserAgent(httpContext),
+                null);
             return RedirectToExportPage(PasswordErrorCode);
         }
 
@@ -107,13 +110,22 @@ internal static class AccountEndpointsExtensions
                 logger,
                 SubjectId(httpContext),
                 result.ProblemDetails?.Status,
+                RefusalReasonFor(result),
                 ClientIpAddress(httpContext),
                 UserAgent(httpContext),
                 null);
 
-            // A mistyped password and an expired session belong on the form the user just used, so they
-            // go back to it with a marker. Everything else keeps answering with the Polish problem body
-            // this route has always returned, trace id included (#548, #703, ADR-0044): those are the
+            // A dead session goes back to the page with no marker. The 401 already marked the session
+            // dead, so that request signs the user out and sends them to log in, and they return to a
+            // clean form — a "session expired" sentence would greet them right after logging in.
+            if (result.IsUnauthorized)
+            {
+                return Results.Redirect(ExportPagePath);
+            }
+
+            // A mistyped password and a throttle belong on the page the user just used, so they go back
+            // to it with a marker. Everything else keeps answering with the Polish problem body this
+            // route has always returned, trace id included (#548, #703, ADR-0044 §5): those are the
             // failures somebody has to diagnose.
             string? formError = FormErrorFor(result);
             return formError is null
@@ -163,8 +175,8 @@ internal static class AccountEndpointsExtensions
             "lotro-translator-moje-dane-{0:yyyyMMdd-HHmmss}.json",
             DateTimeOffset.UtcNow.ToPolandTime());
 
-        // The auth API writes its own line, but it only ever sees this service as the caller: nothing
-        // forwards the reader's address between the two. This line carries the real one (#690).
+        // The auth API's own line only ever names this service as the caller. This one carries the
+        // reader's real address (#690, ADR-0052).
         LogExportDownloaded(
             logger,
             result.Value.AuthData.UserId,
@@ -184,29 +196,25 @@ internal static class AccountEndpointsExtensions
     /// </summary>
     private static string? FormErrorFor(ApiResult result)
     {
-        if (result.IsUnauthorized)
-        {
-            return SessionErrorCode;
-        }
-
         if (result.ProblemDetails?.Status is StatusCodes.Status429TooManyRequests)
         {
             return ThrottledErrorCode;
         }
 
-        return ErrorCodeOf(result.ProblemDetails) is InvalidCurrentPasswordCode or ExportPasswordRequiredCode
+        return ErrorCodeOf(result) is ApiProblemCopy.InvalidCurrentPasswordCode or ApiProblemCopy.ExportPasswordRequiredCode
             ? PasswordErrorCode
             : null;
     }
 
     /// <summary>
-    /// Reads the API's machine-readable error code. It arrives off the wire, so the value is a
-    /// <see cref="System.Text.Json.JsonElement"/> rather than a string.
+    /// What the audit line says went wrong: the API's own error code when it sent one, otherwise only
+    /// that the call failed. The status is logged next to it, so an outage and a typo read differently.
     /// </summary>
-    private static string? ErrorCodeOf(ProblemDetails? problem) =>
-        problem?.Extensions.TryGetValue(ApiProblemCopy.ErrorCodeExtensionKey, out object? code) is true
-            ? code?.ToString()
-            : null;
+    private static string RefusalReasonFor(ApiResult result) =>
+        ErrorCodeOf(result) ?? "the auth API call failed";
+
+    private static string? ErrorCodeOf(ApiResult result) =>
+        result.ProblemDetails is null ? null : ApiProblemCopy.ReadErrorCode(result.ProblemDetails);
 
     private static string? SubjectId(HttpContext httpContext) =>
         httpContext.User.FindFirst(SubjectClaimType)?.Value;
@@ -223,12 +231,12 @@ internal static class AccountEndpointsExtensions
     private static readonly Action<ILogger, Guid, string, string?, string, bool, Exception?> LogExportDownloaded =
         LoggerMessage.Define<Guid, string, string?, string, bool>(
             LogLevel.Information,
-            new EventId(3690, nameof(LogExportDownloaded)),
+            new EventId(1, nameof(LogExportDownloaded)),
             "GDPR data export downloaded by user {UserId} ({MaskedEmail}). IP: {IpAddress}, UserAgent: {UserAgent}, complete: {IsComplete}");
 
-    private static readonly Action<ILogger, string?, int?, string?, string, Exception?> LogExportRefused =
-        LoggerMessage.Define<string?, int?, string?, string>(
+    private static readonly Action<ILogger, string?, int?, string, string?, string, Exception?> LogExportRefused =
+        LoggerMessage.Define<string?, int?, string, string?, string>(
             LogLevel.Warning,
-            new EventId(3691, nameof(LogExportRefused)),
-            "GDPR data export refused for subject {Subject} with status {Status}. IP: {IpAddress}, UserAgent: {UserAgent}");
+            new EventId(2, nameof(LogExportRefused)),
+            "GDPR data export refused for subject {Subject} with status {Status}: {Reason}. IP: {IpAddress}, UserAgent: {UserAgent}");
 }

@@ -37,6 +37,16 @@ internal static class ApiProblemCopy
     internal const string TraceIdExtensionKey = "traceId";
 
     /// <summary>
+    /// The two codes the export download route has to tell apart from every other failure, because it
+    /// redirects on them instead of rendering a problem (#690). Named once, so the route and the map
+    /// below cannot drift.
+    /// </summary>
+    internal const string InvalidCurrentPasswordCode = "Auth.InvalidCurrentPassword";
+
+    /// <inheritdoc cref="InvalidCurrentPasswordCode"/>
+    internal const string ExportPasswordRequiredCode = "Auth.ExportPasswordRequired";
+
+    /// <summary>
     /// The last resort: a failure from an API whose code has no text here and whose status has none
     /// either. Reaching it means <see cref="PolishByErrorCode"/> is missing an entry, and
     /// <c>ApiProblemAlert</c> logs the code when that happens.
@@ -152,11 +162,11 @@ internal static class ApiProblemCopy
                 + PasswordRules,
             ["Auth.UserNotFound"] =
                 "Nie znaleziono konta.",
-            ["Auth.InvalidCurrentPassword"] =
+            [InvalidCurrentPasswordCode] =
                 "Aktualne hasło jest nieprawidłowe.",
             // The export page words this case itself, because its route redirects and a redirect carries
             // no problem body. The entry stays because this map covers every code the APIs can produce.
-            ["Auth.ExportPasswordRequired"] =
+            [ExportPasswordRequiredCode] =
                 "Podaj obecne hasło, aby pobrać swoje dane.",
             ["Auth.PasswordChangeFailed"] =
                 "Nie udało się zmienić hasła. Nowe hasło musi spełniać wymagania: " + PasswordRules,
@@ -412,7 +422,7 @@ internal static class ApiProblemCopy
     /// The <c>errorCode</c> arrives as a <see cref="JsonElement"/> when the problem was read off the
     /// wire, and as a plain <see cref="string"/> when it was built here.
     /// </summary>
-    private static string? ReadErrorCode(ProblemDetails problem)
+    internal static string? ReadErrorCode(ProblemDetails problem)
     {
         if (!problem.Extensions.TryGetValue(ErrorCodeExtensionKey, out object? rawErrorCode))
         {

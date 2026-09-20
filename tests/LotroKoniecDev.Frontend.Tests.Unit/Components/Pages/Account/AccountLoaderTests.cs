@@ -25,6 +25,7 @@ public sealed class AccountLoaderTests
 {
     private const string BaseUrl = "https://localhost:5003/";
     private const string ExportHref = "auth/account/data-export";
+    private const string DownloadHref = "advertised/account-download";
 
     // The same JSON options the Frontend's HTTP layer uses (HttpClientApiExtensions), so the stub
     // body deserializes through the exact same contract the loader relies on.
@@ -222,12 +223,47 @@ public sealed class AccountLoaderTests
     }
 
     [Fact]
+    public async Task LoadExportAsync_WhenA200CarriesNoAuthData_IsABadGatewayAndNotAnAccount()
+    {
+        // The serializer fills a missing constructor argument with null, so "{}" parses. The page reads
+        // AuthData straight away, and nothing may throw because of what came off the wire.
+        StubDiscovery(links: [new LinkDto(ExportHref, Rels.ExportAccountData, "GET")]);
+        AccountLoader loader = CreateLoader(StubHttpMessageHandler.RespondWith(HttpStatusCode.OK, "{}"), out _);
+
+        ApiResult<AccountDataExportResponse> result = await loader.LoadExportAsync();
+
+        result.IsFailure.ShouldBeTrue();
+        result.ProblemDetails!.Status.ShouldBe(502);
+    }
+
+    [Fact]
+    public async Task DownloadExportAsync_WhenTheExportIsA200WithNoAuthData_IsABadGatewayAndNotAFile()
+    {
+        StubDiscovery(links: [new LinkDto(ExportHref, Rels.ExportAccountData, "GET")]);
+        AccountLoader loader = CreateLoader(
+            StubHttpMessageHandler.RespondWith(
+                HttpStatusCode.OK,
+                JsonSerializer.Serialize(
+                    CreateEnvelope(links: [new LinkDto(DownloadHref, Rels.DownloadAccountData, "POST")]),
+                    ApiJsonOptions),
+                HttpStatusCode.OK,
+                "{}"),
+            out _);
+
+        ApiResult<AccountDataExportResponse> result = await loader.DownloadExportAsync("Correct-Horse-1!");
+
+        result.IsFailure.ShouldBeTrue();
+        result.ProblemDetails!.Status.ShouldBe(502);
+    }
+
+    [Fact]
     public async Task DownloadExportAsync_WhenTheAccountAdvertisesIt_PostsThePasswordToThatHref()
     {
-        // The href comes from the account resource, never from the day-cached discovery document (#690).
+        // The href comes from the account resource, never from the day-cached discovery document
+        // (#690). The two hrefs differ here on purpose, so a POST to the discovery one would fail.
         StubDiscovery(links: [new LinkDto(ExportHref, Rels.ExportAccountData, "GET")]);
         AccountDataExportResponse envelope = CreateEnvelope(
-            links: [new LinkDto(ExportHref, Rels.DownloadAccountData, "POST")]);
+            links: [new LinkDto(DownloadHref, Rels.DownloadAccountData, "POST")]);
         AccountLoader loader = CreateLoader(
             StubHttpMessageHandler.RespondWith(HttpStatusCode.OK, JsonSerializer.Serialize(envelope, ApiJsonOptions)),
             out StubHttpMessageHandler handler);
@@ -237,7 +273,7 @@ public sealed class AccountLoaderTests
         result.IsSuccess.ShouldBeTrue();
         result.Value.AuthData.Username.ShouldBe("frodo");
         handler.LastRequest!.Method.ShouldBe(HttpMethod.Post);
-        handler.LastRequest.RequestUri!.AbsolutePath.ShouldEndWith("/auth/account/data-export");
+        handler.LastRequest.RequestUri!.ToString().ShouldBe($"{BaseUrl}{DownloadHref}");
         handler.LastRequestBody!.ShouldContain("Correct-Horse-1!");
     }
 

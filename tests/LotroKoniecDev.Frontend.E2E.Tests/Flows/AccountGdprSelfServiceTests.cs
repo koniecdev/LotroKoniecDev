@@ -47,19 +47,28 @@ public sealed class AccountGdprSelfServiceTests : E2ETestBase
         (await Page.GetByText(user.Email).First.IsVisibleAsync()).ShouldBeTrue();
 
         // The data export now asks for the current password first (#690, ADR-0052). A wrong one comes
-        // back to the same form with a Polish sentence and hands over no file; the right one downloads
-        // the JSON named after the account dump.
+        // back with a Polish sentence, hands over no file, and shows no form: the way on is a link to a
+        // clean page. The right password then downloads the JSON named after the account dump.
         await Page.GetByTestId("account-export").ClickAsync();
         await Page.Locator("#export-password").WaitForAsync(LongWait);
         await Page.Locator("#export-password").FillAsync("Wr0ng-Current!");
         await Page.GetByTestId("export-submit").ClickAsync();
         await Page.GetByTestId("export-error").WaitForAsync(LongWait);
+        (await Page.GetByTestId("export-form").CountAsync()).ShouldBe(0);
+
+        await Page.GetByTestId("export-retry").ClickAsync();
+        await Page.Locator("#export-password").WaitForAsync(LongWait);
+        (await Page.GetByTestId("export-error").CountAsync()).ShouldBe(0);
 
         await Page.Locator("#export-password").FillAsync(user.Password);
         IDownload download = await Page.RunAndWaitForDownloadAsync(
             () => Page.GetByTestId("export-submit").ClickAsync());
         download.SuggestedFilename.ShouldStartWith("lotro-translator-moje-dane-");
         download.SuggestedFilename.ShouldEndWith(".json");
+
+        // The file came as an attachment, so the page never moved — and it must not be one that says
+        // the password was wrong.
+        (await Page.GetByTestId("export-error").CountAsync()).ShouldBe(0);
 
         // The same POST without the antiforgery token is refused. The token requirement comes from the
         // route binding a form field, which is an easy thing to undo by accident, and it is what stands

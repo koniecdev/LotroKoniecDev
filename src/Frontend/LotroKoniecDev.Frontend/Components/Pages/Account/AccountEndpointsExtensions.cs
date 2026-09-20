@@ -7,6 +7,7 @@ using LotroKoniecDev.Frontend.Infrastructure.Errors;
 using LotroKoniecDev.Frontend.Infrastructure.Formatting;
 using LotroKoniecDev.Frontend.Infrastructure.HttpClients;
 using LotroKoniecDev.Frontend.Infrastructure.HttpClients.TranslationSystemHttpClients;
+using LotroKoniecDev.Logging.Redaction;
 using LotroKoniecDev.TranslationSystem.Contracts.Hateoas;
 using LotroKoniecDev.TranslationSystem.Contracts.Translators;
 using Microsoft.AspNetCore.Mvc;
@@ -39,8 +40,15 @@ internal static class AccountEndpointsExtensions
     /// <summary>Tells the export page which sentence to show after a refused download.</summary>
     internal const string ErrorQueryKey = "error";
 
+    /// <summary>The claim naming the caller, so a refusal can be tied to an account.</summary>
+    private const string SubjectClaimType = "sub";
+
+    private const string InvalidCurrentPasswordCode = "Auth.InvalidCurrentPassword";
+    private const string ExportPasswordRequiredCode = "Auth.ExportPasswordRequired";
+
     internal const string PasswordErrorCode = "password";
     internal const string SessionErrorCode = "session";
+    internal const string ThrottledErrorCode = "throttled";
 
     private static readonly JsonSerializerOptions ExportSerializerOptions = new()
     {
@@ -86,6 +94,7 @@ internal static class AccountEndpointsExtensions
 
         if (string.IsNullOrWhiteSpace(password))
         {
+            LogExportRefused(logger, SubjectId(httpContext), null, ClientIpAddress(httpContext), UserAgent(httpContext), null);
             return RedirectToExportPage(PasswordErrorCode);
         }
 
@@ -94,7 +103,13 @@ internal static class AccountEndpointsExtensions
 
         if (result.IsFailure)
         {
-            LogExportRefused(logger, result.ProblemDetails?.Status, ClientIpAddress(httpContext), UserAgent(httpContext), null);
+            LogExportRefused(
+                logger,
+                SubjectId(httpContext),
+                result.ProblemDetails?.Status,
+                ClientIpAddress(httpContext),
+                UserAgent(httpContext),
+                null);
 
             // A mistyped password and an expired session belong on the form the user just used, so they
             // go back to it with a marker. Everything else keeps answering with the Polish problem body
@@ -153,7 +168,7 @@ internal static class AccountEndpointsExtensions
         LogExportDownloaded(
             logger,
             result.Value.AuthData.UserId,
-            result.Value.AuthData.Email.MaskEmail(),
+            SensitiveDataRedactor.MaskEmail(result.Value.AuthData.Email),
             ClientIpAddress(httpContext),
             UserAgent(httpContext),
             exportFile.IsComplete,
@@ -164,8 +179,8 @@ internal static class AccountEndpointsExtensions
 
     /// <summary>
     /// The marker to send the user back to the form with, or <c>null</c> when the failure is not theirs
-    /// to fix. The auth API answers a wrong password with a validation problem, and once the field is
-    /// non-empty a wrong password is the only validation failure this call can produce.
+    /// to fix. The password cases are matched on the API's own <c>errorCode</c> rather than on the bare
+    /// status, so a validation rule added later does not silently come out as "wrong password".
     /// </summary>
     private static string? FormErrorFor(ApiResult result)
     {
@@ -174,10 +189,27 @@ internal static class AccountEndpointsExtensions
             return SessionErrorCode;
         }
 
-        return result.ProblemDetails?.Status is StatusCodes.Status400BadRequest
+        if (result.ProblemDetails?.Status is StatusCodes.Status429TooManyRequests)
+        {
+            return ThrottledErrorCode;
+        }
+
+        return ErrorCodeOf(result.ProblemDetails) is InvalidCurrentPasswordCode or ExportPasswordRequiredCode
             ? PasswordErrorCode
             : null;
     }
+
+    /// <summary>
+    /// Reads the API's machine-readable error code. It arrives off the wire, so the value is a
+    /// <see cref="System.Text.Json.JsonElement"/> rather than a string.
+    /// </summary>
+    private static string? ErrorCodeOf(ProblemDetails? problem) =>
+        problem?.Extensions.TryGetValue(ApiProblemCopy.ErrorCodeExtensionKey, out object? code) is true
+            ? code?.ToString()
+            : null;
+
+    private static string? SubjectId(HttpContext httpContext) =>
+        httpContext.User.FindFirst(SubjectClaimType)?.Value;
 
     private static IResult RedirectToExportPage(string errorCode) =>
         Results.Redirect($"{ExportPagePath}?{ErrorQueryKey}={errorCode}");
@@ -194,9 +226,9 @@ internal static class AccountEndpointsExtensions
             new EventId(3690, nameof(LogExportDownloaded)),
             "GDPR data export downloaded by user {UserId} ({MaskedEmail}). IP: {IpAddress}, UserAgent: {UserAgent}, complete: {IsComplete}");
 
-    private static readonly Action<ILogger, int?, string?, string, Exception?> LogExportRefused =
-        LoggerMessage.Define<int?, string?, string>(
+    private static readonly Action<ILogger, string?, int?, string?, string, Exception?> LogExportRefused =
+        LoggerMessage.Define<string?, int?, string?, string>(
             LogLevel.Warning,
             new EventId(3691, nameof(LogExportRefused)),
-            "GDPR data export refused by the auth API with status {Status}. IP: {IpAddress}, UserAgent: {UserAgent}");
+            "GDPR data export refused for subject {Subject} with status {Status}. IP: {IpAddress}, UserAgent: {UserAgent}");
 }

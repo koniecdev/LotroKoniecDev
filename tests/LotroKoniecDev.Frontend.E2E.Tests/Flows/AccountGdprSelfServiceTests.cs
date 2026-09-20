@@ -61,6 +61,18 @@ public sealed class AccountGdprSelfServiceTests : E2ETestBase
         download.SuggestedFilename.ShouldStartWith("lotro-translator-moje-dane-");
         download.SuggestedFilename.ShouldEndWith(".json");
 
+        // The same POST without the antiforgery token is refused. The token requirement comes from the
+        // route binding a form field, which is an easy thing to undo by accident, and it is what stands
+        // between a cross-site POST and somebody's data file.
+        IAPIResponse forged = await Context.APIRequest.PostAsync(
+            new Uri(new Uri(Page.Url), "/account/export/download").ToString(),
+            new APIRequestContextOptions
+            {
+                Form = Context.APIRequest.CreateFormData().Set("password", user.Password),
+                MaxRedirects = 0
+            });
+        forged.Status.ShouldBe(400);
+
         await Page.GetByTestId("nav-account").ClickAsync();
         await Page.GetByTestId("account-change-password").WaitForAsync(LongWait);
 

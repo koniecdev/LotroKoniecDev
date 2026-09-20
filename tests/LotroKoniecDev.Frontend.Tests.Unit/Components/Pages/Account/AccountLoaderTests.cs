@@ -1,5 +1,4 @@
 using System.Net;
-using System.Net.Http;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using LotroKoniecDev.AuthSystem.Contracts.Features.Auth.Account;
@@ -187,19 +186,22 @@ public sealed class AccountLoaderTests
     }
 
     [Fact]
-    public async Task DownloadExportAsync_WhenTheLinkIsMissing_ReturnsForbiddenWithoutCallingTheApi()
+    public async Task DownloadExportAsync_WhenTheAccountDoesNotAdvertiseIt_ReturnsForbiddenWithoutPosting()
     {
-        // Only the read rel is offered, so this caller is not offered the gated download (#690).
+        // The account resource loads, but it does not offer the gated download to this caller (#690).
         StubDiscovery(links: [new LinkDto(ExportHref, Rels.ExportAccountData, "GET")]);
         AccountLoader loader = CreateLoader(
-            StubHttpMessageHandler.RespondWith(HttpStatusCode.OK, "{}"),
+            StubHttpMessageHandler.RespondWith(
+                HttpStatusCode.OK,
+                JsonSerializer.Serialize(CreateEnvelope(links: []), ApiJsonOptions)),
             out StubHttpMessageHandler handler);
 
         ApiResult<AccountDataExportResponse> result = await loader.DownloadExportAsync("Correct-Horse-1!");
 
         result.IsFailure.ShouldBeTrue();
         result.ProblemDetails!.Status.ShouldBe(403);
-        handler.LastRequest.ShouldBeNull();
+        // The GET happened; nothing was posted.
+        handler.LastRequest!.Method.ShouldBe(HttpMethod.Get);
     }
 
     [Fact]
@@ -220,10 +222,12 @@ public sealed class AccountLoaderTests
     }
 
     [Fact]
-    public async Task DownloadExportAsync_WhenLinkAdvertised_PostsThePasswordToTheAdvertisedHref()
+    public async Task DownloadExportAsync_WhenTheAccountAdvertisesIt_PostsThePasswordToThatHref()
     {
-        StubDiscovery(links: [new LinkDto(ExportHref, Rels.DownloadAccountData, "POST")]);
-        AccountDataExportResponse envelope = CreateEnvelope();
+        // The href comes from the account resource, never from the day-cached discovery document (#690).
+        StubDiscovery(links: [new LinkDto(ExportHref, Rels.ExportAccountData, "GET")]);
+        AccountDataExportResponse envelope = CreateEnvelope(
+            links: [new LinkDto(ExportHref, Rels.DownloadAccountData, "POST")]);
         AccountLoader loader = CreateLoader(
             StubHttpMessageHandler.RespondWith(HttpStatusCode.OK, JsonSerializer.Serialize(envelope, ApiJsonOptions)),
             out StubHttpMessageHandler handler);
@@ -240,9 +244,13 @@ public sealed class AccountLoaderTests
     [Fact]
     public async Task DownloadExportAsync_WhenTheApiRefusesThePassword_ReturnsThatProblem()
     {
-        StubDiscovery(links: [new LinkDto(ExportHref, Rels.DownloadAccountData, "POST")]);
+        StubDiscovery(links: [new LinkDto(ExportHref, Rels.ExportAccountData, "GET")]);
         AccountLoader loader = CreateLoader(
             StubHttpMessageHandler.RespondWith(
+                HttpStatusCode.OK,
+                JsonSerializer.Serialize(
+                    CreateEnvelope(links: [new LinkDto(ExportHref, Rels.DownloadAccountData, "POST")]),
+                    ApiJsonOptions),
                 HttpStatusCode.BadRequest,
                 """{ "title": "Validation Error", "status": 400, "errorCode": "Auth.InvalidCurrentPassword" }"""),
             out _);

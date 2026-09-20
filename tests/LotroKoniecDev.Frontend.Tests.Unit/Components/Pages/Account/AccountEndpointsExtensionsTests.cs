@@ -1,5 +1,4 @@
 using System.Net;
-using System.Net.Http;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -324,7 +323,7 @@ public sealed class AccountEndpointsExtensionsTests
         StubDiscoveryWithExportLink();
         StubHttpMessageHandler authHandler = StubHttpMessageHandler.RespondWith(
             HttpStatusCode.OK,
-            JsonSerializer.Serialize(AccountLoaderTests.CreateEnvelope(), ApiJsonOptions));
+            RepresentationJson());
         AccountLoader loader = new(_discoveryCache, CreateClient(authHandler));
 
         IResult result = await AccountEndpointsExtensions.DownloadAccountExportAsync(
@@ -344,6 +343,8 @@ public sealed class AccountEndpointsExtensionsTests
         AccountLoader loader = new(
             _discoveryCache,
             CreateClient(StubHttpMessageHandler.RespondWith(
+                HttpStatusCode.OK,
+                RepresentationJson(),
                 HttpStatusCode.BadRequest,
                 """
                 {
@@ -369,6 +370,8 @@ public sealed class AccountEndpointsExtensionsTests
         AccountLoader loader = new(
             _discoveryCache,
             CreateClient(StubHttpMessageHandler.RespondWith(
+                HttpStatusCode.OK,
+                RepresentationJson(),
                 HttpStatusCode.Unauthorized,
                 """{ "title": "Unauthorized", "status": 401 }""")));
 
@@ -388,8 +391,10 @@ public sealed class AccountEndpointsExtensionsTests
         AccountLoader loader = new(
             _discoveryCache,
             CreateClient(StubHttpMessageHandler.RespondWith(
+                HttpStatusCode.OK,
+                RepresentationJson(),
                 HttpStatusCode.BadRequest,
-                """{ "title": "Validation Error", "status": 400 }""")));
+                """{ "title": "Validation Error", "status": 400, "errorCode": "Auth.InvalidCurrentPassword" }""")));
         StubHttpMessageHandler tmsHandler = StubHttpMessageHandler.RespondWith(
             HttpStatusCode.OK,
             JsonSerializer.Serialize(CreateContribution(), ApiJsonOptions));
@@ -407,7 +412,7 @@ public sealed class AccountEndpointsExtensionsTests
         StubDiscoveryWithExportLink();
         StubHttpMessageHandler authHandler = StubHttpMessageHandler.RespondWith(
             HttpStatusCode.OK,
-            JsonSerializer.Serialize(AccountLoaderTests.CreateEnvelope(), ApiJsonOptions));
+            RepresentationJson());
         AccountLoader loader = new(_discoveryCache, CreateClient(authHandler));
 
         await AccountEndpointsExtensions.DownloadAccountExportAsync(
@@ -419,19 +424,16 @@ public sealed class AccountEndpointsExtensionsTests
     }
 
     [Fact]
-    public async Task DownloadAccountExportAsync_WhenTheDownloadRelIsNotAdvertised_ServesAProblemAndNoFile()
+    public async Task DownloadAccountExportAsync_WhenTheAccountDoesNotAdvertiseTheDownload_ServesAProblemAndNoFile()
     {
         // A missing rel means the server does not offer the operation to this caller. We never compose
         // the path ourselves (#610).
-        AuthDiscoveryResponse discovery = new("LotroKoniecDev.AuthSystem")
-        {
-            Links = [new LinkDto(ExportHref, Rels.ExportAccountData, "GET")]
-        };
-        _discoveryCache.GetAuthSystemDiscoveryAsync(Arg.Any<CancellationToken>())
-            .Returns(ApiResult.Success(discovery));
+        StubDiscoveryWithExportLink();
         AccountLoader loader = new(
             _discoveryCache,
-            CreateClient(StubHttpMessageHandler.RespondWith(HttpStatusCode.OK, "{}")));
+            CreateClient(StubHttpMessageHandler.RespondWith(
+                HttpStatusCode.OK,
+                JsonSerializer.Serialize(AccountLoaderTests.CreateEnvelope(links: []), ApiJsonOptions))));
 
         IResult result = await AccountEndpointsExtensions.DownloadAccountExportAsync(
             CorrectPassword, HttpContextWithClient(), loader, _discoveryCache, CreateTmsClientReturningContribution(),
@@ -469,6 +471,11 @@ public sealed class AccountEndpointsExtensionsTests
         return httpContext;
     }
 
+    /// <summary>
+    /// The download follows the <c>download-account-data</c> link on the account resource, so the stub
+    /// answers both calls with an envelope that advertises it. The stub replies the same way to the GET
+    /// and the POST, which is all these tests need.
+    /// </summary>
     private AccountLoader CreateLoaderReturning(AccountDataExportResponse envelope)
     {
         StubDiscoveryWithExportLink();
@@ -476,18 +483,24 @@ public sealed class AccountEndpointsExtensionsTests
             _discoveryCache,
             CreateClient(StubHttpMessageHandler.RespondWith(
                 HttpStatusCode.OK,
-                JsonSerializer.Serialize(envelope, ApiJsonOptions))));
+                JsonSerializer.Serialize(WithDownloadLink(envelope), ApiJsonOptions))));
+    }
+
+    /// <summary>The account resource as the auth API sends it: advertising the gated download.</summary>
+    private static string RepresentationJson() =>
+        JsonSerializer.Serialize(WithDownloadLink(AccountLoaderTests.CreateEnvelope()), ApiJsonOptions);
+
+    private static AccountDataExportResponse WithDownloadLink(AccountDataExportResponse envelope)
+    {
+        envelope.Links = [new LinkDto(ExportHref, Rels.DownloadAccountData, "POST")];
+        return envelope;
     }
 
     private void StubDiscoveryWithExportLink()
     {
         AuthDiscoveryResponse discovery = new("LotroKoniecDev.AuthSystem")
         {
-            Links =
-            [
-                new LinkDto(ExportHref, Rels.ExportAccountData, "GET"),
-                new LinkDto(ExportHref, Rels.DownloadAccountData, "POST")
-            ]
+            Links = [new LinkDto(ExportHref, Rels.ExportAccountData, "GET")]
         };
         _discoveryCache.GetAuthSystemDiscoveryAsync(Arg.Any<CancellationToken>())
             .Returns(ApiResult.Success(discovery));

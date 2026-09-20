@@ -63,26 +63,32 @@ internal sealed class AccountLoader
 
     /// <summary>
     /// Asks the auth API to hand the export over, which it does only when the current password comes
-    /// with the request (#690, ADR-0052). The target is the <c>download-account-data</c> link in auth
-    /// discovery: a rel we cannot find is a refusal, never a locally composed path (#610).
+    /// with the request (#690, ADR-0052).
+    /// The target is the <c>download-account-data</c> link on the account resource, loaded here and not
+    /// read from auth discovery. Discovery is cached for a day under one shared key, so a document
+    /// fetched while an older auth server was still answering would keep the export broken long after
+    /// the deploy finished, and signing out would not clear it. The representation is fetched fresh on
+    /// every attempt, so this always follows what the server offers right now — and it is the same
+    /// document the account page gates its export button on, so the button and this call can never
+    /// disagree.
+    /// A rel we cannot find is a refusal, never a locally composed path (#610).
     /// </summary>
     public async Task<ApiResult<AccountDataExportResponse>> DownloadExportAsync(
         string password,
         CancellationToken cancellationToken = default)
     {
-        ApiResult<AuthDiscoveryResponse> discoveryResult =
-            await _discoveryCache.GetAuthSystemDiscoveryAsync(cancellationToken);
-        if (discoveryResult.IsFailure)
+        ApiResult<AccountDataExportResponse> representation = await LoadExportAsync(cancellationToken);
+        if (representation.IsFailure)
         {
-            return ApiResult.Failure<AccountDataExportResponse>(discoveryResult.ProblemDetails!);
+            return representation;
         }
 
-        LinkDto? downloadLink = discoveryResult.Value.Links.FindLink(Rels.DownloadAccountData);
+        LinkDto? downloadLink = representation.Value.Links.FindLink(Rels.DownloadAccountData);
         if (downloadLink is null)
         {
             return ApiResult.Failure<AccountDataExportResponse>(ApiProblemCopy.FrontendAuthored(
                 "Pobieranie danych jest niedostępne",
-                "Serwer nie udostępnia tej operacji dla tej sesji. Zaloguj się ponownie.",
+                "Serwer nie udostępnia tej operacji dla tej sesji. Spróbuj ponownie za chwilę.",
                 StatusCodes.Status403Forbidden));
         }
 

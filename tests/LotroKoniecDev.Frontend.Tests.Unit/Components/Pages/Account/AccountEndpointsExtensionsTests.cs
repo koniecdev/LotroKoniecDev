@@ -366,6 +366,28 @@ public sealed class AccountEndpointsExtensionsTests
     }
 
     [Fact]
+    public async Task DownloadAccountExportAsync_WithoutAPassword_LogsTheAttemptWithTheSessionsMaskedAddress()
+    {
+        // This refusal happens before any API call, so the address can only come from the session.
+        using CapturingLoggerProvider provider = new();
+        using ILoggerFactory loggerFactory = LoggerFactory.Create(builder => builder.AddProvider(provider));
+        DefaultHttpContext httpContext = CreateHttpContext();
+        httpContext.User = new ClaimsPrincipal(new ClaimsIdentity(
+            [new Claim("sub", Subject), new Claim("email", "samwise@shire.me")], "test"));
+        AccountLoader loader = CreateLoaderReturningExport();
+
+        await AccountEndpointsExtensions.DownloadAccountExportAsync(
+            string.Empty, httpContext, loader, _discoveryCache, CreateTmsClientReturningContribution(), loggerFactory, CancellationToken.None);
+
+        CapturingLoggerProvider.LogEntry entry = provider.Entries.ShouldHaveSingleItem();
+        entry.Level.ShouldBe(LogLevel.Warning);
+        entry.Message.ShouldContain("password-required");
+        entry.Message.ShouldContain("s***@shire.me");
+        entry.Message.ShouldContain(ClientIp);
+        entry.Message.ShouldContain(ClientUserAgent);
+    }
+
+    [Fact]
     public async Task DownloadAccountExportAsync_WhenThePasswordIsRefused_LogsTheAttempt()
     {
         using CapturingLoggerProvider provider = new();

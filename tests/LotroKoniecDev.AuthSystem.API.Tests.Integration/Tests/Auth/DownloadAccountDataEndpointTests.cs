@@ -4,6 +4,11 @@ using LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared.Bases;
 using LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared.Factories;
 using LotroKoniecDev.AuthSystem.Contracts.Features.Auth.Account;
 using LotroKoniecDev.AuthSystem.Contracts.Features.Auth.Register;
+using LotroKoniecDev.AuthSystem.Domain.Aggregates.ApplicationUsers.Entities;
+using LotroKoniecDev.AuthSystem.Persistence.DbContexts;
+using LotroKoniecDev.SharedKernel.StronglyTypedIds;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Tests.Auth;
 
@@ -101,6 +106,43 @@ public sealed class DownloadAccountDataEndpointTests : EndpointsTestBase
         HttpResponseMessage response = await ApiClient.Http.SendAsync(request);
 
         response.StatusCode.ShouldBe(HttpStatusCode.Unauthorized);
+    }
+
+    [Fact]
+    public async Task DownloadAccountData_ShouldCarryTheContactDetails_WhichTheRepresentationWithholds()
+    {
+        // The whole point of the step-up: the export has to hand over something the account page does
+        // not already show, and the phone number is that something (#690, ADR-0052).
+        (RegisterRequest registerRequest, IdentityId identityId) =
+            await UserFactory.RegisterRandomUserWithRequestAsync(ApiClient, Faker, AccountConfirmationEmailSpy, TestPassword);
+
+        const string phoneNumber = "+48 600 100 200";
+        await SetPhoneNumberAsync(identityId.Value, phoneNumber);
+
+        string accessToken = await GetAccessTokenAsync(registerRequest.Email, TestPassword);
+
+        using HttpRequestMessage readRequest = new(HttpMethod.Get, EndpointPath);
+        readRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+        HttpResponseMessage readResponse = await ApiClient.Http.SendAsync(readRequest);
+        string readContent = await readResponse.Content.ReadAsStringAsync();
+        using JsonDocument readJson = JsonDocument.Parse(readContent);
+        readJson.RootElement.GetProperty("authData").GetProperty("phoneNumber").ValueKind
+            .ShouldBe(JsonValueKind.Null);
+
+        HttpResponseMessage downloadResponse = await SendDownloadRequestAsync(accessToken, TestPassword);
+        string downloadContent = await downloadResponse.Content.ReadAsStringAsync();
+        using JsonDocument downloadJson = JsonDocument.Parse(downloadContent);
+        downloadJson.RootElement.GetProperty("authData").GetProperty("phoneNumber").GetString()
+            .ShouldBe(phoneNumber);
+    }
+
+    private async Task SetPhoneNumberAsync(Guid userId, string phoneNumber)
+    {
+        await using AsyncServiceScope scope = Factory.Services.CreateAsyncScope();
+        AuthDbContext db = scope.ServiceProvider.GetRequiredService<AuthDbContext>();
+        ApplicationUser user = await db.Users.FirstAsync(row => row.Id == userId);
+        user.PhoneNumber = phoneNumber;
+        await db.SaveChangesAsync();
     }
 
     private async Task<HttpResponseMessage> SendDownloadRequestAsync(string accessToken, string password)

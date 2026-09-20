@@ -27,6 +27,13 @@ internal sealed class AccountAggregateLinkFactory : IAccountAggregateLinkFactory
         // While a deletion is scheduled the account is locked, and the only thing left to do is cancel
         // it with the single-use token from the e-mail. The other account links would lead nowhere, so
         // they are left out.
+        // Taking a copy of your own data is a right, so it survives a pending erasure: the export is
+        // offered in both branches, and the endpoint serves it in both (#690).
+        links.AddIfPresent(await _linkFactory.CreateAsync(
+            endpoint: nameof(DownloadAccountData),
+            rel: Rels.DownloadAccountData,
+            method: HttpMethods.Post));
+
         if (isDeletionScheduled)
         {
             links.AddIfPresent(await _linkFactory.CreateAsync(
@@ -38,11 +45,6 @@ internal sealed class AccountAggregateLinkFactory : IAccountAggregateLinkFactory
         }
 
         // Actions an active, logged-in account can always take.
-        links.AddIfPresent(await _linkFactory.CreateAsync(
-            endpoint: nameof(DownloadAccountData),
-            rel: Rels.DownloadAccountData,
-            method: HttpMethods.Post));
-
         links.AddIfPresent(await _linkFactory.CreateAsync(
             endpoint: nameof(ChangePassword),
             rel: Rels.ChangePassword,

@@ -73,7 +73,7 @@ internal sealed partial class DownloadAccountData : IApiEndpoint
                 return Result.Failure<AccountDataExportResponse>(AuthErrors.InvalidCurrentPassword);
             }
 
-            AuthDataExportDto authData = await AccountDataExportMapper.ToDtoAsync(_userManager, user);
+            AuthDataExportDto authData = await AccountDataExportReader.ReadExportAsync(_userManager, user);
 
             // The line that answers "who took it, when, from where". The IP and the user agent are the
             // ones this API sees, which for a browser download is the frontend's, not the reader's: no
@@ -130,6 +130,6 @@ internal sealed partial class DownloadAccountData : IApiEndpoint
             .Produces<AccountDataExportResponse>(StatusCodes.Status200OK)
             .ProducesProblem(StatusCodes.Status401Unauthorized)
             .ProducesProblem(StatusCodes.Status404NotFound)
-            .ProducesProblem(StatusCodes.Status422UnprocessableEntity);
+            .ProducesProblem(StatusCodes.Status400BadRequest);
     }
 }

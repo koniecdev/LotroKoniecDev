@@ -47,7 +47,7 @@ internal sealed partial class ExportAccountData : IApiEndpoint
                 return Result.Failure<AccountDataExportResponse>(AuthErrors.UserNotFound);
             }
 
-            AuthDataExportDto authData = await AccountDataExportMapper.ToDtoAsync(_userManager, appUser);
+            AuthDataExportDto authData = await AccountDataExportReader.ReadRepresentationAsync(_userManager, appUser);
 
             AccountDataExportResponse response = new(authData, IsComplete: true);
 

@@ -100,12 +100,14 @@ public sealed class AccountAggregateHateoasTests : EndpointsTestBase
 
         // Assert
         response.AuthData.DeletionScheduledAt.ShouldNotBeNull();
-        response.Links.Count.ShouldBe(2);
+        response.Links.Count.ShouldBe(3);
         response.Links.ShouldContain(l => l.Rel == Rels.Self && l.Method == "GET");
         response.Links.ShouldContain(l => l.Rel == Rels.CancelDeletion && l.Method == "POST");
+        response.Links.ShouldContain(
+            l => l.Rel == Rels.DownloadAccountData && l.Method == "POST",
+            "taking a copy of your own data is a right that survives a pending erasure");
         response.Links.ShouldNotContain(
-            l => l.Rel == Rels.ChangePassword || l.Rel == Rels.ChangeEmail || l.Rel == Rels.DeleteAccount
-                 || l.Rel == Rels.DownloadAccountData,
+            l => l.Rel == Rels.ChangePassword || l.Rel == Rels.ChangeEmail || l.Rel == Rels.DeleteAccount,
             "a deletion-scheduled account must not advertise dead transitions");
     }
 

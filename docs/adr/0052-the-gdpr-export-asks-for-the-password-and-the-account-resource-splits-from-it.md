@@ -29,8 +29,12 @@ Two facts made this more than "add a password to the endpoint":
    rel. `Rels.Account` carries the warning `Rels.ExportAccountData` used to carry.
 2. **The export is `POST auth/account/data-export` with `{ "password": "…" }`.** The handler checks
    the password with `UserManager.CheckPasswordAsync`, exactly like `DeleteAccount`. A missing or
-   wrong password is a 400 and no data. The account resource advertises the rel
-   `export-account-data` (POST), and it stays on offer while a deletion is scheduled. The response
+   wrong password is a 400 and no data. The body is optional, so a request without one still
+   reaches the handler and is audited; only a body that is not valid JSON is refused earlier, by
+   model binding, and leaves no audit line. The account resource advertises the rel
+   `export-account-data` (POST). It is also advertised while a deletion is scheduled, which matters
+   little in practice: scheduling revokes the sessions, so only an access token already in hand
+   (five minutes at most, ADR-0049) can still follow it. The response
    is a plain document with no links, sent with `Cache-Control: no-store`. It stays a query with
    inline validation: it reads, it does not change state.
 3. **No download token.** The ticket suggested a POST that mints a short-lived one-time token for a
@@ -64,9 +68,16 @@ Two facts made this more than "add a password to the endpoint":
 - The download route no longer answers with a problem body. Every auth-side failure is a redirect to
   the export page with a Polish message. ADR-0032's rule is unchanged: only the auth half can fail
   the download, and a failed TMS half gives `isComplete: false`.
-- Password guessing through the export is bounded by `auth-endpoint-limit` (10 per minute per IP),
-  the same budget that guards deletion and password change. There is no per-account lockout on any
-  of them. That is a shared gap, not a new one.
+- Password guessing through the export is bounded by `auth-endpoint-limit` (10 per minute per
+  remote address), the same budget that guards deletion and password change. There is no
+  per-account lockout on any of them. That is a shared gap, not a new one.
+- That budget is keyed on the address the auth API sees. For a normal download that is the frontend
+  server, so all users share it, as they already did for every account page. One download now costs
+  three permits instead of one: the export page, the account lookup in the route, and the export
+  itself. A per-user partition is a follow-up, not part of this change.
+- After a wrong password the page URL keeps `?error=invalid-password`. A correct retry answers with
+  a file, so the browser stays on that page and the old message stays visible next to a good
+  download. Static SSR has no script to clear it (CSP `script-src 'self'`). Known and accepted.
 - `account` is a new rel and the login marker moved to it. Frontend and auth API must ship together.
   The frontend's discovery cache lives in memory, so a deploy clears it.
 - When SEC-11 (#689) lands, the second factor plugs into the same POST body. A cross-service

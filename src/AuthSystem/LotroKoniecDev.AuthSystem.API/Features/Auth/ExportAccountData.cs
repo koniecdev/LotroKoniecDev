@@ -99,8 +99,10 @@ internal sealed partial class ExportAccountData : IApiEndpoint
 
     public void MapEndpoint(IEndpointRouteBuilder endpointRouteBuilder)
     {
+        // The body is optional on purpose. A request without one still reaches the handler, so it is
+        // refused there and leaves an audit line like any other attempt.
         endpointRouteBuilder.MapPost("auth/account/data-export", async (
-                ExportAccountDataRequest request,
+                ExportAccountDataRequest? request,
                 ClaimsPrincipal user,
                 HttpContext httpContext,
                 IQueryHandler<Query, Result<AccountDataExportResponse>> handler,
@@ -116,7 +118,7 @@ internal sealed partial class ExportAccountData : IApiEndpoint
 
                 Query query = new(
                     userId,
-                    request.Password,
+                    request?.Password ?? string.Empty,
                     httpContext.Connection.RemoteIpAddress?.ToString(),
                     httpContext.Request.Headers.UserAgent.ToString());
 

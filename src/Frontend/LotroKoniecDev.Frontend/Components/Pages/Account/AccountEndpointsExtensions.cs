@@ -8,6 +8,7 @@ using LotroKoniecDev.Frontend.Infrastructure.Hateoas;
 using LotroKoniecDev.Frontend.Infrastructure.HttpClients;
 using LotroKoniecDev.Frontend.Infrastructure.HttpClients.TranslationSystemHttpClients;
 using LotroKoniecDev.Hateoas.Abstractions;
+using LotroKoniecDev.Logging.Redaction;
 using LotroKoniecDev.TranslationSystem.Contracts.Hateoas;
 using LotroKoniecDev.TranslationSystem.Contracts.Translators;
 using Microsoft.AspNetCore.Mvc;
@@ -45,18 +46,19 @@ internal static class AccountEndpointsExtensions
     internal const string FailedError = "failed";
 
     private const string SubjectClaimType = "sub";
+    private const string EmailClaimType = "email";
 
-    private static readonly Action<ILogger, string?, bool, string?, string, Exception?> LogExportDownloaded =
-        LoggerMessage.Define<string?, bool, string?, string>(
+    private static readonly Action<ILogger, string?, string, bool, string?, string, Exception?> LogExportDownloaded =
+        LoggerMessage.Define<string?, string, bool, string?, string>(
             LogLevel.Information,
             new EventId(1, nameof(LogExportDownloaded)),
-            "GDPR export downloaded by user {Subject}; complete: {IsComplete}. IP: {IpAddress}, UserAgent: {UserAgent}");
+            "GDPR export downloaded by user {Subject} ({Email}); complete: {IsComplete}. IP: {IpAddress}, UserAgent: {UserAgent}");
 
-    private static readonly Action<ILogger, string?, string, string?, string, int?, Exception?> LogExportRefused =
-        LoggerMessage.Define<string?, string, string?, string, int?>(
+    private static readonly Action<ILogger, string?, string, string, string?, string, int?, Exception?> LogExportRefused =
+        LoggerMessage.Define<string?, string, string, string?, string, int?>(
             LogLevel.Warning,
             new EventId(2, nameof(LogExportRefused)),
-            "GDPR export refused for user {Subject}: {Reason}. IP: {IpAddress}, UserAgent: {UserAgent}, API status: {ApiStatus}");
+            "GDPR export refused for user {Subject} ({Email}): {Reason}. IP: {IpAddress}, UserAgent: {UserAgent}, API status: {ApiStatus}");
 
     private static readonly JsonSerializerOptions ExportSerializerOptions = new()
     {
@@ -114,9 +116,13 @@ internal static class AccountEndpointsExtensions
         string? ipAddress = httpContext.Connection.RemoteIpAddress?.ToString();
         string userAgent = httpContext.Request.Headers.UserAgent.ToString();
 
+        // The session's own claim, so even a refusal that happens before any API call names the address.
+        string maskedEmail = SensitiveDataRedactor.MaskEmail(
+            httpContext.User.FindFirst(EmailClaimType)?.Value ?? string.Empty);
+
         if (string.IsNullOrWhiteSpace(password))
         {
-            LogExportRefused(logger, subject, PasswordRequiredError, ipAddress, userAgent, null, null);
+            LogExportRefused(logger, subject, maskedEmail, PasswordRequiredError, ipAddress, userAgent, null, null);
             return RedirectToExportPage(PasswordRequiredError);
         }
 
@@ -125,14 +131,16 @@ internal static class AccountEndpointsExtensions
         {
             // The export page loads the same resource, so it shows this failure properly, a dead
             // session included.
-            LogExportRefused(logger, subject, UnavailableError, ipAddress, userAgent, null, null);
+            LogExportRefused(logger, subject, maskedEmail, UnavailableError, ipAddress, userAgent, null, null);
             return RedirectToExportPage(UnavailableError);
         }
+
+        maskedEmail = SensitiveDataRedactor.MaskEmail(account.Value.Account.Email);
 
         LinkDto? exportLink = account.Value.Links.FindLink(AuthRels.ExportAccountData);
         if (exportLink is null)
         {
-            LogExportRefused(logger, subject, UnavailableError, ipAddress, userAgent, null, null);
+            LogExportRefused(logger, subject, maskedEmail, UnavailableError, ipAddress, userAgent, null, null);
             return RedirectToExportPage(UnavailableError);
         }
 
@@ -148,7 +156,7 @@ internal static class AccountEndpointsExtensions
                 _ => FailedError
             };
 
-            LogExportRefused(logger, subject, error, ipAddress, userAgent, result.ProblemDetails?.Status, null);
+            LogExportRefused(logger, subject, maskedEmail, error, ipAddress, userAgent, result.ProblemDetails?.Status, null);
             return RedirectToExportPage(error);
         }
 
@@ -190,7 +198,7 @@ internal static class AccountEndpointsExtensions
             "lotro-translator-moje-dane-{0:yyyyMMdd-HHmmss}.json",
             DateTimeOffset.UtcNow.ToPolandTime());
 
-        LogExportDownloaded(logger, subject, exportFile.IsComplete, ipAddress, userAgent, null);
+        LogExportDownloaded(logger, subject, maskedEmail, exportFile.IsComplete, ipAddress, userAgent, null);
 
         // A personal-data document. Neither the browser nor anything in between may keep a copy.
         httpContext.Response.Headers.CacheControl = "no-store";

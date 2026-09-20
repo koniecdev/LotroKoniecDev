@@ -48,6 +48,37 @@ public sealed class ExportAccountDataHandlerTests
         entry.Message.ShouldContain(IpAddress);
         entry.Message.ShouldContain(UserAgent);
         entry.Message.ShouldNotContain(Email);
+        entry.Message.ShouldNotContain(Password);
+    }
+
+    [Fact]
+    public async Task Handle_WrongPassword_NeverWritesTheTypedPasswordToTheLog()
+    {
+        // A mistyped password is often one character away from the real one.
+        const string typedPassword = "WrongPass1!";
+        ApplicationUser user = StubUser(passwordValid: false);
+        ExportAccountData.Handler sut = new(_userManager, _logger);
+
+        await sut.Handle(
+            new ExportAccountData.Query(user.Id.ToString(), typedPassword, IpAddress, UserAgent), CancellationToken.None);
+
+        _logger.Entries.ShouldHaveSingleItem().Message.ShouldNotContain(typedPassword);
+    }
+
+    [Fact]
+    public async Task Handle_AccountWithoutAnAddress_StillLogsTheAttempt()
+    {
+        ApplicationUser user = StubUser(passwordValid: true);
+        user.Email = null;
+        ExportAccountData.Handler sut = new(_userManager, _logger);
+
+        Result<AccountDataExportResponse> result = await sut.Handle(
+            new ExportAccountData.Query(user.Id.ToString(), Password, IpAddress, UserAgent), CancellationToken.None);
+
+        result.IsSuccess.ShouldBeTrue();
+        CapturingLogger.Entry entry = _logger.Entries.ShouldHaveSingleItem();
+        entry.Message.ShouldContain("(***)");
+        entry.Message.ShouldContain(IpAddress);
     }
 
     [Theory]
@@ -71,7 +102,6 @@ public sealed class ExportAccountDataHandlerTests
         entry.Message.ShouldContain(IpAddress);
         entry.Message.ShouldContain(UserAgent);
         entry.Message.ShouldNotContain(Email);
-        entry.Message.ShouldNotContain(Password);
     }
 
     [Fact]
@@ -91,6 +121,7 @@ public sealed class ExportAccountDataHandlerTests
         entry.Level.ShouldBe(LogLevel.Warning);
         entry.Message.ShouldContain(userId);
         entry.Message.ShouldContain(IpAddress);
+        entry.Message.ShouldContain(UserAgent);
     }
 
     private ApplicationUser StubUser(bool passwordValid)

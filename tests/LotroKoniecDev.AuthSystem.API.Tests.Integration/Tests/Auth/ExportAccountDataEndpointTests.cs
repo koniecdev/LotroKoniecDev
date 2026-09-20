@@ -100,6 +100,27 @@ public sealed class ExportAccountDataEndpointTests : EndpointsTestBase
     }
 
     [Fact]
+    public async Task ExportAccountData_ShouldRefuseWithThePasswordError_WhenThereIsNoBodyAtAll()
+    {
+        // Arrange - the refusal has to come from the handler, because that is where the audit line
+        // is written.
+        (RegisterRequest registerRequest, _) =
+            await UserFactory.RegisterRandomUserWithRequestAsync(ApiClient, Faker, AccountConfirmationEmailSpy, Password);
+
+        string accessToken = await GetAccessTokenAsync(registerRequest.Email, Password);
+
+        using HttpRequestMessage request = new(HttpMethod.Post, DataExportPath);
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+
+        // Act
+        HttpResponseMessage response = await ApiClient.Http.SendAsync(request);
+
+        // Assert
+        response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        (await response.Content.ReadAsStringAsync()).ShouldContain("Auth.ExportPasswordRequired");
+    }
+
+    [Fact]
     public async Task ExportAccountData_ShouldNotAnswerAGet_WhenTheCallerHoldsAValidToken()
     {
         // Arrange - the old export was a GET that asked for nothing. It must not come back.

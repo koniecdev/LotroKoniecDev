@@ -358,6 +358,8 @@ public sealed class AccountEndpointsExtensionsTests
         CapturingLoggerProvider.LogEntry entry = provider.Entries.ShouldHaveSingleItem();
         entry.Level.ShouldBe(LogLevel.Information);
         entry.Message.ShouldContain(Subject);
+        entry.Message.ShouldContain("f***@shire.me");
+        entry.Message.ShouldNotContain("frodo@shire.me");
         entry.Message.ShouldContain(ClientIp);
         entry.Message.ShouldContain(ClientUserAgent);
         entry.Message.ShouldNotContain(Password);
@@ -379,6 +381,8 @@ public sealed class AccountEndpointsExtensionsTests
         CapturingLoggerProvider.LogEntry entry = provider.Entries.ShouldHaveSingleItem();
         entry.Level.ShouldBe(LogLevel.Warning);
         entry.Message.ShouldContain(Subject);
+        entry.Message.ShouldContain("f***@shire.me");
+        entry.Message.ShouldNotContain("frodo@shire.me");
         entry.Message.ShouldContain("invalid-password");
         entry.Message.ShouldContain(ClientIp);
         entry.Message.ShouldContain(ClientUserAgent);
@@ -418,7 +422,7 @@ public sealed class AccountEndpointsExtensionsTests
     {
         DefaultHttpContext httpContext = new()
         {
-            User = new ClaimsPrincipal(new ClaimsIdentity([new Claim("sub", Subject)], "test"))
+            User = new ClaimsPrincipal(new ClaimsIdentity([new Claim("sub", Subject), new Claim("email", "frodo@shire.me")], "test"))
         };
         httpContext.Connection.RemoteIpAddress = IPAddress.Parse(ClientIp);
         httpContext.Request.Headers.UserAgent = ClientUserAgent;

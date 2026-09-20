@@ -81,7 +81,7 @@ public sealed class AccountAggregateHateoasTests : EndpointsTestBase
     }
 
     [Fact]
-    public async Task GetAccount_ShouldExposeOnlyCancelDeletionTransition_WhenDeletionIsScheduled()
+    public async Task GetAccount_ShouldExposeOnlyCancelDeletionAndTheExport_WhenDeletionIsScheduled()
     {
         // Arrange - schedule GDPR deletion; the self-contained JWT stays valid within
         // its lifetime, so the aggregate remains readable during the grace window and

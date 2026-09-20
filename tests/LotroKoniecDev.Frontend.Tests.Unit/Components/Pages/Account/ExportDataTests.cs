@@ -91,6 +91,19 @@ public sealed class ExportDataTests : BunitContext
     }
 
     [Fact]
+    public void Render_WhenTheAccountCannotBeLoaded_ShowsTheErrorPanelAndNoForm()
+    {
+        _discoveryCache.GetAuthSystemDiscoveryAsync(Arg.Any<CancellationToken>())
+            .Returns(ApiResult.Failure<AuthDiscoveryResponse>(
+                new Microsoft.AspNetCore.Mvc.ProblemDetails { Title = "Service Unavailable", Status = 503 }));
+
+        IRenderedComponent<ExportData> component = Render<ExportData>();
+
+        component.FindAll(".error-message").ShouldHaveSingleItem();
+        component.FindAll("input[type=password]").ShouldBeEmpty();
+    }
+
+    [Fact]
     public void Render_WhenTheLoadIsUnauthorized_RedirectsToLoginInsteadOfTheErrorPanel()
     {
         _discoveryCache.GetAuthSystemDiscoveryAsync(Arg.Any<CancellationToken>())

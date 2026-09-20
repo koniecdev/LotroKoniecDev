@@ -117,6 +117,24 @@ public sealed class ExportMyContributionDataHandlerTests
         logger.Messages.ShouldAllBe(message => !message.Contains("frodo@shire.me"));
     }
 
+    [Fact]
+    public async Task Handle_WhenNoTranslatorProfileExists_ShouldStillLogTheAttemptWithIpAndUserAgent()
+    {
+        // Every account that never opened the TMS takes this path, and the export must be audited
+        // there too (#690).
+        IdentityId identityId = IdentityId.Create();
+        CapturingLogger logger = new();
+
+        await HandleAsync(identityId, logger);
+
+        logger.Messages.Count.ShouldBe(2);
+        logger.Messages.ShouldAllBe(message =>
+            message.Contains(identityId.Value.ToString())
+            && message.Contains("203.0.113.7")
+            && message.Contains("test-agent"));
+        logger.Messages[1].ShouldContain("(***)");
+    }
+
     private async Task<TranslatorDataExportResponse> HandleAsync(
         IdentityId identityId,
         ILogger<ExportMyContributionData.Handler>? logger = null)

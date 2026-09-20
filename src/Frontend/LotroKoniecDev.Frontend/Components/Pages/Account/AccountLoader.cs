@@ -98,8 +98,7 @@ internal sealed class AccountLoader
     /// <summary>
     /// A 200 whose JSON parses but carries no <c>authData</c> — a proxy's own body, for one — is a bad
     /// gateway, not an account. The serializer fills a missing constructor argument with null, and both
-    /// callers read <c>AuthData</c> straight away, so it is refused here: nothing may throw because of
-    /// what came off the wire.
+    /// callers read <c>AuthData</c> straight away, so that one body is refused here.
     /// </summary>
     private static ApiResult<AccountDataExportResponse> RejectABodyWithoutAuthData(
         ApiResult<AccountDataExportResponse> result) =>

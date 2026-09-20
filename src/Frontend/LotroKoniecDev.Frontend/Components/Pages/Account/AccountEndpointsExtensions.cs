@@ -44,6 +44,7 @@ internal static class AccountEndpointsExtensions
     private const string SubjectClaimType = "sub";
 
     internal const string PasswordErrorCode = "password";
+    internal const string PasswordRequiredErrorCode = "required";
     internal const string ThrottledErrorCode = "throttled";
 
     private static readonly JsonSerializerOptions ExportSerializerOptions = new()
@@ -98,7 +99,7 @@ internal static class AccountEndpointsExtensions
                 ClientIpAddress(httpContext),
                 UserAgent(httpContext),
                 null);
-            return RedirectToExportPage(PasswordErrorCode);
+            return RedirectToExportPage(PasswordRequiredErrorCode);
         }
 
         ApiResult<AccountDataExportResponse> result =
@@ -190,8 +191,8 @@ internal static class AccountEndpointsExtensions
     }
 
     /// <summary>
-    /// The marker to send the user back to the form with, or <c>null</c> when the failure is not theirs
-    /// to fix. The password cases are matched on the API's own <c>errorCode</c> rather than on the bare
+    /// The marker to send the user back to the export page with, or <c>null</c> when the failure is not
+    /// theirs to fix. The page shows the matching sentence and a link to a clean form. The password cases are matched on the API's own <c>errorCode</c> rather than on the bare
     /// status, so a validation rule added later does not silently come out as "wrong password".
     /// </summary>
     private static string? FormErrorFor(ApiResult result)
@@ -201,9 +202,12 @@ internal static class AccountEndpointsExtensions
             return ThrottledErrorCode;
         }
 
-        return ErrorCodeOf(result) is ApiProblemCopy.InvalidCurrentPasswordCode or ApiProblemCopy.ExportPasswordRequiredCode
-            ? PasswordErrorCode
-            : null;
+        return ErrorCodeOf(result) switch
+        {
+            ApiProblemCopy.InvalidCurrentPasswordCode => PasswordErrorCode,
+            ApiProblemCopy.ExportPasswordRequiredCode => PasswordRequiredErrorCode,
+            _ => null
+        };
     }
 
     /// <summary>

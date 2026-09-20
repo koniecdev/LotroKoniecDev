@@ -325,7 +325,7 @@ public sealed class AccountEndpointsExtensionsTests
     }
 
     [Fact]
-    public async Task DownloadAccountExportAsync_WhenThePasswordFieldIsEmpty_SendsTheUserBackToTheFormWithoutCallingTheApi()
+    public async Task DownloadAccountExportAsync_WhenThePasswordFieldIsEmpty_SendsTheUserBackToThePageWithoutCallingTheApi()
     {
         StubDiscoveryWithExportLink();
         StubHttpMessageHandler authHandler = StubHttpMessageHandler.RespondWith(
@@ -338,13 +338,13 @@ public sealed class AccountEndpointsExtensionsTests
             NullLoggerFactory.Instance, CancellationToken.None);
 
         RedirectHttpResult redirect = result.ShouldBeOfType<RedirectHttpResult>();
-        redirect.Url.ShouldBe("/account/export?error=password");
+        redirect.Url.ShouldBe("/account/export?error=required");
         // An empty field never reaches the auth API: there is nothing for it to check.
         authHandler.LastRequest.ShouldBeNull();
     }
 
     [Fact]
-    public async Task DownloadAccountExportAsync_WhenThePasswordIsWrong_SendsTheUserBackToTheFormAndServesNoFile()
+    public async Task DownloadAccountExportAsync_WhenThePasswordIsWrong_SendsTheUserBackToThePageAndServesNoFile()
     {
         StubDiscoveryWithExportLink();
         AccountLoader loader = new(
@@ -393,7 +393,7 @@ public sealed class AccountEndpointsExtensionsTests
     }
 
     [Fact]
-    public async Task DownloadAccountExportAsync_WhenTheAuthApiThrottles_SendsTheUserBackToTheFormWithTheThrottledMarker()
+    public async Task DownloadAccountExportAsync_WhenTheAuthApiThrottles_SendsTheUserBackToThePageWithTheThrottledMarker()
     {
         // 429 is reachable here: the auth endpoints' budget is per remote address, and every call
         // arrives from this service, so it is one bucket shared by every logged-in user (#813). A
@@ -461,7 +461,7 @@ public sealed class AccountEndpointsExtensionsTests
     }
 
     [Fact]
-    public async Task DownloadAccountExportAsync_OnSuccess_SendsThePasswordToTheAuthApiAsAPost()
+    public async Task DownloadAccountExportAsync_OnSuccess_PostsToTheDownloadLinkTheAccountAdvertises()
     {
         StubDiscoveryWithExportLink();
         StubHttpMessageHandler authHandler = StubHttpMessageHandler.RespondWith(

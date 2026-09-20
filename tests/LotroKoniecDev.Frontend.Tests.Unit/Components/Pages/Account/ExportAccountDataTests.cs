@@ -21,7 +21,7 @@ public sealed class ExportAccountDataTests : BunitContext
     }
 
     [Fact]
-    public void Render_Always_PostsThePasswordToTheDownloadRoute()
+    public void Render_WithoutAnErrorMarker_PostsThePasswordToTheDownloadRoute()
     {
         IRenderedComponent<ExportAccountData> component = Render<ExportAccountData>();
 
@@ -32,10 +32,12 @@ public sealed class ExportAccountDataTests : BunitContext
         IElement password = component.Find("#export-password");
         password.GetAttribute("type").ShouldBe("password");
         password.GetAttribute("name").ShouldBe("password");
+        // An empty submit never leaves the browser. The server-side refusal is only the safety net.
+        password.HasAttribute("required").ShouldBeTrue();
     }
 
     [Fact]
-    public void Render_Always_CarriesAnAntiforgeryToken()
+    public void Render_WithoutAnErrorMarker_CarriesAnAntiforgeryToken()
     {
         // The form target binds a form field, so the framework demands the token. Without it every
         // download would fail with a 400. bUnit has no real token to render, so the component itself is
@@ -55,6 +57,7 @@ public sealed class ExportAccountDataTests : BunitContext
 
     [Theory]
     [InlineData("password", "Hasło jest nieprawidłowe.")]
+    [InlineData("required", "Podaj obecne hasło, aby pobrać swoje dane.")]
     [InlineData("throttled", "Zbyt wiele prób. Odczekaj chwilę i spróbuj ponownie.")]
     public void Render_WithAnErrorMarker_ShowsTheMatchingPolishSentence(string errorCode, string expected)
     {
@@ -67,6 +70,7 @@ public sealed class ExportAccountDataTests : BunitContext
 
     [Theory]
     [InlineData("password")]
+    [InlineData("required")]
     [InlineData("throttled")]
     public void Render_WithAnErrorMarker_OffersAWayBackInsteadOfTheForm(string errorCode)
     {

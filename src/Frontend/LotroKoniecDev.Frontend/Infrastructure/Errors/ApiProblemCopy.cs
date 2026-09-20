@@ -164,8 +164,9 @@ internal static class ApiProblemCopy
                 "Nie znaleziono konta.",
             [InvalidCurrentPasswordCode] =
                 "Aktualne hasło jest nieprawidłowe.",
-            // The export page words this case itself, because its route redirects and a redirect carries
-            // no problem body. The entry stays because this map covers every code the APIs can produce.
+            // The export page carries its own copy of this sentence, because its route redirects and a
+            // redirect carries no problem body. The entry stays because this map covers every code the
+            // APIs can produce.
             [ExportPasswordRequiredCode] =
                 "Podaj obecne hasło, aby pobrać swoje dane.",
             ["Auth.PasswordChangeFailed"] =

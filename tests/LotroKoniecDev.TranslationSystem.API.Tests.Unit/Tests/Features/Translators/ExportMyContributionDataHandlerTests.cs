@@ -10,6 +10,7 @@ using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.TranslationAggregat
 using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.TranslatorAggregate;
 using LotroKoniecDev.TranslationSystem.ReadModels.Aggregates.TranslationAggregate;
 using LotroKoniecDev.TranslationSystem.ReadModels.Aggregates.TranslatorAggregate;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 
 namespace LotroKoniecDev.TranslationSystem.API.Tests.Unit.Tests.Features.Translators;
@@ -96,14 +97,36 @@ public sealed class ExportMyContributionDataHandlerTests
             .ShouldBe([(FileId, 1001L), (FileId, 1002L), (FileId + 1, 2000L)]);
     }
 
-    private async Task<TranslatorDataExportResponse> HandleAsync(IdentityId identityId)
+    [Fact]
+    public async Task Handle_ShouldLogWhoTookTheExportAndFromWhere_WithTheAddressMasked()
+    {
+        // The audit line is the only trace this endpoint leaves, and the return value does not show it
+        // (#690).
+        IdentityId identityId = IdentityId.Create();
+        GivenTranslator(identityId, "Frodo Baggins", "frodo@shire.me");
+        CapturingLogger logger = new();
+
+        await HandleAsync(identityId, logger);
+
+        logger.Messages.Count.ShouldBe(2);
+        logger.Messages.ShouldAllBe(message =>
+            message.Contains(identityId.Value.ToString())
+            && message.Contains("203.0.113.7")
+            && message.Contains("test-agent"));
+        logger.Messages[1].ShouldContain("f***@shire.me");
+        logger.Messages.ShouldAllBe(message => !message.Contains("frodo@shire.me"));
+    }
+
+    private async Task<TranslatorDataExportResponse> HandleAsync(
+        IdentityId identityId,
+        ILogger<ExportMyContributionData.Handler>? logger = null)
     {
         ExportMyContributionData.Handler handler = new(
             new FakeReadDbContext(_translations, translators: _translators),
-            NullLogger<ExportMyContributionData.Handler>.Instance);
+            logger ?? NullLogger<ExportMyContributionData.Handler>.Instance);
 
         Result<TranslatorDataExportResponse> result =
-            await handler.Handle(new ExportMyContributionData.Query(identityId), CancellationToken.None);
+            await handler.Handle(new ExportMyContributionData.Query(identityId, "203.0.113.7", "test-agent"), CancellationToken.None);
 
         result.IsSuccess.ShouldBeTrue();
         return result.Value;
@@ -139,4 +162,26 @@ public sealed class ExportMyContributionDataHandlerTests
             null,
             Now,
             Now));
+
+    private sealed class CapturingLogger : ILogger<ExportMyContributionData.Handler>
+    {
+        private readonly List<string> _messages = [];
+
+        public IReadOnlyList<string> Messages => _messages;
+
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+
+        public bool IsEnabled(LogLevel logLevel) => true;
+
+        public void Log<TState>(
+            LogLevel logLevel,
+            EventId eventId,
+            TState state,
+            Exception? exception,
+            Func<TState, Exception?, string> formatter)
+        {
+            ArgumentNullException.ThrowIfNull(formatter);
+            _messages.Add(formatter(state, exception));
+        }
+    }
 }

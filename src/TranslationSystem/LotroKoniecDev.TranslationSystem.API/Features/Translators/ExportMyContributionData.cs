@@ -1,3 +1,4 @@
+using LotroKoniecDev.Logging.Redaction;
 using LotroKoniecDev.SharedKernel.Messaging;
 using LotroKoniecDev.SharedKernel.Monads;
 using LotroKoniecDev.SharedKernel.StronglyTypedIds;
@@ -22,10 +23,19 @@ namespace LotroKoniecDev.TranslationSystem.API.Features.Translators;
 /// Soft-removed rows are included, because the credit is the caller's personal data whether or not the
 /// row still ships in the game.
 /// The frontend's download route puts this response into the exported file next to the auth half.
+/// <para>
+/// It asks for a login and not for the password, unlike the auth half (#690, ADR-0052). The TMS holds
+/// no password and has no channel to the auth API. The name and e-mail it returns are already in the
+/// caller's token, and the rest is ids and counts of public game text rows. The user-facing download
+/// asks for the password before it calls here. Every call is logged with the IP and the user agent.
+/// </para>
 /// </summary>
 internal sealed partial class ExportMyContributionData : IEndpoint
 {
-    internal sealed record Query(IdentityId IdentityId) : IQuery<Result<TranslatorDataExportResponse>>;
+    internal sealed record Query(
+        IdentityId IdentityId,
+        string? IpAddress,
+        string? UserAgent) : IQuery<Result<TranslatorDataExportResponse>>;
 
     internal sealed partial class Handler : IQueryHandler<Query, Result<TranslatorDataExportResponse>>
     {
@@ -37,6 +47,8 @@ internal sealed partial class ExportMyContributionData : IEndpoint
             ApprovedTotal: 0,
             SubmittedRows: [],
             ApprovedRows: []);
+
+        private const string NoProfileEmail = "***";
 
         private readonly IApplicationReadDbContext _readDbContext;
         private readonly ILogger<Handler> _logger;
@@ -50,7 +62,7 @@ internal sealed partial class ExportMyContributionData : IEndpoint
         public async ValueTask<Result<TranslatorDataExportResponse>> Handle(
             Query query, CancellationToken cancellationToken)
         {
-            LogGdprContributionExportRequested(_logger, query.IdentityId.Value);
+            LogGdprContributionExportRequested(_logger, query.IdentityId.Value, query.IpAddress, query.UserAgent);
 
             TranslatorReadModel? translator = await _readDbContext.Translators
                 .FirstOrDefaultAsync(t => t.IdentityId == query.IdentityId, cancellationToken);
@@ -61,6 +73,9 @@ internal sealed partial class ExportMyContributionData : IEndpoint
             // rows either, because credit is stored as a TranslatorId.
             if (translator is null)
             {
+                LogGdprContributionExportCompleted(
+                    _logger, query.IdentityId.Value, NoProfileEmail, 0, 0, query.IpAddress, query.UserAgent);
+
                 return Result.Success(new TranslatorDataExportResponse(null, EmptySummary));
             }
 
@@ -95,25 +110,33 @@ internal sealed partial class ExportMyContributionData : IEndpoint
                 translator.ProvisionedAt);
 
             LogGdprContributionExportCompleted(
-                _logger, query.IdentityId.Value, submittedRows.Count, approvedRows.Count);
+                _logger,
+                query.IdentityId.Value,
+                SensitiveDataRedactor.MaskEmail(translator.Email ?? string.Empty),
+                submittedRows.Count,
+                approvedRows.Count,
+                query.IpAddress,
+                query.UserAgent);
 
             return Result.Success(new TranslatorDataExportResponse(profile, summary));
         }
 
         [LoggerMessage(EventId = EventIds.GdprContributionExportRequested, Level = LogLevel.Information,
-            Message = "GDPR contribution export requested for identity {IdentityId}")]
-        private static partial void LogGdprContributionExportRequested(ILogger logger, Guid identityId);
+            Message = "GDPR contribution export requested for identity {IdentityId}. IP: {IpAddress}, UserAgent: {UserAgent}")]
+        private static partial void LogGdprContributionExportRequested(
+            ILogger logger, Guid identityId, string? ipAddress, string? userAgent);
 
         [LoggerMessage(EventId = EventIds.GdprContributionExportCompleted, Level = LogLevel.Information,
-            Message = "GDPR contribution export completed for identity {IdentityId}: {SubmittedCount} submitted, {ApprovedCount} approved rows")]
+            Message = "GDPR contribution export completed for identity {IdentityId} ({Email}): {SubmittedCount} submitted, {ApprovedCount} approved rows. IP: {IpAddress}, UserAgent: {UserAgent}")]
         private static partial void LogGdprContributionExportCompleted(
-            ILogger logger, Guid identityId, int submittedCount, int approvedCount);
+            ILogger logger, Guid identityId, string email, int submittedCount, int approvedCount, string? ipAddress, string? userAgent);
     }
 
     public void MapEndpoint(IEndpointRouteBuilder endpointRouteBuilder)
     {
         endpointRouteBuilder.MapGet("/api/v1/translators/me/data-export", async (
                 ICurrentUserAccessor currentUserAccessor,
+                HttpContext httpContext,
                 IQueryHandler<Query, Result<TranslatorDataExportResponse>> handler,
                 CancellationToken cancellationToken) =>
             {
@@ -124,7 +147,12 @@ internal sealed partial class ExportMyContributionData : IEndpoint
                 }
 
                 Result<TranslatorDataExportResponse> result =
-                    await handler.Handle(new Query(maybeIdentityId.Value), cancellationToken);
+                    await handler.Handle(
+                        new Query(
+                            maybeIdentityId.Value,
+                            httpContext.Connection.RemoteIpAddress?.ToString(),
+                            httpContext.Request.Headers.UserAgent.ToString()),
+                        cancellationToken);
 
                 return result.IsSuccess
                     ? Results.Ok(result.Value)

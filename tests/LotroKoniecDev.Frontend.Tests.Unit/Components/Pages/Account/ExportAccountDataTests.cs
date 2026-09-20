@@ -56,6 +56,7 @@ public sealed class ExportAccountDataTests : BunitContext
     [Theory]
     [InlineData("password", "Hasło jest nieprawidłowe. Spróbuj ponownie.")]
     [InlineData("session", "Sesja wygasła. Zaloguj się ponownie i spróbuj jeszcze raz.")]
+    [InlineData("throttled", "Zbyt wiele prób. Odczekaj chwilę i spróbuj ponownie.")]
     public void Render_WithAnErrorMarker_ShowsTheMatchingPolishSentence(string errorCode, string expected)
     {
         Navigation().NavigateTo($"/account/export?error={errorCode}");

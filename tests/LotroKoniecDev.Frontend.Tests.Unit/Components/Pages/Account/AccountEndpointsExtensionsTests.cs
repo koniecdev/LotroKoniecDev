@@ -384,6 +384,51 @@ public sealed class AccountEndpointsExtensionsTests
     }
 
     [Fact]
+    public async Task DownloadAccountExportAsync_WhenTheAuthApiThrottles_SendsTheUserBackToTheFormWithTheThrottledMarker()
+    {
+        // 429 is reachable here: the auth endpoints' budget is per remote address, and every call
+        // arrives from this service, so it is one bucket shared by every logged-in user (#813). A
+        // technical problem page is the wrong answer to "you typed it wrong a few times".
+        StubDiscoveryWithExportLink();
+        AccountLoader loader = new(
+            _discoveryCache,
+            CreateClient(StubHttpMessageHandler.RespondWith(
+                HttpStatusCode.OK,
+                RepresentationJson(),
+                HttpStatusCode.TooManyRequests,
+                """{ "title": "Too Many Requests", "status": 429 }""")));
+
+        IResult result = await AccountEndpointsExtensions.DownloadAccountExportAsync(
+            CorrectPassword, HttpContextWithClient(), loader, _discoveryCache, CreateTmsClientReturningContribution(),
+            NullLoggerFactory.Instance, CancellationToken.None);
+
+        RedirectHttpResult redirect = result.ShouldBeOfType<RedirectHttpResult>();
+        redirect.Url.ShouldBe("/account/export?error=throttled");
+    }
+
+    [Fact]
+    public async Task DownloadAccountExportAsync_WhenA400CarriesNoErrorCode_ServesTheProblemInsteadOfBlamingThePassword()
+    {
+        // The wrong-password marker is decided by the API's own error code, not by the bare status, so
+        // a validation rule added later cannot come out as "your password is wrong" (#690 review).
+        StubDiscoveryWithExportLink();
+        AccountLoader loader = new(
+            _discoveryCache,
+            CreateClient(StubHttpMessageHandler.RespondWith(
+                HttpStatusCode.OK,
+                RepresentationJson(),
+                HttpStatusCode.BadRequest,
+                """{ "title": "Bad Request", "status": 400 }""")));
+
+        IResult result = await AccountEndpointsExtensions.DownloadAccountExportAsync(
+            CorrectPassword, HttpContextWithClient(), loader, _discoveryCache, CreateTmsClientReturningContribution(),
+            NullLoggerFactory.Instance, CancellationToken.None);
+
+        ProblemHttpResult problem = result.ShouldBeOfType<ProblemHttpResult>();
+        problem.ProblemDetails.Status.ShouldBe(StatusCodes.Status400BadRequest);
+    }
+
+    [Fact]
     public async Task DownloadAccountExportAsync_WhenTheAuthApiRefusesThePassword_NeverCallsTheTmsLeg()
     {
         // The password gates the whole composed document, not only the auth half (#690, ADR-0052).
@@ -444,12 +489,15 @@ public sealed class AccountEndpointsExtensionsTests
     }
 
     [Fact]
-    public void MapAccountEndpoints_TheDownloadRoute_IsAPostThatNeedsBothLoginAndAnAntiforgeryToken()
+    public async Task MapAccountEndpoints_TheDownloadRoute_IsAPostThatNeedsBothLoginAndAnAntiforgeryToken()
     {
         // Two properties nothing else can prove: the route is not reachable by a GET a link could
         // trigger, and the framework demands the antiforgery token. The token requirement comes from
         // binding a form field, so removing that binding would silently remove the CSRF protection.
-        WebApplication app = WebApplication.CreateBuilder().Build();
+        // A real builder, because route metadata is only readable off a built host, and an empty one
+        // cannot be built without a server registration. It is disposed, and it touches nothing outside
+        // the test output directory.
+        await using WebApplication app = WebApplication.CreateBuilder().Build();
         IEndpointRouteBuilder routes = app;
         routes.MapAccountEndpoints();
 

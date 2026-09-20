@@ -1,6 +1,10 @@
 # Spec 0009: Frontend "Moje konto" — GDPR self-service (export, delete, change password)
 
-- **Status:** Implemented
+- **Status:** Implemented — **amended 2026-09-20 by ADR-0052 (#690):** the export now asks for the
+  current password. `/account/export` is a page with a password form that posts to
+  `POST /account/export/download`; the account pages read `GET auth/account` (rel `account`), and
+  `export-account-data` is a POST advertised by that resource. Where the text below says otherwise,
+  ADR-0052 wins.
 - **Date:** 2026-07-11
 - **Author:** koniecdev
 - **Ticket:** #457 (LEGAL-02) — part of the legal & GDPR pack (epic #459)

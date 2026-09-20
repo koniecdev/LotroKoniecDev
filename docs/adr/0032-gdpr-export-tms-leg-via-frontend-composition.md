@@ -1,6 +1,6 @@
 # ADR-0032: The GDPR Data Export Gains a TMS Leg, Composed by the Frontend with the User's Own Token
 
-**Status:** Accepted
+**Status:** Accepted — amended by [ADR-0052](0052-the-gdpr-export-asks-for-the-password-and-the-account-resource-splits-from-it.md) (2026-09-20): the auth half is now a password-checked `POST`, the download is a form post from `/account/export`, and an auth-side failure is a redirect instead of a problem body. The composition rule below is unchanged.
 **Date:** 2026-07-12
 **Decision-makers:** Solo maintainer (ticket #456, legal & GDPR compliance pack #459)
 **Related:** `ExportAccountData` (AuthSystem), `ExportMyContributionData` (TranslationSystem),

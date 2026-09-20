@@ -406,7 +406,8 @@ trafiają w to samo cookie). 8 h sliding.
 `DeleteAccount` **planuje** kasowanie RODO z 14-dniowym oknem anulowania (ADR-0031): konto
 zablokowane na czas okna, sesje i tokeny rewokowane, jednorazowy link anulowania mailem;
 erasure wykonuje finalizer po upływie okna, a anulowanie wymusza reset hasła.
-`auth/account/data-export` = eksport danych.
+`GET auth/account` = zasób konta (to czyta strona „Moje konto”). `POST auth/account/data-export` =
+eksport danych; wymaga obecnego hasła w body (ADR-0052, #690).
 
 ### 10.8 Walidacja kluczy w produkcji
 `ConfigureOpenIddictServerSettings`: RSA min 2048 bit, AES min 256 bit, czytelne wyjątki przy złym

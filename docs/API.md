@@ -292,7 +292,8 @@ cancellation link's landing page — LEGAL-01).
 | `POST` | `auth/account/delete` | bearer token | `DeleteAccountRequest { password }` — **schedules** GDPR deletion (ADR-0031): 14-day grace window, account locked for the window, sessions + refresh tokens revoked, one-time cancellation link emailed → **204** + `X-Deletion-Scheduled-At` / `X-Deletion-Finalizes-At` headers; erasure runs in the finalizer only after the window elapses |
 | `POST` | `auth/account/cancel-deletion` | anonymous (emailed one-time token), rate-limited | `CancelAccountDeletionRequest { email, token }` → **200** `CancelAccountDeletionResponse { passwordResetToken }` — unlocks the account and forces a password reset (the pre-deletion password may be the attacker's) |
 | `POST` | `auth/account/change-email` | bearer token, `change-email-limit` (3/h per IP) | `ChangeEmailRequest { newEmail, currentPassword }` — **starts** an e-mail change (ADR-0048). Nothing on the account moves: a verification link goes to the new address (24 h) and a warning to the old one. Confirming happens on the auth pages `/Account/ConfirmEmailChange` (GET form, POST applies), after which the old address receives a 14-day link to `/Account/RevertEmailChange` that restores the address and clears the password |
-| `GET` | `auth/account/data-export` | bearer token | `AccountDataExportResponse` — GDPR export |
+| `GET` | `auth/account` | bearer token | `AccountResponse` — the caller's account and its links |
+| `POST` | `auth/account/data-export` | bearer token + `ExportAccountDataRequest` (current password) | `AccountDataExportResponse` — GDPR export (ADR-0052) |
 | `GET` | `/` | anonymous | discovery document (links into the auth flows) |
 
 `RegisterRequest`: `{ username, email, password, acceptedPrivacyPolicy, acceptedDataProcessingConsent,
@@ -540,9 +541,11 @@ Sent only with `Accept: application/vnd.dev-lotrokoniecdev.hateoas.json`.
 
 ### 10.2 `auth-api` rels (`AuthSystem.Contracts/Hateoas/Rels.cs`)
 
-`self`, `register`, `forgot-password`, `export-account-data` (discovery); `change-password`,
-`change-email`, `delete-account`, `resend-email-confirmation` (account aggregate). While a deletion is scheduled
-the account aggregate suppresses the normal rels and emits only `cancel-deletion`
+`self`, `register`, `forgot-password`, `account` (discovery — `account` is the logged-in marker the
+frontend's `DiscoveryCache` looks for, ADR-0052); `export-account-data` (POST, carries the current
+password), `change-password`, `change-email`, `delete-account`, `resend-email-confirmation` (account
+aggregate). While a deletion is scheduled the account aggregate keeps `self` and
+`export-account-data`, suppresses the other rels and adds `cancel-deletion`
 (POST `auth/account/cancel-deletion`) — every other transition is a dead end on a locked account.
 
 ---

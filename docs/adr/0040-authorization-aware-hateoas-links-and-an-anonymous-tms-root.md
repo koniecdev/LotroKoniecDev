@@ -1,6 +1,6 @@
 # ADR-0040: Authorization-aware HATEOAS link emission, and an anonymous TMS service document
 
-**Status:** Accepted
+**Status:** Accepted — amended by [ADR-0052](0052-the-gdpr-export-asks-for-the-password-and-the-account-resource-splits-from-it.md) (2026-09-20): the auth-side logged-in marker is the `account` rel, no longer `export-account-data`.
 **Date:** 2026-08-05
 **Decision-makers:** Solo maintainer
 **Related:** #608 (the ticket), #309 (anonymous translation browsing), #153 (link-driven frontend affordances), ADR-0031 (deletion grace window — the auth link set this must not disturb), `LinkFactory`, `DiscoveryLinkFactory` (both systems), `DiscoveryCache` (frontend)

@@ -52,6 +52,9 @@ internal sealed partial class DownloadAccountData : IApiEndpoint
             ApplicationUser? user = await _userManager.FindByIdAsync(query.UserId);
             if (user is null)
             {
+                // Reachable: an access token outlives the erasure of its account by a few minutes
+                // (ADR-0049).
+                LogExportRefusedForUnknownAccount(_logger, query.UserId, query.IpAddress, query.UserAgent);
                 return Result.Failure<AccountDataExportResponse>(AuthErrors.UserNotFound);
             }
 
@@ -75,10 +78,8 @@ internal sealed partial class DownloadAccountData : IApiEndpoint
 
             AuthDataExportDto authData = await AccountDataExportReader.ReadExportAsync(_userManager, user);
 
-            // The line that answers "who took it, when, from where". The IP and the user agent are the
-            // ones this API sees, which for a browser download is the frontend's, not the reader's: no
-            // hop forwards the client address between the two services today. The frontend logs the
-            // real ones on its own download route, and ADR-0052 says why it stayed that way.
+            // For a browser download the IP and the user agent are the frontend's, not the reader's. The
+            // frontend logs the real ones on its own route (ADR-0052).
             LogExportDownloaded(_logger, user.Id, maskedEmail, query.IpAddress, query.UserAgent);
 
             return Result.Success(new AccountDataExportResponse(authData, IsComplete: true));
@@ -89,6 +90,9 @@ internal sealed partial class DownloadAccountData : IApiEndpoint
 
         [LoggerMessage(EventId = EventIds.ExportDataRefused, Level = LogLevel.Warning, Message = "GDPR data export refused for user {UserId} ({MaskedEmail}): {Reason}. IP: {IpAddress}, UserAgent: {UserAgent}")]
         private static partial void LogExportRefused(ILogger logger, Guid userId, string maskedEmail, string reason, string? ipAddress, string? userAgent);
+
+        [LoggerMessage(EventId = EventIds.ExportDataRefusedForUnknownAccount, Level = LogLevel.Warning, Message = "GDPR data export refused: the token names user {UserId}, and no such account exists. IP: {IpAddress}, UserAgent: {UserAgent}")]
+        private static partial void LogExportRefusedForUnknownAccount(ILogger logger, string userId, string? ipAddress, string? userAgent);
     }
 
     public void MapEndpoint(IEndpointRouteBuilder endpointRouteBuilder)
@@ -130,6 +134,7 @@ internal sealed partial class DownloadAccountData : IApiEndpoint
             .Produces<AccountDataExportResponse>(StatusCodes.Status200OK)
             .ProducesProblem(StatusCodes.Status401Unauthorized)
             .ProducesProblem(StatusCodes.Status404NotFound)
-            .ProducesProblem(StatusCodes.Status400BadRequest);
+            .ProducesProblem(StatusCodes.Status400BadRequest)
+            .ProducesProblem(StatusCodes.Status429TooManyRequests);
     }
 }

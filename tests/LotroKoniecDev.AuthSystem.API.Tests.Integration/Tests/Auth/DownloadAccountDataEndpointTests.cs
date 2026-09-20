@@ -96,6 +96,30 @@ public sealed class DownloadAccountDataEndpointTests : EndpointsTestBase
     }
 
     [Fact]
+    public async Task DownloadAccountData_ShouldStillHandTheExportOver_WhenADeletionIsScheduled()
+    {
+        // The account resource advertises the download in the deletion-scheduled branch (ADR-0052), so
+        // the endpoint has to serve it there. The token was issued before the deletion and stays valid
+        // for its lifetime, which is the only window this can be reached in.
+        (RegisterRequest registerRequest, _) =
+            await UserFactory.RegisterRandomUserWithRequestAsync(ApiClient, Faker, AccountConfirmationEmailSpy, TestPassword);
+        string accessToken = await GetAccessTokenAsync(registerRequest.Email, TestPassword);
+
+        using HttpRequestMessage deleteRequest = new(HttpMethod.Post, "auth/account/delete");
+        deleteRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+        deleteRequest.Content = JsonContent.Create(new DeleteAccountRequest(TestPassword));
+        HttpResponseMessage deleteResponse = await ApiClient.Http.SendAsync(deleteRequest);
+        deleteResponse.StatusCode.ShouldBe(HttpStatusCode.NoContent);
+
+        HttpResponseMessage response = await SendDownloadRequestAsync(accessToken, TestPassword);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        using JsonDocument json = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        json.RootElement.GetProperty("authData").GetProperty("deletionScheduledAt").ValueKind
+            .ShouldNotBe(JsonValueKind.Null);
+    }
+
+    [Fact]
     public async Task DownloadAccountData_ShouldReturnUnauthorized_WhenNotAuthenticated()
     {
         using HttpRequestMessage request = new(HttpMethod.Post, EndpointPath)

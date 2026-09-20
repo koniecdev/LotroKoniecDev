@@ -55,8 +55,11 @@ emailed link (auth-side page, already shipped).
   `download-account-data` link, sends the password, and the **auth API** decides — a session alone is
   not enough. It then serializes the envelope as indented camelCase JSON and serves it as
   `lotro-translator-moje-dane-<yyyyMMdd-HHmmss>.json`. Razor SSR pages cannot return file results —
-  same reasoning as the polish.txt download proxy. A wrong password or an expired session comes back
-  to the page with `?error=`; other failures keep the Polish problem body.
+  same reasoning as the polish.txt download proxy. A wrong password or a throttle comes back to the
+  page with `?error=`, which shows the sentence and a "try again" link **instead of** the form: a
+  successful download answers with a file, so the browser stays where it posted from, and a form next
+  to the banner would hand the file over under "wrong password". An expired session comes back with no
+  marker and goes through login. Other failures keep the Polish problem body (ADR-0044 §5).
 - **`/account/delete` page** (`DeleteAccount.razor`, `[Authorize]`): consequences list, password +
   confirmation-phrase (`USUWAM`) form → POSTs `DeleteAccountRequest` to the `delete-account` rel →
   on 204 reads `X-Deletion-Finalizes-At` from headers → success state with an explicit
@@ -125,7 +128,8 @@ emailed link (auth-side page, already shipped).
   #690), `GET/POST /account/delete` (authorized page + SSR form), `GET
   /account/deletion-scheduled?until=<iso>` (anonymous page), `GET/POST /account/change-password`
   (authorized page + SSR form), `POST /auth/local-signout` (cookie-only sign-out, local returnUrl).
-- **Upstream:** `GET {auth}/` discovery → `GET {auth}/auth/account/data-export` →
+- **Upstream:** `GET {auth}/` discovery → `GET {auth}/auth/account/data-export` (the account
+  representation) → `POST {auth}/auth/account/data-export` (the password-gated export, #690) /
   `POST {auth}/auth/account/delete` (204 + `X-Deletion-Scheduled-At`/`X-Deletion-Finalizes-At`) /
   `POST {auth}/auth/change-password` (204). All via `IAuthSystemClient` with the session bearer.
 - **Download filename:** `lotro-translator-moje-dane-<yyyyMMdd-HHmmss>.json`, `application/json`,

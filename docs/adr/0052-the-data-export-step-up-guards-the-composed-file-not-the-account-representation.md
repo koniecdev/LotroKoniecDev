@@ -83,9 +83,13 @@ logged-in caller.**
   keep the export broken long after the deploy finished, and signing out would not clear it. Read from
   the representation, the client always sees what the server offers right now, and the account page's
   button and the download route can never disagree.
-- **The export survives a scheduled deletion.** Taking a copy of your own data is a right, so the
-  representation advertises it in the deletion-scheduled branch too, where every other action is
-  withdrawn, and the endpoint serves it there.
+- **The export is not withdrawn by a scheduled deletion, but the window is short.** Taking a copy of
+  your own data is a right, so the representation advertises it in the deletion-scheduled branch too,
+  where every other action is withdrawn, and the endpoint serves it there. In practice that reaches
+  only a caller whose access token was issued before the deletion was scheduled, for the few minutes
+  it stays valid (ADR-0049): scheduling locks the account and revokes its sessions, so nobody can log
+  in during the 14-day window to ask for the file. Offering the export inside the window — from the
+  cancellation e-mail, for one — is a product decision this ADR does not make.
 - **A wrong password does not count toward Identity's lockout**, mirroring `DeleteAccount`, and the
   brake behind it is weaker than it looks. `auth-endpoint-limit` partitions on the remote address, and
   every call from the frontend arrives from the frontend itself, so one 10-per-minute bucket is shared
@@ -94,6 +98,11 @@ logged-in caller.**
   throttle in the shape of `PasswordResetRequestThrottle` is the fix, filed as #813.
 - **The confirm page is one more click** before a download the user asked for. That is the intended
   cost, and it is the same cost the other three sensitive actions already charge.
+- **A refused attempt shows a sentence and a "try again" link, not the form.** A successful download
+  answers with a file, so the browser stays on the page it posted from. A form next to a "wrong
+  password" banner would hand the file over under that banner. The Frontend is Static SSR and ships
+  no script of its own, so the page cannot clear itself; one more click after a typo is the price of
+  never showing both at once.
 - **When TOTP lands (#689)**, this POST is where the second factor goes for the export. Nothing in
   the shape has to change: it already has a request body and a place to refuse.
 

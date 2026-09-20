@@ -18,8 +18,9 @@ namespace LotroKoniecDev.AuthSystem.API.Features.Auth;
 /// The account representation: the data the "Moje konto" page renders, carrying the links that say what
 /// else this caller may do. Its rel is also the frontend's proof that the token reached this API, so it
 /// stays a GET that needs nothing but a login — see <c>Rels.ExportAccountData</c>.
-/// It is <b>not</b> the GDPR export, even though the payload is the same. Handing the export over asks
-/// for the current password, and that is <see cref="DownloadAccountData"/> (#690, ADR-0052).
+/// It is <b>not</b> the GDPR export, and it leaves out the contact details the export carries. Handing
+/// the export over asks for the current password, and that is <see cref="DownloadAccountData"/>
+/// (#690, ADR-0052).
 /// </summary>
 internal sealed partial class ExportAccountData : IApiEndpoint
 {

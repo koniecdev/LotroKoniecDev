@@ -10,7 +10,7 @@ namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Tests.ContentNegotiati
 
 /// <summary>
 /// Verifies the AuthSystem's HATEOAS content-negotiation contract on the
-/// authenticated GDPR data-export endpoint, the only endpoint that currently
+/// authenticated account resource, the only endpoint that currently
 /// advertises hypermedia links:
 /// <list type="bullet">
 ///   <item><c>application/vnd.dev-lotrokoniecdev.hateoas.json</c> → hypermedia links present, Content-Type matches.</item>
@@ -22,7 +22,7 @@ namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Tests.ContentNegotiati
 /// </summary>
 public sealed class ContentNegotiationTests : EndpointsTestBase
 {
-    private const string DataExportPath = "auth/account/data-export";
+    private const string AccountPath = "auth/account";
     private const string TestPassword = "TestPass1!";
 
     public ContentNegotiationTests(AuthSystemApiFactory appFactory) : base(appFactory)
@@ -30,12 +30,12 @@ public sealed class ContentNegotiationTests : EndpointsTestBase
     }
 
     [Fact]
-    public async Task ExportAccountData_ShouldReturnHateoasLinks_WhenVendorMediaTypeIsRequested()
+    public async Task GetAccount_ShouldReturnHateoasLinks_WhenVendorMediaTypeIsRequested()
     {
         // Arrange
         string accessToken = await RegisterConfirmedUserAndGetTokenAsync();
 
-        using HttpRequestMessage request = new(HttpMethod.Get, new Uri(DataExportPath, UriKind.Relative));
+        using HttpRequestMessage request = new(HttpMethod.Get, new Uri(AccountPath, UriKind.Relative));
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
         request.Headers.Accept.Clear();
         request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue(MediaTypes.HateoasJson));
@@ -56,12 +56,12 @@ public sealed class ContentNegotiationTests : EndpointsTestBase
     }
 
     [Fact]
-    public async Task ExportAccountData_ShouldNotReturnLinksKey_WhenApplicationJsonIsRequested()
+    public async Task GetAccount_ShouldNotReturnLinksKey_WhenApplicationJsonIsRequested()
     {
         // Arrange
         string accessToken = await RegisterConfirmedUserAndGetTokenAsync();
 
-        using HttpRequestMessage request = new(HttpMethod.Get, new Uri(DataExportPath, UriKind.Relative));
+        using HttpRequestMessage request = new(HttpMethod.Get, new Uri(AccountPath, UriKind.Relative));
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
         request.Headers.Accept.Clear();
         request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue(MediaTypes.Json));
@@ -81,13 +81,13 @@ public sealed class ContentNegotiationTests : EndpointsTestBase
     }
 
     [Fact]
-    public async Task ExportAccountData_ShouldNotReturnLinksKey_WhenNoAcceptHeaderIsSent()
+    public async Task GetAccount_ShouldNotReturnLinksKey_WhenNoAcceptHeaderIsSent()
     {
         // Arrange - a fresh client that does NOT default to the vendor media type
         string accessToken = await RegisterConfirmedUserAndGetTokenAsync();
 
         using HttpClient bareClient = Factory.CreateClient();
-        using HttpRequestMessage request = new(HttpMethod.Get, new Uri(DataExportPath, UriKind.Relative));
+        using HttpRequestMessage request = new(HttpMethod.Get, new Uri(AccountPath, UriKind.Relative));
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
 
         // Act
@@ -104,12 +104,12 @@ public sealed class ContentNegotiationTests : EndpointsTestBase
     }
 
     [Fact]
-    public async Task ExportAccountData_ShouldNotReturnLinksKey_WhenWildcardAcceptIsSent()
+    public async Task GetAccount_ShouldNotReturnLinksKey_WhenWildcardAcceptIsSent()
     {
         // Arrange - */* means "I accept anything"; HATEOAS is strictly opt-in, so we fall back to plain JSON.
         string accessToken = await RegisterConfirmedUserAndGetTokenAsync();
 
-        using HttpRequestMessage request = new(HttpMethod.Get, new Uri(DataExportPath, UriKind.Relative));
+        using HttpRequestMessage request = new(HttpMethod.Get, new Uri(AccountPath, UriKind.Relative));
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
         request.Headers.Accept.Clear();
         request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("*/*"));
@@ -127,12 +127,12 @@ public sealed class ContentNegotiationTests : EndpointsTestBase
     }
 
     [Fact]
-    public async Task ExportAccountData_ShouldReturnHateoas_WhenVendorTypeOutranksApplicationJsonByQValue()
+    public async Task GetAccount_ShouldReturnHateoas_WhenVendorTypeOutranksApplicationJsonByQValue()
     {
         // Arrange - vendor type preferred via higher q-value
         string accessToken = await RegisterConfirmedUserAndGetTokenAsync();
 
-        using HttpRequestMessage request = new(HttpMethod.Get, new Uri(DataExportPath, UriKind.Relative));
+        using HttpRequestMessage request = new(HttpMethod.Get, new Uri(AccountPath, UriKind.Relative));
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
         request.Headers.Accept.Clear();
         request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue(MediaTypes.HateoasJson, 1.0));
@@ -151,12 +151,12 @@ public sealed class ContentNegotiationTests : EndpointsTestBase
     }
 
     [Fact]
-    public async Task ExportAccountData_ShouldReturnPlainJson_WhenApplicationJsonOutranksVendorTypeByQValue()
+    public async Task GetAccount_ShouldReturnPlainJson_WhenApplicationJsonOutranksVendorTypeByQValue()
     {
         // Arrange - client explicitly prefers plain JSON over HATEOAS via q-values
         string accessToken = await RegisterConfirmedUserAndGetTokenAsync();
 
-        using HttpRequestMessage request = new(HttpMethod.Get, new Uri(DataExportPath, UriKind.Relative));
+        using HttpRequestMessage request = new(HttpMethod.Get, new Uri(AccountPath, UriKind.Relative));
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
         request.Headers.Accept.Clear();
         request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue(MediaTypes.HateoasJson, 0.3));
@@ -175,12 +175,12 @@ public sealed class ContentNegotiationTests : EndpointsTestBase
     }
 
     [Fact]
-    public async Task ExportAccountData_ShouldReturnHateoas_WhenBothMediaTypesAreRequestedWithSameQuality()
+    public async Task GetAccount_ShouldReturnHateoas_WhenBothMediaTypesAreRequestedWithSameQuality()
     {
         // Arrange - ties favour the vendor (more specific, explicitly requested) type
         string accessToken = await RegisterConfirmedUserAndGetTokenAsync();
 
-        using HttpRequestMessage request = new(HttpMethod.Get, new Uri(DataExportPath, UriKind.Relative));
+        using HttpRequestMessage request = new(HttpMethod.Get, new Uri(AccountPath, UriKind.Relative));
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
         request.Headers.Accept.Clear();
         request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue(MediaTypes.Json));
@@ -196,17 +196,17 @@ public sealed class ContentNegotiationTests : EndpointsTestBase
     }
 
     [Fact]
-    public async Task ExportAccountData_ShouldAlwaysSetVaryAcceptHeader_RegardlessOfNegotiatedRepresentation()
+    public async Task GetAccount_ShouldAlwaysSetVaryAcceptHeader_RegardlessOfNegotiatedRepresentation()
     {
         // Arrange
         string accessToken = await RegisterConfirmedUserAndGetTokenAsync();
 
-        using HttpRequestMessage plainRequest = new(HttpMethod.Get, new Uri(DataExportPath, UriKind.Relative));
+        using HttpRequestMessage plainRequest = new(HttpMethod.Get, new Uri(AccountPath, UriKind.Relative));
         plainRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
         plainRequest.Headers.Accept.Clear();
         plainRequest.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue(MediaTypes.Json));
 
-        using HttpRequestMessage hateoasRequest = new(HttpMethod.Get, new Uri(DataExportPath, UriKind.Relative));
+        using HttpRequestMessage hateoasRequest = new(HttpMethod.Get, new Uri(AccountPath, UriKind.Relative));
         hateoasRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
         hateoasRequest.Headers.Accept.Clear();
         hateoasRequest.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue(MediaTypes.HateoasJson));
@@ -221,12 +221,12 @@ public sealed class ContentNegotiationTests : EndpointsTestBase
     }
 
     [Fact]
-    public async Task ExportAccountData_ShouldReturnPlainJson_WhenVendorTypeIsExplicitlyRejectedWithZeroQuality()
+    public async Task GetAccount_ShouldReturnPlainJson_WhenVendorTypeIsExplicitlyRejectedWithZeroQuality()
     {
         // Arrange - q=0 means "absolutely not" per RFC 9110 §12.5.1
         string accessToken = await RegisterConfirmedUserAndGetTokenAsync();
 
-        using HttpRequestMessage request = new(HttpMethod.Get, new Uri(DataExportPath, UriKind.Relative));
+        using HttpRequestMessage request = new(HttpMethod.Get, new Uri(AccountPath, UriKind.Relative));
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
         request.Headers.Accept.Clear();
         request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue(MediaTypes.HateoasJson, 0.0));

@@ -40,6 +40,7 @@ public sealed class DiscoveryHateoasTests : EndpointsTestBase
         response.Links.ShouldContain(l => l.Rel == Rels.Self && l.Method == "GET");
         response.Links.ShouldContain(l => l.Rel == Rels.Register && l.Method == "POST");
         response.Links.ShouldContain(l => l.Rel == Rels.ForgotPassword && l.Method == "POST");
+        response.Links.ShouldNotContain(l => l.Rel == Rels.Account);
         response.Links.ShouldNotContain(l => l.Rel == Rels.ExportAccountData);
     }
 
@@ -69,7 +70,8 @@ public sealed class DiscoveryHateoasTests : EndpointsTestBase
         response.Name.ShouldBe("LotroKoniecDev.AuthSystem");
         response.Links.Count.ShouldBe(2);
         response.Links.ShouldContain(l => l.Rel == Rels.Self && l.Method == "GET");
-        response.Links.ShouldContain(l => l.Rel == Rels.ExportAccountData && l.Method == "GET");
+        response.Links.ShouldContain(l => l.Rel == Rels.Account && l.Method == "GET");
+        response.Links.ShouldNotContain(l => l.Rel == Rels.ExportAccountData);
         response.Links.ShouldNotContain(l => l.Rel == Rels.Register);
         response.Links.ShouldNotContain(l => l.Rel == Rels.ForgotPassword);
     }

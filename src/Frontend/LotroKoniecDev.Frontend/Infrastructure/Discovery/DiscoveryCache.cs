@@ -90,7 +90,7 @@ internal sealed class DiscoveryCache : IDiscoveryCache
     public async Task<ApiResult<AuthDiscoveryResponse>> GetAuthSystemDiscoveryAsync(
         CancellationToken cancellationToken = default)
     {
-        // The same guard as on the TMS side. The auth root offers the 'export-account-data' rel only to
+        // The same guard as on the TMS side. The auth root offers the 'account' rel only to
         // logged-in callers, so a response without it must never be cached under a logged-in key: that
         // would mean the token never reached the API, and it would break the whole account section for
         // every signed-in user for a day.
@@ -153,7 +153,7 @@ internal sealed class DiscoveryCache : IDiscoveryCache
                 // reached the API. Caching that would take the dashboard, the editor and the admin pages
                 // away from every signed-in user for a day.
                 // 'contribution-data-export' is the marker we look for: its endpoint needs nothing but a
-                // login, so every logged-in caller gets it, just like 'export-account-data' on the auth
+                // login, so every logged-in caller gets it, just like 'account' on the auth
                 // side.
                 if (state.RequiresAuthenticatedLinks
                     && !ContainsGetRel(result.Value.Links, TranslationRels.ContributionDataExport))
@@ -183,7 +183,7 @@ internal sealed class DiscoveryCache : IDiscoveryCache
                 }
 
                 if (state.RequiresAuthenticatedLinks
-                    && !ContainsGetRel(result.Value.Links, AuthRels.ExportAccountData))
+                    && !ContainsGetRel(result.Value.Links, AuthRels.Account))
                 {
                     throw new AuthenticatedLinksDegradedException();
                 }

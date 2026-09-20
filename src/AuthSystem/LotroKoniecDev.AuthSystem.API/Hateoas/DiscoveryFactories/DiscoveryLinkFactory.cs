@@ -27,8 +27,8 @@ internal sealed class DiscoveryLinkFactory : IDiscoveryLinkFactory
         if (isAuthenticated)
         {
             links.AddIfPresent(await _linkFactory.CreateAsync(
-                endpoint: nameof(ExportAccountData),
-                rel: Rels.ExportAccountData,
+                endpoint: nameof(GetAccount),
+                rel: Rels.Account,
                 method: HttpMethods.Get));
         }
         else

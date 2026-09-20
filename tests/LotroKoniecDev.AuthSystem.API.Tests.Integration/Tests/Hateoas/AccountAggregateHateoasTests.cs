@@ -22,7 +22,7 @@ namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Tests.Hateoas;
 /// </summary>
 public sealed class AccountAggregateHateoasTests : EndpointsTestBase
 {
-    private const string DataExportPath = "auth/account/data-export";
+    private const string AccountPath = "auth/account";
     private const string TestPassword = "TestPass1!";
 
     public AccountAggregateHateoasTests(AuthSystemApiFactory appFactory) : base(appFactory)
@@ -30,19 +30,21 @@ public sealed class AccountAggregateHateoasTests : EndpointsTestBase
     }
 
     [Fact]
-    public async Task ExportAccountData_ShouldReturnBaseLinksOnly_WhenEmailIsConfirmed()
+    public async Task GetAccount_ShouldReturnBaseLinksOnly_WhenEmailIsConfirmed()
     {
-        // Arrange - confirmed users see self, change-password, change-email, delete-account only
+        // Arrange - confirmed users see self, export-account-data, change-password, change-email,
+        // delete-account only
         (RegisterRequest registerRequest, _) = await UserFactory.RegisterRandomUserWithRequestAsync(
             ApiClient, Faker, AccountConfirmationEmailSpy, TestPassword);
         string accessToken = await GetAccessTokenAsync(registerRequest.Email, TestPassword);
 
         // Act
-        AccountDataExportResponse response = await RequestHateoasResponseAsync(accessToken);
+        AccountResponse response = await RequestHateoasResponseAsync(accessToken);
 
         // Assert
-        response.Links.Count.ShouldBe(4);
+        response.Links.Count.ShouldBe(5);
         response.Links.ShouldContain(l => l.Rel == Rels.Self && l.Method == "GET");
+        response.Links.ShouldContain(l => l.Rel == Rels.ExportAccountData && l.Method == "POST");
         response.Links.ShouldContain(l => l.Rel == Rels.ChangePassword && l.Method == "POST");
         response.Links.ShouldContain(l => l.Rel == Rels.ChangeEmail && l.Method == "POST");
         response.Links.ShouldContain(l => l.Rel == Rels.DeleteAccount && l.Method == "POST");
@@ -52,7 +54,7 @@ public sealed class AccountAggregateHateoasTests : EndpointsTestBase
     }
 
     [Fact]
-    public async Task ExportAccountData_ShouldIncludeResendEmailConfirmationLink_WhenEmailIsUnconfirmed()
+    public async Task GetAccount_ShouldIncludeResendEmailConfirmationLink_WhenEmailIsUnconfirmed()
     {
         // Arrange - register & confirm (so we can issue a token, because OpenIddict's password
         // grant rejects unconfirmed accounts via SignInOptions.RequireConfirmedEmail), then
@@ -66,11 +68,12 @@ public sealed class AccountAggregateHateoasTests : EndpointsTestBase
         await SetEmailConfirmedAsync(registerRequest.Username, confirmed: false);
 
         // Act
-        AccountDataExportResponse response = await RequestHateoasResponseAsync(accessToken);
+        AccountResponse response = await RequestHateoasResponseAsync(accessToken);
 
         // Assert
-        response.Links.Count.ShouldBe(5);
+        response.Links.Count.ShouldBe(6);
         response.Links.ShouldContain(l => l.Rel == Rels.Self && l.Method == "GET");
+        response.Links.ShouldContain(l => l.Rel == Rels.ExportAccountData && l.Method == "POST");
         response.Links.ShouldContain(l => l.Rel == Rels.ChangePassword && l.Method == "POST");
         response.Links.ShouldContain(l => l.Rel == Rels.ChangeEmail && l.Method == "POST");
         response.Links.ShouldContain(l => l.Rel == Rels.DeleteAccount && l.Method == "POST");
@@ -78,11 +81,12 @@ public sealed class AccountAggregateHateoasTests : EndpointsTestBase
     }
 
     [Fact]
-    public async Task ExportAccountData_ShouldExposeOnlyCancelDeletionTransition_WhenDeletionIsScheduled()
+    public async Task GetAccount_ShouldExposeOnlyCancelDeletionTransition_WhenDeletionIsScheduled()
     {
         // Arrange - schedule GDPR deletion; the self-contained JWT stays valid within
         // its lifetime, so the aggregate remains readable during the grace window and
-        // must advertise cancel-deletion as the only meaningful transition.
+        // must advertise cancel-deletion as the only transition. The export stays on offer: the
+        // right to a copy of the data does not end while the account is on its way out.
         (RegisterRequest registerRequest, _) = await UserFactory.RegisterRandomUserWithRequestAsync(
             ApiClient, Faker, AccountConfirmationEmailSpy, TestPassword);
         string accessToken = await GetAccessTokenAsync(registerRequest.Email, TestPassword);
@@ -94,12 +98,13 @@ public sealed class AccountAggregateHateoasTests : EndpointsTestBase
         deleteResponse.StatusCode.ShouldBe(HttpStatusCode.NoContent);
 
         // Act
-        AccountDataExportResponse response = await RequestHateoasResponseAsync(accessToken);
+        AccountResponse response = await RequestHateoasResponseAsync(accessToken);
 
         // Assert
-        response.AuthData.DeletionScheduledAt.ShouldNotBeNull();
-        response.Links.Count.ShouldBe(2);
+        response.Account.DeletionScheduledAt.ShouldNotBeNull();
+        response.Links.Count.ShouldBe(3);
         response.Links.ShouldContain(l => l.Rel == Rels.Self && l.Method == "GET");
+        response.Links.ShouldContain(l => l.Rel == Rels.ExportAccountData && l.Method == "POST");
         response.Links.ShouldContain(l => l.Rel == Rels.CancelDeletion && l.Method == "POST");
         response.Links.ShouldNotContain(
             l => l.Rel == Rels.ChangePassword || l.Rel == Rels.ChangeEmail || l.Rel == Rels.DeleteAccount,
@@ -107,7 +112,7 @@ public sealed class AccountAggregateHateoasTests : EndpointsTestBase
     }
 
     [Fact]
-    public async Task ExportAccountData_SelfLink_ShouldPointAtDataExportEndpoint()
+    public async Task GetAccount_SelfLink_ShouldPointAtAccountEndpoint()
     {
         // Arrange
         (RegisterRequest registerRequest, _) = await UserFactory.RegisterRandomUserWithRequestAsync(
@@ -115,16 +120,16 @@ public sealed class AccountAggregateHateoasTests : EndpointsTestBase
         string accessToken = await GetAccessTokenAsync(registerRequest.Email, TestPassword);
 
         // Act
-        AccountDataExportResponse response = await RequestHateoasResponseAsync(accessToken);
+        AccountResponse response = await RequestHateoasResponseAsync(accessToken);
 
         // Assert
         LinkDto selfLink = response.Links.First(l => l.Rel == Rels.Self);
-        selfLink.Href.ShouldContain("/auth/account/data-export");
+        selfLink.Href.ShouldEndWith("/auth/account");
         selfLink.Method.ShouldBe("GET");
     }
 
     [Fact]
-    public async Task ExportAccountData_AllLinks_ShouldHaveAbsoluteHrefs()
+    public async Task GetAccount_AllLinks_ShouldHaveAbsoluteHrefs()
     {
         // Arrange - every HATEOAS href must be a usable absolute URI; relative URIs
         // force clients to guess the base address and break cross-origin consumers.
@@ -133,7 +138,7 @@ public sealed class AccountAggregateHateoasTests : EndpointsTestBase
         string accessToken = await GetAccessTokenAsync(registerRequest.Email, TestPassword);
 
         // Act
-        AccountDataExportResponse response = await RequestHateoasResponseAsync(accessToken);
+        AccountResponse response = await RequestHateoasResponseAsync(accessToken);
 
         // Assert
         response.Links.ShouldNotBeEmpty();
@@ -147,7 +152,7 @@ public sealed class AccountAggregateHateoasTests : EndpointsTestBase
     }
 
     [Fact]
-    public async Task ExportAccountData_ShouldOmitLinksProperty_WhenPlainJsonRequested()
+    public async Task GetAccount_ShouldOmitLinksProperty_WhenPlainJsonRequested()
     {
         // Arrange - content-negotiation guarantee: plain JSON response deserializes
         // into the same contract, but with Links as an empty collection (the 'links'
@@ -156,7 +161,7 @@ public sealed class AccountAggregateHateoasTests : EndpointsTestBase
             ApiClient, Faker, AccountConfirmationEmailSpy, TestPassword);
         string accessToken = await GetAccessTokenAsync(registerRequest.Email, TestPassword);
 
-        using HttpRequestMessage request = new(HttpMethod.Get, new Uri(DataExportPath, UriKind.Relative));
+        using HttpRequestMessage request = new(HttpMethod.Get, new Uri(AccountPath, UriKind.Relative));
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
         request.Headers.Accept.Clear();
         request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue(MediaTypes.Json));
@@ -164,16 +169,16 @@ public sealed class AccountAggregateHateoasTests : EndpointsTestBase
         // Act
         HttpResponseMessage httpResponse = await ApiClient.Http.SendAsync(request);
         string stringResponse = await httpResponse.EnsureSuccessWithDetailsAsync();
-        AccountDataExportResponse response = JsonSerializer.Deserialize<AccountDataExportResponse>(
+        AccountResponse response = JsonSerializer.Deserialize<AccountResponse>(
             stringResponse, ApiClient.JsonOptions)!;
 
         // Assert
         response.Links.Count.ShouldBe(0, "plain JSON response must not carry hypermedia links");
     }
 
-    private async Task<AccountDataExportResponse> RequestHateoasResponseAsync(string accessToken)
+    private async Task<AccountResponse> RequestHateoasResponseAsync(string accessToken)
     {
-        using HttpRequestMessage request = new(HttpMethod.Get, new Uri(DataExportPath, UriKind.Relative));
+        using HttpRequestMessage request = new(HttpMethod.Get, new Uri(AccountPath, UriKind.Relative));
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
         request.Headers.Accept.Clear();
         request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue(MediaTypes.HateoasJson));
@@ -183,7 +188,7 @@ public sealed class AccountAggregateHateoasTests : EndpointsTestBase
 
         httpResponse.Content.Headers.ContentType?.MediaType.ShouldBe(MediaTypes.HateoasJson);
 
-        return JsonSerializer.Deserialize<AccountDataExportResponse>(stringResponse, ApiClient.JsonOptions)!;
+        return JsonSerializer.Deserialize<AccountResponse>(stringResponse, ApiClient.JsonOptions)!;
     }
 
     private async Task SetEmailConfirmedAsync(string username, bool confirmed)

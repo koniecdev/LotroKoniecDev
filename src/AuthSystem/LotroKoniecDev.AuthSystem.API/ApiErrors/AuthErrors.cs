@@ -40,6 +40,11 @@ internal static class AuthErrors
             "The current password is incorrect.",
             TypeOfError.Validation);
 
+    public static Error ExportPasswordRequired =>
+        new("Auth.ExportPasswordRequired",
+            "The current password is required to export the account data.",
+            TypeOfError.Validation);
+
     public static Error PasswordChangeFailed(string details) =>
         new("Auth.PasswordChangeFailed",
             details,

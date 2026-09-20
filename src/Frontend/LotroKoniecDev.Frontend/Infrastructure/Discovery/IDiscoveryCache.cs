@@ -15,7 +15,7 @@ internal interface IDiscoveryCache
 
     /// <summary>
     /// Returns the auth server's discovery root, cached for a day per login state. The account pages take
-    /// <c>export-account-data</c> from it instead of holding routes in code.
+    /// <c>account</c> from it instead of holding routes in code.
     /// </summary>
     Task<ApiResult<AuthDiscoveryResponse>> GetAuthSystemDiscoveryAsync(
         CancellationToken cancellationToken = default);

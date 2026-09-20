@@ -42,6 +42,8 @@ internal static class EventIds
 
     // Data Export (2240-2249)
     public const int ExportDataCompleted = 2241;
+    public const int ExportDataRefused = 2242;
+    public const int ExportDataUnknownUser = 2243;
 
     // Forgot Password (2250-2259). 2251 (ForgotPasswordEmailFailed) is no longer used: sending moved
     // out of the request and into the outbox pipeline (ADR-0038), so the handler no longer sees SMTP.

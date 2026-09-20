@@ -67,7 +67,7 @@
     }
     else if (_deleteLink is null)
     {
-        @if (_loadResult.Value.AuthData.DeletionScheduledAt is not null)
+        @if (_loadResult.Value.Account.DeletionScheduledAt is not null)
         {
             <div class="status-message status-warning" role="status">
                 <p>
@@ -159,7 +159,7 @@
     [SupplyParameterFromForm(FormName = "delete-account")]
     private DeleteFormModel? DeleteInput { get; set; }
 
-    private ApiResult<AccountDataExportResponse>? _loadResult;
+    private ApiResult<AccountResponse>? _loadResult;
     private LinkDto? _deleteLink;
     private Microsoft.AspNetCore.Mvc.ProblemDetails? _submitProblem;
     private bool _scheduled;
@@ -171,7 +171,7 @@
         // here instead.
         DeleteInput ??= new DeleteFormModel();
 
-        _loadResult = await Loader.LoadExportAsync(CancellationToken.None);
+        _loadResult = await Loader.LoadAccountAsync(CancellationToken.None);
         if (_loadResult.IsSuccess)
         {
             _deleteLink = _loadResult.Value.Links.FindLink(Rels.DeleteAccount);

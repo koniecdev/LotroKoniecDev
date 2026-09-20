@@ -1,0 +1,136 @@
+@page "/account/export"
+@attribute [Authorize]
+@attribute [StreamRendering]
+@using Microsoft.AspNetCore.Authorization
+@using LotroKoniecDev.AuthSystem.Contracts.Features.Auth.Account
+@using LotroKoniecDev.AuthSystem.Contracts.Hateoas
+@using LotroKoniecDev.Frontend.Infrastructure.Hateoas
+@using LotroKoniecDev.Frontend.Infrastructure.HttpClients
+@using LotroKoniecDev.Frontend.Infrastructure.Errors
+@inject AccountLoader Loader
+
+<PageTitle>Pobierz moje dane — lotro-translator.pl</PageTitle>
+
+<section class="container page-head">
+    <div>
+        <h1>Pobierz moje dane</h1>
+        <p class="lede">Kopia wszystkich danych Twojego konta w pliku JSON.</p>
+    </div>
+</section>
+
+<section class="container content-wrap">
+    @if (_loadResult is null)
+    {
+        <div class="loading-indicator">
+            <span class="li-spin"></span> Wczytywanie…
+        </div>
+    }
+    else if (_loadResult.IsUnauthorized)
+    {
+        <RedirectToLogin/>
+    }
+    else if (_loadResult.IsFailure)
+    {
+        <div class="error-message" role="alert">
+            <span class="em-ico" aria-hidden="true">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z"/>
+                    <path d="M12 9v4"/><path d="M12 17h.01"/>
+                </svg>
+            </span>
+            <div class="em-body">
+                <ApiProblemAlert Problem="@_loadResult.ProblemDetails"
+                                 Fallback="Nie udało się wczytać danych konta."
+                                 HeadlineClass="t"/>
+            </div>
+        </div>
+    }
+    else if (!_loadResult.Value.Links.HasLink(Rels.ExportAccountData))
+    {
+        <div class="status-message status-warning" role="status">
+            <p>Pobranie danych jest w tej chwili niedostępne. Spróbuj ponownie później.</p>
+        </div>
+        <a class="btn btn-ghost" href="/account">Wróć do konta</a>
+    }
+    else
+    {
+        <section class="panel">
+            <header class="panel-head">
+                <h2>Potwierdź hasłem</h2>
+                <span class="panel-aside">RODO, art. 15</span>
+            </header>
+            <div class="panel-body">
+                <p>
+                    Plik zawiera dane Twojego konta, historię zgód i listę Twoich tłumaczeń.
+                    Zanim go wydamy, prosimy o obecne hasło — tak samo jak przy zmianie e-maila i usunięciu konta.
+                </p>
+
+                @if (SubmitProblem() is { } submitProblem)
+                {
+                    <div class="error-message" role="alert">
+                        <span class="em-ico" aria-hidden="true">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z"/>
+                                <path d="M12 9v4"/><path d="M12 17h.01"/>
+                            </svg>
+                        </span>
+                        <div class="em-body">
+                            <ApiProblemAlert Problem="@submitProblem"
+                                             Fallback="Nie udało się pobrać danych konta."
+                                             HeadlineClass="t"/>
+                        </div>
+                    </div>
+                }
+
+                @* A plain form post, not an @onsubmit handler: the answer is a file, and only a server
+                   route can return one. *@
+                <form method="post" action="@AccountEndpointsExtensions.ExportDownloadPath" class="stacked-form" data-testid="export-form">
+                    <AntiforgeryToken/>
+                    <div class="field">
+                        <label for="export-password">Hasło</label>
+                        <input id="export-password" name="password" type="password"
+                               autocomplete="current-password" placeholder="Twoje obecne hasło"/>
+                    </div>
+                    <div class="form-actions">
+                        <a class="btn btn-ghost" href="/account">Wróć do konta</a>
+                        <button type="submit" class="btn btn-primary" data-testid="export-submit">Pobierz plik</button>
+                    </div>
+                </form>
+            </div>
+        </section>
+    }
+</section>
+
+@code
+{
+    /// <summary>
+    /// Set by the download route when it sends the browser back here. It is a closed list of codes, so
+    /// nothing a caller types into the URL is ever printed.
+    /// </summary>
+    [SupplyParameterFromQuery(Name = AccountEndpointsExtensions.ErrorQueryParameter)]
+    private string? Error { get; set; }
+
+    private ApiResult<AccountResponse>? _loadResult;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _loadResult = await Loader.LoadAccountAsync(CancellationToken.None);
+    }
+
+    private Microsoft.AspNetCore.Mvc.ProblemDetails? SubmitProblem() => Error switch
+    {
+        null or "" => null,
+        AccountEndpointsExtensions.PasswordRequiredError => ApiProblemCopy.FrontendAuthored(
+            "Hasło jest wymagane",
+            "Podaj obecne hasło, aby pobrać swoje dane."),
+        AccountEndpointsExtensions.InvalidPasswordError => ApiProblemCopy.FrontendAuthored(
+            "Nieprawidłowe hasło",
+            "Aktualne hasło jest nieprawidłowe. Spróbuj ponownie."),
+        AccountEndpointsExtensions.TooManyRequestsError => ApiProblemCopy.FrontendAuthored(
+            "Zbyt wiele prób",
+            "Odczekaj chwilę i spróbuj ponownie."),
+        _ => ApiProblemCopy.FrontendAuthored(
+            "Nie udało się pobrać danych konta",
+            "Spróbuj ponownie za chwilę.")
+    };
+}

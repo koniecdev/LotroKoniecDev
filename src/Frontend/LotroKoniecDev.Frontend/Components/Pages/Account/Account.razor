@@ -48,7 +48,7 @@
     }
     else
     {
-        AuthDataExportDto auth = _result.Value.AuthData;
+        AccountDto auth = _result.Value.Account;
 
         @if (auth.DeletionScheduledAt is not null)
         {
@@ -169,13 +169,16 @@
             </header>
             <div class="panel-body">
                 <div class="action-list">
-                    <a class="action-row" href="@AccountEndpointsExtensions.ExportDownloadPath" download data-testid="account-export">
-                        <span class="copy">
-                            <span class="t">Pobierz moje dane</span>
-                            <span class="s">Kopia wszystkich danych Twojego konta w pliku JSON.</span>
-                        </span>
-                        <span class="chev" aria-hidden="true">›</span>
-                    </a>
+                    @if (_result.Value.Links.HasLink(Rels.ExportAccountData))
+                    {
+                        <a class="action-row" href="@AccountEndpointsExtensions.ExportPagePath" data-testid="account-export">
+                            <span class="copy">
+                                <span class="t">Pobierz moje dane</span>
+                                <span class="s">Kopia wszystkich danych Twojego konta w pliku JSON. Poprosimy o hasło.</span>
+                            </span>
+                            <span class="chev" aria-hidden="true">›</span>
+                        </a>
+                    }
 
                     @* Which actions to show comes from the API's links, never from a role check here. *@
                     @if (_result.Value.Links.HasLink(Rels.ChangePassword))
@@ -218,11 +221,11 @@
 
 @code
 {
-    private ApiResult<AccountDataExportResponse>? _result;
+    private ApiResult<AccountResponse>? _result;
 
     protected override async Task OnInitializedAsync()
     {
-        _result = await Loader.LoadExportAsync(CancellationToken.None);
+        _result = await Loader.LoadAccountAsync(CancellationToken.None);
     }
 
     private static string RoleLabel(string role) => role switch

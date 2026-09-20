@@ -11,7 +11,7 @@ namespace LotroKoniecDev.Frontend.Infrastructure.HttpClients.AuthSystemHttpClien
 internal interface IAuthSystemClient
 {
     /// <summary>
-    /// Fetches the auth discovery root (<c>GET /</c>), which offers <c>export-account-data</c> to
+    /// Fetches the auth discovery root (<c>GET /</c>), which offers <c>account</c> to
     /// logged-in callers.
     /// </summary>
     Task<ApiResult<DiscoveryResponse>> GetDiscoveryAsync(CancellationToken cancellationToken = default);

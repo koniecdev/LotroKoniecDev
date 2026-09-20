@@ -24,6 +24,7 @@ namespace LotroKoniecDev.Frontend.Tests.Unit.Components.Pages.Account;
 public sealed class AccountLoaderTests
 {
     private const string BaseUrl = "https://localhost:5003/";
+    private const string AccountHref = "auth/account";
     private const string ExportHref = "auth/account/data-export";
 
     // The same JSON options the Frontend's HTTP layer uses (HttpClientApiExtensions), so the stub
@@ -36,7 +37,7 @@ public sealed class AccountLoaderTests
     private readonly IDiscoveryCache _discoveryCache = Substitute.For<IDiscoveryCache>();
 
     [Fact]
-    public async Task LoadExportAsync_WhenDiscoveryFails_PassesTheProblemThrough()
+    public async Task LoadAccountAsync_WhenDiscoveryFails_PassesTheProblemThrough()
     {
         _discoveryCache.GetAuthSystemDiscoveryAsync(Arg.Any<CancellationToken>())
             .Returns(ApiResult.Failure<AuthDiscoveryResponse>(new ProblemDetails
@@ -46,21 +47,21 @@ public sealed class AccountLoaderTests
             }));
         AccountLoader loader = CreateLoader(StubHttpMessageHandler.RespondWith(HttpStatusCode.OK, "{}"), out _);
 
-        ApiResult<AccountDataExportResponse> result = await loader.LoadExportAsync();
+        ApiResult<AccountResponse> result = await loader.LoadAccountAsync();
 
         result.IsFailure.ShouldBeTrue();
         result.ProblemDetails!.Status.ShouldBe(503);
     }
 
     [Fact]
-    public async Task LoadExportAsync_WhenExportLinkMissing_ReturnsForbiddenWithoutCallingTheApi()
+    public async Task LoadAccountAsync_WhenAccountLinkMissing_ReturnsForbiddenWithoutCallingTheApi()
     {
         StubDiscovery(links: []);
         AccountLoader loader = CreateLoader(
             StubHttpMessageHandler.RespondWith(HttpStatusCode.OK, "{}"),
             out StubHttpMessageHandler handler);
 
-        ApiResult<AccountDataExportResponse> result = await loader.LoadExportAsync();
+        ApiResult<AccountResponse> result = await loader.LoadAccountAsync();
 
         result.IsFailure.ShouldBeTrue();
         result.ProblemDetails!.Status.ShouldBe(403);
@@ -68,22 +69,53 @@ public sealed class AccountLoaderTests
     }
 
     [Fact]
-    public async Task LoadExportAsync_WhenLinkAdvertised_GetsTheAdvertisedHrefAndReturnsTheEnvelope()
+    public async Task LoadAccountAsync_WhenLinkAdvertised_GetsTheAdvertisedHrefAndReturnsTheEnvelope()
     {
-        StubDiscovery(links: [new LinkDto(ExportHref, Rels.ExportAccountData, "GET")]);
-        AccountDataExportResponse envelope = CreateEnvelope();
+        StubDiscovery(links: [new LinkDto(AccountHref, Rels.Account, "GET")]);
+        AccountResponse envelope = CreateEnvelope();
         AccountLoader loader = CreateLoader(
             StubHttpMessageHandler.RespondWith(HttpStatusCode.OK, JsonSerializer.Serialize(envelope, ApiJsonOptions)),
             out StubHttpMessageHandler handler);
 
-        ApiResult<AccountDataExportResponse> result = await loader.LoadExportAsync();
+        ApiResult<AccountResponse> result = await loader.LoadAccountAsync();
 
         result.IsSuccess.ShouldBeTrue();
-        result.Value.AuthData.Username.ShouldBe("frodo");
-        result.Value.AuthData.Email.ShouldBe("frodo@shire.me");
-        result.Value.AuthData.Roles.ShouldBe(["Translator"]);
+        result.Value.Account.Username.ShouldBe("frodo");
+        result.Value.Account.Email.ShouldBe("frodo@shire.me");
+        result.Value.Account.Roles.ShouldBe(["Translator"]);
         handler.LastRequest!.Method.ShouldBe(HttpMethod.Get);
+        handler.LastRequest.RequestUri!.ToString().ShouldBe($"{BaseUrl}{AccountHref}");
+    }
+
+    [Fact]
+    public async Task ExportAsync_PostsThePasswordToTheGivenHrefAndReturnsTheExport()
+    {
+        AccountLoader loader = CreateLoader(
+            StubHttpMessageHandler.RespondWith(HttpStatusCode.OK, JsonSerializer.Serialize(CreateExport(), ApiJsonOptions)),
+            out StubHttpMessageHandler handler);
+
+        ApiResult<AccountDataExportResponse> result = await loader.ExportAsync(ExportHref, "S3cret!Password");
+
+        result.IsSuccess.ShouldBeTrue();
+        result.Value.AuthData.Email.ShouldBe("frodo@shire.me");
+        handler.LastRequest!.Method.ShouldBe(HttpMethod.Post);
         handler.LastRequest.RequestUri!.ToString().ShouldBe($"{BaseUrl}{ExportHref}");
+        handler.LastRequestBody!.ShouldContain("\"password\":\"S3cret!Password\"");
+    }
+
+    [Fact]
+    public async Task ExportAsync_WhenTheApiRefusesThePassword_ReturnsTheFailureAndNoData()
+    {
+        AccountLoader loader = CreateLoader(
+            StubHttpMessageHandler.RespondWith(
+                HttpStatusCode.BadRequest,
+                """{ "title": "Bad Request", "status": 400, "errorCode": "Auth.InvalidCurrentPassword" }"""),
+            out _);
+
+        ApiResult<AccountDataExportResponse> result = await loader.ExportAsync(ExportHref, "wrong");
+
+        result.IsFailure.ShouldBeTrue();
+        result.ProblemDetails!.Status.ShouldBe(400);
     }
 
     [Fact]
@@ -185,18 +217,16 @@ public sealed class AccountLoaderTests
         return new AccountLoader(_discoveryCache, new AuthSystemClient(httpClient));
     }
 
-    internal static AccountDataExportResponse CreateEnvelope(
+    internal static AccountResponse CreateEnvelope(
         IReadOnlyList<string>? roles = null,
         DateTimeOffset? deletionScheduledAt = null,
         List<LinkDto>? links = null,
         bool termsOfServiceAccepted = true)
     {
-        return new AccountDataExportResponse(
-            new AuthDataExportDto(
-                Guid.NewGuid(),
+        return new AccountResponse(
+            new AccountDto(
                 "frodo",
                 "frodo@shire.me",
-                PhoneNumber: null,
                 EmailConfirmed: true,
                 roles ?? ["Translator"],
                 DataProcessingConsentGiven: true,
@@ -205,10 +235,29 @@ public sealed class AccountLoaderTests
                 new DateTimeOffset(2026, 6, 1, 12, 0, 0, TimeSpan.Zero),
                 termsOfServiceAccepted,
                 termsOfServiceAccepted ? new DateTimeOffset(2026, 6, 1, 12, 0, 0, TimeSpan.Zero) : null,
-                deletionScheduledAt),
-            IsComplete: true)
+                deletionScheduledAt))
         {
             Links = links ?? []
         };
+    }
+
+    internal static AccountDataExportResponse CreateExport()
+    {
+        return new AccountDataExportResponse(
+            new AuthDataExportDto(
+                Guid.NewGuid(),
+                "frodo",
+                "frodo@shire.me",
+                PhoneNumber: null,
+                EmailConfirmed: true,
+                ["Translator"],
+                DataProcessingConsentGiven: true,
+                new DateTimeOffset(2026, 6, 1, 12, 0, 0, TimeSpan.Zero),
+                PrivacyPolicyAccepted: true,
+                new DateTimeOffset(2026, 6, 1, 12, 0, 0, TimeSpan.Zero),
+                TermsOfServiceAccepted: true,
+                new DateTimeOffset(2026, 6, 1, 12, 0, 0, TimeSpan.Zero),
+                DeletionScheduledAt: null),
+            IsComplete: true);
     }
 }

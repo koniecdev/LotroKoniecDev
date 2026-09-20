@@ -74,6 +74,7 @@ internal static class ApiDependencyInjection
             services.AddScoped<ICommandHandler<ConfirmEmail.Command, Result>, ConfirmEmail.Handler>();
             services.AddScoped<ICommandHandler<ConfirmEmailChange.Command, Result>, ConfirmEmailChange.Handler>();
             services.AddScoped<ICommandHandler<DeleteAccount.Command, Result<DeleteAccount.ScheduledDeletion>>, DeleteAccount.Handler>();
+            services.AddScoped<IQueryHandler<GetAccount.Query, Result<AccountResponse>>, GetAccount.Handler>();
             services.AddScoped<IQueryHandler<ExportAccountData.Query, Result<AccountDataExportResponse>>, ExportAccountData.Handler>();
             services.AddScoped<ICommandHandler<ForgotPassword.Command, Result>, ForgotPassword.Handler>();
             services.AddScoped<ICommandHandler<RegisterUser.Command, Result<IdentityId>>, RegisterUser.Handler>();

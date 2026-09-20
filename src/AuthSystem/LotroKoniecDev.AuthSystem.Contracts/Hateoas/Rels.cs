@@ -16,11 +16,17 @@ public static class Rels
     public const string ForgotPassword = "forgot-password";
 
     /// <summary>
-    /// The caller's own account export. <b>This rel does more than name an endpoint.</b> The auth root
+    /// The caller's own account resource. <b>This rel does more than name an endpoint.</b> The auth root
     /// offers it only to logged-in callers, so when the frontend's <c>DiscoveryCache</c> does not see it
     /// under an authenticated cache key, it concludes the token never reached the API and signs the
     /// session out. Renaming this rel, or no longer sending it to some logged-in caller, signs every
     /// logged-in user out on their next page load. Change the frontend guard in the same commit.
+    /// </summary>
+    public const string Account = "account";
+
+    /// <summary>
+    /// The caller's own GDPR export. A POST that carries the current password (#690). The account
+    /// resource advertises it, not the root.
     /// </summary>
     public const string ExportAccountData = "export-account-data";
 }

@@ -39,7 +39,7 @@ public sealed class ChangeEmailTests : BunitContext
     [Fact]
     public void Render_WhenChangeEmailRelAdvertised_ShowsTheFormWithModelBoundInputNames()
     {
-        StubExport(AccountLoaderTests.CreateEnvelope(links:
+        StubAccount(AccountLoaderTests.CreateEnvelope(links:
         [
             new LinkDto("auth/account/change-email", Rels.ChangeEmail, "POST")
         ]));
@@ -56,7 +56,7 @@ public sealed class ChangeEmailTests : BunitContext
     {
         // The address is what LoginModel looks the user up by, so a page that does not say so leaves
         // the user guessing why their next sign-in fails.
-        StubExport(AccountLoaderTests.CreateEnvelope(links:
+        StubAccount(AccountLoaderTests.CreateEnvelope(links:
         [
             new LinkDto("auth/account/change-email", Rels.ChangeEmail, "POST")
         ]));
@@ -69,7 +69,7 @@ public sealed class ChangeEmailTests : BunitContext
     [Fact]
     public void Render_WhenChangeEmailRelMissing_ShowsTheUnavailableNoticeAndNoForm()
     {
-        StubExport(AccountLoaderTests.CreateEnvelope(links: []));
+        StubAccount(AccountLoaderTests.CreateEnvelope(links: []));
 
         IRenderedComponent<ChangeEmailComponent> component = Render<ChangeEmailComponent>();
 
@@ -83,10 +83,10 @@ public sealed class ChangeEmailTests : BunitContext
         _discoveryCache.GetAuthSystemDiscoveryAsync(Arg.Any<CancellationToken>())
             .Returns(ApiResult.Success(new AuthDiscoveryResponse("LotroKoniecDev.AuthSystem")
             {
-                Links = [new LinkDto("auth/account/data-export", Rels.ExportAccountData, "GET")]
+                Links = [new LinkDto("auth/account", Rels.Account, "GET")]
             }));
-        _client.GetApiResultAsync<AccountDataExportResponse>(Arg.Any<string>(), Arg.Any<CancellationToken>())
-            .Returns(ApiResult.Failure<AccountDataExportResponse>(
+        _client.GetApiResultAsync<AccountResponse>(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(ApiResult.Failure<AccountResponse>(
                 new Microsoft.AspNetCore.Mvc.ProblemDetails { Title = "Unauthorized", Status = 401 }));
 
         IRenderedComponent<ChangeEmailComponent> component = Render<ChangeEmailComponent>();
@@ -95,15 +95,15 @@ public sealed class ChangeEmailTests : BunitContext
         component.FindAll(".error-message").ShouldBeEmpty();
     }
 
-    private void StubExport(AccountDataExportResponse envelope)
+    private void StubAccount(AccountResponse envelope)
     {
         AuthDiscoveryResponse discovery = new("LotroKoniecDev.AuthSystem")
         {
-            Links = [new LinkDto("auth/account/data-export", Rels.ExportAccountData, "GET")]
+            Links = [new LinkDto("auth/account", Rels.Account, "GET")]
         };
         _discoveryCache.GetAuthSystemDiscoveryAsync(Arg.Any<CancellationToken>())
             .Returns(ApiResult.Success(discovery));
-        _client.GetApiResultAsync<AccountDataExportResponse>(Arg.Any<string>(), Arg.Any<CancellationToken>())
+        _client.GetApiResultAsync<AccountResponse>(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(ApiResult.Success(envelope));
     }
 }

@@ -38,7 +38,7 @@ public sealed class AccountTests : BunitContext
     [Fact]
     public void Render_WhenExportLoads_ShowsUsernameEmailRolesAndConsentDates()
     {
-        StubExport(AccountLoaderTests.CreateEnvelope());
+        StubAccount(AccountLoaderTests.CreateEnvelope());
 
         IRenderedComponent<AccountComponent> component = Render<AccountComponent>();
 
@@ -56,7 +56,7 @@ public sealed class AccountTests : BunitContext
     {
         // Accounts created before the terms existed keep their old status (spec 0010), so the row must
         // show the neutral state and never pretend they accepted.
-        StubExport(AccountLoaderTests.CreateEnvelope(termsOfServiceAccepted: false));
+        StubAccount(AccountLoaderTests.CreateEnvelope(termsOfServiceAccepted: false));
 
         IRenderedComponent<AccountComponent> component = Render<AccountComponent>();
 
@@ -65,21 +65,24 @@ public sealed class AccountTests : BunitContext
     }
 
     [Fact]
-    public void Render_WhenExportLoads_AlwaysOffersTheExportDownloadLink()
+    public void Render_WhenTheAccountAdvertisesTheExport_LinksToThePasswordPageAndNotToAFile()
     {
-        StubExport(AccountLoaderTests.CreateEnvelope());
+        // The export asks for the password first (#690), so the row opens a page. A "download"
+        // attribute here would save that page's HTML as a file.
+        StubAccount(AccountLoaderTests.CreateEnvelope(links:
+            [new LinkDto("auth/account/data-export", Rels.ExportAccountData, "POST")]));
 
         IRenderedComponent<AccountComponent> component = Render<AccountComponent>();
 
-        IElement download = component.Find("[data-testid=account-export]");
-        download.GetAttribute("href").ShouldBe("/account/export");
-        download.HasAttribute("download").ShouldBeTrue();
+        IElement export = component.Find("[data-testid=account-export]");
+        export.GetAttribute("href").ShouldBe("/account/export");
+        export.HasAttribute("download").ShouldBeFalse();
     }
 
     [Fact]
     public void Render_WhenEnvelopeAdvertisesChangePasswordAndDelete_ShowsBothActionRows()
     {
-        StubExport(AccountLoaderTests.CreateEnvelope(links:
+        StubAccount(AccountLoaderTests.CreateEnvelope(links:
         [
             new LinkDto("auth/change-password", Rels.ChangePassword, "POST"),
             new LinkDto("auth/account/delete", Rels.DeleteAccount, "POST")
@@ -96,7 +99,7 @@ public sealed class AccountTests : BunitContext
     [Fact]
     public void Render_WhenEnvelopeAdvertisesChangeEmail_ShowsTheActionRowAndTheInlineLink()
     {
-        StubExport(AccountLoaderTests.CreateEnvelope(links:
+        StubAccount(AccountLoaderTests.CreateEnvelope(links:
         [
             new LinkDto("auth/account/change-email", Rels.ChangeEmail, "POST")
         ]));
@@ -112,7 +115,7 @@ public sealed class AccountTests : BunitContext
     [Fact]
     public void Render_WhenEnvelopeAdvertisesNoActionRels_HidesTheGatedActionRows()
     {
-        StubExport(AccountLoaderTests.CreateEnvelope(links: []));
+        StubAccount(AccountLoaderTests.CreateEnvelope(links: []));
 
         IRenderedComponent<AccountComponent> component = Render<AccountComponent>();
 
@@ -120,13 +123,13 @@ public sealed class AccountTests : BunitContext
         component.FindAll("[data-testid=account-change-email]").ShouldBeEmpty();
         component.FindAll("[data-testid=account-change-email-inline]").ShouldBeEmpty();
         component.FindAll("[data-testid=account-delete]").ShouldBeEmpty();
-        component.FindAll("[data-testid=account-export]").ShouldHaveSingleItem();
+        component.FindAll("[data-testid=account-export]").ShouldBeEmpty();
     }
 
     [Fact]
     public void Render_WhenDeletionScheduled_ShowsTheScheduledNotice()
     {
-        StubExport(AccountLoaderTests.CreateEnvelope(
+        StubAccount(AccountLoaderTests.CreateEnvelope(
             deletionScheduledAt: new DateTimeOffset(2026, 7, 11, 8, 0, 0, TimeSpan.Zero)));
 
         IRenderedComponent<AccountComponent> component = Render<AccountComponent>();
@@ -140,14 +143,14 @@ public sealed class AccountTests : BunitContext
     {
         AuthDiscoveryResponse discovery = new("LotroKoniecDev.AuthSystem")
         {
-            Links = [new LinkDto("auth/account/data-export", Rels.ExportAccountData, "GET")]
+            Links = [new LinkDto("auth/account", Rels.Account, "GET")]
         };
         _discoveryCache.GetAuthSystemDiscoveryAsync(Arg.Any<CancellationToken>())
             .Returns(ApiResult.Success(discovery));
-        _client.GetApiResultAsync<AccountDataExportResponse>(Arg.Any<string>(), Arg.Any<CancellationToken>())
+        _client.GetApiResultAsync<AccountResponse>(Arg.Any<string>(), Arg.Any<CancellationToken>())
             // A failure the Frontend wrote, the shape HttpClientApiExtensions produces for a transport
             // error. It is already Polish, so it is shown as it is and not translated.
-            .Returns(ApiResult.Failure<AccountDataExportResponse>(ApiProblemCopy.FrontendAuthored(
+            .Returns(ApiResult.Failure<AccountResponse>(ApiProblemCopy.FrontendAuthored(
                 "Nie udało się wczytać danych konta",
                 status: (int)HttpStatusCode.BadGateway)));
 
@@ -173,27 +176,27 @@ public sealed class AccountTests : BunitContext
     {
         AuthDiscoveryResponse discovery = new("LotroKoniecDev.AuthSystem")
         {
-            Links = [new LinkDto("auth/account/data-export", Rels.ExportAccountData, "GET")]
+            Links = [new LinkDto("auth/account", Rels.Account, "GET")]
         };
         _discoveryCache.GetAuthSystemDiscoveryAsync(Arg.Any<CancellationToken>())
             .Returns(ApiResult.Success(discovery));
-        _client.GetApiResultAsync<AccountDataExportResponse>(Arg.Any<string>(), Arg.Any<CancellationToken>())
-            .Returns(ApiResult.Failure<AccountDataExportResponse>(new ProblemDetails
+        _client.GetApiResultAsync<AccountResponse>(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(ApiResult.Failure<AccountResponse>(new ProblemDetails
             {
                 Title = "Unauthorized",
                 Status = 401
             }));
     }
 
-    private void StubExport(AccountDataExportResponse envelope)
+    private void StubAccount(AccountResponse envelope)
     {
         AuthDiscoveryResponse discovery = new("LotroKoniecDev.AuthSystem")
         {
-            Links = [new LinkDto("auth/account/data-export", Rels.ExportAccountData, "GET")]
+            Links = [new LinkDto("auth/account", Rels.Account, "GET")]
         };
         _discoveryCache.GetAuthSystemDiscoveryAsync(Arg.Any<CancellationToken>())
             .Returns(ApiResult.Success(discovery));
-        _client.GetApiResultAsync<AccountDataExportResponse>(Arg.Any<string>(), Arg.Any<CancellationToken>())
+        _client.GetApiResultAsync<AccountResponse>(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(ApiResult.Success(envelope));
     }
 }

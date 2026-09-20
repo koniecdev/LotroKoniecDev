@@ -1,18 +1,20 @@
+using LotroKoniecDev.Hateoas.Abstractions;
+
 namespace LotroKoniecDev.AuthSystem.Contracts.Features.Auth.Account;
 
 /// <summary>
-/// The auth part of the GDPR Art. 15 export. It is a document, not a resource, so it carries no links.
-/// The account pages read <see cref="AccountResponse"/> instead (#690).
+/// The caller's own account, as the account pages show it. Its <c>Links</c> decide what the caller may
+/// do next. It is not the GDPR export: that one is a separate document and asks for the password first
+/// (#690).
 /// </summary>
-public sealed record AccountDataExportResponse(
-    AuthDataExportDto AuthData,
-    bool IsComplete);
+public sealed record AccountResponse(AccountDto Account) : ILinksResponse
+{
+    public IReadOnlyCollection<LinkDto> Links { get; set; } = [];
+}
 
-public sealed record AuthDataExportDto(
-    Guid UserId,
+public sealed record AccountDto(
     string Username,
     string Email,
-    string? PhoneNumber,
     bool EmailConfirmed,
     IReadOnlyList<string> Roles,
     bool DataProcessingConsentGiven,

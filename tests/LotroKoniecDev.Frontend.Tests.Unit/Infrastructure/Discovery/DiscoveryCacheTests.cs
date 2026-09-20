@@ -26,7 +26,7 @@ namespace LotroKoniecDev.Frontend.Tests.Unit.Infrastructure.Discovery;
 /// </summary>
 public sealed class DiscoveryCacheTests
 {
-    private const string ExportHref = "auth/account/data-export";
+    private const string AccountHref = "auth/account";
     private const string ContributionExportHref = "api/v1/translators/me/data-export";
     private const string Subject = "user-sub-1";
 
@@ -49,7 +49,7 @@ public sealed class DiscoveryCacheTests
 
         first.IsSuccess.ShouldBeTrue();
         second.IsSuccess.ShouldBeTrue();
-        second.Value.Links.ShouldContain(link => link.Rel == Rels.ExportAccountData);
+        second.Value.Links.ShouldContain(link => link.Rel == Rels.Account);
     }
 
     [Fact]
@@ -63,7 +63,7 @@ public sealed class DiscoveryCacheTests
 
         // Degrades to a successful anonymous link set instead of an error box…
         result.IsSuccess.ShouldBeTrue();
-        result.Value.Links.ShouldNotContain(link => link.Rel == Rels.ExportAccountData);
+        result.Value.Links.ShouldNotContain(link => link.Rel == Rels.Account);
         // The sign-out does not show up in the return value, so the .Received() check is the only proof.
         await _deadSessionRegistry.Received(1).MarkDeadAsync(Subject, Arg.Any<CancellationToken>());
     }
@@ -84,8 +84,8 @@ public sealed class DiscoveryCacheTests
         ApiResult<AuthDiscoveryResponse> degraded = await cache.GetAuthSystemDiscoveryAsync();
         ApiResult<AuthDiscoveryResponse> recovered = await cache.GetAuthSystemDiscoveryAsync();
 
-        degraded.Value.Links.ShouldNotContain(link => link.Rel == Rels.ExportAccountData);
-        recovered.Value.Links.ShouldContain(link => link.Rel == Rels.ExportAccountData);
+        degraded.Value.Links.ShouldNotContain(link => link.Rel == Rels.Account);
+        recovered.Value.Links.ShouldContain(link => link.Rel == Rels.Account);
     }
 
     [Fact]
@@ -270,7 +270,7 @@ public sealed class DiscoveryCacheTests
     private static AuthDiscoveryResponse AuthenticatedDiscovery() =>
         new("LotroKoniecDev.AuthSystem")
         {
-            Links = [new LinkDto(ExportHref, Rels.ExportAccountData, "GET")]
+            Links = [new LinkDto(AccountHref, Rels.Account, "GET")]
         };
 
     private static AuthDiscoveryResponse AnonymousDiscovery() =>

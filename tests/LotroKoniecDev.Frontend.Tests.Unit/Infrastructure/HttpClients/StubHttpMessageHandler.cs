@@ -33,6 +33,14 @@ internal sealed class StubHttpMessageHandler : HttpMessageHandler
         });
     }
 
+    /// <summary>
+    /// A response chosen per request, for code that makes more than one call through the same client.
+    /// </summary>
+    public static StubHttpMessageHandler RespondBy(Func<HttpRequestMessage, HttpResponseMessage> responder)
+    {
+        return new StubHttpMessageHandler(responder);
+    }
+
     public static StubHttpMessageHandler Throw(Exception exception)
     {
         return new StubHttpMessageHandler(_ => throw exception);

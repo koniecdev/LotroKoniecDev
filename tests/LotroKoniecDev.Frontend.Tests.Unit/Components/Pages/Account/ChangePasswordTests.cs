@@ -35,7 +35,7 @@ public sealed class ChangePasswordTests : BunitContext
     [Fact]
     public void Render_WhenChangePasswordRelAdvertised_ShowsTheFormWithModelBoundInputNames()
     {
-        StubExport(AccountLoaderTests.CreateEnvelope(links:
+        StubAccount(AccountLoaderTests.CreateEnvelope(links:
         [
             new LinkDto("auth/change-password", Rels.ChangePassword, "POST")
         ]));
@@ -54,7 +54,7 @@ public sealed class ChangePasswordTests : BunitContext
         // used to name the broken rule. So the hint is now the user's only warning up front, and it has
         // to match PasswordValidationRules — it used to omit the special character both it and the
         // Identity options require, which turned a wrong password into a dead end.
-        StubExport(AccountLoaderTests.CreateEnvelope(links:
+        StubAccount(AccountLoaderTests.CreateEnvelope(links:
         [
             new LinkDto("auth/change-password", Rels.ChangePassword, "POST")
         ]));
@@ -71,7 +71,7 @@ public sealed class ChangePasswordTests : BunitContext
     [Fact]
     public void Render_WhenChangePasswordRelMissing_ShowsTheUnavailableNoticeAndNoForm()
     {
-        StubExport(AccountLoaderTests.CreateEnvelope(links: []));
+        StubAccount(AccountLoaderTests.CreateEnvelope(links: []));
 
         IRenderedComponent<ChangePasswordComponent> component = Render<ChangePasswordComponent>();
 
@@ -85,10 +85,10 @@ public sealed class ChangePasswordTests : BunitContext
         _discoveryCache.GetAuthSystemDiscoveryAsync(Arg.Any<CancellationToken>())
             .Returns(ApiResult.Success(new AuthDiscoveryResponse("LotroKoniecDev.AuthSystem")
             {
-                Links = [new LinkDto("auth/account/data-export", Rels.ExportAccountData, "GET")]
+                Links = [new LinkDto("auth/account", Rels.Account, "GET")]
             }));
-        _client.GetApiResultAsync<AccountDataExportResponse>(Arg.Any<string>(), Arg.Any<CancellationToken>())
-            .Returns(ApiResult.Failure<AccountDataExportResponse>(
+        _client.GetApiResultAsync<AccountResponse>(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(ApiResult.Failure<AccountResponse>(
                 new Microsoft.AspNetCore.Mvc.ProblemDetails { Title = "Unauthorized", Status = 401 }));
 
         IRenderedComponent<ChangePasswordComponent> component = Render<ChangePasswordComponent>();
@@ -97,15 +97,15 @@ public sealed class ChangePasswordTests : BunitContext
         component.FindAll(".error-message").ShouldBeEmpty();
     }
 
-    private void StubExport(AccountDataExportResponse envelope)
+    private void StubAccount(AccountResponse envelope)
     {
         AuthDiscoveryResponse discovery = new("LotroKoniecDev.AuthSystem")
         {
-            Links = [new LinkDto("auth/account/data-export", Rels.ExportAccountData, "GET")]
+            Links = [new LinkDto("auth/account", Rels.Account, "GET")]
         };
         _discoveryCache.GetAuthSystemDiscoveryAsync(Arg.Any<CancellationToken>())
             .Returns(ApiResult.Success(discovery));
-        _client.GetApiResultAsync<AccountDataExportResponse>(Arg.Any<string>(), Arg.Any<CancellationToken>())
+        _client.GetApiResultAsync<AccountResponse>(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(ApiResult.Success(envelope));
     }
 }

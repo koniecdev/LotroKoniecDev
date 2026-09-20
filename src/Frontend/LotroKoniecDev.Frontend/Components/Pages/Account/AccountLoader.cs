@@ -14,8 +14,8 @@ namespace LotroKoniecDev.Frontend.Components.Pages.Account;
 
 /// <summary>
 /// Makes the account pages' calls to the auth API through the typed client (LEGAL-02). It finds the
-/// <c>export-account-data</c> link in auth discovery, fetches the GDPR export, which is the account
-/// resource whose <c>Links</c> decide what else the user may do, and follows that resource's
+/// <c>account</c> link in auth discovery, fetches the account resource, whose <c>Links</c> decide what
+/// else the user may do, and follows that resource's <c>export-account-data</c>,
 /// <c>delete-account</c> and <c>change-password</c> links.
 /// It stays a thin injectable class, so the pages' data flow can be unit-tested against a substituted
 /// client and bUnit render tests can drive the pages through a substituted loader.
@@ -32,32 +32,47 @@ internal sealed class AccountLoader
     }
 
     /// <summary>
-    /// Loads the account export: auth discovery, then the <c>export-account-data</c> link, then a GET.
+    /// Loads the account resource: auth discovery, then the <c>account</c> link, then a GET.
     /// When that link is missing in a logged-in session, the API does not offer the account section to
     /// this caller. That becomes a 403 <see cref="ProblemDetails"/>, and it is never decided here from
     /// role claims.
     /// </summary>
-    public async Task<ApiResult<AccountDataExportResponse>> LoadExportAsync(
+    public async Task<ApiResult<AccountResponse>> LoadAccountAsync(
         CancellationToken cancellationToken = default)
     {
         ApiResult<AuthDiscoveryResponse> discoveryResult =
             await _discoveryCache.GetAuthSystemDiscoveryAsync(cancellationToken);
         if (discoveryResult.IsFailure)
         {
-            return ApiResult.Failure<AccountDataExportResponse>(discoveryResult.ProblemDetails!);
+            return ApiResult.Failure<AccountResponse>(discoveryResult.ProblemDetails!);
         }
 
-        LinkDto? exportLink = discoveryResult.Value.Links.FindLink(Rels.ExportAccountData);
-        if (exportLink is null)
+        LinkDto? accountLink = discoveryResult.Value.Links.FindLink(Rels.Account);
+        if (accountLink is null)
         {
-            return ApiResult.Failure<AccountDataExportResponse>(ApiProblemCopy.FrontendAuthored(
+            return ApiResult.Failure<AccountResponse>(ApiProblemCopy.FrontendAuthored(
                 "Sekcja konta jest niedostępna",
                 "Serwer nie udostępnia danych konta dla tej sesji. Zaloguj się ponownie.",
                 StatusCodes.Status403Forbidden));
         }
 
-        return await _client.GetApiResultAsync<AccountDataExportResponse>(
-            exportLink.Href,
+        return await _client.GetApiResultAsync<AccountResponse>(
+            accountLink.Href,
+            cancellationToken);
+    }
+
+    /// <summary>
+    /// Fetches the auth part of the GDPR export. The API checks the password before it hands anything
+    /// over (#690), so a wrong one comes back as a failure and never as data.
+    /// </summary>
+    public Task<ApiResult<AccountDataExportResponse>> ExportAsync(
+        string href,
+        string password,
+        CancellationToken cancellationToken = default)
+    {
+        return _client.PostApiResultAsync<AccountDataExportResponse>(
+            href,
+            new ExportAccountDataRequest(password),
             cancellationToken);
     }
 

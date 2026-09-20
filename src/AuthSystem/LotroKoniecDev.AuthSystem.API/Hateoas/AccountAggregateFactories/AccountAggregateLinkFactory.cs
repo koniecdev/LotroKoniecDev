@@ -18,11 +18,17 @@ internal sealed class AccountAggregateLinkFactory : IAccountAggregateLinkFactory
     {
         List<LinkDto> links = [];
 
-        // self: a GET of the account data export, which is this resource.
         links.AddIfPresent(await _linkFactory.CreateAsync(
-            endpoint: nameof(ExportAccountData),
+            endpoint: nameof(GetAccount),
             rel: Rels.Self,
             method: HttpMethods.Get));
+
+        // The export stays on offer while a deletion is scheduled. The right to a copy of your data
+        // does not end because the account is on its way out.
+        links.AddIfPresent(await _linkFactory.CreateAsync(
+            endpoint: nameof(ExportAccountData),
+            rel: Rels.ExportAccountData,
+            method: HttpMethods.Post));
 
         // While a deletion is scheduled the account is locked, and the only thing left to do is cancel
         // it with the single-use token from the e-mail. The other account links would lead nowhere, so

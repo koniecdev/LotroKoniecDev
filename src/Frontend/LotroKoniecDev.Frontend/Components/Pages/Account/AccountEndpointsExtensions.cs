@@ -3,31 +3,60 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using LotroKoniecDev.AuthSystem.Contracts.Features.Auth.Account;
 using LotroKoniecDev.Frontend.Infrastructure.Discovery;
-using LotroKoniecDev.Frontend.Infrastructure.Errors;
 using LotroKoniecDev.Frontend.Infrastructure.Formatting;
+using LotroKoniecDev.Frontend.Infrastructure.Hateoas;
 using LotroKoniecDev.Frontend.Infrastructure.HttpClients;
 using LotroKoniecDev.Frontend.Infrastructure.HttpClients.TranslationSystemHttpClients;
+using LotroKoniecDev.Hateoas.Abstractions;
 using LotroKoniecDev.TranslationSystem.Contracts.Hateoas;
 using LotroKoniecDev.TranslationSystem.Contracts.Translators;
 using Microsoft.AspNetCore.Mvc;
+using AuthRels = LotroKoniecDev.AuthSystem.Contracts.Hateoas.Rels;
 
 namespace LotroKoniecDev.Frontend.Components.Pages.Account;
 
 /// <summary>
-/// Maps the GDPR data-export download route (LEGAL-02). The account page links here so the export
-/// arrives in the browser as a JSON file. A Blazor SSR page cannot return a file, so this server route
-/// fetches the export through the same loader the page uses and sends it again with a
-/// <c>Content-Disposition</c> attachment header.
-/// It is authorized like the auth endpoint behind it, and the caller's session token travels through
-/// the typed clients.
+/// Maps the GDPR data-export download route (LEGAL-02). The export page posts the current password
+/// here and the export arrives in the browser as a JSON file. A Blazor SSR page cannot return a file,
+/// so this server route fetches the export through the same loader the pages use and sends it again
+/// with a <c>Content-Disposition</c> attachment header.
+/// The auth API checks the password before it hands anything over (#690). A failure goes back to the
+/// export page as a short code in the query string, because a form post that ends in a file has no
+/// page of its own to show an error on.
+/// Every attempt is logged here too: the auth API sees this server's address, and only this route
+/// sees the browser's.
 /// The route builds the full Art. 15 document (ADR-0032): the auth part plus the TMS contribution part.
 /// A TMS failure only makes the file incomplete (<c>isComplete: false</c>) and does not fail the
 /// download.
 /// </summary>
 internal static class AccountEndpointsExtensions
 {
-    /// <summary>The download URL the account page's export button links to.</summary>
-    internal const string ExportDownloadPath = "/account/export";
+    /// <summary>The page that asks for the password. The account page links to it.</summary>
+    internal const string ExportPagePath = "/account/export";
+
+    /// <summary>The URL the export page's form posts the password to.</summary>
+    internal const string ExportDownloadPath = "/account/export/download";
+
+    internal const string ErrorQueryParameter = "error";
+    internal const string PasswordRequiredError = "password-required";
+    internal const string InvalidPasswordError = "invalid-password";
+    internal const string TooManyRequestsError = "too-many-requests";
+    internal const string UnavailableError = "unavailable";
+    internal const string FailedError = "failed";
+
+    private const string SubjectClaimType = "sub";
+
+    private static readonly Action<ILogger, string?, bool, string?, string, Exception?> LogExportDownloaded =
+        LoggerMessage.Define<string?, bool, string?, string>(
+            LogLevel.Information,
+            new EventId(1, nameof(LogExportDownloaded)),
+            "GDPR export downloaded by user {Subject}; complete: {IsComplete}. IP: {IpAddress}, UserAgent: {UserAgent}");
+
+    private static readonly Action<ILogger, string?, string, string?, string, int?, Exception?> LogExportRefused =
+        LoggerMessage.Define<string?, string, string?, string, int?>(
+            LogLevel.Warning,
+            new EventId(2, nameof(LogExportRefused)),
+            "GDPR export refused for user {Subject}: {Reason}. IP: {IpAddress}, UserAgent: {UserAgent}, API status: {ApiStatus}");
 
     private static readonly JsonSerializerOptions ExportSerializerOptions = new()
     {
@@ -40,7 +69,25 @@ internal static class AccountEndpointsExtensions
     {
         public IEndpointRouteBuilder MapAccountEndpoints()
         {
-            endpoints.MapGet(ExportDownloadPath, DownloadAccountExportAsync)
+            // Binding the form field makes the framework check the antiforgery token before the
+            // handler runs.
+            endpoints.MapPost(
+                    ExportDownloadPath,
+                    (
+                        [FromForm] string? password,
+                        HttpContext httpContext,
+                        AccountLoader loader,
+                        IDiscoveryCache discoveryCache,
+                        ITranslationSystemClient translationSystemClient,
+                        ILoggerFactory loggerFactory,
+                        CancellationToken cancellationToken) => DownloadAccountExportAsync(
+                        password,
+                        httpContext,
+                        loader,
+                        discoveryCache,
+                        translationSystemClient,
+                        loggerFactory,
+                        cancellationToken))
                 .RequireAuthorization();
 
             return endpoints;
@@ -49,26 +96,60 @@ internal static class AccountEndpointsExtensions
 
     /// <summary>
     /// The route's handler, internal so a unit test can call it without a web host. On success it
-    /// returns a file with the indented camelCase JSON, and on failure a problem result, either the one
-    /// from the API or a 502 of our own. Only the auth part can fail the download; when the TMS part
-    /// fails, the file simply has <c>translationData: null</c> and <c>isComplete: false</c>.
+    /// returns a file with the indented camelCase JSON. On failure it redirects back to the export page
+    /// with an error code. Only the auth part can fail the download; when the TMS part fails, the file
+    /// simply has <c>translationData: null</c> and <c>isComplete: false</c>.
     /// </summary>
     internal static async Task<IResult> DownloadAccountExportAsync(
+        string? password,
+        HttpContext httpContext,
         AccountLoader loader,
         IDiscoveryCache discoveryCache,
         ITranslationSystemClient translationSystemClient,
         ILoggerFactory loggerFactory,
         CancellationToken cancellationToken)
     {
-        ApiResult<AccountDataExportResponse> result = await loader.LoadExportAsync(cancellationToken);
+        ILogger logger = loggerFactory.CreateLogger(typeof(AccountEndpointsExtensions).FullName!);
+        string? subject = httpContext.User.FindFirst(SubjectClaimType)?.Value;
+        string? ipAddress = httpContext.Connection.RemoteIpAddress?.ToString();
+        string userAgent = httpContext.Request.Headers.UserAgent.ToString();
+
+        if (string.IsNullOrWhiteSpace(password))
+        {
+            LogExportRefused(logger, subject, PasswordRequiredError, ipAddress, userAgent, null, null);
+            return RedirectToExportPage(PasswordRequiredError);
+        }
+
+        ApiResult<AccountResponse> account = await loader.LoadAccountAsync(cancellationToken);
+        if (account.IsFailure)
+        {
+            // The export page loads the same resource, so it shows this failure properly, a dead
+            // session included.
+            LogExportRefused(logger, subject, UnavailableError, ipAddress, userAgent, null, null);
+            return RedirectToExportPage(UnavailableError);
+        }
+
+        LinkDto? exportLink = account.Value.Links.FindLink(AuthRels.ExportAccountData);
+        if (exportLink is null)
+        {
+            LogExportRefused(logger, subject, UnavailableError, ipAddress, userAgent, null, null);
+            return RedirectToExportPage(UnavailableError);
+        }
+
+        ApiResult<AccountDataExportResponse> result =
+            await loader.ExportAsync(exportLink.Href, password, cancellationToken);
 
         if (result.IsFailure)
         {
-            return Results.Problem(ApiProblemCopy.Localize(
-                loggerFactory,
-                result.ProblemDetails,
-                "Nie udało się pobrać danych konta.",
-                StatusCodes.Status502BadGateway));
+            string error = result.ProblemDetails?.Status switch
+            {
+                StatusCodes.Status400BadRequest => InvalidPasswordError,
+                StatusCodes.Status429TooManyRequests => TooManyRequestsError,
+                _ => FailedError
+            };
+
+            LogExportRefused(logger, subject, error, ipAddress, userAgent, result.ProblemDetails?.Status, null);
+            return RedirectToExportPage(error);
         }
 
         TranslatorDataExportResponse? translationData = null;
@@ -109,6 +190,14 @@ internal static class AccountEndpointsExtensions
             "lotro-translator-moje-dane-{0:yyyyMMdd-HHmmss}.json",
             DateTimeOffset.UtcNow.ToPolandTime());
 
+        LogExportDownloaded(logger, subject, exportFile.IsComplete, ipAddress, userAgent, null);
+
+        // A personal-data document. Neither the browser nor anything in between may keep a copy.
+        httpContext.Response.Headers.CacheControl = "no-store";
+
         return Results.File(payload, "application/json", fileName);
     }
+
+    private static IResult RedirectToExportPage(string error) =>
+        Results.LocalRedirect($"{ExportPagePath}?{ErrorQueryParameter}={error}");
 }

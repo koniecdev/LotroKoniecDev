@@ -45,11 +45,40 @@ public sealed class AccountGdprSelfServiceTests : E2ETestBase
         await Page.GetByTestId("account-export").WaitForAsync(LongWait);
         (await Page.GetByText(user.Email).First.IsVisibleAsync()).ShouldBeTrue();
 
-        // Data export downloads as a JSON file named after the account dump.
+        // The data export asks for the password first (#690). A wrong one comes back to the form with
+        // the error and hands over no file.
+        await Page.GetByTestId("account-export").ClickAsync();
+        await Page.Locator("#export-password").WaitForAsync(LongWait);
+        await Page.Locator("#export-password").FillAsync("Wr0ng-Current!");
+        await Page.GetByTestId("export-submit").ClickAsync();
+        await Page.Locator(".error-message").WaitForAsync(LongWait);
+        (await Page.GetByText("Nieprawidłowe hasło").First.IsVisibleAsync()).ShouldBeTrue();
+
+        // The correct one downloads a JSON file named after the account dump.
+        await Page.Locator("#export-password").FillAsync(user.Password);
         IDownload download = await Page.RunAndWaitForDownloadAsync(
-            () => Page.GetByTestId("account-export").ClickAsync());
+            () => Page.GetByTestId("export-submit").ClickAsync());
         download.SuggestedFilename.ShouldStartWith("lotro-translator-moje-dane-");
         download.SuggestedFilename.ShouldEndWith(".json");
+
+        // The browser runs in a container, so the file has to be copied out before it can be read.
+        string exportPath = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid():N}.json");
+        await download.SaveAsAsync(exportPath);
+        string exportedJson = await File.ReadAllTextAsync(exportPath);
+        File.Delete(exportPath);
+        exportedJson.ShouldContain(user.Email);
+
+        // The same post without the antiforgery token is refused, even with the session cookie and
+        // the right password. Another site must not be able to trigger the download.
+        IFormData forgedForm = Page.Context.APIRequest.CreateFormData();
+        forgedForm.Set("password", user.Password);
+        IAPIResponse forged = await Page.Context.APIRequest.PostAsync(
+            new Uri(new Uri(Page.Url), "/account/export/download").ToString(),
+            new() { Form = forgedForm, MaxRedirects = 0 });
+        forged.Status.ShouldBe(400);
+
+        await Page.GetByRole(AriaRole.Link, new() { Name = "Wróć do konta", Exact = true }).ClickAsync();
+        await Page.GetByTestId("account-change-password").WaitForAsync(LongWait);
 
         // Change the password. A wrong current password shows the API error, and the correct one really
         // changes it: the old password stops working and every later login uses the new one.

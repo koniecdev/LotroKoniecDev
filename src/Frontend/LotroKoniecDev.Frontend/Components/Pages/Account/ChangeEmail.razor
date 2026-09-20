@@ -133,7 +133,7 @@
     [SupplyParameterFromForm(FormName = "change-email")]
     private ChangeEmailFormModel? EmailInput { get; set; }
 
-    private ApiResult<AccountDataExportResponse>? _loadResult;
+    private ApiResult<AccountResponse>? _loadResult;
     private LinkDto? _changeEmailLink;
     private string _currentEmail = string.Empty;
     private string _submittedEmail = string.Empty;
@@ -146,11 +146,11 @@
         // here instead.
         EmailInput ??= new ChangeEmailFormModel();
 
-        _loadResult = await Loader.LoadExportAsync(CancellationToken.None);
+        _loadResult = await Loader.LoadAccountAsync(CancellationToken.None);
         if (_loadResult.IsSuccess)
         {
             _changeEmailLink = _loadResult.Value.Links.FindLink(Rels.ChangeEmail);
-            _currentEmail = _loadResult.Value.AuthData.Email;
+            _currentEmail = _loadResult.Value.Account.Email;
         }
     }
 

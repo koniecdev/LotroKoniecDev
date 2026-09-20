@@ -37,7 +37,7 @@ public sealed class DeleteAccountTests : BunitContext
     [Fact]
     public void Render_WhenDeleteRelAdvertised_ShowsTheFormWithModelBoundInputNames()
     {
-        StubExport(AccountLoaderTests.CreateEnvelope(links:
+        StubAccount(AccountLoaderTests.CreateEnvelope(links:
         [
             new LinkDto("auth/account/delete", Rels.DeleteAccount, "POST")
         ]));
@@ -53,7 +53,7 @@ public sealed class DeleteAccountTests : BunitContext
     [Fact]
     public void Render_WhenDeleteRelAdvertised_ExplainsTheConsequencesIncludingTheEmailOnlyCancel()
     {
-        StubExport(AccountLoaderTests.CreateEnvelope(links:
+        StubAccount(AccountLoaderTests.CreateEnvelope(links:
         [
             new LinkDto("auth/account/delete", Rels.DeleteAccount, "POST")
         ]));
@@ -68,7 +68,7 @@ public sealed class DeleteAccountTests : BunitContext
     public void Render_WhenDeletionAlreadyScheduled_ShowsTheNoticeAndNoForm()
     {
         // The API suppresses every rel except cancel-deletion once a deletion is scheduled (ADR-0031).
-        StubExport(AccountLoaderTests.CreateEnvelope(
+        StubAccount(AccountLoaderTests.CreateEnvelope(
             deletionScheduledAt: new DateTimeOffset(2026, 7, 11, 8, 0, 0, TimeSpan.Zero),
             links: [new LinkDto("auth/account/cancel-deletion", Rels.CancelDeletion, "POST")]));
 
@@ -81,7 +81,7 @@ public sealed class DeleteAccountTests : BunitContext
     [Fact]
     public void Render_WhenDeleteRelMissingAndNothingScheduled_ShowsTheUnavailableNotice()
     {
-        StubExport(AccountLoaderTests.CreateEnvelope(links: []));
+        StubAccount(AccountLoaderTests.CreateEnvelope(links: []));
 
         IRenderedComponent<DeleteAccountComponent> component = Render<DeleteAccountComponent>();
 
@@ -95,10 +95,10 @@ public sealed class DeleteAccountTests : BunitContext
         _discoveryCache.GetAuthSystemDiscoveryAsync(Arg.Any<CancellationToken>())
             .Returns(ApiResult.Success(new AuthDiscoveryResponse("LotroKoniecDev.AuthSystem")
             {
-                Links = [new LinkDto("auth/account/data-export", Rels.ExportAccountData, "GET")]
+                Links = [new LinkDto("auth/account", Rels.Account, "GET")]
             }));
-        _client.GetApiResultAsync<AccountDataExportResponse>(Arg.Any<string>(), Arg.Any<CancellationToken>())
-            .Returns(ApiResult.Failure<AccountDataExportResponse>(
+        _client.GetApiResultAsync<AccountResponse>(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(ApiResult.Failure<AccountResponse>(
                 new Microsoft.AspNetCore.Mvc.ProblemDetails { Title = "Unauthorized", Status = 401 }));
 
         IRenderedComponent<DeleteAccountComponent> component = Render<DeleteAccountComponent>();
@@ -107,15 +107,15 @@ public sealed class DeleteAccountTests : BunitContext
         component.FindAll(".error-message").ShouldBeEmpty();
     }
 
-    private void StubExport(AccountDataExportResponse envelope)
+    private void StubAccount(AccountResponse envelope)
     {
         AuthDiscoveryResponse discovery = new("LotroKoniecDev.AuthSystem")
         {
-            Links = [new LinkDto("auth/account/data-export", Rels.ExportAccountData, "GET")]
+            Links = [new LinkDto("auth/account", Rels.Account, "GET")]
         };
         _discoveryCache.GetAuthSystemDiscoveryAsync(Arg.Any<CancellationToken>())
             .Returns(ApiResult.Success(discovery));
-        _client.GetApiResultAsync<AccountDataExportResponse>(Arg.Any<string>(), Arg.Any<CancellationToken>())
+        _client.GetApiResultAsync<AccountResponse>(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(ApiResult.Success(envelope));
     }
 }

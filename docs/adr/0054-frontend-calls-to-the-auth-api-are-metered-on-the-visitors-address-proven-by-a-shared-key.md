@@ -1,13 +1,13 @@
 # ADR-0054: Frontend Calls to the Auth API Are Metered on the Visitor's Address, Proven by a Per-Environment Shared Key
 
-**Status:** Accepted
+**Status:** Accepted (amended 2026-09-22 — see "Amendment: the TMS API uses the same key")
 **Date:** 2026-09-22
 **Decision-makers:** Solo maintainer (ticket #819)
 **Related:** AuthSystem.API (`Program.cs` rate-limit policies, `Services/RateLimiting`, `Settings`),
 Frontend (`Infrastructure/HttpClients`, `Infrastructure/Auth`, `Settings`), AuthSystem.Contracts;
 ADR-0053 (the per-account confirmation budget, whose alternative D deferred this), ADR-0034 and
 #399/#506 (forwarded-header trust pinned to Caddy's `/32`), ADR-0041 (no gateway);
-TheKittySaver ADR-0044 (the same decision on its Adoption API, lifted here); tickets #813, #819
+TheKittySaver ADR-0044 (the same decision on its Adoption API, lifted here); tickets #813, #819, #823
 
 ## Context
 
@@ -175,7 +175,7 @@ no hosted service, and its discovery cache resolves inline in the request.
 - **The merge that ships this reds the staging deploy on a box without the key.** Accepted: that is
   decision 6 working, and the rollback keeps the old release serving.
 - **The TMS API has the same shared bucket** (`fixed-by-ip`, 100/min, every translator page load).
-  Out of scope here; #823 applies this recipe there.
+  Out of scope here; #823 applies this recipe there (see the amendment below).
 
 ## Alternatives Considered
 
@@ -228,7 +228,8 @@ every consumer sees — a trust change well beyond the limiter.
 - Contracts: `AuthSystem.Contracts/Common/FrontendCallerHeaders.cs` — **new**; the two header names.
   When the TMS follow-up needs them, they move to `Utilities/LotroKoniecDev.Hateoas.Abstractions`,
   which every Contracts project and the frontend already reference and which hosts the vendor media
-  type for the same reason — never a `TranslationSystem` → `AuthSystem.Contracts` reference.
+  type for the same reason — never a `TranslationSystem` → `AuthSystem.Contracts` reference. (Moved
+  by #823.)
 - Auth API:
   - `Settings/FrontendCallerSettings.cs` + `Settings/FrontendCallerSettingsValidator.cs` — **new**;
     `FrontendCaller:Key`, required outside Development/Testing, at least 32 characters when set.
@@ -257,6 +258,41 @@ every consumer sees — a trust change well beyond the limiter.
   - Frontend: `FrontendCallerDelegatingHandlerTests` (the handler alone, and the three paths through
     the real registrations: the typed client under a retry, the token client, the OIDC back-channel),
     `AuthSystemSettingsValidatorTests`.
+
+## Amendment: the TMS API uses the same key (2026-09-22, #823)
+
+The TMS API had the same shared bucket. Its one policy, `fixed-by-ip` (100 requests per minute),
+was keyed on `Connection.RemoteIpAddress`, and every translator page load reaches it from the
+frontend container. At a few calls per page, 30–50 page views a minute across the whole site would
+have put every page on the 429 copy. The decision above now covers the TMS API too:
+
+- **One copy of the header names.** `FrontendCallerHeaders` moved from `AuthSystem.Contracts/Common`
+  to `Utilities/LotroKoniecDev.Hateoas.Abstractions`, which both Contracts projects and the frontend
+  already reference. The TMS never references `AuthSystem.Contracts`.
+- **The TMS API has its own copy of the resolver**: `Services/RateLimiting/RateLimitPartitionKeyResolver`
+  and `Settings/FrontendCallerSettings` with its validator, under the rules of §2 and §6. The two APIs
+  share the header names, not code, and each copy has its own unit suite.
+- **`fixed-by-ip` keys through the resolver.** §3's reason to keep some auth policies on the
+  connection does not apply here: the TMS API has no login form and sends no mail, so a leaked key
+  only lets its holder pick a bucket on 100 requests per minute. A direct caller, such as the CLI's
+  translation-file download, stays on its own address.
+- **One key per box, not one per API.** Compose passes the same `FRONTEND_CALLER_KEY` to tms-api as
+  `FrontendCaller__Key` and to the frontend as `TranslationSystem__CallerKey`. The frontend keeps one
+  key per API in its settings (`AuthSystemSettings.CallerKey`, `TranslationSystemSettings.CallerKey`),
+  and `FrontendCallerDelegatingHandler` takes the key of the API it calls, so the two keys could be
+  split later without a code change. It sits on `ITranslationSystemClient` outside the resilience
+  handler, as on the auth clients. No box needs a new line: it is the line #819 already requires.
+- **A test host can force the TMS limiter on** with `RateLimiting:ForceEnable`, as on the auth API.
+  The policy metadata is now always on the endpoint group, and `UseRateLimiter` is the one switch.
+- The TMS limiter still runs after authentication, so a request refused with 401 is not counted.
+  That is unchanged and not part of this amendment.
+
+Tests: `TranslationSystem.API.Tests.Unit` — `RateLimitPartitionKeyResolverTests`,
+`FrontendCallerSettingsValidatorTests`; `TranslationSystem.API.Tests.Integration` —
+`FrontendCallerKeyTests` (forced-on limiter: two translators behind the frontend, the container's own
+bucket, one visitor keeps one bucket whichever way the call arrives, calls short of a proven visitor);
+`Frontend.Tests.Unit` — `FrontendCallerDelegatingHandlerTests` (the TMS client through the real
+pipeline under a retry, with its own key) and `TranslationSystemSettingsValidatorTests`.
 
 ## References
 

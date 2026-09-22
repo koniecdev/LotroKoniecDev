@@ -3,7 +3,6 @@ using LotroKoniecDev.AuthSystem.Contracts.Features.Auth;
 using LotroKoniecDev.Frontend.Infrastructure.HttpClients.AuthSystemHttpClients;
 using LotroKoniecDev.Frontend.Infrastructure.HttpClients.TranslationSystemHttpClients;
 using LotroKoniecDev.Frontend.Settings;
-using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Http.Resilience;
 using Microsoft.Extensions.Options;
 using Polly;
@@ -36,11 +35,13 @@ public static class HttpClientsDependencyInjectionExtensions
                 })
                 .SetHandlerLifetime(Timeout.InfiniteTimeSpan)
                 .AddHttpMessageHandler<TranslationContentNegotiationAndAuthDelegatingHandler>()
+                // Outside the resilience handler on purpose: a retried request is the same message, so
+                // the caller headers are added once and the TMS API sees one value each (ADR-0054, #823).
+                .AddFrontendCallerHandler<TranslationSystemSettings>(settings => settings.CallerKey)
                 .AddResilienceHandler("TranslationSystemResilience", ConfigureResiliencePipeline);
 
             services.AddTransient<AuthContentNegotiationAndAuthDelegatingHandler>();
             services.AddHttpContextAccessor();
-            services.TryAddTransient<FrontendCallerDelegatingHandler>();
 
             services.AddHttpClient<IAuthSystemClient, AuthSystemClient>((sp, client) =>
                 {
@@ -57,11 +58,24 @@ public static class HttpClientsDependencyInjectionExtensions
                 .AddHttpMessageHandler<AuthContentNegotiationAndAuthDelegatingHandler>()
                 // Outside the resilience handler on purpose: a retried request is the same message, so
                 // the caller headers are added once and the auth API sees one value each (ADR-0054).
-                .AddHttpMessageHandler<FrontendCallerDelegatingHandler>()
+                .AddFrontendCallerHandler<AuthSystemSettings>(settings => settings.CallerKey)
                 .AddResilienceHandler("AuthSystemResilience", ConfigureResiliencePipeline);
 
             return services;
         }
+    }
+
+    extension(IHttpClientBuilder builder)
+    {
+        /// <summary>
+        /// Adds <see cref="FrontendCallerDelegatingHandler"/> with the caller key of the API this client
+        /// calls (ADR-0054). One box has one key today, but each API's settings carry their own copy.
+        /// </summary>
+        internal IHttpClientBuilder AddFrontendCallerHandler<TSettings>(Func<TSettings, string?> readCallerKey)
+            where TSettings : class =>
+            builder.AddHttpMessageHandler(serviceProvider => new FrontendCallerDelegatingHandler(
+                serviceProvider.GetRequiredService<IHttpContextAccessor>(),
+                readCallerKey(serviceProvider.GetRequiredService<IOptions<TSettings>>().Value)));
     }
 
     private static void ConfigureResiliencePipeline(ResiliencePipelineBuilder<HttpResponseMessage> pipeline)

@@ -4,7 +4,6 @@ using LotroKoniecDev.Frontend.Settings;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authentication.OpenIdConnect;
-using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Protocols.OpenIdConnect;
 
@@ -53,14 +52,13 @@ internal static class AuthenticationDependencyInjectionExtensions
             // The refresh grant and the OIDC back-channel below carry the visitor's address to the auth
             // API the same way the typed account client does (ADR-0054).
             services.AddHttpContextAccessor();
-            services.TryAddTransient<FrontendCallerDelegatingHandler>();
             services.AddHttpClient<ITokenEndpointClient, TokenEndpointClient>((sp, client) =>
                 {
                     AuthSystemSettings settings = sp
                         .GetRequiredService<IOptions<AuthSystemSettings>>().Value;
                     client.BaseAddress = new Uri(settings.BaseUrl);
                 })
-                .AddHttpMessageHandler<FrontendCallerDelegatingHandler>();
+                .AddFrontendCallerHandler<AuthSystemSettings>(settings => settings.CallerKey);
 
             services.AddAuthentication(options =>
                 {
@@ -170,7 +168,7 @@ internal static class AuthenticationDependencyInjectionExtensions
         // not through the typed clients, so the visitor's address rides on it too (ADR-0054). The
         // framework builds that client from this handler after every Configure has run. A back-channel
         // handler configured elsewhere is wrapped, never replaced.
-        options.BackchannelHttpHandler = new FrontendCallerDelegatingHandler(httpContextAccessor, authSystemOptions)
+        options.BackchannelHttpHandler = new FrontendCallerDelegatingHandler(httpContextAccessor, settings.CallerKey)
         {
             InnerHandler = options.BackchannelHttpHandler ?? new HttpClientHandler()
         };

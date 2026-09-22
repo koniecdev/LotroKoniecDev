@@ -9,6 +9,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.IdentityModel.JsonWebTokens;
 using Microsoft.IdentityModel.Tokens;
+using Npgsql;
 using Testcontainers.PostgreSql;
 using LotroKoniecDev.SharedKernel.Authorization;
 using LotroKoniecDev.TranslationSystem.API.Features.Progress;
@@ -190,7 +191,13 @@ public class TranslationSystemApiFactory : WebApplicationFactory<Program>, IAsyn
     public async Task InitializeAsync()
     {
         await _postgresContainer.StartAsync();
-        _connectionString = _postgresContainer.GetConnectionString();
+
+        // Same as the auth twin: a PostgreSQL failure names the processes involved instead of
+        // "Detail redacted" (#821).
+        _connectionString = new NpgsqlConnectionStringBuilder(_postgresContainer.GetConnectionString())
+        {
+            IncludeErrorDetail = true
+        }.ConnectionString;
 
         // N-1 compat runs (ADR-0024) pre-apply the HEAD schema here; MigrateAsync below then
         // no-ops and this suite exercises its (older) code against the newer schema.

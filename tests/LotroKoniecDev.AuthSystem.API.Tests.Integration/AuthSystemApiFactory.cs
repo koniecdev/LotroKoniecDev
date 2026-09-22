@@ -6,10 +6,12 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using Npgsql;
 using Testcontainers.PostgreSql;
 using LotroKoniecDev.AuthSystem.API.BackgroundServices;
 using LotroKoniecDev.AuthSystem.API.Extensions;
 using LotroKoniecDev.AuthSystem.API.Services.Emails;
+using LotroKoniecDev.AuthSystem.API.Services.Maintenance;
 using LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared;
 using LotroKoniecDev.AuthSystem.Infrastructure.Messaging;
 using LotroKoniecDev.AuthSystem.Persistence;
@@ -136,13 +138,16 @@ public class AuthSystemApiFactory : WebApplicationFactory<Program>, IAsyncLifeti
             // This suite runs without a broker. The consumer would keep retrying the connection and
             // filling the log with warnings, so it is removed. Its logic has its own unit tests through
             // EmailConfirmationRequestProcessor.
-            ServiceDescriptor? emailConsumer = services.FirstOrDefault(d =>
-                d.ServiceType == typeof(IHostedService)
-                && d.ImplementationType == typeof(EmailDispatchConsumer));
-            if (emailConsumer is not null)
-            {
-                services.Remove(emailConsumer);
-            }
+            RemoveHostedService<EmailDispatchConsumer>(services);
+
+            // No job that runs on the real clock is hosted here. A prune pass and a due deletion each
+            // write several tables in one transaction, and the cleaner's TRUNCATE takes the same tables
+            // in another order: the prune's one-minute start deadlocked it mid-suite (#821). Their tests
+            // call PruneOnceAsync and IAccountDeletionFinalizer directly. The outbox relay stays: it
+            // wakes on a signal, registration tests need it, and each of its statements touches one table.
+            RemoveHostedService<OpenIddictPruneService>(services);
+            RemoveHostedService<AccountDeletionFinalizerHostedService>(services);
+            services.AddSingleton<OpenIddictPruneService>();
 
             // The RabbitMQ publisher is replaced with a spy, because this suite has no broker and the
             // outbox relay tests check what was published. The spy also plays the part of the removed
@@ -225,7 +230,14 @@ public class AuthSystemApiFactory : WebApplicationFactory<Program>, IAsyncLifeti
     public virtual async Task InitializeAsync()
     {
         await _postgresContainer.StartAsync();
-        _connectionString = _postgresContainer.GetConnectionString();
+
+        // With the error detail on, a PostgreSQL failure such as a deadlock (40P01) reports which
+        // processes held what, instead of "Detail redacted" (#821). The test database holds no data
+        // worth protecting from a test log.
+        _connectionString = new NpgsqlConnectionStringBuilder(_postgresContainer.GetConnectionString())
+        {
+            IncludeErrorDetail = true
+        }.ConnectionString;
 
         // N-1 compat runs (ADR-0024) pre-apply the HEAD schema here; the seeder's MigrateAsync
         // then no-ops and this suite exercises its (older) code against the newer schema.
@@ -240,5 +252,27 @@ public class AuthSystemApiFactory : WebApplicationFactory<Program>, IAsyncLifeti
     public new virtual async Task DisposeAsync()
     {
         await _postgresContainer.DisposeAsync();
+    }
+
+    /// <summary>
+    /// Takes one hosted service off this host. Strict on purpose: exactly one registration must exist,
+    /// so a production wiring that changes shape fails the whole suite instead of leaving a job on the
+    /// clock or a removed one untested (#821).
+    /// </summary>
+    private static void RemoveHostedService<THostedService>(IServiceCollection services)
+        where THostedService : IHostedService
+    {
+        List<ServiceDescriptor> descriptors = services
+            .Where(d => d.ServiceType == typeof(IHostedService) && d.ImplementationType == typeof(THostedService))
+            .ToList();
+
+        if (descriptors.Count != 1)
+        {
+            throw new InvalidOperationException(
+                $"Expected exactly one hosted registration of {typeof(THostedService).Name}, found {descriptors.Count}. "
+                + "AddAuthApi and this test host have drifted apart (#821).");
+        }
+
+        services.Remove(descriptors[0]);
     }
 }

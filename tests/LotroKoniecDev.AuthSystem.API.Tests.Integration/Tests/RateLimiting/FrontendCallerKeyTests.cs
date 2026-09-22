@@ -70,10 +70,12 @@ public sealed class FrontendCallerKeyTests : EndpointsTestBase
         bucketSpent.StatusCode.ShouldBe(HttpStatusCode.TooManyRequests);
 
         // Act: the bystander logs in and opens their account page from the same container
-        string bystanderToken = await GetAccessTokenAsync(client, bystander.Email, bystanderVisitor);
+        using HttpResponseMessage bystanderLogin = await PostTokenRequestAsync(client, bystander.Email, bystanderVisitor);
+        string bystanderToken = bystanderLogin.IsSuccessStatusCode ? await ReadAccessTokenAsync(bystanderLogin) : string.Empty;
         using HttpResponseMessage bystanderPageView = await GetAccountAsync(client, bystanderToken, bystanderVisitor);
 
         // Assert: the bucket that filled is the first visitor's, not the container's
+        bystanderLogin.StatusCode.ShouldBe(HttpStatusCode.OK);
         bystanderPageView.StatusCode.ShouldBe(HttpStatusCode.OK);
     }
 
@@ -208,11 +210,17 @@ public sealed class FrontendCallerKeyTests : EndpointsTestBase
         public static Caller ThroughTheFrontend(string visitorAddress) => new(FrontendAddress, [FrontendKey], [visitorAddress]);
     }
 
+    // Arrange-only: a login that is itself the Act of a test is sent with PostTokenRequestAsync and
+    // asserted in the test body.
     private static async Task<string> GetAccessTokenAsync(HttpClient client, string email, Caller caller)
     {
         using HttpResponseMessage tokenResponse = await PostTokenRequestAsync(client, email, caller);
         tokenResponse.StatusCode.ShouldBe(HttpStatusCode.OK);
+        return await ReadAccessTokenAsync(tokenResponse);
+    }
 
+    private static async Task<string> ReadAccessTokenAsync(HttpResponseMessage tokenResponse)
+    {
         using JsonDocument json = JsonDocument.Parse(await tokenResponse.Content.ReadAsStringAsync());
         return json.RootElement.GetProperty("access_token").GetString()!;
     }

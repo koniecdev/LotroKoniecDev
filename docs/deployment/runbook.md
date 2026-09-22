@@ -588,7 +588,7 @@ scripts/up-prod.sh --build          # PowerShell: scripts/up-prod.ps1 --build
 It bootstraps `.env.prod` (with freshly generated OpenIddict secrets and the frontend caller key), the
 local CA + certs, and the `*.lotro.test` hosts mapping, then runs `docker compose -f compose.prod.yaml up`.
 The bootstrap runs only when `.env.prod` is absent: one that predates ADR-0054 needs the key appended
-by hand — `scripts/gen-openiddict-keys.sh | grep '^FRONTEND_CALLER_KEY=' >> .env.prod` — or compose
+by hand — `printf 'FRONTEND_CALLER_KEY=%s\n' "$(openssl rand -base64 32)" >> .env.prod` — or compose
 refuses to render. Verify:
 
 ```bash

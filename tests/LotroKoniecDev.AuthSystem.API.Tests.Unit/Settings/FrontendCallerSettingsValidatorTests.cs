@@ -1,16 +1,13 @@
 using LotroKoniecDev.AuthSystem.API.Settings;
 using Microsoft.AspNetCore.Hosting;
-using Microsoft.Extensions.FileProviders;
 using Microsoft.Extensions.Options;
-using Shouldly;
+using NSubstitute;
 
-namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Tests.Settings;
+namespace LotroKoniecDev.AuthSystem.API.Tests.Unit.Settings;
 
 /// <summary>
-/// Pure unit coverage for the frontend caller key guard (ADR-0054 §6). It lives in the integration
-/// project next to <see cref="CorsSettingsValidatorTests"/>; it instantiates no factory and starts no
-/// container. A box without the key would quietly put every visitor's frontend calls back into one
-/// bucket, so a deployed host refuses to boot without it.
+/// The frontend caller key guard (ADR-0054 §6). A box without the key would quietly put every visitor's
+/// frontend calls back into one bucket, so a deployed host refuses to boot without it.
 /// </summary>
 public sealed class FrontendCallerSettingsValidatorTests
 {
@@ -79,20 +76,9 @@ public sealed class FrontendCallerSettingsValidatorTests
     }
 
     private static FrontendCallerSettingsValidator CreateValidator(string environmentName)
-        => new(new FakeWebHostEnvironment(environmentName));
-}
-
-file sealed class FakeWebHostEnvironment : IWebHostEnvironment
-{
-    public FakeWebHostEnvironment(string environmentName)
     {
-        EnvironmentName = environmentName;
+        IWebHostEnvironment environment = Substitute.For<IWebHostEnvironment>();
+        environment.EnvironmentName.Returns(environmentName);
+        return new FrontendCallerSettingsValidator(environment);
     }
-
-    public string EnvironmentName { get; set; }
-    public string ApplicationName { get; set; } = "auth-tests";
-    public string ContentRootPath { get; set; } = string.Empty;
-    public IFileProvider ContentRootFileProvider { get; set; } = null!;
-    public string WebRootPath { get; set; } = string.Empty;
-    public IFileProvider WebRootFileProvider { get; set; } = null!;
 }

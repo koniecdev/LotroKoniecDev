@@ -39,6 +39,7 @@ public static class HttpClientsDependencyInjectionExtensions
                 .AddResilienceHandler("TranslationSystemResilience", ConfigureResiliencePipeline);
 
             services.AddTransient<AuthContentNegotiationAndAuthDelegatingHandler>();
+            services.AddHttpContextAccessor();
             services.TryAddTransient<FrontendCallerDelegatingHandler>();
 
             services.AddHttpClient<IAuthSystemClient, AuthSystemClient>((sp, client) =>

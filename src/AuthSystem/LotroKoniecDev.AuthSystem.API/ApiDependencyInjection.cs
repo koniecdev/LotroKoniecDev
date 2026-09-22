@@ -113,9 +113,10 @@ internal static class ApiDependencyInjection
             services.AddSingleton<IPasswordConfirmationThrottle>(_ =>
                 new PerAccountFixedWindowThrottle(AccountBudgets.PasswordConfirmationPermitLimit, AccountBudgets.Window));
 
-            // Every per-address limiter policy in Program.cs takes its key from this resolver: a direct
-            // caller's own address, or the visitor's address the frontend forwards next to the
-            // environment's key (ADR-0054). The key is required outside Development and Testing.
+            // The three policies the frontend reaches (fixed-by-ip, auth-endpoint-limit, change-email-limit)
+            // take their key from this resolver: a direct caller's own address, or the visitor's address
+            // the frontend forwards next to the environment's key. The page policies stay on the
+            // connection's address (ADR-0054 §3). The key is required outside Development and Testing.
             services.AddOptions<FrontendCallerSettings>()
                 .BindConfiguration(FrontendCallerSettings.ConfigurationSection)
                 .ValidateOnStart();

@@ -1,3 +1,5 @@
+using System.Net.Http.Json;
+using LotroKoniecDev.AuthSystem.Contracts.Features.Auth;
 using LotroKoniecDev.Frontend.Infrastructure.HttpClients.AuthSystemHttpClients;
 using LotroKoniecDev.Frontend.Infrastructure.HttpClients.TranslationSystemHttpClients;
 using LotroKoniecDev.Frontend.Settings;
@@ -107,14 +109,28 @@ public static class HttpClientsDependencyInjectionExtensions
             : DefaultRequestTimeout;
 
     /// <summary>
-    /// Multipart uploads are left out. Their body can only be read once, so a retry would send an
-    /// already-consumed stream, and an upload refused for being too large, which shows up as a broken
-    /// pipe rather than a 413, will not succeed on a second try either. Retrying it only multiplies the
-    /// load and keeps the request waiting through every attempt and timeout.
+    /// Whether the pipeline may send a request a second time. Two kinds of request may not.
+    /// A multipart upload's body can only be read once, so a retry would send an already-consumed stream,
+    /// and an upload refused for being too large, which shows up as a broken pipe rather than a 413, will
+    /// not succeed on a second try either. Retrying it only multiplies the load and keeps the request
+    /// waiting through every attempt and timeout.
+    /// A request that carries a password confirmation spends one permit of the account's budget per
+    /// attempt (ADR-0053). The retry fires on the per-attempt timeout as well, and a slow auth API still
+    /// serves the first attempt, so one click would spend two or three permits.
+    /// The same answer feeds the circuit breaker, so a failure on one of these requests does not count
+    /// toward opening it, exactly as a multipart failure never did.
     /// </summary>
+    internal static bool MayRetry(HttpRequestMessage? request) =>
+        request?.Content switch
+        {
+            MultipartFormDataContent => false,
+            JsonContent { ObjectType: { } bodyType } when bodyType.IsAssignableTo(typeof(IPasswordConfirmationRequest)) => false,
+            _ => true
+        };
+
     private static bool IsHandledTransientFailure(Outcome<HttpResponseMessage> outcome, ResilienceContext context)
     {
-        if (context.GetRequestMessage()?.Content is MultipartFormDataContent)
+        if (!MayRetry(context.GetRequestMessage()))
         {
             return false;
         }

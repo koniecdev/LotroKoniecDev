@@ -8,6 +8,7 @@ using LotroKoniecDev.AuthSystem.API.Common;
 using LotroKoniecDev.AuthSystem.API.Extensions;
 using LotroKoniecDev.AuthSystem.API.Outbox;
 using LotroKoniecDev.AuthSystem.API.Services.Gdpr;
+using LotroKoniecDev.AuthSystem.API.Services.RateLimiting;
 using LotroKoniecDev.AuthSystem.Contracts.Features.Auth.Account;
 using LotroKoniecDev.AuthSystem.Domain.Aggregates.ApplicationUsers.Entities;
 using LotroKoniecDev.SharedKernel.Messaging;
@@ -55,6 +56,7 @@ internal sealed partial class DeleteAccount : IApiEndpoint
         private readonly IOpenIddictAuthorizationManager _authorizationManager;
         private readonly OutboxWriter _outboxWriter;
         private readonly IAccountDeletionSchedule _deletionSchedule;
+        private readonly IPasswordConfirmationThrottle _confirmationThrottle;
         private readonly TimeProvider _timeProvider;
         private readonly IValidator<Command> _validator;
         private readonly ILogger<Handler> _logger;
@@ -65,6 +67,7 @@ internal sealed partial class DeleteAccount : IApiEndpoint
             IOpenIddictAuthorizationManager authorizationManager,
             OutboxWriter outboxWriter,
             IAccountDeletionSchedule deletionSchedule,
+            IPasswordConfirmationThrottle confirmationThrottle,
             TimeProvider timeProvider,
             IValidator<Command> validator,
             ILogger<Handler> logger)
@@ -74,6 +77,7 @@ internal sealed partial class DeleteAccount : IApiEndpoint
             _authorizationManager = authorizationManager;
             _outboxWriter = outboxWriter;
             _deletionSchedule = deletionSchedule;
+            _confirmationThrottle = confirmationThrottle;
             _timeProvider = timeProvider;
             _validator = validator;
             _logger = logger;
@@ -85,6 +89,21 @@ internal sealed partial class DeleteAccount : IApiEndpoint
             if (!validationResult.IsValid)
             {
                 return Result.Failure<ScheduledDeletion>(validationResult.ToValidationError(nameof(DeleteAccount)));
+            }
+
+            // The permit comes first: after validation, before the account is even loaded. A refused
+            // request then costs no database read, a burst of guesses cannot slip past the gate, and every
+            // later refusal sits behind it, so probing an account's state costs a permit too (ADR-0053).
+            // The key is the id the token names; a token this server signed always carries one.
+            if (!Guid.TryParse(command.UserId, out Guid userId))
+            {
+                return Result.Failure<ScheduledDeletion>(AuthErrors.UserNotFound);
+            }
+
+            if (!_confirmationThrottle.TryAcquire(userId))
+            {
+                LogPasswordConfirmationThrottled(_logger, userId);
+                return Result.Failure<ScheduledDeletion>(AuthErrors.PasswordConfirmationThrottled);
             }
 
             ApplicationUser? user = await _userManager.FindByIdAsync(command.UserId);
@@ -177,6 +196,9 @@ internal sealed partial class DeleteAccount : IApiEndpoint
 
         [LoggerMessage(EventId = EventIds.GdprDeletionScheduleArtifactRevocationFailed, Level = LogLevel.Warning, Message = "Failed to revoke OpenIddict artifacts for user {UserId} while scheduling deletion. Refresh tokens may stay valid until expiry.")]
         private static partial void LogArtifactRevocationFailed(ILogger logger, Exception exception, Guid userId);
+
+        [LoggerMessage(EventId = EventIds.PasswordConfirmationThrottled, Level = LogLevel.Warning, Message = "Account deletion refused for user {UserId}: the password confirmation budget is spent")]
+        private static partial void LogPasswordConfirmationThrottled(ILogger logger, Guid userId);
     }
 
     public void MapEndpoint(IEndpointRouteBuilder endpointRouteBuilder)
@@ -217,13 +239,17 @@ internal sealed partial class DeleteAccount : IApiEndpoint
                 return Results.NoContent();
             })
             .RequireAuthorization()
-            .RequireRateLimiting("auth-endpoint-limit")
+            // Off the per-IP policies on purpose (ADR-0053). Every call here comes from the frontend, so an
+            // IP key is one bucket for every user, and one user's traffic could refuse another's deletion.
+            // The brake is the per-account confirmation budget in the handler.
+            .DisableRateLimiting()
             .WithName(nameof(DeleteAccount))
             .WithTags("Account")
             .Produces(StatusCodes.Status204NoContent)
             .ProducesProblem(StatusCodes.Status400BadRequest)
             .ProducesProblem(StatusCodes.Status401Unauthorized)
             .ProducesProblem(StatusCodes.Status422UnprocessableEntity)
+            .ProducesProblem(StatusCodes.Status429TooManyRequests)
             .ProducesProblem(StatusCodes.Status500InternalServerError);
     }
 

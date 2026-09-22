@@ -134,6 +134,7 @@ public sealed class ApiProblemCopyTests
     [InlineData("TranslationEntity.CannotApproveWithoutTranslation", 422, "Nie można zatwierdzić pustego tłumaczenia — najpierw wpisz polski tekst.")]
     [InlineData("Translations.Validation", 400, "Tłumaczenie nie może być puste i nie może przekraczać dozwolonej długości.")]
     [InlineData("Auth.InvalidCurrentPassword", 400, "Aktualne hasło jest nieprawidłowe.")]
+    [InlineData("Auth.PasswordConfirmationThrottled", 429, "Zbyt wiele prób potwierdzenia hasła. Odczekaj kwadrans i spróbuj ponownie.")]
     [InlineData("Validation.FluentValidation", 400, "Formularz zawiera nieprawidłowe dane.")]
     [InlineData("Internal.UnhandledException", 500, "Wystąpił nieoczekiwany błąd serwera. Spróbuj ponownie za chwilę.")]
     public void Describe_WhenTheErrorCodeIsMapped_ShowsThePolishCopy(

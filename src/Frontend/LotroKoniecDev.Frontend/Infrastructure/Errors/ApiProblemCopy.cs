@@ -37,14 +37,17 @@ internal static class ApiProblemCopy
     internal const string TraceIdExtensionKey = "traceId";
 
     /// <summary>
-    /// The two codes the export download route has to tell apart from every other failure, because it
-    /// redirects on them instead of rendering a problem (#690). Named once, so the route and the map
-    /// below cannot drift.
+    /// The three codes the export download route has to tell apart from every other failure, because it
+    /// redirects on them instead of rendering a problem (#690, #813). Named once, so the route and the
+    /// map below cannot drift.
     /// </summary>
     internal const string InvalidCurrentPasswordCode = "Auth.InvalidCurrentPassword";
 
     /// <inheritdoc cref="InvalidCurrentPasswordCode"/>
     internal const string ExportPasswordRequiredCode = "Auth.ExportPasswordRequired";
+
+    /// <inheritdoc cref="InvalidCurrentPasswordCode"/>
+    internal const string PasswordConfirmationThrottledCode = "Auth.PasswordConfirmationThrottled";
 
     /// <summary>
     /// The last resort: a failure from an API whose code has no text here and whose status has none
@@ -164,6 +167,10 @@ internal static class ApiProblemCopy
                 "Nie znaleziono konta.",
             [InvalidCurrentPasswordCode] =
                 "Aktualne hasło jest nieprawidłowe.",
+            // The export page carries its own copy of this sentence too, behind its "password-throttled"
+            // marker; the other three account pages read this one.
+            [PasswordConfirmationThrottledCode] =
+                "Zbyt wiele prób potwierdzenia hasła. Odczekaj kwadrans i spróbuj ponownie.",
             // The export page carries its own copy of this sentence, because its route redirects and a
             // redirect carries no problem body. The entry stays because this map covers every code the
             // APIs can produce.

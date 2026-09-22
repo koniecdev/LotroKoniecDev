@@ -66,8 +66,7 @@ internal static class HttpClientApiExtensions
             object body,
             CancellationToken cancellationToken = default)
         {
-            using HttpRequestMessage request = new(HttpMethod.Post, new Uri(uri, UriKind.RelativeOrAbsolute));
-            request.Content = JsonContent.Create(body, body.GetType(), options: JsonOptions);
+            using HttpRequestMessage request = CreateJsonRequest(HttpMethod.Post, uri, body);
             return await SendForApiResultAsync(httpClient, request, cancellationToken);
         }
 
@@ -76,8 +75,7 @@ internal static class HttpClientApiExtensions
             object body,
             CancellationToken cancellationToken = default)
         {
-            using HttpRequestMessage request = new(HttpMethod.Post, new Uri(uri, UriKind.RelativeOrAbsolute));
-            request.Content = JsonContent.Create(body, body.GetType(), options: JsonOptions);
+            using HttpRequestMessage request = CreateJsonRequest(HttpMethod.Post, uri, body);
             return await SendForApiResultAsync<T>(httpClient, request, cancellationToken);
         }
 
@@ -92,8 +90,7 @@ internal static class HttpClientApiExtensions
             object body,
             CancellationToken cancellationToken = default)
         {
-            using HttpRequestMessage request = new(HttpMethod.Post, new Uri(uri, UriKind.RelativeOrAbsolute));
-            request.Content = JsonContent.Create(body, body.GetType(), options: JsonOptions);
+            using HttpRequestMessage request = CreateJsonRequest(HttpMethod.Post, uri, body);
             try
             {
                 using HttpResponseMessage response = await httpClient.SendAsync(request, cancellationToken);
@@ -117,8 +114,7 @@ internal static class HttpClientApiExtensions
             object body,
             CancellationToken cancellationToken = default)
         {
-            using HttpRequestMessage request = new(HttpMethod.Put, new Uri(uri, UriKind.RelativeOrAbsolute));
-            request.Content = JsonContent.Create(body, body.GetType(), options: JsonOptions);
+            using HttpRequestMessage request = CreateJsonRequest(HttpMethod.Put, uri, body);
             return await SendForApiResultAsync(httpClient, request, cancellationToken);
         }
 
@@ -127,8 +123,7 @@ internal static class HttpClientApiExtensions
             object body,
             CancellationToken cancellationToken = default)
         {
-            using HttpRequestMessage request = new(HttpMethod.Put, new Uri(uri, UriKind.RelativeOrAbsolute));
-            request.Content = JsonContent.Create(body, body.GetType(), options: JsonOptions);
+            using HttpRequestMessage request = CreateJsonRequest(HttpMethod.Put, uri, body);
             return await SendForApiResultAsync<T>(httpClient, request, cancellationToken);
         }
 
@@ -145,8 +140,7 @@ internal static class HttpClientApiExtensions
             object body,
             CancellationToken cancellationToken = default)
         {
-            using HttpRequestMessage request = new(HttpMethod.Patch, new Uri(uri, UriKind.RelativeOrAbsolute));
-            request.Content = JsonContent.Create(body, body.GetType(), options: JsonOptions);
+            using HttpRequestMessage request = CreateJsonRequest(HttpMethod.Patch, uri, body);
             return await SendForApiResultAsync(httpClient, request, cancellationToken);
         }
 
@@ -184,6 +178,18 @@ internal static class HttpClientApiExtensions
             return await SendForApiResultAsync<T>(httpClient, request, cancellationToken);
         }
     }
+
+    /// <summary>
+    /// The one place a JSON body is attached. The body's runtime type goes into <c>JsonContent</c> on
+    /// purpose: it is what lets the resilience pipeline see a password confirmation and send it exactly
+    /// once (ADR-0053). A <c>JsonContent.Create&lt;object&gt;</c> here would serialise the same bytes and
+    /// silently lose that.
+    /// </summary>
+    private static HttpRequestMessage CreateJsonRequest(HttpMethod method, string uri, object body) =>
+        new(method, new Uri(uri, UriKind.RelativeOrAbsolute))
+        {
+            Content = JsonContent.Create(body, body.GetType(), options: JsonOptions)
+        };
 
     private static async Task<ApiResult<T>> SendForApiResultAsync<T>(
         HttpClient httpClient,

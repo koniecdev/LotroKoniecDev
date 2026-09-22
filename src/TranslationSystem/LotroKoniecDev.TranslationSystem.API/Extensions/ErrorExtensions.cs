@@ -16,6 +16,7 @@ internal static class ErrorExtensions
                 TypeOfError.Validation => error.CreateProblemDetails(StatusCodes.Status400BadRequest),
                 TypeOfError.Forbidden => error.CreateProblemDetails(StatusCodes.Status403Forbidden),
                 TypeOfError.DataConflict => error.CreateProblemDetails(StatusCodes.Status422UnprocessableEntity),
+                TypeOfError.TooManyRequests => error.CreateProblemDetails(StatusCodes.Status429TooManyRequests),
                 _ => error.CreateProblemDetails(StatusCodes.Status500InternalServerError)
             };
             return response;
@@ -38,6 +39,7 @@ internal static class ErrorExtensions
                 TypeOfError.Validation => "Validation Error",
                 TypeOfError.DataConflict => "Data Conflict",
                 TypeOfError.Forbidden => "Forbidden",
+                TypeOfError.TooManyRequests => "Too Many Requests",
                 TypeOfError.Failure => "Internal Server Error",
                 _ => "Error"
             };

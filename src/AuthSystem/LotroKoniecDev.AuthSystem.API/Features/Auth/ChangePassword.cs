@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Identity;
 using LotroKoniecDev.AuthSystem.API.ApiErrors;
 using LotroKoniecDev.AuthSystem.API.Common;
 using LotroKoniecDev.AuthSystem.API.Extensions;
+using LotroKoniecDev.AuthSystem.API.Services.RateLimiting;
 using LotroKoniecDev.AuthSystem.API.Services.Sessions;
 using LotroKoniecDev.AuthSystem.Contracts.Features.Auth.Password;
 using LotroKoniecDev.AuthSystem.Domain.Aggregates.ApplicationUsers.Entities;
@@ -39,17 +40,20 @@ internal sealed partial class ChangePassword : IApiEndpoint
     {
         private readonly UserManager<ApplicationUser> _userManager;
         private readonly IUserSessionRevoker _sessionRevoker;
+        private readonly IPasswordConfirmationThrottle _confirmationThrottle;
         private readonly IValidator<Command> _validator;
         private readonly ILogger<Handler> _logger;
 
         public Handler(
             UserManager<ApplicationUser> userManager,
             IUserSessionRevoker sessionRevoker,
+            IPasswordConfirmationThrottle confirmationThrottle,
             IValidator<Command> validator,
             ILogger<Handler> logger)
         {
             _userManager = userManager;
             _sessionRevoker = sessionRevoker;
+            _confirmationThrottle = confirmationThrottle;
             _validator = validator;
             _logger = logger;
         }
@@ -60,6 +64,19 @@ internal sealed partial class ChangePassword : IApiEndpoint
             if (!validationResult.IsValid)
             {
                 return Result.Failure(validationResult.ToValidationError(nameof(ChangePassword)));
+            }
+
+            // The permit comes before the account is loaded (ADR-0053); ChangePasswordAsync checks the
+            // current password itself further down.
+            if (!Guid.TryParse(command.UserId, out Guid userId))
+            {
+                return Result.Failure(AuthErrors.UserNotFound);
+            }
+
+            if (!_confirmationThrottle.TryAcquire(userId))
+            {
+                LogPasswordConfirmationThrottled(_logger, userId);
+                return Result.Failure(AuthErrors.PasswordConfirmationThrottled);
             }
 
             ApplicationUser? user = await _userManager.FindByIdAsync(command.UserId);
@@ -111,6 +128,9 @@ internal sealed partial class ChangePassword : IApiEndpoint
 
         [LoggerMessage(EventId = EventIds.ChangePasswordFailed, Level = LogLevel.Warning, Message = "Password change failed for user {UserId}. Errors: {Errors}")]
         private static partial void LogPasswordChangeFailed(ILogger logger, Guid userId, string errors);
+
+        [LoggerMessage(EventId = EventIds.PasswordConfirmationThrottled, Level = LogLevel.Warning, Message = "Password change refused for user {UserId}: the password confirmation budget is spent")]
+        private static partial void LogPasswordConfirmationThrottled(ILogger logger, Guid userId);
     }
 
     public void MapEndpoint(IEndpointRouteBuilder endpointRouteBuilder)
@@ -138,7 +158,8 @@ internal sealed partial class ChangePassword : IApiEndpoint
                     : Results.Ok();
             })
             .RequireAuthorization()
-            .RequireRateLimiting("auth-endpoint-limit")
+            // Off the per-IP policies: the brake is the per-account budget in the handler (ADR-0053).
+            .DisableRateLimiting()
             .WithName(nameof(ChangePassword))
             .WithTags("Authentication")
             .Produces(StatusCodes.Status200OK)

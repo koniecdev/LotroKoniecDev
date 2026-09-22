@@ -3,19 +3,20 @@ using LotroKoniecDev.AuthSystem.API.Services.RateLimiting;
 namespace LotroKoniecDev.AuthSystem.API.Tests.Unit.Services.RateLimiting;
 
 /// <summary>
-/// The send budget that belongs to the account the mail would reach, not to the caller. The IP policies
-/// cannot stop an attacker who rotates IPs from mailing one victim, which is what this closes (#692).
+/// The budget that belongs to the account, not to the caller. The IP policies cannot stop an attacker who
+/// rotates addresses, and behind the frontend they see one address for everybody; this is what makes a
+/// brake per account (#692 for password-reset mail, #813 for password confirmations).
 /// </summary>
-public sealed class PasswordResetRequestThrottleTests
+public sealed class PerAccountFixedWindowThrottleTests
 {
-    /// <summary>Mirrors the shipped budget: 3 sends per 15 minutes per account.</summary>
-    private const int PermitLimit = PasswordResetRequestThrottle.DefaultPermitLimit;
+    /// <summary>The shipped confirmation budget: 10 per 15 minutes per account.</summary>
+    private const int PermitLimit = AccountBudgets.PasswordConfirmationPermitLimit;
 
     [Fact]
     public void TryAcquire_ShouldAllowTheBudgetAndRefuseWhatFollows()
     {
         // Arrange
-        using PasswordResetRequestThrottle throttle = new();
+        using PerAccountFixedWindowThrottle throttle = new(PermitLimit, AccountBudgets.Window);
         Guid userId = Guid.CreateVersion7();
 
         // Act
@@ -23,7 +24,7 @@ public sealed class PasswordResetRequestThrottleTests
             .Select(_ => throttle.TryAcquire(userId))
             .ToArray();
 
-        // Assert: the caller's IP never enters the key, so this holds however many IPs they use
+        // Assert: the caller's address never enters the key, so this holds however many addresses they use
         results.Take(PermitLimit).ShouldAllBe(acquired => acquired);
         results.Skip(PermitLimit).ShouldAllBe(acquired => !acquired);
     }
@@ -32,26 +33,26 @@ public sealed class PasswordResetRequestThrottleTests
     public void TryAcquire_ShouldKeepOneAccountBudgetOutOfAnother()
     {
         // Arrange
-        using PasswordResetRequestThrottle throttle = new();
-        Guid floodedUserId = Guid.CreateVersion7();
+        using PerAccountFixedWindowThrottle throttle = new(PermitLimit, AccountBudgets.Window);
+        Guid attackedUserId = Guid.CreateVersion7();
 
         // Act: spend one account's budget in full
         for (int i = 0; i < PermitLimit; i++)
         {
-            throttle.TryAcquire(floodedUserId);
+            throttle.TryAcquire(attackedUserId);
         }
 
-        // Assert: a flood at one inbox must not lock everybody else out of password reset
+        // Assert: a flood at one account must not lock everybody else out
         throttle.TryAcquire(Guid.CreateVersion7()).ShouldBeTrue();
     }
 
     [Fact]
     public async Task TryAcquire_ShouldGiveTheBudgetBackWhenTheWindowPasses()
     {
-        // Arrange: a wrong unit here — hours instead of minutes — would cut every user off from password
-        // reset for good, and no test of the limit alone would notice
+        // Arrange: a wrong unit here — hours instead of minutes — would cut every user off for good, and
+        // no test of the limit alone would notice
         TimeSpan window = TimeSpan.FromMilliseconds(200);
-        using PasswordResetRequestThrottle throttle = new(permitLimit: 1, window);
+        using PerAccountFixedWindowThrottle throttle = new(permitLimit: 1, window);
         Guid userId = Guid.CreateVersion7();
 
         throttle.TryAcquire(userId).ShouldBeTrue();
@@ -75,7 +76,7 @@ public sealed class PasswordResetRequestThrottleTests
     public void TryAcquire_ShouldCountAnEmptyIdLikeAnyOther()
     {
         // Arrange: an id is never empty in production, but the budget must not silently become shared
-        using PasswordResetRequestThrottle throttle = new();
+        using PerAccountFixedWindowThrottle throttle = new(PermitLimit, AccountBudgets.Window);
 
         // Act
         bool[] results = Enumerable.Range(0, PermitLimit + 1)
@@ -94,7 +95,7 @@ public sealed class PasswordResetRequestThrottleTests
     {
         // Act / Assert
         Should.Throw<ArgumentOutOfRangeException>(() =>
-            new PasswordResetRequestThrottle(permitLimit, TimeSpan.FromMinutes(15)).Dispose());
+            new PerAccountFixedWindowThrottle(permitLimit, AccountBudgets.Window).Dispose());
     }
 
     [Fact]
@@ -102,6 +103,6 @@ public sealed class PasswordResetRequestThrottleTests
     {
         // Act / Assert: a zero window would make the budget meaningless in one direction or the other
         Should.Throw<ArgumentOutOfRangeException>(() =>
-            new PasswordResetRequestThrottle(permitLimit: 3, TimeSpan.Zero).Dispose());
+            new PerAccountFixedWindowThrottle(permitLimit: 3, TimeSpan.Zero).Dispose());
     }
 }

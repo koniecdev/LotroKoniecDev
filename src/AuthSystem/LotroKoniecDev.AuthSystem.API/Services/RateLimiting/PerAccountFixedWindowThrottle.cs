@@ -3,7 +3,9 @@ using System.Threading.RateLimiting;
 namespace LotroKoniecDev.AuthSystem.API.Services.RateLimiting;
 
 /// <summary>
-/// The per-account half of the password-reset budget (#692).
+/// A fixed-window budget keyed on the account id: the one shape behind every per-account brake in this
+/// app. Each brake is its own instance with its own budget (<see cref="AccountBudgets"/>), registered
+/// under its own interface, so a handler can never spend the wrong one.
 /// </summary>
 /// <remarks>
 /// The key is the account id, not the address the caller typed. Identity finds a user through
@@ -16,23 +18,13 @@ namespace LotroKoniecDev.AuthSystem.API.Services.RateLimiting;
 /// thread-pool thread until the whole upload arrived, so a slow upload flood would starve the pool
 /// through the component meant to protect it.
 /// The budget is in process, like every IP policy in this app, so two running containers mean two
-/// budgets. That is the existing trade-off, not a new one.
+/// budgets and a restart empties it. That is the existing trade-off, not a new one.
 /// </remarks>
-internal sealed class PasswordResetRequestThrottle : IPasswordResetRequestThrottle, IDisposable
+internal sealed class PerAccountFixedWindowThrottle : IPasswordResetRequestThrottle, IPasswordConfirmationThrottle, IDisposable
 {
-    internal const int DefaultPermitLimit = 3;
-
     private readonly PartitionedRateLimiter<Guid> _limiter;
 
-    public PasswordResetRequestThrottle() : this(DefaultPermitLimit, TimeSpan.FromMinutes(15))
-    {
-    }
-
-    /// <summary>
-    /// Takes the budget explicitly so a test can prove that it replenishes without waiting a quarter of
-    /// an hour for it.
-    /// </summary>
-    internal PasswordResetRequestThrottle(int permitLimit, TimeSpan window)
+    public PerAccountFixedWindowThrottle(int permitLimit, TimeSpan window)
     {
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(permitLimit);
         ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(window, TimeSpan.Zero);

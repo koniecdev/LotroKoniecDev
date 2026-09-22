@@ -4,6 +4,7 @@ using OpenIddict.Abstractions;
 using LotroKoniecDev.AuthSystem.API.ApiErrors;
 using LotroKoniecDev.AuthSystem.API.Common;
 using LotroKoniecDev.AuthSystem.API.Extensions;
+using LotroKoniecDev.AuthSystem.API.Services.RateLimiting;
 using LotroKoniecDev.AuthSystem.Contracts.Features.Auth.Account;
 using LotroKoniecDev.AuthSystem.Domain.Aggregates.ApplicationUsers.Entities;
 using LotroKoniecDev.SharedKernel.Messaging;
@@ -17,8 +18,9 @@ namespace LotroKoniecDev.AuthSystem.API.Features.Auth;
 /// a bearer token alone must not be enough to take it away.
 /// The matching GET is the account representation the account page renders, so it stays open to a
 /// logged-in caller. The difference is deliberate and ADR-0052 holds the reasoning.
-/// A query, not a command: nothing on the account changes. The password is checked and the attempt is
-/// written to the audit log either way.
+/// A query, not a command: nothing on the account changes. The attempt is charged to the account's
+/// confirmation budget (ADR-0053) before the password is checked, and it is written to the audit log
+/// either way.
 /// </summary>
 internal sealed partial class DownloadAccountData : IApiEndpoint
 {
@@ -34,21 +36,37 @@ internal sealed partial class DownloadAccountData : IApiEndpoint
         private const string UnknownEmail = "***";
 
         private readonly UserManager<ApplicationUser> _userManager;
+        private readonly IPasswordConfirmationThrottle _confirmationThrottle;
         private readonly ILogger<Handler> _logger;
 
         public Handler(
             UserManager<ApplicationUser> userManager,
+            IPasswordConfirmationThrottle confirmationThrottle,
             ILogger<Handler> logger)
         {
             _userManager = userManager;
+            _confirmationThrottle = confirmationThrottle;
             _logger = logger;
         }
 
         public async ValueTask<Result<AccountDataExportResponse>> Handle(
             Query query, CancellationToken cancellationToken)
         {
-            // The account is found first, so that every attempt by a logged-in caller can be logged
-            // against the account it named.
+            // Every attempt by a logged-in caller is logged against the account the token names. The
+            // permit comes before the account is loaded (ADR-0053), so its refusal line carries the id
+            // and no address.
+            if (!Guid.TryParse(query.UserId, out Guid userId))
+            {
+                LogExportRefusedForUnknownAccount(_logger, query.UserId, query.IpAddress, query.UserAgent);
+                return Result.Failure<AccountDataExportResponse>(AuthErrors.UserNotFound);
+            }
+
+            if (!_confirmationThrottle.TryAcquire(userId))
+            {
+                LogExportRefused(_logger, userId, UnknownEmail, "the password confirmation budget is spent", query.IpAddress, query.UserAgent);
+                return Result.Failure<AccountDataExportResponse>(AuthErrors.PasswordConfirmationThrottled);
+            }
+
             ApplicationUser? user = await _userManager.FindByIdAsync(query.UserId);
             if (user is null)
             {
@@ -62,7 +80,9 @@ internal sealed partial class DownloadAccountData : IApiEndpoint
                 ? UnknownEmail
                 : user.Email.MaskEmail();
 
-            // A query validates inline, because FluentValidation is for commands only (house rule).
+            // A query validates inline, because FluentValidation is for commands only (house rule). The
+            // check sits after the permit on purpose, so its audit line can carry the masked address;
+            // the frontend never sends an empty password, so only a direct caller pays for one.
             if (string.IsNullOrWhiteSpace(query.Password))
             {
                 LogExportRefused(_logger, user.Id, maskedEmail, "no password was sent", query.IpAddress, query.UserAgent);
@@ -128,7 +148,8 @@ internal sealed partial class DownloadAccountData : IApiEndpoint
                     : Results.Problem(queryResult.Error.ToProblemDetails());
             })
             .RequireAuthorization()
-            .RequireRateLimiting("auth-endpoint-limit")
+            // Off the per-IP policies: the brake is the per-account budget in the handler (ADR-0053).
+            .DisableRateLimiting()
             .WithName(nameof(DownloadAccountData))
             .WithTags("Account")
             .Produces<AccountDataExportResponse>(StatusCodes.Status200OK)

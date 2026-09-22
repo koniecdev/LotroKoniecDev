@@ -6,5 +6,6 @@ public enum TypeOfError
     NotFound,
     DataConflict,
     Failure,
-    Forbidden
+    Forbidden,
+    TooManyRequests
 }

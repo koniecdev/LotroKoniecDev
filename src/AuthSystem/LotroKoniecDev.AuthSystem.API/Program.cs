@@ -314,7 +314,10 @@ try
                     Window = TimeSpan.FromMinutes(1)
                 }));
 
-        // A stricter rate limit on the auth endpoints, against brute-force attacks.
+        // A stricter rate limit on the auth endpoints, against brute-force attacks. The endpoints that
+        // confirm the current password are off it: every call there comes from the frontend, so this key
+        // is one bucket for all users, and their brake is the per-account budget behind
+        // IPasswordConfirmationThrottle instead (ADR-0053).
         options.AddPolicy(authEndpointRateLimitPolicy, httpContext =>
             RateLimitPartition.GetFixedWindowLimiter(
                 partitionKey: httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown",
@@ -329,7 +332,7 @@ try
         // It skips page views for the same reason resend-confirmation does. The page is one endpoint for
         // GET and POST, so a budget sized for sends would be spent on opening the form, and three views
         // in a quarter of an hour would leave the user unable to ask for a reset at all.
-        // The per-account half of this budget lives in PasswordResetRequestThrottle, because a policy runs
+        // The per-account half of this budget lives behind IPasswordResetRequestThrottle, because a policy runs
         // before the endpoint and knows nothing about the account yet.
         options.AddPolicy(forgotPasswordRateLimitPolicy, httpContext =>
             HttpMethods.IsPost(httpContext.Request.Method)

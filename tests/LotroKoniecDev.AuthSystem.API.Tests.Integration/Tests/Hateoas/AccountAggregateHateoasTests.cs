@@ -41,8 +41,9 @@ public sealed class AccountAggregateHateoasTests : EndpointsTestBase
         AccountDataExportResponse response = await RequestHateoasResponseAsync(accessToken);
 
         // Assert
-        response.Links.Count.ShouldBe(4);
+        response.Links.Count.ShouldBe(5);
         response.Links.ShouldContain(l => l.Rel == Rels.Self && l.Method == "GET");
+        response.Links.ShouldContain(l => l.Rel == Rels.DownloadAccountData && l.Method == "POST");
         response.Links.ShouldContain(l => l.Rel == Rels.ChangePassword && l.Method == "POST");
         response.Links.ShouldContain(l => l.Rel == Rels.ChangeEmail && l.Method == "POST");
         response.Links.ShouldContain(l => l.Rel == Rels.DeleteAccount && l.Method == "POST");
@@ -69,8 +70,9 @@ public sealed class AccountAggregateHateoasTests : EndpointsTestBase
         AccountDataExportResponse response = await RequestHateoasResponseAsync(accessToken);
 
         // Assert
-        response.Links.Count.ShouldBe(5);
+        response.Links.Count.ShouldBe(6);
         response.Links.ShouldContain(l => l.Rel == Rels.Self && l.Method == "GET");
+        response.Links.ShouldContain(l => l.Rel == Rels.DownloadAccountData && l.Method == "POST");
         response.Links.ShouldContain(l => l.Rel == Rels.ChangePassword && l.Method == "POST");
         response.Links.ShouldContain(l => l.Rel == Rels.ChangeEmail && l.Method == "POST");
         response.Links.ShouldContain(l => l.Rel == Rels.DeleteAccount && l.Method == "POST");
@@ -98,9 +100,12 @@ public sealed class AccountAggregateHateoasTests : EndpointsTestBase
 
         // Assert
         response.AuthData.DeletionScheduledAt.ShouldNotBeNull();
-        response.Links.Count.ShouldBe(2);
+        response.Links.Count.ShouldBe(3);
         response.Links.ShouldContain(l => l.Rel == Rels.Self && l.Method == "GET");
         response.Links.ShouldContain(l => l.Rel == Rels.CancelDeletion && l.Method == "POST");
+        response.Links.ShouldContain(
+            l => l.Rel == Rels.DownloadAccountData && l.Method == "POST",
+            "taking a copy of your own data is a right that survives a pending erasure");
         response.Links.ShouldNotContain(
             l => l.Rel == Rels.ChangePassword || l.Rel == Rels.ChangeEmail || l.Rel == Rels.DeleteAccount,
             "a deletion-scheduled account must not advertise dead transitions");

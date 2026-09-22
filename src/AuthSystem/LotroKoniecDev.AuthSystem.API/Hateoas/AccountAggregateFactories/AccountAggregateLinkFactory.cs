@@ -24,9 +24,16 @@ internal sealed class AccountAggregateLinkFactory : IAccountAggregateLinkFactory
             rel: Rels.Self,
             method: HttpMethods.Get));
 
+        // Taking a copy of your own data is a right, so the export is offered in both branches and the
+        // endpoint serves it in both (#690). ADR-0052 says how short that window really is.
+        links.AddIfPresent(await _linkFactory.CreateAsync(
+            endpoint: nameof(DownloadAccountData),
+            rel: Rels.DownloadAccountData,
+            method: HttpMethods.Post));
+
         // While a deletion is scheduled the account is locked, and the only thing left to do is cancel
-        // it with the single-use token from the e-mail. The other account links would lead nowhere, so
-        // they are left out.
+        // it with the single-use token from the e-mail. The other account actions would lead nowhere,
+        // so they are left out.
         if (isDeletionScheduled)
         {
             links.AddIfPresent(await _linkFactory.CreateAsync(

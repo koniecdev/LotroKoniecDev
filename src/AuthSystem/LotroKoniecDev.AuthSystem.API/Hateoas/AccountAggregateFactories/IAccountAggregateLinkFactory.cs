@@ -17,8 +17,8 @@ internal interface IAccountAggregateLinkFactory
     /// <c>resend-email-confirmation</c> appears.
     /// </param>
     /// <param name="isDeletionScheduled">
-    /// Whether a GDPR deletion is scheduled. While it is, the only link offered is
-    /// <c>cancel-deletion</c> (ADR-0031).
+    /// Whether a GDPR deletion is scheduled. While it is, the only links offered are
+    /// <c>cancel-deletion</c> (ADR-0031) and <c>download-account-data</c> (ADR-0052).
     /// </param>
     ValueTask<List<LinkDto>> CreateAccountLinksAsync(bool isEmailConfirmed, bool isDeletionScheduled);
 }

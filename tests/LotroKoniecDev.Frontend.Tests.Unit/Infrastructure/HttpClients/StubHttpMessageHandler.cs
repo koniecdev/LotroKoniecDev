@@ -33,6 +33,29 @@ internal sealed class StubHttpMessageHandler : HttpMessageHandler
         });
     }
 
+    /// <summary>
+    /// A different answer per verb, for a flow that loads a resource with a GET and then follows one of
+    /// its links with a POST.
+    /// </summary>
+    public static StubHttpMessageHandler RespondWith(
+        HttpStatusCode getStatusCode,
+        string getJsonBody,
+        HttpStatusCode postStatusCode,
+        string postJsonBody)
+    {
+        return new StubHttpMessageHandler(request =>
+        {
+            bool isPost = request.Method == HttpMethod.Post;
+            return new HttpResponseMessage(isPost ? postStatusCode : getStatusCode)
+            {
+                Content = new StringContent(
+                    isPost ? postJsonBody : getJsonBody,
+                    System.Text.Encoding.UTF8,
+                    "application/json")
+            };
+        });
+    }
+
     public static StubHttpMessageHandler Throw(Exception exception)
     {
         return new StubHttpMessageHandler(_ => throw exception);

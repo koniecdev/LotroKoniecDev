@@ -292,7 +292,8 @@ cancellation link's landing page — LEGAL-01).
 | `POST` | `auth/account/delete` | bearer token | `DeleteAccountRequest { password }` — **schedules** GDPR deletion (ADR-0031): 14-day grace window, account locked for the window, sessions + refresh tokens revoked, one-time cancellation link emailed → **204** + `X-Deletion-Scheduled-At` / `X-Deletion-Finalizes-At` headers; erasure runs in the finalizer only after the window elapses |
 | `POST` | `auth/account/cancel-deletion` | anonymous (emailed one-time token), rate-limited | `CancelAccountDeletionRequest { email, token }` → **200** `CancelAccountDeletionResponse { passwordResetToken }` — unlocks the account and forces a password reset (the pre-deletion password may be the attacker's) |
 | `POST` | `auth/account/change-email` | bearer token, `change-email-limit` (3/h per IP) | `ChangeEmailRequest { newEmail, currentPassword }` — **starts** an e-mail change (ADR-0048). Nothing on the account moves: a verification link goes to the new address (24 h) and a warning to the old one. Confirming happens on the auth pages `/Account/ConfirmEmailChange` (GET form, POST applies), after which the old address receives a 14-day link to `/Account/RevertEmailChange` that restores the address and clears the password |
-| `GET` | `auth/account/data-export` | bearer token | `AccountDataExportResponse` — GDPR export |
+| `GET` | `auth/account/data-export` | bearer token | `AccountDataExportResponse` — the **account representation** the "Moje konto" page renders, carrying the account's links. Not the GDPR export: it leaves the contact details out (`phoneNumber` is always `null` here) |
+| `POST` | `auth/account/data-export` | bearer token, rate-limited | `DownloadAccountDataRequest { password }` → **200** `AccountDataExportResponse` without links — the **GDPR Art. 15 export**, contact details included, handed over only behind the current password (#690, ADR-0052). Wrong password → **400** `Auth.InvalidCurrentPassword`, none sent → **400** `Auth.ExportPasswordRequired`; every attempt that reaches the password check is written to the audit log (a throttled or unauthenticated request never gets that far) |
 | `GET` | `/` | anonymous | discovery document (links into the auth flows) |
 
 `RegisterRequest`: `{ username, email, password, acceptedPrivacyPolicy, acceptedDataProcessingConsent,
@@ -541,9 +542,12 @@ Sent only with `Accept: application/vnd.dev-lotrokoniecdev.hateoas.json`.
 ### 10.2 `auth-api` rels (`AuthSystem.Contracts/Hateoas/Rels.cs`)
 
 `self`, `register`, `forgot-password`, `export-account-data` (discovery); `change-password`,
-`change-email`, `delete-account`, `resend-email-confirmation` (account aggregate). While a deletion is scheduled
-the account aggregate suppresses the normal rels and emits only `cancel-deletion`
-(POST `auth/account/cancel-deletion`) — every other transition is a dead end on a locked account.
+`change-email`, `delete-account`, `resend-email-confirmation`, `download-account-data` (account
+aggregate). `download-account-data` (POST `auth/account/data-export`) is the password-gated GDPR export
+and is deliberately **not** in discovery (ADR-0052). While a deletion is scheduled the account aggregate
+suppresses the normal rels and emits only `cancel-deletion` (POST `auth/account/cancel-deletion`) and
+`download-account-data` — every other transition is a dead end on a locked account, and a copy of your
+own data stays a right.
 
 ---
 

@@ -40,8 +40,14 @@ internal static class EventIds
     public const int GdprDeletionFinalizerRunFailed = 2238;
     public const int GdprDeletionFinalizerUserFailed = 2239;
 
-    // Data Export (2240-2249)
-    public const int ExportDataCompleted = 2241;
+    // Data Export (2240-2249). 2241 (ExportDataCompleted) is no longer used. It fired on every account
+    // page view, because the page and the export share one GET, so it could not answer who took the
+    // file. The GET now logs a read under its own number, and the password-gated POST owns the export
+    // lines (#690).
+    public const int ExportDataDownloaded = 2242;
+    public const int ExportDataRefused = 2243;
+    public const int AccountDataRead = 2244;
+    public const int ExportDataRefusedForUnknownAccount = 2245;
 
     // Forgot Password (2250-2259). 2251 (ForgotPasswordEmailFailed) is no longer used: sending moved
     // out of the request and into the outbox pipeline (ADR-0038), so the handler no longer sees SMTP.

@@ -14,9 +14,9 @@ namespace LotroKoniecDev.Frontend.Components.Pages.Account;
 
 /// <summary>
 /// Makes the account pages' calls to the auth API through the typed client (LEGAL-02). It finds the
-/// <c>export-account-data</c> link in auth discovery, fetches the GDPR export, which is the account
-/// resource whose <c>Links</c> decide what else the user may do, and follows that resource's
-/// <c>delete-account</c> and <c>change-password</c> links.
+/// <c>export-account-data</c> link in auth discovery, fetches the account resource whose <c>Links</c>
+/// decide what else the user may do, and follows that resource's links: <c>delete-account</c>,
+/// <c>change-password</c> and <c>download-account-data</c>, the password-gated GDPR export (#690).
 /// It stays a thin injectable class, so the pages' data flow can be unit-tested against a substituted
 /// client and bUnit render tests can drive the pages through a substituted loader.
 /// </summary>
@@ -32,7 +32,7 @@ internal sealed class AccountLoader
     }
 
     /// <summary>
-    /// Loads the account export: auth discovery, then the <c>export-account-data</c> link, then a GET.
+    /// Loads the account resource: auth discovery, then the <c>export-account-data</c> link, then a GET.
     /// When that link is missing in a logged-in session, the API does not offer the account section to
     /// this caller. That becomes a 403 <see cref="ProblemDetails"/>, and it is never decided here from
     /// role claims.
@@ -56,10 +56,55 @@ internal sealed class AccountLoader
                 StatusCodes.Status403Forbidden));
         }
 
-        return await _client.GetApiResultAsync<AccountDataExportResponse>(
+        return RejectABodyWithoutAuthData(await _client.GetApiResultAsync<AccountDataExportResponse>(
             exportLink.Href,
-            cancellationToken);
+            cancellationToken));
     }
+
+    /// <summary>
+    /// Asks the auth API to hand the export over, which it does only when the current password comes
+    /// with the request (#690, ADR-0052).
+    /// The target is the <c>download-account-data</c> link on the account resource, fetched fresh on
+    /// every attempt and never read from the day-cached discovery document (ADR-0052 says why). It is
+    /// the same document the account page gates its export button on, so the button and this call can
+    /// never disagree.
+    /// A rel we cannot find is a refusal, never a locally composed path (#610).
+    /// </summary>
+    public async Task<ApiResult<AccountDataExportResponse>> DownloadExportAsync(
+        string password,
+        CancellationToken cancellationToken = default)
+    {
+        ApiResult<AccountDataExportResponse> representation = await LoadExportAsync(cancellationToken);
+        if (representation.IsFailure)
+        {
+            return representation;
+        }
+
+        LinkDto? downloadLink = representation.Value.Links.FindLink(Rels.DownloadAccountData);
+        if (downloadLink is null)
+        {
+            return ApiResult.Failure<AccountDataExportResponse>(ApiProblemCopy.FrontendAuthored(
+                "Pobieranie danych jest niedostępne",
+                "Serwer nie udostępnia tej operacji dla tej sesji. Spróbuj ponownie za chwilę.",
+                StatusCodes.Status403Forbidden));
+        }
+
+        return RejectABodyWithoutAuthData(await _client.PostApiResultAsync<AccountDataExportResponse>(
+            downloadLink.Href,
+            new DownloadAccountDataRequest(password),
+            cancellationToken));
+    }
+
+    /// <summary>
+    /// A 200 whose JSON parses but carries no <c>authData</c> — a proxy's own body, for one — is a bad
+    /// gateway, not an account. The serializer fills a missing constructor argument with null, and both
+    /// callers read <c>AuthData</c> straight away, so that one body is refused here.
+    /// </summary>
+    private static ApiResult<AccountDataExportResponse> RejectABodyWithoutAuthData(
+        ApiResult<AccountDataExportResponse> result) =>
+        result.IsSuccess && result.Value.AuthData is null
+            ? ApiResult.Failure<AccountDataExportResponse>(ApiProblemCopy.StatusOnly(StatusCodes.Status502BadGateway))
+            : result;
 
     /// <summary>
     /// Schedules an account deletion, which happens in two phases (ADR-0031). On success the data comes

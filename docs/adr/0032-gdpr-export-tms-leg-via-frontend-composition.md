@@ -34,7 +34,8 @@ So the export must cover the TMS leg. Two sanctioned shapes existed (ticket #456
    environment (dev hosts, prod-parity compose, staging, prod → terraform + runbook +
    `.env` matrix churn), and a brand-new auth→tms coupling direction.
 2. **The frontend composes.** The user-facing export is already the frontend download
-   route (`/account/export`, LEGAL-02) — a server-side route that holds the caller's
+   route (LEGAL-02; `POST /account/export/download` since #690, behind the password page
+   at `/account/export`) — a server-side route that holds the caller's
    access token and already talks to **both** APIs through typed clients. tms-api only
    needs a plain **self-only** endpoint (identity from the caller's own bearer token via
    `ICurrentUserAccessor`); the download route fetches both legs and merges them into the

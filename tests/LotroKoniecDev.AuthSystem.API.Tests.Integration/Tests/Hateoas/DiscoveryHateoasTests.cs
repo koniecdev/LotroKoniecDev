@@ -69,7 +69,11 @@ public sealed class DiscoveryHateoasTests : EndpointsTestBase
         response.Name.ShouldBe("LotroKoniecDev.AuthSystem");
         response.Links.Count.ShouldBe(2);
         response.Links.ShouldContain(l => l.Rel == Rels.Self && l.Method == "GET");
+        // A GET, and it must stay one: the frontend reads this exact link as proof that its token
+        // reached the API, and signs the session out when it is missing.
         response.Links.ShouldContain(l => l.Rel == Rels.ExportAccountData && l.Method == "GET");
+        // The gated export is an action on the account, so it is advertised there and not here.
+        response.Links.ShouldNotContain(l => l.Rel == Rels.DownloadAccountData);
         response.Links.ShouldNotContain(l => l.Rel == Rels.Register);
         response.Links.ShouldNotContain(l => l.Rel == Rels.ForgotPassword);
     }

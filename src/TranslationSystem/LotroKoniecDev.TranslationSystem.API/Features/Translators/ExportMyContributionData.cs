@@ -22,6 +22,9 @@ namespace LotroKoniecDev.TranslationSystem.API.Features.Translators;
 /// Soft-removed rows are included, because the credit is the caller's personal data whether or not the
 /// row still ships in the game.
 /// The frontend's download route puts this response into the exported file next to the auth half.
+/// This half asks for no password on purpose, while the auth half does. ADR-0052 holds the reasons.
+/// The composed Art. 15 file is gated one layer up: the frontend fetches this endpoint only after the
+/// auth server has accepted the password (#690).
 /// </summary>
 internal sealed partial class ExportMyContributionData : IEndpoint
 {

@@ -5,6 +5,8 @@
 **Decision-makers:** Solo maintainer (ticket #819)
 **Related:** AuthSystem.API (`Program.cs` rate-limit policies, `Services/RateLimiting`, `Settings`),
 Frontend (`Infrastructure/HttpClients`, `Infrastructure/Auth`, `Settings`), AuthSystem.Contracts;
+since #823 also TranslationSystem.API (`Program.cs`, `Services/RateLimiting`, `Settings`) and
+Utilities/Hateoas.Abstractions (`FrontendCallerHeaders`);
 ADR-0053 (the per-account confirmation budget, whose alternative D deferred this), ADR-0034 and
 #399/#506 (forwarded-header trust pinned to Caddy's `/32`), ADR-0041 (no gateway);
 TheKittySaver ADR-0044 (the same decision on its Adoption API, lifted here); tickets #813, #819, #823
@@ -64,7 +66,7 @@ string form as a direct caller's, as the partition key. Budgets do not change.
 ### 2. The forwarded address counts only with the frontend's key
 
 Two request headers, named once in `AuthSystem.Contracts` so both apps compile against the same
-strings:
+strings (moved to `Hateoas.Abstractions` by #823, see the amendment):
 
 | Header | Value |
 |---|---|
@@ -116,7 +118,8 @@ and to `frontend` as `AuthSystem__CallerKey`; one compose run starts both, so th
 drift. The parity stack reads the same pair from `.env.prod`, where `gen-openiddict-keys.{sh,ps1}`
 mint it next to the OpenIddict secrets. Rotating it is a new value plus a redeploy. For the seconds
 in which only one container has the new key, frontend calls fall back to the frontend's own bucket —
-harmless.
+harmless. Since #823 the same line also feeds `tms-api` (`FrontendCaller__Key`) and the frontend's
+`TranslationSystem__CallerKey`: one key per box, three services (see the amendment).
 
 ### 6. A missing key fails the deploy and the boot
 
@@ -126,7 +129,7 @@ harmless.
 - **Apps:** outside Development and Testing both refuse to start without a key, and a key shorter
   than 32 characters fails options validation wherever one is set. Development and Testing may
   leave it empty: their limiter is off, the frontend then sends neither header, and the auth API
-  ignores a forwarded address.
+  ignores a forwarded address. Since #823 the TMS API follows the same two rules.
 
 A missing key would quietly bring back the one shared bucket, and nothing but real traffic would
 notice. Operator order: the key goes into the staging `.env` before the change merges (CD deploys

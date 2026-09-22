@@ -76,6 +76,8 @@ public sealed class TranslationSystemSettingsValidatorTests
 
     [Theory]
     [InlineData(Development)]
+    [InlineData(Testing)]
+    [InlineData(Staging)]
     [InlineData(Production)]
     public void Validate_CallerKeyShorterThanTheMinimum_FailsInEveryEnvironment(string environmentName)
     {

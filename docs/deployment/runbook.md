@@ -550,8 +550,9 @@ The cross-service settings that are individually valid but break the system when
    call arrives from the frontend container, so without the key each API's per-address rate limits
    are one bucket for every user; with it, each API meters the visitor the frontend forwards.
    Compose refuses to render without it, so **the key goes into the staging `.env` before a change
-   that needs it merges, and into the prod `.env` before it is promoted**. Services with different
-   values is not a failure, only the old shared bucket — so never set it on one side by hand.
+   that needs it merges, and into the prod `.env` before it is promoted**. If the services hold
+   different values, nothing fails: calls just fall back to the old shared bucket. So never set the
+   key on one side by hand.
 
 ## Bringing the stack up
 

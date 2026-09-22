@@ -14,7 +14,7 @@
     <!-- Security override: bunit 2.7.2 transitively pulls AngleSharp 1.4.0, which carries advisory
          GHSA-pgww-w46g-26qg. Pin the first patched 1.x release; Frontend.Tests.Unit references it
          directly to force the fixed version into the graph. -->
-    <PackageVersion Include="AngleSharp" Version="1.8.1" />
+    <PackageVersion Include="AngleSharp" Version="1.8.2" />
     <!-- Security override: OpenIddict.*.DataProtection 7.5.0 transitively pulls System.Security.Cryptography.Xml
          10.0.7, which carries CVE-2026-50648 (GHSA-23rf-6693-g89p and four sibling advisories, all fixed in
          10.0.10). Pin the patched release; the AuthSystem test projects reference it directly to force the fixed
@@ -23,12 +23,12 @@
     <PackageVersion Include="Microsoft.AspNetCore.Authentication.OpenIdConnect" Version="10.0.12" />
     <PackageVersion Include="Microsoft.Extensions.Caching.Hybrid" Version="10.10.0" />
     <PackageVersion Include="Microsoft.Extensions.Http.Resilience" Version="10.10.0" />
-    <PackageVersion Include="Scalar.AspNetCore" Version="2.17.3" />
+    <PackageVersion Include="Scalar.AspNetCore" Version="2.17.7" />
     <PackageVersion Include="AspNetCore.HealthChecks.NpgSql" Version="9.0.0" />
     <!-- Authentication & Identity -->
     <PackageVersion Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.12" />
-    <PackageVersion Include="OpenIddict.AspNetCore" Version="7.7.0" />
-    <PackageVersion Include="OpenIddict.EntityFrameworkCore" Version="7.7.0" />
+    <PackageVersion Include="OpenIddict.AspNetCore" Version="7.7.1" />
+    <PackageVersion Include="OpenIddict.EntityFrameworkCore" Version="7.7.1" />
     <PackageVersion Include="Microsoft.AspNetCore.Identity.EntityFrameworkCore" Version="10.0.12" />
     <!-- Entity Framework Core -->
     <PackageVersion Include="Microsoft.EntityFrameworkCore" Version="10.0.12" />
@@ -63,11 +63,11 @@
     <PackageVersion Include="Serilog.Sinks.Console" Version="6.1.1" />
     <PackageVersion Include="Serilog.Sinks.File" Version="7.0.0" />
     <PackageVersion Include="Serilog.Sinks.OpenTelemetry" Version="4.2.0" />
-    <PackageVersion Include="OpenTelemetry.Extensions.Hosting" Version="1.18.0" />
-    <PackageVersion Include="OpenTelemetry.Instrumentation.AspNetCore" Version="1.18.0" />
-    <PackageVersion Include="OpenTelemetry.Instrumentation.Http" Version="1.18.0" />
-    <PackageVersion Include="OpenTelemetry.Exporter.OpenTelemetryProtocol" Version="1.18.0" />
-    <PackageVersion Include="OpenTelemetry.Instrumentation.Runtime" Version="1.18.0" />
+    <PackageVersion Include="OpenTelemetry.Extensions.Hosting" Version="1.19.1" />
+    <PackageVersion Include="OpenTelemetry.Instrumentation.AspNetCore" Version="1.19.0" />
+    <PackageVersion Include="OpenTelemetry.Instrumentation.Http" Version="1.19.0" />
+    <PackageVersion Include="OpenTelemetry.Exporter.OpenTelemetryProtocol" Version="1.19.1" />
+    <PackageVersion Include="OpenTelemetry.Instrumentation.Runtime" Version="1.19.0" />
     <PackageVersion Include="Shouldly" Version="4.3.0" />
     <PackageVersion Include="NetArchTest.Rules" Version="1.3.2" />
     <PackageVersion Include="bunit" Version="2.11.3" />
@@ -75,7 +75,7 @@
     <PackageVersion Include="Spectre.Console.Cli" Version="0.55.0" />
     <PackageVersion Include="xunit" Version="2.9.3" />
     <PackageVersion Include="xunit.runner.visualstudio" Version="4.0.0" />
-    <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="18.10.0" />
+    <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="18.10.1" />
     <PackageVersion Include="NSubstitute" Version="6.2.0" />
     <PackageVersion Include="coverlet.collector" Version="10.0.1" />
     <PackageVersion Include="Xunit.SkippableFact" Version="1.5.85" />

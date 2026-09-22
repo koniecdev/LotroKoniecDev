@@ -417,9 +417,9 @@ public sealed class AccountEndpointsExtensionsTests
     [Fact]
     public async Task DownloadAccountExportAsync_WhenTheAuthApiThrottles_SendsTheUserBackToThePageWithTheThrottledMarker()
     {
-        // A bare 429 with no code is the per-address bucket, which the account GET on this route still
-        // sits on (#819): every call arrives from this service, so it is one bucket shared by every
-        // logged-in user. A technical problem page is the wrong answer to "come back in a minute".
+        // A bare 429 with no code is the per-address bucket the account GET on this route sits on, keyed
+        // on the reader's own address (ADR-0054). A technical problem page is the wrong answer to "come
+        // back in a minute".
         StubDiscoveryWithExportLink();
         AccountLoader loader = new(
             _discoveryCache,

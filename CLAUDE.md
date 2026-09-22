@@ -487,9 +487,10 @@ hash-check → patch → launch flow is validated. Re-investigating any of it is
   key from `RateLimitPartitionKeyResolver`: the visitor's address the frontend forwards in
   `X-LOTRO-Client-Address`, honoured only next to the per-environment `X-LOTRO-Frontend-Key` (SHA-256
   digests, constant-time compare, exactly one value each, the address must parse), otherwise the
-  connection's own address. The browser-facing page policies stay on the connection's address on
-  purpose: the frontend never posts to a Razor page, and the key must never become a bypass for the
-  login brake or the resend-confirmation mail budget. A new outgoing path from the frontend to the
+  connection's own address. The browser-facing page policies and `register-limit` stay on the
+  connection's address on purpose: the frontend never posts to a Razor page nor to `auth/register`,
+  and the key must never become a bypass for the login brake or a fresh mail budget per invented
+  address. A new outgoing path from the frontend to the
   auth API carries `FrontendCallerDelegatingHandler` (today: the typed account client, the token
   client, the OIDC back-channel). The key is `FRONTEND_CALLER_KEY` in the box `.env`, read by both
   services; compose refuses to render without it and both apps refuse to boot without it outside

@@ -18,7 +18,7 @@ if (-not (Test-Path $envFile))
         Where-Object { $_ -notmatch '^(OpenIddict__(EncryptionKey__Key|SigningKey__RsaPrivateKeyXml|ApiClientSecret)|FRONTEND_CALLER_KEY)=' } |
         Set-Content $envFile
     & (Join-Path $PSScriptRoot "gen-openiddict-keys.ps1") | Add-Content $envFile
-    Write-Host ".env.prod created with generated OpenIddict secrets. Review SMTP/admin/DB values before prod use."
+    Write-Host ".env.prod created with generated OpenIddict secrets and the frontend caller key. Review SMTP/admin/DB values before prod use."
 }
 
 if (-not (Test-Path $certPath))

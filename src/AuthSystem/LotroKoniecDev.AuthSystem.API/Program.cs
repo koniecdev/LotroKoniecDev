@@ -294,6 +294,7 @@ try
 
     const string rateLimitPolicy = "fixed-by-ip";
     const string authEndpointRateLimitPolicy = "auth-endpoint-limit";
+    const string registerRateLimitPolicy = "register-limit";
     const string forgotPasswordRateLimitPolicy = "forgot-password-limit";
     const string resendConfirmationRateLimitPolicy = "resend-confirmation-limit";
     const string changeEmailRateLimitPolicy = "change-email-limit";
@@ -321,6 +322,20 @@ try
         options.AddPolicy(authEndpointRateLimitPolicy, httpContext =>
             RateLimitPartition.GetFixedWindowLimiter(
                 partitionKey: ResolvePartitionKey(httpContext),
+                factory: _ => new FixedWindowRateLimiterOptions
+                {
+                    PermitLimit = 10,
+                    Window = TimeSpan.FromMinutes(1)
+                }));
+
+        // Registration sends a confirmation mail to an address the caller typed, and nothing per account
+        // can brake it: the account does not exist yet. The frontend never calls this endpoint (the
+        // registration form is a Razor page), so it keys on the connection's own address like the page
+        // policies do (ADR-0054 §3): a leaked frontend key must not buy a fresh mail budget per invented
+        // address. Same numbers as auth-endpoint-limit.
+        options.AddPolicy(registerRateLimitPolicy, httpContext =>
+            RateLimitPartition.GetFixedWindowLimiter(
+                partitionKey: ConnectionAddress(httpContext),
                 factory: _ => new FixedWindowRateLimiterOptions
                 {
                     PermitLimit = 10,
@@ -433,10 +448,10 @@ try
     static string ResolvePartitionKey(HttpContext httpContext) =>
         httpContext.RequestServices.GetRequiredService<RateLimitPartitionKeyResolver>().Resolve(httpContext);
 
-    // The browser-facing page policies stay on the connection's own address on purpose. The frontend
-    // never posts to a Razor page, so for them that address already is the client, and honouring the
-    // key there would only let a leaked key dodge the login form's brake and the resend-confirmation
-    // mail budget, which has no per-account twin.
+    // The browser-facing page policies and register-limit stay on the connection's own address on
+    // purpose. The frontend never posts to a Razor page nor to auth/register, so for them that address
+    // already is the client, and honouring the key there would only let a leaked key dodge the login
+    // form's brake or buy a fresh mail budget per invented address.
     static string ConnectionAddress(HttpContext httpContext) =>
         httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
 

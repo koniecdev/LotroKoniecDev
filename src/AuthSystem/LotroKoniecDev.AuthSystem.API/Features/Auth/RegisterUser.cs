@@ -249,7 +249,10 @@ internal sealed partial class RegisterUser : IApiEndpoint
                     : Results.Json(commandResult.Value, statusCode: StatusCodes.Status201Created);
             })
             .AllowAnonymous()
-            .RequireRateLimiting("auth-endpoint-limit")
+            // Its own policy, keyed on the connection's address: the frontend never calls this endpoint,
+            // and a leaked frontend key must not buy a fresh confirmation-mail budget per invented
+            // address (ADR-0054 §3).
+            .RequireRateLimiting("register-limit")
             .WithName("RegisterUser")
             .WithTags("Authentication")
             .Produces<IdentityId>(StatusCodes.Status201Created)

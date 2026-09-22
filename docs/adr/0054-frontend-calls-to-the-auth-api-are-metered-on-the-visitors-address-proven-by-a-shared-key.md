@@ -92,8 +92,13 @@ and `resend-confirmation-limit` stay on `Connection.RemoteIpAddress`. The fronte
 Razor page, so for those the connection address already is the client, and honouring the key there
 would only enlarge what a leaked key can do: the login form is the one place a password can be
 guessed in production (#692), and `resend-confirmation` has no per-account budget behind it, so a key
-would turn three mails per quarter of an hour per address into an unbounded flood of one inbox. A
-test pins that a login POST carrying the key and an address is still metered on the connection.
+would turn three mails per quarter of an hour per address into an unbounded flood of one inbox.
+`POST auth/register` leaves `auth-endpoint-limit` for the same reason: it mails a caller-typed
+address, the account it would brake does not exist yet, and the frontend never calls it (the
+registration form is a Razor page), so it gets its own `register-limit` with `auth-endpoint-limit`'s
+numbers, keyed on the connection. A test pins that a POST to the login page, `auth/register`,
+`auth/forgot-password` or `auth/resend-email-confirmation` carrying the key and an address is still
+metered on the connection.
 
 ### 4. One handler on all three outgoing paths
 
@@ -150,12 +155,16 @@ no hosted service, and its discovery cache resolves inline in the request.
 - **One more secret per environment.** Accepted: one line per box, no expiry, and rotation is an
   `.env` edit plus a redeploy.
 - **A leaked key lets its holder choose buckets on the three policies the frontend reaches** — and
-  nothing more. The login, registration, reset and resend pages keep the connection's address as
-  their key, and Identity's lockout (five failures, per account) and the per-account budgets of #692
-  and #813 do not read the key. Accepted: rotating the key ends it.
-- **Concurrent discovery fetches share one caller.** The frontend's `HybridCache` coalesces
-  concurrent factory runs, so a second visitor's discovery fetch can be metered on the first
-  visitor's address. Accepted: one call on the generic 20/min budget, once per cache window.
+  nothing more. The login, registration, reset and resend pages and the registration endpoint keep
+  the connection's address as their key, and Identity's lockout (five failures, per account) and the
+  per-account budgets of #692 and #813 do not read the key. Accepted: rotating the key ends it.
+- **A discovery fetch from a detached cache factory carries no caller headers.** `HybridCache` runs
+  the factory on the thread pool without the request context when the caller's token is cancellable
+  (the export route forwards `RequestAborted`; the pages pass `CancellationToken.None` and run
+  inline), so on a cold cache that one GET is metered on the frontend container's bucket, and on the
+  inline path concurrent fetches share the first caller's address. Accepted: one call per cache
+  window on the 20/min group budget. The detached path also loses the bearer token, which predates
+  this ADR and is #825.
 - **The key crosses the stack network in plain HTTP** between Caddy and the auth API — the same
   hop every bearer token already takes. Accepted.
 - **People behind one NAT still share a bucket**, now through the frontend too. Accepted, as
@@ -166,7 +175,7 @@ no hosted service, and its discovery cache resolves inline in the request.
 - **The merge that ships this reds the staging deploy on a box without the key.** Accepted: that is
   decision 6 working, and the rollback keeps the old release serving.
 - **The TMS API has the same shared bucket** (`fixed-by-ip`, 100/min, every translator page load).
-  Out of scope here; the follow-up ticket applies this recipe there.
+  Out of scope here; #823 applies this recipe there.
 
 ## Alternatives Considered
 
@@ -226,7 +235,8 @@ every consumer sees — a trust change well beyond the limiter.
   - `Services/RateLimiting/RateLimitPartitionKeyResolver.cs` — **new**; the digest comparison and
     the choice between the forwarded address and `Connection.RemoteIpAddress`.
   - `ApiDependencyInjection.cs` registers the settings and the resolver; the three back-channel
-    policies in `Program.cs` partition through it, the page policies through `ConnectionAddress`.
+    policies in `Program.cs` partition through it, the page policies and `register-limit` through
+    `ConnectionAddress`; `Features/Auth/RegisterUser.cs` moves to `register-limit`.
 - Frontend:
   - `Settings/AuthSystemSettings.cs` (+ `CallerKey`) and `Settings/AuthSystemSettingsValidator.cs`.
   - `Infrastructure/HttpClients/FrontendCallerDelegatingHandler.cs` — **new**; on the two typed
@@ -240,10 +250,12 @@ every consumer sees — a trust change well beyond the limiter.
   - Auth API: `RateLimitPartitionKeyResolverTests` (unit: every call short of a proven visitor);
     `FrontendCallerKeyTests` (integration, forced-on limiter: two users behind one address no longer
     share `/connect/token` nor the account GET, the e-mail change budget per visitor, a direct
-    caller unchanged, the connection's own bucket for an unproven call, and a login POST that still
-    meters on the connection whatever headers it carries); `FrontendCallerSettingsValidatorTests`.
-  - Frontend: `FrontendCallerDelegatingHandlerTests` (unit), the three paths through the real
-    registrations in `HttpClientsResilienceTests` and `AuthenticationDependencyInjectionExtensionsTests`,
+    caller unchanged, the connection's own bucket for an unproven call, the discovery root per
+    visitor, and the key-blind endpoints — the login page, `auth/register`, `auth/forgot-password`,
+    `auth/resend-email-confirmation` — still metered on the connection whatever headers they carry);
+    `FrontendCallerSettingsValidatorTests`.
+  - Frontend: `FrontendCallerDelegatingHandlerTests` (the handler alone, and the three paths through
+    the real registrations: the typed client under a retry, the token client, the OIDC back-channel),
     `AuthSystemSettingsValidatorTests`.
 
 ## References

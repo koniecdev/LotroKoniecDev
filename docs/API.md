@@ -123,13 +123,14 @@ Content-Type: multipart/form-data          # the import upload only
 ### 2.4 Rate limiting
 
 In non-dev/test, `tms-api` applies a **fixed-window 100 requests/minute per IP** policy across the
-endpoint group; over-limit returns **429** (`Program.cs:187-199`). `auth-api` rate-limits per IP: the
-OpenIddict `/connect/*` endpoints and the sensitive account endpoints (`auth/register`,
-confirm/reset/change-password, delete/cancel-deletion/export) carry the `auth-endpoint-limit`
-policy (10/min),
-forgot-password and resend-confirmation carry stricter 3/15 min policies, and the remaining API
-endpoints fall under the generic 20/min policy (health probes and the OpenIddict discovery/JWKS
-documents are deliberately unlimited).
+endpoint group; over-limit returns **429** (`Program.cs:187-199`). `auth-api` rate-limits per client:
+the OpenIddict `/connect/*` endpoints, confirm-email, reset-password, cancel-deletion and the account
+GET carry the `auth-endpoint-limit` policy (10/min); `auth/register` carries `register-limit`, the
+same numbers keyed on the connection's own address; forgot-password and resend-confirmation carry
+stricter 3/15 min policies; change-password, delete and the export POST are off the per-address
+policies and braked per account instead (ADR-0053); the remaining API endpoints fall under the
+generic 20/min policy (health probes and the OpenIddict discovery/JWKS documents are deliberately
+unlimited).
 
 For the three policies the Frontend's server-side calls reach — the generic one, `auth-endpoint-limit`
 and `change-email-limit` — "per IP" means per **client** as `RateLimitPartitionKeyResolver` names it
@@ -138,8 +139,9 @@ the visitor's address the Frontend sends in `X-LOTRO-Client-Address` next to the
 `X-LOTRO-Frontend-Key`. Every Frontend call leaves from one container, so without that every
 logged-in user would share one bucket. The key only picks the bucket: a call with a missing, wrong or
 repeated key, or a missing or unparseable address, is metered on the connection's own address, and the
-key opens no endpoint and exempts from no budget. The browser-facing page policies below stay on the
-connection's own address, so the key can never dodge the login form's brake.
+key opens no endpoint and exempts from no budget. The browser-facing page policies below and
+`register-limit` stay on the connection's own address, so the key can never dodge the login form's
+brake or buy a fresh registration-mail budget per invented address.
 
 The browser-facing account pages are limited too, and the limit is the **default for the whole Razor
 group** — a page opts out with an attribute, it does not opt in (#692). `auth-page-limit` counts

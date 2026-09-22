@@ -33,12 +33,25 @@ public sealed class FrontendCallerKeyTests : EndpointsTestBase
     /// <summary>Mirrors the auth-page-limit policy: 10 POSTs per 15 minutes, per page and per address.</summary>
     private const int AuthPagePostBucket = 10;
 
+    /// <summary>Mirrors the register-limit policy: 10 per minute per address.</summary>
+    private const int RegisterBucket = 10;
+
+    /// <summary>Mirrors forgot-password-limit and resend-confirmation-limit: 3 POSTs per 15 minutes per address.</summary>
+    private const int MailBucket = 3;
+
+    /// <summary>Mirrors the fixed-by-ip policy the discovery root sits on: 20 requests per minute per client.</summary>
+    private const int GroupBucket = 20;
+
     private const string FrontendAddress = "10.60.0.7";
     private const string ForwardedForHeader = "X-Forwarded-For";
     private const string AccountPath = "auth/account/data-export";
     private const string ChangeEmailPath = "auth/account/change-email";
     private const string TokenPath = "connect/token";
     private const string LoginPagePath = "/Account/Login";
+    private const string RegisterPath = "auth/register";
+    private const string ForgotPasswordPath = "auth/forgot-password";
+    private const string ResendConfirmationPath = "auth/resend-email-confirmation";
+    private const string DiscoveryPath = "/";
     private const string Password = "TestPass1!";
 
     public FrontendCallerKeyTests(AuthSystemApiFactory appFactory) : base(appFactory)
@@ -176,24 +189,61 @@ public sealed class FrontendCallerKeyTests : EndpointsTestBase
     }
 
     [Fact]
-    public async Task ALoginPagePost_ShouldStayOnTheConnectionsOwnBucket_WhateverHeadersItCarries()
+    public async Task TwoVisitorsBehindTheFrontend_ShouldEachGetTheirOwnDiscoveryBucket()
+    {
+        // Arrange: the discovery root is the one call the frontend makes on the group policy, on every
+        // cold cache. One visitor spends the whole bucket.
+        using WebApplicationFactory<Program> limitedHost = CreateRateLimitedHost();
+        using HttpClient client = limitedHost.CreateClient();
+        Caller heavyVisitor = Caller.ThroughTheFrontend("203.0.113.60");
+        for (int i = 0; i < GroupBucket; i++)
+        {
+            using HttpResponseMessage fetch = await GetDiscoveryAsync(client, heavyVisitor);
+            fetch.StatusCode.ShouldBe(HttpStatusCode.OK);
+        }
+
+        using HttpResponseMessage bucketSpent = await GetDiscoveryAsync(client, heavyVisitor);
+        bucketSpent.StatusCode.ShouldBe(HttpStatusCode.TooManyRequests);
+
+        // Act
+        using HttpResponseMessage otherVisitor = await GetDiscoveryAsync(client, Caller.ThroughTheFrontend("203.0.113.61"));
+
+        // Assert
+        otherVisitor.StatusCode.ShouldBe(HttpStatusCode.OK);
+    }
+
+    public static TheoryData<string, int, bool> KeyBlindEndpoints => new()
+    {
+        { LoginPagePath, AuthPagePostBucket, true },
+        { RegisterPath, RegisterBucket, false },
+        { ForgotPasswordPath, MailBucket, false },
+        { ResendConfirmationPath, MailBucket, false }
+    };
+
+    [Theory]
+    [MemberData(nameof(KeyBlindEndpoints))]
+    public async Task AKeyBlindEndpoint_ShouldStayOnTheConnectionsOwnBucket_WhateverHeadersItCarries(
+        string path,
+        int budget,
+        bool formBody)
     {
         // Arrange: the login form is the one place a password can be guessed in production, and the
-        // frontend never posts to it. So its policy ignores the key (ADR-0054 §3): a leaked key must not
-        // buy a fresh bucket per invented address. No antiforgery token is sent, so each POST ends in
-        // 400 — the limiter runs before antiforgery and counts them all the same.
+        // three endpoints mail an address the caller typed with no per-account brake behind them. The
+        // frontend calls none of them, so their policies ignore the key (ADR-0054 §3): a leaked key must
+        // not buy a fresh bucket per invented address. Every POST here is refused before it does any
+        // work (no antiforgery token, an empty body), and the limiter counts it all the same.
         using WebApplicationFactory<Program> limitedHost = CreateRateLimitedHost();
         using HttpClient client = limitedHost.CreateClient();
         Caller connection = Caller.Direct("203.0.113.50");
-        for (int i = 0; i < AuthPagePostBucket; i++)
+        for (int i = 0; i < budget; i++)
         {
-            using HttpResponseMessage attempt = await PostLoginAsync(client, connection);
-            attempt.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+            using HttpResponseMessage attempt = await PostRefusedAsync(client, path, formBody, connection);
+            attempt.StatusCode.ShouldNotBe(HttpStatusCode.TooManyRequests);
         }
 
         // Act: the same connection, now claiming to be the frontend forwarding a fresh visitor
-        using HttpResponseMessage claimedVisitor = await PostLoginAsync(
-            client, new Caller("203.0.113.50", [FrontendKey], ["198.51.100.50"]));
+        using HttpResponseMessage claimedVisitor = await PostRefusedAsync(
+            client, path, formBody, new Caller("203.0.113.50", [FrontendKey], ["198.51.100.50"]));
 
         // Assert
         claimedVisitor.StatusCode.ShouldBe(HttpStatusCode.TooManyRequests);
@@ -248,14 +298,24 @@ public sealed class FrontendCallerKeyTests : EndpointsTestBase
         return await client.SendAsync(request);
     }
 
-    private static async Task<HttpResponseMessage> PostLoginAsync(HttpClient client, Caller caller)
+    private static async Task<HttpResponseMessage> GetDiscoveryAsync(HttpClient client, Caller caller)
     {
-        using HttpRequestMessage request = CreateRequest(HttpMethod.Post, LoginPagePath, caller);
-        request.Content = new FormUrlEncodedContent(new Dictionary<string, string>
-        {
-            ["Email"] = "burst@lotro-translator.pl",
-            ["Password"] = "WrongPass1!"
-        });
+        using HttpRequestMessage request = CreateRequest(HttpMethod.Get, DiscoveryPath, caller);
+        return await client.SendAsync(request);
+    }
+
+    // A POST every endpoint refuses before it does any work: a form with no antiforgery token for a
+    // page, an empty JSON object for an API endpoint.
+    private static async Task<HttpResponseMessage> PostRefusedAsync(HttpClient client, string path, bool formBody, Caller caller)
+    {
+        using HttpRequestMessage request = CreateRequest(HttpMethod.Post, path, caller);
+        request.Content = formBody
+            ? new FormUrlEncodedContent(new Dictionary<string, string>
+            {
+                ["Email"] = "burst@lotro-translator.pl",
+                ["Password"] = "WrongPass1!"
+            })
+            : new StringContent("{}", System.Text.Encoding.UTF8, "application/json");
 
         return await client.SendAsync(request);
     }

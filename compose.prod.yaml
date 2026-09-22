@@ -131,7 +131,7 @@ services:
       # The frontend's caller key (ADR-0054), minted into .env.prod by scripts/gen-openiddict-keys
       # next to the OpenIddict secrets. Same shape as compose.hetzner.yaml: the SAME variable feeds
       # the frontend below.
-      FrontendCaller__Key: ${FRONTEND_CALLER_KEY:?FRONTEND_CALLER_KEY must be set in .env.prod — scripts/up-prod.sh mints it, or append it by hand (ADR-0054)}
+      FrontendCaller__Key: ${FRONTEND_CALLER_KEY:?FRONTEND_CALLER_KEY must be set in .env.prod — scripts/up-prod.sh mints it into a fresh .env.prod; an existing one needs the line appended by hand, see the runbook (ADR-0054)}
       OpenIddict__WebClient__RedirectUris__0: "https://app.lotro.test/callback"
       OpenIddict__WebClient__PostLogoutRedirectUris__0: "https://app.lotro.test"
       Cors__AllowedOrigins__0: "https://app.lotro.test"
@@ -225,7 +225,7 @@ services:
       # hosts file, container via the proxy's network aliases below).
       AuthSystem__Authority: "https://auth.lotro.test"
       AuthSystem__BaseUrl: "https://auth.lotro.test/"
-      AuthSystem__CallerKey: ${FRONTEND_CALLER_KEY:?FRONTEND_CALLER_KEY must be set in .env.prod — scripts/up-prod.sh mints it, or append it by hand (ADR-0054)}
+      AuthSystem__CallerKey: ${FRONTEND_CALLER_KEY:?FRONTEND_CALLER_KEY must be set in .env.prod — scripts/up-prod.sh mints it into a fresh .env.prod; an existing one needs the line appended by hand, see the runbook (ADR-0054)}
       TranslationSystem__BaseUrl: "https://tms.lotro.test/"
       DataProtection__KeyRingPath: "/keys"
       OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}

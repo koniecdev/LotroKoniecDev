@@ -128,10 +128,11 @@ the auth API served every attempt.
   and an account doing this is one to revoke.
 - A correct password spends a permit. A person never reaches ten confirmations in a quarter of an
   hour; a QA run that exercises all four flows with a wrong-password case each spends eight.
-- The remaining back-channel policies are still one bucket for every user: `auth-endpoint-limit`
-  carries `/connect/token` and the account GET on every page view, and `change-email-limit` gives
-  the whole product three e-mail changes per hour. That is the topology — the frontend forwards no
-  client address — and it needs its own ticket, not a fourth endpoint-level exception.
+- The remaining back-channel policies were still one bucket for every user when this was written:
+  `auth-endpoint-limit` carried `/connect/token` and the account GET on every page view, and
+  `change-email-limit` gave the whole product three e-mail changes per hour. ADR-0054 (#819) closed
+  that: the frontend now forwards the visitor's address next to a shared key, and those policies
+  meter the visitor.
 
 ## Alternatives Considered
 
@@ -158,7 +159,8 @@ attacker-chosen.
 The right fix for the shared bucket as a whole, and out of scope here: it needs the frontend to
 append `X-Forwarded-For`, Caddy to keep it, and the auth API to trust a second hop
 (`ForwardLimit = 2`, the frontend's network in `KnownIPNetworks`) — a topology change with its own
-security review. It also would not make the brake per account. Deferred to a follow-up ticket.
+security review. It also would not make the brake per account. Deferred to a follow-up ticket —
+#819, settled by ADR-0054 with a shared key instead of a second forwarded-headers hop.
 
 ### E. Keep the three endpoints on `auth-endpoint-limit` next to the new budget
 

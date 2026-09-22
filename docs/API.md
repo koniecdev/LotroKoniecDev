@@ -131,6 +131,16 @@ forgot-password and resend-confirmation carry stricter 3/15 min policies, and th
 endpoints fall under the generic 20/min policy (health probes and the OpenIddict discovery/JWKS
 documents are deliberately unlimited).
 
+For the three policies the Frontend's server-side calls reach — the generic one, `auth-endpoint-limit`
+and `change-email-limit` — "per IP" means per **client** as `RateLimitPartitionKeyResolver` names it
+(ADR-0054): a direct caller's own address, or, for a call the Frontend makes on a visitor's behalf,
+the visitor's address the Frontend sends in `X-LOTRO-Client-Address` next to the environment's key in
+`X-LOTRO-Frontend-Key`. Every Frontend call leaves from one container, so without that every
+logged-in user would share one bucket. The key only picks the bucket: a call with a missing, wrong or
+repeated key, or a missing or unparseable address, is metered on the connection's own address, and the
+key opens no endpoint and exempts from no budget. The browser-facing page policies below stay on the
+connection's own address, so the key can never dodge the login form's brake.
+
 The browser-facing account pages are limited too, and the limit is the **default for the whole Razor
 group** — a page opts out with an attribute, it does not opt in (#692). `auth-page-limit` counts
 **POSTs only**, 10 per 15 minutes, keyed by route **and** client IP, so each page keeps its own budget

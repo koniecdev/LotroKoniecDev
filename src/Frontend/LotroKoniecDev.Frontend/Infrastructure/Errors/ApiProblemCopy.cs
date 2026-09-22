@@ -164,6 +164,10 @@ internal static class ApiProblemCopy
                 "Nie znaleziono konta.",
             [InvalidCurrentPasswordCode] =
                 "Aktualne hasło jest nieprawidłowe.",
+            // The export page never reads this one: its route turns any 429 into the "throttled" marker
+            // and prints its own sentence. The other three account pages do read it.
+            ["Auth.PasswordConfirmationThrottled"] =
+                "Zbyt wiele prób potwierdzenia hasła. Odczekaj kwadrans i spróbuj ponownie.",
             // The export page carries its own copy of this sentence, because its route redirects and a
             // redirect carries no problem body. The entry stays because this map covers every code the
             // APIs can produce.

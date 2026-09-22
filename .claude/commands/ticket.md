@@ -103,10 +103,27 @@ Then exactly one of three verdicts:
   already asked them. Now copy `docs/specs/_TEMPLATE.md` → `docs/specs/NNNN-kebab-title.md` (next
   free number), fill it concretely from the ticket, the wiki and the gate's answers — concrete
   types and paths, not placeholders — and set **Status: Agreed** (**no second question round**)
-  before the branch. Run `/buddy` on the plan when one load-bearing assumption decides the whole
-  slice; a real architecture decision gets an `/adr` before the code.
+  before the branch. A real architecture decision gets an `/adr` before the code.
 
 Name the lane in the READY comment. Changing lanes mid-run is fine — say so in the report.
+
+**`/buddy` before code, in any lane, when the plan carries a design bet.** A design bet is one of:
+an ADR written for this ticket, a deviation from an acceptance criterion, or one load-bearing
+assumption that decides the whole slice. Hand `/buddy` the plan as claims, and include the claim
+"this step protects something the caller could not already get". A design flaw found here costs
+one cheap agent; found at the review gate it costs a rewrite plus a full re-run of every gate.
+Precedent: #690 — the first draft put a password in front of a POST whose payload was identical to
+the open GET beside it, and only review round 1 saw it, after the code and the tests existed.
+
+**The lane also sizes the model.** S and M lanes are mirror-the-sibling work and do not need the
+maintainer's scarcest model tier (Fable-class today: a weekly quota, and the strongest tool for
+architecture and the heaviest features). Measured on #690, an M-lane security ticket: that tier
+produced a PR equal in quality to the workhorse tier's and spent about 8% of its weekly quota on
+it. So if this session runs on the scarce tier and the lane is S or M, say so in one line and STOP
+here — the READY comment is already on the issue, so a fresh session on the workhorse tier skips
+step 2 and loses nothing. Continue only when the user says to. An L lane, or a ticket that needs an
+ADR, is where that tier earns its cost: keep going. A headless run (`claude -p`) cannot be
+answered, so it never stops here — it names the mismatch in the report's **Doubts** instead.
 
 ## 4. Ground it in the repo
 
@@ -151,6 +168,19 @@ a non-trivial modeling decision emerges mid-flight. Honor every constraint the s
   file; fix every Critical/Major and re-run until APPROVE. S: review inline with
   **`/code-review`** — zero agents. **`/security-review`** on top for anything touching native
   interop, file protection, or auth.
+- **Second pass — M/L only, after the APPROVE: run `/code-review` on the branch.** It forks into a
+  fresh context, so it has never seen your plan, your ADR or the first reviewer's framing, and it
+  reads the code around the diff instead of the diff's own story. That independence is the point:
+  the `code-reviewer` rounds converge on what the author and the reviewer already talk about.
+  Precedent: #690 — three `code-reviewer` rounds and 20 findings ended in APPROVE, and one fresh
+  `/code-review` then found four more, among them a password POST that the shared HTTP retry
+  pipeline could send three times and an export that spent two rate-limit permits per click. Fix
+  every finding that is real, write a one-line reason for each one you reject, then re-run the
+  build, the whole suite and the guards on the final commit. This pass runs **before** the push:
+  a finding that lands after `gh pr create` costs a pr-verify run. Effort decides what it finds,
+  more than the model does: on #690's PR the same command gave 2 and 4 findings in two runs at
+  effort medium, and 14 and 15 at xhigh (one run each on the two top tiers, about 6 and 20 USD).
+  A session below effort high should not count this pass as proof.
 
 ## 8. Ship
 
@@ -181,7 +211,7 @@ The PR body (or the issue comment, when there is no PR) ends with:
 ```markdown
 ## Ticket report
 **Shipped:** <what changed, behaviorally, 1-3 lines>
-**Proof:** <each gate with its actual result: build, the suite counts, guards, review verdict, CodeQL>
+**Proof:** <each gate with its actual result: build, the suite counts, guards, review verdict, the second-pass `/code-review` findings (fixed / rejected + why), CodeQL>
 **Assumptions:** <every judgment call made without the user, each with why + risk — "none" is a valid entry, silence is not>
 **Doubts:** <anything not fully verified or that smells — same rule>
 **Follow-ups:** <tickets filed, or bullets worth one>

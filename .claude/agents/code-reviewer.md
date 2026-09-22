@@ -127,6 +127,15 @@ handled nor impossible-by-construction** is a finding.
 9. **Concurrency & resources** — shared mutable state / `DatFileHandler` locking; streams and
    handles disposed on the **failure** path too, not just the happy return; `CancellationToken`
    honored and propagated.
+10. **The shared plumbing a new call rides on (#690).** The diff shows the new call, not the
+    pipeline under it, so open that pipeline. (a) **Retries:** the Frontend's resilience pipeline
+    (`HttpClientsDependencyInjectionExtensions.IsHandledTransientFailure`) retries every
+    non-multipart request on a 5xx or an exception — a new POST that is not idempotent (checks a
+    password, sends mail, writes an audit line) gets sent up to three times unless it opts out.
+    (b) **Rate-limit budget:** count how many permits ONE user action spends (page load + the
+    calls the handler makes) and against which partition; the auth API sees the frontend's IP, so
+    a per-IP budget is shared by every user. (c) **Expired session on a POST-only route:** the
+    OIDC challenge brings the browser back with a GET — does that GET land on a page, or on a 405?
 
 **The gate:** if a non-trivial code path in the diff handles ONLY the happy path — no guard, no
 `Result.Failure`, no test on the unhappy branches, and the bad input is genuinely reachable — that

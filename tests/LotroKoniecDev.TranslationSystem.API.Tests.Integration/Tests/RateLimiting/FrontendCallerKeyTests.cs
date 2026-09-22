@@ -10,7 +10,8 @@ namespace LotroKoniecDev.TranslationSystem.API.Tests.Integration.Tests.RateLimit
 /// <summary>
 /// ADR-0054 (#823): every call the frontend makes reaches the TMS API from its one container, so the
 /// API meters it on the visitor's address the frontend forwards, but only next to the environment's
-/// key. The limiter is forced on for a derived host, as on the auth API. In Testing
+/// key. The limiter is forced on for a derived host, as on the auth API; one test boots a Staging host
+/// instead, to prove the environment alone still turns it on there. In Testing
 /// <c>UseForwardedHeaders</c> trusts every peer, so <c>X-Forwarded-For</c> plays the connection address
 /// Caddy resolves: <c>10.60.0.x</c> is the frontend container, RFC 5737 addresses are visitors. Every
 /// test creates its own host, so its buckets are its own. The full matrix of calls short of a proven
@@ -27,6 +28,7 @@ public sealed class FrontendCallerKeyTests : IAsyncLifetime
 
     private const string FrontendAddress = "10.60.0.7";
     private const string ForwardedForHeader = "X-Forwarded-For";
+    private const string ForwardedProtoHeader = "X-Forwarded-Proto";
     private const string DiscoveryPath = "/";
     private const string GameVersionsPath = "/api/v1/game-versions";
 
@@ -135,6 +137,28 @@ public sealed class FrontendCallerKeyTests : IAsyncLifetime
         response.StatusCode.ShouldBe(HttpStatusCode.TooManyRequests);
     }
 
+    [Fact]
+    public async Task DeployedEnvironment_ShouldEnforceTheLimitWithoutTheTestSwitch()
+    {
+        // Arrange: a Staging host, where only the environment turns the limiter on. A gate that
+        // needed RateLimiting:ForceEnable would leave staging and prod with no TMS limit at all.
+        using WebApplicationFactory<Program> stagingHost = CreateStagingHost();
+        using HttpClient client = stagingHost.CreateClient();
+        Caller caller = Caller.Direct("203.0.113.60");
+
+        for (int i = 0; i < Bucket; i++)
+        {
+            using HttpResponseMessage response = await GetAsync(client, DiscoveryPath, caller);
+            response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        }
+
+        // Act
+        using HttpResponseMessage overTheLimit = await GetAsync(client, DiscoveryPath, caller);
+
+        // Assert
+        overTheLimit.StatusCode.ShouldBe(HttpStatusCode.TooManyRequests);
+    }
+
     private sealed record Caller(string ConnectionAddress, IReadOnlyCollection<string> KeyValues, IReadOnlyCollection<string> AddressValues)
     {
         public static Caller Direct(string address) => new(address, [], []);
@@ -143,6 +167,7 @@ public sealed class FrontendCallerKeyTests : IAsyncLifetime
     }
 
     // One Add per value, so two values arrive as a repeated header rather than one comma-joined value.
+    // X-Forwarded-Proto is what Caddy sends; it keeps a Staging host's HTTPS redirect out of the way.
     private static async Task<HttpResponseMessage> GetAsync(
         HttpClient client,
         string path,
@@ -151,6 +176,7 @@ public sealed class FrontendCallerKeyTests : IAsyncLifetime
     {
         using HttpRequestMessage request = new(HttpMethod.Get, new Uri(path, UriKind.Relative));
         request.Headers.Add(ForwardedForHeader, caller.ConnectionAddress);
+        request.Headers.Add(ForwardedProtoHeader, "https");
 
         foreach (string keyValue in caller.KeyValues)
         {
@@ -196,6 +222,23 @@ public sealed class FrontendCallerKeyTests : IAsyncLifetime
                 configBuilder.AddInMemoryCollection(new Dictionary<string, string?>
                 {
                     { "RateLimiting:ForceEnable", "true" },
+                    { "FrontendCaller:Key", FrontendKey }
+                });
+            });
+        });
+    }
+
+    // Staging carries every setting a deployed host needs to boot, and not the test switch.
+    private WebApplicationFactory<Program> CreateStagingHost()
+    {
+        return _factory.WithWebHostBuilder(builder =>
+        {
+            builder.UseEnvironment("Staging");
+            builder.ConfigureAppConfiguration((_, configBuilder) =>
+            {
+                configBuilder.AddInMemoryCollection(new Dictionary<string, string?>
+                {
+                    { "Cors:AllowedOrigins:0", "https://app.lotro.test" },
                     { "FrontendCaller:Key", FrontendKey }
                 });
             });

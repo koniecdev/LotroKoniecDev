@@ -22,12 +22,13 @@ public sealed class OpenIddictPruneServiceIntegrationTests
     }
 
     [Fact]
-    public void AddAuthApi_RegistersPruneHostedService()
+    public void TestHost_DoesNotHostThePruneJob()
     {
-        // Assert
+        // The factory keeps every clock-driven job off this host (#821). The tests below call
+        // PruneOnceAsync themselves.
         _factory.Services.GetServices<IHostedService>()
             .OfType<OpenIddictPruneService>()
-            .ShouldHaveSingleItem();
+            .ShouldBeEmpty();
     }
 
     [Fact]
@@ -103,9 +104,7 @@ public sealed class OpenIddictPruneServiceIntegrationTests
     }
 
     private OpenIddictPruneService ResolvePruneService()
-        => _factory.Services.GetServices<IHostedService>()
-            .OfType<OpenIddictPruneService>()
-            .Single();
+        => _factory.Services.GetRequiredService<OpenIddictPruneService>();
 
     private static async Task<string> CreateTokenAsync(
         IOpenIddictTokenManager tokenManager,

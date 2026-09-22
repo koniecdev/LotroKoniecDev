@@ -20,7 +20,7 @@ run; a false premise caught here costs a few tool calls instead of a whole imple
 - Triage is retrieval-shaped work — start the session on a cheaper model (`claude --model opus`)
   and run this as its first prompt. This repo pins no model in any frontmatter (`CLAUDE.md` →
   "Agent fan-out is budgeted"), so the choice is yours at launch; a mid-session `/model` switch
-  re-reads the whole conversation uncached (`/effort` is cache-safe only on Fable 5.1).
+  re-reads the whole conversation uncached (`/effort` is cache-safe only on Fable 5.1; unverified on Opus 5.5).
 - Budget ≈ 10 tool calls per ticket. If a verdict needs more than that, the verdict is
   CLARIFY with "needs a deeper look" — do not silently turn triage into an investigation.
 - Batch: pull all tickets in as few `gh` calls as possible; group greps across tickets where the

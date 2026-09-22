@@ -12,8 +12,8 @@
 #                           ~/.claude/model-policy.env when present, else high — reviews inside
 #                           the session run at high via the code-reviewer agent definition)
 #   LOOP_MODEL              model (default: the worker model from ~/.claude/model-policy.env
-#                           when present, else opus — Opus 5; switched back from Fable 5
-#                           on 2026-08-05)
+#                           when present, else opus — Opus 5.5 in the policy since
+#                           2026-09-22)
 #   LOOP_CONFIG_DIR         Claude config dir = which account runs the loop
 #                           (default: ~/.claude-account1)
 #   LOOP_GH_USER            gh account whose token backs the loop's gh write calls — PR merge,
@@ -111,7 +111,7 @@ salvage() {
         git add -A >/dev/null 2>&1 || true
         git commit --quiet --no-verify \
             -m "claude-loop: salvage uncommitted work for #$ISSUE" \
-            -m "Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>" >/dev/null 2>&1 || true
+            -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>" >/dev/null 2>&1 || true
         log "leftover changes committed on branch $salvage_branch"
     fi
     git checkout main --quiet 2>/dev/null || true

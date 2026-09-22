@@ -193,7 +193,7 @@ scripts/claude/backlog-loop.sh 123 130                 # exactly these tickets, 
 caffeinate -is scripts/claude/backlog-loop.sh          # overnight run on macOS (blocks sleep)
 scripts/claude/next-ticket.sh                          # print the next READY ticket (priority + deps)
 scripts/claude/work-ticket.sh 123                      # one ticket, one fresh headless session
-# defaults: opus (Opus 5) · effort high (reviews at high too) · permission-mode auto — override via LOOP_MODEL /
+# defaults: model + effort from ~/.claude/model-policy.env (Opus 5.5 · xhigh since 2026-09-22), else opus · high · permission-mode auto — override via LOOP_MODEL /
 # LOOP_EFFORT / LOOP_PERMISSION_MODE / LOOP_UNSAFE=1 · full manual: docs/claude-loop.md
 
 # TMS — EF Core migrations (write context owns them; --connection makes it work without appsettings/live DB)
@@ -415,7 +415,8 @@ hash-check → patch → launch flow is validated. Re-investigating any of it is
   runs on whatever model and effort the session runs on, so a fresh clone reviews with the
   contributor's own tier instead of a model this repo has no business pinning for them;
   `/code-review` and `/security-review` follow the session model/effort the same way; loop-mode
-  worker sessions run at **effort high** (`LOOP_EFFORT` default) — unless the prompt for that run
+  worker sessions take model and effort from the maintainer policy (Opus 5.5 at **xhigh** since
+  2026-09-22; the script fallback without it is **effort high**, the `LOOP_EFFORT` default) — unless the prompt for that run
   explicitly says otherwise. Applies to interactive sessions and loop-mode workers alike. The
   concrete values live in agent frontmatter and in the loop scripts' fallback defaults; the
   maintainer pins their own tier machine-locally (a central model policy outside the repo), which
@@ -430,14 +431,14 @@ hash-check → patch → launch flow is validated. Re-investigating any of it is
   the same context pays the first one's whole conversation as cache reads on every turn.
   Questions to the user belong in `/ticket`'s step-2 gate and nowhere later: the prompt cache dies
   after 1h idle, so a parked fat context re-primes at full price — deliver on documented
-  assumptions and fix from the Ticket report instead. Fable and Opus 5 run a native 1M window in
+  assumptions and fix from the Ticket report instead. Opus 5.5 and Fable run a native 1M window in
   Claude Code and auto-compaction stays at its ~967k default on purpose (never set
   `autoCompactWindow`, `CLAUDE_CODE_AUTO_COMPACT_WINDOW` or `CLAUDE_CODE_DISABLE_1M_CONTEXT` —
   compaction is not wanted here), so only you cap a session: past ~200k in `/context` a ticket
   session is a marathon — finish, report, `/clear`. Pick model and effort before the first prompt:
   `/model` mid-session is a full cache miss on every model, `/effort` on every model except
-  Fable 5.1. Back-to-back sessions reuse only the tool layer of the cache (the rest re-primes with
-  the git snapshot) — batch them for focus, not for cache.
+  Fable 5.1 (unverified on Opus 5.5 — assume a miss). Back-to-back sessions reuse only the
+  tool layer of the cache (the rest re-primes with the git snapshot) — batch them for focus, not for cache.
 - **Frontend is Static SSR — enforced, not just documented.** No WebAssembly, no SignalR circuit,
   no per-user server state; forms post via `<form method="post" @formname @onsubmit>` (the SSR
   `@onsubmit` special-case) or `<EditForm OnValidSubmit>` — never interactive `@on*` handlers,

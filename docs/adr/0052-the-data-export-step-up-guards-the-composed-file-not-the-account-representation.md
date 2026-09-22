@@ -91,12 +91,12 @@ logged-in caller.**
   it stays valid (ADR-0049): scheduling locks the account and revokes its sessions, so nobody can log
   in during the 14-day window to ask for the file. Offering the export inside the window — from the
   cancellation e-mail, for one — is a product decision this ADR does not make.
-- **A wrong password does not count toward Identity's lockout**, mirroring `DeleteAccount`, and the
-  brake behind it is weaker than it looks. `auth-endpoint-limit` partitions on the remote address, and
-  every call from the frontend arrives from the frontend itself, so one 10-per-minute bucket is shared
-  by every logged-in user of every endpoint on that policy. It is therefore not a per-account brake at
-  all, and it is not new: `DeleteAccount` and `ChangePassword` have always sat behind it. A per-account
-  throttle in the shape of `PasswordResetRequestThrottle` is the fix, filed as #813.
+- **A wrong password does not count toward Identity's lockout**, mirroring `DeleteAccount`. When this
+  ADR was written, the only brake behind it was `auth-endpoint-limit`, which partitions on the remote
+  address — and every call from the frontend arrives from the frontend itself, so it was one
+  10-per-minute bucket shared by every logged-in user. #813 replaced it for this endpoint with a
+  per-account budget, `PasswordConfirmationThrottle`; ADR-0053 holds that decision and the reason the
+  lockout stays out of it.
 - **The confirm page is one more click** before a download the user asked for. That is the intended
   cost, and it is the same cost the other three sensitive actions already charge.
 - **A refused attempt shows a sentence and a "try again" link, not the form.** A successful download

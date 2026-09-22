@@ -1,5 +1,8 @@
 using System.Net.Http.Headers;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.AspNetCore.RateLimiting;
+using Microsoft.AspNetCore.Routing;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -76,7 +79,7 @@ public sealed class PasswordConfirmationBudgetTests : EndpointsTestBase
     }
 
     [Fact]
-    public async Task TheBudget_ShouldBeSharedByEveryEndpointThatConfirmsThePassword()
+    public async Task PasswordConfirmation_ShouldShareOneBudgetAcrossTheFourEndpoints()
     {
         // Arrange: four endpoints ask for the current password, and a guesser picks whichever is open.
         // One budget across all four is what makes it a brake on guessing rather than on one form.
@@ -113,7 +116,7 @@ public sealed class PasswordConfirmationBudgetTests : EndpointsTestBase
     }
 
     [Fact]
-    public async Task TheBudget_ShouldBelongToTheAccount_NotToTheAddressTheGuessesCameFrom()
+    public async Task PasswordConfirmation_ShouldKeepOneAccountBudgetOutOfAnother_WhateverTheAddress()
     {
         // Arrange: both users' requests arrive from the same client, which is exactly how the auth API
         // sees every user behind the frontend
@@ -172,6 +175,42 @@ public sealed class PasswordConfirmationBudgetTests : EndpointsTestBase
 
         // Assert
         bystanderChange.StatusCode.ShouldBe(HttpStatusCode.OK);
+    }
+
+    [Theory]
+    [InlineData(DeletePath)]
+    [InlineData(ChangePasswordPath)]
+    [InlineData(DataExportPath)]
+    public void PasswordConfirmationEndpoint_ShouldCarryNoRateLimitPolicy(string route)
+    {
+        // The per-account budget is the brake (ADR-0053). Putting one of these back on a per-address
+        // policy would silently restore the shared bucket, so the metadata is pinned here.
+        RouteEndpoint endpoint = FindPostEndpoint(route);
+
+        endpoint.Metadata.GetMetadata<DisableRateLimitingAttribute>().ShouldNotBeNull();
+    }
+
+    [Fact]
+    public void RequestEmailChange_ShouldKeepTheMailBudgetPolicy()
+    {
+        // change-email-limit bounds the mail the endpoint sends, which the confirmation budget does not
+        // replace; the endpoint carries both.
+        RouteEndpoint endpoint = FindPostEndpoint(ChangeEmailPath);
+
+        endpoint.Metadata.GetMetadata<DisableRateLimitingAttribute>().ShouldBeNull();
+        EnableRateLimitingAttribute? policy = endpoint.Metadata.GetMetadata<EnableRateLimitingAttribute>();
+        policy.ShouldNotBeNull();
+        policy.PolicyName.ShouldBe("change-email-limit");
+    }
+
+    private RouteEndpoint FindPostEndpoint(string route)
+    {
+        // The data-export route serves a GET too, so the verb is part of the match.
+        return Factory.Services.GetRequiredService<EndpointDataSource>().Endpoints
+            .OfType<RouteEndpoint>()
+            .Single(endpoint =>
+                endpoint.RoutePattern.RawText?.TrimStart('/') == route
+                && endpoint.Metadata.GetMetadata<HttpMethodMetadata>()?.HttpMethods.Contains(HttpMethods.Post) is true);
     }
 
     private async Task<HttpStatusCode> PostForStatusAsync(string path, string accessToken, object body)

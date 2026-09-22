@@ -393,11 +393,33 @@ public sealed class AccountEndpointsExtensionsTests
     }
 
     [Fact]
+    public async Task DownloadAccountExportAsync_WhenTheAccountsConfirmationBudgetIsSpent_SendsTheUserBackWithThePasswordThrottledMarker()
+    {
+        // The auth API refuses the password POST with the account's own budget (ADR-0053): a 429 that
+        // carries a code and a 15-minute window, so the page has to say a longer wait than the bare 429.
+        StubDiscoveryWithExportLink();
+        AccountLoader loader = new(
+            _discoveryCache,
+            CreateClient(StubHttpMessageHandler.RespondWith(
+                HttpStatusCode.OK,
+                RepresentationJson(),
+                HttpStatusCode.TooManyRequests,
+                """{ "title": "Too Many Requests", "status": 429, "errorCode": "Auth.PasswordConfirmationThrottled" }""")));
+
+        IResult result = await AccountEndpointsExtensions.DownloadAccountExportAsync(
+            CorrectPassword, HttpContextWithClient(), loader, _discoveryCache, CreateTmsClientReturningContribution(),
+            NullLoggerFactory.Instance, CancellationToken.None);
+
+        RedirectHttpResult redirect = result.ShouldBeOfType<RedirectHttpResult>();
+        redirect.Url.ShouldBe("/account/export?error=password-throttled");
+    }
+
+    [Fact]
     public async Task DownloadAccountExportAsync_WhenTheAuthApiThrottles_SendsTheUserBackToThePageWithTheThrottledMarker()
     {
-        // 429 is reachable here: the auth endpoints' budget is per remote address, and every call
-        // arrives from this service, so it is one bucket shared by every logged-in user (#813). A
-        // technical problem page is the wrong answer to "you typed it wrong a few times".
+        // A bare 429 with no code is the per-address bucket, which the account GET on this route still
+        // sits on (#819): every call arrives from this service, so it is one bucket shared by every
+        // logged-in user. A technical problem page is the wrong answer to "come back in a minute".
         StubDiscoveryWithExportLink();
         AccountLoader loader = new(
             _discoveryCache,

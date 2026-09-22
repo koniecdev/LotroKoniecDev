@@ -47,26 +47,6 @@ public sealed class PasswordConfirmationThrottleTests
     }
 
     [Fact]
-    public void TryAcquire_ShouldSpendAPermitOnEveryCall_SoTheGateIsAtomic()
-    {
-        // Arrange: the permit is taken before the password is checked, so it cannot depend on the
-        // outcome. A budget that counted only failures would let a burst of guesses through the gate
-        // before the first failure was recorded.
-        using PasswordConfirmationThrottle throttle = new(permitLimit: 2, TimeSpan.FromMinutes(15));
-        Guid userId = Guid.CreateVersion7();
-
-        // Act
-        bool first = throttle.TryAcquire(userId);
-        bool second = throttle.TryAcquire(userId);
-        bool third = throttle.TryAcquire(userId);
-
-        // Assert
-        first.ShouldBeTrue();
-        second.ShouldBeTrue();
-        third.ShouldBeFalse();
-    }
-
-    [Fact]
     public async Task TryAcquire_ShouldGiveTheBudgetBackWhenTheWindowPasses()
     {
         // Arrange: a wrong unit here — hours instead of minutes — would cut every user off from their

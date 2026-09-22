@@ -59,6 +59,7 @@ public sealed class ExportAccountDataTests : BunitContext
     [InlineData("password", "Hasło jest nieprawidłowe.")]
     [InlineData("required", "Podaj obecne hasło, aby pobrać swoje dane.")]
     [InlineData("throttled", "Zbyt wiele prób. Odczekaj chwilę i spróbuj ponownie.")]
+    [InlineData("password-throttled", "Zbyt wiele prób potwierdzenia hasła. Odczekaj kwadrans i spróbuj ponownie.")]
     public void Render_WithAnErrorMarker_ShowsTheMatchingPolishSentence(string errorCode, string expected)
     {
         Navigation().NavigateTo($"/account/export?error={errorCode}");
@@ -72,6 +73,7 @@ public sealed class ExportAccountDataTests : BunitContext
     [InlineData("password")]
     [InlineData("required")]
     [InlineData("throttled")]
+    [InlineData("password-throttled")]
     public void Render_WithAnErrorMarker_OffersAWayBackInsteadOfTheForm(string errorCode)
     {
         // A successful download answers with a file, so the browser stays on the page it posted from.

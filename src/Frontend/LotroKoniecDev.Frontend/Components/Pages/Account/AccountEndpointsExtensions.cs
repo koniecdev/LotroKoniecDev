@@ -46,6 +46,7 @@ internal static class AccountEndpointsExtensions
     internal const string PasswordErrorCode = "password";
     internal const string PasswordRequiredErrorCode = "required";
     internal const string ThrottledErrorCode = "throttled";
+    internal const string PasswordThrottledErrorCode = "password-throttled";
 
     private static readonly JsonSerializerOptions ExportSerializerOptions = new()
     {
@@ -192,23 +193,22 @@ internal static class AccountEndpointsExtensions
 
     /// <summary>
     /// The marker to send the user back to the export page with, or <c>null</c> when the failure is not
-    /// theirs to fix. The page shows the matching sentence and a link to a clean form. The password cases are matched on the API's own <c>errorCode</c> rather than on the bare
-    /// status, so a validation rule added later does not silently come out as "wrong password".
+    /// theirs to fix. The page shows the matching sentence and a link to a clean form. The password cases
+    /// are matched on the API's own <c>errorCode</c> rather than on the bare status, so a validation rule
+    /// added later does not silently come out as "wrong password". Two refusals are a 429: the account's
+    /// own confirmation budget, which carries a code and a 15-minute window (ADR-0053), and the bare
+    /// per-address bucket the account GET still sits on, which clears within a minute. The page says a
+    /// different wait for each.
     /// </summary>
-    private static string? FormErrorFor(ApiResult result)
-    {
-        if (result.ProblemDetails?.Status is StatusCodes.Status429TooManyRequests)
+    private static string? FormErrorFor(ApiResult result) =>
+        ErrorCodeOf(result) switch
         {
-            return ThrottledErrorCode;
-        }
-
-        return ErrorCodeOf(result) switch
-        {
+            ApiProblemCopy.PasswordConfirmationThrottledCode => PasswordThrottledErrorCode,
             ApiProblemCopy.InvalidCurrentPasswordCode => PasswordErrorCode,
             ApiProblemCopy.ExportPasswordRequiredCode => PasswordRequiredErrorCode,
+            _ when result.ProblemDetails?.Status is StatusCodes.Status429TooManyRequests => ThrottledErrorCode,
             _ => null
         };
-    }
 
     /// <summary>
     /// What the audit line says went wrong: the API's own error code when it sent one, otherwise only

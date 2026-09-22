@@ -117,6 +117,8 @@ public static class HttpClientsDependencyInjectionExtensions
     /// A request that carries a password confirmation spends one permit of the account's budget per
     /// attempt (ADR-0053). The retry fires on the per-attempt timeout as well, and a slow auth API still
     /// serves the first attempt, so one click would spend two or three permits.
+    /// The same answer feeds the circuit breaker, so a failure on one of these requests does not count
+    /// toward opening it, exactly as a multipart failure never did.
     /// </summary>
     internal static bool MayRetry(HttpRequestMessage? request) =>
         request?.Content switch

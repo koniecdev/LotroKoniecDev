@@ -47,7 +47,7 @@ id from the token — never on an address, and never on the address text, for th
 (`NormalizeEmail` folds two spellings of a Polish address into one account; an id cannot be spelled
 two ways). Its budget is **10 confirmations per 15 minutes per account**: the room the login form
 already gives a client for wrong passwords (`auth-page-limit`), enough for a few typos and every
-sensitive action in a row, far too little to spray with. A guesser picks whichever endpoint is open,
+sensitive action in a row, far too few for a guessing script. A guesser picks whichever endpoint is open,
 so one budget across all four is what makes it a brake on guessing rather than on one form.
 
 ### 2. The permit is taken before the password is checked, so every attempt spends one

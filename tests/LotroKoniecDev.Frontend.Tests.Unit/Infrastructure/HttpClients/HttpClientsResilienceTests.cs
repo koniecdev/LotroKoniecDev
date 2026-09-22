@@ -1,7 +1,12 @@
+using System.Net;
 using System.Net.Http.Json;
 using LotroKoniecDev.AuthSystem.Contracts.Features.Auth.Account;
 using LotroKoniecDev.AuthSystem.Contracts.Features.Auth.Password;
 using LotroKoniecDev.Frontend.Infrastructure.HttpClients;
+using LotroKoniecDev.Frontend.Infrastructure.HttpClients.AuthSystemHttpClients;
+using LotroKoniecDev.Frontend.Settings;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace LotroKoniecDev.Frontend.Tests.Unit.Infrastructure.HttpClients;
 
@@ -117,6 +122,95 @@ public sealed class HttpClientsResilienceTests
         using HttpRequestMessage request = new(HttpMethod.Get, "api/v1/game-versions");
 
         HttpClientsDependencyInjectionExtensions.MayRetry(request).ShouldBeTrue();
+    }
+
+    [Fact]
+    public void MayRetry_ForNullRequest_IsTrue()
+    {
         HttpClientsDependencyInjectionExtensions.MayRetry(null).ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task AuthSystemClient_ForAPasswordConfirmation_SendsTheRequestExactlyOnce()
+    {
+        // Through the real registration: the typed client, its request builder and the resilience
+        // pipeline as Program.cs wires them. The builder passes the body's runtime type to
+        // JsonContent.Create, and that is the only thing that lets the pipeline recognise the request;
+        // a seam-level test of MayRetry cannot see that link. The send count is a side effect the
+        // ApiResult does not show, which is why it is asserted here.
+        CountingHttpMessageHandler primary = new(HttpStatusCode.InternalServerError);
+        await using ServiceProvider provider = BuildAuthClientProvider(primary);
+        IAuthSystemClient client = provider.GetRequiredService<IAuthSystemClient>();
+
+        ApiResult result = await client.PostApiResultAsync("auth/account/delete", new DeleteAccountRequest("Correct-Horse-1!"));
+
+        result.IsFailure.ShouldBeTrue();
+        primary.SendCount.ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task AuthSystemClient_ForAPlainJsonBody_RetriesTheServerError()
+    {
+        // The control for the test above: with the same pipeline, a body that is not a password
+        // confirmation is still retried, so the single send there is the marker's doing and not a
+        // pipeline that never retried at all.
+        CountingHttpMessageHandler primary = new(HttpStatusCode.InternalServerError);
+        await using ServiceProvider provider = BuildAuthClientProvider(primary);
+        IAuthSystemClient client = provider.GetRequiredService<IAuthSystemClient>();
+
+        ApiResult result = await client.PostApiResultAsync("auth/anything", new { id = 1 });
+
+        result.IsFailure.ShouldBeTrue();
+        primary.SendCount.ShouldBe(1 + MaxRetryAttempts);
+    }
+
+    /// <summary>Mirrors the pipeline in HttpClientsDependencyInjectionExtensions: two retries after the first attempt.</summary>
+    private const int MaxRetryAttempts = 2;
+
+    /// <summary>
+    /// The frontend's own client registration, with the socket handler swapped for a counting stub. A
+    /// later ConfigurePrimaryHttpMessageHandler on the same named client wins, so the resilience
+    /// pipeline and the delegating handler stay exactly as Program.cs wires them.
+    /// </summary>
+    private static ServiceProvider BuildAuthClientProvider(HttpMessageHandler primary)
+    {
+        IConfiguration configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                [$"{AuthSystemSettings.ConfigurationSection}:BaseUrl"] = "https://auth.lotro.test/"
+            })
+            .Build();
+
+        ServiceCollection services = new();
+        services.AddLogging();
+        services.AddHttpContextAccessor();
+        services.Configure<AuthSystemSettings>(configuration.GetSection(AuthSystemSettings.ConfigurationSection));
+        services.AddHttpClients();
+        services.AddHttpClient<IAuthSystemClient, AuthSystemClient>()
+            .ConfigurePrimaryHttpMessageHandler(() => primary);
+
+        return services.BuildServiceProvider();
+    }
+
+    private sealed class CountingHttpMessageHandler : HttpMessageHandler
+    {
+        private readonly HttpStatusCode _statusCode;
+        private int _sendCount;
+
+        public CountingHttpMessageHandler(HttpStatusCode statusCode)
+        {
+            _statusCode = statusCode;
+        }
+
+        public int SendCount => _sendCount;
+
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            Interlocked.Increment(ref _sendCount);
+            return Task.FromResult(new HttpResponseMessage(_statusCode)
+            {
+                Content = new StringContent(string.Empty)
+            });
+        }
     }
 }

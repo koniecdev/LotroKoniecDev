@@ -18,8 +18,9 @@ namespace LotroKoniecDev.AuthSystem.API.Features.Auth;
 /// a bearer token alone must not be enough to take it away.
 /// The matching GET is the account representation the account page renders, so it stays open to a
 /// logged-in caller. The difference is deliberate and ADR-0052 holds the reasoning.
-/// A query, not a command: nothing on the account changes. The password is checked against the
-/// account's confirmation budget (ADR-0053), and the attempt is written to the audit log either way.
+/// A query, not a command: nothing on the account changes. The attempt is charged to the account's
+/// confirmation budget (ADR-0053) before the password is checked, and it is written to the audit log
+/// either way.
 /// </summary>
 internal sealed partial class DownloadAccountData : IApiEndpoint
 {
@@ -79,7 +80,9 @@ internal sealed partial class DownloadAccountData : IApiEndpoint
                 ? UnknownEmail
                 : user.Email.MaskEmail();
 
-            // A query validates inline, because FluentValidation is for commands only (house rule).
+            // A query validates inline, because FluentValidation is for commands only (house rule). The
+            // check sits after the permit on purpose, so its audit line can carry the masked address;
+            // the frontend never sends an empty password, so only a direct caller pays for one.
             if (string.IsNullOrWhiteSpace(query.Password))
             {
                 LogExportRefused(_logger, user.Id, maskedEmail, "no password was sent", query.IpAddress, query.UserAgent);

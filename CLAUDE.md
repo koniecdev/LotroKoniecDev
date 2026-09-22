@@ -475,7 +475,7 @@ hash-check → patch → launch flow is validated. Re-investigating any of it is
   counts **POSTs only**: a Razor Page is one endpoint for GET and POST, so a send-sized budget gets spent
   on page views and locks the user out of the form (ADR-0046's lesson, now in `forgot-password-limit`
   too). Mail sent to a caller-typed address needs a second budget keyed by **the account**, not the IP
-  (`PasswordResetRequestThrottle`) — an attacker rotating IPs gets a fresh IP budget every time. Key it on
+  (`IPasswordResetRequestThrottle`) — an attacker rotating IPs gets a fresh IP budget every time. Key it on
   the **id**, never the address text: Identity's `NormalizeEmail` runs `Normalize()` first, so a Polish
   address written with a combining accent resolves to the same account while a text key would hand the two
   identical-looking spellings a budget each.

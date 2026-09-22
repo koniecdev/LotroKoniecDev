@@ -184,7 +184,7 @@ public sealed class HttpClientsResilienceTests
             nameof(IAuthSystemClient.PostApiResultAsync) =>
                 (await client.PostApiResultAsync(uri, body)).IsFailure,
             nameof(IAuthSystemClient.PostApiResultAsync) + "<T>" =>
-                (await client.PostApiResultAsync<DeleteAccountRequest>(uri, body)).IsFailure,
+                (await client.PostApiResultAsync<AccountDataExportResponse>(uri, body)).IsFailure,
             nameof(IAuthSystemClient.PostForHeadersApiResultAsync) =>
                 (await client.PostForHeadersApiResultAsync(uri, body)).IsFailure,
             _ => throw new ArgumentOutOfRangeException(nameof(verb), verb, "Unknown verb")

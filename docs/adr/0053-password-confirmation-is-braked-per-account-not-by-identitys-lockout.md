@@ -42,11 +42,11 @@ address change, a new password or the GDPR file. Code facts that shaped this dec
 
 ### 1. One per-account budget, shared by every endpoint that confirms the password
 
-`IPasswordConfirmationThrottle` is a singleton `PerAccountFixedWindowThrottle` — the one class behind
-every per-account budget, registered once per budget with the numbers in `AccountBudgets` — keyed on
-the account id from the token — never on an address, and never on the address text, for the reason #692 gives
-(`NormalizeEmail` folds two spellings of a Polish address into one account; an id cannot be spelled
-two ways). Its budget is **10 confirmations per 15 minutes per account**: the room the login form
+`IPasswordConfirmationThrottle` is a singleton `PerAccountFixedWindowThrottle`, the one class behind
+every per-account budget, registered once per budget with the numbers in `AccountBudgets`. It is
+keyed on the account id from the token, never on an address and never on the address text, for the
+reason #692 gives (`NormalizeEmail` folds two spellings of a Polish address into one account; an id
+cannot be spelled two ways). Its budget is **10 confirmations per 15 minutes per account**: the room the login form
 already gives a client for wrong passwords (`auth-page-limit`), enough for a few typos and every
 sensitive action in a row, far too few for a guessing script. A guesser picks whichever endpoint is open,
 so one budget across all four is what makes it a brake on guessing rather than on one form.
@@ -61,7 +61,9 @@ a password a handful of times a day and never notices; a script hits the limit i
 permit is taken right after validation and **before the account is loaded**, keyed on the id the
 token names: a refused request costs no database read, and every later refusal — the
 deletion-scheduled one included — sits behind it, so probing an account's state costs a permit as
-well.
+well. The export handler is a query and validates inline; its empty-password check sits after the
+permit on purpose, so that its audit line can carry the masked address (#690). The frontend refuses
+an empty password before it ever calls the API, so only a direct caller pays that permit.
 
 ### 3. Identity's lockout stays out of it
 

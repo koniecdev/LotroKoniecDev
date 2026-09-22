@@ -314,7 +314,10 @@ try
                     Window = TimeSpan.FromMinutes(1)
                 }));
 
-        // A stricter rate limit on the auth endpoints, against brute-force attacks.
+        // A stricter rate limit on the auth endpoints, against brute-force attacks. The endpoints that
+        // confirm the current password are off it: every call there comes from the frontend, so this key
+        // is one bucket for all users, and their brake is the per-account budget in
+        // PasswordConfirmationThrottle instead (ADR-0053).
         options.AddPolicy(authEndpointRateLimitPolicy, httpContext =>
             RateLimitPartition.GetFixedWindowLimiter(
                 partitionKey: httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown",

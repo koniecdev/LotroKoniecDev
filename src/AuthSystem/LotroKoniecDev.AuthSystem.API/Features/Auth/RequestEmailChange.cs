@@ -8,6 +8,7 @@ using LotroKoniecDev.AuthSystem.API.Common;
 using LotroKoniecDev.AuthSystem.API.Extensions;
 using LotroKoniecDev.AuthSystem.API.Outbox;
 using LotroKoniecDev.AuthSystem.API.Services.Accounts;
+using LotroKoniecDev.AuthSystem.API.Services.RateLimiting;
 using LotroKoniecDev.AuthSystem.Contracts.Features.Auth.Account;
 using LotroKoniecDev.AuthSystem.Domain.Aggregates.ApplicationUsers.Entities;
 using LotroKoniecDev.AuthSystem.Persistence.DbContexts;
@@ -61,6 +62,7 @@ internal sealed partial class RequestEmailChange : IApiEndpoint
         private readonly AuthDbContext _db;
         private readonly OutboxWriter _outboxWriter;
         private readonly IEmailChangeRevertReservation _revertReservation;
+        private readonly IPasswordConfirmationThrottle _confirmationThrottle;
         private readonly IValidator<Command> _validator;
         private readonly ILogger<Handler> _logger;
 
@@ -69,6 +71,7 @@ internal sealed partial class RequestEmailChange : IApiEndpoint
             AuthDbContext db,
             OutboxWriter outboxWriter,
             IEmailChangeRevertReservation revertReservation,
+            IPasswordConfirmationThrottle confirmationThrottle,
             IValidator<Command> validator,
             ILogger<Handler> logger)
         {
@@ -76,6 +79,7 @@ internal sealed partial class RequestEmailChange : IApiEndpoint
             _db = db;
             _outboxWriter = outboxWriter;
             _revertReservation = revertReservation;
+            _confirmationThrottle = confirmationThrottle;
             _validator = validator;
             _logger = logger;
         }
@@ -102,6 +106,13 @@ internal sealed partial class RequestEmailChange : IApiEndpoint
             if (user.DeletionScheduledAt is not null)
             {
                 return Result.Failure(AuthErrors.DeletionAlreadyScheduled);
+            }
+
+            // The permit is taken before the check, so a burst of guesses cannot slip past it (ADR-0053).
+            if (!_confirmationThrottle.TryAcquire(user.Id))
+            {
+                LogPasswordConfirmationThrottled(_logger, user.Id);
+                return Result.Failure(AuthErrors.PasswordConfirmationThrottled);
             }
 
             bool passwordValid = await _userManager.CheckPasswordAsync(user, command.CurrentPassword);
@@ -169,6 +180,9 @@ internal sealed partial class RequestEmailChange : IApiEndpoint
 
         [LoggerMessage(EventId = EventIds.EmailChangeRequestAddressReserved, Level = LogLevel.Information, Message = "E-mail change refused for user {UserId}: {NewEmail} is still reserved as another account's undo target")]
         private static partial void LogAddressReserved(ILogger logger, Guid userId, string newEmail);
+
+        [LoggerMessage(EventId = EventIds.PasswordConfirmationThrottled, Level = LogLevel.Warning, Message = "E-mail change refused for user {UserId}: the password confirmation budget is spent")]
+        private static partial void LogPasswordConfirmationThrottled(ILogger logger, Guid userId);
     }
 
     public void MapEndpoint(IEndpointRouteBuilder endpointRouteBuilder)
@@ -207,6 +221,8 @@ internal sealed partial class RequestEmailChange : IApiEndpoint
                     : Results.Ok();
             })
             .RequireAuthorization()
+            // Stays on change-email-limit: that policy bounds the mail this endpoint sends, which the
+            // per-account confirmation budget in the handler does not replace (ADR-0053).
             .RequireRateLimiting("change-email-limit")
             .WithName(nameof(RequestEmailChange))
             .WithTags("Account")

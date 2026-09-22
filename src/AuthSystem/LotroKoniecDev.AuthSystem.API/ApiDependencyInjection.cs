@@ -109,6 +109,10 @@ internal static class ApiDependencyInjection
             // because it runs before anything is known about the account (#692).
             services.AddSingleton<IPasswordResetRequestThrottle, PasswordResetRequestThrottle>();
 
+            // Same shape, other budget: the current-password confirmations an account gets across the
+            // endpoints that ask for one (#813, ADR-0053).
+            services.AddSingleton<IPasswordConfirmationThrottle, PasswordConfirmationThrottle>();
+
             // The outbox relay works on a signal (ADR-0035). Writers add rows through the shared writer
             // and wake the singleton signal after their commit, so the relay does not poll the database
             // on a timer.

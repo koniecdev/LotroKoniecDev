@@ -177,4 +177,8 @@ internal static class EventIds
     // (ADR-0038 decision 2), which logs 2362 instead.
     public const int ResetPasswordDeletionScheduled = 2711;
     public const int PasswordResetRequestThrottled = 2712;
+
+    // Password confirmation on the account endpoints (2720-2729). The export logs its refusal under
+    // 2243, because every export attempt has to stay on that one audit line (#690).
+    public const int PasswordConfirmationThrottled = 2720;
 }

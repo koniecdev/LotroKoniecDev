@@ -40,6 +40,11 @@ internal static class AuthErrors
             "The current password is incorrect.",
             TypeOfError.Validation);
 
+    public static Error PasswordConfirmationThrottled =>
+        new("Auth.PasswordConfirmationThrottled",
+            "Too many password confirmations for this account. Try again in a quarter of an hour.",
+            TypeOfError.TooManyRequests);
+
     public static Error ExportPasswordRequired =>
         new("Auth.ExportPasswordRequired",
             "The current password is required to download the data export.",

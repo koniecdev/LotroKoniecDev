@@ -4,6 +4,7 @@ using OpenIddict.Abstractions;
 using LotroKoniecDev.AuthSystem.API.ApiErrors;
 using LotroKoniecDev.AuthSystem.API.Common;
 using LotroKoniecDev.AuthSystem.API.Extensions;
+using LotroKoniecDev.AuthSystem.API.Services.RateLimiting;
 using LotroKoniecDev.AuthSystem.Contracts.Features.Auth.Account;
 using LotroKoniecDev.AuthSystem.Domain.Aggregates.ApplicationUsers.Entities;
 using LotroKoniecDev.SharedKernel.Messaging;
@@ -34,13 +35,16 @@ internal sealed partial class DownloadAccountData : IApiEndpoint
         private const string UnknownEmail = "***";
 
         private readonly UserManager<ApplicationUser> _userManager;
+        private readonly IPasswordConfirmationThrottle _confirmationThrottle;
         private readonly ILogger<Handler> _logger;
 
         public Handler(
             UserManager<ApplicationUser> userManager,
+            IPasswordConfirmationThrottle confirmationThrottle,
             ILogger<Handler> logger)
         {
             _userManager = userManager;
+            _confirmationThrottle = confirmationThrottle;
             _logger = logger;
         }
 
@@ -67,6 +71,13 @@ internal sealed partial class DownloadAccountData : IApiEndpoint
             {
                 LogExportRefused(_logger, user.Id, maskedEmail, "no password was sent", query.IpAddress, query.UserAgent);
                 return Result.Failure<AccountDataExportResponse>(AuthErrors.ExportPasswordRequired);
+            }
+
+            // The permit is taken before the check, so a burst of guesses cannot slip past it (ADR-0053).
+            if (!_confirmationThrottle.TryAcquire(user.Id))
+            {
+                LogExportRefused(_logger, user.Id, maskedEmail, "the password confirmation budget is spent", query.IpAddress, query.UserAgent);
+                return Result.Failure<AccountDataExportResponse>(AuthErrors.PasswordConfirmationThrottled);
             }
 
             bool passwordValid = await _userManager.CheckPasswordAsync(user, query.Password);
@@ -128,7 +139,8 @@ internal sealed partial class DownloadAccountData : IApiEndpoint
                     : Results.Problem(queryResult.Error.ToProblemDetails());
             })
             .RequireAuthorization()
-            .RequireRateLimiting("auth-endpoint-limit")
+            // Off the per-IP policies: the brake is the per-account budget in the handler (ADR-0053).
+            .DisableRateLimiting()
             .WithName(nameof(DownloadAccountData))
             .WithTags("Account")
             .Produces<AccountDataExportResponse>(StatusCodes.Status200OK)

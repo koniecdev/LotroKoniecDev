@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Identity;
 using Microsoft.Extensions.Logging;
 using LotroKoniecDev.AuthSystem.API.Features.Auth;
+using LotroKoniecDev.AuthSystem.API.Services.RateLimiting;
 using LotroKoniecDev.AuthSystem.API.Tests.Unit.Shared;
 using LotroKoniecDev.AuthSystem.Contracts.Features.Auth.Account;
 using LotroKoniecDev.AuthSystem.Domain.Aggregates.ApplicationUsers.Entities;
@@ -23,6 +24,7 @@ public sealed class DownloadAccountDataHandlerTests
     private const string UserAgent = "Mozilla/5.0 (QA)";
 
     private readonly UserManager<ApplicationUser> _userManager = CreateUserManager();
+    private readonly PasswordConfirmationThrottle _throttle = new();
     private readonly CapturingLogger<DownloadAccountData.Handler> _logger = new();
 
     [Fact]
@@ -75,6 +77,29 @@ public sealed class DownloadAccountDataHandlerTests
     }
 
     [Fact]
+    public async Task Handle_BudgetSpent_LogsTheRefusalWithItsReasonAndChecksNoPassword()
+    {
+        // The refusal stays on the export's own audit line (#690): one line per attempt, whatever the
+        // outcome. The password is not checked at all, which is the point of taking the permit first
+        // (ADR-0053): a spent budget must not buy a hash comparison, let alone an answer.
+        ApplicationUser user = StubUser(passwordValid: true);
+        using PasswordConfirmationThrottle spentThrottle = new(permitLimit: 1, TimeSpan.FromMinutes(15));
+        spentThrottle.TryAcquire(user.Id).ShouldBeTrue();
+        DownloadAccountData.Handler sut = new(_userManager, spentThrottle, _logger);
+
+        Result<AccountDataExportResponse> result = await sut.Handle(QueryFor(user, Password), CancellationToken.None);
+
+        result.Error.Code.ShouldBe("Auth.PasswordConfirmationThrottled");
+        CapturingLogger<DownloadAccountData.Handler>.LogEntry entry = _logger.Entries.ShouldHaveSingleItem();
+        entry.Level.ShouldBe(LogLevel.Warning);
+        entry.EventId.ShouldBe(EventIds.ExportDataRefused);
+        entry.Message.ShouldContain(user.Id.ToString());
+        entry.Message.ShouldContain("the password confirmation budget is spent");
+        entry.Message.ShouldContain(IpAddress);
+        await _userManager.DidNotReceive().CheckPasswordAsync(user, Arg.Any<string>());
+    }
+
+    [Fact]
     public async Task Handle_TokenNamesAnAccountThatIsGone_LogsTheRefusalAgainstTheIdTheTokenCarried()
     {
         // Reachable: an access token outlives the erasure of its account by a few minutes (ADR-0049).
@@ -105,7 +130,7 @@ public sealed class DownloadAccountDataHandlerTests
         _logger.Entries.ShouldHaveSingleItem().Message.ShouldNotContain(Email);
     }
 
-    private DownloadAccountData.Handler CreateSut() => new(_userManager, _logger);
+    private DownloadAccountData.Handler CreateSut() => new(_userManager, _throttle, _logger);
 
     private static DownloadAccountData.Query QueryFor(ApplicationUser user, string password) =>
         new(user.Id.ToString(), password, IpAddress, UserAgent);

@@ -1,6 +1,6 @@
 using Microsoft.Extensions.Options;
-using LotroKoniecDev.AuthSystem.Contracts.Common;
 using LotroKoniecDev.Frontend.Settings;
+using LotroKoniecDev.Hateoas.Abstractions;
 
 namespace LotroKoniecDev.Frontend.Infrastructure.HttpClients;
 

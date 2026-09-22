@@ -3,7 +3,7 @@ using System.Security.Cryptography;
 using System.Text;
 using Microsoft.Extensions.Options;
 using LotroKoniecDev.AuthSystem.API.Settings;
-using LotroKoniecDev.AuthSystem.Contracts.Common;
+using LotroKoniecDev.Hateoas.Abstractions;
 
 namespace LotroKoniecDev.AuthSystem.API.Services.RateLimiting;
 

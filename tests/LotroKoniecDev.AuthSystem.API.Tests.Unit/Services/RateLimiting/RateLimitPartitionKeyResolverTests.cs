@@ -1,7 +1,7 @@
 using System.Net;
 using LotroKoniecDev.AuthSystem.API.Services.RateLimiting;
 using LotroKoniecDev.AuthSystem.API.Settings;
-using LotroKoniecDev.AuthSystem.Contracts.Common;
+using LotroKoniecDev.Hateoas.Abstractions;
 using Microsoft.AspNetCore.Http;
 
 namespace LotroKoniecDev.AuthSystem.API.Tests.Unit.Services.RateLimiting;

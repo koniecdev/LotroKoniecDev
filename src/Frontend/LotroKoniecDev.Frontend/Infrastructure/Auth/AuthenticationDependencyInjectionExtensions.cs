@@ -1,8 +1,10 @@
 using LotroKoniecDev.Frontend.Infrastructure.Auth.TokenRefresh;
+using LotroKoniecDev.Frontend.Infrastructure.HttpClients;
 using LotroKoniecDev.Frontend.Settings;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authentication.OpenIdConnect;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Protocols.OpenIdConnect;
 
@@ -47,12 +49,18 @@ internal static class AuthenticationDependencyInjectionExtensions
             // IHttpClientFactory provides. Holding a short-lived typed client inside a singleton would
             // break how the factory recycles connections and picks up DNS changes.
             services.AddScoped<CookieTokenRefresher>();
+
+            // The refresh grant and the OIDC back-channel below carry the visitor's address to the auth
+            // API the same way the typed account client does (ADR-0054).
+            services.AddHttpContextAccessor();
+            services.TryAddTransient<FrontendCallerDelegatingHandler>();
             services.AddHttpClient<ITokenEndpointClient, TokenEndpointClient>((sp, client) =>
-            {
-                AuthSystemSettings settings = sp
-                    .GetRequiredService<IOptions<AuthSystemSettings>>().Value;
-                client.BaseAddress = new Uri(settings.BaseUrl);
-            });
+                {
+                    AuthSystemSettings settings = sp
+                        .GetRequiredService<IOptions<AuthSystemSettings>>().Value;
+                    client.BaseAddress = new Uri(settings.BaseUrl);
+                })
+                .AddHttpMessageHandler<FrontendCallerDelegatingHandler>();
 
             services.AddAuthentication(options =>
                 {
@@ -84,7 +92,7 @@ internal static class AuthenticationDependencyInjectionExtensions
                 .Configure<IHostEnvironment>(ConfigureCookieSecurePolicy);
 
             services.AddOptions<OpenIdConnectOptions>(OpenIdConnectDefaults.AuthenticationScheme)
-                .Configure<IOptions<AuthSystemSettings>>(ConfigureOpenIdConnect);
+                .Configure<IOptions<AuthSystemSettings>, IHttpContextAccessor>(ConfigureOpenIdConnect);
 
             return services;
         }
@@ -116,7 +124,8 @@ internal static class AuthenticationDependencyInjectionExtensions
 
     private static void ConfigureOpenIdConnect(
         OpenIdConnectOptions options,
-        IOptions<AuthSystemSettings> authSystemOptions)
+        IOptions<AuthSystemSettings> authSystemOptions,
+        IHttpContextAccessor httpContextAccessor)
     {
         AuthSystemSettings settings = authSystemOptions.Value;
 
@@ -156,6 +165,15 @@ internal static class AuthenticationDependencyInjectionExtensions
         // UseExceptionHandler and UseStatusCodePages run again with the new path.
         options.Events.OnRemoteFailure = OnRemoteFailureAsync;
         options.Events.OnAccessDenied = OnAccessDeniedAsync;
+
+        // The code exchange and the userinfo call go through the handler's own back-channel client,
+        // not through the typed clients, so the visitor's address rides on it too (ADR-0054). The
+        // framework builds that client from this handler after every Configure has run. A back-channel
+        // handler configured elsewhere is wrapped, never replaced.
+        options.BackchannelHttpHandler = new FrontendCallerDelegatingHandler(httpContextAccessor, authSystemOptions)
+        {
+            InnerHandler = options.BackchannelHttpHandler ?? new HttpClientHandler()
+        };
     }
 
     private static Task OnRemoteFailureAsync(RemoteFailureContext context)

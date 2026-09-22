@@ -1,11 +1,18 @@
 using FluentValidation.Results;
 using LotroKoniecDev.Frontend.Settings;
+using Microsoft.Extensions.Hosting;
+using NSubstitute;
 
 namespace LotroKoniecDev.Frontend.Tests.Unit.Settings;
 
 public sealed class AuthSystemSettingsValidatorTests
 {
-    private readonly AuthSystemSettingsValidator _validator = new();
+    private const string Development = "Development";
+    private const string Testing = "Testing";
+    private const string Staging = "Staging";
+    private const string Production = "Production";
+
+    private readonly AuthSystemSettingsValidator _validator = CreateValidator(Development);
 
     [Fact]
     public void Validate_WithCompleteValidSettings_Passes()
@@ -84,18 +91,82 @@ public sealed class AuthSystemSettingsValidatorTests
             error.ErrorMessage.Contains("AuthSystem:ClientId", StringComparison.Ordinal));
     }
 
+    [Theory]
+    [InlineData(Development)]
+    [InlineData(Testing)]
+    public void Validate_NonDeployedEnvironmentWithNoCallerKey_Passes(string environmentName)
+    {
+        // ADR-0054 §6: these two run against an auth API whose limiter is off, so the key decides nothing.
+        AuthSystemSettings settings = Settings(callerKey: null);
+
+        ValidationResult result = CreateValidator(environmentName).Validate(settings);
+
+        result.IsValid.ShouldBeTrue();
+    }
+
+    [Theory]
+    [InlineData(Staging, null)]
+    [InlineData(Staging, "")]
+    [InlineData(Production, null)]
+    [InlineData(Production, "   ")]
+    public void Validate_DeployedEnvironmentWithNoCallerKey_FailsNamingTheKey(string environmentName, string? callerKey)
+    {
+        // A box without the key would quietly send every visitor's auth API calls into this container's
+        // one bucket, so the boot fails instead.
+        AuthSystemSettings settings = Settings(callerKey: callerKey);
+
+        ValidationResult result = CreateValidator(environmentName).Validate(settings);
+
+        result.IsValid.ShouldBeFalse();
+        result.Errors.ShouldContain(error => error.PropertyName == nameof(AuthSystemSettings.CallerKey));
+        result.Errors.ShouldContain(error =>
+            error.ErrorMessage.Contains("AuthSystem:CallerKey", StringComparison.Ordinal));
+    }
+
+    [Theory]
+    [InlineData(Development)]
+    [InlineData(Production)]
+    public void Validate_CallerKeyShorterThanTheMinimum_FailsInEveryEnvironment(string environmentName)
+    {
+        AuthSystemSettings settings = Settings(callerKey: new string('k', AuthSystemSettingsValidator.MinimumCallerKeyLength - 1));
+
+        ValidationResult result = CreateValidator(environmentName).Validate(settings);
+
+        result.IsValid.ShouldBeFalse();
+        result.Errors.ShouldContain(error => error.PropertyName == nameof(AuthSystemSettings.CallerKey));
+    }
+
+    [Fact]
+    public void Validate_ProductionWithACallerKeyOfTheMinimumLength_Passes()
+    {
+        AuthSystemSettings settings = Settings(callerKey: new string('k', AuthSystemSettingsValidator.MinimumCallerKeyLength));
+
+        ValidationResult result = CreateValidator(Production).Validate(settings);
+
+        result.IsValid.ShouldBeTrue();
+    }
+
+    private static AuthSystemSettingsValidator CreateValidator(string environmentName)
+    {
+        IHostEnvironment environment = Substitute.For<IHostEnvironment>();
+        environment.EnvironmentName.Returns(environmentName);
+        return new AuthSystemSettingsValidator(environment);
+    }
+
     private static AuthSystemSettings Settings(
         string baseUrl = "https://localhost:5003/",
         string authority = "https://localhost:5003",
         string clientId = "lotrokoniecdev-web",
         string callbackPath = "/callback",
-        IReadOnlyList<string>? scopes = null) => new()
+        IReadOnlyList<string>? scopes = null,
+        string? callerKey = null) => new()
         {
             BaseUrl = baseUrl,
             Authority = authority,
             ClientId = clientId,
             CallbackPath = callbackPath,
             SignedOutCallbackPath = "/signout-callback-oidc",
-            Scopes = scopes ?? ["openid", "profile", "api"]
+            Scopes = scopes ?? ["openid", "profile", "api"],
+            CallerKey = callerKey
         };
 }

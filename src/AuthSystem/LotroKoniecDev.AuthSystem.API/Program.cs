@@ -15,6 +15,7 @@ using LotroKoniecDev.AuthSystem.API;
 using LotroKoniecDev.AuthSystem.API.Extensions;
 using LotroKoniecDev.AuthSystem.API.Health;
 using LotroKoniecDev.AuthSystem.API.Middleware;
+using LotroKoniecDev.AuthSystem.API.Services.RateLimiting;
 using LotroKoniecDev.AuthSystem.API.Services.Sessions;
 using LotroKoniecDev.AuthSystem.API.Settings;
 using LotroKoniecDev.AuthSystem.Persistence.Settings;
@@ -293,6 +294,7 @@ try
 
     const string rateLimitPolicy = "fixed-by-ip";
     const string authEndpointRateLimitPolicy = "auth-endpoint-limit";
+    const string registerRateLimitPolicy = "register-limit";
     const string forgotPasswordRateLimitPolicy = "forgot-password-limit";
     const string resendConfirmationRateLimitPolicy = "resend-confirmation-limit";
     const string changeEmailRateLimitPolicy = "change-email-limit";
@@ -307,7 +309,7 @@ try
 
         options.AddPolicy(rateLimitPolicy, httpContext =>
             RateLimitPartition.GetFixedWindowLimiter(
-                partitionKey: httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+                partitionKey: ResolvePartitionKey(httpContext),
                 factory: _ => new FixedWindowRateLimiterOptions
                 {
                     PermitLimit = 20,
@@ -315,12 +317,25 @@ try
                 }));
 
         // A stricter rate limit on the auth endpoints, against brute-force attacks. The endpoints that
-        // confirm the current password are off it: every call there comes from the frontend, so this key
-        // is one bucket for all users, and their brake is the per-account budget behind
-        // IPasswordConfirmationThrottle instead (ADR-0053).
+        // confirm the current password are off it: their brake is the per-account budget behind
+        // IPasswordConfirmationThrottle (ADR-0053), which no change of address can dodge.
         options.AddPolicy(authEndpointRateLimitPolicy, httpContext =>
             RateLimitPartition.GetFixedWindowLimiter(
-                partitionKey: httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+                partitionKey: ResolvePartitionKey(httpContext),
+                factory: _ => new FixedWindowRateLimiterOptions
+                {
+                    PermitLimit = 10,
+                    Window = TimeSpan.FromMinutes(1)
+                }));
+
+        // Registration sends a confirmation mail to an address the caller typed, and nothing per account
+        // can brake it: the account does not exist yet. The frontend never calls this endpoint (the
+        // registration form is a Razor page), so it keys on the connection's own address like the page
+        // policies do (ADR-0054 §3): a leaked frontend key must not buy a fresh mail budget per invented
+        // address. Same numbers as auth-endpoint-limit.
+        options.AddPolicy(registerRateLimitPolicy, httpContext =>
+            RateLimitPartition.GetFixedWindowLimiter(
+                partitionKey: ConnectionAddress(httpContext),
                 factory: _ => new FixedWindowRateLimiterOptions
                 {
                     PermitLimit = 10,
@@ -337,7 +352,7 @@ try
         options.AddPolicy(forgotPasswordRateLimitPolicy, httpContext =>
             HttpMethods.IsPost(httpContext.Request.Method)
                 ? RateLimitPartition.GetFixedWindowLimiter(
-                    partitionKey: httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+                    partitionKey: ConnectionAddress(httpContext),
                     factory: _ => new FixedWindowRateLimiterOptions
                     {
                         PermitLimit = 3,
@@ -347,12 +362,13 @@ try
 
         // The e-mail change request sends mail to an address the caller typed in, so it can be used to
         // flood a stranger's inbox. Same threat as forgot-password, same budget.
-        // The key is the IP and not the user: UseRateLimiter runs before UseAuthentication on purpose
+        // The key is the client and not the user: UseRateLimiter runs before UseAuthentication on purpose
         // (see below), so httpContext.User is still anonymous here and a "per user" key would collapse
-        // into one bucket shared by everybody.
+        // into one bucket shared by everybody. Behind the frontend the client is the visitor it forwards
+        // (ADR-0054), so this budget no longer gives the whole product three changes an hour (#819).
         options.AddPolicy(changeEmailRateLimitPolicy, httpContext =>
             RateLimitPartition.GetFixedWindowLimiter(
-                partitionKey: httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+                partitionKey: ResolvePartitionKey(httpContext),
                 factory: _ => new FixedWindowRateLimiterOptions
                 {
                     PermitLimit = 3,
@@ -369,7 +385,7 @@ try
         options.AddPolicy(resendConfirmationRateLimitPolicy, httpContext =>
             HttpMethods.IsPost(httpContext.Request.Method)
                 ? RateLimitPartition.GetFixedWindowLimiter(
-                    partitionKey: httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+                    partitionKey: ConnectionAddress(httpContext),
                     factory: _ => new FixedWindowRateLimiterOptions
                     {
                         PermitLimit = 3,
@@ -423,8 +439,21 @@ try
             ? routeEndpoint.RoutePattern.RawText ?? string.Empty
             : string.Empty;
 
-        return $"{route}:{httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown"}";
+        return $"{route}:{ConnectionAddress(httpContext)}";
     }
+
+    // The client a request is metered as (ADR-0054 §3): a direct caller's own address, or the visitor's
+    // address the frontend forwards next to the environment's key. Only the three policies the frontend
+    // reaches key through it: fixed-by-ip, auth-endpoint-limit and change-email-limit.
+    static string ResolvePartitionKey(HttpContext httpContext) =>
+        httpContext.RequestServices.GetRequiredService<RateLimitPartitionKeyResolver>().Resolve(httpContext);
+
+    // The browser-facing page policies and register-limit stay on the connection's own address on
+    // purpose. The frontend never posts to a Razor page nor to auth/register, so for them that address
+    // already is the client, and honouring the key there would only let a leaked key dodge the login
+    // form's brake or buy a fresh mail budget per invented address.
+    static string ConnectionAddress(HttpContext httpContext) =>
+        httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
 
     WebApplication app = builder.Build();
 

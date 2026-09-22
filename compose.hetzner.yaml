@@ -143,6 +143,11 @@ services:
       # narrowed to a /32 by #506 so no other container on the network can spoof headers. Keep in
       # lockstep with caddy's ipv4_address on the default network at the bottom of this file.
       ForwardedHeaders__KnownNetworks__0: "10.60.0.100/32"
+      # The frontend's calls all arrive from its one container; the auth API meters such a call on the
+      # visitor's address the frontend forwards, but only next to this key (ADR-0054). The SAME variable
+      # feeds the frontend below, so the copies cannot drift; a box without it fails deploy.sh's first
+      # gate before any container is touched.
+      FrontendCaller__Key: ${FRONTEND_CALLER_KEY:?FRONTEND_CALLER_KEY must be set in /opt/lotro/.env — openssl rand -base64 32, one per box (ADR-0054)}
       ConnectionStrings__AuthDatabase: ${ConnectionStrings__AuthDatabase}
       OpenIddict__Issuer: "https://${DOMAIN_AUTH}"
       OpenIddict__SigningKey__RsaPrivateKeyXml: ${OpenIddict__SigningKey__RsaPrivateKeyXml}
@@ -236,6 +241,9 @@ services:
       ForwardedHeaders__KnownNetworks__0: "10.60.0.100/32"
       AuthSystem__Authority: "https://${DOMAIN_AUTH}"
       AuthSystem__BaseUrl: "https://${DOMAIN_AUTH}/"
+      # Sent with the visitor's address on every auth API call (ADR-0054) — the same variable as
+      # FrontendCaller__Key on auth-api above.
+      AuthSystem__CallerKey: ${FRONTEND_CALLER_KEY:?FRONTEND_CALLER_KEY must be set in /opt/lotro/.env — openssl rand -base64 32, one per box (ADR-0054)}
       TranslationSystem__BaseUrl: "https://${DOMAIN_TMS}/"
       DataProtection__KeyRingPath: "/keys"
       OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}

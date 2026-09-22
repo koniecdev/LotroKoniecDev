@@ -21,4 +21,11 @@ internal sealed class AuthSystemSettings
     public required string SignedOutCallbackPath { get; init; }
 
     public required IReadOnlyList<string> Scopes { get; init; }
+
+    /// <summary>
+    /// The environment's shared key, sent next to the visitor's address so the auth API meters each
+    /// call on that visitor instead of on this container (ADR-0054). Compose feeds the auth API the same
+    /// <c>FRONTEND_CALLER_KEY</c>.
+    /// </summary>
+    public string? CallerKey { get; init; }
 }

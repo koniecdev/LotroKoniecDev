@@ -3,6 +3,7 @@ using LotroKoniecDev.AuthSystem.Contracts.Features.Auth;
 using LotroKoniecDev.Frontend.Infrastructure.HttpClients.AuthSystemHttpClients;
 using LotroKoniecDev.Frontend.Infrastructure.HttpClients.TranslationSystemHttpClients;
 using LotroKoniecDev.Frontend.Settings;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Http.Resilience;
 using Microsoft.Extensions.Options;
 using Polly;
@@ -38,6 +39,8 @@ public static class HttpClientsDependencyInjectionExtensions
                 .AddResilienceHandler("TranslationSystemResilience", ConfigureResiliencePipeline);
 
             services.AddTransient<AuthContentNegotiationAndAuthDelegatingHandler>();
+            services.AddHttpContextAccessor();
+            services.TryAddTransient<FrontendCallerDelegatingHandler>();
 
             services.AddHttpClient<IAuthSystemClient, AuthSystemClient>((sp, client) =>
                 {
@@ -52,6 +55,9 @@ public static class HttpClientsDependencyInjectionExtensions
                 })
                 .SetHandlerLifetime(Timeout.InfiniteTimeSpan)
                 .AddHttpMessageHandler<AuthContentNegotiationAndAuthDelegatingHandler>()
+                // Outside the resilience handler on purpose: a retried request is the same message, so
+                // the caller headers are added once and the auth API sees one value each (ADR-0054).
+                .AddHttpMessageHandler<FrontendCallerDelegatingHandler>()
                 .AddResilienceHandler("AuthSystemResilience", ConfigureResiliencePipeline);
 
             return services;

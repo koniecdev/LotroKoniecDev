@@ -113,6 +113,16 @@ internal static class ApiDependencyInjection
             services.AddSingleton<IPasswordConfirmationThrottle>(_ =>
                 new PerAccountFixedWindowThrottle(AccountBudgets.PasswordConfirmationPermitLimit, AccountBudgets.Window));
 
+            // The three policies the frontend reaches (fixed-by-ip, auth-endpoint-limit, change-email-limit)
+            // take their key from this resolver: a direct caller's own address, or the visitor's address
+            // the frontend forwards next to the environment's key. The page policies stay on the
+            // connection's address (ADR-0054 §3). The key is required outside Development and Testing.
+            services.AddOptions<FrontendCallerSettings>()
+                .BindConfiguration(FrontendCallerSettings.ConfigurationSection)
+                .ValidateOnStart();
+            services.AddSingleton<IValidateOptions<FrontendCallerSettings>, FrontendCallerSettingsValidator>();
+            services.AddSingleton<RateLimitPartitionKeyResolver>();
+
             // The outbox relay works on a signal (ADR-0035). Writers add rows through the shared writer
             // and wake the singleton signal after their commit, so the relay does not poll the database
             // on a timer.

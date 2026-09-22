@@ -130,26 +130,36 @@ public sealed class HttpClientsResilienceTests
         HttpClientsDependencyInjectionExtensions.MayRetry(null).ShouldBeTrue();
     }
 
-    [Fact]
-    public async Task AuthSystemClient_ForAPasswordConfirmation_SendsTheRequestExactlyOnce()
+    public static TheoryData<string> PostVerbs => new()
+    {
+        nameof(IAuthSystemClient.PostApiResultAsync),
+        nameof(IAuthSystemClient.PostApiResultAsync) + "<T>",
+        nameof(IAuthSystemClient.PostForHeadersApiResultAsync)
+    };
+
+    [Theory]
+    [MemberData(nameof(PostVerbs))]
+    public async Task AuthSystemClient_ForAPasswordConfirmation_SendsTheRequestExactlyOnce(string verb)
     {
         // Through the real registration: the typed client, its request builder and the resilience
         // pipeline as Program.cs wires them. The builder passes the body's runtime type to
         // JsonContent.Create, and that is the only thing that lets the pipeline recognise the request;
-        // a seam-level test of MayRetry cannot see that link. The send count is a side effect the
-        // ApiResult does not show, which is why it is asserted here.
+        // a seam-level test of MayRetry cannot see that link. All three POST verbs are driven, because
+        // the account pages use all three (delete goes through the headers one). The send count is a
+        // side effect the ApiResult does not show, which is why it is asserted here.
         CountingHttpMessageHandler primary = new(HttpStatusCode.InternalServerError);
         await using ServiceProvider provider = BuildAuthClientProvider(primary);
         IAuthSystemClient client = provider.GetRequiredService<IAuthSystemClient>();
 
-        ApiResult result = await client.PostApiResultAsync("auth/account/delete", new DeleteAccountRequest("Correct-Horse-1!"));
+        bool failed = await PostAsync(client, verb, new DeleteAccountRequest("Correct-Horse-1!"));
 
-        result.IsFailure.ShouldBeTrue();
+        failed.ShouldBeTrue();
         primary.SendCount.ShouldBe(1);
     }
 
-    [Fact]
-    public async Task AuthSystemClient_ForAPlainJsonBody_RetriesTheServerError()
+    [Theory]
+    [MemberData(nameof(PostVerbs))]
+    public async Task AuthSystemClient_ForAPlainJsonBody_RetriesTheServerError(string verb)
     {
         // The control for the test above: with the same pipeline, a body that is not a password
         // confirmation is still retried, so the single send there is the marker's doing and not a
@@ -158,10 +168,27 @@ public sealed class HttpClientsResilienceTests
         await using ServiceProvider provider = BuildAuthClientProvider(primary);
         IAuthSystemClient client = provider.GetRequiredService<IAuthSystemClient>();
 
-        ApiResult result = await client.PostApiResultAsync("auth/anything", new { id = 1 });
+        bool failed = await PostAsync(client, verb, new { id = 1 });
 
-        result.IsFailure.ShouldBeTrue();
+        failed.ShouldBeTrue();
         primary.SendCount.ShouldBe(1 + MaxRetryAttempts);
+    }
+
+    /// <summary>Sends through the named verb and reports whether the result was a failure.</summary>
+    private static async Task<bool> PostAsync(IAuthSystemClient client, string verb, object body)
+    {
+        const string uri = "auth/account/delete";
+
+        return verb switch
+        {
+            nameof(IAuthSystemClient.PostApiResultAsync) =>
+                (await client.PostApiResultAsync(uri, body)).IsFailure,
+            nameof(IAuthSystemClient.PostApiResultAsync) + "<T>" =>
+                (await client.PostApiResultAsync<DeleteAccountRequest>(uri, body)).IsFailure,
+            nameof(IAuthSystemClient.PostForHeadersApiResultAsync) =>
+                (await client.PostForHeadersApiResultAsync(uri, body)).IsFailure,
+            _ => throw new ArgumentOutOfRangeException(nameof(verb), verb, "Unknown verb")
+        };
     }
 
     /// <summary>Mirrors the pipeline in HttpClientsDependencyInjectionExtensions: two retries after the first attempt.</summary>

@@ -197,8 +197,9 @@ internal static class AccountEndpointsExtensions
     /// are matched on the API's own <c>errorCode</c> rather than on the bare status, so a validation rule
     /// added later does not silently come out as "wrong password". Two refusals are a 429: the account's
     /// own confirmation budget, which carries a code and a 15-minute window (ADR-0053), and the bare
-    /// per-address bucket the account GET still sits on, which clears within a minute. The page says a
-    /// different wait for each.
+    /// per-address bucket the account GET still sits on (#819), which clears within a minute and is not
+    /// this user's doing — the GET runs before the password is even sent. The page says a different
+    /// sentence for each.
     /// </summary>
     private static string? FormErrorFor(ApiResult result) =>
         ErrorCodeOf(result) switch

@@ -6,6 +6,7 @@ using Microsoft.AspNetCore.Routing;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using LotroKoniecDev.AuthSystem.API.Services.RateLimiting;
 using LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared;
 using LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared.Bases;
 using LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared.Factories;
@@ -28,8 +29,8 @@ namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Tests.RateLimiting;
 /// </summary>
 public sealed class PasswordConfirmationBudgetTests : EndpointsTestBase
 {
-    /// <summary>Mirrors PasswordConfirmationThrottle: 10 confirmations per 15 minutes per account.</summary>
-    private const int PermitLimit = 10;
+    /// <summary>The shipped confirmation budget, read from the same constant the registration uses.</summary>
+    private const int PermitLimit = AccountBudgets.PasswordConfirmationPermitLimit;
 
     /// <summary>Mirrors the auth-endpoint-limit policy: 10 requests per minute per address.</summary>
     private const int SharedIpBucket = 10;

@@ -8,8 +8,10 @@ namespace LotroKoniecDev.AuthSystem.API.Services.RateLimiting;
 internal interface IPasswordConfirmationThrottle
 {
     /// <summary>
-    /// Takes one permit for <paramref name="userId"/> and reports whether there was one left. It runs
-    /// before the password is checked, so the answer decides whether the check runs at all.
+    /// Takes one permit for <paramref name="userId"/>, the id the token names, and reports whether there
+    /// was one left. It runs after validation and before the account is loaded, so a refused request
+    /// costs no database read, and every attempt spends one: the permit cannot depend on a check that has
+    /// not run yet.
     /// </summary>
     bool TryAcquire(Guid userId);
 }

@@ -18,8 +18,8 @@ namespace LotroKoniecDev.AuthSystem.API.Features.Auth;
 /// a bearer token alone must not be enough to take it away.
 /// The matching GET is the account representation the account page renders, so it stays open to a
 /// logged-in caller. The difference is deliberate and ADR-0052 holds the reasoning.
-/// A query, not a command: nothing on the account changes. The password is checked and the attempt is
-/// written to the audit log either way.
+/// A query, not a command: nothing on the account changes. The password is checked against the
+/// account's confirmation budget (ADR-0053), and the attempt is written to the audit log either way.
 /// </summary>
 internal sealed partial class DownloadAccountData : IApiEndpoint
 {
@@ -51,8 +51,21 @@ internal sealed partial class DownloadAccountData : IApiEndpoint
         public async ValueTask<Result<AccountDataExportResponse>> Handle(
             Query query, CancellationToken cancellationToken)
         {
-            // The account is found first, so that every attempt by a logged-in caller can be logged
-            // against the account it named.
+            // Every attempt by a logged-in caller is logged against the account the token names. The
+            // permit comes before the account is loaded (ADR-0053), so its refusal line carries the id
+            // and no address.
+            if (!Guid.TryParse(query.UserId, out Guid userId))
+            {
+                LogExportRefusedForUnknownAccount(_logger, query.UserId, query.IpAddress, query.UserAgent);
+                return Result.Failure<AccountDataExportResponse>(AuthErrors.UserNotFound);
+            }
+
+            if (!_confirmationThrottle.TryAcquire(userId))
+            {
+                LogExportRefused(_logger, userId, UnknownEmail, "the password confirmation budget is spent", query.IpAddress, query.UserAgent);
+                return Result.Failure<AccountDataExportResponse>(AuthErrors.PasswordConfirmationThrottled);
+            }
+
             ApplicationUser? user = await _userManager.FindByIdAsync(query.UserId);
             if (user is null)
             {
@@ -71,13 +84,6 @@ internal sealed partial class DownloadAccountData : IApiEndpoint
             {
                 LogExportRefused(_logger, user.Id, maskedEmail, "no password was sent", query.IpAddress, query.UserAgent);
                 return Result.Failure<AccountDataExportResponse>(AuthErrors.ExportPasswordRequired);
-            }
-
-            // The permit is taken before the check, so a burst of guesses cannot slip past it (ADR-0053).
-            if (!_confirmationThrottle.TryAcquire(user.Id))
-            {
-                LogExportRefused(_logger, user.Id, maskedEmail, "the password confirmation budget is spent", query.IpAddress, query.UserAgent);
-                return Result.Failure<AccountDataExportResponse>(AuthErrors.PasswordConfirmationThrottled);
             }
 
             bool passwordValid = await _userManager.CheckPasswordAsync(user, query.Password);

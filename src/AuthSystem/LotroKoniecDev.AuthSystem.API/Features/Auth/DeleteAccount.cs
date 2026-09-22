@@ -91,20 +91,25 @@ internal sealed partial class DeleteAccount : IApiEndpoint
                 return Result.Failure<ScheduledDeletion>(validationResult.ToValidationError(nameof(DeleteAccount)));
             }
 
-            ApplicationUser? user = await _userManager.FindByIdAsync(command.UserId);
-            if (user is null)
+            // The permit comes first: after validation, before the account is even loaded. A refused
+            // request then costs no database read, a burst of guesses cannot slip past the gate, and every
+            // later refusal sits behind it, so probing an account's state costs a permit too (ADR-0053).
+            // The key is the id the token names; a token this server signed always carries one.
+            if (!Guid.TryParse(command.UserId, out Guid userId))
             {
                 return Result.Failure<ScheduledDeletion>(AuthErrors.UserNotFound);
             }
 
-            // The permit is taken before the check, so a burst of guesses cannot slip past it (ADR-0053).
-            // It also comes before the deletion-scheduled refusal below, which only a caller who proved
-            // the password gets to see. So a pending deletion costs that caller a permit; the alternative
-            // would tell a token holder that a deletion is pending.
-            if (!_confirmationThrottle.TryAcquire(user.Id))
+            if (!_confirmationThrottle.TryAcquire(userId))
             {
-                LogPasswordConfirmationThrottled(_logger, user.Id);
+                LogPasswordConfirmationThrottled(_logger, userId);
                 return Result.Failure<ScheduledDeletion>(AuthErrors.PasswordConfirmationThrottled);
+            }
+
+            ApplicationUser? user = await _userManager.FindByIdAsync(command.UserId);
+            if (user is null)
+            {
+                return Result.Failure<ScheduledDeletion>(AuthErrors.UserNotFound);
             }
 
             bool passwordValid = await _userManager.CheckPasswordAsync(user, command.Password);

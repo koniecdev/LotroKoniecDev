@@ -27,9 +27,9 @@ address change, a new password or the GDPR file. Code facts that shaped this dec
   another user's password change. The same fact means "key the policy on the user" is impossible:
   `UseRateLimiter` runs before `UseAuthentication` on purpose (OpenIddict's `/connect/*` checks), so
   a policy never sees a principal.
-- A per-account budget already exists for one endpoint: `PasswordResetRequestThrottle` (#692), an
-  in-process `PartitionedRateLimiter<Guid>` keyed on the account id, taken inside the handler where
-  the account is known.
+- A per-account budget already exists for one endpoint: the password-reset send budget behind
+  `IPasswordResetRequestThrottle` (#692), an in-process `PartitionedRateLimiter<Guid>` keyed on the
+  account id, taken inside the handler.
 - `LockoutEnd` is not only the login lockout. ADR-0031 locks a deletion-scheduled account for the
   whole 14-day grace period by setting `LockoutEnd = finalizesAt` (`DeleteAccount.cs`).
   `UserManager.AccessFailedAsync` overwrites `LockoutEnd` with "now plus five minutes" once the
@@ -42,8 +42,9 @@ address change, a new password or the GDPR file. Code facts that shaped this dec
 
 ### 1. One per-account budget, shared by every endpoint that confirms the password
 
-`PasswordConfirmationThrottle` is a singleton `PartitionedRateLimiter<Guid>` keyed on the account
-id from the token — never on an address, and never on the address text, for the reason #692 gives
+`IPasswordConfirmationThrottle` is a singleton `PerAccountFixedWindowThrottle` — the one class behind
+every per-account budget, registered once per budget with the numbers in `AccountBudgets` — keyed on
+the account id from the token — never on an address, and never on the address text, for the reason #692 gives
 (`NormalizeEmail` folds two spellings of a Polish address into one account; an id cannot be spelled
 two ways). Its budget is **10 confirmations per 15 minutes per account**: the room the login form
 already gives a client for wrong passwords (`auth-page-limit`), enough for a few typos and every
@@ -57,9 +58,10 @@ first and charge afterwards, and a burst of concurrent guesses would then all pa
 the first failure is recorded. A fixed window cannot hand a permit back once the check succeeds, so
 the atomic order is the only safe one, and a correct password spends a permit too. A person confirms
 a password a handful of times a day and never notices; a script hits the limit in seconds. The
-permit sits immediately before the password check in each handler: after validation, after the
-account lookup, and in `DeleteAccount` before the deletion-scheduled refusal, which only a caller
-who proved the password gets to see.
+permit is taken right after validation and **before the account is loaded**, keyed on the id the
+token names: a refused request costs no database read, and every later refusal — the
+deletion-scheduled one included — sits behind it, so probing an account's state costs a permit as
+well.
 
 ### 3. Identity's lockout stays out of it
 
@@ -89,8 +91,8 @@ it.
 on a back-channel endpoint is one bucket for every user, so it was never a brake on guessing and it
 was the reason one user's page views could refuse another user's password change — the ticket's
 second acceptance criterion. The per-account budget is their brake now. An anonymous flood costs
-what any 401 costs (a signature check), and a token holder past the budget costs one primary-key
-lookup per refused request, which is the price of logging the refusal against the account.
+what any 401 costs (a signature check), and a token holder past the budget costs a signature check,
+an in-memory refusal and one log line that names the account — nothing from the database.
 `RequestEmailChange` stays on `change-email-limit`: that policy bounds the **mail** the endpoint
 sends to an address the caller typed, which the confirmation budget does not replace.
 
@@ -119,6 +121,9 @@ the auth API served every attempt.
   security stamp, ending every session.
 - **The budget is in process**, so two containers mean two budgets and a restart empties it. Every
   limiter in this app makes the same trade-off; "per account" does not mean "per account, globally".
+- **A refused request still writes one warning line.** A token holder who floods the endpoint past the
+  budget fills the log at wire speed; nothing in the auth API caps that. The line names the account,
+  and an account doing this is one to revoke.
 - A correct password spends a permit. A person never reaches ten confirmations in a quarter of an
   hour; a QA run that exercises all four flows with a wrong-password case each spends eight.
 - The remaining back-channel policies are still one bucket for every user: `auth-endpoint-limit`
@@ -137,7 +142,7 @@ five-guess lockout of the real owner, and it overwrites the 14-day deletion lock
 
 Rejected. Checking first and charging afterwards leaves a window in which concurrent guesses all
 pass the gate; closing it needs a refund on success, which a fixed window cannot do. An in-house
-counter with pre-charge and refund could, but it is a new mechanism where the sibling throttle
+counter with pre-charge and refund could, but it is a new mechanism where the per-account limiter
 already exists, and the cost it avoids — a permit per correct password — is one nobody notices.
 
 ### C. Key the IP policy on the user
@@ -161,17 +166,19 @@ nothing against guessing.
 
 ## Implementation Notes
 
-- `Services/RateLimiting/IPasswordConfirmationThrottle.cs`, `PasswordConfirmationThrottle.cs`;
-  registered as a singleton in `ApiDependencyInjection.cs`.
+- `Services/RateLimiting/IPasswordConfirmationThrottle.cs`, `PerAccountFixedWindowThrottle.cs` (the
+  one class behind both per-account budgets, replacing the #692 class), `AccountBudgets.cs`;
+  registered once per budget in `ApiDependencyInjection.cs`.
 - `Features/Auth/DeleteAccount.cs`, `ChangePassword.cs`, `RequestEmailChange.cs`,
-  `DownloadAccountData.cs`: the permit before the check; `EventIds.PasswordConfirmationThrottled`
-  (2720) for the first three, the export's own audit line (2243) for the fourth.
+  `DownloadAccountData.cs`: the permit before the account is loaded;
+  `EventIds.PasswordConfirmationThrottled` (2720) for the first three, the export's own audit line
+  (2243) for the fourth.
 - `ApiErrors/AuthErrors.PasswordConfirmationThrottled`; `TypeOfError.TooManyRequests` in the
   SharedKernel; the 429 arm in both `Extensions/ErrorExtensions.cs`.
 - `AuthSystem.Contracts/Features/Auth/IPasswordConfirmationRequest.cs` on the four request records;
   `HttpClientsDependencyInjectionExtensions.MayRetry` in the Frontend; the Polish sentence in
   `ApiProblemCopy`.
-- Tests: `PasswordConfirmationThrottleTests` (unit), `PasswordConfirmationBudgetTests`
+- Tests: `PerAccountFixedWindowThrottleTests` (unit), `PasswordConfirmationBudgetTests`
   (integration, incl. the forced-on limiter proving the endpoints left the shared bucket),
   `HttpClientsResilienceTests` and `ApiProblemCopyTests` (frontend).
 

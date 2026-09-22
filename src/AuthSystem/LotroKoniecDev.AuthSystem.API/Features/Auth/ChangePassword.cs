@@ -66,6 +66,19 @@ internal sealed partial class ChangePassword : IApiEndpoint
                 return Result.Failure(validationResult.ToValidationError(nameof(ChangePassword)));
             }
 
+            // The permit comes before the account is loaded (ADR-0053); ChangePasswordAsync checks the
+            // current password itself further down.
+            if (!Guid.TryParse(command.UserId, out Guid userId))
+            {
+                return Result.Failure(AuthErrors.UserNotFound);
+            }
+
+            if (!_confirmationThrottle.TryAcquire(userId))
+            {
+                LogPasswordConfirmationThrottled(_logger, userId);
+                return Result.Failure(AuthErrors.PasswordConfirmationThrottled);
+            }
+
             ApplicationUser? user = await _userManager.FindByIdAsync(command.UserId);
 
             if (user is null)
@@ -79,14 +92,6 @@ internal sealed partial class ChangePassword : IApiEndpoint
             if (user.DeletionScheduledAt is not null)
             {
                 return Result.Failure(AuthErrors.DeletionAlreadyScheduled);
-            }
-
-            // ChangePasswordAsync checks the current password itself, so the permit is taken here, before
-            // it runs (ADR-0053).
-            if (!_confirmationThrottle.TryAcquire(user.Id))
-            {
-                LogPasswordConfirmationThrottled(_logger, user.Id);
-                return Result.Failure(AuthErrors.PasswordConfirmationThrottled);
             }
 
             IdentityResult identityResult = await _userManager.ChangePasswordAsync(

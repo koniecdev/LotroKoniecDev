@@ -104,14 +104,14 @@ internal static class ApiDependencyInjection
             services.AddScoped<IEmailChangeRevertWindow, EmailChangeRevertWindow>();
             services.AddScoped<IEmailChangeRevertReservation, EmailChangeRevertReservation>();
 
-            // A singleton, because the budget has to be shared by every request. The IP policies live in
-            // the limiter's own options; this one counts sends per account, which a policy cannot do
-            // because it runs before anything is known about the account (#692).
-            services.AddSingleton<IPasswordResetRequestThrottle, PasswordResetRequestThrottle>();
-
-            // Same shape, other budget: the current-password confirmations an account gets across the
-            // endpoints that ask for one (#813, ADR-0053).
-            services.AddSingleton<IPasswordConfirmationThrottle, PasswordConfirmationThrottle>();
+            // Singletons, because a budget has to be shared by every request. The IP policies live in the
+            // limiter's own options; these count per account, which a policy cannot do because it runs
+            // before anything is known about the account (#692). One class, one instance per budget, each
+            // under its own interface, so a handler can never spend the wrong one (#813, ADR-0053).
+            services.AddSingleton<IPasswordResetRequestThrottle>(_ =>
+                new PerAccountFixedWindowThrottle(AccountBudgets.PasswordResetPermitLimit, AccountBudgets.Window));
+            services.AddSingleton<IPasswordConfirmationThrottle>(_ =>
+                new PerAccountFixedWindowThrottle(AccountBudgets.PasswordConfirmationPermitLimit, AccountBudgets.Window));
 
             // The outbox relay works on a signal (ADR-0035). Writers add rows through the shared writer
             // and wake the singleton signal after their commit, so the relay does not poll the database

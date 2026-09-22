@@ -58,7 +58,7 @@ public sealed class ExportAccountDataTests : BunitContext
     [Theory]
     [InlineData("password", "Hasło jest nieprawidłowe.")]
     [InlineData("required", "Podaj obecne hasło, aby pobrać swoje dane.")]
-    [InlineData("throttled", "Zbyt wiele prób. Odczekaj chwilę i spróbuj ponownie.")]
+    [InlineData("throttled", "Serwer jest chwilowo zajęty. Odczekaj chwilę i spróbuj ponownie.")]
     [InlineData("password-throttled", "Zbyt wiele prób potwierdzenia hasła. Odczekaj kwadrans i spróbuj ponownie.")]
     public void Render_WithAnErrorMarker_ShowsTheMatchingPolishSentence(string errorCode, string expected)
     {

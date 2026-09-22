@@ -95,7 +95,7 @@ logged-in caller.**
   ADR was written, the only brake behind it was `auth-endpoint-limit`, which partitions on the remote
   address — and every call from the frontend arrives from the frontend itself, so it was one
   10-per-minute bucket shared by every logged-in user. #813 replaced it for this endpoint with a
-  per-account budget, `PasswordConfirmationThrottle`; ADR-0053 holds that decision and the reason the
+  per-account budget behind `IPasswordConfirmationThrottle`; ADR-0053 holds that decision and the reason the
   lockout stays out of it.
 - **The confirm page is one more click** before a download the user asked for. That is the intended
   cost, and it is the same cost the other three sensitive actions already charge.

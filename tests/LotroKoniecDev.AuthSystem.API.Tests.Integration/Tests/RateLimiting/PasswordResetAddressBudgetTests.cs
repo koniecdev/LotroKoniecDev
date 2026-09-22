@@ -2,6 +2,7 @@ using System.Text.RegularExpressions;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using LotroKoniecDev.AuthSystem.API.Outbox;
+using LotroKoniecDev.AuthSystem.API.Services.RateLimiting;
 using LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared;
 using LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared.Bases;
 using LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared.Factories;
@@ -22,8 +23,8 @@ namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Tests.RateLimiting;
 /// </summary>
 public sealed partial class PasswordResetAddressBudgetTests : EndpointsTestBase
 {
-    /// <summary>Mirrors PasswordResetRequestThrottle: 3 sends per 15 minutes per account.</summary>
-    private const int AddressPermitLimit = 3;
+    /// <summary>The shipped send budget, read from the same constant the registration uses.</summary>
+    private const int AddressPermitLimit = AccountBudgets.PasswordResetPermitLimit;
 
     private static readonly Uri ForgotPasswordPage = new("/Account/ForgotPassword", UriKind.Relative);
     private static readonly Uri ForgotPasswordEndpoint = new("auth/forgot-password", UriKind.Relative);

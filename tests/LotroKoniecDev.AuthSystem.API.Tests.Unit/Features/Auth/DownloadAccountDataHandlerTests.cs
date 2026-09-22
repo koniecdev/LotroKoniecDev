@@ -16,7 +16,7 @@ namespace LotroKoniecDev.AuthSystem.API.Tests.Unit.Features.Auth;
 /// not show in the return value. So the lines themselves are pinned here: one per outcome, naming the
 /// account and the client, and never the raw address.
 /// </summary>
-public sealed class DownloadAccountDataHandlerTests
+public sealed class DownloadAccountDataHandlerTests : IDisposable
 {
     private const string Email = "frodo@shire.me";
     private const string Password = "Correct-Horse-1!";
@@ -24,8 +24,14 @@ public sealed class DownloadAccountDataHandlerTests
     private const string UserAgent = "Mozilla/5.0 (QA)";
 
     private readonly UserManager<ApplicationUser> _userManager = CreateUserManager();
-    private readonly PasswordConfirmationThrottle _throttle = new();
+    private readonly PerAccountFixedWindowThrottle _throttle =
+        new(AccountBudgets.PasswordConfirmationPermitLimit, AccountBudgets.Window);
     private readonly CapturingLogger<DownloadAccountData.Handler> _logger = new();
+
+    public void Dispose()
+    {
+        _throttle.Dispose();
+    }
 
     [Fact]
     public async Task Handle_CorrectPassword_LogsTheHandoverWithTheAccountAndTheClient()
@@ -77,13 +83,13 @@ public sealed class DownloadAccountDataHandlerTests
     }
 
     [Fact]
-    public async Task Handle_BudgetSpent_LogsTheRefusalWithItsReasonAndChecksNoPassword()
+    public async Task Handle_BudgetSpent_LogsTheRefusalWithItsReasonAndTouchesNeitherTheAccountNorThePassword()
     {
         // The refusal stays on the export's own audit line (#690): one line per attempt, whatever the
-        // outcome. The password is not checked at all, which is the point of taking the permit first
-        // (ADR-0053): a spent budget must not buy a hash comparison, let alone an answer.
+        // outcome. Nothing else runs, which is the point of taking the permit first (ADR-0053): a spent
+        // budget must not buy a database read or a hash comparison, let alone an answer.
         ApplicationUser user = StubUser(passwordValid: true);
-        using PasswordConfirmationThrottle spentThrottle = new(permitLimit: 1, TimeSpan.FromMinutes(15));
+        using PerAccountFixedWindowThrottle spentThrottle = new(permitLimit: 1, AccountBudgets.Window);
         spentThrottle.TryAcquire(user.Id).ShouldBeTrue();
         DownloadAccountData.Handler sut = new(_userManager, spentThrottle, _logger);
 
@@ -96,6 +102,7 @@ public sealed class DownloadAccountDataHandlerTests
         entry.Message.ShouldContain(user.Id.ToString());
         entry.Message.ShouldContain("the password confirmation budget is spent");
         entry.Message.ShouldContain(IpAddress);
+        await _userManager.DidNotReceive().FindByIdAsync(Arg.Any<string>());
         await _userManager.DidNotReceive().CheckPasswordAsync(user, Arg.Any<string>());
     }
 

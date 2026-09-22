@@ -92,6 +92,18 @@ internal sealed partial class RequestEmailChange : IApiEndpoint
                 return Result.Failure(validationResult.ToValidationError(nameof(RequestEmailChange)));
             }
 
+            // The permit comes before the account is loaded (ADR-0053).
+            if (!Guid.TryParse(command.UserId, out Guid userId))
+            {
+                return Result.Failure(AuthErrors.UserNotFound);
+            }
+
+            if (!_confirmationThrottle.TryAcquire(userId))
+            {
+                LogPasswordConfirmationThrottled(_logger, userId);
+                return Result.Failure(AuthErrors.PasswordConfirmationThrottled);
+            }
+
             ApplicationUser? user = await _userManager.FindByIdAsync(command.UserId);
             if (user is null)
             {
@@ -106,13 +118,6 @@ internal sealed partial class RequestEmailChange : IApiEndpoint
             if (user.DeletionScheduledAt is not null)
             {
                 return Result.Failure(AuthErrors.DeletionAlreadyScheduled);
-            }
-
-            // The permit is taken before the check, so a burst of guesses cannot slip past it (ADR-0053).
-            if (!_confirmationThrottle.TryAcquire(user.Id))
-            {
-                LogPasswordConfirmationThrottled(_logger, user.Id);
-                return Result.Failure(AuthErrors.PasswordConfirmationThrottled);
             }
 
             bool passwordValid = await _userManager.CheckPasswordAsync(user, command.CurrentPassword);

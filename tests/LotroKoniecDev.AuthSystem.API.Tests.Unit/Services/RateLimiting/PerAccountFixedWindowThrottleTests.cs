@@ -3,20 +3,20 @@ using LotroKoniecDev.AuthSystem.API.Services.RateLimiting;
 namespace LotroKoniecDev.AuthSystem.API.Tests.Unit.Services.RateLimiting;
 
 /// <summary>
-/// The budget of current-password confirmations that belongs to the account, not to the caller's
-/// address (#813, ADR-0053). Every call to the account endpoints arrives from the frontend, so an IP key
-/// is one bucket for all users; this is what makes the brake per account.
+/// The budget that belongs to the account, not to the caller. The IP policies cannot stop an attacker who
+/// rotates addresses, and behind the frontend they see one address for everybody; this is what makes a
+/// brake per account (#692 for password-reset mail, #813 for password confirmations).
 /// </summary>
-public sealed class PasswordConfirmationThrottleTests
+public sealed class PerAccountFixedWindowThrottleTests
 {
-    /// <summary>Mirrors the shipped budget: 10 confirmations per 15 minutes per account.</summary>
-    private const int PermitLimit = PasswordConfirmationThrottle.DefaultPermitLimit;
+    /// <summary>The shipped confirmation budget: 10 per 15 minutes per account.</summary>
+    private const int PermitLimit = AccountBudgets.PasswordConfirmationPermitLimit;
 
     [Fact]
     public void TryAcquire_ShouldAllowTheBudgetAndRefuseWhatFollows()
     {
         // Arrange
-        using PasswordConfirmationThrottle throttle = new();
+        using PerAccountFixedWindowThrottle throttle = new(PermitLimit, AccountBudgets.Window);
         Guid userId = Guid.CreateVersion7();
 
         // Act
@@ -33,7 +33,7 @@ public sealed class PasswordConfirmationThrottleTests
     public void TryAcquire_ShouldKeepOneAccountBudgetOutOfAnother()
     {
         // Arrange
-        using PasswordConfirmationThrottle throttle = new();
+        using PerAccountFixedWindowThrottle throttle = new(PermitLimit, AccountBudgets.Window);
         Guid attackedUserId = Guid.CreateVersion7();
 
         // Act: spend one account's budget in full
@@ -42,17 +42,17 @@ public sealed class PasswordConfirmationThrottleTests
             throttle.TryAcquire(attackedUserId);
         }
 
-        // Assert: guessing at one account must not lock everybody else out of their own actions
+        // Assert: a flood at one account must not lock everybody else out
         throttle.TryAcquire(Guid.CreateVersion7()).ShouldBeTrue();
     }
 
     [Fact]
     public async Task TryAcquire_ShouldGiveTheBudgetBackWhenTheWindowPasses()
     {
-        // Arrange: a wrong unit here — hours instead of minutes — would cut every user off from their
-        // own account actions for good, and no test of the limit alone would notice
+        // Arrange: a wrong unit here — hours instead of minutes — would cut every user off for good, and
+        // no test of the limit alone would notice
         TimeSpan window = TimeSpan.FromMilliseconds(200);
-        using PasswordConfirmationThrottle throttle = new(permitLimit: 1, window);
+        using PerAccountFixedWindowThrottle throttle = new(permitLimit: 1, window);
         Guid userId = Guid.CreateVersion7();
 
         throttle.TryAcquire(userId).ShouldBeTrue();
@@ -76,7 +76,7 @@ public sealed class PasswordConfirmationThrottleTests
     public void TryAcquire_ShouldCountAnEmptyIdLikeAnyOther()
     {
         // Arrange: an id is never empty in production, but the budget must not silently become shared
-        using PasswordConfirmationThrottle throttle = new();
+        using PerAccountFixedWindowThrottle throttle = new(PermitLimit, AccountBudgets.Window);
 
         // Act
         bool[] results = Enumerable.Range(0, PermitLimit + 1)
@@ -95,7 +95,7 @@ public sealed class PasswordConfirmationThrottleTests
     {
         // Act / Assert
         Should.Throw<ArgumentOutOfRangeException>(() =>
-            new PasswordConfirmationThrottle(permitLimit, TimeSpan.FromMinutes(15)).Dispose());
+            new PerAccountFixedWindowThrottle(permitLimit, AccountBudgets.Window).Dispose());
     }
 
     [Fact]
@@ -103,6 +103,6 @@ public sealed class PasswordConfirmationThrottleTests
     {
         // Act / Assert: a zero window would make the budget meaningless in one direction or the other
         Should.Throw<ArgumentOutOfRangeException>(() =>
-            new PasswordConfirmationThrottle(permitLimit: 3, TimeSpan.Zero).Dispose());
+            new PerAccountFixedWindowThrottle(permitLimit: 3, TimeSpan.Zero).Dispose());
     }
 }

@@ -7,9 +7,7 @@ namespace LotroKoniecDev.AuthSystem.API.Services.RateLimiting;
 /// budget.
 /// </summary>
 /// <remarks>
-/// The key only counts sends. The mail still goes to the address as the user typed it. A key that folds
-/// too much only makes two real inboxes share one budget, which is safe. A key that folds too little gives
-/// an attacker a fresh budget for every spelling, which is the hole #835 closed.
+/// The key only counts sends. The mail still goes to the address as the user typed it.
 /// </remarks>
 internal sealed record MailboxKey
 {

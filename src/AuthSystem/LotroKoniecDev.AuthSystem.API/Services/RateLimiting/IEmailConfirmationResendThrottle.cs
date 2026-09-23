@@ -6,9 +6,8 @@ namespace LotroKoniecDev.AuthSystem.API.Services.RateLimiting;
 /// alone gives an attacker who rotates IPs a fresh budget every time.
 /// </summary>
 /// <remarks>
-/// Only unconfirmed accounts get a resend, and every account an attacker creates at someone else's inbox
-/// stays unconfirmed. So the budget belongs to the inbox, not to one account: otherwise every extra
-/// spelling the attacker registers would bring a budget of its own (ADR-0057).
+/// Per inbox, not per account: every spelling a stranger registers would otherwise bring a fresh budget
+/// (ADR-0057).
 /// </remarks>
 internal interface IEmailConfirmationResendThrottle
 {

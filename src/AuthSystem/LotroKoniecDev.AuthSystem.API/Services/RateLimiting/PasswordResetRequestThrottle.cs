@@ -7,13 +7,9 @@ namespace LotroKoniecDev.AuthSystem.API.Services.RateLimiting;
 /// (ADR-0057).
 /// </summary>
 /// <remarks>
-/// A confirmed account keeps a budget of its own on purpose. Only the inbox owner can confirm an account
-/// at that inbox, because the link goes there. So the only way to spend this budget is to ask for resets
-/// of the owner's own account, and each of those mails gives the owner a working link. A budget per inbox
-/// would break that. A stranger could register <c>anna+x@gmail.com</c>, ask for resets on that account,
-/// and use up Anna's budget with mails that cannot reset her own password.
-/// Every account a stranger creates at someone else's inbox stays unconfirmed. Those accounts share one
-/// budget per inbox, so each extra spelling does not bring a fresh budget.
+/// Only the inbox owner can confirm an account there, so a confirmed account's budget can only be spent
+/// by mails that give her a working link. A budget per inbox would let a stranger's unconfirmed
+/// <c>anna+x@</c> account use it up (ADR-0057 §3).
 /// </remarks>
 internal sealed class PasswordResetRequestThrottle : IPasswordResetRequestThrottle, IDisposable
 {

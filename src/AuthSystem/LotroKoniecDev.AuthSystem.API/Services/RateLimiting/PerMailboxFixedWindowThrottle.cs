@@ -4,8 +4,7 @@ namespace LotroKoniecDev.AuthSystem.API.Services.RateLimiting;
 
 /// <summary>
 /// A fixed-window budget keyed on the inbox a mail reaches: the shape behind every per-inbox send budget
-/// in this app. Each budget is its own instance, registered under its own interface, so a handler can
-/// never spend the wrong one (ADR-0053 §1).
+/// in this app. Each budget is its own instance, so a handler can never spend the wrong one (ADR-0053 §1).
 /// </summary>
 /// <remarks>
 /// The key is a <see cref="MailboxKey"/>, not a string, so a caller cannot pass the address as typed and

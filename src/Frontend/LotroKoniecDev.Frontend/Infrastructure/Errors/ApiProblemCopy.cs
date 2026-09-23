@@ -199,7 +199,7 @@ internal static class ApiProblemCopy
             ["Auth.EmailChangeSameAddress"] =
                 "Podany adres e-mail jest taki sam jak obecny.",
             ["Auth.EmailChangeRecipientThrottled"] =
-                "Na ten adres wysłano niedawno zbyt wiele linków do zmiany adresu e-mail. Odczekaj kwadrans i spróbuj ponownie.",
+                "Na tę skrzynkę pocztową wysłano niedawno zbyt wiele linków do zmiany adresu e-mail. Odczekaj kwadrans i spróbuj ponownie.",
             ["Auth.InvalidEmailChangeToken"] =
                 "Link zmieniający adres e-mail jest nieprawidłowy lub wygasł. Poproś o nowy.",
             ["Auth.EmailChangeFailed"] =

@@ -1191,7 +1191,8 @@ back-channel" rule that `localhost` satisfies naturally. Dev optimizes for feedb
 parity job belongs to the next stack.
 
 First login: register an account on the frontend (it becomes a **Translator**; confirm the
-email in mailpit), or configure `AdminUser:Email`/`AdminUser:Password` for auth-api and the
+email in mailpit), or configure `AdminUser:Email`/`AdminUser:Password` for auth-api (in
+`appsettings.Local.json`; only Development and Testing read the password — ADR-0056) and the
 seeder creates an **Admin** at startup.
 
 Known local pitfall: if PostgreSQL greets you with error `28P01` (password authentication

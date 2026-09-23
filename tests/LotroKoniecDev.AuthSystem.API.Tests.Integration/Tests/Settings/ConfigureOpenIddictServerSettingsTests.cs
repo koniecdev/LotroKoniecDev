@@ -1,9 +1,8 @@
 using System.Security.Cryptography;
 using System.Text;
 using LotroKoniecDev.AuthSystem.API.Extensions;
-using Microsoft.AspNetCore.Hosting;
+using LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared;
 using Microsoft.Extensions.Configuration;
-using Microsoft.Extensions.FileProviders;
 using Microsoft.IdentityModel.Tokens;
 using OpenIddict.Server;
 using Shouldly;
@@ -91,19 +90,4 @@ public sealed class ConfigureOpenIddictServerSettingsTests
 
         return new ConfigureOpenIddictServerSettings(configuration, new FakeWebHostEnvironment(Production));
     }
-}
-
-file sealed class FakeWebHostEnvironment : IWebHostEnvironment
-{
-    public FakeWebHostEnvironment(string environmentName)
-    {
-        EnvironmentName = environmentName;
-    }
-
-    public string EnvironmentName { get; set; }
-    public string ApplicationName { get; set; } = "auth-tests";
-    public string ContentRootPath { get; set; } = string.Empty;
-    public IFileProvider ContentRootFileProvider { get; set; } = null!;
-    public string WebRootPath { get; set; } = string.Empty;
-    public IFileProvider WebRootFileProvider { get; set; } = null!;
 }

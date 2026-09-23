@@ -19,6 +19,17 @@ public abstract class EndpointsTestBase : AsyncLifetimeTestBase
 
     protected async Task<string> GetAccessTokenAsync(string email, string password)
     {
+        HttpResponseMessage tokenResponse = await RequestPasswordGrantAsync(email, password);
+
+        tokenResponse.StatusCode.ShouldBe(HttpStatusCode.OK);
+
+        string content = await tokenResponse.Content.ReadAsStringAsync();
+        using JsonDocument json = JsonDocument.Parse(content);
+        return json.RootElement.GetProperty("access_token").GetString()!;
+    }
+
+    protected async Task<HttpResponseMessage> RequestPasswordGrantAsync(string email, string password)
+    {
         // "username" is a fixed name in the OIDC protocol. What it carries is the e-mail (ADR-0022).
         using FormUrlEncodedContent tokenRequest = new(new Dictionary<string, string>
         {
@@ -29,13 +40,6 @@ public abstract class EndpointsTestBase : AsyncLifetimeTestBase
             ["scope"] = "email profile roles api"
         });
 
-        HttpResponseMessage tokenResponse = await ApiClient.Http.PostAsync(
-            new Uri("connect/token", UriKind.Relative), tokenRequest);
-
-        tokenResponse.StatusCode.ShouldBe(HttpStatusCode.OK);
-
-        string content = await tokenResponse.Content.ReadAsStringAsync();
-        using JsonDocument json = JsonDocument.Parse(content);
-        return json.RootElement.GetProperty("access_token").GetString()!;
+        return await ApiClient.Http.PostAsync(new Uri("connect/token", UriKind.Relative), tokenRequest);
     }
 }

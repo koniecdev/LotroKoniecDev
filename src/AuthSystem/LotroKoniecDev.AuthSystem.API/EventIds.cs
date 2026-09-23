@@ -105,6 +105,9 @@ internal static class EventIds
 
     // Startup (2350-2359)
     public const int StartupTransientDatabaseFailure = 2350;
+    public const int AdminSeededWithoutPassword = 2351;
+    public const int AdminSeedPasswordIgnored = 2352;
+    public const int AdminSeedUsernameTaken = 2353;
 
     // Password Reset Dispatch (2360-2369)
     public const int PasswordResetUserGone = 2360;

@@ -250,7 +250,8 @@ staging from prod in Grafana, because both boxes run `ASPNETCORE_ENVIRONMENT=Pro
 | `RabbitMq__Host` | `localhost` (the compose broker, published on `:5672`) | `rabbitmq` (the in-stack broker service) | ✅ all | plain | Validated on start (every environment) — but auth-api **boots and serves with the broker down**: outbox rows wait, the consumer retries. See [Message broker](#message-broker-rabbitmq). |
 | `RabbitMq__Username` | `rabbitmq` | `rabbitmq` | ✅ all | plain | Matches the `RABBITMQ_DEFAULT_USER` literal in every compose file. |
 | `RabbitMq__Password` | `changeme` (appsettings.Development + the dev compose `RABBITMQ_PASSWORD`) | from `RABBITMQ_PASSWORD` | ✅ all | **secret** | ⚠️ The broker applies `RABBITMQ_DEFAULT_PASS` on **first boot only** — rotation is a lockstep dance, see the [secrets table](#secret-material--source-of-truth-and-how-to-rotate). |
-| `AdminUser__Username` / `AdminUser__Email` / `AdminUser__Password` | from `AUTH_ADMIN_*` | from `AUTH_ADMIN_*` | optional | **secret** (Password) | Seeds one admin **only when missing**; leave blank to skip. Username must match `^[a-zA-Z0-9]+$` (ADR-0022) or auth-api fails at startup; the admin logs in **by e-mail**. |
+| `AdminUser__Username` / `AdminUser__Email` | `appsettings.Local.json` (git-ignored; copy its `.example`) | from `AUTH_ADMIN_USERNAME` / `AUTH_ADMIN_EMAIL` | optional | plain | Seeds one admin **only when missing**, **without a password**; the operator sets it through the reset mail ([Admin account](#admin-account--first-sign-in-and-rotation), ADR-0056). Leave the e-mail blank to skip. Username must match `^[a-zA-Z0-9]+$` (ADR-0022) or auth-api fails at startup; the admin logs in **by e-mail**. |
+| `AdminUser__Password` | `appsettings.Local.json` | — (**never set**) | optional | plain (a dev value) | Read **only** in Development and Testing, so the host dev loop and the test suites keep a known admin login. Every other environment ignores it and logs warning `2352`. Neither compose file passes it, on purpose. |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | `http://localhost:4317` (launchSettings → the compose aspire-dashboard) | — (empty: no sink today, ADR-0034) | optional | plain | Empty = telemetry export disabled. See [Observability](#observability--monitoring). |
 | `OTEL_EXPORTER_OTLP_PROTOCOL` | `grpc` | `grpc` / `http/protobuf` | optional | plain | Defaults to `grpc`. |
 
@@ -345,7 +346,7 @@ which is why they are named volumes and not bind mounts.
 | `OpenIddict__ApiClientSecret` | auth-api (**seeds** the `lotrokoniecdev-api` client row) | regenerate | same script — **but the DB row wins on restart; rotation needs the [reseed](#reseed-traps--the-auth-seeder-is-create-if-missing).** Must stay equal to the `SMOKE_CLIENT_SECRET` GitHub secret of the same environment. |
 | `Email__Username` | auth-api | **Brevo** dashboard → SMTP & API → SMTP keys | The SMTP **login**, shaped `<id>@smtp-brevo.com` — **not** the Brevo account e-mail, which fails the handshake with `535`. |
 | `Email__Password` | auth-api | **Brevo** (owner pastes) | Generate a new SMTP key in Brevo. Shown **once** and never readable back — the copies in the box `.env` and in GitHub secrets are both write-only, so a lost key is re-generated, never recovered. |
-| `AUTH_ADMIN_PASSWORD` (+ `AUTH_ADMIN_USERNAME`, `AUTH_ADMIN_EMAIL`) | auth-api → `AdminUser__*` seeder | **owner-chosen** | Seeded **only when missing**, so editing `.env` never rotates a live admin — see the reseed traps. `AUTH_ADMIN_USERNAME` must match `^[a-zA-Z0-9]+$` (ADR-0022) or auth-api fails at startup. |
+| The admin password | the admin `Users` row | **the admin's own password manager**, never a file on the box | Not a `.env` value any more (ADR-0056): the seeder creates the admin without one. The first password and every rotation go through the reset mail ([Admin account](#admin-account--first-sign-in-and-rotation)). A box `.env` that still has an `AUTH_ADMIN_PASSWORD` line predates #696: follow the migration steps there. |
 | `RABBITMQ_PASSWORD` (→ auth-api `RabbitMq__Password` **and** the broker's `RABBITMQ_DEFAULT_PASS`) | rabbitmq, auth-api | **box-local** — generate: `openssl rand -base64 24` | ⚠️ Same create-if-missing shape as the admin seed: the broker applies `RABBITMQ_DEFAULT_PASS` on **first boot only** (empty data volume), so editing `.env` later rotates what auth-api presents but **not** what the broker expects. Rotate in lockstep: `docker compose -f compose.hetzner.yaml exec rabbitmq rabbitmqctl change_password rabbitmq '<new>'` → update `.env` → `docker compose -f compose.hetzner.yaml up -d auth-api`. |
 | `FRONTEND_CALLER_KEY` (→ auth-api and tms-api `FrontendCaller__Key`, frontend `AuthSystem__CallerKey` **and** `TranslationSystem__CallerKey`) | auth-api, tms-api, frontend | **box-local** — generate: `openssl rand -base64 32`, one per environment (not one per API) | Lets the auth API and the TMS API rate-limit a frontend call on the visitor's forwarded address instead of on the frontend container (ADR-0054, #823). Put a new value into the box `.env` and redeploy: all three services read the same line, so they disagree only for the seconds of the restart, and a call in that window merely counts against the frontend's own bucket. **Required** — compose refuses to render without it (`deploy.sh` stops at its first gate and the rollback keeps the old release serving), and all three apps refuse to boot outside Development/Testing. A leaked key lets its holder dodge the three auth back-channel limits and the TMS API's one limit by inventing addresses and nothing more — rotate it. |
 | `OBS_PUSH_PASSWORD` (prod `/opt/obs/.env`) ↔ `OBS_PUSH_PASSWORD_HASH` (staging `/opt/lotro/.env`) | the prod agent (Alloy, `ship.agent.alloy`) ↔ the staging Caddy's ingest vhost | **box-local** — generate: `openssl rand -base64 24`; hash it with `docker run --rm -it caddy:2-alpine caddy hash-password` (prompts, never on argv) | One password, two forms, and the plaintext exists on the prod box only. Rotate hash-first: new hash into staging `.env` → `deploy.sh` (reloads Caddy) → new password into prod `.env` → `docker compose -f compose.observability.yaml up -d` in `/opt/obs`. **The window in between loses telemetry, it does not delay it** — a 401 is a permanent error for all three writers and each drops the batch — so pick a window you are willing to have a hole in, or give the vhost a second `basic_auth` account first so the two credentials overlap. **Single-quote the hash in `.env`**: bare *and* double-quoted both corrupt it, compose expands the salt after the third `$` to nothing, and `caddy validate` accepts the wreckage — prove it landed with the probe in "Bringing up the prod agent" step 3. |
@@ -423,7 +424,7 @@ so this is the normal case — and it means **editing `.env` and restarting sile
 | You changed in `.env` | What silently keeps the OLD value | Symptom |
 |---|---|---|
 | `OpenIddict__ApiClientSecret` | the `lotrokoniecdev-api` client row | `client_credentials` with the new secret → **401**; smoke's token leg fails |
-| `AUTH_ADMIN_PASSWORD` | the admin `Users` row | the old password still logs in; the new one never works |
+| `AUTH_ADMIN_EMAIL` / `AUTH_ADMIN_USERNAME` | the admin `Users` row | a new address with the same username is skipped, with warning `2353` in the auth-api log; a new address **and** a new username seed a **second** admin, and the first one keeps its role |
 | `DOMAIN_APP` | the `lotrokoniecdev-web` client's redirect + post-logout URIs (written **only at creation**) | login bounces with `invalid_redirect_uri` |
 
 Fix = delete the rows and let the seeder rebuild them from the current `.env`. Schema is
@@ -434,7 +435,8 @@ Delete in FK order:
 DELETE FROM authsystem."OpenIddictTokens";
 DELETE FROM authsystem."OpenIddictAuthorizations";
 DELETE FROM authsystem."OpenIddictApplications";
--- only when rotating AUTH_ADMIN_* (UserRoles cascades with the user):
+-- only when replacing the admin account itself, e.g. after a typo in AUTH_ADMIN_EMAIL
+-- (UserRoles cascades with the user). A password rotation never needs this: use the reset mail.
 DELETE FROM authsystem."Users" WHERE "Email" = '<admin e-mail>';
 ```
 
@@ -445,19 +447,105 @@ docker compose -f compose.hetzner.yaml restart auth-api   # seeder runs at start
 Every logged-in user is signed out by this (their tokens are gone) — free pre-launch, a real outage
 after launch.
 
-### Admin seed (optional)
+### Admin account — first sign-in and rotation
 
-Set all three to seed one usable admin login into the auth DB on first boot; leave blank to skip:
+The `Admin` role reaches the whole distribution path to players: imports, approvals and game
+versions, among others. No page in the product grants that role: the seeder is the only place it
+comes from. Set these values in the box `.env` to seed the admin on the next auth-api start; leave
+the e-mail blank to skip:
 
 ```
-AUTH_ADMIN_USERNAME=…        # letters + digits only (^[a-zA-Z0-9]+$) — ADR-0022
-AUTH_ADMIN_EMAIL=…
-AUTH_ADMIN_PASSWORD=…        # secret
+AUTH_ADMIN_USERNAME=…        # letters + digits only (^[a-zA-Z0-9]+$) — ADR-0022; blank = "admin"
+AUTH_ADMIN_EMAIL=…           # a mailbox the operator reads: the first password arrives there
 ```
 
-The username is a display-only handle; the seeded admin **logs in by e-mail + password**. A username
+The username is a display-only handle; the admin **logs in by e-mail + password**. A username
 containing `-`, `.`, `_`, spaces or diacritics fails Identity's `AllowedUserNameCharacters` and
 crashes auth-api at startup (loud, by design).
+
+**There is no admin password in the `.env` (ADR-0056).** The seeder creates the admin without a
+password, so nobody can sign in to it until someone opens the reset mail. auth-api logs event `2351`
+("Seeded the admin account … without a password") when it does this. The ADR says what this does
+and does not protect: the `.env` still holds the OpenIddict signing key and the Neon connection
+strings, and anyone who can read that file is already stronger than any admin password.
+
+**Before the first sign-in, prove that mail works.** The admin gets its password through the same
+mail path as every translator's confirmation: outbox → RabbitMQ → Brevo. If registration mail does
+not arrive on this box, the admin mail will not arrive either, so fix that first
+([E-mail deliverability](#e-mail-deliverability--the-sender-must-be-one-brevo-is-authorised-to-send-as),
+[the dead-letter parking lot](#the-dead-letter-parking-lot-emailssenddlq)). There is no second channel.
+
+**First sign-in, and every rotation after it** (the same four steps):
+
+1. Open `https://auth.<env domain>/Account/ForgotPassword`, or the login page's link
+   **"Nie pamiętam hasła →"**.
+2. Type the admin e-mail **exactly**, with no trailing space. The page does not trim the address, so
+   a pasted space shows the normal "Jeśli konto istnieje…" panel and sends nothing.
+3. Open the mail, follow the link and set a long random password from a password manager. Never
+   write it into the `.env`, a ticket, the wiki or a public channel. The staging admin is shared with
+   testers: hand its password over in a private message, the same way as any other credential. The
+   prod admin must never use the same password as staging. Nothing in the code checks that, so it
+   is up to you.
+4. Sign in with it. A reset also revokes every session the admin had (ADR-0049), which is the point
+   of a rotation. An access token that was already issued keeps working until it expires, which
+   takes at most five minutes.
+
+If the sign-in right after a successful reset shows "Nieprawidłowy e-mail lub hasło.", the account
+may be **locked**. Five wrong passwords lock it for 5 minutes, and anyone who knows the admin address
+can cause that, even before the first reset. A reset does not clear the lock. Wait 5 minutes and try
+again before you start another rotation.
+
+Two limits apply to the reset page, and they look different:
+
+- **per account:** 3 mails per 15 minutes. A fourth request shows the normal panel and sends
+  nothing;
+- **per address (IP):** 3 form posts per 15 minutes. A fourth post from the same machine gets the
+  **"Za dużo prób"** page (HTTP 429), which says how long to wait.
+
+Wait out that window before you blame delivery.
+
+**Migrating a box seeded before #696.** Its admin row still has the password that was in
+`AUTH_ADMIN_PASSWORD`, and this change does not remove it: the seeder skips an admin that already
+exists. Rotate first, then remove the line, in this order:
+
+1. Do the four steps above for the box's admin. The old password stops working the moment the reset
+   succeeds. Check it: sign in with the old one and get the generic error.
+2. Delete the line as the `deploy` user, so the file stays owned by `deploy` and CD can still read it
+   (never edit it as root). The second command must print `0`. No restart is needed: neither compose
+   file reads the line any more.
+
+   ```bash
+   ssh lotro-<env> "sudo -u deploy sed -i '/^AUTH_ADMIN_PASSWORD=/d' /opt/lotro/.env"
+   ssh lotro-<env> "sudo -u deploy grep -c '^AUTH_ADMIN_PASSWORD=' /opt/lotro/.env"
+   ```
+3. Clean up the other copies of the old value. It is a leaked password now:
+   - the `ADMIN_PASSWORD` GitHub secret and the `ADMIN_EMAIL` / `ADMIN_USERNAME` variables are
+     leftovers from the Azure era (ADR-0013 already calls them unused). Delete them;
+   - any backup of the box `.env` still holds it;
+   - if the value was ever reused anywhere else, change it there too.
+4. Remember that a database restore brings the old password back. A Neon restore (PITR or a
+   pre-migration snapshot) to a point before the rotation restores the old hash with the rest of the
+   `Users` table. After such a restore, rotate again.
+
+**Warning `2353`: the admin username belongs to a different address.** The seeder logs it on every
+start when `AUTH_ADMIN_EMAIL` matches no account but `AUTH_ADMIN_USERNAME` is taken. There are two
+causes, and they need opposite fixes. Look at the row first:
+
+```sql
+-- NormalizedUserName, because the seeder's check ignores case: "Admin" blocks "admin" too.
+SELECT "UserName", "Email", "PasswordHash" IS NULL AS no_password FROM authsystem."Users" WHERE "NormalizedUserName" = upper('<admin username>');
+```
+
+- **The admin changed its own address in the product.** The row has the real address and a
+  password. Put the new address into `AUTH_ADMIN_EMAIL`, or ignore the warning. **Never delete this
+  row.** It is the live admin.
+- **A typo in `AUTH_ADMIN_EMAIL` at the first seed.** The row has the misspelled address and no
+  password, because nobody could ever receive its reset mail. A real address with no password is
+  **not** this case: a cancelled deletion or an undone e-mail change also clears the password. If
+  you receive mail at that address, it is the live admin, so reset it instead. Delete the row only
+  when the address is really misspelled (see the
+  [reseed traps](#reseed-traps--the-auth-seeder-is-create-if-missing)), fix the `.env` and restart
+  auth-api.
 
 ### TLS certificates
 
@@ -607,6 +695,11 @@ For an all-local run (no external SMTP/OTLP), add the profiles so the SMTP leg o
 ```bash
 docker compose -f compose.prod.yaml --env-file .env.prod --profile local-smtp --profile local-otel up --build
 ```
+
+The parity stack runs Production, so its admin is seeded **without a password**, exactly like a box
+(ADR-0056). Set `AUTH_ADMIN_USERNAME` / `AUTH_ADMIN_EMAIL` in `.env.prod` and run with
+`--profile local-smtp`. Then do the [first sign-in steps](#admin-account--first-sign-in-and-rotation)
+against `https://auth.lotro.test` and read the reset mail in Mailpit at `http://localhost:8026`.
 
 ### (Re)provisioning a box
 

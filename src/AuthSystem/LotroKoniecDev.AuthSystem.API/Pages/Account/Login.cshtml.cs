@@ -34,9 +34,9 @@ internal sealed partial class LoginModel : PageModel
         "To konto nie zostało jeszcze aktywowane. Sprawdź skrzynkę — wysłaliśmy na Twój adres link aktywacyjny.";
 
     /// <summary>
-    /// A hash computed up front for the failure paths that would otherwise skip password hashing, no
-    /// such user and locked out. They then take as long as the wrong-password path, so the response
-    /// time tells the caller nothing.
+    /// A hash computed up front for the failure paths that would otherwise skip password hashing: no
+    /// such user, locked out, and an account with no password. They then take as long as the
+    /// wrong-password path, so the response time tells the caller nothing.
     /// </summary>
     private static readonly string DummyPasswordHash =
         new PasswordHasher<ApplicationUser>().HashPassword(new ApplicationUser(), "DummyP@ssw0rd!");
@@ -127,8 +127,7 @@ internal sealed partial class LoginModel : PageModel
         {
             // Hash a dummy password anyway, so the response time does not reveal whether the user
             // exists.
-            _ = _userManager.PasswordHasher.VerifyHashedPassword(
-                new ApplicationUser(), DummyPasswordHash, Password);
+            VerifyDummyPassword();
             LogUserNotFound(_logger, Email.MaskEmail(), HttpContext.Connection.RemoteIpAddress);
             ErrorMessage = GenericCredentialErrorMessage;
             return Page();
@@ -161,12 +160,19 @@ internal sealed partial class LoginModel : PageModel
         {
             // Hash a dummy password so this path takes as long as the not-found one. Without it the
             // early return skips the hashing and the response time reveals a locked-out account.
-            _ = _userManager.PasswordHasher.VerifyHashedPassword(
-                new ApplicationUser(), DummyPasswordHash, Password);
+            VerifyDummyPassword();
             LogAccountLockedOut(_logger, user.Id, HttpContext.Connection.RemoteIpAddress);
             // The same general message everywhere, so nobody can find out which accounts exist.
             ErrorMessage = GenericCredentialErrorMessage;
             return Page();
+        }
+
+        // CheckPasswordAsync returns at once for an account with no password, such as the seeded admin
+        // before its first reset (ADR-0056). Hash a dummy password so that account answers as slowly as
+        // one that has a password.
+        if (!await _userManager.HasPasswordAsync(user))
+        {
+            VerifyDummyPassword();
         }
 
         bool passwordValid = await _userManager.CheckPasswordAsync(user, Password);
@@ -238,6 +244,11 @@ internal sealed partial class LoginModel : PageModel
         return FrontendLoginUrl is { } frontendLoginUrl
             ? Redirect(frontendLoginUrl)
             : LocalRedirect("/");
+    }
+
+    private void VerifyDummyPassword()
+    {
+        _ = _userManager.PasswordHasher.VerifyHashedPassword(new ApplicationUser(), DummyPasswordHash, Password);
     }
 
     [LoggerMessage(EventId = EventIds.LoginUserNotFound, Level = LogLevel.Warning, Message = "Failed login: user not found. Email: {Email}, IP: {IP}")]

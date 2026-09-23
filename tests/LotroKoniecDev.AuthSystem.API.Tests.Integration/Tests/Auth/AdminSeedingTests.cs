@@ -3,7 +3,9 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using LotroKoniecDev.AuthSystem.API.Extensions;
+using LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared;
 using LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared.Bases;
+using LotroKoniecDev.AuthSystem.Contracts.Features.Auth.Password;
 using LotroKoniecDev.AuthSystem.Domain.Aggregates.ApplicationUsers.Entities;
 using LotroKoniecDev.SharedKernel.Authorization;
 
@@ -112,9 +114,88 @@ public sealed class AdminSeedingTests : EndpointsTestBase
         result.Errors.ShouldContain(e => e.Code == "InvalidUserName");
     }
 
+    /// <summary>
+    /// Every box runs outside Development and Testing, so this is the seed a fresh deploy gets. The factory
+    /// still configures AdminUser:Password, which is the case the seeder has to ignore (ADR-0056).
+    /// </summary>
+    [Theory]
+    [InlineData("Production")]
+    [InlineData("Staging")]
+    public async Task SeedAuthDatabase_OutsideDevelopmentAndTesting_SeedsConfirmedAdminWithoutPassword(
+        string environmentName)
+    {
+        // Act
+        await ReseedAsync(new FakeWebHostEnvironment(environmentName));
+
+        // Assert
+        await using AsyncServiceScope scope = Factory.Services.CreateAsyncScope();
+        UserManager<ApplicationUser> userManager =
+            scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
+
+        ApplicationUser? admin = await userManager.FindByEmailAsync(AdminEmail);
+        admin.ShouldNotBeNull();
+        admin.EmailConfirmed.ShouldBeTrue();
+        (await userManager.IsInRoleAsync(admin, AuthConstants.Roles.Admin)).ShouldBeTrue();
+        (await userManager.HasPasswordAsync(admin)).ShouldBeFalse();
+    }
+
+    [Theory]
+    [InlineData("Production")]
+    [InlineData("Staging")]
+    public async Task SeedAuthDatabase_OutsideDevelopmentAndTesting_ConfiguredPasswordDoesNotSignIn(
+        string environmentName)
+    {
+        // Arrange
+        await ReseedAsync(new FakeWebHostEnvironment(environmentName));
+
+        // Act
+        HttpResponseMessage tokenResponse = await RequestPasswordGrantAsync(AdminEmail, AdminPassword);
+
+        // Assert: the admin exists, so the refusal is about the password and not about a missing account
+        tokenResponse.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+
+        await using AsyncServiceScope scope = Factory.Services.CreateAsyncScope();
+        UserManager<ApplicationUser> userManager =
+            scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
+        (await userManager.FindByEmailAsync(AdminEmail)).ShouldNotBeNull();
+    }
+
+    /// <summary>
+    /// The runbook's first sign-in and rotation procedure: a mail to the admin address is the only way to
+    /// give the seeded admin a password.
+    /// </summary>
+    [Fact]
+    public async Task SeedAuthDatabase_OutsideDevelopmentAndTesting_AdminSignsInAfterSettingPasswordThroughReset()
+    {
+        // Arrange
+        const string chosenPassword = "OperatorChosen1!";
+        await ReseedAsync(new FakeWebHostEnvironment("Production"));
+        PasswordResetEmailSpy.Reset();
+
+        await ApiClient.Http.PostAsJsonAsync(
+            new Uri("auth/forgot-password", UriKind.Relative),
+            new ForgotPasswordRequest(AdminEmail));
+        await PasswordResetEmailSpy.WaitForCaptureAsync();
+
+        await ApiClient.Http.PostAsJsonAsync(
+            new Uri("auth/reset-password", UriKind.Relative),
+            new ResetPasswordRequest(AdminEmail, PasswordResetEmailSpy.LastResetToken!, chosenPassword));
+
+        // Act
+        HttpResponseMessage tokenResponse = await RequestPasswordGrantAsync(AdminEmail, chosenPassword);
+
+        // Assert
+        tokenResponse.StatusCode.ShouldBe(HttpStatusCode.OK);
+    }
+
     private async Task ReseedAsync()
     {
         IWebHostEnvironment environment = Factory.Services.GetRequiredService<IWebHostEnvironment>();
+        await ReseedAsync(environment);
+    }
+
+    private async Task ReseedAsync(IWebHostEnvironment environment)
+    {
         await DatabaseSeederExtensions.SeedAuthDatabaseAsync(Factory.Services, environment);
     }
 }

@@ -2,6 +2,7 @@ using System.Text.RegularExpressions;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.DependencyInjection;
+using LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared;
 using LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared.Bases;
 using LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared.Factories;
 using LotroKoniecDev.AuthSystem.Contracts.Features.Auth.Register;
@@ -111,6 +112,9 @@ public sealed partial class LoginPageTests : EndpointsTestBase
         (RegisterRequest lockedOut, _) =
             await UserFactory.RegisterRandomUserWithRequestAsync(ApiClient, Faker, AccountConfirmationEmailSpy);
         await LockOutAsync(lockedOut.Username);
+        (RegisterRequest passwordless, _) =
+            await UserFactory.RegisterRandomUserWithRequestAsync(ApiClient, Faker, AccountConfirmationEmailSpy);
+        await RemovePasswordAsync(passwordless.Username);
 
         // Act: one probe per credential-failure branch a caller can reach without the password
         string nonExistentMessage = await PostAndExtractRenderedAlertAsync(new Dictionary<string, string>
@@ -133,12 +137,45 @@ public sealed partial class LoginPageTests : EndpointsTestBase
             ["Email"] = lockedOut.Email,
             ["Password"] = lockedOut.Password // correct password — the lockout branch must still win
         });
+        string passwordlessMessage = await PostAndExtractRenderedAlertAsync(new Dictionary<string, string>
+        {
+            ["Email"] = passwordless.Email,
+            ["Password"] = passwordless.Password
+        });
 
         // Assert: no branch reveals which check failed: identical text is the anti-enumeration invariant
         nonExistentMessage.ShouldNotBeNullOrWhiteSpace();
         wrongPasswordMessage.ShouldBe(nonExistentMessage);
         unconfirmedWrongPasswordMessage.ShouldBe(nonExistentMessage);
         lockedOutMessage.ShouldBe(nonExistentMessage);
+        passwordlessMessage.ShouldBe(nonExistentMessage);
+    }
+
+    /// <summary>
+    /// The failures above all show the same text, so the time they take is the only thing left that
+    /// could tell them apart. Each one must verify exactly one password hash: the dummy one where there
+    /// is no real hash to check. The no-password row is the seeded admin before its first reset
+    /// (ADR-0056).
+    /// </summary>
+    [Theory]
+    [InlineData("unknown address")]
+    [InlineData("locked out")]
+    [InlineData("no password")]
+    [InlineData("wrong password")]
+    public async Task LoginPage_ShouldVerifyExactlyOnePasswordHash_OnEveryFailureReachableWithoutThePassword(
+        string failure)
+    {
+        // Arrange
+        Dictionary<string, string> credentials = await ArrangeFailedLoginAsync(failure);
+        SpyPasswordHasher passwordHasher = Factory.Services.GetRequiredService<SpyPasswordHasher>();
+        passwordHasher.Reset();
+
+        // Act
+        HttpResponseMessage response = await PostToLoginPageAsync(credentials);
+
+        // Assert
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        passwordHasher.VerifyCount.ShouldBe(1);
     }
 
     /// <summary>
@@ -367,6 +404,59 @@ public sealed partial class LoginPageTests : EndpointsTestBase
 
         await userManager.SetLockoutEnabledAsync(user, true);
         await userManager.SetLockoutEndDateAsync(user, DateTimeOffset.UtcNow.AddMinutes(30));
+    }
+
+    private async Task RemovePasswordAsync(string username)
+    {
+        await using AsyncServiceScope scope = Factory.Services.CreateAsyncScope();
+        UserManager<ApplicationUser> userManager =
+            scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
+
+        ApplicationUser user = await userManager.FindByNameAsync(username)
+            ?? throw new InvalidOperationException($"Test user '{username}' was not found.");
+
+        IdentityResult result = await userManager.RemovePasswordAsync(user);
+        if (!result.Succeeded)
+        {
+            throw new InvalidOperationException($"Could not remove the password of test user '{username}'.");
+        }
+    }
+
+    private async Task<Dictionary<string, string>> ArrangeFailedLoginAsync(string failure)
+    {
+        if (failure is "unknown address")
+        {
+            return new Dictionary<string, string>
+            {
+                ["Email"] = "nobody-" + Faker.Random.AlphaNumeric(8) + "@example.com",
+                ["Password"] = "WhateverPass1!"
+            };
+        }
+
+        (RegisterRequest user, _) =
+            await UserFactory.RegisterRandomUserWithRequestAsync(ApiClient, Faker, AccountConfirmationEmailSpy);
+        string password = user.Password;
+
+        switch (failure)
+        {
+            case "locked out":
+                await LockOutAsync(user.Username);
+                break;
+            case "no password":
+                await RemovePasswordAsync(user.Username);
+                break;
+            case "wrong password":
+                password += "WRONG";
+                break;
+            default:
+                throw new ArgumentOutOfRangeException(nameof(failure), failure, null);
+        }
+
+        return new Dictionary<string, string>
+        {
+            ["Email"] = user.Email,
+            ["Password"] = password
+        };
     }
 
     private async Task<string> PostAndExtractRenderedAlertAsync(Dictionary<string, string> formFields)

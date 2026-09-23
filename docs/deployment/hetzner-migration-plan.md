@@ -79,7 +79,7 @@ takes the nightly `pg_dump` backups + encrypted env copies (Neon free = 6 h PITR
 | `ConnectionStrings__*` (TMS + Auth, prod + staging) | Neon | owner mints fresh in Neon console (or API; project/branch IDs in memory `neon-pitr-topology`). Prefer fresh over recovering KV copies. |
 | OpenIddict certs/keys (3 values) | regenerate | `scripts/gen-openiddict-keys.sh` → paste into env files. Invalidates old sessions — irrelevant pre-launch. |
 | Brevo SMTP key | owner | Brevo dashboard (GH secret holds a copy but is not readable back). Sender stays `SMTP_SENDER_EMAIL` GH var. |
-| `AUTH_ADMIN_*` seeds | owner | re-set on first bring-up (#210 flow). |
+| `AUTH_ADMIN_*` seeds | owner | re-set on first bring-up (#210 flow). Since #696 only the username and e-mail: the admin gets its password through the reset mail (runbook → Admin account). |
 | `SMOKE_CLIENT_SECRET` | regenerate | new value in env + GH secret (mind the `--body` gotcha, memory `staging-env-shared-aca`). |
 | `HETZNER_SSH_KEY` / host | new | generated for CD (#490); deploy-user key, not root. |
 

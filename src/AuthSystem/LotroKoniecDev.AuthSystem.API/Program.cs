@@ -329,7 +329,8 @@ try
                 }));
 
         // Registration sends a confirmation mail to an address the caller typed, and nothing per account
-        // can brake it: the account does not exist yet. The frontend never calls this endpoint (the
+        // can brake it: the account does not exist yet. The per-inbox half of this budget lives behind
+        // IRegistrationMailboxThrottle (ADR-0057). The frontend never calls this endpoint (the
         // registration form is a Razor page), so it keys on the connection's own address like the page
         // policies do (ADR-0054 §3): a leaked frontend key must not buy a fresh mail budget per invented
         // address. Same numbers as auth-endpoint-limit.
@@ -347,8 +348,8 @@ try
         // It skips page views for the same reason resend-confirmation does. The page is one endpoint for
         // GET and POST, so a budget sized for sends would be spent on opening the form, and three views
         // in a quarter of an hour would leave the user unable to ask for a reset at all.
-        // The per-account half of this budget lives behind IPasswordResetRequestThrottle, because a policy runs
-        // before the endpoint and knows nothing about the account yet.
+        // The per-account and per-inbox half of this budget lives behind IPasswordResetRequestThrottle
+        // (ADR-0057), because a policy runs before the endpoint and knows nothing about the account yet.
         options.AddPolicy(forgotPasswordRateLimitPolicy, httpContext =>
             HttpMethods.IsPost(httpContext.Request.Method)
                 ? RateLimitPartition.GetFixedWindowLimiter(
@@ -366,7 +367,7 @@ try
         // (see below), so httpContext.User is still anonymous here and a "per user" key would collapse
         // into one bucket shared by everybody. Behind the frontend the client is the visitor it forwards
         // (ADR-0054), so this budget no longer gives the whole product three changes an hour (#819).
-        // The per-address half of this budget lives behind IEmailChangeRecipientThrottle (ADR-0055).
+        // The per-inbox half of this budget lives behind IEmailChangeRecipientThrottle (ADR-0055, ADR-0057).
         options.AddPolicy(changeEmailRateLimitPolicy, httpContext =>
             RateLimitPartition.GetFixedWindowLimiter(
                 partitionKey: ResolvePartitionKey(httpContext),
@@ -382,8 +383,8 @@ try
         // spend its 3-per-15-minutes budget on page views, and after three views the user could not
         // even reach the form. ADR-0046 made that form the one-click fix we advertise for a blocked
         // login, so the difference matters. Showing a form costs nothing; sending mail is what needs
-        // the limit. The per-account half of this budget lives behind IEmailConfirmationResendThrottle
-        // (ADR-0055).
+        // the limit. The per-inbox half of this budget lives behind IEmailConfirmationResendThrottle
+        // (ADR-0055, ADR-0057).
         options.AddPolicy(resendConfirmationRateLimitPolicy, httpContext =>
             HttpMethods.IsPost(httpContext.Request.Method)
                 ? RateLimitPartition.GetFixedWindowLimiter(

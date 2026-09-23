@@ -3,9 +3,9 @@ using System.Threading.RateLimiting;
 namespace LotroKoniecDev.AuthSystem.API.Services.RateLimiting;
 
 /// <summary>
-/// A fixed-window budget keyed on the account id: the one shape behind every per-account brake in this
-/// app. Each brake is its own instance with its own budget (<see cref="AccountBudgets"/>), registered
-/// under its own interface, so a handler can never spend the wrong one.
+/// A fixed-window budget keyed on the account id: the shape behind every per-account brake in this app.
+/// Each brake is its own instance with its own budget (<see cref="AccountBudgets"/>), so a handler can
+/// never spend the wrong one.
 /// </summary>
 /// <remarks>
 /// The key is the account id, not the address the caller typed. Identity finds a user through
@@ -20,8 +20,7 @@ namespace LotroKoniecDev.AuthSystem.API.Services.RateLimiting;
 /// The budget is in process, like every IP policy in this app, so two running containers mean two
 /// budgets and a restart empties it. That is the existing trade-off, not a new one.
 /// </remarks>
-internal sealed class PerAccountFixedWindowThrottle
-    : IPasswordResetRequestThrottle, IPasswordConfirmationThrottle, IEmailConfirmationResendThrottle, IDisposable
+internal sealed class PerAccountFixedWindowThrottle : IPasswordConfirmationThrottle, IDisposable
 {
     private readonly PartitionedRateLimiter<Guid> _limiter;
 

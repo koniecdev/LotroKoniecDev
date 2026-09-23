@@ -92,10 +92,10 @@ internal sealed partial class ResendEmailConfirmation : IApiEndpoint
                 return Result.Success();
             }
 
-            // Taken only here, where a mail would really go out, and keyed on the account, so every
-            // spelling and both the page and the endpoint share one budget. A refusal returns Success like
-            // every other branch (ADR-0055).
-            if (!_throttle.TryAcquire(user.Id))
+            // Taken only here, where a mail would really go out, and keyed on the account's inbox, so the
+            // page, the endpoint and every account registered at a spelling of that inbox share one budget.
+            // A refusal returns Success like every other branch (ADR-0055, ADR-0057).
+            if (!_throttle.TryAcquire(MailboxKey.FromNormalizedEmail(user.NormalizedEmail)))
             {
                 LogResendThrottled(_logger, maskedEmail);
                 return Result.Success();
@@ -125,7 +125,7 @@ internal sealed partial class ResendEmailConfirmation : IApiEndpoint
         [LoggerMessage(EventId = EventIds.ResendConfirmAlreadyConfirmed, Level = LogLevel.Information, Message = "Email confirmation resend requested for already confirmed email {Email}")]
         private static partial void LogResendAlreadyConfirmed(ILogger logger, string email);
 
-        [LoggerMessage(EventId = EventIds.ResendConfirmThrottled, Level = LogLevel.Warning, Message = "Email confirmation resend throttled for {Email}: the per-account send budget is spent")]
+        [LoggerMessage(EventId = EventIds.ResendConfirmThrottled, Level = LogLevel.Warning, Message = "Email confirmation resend throttled for {Email}: the send budget of the inbox is spent")]
         private static partial void LogResendThrottled(ILogger logger, string email);
 
         [LoggerMessage(EventId = EventIds.ResendConfirmEmailFailed, Level = LogLevel.Error, Message = "Failed to send confirmation email for user {UserId}: {Error}")]

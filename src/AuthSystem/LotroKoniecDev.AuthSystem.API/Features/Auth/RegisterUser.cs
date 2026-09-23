@@ -7,6 +7,7 @@ using LotroKoniecDev.AuthSystem.API.Common;
 using LotroKoniecDev.AuthSystem.API.Extensions;
 using LotroKoniecDev.AuthSystem.API.Outbox;
 using LotroKoniecDev.AuthSystem.API.Services.Accounts;
+using LotroKoniecDev.AuthSystem.API.Services.RateLimiting;
 using LotroKoniecDev.AuthSystem.Contracts.Features.Auth.Register;
 using LotroKoniecDev.AuthSystem.Domain.Aggregates.ApplicationUsers.Entities;
 using LotroKoniecDev.AuthSystem.Persistence.DbContexts;
@@ -69,6 +70,7 @@ internal sealed partial class RegisterUser : IApiEndpoint
         private readonly AuthDbContext _db;
         private readonly OutboxWriter _outboxWriter;
         private readonly IEmailChangeRevertReservation _revertReservation;
+        private readonly IRegistrationMailboxThrottle _mailboxThrottle;
 
         public Handler(
             UserManager<ApplicationUser> userManager,
@@ -77,7 +79,8 @@ internal sealed partial class RegisterUser : IApiEndpoint
             ILogger<Handler> logger,
             AuthDbContext db,
             OutboxWriter outboxWriter,
-            IEmailChangeRevertReservation revertReservation)
+            IEmailChangeRevertReservation revertReservation,
+            IRegistrationMailboxThrottle mailboxThrottle)
         {
             _userManager = userManager;
             _timeProvider = timeProvider;
@@ -86,6 +89,7 @@ internal sealed partial class RegisterUser : IApiEndpoint
             _db = db;
             _outboxWriter = outboxWriter;
             _revertReservation = revertReservation;
+            _mailboxThrottle = mailboxThrottle;
         }
 
         public async ValueTask<Result<IdentityId>> Handle(
@@ -102,12 +106,15 @@ internal sealed partial class RegisterUser : IApiEndpoint
             // unless the whole unit of work runs inside an execution strategy. A retry has to be able
             // to replay everything from begin to commit, not one statement inside it.
             IExecutionStrategy executionStrategy = _db.Database.CreateExecutionStrategy();
+            RegistrationAttempt attempt = new();
 
-            return await executionStrategy.ExecuteAsync(async () => await RegisterAsync(command, cancellationToken));
+            return await executionStrategy.ExecuteAsync(async () =>
+                await RegisterAsync(command, attempt, cancellationToken));
         }
 
         private async Task<Result<IdentityId>> RegisterAsync(
             Command command,
+            RegistrationAttempt attempt,
             CancellationToken cancellationToken)
         {
             // A retry starts after a rolled-back transaction, but the change tracker still holds the
@@ -185,6 +192,20 @@ internal sealed partial class RegisterUser : IApiEndpoint
                         string.Join(", ", roleIdentityResult.Errors.Select(e => e.Description))));
                 }
 
+                // The last check before the mail is queued, so a registration refused above spends nothing.
+                // Leaving here without a commit rolls the new account back. A replay after a transient
+                // database error must not take a second permit for the same registration (ADR-0057).
+                if (!attempt.MailboxPermitTaken)
+                {
+                    if (!_mailboxThrottle.TryAcquire(MailboxKey.FromNormalizedEmail(user.NormalizedEmail)))
+                    {
+                        LogMailboxThrottled(_logger, command.Email.MaskEmail());
+                        return Result.Failure<IdentityId>(AuthErrors.RegistrationMailboxThrottled);
+                    }
+
+                    attempt.MailboxPermitTaken = true;
+                }
+
                 _outboxWriter.Enqueue(new EmailConfirmationRequested(user.Id));
                 await _db.SaveChangesAsync(cancellationToken);
 
@@ -222,6 +243,17 @@ internal sealed partial class RegisterUser : IApiEndpoint
 
         [LoggerMessage(EventId = EventIds.RegisterReservedAddressRefused, Level = LogLevel.Warning, Message = "Registration refused for {Email}: the address is still reserved as another account's e-mail-change undo target")]
         private static partial void LogReservedAddressRefused(ILogger logger, string email);
+
+        [LoggerMessage(EventId = EventIds.RegisterMailboxThrottled, Level = LogLevel.Warning, Message = "Registration refused for {Email}: the registration budget of the inbox is spent")]
+        private static partial void LogMailboxThrottled(ILogger logger, string email);
+
+        /// <summary>
+        /// What one registration keeps across the replays of its transaction.
+        /// </summary>
+        private sealed class RegistrationAttempt
+        {
+            public bool MailboxPermitTaken { get; set; }
+        }
     }
 
     public void MapEndpoint(IEndpointRouteBuilder endpointRouteBuilder)

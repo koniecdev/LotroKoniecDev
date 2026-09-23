@@ -58,9 +58,9 @@ public sealed class RegisterEndpointTests : EndpointsTestBase
     [Fact]
     public async Task Register_ShouldQueueNoSecondConfirmation_WhenTheAddressIsAlreadyRegistered()
     {
-        // Arrange: registration mails an address the caller typed, and its only per-address budget is the
-        // unique address (ADR-0055). The account stays unconfirmed, because that is the state a flood would
-        // keep registering against.
+        // Arrange: registration mails an address the caller typed, and one address registers once
+        // (ADR-0055). The account stays unconfirmed, because that is the state a flood would keep
+        // registering against. The budget per inbox on top of this is in MailboxBudgetTests (ADR-0057).
         (RegisterRequest existingRequest, _) =
             await UserFactory.RegisterRandomUserUnconfirmedAsync(ApiClient, Faker, AccountConfirmationEmailSpy);
         int rowsAfterFirst = await CountConfirmationRowsAsync();

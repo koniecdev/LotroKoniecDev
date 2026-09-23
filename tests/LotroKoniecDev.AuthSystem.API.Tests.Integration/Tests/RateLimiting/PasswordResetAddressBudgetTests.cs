@@ -16,8 +16,9 @@ namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Tests.RateLimiting;
 /// <summary>
 /// The send budget that follows the inbox the mail would reach, not the caller asking for it (#692). The
 /// IP policies cannot see it: an attacker who rotates IPs gets a fresh budget every time and the victim
-/// gets every mail. The budget is keyed by the account id, so two spellings of one address cannot split
-/// it — these tests drive it the way a caller does, by typing an address.
+/// gets every mail. For the confirmed accounts used here the budget is keyed by the account id, so two
+/// spellings of one address cannot split it — these tests drive it the way a caller does, by typing an
+/// address. Unconfirmed accounts share one budget per inbox (#835): see <see cref="MailboxBudgetTests"/>.
 /// They run on the suite's normal Testing host, where the limiter middleware is off, so the only thing
 /// that can refuse a request here is this budget and nothing else can be mistaken for it.
 /// </summary>

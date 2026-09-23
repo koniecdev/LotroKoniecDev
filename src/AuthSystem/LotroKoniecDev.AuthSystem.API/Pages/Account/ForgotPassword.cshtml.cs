@@ -70,10 +70,10 @@ internal sealed partial class ForgotPasswordModel : PageModel
         _ = _userManager.PasswordHasher.VerifyHashedPassword(
             new ApplicationUser(), DummyPasswordHash, "DummyP@ssw0rd!");
 
-        // The per-account budget is taken only where a mail would really go out, so it counts sends and
-        // an address nobody registered never spends anything. A refused request answers with the same
-        // panel as every other branch here, so it looks exactly like the address being unknown.
-        if (user is not null && _throttle.TryAcquire(user.Id))
+        // The send budget is taken only where a mail would really go out, so it counts sends and an
+        // address nobody registered never spends anything. A refused request answers with the same panel
+        // as every other branch here, so it looks exactly like the address being unknown.
+        if (user is not null && _throttle.TryAcquire(user))
         {
             // No token is created here and the deletion window is not checked here. The payload holds
             // only the id, and the dispatch processor creates the token and does that check when it
@@ -98,6 +98,6 @@ internal sealed partial class ForgotPasswordModel : PageModel
     [LoggerMessage(EventId = EventIds.PasswordResetRequestQueued, Level = LogLevel.Information, Message = "Password reset request queued for user {UserId}")]
     private static partial void LogPasswordResetRequestQueued(ILogger logger, Guid userId);
 
-    [LoggerMessage(EventId = EventIds.PasswordResetRequestThrottled, Level = LogLevel.Warning, Message = "Password reset request throttled for {Email}: the per-account send budget is spent")]
+    [LoggerMessage(EventId = EventIds.PasswordResetRequestThrottled, Level = LogLevel.Warning, Message = "Password reset request throttled for {Email}: the send budget is spent")]
     private static partial void LogPasswordResetThrottled(ILogger logger, string email);
 }

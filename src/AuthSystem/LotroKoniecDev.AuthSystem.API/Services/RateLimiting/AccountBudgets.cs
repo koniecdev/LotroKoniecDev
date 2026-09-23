@@ -12,14 +12,19 @@ internal static class AccountBudgets
     /// </summary>
     internal static readonly TimeSpan Window = TimeSpan.FromMinutes(15);
 
-    /// <summary>Password-reset mails per account (#692).</summary>
+    /// <summary>
+    /// Password-reset mails per confirmed account, and per inbox across unconfirmed accounts (#692, #835).
+    /// </summary>
     internal const int PasswordResetPermitLimit = 3;
 
-    /// <summary>Resent confirmation mails per unconfirmed account (#793).</summary>
+    /// <summary>Resent confirmation mails per inbox (#793, #835).</summary>
     internal const int EmailConfirmationResendPermitLimit = 3;
 
-    /// <summary>E-mail change links per new address, whichever accounts ask for them (#793).</summary>
+    /// <summary>E-mail change links per inbox of the new address, whichever accounts ask for them (#793, #835).</summary>
     internal const int EmailChangeRecipientPermitLimit = 3;
+
+    /// <summary>New accounts, and so confirmation mails, per inbox (#835).</summary>
+    internal const int RegistrationPermitLimit = 3;
 
     /// <summary>
     /// Current-password confirmations per account across the endpoints that ask for one (#813,

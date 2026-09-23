@@ -163,6 +163,10 @@ internal static class ApiProblemCopy
             ["Auth.RegistrationFailed"] =
                 "Nie udało się założyć konta. Sprawdź adres e-mail, nazwę użytkownika oraz wymagania hasła: "
                 + PasswordRules,
+            // Registration lives on the auth server's own Razor Page, which shows the same sentence. The
+            // entry stays because this map covers every code the APIs can produce.
+            ["Auth.RegistrationMailboxThrottled"] =
+                "Na tę skrzynkę pocztową założono ostatnio zbyt wiele kont. Odczekaj kwadrans i spróbuj ponownie.",
             ["Auth.UserNotFound"] =
                 "Nie znaleziono konta.",
             [InvalidCurrentPasswordCode] =
@@ -199,7 +203,7 @@ internal static class ApiProblemCopy
             ["Auth.EmailChangeSameAddress"] =
                 "Podany adres e-mail jest taki sam jak obecny.",
             ["Auth.EmailChangeRecipientThrottled"] =
-                "Na ten adres wysłano niedawno zbyt wiele linków do zmiany adresu e-mail. Odczekaj kwadrans i spróbuj ponownie.",
+                "Na tę skrzynkę pocztową wysłano niedawno zbyt wiele linków do zmiany adresu e-mail. Odczekaj kwadrans i spróbuj ponownie.",
             ["Auth.InvalidEmailChangeToken"] =
                 "Link zmieniający adres e-mail jest nieprawidłowy lub wygasł. Poproś o nowy.",
             ["Auth.EmailChangeFailed"] =

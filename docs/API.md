@@ -154,34 +154,47 @@ carrier can share one address. `/Account/ForgotPassword` keeps the stricter `for
 instead, shared with its API twin so using both buys no extra budget, and the four link-landing pages
 keep `auth-endpoint-limit`.
 
-Password-reset mail carries a second budget that belongs to **the account the mail would reach**, 3 sends
-per 15 minutes, because no IP policy can stop an attacker who rotates IPs from flooding one inbox. It is
-keyed by the account id, not by the typed text: Identity resolves an address through `NormalizeEmail`,
-which runs `Normalize()` first, so a Polish address written with a combining accent finds the same
-account as the composed spelling — two identical-looking strings that a text key would give a budget
-each.
+Password-reset mail carries a second budget, 3 sends per 15 minutes, because no IP policy can stop an
+attacker who rotates IPs from flooding one inbox. For a **confirmed account** it belongs to that account
+and is keyed by the account id, not by the typed text: Identity resolves an address
+through `NormalizeEmail`, which runs `Normalize()` first, so a Polish address written with a combining
+accent finds the same account as the composed spelling — two identical-looking strings that a text key
+would give a budget each. Unconfirmed accounts share one budget per **inbox** instead (see below).
 
 The budget refuses silently and still answers with the neutral "if the account exists" panel, so it
 cannot be used to find out that somebody recently asked for a reset. The trade-off is that an attacker
 who knows an address can spend that account's window and the owner's own request is then dropped without
-explanation. That is acceptable for one reason: every permit spent **delivered a reset link to that same
-inbox**, and a link lives 24 hours against a 15-minute window, so a usable one is always already sitting
-there. Both budgets are in process, so two running containers mean two budgets — the same trade-off the
+explanation. For a confirmed account that is acceptable for one reason: every permit spent **delivered a
+reset link for that same account to its inbox**, and a link lives 24 hours against a 15-minute window, so
+a usable one is always already sitting there. For an unconfirmed account it does not hold: a stranger's
+account at another spelling of the inbox can spend the shared budget with links that reset that account,
+not the owner's. ADR-0057 accepts this, because an unconfirmed account cannot sign in anyway and its
+first confirmation mail went out at registration. Both budgets are in process, so two running containers mean two budgets — the same trade-off the
 IP policies already make.
 
-The other two flows that mail a typed address have the same kind of second budget (#793, ADR-0055).
-Resend-confirmation allows 3 sends per 15 minutes per **unconfirmed account**, keyed by the account id,
-and refuses silently like password reset. E-mail change allows 3 links per 15 minutes per **new
-address**, whichever account asks. That address has no account yet, so the key is the address after
-Identity's `NormalizeEmail`. Its refusal is a 429 with `Auth.EmailChangeRecipientThrottled`, not a
-silent success: the frontend page would otherwise say a link went out when none did. Registration needs
-no extra budget, because one address can register only once. None of these fold `+tag` sub-addresses
-or Gmail dots yet (#835).
+The other flows that mail a typed address have the same kind of second budget (#793, ADR-0055), keyed
+on the **inbox** the mail reaches (#835, ADR-0057). The key, `MailboxKey`, starts from Identity's
+normalized address and also drops a `+tag` (every domain) and, for `gmail.com`/`googlemail.com`, the dots
+and the domain difference, because all of those spellings reach one inbox. The mail itself still goes to
+the typed address, and each spelling is still its own account.
+
+- **Registration** allows 3 new accounts per 15 minutes per inbox. The permit is the last check before the
+  confirmation mail is queued, so a taken address or name spends nothing. A refusal is a 429 with
+  `Auth.RegistrationMailboxThrottled`, and the register page shows a Polish sentence.
+- **Resend-confirmation** allows 3 sends per 15 minutes per inbox and refuses silently like password
+  reset.
+- **Password reset for an unconfirmed account** shares one budget per inbox. A confirmed account keeps its
+  own budget: only the inbox owner can confirm an account there, so an inbox budget would let a
+  stranger's unconfirmed `anna+x@` account use up the owner's recovery budget (ADR-0057 §3).
+- **E-mail change** allows 3 links per 15 minutes per inbox of the **new address**, whichever account
+  asks. Its refusal is a 429 with `Auth.EmailChangeRecipientThrottled`, not a silent success: the
+  frontend page would otherwise say a link went out when none did.
 
 Every 429 from a limiter policy carries `Retry-After`, and a browser gets a Polish page explaining the
 wait instead of the framework's bare status text. The 429s from the budgets inside the handlers
-(`Auth.PasswordConfirmationThrottled`, `Auth.EmailChangeRecipientThrottled`) carry no `Retry-After`:
-their window is a fixed 15 minutes, and the frontend shows its own Polish sentence for each code.
+(`Auth.PasswordConfirmationThrottled`, `Auth.EmailChangeRecipientThrottled`,
+`Auth.RegistrationMailboxThrottled`) carry no `Retry-After`: their window is a fixed 15 minutes. The
+frontend shows its own Polish sentence for the first two, and the auth register page for the third.
 
 ---
 
@@ -309,15 +322,15 @@ cancellation link's landing page — LEGAL-01).
 
 | Method | Route | Auth | Body / result |
 |---|---|---|---|
-| `POST` | `auth/register` | anonymous, rate-limited | `RegisterRequest` → **201** bare `IdentityId`; assigns `Translator`, sends confirmation email |
+| `POST` | `auth/register` | anonymous, rate-limited | `RegisterRequest` → **201** bare `IdentityId`; assigns `Translator`, sends confirmation email. At most 3 new accounts per 15 min per inbox; past that, 429 `Auth.RegistrationMailboxThrottled` and no account is created (ADR-0057) |
 | `POST` | `auth/confirm-email` | anonymous | `ConfirmEmailRequest { email, token }` |
-| `POST` | `auth/resend-email-confirmation` | anonymous | `ResendEmailConfirmationRequest` (anti-enumeration: always succeeds; at most 3 sends per 15 min per account, ADR-0055) |
-| `POST` | `auth/forgot-password` | anonymous | `ForgotPasswordRequest` (anti-enumeration: always succeeds) |
+| `POST` | `auth/resend-email-confirmation` | anonymous | `ResendEmailConfirmationRequest` (anti-enumeration: always succeeds; at most 3 sends per 15 min per inbox, ADR-0055, ADR-0057) |
+| `POST` | `auth/forgot-password` | anonymous | `ForgotPasswordRequest` (anti-enumeration: always succeeds; at most 3 sends per 15 min per confirmed account, or per inbox across unconfirmed accounts, ADR-0057) |
 | `POST` | `auth/reset-password` | anonymous | `ResetPasswordRequest { email, token, newPassword }` |
 | `POST` | `auth/change-password` | bearer token | `ChangePasswordRequest { currentPassword, newPassword }` |
 | `POST` | `auth/account/delete` | bearer token | `DeleteAccountRequest { password }` — **schedules** GDPR deletion (ADR-0031): 14-day grace window, account locked for the window, sessions + refresh tokens revoked, one-time cancellation link emailed → **204** + `X-Deletion-Scheduled-At` / `X-Deletion-Finalizes-At` headers; erasure runs in the finalizer only after the window elapses |
 | `POST` | `auth/account/cancel-deletion` | anonymous (emailed one-time token), rate-limited | `CancelAccountDeletionRequest { email, token }` → **200** `CancelAccountDeletionResponse { passwordResetToken }` — unlocks the account and forces a password reset (the pre-deletion password may be the attacker's) |
-| `POST` | `auth/account/change-email` | bearer token, `change-email-limit` (3/h per IP) | `ChangeEmailRequest { newEmail, currentPassword }` — **starts** an e-mail change (ADR-0048). Nothing on the account moves: a verification link goes to the new address (24 h) and a warning to the old one. At most 3 links per 15 min per new address, whichever account asks; past that, 429 `Auth.EmailChangeRecipientThrottled` (ADR-0055). Confirming happens on the auth pages `/Account/ConfirmEmailChange` (GET form, POST applies), after which the old address receives a 14-day link to `/Account/RevertEmailChange` that restores the address and clears the password |
+| `POST` | `auth/account/change-email` | bearer token, `change-email-limit` (3/h per IP) | `ChangeEmailRequest { newEmail, currentPassword }` — **starts** an e-mail change (ADR-0048). Nothing on the account moves: a verification link goes to the new address (24 h) and a warning to the old one. At most 3 links per 15 min per inbox of the new address, whichever account asks; past that, 429 `Auth.EmailChangeRecipientThrottled` (ADR-0055, ADR-0057). Confirming happens on the auth pages `/Account/ConfirmEmailChange` (GET form, POST applies), after which the old address receives a 14-day link to `/Account/RevertEmailChange` that restores the address and clears the password |
 | `GET` | `auth/account/data-export` | bearer token | `AccountDataExportResponse` — the **account representation** the "Moje konto" page renders, carrying the account's links. Not the GDPR export: it leaves the contact details out (`phoneNumber` is always `null` here) |
 | `POST` | `auth/account/data-export` | bearer token, rate-limited | `DownloadAccountDataRequest { password }` → **200** `AccountDataExportResponse` without links — the **GDPR Art. 15 export**, contact details included, handed over only behind the current password (#690, ADR-0052). Wrong password → **400** `Auth.InvalidCurrentPassword`, none sent → **400** `Auth.ExportPasswordRequired`; every attempt that reaches the password check is written to the audit log (a throttled or unauthenticated request never gets that far) |
 | `GET` | `/` | anonymous | discovery document (links into the auth flows) |

@@ -8,9 +8,9 @@ using LotroKoniecDev.AuthSystem.Contracts.Features.Auth.Register;
 namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Tests.RateLimiting;
 
 /// <summary>
-/// The resend budget that follows the account the mail would reach, not the caller asking for it
-/// (#793, ADR-0055). The resend form is anonymous and takes any address, so the IP policy alone lets an
-/// attacker who rotates IPs flood one inbox. The resend skips the outbox and calls the sender directly,
+/// The resend budget that follows the inbox the mail would reach, not the caller asking for it (#793,
+/// #835, ADR-0055, ADR-0057). The resend form is anonymous and takes any address, so the IP policy alone
+/// lets an attacker who rotates IPs flood one inbox. The resend skips the outbox and calls the sender directly,
 /// so the sender spy counts exactly what went out.
 /// They run on the suite's normal Testing host, where the limiter middleware is off, so the only thing
 /// that can refuse a request here is this budget.
@@ -18,7 +18,7 @@ namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Tests.RateLimiting;
 public sealed partial class EmailConfirmationResendBudgetTests : EndpointsTestBase
 {
     /// <summary>The shipped send budget, read from the same constant the registration uses.</summary>
-    private const int AccountPermitLimit = AccountBudgets.EmailConfirmationResendPermitLimit;
+    private const int PermitLimit = AccountBudgets.EmailConfirmationResendPermitLimit;
 
     private const string SuccessMarker = "data-testid=\"resend-confirmation-success\"";
 
@@ -30,14 +30,14 @@ public sealed partial class EmailConfirmationResendBudgetTests : EndpointsTestBa
     }
 
     [Fact]
-    public async Task ResendConfirmationPage_ShouldStopSendingAfterTheAccountBudget()
+    public async Task ResendConfirmationPage_ShouldStopSendingAfterTheBudget()
     {
         // Arrange
         (RegisterRequest request, _) =
             await UserFactory.RegisterRandomUserUnconfirmedAsync(ApiClient, Faker, AccountConfirmationEmailSpy);
         AccountConfirmationEmailSpy.Reset();
 
-        for (int i = 0; i < AccountPermitLimit; i++)
+        for (int i = 0; i < PermitLimit; i++)
         {
             using HttpResponseMessage spend = await PostToResendConfirmationPageAsync(request.Email);
             spend.StatusCode.ShouldBe(HttpStatusCode.OK);
@@ -47,7 +47,7 @@ public sealed partial class EmailConfirmationResendBudgetTests : EndpointsTestBa
         using HttpResponseMessage refused = await PostToResendConfirmationPageAsync(request.Email);
 
         // Assert: the budget bounds what was sent, and the refused request shows the same panel as the rest
-        AccountConfirmationEmailSpy.CallCount.ShouldBe(AccountPermitLimit);
+        AccountConfirmationEmailSpy.CallCount.ShouldBe(PermitLimit);
         refused.StatusCode.ShouldBe(HttpStatusCode.OK);
         (await refused.Content.ReadAsStringAsync()).ShouldContain(SuccessMarker);
     }
@@ -74,7 +74,7 @@ public sealed partial class EmailConfirmationResendBudgetTests : EndpointsTestBa
         }
 
         // Assert: the endpoint refuses with the same 200 every other branch gives
-        AccountConfirmationEmailSpy.CallCount.ShouldBe(AccountPermitLimit);
+        AccountConfirmationEmailSpy.CallCount.ShouldBe(PermitLimit);
         statusCodes.ShouldAllBe(statusCode => statusCode == HttpStatusCode.OK);
     }
 
@@ -94,7 +94,7 @@ public sealed partial class EmailConfirmationResendBudgetTests : EndpointsTestBa
             request.Email.ToLowerInvariant(),
             char.ToUpperInvariant(request.Email[0]) + request.Email[1..].ToLowerInvariant()
         ];
-        spellings.Length.ShouldBe(AccountPermitLimit + 1);
+        spellings.Length.ShouldBe(PermitLimit + 1);
 
         // Act
         foreach (string spelling in spellings)
@@ -104,11 +104,11 @@ public sealed partial class EmailConfirmationResendBudgetTests : EndpointsTestBa
         }
 
         // Assert
-        AccountConfirmationEmailSpy.CallCount.ShouldBe(AccountPermitLimit);
+        AccountConfirmationEmailSpy.CallCount.ShouldBe(PermitLimit);
     }
 
     [Fact]
-    public async Task ResendConfirmationPage_ShouldNotSpendTheBudgetOfAnotherAccount()
+    public async Task ResendConfirmationPage_ShouldNotSpendTheBudgetOfAnotherInbox()
     {
         // Arrange: flooding one inbox must not lock every other new user out of the resend
         (RegisterRequest floodedUser, _) =
@@ -116,7 +116,7 @@ public sealed partial class EmailConfirmationResendBudgetTests : EndpointsTestBa
         (RegisterRequest otherUser, _) =
             await UserFactory.RegisterRandomUserUnconfirmedAsync(ApiClient, Faker, AccountConfirmationEmailSpy);
 
-        for (int i = 0; i < AccountPermitLimit + 1; i++)
+        for (int i = 0; i < PermitLimit + 1; i++)
         {
             using HttpResponseMessage flood = await PostToResendConfirmationPageAsync(floodedUser.Email);
             flood.StatusCode.ShouldBe(HttpStatusCode.OK);
@@ -141,7 +141,7 @@ public sealed partial class EmailConfirmationResendBudgetTests : EndpointsTestBa
         RegisterRequest request = UserFactory.GenerateRandomRegisterRequest(Faker);
         AccountConfirmationEmailSpy.Reset();
 
-        for (int i = 0; i < AccountPermitLimit + 1; i++)
+        for (int i = 0; i < PermitLimit + 1; i++)
         {
             using HttpResponseMessage early = await PostToResendConfirmationPageAsync(request.Email);
             early.StatusCode.ShouldBe(HttpStatusCode.OK);
@@ -156,14 +156,14 @@ public sealed partial class EmailConfirmationResendBudgetTests : EndpointsTestBa
         AccountConfirmationEmailSpy.Reset();
 
         // Act
-        for (int i = 0; i < AccountPermitLimit; i++)
+        for (int i = 0; i < PermitLimit; i++)
         {
             using HttpResponseMessage response = await PostToResendConfirmationPageAsync(request.Email);
             response.StatusCode.ShouldBe(HttpStatusCode.OK);
         }
 
         // Assert: the whole budget is still there for the real account
-        AccountConfirmationEmailSpy.CallCount.ShouldBe(AccountPermitLimit);
+        AccountConfirmationEmailSpy.CallCount.ShouldBe(PermitLimit);
     }
 
     private async Task<HttpResponseMessage> PostToResendConfirmationPageAsync(string email)

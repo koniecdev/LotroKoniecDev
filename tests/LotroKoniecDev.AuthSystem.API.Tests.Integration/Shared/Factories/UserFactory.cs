@@ -13,7 +13,9 @@ internal static class UserFactory
         // Faker.Internet.UserName() produces dots and underscores, which ADR-0022 forbids: letters and
         // digits only.
         faker.Random.AlphaNumeric(16),
-        faker.Internet.Email(),
+        // Unique, because the mail budgets key on the inbox and outlive the database reset between tests
+        // (ADR-0057): two tests that drew the same address would share a budget.
+        faker.Internet.Email(uniqueSuffix: Guid.CreateVersion7().ToString("N")),
         password ?? DefaultPassword,
         AcceptedPrivacyPolicy: true,
         AcceptedDataProcessingConsent: true,

@@ -165,9 +165,10 @@ internal sealed partial class RequestEmailChange : IApiEndpoint
                 return Result.Failure(AuthErrors.UserAlreadyExistsByEmail);
             }
 
-            // The last check, so a change refused above spends nothing. The budget belongs to the new
-            // address, whichever account asks, and its refusal is a 429 on purpose (ADR-0055).
-            if (!_recipientThrottle.TryAcquire(normalizedNewEmail))
+            // The last check, so a change refused above spends nothing. The budget belongs to the inbox of
+            // the new address, whichever account asks, and its refusal is a 429 on purpose (ADR-0055,
+            // ADR-0057).
+            if (!_recipientThrottle.TryAcquire(MailboxKey.FromNormalizedEmail(normalizedNewEmail)))
             {
                 LogRecipientThrottled(_logger, user.Id, newEmail.MaskEmail());
                 return Result.Failure(AuthErrors.EmailChangeRecipientThrottled);
@@ -198,7 +199,7 @@ internal sealed partial class RequestEmailChange : IApiEndpoint
         [LoggerMessage(EventId = EventIds.EmailChangeRequestAddressReserved, Level = LogLevel.Information, Message = "E-mail change refused for user {UserId}: {NewEmail} is still reserved as another account's undo target")]
         private static partial void LogAddressReserved(ILogger logger, Guid userId, string newEmail);
 
-        [LoggerMessage(EventId = EventIds.EmailChangeRecipientThrottled, Level = LogLevel.Warning, Message = "E-mail change refused for user {UserId}: the send budget of {NewEmail} is spent")]
+        [LoggerMessage(EventId = EventIds.EmailChangeRecipientThrottled, Level = LogLevel.Warning, Message = "E-mail change refused for user {UserId}: the send budget of the inbox of {NewEmail} is spent")]
         private static partial void LogRecipientThrottled(ILogger logger, Guid userId, string newEmail);
 
         [LoggerMessage(EventId = EventIds.PasswordConfirmationThrottled, Level = LogLevel.Warning, Message = "E-mail change refused for user {UserId}: the password confirmation budget is spent")]

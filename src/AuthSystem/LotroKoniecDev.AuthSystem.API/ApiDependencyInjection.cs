@@ -105,17 +105,19 @@ internal static class ApiDependencyInjection
             services.AddScoped<IEmailChangeRevertReservation, EmailChangeRevertReservation>();
 
             // Singletons, because a budget has to be shared by every request. The IP policies live in the
-            // limiter's own options; these count per account, which a policy cannot do because it runs
-            // before anything is known about the account (#692). One class, one instance per budget, each
-            // under its own interface, so a handler can never spend the wrong one (#813, ADR-0053).
+            // limiter's own options; these count per account or per inbox, which a policy cannot do because
+            // it runs before anything is known about the account (#692). One instance per budget, each under
+            // its own interface, so a handler can never spend the wrong one (#813, ADR-0053, ADR-0057).
             services.AddSingleton<IPasswordResetRequestThrottle>(_ =>
-                new PerAccountFixedWindowThrottle(AccountBudgets.PasswordResetPermitLimit, AccountBudgets.Window));
+                new PasswordResetRequestThrottle(AccountBudgets.PasswordResetPermitLimit, AccountBudgets.Window));
             services.AddSingleton<IPasswordConfirmationThrottle>(_ =>
                 new PerAccountFixedWindowThrottle(AccountBudgets.PasswordConfirmationPermitLimit, AccountBudgets.Window));
             services.AddSingleton<IEmailConfirmationResendThrottle>(_ =>
-                new PerAccountFixedWindowThrottle(AccountBudgets.EmailConfirmationResendPermitLimit, AccountBudgets.Window));
+                new PerMailboxFixedWindowThrottle(AccountBudgets.EmailConfirmationResendPermitLimit, AccountBudgets.Window));
             services.AddSingleton<IEmailChangeRecipientThrottle>(_ =>
-                new PerRecipientFixedWindowThrottle(AccountBudgets.EmailChangeRecipientPermitLimit, AccountBudgets.Window));
+                new PerMailboxFixedWindowThrottle(AccountBudgets.EmailChangeRecipientPermitLimit, AccountBudgets.Window));
+            services.AddSingleton<IRegistrationMailboxThrottle>(_ =>
+                new PerMailboxFixedWindowThrottle(AccountBudgets.RegistrationPermitLimit, AccountBudgets.Window));
 
             // The three policies the frontend reaches (fixed-by-ip, auth-endpoint-limit, change-email-limit)
             // take their key from this resolver: a direct caller's own address, or the visitor's address

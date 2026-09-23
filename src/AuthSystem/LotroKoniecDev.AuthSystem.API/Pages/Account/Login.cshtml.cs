@@ -127,8 +127,7 @@ internal sealed partial class LoginModel : PageModel
         {
             // Hash a dummy password anyway, so the response time does not reveal whether the user
             // exists.
-            _ = _userManager.PasswordHasher.VerifyHashedPassword(
-                new ApplicationUser(), DummyPasswordHash, Password);
+            VerifyDummyPassword();
             LogUserNotFound(_logger, Email.MaskEmail(), HttpContext.Connection.RemoteIpAddress);
             ErrorMessage = GenericCredentialErrorMessage;
             return Page();
@@ -161,8 +160,7 @@ internal sealed partial class LoginModel : PageModel
         {
             // Hash a dummy password so this path takes as long as the not-found one. Without it the
             // early return skips the hashing and the response time reveals a locked-out account.
-            _ = _userManager.PasswordHasher.VerifyHashedPassword(
-                new ApplicationUser(), DummyPasswordHash, Password);
+            VerifyDummyPassword();
             LogAccountLockedOut(_logger, user.Id, HttpContext.Connection.RemoteIpAddress);
             // The same general message everywhere, so nobody can find out which accounts exist.
             ErrorMessage = GenericCredentialErrorMessage;
@@ -174,8 +172,7 @@ internal sealed partial class LoginModel : PageModel
         // the others.
         if (!await _userManager.HasPasswordAsync(user))
         {
-            _ = _userManager.PasswordHasher.VerifyHashedPassword(
-                new ApplicationUser(), DummyPasswordHash, Password);
+            VerifyDummyPassword();
         }
 
         bool passwordValid = await _userManager.CheckPasswordAsync(user, Password);
@@ -247,6 +244,11 @@ internal sealed partial class LoginModel : PageModel
         return FrontendLoginUrl is { } frontendLoginUrl
             ? Redirect(frontendLoginUrl)
             : LocalRedirect("/");
+    }
+
+    private void VerifyDummyPassword()
+    {
+        _ = _userManager.PasswordHasher.VerifyHashedPassword(new ApplicationUser(), DummyPasswordHash, Password);
     }
 
     [LoggerMessage(EventId = EventIds.LoginUserNotFound, Level = LogLevel.Warning, Message = "Failed login: user not found. Email: {Email}, IP: {IP}")]

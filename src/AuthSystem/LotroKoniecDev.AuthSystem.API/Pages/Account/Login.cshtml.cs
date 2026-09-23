@@ -169,6 +169,15 @@ internal sealed partial class LoginModel : PageModel
             return Page();
         }
 
+        // CheckPasswordAsync returns at once for an account with no password, such as the seeded admin
+        // before its first reset (ADR-0056). Hash a dummy password so that account answers as slowly as
+        // the others.
+        if (!await _userManager.HasPasswordAsync(user))
+        {
+            _ = _userManager.PasswordHasher.VerifyHashedPassword(
+                new ApplicationUser(), DummyPasswordHash, Password);
+        }
+
         bool passwordValid = await _userManager.CheckPasswordAsync(user, Password);
 
         if (!passwordValid)

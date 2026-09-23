@@ -142,6 +142,35 @@ public sealed partial class LoginPageTests : EndpointsTestBase
     }
 
     /// <summary>
+    /// A seeded admin has no password until its first reset (ADR-0056). Signing in to it must fail the same
+    /// way as signing in to an address nobody registered.
+    /// </summary>
+    [Fact]
+    public async Task LoginPage_ShouldReturnIdenticalMessage_WhenTheAccountHasNoPassword()
+    {
+        // Arrange
+        (RegisterRequest passwordless, _) =
+            await UserFactory.RegisterRandomUserWithRequestAsync(ApiClient, Faker, AccountConfirmationEmailSpy);
+        await RemovePasswordAsync(passwordless.Username);
+
+        string nonExistentMessage = await PostAndExtractRenderedAlertAsync(new Dictionary<string, string>
+        {
+            ["Email"] = "nobody-" + Faker.Random.AlphaNumeric(8) + "@example.com",
+            ["Password"] = "WhateverPass1!"
+        });
+
+        // Act
+        string passwordlessMessage = await PostAndExtractRenderedAlertAsync(new Dictionary<string, string>
+        {
+            ["Email"] = passwordless.Email,
+            ["Password"] = passwordless.Password
+        });
+
+        // Assert
+        passwordlessMessage.ShouldBe(nonExistentMessage);
+    }
+
+    /// <summary>
     /// Every target outside this site is replaced by the configured frontend instead of being put into
     /// the <c>Location</c> header. The <c>%09</c> case has its own row: a check that only looks at the
     /// first characters calls it local, and passing it to <c>LocalRedirect</c> fails that method's own
@@ -367,6 +396,19 @@ public sealed partial class LoginPageTests : EndpointsTestBase
 
         await userManager.SetLockoutEnabledAsync(user, true);
         await userManager.SetLockoutEndDateAsync(user, DateTimeOffset.UtcNow.AddMinutes(30));
+    }
+
+    private async Task RemovePasswordAsync(string username)
+    {
+        await using AsyncServiceScope scope = Factory.Services.CreateAsyncScope();
+        UserManager<ApplicationUser> userManager =
+            scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
+
+        ApplicationUser user = await userManager.FindByNameAsync(username)
+            ?? throw new InvalidOperationException($"Test user '{username}' was not found.");
+
+        IdentityResult result = await userManager.RemovePasswordAsync(user);
+        result.Succeeded.ShouldBeTrue();
     }
 
     private async Task<string> PostAndExtractRenderedAlertAsync(Dictionary<string, string> formFields)

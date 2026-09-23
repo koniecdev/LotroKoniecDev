@@ -52,8 +52,9 @@ Code facts that shaped the decision:
   it stays unconfirmed.
 - The resend refuses a confirmed account before it sends anything (`ResendEmailConfirmation.cs`), so
   only unconfirmed accounts ever spend its budget.
-- Registration runs inside an EF execution strategy with `EnableRetryOnFailure`, so its transaction can
-  replay after a transient database error.
+- Registration runs inside an EF execution strategy with `EnableRetryOnFailure`, so a transient error on
+  the commit replays the whole transaction. A transient error while saving is caught by the handler as
+  a taken address and does not replay; that is an older defect, #845.
 - A user found by `FindByEmailAsync` always has a `NormalizedEmail`, and it equals the normalized typed
   address. `AddIdentityCore` registers the default normalizer, `Normalize()` then upper case.
 
@@ -126,7 +127,8 @@ brake (ADR-0053) and for the confirmed half of the reset budget.
 
 - In any quarter of an hour, one inbox gets at most 3 registration mails, 3 resent confirmations, 3
   resets for all unconfirmed accounts together, 3 e-mail change links, and 3 resets for each account
-  its owner confirmed herself. This holds whatever IPs, accounts and spellings the requests use.
+  its owner confirmed herself. This holds whatever IPs and accounts the requests use, for every spelling
+  the key folds.
 - A stranger cannot block a confirmed user's password recovery with an account at a spelling of her
   inbox.
 - The next mail-sending flow has one key to use and one place that says which budget fits.
@@ -148,8 +150,12 @@ brake (ADR-0053) and for the confirmed half of the reset budget.
   `john+doe@example.com` can be another person. The two then share one budget, and a stranger's mail to
   the `+` spelling bounces, so the owner does not see her budget being spent. Folding more is the safe
   direction for flooding, and a list of providers would never be complete.
+- **A stranger can keep an inbox's e-mail change budget spent through any spelling of it**, not only
+  through the exact address that ADR-0055 accepted. The owner of a new address then gets the 429 for as
+  long as it goes on. At a provider that delivers `+tag` mail, she sees every link that spent it.
 - **Other providers' rules are not folded:** a `-` tag (Yahoo), a subdomain tag (Fastmail), dots
-  outside Gmail. A new rule goes into `MailboxKey` and nowhere else.
+  outside Gmail, and a catch-all domain that delivers every name to one inbox. No key can fold a
+  catch-all. A new rule goes into `MailboxKey` and nowhere else.
 - **A refused registration still used Identity's work.** The account row and the password hash are
   created and then rolled back, which costs the same as a successful registration.
 - **The budgets are in process**, as before: two containers mean two budgets, and a restart empties
@@ -200,7 +206,8 @@ then block the owner's registration for good, because nothing removes them.
 - `ApiErrors/AuthErrors.RegistrationMailboxThrottled`; its Polish sentence in
   `Pages/Account/Register.cshtml.cs`.
 - Tests: `MailboxKeyTests`, `PerMailboxFixedWindowThrottleTests`, `PasswordResetRequestThrottleTests`
-  (unit); `MailboxBudgetTests` (integration), including the attack in the Context.
+  (unit); `MailboxBudgetTests` (integration), including the attack in the Context through both the page
+  and the endpoint, and a replayed registration commit.
 
 ## References
 

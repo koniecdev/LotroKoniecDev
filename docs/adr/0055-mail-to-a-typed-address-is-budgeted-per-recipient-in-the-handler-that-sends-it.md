@@ -197,6 +197,9 @@ stays open would move no attacker to a harder path.
 
 ## Implementation Notes
 
+> **Amended by ADR-0057 (#835):** the class and test names below are the ones this ADR shipped with.
+> The current types and tests are listed in ADR-0057's Implementation Notes.
+
 - `Services/RateLimiting/IEmailConfirmationResendThrottle.cs` (implemented by
   `PerAccountFixedWindowThrottle`), `IEmailChangeRecipientThrottle.cs`,
   `PerRecipientFixedWindowThrottle.cs`, `AccountBudgets.cs`; registered in `ApiDependencyInjection.cs`.

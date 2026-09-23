@@ -11,7 +11,7 @@ using static OpenIddict.Abstractions.OpenIddictConstants;
 
 namespace LotroKoniecDev.AuthSystem.API.Extensions;
 
-internal static class DatabaseSeederExtensions
+internal static partial class DatabaseSeederExtensions
 {
     public static async Task SeedAuthDatabaseAsync(this WebApplication app)
     {
@@ -35,7 +35,7 @@ internal static class DatabaseSeederExtensions
                 await dbContext.Database.MigrateAsync();
 
                 await SeedRolesAsync(scope.ServiceProvider);
-                await SeedAdminUserAsync(scope.ServiceProvider);
+                await SeedAdminUserAsync(scope.ServiceProvider, environment, logger);
                 await SeedOAuthApplicationsAsync(scope.ServiceProvider, environment);
             },
             logger);
@@ -60,17 +60,20 @@ internal static class DatabaseSeederExtensions
         }
     }
 
-    private static async Task SeedAdminUserAsync(IServiceProvider serviceProvider)
+    private static async Task SeedAdminUserAsync(
+        IServiceProvider serviceProvider,
+        IWebHostEnvironment environment,
+        ILogger logger)
     {
         IConfiguration configuration = serviceProvider.GetRequiredService<IConfiguration>();
 
-        // The credentials come from the "AdminUser" configuration section: environment variables in
-        // production, appsettings.Development.json locally. With no credentials, no admin is created.
+        // The "AdminUser" configuration section: environment variables on a box, appsettings.Local.json
+        // locally. With no e-mail address, no admin is created.
         string? email = configuration["AdminUser:Email"];
-        string? password = configuration["AdminUser:Password"];
         string username = configuration["AdminUser:Username"] ?? "admin";
+        string? password = ReadBootstrapPassword(configuration, environment, logger);
 
-        if (string.IsNullOrWhiteSpace(email) || string.IsNullOrWhiteSpace(password))
+        if (string.IsNullOrWhiteSpace(email))
         {
             return;
         }
@@ -86,6 +89,7 @@ internal static class DatabaseSeederExtensions
         // to the operator to free the username or change AdminUser.
         if (await userManager.FindByNameAsync(username) is not null)
         {
+            LogAdminSeedUsernameTaken(logger, username);
             return;
         }
 
@@ -104,7 +108,9 @@ internal static class DatabaseSeederExtensions
             TermsOfServiceAcceptedDate = timeProvider.GetUtcNow()
         };
 
-        IdentityResult createResult = await userManager.CreateAsync(admin, password);
+        IdentityResult createResult = password is null
+            ? await userManager.CreateAsync(admin)
+            : await userManager.CreateAsync(admin, password);
         if (!createResult.Succeeded)
         {
             string errors = string.Join(", ", createResult.Errors.Select(e => e.Description));
@@ -117,6 +123,37 @@ internal static class DatabaseSeederExtensions
             string errors = string.Join(", ", roleResult.Errors.Select(e => e.Description));
             throw new InvalidOperationException($"Admin role assignment failed: {errors}");
         }
+
+        if (password is null)
+        {
+            LogAdminSeededWithoutPassword(logger, admin.Id);
+        }
+    }
+
+    /// <summary>
+    /// Only Development and Testing take the admin password from configuration. Everywhere else the
+    /// admin is created without one and the operator sets it through the password reset mail, so no
+    /// environment file on a box ever holds it (ADR-0056).
+    /// </summary>
+    private static string? ReadBootstrapPassword(
+        IConfiguration configuration,
+        IWebHostEnvironment environment,
+        ILogger logger)
+    {
+        string? password = configuration["AdminUser:Password"];
+
+        if (string.IsNullOrWhiteSpace(password))
+        {
+            return null;
+        }
+
+        if (environment.IsDevelopment() || environment.IsTesting())
+        {
+            return password;
+        }
+
+        LogAdminSeedPasswordIgnored(logger, environment.EnvironmentName);
+        return null;
     }
 
     private static async Task SeedOAuthApplicationsAsync(IServiceProvider serviceProvider, IWebHostEnvironment environment)
@@ -226,4 +263,13 @@ internal static class DatabaseSeederExtensions
             }
         }
     }
+
+    [LoggerMessage(EventId = EventIds.AdminSeededWithoutPassword, Level = LogLevel.Information, Message = "Seeded the admin account {UserId} without a password. Set the first password through the password reset page")]
+    private static partial void LogAdminSeededWithoutPassword(ILogger logger, Guid userId);
+
+    [LoggerMessage(EventId = EventIds.AdminSeedPasswordIgnored, Level = LogLevel.Warning, Message = "AdminUser:Password is ignored in the {EnvironmentName} environment. Remove it from the configuration and set the admin password through the password reset page")]
+    private static partial void LogAdminSeedPasswordIgnored(ILogger logger, string environmentName);
+
+    [LoggerMessage(EventId = EventIds.AdminSeedUsernameTaken, Level = LogLevel.Warning, Message = "Admin seeding skipped: the username {Username} already belongs to an account with a different e-mail address")]
+    private static partial void LogAdminSeedUsernameTaken(ILogger logger, string username);
 }

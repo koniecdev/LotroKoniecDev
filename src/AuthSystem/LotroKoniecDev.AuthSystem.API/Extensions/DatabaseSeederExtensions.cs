@@ -13,6 +13,8 @@ namespace LotroKoniecDev.AuthSystem.API.Extensions;
 
 internal static partial class DatabaseSeederExtensions
 {
+    public const string DefaultAdminUsername = "admin";
+
     public static async Task SeedAuthDatabaseAsync(this WebApplication app)
     {
         await SeedAuthDatabaseAsync(app.Services, app.Environment);
@@ -70,7 +72,7 @@ internal static partial class DatabaseSeederExtensions
         // The "AdminUser" configuration section: environment variables on a box, appsettings.Local.json
         // locally. With no e-mail address, no admin is created.
         string? email = configuration["AdminUser:Email"];
-        string username = configuration["AdminUser:Username"] ?? "admin";
+        string username = ReadAdminUsername(configuration);
         string? password = ReadBootstrapPassword(configuration, environment, logger);
 
         if (string.IsNullOrWhiteSpace(email))
@@ -131,11 +133,22 @@ internal static partial class DatabaseSeederExtensions
     }
 
     /// <summary>
+    /// Compose passes an unset AUTH_ADMIN_USERNAME as an empty string, and Identity refuses an empty
+    /// username, which would crash every startup. So a blank value falls back to the default.
+    /// </summary>
+    internal static string ReadAdminUsername(IConfiguration configuration)
+    {
+        string? username = configuration["AdminUser:Username"];
+
+        return string.IsNullOrWhiteSpace(username) ? DefaultAdminUsername : username;
+    }
+
+    /// <summary>
     /// Only Development and Testing take the admin password from configuration. Everywhere else the
     /// admin is created without one and the operator sets it through the password reset mail, so no
     /// environment file on a box ever holds it (ADR-0056).
     /// </summary>
-    private static string? ReadBootstrapPassword(
+    internal static string? ReadBootstrapPassword(
         IConfiguration configuration,
         IWebHostEnvironment environment,
         ILogger logger)

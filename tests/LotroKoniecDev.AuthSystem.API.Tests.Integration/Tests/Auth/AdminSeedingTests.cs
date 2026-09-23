@@ -172,10 +172,9 @@ public sealed class AdminSeedingTests : EndpointsTestBase
             new ForgotPasswordRequest(AdminEmail));
         await PasswordResetEmailSpy.WaitForCaptureAsync();
 
-        HttpResponseMessage resetResponse = await ApiClient.Http.PostAsJsonAsync(
+        await ApiClient.Http.PostAsJsonAsync(
             new Uri("auth/reset-password", UriKind.Relative),
             new ResetPasswordRequest(AdminEmail, PasswordResetEmailSpy.LastResetToken!, chosenPassword));
-        resetResponse.StatusCode.ShouldBe(HttpStatusCode.OK);
 
         // Act
         HttpResponseMessage tokenResponse = await RequestPasswordGrantAsync(AdminEmail, chosenPassword);

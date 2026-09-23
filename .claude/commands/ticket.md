@@ -174,9 +174,29 @@ a non-trivial modeling decision emerges mid-flight. Honor every constraint the s
   the `code-reviewer` rounds converge on what the author and the reviewer already talk about.
   Precedent: #690 — three `code-reviewer` rounds and 20 findings ended in APPROVE, and one fresh
   `/code-review` then found four more, among them a password POST that the shared HTTP retry
-  pipeline could send three times and an export that spent two rate-limit permits per click. Fix
-  every finding that is real, write a one-line reason for each one you reject, then re-run the
-  build, the whole suite and the guards on the final commit. This pass runs **before** the push:
+  pipeline could send three times and an export that spent two rate-limit permits per click.
+  **Sort every finding into exactly one bucket, and check the bucket instead of guessing it:**
+  1. **A defect in this diff.** The line is in `git diff main...HEAD`, or the diff made it
+     reachable, and the claim holds when you read the code. Fix it.
+  2. **Real, older than this diff, and no ticket.** The same code or behavior is on `main`, and
+     `gh issue list --state all --search "<key words>"` finds nothing. File a follow-up ticket
+     (`docs/labels.md`) and list it under Follow-ups. "Out of scope" never ends a real finding:
+     this bucket is where a blind reviewer earns its cost, because it reads the code around the
+     diff that the ticket never looked at.
+  3. **Already decided.** The ticket asks for it by name, an ADR lists it as an accepted
+     trade-off, or an open ticket covers it. Write one line with the pointer.
+  4. **Opinion:** duplication, design altitude, micro-performance, style. Write one line on why
+     not. Never reject a house-rule finding only because a merged sibling does the same. If the
+     pattern is rare, fix both copies. If it is common across the repo, the rule and the practice
+     disagree, so say it once under Doubts and let the owner decide.
+
+  Put the split in Proof, for example "14 findings: 1 fixed, 3 filed as #…, 6 already decided,
+  4 opinion". Do not give the reviewer your plan or the first review to cut the noise: its
+  blindness is the point, so cut the noise afterwards, in this sort. Precedent: PR #828 (#823) got
+  14 findings at xhigh and one defect in the diff. Three real, older weaknesses were first set
+  aside as out of scope, and got tickets (#829–#831) only after the owner asked why the pass had
+  found nothing. Then re-run the build, the whole suite and the guards on the final commit. This
+  pass runs **before** the push:
   a finding that lands after `gh pr create` costs a pr-verify run. Effort decides what it finds,
   more than the model does: on #690's PR the same command gave 2 and 4 findings in two runs at
   effort medium, and 14 and 15 at xhigh (one run each on the two top tiers, about 6 and 20 USD).
@@ -211,7 +231,7 @@ The PR body (or the issue comment, when there is no PR) ends with:
 ```markdown
 ## Ticket report
 **Shipped:** <what changed, behaviorally, 1-3 lines>
-**Proof:** <each gate with its actual result: build, the suite counts, guards, review verdict, the second-pass `/code-review` findings (fixed / rejected + why), CodeQL>
+**Proof:** <each gate with its actual result: build, the suite counts, guards, review verdict, the second-pass `/code-review` split (fixed / filed / already decided / opinion, each rejection with its reason), CodeQL>
 **Assumptions:** <every judgment call made without the user, each with why + risk — "none" is a valid entry, silence is not>
 **Doubts:** <anything not fully verified or that smells — same rule>
 **Follow-ups:** <tickets filed, or bullets worth one>

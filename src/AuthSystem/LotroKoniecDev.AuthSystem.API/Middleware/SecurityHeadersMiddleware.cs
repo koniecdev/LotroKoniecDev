@@ -1,3 +1,5 @@
+using System.Globalization;
+using LotroKoniecDev.AuthSystem.API.Common;
 using LotroKoniecDev.AuthSystem.API.Settings;
 using Microsoft.Extensions.Options;
 using Microsoft.Net.Http.Headers;
@@ -79,8 +81,9 @@ internal sealed class SecurityHeadersMiddleware
     /// <summary>
     /// The origins of the web client's redirect and post-logout URIs: the only places a form on this
     /// origin may end up. A value that is not an absolute http(s) URL is skipped; the settings
-    /// validator reports it at startup. The origin is built from the scheme and the authority, never
-    /// <c>GetLeftPart</c>, which would keep a <c>user@</c> part that no CSP source may carry.
+    /// validator reports it at startup. The origin is built by hand from the scheme, the punycode host
+    /// and the port: <c>GetLeftPart</c> would keep a <c>user@</c> part, and <c>Authority</c> gives a
+    /// non-ASCII host in Unicode, which a header may not carry. Kestrel would then refuse every response.
     /// OpenIddict checks redirects against the client row in the database, and the seeder writes that
     /// row only when it is missing. This reads the configuration, so it assumes the two agree. On the
     /// boxes both come from the same domain setting; if they drift apart, sign-in fails visibly.
@@ -88,10 +91,19 @@ internal sealed class SecurityHeadersMiddleware
     internal static IReadOnlyList<string> FrontendOrigins(WebClientSettings webClient) =>
         webClient.RedirectUris
             .Concat(webClient.PostLogoutRedirectUris)
-            .Select(uri => Uri.TryCreate(uri, UriKind.Absolute, out Uri? parsed) ? parsed : null)
+            .Select(value => AbsoluteHttpUri.TryParse(value, out Uri? uri) ? uri : null)
             .OfType<Uri>()
-            .Where(uri => uri.Scheme is "https" or "http")
-            .Select(uri => $"{uri.Scheme}://{uri.Authority}")
+            .Select(Origin)
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
+
+    private static string Origin(Uri uri)
+    {
+        // IdnHost drops the brackets of an IPv6 address, and a CSP source needs them back.
+        string host = uri.HostNameType is UriHostNameType.IPv6 ? $"[{uri.IdnHost}]" : uri.IdnHost;
+
+        return uri.IsDefaultPort
+            ? $"{uri.Scheme}://{host}"
+            : $"{uri.Scheme}://{host}:{uri.Port.ToString(CultureInfo.InvariantCulture)}";
+    }
 }

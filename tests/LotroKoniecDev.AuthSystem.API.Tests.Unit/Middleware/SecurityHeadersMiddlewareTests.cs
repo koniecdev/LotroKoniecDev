@@ -17,6 +17,10 @@ public sealed class SecurityHeadersMiddlewareTests
     [InlineData("https://localhost:7017/callback", "https://localhost:7017")]
     [InlineData("http://localhost:5000/callback?x=1#frag", "http://localhost:5000")]
     [InlineData("https://user:secret@app.lotro-translator.pl:8443/callback", "https://app.lotro-translator.pl:8443")]
+    [InlineData("https://bücher.example:8443/callback", "https://xn--bcher-kva.example:8443")]
+    [InlineData("https://ŁÓDŹ.example/callback", "https://xn--d-uga0v4h.example")]
+    [InlineData("http://[::1]:5000/callback", "http://[::1]:5000")]
+    [InlineData("https://127.0.0.1/callback", "https://127.0.0.1")]
     public void FrontendOrigins_ShouldCutEachUriDownToItsOrigin(string redirectUri, string expectedOrigin)
     {
         // Arrange

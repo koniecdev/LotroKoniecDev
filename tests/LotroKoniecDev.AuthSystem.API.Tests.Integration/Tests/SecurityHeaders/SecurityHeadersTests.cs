@@ -12,112 +12,107 @@ namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Tests.SecurityHeaders;
 /// The auth origin used to send only HSTS. Its frame protection was an accident of antiforgery: a page
 /// got <c>SAMEORIGIN</c> only when it rendered a form (#693). These tests hold the policy that replaced it,
 /// on every account page and on the responses around them.
-/// The pages are listed from the endpoint data source rather than by hand, so a new page is checked
-/// the day it is added.
+/// The pages are listed by reflection rather than by hand, and a test proves that list equals the
+/// Razor pages the app maps, so a new page is checked the day it is added.
 /// </summary>
 public sealed partial class SecurityHeadersTests : EndpointsTestBase
 {
-    /// <summary>The account pages today. The enumerated tests fail if they find fewer.</summary>
-    private const int KnownAccountPageCount = 10;
-
     private const int ForgotPasswordPermitLimit = 3;
+
+    /// <summary>
+    /// Every account page, found by reflection so a theory can list them. The check below proves the
+    /// list matches the pages the app really maps, so a new page cannot slip past these tests.
+    /// </summary>
+    private static readonly IReadOnlyList<string> AccountPagePaths = typeof(Program).Assembly.GetTypes()
+        .Where(type => type.IsSubclassOf(typeof(PageModel))
+            && type is { Namespace: string pageNamespace }
+            && pageNamespace.EndsWith(".Pages.Account", StringComparison.Ordinal))
+        .Select(type => "/Account/" + type.Name[..^"Model".Length])
+        .Order(StringComparer.Ordinal)
+        .ToList();
 
     public SecurityHeadersTests(AuthSystemApiFactory appFactory) : base(appFactory) { }
 
+    public static TheoryData<string> AccountPages { get; } = new(AccountPagePaths);
+
     [Fact]
-    public async Task EveryAccountPage_ShouldCarryTheSecurityHeaders()
+    public void AccountPages_ShouldBeEveryRazorPageTheAppMaps()
     {
         // Arrange
-        IReadOnlyList<string> pages = AccountPagePaths();
-        List<string> failures = [];
+        IReadOnlyList<string> mappedPages = Factory.Services.GetRequiredService<EndpointDataSource>().Endpoints
+            .OfType<RouteEndpoint>()
+            .Where(endpoint => endpoint.Metadata.GetMetadata<PageActionDescriptor>() is not null)
+            .Select(endpoint => "/" + endpoint.RoutePattern.RawText?.TrimStart('/'))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Order(StringComparer.Ordinal)
+            .ToList();
 
         // Act
-        foreach (string page in pages)
-        {
-            using HttpResponseMessage response = await ApiClient.Http.GetAsync(new Uri(page, UriKind.Relative));
-            string? csp = SingleHeader(response, "Content-Security-Policy");
-
-            if (csp is null || !csp.Contains("frame-ancestors 'none'", StringComparison.Ordinal))
-            {
-                failures.Add($"{page}: CSP '{csp}'");
-            }
-
-            if (SingleHeader(response, "X-Frame-Options") != "DENY")
-            {
-                failures.Add($"{page}: X-Frame-Options '{string.Join(", ", HeaderValues(response, "X-Frame-Options"))}'");
-            }
-
-            if (SingleHeader(response, "X-Content-Type-Options") != "nosniff")
-            {
-                failures.Add($"{page}: X-Content-Type-Options missing");
-            }
-
-            if (SingleHeader(response, "Referrer-Policy") != "no-referrer")
-            {
-                failures.Add($"{page}: Referrer-Policy missing");
-            }
-        }
+        IReadOnlyList<string> listedPages = AccountPagePaths;
 
         // Assert
-        pages.Count.ShouldBeGreaterThanOrEqualTo(KnownAccountPageCount);
-        failures.ShouldBeEmpty();
+        listedPages.ShouldNotBeEmpty();
+        listedPages.ShouldBe(mappedPages);
+    }
+
+    [Theory]
+    [MemberData(nameof(AccountPages))]
+    public async Task AccountPage_ShouldCarryTheSecurityHeaders(string page)
+    {
+        // Act
+        using HttpResponseMessage response = await ApiClient.Http.GetAsync(new Uri(page, UriKind.Relative));
+
+        // Assert
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        SingleHeader(response, "Content-Security-Policy").ShouldNotBeNull().ShouldContain("frame-ancestors 'none'");
+        HeaderValues(response, "X-Frame-Options").ShouldBe(["DENY"]);
+        SingleHeader(response, "X-Content-Type-Options").ShouldBe("nosniff");
+        SingleHeader(response, "Referrer-Policy").ShouldBe("no-referrer");
     }
 
     /// <summary>
     /// The #670 lesson: a CSP that blocks the page's own markup still returns 200, and only the browser
-    /// console says so. Every inline style has to carry this response's nonce, and no page may carry an
-    /// inline script at all.
+    /// console says so. The pages keep their styles inline, so every block needs this response's nonce.
     /// </summary>
-    [Fact]
-    public async Task EveryAccountPage_ShouldServeOnlyInlineContentItsOwnCspAdmits()
+    [Theory]
+    [MemberData(nameof(AccountPages))]
+    public async Task AccountPage_ShouldPutTheResponsesNonceOnEveryInlineStyle(string page)
     {
-        // Arrange
-        IReadOnlyList<string> pages = AccountPagePaths();
-        List<string> failures = [];
-
         // Act
-        foreach (string page in pages)
-        {
-            using HttpResponseMessage response = await ApiClient.Http.GetAsync(new Uri(page, UriKind.Relative));
-            string html = await response.Content.ReadAsStringAsync();
-            string? nonce = StyleNonce(SingleHeader(response, "Content-Security-Policy"));
-
-            MatchCollection styleTags = StyleTagRegex().Matches(html);
-            if (styleTags.Count == 0)
-            {
-                failures.Add($"{page}: no <style> block found, so this check proves nothing");
-            }
-
-            foreach (Match styleTag in styleTags)
-            {
-                if (nonce is null || !styleTag.Value.Contains($"nonce=\"{nonce}\"", StringComparison.Ordinal))
-                {
-                    failures.Add($"{page}: {styleTag.Value} does not carry the header's nonce '{nonce}'");
-                }
-            }
-
-            foreach (Match scriptTag in ScriptTagRegex().Matches(html))
-            {
-                if (!scriptTag.Value.Contains("src=", StringComparison.OrdinalIgnoreCase))
-                {
-                    failures.Add($"{page}: inline {scriptTag.Value}, which script-src 'self' blocks");
-                }
-            }
-
-            if (StyleAttributeRegex().IsMatch(html))
-            {
-                failures.Add($"{page}: an inline style attribute, which a nonce does not cover");
-            }
-
-            if (EventHandlerAttributeRegex().IsMatch(html))
-            {
-                failures.Add($"{page}: an inline event handler attribute, which script-src 'self' blocks");
-            }
-        }
+        using HttpResponseMessage response = await ApiClient.Http.GetAsync(new Uri(page, UriKind.Relative));
 
         // Assert
-        pages.Count.ShouldBeGreaterThanOrEqualTo(KnownAccountPageCount);
-        failures.ShouldBeEmpty();
+        string nonce = StyleNonce(SingleHeader(response, "Content-Security-Policy")).ShouldNotBeNull();
+        string html = await response.Content.ReadAsStringAsync();
+        List<string> styleTags = StyleTagRegex().Matches(html).Select(match => match.Value).ToList();
+        styleTags.ShouldNotBeEmpty();
+        styleTags.ShouldAllBe(styleTag => styleTag.Contains($"nonce=\"{nonce}\"", StringComparison.Ordinal));
+    }
+
+    [Theory]
+    [MemberData(nameof(AccountPages))]
+    public async Task AccountPage_ShouldServeNoInlineScript(string page)
+    {
+        // Act
+        using HttpResponseMessage response = await ApiClient.Http.GetAsync(new Uri(page, UriKind.Relative));
+
+        // Assert: script-src is 'self' with no nonce, so a script block or an on*= handler is blocked
+        string html = await response.Content.ReadAsStringAsync();
+        ScriptTagRegex().Matches(html).Select(match => match.Value)
+            .ShouldAllBe(scriptTag => scriptTag.Contains("src=", StringComparison.OrdinalIgnoreCase));
+        EventHandlerAttributeRegex().IsMatch(html).ShouldBeFalse();
+    }
+
+    [Theory]
+    [MemberData(nameof(AccountPages))]
+    public async Task AccountPage_ShouldServeNoStyleAttribute(string page)
+    {
+        // Act
+        using HttpResponseMessage response = await ApiClient.Http.GetAsync(new Uri(page, UriKind.Relative));
+
+        // Assert: a nonce covers a style block, never a style attribute
+        string html = await response.Content.ReadAsStringAsync();
+        StyleAttributeRegex().IsMatch(html).ShouldBeFalse();
     }
 
     /// <summary>
@@ -257,17 +252,6 @@ public sealed partial class SecurityHeadersTests : EndpointsTestBase
         html.ShouldContain($"<style nonce=\"{nonce}\">");
         SingleHeader(lastResponse, "X-Frame-Options").ShouldBe("DENY");
         lastResponse.Dispose();
-    }
-
-    private IReadOnlyList<string> AccountPagePaths()
-    {
-        return Factory.Services.GetRequiredService<EndpointDataSource>().Endpoints
-            .OfType<RouteEndpoint>()
-            .Where(endpoint => endpoint.Metadata.GetMetadata<PageActionDescriptor>() is not null)
-            .Select(endpoint => "/" + endpoint.RoutePattern.RawText?.TrimStart('/'))
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .Order(StringComparer.Ordinal)
-            .ToList();
     }
 
     private static IReadOnlyList<string> HeaderValues(HttpResponseMessage response, string name)

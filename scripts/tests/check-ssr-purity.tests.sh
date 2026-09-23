@@ -126,7 +126,19 @@ run_suite() {
     run_auth_case 0 "a stylesheet link is not an inline style" \
         Login.cshtml '<link rel="stylesheet" href="/fonts.css" />'
     run_auth_case 0 "the Static-SSR rules do not apply to Razor Pages" \
-        Login.cshtml '<button onclick="x()" @onclick="Go">Go</button>'
+        Login.cshtml '<p>@rendermode and StateHasChanged are Blazor words.</p>'
+    run_auth_case 1 "an inline event handler in an auth page fails" \
+        Login.cshtml '<button type="button" onclick="toggle()">Pokaż</button>'
+    expect_in_output "Inline event handler"
+    run_auth_case 1 "an UPPERCASE inline event handler fails" \
+        Login.cshtml '<form ONSUBMIT="go()"></form>'
+    run_auth_case 1 "a style attribute in an auth page fails" \
+        Login.cshtml '<div style="width: 50%"></div>'
+    expect_in_output "Inline style= attribute"
+    run_auth_case 0 "an attribute value that starts with 'on' is not a handler" \
+        Login.cshtml '<input autocomplete="one-time-code" class="icon only" />'
+    run_auth_case 0 "a word like 'online' in text is not a handler" \
+        Login.cshtml '<p>Jesteś online = zalogowany</p>'
     run_auth_case 0 "a style in a C# file of the auth system is out of scope" \
         Template.cs 'const string Html = "<style>p{}</style>";'
 }

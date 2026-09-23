@@ -10,9 +10,10 @@
     than in a fifth guard script because this is already the frontend-markup gate CI runs in both
     workflows; the trade-off is that the file name now says less than it checks.
 
-    The auth pages (src/AuthSystem, *.cshtml) got the same CSP in #693, so the two CSP rules
-    cover them too: no inline <script>, and every <style> carries the per-request nonce. The
-    Static-SSR rules do not apply there, because those pages are Razor Pages, not Blazor.
+    The auth pages (src/AuthSystem, *.cshtml) got a CSP of their own in #693, so they are checked
+    for what it blocks: an inline <script>, a <style> without the per-request nonce, an inline
+    event handler and a style= attribute. The Static-SSR rules do not apply there, because those
+    pages are Razor Pages, not Blazor.
 
     The Frontend is Static SSR on purpose: no WebAssembly download, no SignalR circuit,
     no per-user server state. A single stray @rendermode, @onclick or StateHasChanged
@@ -99,6 +100,10 @@ Test-SsrPurity -Files $authPages -Pattern '<[sS][cC][rR][iI][pP][tT][^>]*>' `
 Test-SsrPurity -Files $authPages -Pattern '<[sS][tT][yY][lL][eE](\s|>)' `
     -Message "<style> without the CSP nonce in an auth page. The auth CSP admits an inline style only by the response's nonce, so the browser drops it (#693). Write <style nonce=""@CspNonce.Get(HttpContext)"">." `
     -AllowPattern '<[sS][tT][yY][lL][eE][^>]*[nN][oO][nN][cC][eE]=[^>]*>'
+Test-SsrPurity -Files $authPages -Pattern '<[a-zA-Z][^>]*\s[oO][nN][a-zA-Z]+\s*=' `
+    -Message "Inline event handler (onclick=, onsubmit=, ...) in an auth page. The auth CSP sends script-src 'self', which blocks it (#693). Attach the handler from a file under wwwroot, like login.js."
+Test-SsrPurity -Files $authPages -Pattern '<[a-zA-Z][^>]*\s[sS][tT][yY][lL][eE]\s*=' `
+    -Message "Inline style= attribute in an auth page. The auth CSP admits inline styles only by nonce, and a nonce does not cover attributes (#693). Use a class in the page's <style> block."
 
 if ($script:fail) {
     Write-Host "----------------------------------------------------------------------"

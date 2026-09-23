@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.EntityFrameworkCore;
@@ -13,6 +14,7 @@ using LotroKoniecDev.AuthSystem.API.Extensions;
 using LotroKoniecDev.AuthSystem.API.Services.Emails;
 using LotroKoniecDev.AuthSystem.API.Services.Maintenance;
 using LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared;
+using LotroKoniecDev.AuthSystem.Domain.Aggregates.ApplicationUsers.Entities;
 using LotroKoniecDev.AuthSystem.Infrastructure.Messaging;
 using LotroKoniecDev.AuthSystem.Persistence;
 using LotroKoniecDev.AuthSystem.Persistence.DbContexts;
@@ -85,6 +87,10 @@ public class AuthSystemApiFactory : WebApplicationFactory<Program>, IAsyncLifeti
         {
             services.AddSingleton(this);
             services.AddScoped<CleanerService>();
+
+            services.AddSingleton<SpyPasswordHasher>();
+            services.AddSingleton<IPasswordHasher<ApplicationUser>>(sp =>
+                sp.GetRequiredService<SpyPasswordHasher>());
 
             // Replace email sender with spy for capturing reset tokens in tests
             ServiceDescriptor? existingEmailSender = services

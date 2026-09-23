@@ -34,9 +34,9 @@ internal sealed partial class LoginModel : PageModel
         "To konto nie zostało jeszcze aktywowane. Sprawdź skrzynkę — wysłaliśmy na Twój adres link aktywacyjny.";
 
     /// <summary>
-    /// A hash computed up front for the failure paths that would otherwise skip password hashing, no
-    /// such user and locked out. They then take as long as the wrong-password path, so the response
-    /// time tells the caller nothing.
+    /// A hash computed up front for the failure paths that would otherwise skip password hashing: no
+    /// such user, locked out, and an account with no password. They then take as long as the
+    /// wrong-password path, so the response time tells the caller nothing.
     /// </summary>
     private static readonly string DummyPasswordHash =
         new PasswordHasher<ApplicationUser>().HashPassword(new ApplicationUser(), "DummyP@ssw0rd!");

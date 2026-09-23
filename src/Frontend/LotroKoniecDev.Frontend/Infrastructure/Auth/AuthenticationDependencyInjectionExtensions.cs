@@ -138,6 +138,8 @@ internal static class AuthenticationDependencyInjectionExtensions
         // is a chain of redirects the browser never draws.
         // Putting the code in the URL is the baseline shape RFC 9700 describes, and PKCE below is what
         // makes a stolen code useless.
+        // The auth origin's CSP depends on it too (#693). The form_post page submits itself with an
+        // inline script, which that CSP blocks, so form_post would leave sign-in on a blank page.
         options.ResponseMode = OpenIdConnectResponseMode.Query;
         options.UsePkce = true;
         options.SaveTokens = true;

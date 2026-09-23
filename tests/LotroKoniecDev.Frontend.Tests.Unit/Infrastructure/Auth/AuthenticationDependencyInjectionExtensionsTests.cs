@@ -14,6 +14,10 @@ namespace LotroKoniecDev.Frontend.Tests.Unit.Infrastructure.Auth;
 
 public sealed class AuthenticationDependencyInjectionExtensionsTests
 {
+    /// <summary>
+    /// Load-bearing for the auth origin's CSP (#693): OpenIddict's form_post page submits itself with an
+    /// inline script, which <c>script-src 'self'</c> there blocks, so form_post would break sign-in.
+    /// </summary>
     [Fact]
     public void AddFrontendAuthentication_OpenIdConnectOptions_UsesQueryResponseMode()
     {

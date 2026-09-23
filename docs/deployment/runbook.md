@@ -1211,7 +1211,7 @@ queue with the *default* delivery limit (20) and no DLX of its own, so a reject-
 One command that gives a green/red signal that a deployed environment came up correctly, without
 manual clicking — run it as the final [bring-up](#bringing-the-stack-up) step and after every
 subsequent deploy (CD runs it for you). `scripts/smoke.sh` (with a `scripts/smoke.ps1` twin) takes the
-three base URLs + the OpenIddict API client secret and exercises the five legs that actually break on
+three base URLs + the OpenIddict API client secret and exercises the six legs that actually break on
 a deploy:
 
 | # | Check | Pass condition |
@@ -1221,6 +1221,7 @@ a deploy:
 | 3 | **OIDC token** | `POST {auth}/connect/token` (client_credentials) = 200 + an `access_token` |
 | 4 | **Token accepted by tms** | anonymous `GET {tms}/api/v1/game-versions` = **401**; the same call **with** the bearer token is **NOT 401** |
 | 5 | **File distribution** | `GET {tms}/api/v1/translation-files/{lang}` = 200 + `ETag`, then a re-GET with `If-None-Match` = 304 |
+| 6 | **Auth pages: headers + CSP** | `GET {auth}/Account/Login` (a form) and `/Account/ConfirmEmail` (no form) each send `X-Frame-Options: DENY` with `frame-ancestors 'none'`, `nosniff` and a `Referrer-Policy`; every `<style>` carries the header's nonce, no inline `<script>`, no `'unsafe-inline'` (#693) |
 
 It prints a `✓`/`✗`/`⚠` per check and **exits non-zero (1) on any failure** (a usage/config problem
 exits 2). Two behaviours are deliberate and worth knowing before you read a result:
@@ -1265,7 +1266,7 @@ Each flag has a `SMOKE_*` environment fallback (`--auth-url`/`SMOKE_AUTH_URL`, `
 `--insecure`/`SMOKE_INSECURE=1`, `--require-csp`/`SMOKE_REQUIRE_CSP=1`). `bash scripts/smoke.sh --help`
 prints the full reference.
 
-`--require-csp` makes a frontend response with **no** `Content-Security-Policy` header a failure
+`--require-csp` makes a frontend or auth page with **no** `Content-Security-Policy` header a failure
 instead of a warning. Pass it against any deployed environment — CD and the reusable workflow both do.
 Leave it off only for a local Development stack, which skips the security-headers middleware on
 purpose and would otherwise always report red.
@@ -1279,7 +1280,8 @@ workflow stays runnable **on demand** (`workflow_dispatch` — enter the three U
 > **fingerprint** assertion — `@Assets[]` renders `_framework/blazor.web.<hash>.js` only when
 > `MapStaticAssets` resolved its manifest. That is the signature of a healthy image. Leg 2 also
 > catches the other invisible frontend break: an inline `<script>` the page's own CSP blocks, which
-> shows up nowhere but the browser console (#670).
+> shows up nowhere but the browser console (#670). Leg 6 does the same for the auth pages, where the
+> styles are inline and each `<style>` must carry the nonce of its own response (#693).
 
 ## Observability & monitoring
 

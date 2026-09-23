@@ -3,7 +3,7 @@
 # environment came up correctly, without manual clicking — run it after every deploy (staging or
 # production), or against the local prod-parity / dev stack.
 #
-# It exercises the five legs that actually break on a deploy:
+# It exercises the six legs that actually break on a deploy:
 #   1. Health      — auth-api + tms-api /health/ready return 200; the frontend root responds (it has
 #                    no /health endpoint — it is a Static-SSR app, so "the page serves" is liveness).
 #   2. FE assets   — the frontend image actually shipped its static web assets. "The page serves" is
@@ -26,6 +26,11 @@
 #                    401 is the high-value check, not reading any particular row.
 #   5. Distribution — the public translation-file endpoint serves the artifact with an ETag and
 #                    honours If-None-Match with a 304 (the CLI/player relies on this; spec 0001).
+#   6. Auth pages  — the auth origin sends its security headers on a page with a form (Login) and on
+#                    one without (ConfirmEmail): X-Frame-Options DENY with frame-ancestors 'none',
+#                    nosniff, a Referrer-Policy. Its CSP must also admit the page's own inline
+#                    content: every <style> carries the header's nonce and no inline <script> is
+#                    served. As in leg 2, a blocked style or script shows up only in the console (#693).
 #
 # Clear pass/fail per check; NON-ZERO exit on any failure (exit 1). Usage / configuration problems
 # exit 2. A not-yet-seeded environment (no translation artifact built) WARNS on leg 5 rather than
@@ -52,8 +57,8 @@ Options:
   --lang          LANG   translation-file language  (env SMOKE_LANG,       default pl)
   --timeout       SECS   per-request timeout        (env SMOKE_TIMEOUT,    default 15)
   --insecure, -k         skip TLS verification (local CA / dev cert stacks; env SMOKE_INSECURE=1)
-  --require-csp          a frontend response with no Content-Security-Policy FAILS instead of
-                         warning (env SMOKE_REQUIRE_CSP=1). CD passes it: only a Development
+  --require-csp          a frontend or auth page with no Content-Security-Policy FAILS instead
+                         of warning (env SMOKE_REQUIRE_CSP=1). CD passes it: only a Development
                          stack legitimately serves no CSP, and CD never smokes one.
   -h, --help             show this help
 
@@ -164,7 +169,7 @@ echo "  frontend = $FRONTEND_URL"
 [ "$INSECURE" = "1" ] && echo "  (TLS verification disabled: --insecure)"
 echo
 
-echo "[1/5] Health"
+echo "[1/6] Health"
 code="$(get_status "$AUTH_URL/health/ready")"
 [ "$code" = "200" ] && pass "auth /health/ready -> 200" || fail "auth /health/ready -> $code (expected 200)"
 code="$(get_status "$TMS_URL/health/ready")"
@@ -179,7 +184,7 @@ else
 fi
 echo
 
-echo "[2/5] Frontend static web assets + CSP consistency (#414, #670)"
+echo "[2/6] Frontend static web assets + CSP consistency (#414, #670)"
 : > "$HDR_FILE"
 home_html="$(curl -s -D "$HDR_FILE" --max-time "$TIMEOUT" $TLS_FLAG "$FRONTEND_URL/" 2>/dev/null || true)"
 # `@Assets["_framework/blazor.web.js"]` renders a fingerprinted src ONLY when MapStaticAssets
@@ -223,7 +228,7 @@ else
 fi
 echo
 
-echo "[3/5] OIDC token round-trip (client_credentials)"
+echo "[3/6] OIDC token round-trip (client_credentials)"
 TOKEN=""
 token_out="$(curl -s --max-time "$TIMEOUT" $TLS_FLAG \
     -X POST "$AUTH_URL/connect/token" \
@@ -244,7 +249,7 @@ else
 fi
 echo
 
-echo "[4/5] Token accepted by tms-api (authenticated read)"
+echo "[4/6] Token accepted by tms-api (authenticated read)"
 # Reads are role-gated; a client-credentials token has no role, so the value here is proving the
 # token is VALIDATED (403), not that it is rejected (401). Pair with an anonymous call (must 401)
 # so the check also proves the endpoint is genuinely protected.
@@ -263,7 +268,7 @@ else
 fi
 echo
 
-echo "[5/5] Translation-file distribution (ETag / 304)"
+echo "[5/6] Translation-file distribution (ETag / 304)"
 : > "$HDR_FILE"
 file_code="$(curl -s -o /dev/null -D "$HDR_FILE" -w '%{http_code}' --max-time "$TIMEOUT" $TLS_FLAG "$TMS_URL/api/v1/translation-files/$LANG_CODE" 2>/dev/null)" || file_code="000"
 if [ "$file_code" = "200" ]; then
@@ -281,6 +286,108 @@ elif [ "$file_code" = "404" ]; then
 else
     fail "GET tms/api/v1/translation-files/$LANG_CODE -> $file_code (expected 200, or 404 if unseeded)"
 fi
+echo
+
+# Echoes the value of every $1 header line in $HDR_FILE, joined by ", " (empty when absent). Keeps the
+# VALUE only, so the twins compare the same string.
+header_values() {
+    grep -i "^$1:" "$HDR_FILE" | tr -d '\r' | sed -E 's/^[^:]*:[[:space:]]*//' | paste -sd ',' - | sed 's/,/, /g' || true
+}
+
+# Echoes the named directive of the CSP in $1, falling back to default-src like the browser does.
+csp_directive() {
+    local directive
+    directive="$(printf '%s' "$1" | tr ';' '\n' | sed -E 's/^[[:space:]]+//' | grep -i "^$2 " | head -n 1 || true)"
+    if [ -z "$directive" ]; then
+        directive="$(printf '%s' "$1" | tr ';' '\n' | sed -E 's/^[[:space:]]+//' | grep -i '^default-src ' | head -n 1 || true)"
+    fi
+    printf '%s' "$directive"
+}
+
+# $1 = page path, $2 = its HTML. Reads the headers from $HDR_FILE.
+check_auth_page() {
+    local page="$1" html="$2" csp frame nosniff referrer script_src style_src nonce folded count
+    if ! printf '%s' "$html" | grep -qi '<html'; then
+        # An empty body carries no inline content either, so the checks below would go green exactly
+        # when the page is down.
+        fail "auth $page served no HTML page"
+        return
+    fi
+
+    csp="$(header_values 'content-security-policy')"
+    if [ -z "$csp" ]; then
+        # Development skips the whole security-headers middleware, so a local dev stack lands here.
+        if [ "$REQUIRE_CSP" = "1" ]; then
+            fail "auth $page sends no Content-Security-Policy header (--require-csp)"
+        else
+            warn "auth $page sends no Content-Security-Policy header (expected only on a Development stack)"
+        fi
+        return
+    fi
+
+    frame="$(header_values 'x-frame-options')"
+    if [ "$frame" = "DENY" ] && printf '%s' "$csp" | grep -qi "frame-ancestors 'none'"; then
+        pass "auth $page forbids framing (X-Frame-Options DENY + frame-ancestors 'none')"
+    else
+        fail "auth $page can be framed: X-Frame-Options '${frame}', CSP without frame-ancestors 'none' (#693)"
+    fi
+
+    nosniff="$(header_values 'x-content-type-options')"
+    referrer="$(header_values 'referrer-policy')"
+    if [ "$nosniff" = "nosniff" ] && [ -n "$referrer" ]; then
+        pass "auth $page sends nosniff and Referrer-Policy '$referrer'"
+    else
+        fail "auth $page misses nosniff or a Referrer-Policy (got '$nosniff' / '$referrer') (#693)"
+    fi
+
+    # HTML tag and attribute names are case-insensitive, so match them that way. Newlines are folded
+    # first, because grep works line by line and a tag may be split over two lines.
+    folded="$(printf '%s' "$html" | tr '\n' ' ')"
+
+    script_src="$(csp_directive "$csp" 'script-src')"
+    if printf '%s' "$script_src" | grep -qi "unsafe-inline"; then
+        fail "auth $page script-src allows 'unsafe-inline' — injected script is no longer blocked"
+    elif printf '%s' "$script_src" | grep -qiE "nonce-|sha(256|384|512)-"; then
+        pass "auth $page script-src admits inline script only by nonce or hash"
+    else
+        count="$(printf '%s' "$folded" | grep -oiE '<script[^>]*>' | grep -c -iv 'src=' || true)"
+        if [ "$count" = "0" ]; then
+            pass "auth $page serves no inline <script> (nothing for script-src to block)"
+        else
+            fail "auth $page serves $count inline <script> element(s), which its own script-src blocks (#670)"
+        fi
+    fi
+
+    # The account pages keep their styles inline, so every <style> must carry the nonce style-src names.
+    style_src="$(csp_directive "$csp" 'style-src')"
+    nonce="$(printf '%s' "$style_src" | grep -oE "'nonce-[A-Za-z0-9+/_=-]+'" | head -n 1 | sed -E "s/^'nonce-//; s/'$//" || true)"
+    if printf '%s' "$style_src" | grep -qi "unsafe-inline"; then
+        fail "auth $page style-src allows 'unsafe-inline' (#693)"
+    elif [ -n "$nonce" ]; then
+        count="$(printf '%s' "$folded" | grep -oiE '<style[^>]*>' | grep -c -vF "nonce=\"$nonce\"" || true)"
+        if [ "$count" = "0" ]; then
+            pass "auth $page puts the header's nonce on every inline <style>"
+        else
+            fail "auth $page serves $count <style> element(s) without the header's nonce, which style-src blocks (#693)"
+        fi
+    else
+        count="$(printf '%s' "$folded" | grep -oiE '<style[^>]*>' | grep -c . || true)"
+        if [ "$count" = "0" ]; then
+            pass "auth $page serves no inline <style> (nothing for style-src to block)"
+        else
+            fail "auth $page serves $count inline <style> element(s), which its own style-src blocks (#693)"
+        fi
+    fi
+}
+
+echo "[6/6] Auth pages: security headers + CSP consistency (#693)"
+# Login renders a form; ConfirmEmail renders none. Antiforgery used to add a frame header to the first
+# kind only, so both are checked.
+for auth_page in /Account/Login /Account/ConfirmEmail; do
+    : > "$HDR_FILE"
+    auth_html="$(curl -s -D "$HDR_FILE" --max-time "$TIMEOUT" $TLS_FLAG "$AUTH_URL$auth_page" 2>/dev/null || true)"
+    check_auth_page "$auth_page" "$auth_html"
+done
 echo
 
 echo "=================================================="

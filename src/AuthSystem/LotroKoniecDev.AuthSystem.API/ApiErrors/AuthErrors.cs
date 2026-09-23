@@ -45,6 +45,11 @@ internal static class AuthErrors
             "Too many password confirmations for this account. Try again in a quarter of an hour.",
             TypeOfError.TooManyRequests);
 
+    public static Error EmailChangeRecipientThrottled =>
+        new("Auth.EmailChangeRecipientThrottled",
+            "Too many e-mail change links were sent to this address recently. Try again in a quarter of an hour.",
+            TypeOfError.TooManyRequests);
+
     public static Error ExportPasswordRequired =>
         new("Auth.ExportPasswordRequired",
             "The current password is required to download the data export.",

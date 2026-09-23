@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Identity;
 using LotroKoniecDev.AuthSystem.API.Common;
 using LotroKoniecDev.AuthSystem.API.Extensions;
 using LotroKoniecDev.AuthSystem.API.Services.Emails;
+using LotroKoniecDev.AuthSystem.API.Services.RateLimiting;
 using LotroKoniecDev.AuthSystem.Contracts.Features.Auth.EmailConfirmation;
 using LotroKoniecDev.AuthSystem.Domain.Aggregates.ApplicationUsers.Entities;
 
@@ -40,17 +41,20 @@ internal sealed partial class ResendEmailConfirmation : IApiEndpoint
 
         private readonly UserManager<ApplicationUser> _userManager;
         private readonly IAccountConfirmationEmailSender _accountConfirmationEmailSender;
+        private readonly IEmailConfirmationResendThrottle _throttle;
         private readonly IValidator<Command> _validator;
         private readonly ILogger<Handler> _logger;
 
         public Handler(
             UserManager<ApplicationUser> userManager,
             IAccountConfirmationEmailSender accountConfirmationEmailSender,
+            IEmailConfirmationResendThrottle throttle,
             IValidator<Command> validator,
             ILogger<Handler> logger)
         {
             _userManager = userManager;
             _accountConfirmationEmailSender = accountConfirmationEmailSender;
+            _throttle = throttle;
             _validator = validator;
             _logger = logger;
         }
@@ -88,6 +92,16 @@ internal sealed partial class ResendEmailConfirmation : IApiEndpoint
                 return Result.Success();
             }
 
+            // The per-account budget is taken only here, where a mail would really go out, so an unknown
+            // or confirmed address never spends one. The key is the account, so every spelling that finds
+            // it shares the budget, and the page and the endpoint share it because both run this handler.
+            // A refusal returns Success like every other branch (ADR-0055).
+            if (!_throttle.TryAcquire(user.Id))
+            {
+                LogResendThrottled(_logger, maskedEmail);
+                return Result.Success();
+            }
+
             string token = await _userManager.GenerateEmailConfirmationTokenAsync(user);
 
             // This send happens inside the request and skips the outbox on purpose (ADR-0038 decision
@@ -111,6 +125,9 @@ internal sealed partial class ResendEmailConfirmation : IApiEndpoint
 
         [LoggerMessage(EventId = EventIds.ResendConfirmAlreadyConfirmed, Level = LogLevel.Information, Message = "Email confirmation resend requested for already confirmed email {Email}")]
         private static partial void LogResendAlreadyConfirmed(ILogger logger, string email);
+
+        [LoggerMessage(EventId = EventIds.ResendConfirmThrottled, Level = LogLevel.Warning, Message = "Email confirmation resend throttled for {Email}: the per-account send budget is spent")]
+        private static partial void LogResendThrottled(ILogger logger, string email);
 
         [LoggerMessage(EventId = EventIds.ResendConfirmEmailFailed, Level = LogLevel.Error, Message = "Failed to send confirmation email for user {UserId}: {Error}")]
         private static partial void LogResendEmailFailed(ILogger logger, Guid userId, string error);

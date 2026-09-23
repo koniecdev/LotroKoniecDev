@@ -112,6 +112,12 @@ internal static class ApiDependencyInjection
                 new PerAccountFixedWindowThrottle(AccountBudgets.PasswordResetPermitLimit, AccountBudgets.Window));
             services.AddSingleton<IPasswordConfirmationThrottle>(_ =>
                 new PerAccountFixedWindowThrottle(AccountBudgets.PasswordConfirmationPermitLimit, AccountBudgets.Window));
+            services.AddSingleton<IEmailConfirmationResendThrottle>(_ =>
+                new PerAccountFixedWindowThrottle(AccountBudgets.EmailConfirmationResendPermitLimit, AccountBudgets.Window));
+            // The one budget keyed on an address instead of an account: the new address of an e-mail
+            // change has no account yet (ADR-0055).
+            services.AddSingleton<IEmailChangeRecipientThrottle>(_ =>
+                new PerRecipientFixedWindowThrottle(AccountBudgets.EmailChangeRecipientPermitLimit, AccountBudgets.Window));
 
             // The three policies the frontend reaches (fixed-by-ip, auth-endpoint-limit, change-email-limit)
             // take their key from this resolver: a direct caller's own address, or the visitor's address

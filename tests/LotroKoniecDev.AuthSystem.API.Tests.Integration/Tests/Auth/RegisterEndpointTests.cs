@@ -1,6 +1,10 @@
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
+using LotroKoniecDev.AuthSystem.API.Outbox;
 using LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared.Bases;
 using LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared.Factories;
 using LotroKoniecDev.AuthSystem.Contracts.Features.Auth.Register;
+using LotroKoniecDev.AuthSystem.Persistence.DbContexts;
 using LotroKoniecDev.SharedKernel.StronglyTypedIds;
 
 namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Tests.Auth;
@@ -49,6 +53,32 @@ public sealed class RegisterEndpointTests : EndpointsTestBase
 
         // Assert
         response.StatusCode.ShouldBe(HttpStatusCode.UnprocessableEntity);
+    }
+
+    [Fact]
+    public async Task Register_ShouldQueueNoSecondConfirmation_WhenTheAddressIsAlreadyRegistered()
+    {
+        // Arrange: registration mails an address the caller typed. Its per-address budget is the unique
+        // address itself, one mail for any spelling Identity folds together, so it needs no throttle of
+        // its own (ADR-0055)
+        (RegisterRequest existingRequest, _) =
+            await UserFactory.RegisterRandomUserWithRequestAsync(ApiClient, Faker, AccountConfirmationEmailSpy);
+        int rowsAfterFirst = await CountConfirmationRowsAsync();
+
+        string[] repeats = [existingRequest.Email, existingRequest.Email.ToUpperInvariant()];
+
+        // Act
+        foreach (string email in repeats)
+        {
+            RegisterRequest duplicateRequest = UserFactory.GenerateRandomRegisterRequest(Faker) with { Email = email };
+            using HttpResponseMessage response = await ApiClient.Http.PostAsJsonAsync(
+                new Uri("auth/register", UriKind.Relative), duplicateRequest);
+            response.StatusCode.ShouldBe(HttpStatusCode.UnprocessableEntity);
+        }
+
+        // Assert
+        rowsAfterFirst.ShouldBe(1);
+        (await CountConfirmationRowsAsync()).ShouldBe(rowsAfterFirst);
     }
 
     [Fact]
@@ -240,6 +270,16 @@ public sealed class RegisterEndpointTests : EndpointsTestBase
 
         // Assert
         response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+    }
+
+    private async Task<int> CountConfirmationRowsAsync()
+    {
+        await using AsyncServiceScope scope = Factory.Services.CreateAsyncScope();
+        AuthDbContext db = scope.ServiceProvider.GetRequiredService<AuthDbContext>();
+
+        return await db.OutboxMessages
+            .AsNoTracking()
+            .CountAsync(row => row.Type == nameof(EmailConfirmationRequested));
     }
 
     // The former Register_ShouldAutoConfirmEmail_WhenEmailSendingFails test died with the

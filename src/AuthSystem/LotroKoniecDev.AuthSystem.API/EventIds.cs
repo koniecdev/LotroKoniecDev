@@ -65,6 +65,7 @@ internal static class EventIds
     public const int ResendConfirmNonExistent = 2280;
     public const int ResendConfirmAlreadyConfirmed = 2281;
     public const int ResendConfirmEmailFailed = 2282;
+    public const int ResendConfirmThrottled = 2283;
 
     // Reset Password (2290-2299)
     public const int ResetPasswordFailed = 2290;
@@ -133,6 +134,7 @@ internal static class EventIds
     public const int EmailChangeConfirmRace = 2506;
     public const int EmailChangeRequestAddressReserved = 2507;
     public const int EmailChangeConfirmAddressReserved = 2508;
+    public const int EmailChangeRecipientThrottled = 2509;
     public const int EmailChangeRevertTokenInvalid = 2510;
     public const int EmailChangeReverted = 2511;
     public const int EmailChangeRevertFailed = 2512;

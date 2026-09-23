@@ -136,7 +136,7 @@ public sealed class DiscoveryCacheTests
         ApiResult<AuthDiscoveryResponse> guest =
             await CreateCache(authenticated: false, hybridCache).GetAuthSystemDiscoveryAsync();
 
-        guest.ProblemDetails!.Status.ShouldBe(503);
+        guest.ProblemDetails.ShouldNotBeNull().Status.ShouldBe(503);
     }
 
     [Fact]
@@ -166,7 +166,7 @@ public sealed class DiscoveryCacheTests
 
         ApiResult<TranslationDiscoveryResponse> result = await cache.GetTranslationSystemDiscoveryAsync();
 
-        // It falls back to the anonymous set of links, so the public pages still render on the way out.
+        // It serves the anonymous set the API sent, so the public pages still render on the way out.
         result.IsSuccess.ShouldBeTrue();
         result.Value.Links.ShouldNotContain(link => link.Rel == TranslationRels.ContributionDataExport);
         result.Value.Links.ShouldContain(link => link.Rel == TranslationRels.Progress);
@@ -244,7 +244,7 @@ public sealed class DiscoveryCacheTests
         ApiResult<TranslationDiscoveryResponse> guest =
             await CreateCache(authenticated: false, hybridCache).GetTranslationSystemDiscoveryAsync();
 
-        guest.ProblemDetails!.Status.ShouldBe(503);
+        guest.ProblemDetails.ShouldNotBeNull().Status.ShouldBe(503);
     }
 
     private DiscoveryCache CreateCache(bool authenticated, HybridCache? hybridCache = null)

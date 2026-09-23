@@ -122,8 +122,9 @@ Content-Type: multipart/form-data          # the import upload only
 
 ### 2.4 Rate limiting
 
-In non-dev/test, `tms-api` applies a **fixed-window 100 requests/minute per IP** policy across the
-endpoint group; over-limit returns **429** (`Program.cs:187-199`). `auth-api` rate-limits per client:
+In non-dev/test, `tms-api` applies a **fixed-window 100 requests/minute per client** policy,
+`fixed-by-ip`, across the endpoint group; over-limit returns **429** (the `AddRateLimiter` block in its
+`Program.cs`). `auth-api` rate-limits per client:
 the OpenIddict `/connect/*` endpoints, confirm-email, reset-password, cancel-deletion and the account
 GET carry the `auth-endpoint-limit` policy (10/min); `auth/register` carries `register-limit`, the
 same numbers keyed on the connection's own address; forgot-password and resend-confirmation carry
@@ -132,9 +133,11 @@ policies and braked per account instead (ADR-0053); the remaining API endpoints 
 generic 20/min policy (health probes and the OpenIddict discovery/JWKS documents are deliberately
 unlimited).
 
-For the three policies the Frontend's server-side calls reach — the generic one, `auth-endpoint-limit`
-and `change-email-limit` — "per IP" means per **client** as `RateLimitPartitionKeyResolver` names it
-(ADR-0054): a direct caller's own address, or, for a call the Frontend makes on a visitor's behalf,
+For `tms-api`'s one policy (#823) and the three `auth-api` policies the Frontend's server-side calls
+reach — the generic one, `auth-endpoint-limit` and `change-email-limit` — "per IP" means per
+**client** as each API's `RateLimitPartitionKeyResolver` names it (ADR-0054). Both APIs apply the same
+rule and read the same environment key: a direct caller's own address (the CLI's translation-file
+download, for one), or, for a call the Frontend makes on a visitor's behalf,
 the visitor's address the Frontend sends in `X-LOTRO-Client-Address` next to the environment's key in
 `X-LOTRO-Frontend-Key`. Every Frontend call leaves from one container, so without that every
 logged-in user would share one bucket. The key only picks the bucket: a call with a missing, wrong or

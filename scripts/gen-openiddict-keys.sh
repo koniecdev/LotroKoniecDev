@@ -4,7 +4,7 @@
 #   OpenIddict__EncryptionKey__Key            base64 of a 32-byte symmetric key
 #   OpenIddict__SigningKey__RsaPrivateKeyXml  base64 of RSA.ToXmlString(true), 2048-bit
 #   OpenIddict__ApiClientSecret               >= 32 chars
-# plus the frontend's auth API caller key (ADR-0054), which both auth-api and the frontend read:
+# plus the frontend's caller key (ADR-0054), which auth-api, tms-api and the frontend all read:
 #   FRONTEND_CALLER_KEY                       base64 of 32 random bytes
 #
 # Prints KEY=VALUE lines on stdout — append them to your git-ignored .env.prod, e.g.:

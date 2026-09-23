@@ -1,10 +1,11 @@
 using System.Net;
-using LotroKoniecDev.AuthSystem.Contracts.Common;
 using LotroKoniecDev.Frontend.Infrastructure.Auth;
 using LotroKoniecDev.Frontend.Infrastructure.Auth.TokenRefresh;
 using LotroKoniecDev.Frontend.Infrastructure.HttpClients;
 using LotroKoniecDev.Frontend.Infrastructure.HttpClients.AuthSystemHttpClients;
+using LotroKoniecDev.Frontend.Infrastructure.HttpClients.TranslationSystemHttpClients;
 using LotroKoniecDev.Frontend.Settings;
+using LotroKoniecDev.Hateoas.Abstractions;
 using Microsoft.AspNetCore.Authentication.OpenIdConnect;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Http;
@@ -16,19 +17,23 @@ using NSubstitute;
 namespace LotroKoniecDev.Frontend.Tests.Unit.Infrastructure.HttpClients;
 
 /// <summary>
-/// ADR-0054 (#819): every auth API call leaves from the Frontend's one container, so the handler sends
-/// the visitor's address, the one <c>UseForwardedHeaders</c> resolved, next to the environment's key,
-/// and the auth API meters the call on that visitor. The first tests drive the handler alone; the last
-/// three go through the real registrations, one per path to the auth API, because a handler that is
-/// written but not wired changes nothing.
+/// ADR-0054 (#819, #823): every auth API and TMS API call leaves from the Frontend's one container, so
+/// the handler sends the visitor's address, the one <c>UseForwardedHeaders</c> resolved, next to the
+/// environment's key, and the API meters the call on that visitor. The first tests drive the handler
+/// alone; the last four go through the real registrations, one per path to either API, because a
+/// handler that is written but not wired changes nothing.
 /// </summary>
 public sealed class FrontendCallerDelegatingHandlerTests
 {
     // Built rather than written out, so no secret scanner mistakes test data for a key.
     private static readonly string CallerKey = new('k', 40);
 
+    // A different value from the auth API's, so a client that read the wrong settings would show it.
+    private static readonly string TranslationSystemCallerKey = new('t', 40);
+
     private const string VisitorAddress = "203.0.113.7";
     private const string AuthBaseUrl = "https://auth.lotro.test/";
+    private const string TranslationSystemBaseUrl = "https://tms.lotro.test/";
 
     [Fact]
     public async Task SendAsync_WithAKeyAndAVisitor_SendsBothHeaders()
@@ -116,6 +121,23 @@ public sealed class FrontendCallerDelegatingHandlerTests
     }
 
     [Fact]
+    public async Task TranslationSystemClient_ThroughTheRealPipeline_SendsItsOwnKeyOnceEvenWhenRetried()
+    {
+        // #823: every translator page load calls the TMS API from this container, so the TMS client
+        // carries the visitor too, with the key from the TMS settings. It sits outside the resilience
+        // handler as well, so a retried message still carries one value per header.
+        RecordingHttpMessageHandler primary = new(HttpStatusCode.InternalServerError);
+        await using ServiceProvider provider = BuildProvider(primary, services => services.AddHttpClients());
+        ITranslationSystemClient client = provider.GetRequiredService<ITranslationSystemClient>();
+
+        await client.GetDiscoveryAsync();
+
+        primary.SendCount.ShouldBeGreaterThan(1);
+        HeaderValues(primary.LastRequest!, FrontendCallerHeaders.Key).ShouldBe([TranslationSystemCallerKey]);
+        HeaderValues(primary.LastRequest!, FrontendCallerHeaders.ClientAddress).ShouldBe([VisitorAddress]);
+    }
+
+    [Fact]
     public async Task TokenEndpointClient_ThroughTheRealRegistration_SendsBothHeaders()
     {
         // The refresh grant is the auth API call every near-expiry request makes, and it is not the typed
@@ -170,7 +192,7 @@ public sealed class FrontendCallerDelegatingHandlerTests
         string? callerKey)
     {
         StubHttpMessageHandler inner = StubHttpMessageHandler.RespondWith(HttpStatusCode.OK, "{}");
-        FrontendCallerDelegatingHandler handler = new(accessor, Microsoft.Extensions.Options.Options.Create(SettingsWith(callerKey)))
+        FrontendCallerDelegatingHandler handler = new(accessor, callerKey)
         {
             InnerHandler = inner
         };
@@ -190,8 +212,12 @@ public sealed class FrontendCallerDelegatingHandlerTests
         services.AddSingleton(AccessorFor(VisitorAddress));
         services.AddSingleton<IDataProtectionProvider>(new EphemeralDataProtectionProvider());
         services.AddSingleton<IOptions<AuthSystemSettings>>(Microsoft.Extensions.Options.Options.Create(SettingsWith(CallerKey)));
+        services.AddSingleton<IOptions<TranslationSystemSettings>>(Microsoft.Extensions.Options.Options.Create(
+            new TranslationSystemSettings { BaseUrl = TranslationSystemBaseUrl, CallerKey = TranslationSystemCallerKey }));
         register(services);
         services.AddHttpClient<IAuthSystemClient, AuthSystemClient>()
+            .ConfigurePrimaryHttpMessageHandler(() => primary);
+        services.AddHttpClient<ITranslationSystemClient, TranslationSystemClient>()
             .ConfigurePrimaryHttpMessageHandler(() => primary);
         services.AddHttpClient<ITokenEndpointClient, TokenEndpointClient>()
             .ConfigurePrimaryHttpMessageHandler(() => primary);

@@ -2,20 +2,21 @@ using System.Net;
 using System.Security.Cryptography;
 using System.Text;
 using Microsoft.Extensions.Options;
-using LotroKoniecDev.AuthSystem.API.Settings;
 using LotroKoniecDev.Hateoas.Abstractions;
+using LotroKoniecDev.TranslationSystem.API.Settings;
 
-namespace LotroKoniecDev.AuthSystem.API.Services.RateLimiting;
+namespace LotroKoniecDev.TranslationSystem.API.Services.RateLimiting;
 
 /// <summary>
-/// Names the client a request is metered as (ADR-0054). The frontend's calls all leave from one
+/// Names the client a request is metered as (ADR-0054, #823). The frontend's calls all leave from one
 /// container, so it sends the visitor's address along with the environment's shared key: such a call
 /// is metered on that address only when the key matches and the address parses. Everything else is
-/// metered on <c>Connection.RemoteIpAddress</c>: a direct caller, a wrong or missing key, and a
-/// missing, repeated or broken address. <c>UseForwardedHeaders</c> resolved that address from Caddy's
-/// pinned /32 (#399, #506), so a caller without the key can never choose its bucket. The keys are
-/// compared as SHA-256 digests in constant time: a wrong guess learns neither the key's length nor how
-/// much of it matched.
+/// metered on <c>Connection.RemoteIpAddress</c>: a direct caller such as the CLI, a wrong or missing
+/// key, and a missing, repeated or broken address. <c>UseForwardedHeaders</c> resolved that address
+/// from Caddy's pinned /32 (#399, #506), so a caller without the key can never choose its bucket.
+/// The keys are compared as SHA-256 digests in constant time: a wrong guess learns neither the key's
+/// length nor how much of it matched. The auth API has its own copy of this class: the two APIs share
+/// the header names, not code.
 /// </summary>
 internal sealed class RateLimitPartitionKeyResolver
 {

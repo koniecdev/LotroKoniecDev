@@ -16,6 +16,7 @@ using LotroKoniecDev.TranslationSystem.API;
 using LotroKoniecDev.TranslationSystem.API.Extensions;
 using LotroKoniecDev.TranslationSystem.API.Health;
 using LotroKoniecDev.TranslationSystem.API.Middleware;
+using LotroKoniecDev.TranslationSystem.API.Services.RateLimiting;
 using LotroKoniecDev.TranslationSystem.API.Settings;
 using LotroKoniecDev.TranslationSystem.Persistence.Settings;
 using LotroKoniecDev.Logging.Redaction;
@@ -239,6 +240,16 @@ try
             name: "translationdb",
             tags: ["db", "postgres"]);
 
+    // Every frontend call reaches this API from the frontend's one container, so the policy takes its
+    // key from this resolver: a direct caller's own address, or the visitor's address the frontend
+    // forwards next to the environment's key (ADR-0054, #823). The key is required outside Development
+    // and Testing.
+    builder.Services.AddOptions<FrontendCallerSettings>()
+        .BindConfiguration(FrontendCallerSettings.ConfigurationSection)
+        .ValidateOnStart();
+    builder.Services.AddSingleton<IValidateOptions<FrontendCallerSettings>, FrontendCallerSettingsValidator>();
+    builder.Services.AddSingleton<RateLimitPartitionKeyResolver>();
+
     const string rateLimitPolicy = "fixed-by-ip";
 
     builder.Services.AddRateLimiter(options =>
@@ -247,7 +258,7 @@ try
 
         options.AddPolicy(rateLimitPolicy, httpContext =>
             RateLimitPartition.GetFixedWindowLimiter(
-                partitionKey: httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+                partitionKey: httpContext.RequestServices.GetRequiredService<RateLimitPartitionKeyResolver>().Resolve(httpContext),
                 factory: _ => new FixedWindowRateLimiterOptions
                 {
                     PermitLimit = 100,
@@ -320,7 +331,10 @@ try
     // when the claims changed, so an authenticated read stays a plain lookup.
     app.UseTranslatorProvisioning();
 
-    if (!app.Environment.IsDevelopment() && !app.Environment.IsTesting())
+    // Off in Development and Testing, so local flows and the test suites never hit the limit.
+    // RateLimiting:ForceEnable lets a test host turn it on to see a real 429, as on the auth API.
+    bool rateLimiterOffByEnvironment = app.Environment.IsDevelopment() || app.Environment.IsTesting();
+    if (!rateLimiterOffByEnvironment || app.Configuration.GetValue<bool>("RateLimiting:ForceEnable"))
     {
         app.UseRateLimiter();
     }
@@ -348,12 +362,10 @@ try
         ResponseWriter = HealthCheckResponseWriter.WriteResponse
     }).AllowAnonymous();
 
-    RouteGroupBuilder endpointsGroup = app.MapGroup("");
-
-    if (!app.Environment.IsDevelopment() && !app.Environment.IsTesting())
-    {
-        endpointsGroup.RequireRateLimiting(rateLimitPolicy);
-    }
+    // The policy metadata is always attached. UseRateLimiter above is the one switch that decides
+    // whether it is enforced.
+    RouteGroupBuilder endpointsGroup = app.MapGroup("")
+        .RequireRateLimiting(rateLimitPolicy);
 
     app.MapEndpoints(endpointsGroup);
 

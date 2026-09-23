@@ -1,16 +1,17 @@
 using System.Net;
-using LotroKoniecDev.AuthSystem.API.Services.RateLimiting;
-using LotroKoniecDev.AuthSystem.API.Settings;
 using LotroKoniecDev.Hateoas.Abstractions;
+using LotroKoniecDev.TranslationSystem.API.Services.RateLimiting;
+using LotroKoniecDev.TranslationSystem.API.Settings;
 using Microsoft.AspNetCore.Http;
 
-namespace LotroKoniecDev.AuthSystem.API.Tests.Unit.Services.RateLimiting;
+namespace LotroKoniecDev.TranslationSystem.API.Tests.Unit.Tests.Services.RateLimiting;
 
 /// <summary>
-/// The client a request is metered as (ADR-0054): the visitor the frontend forwards, but only next to
-/// the environment's key, and the connection's own address for everything short of that. Every row
-/// here is one step short of a proven visitor; were such a call believed, it would land in a fresh
-/// bucket instead of its connection's full one.
+/// The client a TMS API request is metered as (ADR-0054, #823): the visitor the frontend forwards, but
+/// only next to the environment's key, and the connection's own address for everything short of that.
+/// Every row here is one step short of a proven visitor; were such a call believed, it would land in a
+/// fresh bucket instead of its connection's full one. The auth API's copy of the resolver has the same
+/// suite: the two APIs share the header names, not code.
 /// </summary>
 public sealed class RateLimitPartitionKeyResolverTests
 {
@@ -44,10 +45,13 @@ public sealed class RateLimitPartitionKeyResolverTests
         partitionKey.ShouldBe("2001:db8::1");
     }
 
-    [Fact]
-    public void Resolve_WithNoKeyConfigured_IgnoresBothHeaders()
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void Resolve_WithNoKeyConfigured_IgnoresBothHeaders(string? configuredKey)
     {
-        RateLimitPartitionKeyResolver resolver = CreateResolver(configuredKey: null);
+        RateLimitPartitionKeyResolver resolver = CreateResolver(configuredKey);
         HttpContext httpContext = ContextFrom(ConnectionAddress, [FrontendKey], [VisitorAddress]);
 
         string partitionKey = resolver.Resolve(httpContext);
@@ -62,8 +66,10 @@ public sealed class RateLimitPartitionKeyResolverTests
         { [new string('w', 40)], [VisitorAddress] },
         { [FrontendKey[..^1]], [VisitorAddress] },
         { [FrontendKey + "k"], [VisitorAddress] },
+        { [FrontendKey.ToUpperInvariant()], [VisitorAddress] },
         { [FrontendKey, FrontendKey], [VisitorAddress] },
         { [FrontendKey], [] },
+        { [FrontendKey], [string.Empty] },
         { [FrontendKey], [VisitorAddress, "203.0.113.9"] },
         { [FrontendKey], ["not-an-address"] },
         { [FrontendKey], ["198.51.100.39.7"] },

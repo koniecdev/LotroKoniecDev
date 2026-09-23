@@ -4,9 +4,9 @@ using Microsoft.Extensions.Configuration;
 using LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared;
 using LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared.Bases;
 using LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared.Factories;
-using LotroKoniecDev.AuthSystem.Contracts.Common;
 using LotroKoniecDev.AuthSystem.Contracts.Features.Auth.Account;
 using LotroKoniecDev.AuthSystem.Contracts.Features.Auth.Register;
+using LotroKoniecDev.Hateoas.Abstractions;
 
 namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Tests.RateLimiting;
 

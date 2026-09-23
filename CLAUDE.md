@@ -480,20 +480,23 @@ hash-check → patch → launch flow is validated. Re-investigating any of it is
   the **id**, never the address text: Identity's `NormalizeEmail` runs `Normalize()` first, so a Polish
   address written with a combining accent resolves to the same account while a text key would hand the two
   identical-looking spellings a budget each.
-- **A per-address rate limit the frontend can reach on the auth API is keyed on the visitor, never on
-  the frontend container (ADR-0054, #819).** Every frontend→auth call arrives through Caddy from the
-  frontend container, so `Connection.RemoteIpAddress` there is one address for every user. The three
-  policies that traffic reaches (`fixed-by-ip`, `auth-endpoint-limit`, `change-email-limit`) take their
-  key from `RateLimitPartitionKeyResolver`: the visitor's address the frontend forwards in
+- **A per-address rate limit the frontend can reach on the auth API or the TMS API is keyed on the
+  visitor, never on the frontend container (ADR-0054, #819, #823).** Every frontend→API call arrives
+  through Caddy from the frontend container, so `Connection.RemoteIpAddress` there is one address for
+  every user. The TMS API's one policy (`fixed-by-ip`) and the three auth policies that traffic
+  reaches (`fixed-by-ip`, `auth-endpoint-limit`, `change-email-limit`) take their key from each API's
+  own copy of `RateLimitPartitionKeyResolver`: the visitor's address the frontend forwards in
   `X-LOTRO-Client-Address`, honoured only next to the per-environment `X-LOTRO-Frontend-Key` (SHA-256
   digests, constant-time compare, exactly one value each, the address must parse), otherwise the
   connection's own address. The browser-facing page policies and `register-limit` stay on the
   connection's address on purpose: the frontend never posts to a Razor page nor to `auth/register`,
   and the key must never become a bypass for the login brake or a fresh mail budget per invented
-  address. A new outgoing path from the frontend to the
-  auth API carries `FrontendCallerDelegatingHandler` (today: the typed account client, the token
-  client, the OIDC back-channel). The key is `FRONTEND_CALLER_KEY` in the box `.env`, read by both
-  services; compose refuses to render without it and both apps refuse to boot without it outside
+  address. A new outgoing path from the frontend to either API carries
+  `FrontendCallerDelegatingHandler` with that API's key (today: the auth API's typed account client,
+  token client and OIDC back-channel, and the TMS API's typed client), outside any resilience handler
+  so a retry never repeats a header. The header names live once, in `Hateoas.Abstractions`. The key
+  is one `FRONTEND_CALLER_KEY` per box `.env`, read by all three services (one key per box, not one
+  per API); compose refuses to render without it and every app refuses to boot without it outside
   Development/Testing — so it lands on the staging box before a change that needs it merges.
 - **Every user-visible date is Poland time, never raw UTC (#736).** Static SSR has no reader time
   zone: the server's own zone is UTC in a container and the request carries none. The product serves a

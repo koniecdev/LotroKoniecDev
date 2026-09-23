@@ -1,6 +1,6 @@
 # ADR-0055: Mail to a Typed Address Is Budgeted per Recipient, in the Handler That Sends It
 
-**Status:** Accepted
+**Status:** Accepted (amended 2026-09-23 by ADR-0057: decisions 1, 2 and 4, and the first accepted trade-off. See the notes in the text)
 **Date:** 2026-09-23
 **Decision-makers:** Solo maintainer (ticket #793)
 **Related:** AuthSystem.API (`Features/Auth`, `Services/RateLimiting`, `Program.cs` rate-limit
@@ -57,6 +57,9 @@ Code facts that shaped the decision:
 All three budgets use the same 15-minute window (`AccountBudgets.Window`), so "come back later"
 means the same wait everywhere.
 
+> **Amended by ADR-0057 (#835):** registration now has a budget of its own, 3 new accounts per inbox
+> per 15 minutes. The unique address is no budget when an inbox has many spellings.
+
 ### 2. The key is the account id where the address has an account, the normalized address where it has none
 
 The resend budget keys on the account the lookup finds, like the password-reset budget. Every
@@ -73,6 +76,10 @@ scoped and the budget is a singleton.
 A per-requester budget would be the wrong key for this flow: an attacker with N accounts would get N
 budgets for one inbox. Each account is already limited on its own by the password budget of ADR-0053
 (10 per 15 minutes) and by `change-email-limit` per visitor.
+
+> **Amended by ADR-0057 (#835):** the resend and e-mail change budgets now key on the inbox
+> (`MailboxKey`), which also folds a `+tag`, Gmail's dots and googlemail.com. The password-reset budget
+> keys on the account id for a confirmed account and on the inbox for an unconfirmed one.
 
 ### 3. The budget is taken in the handler, only where a mail really goes out, not in the dispatch leg
 
@@ -99,6 +106,10 @@ already work that way: every budget is its own singleton instance under its own 
 §1), so the flow is part of the key without being a string anyone can mistype. The resend budget is a
 third instance of `PerAccountFixedWindowThrottle`. The e-mail change budget needs a second class,
 `PerRecipientFixedWindowThrottle`, only because its key is a string and not a `Guid`.
+
+> **Amended by ADR-0057 (#835):** `PerMailboxFixedWindowThrottle` replaces
+> `PerRecipientFixedWindowThrottle` and takes a `MailboxKey`, not a string. The reset budget is
+> `PasswordResetRequestThrottle`, which holds one budget per account and one per inbox.
 
 ### 5. The resend refusal is invisible; the e-mail change refusal is a 429
 
@@ -130,6 +141,7 @@ third instance of `PerAccountFixedWindowThrottle`. The e-mail change budget need
   treats them as separate addresses. For Gmail inboxes this ADR is therefore a much weaker brake:
   registration is the cheapest channel, at one mail per new spelling behind an IP budget only.
   Folding these belongs in one mailbox key shared by all four flows, not in one flow. That is #835.
+  **Resolved by ADR-0057.**
 - **Another account can keep a new address's e-mail change budget spent.** It takes three requests
   in every window, and each one mails that address, so the owner of the inbox sees it happen. For as
   long as it goes on, a real change to that address is refused with the 429. A flood brake has to key

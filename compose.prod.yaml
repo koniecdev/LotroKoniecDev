@@ -152,9 +152,10 @@ services:
       RabbitMq__Username: rabbitmq
       RabbitMq__Password: ${RABBITMQ_PASSWORD:?add RABBITMQ_PASSWORD to .env.prod (see .env.prod.example)}
       # AUTH_ADMIN_USERNAME must match ^[a-zA-Z0-9]+$ or auth-api fails at startup (ADR-0022).
+      # No AdminUser__Password on purpose: the admin is seeded without one and the operator sets it
+      # through the password reset mail (ADR-0056, runbook -> Admin account).
       AdminUser__Username: ${AUTH_ADMIN_USERNAME:-}
       AdminUser__Email: ${AUTH_ADMIN_EMAIL:-}
-      AdminUser__Password: ${AUTH_ADMIN_PASSWORD:-}
       OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
       OTEL_EXPORTER_OTLP_PROTOCOL: grpc
     volumes:

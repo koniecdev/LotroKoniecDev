@@ -528,7 +528,10 @@ SELECT "Email", "PasswordHash" IS NULL AS no_password FROM authsystem."Users" WH
   password. Put the new address into `AUTH_ADMIN_EMAIL`, or ignore the warning. **Never delete this
   row.** It is the live admin.
 - **A typo in `AUTH_ADMIN_EMAIL` at the first seed.** The row has the misspelled address and no
-  password, because nobody could ever receive its reset mail. Delete that row (see the
+  password, because nobody could ever receive its reset mail. A real address with no password is
+  **not** this case: a cancelled deletion or an undone e-mail change also clears the password. If
+  you receive mail at that address, it is the live admin, so reset it instead. Delete the row only
+  when the address is really misspelled (see the
   [reseed traps](#reseed-traps--the-auth-seeder-is-create-if-missing)), fix the `.env` and restart
   auth-api.
 

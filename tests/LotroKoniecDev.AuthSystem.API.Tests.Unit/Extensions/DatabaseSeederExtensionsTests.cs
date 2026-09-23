@@ -1,3 +1,4 @@
+using LotroKoniecDev.AuthSystem.API;
 using LotroKoniecDev.AuthSystem.API.Extensions;
 using LotroKoniecDev.AuthSystem.API.Tests.Unit.Shared;
 using Microsoft.AspNetCore.Hosting;
@@ -61,7 +62,7 @@ public sealed class DatabaseSeederExtensionsTests
 
         CapturingLogger<DatabaseSeederExtensionsTests>.LogEntry entry = logger.Entries.ShouldHaveSingleItem();
         entry.Level.ShouldBe(LogLevel.Warning);
-        entry.EventId.ShouldBe(2352);
+        entry.EventId.ShouldBe(EventIds.AdminSeedPasswordIgnored);
         entry.Message.ShouldNotContain(ConfiguredPassword);
     }
 

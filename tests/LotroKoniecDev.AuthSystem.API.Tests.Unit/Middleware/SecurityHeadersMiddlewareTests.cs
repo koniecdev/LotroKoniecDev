@@ -16,6 +16,7 @@ public sealed class SecurityHeadersMiddlewareTests
     [InlineData("https://app.lotro-translator.pl/", "https://app.lotro-translator.pl")]
     [InlineData("https://localhost:7017/callback", "https://localhost:7017")]
     [InlineData("http://localhost:5000/callback?x=1#frag", "http://localhost:5000")]
+    [InlineData("https://user:secret@app.lotro-translator.pl:8443/callback", "https://app.lotro-translator.pl:8443")]
     public void FrontendOrigins_ShouldCutEachUriDownToItsOrigin(string redirectUri, string expectedOrigin)
     {
         // Arrange
@@ -158,8 +159,9 @@ public sealed class SecurityHeadersMiddlewareTests
         // Assert
         IHeaderDictionary headers = responseFeature.Headers;
         string nonce = CspNonce.Get(context).ShouldNotBeNull();
-        headers.ContentSecurityPolicy.ToString()
-            .ShouldBe(SecurityHeadersMiddleware.BuildContentSecurityPolicy(nonce, [FrontendOrigin]));
+        headers.ContentSecurityPolicy.ToString().ShouldBe(
+            "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'; script-src 'self'; "
+            + $"style-src 'self' 'nonce-{nonce}'; font-src 'self'; form-action 'self' {FrontendOrigin}");
         headers.XContentTypeOptions.ToString().ShouldBe("nosniff");
         headers["Referrer-Policy"].ToString().ShouldBe("no-referrer");
         headers.XFrameOptions.ToString().ShouldBe("DENY");
@@ -185,6 +187,31 @@ public sealed class SecurityHeadersMiddlewareTests
 
         // Assert
         responseFeature.Headers.XFrameOptions.ToString().ShouldBe("DENY");
+    }
+
+    [Fact]
+    public async Task InvokeAsync_ShouldStillStampTheHeaders_WhenTheResponseWasClearedForAnErrorPage()
+    {
+        // Arrange: the exception handler clears the response before it writes the error page
+        RecordingResponseFeature responseFeature = new();
+        DefaultHttpContext context = BuildContext(responseFeature);
+        SecurityHeadersMiddleware middleware = new(
+            httpContext =>
+            {
+                httpContext.Response.Headers.XFrameOptions = "SAMEORIGIN";
+                httpContext.Response.Clear();
+                httpContext.Response.StatusCode = StatusCodes.Status500InternalServerError;
+                return Task.CompletedTask;
+            },
+            ConfiguredWebClient());
+
+        // Act
+        await middleware.InvokeAsync(context);
+        await responseFeature.FireOnStartingAsync();
+
+        // Assert
+        responseFeature.Headers.XFrameOptions.ToString().ShouldBe("DENY");
+        responseFeature.Headers.ContentSecurityPolicy.ToString().ShouldContain("frame-ancestors 'none'");
     }
 
     [Fact]
@@ -230,19 +257,6 @@ public sealed class SecurityHeadersMiddlewareTests
         firstNonce.ShouldMatch("^[A-Za-z0-9_-]{43}$");
     }
 
-    [Fact]
-    public void CspNonce_ShouldBeNull_WhenTheMiddlewareDidNotRun()
-    {
-        // Arrange
-        DefaultHttpContext context = new();
-
-        // Act
-        string? nonce = CspNonce.Get(context);
-
-        // Assert
-        nonce.ShouldBeNull();
-    }
-
     private static IOptions<OpenIddictSettings> ConfiguredWebClient() =>
         Microsoft.Extensions.Options.Options.Create(new OpenIddictSettings
         {
@@ -259,6 +273,7 @@ public sealed class SecurityHeadersMiddlewareTests
         FeatureCollection features = new();
         features.Set<IHttpRequestFeature>(new HttpRequestFeature());
         features.Set(responseFeature);
+        features.Set<IHttpResponseBodyFeature>(new StreamResponseBodyFeature(Stream.Null));
         return new DefaultHttpContext(features);
     }
 

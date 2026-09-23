@@ -108,6 +108,11 @@ public sealed partial class SecurityHeadersTests : EndpointsTestBase
             {
                 failures.Add($"{page}: an inline style attribute, which a nonce does not cover");
             }
+
+            if (EventHandlerAttributeRegex().IsMatch(html))
+            {
+                failures.Add($"{page}: an inline event handler attribute, which script-src 'self' blocks");
+            }
         }
 
         // Assert
@@ -195,15 +200,22 @@ public sealed partial class SecurityHeadersTests : EndpointsTestBase
         body.ShouldContain("password-toggle");
     }
 
+    /// <summary>
+    /// Every response, not only the pages: JSON, a static file, and a 404 that the status-code pages
+    /// write after routing found nothing.
+    /// </summary>
     [Theory]
-    [InlineData("/health/live")]
-    [InlineData("/")]
-    public async Task ApiResponse_ShouldCarryTheSecurityHeadersToo(string path)
+    [InlineData("/health/live", HttpStatusCode.OK)]
+    [InlineData("/", HttpStatusCode.OK)]
+    [InlineData("/login.js", HttpStatusCode.OK)]
+    [InlineData("/does-not-exist", HttpStatusCode.NotFound)]
+    public async Task NonPageResponse_ShouldCarryTheSecurityHeadersToo(string path, HttpStatusCode expectedStatus)
     {
         // Act
         using HttpResponseMessage response = await ApiClient.Http.GetAsync(new Uri(path, UriKind.Relative));
 
         // Assert
+        response.StatusCode.ShouldBe(expectedStatus);
         SingleHeader(response, "X-Content-Type-Options").ShouldBe("nosniff");
         SingleHeader(response, "X-Frame-Options").ShouldBe("DENY");
         SingleHeader(response, "Content-Security-Policy").ShouldNotBeNull();
@@ -292,4 +304,7 @@ public sealed partial class SecurityHeadersTests : EndpointsTestBase
 
     [GeneratedRegex(@"<[a-z][^>]*\sstyle\s*=", RegexOptions.IgnoreCase)]
     private static partial Regex StyleAttributeRegex();
+
+    [GeneratedRegex(@"<[a-z][^>]*\son[a-z]+\s*=", RegexOptions.IgnoreCase)]
+    private static partial Regex EventHandlerAttributeRegex();
 }

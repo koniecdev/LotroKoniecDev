@@ -79,7 +79,8 @@ internal sealed class SecurityHeadersMiddleware
     /// <summary>
     /// The origins of the web client's redirect and post-logout URIs: the only places a form on this
     /// origin may end up. A value that is not an absolute http(s) URL is skipped; the settings
-    /// validator reports it at startup.
+    /// validator reports it at startup. The origin is built from the scheme and the authority, never
+    /// <c>GetLeftPart</c>, which would keep a <c>user@</c> part that no CSP source may carry.
     /// OpenIddict checks redirects against the client row in the database, and the seeder writes that
     /// row only when it is missing. This reads the configuration, so it assumes the two agree. On the
     /// boxes both come from the same domain setting; if they drift apart, sign-in fails visibly.
@@ -90,7 +91,7 @@ internal sealed class SecurityHeadersMiddleware
             .Select(uri => Uri.TryCreate(uri, UriKind.Absolute, out Uri? parsed) ? parsed : null)
             .OfType<Uri>()
             .Where(uri => uri.Scheme is "https" or "http")
-            .Select(uri => uri.GetLeftPart(UriPartial.Authority))
+            .Select(uri => $"{uri.Scheme}://{uri.Authority}")
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
 }

@@ -27,6 +27,7 @@ public abstract class AsyncLifetimeTestBase : IAsyncLifetime
     {
         AccountDeletionEmailSpy.Reset();
         EmailChangeEmailSpy.Reset();
+        Factory.DbCommandFailures.Disarm();
 
         await using AsyncServiceScope scope = Factory.Services.CreateAsyncScope();
         CleanerService cleaner = scope.ServiceProvider.GetRequiredService<CleanerService>();

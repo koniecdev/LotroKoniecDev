@@ -162,13 +162,14 @@ no hosted service, and its discovery cache resolves inline in the request.
   nothing more. The login, registration, reset and resend pages and the registration endpoint keep
   the connection's address as their key, and Identity's lockout (five failures, per account) and the
   per-account budgets of #692 and #813 do not read the key. Accepted: rotating the key ends it.
-- **A discovery fetch from a detached cache factory carries no caller headers.** `HybridCache` runs
-  the factory on the thread pool without the request context when the caller's token is cancellable
-  (the export route forwards `RequestAborted`; the pages pass `CancellationToken.None` and run
-  inline), so on a cold cache that one GET is metered on the frontend container's bucket, and on the
-  inline path concurrent fetches share the first caller's address. Accepted: one call per cache
-  window on the 20/min group budget. The detached path also loses the bearer token, which predates
-  this ADR and is #825.
+- **A cold discovery cache is fetched once per caller, not once per key.** The frontend's discovery
+  cache never makes the API call inside a `HybridCache` factory: it reads the cache, calls the API in
+  the request on a miss, and stores only a good answer (#825). So every fetch carries its own
+  caller's bearer and address. The cost is that callers who miss the cache at the same moment each
+  make their own call instead of waiting for one. Accepted: the window is a cold cache only, and the
+  payload is tiny. Until #825 the call ran inside the factory, and for a token that can be cancelled
+  (the export route passes `RequestAborted`) `HybridCache` runs the factory on the thread pool without
+  the request's context, so that GET carried neither the caller headers nor the bearer.
 - **The key crosses the stack network in plain HTTP** between Caddy and the auth API — the same
   hop every bearer token already takes. Accepted.
 - **People behind one NAT still share a bucket**, now through the frontend too. Accepted, as

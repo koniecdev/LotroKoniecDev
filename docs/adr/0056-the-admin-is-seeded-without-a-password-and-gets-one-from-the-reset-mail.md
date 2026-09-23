@@ -179,6 +179,30 @@ an outage. A warning says the same thing without taking the site down.
 - `appsettings.json` no longer carries an `AdminUser:Password` key; `appsettings.Development.json` and
   `appsettings.Local.json.example` still do.
 
+## Amendment (2026-09-24, #839 — SEC-25): the account and its role are one write, and an existing account is never promoted
+
+The seeder saved the admin account and its `Admin` role in two separate writes, and skipped any
+address that already existed. When the database dropped out between the two writes, the cold-start
+retry (or the next start) found the address and stopped, so the admin stayed a translator. No page can
+grant the role, and with this ADR the gap showed only after the whole reset-mail round trip.
+
+**Two rules close it.**
+
+1. **The account and its role are created in one transaction**, inside EF's execution strategy (the
+   context runs with `EnableRetryOnFailure`, which refuses a transaction started outside it). A failure
+   anywhere before the commit leaves nothing, so every later attempt starts from an empty slate. The
+   strategy replays the whole transaction after a transient failure, and each replay first clears the
+   change tracker, the same shape as `RegisterUser`.
+2. **An account that already has the admin address is never promoted.** The seeder logs warning `2354`
+   on every start instead and leaves the account as it is. Granting the role would make whoever holds
+   that address an admin, and the seeder cannot tell the operator's own account from a stranger's
+   registration at a mistyped or squatted address. The runbook tells the cases apart by the row
+   (`EmailConfirmed`) and gives the one SQL statement that grants the role when it is safe.
+
+This is the same choice as decision 5: a startup that meets something it did not create logs and
+moves on, and never crashes or guesses. The tests are in `AdminSeedingTests`: a failure between the
+two writes, a transient failure on the role write, and an existing account at the admin address.
+
 ## References
 
 - Ticket #696 (SEC-17). Task 2 (a second factor for the admin) moved into #689; task 3 (an alert on an

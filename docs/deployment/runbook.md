@@ -417,14 +417,15 @@ To move off the personal-gmail sender, authenticate the domain in Brevo (Senders
 ### Reseed traps — the auth seeder is create-if-missing
 
 `SeedAuthDatabaseAsync` (`AuthSystem.API/Extensions/DatabaseSeederExtensions.cs`) creates only what
-is absent: the admin user is skipped when its e-mail **or** username already exists, and each
+is absent: the admin user is skipped when its e-mail **or** username already exists (an existing
+account at the admin e-mail never gets the Admin role from the seeder), and each
 OpenIddict client is skipped when its `client_id` already exists. The Neon DBs long outlive any box,
 so this is the normal case — and it means **editing `.env` and restarting silently changes nothing**:
 
 | You changed in `.env` | What silently keeps the OLD value | Symptom |
 |---|---|---|
 | `OpenIddict__ApiClientSecret` | the `lotrokoniecdev-api` client row | `client_credentials` with the new secret → **401**; smoke's token leg fails |
-| `AUTH_ADMIN_EMAIL` / `AUTH_ADMIN_USERNAME` | the admin `Users` row | a new address with the same username is skipped, with warning `2353` in the auth-api log; a new address **and** a new username seed a **second** admin, and the first one keeps its role |
+| `AUTH_ADMIN_EMAIL` / `AUTH_ADMIN_USERNAME` | the admin `Users` row | a new address with the same username is skipped, with warning `2353` in the auth-api log; a new address that already belongs to a non-admin account is skipped, with warning `2354`; a new address **and** a new username seed a **second** admin, and the first one keeps its role |
 | `DOMAIN_APP` | the `lotrokoniecdev-web` client's redirect + post-logout URIs (written **only at creation**) | login bounces with `invalid_redirect_uri` |
 
 Fix = delete the rows and let the seeder rebuild them from the current `.env`. Schema is
@@ -546,6 +547,33 @@ SELECT "UserName", "Email", "PasswordHash" IS NULL AS no_password FROM authsyste
   when the address is really misspelled (see the
   [reseed traps](#reseed-traps--the-auth-seeder-is-create-if-missing)), fix the `.env` and restart
   auth-api.
+
+**Warning `2354`: the admin address belongs to an account without the Admin role.** The seeder logs
+it on every start when `AUTH_ADMIN_EMAIL` matches an account that is not an admin, and leaves that
+account as it is. It never promotes an account it did not create itself: it cannot tell your own
+account from a stranger's registration at a mistyped address (#839). Look at the row first:
+
+```sql
+SELECT "Id", "UserName", "EmailConfirmed", "PasswordHash" IS NULL AS no_password FROM authsystem."Users" WHERE "NormalizedEmail" = upper('<admin e-mail>');
+```
+
+- **The address is not one you read** (a typo, or the wrong address). Fix `AUTH_ADMIN_EMAIL` and
+  restart auth-api. Never give this row the role: whoever registered it chose its password.
+- **Your address, and `EmailConfirmed` is true.** Only the owner of the inbox can confirm an account,
+  so this row is yours. An admin half-made by a crash before #839 looks the same: the configured
+  username, confirmed, and no password on a box. Give it the role, then sign in again so the new token
+  carries it:
+
+  ```sql
+  INSERT INTO authsystem."UserRoles" ("UserId", "RoleId")
+  SELECT u."Id", r."Id" FROM authsystem."Users" u, authsystem."Roles" r
+  WHERE u."NormalizedEmail" = upper('<admin e-mail>') AND r."NormalizedName" = 'ADMIN';
+  ```
+
+- **Your address, but `EmailConfirmed` is false.** Someone may have registered it before you, and then
+  they know its password. Do not give it the role. Delete the row (see the
+  [reseed traps](#reseed-traps--the-auth-seeder-is-create-if-missing)) and restart auth-api: the seeder
+  then creates the admin.
 
 ### TLS certificates
 

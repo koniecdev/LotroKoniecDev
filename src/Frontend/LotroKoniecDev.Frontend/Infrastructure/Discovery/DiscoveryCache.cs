@@ -59,7 +59,6 @@ internal sealed class DiscoveryCache : IDiscoveryCache
         // gets it, just like 'export-account-data' on the auth side.
         return GetDiscoveryAsync(
             TranslationSystemDiscoveryCacheKeyPrefix,
-            GetAuthSuffix(),
             TranslationRels.ContributionDataExport,
             _translationSystemClient.GetDiscoveryAsync,
             cancellationToken);
@@ -71,24 +70,22 @@ internal sealed class DiscoveryCache : IDiscoveryCache
         // The auth root offers 'export-account-data' only to logged-in callers.
         return GetDiscoveryAsync(
             AuthSystemDiscoveryCacheKeyPrefix,
-            GetAuthSuffix(),
             AuthRels.ExportAccountData,
             _authSystemClient.GetDiscoveryAsync,
             cancellationToken);
     }
 
-    /// <summary>
-    /// The key includes whether the caller is logged in, because the API sends a different set of links
-    /// per role. With one shared key, whoever called first would fix the wrong set for everyone for a day.
-    /// </summary>
     private async Task<ApiResult<TResponse>> GetDiscoveryAsync<TResponse>(
         string cacheKeyPrefix,
-        string authSuffix,
         string signedInMarkerRel,
         Func<CancellationToken, Task<ApiResult<TResponse>>> fetchLiveAsync,
         CancellationToken cancellationToken)
         where TResponse : class, ILinksResponse
     {
+        // The key includes whether the caller is logged in, because the API sends a different set of
+        // links per role. With one shared key, whoever called first would fix the wrong set for everyone
+        // for a day.
+        string authSuffix = GetAuthSuffix();
         string cacheKey = cacheKeyPrefix + authSuffix;
 
         TResponse? cached = await _hybridCache.GetOrCreateAsync<TResponse?>(
@@ -101,11 +98,8 @@ internal sealed class DiscoveryCache : IDiscoveryCache
             return ApiResult.Success(cached);
         }
 
-        // The live call never runs inside a HybridCache factory (#825). For a token that can be
-        // cancelled, such as the export route's RequestAborted, HybridCache runs the factory on the thread
-        // pool without the request's context. The call would then leave with no bearer and no caller
-        // headers (ADR-0054), and a signed-in key would get the anonymous links and sign a healthy user
-        // out. Here the call runs in the request, with this caller's own token and address.
+        // Never inside a HybridCache factory: a factory can run without the request's context, and this
+        // call needs the caller's bearer and address (#825).
         ApiResult<TResponse> live = await fetchLiveAsync(cancellationToken);
         if (live.IsFailure)
         {
@@ -117,17 +111,13 @@ internal sealed class DiscoveryCache : IDiscoveryCache
         if (authSuffix is UserSuffix && !ContainsGetRel(live.Value.Links, signedInMarkerRel))
         {
             // The cookie says the user is logged in, but the API sent the anonymous set of links, so the
-            // token never reached it: it expired, is invalid, or its key was rotated. Caching that set
-            // under the logged-in key would take every signed-in feature away from everyone for a day.
-            // Mark the session dead, so the next cookie validation signs the user out cleanly, and return
-            // the anonymous links, so the public pages still render on the way out.
+            // token never reached it: it expired, is invalid, or its key was rotated. Mark the session
+            // dead, so the next cookie validation signs the user out cleanly, and serve this set, so the
+            // public pages still render on the way out. It is cached under neither key: under the
+            // logged-in key it would take every signed-in feature away from everyone for a day, and an
+            // answer to a call that carried a bearer is not what an anonymous call gets.
             await MarkSessionDeadAsync(cancellationToken);
-            return await GetDiscoveryAsync(
-                cacheKeyPrefix,
-                AnonymousSuffix,
-                signedInMarkerRel,
-                fetchLiveAsync,
-                cancellationToken);
+            return live;
         }
 
         await _hybridCache.SetAsync(cacheKey, live.Value, OneDayEntryOptions, cancellationToken: cancellationToken);

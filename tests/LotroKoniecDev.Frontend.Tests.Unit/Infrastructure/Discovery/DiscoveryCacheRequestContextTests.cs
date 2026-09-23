@@ -22,24 +22,25 @@ using TranslationRels = LotroKoniecDev.TranslationSystem.Contracts.Hateoas.Rels;
 namespace LotroKoniecDev.Frontend.Tests.Unit.Infrastructure.Discovery;
 
 /// <summary>
-/// #825: the account export route passes <c>RequestAborted</c>, a token that can be cancelled. For such
-/// a token <c>HybridCache</c> runs the factory on the thread pool without the request's context, so the
-/// discovery call on a cold cache left without the bearer and without the caller headers (ADR-0054). These
-/// tests go through the real client registrations and a real <see cref="HttpContextAccessor"/>, because a
-/// substituted accessor returns its context on any thread and would hide exactly this bug.
+/// #825: a cold discovery fetch carries the request's bearer and caller headers (ADR-0054), even when the
+/// caller passes a token that can be cancelled, as the account export route does with RequestAborted.
+/// The tests use the real client registrations and a real <see cref="HttpContextAccessor"/>, because a
+/// substituted accessor returns its context on any thread and would hide a call made outside the request.
 /// </summary>
 public sealed class DiscoveryCacheRequestContextTests
 {
-    // Built rather than written out, so no secret scanner mistakes test data for a key.
-    private static readonly string AuthCallerKey = new('k', 40);
-    private static readonly string TranslationSystemCallerKey = new('t', 40);
-
     private const string AccessToken = "the-access-token";
     private const string VisitorAddress = "203.0.113.7";
     private const string AuthBaseUrl = "https://auth.lotro.test/";
     private const string TranslationSystemBaseUrl = "https://tms.lotro.test/";
 
+    // Built rather than written out, so no secret scanner mistakes test data for a key.
+    private static readonly string AuthCallerKey = new('k', 40);
+    private static readonly string TranslationSystemCallerKey = new('t', 40);
+
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
+
+    private readonly IDeadSessionRegistry _deadSessionRegistry = Substitute.For<IDeadSessionRegistry>();
 
     [Fact]
     public async Task GetAuthSystemDiscoveryAsync_WithACancellableTokenOnAColdCache_SendsTheBearerAndTheCallerHeaders()
@@ -53,10 +54,7 @@ public sealed class DiscoveryCacheRequestContextTests
         await scope.ServiceProvider.GetRequiredService<IDiscoveryCache>()
             .GetAuthSystemDiscoveryAsync(requestAborted.Token);
 
-        RecordedCall call = authApi.Calls.ShouldHaveSingleItem();
-        call.Authorization.ShouldBe("Bearer " + AccessToken);
-        call.CallerKey.ShouldBe([AuthCallerKey]);
-        call.ClientAddress.ShouldBe([VisitorAddress]);
+        authApi.Calls.ShouldBe([new RecordedCall("Bearer " + AccessToken, AuthCallerKey, VisitorAddress)]);
     }
 
     [Fact]
@@ -72,14 +70,12 @@ public sealed class DiscoveryCacheRequestContextTests
         await scope.ServiceProvider.GetRequiredService<IDiscoveryCache>()
             .GetTranslationSystemDiscoveryAsync(requestAborted.Token);
 
-        RecordedCall call = translationApi.Calls.ShouldHaveSingleItem();
-        call.Authorization.ShouldBe("Bearer " + AccessToken);
-        call.CallerKey.ShouldBe([TranslationSystemCallerKey]);
-        call.ClientAddress.ShouldBe([VisitorAddress]);
+        translationApi.Calls.ShouldBe(
+            [new RecordedCall("Bearer " + AccessToken, TranslationSystemCallerKey, VisitorAddress)]);
     }
 
     [Fact]
-    public async Task GetAuthSystemDiscoveryAsync_WithACancellableTokenOnAColdCache_KeepsTheSignedInLinks()
+    public async Task GetAuthSystemDiscoveryAsync_WithACancellableTokenOnAColdCache_KeepsTheUserSignedIn()
     {
         // The API answers like the real one: the signed-in set only when the bearer arrives. Without it
         // the cache would read the anonymous set as a dead token and sign a healthy user out.
@@ -94,6 +90,8 @@ public sealed class DiscoveryCacheRequestContextTests
             .GetAuthSystemDiscoveryAsync(requestAborted.Token);
 
         result.Value.Links.ShouldContain(link => link.Rel == AuthRels.ExportAccountData);
+        // The sign-out does not show up in the return value, so this check is the only proof it did not happen.
+        await _deadSessionRegistry.DidNotReceive().MarkDeadAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
     }
 
     /// <summary>
@@ -132,11 +130,11 @@ public sealed class DiscoveryCacheRequestContextTests
     /// ConfigurePrimaryHttpMessageHandler on the same named client wins, so the delegating handlers and
     /// the resilience pipeline stay exactly as Program.cs wires them.
     /// </summary>
-    private static ServiceProvider BuildProvider(RecordingApi authApi, RecordingApi translationApi)
+    private ServiceProvider BuildProvider(RecordingApi authApi, RecordingApi translationApi)
     {
         ServiceCollection services = new();
         services.AddLogging();
-        services.AddSingleton(Substitute.For<IDeadSessionRegistry>());
+        services.AddSingleton(_deadSessionRegistry);
         services.AddSingleton<IOptions<AuthSystemSettings>>(Microsoft.Extensions.Options.Options.Create(new AuthSystemSettings
         {
             BaseUrl = AuthBaseUrl,
@@ -191,7 +189,8 @@ public sealed class DiscoveryCacheRequestContextTests
         },
         JsonOptions);
 
-    private sealed record RecordedCall(string? Authorization, string[] CallerKey, string[] ClientAddress);
+    /// <summary>A header sent more than once shows up as its values joined with a comma.</summary>
+    private sealed record RecordedCall(string? Authorization, string? CallerKey, string? ClientAddress);
 
     /// <summary>
     /// Stands in for an API root. It copies the headers when the call is sent, because the client disposes
@@ -238,7 +237,7 @@ public sealed class DiscoveryCacheRequestContextTests
             });
         }
 
-        private static string[] HeaderValues(HttpRequestMessage request, string name) =>
-            request.Headers.TryGetValues(name, out IEnumerable<string>? values) ? values.ToArray() : [];
+        private static string? HeaderValues(HttpRequestMessage request, string name) =>
+            request.Headers.TryGetValues(name, out IEnumerable<string>? values) ? string.Join(",", values) : null;
     }
 }

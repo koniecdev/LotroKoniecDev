@@ -109,6 +109,7 @@ internal static class EventIds
     public const int AdminSeededWithoutPassword = 2351;
     public const int AdminSeedPasswordIgnored = 2352;
     public const int AdminSeedUsernameTaken = 2353;
+    public const int AdminSeedEmailTakenWithoutAdminRole = 2354;
 
     // Password Reset Dispatch (2360-2369)
     public const int PasswordResetUserGone = 2360;

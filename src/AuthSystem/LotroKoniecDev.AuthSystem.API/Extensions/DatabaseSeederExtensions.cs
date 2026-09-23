@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Storage;
 using Microsoft.Extensions.Options;
 using OpenIddict.Abstractions;
 using LotroKoniecDev.AuthSystem.API.Settings;
@@ -82,10 +83,43 @@ internal static partial class DatabaseSeederExtensions
             return;
         }
 
+        // The account and its role are saved in one transaction (#839). As two separate saves, a failure
+        // between them left an admin without the role, and the next attempt skipped it because the
+        // address already existed. The context has EnableRetryOnFailure on, so EF refuses a transaction
+        // we start ourselves unless it runs inside the execution strategy.
+        AuthDbContext dbContext = serviceProvider.GetRequiredService<AuthDbContext>();
+        IExecutionStrategy executionStrategy = dbContext.Database.CreateExecutionStrategy();
+
+        await executionStrategy.ExecuteAsync(async () =>
+            await SeedAdminUserInTransactionAsync(serviceProvider, dbContext, email, username, password, logger));
+    }
+
+    private static async Task SeedAdminUserInTransactionAsync(
+        IServiceProvider serviceProvider,
+        AuthDbContext dbContext,
+        string email,
+        string username,
+        string? password,
+        ILogger logger)
+    {
+        // A replay starts after a rolled-back transaction, but the change tracker still holds the
+        // previous attempt's rows. Replaying without clearing it would write them twice.
+        dbContext.ChangeTracker.Clear();
+
+        await using IDbContextTransaction transaction = await dbContext.Database.BeginTransactionAsync();
+
         UserManager<ApplicationUser> userManager = serviceProvider.GetRequiredService<UserManager<ApplicationUser>>();
 
-        if (await userManager.FindByEmailAsync(email) is not null)
+        // The seeder never promotes an account it did not create (ADR-0056). It cannot tell the
+        // operator's own account from a stranger's registration at a mistyped address, so it only logs.
+        ApplicationUser? existingUser = await userManager.FindByEmailAsync(email);
+        if (existingUser is not null)
         {
+            if (!await userManager.IsInRoleAsync(existingUser, AuthConstants.Roles.Admin))
+            {
+                LogAdminSeedEmailTakenWithoutAdminRole(logger, existingUser.Id);
+            }
+
             return;
         }
 
@@ -127,6 +161,8 @@ internal static partial class DatabaseSeederExtensions
             string errors = string.Join(", ", roleResult.Errors.Select(e => e.Description));
             throw new InvalidOperationException($"Admin role assignment failed: {errors}");
         }
+
+        await transaction.CommitAsync();
 
         if (password is null)
         {
@@ -287,4 +323,7 @@ internal static partial class DatabaseSeederExtensions
 
     [LoggerMessage(EventId = EventIds.AdminSeedUsernameTaken, Level = LogLevel.Warning, Message = "Admin seeding skipped: the username {Username} already belongs to an account with a different e-mail address")]
     private static partial void LogAdminSeedUsernameTaken(ILogger logger, string username);
+
+    [LoggerMessage(EventId = EventIds.AdminSeedEmailTakenWithoutAdminRole, Level = LogLevel.Warning, Message = "Admin seeding skipped: the configured e-mail address belongs to account {UserId}, which does not have the Admin role. The seeder never promotes an existing account")]
+    private static partial void LogAdminSeedEmailTakenWithoutAdminRole(ILogger logger, Guid userId);
 }

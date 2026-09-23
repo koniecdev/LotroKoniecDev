@@ -1,7 +1,10 @@
+using System.Data.Common;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
+using Npgsql;
 using LotroKoniecDev.AuthSystem.API.Extensions;
 using LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared;
 using LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared.Bases;
@@ -57,6 +60,121 @@ public sealed class AdminSeedingTests : EndpointsTestBase
 
         int adminCount = await userManager.Users.CountAsync(u => u.Email == AdminEmail);
         adminCount.ShouldBe(1);
+    }
+
+    /// <summary>
+    /// The failure is not transient, so nothing retries it: it stands in for a process that dies between
+    /// the account and its role. On the next start the admin must still end up with the role (#839).
+    /// </summary>
+    [Fact]
+    public async Task SeedAuthDatabase_AttemptFailsBetweenAccountAndRole_NextAttemptSeedsAdminWithAdminRole()
+    {
+        // Arrange
+        Factory.DbCommandFailures.FailNext(
+            IsUserRoleInsert,
+            () => new InvalidOperationException("Simulated crash between the account and its role"));
+        await Should.ThrowAsync<DbUpdateException>(() => ReseedAsync());
+        Factory.DbCommandFailures.FailuresInjected.ShouldBe(1);
+
+        // Act
+        await ReseedAsync();
+
+        // Assert
+        await using AsyncServiceScope scope = Factory.Services.CreateAsyncScope();
+        UserManager<ApplicationUser> userManager =
+            scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
+
+        ApplicationUser? admin = await userManager.FindByEmailAsync(AdminEmail);
+        admin.ShouldNotBeNull();
+        (await userManager.IsInRoleAsync(admin, AuthConstants.Roles.Admin)).ShouldBeTrue();
+    }
+
+    /// <summary>
+    /// EF replays the whole transaction after a transient failure. The replay must not write the first
+    /// attempt's rows a second time.
+    /// </summary>
+    [Fact]
+    public async Task SeedAuthDatabase_TransientFailureOnRoleWrite_SeedsExactlyOneAdminWithAdminRole()
+    {
+        // Arrange
+        Factory.DbCommandFailures.FailNext(
+            IsUserRoleInsert,
+            () => new NpgsqlException("The operation has timed out", new TimeoutException()));
+
+        // Act
+        await ReseedAsync();
+
+        // Assert
+        Factory.DbCommandFailures.FailuresInjected.ShouldBe(1);
+
+        await using AsyncServiceScope scope = Factory.Services.CreateAsyncScope();
+        UserManager<ApplicationUser> userManager =
+            scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
+
+        IList<ApplicationUser> admins = await userManager.GetUsersInRoleAsync(AuthConstants.Roles.Admin);
+        admins.ShouldHaveSingleItem().Email.ShouldBe(AdminEmail);
+    }
+
+    /// <summary>
+    /// The seeder cannot tell the operator's own account from a stranger's registration at a mistyped
+    /// address, so it never promotes an account it did not create (ADR-0056 amendment, #839).
+    /// </summary>
+    [Theory]
+    [InlineData(AdminEmail, true)]
+    [InlineData(AdminEmail, false)]
+    [InlineData("Admin@Lotro-Translator.pl", true)]
+    public async Task SeedAuthDatabase_ConfiguredEmailBelongsToAccountWithoutAdminRole_DoesNotPromoteIt(
+        string existingEmail,
+        bool emailConfirmed)
+    {
+        // Arrange
+        await CreateTranslatorAsync(existingEmail, emailConfirmed);
+
+        // Act
+        await ReseedAsync();
+
+        // Assert
+        await using AsyncServiceScope scope = Factory.Services.CreateAsyncScope();
+        UserManager<ApplicationUser> userManager =
+            scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
+
+        IList<ApplicationUser> admins = await userManager.GetUsersInRoleAsync(AuthConstants.Roles.Admin);
+        admins.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task SeedAuthDatabase_ConfiguredEmailBelongsToAccountWithoutAdminRole_LogsWarning2354()
+    {
+        // Arrange
+        Guid translatorId = await CreateTranslatorAsync(AdminEmail, emailConfirmed: true);
+        using CapturingLoggerFactory loggerFactory = new();
+
+        // Act
+        await ReseedAsync(loggerFactory);
+
+        // Assert
+        CapturingLoggerFactory.LogEntry warning = loggerFactory.Entries
+            .Where(e => e.EventId.Id == EventIds.AdminSeedEmailTakenWithoutAdminRole)
+            .ShouldHaveSingleItem();
+        warning.Level.ShouldBe(LogLevel.Warning);
+        warning.Message.ShouldContain(translatorId.ToString());
+    }
+
+    /// <summary>
+    /// Every restart of a box finds its admin in place. That normal case must not raise a warning.
+    /// </summary>
+    [Fact]
+    public async Task SeedAuthDatabase_AdminAlreadySeeded_LogsNoWarning()
+    {
+        // Arrange
+        await ReseedAsync();
+        using CapturingLoggerFactory loggerFactory = new();
+
+        // Act
+        await ReseedAsync(loggerFactory);
+
+        // Assert
+        loggerFactory.Entries.ShouldNotContain(e => e.Level >= LogLevel.Warning);
     }
 
     [Fact]
@@ -197,5 +315,56 @@ public sealed class AdminSeedingTests : EndpointsTestBase
     private async Task ReseedAsync(IWebHostEnvironment environment)
     {
         await DatabaseSeederExtensions.SeedAuthDatabaseAsync(Factory.Services, environment);
+    }
+
+    private async Task ReseedAsync(ILoggerFactory loggerFactory)
+    {
+        IWebHostEnvironment environment = Factory.Services.GetRequiredService<IWebHostEnvironment>();
+        await DatabaseSeederExtensions.SeedAuthDatabaseAsync(
+            new ServicesWithLoggerFactory(Factory.Services, loggerFactory),
+            environment);
+    }
+
+    private async Task<Guid> CreateTranslatorAsync(string email, bool emailConfirmed)
+    {
+        await using AsyncServiceScope scope = Factory.Services.CreateAsyncScope();
+        UserManager<ApplicationUser> userManager =
+            scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
+
+        ApplicationUser translator = new()
+        {
+            UserName = "translatorone",
+            Email = email,
+            EmailConfirmed = emailConfirmed
+        };
+
+        (await userManager.CreateAsync(translator, "Translator123!")).Succeeded.ShouldBeTrue();
+        (await userManager.AddToRoleAsync(translator, AuthConstants.Roles.Translator)).Succeeded.ShouldBeTrue();
+
+        return translator.Id;
+    }
+
+    private static bool IsUserRoleInsert(DbCommand command) =>
+        command.CommandText.Contains("INSERT INTO", StringComparison.Ordinal)
+        && command.CommandText.Contains("\"UserRoles\"", StringComparison.Ordinal);
+
+    /// <summary>
+    /// The test host's services with one change: the seeder's logger writes to the given factory. The
+    /// seeder takes its logger from the services it is handed, and the host's own log cannot be read
+    /// back.
+    /// </summary>
+    private sealed class ServicesWithLoggerFactory : IServiceProvider
+    {
+        private readonly IServiceProvider _services;
+        private readonly ILoggerFactory _loggerFactory;
+
+        public ServicesWithLoggerFactory(IServiceProvider services, ILoggerFactory loggerFactory)
+        {
+            _services = services;
+            _loggerFactory = loggerFactory;
+        }
+
+        public object? GetService(Type serviceType) =>
+            serviceType == typeof(ILoggerFactory) ? _loggerFactory : _services.GetService(serviceType);
     }
 }

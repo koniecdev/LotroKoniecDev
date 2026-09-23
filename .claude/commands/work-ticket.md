@@ -66,8 +66,11 @@ push → `gh pr create` (exactly as `/ticket` has it). You never merge —
    happy path + failure modes + boundary `[Theory]` cases, and report the counts. Then spawn the
    **`code-reviewer`** agent with the ticket's acceptance criteria; fix every finding; repeat until
    **APPROVE**. Then the second pass, exactly as `/ticket` step 7 has it: run `/code-review` on the
-   branch (a fresh context that never saw your plan), fix what is real, and re-run the build and
-   the whole suite on the final commit. Run `/security-review` if the diff touches native interop,
+   branch (a fresh context that never saw your plan), sort every finding into the four buckets of
+   `/ticket` step 7 and put the split in the report's Proof. Fix bucket 1. File bucket 2 as a
+   follow-up ticket with the `audit` label as well, because nobody checked it live and the owner
+   triages it before the loop may pick it up. Then re-run the build and the whole suite on the
+   final commit. Run `/security-review` if the diff touches native interop,
    file protection, or auth. Cannot reach green/clean → `STATUS: BLOCKED` with the reason — never push broken work.
 7. **Close out — git steps BEFORE the final message.** The review gate is a gate, not the finish
    line: after APPROVE, commit (message references the ticket, ends with the `Co-Authored-By:`

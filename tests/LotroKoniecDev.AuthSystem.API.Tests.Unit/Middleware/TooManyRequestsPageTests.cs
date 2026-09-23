@@ -47,4 +47,28 @@ public sealed class TooManyRequestsPageTests
         // Assert
         sentence.ShouldBe("Odczekaj chwilę i spróbuj ponownie.");
     }
+
+    [Fact]
+    public void BuildHtml_ShouldPutTheRequestsNonceOnItsStyleBlock()
+    {
+        // Act: the page is written after the security headers were planned, so its only inline style
+        // has to carry the nonce the CSP admits (#693)
+        string html = TooManyRequestsPage.BuildHtml(TimeSpan.FromMinutes(3), "r4nd0m-n0nce_value");
+
+        // Assert
+        html.ShouldContain("<style nonce=\"r4nd0m-n0nce_value\">");
+        html.ShouldNotContain("<style>");
+        html.ShouldNotContain("<script");
+    }
+
+    [Fact]
+    public void BuildHtml_ShouldLeaveTheNonceOut_WhenThereIsNoCsp()
+    {
+        // Act: Development runs without the security headers, so there is no nonce to match
+        string html = TooManyRequestsPage.BuildHtml(TimeSpan.FromMinutes(3), nonce: null);
+
+        // Assert
+        html.ShouldContain("<style>");
+        html.ShouldNotContain("nonce");
+    }
 }

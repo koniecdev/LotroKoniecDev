@@ -16,6 +16,12 @@ public static class MiddlewareDependencyInjection
             return app;
         }
 
+        public IApplicationBuilder UseSecurityHeaders()
+        {
+            app.UseMiddleware<SecurityHeadersMiddleware>();
+            return app;
+        }
+
         public IApplicationBuilder UseAuthorizationLogging()
         {
             app.UseMiddleware<AuthorizationLoggingMiddleware>();

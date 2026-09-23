@@ -6,7 +6,7 @@
 **Related:** AuthSystem.API (`Extensions/DatabaseSeederExtensions.cs`, `Pages/Account/Login.cshtml.cs`),
 `compose.hetzner.yaml`, `compose.prod.yaml`, runbook → "Admin account — first sign-in and rotation",
 ADR-0022 (the admin logs in by e-mail), ADR-0038 (password reset through the outbox), ADR-0049
-(a reset revokes sessions), ADR-0050 (where logs are stored), tickets #210, #689, #695, #696
+(a reset revokes sessions), ADR-0050 (where logs are stored), tickets #210, #689, #696, #837, #838
 
 ## Context
 
@@ -45,12 +45,14 @@ box's job (`chmod 600`, the deploy user, SSH keys), not this decision's.
 
 **What it does buy:**
 
-1. **The admin password exists in exactly one place: the admin's head or password manager.** It is not
-   in the `.env`, in copies of that file, in the `.env.XXXXXX` temp file `deploy.sh` writes, in a
-   handover note, or in a value reused between staging and prod. The staging admin is handed to
+1. **The admin password is never written into configuration.** It is not in the `.env`, in copies
+   or backups of that file, or in the `.env.XXXXXX` temp file `deploy.sh` writes. Keeping it out of
+   handover notes, and using a different password on staging and prod, is still the operator's
+   discipline: the code cannot see either. It matters, because the staging admin is handed to
    external testers, so a password shared between the two boxes is a real way to lose prod.
 2. **The rotation is the normal product flow.** A reset changes the hash, revokes every session
-   (ADR-0049), and needs no SQL. The old runbook said to delete the admin row and reseed, which also
+   (ADR-0049; an access token that was already issued lives until it expires, at most five
+   minutes), and needs no SQL. The old runbook said to delete the admin row and reseed, which also
    signed everyone out and gave the admin a new id.
 3. **Code enforces it, not memory.** A fresh deploy cannot produce an admin whose password came from
    configuration, whatever the `.env` says.
@@ -60,8 +62,11 @@ box's job (`chmod 600`, the deploy user, SSH keys), not this decision's.
 ### 1. Outside Development and Testing the admin is created without a password
 
 `SeedAdminUserAsync` calls `UserManager.CreateAsync(user)` without a password. It still sets
-`EmailConfirmed` and the `Admin` role, and logs event `2351`. Only the e-mail is required now; a blank
-e-mail still skips the seed.
+`EmailConfirmed` and the `Admin` role, and logs event `2351`. A blank e-mail still skips the seed.
+A blank username now falls back to `admin`. The old code had that default too, but compose passes an
+unset `AUTH_ADMIN_USERNAME` as an empty string, so the default never applied. The old password check
+used to stop that case before it reached Identity. Without the check, an empty username would crash
+every startup.
 
 ### 2. `AdminUser:Password` is read only in Development and Testing
 
@@ -89,7 +94,9 @@ a prober the address is a live account. The login page hashes a dummy password f
 
 A typo in `AUTH_ADMIN_EMAIL` now produces an admin nobody can reach. Correcting the `.env` does not
 replace it, because the username is taken and the seeder skips. The seeder logs warning `2353` in that
-case, so the runbook's fix (delete the row, restart) has a signal to point at.
+case. The same warning also appears on every start after the admin changes its own address in the
+product, and there the row must stay. So the runbook tells the two apart by the row itself (a
+misspelled address with no password, or the real admin) before anyone deletes anything.
 
 ## Consequences
 
@@ -99,6 +106,10 @@ case, so the runbook's fix (delete the row, restart) has a signal to point at.
   readable from configuration.
 - The rotation procedure is the product's own reset, tested end to end in
   `AdminSeedingTests.SeedAuthDatabase_OutsideDevelopmentAndTesting_AdminSignsInAfterSettingPasswordThroughReset`.
+  It was also run once by hand on 2026-09-23, against a fresh local production-parity stack
+  (`compose.prod.yaml`, Production, real pages, RabbitMQ and Mailpit). The seed left the admin with
+  no password, and a sign-in was refused. After the first reset mail the admin signed in. After a
+  second reset the old password was refused and the new one worked.
 - No new endpoint, page, table or configuration key.
 
 ### Negative / Accepted Trade-offs
@@ -108,8 +119,13 @@ case, so the runbook's fix (delete the row, restart) has a signal to point at.
   translator either, so the runbook makes "prove delivery first" the first step instead of adding a
   second channel.
 - **Existing boxes are not fixed by the deploy.** Their admin rows keep the password from the `.env`
-  until the owner rotates it and deletes the line (runbook → "Migrating a box seeded before #696").
-  Only the owner can do that: it needs the admin mailbox and write access to the box.
+  until the owner rotates it and deletes the line (runbook → "Migrating a box seeded before #696";
+  tracked in #838). Only the owner can do that: it needs the admin mailbox and write access to the box.
+- **A database restore brings an old password back.** A Neon restore to a point before a rotation
+  restores the old hash with the rest of the `Users` table, so a restore is followed by a rotation.
+- **Warning `2352` is logged on every start while a password is configured**, whether or not an admin
+  is seeded, and once more for each retry of the cold-start seed. That is on purpose: the warning is
+  about the leftover value, not about the seed.
 - **The parity stack needs Mailpit for its first admin sign-in** (`--profile local-smtp`).
 
 ## Alternatives Considered
@@ -142,6 +158,10 @@ an outage. A warning says the same thing without taking the site down.
 
 - `DatabaseSeederExtensions.ReadBootstrapPassword` is the one place that decides whether a configured
   password is used. It checks `IsDevelopment()` and the existing `IsTesting()` extension.
+  `ReadAdminUsername` applies the `admin` default. Both are unit-tested in
+  `DatabaseSeederExtensionsTests`.
+- `LoginPageTests` pins decision 4 with `SpyPasswordHasher`: every failure a caller can reach without
+  the password verifies exactly one hash.
 - Event ids `2351`–`2353` sit in the Startup range of `EventIds.cs`.
 - The integration tests seed with a stub `IWebHostEnvironment` (`Production`, `Staging`) against the
   Testing host. The cleaner does not truncate `OpenIddictApplications`, so the reseed leaves the test
@@ -151,6 +171,7 @@ an outage. A warning says the same thing without taking the site down.
 
 ## References
 
-- Ticket #696 (SEC-17). Tasks 2 (a second factor for the admin) and 3 (an alert on an admin sign-in
-  from a new address) moved out: see #689 and #695.
+- Ticket #696 (SEC-17). Task 2 (a second factor for the admin) moved into #689; task 3 (an alert on an
+  admin sign-in from a new address) is #837, which waits for the audit trail in #695. The owner's
+  rotation of the two live boxes is #838.
 - Runbook → "Admin account — first sign-in and rotation", "Reseed traps".

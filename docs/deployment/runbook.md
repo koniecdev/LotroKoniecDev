@@ -424,7 +424,7 @@ so this is the normal case — and it means **editing `.env` and restarting sile
 | You changed in `.env` | What silently keeps the OLD value | Symptom |
 |---|---|---|
 | `OpenIddict__ApiClientSecret` | the `lotrokoniecdev-api` client row | `client_credentials` with the new secret → **401**; smoke's token leg fails |
-| `AUTH_ADMIN_EMAIL` / `AUTH_ADMIN_USERNAME` | the admin `Users` row | the admin keeps the old address; a new address whose username is taken is skipped, with warning `2353` in the auth-api log |
+| `AUTH_ADMIN_EMAIL` / `AUTH_ADMIN_USERNAME` | the admin `Users` row | a new address with the same username is skipped, with warning `2353` in the auth-api log; a new address **and** a new username seed a **second** admin, and the first one keeps its role |
 | `DOMAIN_APP` | the `lotrokoniecdev-web` client's redirect + post-logout URIs (written **only at creation**) | login bounces with `invalid_redirect_uri` |
 
 Fix = delete the rows and let the seeder rebuild them from the current `.env`. Schema is
@@ -449,12 +449,13 @@ after launch.
 
 ### Admin account — first sign-in and rotation
 
-The admin is the only account that can import, approve in bulk and delete a game version. No page
-in the product grants the `Admin` role: the seeder is the only place it comes from. Set two values
-in the box `.env` to seed the admin on the next auth-api start; leave the e-mail blank to skip:
+The `Admin` role reaches the whole distribution path to players: imports, approvals and game
+versions, among others. No page in the product grants that role: the seeder is the only place it
+comes from. Set these values in the box `.env` to seed the admin on the next auth-api start; leave
+the e-mail blank to skip:
 
 ```
-AUTH_ADMIN_USERNAME=…        # letters + digits only (^[a-zA-Z0-9]+$) — ADR-0022
+AUTH_ADMIN_USERNAME=…        # letters + digits only (^[a-zA-Z0-9]+$) — ADR-0022; blank = "admin"
 AUTH_ADMIN_EMAIL=…           # a mailbox the operator reads: the first password arrives there
 ```
 
@@ -481,10 +482,13 @@ not arrive on this box, the admin mail will not arrive either, so fix that first
 2. Type the admin e-mail **exactly**, with no trailing space. The page does not trim the address, so
    a pasted space shows the normal "Jeśli konto istnieje…" panel and sends nothing.
 3. Open the mail, follow the link and set a long random password from a password manager. Never
-   write it into the `.env`, a ticket, a chat or a QA handover. The staging admin is shared with
-   testers, so the prod admin must never use the same password.
+   write it into the `.env`, a ticket, the wiki or a public channel. The staging admin is shared with
+   testers: hand its password over in a private message, the same way as any other credential. The
+   prod admin must never use the same password as staging. Nothing in the code checks that, so it
+   is up to you.
 4. Sign in with it. A reset also revokes every session the admin had (ADR-0049), which is the point
-   of a rotation.
+   of a rotation. An access token that was already issued keeps working until it expires, which
+   takes at most five minutes.
 
 The reset budget is 3 mails per account per 15 minutes. A fourth request shows the same panel and
 sends nothing, so wait out that window before you blame delivery.
@@ -495,14 +499,38 @@ exists. Rotate first, then remove the line, in this order:
 
 1. Do the four steps above for the box's admin. The old password stops working the moment the reset
    succeeds. Check it: sign in with the old one and get the generic error.
-2. `ssh lotro-<env>`, edit `/opt/lotro/.env` and delete the `AUTH_ADMIN_PASSWORD=` line. No restart
-   is needed: neither compose file reads it any more.
-3. If that value was ever reused anywhere else, change it there too. Treat it as a leaked password.
+2. Delete the line as the `deploy` user, so the file stays owned by `deploy` and CD can still read it
+   (never edit it as root). The second command must print `0`. No restart is needed: neither compose
+   file reads the line any more.
 
-**A wrong admin e-mail.** A typo in `AUTH_ADMIN_EMAIL` seeds an admin that nobody can reach, and
-correcting the `.env` does not fix it: the username is already taken, so the seeder skips and logs
-`2353`. Delete that `Users` row (see the [reseed traps](#reseed-traps--the-auth-seeder-is-create-if-missing))
-and restart auth-api.
+   ```bash
+   ssh lotro-<env> "sudo -u deploy sed -i '/^AUTH_ADMIN_PASSWORD=/d' /opt/lotro/.env"
+   ssh lotro-<env> "sudo -u deploy grep -c '^AUTH_ADMIN_PASSWORD=' /opt/lotro/.env"
+   ```
+3. Clean up the other copies of the old value. It is a leaked password now:
+   - the `ADMIN_PASSWORD` GitHub secret and the `ADMIN_EMAIL` / `ADMIN_USERNAME` variables are
+     leftovers from the Azure era (ADR-0013 already calls them unused). Delete them;
+   - any backup of the box `.env` still holds it;
+   - if the value was ever reused anywhere else, change it there too.
+4. Remember that a database restore brings the old password back. A Neon restore (PITR or a
+   pre-migration snapshot) to a point before the rotation restores the old hash with the rest of the
+   `Users` table. After such a restore, rotate again.
+
+**Warning `2353`: the admin username belongs to a different address.** The seeder logs it on every
+start when `AUTH_ADMIN_EMAIL` matches no account but `AUTH_ADMIN_USERNAME` is taken. There are two
+causes, and they need opposite fixes. Look at the row first:
+
+```sql
+SELECT "Email", "PasswordHash" IS NULL AS no_password FROM authsystem."Users" WHERE "UserName" = '<admin username>';
+```
+
+- **The admin changed its own address in the product.** The row has the real address and a
+  password. Put the new address into `AUTH_ADMIN_EMAIL`, or ignore the warning. **Never delete this
+  row.** It is the live admin.
+- **A typo in `AUTH_ADMIN_EMAIL` at the first seed.** The row has the misspelled address and no
+  password, because nobody could ever receive its reset mail. Delete that row (see the
+  [reseed traps](#reseed-traps--the-auth-seeder-is-create-if-missing)), fix the `.env` and restart
+  auth-api.
 
 ### TLS certificates
 

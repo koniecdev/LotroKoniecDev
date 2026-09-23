@@ -27,6 +27,30 @@ public sealed class MailboxKeyTests
         key.Value.ShouldBe("ANNA@GMAIL.COM");
     }
 
+    [Fact]
+    public void FromNormalizedEmail_ShouldFoldACombiningAccentLikeIdentityDoes()
+    {
+        // Arrange: "józef" written with a combining acute, and with the composed letter (#692)
+        const string decomposed = "jo\u0301zef@wp.pl";
+        const string composed = "J\u00D3ZEF@WP.PL";
+
+        // Act
+        MailboxKey decomposedKey = MailboxKey.FromNormalizedEmail(decomposed);
+
+        // Assert
+        decomposedKey.ShouldBe(MailboxKey.FromNormalizedEmail(composed));
+    }
+
+    [Fact]
+    public void ToString_ShouldMaskTheAddress()
+    {
+        // Act
+        string text = MailboxKey.FromNormalizedEmail("ANNA+1@GMAIL.COM").ToString();
+
+        // Assert
+        text.ShouldBe("A***@GMAIL.COM");
+    }
+
     [Theory]
     [InlineData("ANNA+1@EXAMPLE.COM")]
     [InlineData("ANNA+@EXAMPLE.COM")]

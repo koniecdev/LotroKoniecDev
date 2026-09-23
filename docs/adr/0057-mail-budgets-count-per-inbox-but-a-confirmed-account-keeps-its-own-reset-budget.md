@@ -114,7 +114,9 @@ request, whatever her account budget says.
 
 ### 5. The key is a type, not a string
 
-Every mail budget takes a `MailboxKey`, so a caller cannot pass the address as typed by mistake. The
+Every mail budget takes a `MailboxKey`, so every budget goes through the one fold that type owns. The key
+also applies Identity's default fold itself (`Normalize()`, then upper case), so an address passed as typed
+by mistake still lands in the right budget. Its text form is masked, like every logged address. The
 ForgotPassword page and endpoint both call the same `IPasswordResetRequestThrottle.TryAcquire(user)`,
 so the confirmed and unconfirmed rule lives in one class, `PasswordResetRequestThrottle`. The
 per-inbox budgets are instances of `PerMailboxFixedWindowThrottle`, which replaces
@@ -156,6 +158,10 @@ brake (ADR-0053) and for the confirmed half of the reset budget.
 - **Other providers' rules are not folded:** a `-` tag (Yahoo), a subdomain tag (Fastmail), dots
   outside Gmail, and a catch-all domain that delivers every name to one inbox. No key can fold a
   catch-all. A new rule goes into `MailboxKey` and nowhere else.
+- **A registration whose save or commit fails for good has still spent its permit.** The permit comes
+  before the save, and a fixed window cannot give it back. ADR-0053 §2 and ADR-0055 make the same
+  choice. Today a transient error while saving is one of those failures, because the handler catches
+  it as a taken address (#845).
 - **A refused registration still used Identity's work.** The account row and the password hash are
   created and then rolled back, which costs the same as a successful registration.
 - **The budgets are in process**, as before: two containers mean two budgets, and a restart empties

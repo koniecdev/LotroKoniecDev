@@ -162,7 +162,7 @@ internal sealed partial class RegisterModel : PageModel
             "Auth.UserAlreadyExistsByUsername" =>
                 "Ta nazwa użytkownika jest już zajęta. Wybierz inną.",
             "Auth.RegistrationMailboxThrottled" =>
-                "Na tę skrzynkę pocztową założono ostatnio zbyt wiele kont. Spróbuj ponownie za kwadrans.",
+                "Na tę skrzynkę pocztową założono ostatnio zbyt wiele kont. Odczekaj kwadrans i spróbuj ponownie.",
             _ =>
                 "Nie udało się założyć konta. Upewnij się, że hasło spełnia wymagania, i spróbuj ponownie."
         };

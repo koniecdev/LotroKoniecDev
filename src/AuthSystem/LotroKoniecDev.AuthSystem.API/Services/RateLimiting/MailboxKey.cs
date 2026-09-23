@@ -1,3 +1,5 @@
+using LotroKoniecDev.AuthSystem.API.Extensions;
+
 namespace LotroKoniecDev.AuthSystem.API.Services.RateLimiting;
 
 /// <summary>
@@ -25,9 +27,9 @@ internal sealed record MailboxKey
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(normalizedEmail);
 
-        // Identity's output is already upper-case, so this changes nothing there. It only keeps the Gmail
-        // rule below blind to letter case.
-        string address = normalizedEmail.ToUpperInvariant();
+        // The same fold as Identity's default normalizer. It changes nothing on Identity's output, and it
+        // keeps an address passed as typed in the same budget, combining accents included (#692).
+        string address = normalizedEmail.Normalize().ToUpperInvariant();
 
         int at = address.LastIndexOf('@');
         if (at <= 0 || at == address.Length - 1)
@@ -53,6 +55,11 @@ internal sealed record MailboxKey
 
         return new MailboxKey($"{localPart}@{domain}");
     }
+
+    /// <summary>
+    /// Masked, like every address this app writes to a log: the generated record text would print it whole.
+    /// </summary>
+    public override string ToString() => Value.MaskEmail();
 
     private MailboxKey(string value)
     {

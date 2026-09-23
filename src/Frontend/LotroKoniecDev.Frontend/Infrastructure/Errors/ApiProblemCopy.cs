@@ -163,6 +163,10 @@ internal static class ApiProblemCopy
             ["Auth.RegistrationFailed"] =
                 "Nie udało się założyć konta. Sprawdź adres e-mail, nazwę użytkownika oraz wymagania hasła: "
                 + PasswordRules,
+            // Registration lives on the auth server's own Razor Page, which shows the same sentence. The
+            // entry stays because this map covers every code the APIs can produce.
+            ["Auth.RegistrationMailboxThrottled"] =
+                "Na tę skrzynkę pocztową założono ostatnio zbyt wiele kont. Odczekaj kwadrans i spróbuj ponownie.",
             ["Auth.UserNotFound"] =
                 "Nie znaleziono konta.",
             [InvalidCurrentPasswordCode] =

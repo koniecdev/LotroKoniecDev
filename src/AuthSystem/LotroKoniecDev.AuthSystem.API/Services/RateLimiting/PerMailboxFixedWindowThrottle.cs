@@ -7,8 +7,8 @@ namespace LotroKoniecDev.AuthSystem.API.Services.RateLimiting;
 /// in this app. Each budget is its own instance, so a handler can never spend the wrong one (ADR-0053 §1).
 /// </summary>
 /// <remarks>
-/// The key is a <see cref="MailboxKey"/>, not a string, so a caller cannot pass the address as typed and
-/// give every spelling a budget of its own (#835, ADR-0057).
+/// The key is a <see cref="MailboxKey"/>, not a string, so every budget goes through the one fold that
+/// type owns and no spelling gets a budget of its own (#835, ADR-0057).
 /// </remarks>
 internal sealed class PerMailboxFixedWindowThrottle
     : IEmailConfirmationResendThrottle, IEmailChangeRecipientThrottle, IRegistrationMailboxThrottle, IDisposable

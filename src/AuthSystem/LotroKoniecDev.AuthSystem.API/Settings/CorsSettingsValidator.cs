@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Options;
+using LotroKoniecDev.AuthSystem.API.Common;
 using LotroKoniecDev.AuthSystem.API.Extensions;
 
 namespace LotroKoniecDev.AuthSystem.API.Settings;
@@ -63,9 +64,7 @@ internal sealed class CorsSettingsValidator : IValidateOptions<CorsSettings>
     /// </summary>
     private static bool BeBareHttpOrigin(string? value)
     {
-        return value is not null
-               && Uri.TryCreate(value, UriKind.Absolute, out Uri? uri)
-               && (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps)
+        return AbsoluteHttpUri.TryParse(value, out Uri? uri)
                && string.IsNullOrEmpty(uri.UserInfo)
                && string.Equals(value, uri.GetLeftPart(UriPartial.Authority), StringComparison.Ordinal);
     }

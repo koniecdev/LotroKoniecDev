@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Options;
+using LotroKoniecDev.AuthSystem.API.Common;
 using LotroKoniecDev.AuthSystem.API.Extensions;
 
 namespace LotroKoniecDev.AuthSystem.API.Settings;
@@ -141,7 +142,6 @@ internal sealed class OpenIddictSettingsValidator : IValidateOptions<OpenIddictS
 
     private static bool BeAbsoluteHttpUrl(string value)
     {
-        return Uri.TryCreate(value, UriKind.Absolute, out Uri? uri)
-               && (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps);
+        return AbsoluteHttpUri.TryParse(value, out _);
     }
 }

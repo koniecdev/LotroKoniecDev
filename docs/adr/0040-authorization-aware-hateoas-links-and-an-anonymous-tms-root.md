@@ -165,6 +165,9 @@ link, decided then.
   `GetTranslationSystemDiscoveryAsync` has no production caller; only the auth leg is consumed
   (`AccountLoader`). The follow-up that makes frontend pages read TMS discovery must add the mirror
   guard, keyed on `contribution-data-export` (the rel every authenticated caller has).
+  **Resolved (2026-09-23, #825):** both legs carry the guard, and the TMS leg has production callers.
+  `AuthenticatedLinksDegradedException` is gone: the cache marks the session dead and serves the
+  degraded set without caching it under either key, as TheKittySaver does.
 - Every link now costs one policy evaluation. Trivial at today's link counts; revisit if a
   collection ever emits links per row at a scale where it shows.
 

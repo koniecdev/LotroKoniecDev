@@ -457,7 +457,8 @@ hash-check → patch → launch flow is validated. Re-investigating any of it is
   context, so `IHttpContextAccessor.HttpContext` is `null` in there: a typed client sends no bearer and
   no caller headers (ADR-0054), and nothing fails loudly. Read the cache with `DisableUnderlyingData`,
   make the call in the request on a miss, and `SetAsync` only a good answer — `DiscoveryCache` is the
-  template. A factory may compute only from its `state` argument.
+  template. A factory may compute only from its `state` argument: even when it runs inline, every
+  caller that joins it gets the first caller's answer.
 - **Auth Razor Pages: never put a caller-supplied value in an `asp-route-*` attribute (#681, #682).**
   Razor writes a tag-helper attribute through `WriteLiteral` with the encoder switched off, and
   `RazorPageBase.WriteLiteral` is the page-output sink CodeQL's `cs/web/xss` recognises — so

@@ -1,7 +1,12 @@
+using System.Data.Common;
 using System.Net.Http.Headers;
 using System.Text.RegularExpressions;
+using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.AspNetCore.TestHost;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.DependencyInjection;
+using Npgsql;
 using LotroKoniecDev.AuthSystem.API.Outbox;
 using LotroKoniecDev.AuthSystem.API.Services.RateLimiting;
 using LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared.Bases;
@@ -10,6 +15,7 @@ using LotroKoniecDev.AuthSystem.Contracts.Features.Auth.Account;
 using LotroKoniecDev.AuthSystem.Contracts.Features.Auth.EmailConfirmation;
 using LotroKoniecDev.AuthSystem.Contracts.Features.Auth.Password;
 using LotroKoniecDev.AuthSystem.Contracts.Features.Auth.Register;
+using LotroKoniecDev.AuthSystem.Domain.Aggregates.ApplicationUsers.Entities;
 using LotroKoniecDev.AuthSystem.Persistence.DbContexts;
 
 namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Tests.RateLimiting;
@@ -29,6 +35,7 @@ public sealed partial class MailboxBudgetTests : EndpointsTestBase
     private static readonly Uri RegisterEndpoint = new("auth/register", UriKind.Relative);
     private static readonly Uri RegisterPage = new("/Account/Register", UriKind.Relative);
     private static readonly Uri ForgotPasswordEndpoint = new("auth/forgot-password", UriKind.Relative);
+    private static readonly Uri ForgotPasswordPage = new("/Account/ForgotPassword", UriKind.Relative);
     private static readonly Uri ResendConfirmationEndpoint = new("auth/resend-email-confirmation", UriKind.Relative);
     private static readonly Uri ChangeEmailEndpoint = new("auth/account/change-email", UriKind.Relative);
 
@@ -88,6 +95,64 @@ public sealed partial class MailboxBudgetTests : EndpointsTestBase
     }
 
     [Fact]
+    public async Task Register_ShouldNotSpendTheBudget_WhenTheUsernameIsTaken()
+    {
+        // Arrange: the other refusals before the permit (a reserved address, an Identity error) return
+        // from the same place in the handler; a taken name is the one a caller can reach at will
+        GmailInbox inbox = GmailInbox.New();
+        RegisterRequest first = UserFactory.GenerateRandomRegisterRequest(Faker, Password) with { Email = inbox.Plain };
+        using HttpResponseMessage created = await ApiClient.Http.PostAsJsonAsync(RegisterEndpoint, first);
+        created.StatusCode.ShouldBe(HttpStatusCode.Created);
+
+        for (int i = 0; i < AccountBudgets.RegistrationPermitLimit; i++)
+        {
+            RegisterRequest sameName = first with { Email = inbox.Tagged($"name{i}") };
+            using HttpResponseMessage refused = await ApiClient.Http.PostAsJsonAsync(RegisterEndpoint, sameName);
+            refused.StatusCode.ShouldBe(HttpStatusCode.UnprocessableEntity);
+        }
+
+        // Act
+        HttpStatusCode[] statusCodes = new HttpStatusCode[AccountBudgets.RegistrationPermitLimit - 1];
+        for (int i = 0; i < statusCodes.Length; i++)
+        {
+            using HttpResponseMessage response = await RegisterAsync(inbox.Tagged($"later{i}"));
+            statusCodes[i] = response.StatusCode;
+        }
+
+        // Assert
+        statusCodes.ShouldAllBe(statusCode => statusCode == HttpStatusCode.Created);
+    }
+
+    [Fact]
+    public async Task Register_ShouldTakeOnePermit_WhenATransientCommitFailureReplaysTheTransaction()
+    {
+        // Arrange: the execution strategy replays the whole registration after a transient error on the
+        // commit. A second permit for the same registration would leave an honest user one short. The
+        // host is our own, so its budgets start empty and the failure touches no other test.
+        GmailInbox inbox = GmailInbox.New();
+        FailFirstRegistrationCommitInterceptor interceptor = new(inbox.Tagged("1"));
+        await using WebApplicationFactory<Program> host = Factory.WithWebHostBuilder(builder =>
+            builder.ConfigureTestServices(services =>
+                services.ConfigureDbContext<AuthDbContext>(options => options.AddInterceptors(interceptor))));
+        using HttpClient client = host.CreateClient();
+
+        using HttpResponseMessage replayed = await RegisterAsync(client, inbox.Tagged("1"));
+        replayed.StatusCode.ShouldBe(HttpStatusCode.Created);
+        interceptor.FailedCommits.ShouldBe(1);
+
+        // Act
+        HttpStatusCode[] statusCodes = new HttpStatusCode[AccountBudgets.RegistrationPermitLimit - 1];
+        for (int i = 0; i < statusCodes.Length; i++)
+        {
+            using HttpResponseMessage response = await RegisterAsync(client, inbox.Tagged($"after{i}"));
+            statusCodes[i] = response.StatusCode;
+        }
+
+        // Assert
+        statusCodes.ShouldAllBe(statusCode => statusCode == HttpStatusCode.Created);
+    }
+
+    [Fact]
     public async Task RegisterPage_ShouldExplainTheRefusalInPolish_WhenTheInboxBudgetIsSpent()
     {
         // Arrange: the page and the endpoint share the handler, so they share the budget too
@@ -98,8 +163,19 @@ public sealed partial class MailboxBudgetTests : EndpointsTestBase
             created.StatusCode.ShouldBe(HttpStatusCode.Created);
         }
 
+        Dictionary<string, string> form = new()
+        {
+            ["Username"] = Faker.Random.AlphaNumeric(16),
+            ["Email"] = inbox.Dotted,
+            ["Password"] = Password,
+            ["ConfirmPassword"] = Password,
+            ["AcceptedPrivacyPolicy"] = "true",
+            ["AcceptedDataProcessingConsent"] = "true",
+            ["AcceptedTermsOfService"] = "true"
+        };
+
         // Act
-        using HttpResponseMessage refused = await PostToRegisterPageAsync(inbox.Dotted);
+        using HttpResponseMessage refused = await PostToPageAsync(RegisterPage, form);
 
         // Assert
         refused.StatusCode.ShouldBe(HttpStatusCode.OK);
@@ -138,13 +214,13 @@ public sealed partial class MailboxBudgetTests : EndpointsTestBase
     {
         // Arrange
         GmailInbox inbox = GmailInbox.New();
-        string[] accounts = [inbox.Tagged("a"), inbox.OnGoogleMail];
+        string[] accounts = [inbox.Tagged("a"), inbox.Dotted, inbox.OnGoogleMail];
         foreach (string account in accounts)
         {
             await RegisterUnconfirmedAsync(account);
         }
 
-        // Act: one more than the budget, alternating between the two accounts
+        // Act: one more than the budget, spread across the three accounts
         for (int i = 0; i < AccountBudgets.PasswordResetPermitLimit + 1; i++)
         {
             using HttpResponseMessage response = await ApiClient.Http.PostAsJsonAsync(
@@ -191,6 +267,38 @@ public sealed partial class MailboxBudgetTests : EndpointsTestBase
     }
 
     [Fact]
+    public async Task ForgotPasswordPage_ShouldKeepTheOwnersBudget_WhenAStrangersAccountAtHerInboxSpendsItsOwn()
+    {
+        // Arrange: the page does not go through the endpoint's handler, and it is the door real users use
+        GmailInbox inbox = GmailInbox.New();
+        await RegisterUnconfirmedAsync(inbox.Plain);
+        await UserFactory.ConfirmEmailAsync(ApiClient, AccountConfirmationEmailSpy);
+        await RegisterUnconfirmedAsync(inbox.Tagged("stranger"));
+
+        for (int i = 0; i < AccountBudgets.PasswordResetPermitLimit + 1; i++)
+        {
+            using HttpResponseMessage flood = await PostToPageAsync(
+                ForgotPasswordPage, new Dictionary<string, string> { ["Email"] = inbox.Tagged("stranger") });
+            flood.StatusCode.ShouldBe(HttpStatusCode.OK);
+        }
+
+        int rowsAfterFlood = await CountOutboxRowsAsync(nameof(PasswordResetRequested));
+
+        // Act
+        for (int i = 0; i < AccountBudgets.PasswordResetPermitLimit; i++)
+        {
+            using HttpResponseMessage own = await PostToPageAsync(
+                ForgotPasswordPage, new Dictionary<string, string> { ["Email"] = inbox.Plain });
+            own.StatusCode.ShouldBe(HttpStatusCode.OK);
+        }
+
+        // Assert
+        rowsAfterFlood.ShouldBe(AccountBudgets.PasswordResetPermitLimit);
+        (await CountOutboxRowsAsync(nameof(PasswordResetRequested)))
+            .ShouldBe(rowsAfterFlood + AccountBudgets.PasswordResetPermitLimit);
+    }
+
+    [Fact]
     public async Task RequestEmailChange_ShouldCountEverySpellingOfTheNewInboxAgainstOneBudget()
     {
         // Arrange
@@ -217,10 +325,13 @@ public sealed partial class MailboxBudgetTests : EndpointsTestBase
         (await CountOutboxRowsAsync(nameof(EmailChangeRequested))).ShouldBe(spellings.Length);
     }
 
-    private async Task<HttpResponseMessage> RegisterAsync(string email)
+    private async Task<HttpResponseMessage> RegisterAsync(string email) =>
+        await RegisterAsync(ApiClient.Http, email);
+
+    private async Task<HttpResponseMessage> RegisterAsync(HttpClient client, string email)
     {
         RegisterRequest request = UserFactory.GenerateRandomRegisterRequest(Faker, Password) with { Email = email };
-        return await ApiClient.Http.PostAsJsonAsync(RegisterEndpoint, request);
+        return await client.PostAsJsonAsync(RegisterEndpoint, request);
     }
 
     private async Task RegisterUnconfirmedAsync(string email)
@@ -243,31 +354,20 @@ public sealed partial class MailboxBudgetTests : EndpointsTestBase
         return await ApiClient.Http.SendAsync(request);
     }
 
-    private async Task<HttpResponseMessage> PostToRegisterPageAsync(string email)
+    private async Task<HttpResponseMessage> PostToPageAsync(Uri page, Dictionary<string, string> formFields)
     {
-        using HttpResponseMessage pageResponse = await ApiClient.Http.GetAsync(RegisterPage);
+        using HttpResponseMessage pageResponse = await ApiClient.Http.GetAsync(page);
         pageResponse.StatusCode.ShouldBe(HttpStatusCode.OK);
 
         string html = await pageResponse.Content.ReadAsStringAsync();
         Match match = AntiForgeryTokenRegex().Match(html);
-
-        Dictionary<string, string> formFields = new()
-        {
-            ["Username"] = Faker.Random.AlphaNumeric(16),
-            ["Email"] = email,
-            ["Password"] = Password,
-            ["ConfirmPassword"] = Password,
-            ["AcceptedPrivacyPolicy"] = "true",
-            ["AcceptedDataProcessingConsent"] = "true",
-            ["AcceptedTermsOfService"] = "true"
-        };
         if (match.Success)
         {
             formFields["__RequestVerificationToken"] = match.Groups[1].Value;
         }
 
         using FormUrlEncodedContent content = new(formFields);
-        using HttpRequestMessage request = new(HttpMethod.Post, RegisterPage);
+        using HttpRequestMessage request = new(HttpMethod.Post, page);
         request.Content = content;
 
         if (pageResponse.Headers.TryGetValues("Set-Cookie", out IEnumerable<string>? cookies))
@@ -313,6 +413,42 @@ public sealed partial class MailboxBudgetTests : EndpointsTestBase
 
     [GeneratedRegex("""name="__RequestVerificationToken".*?value="([^"]+)""")]
     private static partial Regex AntiForgeryTokenRegex();
+
+    /// <summary>
+    /// Fails the first commit of the registration of one address, with the error code Postgres uses for a
+    /// transient serialization failure, so the execution strategy replays it. Every other commit, the
+    /// host's own background work included, goes through untouched.
+    /// </summary>
+    private sealed class FailFirstRegistrationCommitInterceptor : DbTransactionInterceptor
+    {
+        private readonly string _email;
+        private int _failedCommits;
+
+        public FailFirstRegistrationCommitInterceptor(string email)
+        {
+            _email = email;
+        }
+
+        public int FailedCommits => _failedCommits;
+
+        public override ValueTask<InterceptionResult> TransactionCommittingAsync(
+            DbTransaction transaction,
+            TransactionEventData eventData,
+            InterceptionResult result,
+            CancellationToken cancellationToken = default)
+        {
+            bool isTheRegistration = eventData.Context is not null
+                && eventData.Context.ChangeTracker.Entries<ApplicationUser>()
+                    .Any(entry => string.Equals(entry.Entity.Email, _email, StringComparison.Ordinal));
+
+            if (isTheRegistration && Interlocked.CompareExchange(ref _failedCommits, 1, 0) == 0)
+            {
+                throw new PostgresException("simulated transient commit failure", "ERROR", "ERROR", "40001");
+            }
+
+            return base.TransactionCommittingAsync(transaction, eventData, result, cancellationToken);
+        }
+    }
 
     /// <summary>
     /// Spellings of one Gmail inbox. The budgets are singletons for the whole test collection and are never

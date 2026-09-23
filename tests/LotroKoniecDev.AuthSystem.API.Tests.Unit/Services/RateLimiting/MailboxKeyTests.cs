@@ -75,6 +75,19 @@ public sealed class MailboxKeyTests
     }
 
     [Theory]
+    [InlineData("ANNA+X")]
+    [InlineData("@GMAIL.COM")]
+    [InlineData("A.NNA+X@")]
+    public void FromNormalizedEmail_ShouldKeepAnAddressWithoutAMailboxNameAndADomainAsItIs(string malformed)
+    {
+        // Act: the validators refuse these first, so the key only has to stay stable, not fold them
+        MailboxKey key = MailboxKey.FromNormalizedEmail(malformed);
+
+        // Assert
+        key.Value.ShouldBe(malformed);
+    }
+
+    [Theory]
     [InlineData(null)]
     [InlineData("")]
     [InlineData("   ")]

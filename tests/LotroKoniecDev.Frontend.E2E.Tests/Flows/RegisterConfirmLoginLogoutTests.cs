@@ -46,5 +46,9 @@ public sealed class RegisterConfirmLoginLogoutTests : E2ETestBase
         await AuthActions.LogoutAsync(Page);
         (await Page.GetByRole(AriaRole.Link, new() { Name = Links.Login, Exact = true }).IsVisibleAsync())
             .ShouldBeTrue();
+
+        // The auth pages' CSP blocked nothing on the way, including the redirects after the login POST,
+        // which Chrome checks against form-action (#693).
+        CspViolations.ShouldBeEmpty();
     }
 }

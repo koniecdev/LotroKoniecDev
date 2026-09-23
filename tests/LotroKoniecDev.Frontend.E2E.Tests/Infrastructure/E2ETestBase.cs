@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using Microsoft.Playwright;
 
 namespace LotroKoniecDev.Frontend.E2E.Tests.Infrastructure;
@@ -13,6 +14,19 @@ namespace LotroKoniecDev.Frontend.E2E.Tests.Infrastructure;
 [Trait("Category", "E2E-Frontend")]
 public abstract class E2ETestBase : IAsyncLifetime
 {
+    /// <summary>
+    /// Runs before any page script, in every page of the context. A violation fires as an event on the
+    /// document; the page still loads, so nothing else in a flow would notice it.
+    /// </summary>
+    private const string CspViolationListener =
+        """
+        document.addEventListener('securitypolicyviolation', event =>
+            window.__reportCspViolation(
+                `${location.origin}${location.pathname}: ${event.effectiveDirective} blocked ${event.blockedURI || 'inline content'}`));
+        """;
+
+    private readonly ConcurrentQueue<string> _cspViolations = new();
+
     protected E2ETestBase(PlaywrightStackFixture fixture)
     {
         Fixture = fixture;
@@ -24,6 +38,12 @@ public abstract class E2ETestBase : IAsyncLifetime
 
     protected IPage Page { get; private set; } = null!;
 
+    /// <summary>
+    /// Every CSP violation a page of this test reported. The auth host runs in Testing, so its real CSP
+    /// is on here, and a blocked style or script is visible only this way (#670, #693).
+    /// </summary>
+    protected IReadOnlyCollection<string> CspViolations => _cspViolations;
+
     public async Task InitializeAsync()
     {
         Context = await Fixture.Browser.NewContextAsync(new BrowserNewContextOptions
@@ -32,6 +52,8 @@ public abstract class E2ETestBase : IAsyncLifetime
             ViewportSize = new ViewportSize { Width = 1366, Height = 900 }
         });
         Context.SetDefaultTimeout(20_000);
+        await Context.ExposeFunctionAsync("__reportCspViolation", (string violation) => _cspViolations.Enqueue(violation));
+        await Context.AddInitScriptAsync(CspViolationListener);
         Page = await Context.NewPageAsync();
     }
 

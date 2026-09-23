@@ -50,7 +50,7 @@ public sealed class EmailChangeRecipientBudgetTests : EndpointsTestBase
         // Act
         using HttpResponseMessage refused = await RequestChangeAsync(accessToken, newEmail, Password);
 
-        // Assert: a silent 200 would make the page say a link and a warning went out when neither did
+        // Assert: a 429 with its own code, never a silent 200 (ADR-0055 §5)
         refused.StatusCode.ShouldBe(HttpStatusCode.TooManyRequests);
         (await ReadErrorCodeAsync(refused)).ShouldBe(ThrottledErrorCode);
         (await CountEmailChangeRowsAsync()).ShouldBe(RecipientPermitLimit);

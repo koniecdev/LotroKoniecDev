@@ -92,10 +92,9 @@ internal sealed partial class ResendEmailConfirmation : IApiEndpoint
                 return Result.Success();
             }
 
-            // The per-account budget is taken only here, where a mail would really go out, so an unknown
-            // or confirmed address never spends one. The key is the account, so every spelling that finds
-            // it shares the budget, and the page and the endpoint share it because both run this handler.
-            // A refusal returns Success like every other branch (ADR-0055).
+            // Taken only here, where a mail would really go out, and keyed on the account, so every
+            // spelling and both the page and the endpoint share one budget. A refusal returns Success like
+            // every other branch (ADR-0055).
             if (!_throttle.TryAcquire(user.Id))
             {
                 LogResendThrottled(_logger, maskedEmail);

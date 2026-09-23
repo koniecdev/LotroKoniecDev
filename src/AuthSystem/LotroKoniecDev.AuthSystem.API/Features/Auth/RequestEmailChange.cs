@@ -135,9 +135,10 @@ internal sealed partial class RequestEmailChange : IApiEndpoint
             }
 
             string currentEmail = user.Email;
+            string normalizedNewEmail = _userManager.NormalizeEmail(newEmail);
 
             if (string.Equals(
-                    _userManager.NormalizeEmail(newEmail),
+                    normalizedNewEmail,
                     _userManager.NormalizeEmail(currentEmail),
                     StringComparison.Ordinal))
             {
@@ -164,11 +165,9 @@ internal sealed partial class RequestEmailChange : IApiEndpoint
                 return Result.Failure(AuthErrors.UserAlreadyExistsByEmail);
             }
 
-            // The last check, so a refused change above spends nothing. The budget belongs to the new
-            // address, whichever account asks, because that inbox is the one a flood would fill. The
-            // refusal is a 429 and not a silent success: the page would otherwise tell the user a link
-            // and a warning went out when neither did (ADR-0055).
-            if (!_recipientThrottle.TryAcquire(_userManager.NormalizeEmail(newEmail)))
+            // The last check, so a change refused above spends nothing. The budget belongs to the new
+            // address, whichever account asks, and its refusal is a 429 on purpose (ADR-0055).
+            if (!_recipientThrottle.TryAcquire(normalizedNewEmail))
             {
                 LogRecipientThrottled(_logger, user.Id, newEmail.MaskEmail());
                 return Result.Failure(AuthErrors.EmailChangeRecipientThrottled);

@@ -228,9 +228,9 @@ public sealed class FrontendCallerKeyTests : EndpointsTestBase
         bool formBody)
     {
         // Arrange: the login form is the one place a password can be guessed in production, and the
-        // three endpoints mail an address the caller typed with no per-account brake behind them. The
-        // frontend calls none of them, so their policies ignore the key (ADR-0054 §3): a leaked key must
-        // not buy a fresh bucket per invented address. Every POST here is refused before it does any
+        // three endpoints mail an address the caller typed. The frontend calls none of them, so their
+        // policies ignore the key (ADR-0054 §3): a leaked key must not buy a fresh IP bucket per invented
+        // address. Every POST here is refused before it does any
         // work (no antiforgery token, an empty body), and the limiter counts it all the same.
         using WebApplicationFactory<Program> limitedHost = CreateRateLimitedHost();
         using HttpClient client = limitedHost.CreateClient();

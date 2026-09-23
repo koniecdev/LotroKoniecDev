@@ -109,8 +109,9 @@ third instance of `PerAccountFixedWindowThrottle`. The e-mail change budget need
 - **E-mail change** answers `AuthErrors.EmailChangeRecipientThrottled` (429), and the frontend shows
   its Polish sentence. A silent 200 would make the page say that a link and a warning went out when
   neither did. The budget belongs to the address, so another account can be the one that spent it.
-  The caller has proved the password, and the endpoint already says when an address is taken, so the
-  refusal reveals nothing new.
+  The refusal does tell the caller that someone asked to mail that address in the last quarter of an
+  hour. That is accepted: finding it out means sending mail to that address, which its owner sees,
+  and a silent 200 would mislead every real user instead.
 
 ## Consequences
 
@@ -129,8 +130,15 @@ third instance of `PerAccountFixedWindowThrottle`. The e-mail change budget need
   treats them as separate addresses. For Gmail inboxes this ADR is therefore a much weaker brake:
   registration is the cheapest channel, at one mail per new spelling behind an IP budget only.
   Folding these belongs in one mailbox key shared by all four flows, not in one flow. That is #835.
-- **Another account can spend a new address's e-mail change budget** and block a real change to that
-  address for up to 15 minutes. The block clears itself, and the user sees why.
+- **Another account can keep a new address's e-mail change budget spent.** It takes three requests
+  in every window, and each one mails that address, so the owner of the inbox sees it happen. For as
+  long as it goes on, a real change to that address is refused with the 429. A flood brake has to key
+  on the recipient, and a key that also named the requester would give every attacker account its own
+  budget (decision 2).
+- **A permit is spent before the save or the send.** A failed save, a cancelled request or a failed
+  SMTP call still costs one, and a fixed window cannot give it back (ADR-0053 §2 makes the same
+  choice). A user who hits an SMTP outage three times with the resend waits out the window after SMTP
+  recovers.
 - **The budgets are in process**, so two containers mean two budgets and a restart empties them. It
   is the same trade-off every limiter in this app makes.
 - **The resend refusal is hidden in the response body only.** How long the response takes already

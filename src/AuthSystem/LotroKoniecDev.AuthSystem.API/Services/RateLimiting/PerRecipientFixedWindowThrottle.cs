@@ -7,11 +7,8 @@ namespace LotroKoniecDev.AuthSystem.API.Services.RateLimiting;
 /// account to key on. It is the twin of <see cref="PerAccountFixedWindowThrottle"/> for that case only.
 /// </summary>
 /// <remarks>
-/// Every other in-handler budget keys on the account id, because an id cannot be spelled two ways (#692).
-/// An e-mail change link goes to an address no account owns yet, so the key here is that address after
-/// <c>UserManager.NormalizeEmail</c>: the same folding Identity uses to decide two spellings are one
-/// account. The key is the caller's job, because the normalizer is scoped and this budget is a singleton
-/// (ADR-0055).
+/// Every other in-handler budget keys on the account id (#692). An e-mail change link goes to an address
+/// no account owns yet, so this one keys on that address as the caller normalized it (ADR-0055 §2).
 /// </remarks>
 internal sealed class PerRecipientFixedWindowThrottle : IEmailChangeRecipientThrottle, IDisposable
 {

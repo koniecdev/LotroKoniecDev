@@ -58,11 +58,11 @@ public sealed class RegisterEndpointTests : EndpointsTestBase
     [Fact]
     public async Task Register_ShouldQueueNoSecondConfirmation_WhenTheAddressIsAlreadyRegistered()
     {
-        // Arrange: registration mails an address the caller typed. Its per-address budget is the unique
-        // address itself, one mail for any spelling Identity folds together, so it needs no throttle of
-        // its own (ADR-0055)
+        // Arrange: registration mails an address the caller typed, and its only per-address budget is the
+        // unique address (ADR-0055). The account stays unconfirmed, because that is the state a flood would
+        // keep registering against.
         (RegisterRequest existingRequest, _) =
-            await UserFactory.RegisterRandomUserWithRequestAsync(ApiClient, Faker, AccountConfirmationEmailSpy);
+            await UserFactory.RegisterRandomUserUnconfirmedAsync(ApiClient, Faker, AccountConfirmationEmailSpy);
         int rowsAfterFirst = await CountConfirmationRowsAsync();
 
         string[] repeats = [existingRequest.Email, existingRequest.Email.ToUpperInvariant()];

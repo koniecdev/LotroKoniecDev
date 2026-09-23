@@ -2,7 +2,7 @@ namespace LotroKoniecDev.AuthSystem.API.Services.RateLimiting;
 
 /// <summary>
 /// The budgets the handlers take themselves, in one place so the registration and the tests read the same
-/// numbers. All but one are per account; the e-mail change budget is per recipient address (ADR-0055).
+/// numbers.
 /// </summary>
 internal static class AccountBudgets
 {

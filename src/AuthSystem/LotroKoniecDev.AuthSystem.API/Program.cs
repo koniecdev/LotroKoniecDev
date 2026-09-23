@@ -366,6 +366,7 @@ try
         // (see below), so httpContext.User is still anonymous here and a "per user" key would collapse
         // into one bucket shared by everybody. Behind the frontend the client is the visitor it forwards
         // (ADR-0054), so this budget no longer gives the whole product three changes an hour (#819).
+        // The per-address half of this budget lives behind IEmailChangeRecipientThrottle (ADR-0055).
         options.AddPolicy(changeEmailRateLimitPolicy, httpContext =>
             RateLimitPartition.GetFixedWindowLimiter(
                 partitionKey: ResolvePartitionKey(httpContext),
@@ -381,7 +382,8 @@ try
         // spend its 3-per-15-minutes budget on page views, and after three views the user could not
         // even reach the form. ADR-0046 made that form the one-click fix we advertise for a blocked
         // login, so the difference matters. Showing a form costs nothing; sending mail is what needs
-        // the limit.
+        // the limit. The per-account half of this budget lives behind IEmailConfirmationResendThrottle
+        // (ADR-0055).
         options.AddPolicy(resendConfirmationRateLimitPolicy, httpContext =>
             HttpMethods.IsPost(httpContext.Request.Method)
                 ? RateLimitPartition.GetFixedWindowLimiter(

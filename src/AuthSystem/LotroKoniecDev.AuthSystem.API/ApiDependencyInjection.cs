@@ -114,8 +114,6 @@ internal static class ApiDependencyInjection
                 new PerAccountFixedWindowThrottle(AccountBudgets.PasswordConfirmationPermitLimit, AccountBudgets.Window));
             services.AddSingleton<IEmailConfirmationResendThrottle>(_ =>
                 new PerAccountFixedWindowThrottle(AccountBudgets.EmailConfirmationResendPermitLimit, AccountBudgets.Window));
-            // The one budget keyed on an address instead of an account: the new address of an e-mail
-            // change has no account yet (ADR-0055).
             services.AddSingleton<IEmailChangeRecipientThrottle>(_ =>
                 new PerRecipientFixedWindowThrottle(AccountBudgets.EmailChangeRecipientPermitLimit, AccountBudgets.Window));
 

@@ -15,7 +15,7 @@ IP policy in front of the send:
 
 | Flow | Who can call it | Brake before #793 |
 |---|---|---|
-| Registration (`RegisterUser`, page and endpoint) | anyone | `register-limit` per IP, and one address can register only once |
+| Registration (`RegisterUser`, page and endpoint) | anyone | per IP (`register-limit` on the endpoint, `auth-page-limit` on the page), and one address can register only once |
 | Password reset (`ForgotPassword`, page and endpoint) | anyone | `forgot-password-limit` per IP, and 3 mails per 15 min per account (#692) |
 | Resend confirmation (`ResendEmailConfirmation`, page and endpoint) | anyone | `resend-confirmation-limit` per IP only |
 | E-mail change (`RequestEmailChange`) | a logged-in account | `change-email-limit` per visitor, and the password budget of ADR-0053 |
@@ -136,6 +136,11 @@ third instance of `PerAccountFixedWindowThrottle`. The e-mail change budget need
 - **The resend refusal is hidden in the response body only.** How long the response takes already
   tells the branches apart (the confirmed branch skips the dummy hash, the send branch waits for
   SMTP). That was true before #793, and this decision does not fix it.
+- **A refused e-mail change has already spent the caller's other permits.** The password budget of
+  ADR-0053 and `change-email-limit` (3 per hour per visitor) are both taken before this budget, so a
+  user who is refused three times within an hour also meets the IP policy for the rest of that hour,
+  even though the Polish message says to wait a quarter of an hour. This is by design: the other two
+  brakes must count every attempt, and a person almost never meets this case.
 - **Each refused request writes one warning line.**
 
 ## Alternatives Considered

@@ -1,6 +1,5 @@
 using System.Text.RegularExpressions;
 using LotroKoniecDev.AuthSystem.API.Services.RateLimiting;
-using LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared;
 using LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared.Bases;
 using LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared.Factories;
 using LotroKoniecDev.AuthSystem.Contracts.Features.Auth.EmailConfirmation;

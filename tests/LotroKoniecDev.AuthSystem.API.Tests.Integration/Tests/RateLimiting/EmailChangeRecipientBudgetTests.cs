@@ -39,7 +39,7 @@ public sealed class EmailChangeRecipientBudgetTests : EndpointsTestBase
     {
         // Arrange
         string accessToken = await RegisterAndGetAccessTokenAsync();
-        string newEmail = Faker.Internet.Email();
+        string newEmail = NewAddress();
 
         for (int i = 0; i < RecipientPermitLimit; i++)
         {
@@ -63,7 +63,7 @@ public sealed class EmailChangeRecipientBudgetTests : EndpointsTestBase
         // number of accounts. The inbox is what needs the limit.
         string firstAccountToken = await RegisterAndGetAccessTokenAsync();
         string secondAccountToken = await RegisterAndGetAccessTokenAsync();
-        string newEmail = Faker.Internet.Email();
+        string newEmail = NewAddress();
 
         for (int i = 0; i < RecipientPermitLimit; i++)
         {
@@ -85,7 +85,7 @@ public sealed class EmailChangeRecipientBudgetTests : EndpointsTestBase
     {
         // Arrange: Identity treats these as one address, so the budget has to as well
         string accessToken = await RegisterAndGetAccessTokenAsync();
-        string newEmail = Faker.Internet.Email();
+        string newEmail = NewAddress();
         string[] spellings =
         [
             newEmail.ToLowerInvariant(),
@@ -105,6 +105,7 @@ public sealed class EmailChangeRecipientBudgetTests : EndpointsTestBase
 
         // Assert
         refused.StatusCode.ShouldBe(HttpStatusCode.TooManyRequests);
+        (await ReadErrorCodeAsync(refused)).ShouldBe(ThrottledErrorCode);
         (await CountEmailChangeRowsAsync()).ShouldBe(RecipientPermitLimit);
     }
 
@@ -113,7 +114,7 @@ public sealed class EmailChangeRecipientBudgetTests : EndpointsTestBase
     {
         // Arrange: flooding one inbox must not block a change to any other address
         string accessToken = await RegisterAndGetAccessTokenAsync();
-        string floodedEmail = Faker.Internet.Email();
+        string floodedEmail = NewAddress();
 
         for (int i = 0; i < RecipientPermitLimit + 1; i++)
         {
@@ -122,7 +123,7 @@ public sealed class EmailChangeRecipientBudgetTests : EndpointsTestBase
 
         // Act
         using HttpResponseMessage other = await RequestChangeAsync(
-            accessToken, $"other-{Guid.CreateVersion7()}@example.com", Password);
+            accessToken, NewAddress(), Password);
 
         // Assert
         other.StatusCode.ShouldBe(HttpStatusCode.OK);
@@ -132,10 +133,11 @@ public sealed class EmailChangeRecipientBudgetTests : EndpointsTestBase
     [Fact]
     public async Task RequestEmailChange_ShouldNotSpendTheRecipientBudget_WhenTheChangeIsRefusedEarlier()
     {
-        // Arrange: the budget counts links that really go out. A request refused earlier, here for a wrong
-        // password, must not spend the new address's budget, or a stranger could spend it for the owner.
+        // Arrange: the budget counts links that really go out, so a request refused for a wrong password
+        // spends none. The refusals after the password check are covered where the reserved address is
+        // (EmailChangeRevertReservationTests).
         string accessToken = await RegisterAndGetAccessTokenAsync();
-        string newEmail = Faker.Internet.Email();
+        string newEmail = NewAddress();
 
         for (int i = 0; i < RecipientPermitLimit + 1; i++)
         {
@@ -155,6 +157,12 @@ public sealed class EmailChangeRecipientBudgetTests : EndpointsTestBase
         statusCodes.ShouldAllBe(statusCode => statusCode == HttpStatusCode.OK);
         (await CountEmailChangeRowsAsync()).ShouldBe(RecipientPermitLimit);
     }
+
+    /// <summary>
+    /// The budget is one singleton for the whole test collection and is never reset, so every test needs
+    /// an address no other test can produce.
+    /// </summary>
+    private static string NewAddress() => $"Recipient-{Guid.CreateVersion7()}@Example.com";
 
     private async Task<string> RegisterAndGetAccessTokenAsync()
     {

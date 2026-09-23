@@ -63,6 +63,7 @@ internal sealed partial class RequestEmailChange : IApiEndpoint
         private readonly OutboxWriter _outboxWriter;
         private readonly IEmailChangeRevertReservation _revertReservation;
         private readonly IPasswordConfirmationThrottle _confirmationThrottle;
+        private readonly IEmailChangeRecipientThrottle _recipientThrottle;
         private readonly IValidator<Command> _validator;
         private readonly ILogger<Handler> _logger;
 
@@ -72,6 +73,7 @@ internal sealed partial class RequestEmailChange : IApiEndpoint
             OutboxWriter outboxWriter,
             IEmailChangeRevertReservation revertReservation,
             IPasswordConfirmationThrottle confirmationThrottle,
+            IEmailChangeRecipientThrottle recipientThrottle,
             IValidator<Command> validator,
             ILogger<Handler> logger)
         {
@@ -80,6 +82,7 @@ internal sealed partial class RequestEmailChange : IApiEndpoint
             _outboxWriter = outboxWriter;
             _revertReservation = revertReservation;
             _confirmationThrottle = confirmationThrottle;
+            _recipientThrottle = recipientThrottle;
             _validator = validator;
             _logger = logger;
         }
@@ -132,9 +135,10 @@ internal sealed partial class RequestEmailChange : IApiEndpoint
             }
 
             string currentEmail = user.Email;
+            string normalizedNewEmail = _userManager.NormalizeEmail(newEmail);
 
             if (string.Equals(
-                    _userManager.NormalizeEmail(newEmail),
+                    normalizedNewEmail,
                     _userManager.NormalizeEmail(currentEmail),
                     StringComparison.Ordinal))
             {
@@ -161,6 +165,14 @@ internal sealed partial class RequestEmailChange : IApiEndpoint
                 return Result.Failure(AuthErrors.UserAlreadyExistsByEmail);
             }
 
+            // The last check, so a change refused above spends nothing. The budget belongs to the new
+            // address, whichever account asks, and its refusal is a 429 on purpose (ADR-0055).
+            if (!_recipientThrottle.TryAcquire(normalizedNewEmail))
+            {
+                LogRecipientThrottled(_logger, user.Id, newEmail.MaskEmail());
+                return Result.Failure(AuthErrors.EmailChangeRecipientThrottled);
+            }
+
             _outboxWriter.Enqueue(new EmailChangeRequested(user.Id, currentEmail, newEmail));
             await _db.SaveChangesAsync(cancellationToken);
 
@@ -185,6 +197,9 @@ internal sealed partial class RequestEmailChange : IApiEndpoint
 
         [LoggerMessage(EventId = EventIds.EmailChangeRequestAddressReserved, Level = LogLevel.Information, Message = "E-mail change refused for user {UserId}: {NewEmail} is still reserved as another account's undo target")]
         private static partial void LogAddressReserved(ILogger logger, Guid userId, string newEmail);
+
+        [LoggerMessage(EventId = EventIds.EmailChangeRecipientThrottled, Level = LogLevel.Warning, Message = "E-mail change refused for user {UserId}: the send budget of {NewEmail} is spent")]
+        private static partial void LogRecipientThrottled(ILogger logger, Guid userId, string newEmail);
 
         [LoggerMessage(EventId = EventIds.PasswordConfirmationThrottled, Level = LogLevel.Warning, Message = "E-mail change refused for user {UserId}: the password confirmation budget is spent")]
         private static partial void LogPasswordConfirmationThrottled(ILogger logger, Guid userId);
@@ -226,8 +241,9 @@ internal sealed partial class RequestEmailChange : IApiEndpoint
                     : Results.Ok();
             })
             .RequireAuthorization()
-            // Stays on change-email-limit: that policy bounds the mail this endpoint sends, which the
-            // per-account confirmation budget in the handler does not replace (ADR-0053).
+            // Stays on change-email-limit: that policy bounds how much mail one client can send, which
+            // neither the per-account confirmation budget (ADR-0053) nor the per-recipient budget
+            // (ADR-0055) in the handler replaces.
             .RequireRateLimiting("change-email-limit")
             .WithName(nameof(RequestEmailChange))
             .WithTags("Account")

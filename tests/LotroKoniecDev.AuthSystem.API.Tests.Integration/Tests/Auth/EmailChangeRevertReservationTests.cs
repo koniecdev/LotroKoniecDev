@@ -3,6 +3,7 @@ using System.Text.RegularExpressions;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using LotroKoniecDev.AuthSystem.API.Services.RateLimiting;
 using LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared.Bases;
 using LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared.Factories;
 using LotroKoniecDev.AuthSystem.Contracts.Features.Auth.Account;
@@ -171,6 +172,29 @@ public sealed partial class EmailChangeRevertReservationTests : EndpointsTestBas
         string accessToken = await GetAccessTokenAsync(newEmail, Password);
 
         HttpResponseMessage response = await RequestChangeAsync(accessToken, user.Email);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+    }
+
+    [Fact]
+    public async Task RequestEmailChange_ShouldNotLetAStrangerSpendTheSendBudgetOfTheCallersOwnRevertTarget()
+    {
+        // The send budget for a new address is taken after the reservation check (ADR-0055). Taken
+        // earlier, a stranger's refused requests would spend it, and the owner could not go back.
+        (RegisterRequest owner, string newEmail, _) = await CompleteChangeAsync();
+        (RegisterRequest stranger, _) = await UserFactory.RegisterRandomUserWithRequestAsync(
+            ApiClient, Faker, AccountConfirmationEmailSpy, Password);
+        string strangerToken = await GetAccessTokenAsync(stranger.Email, Password);
+
+        for (int i = 0; i < AccountBudgets.EmailChangeRecipientPermitLimit + 1; i++)
+        {
+            HttpResponseMessage refused = await RequestChangeAsync(strangerToken, owner.Email);
+            refused.StatusCode.ShouldBe(HttpStatusCode.UnprocessableEntity);
+        }
+
+        string ownerToken = await GetAccessTokenAsync(newEmail, Password);
+
+        HttpResponseMessage response = await RequestChangeAsync(ownerToken, owner.Email);
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
     }

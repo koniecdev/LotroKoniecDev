@@ -169,8 +169,19 @@ inbox**, and a link lives 24 hours against a 15-minute window, so a usable one i
 there. Both budgets are in process, so two running containers mean two budgets — the same trade-off the
 IP policies already make.
 
-Every 429 carries `Retry-After`, and a browser gets a Polish page explaining the wait instead of the
-framework's bare status text.
+The other two flows that mail a typed address have the same kind of second budget (#793, ADR-0055).
+Resend-confirmation allows 3 sends per 15 minutes per **unconfirmed account**, keyed by the account id,
+and refuses silently like password reset. E-mail change allows 3 links per 15 minutes per **new
+address**, whichever account asks. That address has no account yet, so the key is the address after
+Identity's `NormalizeEmail`. Its refusal is a 429 with `Auth.EmailChangeRecipientThrottled`, not a
+silent success: the frontend page would otherwise say a link went out when none did. Registration needs
+no extra budget, because one address can register only once. None of these fold `+tag` sub-addresses
+or Gmail dots yet (#835).
+
+Every 429 from a limiter policy carries `Retry-After`, and a browser gets a Polish page explaining the
+wait instead of the framework's bare status text. The 429s from the budgets inside the handlers
+(`Auth.PasswordConfirmationThrottled`, `Auth.EmailChangeRecipientThrottled`) carry no `Retry-After`:
+their window is a fixed 15 minutes, and the frontend shows its own Polish sentence for each code.
 
 ---
 
@@ -300,13 +311,13 @@ cancellation link's landing page — LEGAL-01).
 |---|---|---|---|
 | `POST` | `auth/register` | anonymous, rate-limited | `RegisterRequest` → **201** bare `IdentityId`; assigns `Translator`, sends confirmation email |
 | `POST` | `auth/confirm-email` | anonymous | `ConfirmEmailRequest { email, token }` |
-| `POST` | `auth/resend-email-confirmation` | anonymous | `ResendEmailConfirmationRequest` (anti-enumeration: always succeeds) |
+| `POST` | `auth/resend-email-confirmation` | anonymous | `ResendEmailConfirmationRequest` (anti-enumeration: always succeeds; at most 3 sends per 15 min per account, ADR-0055) |
 | `POST` | `auth/forgot-password` | anonymous | `ForgotPasswordRequest` (anti-enumeration: always succeeds) |
 | `POST` | `auth/reset-password` | anonymous | `ResetPasswordRequest { email, token, newPassword }` |
 | `POST` | `auth/change-password` | bearer token | `ChangePasswordRequest { currentPassword, newPassword }` |
 | `POST` | `auth/account/delete` | bearer token | `DeleteAccountRequest { password }` — **schedules** GDPR deletion (ADR-0031): 14-day grace window, account locked for the window, sessions + refresh tokens revoked, one-time cancellation link emailed → **204** + `X-Deletion-Scheduled-At` / `X-Deletion-Finalizes-At` headers; erasure runs in the finalizer only after the window elapses |
 | `POST` | `auth/account/cancel-deletion` | anonymous (emailed one-time token), rate-limited | `CancelAccountDeletionRequest { email, token }` → **200** `CancelAccountDeletionResponse { passwordResetToken }` — unlocks the account and forces a password reset (the pre-deletion password may be the attacker's) |
-| `POST` | `auth/account/change-email` | bearer token, `change-email-limit` (3/h per IP) | `ChangeEmailRequest { newEmail, currentPassword }` — **starts** an e-mail change (ADR-0048). Nothing on the account moves: a verification link goes to the new address (24 h) and a warning to the old one. Confirming happens on the auth pages `/Account/ConfirmEmailChange` (GET form, POST applies), after which the old address receives a 14-day link to `/Account/RevertEmailChange` that restores the address and clears the password |
+| `POST` | `auth/account/change-email` | bearer token, `change-email-limit` (3/h per IP) | `ChangeEmailRequest { newEmail, currentPassword }` — **starts** an e-mail change (ADR-0048). Nothing on the account moves: a verification link goes to the new address (24 h) and a warning to the old one. At most 3 links per 15 min per new address, whichever account asks; past that, 429 `Auth.EmailChangeRecipientThrottled` (ADR-0055). Confirming happens on the auth pages `/Account/ConfirmEmailChange` (GET form, POST applies), after which the old address receives a 14-day link to `/Account/RevertEmailChange` that restores the address and clears the password |
 | `GET` | `auth/account/data-export` | bearer token | `AccountDataExportResponse` — the **account representation** the "Moje konto" page renders, carrying the account's links. Not the GDPR export: it leaves the contact details out (`phoneNumber` is always `null` here) |
 | `POST` | `auth/account/data-export` | bearer token, rate-limited | `DownloadAccountDataRequest { password }` → **200** `AccountDataExportResponse` without links — the **GDPR Art. 15 export**, contact details included, handed over only behind the current password (#690, ADR-0052). Wrong password → **400** `Auth.InvalidCurrentPassword`, none sent → **400** `Auth.ExportPasswordRequired`; every attempt that reaches the password check is written to the audit log (a throttled or unauthenticated request never gets that far) |
 | `GET` | `/` | anonymous | discovery document (links into the auth flows) |

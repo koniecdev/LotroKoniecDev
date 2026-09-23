@@ -488,11 +488,14 @@ hash-check → patch → launch flow is validated. Re-investigating any of it is
   there the endpoint's own call runs after its group's — same method, opposite winner. A page budget also
   counts **POSTs only**: a Razor Page is one endpoint for GET and POST, so a send-sized budget gets spent
   on page views and locks the user out of the form (ADR-0046's lesson, now in `forgot-password-limit`
-  too). Mail sent to a caller-typed address needs a second budget keyed by **the account**, not the IP
-  (`IPasswordResetRequestThrottle`) — an attacker rotating IPs gets a fresh IP budget every time. Key it on
-  the **id**, never the address text: Identity's `NormalizeEmail` runs `Normalize()` first, so a Polish
+  too). Mail sent to a caller-typed address needs a second budget keyed by **the recipient**, not the IP
+  — an attacker rotating IPs gets a fresh IP budget every time (ADR-0055: password reset, resend
+  confirmation and e-mail change each have one; registration's is the unique address). Key it on the
+  account **id**, never the address text: Identity's `NormalizeEmail` runs `Normalize()` first, so a Polish
   address written with a combining accent resolves to the same account while a text key would hand the two
-  identical-looking spellings a budget each.
+  identical-looking spellings a budget each. The one exception is an address no account owns yet (the new
+  address of an e-mail change): key that on `UserManager.NormalizeEmail`, in the handler, since the
+  normalizer is scoped. Take the permit as the last check before the send, never in the dispatch leg.
 - **A per-address rate limit the frontend can reach on the auth API or the TMS API is keyed on the
   visitor, never on the frontend container (ADR-0054, #819, #823).** Every frontend→API call arrives
   through Caddy from the frontend container, so `Connection.RemoteIpAddress` there is one address for

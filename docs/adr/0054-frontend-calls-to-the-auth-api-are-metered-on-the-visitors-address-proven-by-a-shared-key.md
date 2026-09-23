@@ -1,6 +1,7 @@
 # ADR-0054: Frontend Calls to the Auth API Are Metered on the Visitor's Address, Proven by a Per-Environment Shared Key
 
-**Status:** Accepted (amended 2026-09-22 — see "Amendment: the TMS API uses the same key")
+**Status:** Accepted (amended 2026-09-22 — see "Amendment: the TMS API uses the same key"; amended
+2026-09-23 — see "Amendment: resend-confirmation now has a per-account budget")
 **Date:** 2026-09-22
 **Decision-makers:** Solo maintainer (ticket #819)
 **Related:** AuthSystem.API (`Program.cs` rate-limit policies, `Services/RateLimiting`, `Settings`),
@@ -296,6 +297,18 @@ Tests: `TranslationSystem.API.Tests.Unit` — `RateLimitPartitionKeyResolverTest
 bucket, one visitor keeps one bucket whichever way the call arrives, calls short of a proven visitor);
 `Frontend.Tests.Unit` — `FrontendCallerDelegatingHandlerTests` (the TMS client through the real
 pipeline under a retry, with its own key) and `TranslationSystemSettingsValidatorTests`.
+
+## Amendment: resend-confirmation now has a per-account budget (2026-09-23, #793)
+
+§3 and alternative E argue that `resend-confirmation` "has no per-account budget behind it", so a key
+honoured there would turn three mails per quarter of an hour per address into an unbounded flood of
+one inbox. That is no longer true: ADR-0055 gave the resend a budget of 3 sends per 15 minutes per
+unconfirmed account, taken in the handler. A leaked key on that policy would now buy a bigger IP
+budget, not an unbounded flood.
+
+The decision itself does not change. The frontend never calls the resend, on the page or on
+`auth/resend-email-confirmation`, so honouring the key there would still gain nothing and would only
+widen what a leaked key can do. `resend-confirmation-limit` stays on the connection's own address.
 
 ## References
 

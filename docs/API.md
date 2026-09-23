@@ -154,9 +154,9 @@ carrier can share one address. `/Account/ForgotPassword` keeps the stricter `for
 instead, shared with its API twin so using both buys no extra budget, and the four link-landing pages
 keep `auth-endpoint-limit`.
 
-Password-reset mail carries a second budget that belongs to **the account the mail would reach**, 3 sends
-per 15 minutes, because no IP policy can stop an attacker who rotates IPs from flooding one inbox. For a
-confirmed account it is keyed by the account id, not by the typed text: Identity resolves an address
+Password-reset mail carries a second budget, 3 sends per 15 minutes, because no IP policy can stop an
+attacker who rotates IPs from flooding one inbox. For a **confirmed account** it belongs to that account
+and is keyed by the account id, not by the typed text: Identity resolves an address
 through `NormalizeEmail`, which runs `Normalize()` first, so a Polish address written with a combining
 accent finds the same account as the composed spelling — two identical-looking strings that a text key
 would give a budget each. Unconfirmed accounts share one budget per **inbox** instead (see below).
@@ -164,9 +164,12 @@ would give a budget each. Unconfirmed accounts share one budget per **inbox** in
 The budget refuses silently and still answers with the neutral "if the account exists" panel, so it
 cannot be used to find out that somebody recently asked for a reset. The trade-off is that an attacker
 who knows an address can spend that account's window and the owner's own request is then dropped without
-explanation. That is acceptable for one reason: every permit spent **delivered a reset link to that same
-inbox**, and a link lives 24 hours against a 15-minute window, so a usable one is always already sitting
-there. Both budgets are in process, so two running containers mean two budgets — the same trade-off the
+explanation. For a confirmed account that is acceptable for one reason: every permit spent **delivered a
+reset link for that same account to its inbox**, and a link lives 24 hours against a 15-minute window, so
+a usable one is always already sitting there. For an unconfirmed account it does not hold: a stranger's
+account at another spelling of the inbox can spend the shared budget with links that reset that account,
+not the owner's. ADR-0057 accepts this, because an unconfirmed account cannot sign in anyway and its
+first confirmation mail went out at registration. Both budgets are in process, so two running containers mean two budgets — the same trade-off the
 IP policies already make.
 
 The other flows that mail a typed address have the same kind of second budget (#793, ADR-0055), keyed
@@ -189,8 +192,9 @@ the typed address, and each spelling is still its own account.
 
 Every 429 from a limiter policy carries `Retry-After`, and a browser gets a Polish page explaining the
 wait instead of the framework's bare status text. The 429s from the budgets inside the handlers
-(`Auth.PasswordConfirmationThrottled`, `Auth.EmailChangeRecipientThrottled`) carry no `Retry-After`:
-their window is a fixed 15 minutes, and the frontend shows its own Polish sentence for each code.
+(`Auth.PasswordConfirmationThrottled`, `Auth.EmailChangeRecipientThrottled`,
+`Auth.RegistrationMailboxThrottled`) carry no `Retry-After`: their window is a fixed 15 minutes. The
+frontend shows its own Polish sentence for the first two, and the auth register page for the third.
 
 ---
 

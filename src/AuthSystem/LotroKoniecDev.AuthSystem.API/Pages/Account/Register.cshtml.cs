@@ -150,8 +150,8 @@ internal sealed partial class RegisterModel : PageModel
 
     /// <summary>
     /// Turns the handler's error into a Polish message for the user. The missing field, password match
-    /// and consent cases are handled above, so what is left is a name or e-mail that is already taken
-    /// and the password rules.
+    /// and consent cases are handled above, so what is left is a name or e-mail that is already taken,
+    /// a spent registration budget of the inbox (ADR-0057) and the password rules.
     /// </summary>
     private static string MapErrorToMessage(Error error)
     {
@@ -161,6 +161,8 @@ internal sealed partial class RegisterModel : PageModel
                 "Konto z tym adresem e-mail już istnieje. Zaloguj się lub zresetuj hasło.",
             "Auth.UserAlreadyExistsByUsername" =>
                 "Ta nazwa użytkownika jest już zajęta. Wybierz inną.",
+            "Auth.RegistrationMailboxThrottled" =>
+                "Na tę skrzynkę pocztową założono ostatnio zbyt wiele kont. Spróbuj ponownie za kwadrans.",
             _ =>
                 "Nie udało się założyć konta. Upewnij się, że hasło spełnia wymagania, i spróbuj ponownie."
         };

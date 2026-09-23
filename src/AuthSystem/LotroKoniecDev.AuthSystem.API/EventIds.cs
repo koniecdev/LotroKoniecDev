@@ -60,6 +60,7 @@ internal static class EventIds
     public const int RegisterEmailFallback = 2270;
     public const int RegisterConcurrentRace = 2271;
     public const int RegisterReservedAddressRefused = 2272;
+    public const int RegisterMailboxThrottled = 2273;
 
     // Resend Confirmation (2280-2289)
     public const int ResendConfirmNonExistent = 2280;

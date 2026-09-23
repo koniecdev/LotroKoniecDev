@@ -8,8 +8,8 @@ using LotroKoniecDev.AuthSystem.Contracts.Features.Auth.Register;
 namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Tests.RateLimiting;
 
 /// <summary>
-/// The resend budget that follows the account the mail would reach, not the caller asking for it
-/// (#793, ADR-0055). The resend form is anonymous and takes any address, so the IP policy alone lets an
+/// The resend budget that follows the inbox the mail would reach, not the caller asking for it
+/// (#793, #835, ADR-0055, ADR-0057). The resend form is anonymous and takes any address, so the IP policy alone lets an
 /// attacker who rotates IPs flood one inbox. The resend skips the outbox and calls the sender directly,
 /// so the sender spy counts exactly what went out.
 /// They run on the suite's normal Testing host, where the limiter middleware is off, so the only thing

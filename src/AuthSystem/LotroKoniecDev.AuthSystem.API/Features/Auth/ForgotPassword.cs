@@ -88,10 +88,10 @@ internal sealed partial class ForgotPassword : IApiEndpoint
                 return Result.Success();
             }
 
-            // The same per-account send budget the page uses. This endpoint has no caller in the product
-            // today, but it is public, so leaving it out would make it the way around the budget. The
-            // refusal answers Success like every other branch here, so it reveals nothing.
-            if (!_throttle.TryAcquire(user.Id))
+            // The same send budget the page uses. This endpoint has no caller in the product today, but it
+            // is public, so leaving it out would make it the way around the budget. The refusal answers
+            // Success like every other branch here, so it reveals nothing.
+            if (!_throttle.TryAcquire(user))
             {
                 LogPasswordResetThrottled(_logger, command.Email.MaskEmail());
                 return Result.Success();
@@ -111,7 +111,7 @@ internal sealed partial class ForgotPassword : IApiEndpoint
         [LoggerMessage(EventId = EventIds.ForgotPasswordNonExistent, Level = LogLevel.Information, Message = "Password reset requested for non-existent email {Email}")]
         private static partial void LogPasswordResetNonExistent(ILogger logger, string email);
 
-        [LoggerMessage(EventId = EventIds.PasswordResetRequestThrottled, Level = LogLevel.Warning, Message = "Password reset request throttled for {Email}: the per-account send budget is spent")]
+        [LoggerMessage(EventId = EventIds.PasswordResetRequestThrottled, Level = LogLevel.Warning, Message = "Password reset request throttled for {Email}: the send budget is spent")]
         private static partial void LogPasswordResetThrottled(ILogger logger, string email);
     }
 

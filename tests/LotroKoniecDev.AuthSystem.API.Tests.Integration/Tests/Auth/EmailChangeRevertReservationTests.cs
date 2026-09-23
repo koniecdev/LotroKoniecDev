@@ -99,7 +99,8 @@ public sealed partial class EmailChangeRevertReservationTests : EndpointsTestBas
     public async Task Register_ShouldSucceed_WhenTheAddressOnlyLooksLikeTheArmedOne()
     {
         // Identity upper-cases and nothing else, so a plus tag is a different address. Pinned so
-        // nobody later "improves" the normalizer into treating the two as one.
+        // nobody later "improves" the normalizer into treating the two as one. Only the send budgets
+        // fold the tag (ADR-0057); the address and its reservation never do.
         (RegisterRequest user, _, _) = await CompleteChangeAsync();
         string tagged = user.Email.Replace("@", "+tag@", StringComparison.Ordinal);
 

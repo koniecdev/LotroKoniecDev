@@ -15,6 +15,11 @@ internal static class AuthErrors
             "A user with this username already exists.",
             TypeOfError.DataConflict);
 
+    public static Error RegistrationMailboxThrottled =>
+        new("Auth.RegistrationMailboxThrottled",
+            "Too many accounts were registered at this inbox recently. Try again in a quarter of an hour.",
+            TypeOfError.TooManyRequests);
+
     public static Error RegistrationFailed(string details) =>
         new("Auth.RegistrationFailed",
             details,

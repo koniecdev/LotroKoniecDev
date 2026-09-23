@@ -12,10 +12,10 @@ using LotroKoniecDev.AuthSystem.Persistence.DbContexts;
 namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Tests.RateLimiting;
 
 /// <summary>
-/// The e-mail change budget that follows the new address, whichever account asks (#793, ADR-0055). The IP
-/// policy cannot see it: an attacker who rotates IPs gets a fresh budget every time, and the inbox they
-/// typed in gets every link. The new address has no account yet, so the key is the address after
-/// Identity's normalizer.
+/// The e-mail change budget that follows the inbox of the new address, whichever account asks (#793,
+/// ADR-0055). The IP policy cannot see it: an attacker who rotates IPs gets a fresh budget every time, and
+/// the inbox they typed in gets every link. The new address has no account yet, so the key is the inbox
+/// of the address after Identity's normalizer (#835, ADR-0057).
 /// They run on the suite's normal Testing host, where the limiter middleware is off, so the only thing
 /// that can refuse a request here is a budget taken in the handler.
 /// </summary>

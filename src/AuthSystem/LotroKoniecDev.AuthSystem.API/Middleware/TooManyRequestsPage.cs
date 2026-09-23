@@ -32,7 +32,8 @@ internal static class TooManyRequestsPage
         }
 
         httpContext.Response.ContentType = $"{MediaTypeNames.Text.Html}; charset=utf-8";
-        await httpContext.Response.WriteAsync(BuildHtml(retryAfter), Encoding.UTF8, cancellationToken);
+        await httpContext.Response.WriteAsync(
+            BuildHtml(retryAfter, CspNonce.Get(httpContext)), Encoding.UTF8, cancellationToken);
     }
 
     private static bool WantsHtml(HttpRequest request)
@@ -59,10 +60,13 @@ internal static class TooManyRequestsPage
 
     /// <summary>
     /// A raw string literal, so there is no Razor encoder behind it. Nothing a caller can influence may be
-    /// interpolated here without <c>HtmlEncoder</c> — today the only hole is an <c>int</c> (#681, #682).
+    /// interpolated here without <c>HtmlEncoder</c>. Today the holes are an <c>int</c> and the CSP nonce,
+    /// which is server-made base64url (#681, #682, #693).
     /// </summary>
-    private static string BuildHtml(TimeSpan retryAfter)
+    internal static string BuildHtml(TimeSpan retryAfter, string? nonce)
     {
+        string styleTag = nonce is null ? "<style>" : $"<style nonce=\"{nonce}\">";
+
         return $$"""
             <!DOCTYPE html>
             <html lang="pl">
@@ -71,7 +75,7 @@ internal static class TooManyRequestsPage
                 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
                 <title>Za dużo prób — lotro-translator.pl</title>
                 <link rel="stylesheet" href="/fonts.css" />
-                <style>
+                {{styleTag}}
                     :root {
                         --bg: oklch(0.16 0.011 80);
                         --surface: oklch(0.23 0.014 80);

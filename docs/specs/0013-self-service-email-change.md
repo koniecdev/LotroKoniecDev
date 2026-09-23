@@ -189,7 +189,8 @@ outlier and explicitly **not** the pattern here.
 - **Security headers on the auth origin.** The CSP of bug #670 is emitted only by the frontend's
   `SecurityHeadersMiddleware`; the auth origin ships none, so the new pages' inline `<style>` is
   unaffected. That the auth origin has no security headers at all is a real pre-existing gap and a
-  separate ticket.
+  separate ticket. *(Closed later by #693: the auth origin now sends its own CSP, and each page's
+  inline `<style>` carries the response's nonce.)*
 
 ## Business rules & edge cases
 
@@ -384,7 +385,8 @@ outlier and explicitly **not** the pattern here.
   destination and which links are spent. The TMS
   side needs nothing (no unique index on `Translator.Email`).
 - *Does #670's CSP affect the new auth pages?* No — the CSP comes only from the frontend's
-  `SecurityHeadersMiddleware`; the auth origin emits none.
+  `SecurityHeadersMiddleware`; the auth origin emits none. *(True when written. Since #693 the auth
+  origin has a CSP of its own, and the pages' styles carry its nonce.)*
 
 **Business decisions — answered by the owner, 2026-08-20:**
 

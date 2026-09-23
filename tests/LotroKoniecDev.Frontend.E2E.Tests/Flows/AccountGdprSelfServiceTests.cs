@@ -163,6 +163,9 @@ public sealed class AccountGdprSelfServiceTests : E2ETestBase
         await Page.GetByLabel(FieldLabels.Password, new() { Exact = true }).FillAsync(NewPassword);
         await Page.GetByRole(AriaRole.Button, new() { Name = Buttons.Login, Exact = true }).ClickAsync();
         await Page.GetByRole(AriaRole.Button, new() { Name = Buttons.Logout, Exact = true }).WaitForAsync(LongWait);
+
+        // The cancel link's form state and the forced reset ran under the auth CSP without a block (#693).
+        CspViolations.ShouldBeEmpty();
     }
 
     // Composed from fragments so secret scanners don't mistake the test literal for a leaked credential.

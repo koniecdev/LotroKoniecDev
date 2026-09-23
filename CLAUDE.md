@@ -464,6 +464,19 @@ hash-check → patch → launch flow is validated. Re-investigating any of it is
   still emits its antiforgery token and posts to the current URL, and handler binding reads the form
   field before the query string. `LocalReturnUrl.Sanitize` only answers "is this target local"; the
   encoding at each print site is what keeps these pages safe. (`Html.Raw` is a sink of its own.)
+- **The auth origin sends its own CSP, so an auth page's inline `<style>` needs the nonce (#693).**
+  `AuthSystem.API/Middleware/SecurityHeadersMiddleware` adds CSP, `X-Frame-Options: DENY`, nosniff
+  and `Referrer-Policy: no-referrer` to every response outside Development. Each account page keeps
+  its styles inline, so it writes `<style nonce="@CspNonce.Get(HttpContext)">`; a `<style>` without
+  it is dropped by the browser and the page loads unstyled. `script-src` is `'self'` with no nonce,
+  so page script goes in a file under `wwwroot` (`login.js`). `form-action` lists the web client's
+  origins, because the login POST ends in a redirect to the frontend's `/callback` and Chrome checks
+  every redirect of a form. That also makes the frontend's `ResponseMode.Query` load-bearing:
+  OpenIddict's form_post page submits itself with an inline script this CSP blocks. The guards:
+  `check-ssr-purity` scans `src/AuthSystem/**/*.cshtml` for everything this CSP blocks (inline
+  script and event handlers, a nonce-less `<style>`, a `style=` attribute), smoke leg 6 checks the
+  deployed pages, the integration suite checks every Razor page endpoint, and the Frontend E2E suite
+  (auth runs in Testing there, with the CSP on) fails on any `securitypolicyviolation`.
 - **Auth Razor Pages are rate limited by default; opting out is the explicit act (#692).**
   `app.MapRazorPages().RequireRateLimitingByDefault("auth-page-limit")` gives every account page a limit,
   so a new page is covered without anyone remembering an attribute — five of the ten pages, login and

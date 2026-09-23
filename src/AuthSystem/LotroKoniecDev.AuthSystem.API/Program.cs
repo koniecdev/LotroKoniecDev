@@ -490,6 +490,15 @@ try
         };
     });
 
+    // Off in Development, like the frontend's: the CSP would block Scalar and the hot-reload script
+    // there. Testing keeps it, so the integration tests and the browser E2E suite check it (#693).
+    // It sits outside everything that can end a request early (the HTTPS redirect, a CORS preflight,
+    // the rate limiter and its 429 page), so those responses carry the headers too.
+    if (!app.Environment.IsDevelopment())
+    {
+        app.UseSecurityHeaders();
+    }
+
     app.UseExceptionHandler();
     app.UseStatusCodePages();
     if (!app.Environment.IsDevelopment() && !app.Environment.IsTesting())

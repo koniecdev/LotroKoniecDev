@@ -46,6 +46,21 @@ run_case() {
     # $1 expected exit code, $2 description, $3 fixture file name, $4 fixture contents
     local expected="$1" desc="$2" tree rc=0
     tree="$(new_tree "$3" "$4")"
+    run_tree "$expected" "$desc" "$tree"
+}
+
+# Same as run_case, but the fixture is an auth page (src/AuthSystem/…/Pages/Account/<$3>) next to
+# a clean frontend component (#693).
+run_auth_case() {
+    local expected="$1" desc="$2" tree
+    tree="$(new_tree Clean.razor '<p>ok</p>')"
+    mkdir -p "$tree/src/AuthSystem/Api/Pages/Account"
+    printf '%s\n' "$4" > "$tree/src/AuthSystem/Api/Pages/Account/$3"
+    run_tree "$expected" "$desc" "$tree"
+}
+
+run_tree() {
+    local expected="$1" desc="$2" tree="$3" rc=0
     LAST_OUTPUT="$("$RUNNER" "$tree" 2>&1)" || rc=$?
     if [ "$rc" -ne "$expected" ]; then
         fail "$desc — expected exit $expected, got $rc" "$LAST_OUTPUT"
@@ -94,6 +109,38 @@ run_suite() {
     run_case 0 "an @onsubmit handler is still allowed" \
         App.razor '<form method="post" @onsubmit="Save"></form>'
     run_case 1 "StateHasChanged still fails" Thing.cs 'StateHasChanged();'
+
+    # --- the auth pages: the same CSP rules, over *.cshtml (#693) ---
+    run_auth_case 0 "an auth page with a nonced style and an external script passes" \
+        Login.cshtml '<style nonce="@CspNonce.Get(HttpContext)">p{}</style><script src="/login.js"></script>'
+    run_auth_case 1 "an inline script in an auth page fails" \
+        Login.cshtml '<script>(function () {})();</script>'
+    expect_in_output "#693"
+    run_auth_case 1 "a style without the nonce in an auth page fails" \
+        Login.cshtml '<style>p{}</style>'
+    expect_in_output "without the CSP nonce"
+    run_auth_case 1 "an UPPERCASE style without the nonce fails" \
+        Login.cshtml '<STYLE media="screen">p{}</STYLE>'
+    run_auth_case 1 "a nonced style does not hide an unnonced one on the same line" \
+        Login.cshtml '<style nonce="@n">a{}</style><style>b{}</style>'
+    run_auth_case 0 "a stylesheet link is not an inline style" \
+        Login.cshtml '<link rel="stylesheet" href="/fonts.css" />'
+    run_auth_case 0 "the Static-SSR rules do not apply to Razor Pages" \
+        Login.cshtml '<p>@rendermode and StateHasChanged are Blazor words.</p>'
+    run_auth_case 1 "an inline event handler in an auth page fails" \
+        Login.cshtml '<button type="button" onclick="toggle()">Pokaż</button>'
+    expect_in_output "Inline event handler"
+    run_auth_case 1 "an UPPERCASE inline event handler fails" \
+        Login.cshtml '<form ONSUBMIT="go()"></form>'
+    run_auth_case 1 "a style attribute in an auth page fails" \
+        Login.cshtml '<div style="width: 50%"></div>'
+    expect_in_output "Inline style= attribute"
+    run_auth_case 0 "an attribute value that starts with 'on' is not a handler" \
+        Login.cshtml '<input autocomplete="one-time-code" class="icon only" />'
+    run_auth_case 0 "a word like 'online' in text is not a handler" \
+        Login.cshtml '<p>Jesteś online = zalogowany</p>'
+    run_auth_case 0 "a style in a C# file of the auth system is out of scope" \
+        Template.cs 'const string Html = "<style>p{}</style>";'
 }
 
 sh_runner="$TMP_ROOT/run-sh.sh"

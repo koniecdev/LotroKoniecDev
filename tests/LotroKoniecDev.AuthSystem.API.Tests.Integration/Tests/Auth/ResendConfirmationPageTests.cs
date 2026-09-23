@@ -155,10 +155,14 @@ public sealed partial class ResendConfirmationPageTests : EndpointsTestBase
             await UserFactory.RegisterRandomUserWithRequestAsync(ApiClient, Faker, AccountConfirmationEmailSpy);
         string unknownEmail = Faker.Internet.Email();
 
-        // Act: the neutral confirmation each input produces
-        string unconfirmedHtml = await (await PostToResendConfirmationPageAsync(unconfirmed.Email)).Content.ReadAsStringAsync();
-        string confirmedHtml = await (await PostToResendConfirmationPageAsync(confirmed.Email)).Content.ReadAsStringAsync();
-        string unknownHtml = await (await PostToResendConfirmationPageAsync(unknownEmail)).Content.ReadAsStringAsync();
+        // Act: the neutral confirmation each input produces. The CSP nonce is random per response and
+        // says nothing about the account (#693), so it is masked before the pages are compared.
+        string unconfirmedHtml = WithoutCspNonce(
+            await (await PostToResendConfirmationPageAsync(unconfirmed.Email)).Content.ReadAsStringAsync());
+        string confirmedHtml = WithoutCspNonce(
+            await (await PostToResendConfirmationPageAsync(confirmed.Email)).Content.ReadAsStringAsync());
+        string unknownHtml = WithoutCspNonce(
+            await (await PostToResendConfirmationPageAsync(unknownEmail)).Content.ReadAsStringAsync());
 
         // Assert: anti-enumeration: the rendered confirmation must be byte-identical
         unconfirmedHtml.ShouldContain(SuccessMarker);
@@ -251,4 +255,9 @@ public sealed partial class ResendConfirmationPageTests : EndpointsTestBase
 
     [GeneratedRegex("""<input[^>]*name="Email"[^>]*>""")]
     private static partial Regex EmailInputRegex();
+
+    private static string WithoutCspNonce(string html) => CspNonceRegex().Replace(html, "nonce=\"\"");
+
+    [GeneratedRegex("nonce=\"[A-Za-z0-9_-]+\"")]
+    private static partial Regex CspNonceRegex();
 }

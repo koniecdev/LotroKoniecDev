@@ -6,7 +6,7 @@
 .DESCRIPTION
     One command that gives a green/red signal that a deployed environment came up correctly, without
     manual clicking. Run it after every deploy (staging or production), or against the local
-    prod-parity / dev stack. It exercises the five legs that actually break on a deploy:
+    prod-parity / dev stack. It exercises the six legs that actually break on a deploy:
 
       1. Health      auth-api + tms-api /health/ready return 200; the frontend root responds (it has
                      no /health endpoint — it is a Static-SSR app, so "the page serves" is liveness).
@@ -29,6 +29,11 @@
                      (runbook -> "Consistency rules that bite"), so 403-vs-401 is the high-value check.
       5. Distribution the public translation-file endpoint serves the artifact with an ETag and
                      honours If-None-Match with a 304 (the CLI/player relies on this; spec 0001).
+      6. Auth pages  the auth origin sends its security headers on a page with a form (Login) and on
+                     one without (ConfirmEmail): X-Frame-Options DENY with frame-ancestors 'none',
+                     nosniff, a private Referrer-Policy. Its CSP must also admit the page's own inline
+                     content: every <style> carries the header's nonce and no inline <script> is
+                     served. As in leg 2, a blocked style or script shows up only in the console (#693).
 
     Clear pass/fail per check; NON-ZERO exit on any failure (exit 1). Usage/config problems exit 2.
     A not-yet-seeded environment (no artifact built) WARNS on leg 5 rather than failing. Keep in
@@ -55,7 +60,7 @@ param(
     [string] $Lang         = $(if ($env:SMOKE_LANG) { $env:SMOKE_LANG } else { 'pl' }),
     [int]    $TimeoutSec   = $(if ($env:SMOKE_TIMEOUT) { [int]$env:SMOKE_TIMEOUT } else { 15 }),
     [switch] $Insecure,
-    # A frontend response with no Content-Security-Policy FAILS instead of warning. CD passes it:
+    # A frontend or auth page with no Content-Security-Policy FAILS instead of warning. CD passes it:
     # only a Development stack legitimately serves no CSP, and CD never smokes one.
     [switch] $RequireCsp
 )
@@ -135,7 +140,7 @@ Write-Host "  frontend = $FrontendUrl"
 if ($Insecure) { Write-Host "  (TLS verification disabled: -Insecure)" }
 Write-Host ""
 
-Write-Host "[1/5] Health"
+Write-Host "[1/6] Health"
 $code = Get-Status "$AuthUrl/health/ready"
 if ($code -eq 200) { Add-Pass "auth /health/ready -> 200" } else { Add-Fail "auth /health/ready -> $code (expected 200)" }
 $code = Get-Status "$TmsUrl/health/ready"
@@ -145,7 +150,7 @@ $code = Get-Status "$FrontendUrl/"
 if ($code -ge 200 -and $code -lt 400) { Add-Pass "frontend / -> $code (serving)" } else { Add-Fail "frontend / -> $code (expected 2xx/3xx)" }
 Write-Host ""
 
-Write-Host "[2/5] Frontend static web assets + CSP consistency (#414, #670)"
+Write-Host "[2/6] Frontend static web assets + CSP consistency (#414, #670)"
 $homeHtml = ''
 $csp = ''
 $homeResponse = $null
@@ -206,7 +211,7 @@ if (-not $assetMatch.Success) {
 }
 Write-Host ""
 
-Write-Host "[3/5] OIDC token round-trip (client_credentials)"
+Write-Host "[3/6] OIDC token round-trip (client_credentials)"
 $token = $null
 $tokenCode = 0
 try {
@@ -226,7 +231,7 @@ if ($tokenCode -eq 200 -and $token) {
 }
 Write-Host ""
 
-Write-Host "[4/5] Token accepted by tms-api (authenticated read)"
+Write-Host "[4/6] Token accepted by tms-api (authenticated read)"
 $anonCode = Get-Status "$TmsUrl/api/v1/game-versions"
 if ($anonCode -eq 401) { Add-Pass "GET tms/api/v1/game-versions (no token) -> 401 (protected)" }
 else { Add-Fail "GET tms/api/v1/game-versions (no token) -> $anonCode (expected 401)" }
@@ -242,7 +247,7 @@ if ($token) {
 }
 Write-Host ""
 
-Write-Host "[5/5] Translation-file distribution (ETag / 304)"
+Write-Host "[5/6] Translation-file distribution (ETag / 304)"
 $fileCode = 0
 $etag = $null
 try {
@@ -266,6 +271,119 @@ if ($fileCode -eq 200) {
     Add-Warn "GET tms/api/v1/translation-files/$Lang -> 404 (endpoint up, but no '$Lang' artifact built yet — import/seed has not run)"
 } else {
     Add-Fail "GET tms/api/v1/translation-files/$Lang -> $fileCode (expected 200, or 404 if unseeded)"
+}
+Write-Host ""
+
+# The values of every $Name header on $Response, joined by ", " (empty when absent). HTTP/2
+# lower-cases header names, so match on the name instead of indexing by exact case.
+function Get-HeaderValues {
+    param($Response, [string]$Name)
+    $values = @()
+    foreach ($headerName in $Response.Headers.Keys) {
+        if ($headerName -eq $Name) { $values += @($Response.Headers[$headerName]) }
+    }
+    return ($values -join ', ')
+}
+
+# The named directive of $Csp, falling back to default-src like the browser does.
+function Get-CspDirective {
+    param([string]$Csp, [string]$Name)
+    $directives = @($Csp -split ';' | ForEach-Object { $_.Trim() })
+    $directive = $directives | Where-Object { $_ -match "^(?i)$Name " } | Select-Object -First 1
+    if (-not $directive) { $directive = $directives | Where-Object { $_ -match '^(?i)default-src ' } | Select-Object -First 1 }
+    if (-not $directive) { return '' }
+    return $directive
+}
+
+function Test-AuthPage {
+    param([string]$Page, $Response, [string]$Html)
+    if ($Html -notmatch '(?i)<html') {
+        # An empty body carries no inline content either, so the checks below would go green exactly
+        # when the page is down.
+        Add-Fail "auth $Page served no HTML page"
+        return
+    }
+
+    $csp = Get-HeaderValues $Response 'Content-Security-Policy'
+    if ([string]::IsNullOrWhiteSpace($csp)) {
+        # Development skips the whole security-headers middleware, so a local dev stack lands here.
+        if ($RequireCsp) {
+            Add-Fail "auth $Page sends no Content-Security-Policy header (-RequireCsp)"
+        } else {
+            Add-Warn "auth $Page sends no Content-Security-Policy header (expected only on a Development stack)"
+        }
+        return
+    }
+
+    $frame = Get-HeaderValues $Response 'X-Frame-Options'
+    if ($frame -ceq 'DENY' -and $csp -match "frame-ancestors 'none'") {
+        Add-Pass "auth $Page forbids framing (X-Frame-Options DENY + frame-ancestors 'none')"
+    } else {
+        Add-Fail "auth $Page can be framed: X-Frame-Options '$frame', CSP without frame-ancestors 'none' (#693)"
+    }
+
+    $nosniff = Get-HeaderValues $Response 'X-Content-Type-Options'
+    $referrer = Get-HeaderValues $Response 'Referrer-Policy'
+    # The account links carry tokens in the query string, so only no-referrer, same-origin,
+    # strict-origin or strict-origin-when-cross-origin passes. For a list, the last token is checked;
+    # that can only fail a list a browser would accept, never pass one it would not.
+    $referrerLast = @($referrer -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ }) | Select-Object -Last 1
+    $privateReferrers = @('no-referrer', 'same-origin', 'strict-origin', 'strict-origin-when-cross-origin')
+    if ($nosniff -ceq 'nosniff' -and $privateReferrers -ccontains $referrerLast) {
+        Add-Pass "auth $Page sends nosniff and Referrer-Policy '$referrer'"
+    } else {
+        Add-Fail "auth $Page misses nosniff or a Referrer-Policy that keeps the URL private (got '$nosniff' / '$referrer') (#693)"
+    }
+
+    # (?i) because HTML tag and attribute names are case-insensitive. [^>] matches newlines, so a tag
+    # split over two lines is still counted; the bash twin folds newlines first.
+    $scriptSrc = Get-CspDirective $csp 'script-src'
+    if ($scriptSrc -match 'unsafe-inline') {
+        Add-Fail "auth $Page script-src allows 'unsafe-inline' - injected script is no longer blocked"
+    } elseif ($scriptSrc -match 'nonce-|sha(256|384|512)-') {
+        Add-Pass "auth $Page script-src admits inline script only by nonce or hash"
+    } else {
+        $inlineScripts = @([regex]::Matches($Html, '(?i)<script[^>]*>') | Where-Object { $_.Value -notmatch 'src=' }).Count
+        if ($inlineScripts -eq 0) {
+            Add-Pass "auth $Page serves no inline <script> (nothing for script-src to block)"
+        } else {
+            Add-Fail "auth $Page serves $inlineScripts inline <script> element(s), which its own script-src blocks (#670)"
+        }
+    }
+
+    # The account pages keep their styles inline, so every <style> must carry the nonce style-src names.
+    $styleSrc = Get-CspDirective $csp 'style-src'
+    $nonceMatch = [regex]::Match($styleSrc, "'nonce-([A-Za-z0-9+/_=-]+)'")
+    $styleTags = @([regex]::Matches($Html, '(?i)<style[^>]*>'))
+    if ($styleSrc -match 'unsafe-inline') {
+        Add-Fail "auth $Page style-src allows 'unsafe-inline' (#693)"
+    } elseif ($nonceMatch.Success) {
+        $expected = 'nonce="' + $nonceMatch.Groups[1].Value + '"'
+        $unnonced = @($styleTags | Where-Object { -not $_.Value.Contains($expected) }).Count
+        if ($unnonced -eq 0) {
+            Add-Pass "auth $Page puts the header's nonce on every inline <style>"
+        } else {
+            Add-Fail "auth $Page serves $unnonced <style> element(s) without the header's nonce, which style-src blocks (#693)"
+        }
+    } elseif ($styleTags.Count -eq 0) {
+        Add-Pass "auth $Page serves no inline <style> (nothing for style-src to block)"
+    } else {
+        Add-Fail "auth $Page serves $($styleTags.Count) inline <style> element(s), which its own style-src blocks (#693)"
+    }
+}
+
+Write-Host "[6/6] Auth pages: security headers + CSP consistency (#693)"
+# Login renders a form; ConfirmEmail renders none. Antiforgery used to add a frame header to the first
+# kind only, so both are checked.
+foreach ($authPage in @('/Account/Login', '/Account/ConfirmEmail')) {
+    $authResponse = $null
+    $authHtml = ''
+    try {
+        $authResponse = Invoke-Smoke -Url "$AuthUrl$authPage"
+        $authHtml = $authResponse.Content
+    } catch { $authHtml = '' }
+    if ($null -eq $authHtml) { $authHtml = '' }
+    Test-AuthPage -Page $authPage -Response $authResponse -Html $authHtml
 }
 Write-Host ""
 

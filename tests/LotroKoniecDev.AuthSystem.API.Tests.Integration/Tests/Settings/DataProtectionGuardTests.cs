@@ -1,7 +1,6 @@
 using LotroKoniecDev.AuthSystem.API.Extensions;
 using LotroKoniecDev.AuthSystem.API.Settings;
-using Microsoft.AspNetCore.Hosting;
-using Microsoft.Extensions.FileProviders;
+using LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared;
 using Shouldly;
 
 namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Tests.Settings;
@@ -61,19 +60,4 @@ public sealed class DataProtectionGuardTests
 
         act.ShouldNotThrow();
     }
-}
-
-file sealed class FakeWebHostEnvironment : IWebHostEnvironment
-{
-    public FakeWebHostEnvironment(string environmentName)
-    {
-        EnvironmentName = environmentName;
-    }
-
-    public string EnvironmentName { get; set; }
-    public string ApplicationName { get; set; } = "auth-tests";
-    public string ContentRootPath { get; set; } = string.Empty;
-    public IFileProvider ContentRootFileProvider { get; set; } = null!;
-    public string WebRootPath { get; set; } = string.Empty;
-    public IFileProvider WebRootFileProvider { get; set; } = null!;
 }

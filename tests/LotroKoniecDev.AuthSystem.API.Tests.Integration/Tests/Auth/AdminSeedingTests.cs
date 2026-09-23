@@ -2,8 +2,8 @@ using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.FileProviders;
 using LotroKoniecDev.AuthSystem.API.Extensions;
+using LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared;
 using LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared.Bases;
 using LotroKoniecDev.AuthSystem.Contracts.Features.Auth.Password;
 using LotroKoniecDev.AuthSystem.Domain.Aggregates.ApplicationUsers.Entities;
@@ -151,8 +151,13 @@ public sealed class AdminSeedingTests : EndpointsTestBase
         // Act
         HttpResponseMessage tokenResponse = await RequestPasswordGrantAsync(AdminEmail, AdminPassword);
 
-        // Assert
+        // Assert: the admin exists, so the refusal is about the password and not about a missing account
         tokenResponse.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+
+        await using AsyncServiceScope scope = Factory.Services.CreateAsyncScope();
+        UserManager<ApplicationUser> userManager =
+            scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
+        (await userManager.FindByEmailAsync(AdminEmail)).ShouldNotBeNull();
     }
 
     /// <summary>
@@ -193,33 +198,4 @@ public sealed class AdminSeedingTests : EndpointsTestBase
     {
         await DatabaseSeederExtensions.SeedAuthDatabaseAsync(Factory.Services, environment);
     }
-
-    private async Task<HttpResponseMessage> RequestPasswordGrantAsync(string email, string password)
-    {
-        using FormUrlEncodedContent tokenRequest = new(new Dictionary<string, string>
-        {
-            ["grant_type"] = "password",
-            ["username"] = email,
-            ["password"] = password,
-            ["client_id"] = "lotrokoniecdev-test",
-            ["scope"] = "email profile roles api"
-        });
-
-        return await ApiClient.Http.PostAsync(new Uri("connect/token", UriKind.Relative), tokenRequest);
-    }
-}
-
-file sealed class FakeWebHostEnvironment : IWebHostEnvironment
-{
-    public FakeWebHostEnvironment(string environmentName)
-    {
-        EnvironmentName = environmentName;
-    }
-
-    public string EnvironmentName { get; set; }
-    public string ApplicationName { get; set; } = "auth-tests";
-    public string ContentRootPath { get; set; } = string.Empty;
-    public IFileProvider ContentRootFileProvider { get; set; } = null!;
-    public string WebRootPath { get; set; } = string.Empty;
-    public IFileProvider WebRootFileProvider { get; set; } = null!;
 }

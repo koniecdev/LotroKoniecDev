@@ -424,7 +424,7 @@ public sealed partial class LoginPageTests : EndpointsTestBase
 
     private async Task<Dictionary<string, string>> ArrangeFailedLoginAsync(string failure)
     {
-        if (failure == "unknown address")
+        if (failure is "unknown address")
         {
             return new Dictionary<string, string>
             {

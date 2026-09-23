@@ -166,8 +166,9 @@ no hosted service, and its discovery cache resolves inline in the request.
   cache never makes the API call inside a `HybridCache` factory: it reads the cache, calls the API in
   the request on a miss, and stores only a good answer (#825). So every fetch carries its own
   caller's bearer and address. The cost is that callers who miss the cache at the same moment each
-  make their own call instead of waiting for one. Accepted: the window is a cold cache only, and the
-  payload is tiny. Until #825 the call ran inside the factory, and for a token that can be cancelled
+  make their own call instead of waiting for one, and a session the API no longer accepts gets a live
+  call on every read, because its answer is never cached. Accepted: the first happens only on a cold
+  cache, the second only until the next cookie check signs that session out, and the payload is tiny. Until #825 the call ran inside the factory, and for a token that can be cancelled
   (the export route passes `RequestAborted`) `HybridCache` runs the factory on the thread pool without
   the request's context, so that GET carried neither the caller headers nor the bearer.
 - **The key crosses the stack network in plain HTTP** between Caddy and the auth API — the same

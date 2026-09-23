@@ -10,6 +10,10 @@
     than in a fifth guard script because this is already the frontend-markup gate CI runs in both
     workflows; the trade-off is that the file name now says less than it checks.
 
+    The auth pages (src/AuthSystem, *.cshtml) got the same CSP in #693, so the two CSP rules
+    cover them too: no inline <script>, and every <style> carries the per-request nonce. The
+    Static-SSR rules do not apply there, because those pages are Razor Pages, not Blazor.
+
     The Frontend is Static SSR on purpose: no WebAssembly download, no SignalR circuit,
     no per-user server state. A single stray @rendermode, @onclick or StateHasChanged
     silently flips a page into interactive mode and quietly breaks that guarantee.
@@ -26,6 +30,7 @@ $ErrorActionPreference = 'Stop'
 
 $repoRoot    = Split-Path -Parent $PSScriptRoot
 $frontendDir = Join-Path $repoRoot 'src/Frontend'
+$authDir     = Join-Path $repoRoot 'src/AuthSystem'
 
 if (-not (Test-Path $frontendDir)) {
     Write-Error "Pure-SSR guard: Frontend directory not found at $frontendDir"
@@ -35,6 +40,12 @@ if (-not (Test-Path $frontendDir)) {
 # obj/ and bin/ are build output, not source — never scan them (mirrors the .sh --exclude-dir).
 $files = Get-ChildItem -Path $frontendDir -Recurse -File -Include '*.razor', '*.cs' |
     Where-Object { $_.FullName -notmatch '[\\/](obj|bin)[\\/]' }
+# A tree without the auth pages is not an error.
+$authPages = @()
+if (Test-Path $authDir) {
+    $authPages = Get-ChildItem -Path $authDir -Recurse -File -Include '*.cshtml' |
+        Where-Object { $_.FullName -notmatch '[\\/](obj|bin)[\\/]' }
+}
 $script:fail = $false
 
 function Test-SsrPurity {
@@ -43,10 +54,11 @@ function Test-SsrPurity {
     param(
         [Parameter(Mandatory)][string] $Pattern,
         [Parameter(Mandatory)][string] $Message,
-        [string] $AllowPattern
+        [string] $AllowPattern,
+        $Files = $files
     )
 
-    $hits = $files | Select-String -Pattern $Pattern -CaseSensitive
+    $hits = $Files | Select-String -Pattern $Pattern -CaseSensitive
     if ($AllowPattern) {
         # Strip the SSR-valid token, then re-test: a line matching ONLY via the allowed
         # token drops out; a line also carrying a real handler is still flagged.
@@ -81,6 +93,13 @@ Test-SsrPurity -Pattern '<[sS][cC][rR][iI][pP][tT][^>]*>' `
 Test-SsrPurity -Pattern '<ImportMap[\s/>]' `
     -Message "Blazor's import-map component renders an inline <script type=""importmap"">, which script-src 'self' blocks on every page (#670). A Static SSR app never resolves a module specifier, so it has no job here."
 
+Test-SsrPurity -Files $authPages -Pattern '<[sS][cC][rR][iI][pP][tT][^>]*>' `
+    -Message "Inline <script> in an auth page. The auth CSP sends script-src 'self', so the browser blocks it and only the console says so (#693). Move the code to a file under wwwroot, like login.js." `
+    -AllowPattern '<[sS][cC][rR][iI][pP][tT][^>]*[sS][rR][cC]=[^>]*>'
+Test-SsrPurity -Files $authPages -Pattern '<[sS][tT][yY][lL][eE](\s|>)' `
+    -Message "<style> without the CSP nonce in an auth page. The auth CSP admits an inline style only by the response's nonce, so the browser drops it (#693). Write <style nonce=""@CspNonce.Get(HttpContext)"">." `
+    -AllowPattern '<[sS][tT][yY][lL][eE][^>]*[nN][oO][nN][cC][eE]=[^>]*>'
+
 if ($script:fail) {
     Write-Host "----------------------------------------------------------------------"
     Write-Host "Frontend markup guard FAILED."
@@ -89,4 +108,4 @@ if ($script:fail) {
     exit 1
 }
 
-Write-Host "OK Frontend markup guard passed - Static SSR, no inline script."
+Write-Host "OK Frontend markup guard passed - Static SSR, no inline script, auth pages CSP-clean."

@@ -6,6 +6,10 @@
 # rather than in a fifth guard script because this is already the frontend-markup gate CI
 # runs in both workflows; the trade-off is that the file name now says less than it checks.
 #
+# The auth pages (src/AuthSystem, *.cshtml) got the same CSP in #693, so the two CSP rules
+# cover them too: no inline <script>, and every <style> carries the per-request nonce. The
+# Static-SSR rules do not apply there, because those pages are Razor Pages, not Blazor.
+#
 # The Frontend is Static SSR on purpose: no WebAssembly download, no SignalR circuit,
 # no per-user server state. A single stray @rendermode, @onclick or StateHasChanged
 # silently flips a page into interactive mode and quietly breaks that guarantee.
@@ -24,6 +28,7 @@ set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 FRONTEND_DIR="$REPO_ROOT/src/Frontend"
+AUTH_DIR="$REPO_ROOT/src/AuthSystem"
 
 if [ ! -d "$FRONTEND_DIR" ]; then
     echo "Pure-SSR guard: Frontend directory not found at $FRONTEND_DIR" >&2
@@ -40,8 +45,19 @@ check() {
     #      violation (e.g. @onclick beside @onsubmit on one element) is still flagged.
     # obj/ and bin/ are build output, not source — never scan them (in CI this runs before
     # restore/build, but a local run after a build would otherwise hit generated *.g.cs).
-    local matches
-    matches="$(grep -rnE "$1" --include='*.razor' --include='*.cs' --exclude-dir=obj --exclude-dir=bin "$FRONTEND_DIR" 2>/dev/null || true)"
+    report "$(grep -rnE "$1" --include='*.razor' --include='*.cs' --exclude-dir=obj --exclude-dir=bin "$FRONTEND_DIR" 2>/dev/null || true)" "$@"
+}
+
+check_auth_pages() {
+    # Same arguments as check(), over the auth pages. A tree without them is not an error.
+    [ -d "$AUTH_DIR" ] || return 0
+    report "$(grep -rnE "$1" --include='*.cshtml' --exclude-dir=obj --exclude-dir=bin "$AUTH_DIR" 2>/dev/null || true)" "$@"
+}
+
+report() {
+    # $1 = the candidate lines, then check()'s three arguments.
+    local matches="$1"
+    shift
     if [ -n "$matches" ] && [ -n "${3:-}" ]; then
         matches="$(printf '%s\n' "$matches" | sed -E "s/$3//g" | grep -E "$1" || true)"
     fi
@@ -74,6 +90,13 @@ check '<[sS][cC][rR][iI][pP][tT][^>]*>' \
 check '<ImportMap[[:space:]/>]' \
     "Blazor's import-map component renders an inline <script type=\"importmap\">, which script-src 'self' blocks on every page (#670). A Static SSR app never resolves a module specifier, so it has no job here."
 
+check_auth_pages '<[sS][cC][rR][iI][pP][tT][^>]*>' \
+    "Inline <script> in an auth page. The auth CSP sends script-src 'self', so the browser blocks it and only the console says so (#693). Move the code to a file under wwwroot, like login.js." \
+    '<[sS][cC][rR][iI][pP][tT][^>]*[sS][rR][cC]=[^>]*>'
+check_auth_pages '<[sS][tT][yY][lL][eE]([[:space:]]|>)' \
+    "<style> without the CSP nonce in an auth page. The auth CSP admits an inline style only by the response's nonce, so the browser drops it (#693). Write <style nonce=\"@CspNonce.Get(HttpContext)\">." \
+    '<[sS][tT][yY][lL][eE][^>]*[nN][oO][nN][cC][eE]=[^>]*>'
+
 if [ "$fail" -ne 0 ]; then
     echo "──────────────────────────────────────────────────────────────────────"
     echo "Frontend markup guard FAILED."
@@ -82,4 +105,4 @@ if [ "$fail" -ne 0 ]; then
     exit 1
 fi
 
-echo "✓ Frontend markup guard passed — Static SSR, no inline script."
+echo "✓ Frontend markup guard passed — Static SSR, no inline script, auth pages CSP-clean."

@@ -25,6 +25,14 @@ internal static partial class DatabaseSeederExtensions
         ILogger logger = services.GetRequiredService<ILoggerFactory>()
             .CreateLogger(typeof(DatabaseSeederExtensions));
 
+        // The "AdminUser" configuration section: environment variables on a box, appsettings.Local.json
+        // locally. It is read once, before the retry, so a leftover password logs its warning once per
+        // start and not once per attempt.
+        IConfiguration configuration = services.GetRequiredService<IConfiguration>();
+        string? adminEmail = configuration["AdminUser:Email"];
+        string adminUsername = ReadAdminUsername(configuration);
+        string? adminPassword = ReadBootstrapPassword(configuration, environment, logger);
+
         // The whole seed can be run twice without harm, so retrying after a temporary failure is
         // safe. Each attempt gets a new scope, and with it a new AuthDbContext, because a context that
         // failed during a migration must not be reused.
@@ -37,7 +45,7 @@ internal static partial class DatabaseSeederExtensions
                 await dbContext.Database.MigrateAsync();
 
                 await SeedRolesAsync(scope.ServiceProvider);
-                await SeedAdminUserAsync(scope.ServiceProvider, environment, logger);
+                await SeedAdminUserAsync(scope.ServiceProvider, adminEmail, adminUsername, adminPassword, logger);
                 await SeedOAuthApplicationsAsync(scope.ServiceProvider, environment);
             },
             logger);
@@ -64,17 +72,11 @@ internal static partial class DatabaseSeederExtensions
 
     private static async Task SeedAdminUserAsync(
         IServiceProvider serviceProvider,
-        IWebHostEnvironment environment,
+        string? email,
+        string username,
+        string? password,
         ILogger logger)
     {
-        IConfiguration configuration = serviceProvider.GetRequiredService<IConfiguration>();
-
-        // The "AdminUser" configuration section: environment variables on a box, appsettings.Local.json
-        // locally. With no e-mail address, no admin is created.
-        string? email = configuration["AdminUser:Email"];
-        string username = ReadAdminUsername(configuration);
-        string? password = ReadBootstrapPassword(configuration, environment, logger);
-
         if (string.IsNullOrWhiteSpace(email))
         {
             return;

@@ -86,9 +86,14 @@ which was already true: whoever reads that inbox could always reset the password
 ### 4. A password-less account costs the login page as much time as any other
 
 `CheckPasswordAsync` returns at once when there is no hash. Without a guard, a wrong password against
-the not-yet-bootstrapped admin would answer faster than against any other account, and that would tell
-a prober the address is a live account. The login page hashes a dummy password first when
-`HasPasswordAsync` is false, as it already does for an unknown user and a locked-out one.
+the not-yet-bootstrapped admin would answer faster than against any account that has a password, so a
+prober could tell that this account has not been set up yet. The login page hashes a dummy password
+first when `HasPasswordAsync` is false, as it already does for an unknown user and a locked-out one.
+
+This makes a password-less account cost the same as one with a password. It does **not** hide
+whether an account exists. A wrong password for any real account also writes the failed-login count
+to the database, and an unknown address does not, so a real account already answers a few
+milliseconds slower. That gap is older than this decision and is tracked in #840.
 
 ### 5. A taken username is logged, not only skipped
 
@@ -124,8 +129,13 @@ misspelled address with no password, or the real admin) before anyone deletes an
 - **A database restore brings an old password back.** A Neon restore to a point before a rotation
   restores the old hash with the rest of the `Users` table, so a restore is followed by a rotation.
 - **Warning `2352` is logged on every start while a password is configured**, whether or not an admin
-  is seeded, and once more for each retry of the cold-start seed. That is on purpose: the warning is
-  about the leftover value, not about the seed.
+  is seeded. That is on purpose: the warning is about the leftover value, not about the seed. The
+  configuration is read once, before the cold-start retry, so a retry does not repeat it.
+- **An e-mail-only configuration changed meaning.** It used to skip the seed, because the password
+  was missing. Now it seeds a password-less admin (username `admin` if blank). A box that set only
+  `AUTH_ADMIN_EMAIL` to keep seeding off would now get an admin whose mailbox owner can reset into it.
+  Both live boxes already have their admin, so the seeder skips them. To keep seeding off, leave the
+  e-mail blank.
 - **The parity stack needs Mailpit for its first admin sign-in** (`--profile local-smtp`).
 
 ## Alternatives Considered

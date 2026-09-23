@@ -490,8 +490,19 @@ not arrive on this box, the admin mail will not arrive either, so fix that first
    of a rotation. An access token that was already issued keeps working until it expires, which
    takes at most five minutes.
 
-The reset budget is 3 mails per account per 15 minutes. A fourth request shows the same panel and
-sends nothing, so wait out that window before you blame delivery.
+If the sign-in right after a successful reset shows "Nieprawidłowy e-mail lub hasło.", the account
+may be **locked**. Five wrong passwords lock it for 5 minutes, and anyone who knows the admin address
+can cause that, even before the first reset. A reset does not clear the lock. Wait 5 minutes and try
+again before you start another rotation.
+
+Two limits apply to the reset page, and they look different:
+
+- **per account:** 3 mails per 15 minutes. A fourth request shows the normal panel and sends
+  nothing;
+- **per address (IP):** 3 form posts per 15 minutes. A fourth post from the same machine gets the
+  **"Za dużo prób"** page (HTTP 429), which says how long to wait.
+
+Wait out that window before you blame delivery.
 
 **Migrating a box seeded before #696.** Its admin row still has the password that was in
 `AUTH_ADMIN_PASSWORD`, and this change does not remove it: the seeder skips an admin that already
@@ -521,7 +532,8 @@ start when `AUTH_ADMIN_EMAIL` matches no account but `AUTH_ADMIN_USERNAME` is ta
 causes, and they need opposite fixes. Look at the row first:
 
 ```sql
-SELECT "Email", "PasswordHash" IS NULL AS no_password FROM authsystem."Users" WHERE "UserName" = '<admin username>';
+-- NormalizedUserName, because the seeder's check ignores case: "Admin" blocks "admin" too.
+SELECT "UserName", "Email", "PasswordHash" IS NULL AS no_password FROM authsystem."Users" WHERE "NormalizedUserName" = upper('<admin username>');
 ```
 
 - **The admin changed its own address in the product.** The row has the real address and a

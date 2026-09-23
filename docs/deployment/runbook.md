@@ -1221,7 +1221,7 @@ a deploy:
 | 3 | **OIDC token** | `POST {auth}/connect/token` (client_credentials) = 200 + an `access_token` |
 | 4 | **Token accepted by tms** | anonymous `GET {tms}/api/v1/game-versions` = **401**; the same call **with** the bearer token is **NOT 401** |
 | 5 | **File distribution** | `GET {tms}/api/v1/translation-files/{lang}` = 200 + `ETag`, then a re-GET with `If-None-Match` = 304 |
-| 6 | **Auth pages: headers + CSP** | `GET {auth}/Account/Login` (a form) and `/Account/ConfirmEmail` (no form) each send `X-Frame-Options: DENY` with `frame-ancestors 'none'`, `nosniff` and a `Referrer-Policy`; every `<style>` carries the header's nonce, no inline `<script>`, no `'unsafe-inline'` (#693) |
+| 6 | **Auth pages: headers + CSP** | `GET {auth}/Account/Login` (a form) and `/Account/ConfirmEmail` (no form) each send `X-Frame-Options: DENY` with `frame-ancestors 'none'`, `nosniff` and a `Referrer-Policy` that never sends the path to another origin; every `<style>` carries the header's nonce, no inline `<script>`, no `'unsafe-inline'` (#693) |
 
 It prints a `✓`/`✗`/`⚠` per check and **exits non-zero (1) on any failure** (a usage/config problem
 exits 2). Two behaviours are deliberate and worth knowing before you read a result:

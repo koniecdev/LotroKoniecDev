@@ -28,7 +28,7 @@
 #                    honours If-None-Match with a 304 (the CLI/player relies on this; spec 0001).
 #   6. Auth pages  — the auth origin sends its security headers on a page with a form (Login) and on
 #                    one without (ConfirmEmail): X-Frame-Options DENY with frame-ancestors 'none',
-#                    nosniff, a Referrer-Policy. Its CSP must also admit the page's own inline
+#                    nosniff, a private Referrer-Policy. Its CSP must also admit the page's own inline
 #                    content: every <style> carries the header's nonce and no inline <script> is
 #                    served. As in leg 2, a blocked style or script shows up only in the console (#693).
 #
@@ -306,7 +306,7 @@ csp_directive() {
 
 # $1 = page path, $2 = its HTML. Reads the headers from $HDR_FILE.
 check_auth_page() {
-    local page="$1" html="$2" csp frame nosniff referrer script_src style_src nonce folded count
+    local page="$1" html="$2" csp frame nosniff referrer referrer_last script_src style_src nonce folded count
     if ! printf '%s' "$html" | grep -qi '<html'; then
         # An empty body carries no inline content either, so the checks below would go green exactly
         # when the page is down.
@@ -334,10 +334,16 @@ check_auth_page() {
 
     nosniff="$(header_values 'x-content-type-options')"
     referrer="$(header_values 'referrer-policy')"
-    if [ "$nosniff" = "nosniff" ] && [ -n "$referrer" ]; then
+    # The account links carry tokens in the query string, so only a policy that never sends the path
+    # to another origin passes. In a list, the browser takes the last token, so that one is checked.
+    referrer_last="$(printf '%s' "$referrer" | tr ',' '\n' | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//' | grep -v '^$' | tail -n 1 || true)"
+    case "$referrer_last" in
+        no-referrer|same-origin|strict-origin|strict-origin-when-cross-origin) referrer_last="ok" ;;
+    esac
+    if [ "$nosniff" = "nosniff" ] && [ "$referrer_last" = "ok" ]; then
         pass "auth $page sends nosniff and Referrer-Policy '$referrer'"
     else
-        fail "auth $page misses nosniff or a Referrer-Policy (got '$nosniff' / '$referrer') (#693)"
+        fail "auth $page misses nosniff or a Referrer-Policy that keeps the URL private (got '$nosniff' / '$referrer') (#693)"
     fi
 
     # HTML tag and attribute names are case-insensitive, so match them that way. Newlines are folded

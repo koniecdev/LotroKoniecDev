@@ -307,7 +307,9 @@ csp_directive() {
 # $1 = page path, $2 = its HTML. Reads the headers from $HDR_FILE.
 check_auth_page() {
     local page="$1" html="$2" csp frame nosniff referrer referrer_last referrer_private script_src style_src nonce folded count
-    if ! printf '%s' "$html" | grep -qi '<html'; then
+    # Here-strings, never `printf | grep -q`: grep -q quits at the first match, and under pipefail
+    # the printf still writing a 28 KB page then dies of SIGPIPE and turns a match into a failure.
+    if ! grep -qi '<html' <<< "$html"; then
         # An empty body carries no inline content either, so the checks below would go green exactly
         # when the page is down.
         fail "auth $page served no HTML page"
@@ -326,7 +328,7 @@ check_auth_page() {
     fi
 
     frame="$(header_values 'x-frame-options')"
-    if [ "$frame" = "DENY" ] && printf '%s' "$csp" | grep -qi "frame-ancestors 'none'"; then
+    if [ "$frame" = "DENY" ] && grep -qi "frame-ancestors 'none'" <<< "$csp"; then
         pass "auth $page forbids framing (X-Frame-Options DENY + frame-ancestors 'none')"
     else
         fail "auth $page can be framed: X-Frame-Options '${frame}', CSP without frame-ancestors 'none' (#693)"
@@ -353,9 +355,9 @@ check_auth_page() {
     folded="$(printf '%s' "$html" | tr '\n' ' ')"
 
     script_src="$(csp_directive "$csp" 'script-src')"
-    if printf '%s' "$script_src" | grep -qi "unsafe-inline"; then
+    if grep -qi "unsafe-inline" <<< "$script_src"; then
         fail "auth $page script-src allows 'unsafe-inline' — injected script is no longer blocked"
-    elif printf '%s' "$script_src" | grep -qiE "nonce-|sha(256|384|512)-"; then
+    elif grep -qiE "nonce-|sha(256|384|512)-" <<< "$script_src"; then
         pass "auth $page script-src admits inline script only by nonce or hash"
     else
         count="$(printf '%s' "$folded" | grep -oiE '<script[^>]*>' | grep -c -iv 'src=' || true)"
@@ -369,7 +371,7 @@ check_auth_page() {
     # The account pages keep their styles inline, so every <style> must carry the nonce style-src names.
     style_src="$(csp_directive "$csp" 'style-src')"
     nonce="$(printf '%s' "$style_src" | grep -oE "'nonce-[A-Za-z0-9+/_=-]+'" | head -n 1 | sed -E "s/^'nonce-//; s/'$//" || true)"
-    if printf '%s' "$style_src" | grep -qi "unsafe-inline"; then
+    if grep -qi "unsafe-inline" <<< "$style_src"; then
         fail "auth $page style-src allows 'unsafe-inline' (#693)"
     elif [ -n "$nonce" ]; then
         count="$(printf '%s' "$folded" | grep -oiE '<style[^>]*>' | grep -c -vF "nonce=\"$nonce\"" || true)"

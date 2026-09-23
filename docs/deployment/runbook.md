@@ -1271,6 +1271,12 @@ instead of a warning. Pass it against any deployed environment — CD and the re
 Leave it off only for a local Development stack, which skips the security-headers middleware on
 purpose and would otherwise always report red.
 
+The flag also means an image from before the CSP legs cannot pass: an auth image older than #693
+fails leg 6, a frontend image older than #670 fails leg 2. So a deliberate CD deploy of such an old
+`image_tag` goes red and the rollback step puts the newer tag back. Pick a rollback target from #693
+on. For the same reason, an on-demand smoke of prod stays red on leg 6 until the batched promotion
+that carries #693 has run there.
+
 **In CI:** `deploy.yml` runs it against the environment's public origins after `up -d`; a red smoke
 triggers the automatic rollback. The [`Smoke test`](../../.github/workflows/smoke.yml) reusable
 workflow stays runnable **on demand** (`workflow_dispatch` — enter the three URLs).

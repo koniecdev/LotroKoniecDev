@@ -473,7 +473,8 @@ hash-check → patch → launch flow is validated. Re-investigating any of it is
   origins, because the login POST ends in a redirect to the frontend's `/callback` and Chrome checks
   every redirect of a form. That also makes the frontend's `ResponseMode.Query` load-bearing:
   OpenIddict's form_post page submits itself with an inline script this CSP blocks. The guards:
-  `check-ssr-purity` scans `src/AuthSystem/**/*.cshtml` for both rules, smoke leg 6 checks the
+  `check-ssr-purity` scans `src/AuthSystem/**/*.cshtml` for everything this CSP blocks (inline
+  script and event handlers, a nonce-less `<style>`, a `style=` attribute), smoke leg 6 checks the
   deployed pages, the integration suite checks every Razor page endpoint, and the Frontend E2E suite
   (auth runs in Testing there, with the CSP on) fails on any `securitypolicyviolation`.
 - **Auth Razor Pages are rate limited by default; opting out is the explicit act (#692).**

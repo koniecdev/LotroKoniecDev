@@ -83,7 +83,9 @@ check 'AddInteractiveServerComponents|AddInteractiveWebAssemblyComponents|AddInt
 # case-sensitive on purpose: they match C#/Razor identifiers, where case is part of the name.
 # Known gaps, accepted: the scan is line-based, so an opening tag split over two lines slips
 # through (the smoke test folds newlines and still catches it), and a literal "<script>" inside
-# a C# string would be flagged with no way to opt out.
+# a C# string would be flagged with no way to opt out. The auth-page rules below share the first
+# gap: an onclick= or style= on the second line of a tag is not seen here. The auth integration
+# tests read each rendered page as a whole and catch it on every state a plain GET shows.
 check '<[sS][cC][rR][iI][pP][tT][^>]*>' \
     "Inline <script> in the Frontend. Our CSP sends script-src 'self', so the browser blocks it and only the console says so (#670). Move the code to a file under wwwroot and load it with src=, or drop it." \
     '<[sS][cC][rR][iI][pP][tT][^>]*[sS][rR][cC]=[^>]*>'

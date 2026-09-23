@@ -306,7 +306,7 @@ csp_directive() {
 
 # $1 = page path, $2 = its HTML. Reads the headers from $HDR_FILE.
 check_auth_page() {
-    local page="$1" html="$2" csp frame nosniff referrer referrer_last script_src style_src nonce folded count
+    local page="$1" html="$2" csp frame nosniff referrer referrer_last referrer_private script_src style_src nonce folded count
     if ! printf '%s' "$html" | grep -qi '<html'; then
         # An empty body carries no inline content either, so the checks below would go green exactly
         # when the page is down.
@@ -334,13 +334,15 @@ check_auth_page() {
 
     nosniff="$(header_values 'x-content-type-options')"
     referrer="$(header_values 'referrer-policy')"
-    # The account links carry tokens in the query string, so only a policy that never sends the path
-    # to another origin passes. In a list, the browser takes the last token, so that one is checked.
+    # The account links carry tokens in the query string, so only no-referrer, same-origin,
+    # strict-origin or strict-origin-when-cross-origin passes. For a list, the last token is checked;
+    # that can only fail a list a browser would accept, never pass one it would not.
     referrer_last="$(printf '%s' "$referrer" | tr ',' '\n' | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//' | grep -v '^$' | tail -n 1 || true)"
+    referrer_private=0
     case "$referrer_last" in
-        no-referrer|same-origin|strict-origin|strict-origin-when-cross-origin) referrer_last="ok" ;;
+        no-referrer|same-origin|strict-origin|strict-origin-when-cross-origin) referrer_private=1 ;;
     esac
-    if [ "$nosniff" = "nosniff" ] && [ "$referrer_last" = "ok" ]; then
+    if [ "$nosniff" = "nosniff" ] && [ "$referrer_private" = "1" ]; then
         pass "auth $page sends nosniff and Referrer-Policy '$referrer'"
     else
         fail "auth $page misses nosniff or a Referrer-Policy that keeps the URL private (got '$nosniff' / '$referrer') (#693)"

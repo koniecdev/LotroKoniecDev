@@ -87,6 +87,8 @@ Test-SsrPurity -Pattern 'AddInteractiveServerComponents|AddInteractiveWebAssembl
     -Message 'Interactive Blazor registered in Program.cs. Keep only AddRazorComponents() and MapRazorComponents<App>().'
 # HTML tag and attribute names are case-insensitive, so spell both out. The other rules stay
 # case-sensitive on purpose: they match C#/Razor identifiers, where case is part of the name.
+# The scan is line-based, like the .sh twin: an attribute on the second line of a split tag is not
+# seen. The auth integration tests read each rendered page as a whole and catch it there.
 Test-SsrPurity -Pattern '<[sS][cC][rR][iI][pP][tT][^>]*>' `
     -Message "Inline <script> in the Frontend. Our CSP sends script-src 'self', so the browser blocks it and only the console says so (#670). Move the code to a file under wwwroot and load it with src=, or drop it." `
     -AllowPattern '<[sS][cC][rR][iI][pP][tT][^>]*[sS][rR][cC]=[^>]*>'

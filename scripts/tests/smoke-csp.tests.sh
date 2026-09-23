@@ -261,10 +261,13 @@ run_suite() {
     run_auth_case "a missing Referrer-Policy fails" \
         "$AUTH_CSP" "$AUTH_OK_HEADERS_FRAME" "$AUTH_OK_HEADERS_SNIFF" -- "$AUTH_PAGE"
     expect_line "auth /Account/ConfirmEmail misses nosniff or a Referrer-Policy"
+    run_auth_case "a Referrer-Policy value that is not a policy fails" \
+        "$AUTH_CSP" "$AUTH_OK_HEADERS_FRAME" "$AUTH_OK_HEADERS_SNIFF" "referrer-policy: ok" -- "$AUTH_PAGE"
+    expect_line "auth /Account/Login misses nosniff or a Referrer-Policy that keeps the URL private"
     run_auth_case "a Referrer-Policy that sends the full URL everywhere fails" \
         "$AUTH_CSP" "$AUTH_OK_HEADERS_FRAME" "$AUTH_OK_HEADERS_SNIFF" "referrer-policy: unsafe-url" -- "$AUTH_PAGE"
     expect_line "auth /Account/Login misses nosniff or a Referrer-Policy that keeps the URL private"
-    run_auth_case "the last known token of a Referrer-Policy list is the one that counts" \
+    run_auth_case "the last token of a Referrer-Policy list is the one checked" \
         "$AUTH_CSP" "$AUTH_OK_HEADERS_FRAME" "$AUTH_OK_HEADERS_SNIFF" "referrer-policy: unsafe-url, strict-origin-when-cross-origin" -- "$AUTH_PAGE"
     expect_line "auth /Account/Login sends nosniff and Referrer-Policy"
 

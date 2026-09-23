@@ -324,8 +324,9 @@ function Test-AuthPage {
 
     $nosniff = Get-HeaderValues $Response 'X-Content-Type-Options'
     $referrer = Get-HeaderValues $Response 'Referrer-Policy'
-    # The account links carry tokens in the query string, so only a policy that never sends the path
-    # to another origin passes. In a list, the browser takes the last token, so that one is checked.
+    # The account links carry tokens in the query string, so only no-referrer, same-origin,
+    # strict-origin or strict-origin-when-cross-origin passes. For a list, the last token is checked;
+    # that can only fail a list a browser would accept, never pass one it would not.
     $referrerLast = @($referrer -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ }) | Select-Object -Last 1
     $privateReferrers = @('no-referrer', 'same-origin', 'strict-origin', 'strict-origin-when-cross-origin')
     if ($nosniff -ceq 'nosniff' -and $privateReferrers -ccontains $referrerLast) {

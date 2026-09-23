@@ -21,8 +21,8 @@ namespace LotroKoniecDev.Frontend.Tests.Unit.Infrastructure.Discovery;
 /// Both halves of the discovery cache, over a real <see cref="HybridCache"/> and substituted clients.
 /// Both follow the same rule: an anonymous set of links must never be cached under a logged-in key,
 /// because that would take away, for a whole day, everything a signed-in user is allowed to do. Such a
-/// response must mark the session dead and fall back to the anonymous links. A real outage stays a
-/// ProblemDetails failure, is never cached, and is never turned into "session expired".
+/// response must mark the session dead and be served without being cached under either key. A real
+/// outage stays a ProblemDetails failure, is never cached, and is never turned into "session expired".
 /// </summary>
 public sealed class DiscoveryCacheTests
 {
@@ -77,7 +77,6 @@ public sealed class DiscoveryCacheTests
         _authClient.GetDiscoveryAsync(Arg.Any<CancellationToken>())
             .Returns(
                 ApiResult.Success(AnonymousDiscovery()),
-                ApiResult.Success(AnonymousDiscovery()),
                 ApiResult.Success(AuthenticatedDiscovery()));
         DiscoveryCache cache = CreateCache(authenticated: true);
 
@@ -123,20 +122,21 @@ public sealed class DiscoveryCacheTests
     }
 
     [Fact]
-    public async Task GetAuthSystemDiscoveryAsync_WhenTheFallbackFetchAlsoFails_ReturnsTheProblem()
+    public async Task GetAuthSystemDiscoveryAsync_WhenAuthenticatedGetsAnonymousLinks_DoesNotCacheThemForGuests()
     {
-        // An incomplete set under the user key, and then the API fails before the anonymous fallback
-        // call. The exception must not escape: errors stay values.
+        // The degraded set came from a call that carried a bearer, so it is not stored under the
+        // anonymous key either. The guest's call must reach the API, so its queued failure appears.
         _authClient.GetDiscoveryAsync(Arg.Any<CancellationToken>())
             .Returns(
                 ApiResult.Success(AnonymousDiscovery()),
                 ApiResult.Failure<AuthDiscoveryResponse>(Problem(503)));
-        DiscoveryCache cache = CreateCache(authenticated: true);
+        HybridCache hybridCache = CreateHybridCache();
 
-        ApiResult<AuthDiscoveryResponse> result = await cache.GetAuthSystemDiscoveryAsync();
+        await CreateCache(authenticated: true, hybridCache).GetAuthSystemDiscoveryAsync();
+        ApiResult<AuthDiscoveryResponse> guest =
+            await CreateCache(authenticated: false, hybridCache).GetAuthSystemDiscoveryAsync();
 
-        result.IsFailure.ShouldBeTrue();
-        result.ProblemDetails!.Status.ShouldBe(503);
+        guest.ProblemDetails.ShouldNotBeNull().Status.ShouldBe(503);
     }
 
     [Fact]
@@ -166,7 +166,7 @@ public sealed class DiscoveryCacheTests
 
         ApiResult<TranslationDiscoveryResponse> result = await cache.GetTranslationSystemDiscoveryAsync();
 
-        // It falls back to the anonymous set of links, so the public pages still render on the way out.
+        // It serves the anonymous set the API sent, so the public pages still render on the way out.
         result.IsSuccess.ShouldBeTrue();
         result.Value.Links.ShouldNotContain(link => link.Rel == TranslationRels.ContributionDataExport);
         result.Value.Links.ShouldContain(link => link.Rel == TranslationRels.Progress);
@@ -182,7 +182,6 @@ public sealed class DiscoveryCacheTests
         // call would still be missing the logged-in entry points, for a whole day.
         _translationClient.GetDiscoveryAsync(Arg.Any<CancellationToken>())
             .Returns(
-                ApiResult.Success(AnonymousTranslationDiscovery()),
                 ApiResult.Success(AnonymousTranslationDiscovery()),
                 ApiResult.Success(AuthenticatedTranslationDiscovery()));
         DiscoveryCache cache = CreateCache(authenticated: true);
@@ -231,28 +230,25 @@ public sealed class DiscoveryCacheTests
     }
 
     [Fact]
-    public async Task GetTranslationSystemDiscoveryAsync_WhenTheFallbackFetchAlsoFails_ReturnsTheProblem()
+    public async Task GetTranslationSystemDiscoveryAsync_WhenAuthenticatedGetsAnonymousLinks_DoesNotCacheThemForGuests()
     {
-        // An incomplete set under the user key, and then the API fails before the anonymous fallback
-        // call. The exception must not escape: errors stay values.
+        // The degraded set came from a call that carried a bearer, so it is not stored under the
+        // anonymous key either. The guest's call must reach the API, so its queued failure appears.
         _translationClient.GetDiscoveryAsync(Arg.Any<CancellationToken>())
             .Returns(
                 ApiResult.Success(AnonymousTranslationDiscovery()),
                 ApiResult.Failure<TranslationDiscoveryResponse>(Problem(503)));
-        DiscoveryCache cache = CreateCache(authenticated: true);
+        HybridCache hybridCache = CreateHybridCache();
 
-        ApiResult<TranslationDiscoveryResponse> result = await cache.GetTranslationSystemDiscoveryAsync();
+        await CreateCache(authenticated: true, hybridCache).GetTranslationSystemDiscoveryAsync();
+        ApiResult<TranslationDiscoveryResponse> guest =
+            await CreateCache(authenticated: false, hybridCache).GetTranslationSystemDiscoveryAsync();
 
-        result.IsFailure.ShouldBeTrue();
-        result.ProblemDetails!.Status.ShouldBe(503);
+        guest.ProblemDetails.ShouldNotBeNull().Status.ShouldBe(503);
     }
 
-    private DiscoveryCache CreateCache(bool authenticated)
+    private DiscoveryCache CreateCache(bool authenticated, HybridCache? hybridCache = null)
     {
-        ServiceCollection services = new();
-        services.AddHybridCache();
-        HybridCache hybridCache = services.BuildServiceProvider().GetRequiredService<HybridCache>();
-
         DefaultHttpContext httpContext = new();
         if (authenticated)
         {
@@ -264,7 +260,19 @@ public sealed class DiscoveryCacheTests
         IHttpContextAccessor accessor = Substitute.For<IHttpContextAccessor>();
         accessor.HttpContext.Returns(httpContext);
 
-        return new DiscoveryCache(hybridCache, _translationClient, _authClient, accessor, _deadSessionRegistry);
+        return new DiscoveryCache(
+            hybridCache ?? CreateHybridCache(),
+            _translationClient,
+            _authClient,
+            accessor,
+            _deadSessionRegistry);
+    }
+
+    private static HybridCache CreateHybridCache()
+    {
+        ServiceCollection services = new();
+        services.AddHybridCache();
+        return services.BuildServiceProvider().GetRequiredService<HybridCache>();
     }
 
     private static AuthDiscoveryResponse AuthenticatedDiscovery() =>

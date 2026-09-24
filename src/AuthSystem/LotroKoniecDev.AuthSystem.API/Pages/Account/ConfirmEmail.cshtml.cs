@@ -79,7 +79,24 @@ internal sealed partial class ConfirmEmailModel : PageModel
 
         if (user.EmailConfirmed)
         {
-            IsCompleted = true;
+            // The success page names the account, so it needs the mailed token too: without this check
+            // any address with a confirmed account showed "confirmed" (ADR-0059 §7). Confirming does not
+            // change the security stamp, so the owner's second click on the link still gets here.
+            bool tokenValid = await _userManager.VerifyUserTokenAsync(
+                user,
+                _userManager.Options.Tokens.EmailConfirmationTokenProvider,
+                UserManager<ApplicationUser>.ConfirmEmailTokenPurpose,
+                Token);
+
+            if (tokenValid)
+            {
+                IsCompleted = true;
+            }
+            else
+            {
+                ErrorMessage = InvalidOrExpiredLinkMessage;
+            }
+
             return;
         }
 

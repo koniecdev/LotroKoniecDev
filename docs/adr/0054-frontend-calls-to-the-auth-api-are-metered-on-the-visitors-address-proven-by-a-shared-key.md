@@ -2,7 +2,8 @@
 
 **Status:** Accepted (amended 2026-09-22 — see "Amendment: the TMS API uses the same key"; amended
 2026-09-23 — see "Amendment: resend-confirmation now has a per-account budget"; 2026-09-24 — #829
-moved the TMS limiter before authentication, noted in the TMS amendment)
+moved the TMS limiter before authentication, noted in the TMS amendment; amended 2026-09-24 — see
+"Amendment: an IPv6 client is its /64")
 **Date:** 2026-09-22
 **Decision-makers:** Solo maintainer (ticket #819)
 **Related:** AuthSystem.API (`Program.cs` rate-limit policies, `Services/RateLimiting`, `Settings`),
@@ -313,6 +314,47 @@ budget, not an unbounded flood.
 The decision itself does not change. The frontend never calls the resend, on the page or on
 `auth/resend-email-confirmation`, so honouring the key there would still gain nothing and would only
 widen what a leaked key can do. `resend-confirmation-limit` stays on the connection's own address.
+
+## Amendment: an IPv6 client is its /64 (2026-09-24, #831)
+
+This ADR keys a bucket on "the visitor's address", and both resolvers wrote that address out in full.
+An IPv6 client usually owns a whole /64 and can move to a new address inside it for free, so for
+such a client every per-address limit, the login form's brake included, would reset on demand. The
+bucket key is now built by one method per API, `RateLimitPartitionKeyResolver.KeyFor`, on every
+path:
+
+- **An IPv6 address counts as its /64.** The key is the prefix with the interface bits cleared, for
+  example `2001:db8:0:1::/64`. This is the usual grouping for IPv6 rate limits.
+- **An IPv4 address written in IPv6 form counts as the IPv4 address.** `::ffff:203.0.113.7` and
+  `203.0.113.7` are one client, so they get one key. Without this rule, a dual-stack socket and the
+  frontend's forwarded header could put one visitor in two buckets.
+- **An IPv4 address is unchanged**, and a request with no address stays in the `unknown` bucket.
+- **Every path uses it**: the visitor the frontend forwards, a direct caller's own address, and the
+  auth API's policies that key on the connection (`auth-page-limit`, `register-limit`,
+  `forgot-password-limit`, `resend-confirmation-limit`). The frontend still sends the raw address;
+  the API builds the key.
+
+The cost: people who share one /64 share one bucket. That is rare on home lines and possible in some
+offices, the same trade-off this ADR already accepts for people behind one IPv4 NAT.
+
+Nothing changed in production on the day this landed, because no domain has an `AAAA` record.
+Turning IPv6 on needs more than this rule. Per the runbook, an IPv6 connection through Docker's port
+proxy reaches Caddy as the bridge gateway address, so every IPv6 visitor would share that one bucket
+until Caddy sees the real client address. Once it does, this rule keys each visitor by its /64.
+
+Accepted limits, to look at again when IPv6 is turned on:
+
+- **A client with more than one /64 still gets one bucket per /64.** Home lines often get a /56 and
+  businesses a /48. The login form is not the only brake: Identity locks an account after five
+  failed passwords, whatever the address. A second, looser budget per /56 or /48 is the next step if
+  it is ever needed.
+- **Other IPv6 forms that carry an IPv4 client in their low bits share one /64 bucket**: NAT64
+  (`64:ff9b::/96`), Teredo, and the old `::a.b.c.d` form. Only `::ffff:a.b.c.d` is turned back into
+  IPv4. This matters only if the ingress sits behind such a translator, and it does not.
+
+Tests: `RateLimitPartitionKeyResolverTests` on both APIs (one client's addresses get one key, two
+clients get two, directly and through the frontend); `AuthPagesRateLimitingTests` (the login page's
+own budget follows the same rule).
 
 ## References
 

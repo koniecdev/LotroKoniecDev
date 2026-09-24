@@ -514,10 +514,12 @@ hash-check → patch → launch flow is validated. Re-investigating any of it is
   own copy of `RateLimitPartitionKeyResolver`: the visitor's address the frontend forwards in
   `X-LOTRO-Client-Address`, honoured only next to the per-environment `X-LOTRO-Frontend-Key` (SHA-256
   digests, constant-time compare, exactly one value each, the address must parse), otherwise the
-  connection's own address. The browser-facing page policies and `register-limit` stay on the
-  connection's address on purpose: the frontend never posts to a Razor page nor to `auth/register`,
-  and the key must never become a bypass for the login brake or a fresh mail budget per invented
-  address. A new outgoing path from the frontend to either API carries
+  connection's own address. Every address becomes a key through that class's `KeyFor`: an IPv6
+  address counts as its /64 and `::ffff:a.b.c.d` as plain IPv4 (#831), so a new per-address policy
+  keys through it too, never through `RemoteIpAddress.ToString()`. The browser-facing page policies
+  and `register-limit` stay on the connection's address on purpose: the frontend never posts to a
+  Razor page nor to `auth/register`, and the key must never become a bypass for the login brake or a
+  fresh mail budget per invented address. A new outgoing path from the frontend to either API carries
   `FrontendCallerDelegatingHandler` with that API's key (today: the auth API's typed account client,
   token client and OIDC back-channel, and the TMS API's typed client), outside any resilience handler
   so a retry never repeats a header. The header names live once, in `Hateoas.Abstractions`. The key

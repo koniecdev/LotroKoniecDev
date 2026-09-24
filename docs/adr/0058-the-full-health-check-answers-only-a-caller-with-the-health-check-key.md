@@ -58,7 +58,9 @@ quietly open again.
 
 `HEALTH_CHECK_KEY` in the box `.env` feeds `HealthCheck__Key` on both APIs, like `FRONTEND_CALLER_KEY`.
 Compose refuses to render without it, and `HealthCheckSettingsValidator` stops the boot outside
-Development and Testing, or anywhere the key is shorter than 32 characters. In Development and Testing
+Development and Testing. In every environment it also stops the boot when the key is shorter than 32
+characters, or starts or ends with whitespace: Kestrel trims the spaces around a header value, so such
+a key could never match. Write the value unquoted in the `.env`; base64 needs no quotes. In Development and Testing
 an empty key leaves the gate open, so the local `curl …/health` and the integration suites keep
 working. `scripts/gen-openiddict-keys` mints it for the parity stack.
 

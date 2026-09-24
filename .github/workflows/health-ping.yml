@@ -83,11 +83,13 @@ jobs:
                 printf -- '- OK **%s** — HTTP %s (after %s attempt(s))\n' "$name" "$code" "$attempt" >> "$GITHUB_STEP_SUMMARY"
                 return 0
               fi
-              # A 404 on a keyed probe is a key mismatch, and waiting does not fix a key.
+              # A 404 on a keyed probe almost always means the key does not match, and waiting does not
+              # fix a key. The same 404 also comes from a route that no longer reaches the API, so the
+              # message names both.
               if [ "$send_key" = "with-key" ] && [ "$code" = "404" ]; then
                 echo "::endgroup::"
-                echo "::error::${name} answered 404: PROD_HEALTH_CHECK_KEY does not match HEALTH_CHECK_KEY on the prod box."
-                printf -- '- FAIL **%s** — HTTP 404: the health check key does not match the prod box\n' "$name" >> "$GITHUB_STEP_SUMMARY"
+                echo "::error::${name} answered 404: most likely PROD_HEALTH_CHECK_KEY does not match HEALTH_CHECK_KEY on the prod box; otherwise /health no longer reaches the API."
+                printf -- '- FAIL **%s** — HTTP 404: the health check key most likely does not match the prod box (or /health is not routed to the API)\n' "$name" >> "$GITHUB_STEP_SUMMARY"
                 return 1
               fi
               # A measured cold start from zero replicas is ~45-60 s (auth's own is ~31 s and dominates

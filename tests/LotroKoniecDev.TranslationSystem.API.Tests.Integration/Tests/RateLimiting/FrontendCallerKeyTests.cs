@@ -239,7 +239,8 @@ public sealed class FrontendCallerKeyTests : IAsyncLifetime
                 configBuilder.AddInMemoryCollection(new Dictionary<string, string?>
                 {
                     { "Cors:AllowedOrigins:0", "https://app.lotro.test" },
-                    { "FrontendCaller:Key", FrontendKey }
+                    { "FrontendCaller:Key", FrontendKey },
+                    { "HealthCheck:Key", new string('h', 32) }
                 });
             });
         });

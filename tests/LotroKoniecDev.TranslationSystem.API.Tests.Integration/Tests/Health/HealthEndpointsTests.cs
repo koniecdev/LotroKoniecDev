@@ -1,8 +1,14 @@
+using LotroKoniecDev.Hateoas.Abstractions;
+using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.Extensions.Configuration;
+
 namespace LotroKoniecDev.TranslationSystem.API.Tests.Integration.Tests.Health;
 
 [Collection("TranslationApi")]
 public sealed class HealthEndpointsTests
 {
+    private const string HealthCheckKey = "a-health-check-key-of-at-least-32-characters";
+
     private readonly TranslationSystemApiFactory _factory;
 
     public HealthEndpointsTests(TranslationSystemApiFactory factory)
@@ -53,5 +59,81 @@ public sealed class HealthEndpointsTests
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
         body.ShouldContain("\"status\": \"Healthy\"");
         body.ShouldNotContain("translationdb");
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("a-wrong-key-that-is-long-enough-to-pass")]
+    public async Task GetHealth_WhenAKeyIsConfiguredAndTheCallerLacksIt_ShouldReturn404WithoutTheReport(string? presentedKey)
+    {
+        // Arrange
+        using WebApplicationFactory<Program> keyedHost = CreateKeyedHost();
+        using HttpClient client = keyedHost.CreateClient();
+
+        // Act
+        using HttpResponseMessage response = await GetAsync(client, "/health", presentedKey);
+        string body = await response.Content.ReadAsStringAsync();
+
+        // Assert
+        response.StatusCode.ShouldBe(HttpStatusCode.NotFound);
+        body.ShouldNotContain("translationdb");
+    }
+
+    [Fact]
+    public async Task GetHealth_WhenAKeyIsConfiguredAndTheCallerSendsIt_ShouldRunTheDatabaseCheck()
+    {
+        // Arrange
+        using WebApplicationFactory<Program> keyedHost = CreateKeyedHost();
+        using HttpClient client = keyedHost.CreateClient();
+
+        // Act
+        using HttpResponseMessage response = await GetAsync(client, "/health", HealthCheckKey);
+        string body = await response.Content.ReadAsStringAsync();
+
+        // Assert
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        body.ShouldContain("translationdb");
+        body.ShouldContain("\"status\": \"Healthy\"");
+    }
+
+    [Theory]
+    [InlineData("/health/live")]
+    [InlineData("/health/ready")]
+    public async Task GetProbe_WhenAKeyIsConfigured_ShouldStayOpenWithoutTheKey(string path)
+    {
+        // Arrange: the probes run no checks, so the key does not guard them (ADR-0025, ADR-0058)
+        using WebApplicationFactory<Program> keyedHost = CreateKeyedHost();
+        using HttpClient client = keyedHost.CreateClient();
+
+        // Act
+        using HttpResponseMessage response = await GetAsync(client, path, presentedKey: null);
+
+        // Assert
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+    }
+
+    private static async Task<HttpResponseMessage> GetAsync(HttpClient client, string path, string? presentedKey)
+    {
+        using HttpRequestMessage request = new(HttpMethod.Get, path);
+        if (presentedKey is not null)
+        {
+            request.Headers.Add(HealthCheckHeaders.Key, presentedKey);
+        }
+
+        return await client.SendAsync(request);
+    }
+
+    private WebApplicationFactory<Program> CreateKeyedHost()
+    {
+        return _factory.WithWebHostBuilder(builder =>
+        {
+            builder.ConfigureAppConfiguration((_, configBuilder) =>
+            {
+                configBuilder.AddInMemoryCollection(new Dictionary<string, string?>
+                {
+                    { "HealthCheck:Key", HealthCheckKey }
+                });
+            });
+        });
     }
 }

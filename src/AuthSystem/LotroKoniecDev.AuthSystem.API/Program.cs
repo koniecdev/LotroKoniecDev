@@ -544,7 +544,10 @@ try
         app.MapScalarApiReference();
     }
 
-    app.MapHealthChecks("/health", new HealthCheckOptions
+    // The full /health queries the database, connects to the mail server and opens a broker connection,
+    // so it answers only a caller with the health check key (ADR-0058). The two probes below run no
+    // checks and stay open.
+    app.MapKeyGatedHealthChecks("/health", new HealthCheckOptions
     {
         ResponseWriter = HealthCheckResponseWriter.WriteResponse
     });

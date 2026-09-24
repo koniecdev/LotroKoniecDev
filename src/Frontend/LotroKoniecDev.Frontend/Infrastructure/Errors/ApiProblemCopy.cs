@@ -192,6 +192,8 @@ internal static class ApiProblemCopy
                 "Nie udało się potwierdzić adresu e-mail.",
             ["Auth.DeletionAlreadyScheduled"] =
                 "Usunięcie konta jest już zaplanowane.",
+            ["Auth.DeletionScheduleThrottled"] =
+                "Usunięcie tego konta zaplanowano ostatnio zbyt wiele razy. Odczekaj godzinę i spróbuj ponownie.",
             ["Auth.DeletionSchedulingFailed"] =
                 "Nie udało się zaplanować usunięcia konta. Twoje konto pozostaje bez zmian — spróbuj ponownie później.",
             ["Auth.AccountDeletionFailed"] =

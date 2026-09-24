@@ -1,3 +1,4 @@
+using System.Text.Json;
 using LotroKoniecDev.Hateoas.Abstractions;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.Configuration;
@@ -79,11 +80,13 @@ public sealed class HealthEndpointsTests
 
         // Assert
         response.StatusCode.ShouldBe(HttpStatusCode.ServiceUnavailable);
-        body.ShouldContain("\"Unhealthy\"");
-        body.ShouldNotContain("59999");
-        body.ShouldNotContain("59998");
-        body.ShouldNotContain("exception", Case.Insensitive);
-        body.ShouldNotContain("description", Case.Insensitive);
+        using JsonDocument report = JsonDocument.Parse(body);
+        JsonElement[] checks = [.. report.RootElement.GetProperty("checks").EnumerateArray()];
+        checks.ShouldContain(check => check.GetProperty("status").GetString() == "Unhealthy");
+        checks.ShouldAllBe(check =>
+            check.EnumerateObject().Select(property => property.Name).SequenceEqual(new[] { "name", "status", "duration" }));
+        body.ShouldNotContain("localhost:59999");
+        body.ShouldNotContain("localhost:59998");
     }
 
     [Theory]

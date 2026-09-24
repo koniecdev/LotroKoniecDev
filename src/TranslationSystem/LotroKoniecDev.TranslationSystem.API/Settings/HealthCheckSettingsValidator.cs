@@ -47,6 +47,14 @@ internal sealed class HealthCheckSettingsValidator : IValidateOptions<HealthChec
                 + $"{MinimumKeyLength} characters (openssl rand -base64 32).");
         }
 
+        // Kestrel trims the spaces around a header value, so a key with them could never match.
+        if (key != key.Trim())
+        {
+            return ValidateOptionsResult.Fail(
+                $"{HealthCheckSettings.ConfigurationSection}:{nameof(HealthCheckSettings.Key)} must not start or "
+                + "end with whitespace. Check the quoting of HEALTH_CHECK_KEY in the box .env.");
+        }
+
         return ValidateOptionsResult.Success;
     }
 }

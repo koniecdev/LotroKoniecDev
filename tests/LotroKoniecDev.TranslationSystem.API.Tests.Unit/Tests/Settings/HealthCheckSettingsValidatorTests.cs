@@ -75,6 +75,22 @@ public sealed class HealthCheckSettingsValidatorTests
         result.Succeeded.ShouldBeTrue();
     }
 
+    [Theory]
+    [InlineData(" a-health-check-key-of-at-least-32-characters")]
+    [InlineData("a-health-check-key-of-at-least-32-characters ")]
+    [InlineData("a-health-check-key-of-at-least-32-characters\n")]
+    public void Validate_KeyWithWhitespaceAroundIt_FailsBecauseNoCallerCouldSendIt(string key)
+    {
+        HealthCheckSettingsValidator validator = CreateValidator(Production);
+        HealthCheckSettings settings = new() { Key = key };
+
+        ValidateOptionsResult result = validator.Validate(name: null, settings);
+
+        result.Failed.ShouldBeTrue();
+        result.Failures.ShouldNotBeNull();
+        result.Failures.ShouldContain(failure => failure.Contains("whitespace", StringComparison.Ordinal));
+    }
+
     private static HealthCheckSettingsValidator CreateValidator(string environmentName)
     {
         IWebHostEnvironment environment = Substitute.For<IWebHostEnvironment>();

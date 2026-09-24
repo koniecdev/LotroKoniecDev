@@ -1,4 +1,5 @@
 using LotroKoniecDev.Hateoas.Abstractions;
+using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.Configuration;
 
@@ -110,6 +111,31 @@ public sealed class HealthEndpointsTests
 
         // Assert
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
+    }
+
+    [Fact]
+    public void Boot_InADeployedEnvironmentWithoutTheKey_ShouldFailNamingTheKey()
+    {
+        // Arrange: Staging with every other setting a deployed host needs. FrontendCallerKeyTests boots
+        // the same host with the key, so the missing key is the one reason this boot can fail.
+        using WebApplicationFactory<Program> stagingHost = _factory.WithWebHostBuilder(builder =>
+        {
+            builder.UseEnvironment("Staging");
+            builder.ConfigureAppConfiguration((_, configBuilder) =>
+            {
+                configBuilder.AddInMemoryCollection(new Dictionary<string, string?>
+                {
+                    { "Cors:AllowedOrigins:0", "https://app.lotro.test" },
+                    { "FrontendCaller:Key", new string('k', 40) }
+                });
+            });
+        });
+
+        // Act
+        Exception exception = Should.Throw<Exception>(() => stagingHost.CreateClient());
+
+        // Assert
+        exception.ToString().ShouldContain("HealthCheck:Key");
     }
 
     private static async Task<HttpResponseMessage> GetAsync(HttpClient client, string path, string? presentedKey)

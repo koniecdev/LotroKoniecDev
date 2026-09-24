@@ -37,7 +37,7 @@ public sealed class HealthCheckKeyMiddlewareTests
     [InlineData("a-health-check-key-of-at-least-32-character")]
     public async Task InvokeAsync_WithAnyOtherKey_Returns404WithoutRunningTheChecks(string presentedKey)
     {
-        // Arrange
+        // Arrange: the cases with a space pin the exact compare; over HTTP, Kestrel trims them first
         HealthCheckKeyMiddleware middleware = CreateMiddleware(ConfiguredKey);
         DefaultHttpContext context = new();
         context.Request.Headers[HealthCheckHeaders.Key] = presentedKey;

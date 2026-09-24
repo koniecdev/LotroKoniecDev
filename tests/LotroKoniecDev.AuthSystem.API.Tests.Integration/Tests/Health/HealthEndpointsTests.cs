@@ -143,6 +143,30 @@ public sealed class HealthEndpointsTests
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
     }
 
+    [Fact]
+    public void Boot_WithAKeyShorterThanTheMinimum_ShouldFailNamingTheKey()
+    {
+        // Arrange: the validator refuses a short key in every environment, so a Testing host proves that
+        // the validator is registered and runs at startup. Without that, a deployed host with no key would
+        // boot with the full /health open.
+        using WebApplicationFactory<Program> shortKeyHost = _factory.WithWebHostBuilder(builder =>
+        {
+            builder.ConfigureAppConfiguration((_, configBuilder) =>
+            {
+                configBuilder.AddInMemoryCollection(new Dictionary<string, string?>
+                {
+                    { "HealthCheck:Key", new string('h', 31) }
+                });
+            });
+        });
+
+        // Act
+        Exception exception = Should.Throw<Exception>(() => shortKeyHost.CreateClient());
+
+        // Assert
+        exception.ToString().ShouldContain("HealthCheck:Key");
+    }
+
     private static async Task<HttpResponseMessage> GetAsync(HttpClient client, string path, string? presentedKey)
     {
         using HttpRequestMessage request = new(HttpMethod.Get, path);

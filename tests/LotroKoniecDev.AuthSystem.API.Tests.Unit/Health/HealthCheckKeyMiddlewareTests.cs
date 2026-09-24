@@ -7,11 +7,13 @@ namespace LotroKoniecDev.AuthSystem.API.Tests.Unit.Health;
 
 /// <summary>
 /// The gate in front of the full /health (ADR-0058, #853). The next delegate stands in for the health
-/// checks: it answers 200, so a 200 means the checks would have run and a 404 means they never started.
+/// checks. It answers 202, a status a fresh context never has, so a 202 means the checks ran and a 404
+/// means they never started.
 /// </summary>
 public sealed class HealthCheckKeyMiddlewareTests
 {
     private const string ConfiguredKey = "a-health-check-key-of-at-least-32-characters";
+    private const int ChecksRanStatus = StatusCodes.Status202Accepted;
 
     [Fact]
     public async Task InvokeAsync_WithTheConfiguredKey_RunsTheChecks()
@@ -25,7 +27,7 @@ public sealed class HealthCheckKeyMiddlewareTests
         await middleware.InvokeAsync(context);
 
         // Assert
-        context.Response.StatusCode.ShouldBe(StatusCodes.Status200OK);
+        context.Response.StatusCode.ShouldBe(ChecksRanStatus);
     }
 
     [Theory]
@@ -92,7 +94,7 @@ public sealed class HealthCheckKeyMiddlewareTests
         await middleware.InvokeAsync(context);
 
         // Assert
-        context.Response.StatusCode.ShouldBe(StatusCodes.Status200OK);
+        context.Response.StatusCode.ShouldBe(ChecksRanStatus);
     }
 
     private static HealthCheckKeyMiddleware CreateMiddleware(string? configuredKey)
@@ -100,7 +102,7 @@ public sealed class HealthCheckKeyMiddlewareTests
         return new HealthCheckKeyMiddleware(
             context =>
             {
-                context.Response.StatusCode = StatusCodes.Status200OK;
+                context.Response.StatusCode = ChecksRanStatus;
                 return Task.CompletedTask;
             },
             Microsoft.Extensions.Options.Options.Create(new HealthCheckSettings { Key = configuredKey }));

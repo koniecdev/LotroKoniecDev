@@ -1,12 +1,14 @@
 # ADR-0056: The Admin Is Seeded Without a Password and Gets One From the Reset Mail
 
-**Status:** Accepted
+**Status:** Accepted (amended 2026-09-24 by #839 — the account and its role are one write, and an
+existing account is never promoted)
 **Date:** 2026-09-23
 **Decision-makers:** Solo maintainer (ticket #696)
 **Related:** AuthSystem.API (`Extensions/DatabaseSeederExtensions.cs`, `Pages/Account/Login.cshtml.cs`),
 `compose.hetzner.yaml`, `compose.prod.yaml`, runbook → "Admin account — first sign-in and rotation",
 ADR-0022 (the admin logs in by e-mail), ADR-0038 (password reset through the outbox), ADR-0049
-(a reset revokes sessions), ADR-0050 (where logs are stored), tickets #210, #689, #696, #837, #838
+(a reset revokes sessions), ADR-0050 (where logs are stored), ADR-0048 (the e-mail change undo link),
+tickets #210, #689, #696, #837, #838, #839
 
 ## Context
 
@@ -61,7 +63,7 @@ box's job (`chmod 600`, the deploy user, SSH keys), not this decision's.
 
 ### 1. Outside Development and Testing the admin is created without a password
 
-`SeedAdminUserAsync` calls `UserManager.CreateAsync(user)` without a password. It still sets
+The seeder calls `UserManager.CreateAsync(user)` without a password. It still sets
 `EmailConfirmed` and the `Admin` role, and logs event `2351`. A blank e-mail still skips the seed.
 A blank username now falls back to `admin`. The old code had that default too, but compose passes an
 unset `AUTH_ADMIN_USERNAME` as an empty string, so the default never applied. The old password check
@@ -172,12 +174,41 @@ an outage. A warning says the same thing without taking the site down.
   `DatabaseSeederExtensionsTests`.
 - `LoginPageTests` pins decision 4 with `SpyPasswordHasher`: every failure a caller can reach without
   the password verifies exactly one hash.
-- Event ids `2351`–`2353` sit in the Startup range of `EventIds.cs`.
+- Event ids `2351`–`2353` sit in the Startup range of `EventIds.cs`. The amendment below adds `2354`.
 - The integration tests seed with a stub `IWebHostEnvironment` (`Production`, `Staging`) against the
   Testing host. The cleaner does not truncate `OpenIddictApplications`, so the reseed leaves the test
   client in place.
 - `appsettings.json` no longer carries an `AdminUser:Password` key; `appsettings.Development.json` and
   `appsettings.Local.json.example` still do.
+
+## Amendment (2026-09-24, #839 — SEC-25): the account and its role are one write, and an existing account is never promoted
+
+The seeder saved the admin account and its `Admin` role in two separate writes, and skipped any
+address that already existed. When the database dropped out between the two writes, the cold-start
+retry (or the next start) found the address and stopped, so the admin stayed a translator. No page can
+grant the role, and with this ADR the gap showed only after the whole reset-mail round trip.
+
+**Two rules close it.**
+
+1. **The account and its role are created in one transaction**, inside EF's execution strategy (the
+   context runs with `EnableRetryOnFailure`, which refuses a transaction started outside it). A failure
+   anywhere before the commit leaves nothing, so every later attempt starts from an empty slate. The
+   strategy replays the whole transaction after a transient failure, and each replay first clears the
+   change tracker, the same shape as `RegisterUser`.
+2. **An account that already has the admin address is never promoted.** The seeder logs warning `2354`
+   on every start instead and leaves the account as it is. Granting the role would make whoever holds
+   that address an admin, and the seeder cannot tell the operator's own account from a stranger's
+   registration at a mistyped or squatted address. The runbook grants the role by hand only to a row
+   that is confirmed, has no password and has no armed undo link, because only the admin inbox can
+   give such a row a password. An admin half-made by this bug has that shape, and so does a row after
+   a cancelled deletion or an undone e-mail change. `EmailConfirmed` alone is not enough: an e-mail
+   change can move another account, with its owner's password, onto the admin address, and its undo
+   link can take the row back (ADR-0048).
+
+This is the same choice as decision 5: a startup that meets something it did not create logs and
+moves on, and never crashes or guesses. The tests are in `AdminSeedingTests`: a failure between the
+two writes, a transient failure on the role write, a commit that lands but whose answer is lost, and
+an existing account at the admin address.
 
 ## References
 

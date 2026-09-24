@@ -417,14 +417,15 @@ To move off the personal-gmail sender, authenticate the domain in Brevo (Senders
 ### Reseed traps — the auth seeder is create-if-missing
 
 `SeedAuthDatabaseAsync` (`AuthSystem.API/Extensions/DatabaseSeederExtensions.cs`) creates only what
-is absent: the admin user is skipped when its e-mail **or** username already exists, and each
+is absent: the admin user is skipped when its e-mail **or** username already exists (an existing
+account at the admin e-mail never gets the Admin role from the seeder), and each
 OpenIddict client is skipped when its `client_id` already exists. The Neon DBs long outlive any box,
 so this is the normal case — and it means **editing `.env` and restarting silently changes nothing**:
 
 | You changed in `.env` | What silently keeps the OLD value | Symptom |
 |---|---|---|
 | `OpenIddict__ApiClientSecret` | the `lotrokoniecdev-api` client row | `client_credentials` with the new secret → **401**; smoke's token leg fails |
-| `AUTH_ADMIN_EMAIL` / `AUTH_ADMIN_USERNAME` | the admin `Users` row | a new address with the same username is skipped, with warning `2353` in the auth-api log; a new address **and** a new username seed a **second** admin, and the first one keeps its role |
+| `AUTH_ADMIN_EMAIL` / `AUTH_ADMIN_USERNAME` | the admin `Users` row | a new address with the same username is skipped, with warning `2353` in the auth-api log; a new address that already belongs to a non-admin account is skipped, with warning `2354` (that row may be a stranger's account: read "Warning `2354`" under [Admin account](#admin-account--first-sign-in-and-rotation) before you delete anything); a new address **and** a new username seed a **second** admin, and the first one keeps its role |
 | `DOMAIN_APP` | the `lotrokoniecdev-web` client's redirect + post-logout URIs (written **only at creation**) | login bounces with `invalid_redirect_uri` |
 
 Fix = delete the rows and let the seeder rebuild them from the current `.env`. Schema is
@@ -437,7 +438,8 @@ DELETE FROM authsystem."OpenIddictAuthorizations";
 DELETE FROM authsystem."OpenIddictApplications";
 -- only when replacing the admin account itself, e.g. after a typo in AUTH_ADMIN_EMAIL
 -- (UserRoles cascades with the user). A password rotation never needs this: use the reset mail.
-DELETE FROM authsystem."Users" WHERE "Email" = '<admin e-mail>';
+-- Never for warning 2354: that row is not the admin (see its section).
+DELETE FROM authsystem."Users" WHERE "NormalizedEmail" = upper('<admin e-mail>');
 ```
 
 ```bash
@@ -546,6 +548,59 @@ SELECT "UserName", "Email", "PasswordHash" IS NULL AS no_password FROM authsyste
   when the address is really misspelled (see the
   [reseed traps](#reseed-traps--the-auth-seeder-is-create-if-missing)), fix the `.env` and restart
   auth-api.
+
+**Warning `2354`: the admin address belongs to an account without the Admin role.** The seeder logs
+it on every start when `AUTH_ADMIN_EMAIL` matches an account that is not an admin, and leaves that
+account as it is. It never promotes an account it did not create itself: it cannot tell your own
+account from a stranger's registration at a mistyped address (#839). Look at the row first:
+
+```sql
+SELECT "Id", "UserName", "EmailConfirmed", "PasswordHash" IS NULL AS no_password, "EmailChangeRevertTo" IS NOT NULL AS undo_armed FROM authsystem."Users" WHERE "NormalizedEmail" = upper('<admin e-mail>');
+```
+
+**The address is not one you read** (a typo, or someone else's address): fix `AUTH_ADMIN_EMAIL` and
+restart auth-api. **Never delete that row.** It is a real person's account, and an admin seeded at
+their address would get its first password from their inbox.
+
+**It is your address.** Give the row the role by hand **only** when it is confirmed, has no password
+and has no armed undo link. That is what an admin half-made by a crash before #839 looks like: only
+the admin inbox can give it a password. `EmailConfirmed` alone is **not** enough. An e-mail change
+moves someone else's account onto your address, with their password, as soon as you click the confirm
+link it mails you, and its undo link can later take the row back, role included (ADR-0048). The
+statements below end any session still open on the row (a refresh does not check the security stamp,
+#848), then grant the role only when all three conditions hold:
+
+```sql
+DELETE FROM authsystem."OpenIddictTokens" WHERE "Subject" = '<Id from the SELECT>';
+DELETE FROM authsystem."OpenIddictAuthorizations" WHERE "Subject" = '<Id from the SELECT>';
+-- INSERT 0 1: granted. INSERT 0 0: the row is not safe to promote, so delete it instead (below).
+INSERT INTO authsystem."UserRoles" ("UserId", "RoleId")
+SELECT u."Id", r."Id" FROM authsystem."Users" u, authsystem."Roles" r
+WHERE u."Id" = '<Id from the SELECT>'
+  AND u."EmailConfirmed" AND u."PasswordHash" IS NULL AND u."EmailChangeRevertTo" IS NULL
+  AND r."NormalizedName" = 'ADMIN';
+```
+
+Then set the password through the reset mail, as for any new admin
+([Admin account](#admin-account--first-sign-in-and-rotation)).
+
+When the INSERT refuses a row at your address, what to do depends on whose account it is:
+
+- **`undo_armed` is true.** An e-mail change moved someone else's account onto your address, and its
+  owner can still take it back with the undo link. Do not delete it. Put another address into
+  `AUTH_ADMIN_EMAIL` and restart auth-api.
+- **`EmailConfirmed` is false.** Nobody proved they own the address. Delete the row and restart
+  auth-api, so the seeder creates the admin.
+- **Your own translator account, with a password.** Delete it and restart, or put another address
+  into `AUTH_ADMIN_EMAIL` if you want to keep that account. A confirmed account with a password that
+  is not yours is someone else's: treat it like the first case.
+
+Delete by the `Id`, not by the address: the stored address can differ from the `.env` in letter case.
+
+```sql
+-- UserRoles cascades with the user.
+DELETE FROM authsystem."Users" WHERE "Id" = '<Id from the SELECT>';
+```
 
 ### TLS certificates
 

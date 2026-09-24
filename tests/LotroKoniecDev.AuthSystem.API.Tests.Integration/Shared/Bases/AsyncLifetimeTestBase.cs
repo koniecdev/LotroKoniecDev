@@ -27,11 +27,26 @@ public abstract class AsyncLifetimeTestBase : IAsyncLifetime
     {
         AccountDeletionEmailSpy.Reset();
         EmailChangeEmailSpy.Reset();
+        DisarmDatabaseFailures();
 
         await using AsyncServiceScope scope = Factory.Services.CreateAsyncScope();
         CleanerService cleaner = scope.ServiceProvider.GetRequiredService<CleanerService>();
         await cleaner.CleanAsync();
     }
 
-    public virtual Task DisposeAsync() => Task.CompletedTask;
+    /// <summary>
+    /// Disarms on the way out as well: a test that fails before its armed failure fires must not hand
+    /// it to the next test, and not every class in the collection derives from this base.
+    /// </summary>
+    public virtual Task DisposeAsync()
+    {
+        DisarmDatabaseFailures();
+        return Task.CompletedTask;
+    }
+
+    private void DisarmDatabaseFailures()
+    {
+        Factory.DbCommandFailures.Disarm();
+        Factory.DbCommitFailures.Disarm();
+    }
 }

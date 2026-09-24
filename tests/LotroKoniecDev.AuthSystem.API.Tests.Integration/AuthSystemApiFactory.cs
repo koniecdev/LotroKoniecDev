@@ -42,6 +42,16 @@ public class AuthSystemApiFactory : WebApplicationFactory<Program>, IAsyncLifeti
     /// </summary>
     public const string TestFrontendAppRoot = "https://localhost:5001";
 
+    /// <summary>
+    /// Sits on every <see cref="AuthDbContext"/> this host builds and does nothing until a test arms it.
+    /// Shared per factory; <see cref="Shared.Bases.AsyncLifetimeTestBase"/> disarms it before and after
+    /// each test.
+    /// </summary>
+    public DbCommandFailureInjector DbCommandFailures { get; } = new();
+
+    /// <inheritdoc cref="DbCommandFailures"/>
+    public DbCommitFailureInjector DbCommitFailures { get; } = new();
+
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         builder.UseEnvironment("Testing");
@@ -191,6 +201,7 @@ public class AuthSystemApiFactory : WebApplicationFactory<Program>, IAsyncLifeti
                     npgsqlOptions.MigrationsHistoryTable("__EFMigrationsHistory", DatabaseSchemas.Auth);
                 });
                 options.UseOpenIddict();
+                options.AddInterceptors(DbCommandFailures, DbCommitFailures);
             });
         });
 

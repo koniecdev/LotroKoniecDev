@@ -337,9 +337,20 @@ path:
 The cost: people who share one /64 share one bucket. That is rare on home lines and possible in some
 offices, the same trade-off this ADR already accepts for people behind one IPv4 NAT.
 
-Nothing changed in production on the day this landed. No domain has an `AAAA` record, and per the
-runbook an IPv6 connection through Docker would reach Caddy as the bridge gateway address, not as
-the client. The rule makes sure that turning IPv6 on later does not open the hole.
+Nothing changed in production on the day this landed, because no domain has an `AAAA` record.
+Turning IPv6 on needs more than this rule. Per the runbook, an IPv6 connection through Docker's port
+proxy reaches Caddy as the bridge gateway address, so every IPv6 visitor would share that one bucket
+until Caddy sees the real client address. Once it does, this rule keys each visitor by its /64.
+
+Accepted limits, to look at again when IPv6 is turned on:
+
+- **A client with more than one /64 still gets one bucket per /64.** Home lines often get a /56 and
+  businesses a /48. The login form is not the only brake: Identity locks an account after five
+  failed passwords, whatever the address. A second, looser budget per /56 or /48 is the next step if
+  it is ever needed.
+- **Other IPv6 forms that carry an IPv4 client in their low bits share one /64 bucket**: NAT64
+  (`64:ff9b::/96`), Teredo, and the old `::a.b.c.d` form. Only `::ffff:a.b.c.d` is turned back into
+  IPv4. This matters only if the ingress sits behind such a translator, and it does not.
 
 Tests: `RateLimitPartitionKeyResolverTests` on both APIs (one client's addresses get one key, two
 clients get two, directly and through the frontend); `AuthPagesRateLimitingTests` (the login page's

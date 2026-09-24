@@ -33,6 +33,17 @@ public sealed class RateLimitPartitionKeyResolverTests
         partitionKey.ShouldBe(VisitorAddress);
     }
 
+    [Fact]
+    public void Resolve_ForAnIPv6Client_ReturnsItsSlash64()
+    {
+        RateLimitPartitionKeyResolver resolver = CreateResolver(FrontendKey);
+        HttpContext httpContext = ContextFrom("2001:db8:0:1:aaaa:bbbb:cccc:dddd", [], []);
+
+        string partitionKey = resolver.Resolve(httpContext);
+
+        partitionKey.ShouldBe("2001:db8:0:1::/64");
+    }
+
     [Theory]
     [InlineData("203.0.113.7")]
     [InlineData("2001:db8:0:1::7")]
@@ -47,8 +58,10 @@ public sealed class RateLimitPartitionKeyResolverTests
         forwardedKey.ShouldBe(directKey);
     }
 
-    // #831: an IPv6 client owns its whole /64, and an IPv4 address written in IPv6 form is still that
-    // IPv4 address. The last row is one address written two ways.
+    /// <summary>
+    /// #831: an IPv6 client owns its whole /64, and an IPv4 address written in IPv6 form is still that
+    /// IPv4 address. The last row is one address written two ways.
+    /// </summary>
     public static TheoryData<string, string, bool> AddressesOfOneClient => BothWays(
     [
         ("2001:db8:0:1::1", "2001:db8:0:1::2"),

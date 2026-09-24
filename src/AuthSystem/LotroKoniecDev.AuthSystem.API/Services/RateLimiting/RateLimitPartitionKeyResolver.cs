@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Net;
 using System.Net.Sockets;
 using System.Security.Cryptography;
@@ -21,7 +22,7 @@ namespace LotroKoniecDev.AuthSystem.API.Services.RateLimiting;
 internal sealed class RateLimitPartitionKeyResolver
 {
     private const string UnknownClientKey = "unknown";
-    private const int Slash64PrefixLength = 8;
+    private const int IPv6ClientPrefixBits = 64;
 
     private readonly byte[]? _frontendKeyDigest;
 
@@ -57,8 +58,9 @@ internal sealed class RateLimitPartitionKeyResolver
         }
 
         byte[] prefix = address.GetAddressBytes();
-        Array.Clear(prefix, Slash64PrefixLength, prefix.Length - Slash64PrefixLength);
-        return $"{new IPAddress(prefix)}/64";
+        const int prefixBytes = IPv6ClientPrefixBits / 8;
+        Array.Clear(prefix, prefixBytes, prefix.Length - prefixBytes);
+        return string.Create(CultureInfo.InvariantCulture, $"{new IPAddress(prefix)}/{IPv6ClientPrefixBits}");
     }
 
     private IPAddress? ReadForwardedClientAddress(IHeaderDictionary headers)

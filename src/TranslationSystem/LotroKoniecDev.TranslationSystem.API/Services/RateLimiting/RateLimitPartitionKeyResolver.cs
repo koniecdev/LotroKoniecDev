@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Net;
 using System.Net.Sockets;
 using System.Security.Cryptography;
@@ -22,7 +23,7 @@ namespace LotroKoniecDev.TranslationSystem.API.Services.RateLimiting;
 internal sealed class RateLimitPartitionKeyResolver
 {
     private const string UnknownClientKey = "unknown";
-    private const int Slash64PrefixLength = 8;
+    private const int IPv6ClientPrefixBits = 64;
 
     private readonly byte[]? _frontendKeyDigest;
 
@@ -40,7 +41,7 @@ internal sealed class RateLimitPartitionKeyResolver
     /// inside it for free, so an IPv6 address counts as its /64. An IPv4 address written in IPv6 form
     /// (<c>::ffff:203.0.113.7</c>) counts as the IPv4 address it is.
     /// </summary>
-    private static string KeyFor(IPAddress? address)
+    public static string KeyFor(IPAddress? address)
     {
         if (address is null)
         {
@@ -58,8 +59,9 @@ internal sealed class RateLimitPartitionKeyResolver
         }
 
         byte[] prefix = address.GetAddressBytes();
-        Array.Clear(prefix, Slash64PrefixLength, prefix.Length - Slash64PrefixLength);
-        return $"{new IPAddress(prefix)}/64";
+        const int prefixBytes = IPv6ClientPrefixBits / 8;
+        Array.Clear(prefix, prefixBytes, prefix.Length - prefixBytes);
+        return string.Create(CultureInfo.InvariantCulture, $"{new IPAddress(prefix)}/{IPv6ClientPrefixBits}");
     }
 
     private IPAddress? ReadForwardedClientAddress(IHeaderDictionary headers)

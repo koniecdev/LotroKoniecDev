@@ -95,8 +95,10 @@ public sealed class AuthPagesRateLimitingTests : EndpointsTestBase
         statusCodes[AuthPagePostPermitLimit].ShouldBe(HttpStatusCode.TooManyRequests);
     }
 
-    // #831: an IPv6 client can move to any address in its /64 for free, and an IPv4 address can arrive
-    // written in IPv6 form. Each row is a spender, another address of the same client, and a second client.
+    /// <summary>
+    /// #831: an IPv6 client can move to any address in its /64 for free, and an IPv4 address can arrive
+    /// written in IPv6 form. Each row is a spender, another address of the same client, and a second client.
+    /// </summary>
     public static TheoryData<string, string, string> AddressesOfOneClientAndAnother => new()
     {
         { "2001:db8:0:1::10", "2001:db8:0:1:ffff::99", "2001:db8:0:2::10" },
@@ -117,16 +119,17 @@ public sealed class AuthPagesRateLimitingTests : EndpointsTestBase
         for (int i = 0; i < AuthPagePostPermitLimit; i++)
         {
             using HttpResponseMessage attempt = await PostLoginFromAsync(client, spenderAddress);
-            attempt.StatusCode.ShouldNotBe(HttpStatusCode.TooManyRequests);
+            attempt.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
         }
 
         // Act
         using HttpResponseMessage sameClient = await PostLoginFromAsync(client, sameClientAddress);
         using HttpResponseMessage otherClient = await PostLoginFromAsync(client, otherClientAddress);
 
-        // Assert: the second client proves the 429 is the spender's bucket, not a limit on everyone
+        // Assert: the second client proves the 429 is the spender's bucket, not a limit on everyone.
+        // Antiforgery refuses every POST that gets through, so a 500 cannot hide behind "not 429".
         sameClient.StatusCode.ShouldBe(HttpStatusCode.TooManyRequests);
-        otherClient.StatusCode.ShouldNotBe(HttpStatusCode.TooManyRequests);
+        otherClient.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
     }
 
     [Fact]
@@ -315,7 +318,9 @@ public sealed class AuthPagesRateLimitingTests : EndpointsTestBase
         lastResponse.Dispose();
     }
 
-    // No antiforgery token, so the page refuses the POST before any work. The limiter counts it anyway.
+    /// <summary>
+    /// No antiforgery token, so the page refuses the POST before any work. The limiter counts it anyway.
+    /// </summary>
     private static async Task<HttpResponseMessage> PostLoginFromAsync(HttpClient client, string clientAddress)
     {
         using HttpRequestMessage request = new(HttpMethod.Post, LoginPage);

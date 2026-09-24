@@ -83,10 +83,9 @@ internal static partial class DatabaseSeederExtensions
             return;
         }
 
-        // The account and its role are saved in one transaction (#839). As two separate saves, a failure
-        // between them left an admin without the role, and the next attempt skipped it because the
-        // address already existed. The context has EnableRetryOnFailure on, so EF refuses a transaction
-        // we start ourselves unless it runs inside the execution strategy.
+        // One transaction, so a failure between the two writes cannot leave an admin without its role
+        // (#839, ADR-0056). The context has EnableRetryOnFailure on, so EF refuses a transaction we start
+        // ourselves unless it runs inside the execution strategy.
         AuthDbContext dbContext = serviceProvider.GetRequiredService<AuthDbContext>();
         IExecutionStrategy executionStrategy = dbContext.Database.CreateExecutionStrategy();
 

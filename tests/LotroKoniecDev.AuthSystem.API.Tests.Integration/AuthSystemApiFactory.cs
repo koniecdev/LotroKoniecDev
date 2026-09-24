@@ -48,6 +48,9 @@ public class AuthSystemApiFactory : WebApplicationFactory<Program>, IAsyncLifeti
     /// </summary>
     public DbCommandFailureInjector DbCommandFailures { get; } = new();
 
+    /// <inheritdoc cref="DbCommandFailures"/>
+    public DbCommitFailureInjector DbCommitFailures { get; } = new();
+
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         builder.UseEnvironment("Testing");
@@ -197,7 +200,7 @@ public class AuthSystemApiFactory : WebApplicationFactory<Program>, IAsyncLifeti
                     npgsqlOptions.MigrationsHistoryTable("__EFMigrationsHistory", DatabaseSchemas.Auth);
                 });
                 options.UseOpenIddict();
-                options.AddInterceptors(DbCommandFailures);
+                options.AddInterceptors(DbCommandFailures, DbCommitFailures);
             });
         });
 

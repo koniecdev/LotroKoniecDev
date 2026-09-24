@@ -2,6 +2,7 @@ using System.Data.Common;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Npgsql;
@@ -64,15 +65,32 @@ public sealed class AdminSeedingTests : EndpointsTestBase
 
     /// <summary>
     /// The failure is not transient, so nothing retries it: it stands in for a process that dies between
-    /// the account and its role. On the next start the admin must still end up with the role (#839).
+    /// the account and its role (#839).
     /// </summary>
+    [Fact]
+    public async Task SeedAuthDatabase_AttemptFailsBetweenAccountAndRole_LeavesNoAccount()
+    {
+        // Arrange
+        Factory.DbCommandFailures.FailNext(IsUserRoleInsert, CreateSimulatedCrash);
+
+        // Act
+        await Should.ThrowAsync<DbUpdateException>(() => ReseedAsync());
+
+        // Assert
+        Factory.DbCommandFailures.FailuresInjected.ShouldBe(1);
+
+        await using AsyncServiceScope scope = Factory.Services.CreateAsyncScope();
+        UserManager<ApplicationUser> userManager =
+            scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
+
+        (await userManager.FindByEmailAsync(AdminEmail)).ShouldBeNull();
+    }
+
     [Fact]
     public async Task SeedAuthDatabase_AttemptFailsBetweenAccountAndRole_NextAttemptSeedsAdminWithAdminRole()
     {
         // Arrange
-        Factory.DbCommandFailures.FailNext(
-            IsUserRoleInsert,
-            () => new InvalidOperationException("Simulated crash between the account and its role"));
+        Factory.DbCommandFailures.FailNext(IsUserRoleInsert, CreateSimulatedCrash);
         await Should.ThrowAsync<DbUpdateException>(() => ReseedAsync());
         Factory.DbCommandFailures.FailuresInjected.ShouldBe(1);
 
@@ -106,6 +124,32 @@ public sealed class AdminSeedingTests : EndpointsTestBase
 
         // Assert
         Factory.DbCommandFailures.FailuresInjected.ShouldBe(1);
+
+        await using AsyncServiceScope scope = Factory.Services.CreateAsyncScope();
+        UserManager<ApplicationUser> userManager =
+            scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
+
+        IList<ApplicationUser> admins = await userManager.GetUsersInRoleAsync(AuthConstants.Roles.Admin);
+        admins.ShouldHaveSingleItem().Email.ShouldBe(AdminEmail);
+    }
+
+    /// <summary>
+    /// The commit lands, but its answer is lost on the way back, so EF replays the transaction. The replay
+    /// must find the admin it just saved and leave it alone.
+    /// </summary>
+    [Fact]
+    public async Task SeedAuthDatabase_CommitLandsButItsAnswerIsLost_SeedsExactlyOneAdminWithAdminRole()
+    {
+        // Arrange
+        Factory.DbCommitFailures.FailNextCommitAfterItLands(
+            WroteAUserRole,
+            () => new NpgsqlException("The operation has timed out", new TimeoutException()));
+
+        // Act
+        await ReseedAsync();
+
+        // Assert
+        Factory.DbCommitFailures.FailuresInjected.ShouldBe(1);
 
         await using AsyncServiceScope scope = Factory.Services.CreateAsyncScope();
         UserManager<ApplicationUser> userManager =
@@ -347,6 +391,13 @@ public sealed class AdminSeedingTests : EndpointsTestBase
     private static bool IsUserRoleInsert(DbCommand command) =>
         command.CommandText.Contains("INSERT INTO", StringComparison.Ordinal)
         && command.CommandText.Contains("\"UserRoles\"", StringComparison.Ordinal);
+
+    private static bool WroteAUserRole(TransactionEndEventData eventData) =>
+        eventData.Context is not null
+        && eventData.Context.ChangeTracker.Entries<IdentityUserRole<Guid>>().Any();
+
+    private static InvalidOperationException CreateSimulatedCrash() =>
+        new("Simulated crash between the account and its role");
 
     /// <summary>
     /// The test host's services with one change: the seeder's logger writes to the given factory. The

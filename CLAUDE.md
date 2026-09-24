@@ -506,6 +506,16 @@ hash-check → patch → launch flow is validated. Re-investigating any of it is
   can confirm an account there, so every permit a stranger spends mails her a working link. An inbox key
   would let a stranger's unconfirmed `anna+x@` account use up her recovery budget. Take the permit as the
   last check before the send, never in the dispatch leg.
+- **An anonymous answer that hides whether an address has an account waits for a time floor
+  (ADR-0059, #840).** Login's general-failure answers, forgot-password, reset-password, confirm-email
+  and cancel-deletion (500 ms), and resend-confirmation (3 s) — page and API alike — start
+  `IResponseTimeFloor` just before the address lookup and await it in a `finally`. Every path after
+  the lookup still verifies exactly one password hash (the dummy one where there is no real one) as
+  the second layer. "Make every branch do the same work" failed three times (#314, ADR-0056 §4, #840):
+  a database write or a live mail has no cheap twin. A new anonymous page or endpoint that looks an
+  account up by a typed address and hides the result joins the list, with a test in
+  `ResponseTimeFloorEndpointTests`, in the same change. The integration host runs a no-op floor, so
+  only those tests see the real one.
 - **A per-address rate limit the frontend can reach on the auth API or the TMS API is keyed on the
   visitor, never on the frontend container (ADR-0054, #819, #823).** Every frontend→API call arrives
   through Caddy from the frontend container, so `Connection.RemoteIpAddress` there is one address for

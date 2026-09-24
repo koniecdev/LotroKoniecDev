@@ -291,7 +291,8 @@ have put every page on the 429 copy. The decision above now covers the TMS API t
 - **A test host can force the TMS limiter on** with `RateLimiting:ForceEnable`, as on the auth API.
   The policy metadata is now always on the endpoint group, and `UseRateLimiter` is the one switch.
 - The TMS limiter still runs after authentication, so a request refused with 401 is not counted.
-  That is unchanged and not part of this amendment.
+  That is unchanged and not part of this amendment. *(Since #829 the TMS limiter runs before
+  authentication, as on the auth API, so a request refused with 401 or 403 is counted too.)*
 
 Tests: `TranslationSystem.API.Tests.Unit` — `RateLimitPartitionKeyResolverTests`,
 `FrontendCallerSettingsValidatorTests`; `TranslationSystem.API.Tests.Integration` —

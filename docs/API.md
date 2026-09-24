@@ -124,7 +124,8 @@ Content-Type: multipart/form-data          # the import upload only
 
 In non-dev/test, `tms-api` applies a **fixed-window 100 requests/minute per client** policy,
 `fixed-by-ip`, across the endpoint group; over-limit returns **429** (the `AddRateLimiter` block in its
-`Program.cs`). `auth-api` rate-limits per client:
+`Program.cs`). The limiter runs before authentication, so a call refused with 401 or 403 spends the
+bucket too (#829). `auth-api` rate-limits per client:
 the OpenIddict `/connect/*` endpoints, confirm-email, reset-password, cancel-deletion and the account
 GET carry the `auth-endpoint-limit` policy (10/min); `auth/register` carries `register-limit`, the
 same numbers keyed on the connection's own address; forgot-password and resend-confirmation carry

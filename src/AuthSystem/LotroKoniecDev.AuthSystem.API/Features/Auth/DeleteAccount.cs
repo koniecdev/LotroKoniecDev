@@ -57,6 +57,7 @@ internal sealed partial class DeleteAccount : IApiEndpoint
         private readonly OutboxWriter _outboxWriter;
         private readonly IAccountDeletionSchedule _deletionSchedule;
         private readonly IPasswordConfirmationThrottle _confirmationThrottle;
+        private readonly IAccountDeletionScheduleThrottle _scheduleThrottle;
         private readonly TimeProvider _timeProvider;
         private readonly IValidator<Command> _validator;
         private readonly ILogger<Handler> _logger;
@@ -68,6 +69,7 @@ internal sealed partial class DeleteAccount : IApiEndpoint
             OutboxWriter outboxWriter,
             IAccountDeletionSchedule deletionSchedule,
             IPasswordConfirmationThrottle confirmationThrottle,
+            IAccountDeletionScheduleThrottle scheduleThrottle,
             TimeProvider timeProvider,
             IValidator<Command> validator,
             ILogger<Handler> logger)
@@ -78,6 +80,7 @@ internal sealed partial class DeleteAccount : IApiEndpoint
             _outboxWriter = outboxWriter;
             _deletionSchedule = deletionSchedule;
             _confirmationThrottle = confirmationThrottle;
+            _scheduleThrottle = scheduleThrottle;
             _timeProvider = timeProvider;
             _validator = validator;
             _logger = logger;
@@ -121,6 +124,15 @@ internal sealed partial class DeleteAccount : IApiEndpoint
             if (user.DeletionScheduledAt is not null)
             {
                 return Result.Failure<ScheduledDeletion>(AuthErrors.DeletionAlreadyScheduled);
+            }
+
+            // The last check before the schedule, so only a schedule that would happen spends a permit
+            // (ADR-0055). Cancelling returns a reset token, so without this one account could loop
+            // schedule, cancel and reset as often as the confirmation budget allows (#811).
+            if (!_scheduleThrottle.TryAcquire(user.Id))
+            {
+                LogDeletionScheduleThrottled(_logger, user.Id);
+                return Result.Failure<ScheduledDeletion>(AuthErrors.DeletionScheduleThrottled);
             }
 
             DateTimeOffset scheduledAt = _timeProvider.GetUtcNow();
@@ -199,6 +211,9 @@ internal sealed partial class DeleteAccount : IApiEndpoint
 
         [LoggerMessage(EventId = EventIds.PasswordConfirmationThrottled, Level = LogLevel.Warning, Message = "Account deletion refused for user {UserId}: the password confirmation budget is spent")]
         private static partial void LogPasswordConfirmationThrottled(ILogger logger, Guid userId);
+
+        [LoggerMessage(EventId = EventIds.GdprDeletionScheduleThrottled, Level = LogLevel.Warning, Message = "Account deletion refused for user {UserId}: the deletion schedule budget is spent")]
+        private static partial void LogDeletionScheduleThrottled(ILogger logger, Guid userId);
     }
 
     public void MapEndpoint(IEndpointRouteBuilder endpointRouteBuilder)
@@ -241,7 +256,8 @@ internal sealed partial class DeleteAccount : IApiEndpoint
             .RequireAuthorization()
             // Off the per-IP policies on purpose (ADR-0053). Every call here comes from the frontend, so an
             // IP key is one bucket for every user, and one user's traffic could refuse another's deletion.
-            // The brake is the per-account confirmation budget in the handler.
+            // The brakes are the two per-account budgets in the handler: password confirmations and
+            // deletion schedules (#811).
             .DisableRateLimiting()
             .WithName(nameof(DeleteAccount))
             .WithTags("Account")

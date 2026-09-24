@@ -20,7 +20,8 @@ namespace LotroKoniecDev.AuthSystem.API.Services.RateLimiting;
 /// The budget is in process, like every IP policy in this app, so two running containers mean two
 /// budgets and a restart empties it. That is the existing trade-off, not a new one.
 /// </remarks>
-internal sealed class PerAccountFixedWindowThrottle : IPasswordConfirmationThrottle, IDisposable
+internal sealed class PerAccountFixedWindowThrottle
+    : IPasswordConfirmationThrottle, IAccountDeletionScheduleThrottle, IDisposable
 {
     private readonly PartitionedRateLimiter<Guid> _limiter;
 

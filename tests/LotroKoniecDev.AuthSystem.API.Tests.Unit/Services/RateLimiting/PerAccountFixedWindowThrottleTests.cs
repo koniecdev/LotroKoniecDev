@@ -5,7 +5,8 @@ namespace LotroKoniecDev.AuthSystem.API.Tests.Unit.Services.RateLimiting;
 /// <summary>
 /// The budget that belongs to the account, not to the caller. The IP policies cannot stop an attacker who
 /// rotates addresses, and behind the frontend they see one address for everybody; this is what makes a
-/// brake per account (#692 for password-reset mail, #813 for password confirmations).
+/// brake per account (#692 for password-reset mail, #813 for password confirmations, #811 for deletion
+/// schedules).
 /// </summary>
 public sealed class PerAccountFixedWindowThrottleTests
 {
@@ -27,6 +28,25 @@ public sealed class PerAccountFixedWindowThrottleTests
         // Assert: the caller's address never enters the key, so this holds however many addresses they use
         results.Take(PermitLimit).ShouldAllBe(acquired => acquired);
         results.Skip(PermitLimit).ShouldAllBe(acquired => !acquired);
+    }
+
+    [Fact]
+    public void TryAcquire_WithTheDeletionScheduleBudget_ShouldAllowAScheduleAfterACancelAndRefuseTheNext()
+    {
+        // Arrange: the shipped schedule budget (#811)
+        using PerAccountFixedWindowThrottle throttle = new(
+            AccountBudgets.DeletionSchedulePermitLimit, AccountBudgets.DeletionScheduleWindow);
+        Guid userId = Guid.CreateVersion7();
+
+        // Act
+        bool firstSchedule = throttle.TryAcquire(userId);
+        bool scheduleAfterCancel = throttle.TryAcquire(userId);
+        bool loop = throttle.TryAcquire(userId);
+
+        // Assert: a person who changes their mind once is never refused; a loop is stopped at once
+        firstSchedule.ShouldBeTrue();
+        scheduleAfterCancel.ShouldBeTrue();
+        loop.ShouldBeFalse();
     }
 
     [Fact]

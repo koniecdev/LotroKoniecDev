@@ -178,6 +178,7 @@ internal static class EventIds
     // their single save (decision 2), so there is no separate stamp update that could fail.
     public const int GdprDeletionSchedulingUpdateFailed = 2700;
     public const int GdprDeletionScheduleArtifactRevocationFailed = 2704;
+    public const int GdprDeletionScheduleThrottled = 2706;
 
     // Forgot/Reset Password checks during the deletion window (2710-2719). 2710
     // (ForgotPasswordDeletionScheduled) is no longer used: that check moved to the dispatch processor

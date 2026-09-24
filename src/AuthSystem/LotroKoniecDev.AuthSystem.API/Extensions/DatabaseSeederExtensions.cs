@@ -109,8 +109,7 @@ internal static partial class DatabaseSeederExtensions
 
         UserManager<ApplicationUser> userManager = serviceProvider.GetRequiredService<UserManager<ApplicationUser>>();
 
-        // The seeder never promotes an account it did not create (ADR-0056). It cannot tell the
-        // operator's own account from a stranger's registration at a mistyped address, so it only logs.
+        // Never promotes an account it did not create, only logs (ADR-0056 amendment, #839).
         ApplicationUser? existingUser = await userManager.FindByEmailAsync(email);
         if (existingUser is not null)
         {

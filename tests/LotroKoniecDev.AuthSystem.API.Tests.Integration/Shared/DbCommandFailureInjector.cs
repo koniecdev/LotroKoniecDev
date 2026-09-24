@@ -33,7 +33,35 @@ public sealed class DbCommandFailureInjector : DbCommandInterceptor
         {
             _matches = null;
             _createFailure = null;
+            FailuresInjected = 0;
         }
+    }
+
+    public override InterceptionResult<DbDataReader> ReaderExecuting(
+        DbCommand command,
+        CommandEventData eventData,
+        InterceptionResult<DbDataReader> result)
+    {
+        ThrowIfArmedFor(command);
+        return base.ReaderExecuting(command, eventData, result);
+    }
+
+    public override InterceptionResult<int> NonQueryExecuting(
+        DbCommand command,
+        CommandEventData eventData,
+        InterceptionResult<int> result)
+    {
+        ThrowIfArmedFor(command);
+        return base.NonQueryExecuting(command, eventData, result);
+    }
+
+    public override InterceptionResult<object> ScalarExecuting(
+        DbCommand command,
+        CommandEventData eventData,
+        InterceptionResult<object> result)
+    {
+        ThrowIfArmedFor(command);
+        return base.ScalarExecuting(command, eventData, result);
     }
 
     public override ValueTask<InterceptionResult<DbDataReader>> ReaderExecutingAsync(
@@ -54,6 +82,16 @@ public sealed class DbCommandFailureInjector : DbCommandInterceptor
     {
         ThrowIfArmedFor(command);
         return base.NonQueryExecutingAsync(command, eventData, result, cancellationToken);
+    }
+
+    public override ValueTask<InterceptionResult<object>> ScalarExecutingAsync(
+        DbCommand command,
+        CommandEventData eventData,
+        InterceptionResult<object> result,
+        CancellationToken cancellationToken = default)
+    {
+        ThrowIfArmedFor(command);
+        return base.ScalarExecutingAsync(command, eventData, result, cancellationToken);
     }
 
     private void ThrowIfArmedFor(DbCommand command)

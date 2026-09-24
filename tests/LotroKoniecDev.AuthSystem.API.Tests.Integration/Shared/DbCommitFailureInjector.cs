@@ -35,6 +35,7 @@ public sealed class DbCommitFailureInjector : DbTransactionInterceptor
         {
             _matches = null;
             _createFailure = null;
+            FailuresInjected = 0;
         }
     }
 

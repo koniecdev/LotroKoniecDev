@@ -117,7 +117,7 @@ public sealed class AdminSeedingTests : EndpointsTestBase
         // Arrange
         Factory.DbCommandFailures.FailNext(
             IsUserRoleInsert,
-            () => new NpgsqlException("The operation has timed out", new TimeoutException()));
+            CreateTransientFailure);
 
         // Act
         await ReseedAsync();
@@ -143,7 +143,7 @@ public sealed class AdminSeedingTests : EndpointsTestBase
         // Arrange
         Factory.DbCommitFailures.FailNextCommitAfterItLands(
             WroteAUserRole,
-            () => new NpgsqlException("The operation has timed out", new TimeoutException()));
+            CreateTransientFailure);
 
         // Act
         await ReseedAsync();
@@ -160,19 +160,42 @@ public sealed class AdminSeedingTests : EndpointsTestBase
     }
 
     /// <summary>
-    /// The seeder cannot tell the operator's own account from a stranger's registration at a mistyped
-    /// address, so it never promotes an account it did not create (ADR-0056 amendment, #839).
+    /// Both recoveries above would end the same way if <c>ColdStartRetry</c> re-ran the whole seed
+    /// instead. This pins that EF's execution strategy replays the transaction inside the attempt.
     /// </summary>
     [Theory]
-    [InlineData(AdminEmail, true)]
-    [InlineData(AdminEmail, false)]
-    [InlineData("Admin@Lotro-Translator.pl", true)]
-    public async Task SeedAuthDatabase_ConfiguredEmailBelongsToAccountWithoutAdminRole_DoesNotPromoteIt(
-        string existingEmail,
-        bool emailConfirmed)
+    [InlineData("role write")]
+    [InlineData("commit")]
+    public async Task SeedAuthDatabase_TransientFailure_RecoversWithoutAColdStartRetry(string failurePoint)
     {
         // Arrange
-        await CreateTranslatorAsync(existingEmail, emailConfirmed);
+        ArmTransientFailure(failurePoint);
+        using CapturingLoggerFactory loggerFactory = new();
+
+        // Act
+        await ReseedAsync(loggerFactory);
+
+        // Assert
+        (Factory.DbCommandFailures.FailuresInjected + Factory.DbCommitFailures.FailuresInjected).ShouldBe(1);
+        loggerFactory.Entries.ShouldNotContain(e => e.EventId.Id == EventIds.StartupTransientDatabaseFailure);
+    }
+
+    /// <summary>
+    /// The row without a password is the one a "repair a half-made admin" shortcut would promote, so it
+    /// is pinned too (ADR-0056 amendment, #839).
+    /// </summary>
+    [Theory]
+    [InlineData(AdminEmail, true, true)]
+    [InlineData(AdminEmail, false, true)]
+    [InlineData("Admin@Lotro-Translator.pl", true, true)]
+    [InlineData(AdminEmail, true, false)]
+    public async Task SeedAuthDatabase_ConfiguredEmailBelongsToAccountWithoutAdminRole_DoesNotPromoteIt(
+        string existingEmail,
+        bool emailConfirmed,
+        bool hasPassword)
+    {
+        // Arrange
+        await CreateTranslatorAsync(existingEmail, emailConfirmed, hasPassword);
 
         // Act
         await ReseedAsync();
@@ -369,7 +392,7 @@ public sealed class AdminSeedingTests : EndpointsTestBase
             environment);
     }
 
-    private async Task<Guid> CreateTranslatorAsync(string email, bool emailConfirmed)
+    private async Task<Guid> CreateTranslatorAsync(string email, bool emailConfirmed, bool hasPassword = true)
     {
         await using AsyncServiceScope scope = Factory.Services.CreateAsyncScope();
         UserManager<ApplicationUser> userManager =
@@ -382,11 +405,32 @@ public sealed class AdminSeedingTests : EndpointsTestBase
             EmailConfirmed = emailConfirmed
         };
 
-        (await userManager.CreateAsync(translator, "Translator123!")).Succeeded.ShouldBeTrue();
+        IdentityResult createResult = hasPassword
+            ? await userManager.CreateAsync(translator, "Translator123!")
+            : await userManager.CreateAsync(translator);
+        createResult.Succeeded.ShouldBeTrue();
         (await userManager.AddToRoleAsync(translator, AuthConstants.Roles.Translator)).Succeeded.ShouldBeTrue();
 
         return translator.Id;
     }
+
+    private void ArmTransientFailure(string failurePoint)
+    {
+        switch (failurePoint)
+        {
+            case "role write":
+                Factory.DbCommandFailures.FailNext(IsUserRoleInsert, CreateTransientFailure);
+                break;
+            case "commit":
+                Factory.DbCommitFailures.FailNextCommitAfterItLands(WroteAUserRole, CreateTransientFailure);
+                break;
+            default:
+                throw new ArgumentOutOfRangeException(nameof(failurePoint), failurePoint, null);
+        }
+    }
+
+    private static NpgsqlException CreateTransientFailure() =>
+        new("The operation has timed out", new TimeoutException());
 
     private static bool IsUserRoleInsert(DbCommand command) =>
         command.CommandText.Contains("INSERT INTO", StringComparison.Ordinal)

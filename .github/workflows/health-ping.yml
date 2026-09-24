@@ -38,6 +38,12 @@ jobs:
     timeout-minutes: 20
     steps:
       - name: Probe auth, tms and the frontend
+        env:
+          # The full /health answers 404 without this key (ADR-0058, #853). It is a REPOSITORY secret on
+          # purpose: the `production` environment requires a reviewer, so an environment secret would
+          # hold this scheduled run until someone approved it. It must equal HEALTH_CHECK_KEY in the
+          # prod box's /opt/lotro/.env.
+          HEALTH_CHECK_KEY: ${{ secrets.PROD_HEALTH_CHECK_KEY }}
         run: |
           set -uo pipefail
 
@@ -54,12 +60,25 @@ jobs:
           # down"; the response body below says which check failed.
           #
           # The Static-SSR frontend exposes /health/live but nothing deep, so '/' is its liveness.
+          #
+          # The two API probes send the health check key (ADR-0058). Without it both APIs answer the
+          # full /health with 404 and run no check, so a red run with HTTP 404 means the secret and the
+          # box .env disagree, not that the site is down. The frontend probe does not get the key.
+          if [ -z "${HEALTH_CHECK_KEY}" ]; then
+            echo "::error::The PROD_HEALTH_CHECK_KEY repository secret is not set, so /health would answer 404."
+            exit 1
+          fi
+
           probe() {
-            name="$1"; url="$2"; lo="$3"; hi="$4"
+            name="$1"; url="$2"; lo="$3"; hi="$4"; send_key="${5:-}"
+            headers=()
+            if [ "$send_key" = "with-key" ]; then
+              headers=(-H "X-LOTRO-Health-Key: ${HEALTH_CHECK_KEY}")
+            fi
             code=000
             echo "::group::${name} → ${url}"
             for attempt in $(seq 1 20); do
-              code=$(curl -sS -o /tmp/probe-body.txt -w '%{http_code}' --max-time 60 "$url" || echo 000)
+              code=$(curl -sS -o /tmp/probe-body.txt -w '%{http_code}' --max-time 60 "${headers[@]}" "$url" || echo 000)
               echo "  attempt ${attempt}: HTTP ${code}"
               if [ "$code" -ge "$lo" ] 2>/dev/null && [ "$code" -le "$hi" ] 2>/dev/null; then
                 echo "::endgroup::"
@@ -88,8 +107,8 @@ jobs:
           echo '## Prod health ping' >> "$GITHUB_STEP_SUMMARY"
 
           failed=0
-          probe auth     "https://auth.lotro-translator.pl/health" 200 200 || failed=1
-          probe tms      "https://tms.lotro-translator.pl/health"  200 200 || failed=1
+          probe auth     "https://auth.lotro-translator.pl/health" 200 200 with-key || failed=1
+          probe tms      "https://tms.lotro-translator.pl/health"  200 200 with-key || failed=1
           probe frontend "https://lotro-translator.pl/"            200 399 || failed=1
 
           if [ "$failed" -ne 0 ]; then

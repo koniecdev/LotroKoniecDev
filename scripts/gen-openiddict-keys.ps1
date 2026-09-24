@@ -12,6 +12,8 @@
         OpenIddict__ApiClientSecret               48-char hex secret
     plus the frontend's caller key (ADR-0054), which auth-api, tms-api and the frontend all read:
         FRONTEND_CALLER_KEY                       base64 of 32 random bytes
+    and the key that opens the full /health on both APIs (ADR-0058):
+        HEALTH_CHECK_KEY                          base64 of 32 random bytes
 #>
 
 $ErrorActionPreference = 'Stop'
@@ -28,6 +30,10 @@ $callerBytes = [byte[]]::new(32)
 [System.Security.Cryptography.RandomNumberGenerator]::Fill($callerBytes)
 $callerKey = [Convert]::ToBase64String($callerBytes)
 
+$healthBytes = [byte[]]::new(32)
+[System.Security.Cryptography.RandomNumberGenerator]::Fill($healthBytes)
+$healthKey = [Convert]::ToBase64String($healthBytes)
+
 $rsa = [System.Security.Cryptography.RSA]::Create(2048)
 $rsaXmlB64 = [Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($rsa.ToXmlString($true)))
 
@@ -36,3 +42,4 @@ Write-Output "OpenIddict__EncryptionKey__Key=$encKey"
 Write-Output "OpenIddict__ApiClientSecret=$apiSecret"
 Write-Output "OpenIddict__SigningKey__RsaPrivateKeyXml=$rsaXmlB64"
 Write-Output "FRONTEND_CALLER_KEY=$callerKey"
+Write-Output "HEALTH_CHECK_KEY=$healthKey"

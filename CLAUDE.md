@@ -506,6 +506,17 @@ hash-check → patch → launch flow is validated. Re-investigating any of it is
   can confirm an account there, so every permit a stranger spends mails her a working link. An inbox key
   would let a stranger's unconfirmed `anna+x@` account use up her recovery budget. Take the permit as the
   last check before the send, never in the dispatch leg.
+- **An anonymous answer that hides whether an address has an account waits for a time floor
+  (ADR-0059, #840).** Login's general-failure answers, forgot-password, reset-password, confirm-email
+  and cancel-deletion (500 ms), and resend-confirmation (3 s) — page and API alike — hand the work
+  from the address lookup onward to `IResponseTimeFloor.HoldAsync`, which starts the clock before the
+  work and waits on every exit, a throw included. Every path after
+  the lookup still verifies exactly one password hash (the dummy one where there is no real one) as
+  the second layer. "Make every branch do the same work" failed three times (#314, ADR-0056 §4, #840):
+  a database write or a live mail has no cheap twin. A new anonymous page or endpoint that looks an
+  account up by a typed address and hides the result joins the list, with a test in
+  `ResponseTimeFloorEndpointTests`, in the same change. The integration host runs a no-op floor, so
+  only those tests see the real one.
 - **A per-address rate limit the frontend can reach on the auth API or the TMS API is keyed on the
   visitor, never on the frontend container (ADR-0054, #819, #823).** Every frontend→API call arrives
   through Caddy from the frontend container, so `Connection.RemoteIpAddress` there is one address for
@@ -696,7 +707,9 @@ structure.
   Assert. One reason to fail per test.
 - **Tooling: xUnit + Shouldly + NSubstitute only.** Naming: `MethodName_Scenario_ExpectedResult`.
   (`Architecture.Tests.Unit` additionally uses **NetArchTest.Rules** — architecture rules only;
-  the two snapshot suites use **Verify.Xunit** — see the next bullet.)
+  the two snapshot suites use **Verify.Xunit** — see the next bullet; `AuthSystem.API.Tests.Unit`
+  uses **Microsoft.Extensions.TimeProvider.Testing** (`FakeTimeProvider`) for code that waits on a
+  `TimeProvider` timer, which no substitute can fire — ADR-0059.)
 - **Snapshots pin shape; they never replace an assert (#571).** Three tools, three jobs: **golden
   fixtures** own the `||` file contract on both sides (a snapshot adds nothing there and must not
   replace them), **plain asserts** own behavior across many inputs, and a **Verify snapshot** owns

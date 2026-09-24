@@ -8,6 +8,7 @@ using Microsoft.Extensions.Options;
 using LotroKoniecDev.AuthSystem.API.Common;
 using LotroKoniecDev.AuthSystem.API.Extensions;
 using LotroKoniecDev.AuthSystem.API.Services.Gdpr;
+using LotroKoniecDev.AuthSystem.API.Services.ResponseTiming;
 using LotroKoniecDev.AuthSystem.API.Settings;
 using LotroKoniecDev.AuthSystem.Domain.Aggregates.ApplicationUsers.Entities;
 
@@ -35,8 +36,8 @@ internal sealed partial class LoginModel : PageModel
 
     /// <summary>
     /// A hash computed up front for the failure paths that would otherwise skip password hashing: no
-    /// such user, locked out, and an account with no password. They then take as long as the
-    /// wrong-password path, so the response time tells the caller nothing.
+    /// such user, locked out, and an account with no password. They then cost as much CPU as the
+    /// wrong-password path. That is the second layer under the time floor (ADR-0059 §5).
     /// </summary>
     private static readonly string DummyPasswordHash =
         new PasswordHasher<ApplicationUser>().HashPassword(new ApplicationUser(), "DummyP@ssw0rd!");
@@ -52,17 +53,20 @@ internal sealed partial class LoginModel : PageModel
     private readonly UserManager<ApplicationUser> _userManager;
     private readonly IOptions<OpenIddictSettings> _openIddictSettings;
     private readonly IAccountDeletionSchedule _deletionSchedule;
+    private readonly IResponseTimeFloor _responseTimeFloor;
     private readonly ILogger<LoginModel> _logger;
 
     public LoginModel(
         UserManager<ApplicationUser> userManager,
         IOptions<OpenIddictSettings> openIddictSettings,
         IAccountDeletionSchedule deletionSchedule,
+        IResponseTimeFloor responseTimeFloor,
         ILogger<LoginModel> logger)
     {
         _userManager = userManager;
         _openIddictSettings = openIddictSettings;
         _deletionSchedule = deletionSchedule;
+        _responseTimeFloor = responseTimeFloor;
         _logger = logger;
     }
 
@@ -119,69 +123,30 @@ internal sealed partial class LoginModel : PageModel
             return Page();
         }
 
-        // Trim, like the register page's Email.Trim(). A trailing space from a paste or from autofill
-        // must not turn a valid login into "no such user".
-        ApplicationUser? user = await _userManager.FindByEmailAsync(Email.Trim());
+        // The clock starts before the lookup, and every answer that shows the general message waits for
+        // the floor, so its time says nothing about which check failed (ADR-0059). Only an account whose
+        // password was verified skips the wait: the answers it can reach need the password anyway.
+        ApplicationUser? user = await _responseTimeFloor.HoldAsync(
+            ResponseTimeFloors.AccountLookup,
+            FindUserWithVerifiedPasswordAsync,
+            skipWaitFor: verifiedUser => verifiedUser is not null);
 
         if (user is null)
         {
-            // Hash a dummy password anyway, so the response time does not reveal whether the user
-            // exists.
-            VerifyDummyPassword();
-            LogUserNotFound(_logger, Email.MaskEmail(), HttpContext.Connection.RemoteIpAddress);
             ErrorMessage = GenericCredentialErrorMessage;
             return Page();
         }
 
-        // An account with a scheduled deletion is also locked out, so this case has to come first. The
-        // exact message only appears after the password was verified: with a wrong password the caller
-        // gets the same general error as everywhere else.
+        // An account with a scheduled deletion is also locked out, which is why the credential check
+        // looks at the deletion first. The exact message is safe here: the password was verified.
         if (user.DeletionScheduledAt is not null)
         {
-            bool deletionScheduledPasswordValid = await _userManager.CheckPasswordAsync(user, Password);
-            if (!deletionScheduledPasswordValid)
-            {
-                await _userManager.AccessFailedAsync(user);
-                LogWrongPassword(_logger, user.Id, HttpContext.Connection.RemoteIpAddress);
-                ErrorMessage = GenericCredentialErrorMessage;
-                return Page();
-            }
-
             LogDeletionScheduled(_logger, user.Id, HttpContext.Connection.RemoteIpAddress);
             DateTimeOffset deletionDate =
                 _deletionSchedule.FinalizesAt(user.DeletionScheduledAt.Value, user.EmailChangeRevertArmedAt);
             ErrorMessage =
                 $"Twoje konto jest zaplanowane do usunięcia dnia {deletionDate.ToPolandTime().ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)} czasu polskiego. " +
                 "Jeśli chcesz je zachować, kliknij w link anulujący usunięcie, który wysłaliśmy na Twój adres e-mail.";
-            return Page();
-        }
-
-        if (await _userManager.IsLockedOutAsync(user))
-        {
-            // Hash a dummy password so this path takes as long as the not-found one. Without it the
-            // early return skips the hashing and the response time reveals a locked-out account.
-            VerifyDummyPassword();
-            LogAccountLockedOut(_logger, user.Id, HttpContext.Connection.RemoteIpAddress);
-            // The same general message everywhere, so nobody can find out which accounts exist.
-            ErrorMessage = GenericCredentialErrorMessage;
-            return Page();
-        }
-
-        // CheckPasswordAsync returns at once for an account with no password, such as the seeded admin
-        // before its first reset (ADR-0056). Hash a dummy password so that account answers as slowly as
-        // one that has a password.
-        if (!await _userManager.HasPasswordAsync(user))
-        {
-            VerifyDummyPassword();
-        }
-
-        bool passwordValid = await _userManager.CheckPasswordAsync(user, Password);
-
-        if (!passwordValid)
-        {
-            await _userManager.AccessFailedAsync(user);
-            LogWrongPassword(_logger, user.Id, HttpContext.Connection.RemoteIpAddress);
-            ErrorMessage = GenericCredentialErrorMessage;
             return Page();
         }
 
@@ -244,6 +209,69 @@ internal sealed partial class LoginModel : PageModel
         return FrontendLoginUrl is { } frontendLoginUrl
             ? Redirect(frontendLoginUrl)
             : LocalRedirect("/");
+    }
+
+    /// <summary>
+    /// Returns the account only when the posted password is its password, and null for every failure a
+    /// caller can reach without it: no such user, locked out, wrong password. Each of those verifies
+    /// exactly one password hash, the dummy one where there is no real hash to check, and none of them
+    /// sets a message, so the caller shows the same one for all.
+    /// </summary>
+    private async Task<ApplicationUser?> FindUserWithVerifiedPasswordAsync()
+    {
+        // Trim, like the register page's Email.Trim(). A trailing space from a paste or from autofill
+        // must not turn a valid login into "no such user".
+        ApplicationUser? user = await _userManager.FindByEmailAsync(Email.Trim());
+
+        if (user is null)
+        {
+            VerifyDummyPassword();
+            LogUserNotFound(_logger, Email.MaskEmail(), HttpContext.Connection.RemoteIpAddress);
+            return null;
+        }
+
+        // An account with a scheduled deletion is also locked out, so this case has to come before the
+        // lockout check. Its wrong password counts like any other.
+        if (user.DeletionScheduledAt is not null)
+        {
+            if (!await _userManager.HasPasswordAsync(user))
+            {
+                VerifyDummyPassword();
+            }
+
+            if (!await _userManager.CheckPasswordAsync(user, Password))
+            {
+                await _userManager.AccessFailedAsync(user);
+                LogWrongPassword(_logger, user.Id, HttpContext.Connection.RemoteIpAddress);
+                return null;
+            }
+
+            return user;
+        }
+
+        if (await _userManager.IsLockedOutAsync(user))
+        {
+            // Without the dummy hash the early return would skip the hashing.
+            VerifyDummyPassword();
+            LogAccountLockedOut(_logger, user.Id, HttpContext.Connection.RemoteIpAddress);
+            return null;
+        }
+
+        // CheckPasswordAsync returns at once for an account with no password, such as the seeded admin
+        // before its first reset (ADR-0056).
+        if (!await _userManager.HasPasswordAsync(user))
+        {
+            VerifyDummyPassword();
+        }
+
+        if (!await _userManager.CheckPasswordAsync(user, Password))
+        {
+            await _userManager.AccessFailedAsync(user);
+            LogWrongPassword(_logger, user.Id, HttpContext.Connection.RemoteIpAddress);
+            return null;
+        }
+
+        return user;
     }
 
     private void VerifyDummyPassword()

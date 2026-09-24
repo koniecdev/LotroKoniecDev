@@ -363,6 +363,13 @@ Username is a **display-only handle**: unique (case-insensitively), `^[a-zA-Z0-9
 only — `UsernameConstants`), ≤ 150; it never authenticates. Email confirmation is **required to sign
 in**; lockout is **5 failed attempts / 5 min**.
 
+> **Answers that hide whether an address has an account take a fixed minimum time** (ADR-0059).
+> `auth/forgot-password`, `auth/reset-password`, `auth/confirm-email` and `auth/account/cancel-deletion`
+> answer no sooner than **500 ms** after the lookup starts, `auth/resend-email-confirmation` no sooner
+> than **3 s** (it sends the mail inside the request). The same floors apply to the matching auth pages,
+> and to every failed sign-in on `/Account/Login` that shows the general message. A malformed request
+> is refused at once.
+
 > **No registration saga.** Registering creates only the AuthSystem user (ADR-0002 §7 / ADR-0004) —
 > the KittySaver `RegisterUser → CreatePerson` saga is deliberately **not** lifted. The TMS
 > `Translator` profile is provisioned lazily and idempotently on the caller's first authenticated

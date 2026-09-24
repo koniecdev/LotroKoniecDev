@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Identity;
 using LotroKoniecDev.AuthSystem.API.ApiErrors;
 using LotroKoniecDev.AuthSystem.API.Common;
 using LotroKoniecDev.AuthSystem.API.Extensions;
+using LotroKoniecDev.AuthSystem.API.Services.ResponseTiming;
 using LotroKoniecDev.AuthSystem.API.Services.Sessions;
 using LotroKoniecDev.AuthSystem.Contracts.Features.Auth.Password;
 using LotroKoniecDev.AuthSystem.Domain.Aggregates.ApplicationUsers.Entities;
@@ -42,24 +43,27 @@ internal sealed partial class ResetPassword : IApiEndpoint
     internal sealed partial class Handler : ICommandHandler<Command, Result>
     {
         /// <summary>
-        /// A hash computed up front, so the not-found path takes as long as the normal one.
+        /// A hash computed up front, so every path verifies exactly one hash.
         /// </summary>
         private static readonly string DummyPasswordHash =
             new PasswordHasher<ApplicationUser>().HashPassword(new ApplicationUser(), "DummyP@ssw0rd!");
 
         private readonly UserManager<ApplicationUser> _userManager;
         private readonly IUserSessionRevoker _sessionRevoker;
+        private readonly IResponseTimeFloor _responseTimeFloor;
         private readonly IValidator<Command> _validator;
         private readonly ILogger<Handler> _logger;
 
         public Handler(
             UserManager<ApplicationUser> userManager,
             IUserSessionRevoker sessionRevoker,
+            IResponseTimeFloor responseTimeFloor,
             IValidator<Command> validator,
             ILogger<Handler> logger)
         {
             _userManager = userManager;
             _sessionRevoker = sessionRevoker;
+            _responseTimeFloor = responseTimeFloor;
             _validator = validator;
             _logger = logger;
         }
@@ -72,15 +76,23 @@ internal sealed partial class ResetPassword : IApiEndpoint
                 return Result.Failure(validationResult.ToValidationError(nameof(ResetPassword)));
             }
 
+            // The branches differ in cost: a wrong token fails at a cheap check, and a scheduled deletion
+            // returns before it. So every answer waits for the floor (ADR-0059).
+            return await _responseTimeFloor.HoldAsync(
+                ResponseTimeFloors.AccountLookup,
+                () => ResetAsync(command, cancellationToken));
+        }
+
+        private async Task<Result> ResetAsync(Command command, CancellationToken cancellationToken)
+        {
             ApplicationUser? user = await _userManager.FindByEmailAsync(command.Email);
+
+            // Every path pays the same PBKDF2 cost, the second layer under the floor (ADR-0059 §5).
+            _ = _userManager.PasswordHasher.VerifyHashedPassword(
+                new ApplicationUser(), DummyPasswordHash, "DummyP@ssw0rd!");
 
             if (user is null)
             {
-                // Do the same work anyway, so the response time does not reveal whether the user
-                // exists.
-                _ = new PasswordHasher<ApplicationUser>()
-                    .VerifyHashedPassword(new ApplicationUser(), DummyPasswordHash, "DummyP@ssw0rd!");
-
                 return Result.Failure(AuthErrors.InvalidPasswordResetToken);
             }
 

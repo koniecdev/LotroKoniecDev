@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc.RazorPages;
 using Microsoft.AspNetCore.RateLimiting;
+using LotroKoniecDev.AuthSystem.API.Services.ResponseTiming;
 using LotroKoniecDev.AuthSystem.Domain.Aggregates.ApplicationUsers.Entities;
 
 namespace LotroKoniecDev.AuthSystem.API.Pages.Account;
@@ -9,19 +10,30 @@ namespace LotroKoniecDev.AuthSystem.API.Pages.Account;
 internal sealed partial class ConfirmEmailModel : PageModel
 {
     /// <summary>
-    /// A hash computed up front, so the not-found path takes as long as the normal one.
+    /// The same words for an unknown address and for any link that does not verify, so they reveal nothing.
+    /// The last sentence is for the owner of an active account who opens an old link: sending a new
+    /// activation link would do nothing for them (ADR-0059 §7).
+    /// </summary>
+    private const string InvalidOrExpiredLinkMessage =
+        "Link potwierdzający jest nieprawidłowy lub wygasł. Jeśli Twoje konto jest już aktywne, po prostu się zaloguj.";
+
+    /// <summary>
+    /// A hash computed up front, so every path verifies exactly one hash.
     /// </summary>
     private static readonly string DummyPasswordHash =
         new PasswordHasher<ApplicationUser>().HashPassword(new ApplicationUser(), "DummyP@ssw0rd!");
 
     private readonly UserManager<ApplicationUser> _userManager;
+    private readonly IResponseTimeFloor _responseTimeFloor;
     private readonly ILogger<ConfirmEmailModel> _logger;
 
     public ConfirmEmailModel(
         UserManager<ApplicationUser> userManager,
+        IResponseTimeFloor responseTimeFloor,
         ILogger<ConfirmEmailModel> logger)
     {
         _userManager = userManager;
+        _responseTimeFloor = responseTimeFloor;
         _logger = logger;
     }
 
@@ -44,21 +56,45 @@ internal sealed partial class ConfirmEmailModel : PageModel
             return;
         }
 
+        // The branches differ in cost: a wrong token fails at a cheap check, and a confirmed address
+        // checks only the token. So every answer waits for the floor (ADR-0059).
+        await _responseTimeFloor.HoldAsync(ResponseTimeFloors.AccountLookup, ConfirmAsync);
+    }
+
+    private async Task ConfirmAsync()
+    {
         ApplicationUser? user = await _userManager.FindByEmailAsync(Email);
+
+        // Every path pays the same PBKDF2 cost, the second layer under the floor (ADR-0059 §5).
+        _ = _userManager.PasswordHasher.VerifyHashedPassword(
+            new ApplicationUser(), DummyPasswordHash, "DummyP@ssw0rd!");
 
         if (user is null)
         {
-            // Do the same work anyway, so the response time does not reveal whether the user exists.
-            _ = new PasswordHasher<ApplicationUser>()
-                .VerifyHashedPassword(new ApplicationUser(), DummyPasswordHash, "DummyP@ssw0rd!");
-
-            ErrorMessage = "Link potwierdzający jest nieprawidłowy lub wygasł.";
+            ErrorMessage = InvalidOrExpiredLinkMessage;
             return;
         }
 
         if (user.EmailConfirmed)
         {
-            IsCompleted = true;
+            // The success page names the account, so it needs the mailed token too: without this check
+            // any address with a confirmed account showed "confirmed" (ADR-0059 §7). Confirming does not
+            // change the security stamp, so the owner's second click on the link still gets here.
+            bool tokenValid = await _userManager.VerifyUserTokenAsync(
+                user,
+                _userManager.Options.Tokens.EmailConfirmationTokenProvider,
+                UserManager<ApplicationUser>.ConfirmEmailTokenPurpose,
+                Token);
+
+            if (tokenValid)
+            {
+                IsCompleted = true;
+            }
+            else
+            {
+                ErrorMessage = InvalidOrExpiredLinkMessage;
+            }
+
             return;
         }
 
@@ -74,7 +110,7 @@ internal sealed partial class ConfirmEmailModel : PageModel
 
         if (result.Errors.Any(e => e.Code is "InvalidToken"))
         {
-            ErrorMessage = "Link potwierdzający jest nieprawidłowy lub wygasł.";
+            ErrorMessage = InvalidOrExpiredLinkMessage;
             return;
         }
 

@@ -35,10 +35,10 @@ internal sealed class ResendConfirmationModel : PageModel
 
     public async Task<IActionResult> OnPostAsync(CancellationToken cancellationToken)
     {
-        // The handler is what hides whether an account exists: it looks the user up, does the same
-        // work when there is none, does nothing when the address is already confirmed, and otherwise
-        // creates a token and sends. It always succeeds for a well-formed address. Only an address
-        // that is not well formed, and so can match no account, comes back as a failure worth showing.
+        // The handler is what hides whether an account exists: every branch verifies one hash and
+        // waits for the same time floor, and only an unconfirmed account with a permit gets a mail
+        // (ADR-0059). It always succeeds for a well-formed address. Only an address that is not well
+        // formed, and so can match no account, comes back as a failure worth showing.
         Result result = await _handler.Handle(new ResendEmailConfirmation.Command(Email), cancellationToken);
 
         if (result.IsFailure)

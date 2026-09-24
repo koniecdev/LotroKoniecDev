@@ -1,8 +1,8 @@
 namespace LotroKoniecDev.AuthSystem.API.Services.ResponseTiming;
 
 /// <summary>
-/// Holds back an answer that must not reveal whether an address has an account until a fixed time has
-/// passed. The time of the answer then depends on the floor, not on what the branch did (ADR-0059).
+/// Makes an answer wait until a fixed time has passed. It is for answers that must not reveal whether an
+/// address has an account. Their time then depends on the floor, not on what the branch did (ADR-0059).
 /// </summary>
 internal interface IResponseTimeFloor
 {

@@ -50,8 +50,8 @@ internal sealed partial class ConfirmEmailModel : PageModel
             return;
         }
 
-        // A real account never hashed here and fails at the cheap token check, so every answer waits for
-        // the floor (ADR-0059).
+        // The branches differ in cost: a wrong token fails at a cheap check, and a confirmed address
+        // checks only the token. So every answer waits for the floor (ADR-0059).
         ResponseTimer responseTimer = _responseTimeFloor.Start(ResponseTimeFloors.AccountLookup);
         try
         {

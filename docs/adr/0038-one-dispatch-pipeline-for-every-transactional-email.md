@@ -133,6 +133,11 @@ After migration no user-facing request observes SMTP. Per flow:
   oracle (existing accounts answering measurably faster — the trap `CancelAccountDeletion`'s
   every-path-pays comment already documents). MSG-03 runs the dummy verify on **both**
   branches, `CancelAccountDeletion`-style.
+
+  > **Amended by ADR-0059 (2026-09-24):** the equal dummy hash is now the second layer. The main guard
+  > is a fixed time floor on every answer that hides whether an address has an account, because the
+  > outbox insert itself (a database write) has no equal-cost twin.
+
 - **`CancelAccountDeletion`** — observable behavior unchanged (it already ignored send
   failures); the courtesy e-mail merely becomes reliable instead of best-effort.
 - **`DeleteAccount`** — **behavior change, owner-accepted.** The unwind compensation is deleted.

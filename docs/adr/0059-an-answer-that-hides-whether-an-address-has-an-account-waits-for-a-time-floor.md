@@ -144,7 +144,8 @@ For an account that is already confirmed, the page now checks the token as well.
 owner clicked the mailed link twice) still shows the success page; any other token gets the same
 "link not valid" answer as an unknown address. The token stays valid after confirmation, because
 confirming does not change the security stamp, so the double click keeps working for the link's 24
-hours.
+hours, unless something else changes the stamp first (a password reset or change, an e-mail change).
+Then the second click gets "link not valid", which is true.
 
 ## Consequences
 

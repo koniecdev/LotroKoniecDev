@@ -67,8 +67,8 @@ internal sealed partial class ConfirmEmail : IApiEndpoint
                 return Result.Failure(validationResult.ToValidationError(nameof(ConfirmEmail)));
             }
 
-            // A real account never hashed here and fails at the cheap token check, or before it when the
-            // address is already confirmed, so every answer waits for the floor (ADR-0059).
+            // The branches differ in cost: a wrong token fails at a cheap check, and a confirmed address
+            // returns before it. So every answer waits for the floor (ADR-0059).
             ResponseTimer responseTimer = _responseTimeFloor.Start(ResponseTimeFloors.AccountLookup);
             try
             {

@@ -76,8 +76,8 @@ internal sealed partial class ResetPassword : IApiEndpoint
                 return Result.Failure(validationResult.ToValidationError(nameof(ResetPassword)));
             }
 
-            // A real account never hashed here and fails at the cheap token check, so every answer waits
-            // for the floor (ADR-0059).
+            // The branches differ in cost: a wrong token fails at a cheap check, and a scheduled deletion
+            // returns before it. So every answer waits for the floor (ADR-0059).
             ResponseTimer responseTimer = _responseTimeFloor.Start(ResponseTimeFloors.AccountLookup);
             try
             {

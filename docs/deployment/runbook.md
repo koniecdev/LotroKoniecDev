@@ -73,8 +73,8 @@ TLS-terminating ingress:
 
 | Service | Image (`ghcr.io/koniecdev/…`) | Listens | Health | Persists |
 |---|---|---|---|---|
-| **auth-api** | `lotrokoniecdev-auth-api` | `:8080` (HTTP) | `/health` (deep: DB + SMTP + broker), `/health/live`, `/health/ready` (probe — runs no checks, ADR-0025) | Data Protection keyring → `/keys` |
-| **tms-api** | `lotrokoniecdev-tms-api` | `:8080` (HTTP) | `/health` (deep: DB), `/health/live`, `/health/ready` (probe — runs no checks, ADR-0025) | translation artifacts (read-only mount) |
+| **auth-api** | `lotrokoniecdev-auth-api` | `:8080` (HTTP) | `/health` (deep: DB + SMTP + broker; needs the health check key, else 404 — ADR-0058), `/health/live`, `/health/ready` (probe — runs no checks, ADR-0025) | Data Protection keyring → `/keys` |
+| **tms-api** | `lotrokoniecdev-tms-api` | `:8080` (HTTP) | `/health` (deep: DB; needs the health check key, else 404 — ADR-0058), `/health/live`, `/health/ready` (probe — runs no checks, ADR-0025) | translation artifacts (read-only mount) |
 | **frontend** | `lotrokoniecdev-frontend` | `:8080` (HTTP) | — | Data Protection keyring → `/keys` |
 | **migrator** | `lotrokoniecdev-migrator` | one-shot (exits 0) | exit code | — |
 | _ingress_ | **Caddy** (`caddy:2-alpine`) | `:80`, `:443` | — | ACME certs + config volumes |
@@ -240,6 +240,7 @@ staging from prod in Grafana, because both boxes run `ASPNETCORE_ENVIRONMENT=Pro
 | `Cors__AllowedOrigins__0` | — (AllowAnyOrigin) | `https://lotro-translator.pl` | ✅ non-dev | plain | Bare origin = Frontend public URL. Lowercase, no port-if-default, no path/slash. |
 | `ForwardedHeaders__KnownNetworks__0` | — (dev skips `UseForwardedHeaders`) | `10.60.0.100/32` (Caddy's pinned static IP) | optional | plain | Restricts `X-Forwarded-*` trust to Caddy's exact host address, not the whole subnet (#399, narrowed to a /32 by #506). Keep in lockstep with Caddy's `ipv4_address` on the default network in `compose.hetzner.yaml`. Both deployed stacks set it. Malformed CIDR aborts boot. |
 | `FrontendCaller__Key` | — (the limiter is off) | from `FRONTEND_CALLER_KEY` | ✅ non-dev | **secret** | The frontend's caller key (ADR-0054): a frontend call that carries it next to the visitor's address is rate-limited on that visitor, not on the frontend container. ≥ 32 chars; the boot fails without it outside Development/Testing. **The same variable feeds tms-api's `FrontendCaller__Key` and the frontend's `AuthSystem__CallerKey` + `TranslationSystem__CallerKey`.** |
+| `HealthCheck__Key` | — (the full `/health` is open) | from `HEALTH_CHECK_KEY` | ✅ non-dev | **secret** | Opens the full `/health` (ADR-0058, #853): it runs the database, SMTP and broker checks only for a request that sends this value in `X-LOTRO-Health-Key`, and answers 404 to anyone else. ≥ 32 chars; the boot fails without it outside Development/Testing. **The same variable feeds tms-api's `HealthCheck__Key`.** |
 | `DataProtection__KeyRingPath` | — (host default) | `/keys` | ✅ non-dev | plain | Persistent volume (`auth-keys`); else logins/antiforgery/reset links break on every deploy. |
 | `Email__Host` | `localhost` (the compose mailpit, published on `:1025`) | `smtp-relay.brevo.com` | ✅ all | plain | SMTP host. Validated on start (every environment). |
 | `Email__Port` | `1025` | `587` | ✅ all | plain | 1–65535. |
@@ -268,6 +269,7 @@ staging from prod in Grafana, because both boxes run `ASPNETCORE_ENVIRONMENT=Pro
 | `Cors__AllowedOrigins__0` | — (AllowAnyOrigin) | `https://lotro-translator.pl` | ✅ non-dev | plain | Bare origin = Frontend public URL. |
 | `ForwardedHeaders__KnownNetworks__0` | — (dev skips `UseForwardedHeaders`) | `10.60.0.100/32` (Caddy's pinned static IP) | optional | plain | See the auth-api row. |
 | `FrontendCaller__Key` | — (the limiter is off) | from `FRONTEND_CALLER_KEY` | ✅ non-dev | **secret** | The same key and rule as auth-api's `FrontendCaller__Key` (ADR-0054, #823): a frontend call that carries it next to the visitor's address is rate-limited on that visitor, not on the frontend container. ≥ 32 chars; the boot fails without it outside Development/Testing. |
+| `HealthCheck__Key` | — (the full `/health` is open) | from `HEALTH_CHECK_KEY` | ✅ non-dev | **secret** | The same key and rule as auth-api's `HealthCheck__Key` (ADR-0058, #853): the full `/health` runs the database check only for a request that sends it in `X-LOTRO-Health-Key`, and answers 404 to anyone else. ≥ 32 chars; the boot fails without it outside Development/Testing. |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` / `OTEL_EXPORTER_OTLP_PROTOCOL` | `http://localhost:4317` / `grpc` (launchSettings) | — (empty: no sink today) | optional | plain | Empty endpoint = export disabled. |
 | `Bootstrap__Enabled` | `false` | `false` | optional | plain | One-time DB seed of the first export (spec 0001). Off by default. |
 | `Bootstrap__GameVersion` / `Bootstrap__ExportedTextPath` / `Bootstrap__PolishTextPath` | — / — / `/app/translations/polish.txt` | as needed | optional | plain | Only consulted when `Bootstrap__Enabled=true`. |
@@ -349,6 +351,7 @@ which is why they are named volumes and not bind mounts.
 | The admin password | the admin `Users` row | **the admin's own password manager**, never a file on the box | Not a `.env` value any more (ADR-0056): the seeder creates the admin without one. The first password and every rotation go through the reset mail ([Admin account](#admin-account--first-sign-in-and-rotation)). A box `.env` that still has an `AUTH_ADMIN_PASSWORD` line predates #696: follow the migration steps there. |
 | `RABBITMQ_PASSWORD` (→ auth-api `RabbitMq__Password` **and** the broker's `RABBITMQ_DEFAULT_PASS`) | rabbitmq, auth-api | **box-local** — generate: `openssl rand -base64 24` | ⚠️ Same create-if-missing shape as the admin seed: the broker applies `RABBITMQ_DEFAULT_PASS` on **first boot only** (empty data volume), so editing `.env` later rotates what auth-api presents but **not** what the broker expects. Rotate in lockstep: `docker compose -f compose.hetzner.yaml exec rabbitmq rabbitmqctl change_password rabbitmq '<new>'` → update `.env` → `docker compose -f compose.hetzner.yaml up -d auth-api`. |
 | `FRONTEND_CALLER_KEY` (→ auth-api and tms-api `FrontendCaller__Key`, frontend `AuthSystem__CallerKey` **and** `TranslationSystem__CallerKey`) | auth-api, tms-api, frontend | **box-local** — generate: `openssl rand -base64 32`, one per environment (not one per API) | Lets the auth API and the TMS API rate-limit a frontend call on the visitor's forwarded address instead of on the frontend container (ADR-0054, #823). Put a new value into the box `.env` and redeploy: all three services read the same line, so they disagree only for the seconds of the restart, and a call in that window merely counts against the frontend's own bucket. **Required** — compose refuses to render without it (`deploy.sh` stops at its first gate and the rollback keeps the old release serving), and all three apps refuse to boot outside Development/Testing. A leaked key lets its holder dodge the three auth back-channel limits and the TMS API's one limit by inventing addresses and nothing more — rotate it. |
+| `HEALTH_CHECK_KEY` (→ auth-api and tms-api `HealthCheck__Key`) | auth-api, tms-api, **and on the prod box the daily health ping** | **box-local** — generate: `openssl rand -base64 32`, one per environment (not one per API) | Opens the full `/health` (ADR-0058, #853); without it both APIs answer 404 there and run no check. **Required** — compose refuses to render without it (`deploy.sh` stops at its first gate and the rollback keeps the old release serving), and both APIs refuse to boot outside Development/Testing. **Prod only: the same value is the `PROD_HEALTH_CHECK_KEY` repository secret** the daily health ping sends. Rotate: new value into the prod `.env` → redeploy → `gh secret set PROD_HEALTH_CHECK_KEY` with the same value, never through argv or the terminal (the `secrets` skill). Between the two steps the ping gets 404 and goes red, so rotate outside its 06:40 UTC slot. A leaked key lets its holder run the database, SMTP and broker checks at will, and nothing more — rotate it. |
 | `OBS_PUSH_PASSWORD` (prod `/opt/obs/.env`) ↔ `OBS_PUSH_PASSWORD_HASH` (staging `/opt/lotro/.env`) | the prod agent (Alloy, `ship.agent.alloy`) ↔ the staging Caddy's ingest vhost | **box-local** — generate: `openssl rand -base64 24`; hash it with `docker run --rm -it caddy:2-alpine caddy hash-password` (prompts, never on argv) | One password, two forms, and the plaintext exists on the prod box only. Rotate hash-first: new hash into staging `.env` → `deploy.sh` (reloads Caddy) → new password into prod `.env` → `docker compose -f compose.observability.yaml up -d` in `/opt/obs`. **The window in between loses telemetry, it does not delay it** — a 401 is a permanent error for all three writers and each drops the batch — so pick a window you are willing to have a hole in, or give the vhost a second `basic_auth` account first so the two credentials overlap. **Single-quote the hash in `.env`**: bare *and* double-quoted both corrupt it, compose expands the salt after the third `$` to nothing, and `caddy validate` accepts the wreckage — prove it landed with the probe in "Bringing up the prod agent" step 3. |
 | `SMOKE_CLIENT_SECRET` *(GitHub secret, per environment — **not** a box var)* | `scripts/smoke.sh`, CD | == `OpenIddict__ApiClientSecret` of that env | `gh secret set SMOKE_CLIENT_SECRET --env <staging\|production> --body "$VALUE"` — **never `--body -`**: gh takes `-` literally and the smoke leg then 401s. |
 | GHCR pull token *(not an env var — `docker login` state in `/home/deploy/.docker/config.json`)* | `docker compose pull` | **GitHub PAT**, scope `read:packages` **only** | Re-run `scripts/hetzner/bootstrap.sh` (its login leg prompts for user + PAT on a TTY). |
@@ -697,6 +700,14 @@ The cross-service settings that are individually valid but break the system when
    different values, nothing fails: calls just fall back to the old shared bucket. So never set the
    key on one side by hand.
 
+8. **The health check key is one value per box, and on prod also a GitHub secret.** `HEALTH_CHECK_KEY`
+   in the box `.env` feeds auth-api's and tms-api's `HealthCheck__Key` (ADR-0058, #853). Without the
+   key in `X-LOTRO-Health-Key`, the full `/health` answers 404 and runs no check; `/health/live` and
+   `/health/ready` stay open. Compose refuses to render without it, so **the key goes into the staging
+   `.env` before a change that needs it merges, and into the prod `.env` before it is promoted**. On
+   prod, the `PROD_HEALTH_CHECK_KEY` repository secret must hold the same value, or the daily health
+   ping goes red with HTTP 404.
+
 ## Bringing the stack up
 
 ### Locally, development (infra + host Kestrels)
@@ -731,15 +742,18 @@ same proxy shape** as the box, so prod-only breakage surfaces before staging:
 scripts/up-prod.sh --build          # PowerShell: scripts/up-prod.ps1 --build
 ```
 
-It bootstraps `.env.prod` (with freshly generated OpenIddict secrets and the frontend caller key), the
-local CA + certs, and the `*.lotro.test` hosts mapping, then runs `docker compose -f compose.prod.yaml up`.
-The bootstrap runs only when `.env.prod` is absent: one that predates ADR-0054 needs the key appended
-by hand — `printf 'FRONTEND_CALLER_KEY=%s\n' "$(openssl rand -base64 32)" >> .env.prod` — or compose
-refuses to render. Verify:
+It bootstraps `.env.prod` (with freshly generated OpenIddict secrets, the frontend caller key and the
+health check key), the local CA + certs, and the `*.lotro.test` hosts mapping, then runs
+`docker compose -f compose.prod.yaml up`. The bootstrap runs only when `.env.prod` is absent: one that
+predates ADR-0054 or ADR-0058 needs the missing key appended by hand —
+`printf 'FRONTEND_CALLER_KEY=%s\n' "$(openssl rand -base64 32)" >> .env.prod`, and the same for
+`HEALTH_CHECK_KEY` — or compose refuses to render. Verify (the full `/health` needs the health check
+key from `.env.prod`; without it the answer is 404):
 
 ```bash
-curl --cacert .docker/prod-https/rootCA.crt https://auth.lotro.test/health
-curl --cacert .docker/prod-https/rootCA.crt https://tms.lotro.test/health
+HEALTH_CHECK_KEY="$(grep '^HEALTH_CHECK_KEY=' .env.prod | cut -d= -f2-)"
+curl --cacert .docker/prod-https/rootCA.crt -H "X-LOTRO-Health-Key: $HEALTH_CHECK_KEY" https://auth.lotro.test/health
+curl --cacert .docker/prod-https/rootCA.crt -H "X-LOTRO-Health-Key: $HEALTH_CHECK_KEY" https://tms.lotro.test/health
 # browser OIDC login: https://app.lotro.test
 ```
 
@@ -1443,12 +1457,16 @@ workflow stays runnable **on demand** (`workflow_dispatch` — enter the three U
 
 - **Structured logs** — every app logs JSON to stdout (Serilog). Read them on the box:
   `docker compose -f compose.hetzner.yaml logs -f <service>`.
-- **Health endpoints** — deep `/health` (DB, + SMTP on auth), `/health/live`, `/health/ready`
+- **Health endpoints** — deep `/health` (DB, + SMTP and the broker on auth; only with the health check
+  key, else 404 — ADR-0058), `/health/live`, `/health/ready`
   (DB-free by ADR-0025, so container probes cannot keep the scale-to-zero Neon compute awake — that
-  ruling outlives Azure, because **Neon still suspends**).
+  ruling outlives Azure, because **Neon still suspends**). The deep answer names each check and its
+  status only; the reason a check failed is in the app's log at Error level.
 - **The daily health ping** — [`.github/workflows/health-ping.yml`](../../.github/workflows/health-ping.yml)
   probes the prod origins once a day (06:40 UTC) on the **deep** `/health`, so it is the one check
-  that proves the database is reachable. A failed run e-mails the last committer of that file.
+  that proves the database is reachable. It sends the key from the `PROD_HEALTH_CHECK_KEY` repository
+  secret; a red run with **HTTP 404** means that secret and the prod box's `HEALTH_CHECK_KEY` differ,
+  not that the site is down. A failed run e-mails the last committer of that file.
   Trigger on demand: `gh workflow run health-ping.yml`.
 - **Post-deploy smoke** — every CD rollout, with automatic rollback on red.
 - **Grafana** — logs, metrics and traces for **both projects** on the stack described below
@@ -1760,7 +1778,8 @@ form works for `up` too. It does not.
 - **Docker bypasses ufw for published ports** (it programs iptables directly). Our stacks publish only
   Caddy's 80/443 — which ufw allows anyway. Never publish another service's port "just to debug";
   exec into the network instead
-  (`docker compose exec caddy wget -qO- http://tms-api:8080/health`).
+  (`docker compose exec caddy wget -qO- http://tms-api:8080/health/live`; the full `/health` also
+  needs the `X-LOTRO-Health-Key` header, ADR-0058).
 - **sshd config precedence:** sshd honours the *first* occurrence of a keyword, and
   `/etc/ssh/sshd_config.d/` is included at the top in lexical order. Bootstrap's hardening lives in
   `00-hardening.conf` precisely so it wins over cloud-init's `50-cloud-init.conf` — don't rename it to

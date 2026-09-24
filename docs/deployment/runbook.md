@@ -425,7 +425,7 @@ so this is the normal case — and it means **editing `.env` and restarting sile
 | You changed in `.env` | What silently keeps the OLD value | Symptom |
 |---|---|---|
 | `OpenIddict__ApiClientSecret` | the `lotrokoniecdev-api` client row | `client_credentials` with the new secret → **401**; smoke's token leg fails |
-| `AUTH_ADMIN_EMAIL` / `AUTH_ADMIN_USERNAME` | the admin `Users` row | a new address with the same username is skipped, with warning `2353` in the auth-api log; a new address that already belongs to a non-admin account is skipped, with warning `2354`; a new address **and** a new username seed a **second** admin, and the first one keeps its role |
+| `AUTH_ADMIN_EMAIL` / `AUTH_ADMIN_USERNAME` | the admin `Users` row | a new address with the same username is skipped, with warning `2353` in the auth-api log; a new address that already belongs to a non-admin account is skipped, with warning `2354` (that row may be a stranger's account: read "Warning `2354`" under [Admin account](#admin-account--first-sign-in-and-rotation) before you delete anything); a new address **and** a new username seed a **second** admin, and the first one keeps its role |
 | `DOMAIN_APP` | the `lotrokoniecdev-web` client's redirect + post-logout URIs (written **only at creation**) | login bounces with `invalid_redirect_uri` |
 
 Fix = delete the rows and let the seeder rebuild them from the current `.env`. Schema is
@@ -438,7 +438,8 @@ DELETE FROM authsystem."OpenIddictAuthorizations";
 DELETE FROM authsystem."OpenIddictApplications";
 -- only when replacing the admin account itself, e.g. after a typo in AUTH_ADMIN_EMAIL
 -- (UserRoles cascades with the user). A password rotation never needs this: use the reset mail.
-DELETE FROM authsystem."Users" WHERE "Email" = '<admin e-mail>';
+-- Never for warning 2354: that row is not the admin (see its section).
+DELETE FROM authsystem."Users" WHERE "NormalizedEmail" = upper('<admin e-mail>');
 ```
 
 ```bash
@@ -583,10 +584,18 @@ WHERE u."Id" = '<Id from the SELECT>'
 Then set the password through the reset mail, as for any new admin
 ([Admin account](#admin-account--first-sign-in-and-rotation)).
 
-When the INSERT refuses a row at your address (an unconfirmed registration, another account moved
-onto it, or your own translator account with a password), delete that row and restart auth-api, so
-the seeder creates the admin. Use another address instead if you want to keep that account. Delete by
-the `Id`, not by the address: the stored address can differ from the `.env` in letter case.
+When the INSERT refuses a row at your address, what to do depends on whose account it is:
+
+- **`undo_armed` is true.** An e-mail change moved someone else's account onto your address, and its
+  owner can still take it back with the undo link. Do not delete it. Put another address into
+  `AUTH_ADMIN_EMAIL` and restart auth-api.
+- **`EmailConfirmed` is false.** Nobody proved they own the address. Delete the row and restart
+  auth-api, so the seeder creates the admin.
+- **Your own translator account, with a password.** Delete it and restart, or put another address
+  into `AUTH_ADMIN_EMAIL` if you want to keep that account. A confirmed account with a password that
+  is not yours is someone else's: treat it like the first case.
+
+Delete by the `Id`, not by the address: the stored address can differ from the `.env` in letter case.
 
 ```sql
 -- UserRoles cascades with the user.

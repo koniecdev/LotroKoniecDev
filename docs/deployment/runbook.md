@@ -557,14 +557,21 @@ account from a stranger's registration at a mistyped address (#839). Look at the
 SELECT "Id", "UserName", "EmailConfirmed", "PasswordHash" IS NULL AS no_password, "EmailChangeRevertTo" IS NOT NULL AS undo_armed FROM authsystem."Users" WHERE "NormalizedEmail" = upper('<admin e-mail>');
 ```
 
-Give the row the role by hand **only** when it is confirmed, has no password and has no armed undo
-link. That is what an admin half-made by a crash before #839 looks like: nobody has ever signed in to
-it, and only the admin inbox can give it a password. `EmailConfirmed` alone is **not** enough. An
-e-mail change moves someone else's account onto your address, with their password, as soon as you
-click the confirm link it mails you, and its undo link can later take the row back, role included
-(ADR-0048). The statement below checks all three conditions itself:
+**The address is not one you read** (a typo, or someone else's address): fix `AUTH_ADMIN_EMAIL` and
+restart auth-api. **Never delete that row.** It is a real person's account, and an admin seeded at
+their address would get its first password from their inbox.
+
+**It is your address.** Give the row the role by hand **only** when it is confirmed, has no password
+and has no armed undo link. That is what an admin half-made by a crash before #839 looks like: only
+the admin inbox can give it a password. `EmailConfirmed` alone is **not** enough. An e-mail change
+moves someone else's account onto your address, with their password, as soon as you click the confirm
+link it mails you, and its undo link can later take the row back, role included (ADR-0048). The
+statements below end any session still open on the row (a refresh does not check the security stamp,
+#848), then grant the role only when all three conditions hold:
 
 ```sql
+DELETE FROM authsystem."OpenIddictTokens" WHERE "Subject" = '<Id from the SELECT>';
+DELETE FROM authsystem."OpenIddictAuthorizations" WHERE "Subject" = '<Id from the SELECT>';
 -- INSERT 0 1: granted. INSERT 0 0: the row is not safe to promote, so delete it instead (below).
 INSERT INTO authsystem."UserRoles" ("UserId", "RoleId")
 SELECT u."Id", r."Id" FROM authsystem."Users" u, authsystem."Roles" r
@@ -576,10 +583,10 @@ WHERE u."Id" = '<Id from the SELECT>'
 Then set the password through the reset mail, as for any new admin
 ([Admin account](#admin-account--first-sign-in-and-rotation)).
 
-Every other row is never promoted: someone else's account, an unconfirmed registration, and your own
-translator account with a password too. Either put another address into `AUTH_ADMIN_EMAIL`, or delete
-the row and restart auth-api, so the seeder creates the admin. Delete it by the `Id`, not by the
-address: the stored address can differ from the `.env` in letter case.
+When the INSERT refuses a row at your address (an unconfirmed registration, another account moved
+onto it, or your own translator account with a password), delete that row and restart auth-api, so
+the seeder creates the admin. Use another address instead if you want to keep that account. Delete by
+the `Id`, not by the address: the stored address can differ from the `.env` in letter case.
 
 ```sql
 -- UserRoles cascades with the user.

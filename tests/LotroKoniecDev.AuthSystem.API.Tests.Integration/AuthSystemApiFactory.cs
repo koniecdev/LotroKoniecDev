@@ -44,7 +44,8 @@ public class AuthSystemApiFactory : WebApplicationFactory<Program>, IAsyncLifeti
 
     /// <summary>
     /// Sits on every <see cref="AuthDbContext"/> this host builds and does nothing until a test arms it.
-    /// Shared per factory; <see cref="Shared.Bases.AsyncLifetimeTestBase"/> disarms it before each test.
+    /// Shared per factory; <see cref="Shared.Bases.AsyncLifetimeTestBase"/> disarms it before and after
+    /// each test.
     /// </summary>
     public DbCommandFailureInjector DbCommandFailures { get; } = new();
 

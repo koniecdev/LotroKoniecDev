@@ -18,6 +18,7 @@ using LotroKoniecDev.AuthSystem.API.Services.Emails.Templates;
 using LotroKoniecDev.AuthSystem.API.Services.Gdpr;
 using LotroKoniecDev.AuthSystem.API.Services.Maintenance;
 using LotroKoniecDev.AuthSystem.API.Services.RateLimiting;
+using LotroKoniecDev.AuthSystem.API.Services.ResponseTiming;
 using LotroKoniecDev.AuthSystem.API.Services.Sessions;
 using LotroKoniecDev.AuthSystem.API.Settings;
 using LotroKoniecDev.AuthSystem.Contracts.Features.Auth.Account;
@@ -120,6 +121,9 @@ internal static class ApiDependencyInjection
                 new PerMailboxFixedWindowThrottle(AccountBudgets.EmailChangeRecipientPermitLimit, AccountBudgets.Window));
             services.AddSingleton<IRegistrationMailboxThrottle>(_ =>
                 new PerMailboxFixedWindowThrottle(AccountBudgets.RegistrationPermitLimit, AccountBudgets.Window));
+
+            // Every answer that hides whether an address has an account waits for this floor (ADR-0059).
+            services.AddSingleton<IResponseTimeFloor, ResponseTimeFloor>();
 
             // The three policies the frontend reaches (fixed-by-ip, auth-endpoint-limit, change-email-limit)
             // take their key from this resolver: a direct caller's own address, or the visitor's address

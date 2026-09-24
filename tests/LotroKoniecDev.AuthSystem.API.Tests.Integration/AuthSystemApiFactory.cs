@@ -13,6 +13,7 @@ using LotroKoniecDev.AuthSystem.API.BackgroundServices;
 using LotroKoniecDev.AuthSystem.API.Extensions;
 using LotroKoniecDev.AuthSystem.API.Services.Emails;
 using LotroKoniecDev.AuthSystem.API.Services.Maintenance;
+using LotroKoniecDev.AuthSystem.API.Services.ResponseTiming;
 using LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared;
 using LotroKoniecDev.AuthSystem.Domain.Aggregates.ApplicationUsers.Entities;
 using LotroKoniecDev.AuthSystem.Infrastructure.Messaging;
@@ -51,6 +52,35 @@ public class AuthSystemApiFactory : WebApplicationFactory<Program>, IAsyncLifeti
 
     /// <inheritdoc cref="DbCommandFailures"/>
     public DbCommitFailureInjector DbCommitFailures { get; } = new();
+
+    private WebApplicationFactory<Program>? _responseTimeFloorHost;
+
+    /// <summary>
+    /// This host with the production response-time floor in place of <see cref="NoResponseTimeFloor"/>
+    /// (ADR-0059). It is built once and shared, because every request to it waits for the floor anyway.
+    /// It runs no outbox relay: a second relay on this database could take a row that another test waits
+    /// for through the main host's spies.
+    /// </summary>
+    public async Task<WebApplicationFactory<Program>> GetResponseTimeFloorHostAsync()
+    {
+        if (_responseTimeFloorHost is null)
+        {
+            _responseTimeFloorHost = WithWebHostBuilder(builder =>
+                builder.ConfigureTestServices(services =>
+                {
+                    RemoveHostedService<OutboxRelay>(services);
+                    services.AddSingleton<IResponseTimeFloor, ResponseTimeFloor>();
+                }));
+
+            // The first request builds the host, which alone can take longer than a floor. Without this a
+            // member that forgot to wait could still pass its first floor test.
+            using HttpClient client = _responseTimeFloorHost.CreateClient();
+            using HttpResponseMessage response = await client.GetAsync(new Uri("health/live", UriKind.Relative));
+            response.EnsureSuccessStatusCode();
+        }
+
+        return _responseTimeFloorHost;
+    }
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
@@ -97,6 +127,8 @@ public class AuthSystemApiFactory : WebApplicationFactory<Program>, IAsyncLifeti
         {
             services.AddSingleton(this);
             services.AddScoped<CleanerService>();
+
+            ReplaceSingleton<IResponseTimeFloor>(services, new NoResponseTimeFloor());
 
             services.AddSingleton<SpyPasswordHasher>();
             services.AddSingleton<IPasswordHasher<ApplicationUser>>(sp =>
@@ -268,7 +300,34 @@ public class AuthSystemApiFactory : WebApplicationFactory<Program>, IAsyncLifeti
 
     public new virtual async Task DisposeAsync()
     {
+        if (_responseTimeFloorHost is not null)
+        {
+            await _responseTimeFloorHost.DisposeAsync();
+        }
+
         await _postgresContainer.DisposeAsync();
+    }
+
+    /// <summary>
+    /// Swaps one production singleton for a test one. Strict for the same reason as
+    /// <see cref="RemoveHostedService{THostedService}"/>: exactly one registration must exist.
+    /// </summary>
+    private static void ReplaceSingleton<TService>(IServiceCollection services, TService replacement)
+        where TService : class
+    {
+        List<ServiceDescriptor> descriptors = services
+            .Where(d => d.ServiceType == typeof(TService))
+            .ToList();
+
+        if (descriptors.Count != 1)
+        {
+            throw new InvalidOperationException(
+                $"Expected exactly one registration of {typeof(TService).Name}, found {descriptors.Count}. "
+                + "AddAuthApi and this test host have drifted apart.");
+        }
+
+        services.Remove(descriptors[0]);
+        services.AddSingleton(replacement);
     }
 
     /// <summary>

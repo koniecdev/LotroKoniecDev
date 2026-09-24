@@ -151,6 +151,11 @@ key opens no endpoint and exempts from no budget. The browser-facing page polici
 `register-limit` stay on the connection's own address, so the key can never dodge the login form's
 brake or buy a fresh registration-mail budget per invented address.
 
+Whichever address a policy keys on, one client is one bucket (#831): an IPv6 address counts as its
+whole /64, because an IPv6 client can move to any address inside it for free, and an IPv4 address
+written in IPv6 form (`::ffff:203.0.113.7`) counts as the plain IPv4 address. The cost is that
+people who share one /64 share one bucket, as people behind one IPv4 NAT already do.
+
 The browser-facing account pages are limited too, and the limit is the **default for the whole Razor
 group** — a page opts out with an attribute, it does not opt in (#692). `auth-page-limit` counts
 **POSTs only**, 10 per 15 minutes, keyed by route **and** client IP, so each page keeps its own budget

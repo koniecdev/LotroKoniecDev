@@ -190,11 +190,20 @@ the typed address, and each spelling is still its own account.
   asks. Its refusal is a 429 with `Auth.EmailChangeRecipientThrottled`, not a silent success: the
   frontend page would otherwise say a link went out when none did.
 
+**Account deletion** has one more budget of its own (#811): 3 schedules per hour per account. A cancel
+answers with a reset token, so schedule, cancel, reset and log in is a loop that needs only the cancel link
+in the account's current inbox and no new IP, and every schedule mails the account (and the address an
+armed undo would restore). The permit is the last check before the schedule is saved, so a wrong password
+or an already scheduled deletion spends nothing. Two permits cover a schedule and a second one after a
+cancel; the third covers a permit spent without a schedule (a failed save, or a double-submitted form),
+because a fixed window never gives one back. A refusal is a 429 with `Auth.DeletionScheduleThrottled`.
+
 Every 429 from a limiter policy carries `Retry-After`, and a browser gets a Polish page explaining the
 wait instead of the framework's bare status text. The 429s from the budgets inside the handlers
 (`Auth.PasswordConfirmationThrottled`, `Auth.EmailChangeRecipientThrottled`,
-`Auth.RegistrationMailboxThrottled`) carry no `Retry-After`: their window is a fixed 15 minutes. The
-frontend shows its own Polish sentence for the first two, and the auth register page for the third.
+`Auth.RegistrationMailboxThrottled`, `Auth.DeletionScheduleThrottled`) carry no `Retry-After`: their
+window is fixed, 15 minutes for the first three and one hour for the deletion schedule. The frontend
+shows its own Polish sentence for the first, second and fourth, and the auth register page for the third.
 
 ---
 

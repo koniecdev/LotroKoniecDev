@@ -85,6 +85,11 @@ internal static class AuthErrors
             "Account deletion is already scheduled.",
             TypeOfError.DataConflict);
 
+    public static Error DeletionScheduleThrottled =>
+        new("Auth.DeletionScheduleThrottled",
+            "Account deletion was scheduled too many times recently. Try again in an hour.",
+            TypeOfError.TooManyRequests);
+
     public static Error DeletionSchedulingFailed =>
         new("Auth.DeletionSchedulingFailed",
             "Account deletion could not be scheduled. Your account remains unchanged. " +

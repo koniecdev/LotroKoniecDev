@@ -112,6 +112,8 @@ internal static class ApiDependencyInjection
                 new PasswordResetRequestThrottle(AccountBudgets.PasswordResetPermitLimit, AccountBudgets.Window));
             services.AddSingleton<IPasswordConfirmationThrottle>(_ =>
                 new PerAccountFixedWindowThrottle(AccountBudgets.PasswordConfirmationPermitLimit, AccountBudgets.Window));
+            services.AddSingleton<IAccountDeletionScheduleThrottle>(_ =>
+                new PerAccountFixedWindowThrottle(AccountBudgets.DeletionSchedulePermitLimit, AccountBudgets.DeletionScheduleWindow));
             services.AddSingleton<IEmailConfirmationResendThrottle>(_ =>
                 new PerMailboxFixedWindowThrottle(AccountBudgets.EmailConfirmationResendPermitLimit, AccountBudgets.Window));
             services.AddSingleton<IEmailChangeRecipientThrottle>(_ =>

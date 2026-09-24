@@ -13,11 +13,11 @@ CERT_PATH="$REPO_ROOT/.docker/prod-https/proxy.crt"
 cd "$REPO_ROOT"
 
 if [ ! -f "$ENV_FILE" ]; then
-    # Drop the empty OpenIddict and caller-key placeholders, then append freshly generated secrets.
-    grep -vE '^(OpenIddict__(EncryptionKey__Key|SigningKey__RsaPrivateKeyXml|ApiClientSecret)|FRONTEND_CALLER_KEY)=' \
+    # Drop the empty OpenIddict, caller-key and health-key placeholders, then append freshly generated secrets.
+    grep -vE '^(OpenIddict__(EncryptionKey__Key|SigningKey__RsaPrivateKeyXml|ApiClientSecret)|FRONTEND_CALLER_KEY|HEALTH_CHECK_KEY)=' \
         .env.prod.example > "$ENV_FILE"
     scripts/gen-openiddict-keys.sh >> "$ENV_FILE"
-    echo ".env.prod created with generated OpenIddict secrets and the frontend caller key. Review SMTP/admin/DB values before prod use."
+    echo ".env.prod created with generated OpenIddict secrets, the frontend caller key and the health check key. Review SMTP/admin/DB values before prod use."
 fi
 
 if [ ! -f "$CERT_PATH" ]; then

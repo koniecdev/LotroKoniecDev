@@ -6,6 +6,8 @@
 #   OpenIddict__ApiClientSecret               >= 32 chars
 # plus the frontend's caller key (ADR-0054), which auth-api, tms-api and the frontend all read:
 #   FRONTEND_CALLER_KEY                       base64 of 32 random bytes
+# and the key that opens the full /health on both APIs (ADR-0058):
+#   HEALTH_CHECK_KEY                          base64 of 32 random bytes
 #
 # Prints KEY=VALUE lines on stdout — append them to your git-ignored .env.prod, e.g.:
 #   scripts/gen-openiddict-keys.sh >> .env.prod
@@ -18,6 +20,7 @@ set -euo pipefail
 ENC_KEY="$(openssl rand -base64 32)"
 API_SECRET="$(openssl rand -hex 24)"
 CALLER_KEY="$(openssl rand -base64 32)"
+HEALTH_KEY="$(openssl rand -base64 32)"
 
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
@@ -78,3 +81,4 @@ echo "OpenIddict__EncryptionKey__Key=$ENC_KEY"
 echo "OpenIddict__ApiClientSecret=$API_SECRET"
 echo "OpenIddict__SigningKey__RsaPrivateKeyXml=$RSA_XML_B64"
 echo "FRONTEND_CALLER_KEY=$CALLER_KEY"
+echo "HEALTH_CHECK_KEY=$HEALTH_KEY"

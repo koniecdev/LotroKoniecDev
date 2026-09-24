@@ -46,7 +46,10 @@ URL, the OIDC `Authority`, and the token `iss` never change between workflows.
 
 - `tms-api` base path for the domain: **`/api/v1/...`**. Its root `GET /` is a discovery document.
 - `auth-api` endpoints live at the root: **`connect/*`** (OpenIddict) and **`auth/*`** (custom).
-- Health (`tms-api`, anonymous): `GET /health`, `/health/live`, `/health/ready`.
+- Health (both APIs): `GET /health/live` and `/health/ready` are anonymous and run no checks. The full
+  `GET /health` runs the checks only for a caller that sends the health check key in
+  `X-LOTRO-Health-Key`; anyone else gets 404 (ADR-0058). When no key is set (allowed only in
+  Development and Testing), it is open.
 - OpenAPI/Scalar (`tms-api`, Development only, anonymous): `GET /openapi`, Scalar UI.
 
 ---
@@ -131,8 +134,9 @@ GET carry the `auth-endpoint-limit` policy (10/min); `auth/register` carries `re
 same numbers keyed on the connection's own address; forgot-password and resend-confirmation carry
 stricter 3/15 min policies; change-password, delete and the export POST are off the per-address
 policies and braked per account instead (ADR-0053); the remaining API endpoints fall under the
-generic 20/min policy (health probes and the OpenIddict discovery/JWKS documents are deliberately
-unlimited).
+generic 20/min policy (the health probes and the OpenIddict discovery/JWKS documents are deliberately
+unlimited). On both APIs the full `/health` is outside every limit too, because it answers only a
+caller with the health check key (ADR-0058); `/health/live` and `/health/ready` run no checks.
 
 For `tms-api`'s one policy (#823) and the three `auth-api` policies the Frontend's server-side calls
 reach — the generic one, `auth-endpoint-limit` and `change-email-limit` — "per IP" means per

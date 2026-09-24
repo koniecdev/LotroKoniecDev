@@ -1,6 +1,6 @@
 # ADR-0025: DB-free readiness probes — health checks must not keep the scale-to-zero database awake
 
-**Status:** Accepted — and it **survives** the move off Azure (ADR-0034, 2026-07-13 / #492). The ACA probe wiring it cites (`iac/azure-container-apps.tf`) is gone, but the ruling binds unchanged: **Neon still scales to zero**, so readiness must stay DB-free (the container healthchecks and CD now play the role the ACA probes did), and the deep `/health` remains the on-demand check the daily ping uses.
+**Status:** Accepted — and it **survives** the move off Azure (ADR-0034, 2026-07-13 / #492). The ACA probe wiring it cites (`iac/azure-container-apps.tf`) is gone, but the ruling binds unchanged: **Neon still scales to zero**, so readiness must stay DB-free (the container healthchecks and CD now play the role the ACA probes did), and the deep `/health` remains the on-demand check the daily ping uses. **Amended 2026-09-24 by ADR-0058 (#853):** the deep `/health` now answers only a caller with the health check key; everyone else gets 404, and no check runs.
 **Date:** 2026-07-05
 **Decision-makers:** Solo maintainer
 **Related:** ADR-0012 (health-gated rollout; prod `min_replicas = 1`), ADR-0014 (Neon adoption),
@@ -70,6 +70,9 @@ itself is what prevents the suspend. The probe defeats the platform feature it s
   identical exposure before this ADR, and no rate limit stops a one-request-per-4-minutes
   keep-awake anyway. If it ever shows in the consumption numbers, the knob is auth on the deep
   endpoint (or dropping it from the public ingress) — not re-tagging the probe.
+  **Superseded by ADR-0058 (#853):** the deep `/health` now needs the health check key, so a stranger
+  can no longer run its checks. The keep-awake point still holds for the other anonymous endpoints
+  that read the database.
 
 ## Alternatives Considered
 

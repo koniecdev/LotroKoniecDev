@@ -240,6 +240,13 @@ try
             name: "translationdb",
             tags: ["db", "postgres"]);
 
+    // The full /health runs only for a caller with this key (ADR-0058, #853). The key is required outside
+    // Development and Testing.
+    builder.Services.AddOptions<HealthCheckSettings>()
+        .BindConfiguration(HealthCheckSettings.ConfigurationSection)
+        .ValidateOnStart();
+    builder.Services.AddSingleton<IValidateOptions<HealthCheckSettings>, HealthCheckSettingsValidator>();
+
     // Every frontend call reaches this API from the frontend's one container, so the policy takes its
     // key from this resolver: a direct caller's own address, or the visitor's address the frontend
     // forwards next to the environment's key (ADR-0054, #823). The key is required outside Development
@@ -350,10 +357,12 @@ try
         app.MapScalarApiReference().AllowAnonymous();
     }
 
-    app.MapHealthChecks("/health", new HealthCheckOptions
+    // The full /health queries the database, so it answers only a caller with the health check key
+    // (ADR-0058). The two probes below run no checks and stay open.
+    app.MapKeyGatedHealthChecks("/health", new HealthCheckOptions
     {
         ResponseWriter = HealthCheckResponseWriter.WriteResponse
-    }).AllowAnonymous();
+    });
 
     app.MapHealthChecks("/health/live", new HealthCheckOptions
     {

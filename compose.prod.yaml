@@ -132,6 +132,9 @@ services:
       # next to the OpenIddict secrets. Same shape as compose.hetzner.yaml: the SAME variable feeds
       # tms-api and the frontend below.
       FrontendCaller__Key: ${FRONTEND_CALLER_KEY:?FRONTEND_CALLER_KEY must be set in .env.prod — scripts/up-prod.sh mints it into a fresh .env.prod; an existing one needs the line appended by hand, see the runbook (ADR-0054)}
+      # Opens the full /health (ADR-0058, #853), minted by the same script. The SAME variable feeds
+      # tms-api below. Send it as X-LOTRO-Health-Key; without it the answer is 404.
+      HealthCheck__Key: ${HEALTH_CHECK_KEY:?HEALTH_CHECK_KEY must be set in .env.prod — scripts/up-prod.sh mints it into a fresh .env.prod; an existing one needs the line appended by hand, see the runbook (ADR-0058)}
       OpenIddict__WebClient__RedirectUris__0: "https://app.lotro.test/callback"
       OpenIddict__WebClient__PostLogoutRedirectUris__0: "https://app.lotro.test"
       Cors__AllowedOrigins__0: "https://app.lotro.test"
@@ -182,6 +185,8 @@ services:
       ForwardedHeaders__KnownNetworks__0: "10.60.0.0/24"
       # The same caller key as auth-api's (ADR-0054, #823).
       FrontendCaller__Key: ${FRONTEND_CALLER_KEY:?FRONTEND_CALLER_KEY must be set in .env.prod — scripts/up-prod.sh mints it into a fresh .env.prod; an existing one needs the line appended by hand, see the runbook (ADR-0054)}
+      # The same health check key as auth-api's (ADR-0058, #853).
+      HealthCheck__Key: ${HEALTH_CHECK_KEY:?HEALTH_CHECK_KEY must be set in .env.prod — scripts/up-prod.sh mints it into a fresh .env.prod; an existing one needs the line appended by hand, see the runbook (ADR-0058)}
       ConnectionStrings__TranslationDatabase: ${ConnectionStrings__TranslationDatabase}
       # In Production OpenIddict rejects plain HTTP, so tms-api fetches OIDC metadata + JWKS through
       # the proxy over https (why it trusts the local CA via the entrypoint above). Issuer = the public

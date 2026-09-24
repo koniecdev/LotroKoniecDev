@@ -10,7 +10,7 @@ namespace LotroKoniecDev.Frontend.Infrastructure.HttpClients.TranslationSystemHt
 /// Asks the TMS API for the link-carrying representation, by sending
 /// <see cref="MediaTypes.HateoasJson"/> in <c>Accept</c>, and passes on the logged-in translator's
 /// access token. The token is only added once an OIDC session exists; anonymous requests, such as the
-/// public <c>GET /health</c> probe, go through without one.
+/// public translation list, go through without one.
 /// A <c>401</c> on a logged-in call marks the session dead, so the next <c>OnValidatePrincipal</c> signs
 /// it out cleanly. That is the fallback behind the signature check we do ourselves.
 /// </summary>

@@ -131,6 +131,13 @@ internal static class ApiDependencyInjection
             services.AddSingleton<IValidateOptions<FrontendCallerSettings>, FrontendCallerSettingsValidator>();
             services.AddSingleton<RateLimitPartitionKeyResolver>();
 
+            // The full /health runs only for a caller with this key (ADR-0058, #853). The key is required
+            // outside Development and Testing.
+            services.AddOptions<HealthCheckSettings>()
+                .BindConfiguration(HealthCheckSettings.ConfigurationSection)
+                .ValidateOnStart();
+            services.AddSingleton<IValidateOptions<HealthCheckSettings>, HealthCheckSettingsValidator>();
+
             // The outbox relay works on a signal (ADR-0035). Writers add rows through the shared writer
             // and wake the singleton signal after their commit, so the relay does not poll the database
             // on a timer.

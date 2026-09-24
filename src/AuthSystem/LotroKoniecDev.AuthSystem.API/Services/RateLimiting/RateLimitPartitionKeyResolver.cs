@@ -1,4 +1,5 @@
 using System.Net;
+using System.Net.Sockets;
 using System.Security.Cryptography;
 using System.Text;
 using Microsoft.Extensions.Options;
@@ -20,6 +21,7 @@ namespace LotroKoniecDev.AuthSystem.API.Services.RateLimiting;
 internal sealed class RateLimitPartitionKeyResolver
 {
     private const string UnknownClientKey = "unknown";
+    private const int Slash64PrefixLength = 8;
 
     private readonly byte[]? _frontendKeyDigest;
 
@@ -30,9 +32,34 @@ internal sealed class RateLimitPartitionKeyResolver
     }
 
     public string Resolve(HttpContext httpContext) =>
-        ReadForwardedClientAddress(httpContext.Request.Headers) is { } forwardedClientAddress
-            ? forwardedClientAddress.ToString()
-            : httpContext.Connection.RemoteIpAddress?.ToString() ?? UnknownClientKey;
+        KeyFor(ReadForwardedClientAddress(httpContext.Request.Headers) ?? httpContext.Connection.RemoteIpAddress);
+
+    /// <summary>
+    /// One client, one key (#831). An IPv6 client usually owns a whole /64 and can move to a new address
+    /// inside it for free, so an IPv6 address counts as its /64. An IPv4 address written in IPv6 form
+    /// (<c>::ffff:203.0.113.7</c>) counts as the IPv4 address it is.
+    /// </summary>
+    public static string KeyFor(IPAddress? address)
+    {
+        if (address is null)
+        {
+            return UnknownClientKey;
+        }
+
+        if (address.IsIPv4MappedToIPv6)
+        {
+            return address.MapToIPv4().ToString();
+        }
+
+        if (address.AddressFamily is not AddressFamily.InterNetworkV6)
+        {
+            return address.ToString();
+        }
+
+        byte[] prefix = address.GetAddressBytes();
+        Array.Clear(prefix, Slash64PrefixLength, prefix.Length - Slash64PrefixLength);
+        return $"{new IPAddress(prefix)}/64";
+    }
 
     private IPAddress? ReadForwardedClientAddress(IHeaderDictionary headers)
     {

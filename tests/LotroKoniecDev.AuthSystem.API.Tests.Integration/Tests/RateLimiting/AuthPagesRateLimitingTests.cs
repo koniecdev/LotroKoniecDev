@@ -21,6 +21,8 @@ public sealed class AuthPagesRateLimitingTests : EndpointsTestBase
     /// <summary>Mirrors the forgot-password-limit policy the page carries: 3 POSTs per 15 minutes.</summary>
     private const int ForgotPasswordPermitLimit = 3;
 
+    private const string ForwardedForHeader = "X-Forwarded-For";
+
     private static readonly Uri LoginPage = new("/Account/Login", UriKind.Relative);
     private static readonly Uri RegisterPage = new("/Account/Register", UriKind.Relative);
     private static readonly Uri ForgotPasswordPage = new("/Account/ForgotPassword", UriKind.Relative);
@@ -91,6 +93,40 @@ public sealed class AuthPagesRateLimitingTests : EndpointsTestBase
         statusCodes.Take(AuthPagePostPermitLimit)
             .ShouldAllBe(statusCode => statusCode != HttpStatusCode.TooManyRequests);
         statusCodes[AuthPagePostPermitLimit].ShouldBe(HttpStatusCode.TooManyRequests);
+    }
+
+    // #831: an IPv6 client can move to any address in its /64 for free, and an IPv4 address can arrive
+    // written in IPv6 form. Each row is a spender, another address of the same client, and a second client.
+    public static TheoryData<string, string, string> AddressesOfOneClientAndAnother => new()
+    {
+        { "2001:db8:0:1::10", "2001:db8:0:1:ffff::99", "2001:db8:0:2::10" },
+        { "203.0.113.70", "::ffff:203.0.113.70", "203.0.113.71" }
+    };
+
+    [Theory]
+    [MemberData(nameof(AddressesOfOneClientAndAnother))]
+    public async Task LoginPagePost_ShouldKeepOneBudgetPerClient_WhicheverAddressItUses(
+        string spenderAddress,
+        string sameClientAddress,
+        string otherClientAddress)
+    {
+        // Arrange: in Testing UseForwardedHeaders trusts every peer, so X-Forwarded-For plays the
+        // connection address Caddy resolves. The page policy keys on that address, not on the resolver.
+        using WebApplicationFactory<Program> limitedHost = CreateRateLimitedHost();
+        using HttpClient client = limitedHost.CreateClient();
+        for (int i = 0; i < AuthPagePostPermitLimit; i++)
+        {
+            using HttpResponseMessage attempt = await PostLoginFromAsync(client, spenderAddress);
+            attempt.StatusCode.ShouldNotBe(HttpStatusCode.TooManyRequests);
+        }
+
+        // Act
+        using HttpResponseMessage sameClient = await PostLoginFromAsync(client, sameClientAddress);
+        using HttpResponseMessage otherClient = await PostLoginFromAsync(client, otherClientAddress);
+
+        // Assert: the second client proves the 429 is the spender's bucket, not a limit on everyone
+        sameClient.StatusCode.ShouldBe(HttpStatusCode.TooManyRequests);
+        otherClient.StatusCode.ShouldNotBe(HttpStatusCode.TooManyRequests);
     }
 
     [Fact]
@@ -277,6 +313,20 @@ public sealed class AuthPagesRateLimitingTests : EndpointsTestBase
         string body = await lastResponse.Content.ReadAsStringAsync();
         body.ShouldNotContain("<!DOCTYPE html>");
         lastResponse.Dispose();
+    }
+
+    // No antiforgery token, so the page refuses the POST before any work. The limiter counts it anyway.
+    private static async Task<HttpResponseMessage> PostLoginFromAsync(HttpClient client, string clientAddress)
+    {
+        using HttpRequestMessage request = new(HttpMethod.Post, LoginPage);
+        request.Headers.Add(ForwardedForHeader, clientAddress);
+        request.Content = new FormUrlEncodedContent(new Dictionary<string, string>
+        {
+            ["Email"] = "burst@lotro-translator.pl",
+            ["Password"] = "WrongPass1!"
+        });
+
+        return await client.SendAsync(request);
     }
 
     private WebApplicationFactory<Program> CreateRateLimitedHost()

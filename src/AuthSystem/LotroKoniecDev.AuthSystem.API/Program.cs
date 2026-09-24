@@ -454,9 +454,10 @@ try
     // The browser-facing page policies and register-limit stay on the connection's own address on
     // purpose. The frontend never posts to a Razor page nor to auth/register, so for them that address
     // already is the client, and honouring the key there would only let a leaked key dodge the login
-    // form's brake or buy a fresh mail budget per invented address.
+    // form's brake or buy a fresh mail budget per invented address. The address is keyed the way the
+    // resolver keys it, so an IPv6 client cannot get a fresh bucket by moving inside its /64 (#831).
     static string ConnectionAddress(HttpContext httpContext) =>
-        httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+        RateLimitPartitionKeyResolver.KeyFor(httpContext.Connection.RemoteIpAddress);
 
     WebApplication app = builder.Build();
 

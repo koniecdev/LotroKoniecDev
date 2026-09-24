@@ -20,6 +20,7 @@ public sealed class AdminSeedingTests : EndpointsTestBase
     private const string AdminEmail = "admin@lotro-translator.pl";
     private const string AdminUsername = "seededadmin";
     private const string AdminPassword = "AdminTest123!";
+    private const string TranslatorUsername = "translatorone";
 
     public AdminSeedingTests(AuthSystemApiFactory appFactory) : base(appFactory) { }
 
@@ -181,21 +182,23 @@ public sealed class AdminSeedingTests : EndpointsTestBase
     }
 
     /// <summary>
-    /// The row without a password is the one a "repair a half-made admin" shortcut would promote, so it
-    /// is pinned too (ADR-0056 amendment, #839).
+    /// The last row has the shape of an admin half-made before #839: the configured username, confirmed,
+    /// no password. A "repair a half-made admin" shortcut would promote exactly that row, so it is pinned
+    /// too (ADR-0056 amendment).
     /// </summary>
     [Theory]
-    [InlineData(AdminEmail, true, true)]
-    [InlineData(AdminEmail, false, true)]
-    [InlineData("Admin@Lotro-Translator.pl", true, true)]
-    [InlineData(AdminEmail, true, false)]
+    [InlineData(AdminEmail, TranslatorUsername, true, true)]
+    [InlineData(AdminEmail, TranslatorUsername, false, true)]
+    [InlineData("Admin@Lotro-Translator.pl", TranslatorUsername, true, true)]
+    [InlineData(AdminEmail, AdminUsername, true, false)]
     public async Task SeedAuthDatabase_ConfiguredEmailBelongsToAccountWithoutAdminRole_DoesNotPromoteIt(
         string existingEmail,
+        string existingUsername,
         bool emailConfirmed,
         bool hasPassword)
     {
         // Arrange
-        await CreateTranslatorAsync(existingEmail, emailConfirmed, hasPassword);
+        await CreateTranslatorAsync(existingEmail, emailConfirmed, hasPassword, existingUsername);
 
         // Act
         await ReseedAsync();
@@ -392,7 +395,11 @@ public sealed class AdminSeedingTests : EndpointsTestBase
             environment);
     }
 
-    private async Task<Guid> CreateTranslatorAsync(string email, bool emailConfirmed, bool hasPassword = true)
+    private async Task<Guid> CreateTranslatorAsync(
+        string email,
+        bool emailConfirmed,
+        bool hasPassword = true,
+        string username = TranslatorUsername)
     {
         await using AsyncServiceScope scope = Factory.Services.CreateAsyncScope();
         UserManager<ApplicationUser> userManager =
@@ -400,7 +407,7 @@ public sealed class AdminSeedingTests : EndpointsTestBase
 
         ApplicationUser translator = new()
         {
-            UserName = "translatorone",
+            UserName = username,
             Email = email,
             EmailConfirmed = emailConfirmed
         };

@@ -88,15 +88,18 @@ joins this list in the same change.
 
 ### 2. Waiting is the default; only a proven secret skips it
 
-The clock starts as the first step after input validation, before the lookup, and the wait runs in a
-`finally`, so a branch that throws does not answer early either. A malformed address is refused
-before the lookup and does not wait: that answer depends on the input alone.
+Every member hands the work that starts with the lookup to `IResponseTimeFloor.HoldAsync`. The clock
+starts inside `HoldAsync` before the work runs, and an exception from the work waits too, then leaves
+unchanged. So the rule "clock before the lookup, wait on every exit" holds by construction: a member
+cannot start the clock late or forget the wait on one branch. A malformed address is refused before
+the lookup and does not wait: that answer depends on the input alone.
 
-- **Handlers** wrap their whole body after validation in one wait. Every branch pays it, including
-  one added later. Reset, confirm and cancel also wait on success: success needs the mailed token, so
-  it reveals nothing, and one rule is simpler than two. These actions are rare.
+- **Handlers** hand over their whole body after validation. Every branch pays the wait, including one
+  added later. Reset, confirm and cancel also wait on success: success needs the mailed token, so it
+  reveals nothing, and one rule is simpler than two. These actions are rare.
 - **The login page** checks the credentials in one method that returns either an account whose
-  password it verified, or nothing. Nothing waits. Only a verified account skips the wait, and only
+  password it verified, or nothing. Nothing waits. Only a verified account skips the wait
+  (`skipWaitFor`), and only
   such an account reaches the success path and the two answers that name their reason (unconfirmed
   address, scheduled deletion — ADR-0046). A new failure branch inside that method waits without
   anyone remembering it. The success path is the hot path of the product and needs the password, so
@@ -115,12 +118,24 @@ is slow or down, or the CPU is saturated, a branch can run past the floor and th
 attacker can cause the last one by loading the box from many addresses. Decision 5 is what is left
 then.
 
+Resend is the member most exposed to this. `EmailService` tries a send up to three times, each with a
+10 s timeout and a backoff of about 0.5 s and then 1 s between tries. So when the relay has a
+passing error or is slow, the unconfirmed branch with a permit can take 4–30 s while every other
+branch answers at 3 s, and that shows an unconfirmed account. A floor long enough for the retries
+would make every resend wait half a minute, so this is accepted. What limits it: only an unconfirmed
+account with a send permit takes that branch, each inbox has 3 permits per 15 minutes (ADR-0055,
+ADR-0057), and a failing relay stops mail for every user, so it does not go unnoticed.
+
 ### 4. The wait spends no CPU and never ends early
 
 The wait is `Task.Delay` on the injected `TimeProvider`, so a held request costs a timer, not a
 thread or a hash. After each delay it checks the elapsed time again and waits for the rest: a timer
-can fire a little early (up to about 15 ms on Windows), and the floor must be a lower bound. The wait
-follows the request's cancellation token; a caller who hangs up learns nothing.
+can fire a little early (up to about 15 ms on Windows), and the floor must be a lower bound.
+
+The wait does **not** follow the request's cancellation token. It runs after the work, and a
+cancelled wait would replace the real outcome with a cancellation: a database exception would be
+logged as a harmless client abort, and a committed success would read as cancelled. A caller who
+hangs up keeps a timer alive for at most one floor, which costs nothing worth saving.
 
 ### 5. Every branch still pays exactly one hash
 
@@ -133,8 +148,8 @@ through `UserManager.PasswordHasher`, so the integration host's spy counts it.
 
 ### 6. One service, and a no-op floor in the integration suite
 
-`IResponseTimeFloor` (singleton) starts a `ResponseTimer` for a given floor; the timer does the wait.
-Every member uses it. The integration host replaces it with a floor that never waits, so the hundreds
+`IResponseTimeFloor` (singleton) runs the work through `HoldAsync`; an internal `ResponseTimer`
+does the wait. Every member uses it. The integration host replaces it with a floor that never waits, so the hundreds
 of tests that post to these pages do not each pay 0.5–3 s. The floor tests put the production
 registration back and check, per branch, that the answer takes at least the floor.
 
@@ -145,7 +160,9 @@ owner clicked the mailed link twice) still shows the success page; any other tok
 "link not valid" answer as an unknown address. The token stays valid after confirmation, because
 confirming does not change the security stamp, so the double click keeps working for the link's 24
 hours, unless something else changes the stamp first (a password reset or change, an e-mail change).
-Then the second click gets "link not valid", which is true.
+After that, or after the 24 hours, the owner of an active account gets "link not valid". The page
+cannot tell them their account is active without telling a stranger the same, so the "link not
+valid" text now ends with "if your account is already active, just sign in", for every caller.
 
 ## Consequences
 
@@ -170,9 +187,9 @@ Then the second click gets "link not valid", which is true.
 - **The floor can be overrun** (decision 3), and then only decision 5 is left.
 - **Registration and the e-mail change form still disclose** whether an address is taken (#860).
   Until the owner rules there, this ADR hides nothing that those give away more cheaply.
-- **The floor tests prove a lower bound only.** A member whose timer started after its work would
-  still pass them. Starting the clock before the lookup and waiting in a `finally` is a structural
-  rule of this ADR, checked in review, not by a test.
+- **The floor tests prove a lower bound only.** They would not catch a clock that started after the
+  work. `HoldAsync` makes that impossible for a member that uses it (decision 2); a member that does
+  not call it at all fails its floor test.
 - **The suite runs with a no-op floor.** An ordinary test would not notice a member that stopped
   waiting; only the floor tests would. They cover every member and every branch in decision 1.
 
@@ -213,8 +230,9 @@ each page has its own messages and error mapping, so it is a behaviour-preservin
 
 ## Implementation Notes
 
-- New: `Services/ResponseTiming/IResponseTimeFloor.cs`, `ResponseTimeFloor.cs`, `ResponseTimer.cs`,
-  `ResponseTimeFloors.cs`; registered in `ApiDependencyInjection.AddAuthApi` as a singleton.
+- New: `Services/ResponseTiming/IResponseTimeFloor.cs` (`HoldAsync`), `ResponseTimeFloor.cs`,
+  `ResponseTimer.cs`, `ResponseTimeFloors.cs`; registered in `ApiDependencyInjection.AddAuthApi` as a
+  singleton.
 - Members: `Pages/Account/Login.cshtml.cs` (credential check split into one method, decision 2),
   `Pages/Account/ForgotPassword.cshtml.cs`, `Pages/Account/ResetPassword.cshtml.cs`,
   `Pages/Account/ConfirmEmail.cshtml.cs` (also decision 7), and the handlers in
@@ -227,7 +245,8 @@ each page has its own messages and error mapping, so it is a behaviour-preservin
   branches that gained the hash); `ConfirmEmailPageTests` (decision 7). The integration host swaps in
   `NoResponseTimeFloor` with the same exactly-one-registration check it uses for hosted services.
   The floor tests share one host with the real floor (`AuthSystemApiFactory.GetResponseTimeFloorHostAsync`),
-  built once and warmed up, that runs no outbox relay so it cannot take another test's outbox row.
+  built once and warmed up with one account lookup, that runs no outbox relay so it cannot take
+  another test's outbox row.
 - Not members: registration and the e-mail change form (they disclose by design today, #860); the
   password grant on the token endpoint (only on in the Testing environment).
 

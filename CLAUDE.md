@@ -508,8 +508,9 @@ hash-check → patch → launch flow is validated. Re-investigating any of it is
   last check before the send, never in the dispatch leg.
 - **An anonymous answer that hides whether an address has an account waits for a time floor
   (ADR-0059, #840).** Login's general-failure answers, forgot-password, reset-password, confirm-email
-  and cancel-deletion (500 ms), and resend-confirmation (3 s) — page and API alike — start
-  `IResponseTimeFloor` just before the address lookup and await it in a `finally`. Every path after
+  and cancel-deletion (500 ms), and resend-confirmation (3 s) — page and API alike — hand the work
+  from the address lookup onward to `IResponseTimeFloor.HoldAsync`, which starts the clock before the
+  work and waits on every exit, a throw included. Every path after
   the lookup still verifies exactly one password hash (the dummy one where there is no real one) as
   the second layer. "Make every branch do the same work" failed three times (#314, ADR-0056 §4, #840):
   a database write or a live mail has no cheap twin. A new anonymous page or endpoint that looks an

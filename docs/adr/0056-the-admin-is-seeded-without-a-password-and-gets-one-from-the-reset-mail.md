@@ -1,12 +1,14 @@
 # ADR-0056: The Admin Is Seeded Without a Password and Gets One From the Reset Mail
 
-**Status:** Accepted
+**Status:** Accepted (amended 2026-09-24 by #839 — the account and its role are one write, and an
+existing account is never promoted)
 **Date:** 2026-09-23
 **Decision-makers:** Solo maintainer (ticket #696)
 **Related:** AuthSystem.API (`Extensions/DatabaseSeederExtensions.cs`, `Pages/Account/Login.cshtml.cs`),
 `compose.hetzner.yaml`, `compose.prod.yaml`, runbook → "Admin account — first sign-in and rotation",
 ADR-0022 (the admin logs in by e-mail), ADR-0038 (password reset through the outbox), ADR-0049
-(a reset revokes sessions), ADR-0050 (where logs are stored), tickets #210, #689, #696, #837, #838
+(a reset revokes sessions), ADR-0050 (where logs are stored), ADR-0048 (the e-mail change undo link),
+tickets #210, #689, #696, #837, #838, #839
 
 ## Context
 
@@ -196,12 +198,16 @@ grant the role, and with this ADR the gap showed only after the whole reset-mail
 2. **An account that already has the admin address is never promoted.** The seeder logs warning `2354`
    on every start instead and leaves the account as it is. Granting the role would make whoever holds
    that address an admin, and the seeder cannot tell the operator's own account from a stranger's
-   registration at a mistyped or squatted address. The runbook tells the cases apart by the row
-   (`EmailConfirmed`) and gives the one SQL statement that grants the role when it is safe.
+   registration at a mistyped or squatted address. The runbook grants the role by hand only to a row
+   that is confirmed, has no password and has no armed undo link, which is the shape of an admin
+   half-made before this fix. `EmailConfirmed` alone is not enough: an e-mail change can move another
+   account, with its owner's password, onto the admin address, and its undo link can take the row
+   back (ADR-0048).
 
 This is the same choice as decision 5: a startup that meets something it did not create logs and
 moves on, and never crashes or guesses. The tests are in `AdminSeedingTests`: a failure between the
-two writes, a transient failure on the role write, and an existing account at the admin address.
+two writes, a transient failure on the role write, a commit that lands but whose answer is lost, and
+an existing account at the admin address.
 
 ## References
 

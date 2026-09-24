@@ -554,26 +554,37 @@ account as it is. It never promotes an account it did not create itself: it cann
 account from a stranger's registration at a mistyped address (#839). Look at the row first:
 
 ```sql
-SELECT "Id", "UserName", "EmailConfirmed", "PasswordHash" IS NULL AS no_password FROM authsystem."Users" WHERE "NormalizedEmail" = upper('<admin e-mail>');
+SELECT "Id", "UserName", "EmailConfirmed", "PasswordHash" IS NULL AS no_password, "EmailChangeRevertTo" IS NOT NULL AS undo_armed FROM authsystem."Users" WHERE "NormalizedEmail" = upper('<admin e-mail>');
 ```
 
-- **The address is not one you read** (a typo, or the wrong address). Fix `AUTH_ADMIN_EMAIL` and
-  restart auth-api. Never give this row the role: whoever registered it chose its password.
-- **Your address, and `EmailConfirmed` is true.** Only the owner of the inbox can confirm an account,
-  so this row is yours. An admin half-made by a crash before #839 looks the same: the configured
-  username, confirmed, and no password on a box. Give it the role, then sign in again so the new token
-  carries it:
+Give the row the role by hand **only** when it is confirmed, has no password and has no armed undo
+link. That is what an admin half-made by a crash before #839 looks like: nobody has ever signed in to
+it, and only the admin inbox can give it a password. `EmailConfirmed` alone is **not** enough. An
+e-mail change moves someone else's account onto your address, with their password, as soon as you
+click the confirm link it mails you, and its undo link can later take the row back, role included
+(ADR-0048). The statement below checks all three conditions itself:
 
-  ```sql
-  INSERT INTO authsystem."UserRoles" ("UserId", "RoleId")
-  SELECT u."Id", r."Id" FROM authsystem."Users" u, authsystem."Roles" r
-  WHERE u."NormalizedEmail" = upper('<admin e-mail>') AND r."NormalizedName" = 'ADMIN';
-  ```
+```sql
+-- INSERT 0 1: granted. INSERT 0 0: the row is not safe to promote, so delete it instead (below).
+INSERT INTO authsystem."UserRoles" ("UserId", "RoleId")
+SELECT u."Id", r."Id" FROM authsystem."Users" u, authsystem."Roles" r
+WHERE u."Id" = '<Id from the SELECT>'
+  AND u."EmailConfirmed" AND u."PasswordHash" IS NULL AND u."EmailChangeRevertTo" IS NULL
+  AND r."NormalizedName" = 'ADMIN';
+```
 
-- **Your address, but `EmailConfirmed` is false.** Someone may have registered it before you, and then
-  they know its password. Do not give it the role. Delete the row (see the
-  [reseed traps](#reseed-traps--the-auth-seeder-is-create-if-missing)) and restart auth-api: the seeder
-  then creates the admin.
+Then set the password through the reset mail, as for any new admin
+([Admin account](#admin-account--first-sign-in-and-rotation)).
+
+Every other row is never promoted: someone else's account, an unconfirmed registration, and your own
+translator account with a password too. Either put another address into `AUTH_ADMIN_EMAIL`, or delete
+the row and restart auth-api, so the seeder creates the admin. Delete it by the `Id`, not by the
+address: the stored address can differ from the `.env` in letter case.
+
+```sql
+-- UserRoles cascades with the user.
+DELETE FROM authsystem."Users" WHERE "Id" = '<Id from the SELECT>';
+```
 
 ### TLS certificates
 

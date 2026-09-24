@@ -706,7 +706,9 @@ structure.
   Assert. One reason to fail per test.
 - **Tooling: xUnit + Shouldly + NSubstitute only.** Naming: `MethodName_Scenario_ExpectedResult`.
   (`Architecture.Tests.Unit` additionally uses **NetArchTest.Rules** — architecture rules only;
-  the two snapshot suites use **Verify.Xunit** — see the next bullet.)
+  the two snapshot suites use **Verify.Xunit** — see the next bullet; `AuthSystem.API.Tests.Unit`
+  uses **Microsoft.Extensions.TimeProvider.Testing** (`FakeTimeProvider`) for code that waits on a
+  `TimeProvider` timer, which no substitute can fire — ADR-0059.)
 - **Snapshots pin shape; they never replace an assert (#571).** Three tools, three jobs: **golden
   fixtures** own the `||` file contract on both sides (a snapshot adds nothing there and must not
   replace them), **plain asserts** own behavior across many inputs, and a **Verify snapshot** owns

@@ -62,6 +62,9 @@ per-project `stryker-config.json` after reviewing the baseline report.
 - **NaughtyStrings** — the Big List of Naughty Strings, for hostile-input theories (see below)
 - **NetArchTest.Rules** — architecture tests (assembly IL only; `LotroKoniecDev.Architecture.Tests.Unit`)
 - **Verify.Xunit** — snapshot tests for API response contracts and rendered SSR markup (see below)
+- **Microsoft.Extensions.TimeProvider.Testing** — `FakeTimeProvider`, for code that waits on a
+  `TimeProvider` timer (`Task.Delay(…, timeProvider, …)`); a substitute cannot fire those timers.
+  Used by `AuthSystem.API.Tests.Unit` for the response-time floor (ADR-0059)
 - **Xunit.SkippableFact** — E2E tests that need Windows + a real DAT
 - **coverlet.collector** — code coverage
 - Versions: `Directory.Packages.props` is the single source of truth.

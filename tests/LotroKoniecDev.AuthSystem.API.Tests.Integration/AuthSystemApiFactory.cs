@@ -15,6 +15,7 @@ using LotroKoniecDev.AuthSystem.API.Services.Emails;
 using LotroKoniecDev.AuthSystem.API.Services.Maintenance;
 using LotroKoniecDev.AuthSystem.API.Services.ResponseTiming;
 using LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared;
+using LotroKoniecDev.AuthSystem.Contracts.Features.Auth.Password;
 using LotroKoniecDev.AuthSystem.Domain.Aggregates.ApplicationUsers.Entities;
 using LotroKoniecDev.AuthSystem.Infrastructure.Messaging;
 using LotroKoniecDev.AuthSystem.Persistence;
@@ -76,13 +77,16 @@ public class AuthSystemApiFactory : WebApplicationFactory<Program>, IAsyncLifeti
                 ReplaceSingleton<IResponseTimeFloor>(services, new ResponseTimeFloor(TimeProvider.System));
             }));
 
-        // The first request builds the host, which alone can take longer than a floor. Without this a
-        // member that forgot to wait could still pass its first floor test. The host is kept only once it
-        // answered, so a failed warm-up is not handed to the next test.
+        // The first request builds the host, and the first account lookup compiles the EF query and warms
+        // Identity, which together can take longer than a floor. Without this a member that forgot to wait
+        // could still pass its first floor test. The host is kept only once it answered, so a failed
+        // warm-up is not handed to the next test.
         try
         {
             using HttpClient client = host.CreateClient();
-            using HttpResponseMessage response = await client.GetAsync(new Uri("health/live", UriKind.Relative));
+            using HttpResponseMessage response = await client.PostAsJsonAsync(
+                new Uri("auth/forgot-password", UriKind.Relative),
+                new ForgotPasswordRequest("warm-up@example.com"));
             response.EnsureSuccessStatusCode();
         }
         catch

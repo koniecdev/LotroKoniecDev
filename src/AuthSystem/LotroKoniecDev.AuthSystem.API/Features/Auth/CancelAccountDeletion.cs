@@ -5,6 +5,7 @@ using LotroKoniecDev.AuthSystem.API.ApiErrors;
 using LotroKoniecDev.AuthSystem.API.Common;
 using LotroKoniecDev.AuthSystem.API.Extensions;
 using LotroKoniecDev.AuthSystem.API.Outbox;
+using LotroKoniecDev.AuthSystem.API.Services.ResponseTiming;
 using LotroKoniecDev.AuthSystem.Contracts.Features.Auth.Account;
 using LotroKoniecDev.AuthSystem.Domain.Aggregates.ApplicationUsers.Entities;
 using LotroKoniecDev.AuthSystem.Persistence.Identity;
@@ -52,24 +53,27 @@ internal sealed partial class CancelAccountDeletion : IApiEndpoint
     internal sealed partial class Handler : ICommandHandler<Command, Result<CancelledDeletion>>
     {
         /// <summary>
-        /// A hash computed up front, so the not-found path takes as long as the normal one.
+        /// A hash computed up front, so every path verifies exactly one hash.
         /// </summary>
         private static readonly string DummyPasswordHash =
             new PasswordHasher<ApplicationUser>().HashPassword(new ApplicationUser(), "DummyP@ssw0rd!");
 
         private readonly UserManager<ApplicationUser> _userManager;
         private readonly OutboxWriter _outboxWriter;
+        private readonly IResponseTimeFloor _responseTimeFloor;
         private readonly IValidator<Command> _validator;
         private readonly ILogger<Handler> _logger;
 
         public Handler(
             UserManager<ApplicationUser> userManager,
             OutboxWriter outboxWriter,
+            IResponseTimeFloor responseTimeFloor,
             IValidator<Command> validator,
             ILogger<Handler> logger)
         {
             _userManager = userManager;
             _outboxWriter = outboxWriter;
+            _responseTimeFloor = responseTimeFloor;
             _validator = validator;
             _logger = logger;
         }
@@ -82,6 +86,21 @@ internal sealed partial class CancelAccountDeletion : IApiEndpoint
                 return Result.Failure<CancelledDeletion>(validationResult.ToValidationError(nameof(CancelAccountDeletion)));
             }
 
+            // Every answer waits for the floor, like every other page that hides whether an address has
+            // an account (ADR-0059).
+            ResponseTimer responseTimer = _responseTimeFloor.Start(ResponseTimeFloors.AccountLookup);
+            try
+            {
+                return await CancelAsync(command);
+            }
+            finally
+            {
+                await responseTimer.WaitForFloorAsync(cancellationToken);
+            }
+        }
+
+        private async Task<Result<CancelledDeletion>> CancelAsync(Command command)
+        {
             string maskedEmail = command.Email.MaskEmail();
             ApplicationUser? user = await _userManager.FindByEmailAsync(command.Email);
 

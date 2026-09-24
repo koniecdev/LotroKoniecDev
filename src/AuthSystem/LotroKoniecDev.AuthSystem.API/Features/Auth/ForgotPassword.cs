@@ -5,6 +5,7 @@ using LotroKoniecDev.AuthSystem.API.Common;
 using LotroKoniecDev.AuthSystem.API.Extensions;
 using LotroKoniecDev.AuthSystem.API.Outbox;
 using LotroKoniecDev.AuthSystem.API.Services.RateLimiting;
+using LotroKoniecDev.AuthSystem.API.Services.ResponseTiming;
 using LotroKoniecDev.AuthSystem.Contracts.Features.Auth.Password;
 using LotroKoniecDev.AuthSystem.Domain.Aggregates.ApplicationUsers.Entities;
 using LotroKoniecDev.AuthSystem.Persistence.DbContexts;
@@ -34,7 +35,7 @@ internal sealed partial class ForgotPassword : IApiEndpoint
     internal sealed partial class Handler : ICommandHandler<Command, Result>
     {
         /// <summary>
-        /// A hash computed up front, so the not-found path takes as long as the normal one.
+        /// A hash computed up front, so every path verifies exactly one hash.
         /// </summary>
         private static readonly string DummyPasswordHash =
             new PasswordHasher<ApplicationUser>().HashPassword(new ApplicationUser(), "DummyP@ssw0rd!");
@@ -43,6 +44,7 @@ internal sealed partial class ForgotPassword : IApiEndpoint
         private readonly AuthDbContext _db;
         private readonly OutboxWriter _outboxWriter;
         private readonly IPasswordResetRequestThrottle _throttle;
+        private readonly IResponseTimeFloor _responseTimeFloor;
         private readonly IValidator<Command> _validator;
         private readonly ILogger<Handler> _logger;
 
@@ -51,6 +53,7 @@ internal sealed partial class ForgotPassword : IApiEndpoint
             AuthDbContext db,
             OutboxWriter outboxWriter,
             IPasswordResetRequestThrottle throttle,
+            IResponseTimeFloor responseTimeFloor,
             IValidator<Command> validator,
             ILogger<Handler> logger)
         {
@@ -58,6 +61,7 @@ internal sealed partial class ForgotPassword : IApiEndpoint
             _db = db;
             _outboxWriter = outboxWriter;
             _throttle = throttle;
+            _responseTimeFloor = responseTimeFloor;
             _validator = validator;
             _logger = logger;
         }
@@ -70,12 +74,27 @@ internal sealed partial class ForgotPassword : IApiEndpoint
                 return Result.Failure(validationResult.ToValidationError(nameof(ForgotPassword)));
             }
 
+            // Only a real account with a send permit writes an outbox row, so every answer waits for the
+            // floor (ADR-0059).
+            ResponseTimer responseTimer = _responseTimeFloor.Start(ResponseTimeFloors.AccountLookup);
+            try
+            {
+                return await RequestResetAsync(command, cancellationToken);
+            }
+            finally
+            {
+                await responseTimer.WaitForFloorAsync(cancellationToken);
+            }
+        }
+
+        private async Task<Result> RequestResetAsync(Command command, CancellationToken cancellationToken)
+        {
             ApplicationUser? user = await _userManager.FindByEmailAsync(command.Email);
 
             // Every path pays the same PBKDF2 cost. Running the dummy hash only when the user is not
             // found would make real accounts answer measurably faster, because their path is only a
             // cheap outbox insert, and the response time would then tell an attacker which accounts
-            // exist (ADR-0038 decision 5).
+            // exist (ADR-0038 decision 5). Under the floor this is the second layer (ADR-0059 §5).
             _ = _userManager.PasswordHasher.VerifyHashedPassword(
                 new ApplicationUser(), DummyPasswordHash, "DummyP@ssw0rd!");
 

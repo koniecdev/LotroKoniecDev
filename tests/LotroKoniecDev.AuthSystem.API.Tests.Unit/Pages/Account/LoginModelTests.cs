@@ -1,6 +1,7 @@
 using LotroKoniecDev.AuthSystem.API.Pages.Account;
 using LotroKoniecDev.AuthSystem.API.Services.Accounts;
 using LotroKoniecDev.AuthSystem.API.Services.Gdpr;
+using LotroKoniecDev.AuthSystem.API.Services.ResponseTiming;
 using LotroKoniecDev.AuthSystem.API.Settings;
 using LotroKoniecDev.AuthSystem.Domain.Aggregates.ApplicationUsers.Entities;
 using LotroKoniecDev.AuthSystem.Persistence.Identity;
@@ -86,6 +87,7 @@ public sealed class LoginModelTests
                 new EmailChangeRevertWindow(
                     Microsoft.Extensions.Options.Options.Create(new EmailChangeRevertTokenProviderOptions())),
                 Microsoft.Extensions.Options.Options.Create(new GdprSettings())),
+            new ResponseTimeFloor(TimeProvider.System),
             NullLogger<LoginModel>.Instance);
 
     private static UserManager<ApplicationUser> CreateUserManager() =>

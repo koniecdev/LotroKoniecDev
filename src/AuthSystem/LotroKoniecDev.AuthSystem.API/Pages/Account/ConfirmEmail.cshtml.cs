@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc.RazorPages;
 using Microsoft.AspNetCore.RateLimiting;
+using LotroKoniecDev.AuthSystem.API.Services.ResponseTiming;
 using LotroKoniecDev.AuthSystem.Domain.Aggregates.ApplicationUsers.Entities;
 
 namespace LotroKoniecDev.AuthSystem.API.Pages.Account;
@@ -8,20 +9,25 @@ namespace LotroKoniecDev.AuthSystem.API.Pages.Account;
 [EnableRateLimiting("auth-endpoint-limit")]
 internal sealed partial class ConfirmEmailModel : PageModel
 {
+    private const string InvalidOrExpiredLinkMessage = "Link potwierdzający jest nieprawidłowy lub wygasł.";
+
     /// <summary>
-    /// A hash computed up front, so the not-found path takes as long as the normal one.
+    /// A hash computed up front, so every path verifies exactly one hash.
     /// </summary>
     private static readonly string DummyPasswordHash =
         new PasswordHasher<ApplicationUser>().HashPassword(new ApplicationUser(), "DummyP@ssw0rd!");
 
     private readonly UserManager<ApplicationUser> _userManager;
+    private readonly IResponseTimeFloor _responseTimeFloor;
     private readonly ILogger<ConfirmEmailModel> _logger;
 
     public ConfirmEmailModel(
         UserManager<ApplicationUser> userManager,
+        IResponseTimeFloor responseTimeFloor,
         ILogger<ConfirmEmailModel> logger)
     {
         _userManager = userManager;
+        _responseTimeFloor = responseTimeFloor;
         _logger = logger;
     }
 
@@ -44,15 +50,30 @@ internal sealed partial class ConfirmEmailModel : PageModel
             return;
         }
 
+        // A real account never hashed here and fails at the cheap token check, so every answer waits for
+        // the floor (ADR-0059).
+        ResponseTimer responseTimer = _responseTimeFloor.Start(ResponseTimeFloors.AccountLookup);
+        try
+        {
+            await ConfirmAsync();
+        }
+        finally
+        {
+            await responseTimer.WaitForFloorAsync(HttpContext.RequestAborted);
+        }
+    }
+
+    private async Task ConfirmAsync()
+    {
         ApplicationUser? user = await _userManager.FindByEmailAsync(Email);
+
+        // Every path pays the same PBKDF2 cost, the second layer under the floor (ADR-0059 §5).
+        _ = _userManager.PasswordHasher.VerifyHashedPassword(
+            new ApplicationUser(), DummyPasswordHash, "DummyP@ssw0rd!");
 
         if (user is null)
         {
-            // Do the same work anyway, so the response time does not reveal whether the user exists.
-            _ = new PasswordHasher<ApplicationUser>()
-                .VerifyHashedPassword(new ApplicationUser(), DummyPasswordHash, "DummyP@ssw0rd!");
-
-            ErrorMessage = "Link potwierdzający jest nieprawidłowy lub wygasł.";
+            ErrorMessage = InvalidOrExpiredLinkMessage;
             return;
         }
 
@@ -74,7 +95,7 @@ internal sealed partial class ConfirmEmailModel : PageModel
 
         if (result.Errors.Any(e => e.Code is "InvalidToken"))
         {
-            ErrorMessage = "Link potwierdzający jest nieprawidłowy lub wygasł.";
+            ErrorMessage = InvalidOrExpiredLinkMessage;
             return;
         }
 

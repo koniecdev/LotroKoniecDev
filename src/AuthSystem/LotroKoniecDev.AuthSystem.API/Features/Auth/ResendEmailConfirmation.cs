@@ -5,6 +5,7 @@ using LotroKoniecDev.AuthSystem.API.Common;
 using LotroKoniecDev.AuthSystem.API.Extensions;
 using LotroKoniecDev.AuthSystem.API.Services.Emails;
 using LotroKoniecDev.AuthSystem.API.Services.RateLimiting;
+using LotroKoniecDev.AuthSystem.API.Services.ResponseTiming;
 using LotroKoniecDev.AuthSystem.Contracts.Features.Auth.EmailConfirmation;
 using LotroKoniecDev.AuthSystem.Domain.Aggregates.ApplicationUsers.Entities;
 
@@ -34,7 +35,7 @@ internal sealed partial class ResendEmailConfirmation : IApiEndpoint
     internal sealed partial class Handler : ICommandHandler<Command, Result>
     {
         /// <summary>
-        /// A hash computed up front, so the not-found path takes as long as the normal one.
+        /// A hash computed up front, so every path verifies exactly one hash.
         /// </summary>
         private static readonly string DummyPasswordHash =
             new PasswordHasher<ApplicationUser>().HashPassword(new ApplicationUser(), "DummyP@ssw0rd!");
@@ -42,6 +43,7 @@ internal sealed partial class ResendEmailConfirmation : IApiEndpoint
         private readonly UserManager<ApplicationUser> _userManager;
         private readonly IAccountConfirmationEmailSender _accountConfirmationEmailSender;
         private readonly IEmailConfirmationResendThrottle _throttle;
+        private readonly IResponseTimeFloor _responseTimeFloor;
         private readonly IValidator<Command> _validator;
         private readonly ILogger<Handler> _logger;
 
@@ -49,12 +51,14 @@ internal sealed partial class ResendEmailConfirmation : IApiEndpoint
             UserManager<ApplicationUser> userManager,
             IAccountConfirmationEmailSender accountConfirmationEmailSender,
             IEmailConfirmationResendThrottle throttle,
+            IResponseTimeFloor responseTimeFloor,
             IValidator<Command> validator,
             ILogger<Handler> logger)
         {
             _userManager = userManager;
             _accountConfirmationEmailSender = accountConfirmationEmailSender;
             _throttle = throttle;
+            _responseTimeFloor = responseTimeFloor;
             _validator = validator;
             _logger = logger;
         }
@@ -67,17 +71,31 @@ internal sealed partial class ResendEmailConfirmation : IApiEndpoint
                 return Result.Failure(validationResult.ToValidationError(nameof(ResendEmailConfirmation)));
             }
 
+            // Only an unconfirmed account with a permit sends a mail, live, so every answer waits for the
+            // longer floor (ADR-0059).
+            ResponseTimer responseTimer = _responseTimeFloor.Start(ResponseTimeFloors.LiveMailSend);
+            try
+            {
+                return await ResendAsync(command, cancellationToken);
+            }
+            finally
+            {
+                await responseTimer.WaitForFloorAsync(cancellationToken);
+            }
+        }
+
+        private async Task<Result> ResendAsync(Command command, CancellationToken cancellationToken)
+        {
             ApplicationUser? user = await _userManager.FindByEmailAsync(command.Email);
+
+            // Every path pays the same PBKDF2 cost, the second layer under the floor (ADR-0059 §5).
+            _ = _userManager.PasswordHasher.VerifyHashedPassword(
+                new ApplicationUser(), DummyPasswordHash, "DummyP@ssw0rd!");
 
             string maskedEmail = command.Email.MaskEmail();
 
             if (user is null)
             {
-                // Do the same work anyway, so the response time does not reveal whether the user
-                // exists.
-                _ = new PasswordHasher<ApplicationUser>()
-                    .VerifyHashedPassword(new ApplicationUser(), DummyPasswordHash, "DummyP@ssw0rd!");
-
                 LogResendNonExistent(_logger, maskedEmail);
 
                 // Always report success, so nobody can find out which e-mails are registered.

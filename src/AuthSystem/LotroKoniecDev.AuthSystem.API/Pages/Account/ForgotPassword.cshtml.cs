@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.RateLimiting;
 using LotroKoniecDev.AuthSystem.API.Extensions;
 using LotroKoniecDev.AuthSystem.API.Outbox;
 using LotroKoniecDev.AuthSystem.API.Services.RateLimiting;
+using LotroKoniecDev.AuthSystem.API.Services.ResponseTiming;
 using LotroKoniecDev.AuthSystem.Domain.Aggregates.ApplicationUsers.Entities;
 using LotroKoniecDev.AuthSystem.Persistence.DbContexts;
 
@@ -18,7 +19,7 @@ namespace LotroKoniecDev.AuthSystem.API.Pages.Account;
 internal sealed partial class ForgotPasswordModel : PageModel
 {
     /// <summary>
-    /// A hash computed up front, so the not-found path takes as long as the normal one.
+    /// A hash computed up front, so every path verifies exactly one hash.
     /// </summary>
     private static readonly string DummyPasswordHash =
         new PasswordHasher<ApplicationUser>().HashPassword(new ApplicationUser(), "DummyP@ssw0rd!");
@@ -27,6 +28,7 @@ internal sealed partial class ForgotPasswordModel : PageModel
     private readonly AuthDbContext _db;
     private readonly OutboxWriter _outboxWriter;
     private readonly IPasswordResetRequestThrottle _throttle;
+    private readonly IResponseTimeFloor _responseTimeFloor;
     private readonly ILogger<ForgotPasswordModel> _logger;
 
     public ForgotPasswordModel(
@@ -34,12 +36,14 @@ internal sealed partial class ForgotPasswordModel : PageModel
         AuthDbContext db,
         OutboxWriter outboxWriter,
         IPasswordResetRequestThrottle throttle,
+        IResponseTimeFloor responseTimeFloor,
         ILogger<ForgotPasswordModel> logger)
     {
         _userManager = userManager;
         _db = db;
         _outboxWriter = outboxWriter;
         _throttle = throttle;
+        _responseTimeFloor = responseTimeFloor;
         _logger = logger;
     }
 
@@ -61,12 +65,31 @@ internal sealed partial class ForgotPasswordModel : PageModel
             return Page();
         }
 
+        // Only a real account with a send permit writes an outbox row, so every answer waits for the floor
+        // (ADR-0059).
+        ResponseTimer responseTimer = _responseTimeFloor.Start(ResponseTimeFloors.AccountLookup);
+        try
+        {
+            await RequestResetAsync();
+        }
+        finally
+        {
+            await responseTimer.WaitForFloorAsync(HttpContext.RequestAborted);
+        }
+
+        // Always show success, so nobody can find out which e-mails are registered.
+        IsSubmitted = true;
+        return Page();
+    }
+
+    private async Task RequestResetAsync()
+    {
         ApplicationUser? user = await _userManager.FindByEmailAsync(Email);
 
         // Every path pays the same PBKDF2 cost. Running the dummy hash only when the user is not
         // found would make real accounts answer measurably faster, because their path is only a cheap
         // outbox insert, and the response time would then tell an attacker which accounts exist
-        // (ADR-0038 decision 5).
+        // (ADR-0038 decision 5). Under the floor this is the second layer (ADR-0059 §5).
         _ = _userManager.PasswordHasher.VerifyHashedPassword(
             new ApplicationUser(), DummyPasswordHash, "DummyP@ssw0rd!");
 
@@ -89,10 +112,6 @@ internal sealed partial class ForgotPasswordModel : PageModel
         {
             LogPasswordResetThrottled(_logger, Email.MaskEmail());
         }
-
-        // Always show success, so nobody can find out which e-mails are registered.
-        IsSubmitted = true;
-        return Page();
     }
 
     [LoggerMessage(EventId = EventIds.PasswordResetRequestQueued, Level = LogLevel.Information, Message = "Password reset request queued for user {UserId}")]

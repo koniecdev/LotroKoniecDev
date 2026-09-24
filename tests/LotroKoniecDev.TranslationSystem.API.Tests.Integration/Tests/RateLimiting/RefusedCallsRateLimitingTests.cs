@@ -9,11 +9,10 @@ using Microsoft.Extensions.DependencyInjection;
 namespace LotroKoniecDev.TranslationSystem.API.Tests.Integration.Tests.RateLimiting;
 
 /// <summary>
-/// #829: the limiter runs before authentication, so a call the API refuses with 401 or 403 still
-/// spends the caller's bucket, and a call over the limit stops before the translator provisioning
-/// writes anything. The limiter is forced on for a derived host, and every test creates its own host,
-/// so its buckets are its own. In Testing <c>UseForwardedHeaders</c> trusts every peer, so
-/// <c>X-Forwarded-For</c> names the caller.
+/// #829: calls the API refuses with 401 or 403 count against fixed-by-ip, and a call over the limit
+/// creates no Translator profile. The limiter is forced on for a derived host, and every test creates
+/// its own host, so its buckets are its own. In Testing <c>UseForwardedHeaders</c> trusts every peer,
+/// so <c>X-Forwarded-For</c> names the caller.
 /// </summary>
 [Collection("TranslationApi")]
 public sealed class RefusedCallsRateLimitingTests : IAsyncLifetime
@@ -55,19 +54,16 @@ public sealed class RefusedCallsRateLimitingTests : IAsyncLifetime
     [InlineData(RefusedToken.UnknownSigningKey, HttpStatusCode.Unauthorized)]
     [InlineData(RefusedToken.Malformed, HttpStatusCode.Unauthorized)]
     [InlineData(RefusedToken.RoleWithoutAccess, HttpStatusCode.Forbidden)]
-    public async Task RefusedCalls_ShouldSpendTheCallersBucket(RefusedToken refusedToken, HttpStatusCode refusal)
+    public async Task GetGameVersions_WhenRefusedCallsSpentTheBucket_ShouldReturnTooManyRequests(
+        RefusedToken refusedToken,
+        HttpStatusCode refusal)
     {
         // Arrange: a caller spends a whole bucket on calls the API refuses
         using WebApplicationFactory<Program> limitedHost = CreateRateLimitedHost();
         using HttpClient client = limitedHost.CreateClient();
         const string callerAddress = "203.0.113.70";
         string? accessToken = CreateToken(refusedToken);
-
-        for (int i = 0; i < Bucket; i++)
-        {
-            using HttpResponseMessage refused = await GetAsync(client, GameVersionsPath, callerAddress, accessToken);
-            refused.StatusCode.ShouldBe(refusal);
-        }
+        await SpendBucketOnRefusedCallsAsync(client, callerAddress, accessToken, refusal);
 
         // Act
         using HttpResponseMessage overTheLimit = await GetAsync(client, GameVersionsPath, callerAddress, accessToken);
@@ -77,11 +73,13 @@ public sealed class RefusedCallsRateLimitingTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task CallOverTheLimit_ShouldNotCreateATranslatorProfile()
+    public async Task GetGameVersions_WhenANewTranslatorIsOverTheLimit_ShouldNotCreateATranslatorProfile()
     {
-        // Arrange: the caller's bucket is full, and this translator has never called the API before
+        // Arrange: a first translator under the limit gets a profile, which proves provisioning works on
+        // this host. The second caller's bucket is full, and that translator has never called the API.
         using WebApplicationFactory<Program> limitedHost = CreateRateLimitedHost();
         using HttpClient client = limitedHost.CreateClient();
+        await ProvisionControlTranslatorAsync(client, "203.0.113.72");
         const string callerAddress = "203.0.113.71";
         await ExhaustBucketAsync(client, callerAddress);
         string newTranslatorToken = TranslationSystemApiFactory.CreateAccessToken(AuthConstants.Roles.Translator);
@@ -89,9 +87,9 @@ public sealed class RefusedCallsRateLimitingTests : IAsyncLifetime
         // Act
         using HttpResponseMessage overTheLimit = await GetAsync(client, GameVersionsPath, callerAddress, newTranslatorToken);
 
-        // Assert: the limiter stopped the call before the provisioning could write the profile
+        // Assert: the limiter stopped the call before the provisioning could write a second profile
         overTheLimit.StatusCode.ShouldBe(HttpStatusCode.TooManyRequests);
-        (await CountTranslatorsAsync()).ShouldBe(0);
+        (await CountTranslatorsAsync()).ShouldBe(1);
     }
 
     private static string? CreateToken(RefusedToken refusedToken) => refusedToken switch
@@ -121,6 +119,25 @@ public sealed class RefusedCallsRateLimitingTests : IAsyncLifetime
         return await client.SendAsync(request);
     }
 
+    // Spends a whole bucket on calls the API refuses. Not an assertion: a call that got through would
+    // prove nothing about refused calls, so it throws.
+    private static async Task SpendBucketOnRefusedCallsAsync(
+        HttpClient client,
+        string callerAddress,
+        string? accessToken,
+        HttpStatusCode refusal)
+    {
+        for (int i = 0; i < Bucket; i++)
+        {
+            using HttpResponseMessage response = await GetAsync(client, GameVersionsPath, callerAddress, accessToken);
+            if (response.StatusCode != refusal)
+            {
+                throw new InvalidOperationException(
+                    $"Call {i + 1} from {callerAddress} answered {response.StatusCode}, not {refusal}.");
+            }
+        }
+    }
+
     // Spends a whole bucket on the anonymous discovery root. Not an assertion: a bucket that did not
     // fill is a broken precondition for the test that called this, so it throws.
     private static async Task ExhaustBucketAsync(HttpClient client, string callerAddress)
@@ -135,6 +152,20 @@ public sealed class RefusedCallsRateLimitingTests : IAsyncLifetime
         {
             throw new InvalidOperationException(
                 $"The bucket did not fill after {Bucket} requests from {callerAddress} (the probe answered {probe.StatusCode}).");
+        }
+    }
+
+    // Not an assertion either: without a profile here, a count of one after the over-limit call would
+    // not prove the limiter stopped anything.
+    private async Task ProvisionControlTranslatorAsync(HttpClient client, string callerAddress)
+    {
+        string controlToken = TranslationSystemApiFactory.CreateAccessToken(AuthConstants.Roles.Translator);
+        using HttpResponseMessage response = await GetAsync(client, GameVersionsPath, callerAddress, controlToken);
+        int translators = await CountTranslatorsAsync();
+        if (response.StatusCode != HttpStatusCode.OK || translators != 1)
+        {
+            throw new InvalidOperationException(
+                $"The control translator's call answered {response.StatusCode} and left {translators} profile(s), not 200 and 1.");
         }
     }
 

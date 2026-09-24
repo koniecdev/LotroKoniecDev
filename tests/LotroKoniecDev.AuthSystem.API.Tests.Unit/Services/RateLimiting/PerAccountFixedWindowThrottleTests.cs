@@ -31,7 +31,7 @@ public sealed class PerAccountFixedWindowThrottleTests
     }
 
     [Fact]
-    public void TryAcquire_WithTheDeletionScheduleBudget_ShouldAllowAScheduleAfterACancelAndRefuseTheNext()
+    public void TryAcquire_WithTheDeletionScheduleBudget_ShouldSurviveALostPermitAndStillRefuseALoop()
     {
         // Arrange: the shipped schedule budget (#811)
         using PerAccountFixedWindowThrottle throttle = new(
@@ -39,12 +39,15 @@ public sealed class PerAccountFixedWindowThrottleTests
         Guid userId = Guid.CreateVersion7();
 
         // Act
-        bool firstSchedule = throttle.TryAcquire(userId);
+        bool doubleSubmitWinner = throttle.TryAcquire(userId);
+        bool doubleSubmitLoser = throttle.TryAcquire(userId);
         bool scheduleAfterCancel = throttle.TryAcquire(userId);
         bool loop = throttle.TryAcquire(userId);
 
-        // Assert: a person who changes their mind once is never refused; a loop is stopped at once
-        firstSchedule.ShouldBeTrue();
+        // Assert: a double-clicked form spends two permits for one schedule, and the person can still
+        // schedule again after a cancel; the loop after that is stopped
+        doubleSubmitWinner.ShouldBeTrue();
+        doubleSubmitLoser.ShouldBeTrue();
         scheduleAfterCancel.ShouldBeTrue();
         loop.ShouldBeFalse();
     }

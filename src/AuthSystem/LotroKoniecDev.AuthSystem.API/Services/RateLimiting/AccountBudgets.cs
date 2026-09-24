@@ -40,8 +40,10 @@ internal static class AccountBudgets
     internal const int PasswordConfirmationPermitLimit = 10;
 
     /// <summary>
-    /// Deletion schedules per account per <see cref="DeletionScheduleWindow"/> (#811). Two, so a person who
-    /// cancels and changes their mind again can schedule at once, and a save that failed can be retried.
+    /// Deletion schedules per account per <see cref="DeletionScheduleWindow"/> (#811). A person needs two at
+    /// most: a schedule, and one more after a cancel. The third is room for a permit spent without a
+    /// schedule, because a fixed window never gives one back: a save that failed, or the losing half of a
+    /// double-submitted form, which passes every check before the winner's save lands.
     /// </summary>
-    internal const int DeletionSchedulePermitLimit = 2;
+    internal const int DeletionSchedulePermitLimit = 3;
 }

@@ -16,8 +16,9 @@ namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Tests.RateLimiting;
 
 /// <summary>
 /// The budget of deletion schedules that belongs to the account (#811). Cancelling a deletion returns a
-/// reset token in its response, so schedule, cancel, reset and log in is a loop that needs no mail and
-/// no fresh IP. Every schedule mails the account, and the address an armed undo would restore as well.
+/// reset token in its response, so schedule, cancel, reset and log in is a loop that needs only the cancel
+/// link in the account's current inbox, and no fresh IP. Every schedule mails the account, and the address
+/// an armed undo would restore as well.
 /// These tests run on the suite's Testing host, where the limiter middleware is off, so the only things
 /// that can refuse a request are the budgets in the handler.
 /// </summary>

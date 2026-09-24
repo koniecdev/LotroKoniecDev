@@ -9,7 +9,13 @@ namespace LotroKoniecDev.AuthSystem.API.Pages.Account;
 [EnableRateLimiting("auth-endpoint-limit")]
 internal sealed partial class ConfirmEmailModel : PageModel
 {
-    private const string InvalidOrExpiredLinkMessage = "Link potwierdzający jest nieprawidłowy lub wygasł.";
+    /// <summary>
+    /// The same words for an unknown address and for any link that does not verify, so they reveal nothing.
+    /// The last sentence is for the owner of an active account who opens an old link: sending a new
+    /// activation link would do nothing for them (ADR-0059 §7).
+    /// </summary>
+    private const string InvalidOrExpiredLinkMessage =
+        "Link potwierdzający jest nieprawidłowy lub wygasł. Jeśli Twoje konto jest już aktywne, po prostu się zaloguj.";
 
     /// <summary>
     /// A hash computed up front, so every path verifies exactly one hash.

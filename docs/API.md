@@ -48,8 +48,8 @@ URL, the OIDC `Authority`, and the token `iss` never change between workflows.
 - `auth-api` endpoints live at the root: **`connect/*`** (OpenIddict) and **`auth/*`** (custom).
 - Health (both APIs): `GET /health/live` and `/health/ready` are anonymous and run no checks. The full
   `GET /health` runs the checks only for a caller that sends the health check key in
-  `X-LOTRO-Health-Key`; anyone else gets 404 (ADR-0058). In Development and Testing no key is set, so it
-  is open there.
+  `X-LOTRO-Health-Key`; anyone else gets 404 (ADR-0058). When no key is set (allowed only in
+  Development and Testing), it is open.
 - OpenAPI/Scalar (`tms-api`, Development only, anonymous): `GET /openapi`, Scalar UI.
 
 ---

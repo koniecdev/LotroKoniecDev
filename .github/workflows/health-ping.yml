@@ -64,10 +64,8 @@ jobs:
           # The two API probes send the health check key (ADR-0058). Without it both APIs answer the
           # full /health with 404 and run no check, so a red run with HTTP 404 means the secret and the
           # box .env disagree, not that the site is down. The frontend probe does not get the key.
-          if [ -z "${HEALTH_CHECK_KEY}" ]; then
-            echo "::error::The PROD_HEALTH_CHECK_KEY repository secret is not set, so /health would answer 404."
-            exit 1
-          fi
+          # A line break pasted with the secret would break the header, so it is dropped here.
+          HEALTH_CHECK_KEY="$(printf '%s' "${HEALTH_CHECK_KEY}" | tr -d '\r\n')"
 
           probe() {
             name="$1"; url="$2"; lo="$3"; hi="$4"; send_key="${5:-}"
@@ -84,6 +82,13 @@ jobs:
                 echo "::endgroup::"
                 printf -- '- OK **%s** — HTTP %s (after %s attempt(s))\n' "$name" "$code" "$attempt" >> "$GITHUB_STEP_SUMMARY"
                 return 0
+              fi
+              # A 404 on a keyed probe is a key mismatch, and waiting does not fix a key.
+              if [ "$send_key" = "with-key" ] && [ "$code" = "404" ]; then
+                echo "::endgroup::"
+                echo "::error::${name} answered 404: PROD_HEALTH_CHECK_KEY does not match HEALTH_CHECK_KEY on the prod box."
+                printf -- '- FAIL **%s** — HTTP 404: the health check key does not match the prod box\n' "$name" >> "$GITHUB_STEP_SUMMARY"
+                return 1
               fi
               # A measured cold start from zero replicas is ~45-60 s (auth's own is ~31 s and dominates
               # the chain), so a single attempt must out-wait it: --max-time 60 above, 20 x 10 s here.
@@ -107,8 +112,15 @@ jobs:
           echo '## Prod health ping' >> "$GITHUB_STEP_SUMMARY"
 
           failed=0
-          probe auth     "https://auth.lotro-translator.pl/health" 200 200 with-key || failed=1
-          probe tms      "https://tms.lotro-translator.pl/health"  200 200 with-key || failed=1
+          if [ -n "${HEALTH_CHECK_KEY}" ]; then
+            probe auth     "https://auth.lotro-translator.pl/health" 200 200 with-key || failed=1
+            probe tms      "https://tms.lotro-translator.pl/health"  200 200 with-key || failed=1
+          else
+            # Still probe the frontend below, so one missing secret does not hide a dead site.
+            echo "::error::The PROD_HEALTH_CHECK_KEY repository secret is not set, so both API probes are skipped."
+            printf -- '- FAIL **auth, tms** — not probed: the PROD_HEALTH_CHECK_KEY repository secret is not set\n' >> "$GITHUB_STEP_SUMMARY"
+            failed=1
+          fi
           probe frontend "https://lotro-translator.pl/"            200 399 || failed=1
 
           if [ "$failed" -ne 0 ]; then

@@ -1,22 +1,21 @@
 using System.Text.RegularExpressions;
-using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.DependencyInjection;
 using LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared;
 using LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared.Bases;
 using LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared.Factories;
+using LotroKoniecDev.AuthSystem.Contracts.Features.Auth.Account;
 using LotroKoniecDev.AuthSystem.Contracts.Features.Auth.EmailConfirmation;
 using LotroKoniecDev.AuthSystem.Contracts.Features.Auth.Password;
 using LotroKoniecDev.AuthSystem.Contracts.Features.Auth.Register;
-using LotroKoniecDev.AuthSystem.Domain.Aggregates.ApplicationUsers.Entities;
 
 namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Tests.Auth;
 
 /// <summary>
 /// The second layer under the time floor (ADR-0059 §5): when a branch runs past the floor, the branches
-/// must still cost the same CPU, so each one verifies exactly one password hash. These branches used to
-/// skip the dummy hash for a real account and answered faster than an unknown address. Login and forgot
-/// password are pinned elsewhere.
+/// must still cost the same CPU, so each one verifies exactly one password hash. Resend, reset and
+/// confirm used to skip the dummy hash on some branches of a real account. Login's branches are pinned
+/// in <c>LoginPageTests</c>.
 /// </summary>
 public sealed partial class AccountLookupHashParityTests : EndpointsTestBase
 {
@@ -27,6 +26,7 @@ public sealed partial class AccountLookupHashParityTests : EndpointsTestBase
     [Theory]
     [InlineData("unknown address")]
     [InlineData("unconfirmed")]
+    [InlineData("unconfirmed, resend budget spent")]
     [InlineData("confirmed")]
     public async Task ResendEmailConfirmation_ShouldVerifyExactlyOnePasswordHash_OnEveryBranch(string branch)
     {
@@ -136,6 +136,71 @@ public sealed partial class AccountLookupHashParityTests : EndpointsTestBase
         passwordHasher.VerifyCount.ShouldBe(1);
     }
 
+    [Theory]
+    [InlineData("unknown address")]
+    [InlineData("confirmed")]
+    [InlineData("confirmed, reset budget spent")]
+    public async Task ForgotPasswordEndpoint_ShouldVerifyExactlyOnePasswordHash_OnEveryBranch(string branch)
+    {
+        // Arrange
+        string email = await ArrangeAddressAsync(branch);
+        SpyPasswordHasher passwordHasher = ResetPasswordHasherSpy();
+
+        // Act
+        HttpResponseMessage response = await ApiClient.Http.PostAsJsonAsync(
+            new Uri("auth/forgot-password", UriKind.Relative),
+            new ForgotPasswordRequest(email));
+
+        // Assert
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        passwordHasher.VerifyCount.ShouldBe(1);
+    }
+
+    [Theory]
+    [InlineData("unknown address")]
+    [InlineData("confirmed")]
+    [InlineData("confirmed, reset budget spent")]
+    public async Task ForgotPasswordPage_ShouldVerifyExactlyOnePasswordHash_OnEveryBranch(string branch)
+    {
+        // Arrange
+        string email = await ArrangeAddressAsync(branch);
+        using HttpClient browser = Factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
+        Dictionary<string, string> form = await PrepareFormAsync(browser, "/Account/ForgotPassword", new Dictionary<string, string>
+        {
+            ["Email"] = email
+        });
+        SpyPasswordHasher passwordHasher = ResetPasswordHasherSpy();
+
+        // Act
+        using FormUrlEncodedContent content = new(form);
+        HttpResponseMessage response = await browser.PostAsync(new Uri("/Account/ForgotPassword", UriKind.Relative), content);
+
+        // Assert
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        passwordHasher.VerifyCount.ShouldBe(1);
+    }
+
+    [Theory]
+    [InlineData("unknown address")]
+    [InlineData("confirmed")]
+    [InlineData("deletion scheduled")]
+    public async Task CancelDeletionEndpoint_ShouldVerifyExactlyOnePasswordHash_OnEveryBranchReachableWithoutTheToken(
+        string branch)
+    {
+        // Arrange
+        string email = await ArrangeAddressAsync(branch);
+        SpyPasswordHasher passwordHasher = ResetPasswordHasherSpy();
+
+        // Act
+        HttpResponseMessage response = await ApiClient.Http.PostAsJsonAsync(
+            new Uri("auth/account/cancel-deletion", UriKind.Relative),
+            new CancelAccountDeletionRequest(email, WrongToken));
+
+        // Assert
+        response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        passwordHasher.VerifyCount.ShouldBe(1);
+    }
+
     private async Task<string> ArrangeAddressAsync(string branch)
     {
         switch (branch)
@@ -150,10 +215,20 @@ public sealed partial class AccountLookupHashParityTests : EndpointsTestBase
                 (RegisterRequest confirmed, _) =
                     await UserFactory.RegisterRandomUserWithRequestAsync(ApiClient, Faker, AccountConfirmationEmailSpy);
                 return confirmed.Email;
+            case "unconfirmed, resend budget spent":
+                (RegisterRequest resendSpent, _) =
+                    await UserFactory.RegisterRandomUserUnconfirmedAsync(ApiClient, Faker, AccountConfirmationEmailSpy);
+                await AccountStateFactory.SpendConfirmationResendBudgetAsync(Factory.Services, resendSpent.Email);
+                return resendSpent.Email;
+            case "confirmed, reset budget spent":
+                (RegisterRequest resetSpent, _) =
+                    await UserFactory.RegisterRandomUserWithRequestAsync(ApiClient, Faker, AccountConfirmationEmailSpy);
+                await AccountStateFactory.SpendPasswordResetBudgetAsync(Factory.Services, resetSpent.Email);
+                return resetSpent.Email;
             case "deletion scheduled":
                 (RegisterRequest scheduled, _) =
                     await UserFactory.RegisterRandomUserWithRequestAsync(ApiClient, Faker, AccountConfirmationEmailSpy);
-                await ScheduleDeletionAsync(scheduled.Email);
+                await AccountStateFactory.ScheduleDeletionAsync(Factory.Services, scheduled.Email);
                 return scheduled.Email;
             default:
                 throw new ArgumentOutOfRangeException(nameof(branch), branch, null);
@@ -165,23 +240,6 @@ public sealed partial class AccountLookupHashParityTests : EndpointsTestBase
         SpyPasswordHasher passwordHasher = Factory.Services.GetRequiredService<SpyPasswordHasher>();
         passwordHasher.Reset();
         return passwordHasher;
-    }
-
-    private async Task ScheduleDeletionAsync(string email)
-    {
-        await using AsyncServiceScope scope = Factory.Services.CreateAsyncScope();
-        UserManager<ApplicationUser> userManager =
-            scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
-
-        ApplicationUser user = await userManager.FindByEmailAsync(email)
-            ?? throw new InvalidOperationException($"Test user '{email}' was not found.");
-
-        user.DeletionScheduledAt = DateTimeOffset.UtcNow;
-        IdentityResult result = await userManager.UpdateAsync(user);
-        if (!result.Succeeded)
-        {
-            throw new InvalidOperationException($"Could not schedule the deletion of test user '{email}'.");
-        }
     }
 
     private static async Task<Dictionary<string, string>> PrepareFormAsync(

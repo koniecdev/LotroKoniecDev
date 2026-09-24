@@ -25,9 +25,11 @@ public sealed class ConfirmEmailPageTests : EndpointsTestBase
             await UserFactory.RegisterRandomUserWithRequestAsync(ApiClient, Faker, AccountConfirmationEmailSpy);
 
         // Act
-        string html = await GetConfirmEmailPageAsync(confirmed.Email, "not-the-mailed-token");
+        HttpResponseMessage response = await GetConfirmEmailPageAsync(confirmed.Email, "not-the-mailed-token");
+        string html = await response.Content.ReadAsStringAsync();
 
         // Assert
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
         html.ShouldContain(InvalidLinkMessage);
         html.ShouldNotContain(SuccessHeading);
     }
@@ -45,21 +47,20 @@ public sealed class ConfirmEmailPageTests : EndpointsTestBase
         string mailedToken = AccountConfirmationEmailSpy.LastConfirmationToken!;
 
         // Act
-        string html = await GetConfirmEmailPageAsync(confirmed.Email, mailedToken);
+        HttpResponseMessage response = await GetConfirmEmailPageAsync(confirmed.Email, mailedToken);
+        string html = await response.Content.ReadAsStringAsync();
 
         // Assert
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
         html.ShouldContain(SuccessHeading);
         html.ShouldNotContain(InvalidLinkMessage);
     }
 
-    private async Task<string> GetConfirmEmailPageAsync(string email, string token)
+    private async Task<HttpResponseMessage> GetConfirmEmailPageAsync(string email, string token)
     {
         using HttpClient browser = Factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
-        using HttpResponseMessage response = await browser.GetAsync(new Uri(
+        return await browser.GetAsync(new Uri(
             $"/Account/ConfirmEmail?email={Uri.EscapeDataString(email)}&token={Uri.EscapeDataString(token)}",
             UriKind.Relative));
-
-        response.EnsureSuccessStatusCode();
-        return await response.Content.ReadAsStringAsync();
     }
 }

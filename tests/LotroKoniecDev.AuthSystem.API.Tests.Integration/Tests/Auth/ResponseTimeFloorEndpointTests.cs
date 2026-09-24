@@ -1,8 +1,6 @@
 using System.Diagnostics;
 using System.Text.RegularExpressions;
-using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc.Testing;
-using Microsoft.Extensions.DependencyInjection;
 using LotroKoniecDev.AuthSystem.API.Services.ResponseTiming;
 using LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared.Bases;
 using LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared.Factories;
@@ -10,7 +8,6 @@ using LotroKoniecDev.AuthSystem.Contracts.Features.Auth.Account;
 using LotroKoniecDev.AuthSystem.Contracts.Features.Auth.EmailConfirmation;
 using LotroKoniecDev.AuthSystem.Contracts.Features.Auth.Password;
 using LotroKoniecDev.AuthSystem.Contracts.Features.Auth.Register;
-using LotroKoniecDev.AuthSystem.Domain.Aggregates.ApplicationUsers.Entities;
 using LotroKoniecDev.SharedKernel.StronglyTypedIds;
 
 namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Tests.Auth;
@@ -36,11 +33,11 @@ public sealed partial class ResponseTimeFloorEndpointTests : EndpointsTestBase
         WebApplicationFactory<Program> host = await Factory.GetResponseTimeFloorHostAsync();
         (RegisterRequest wrongPassword, _) = await RegisterConfirmedAsync();
         (RegisterRequest lockedOut, _) = await RegisterConfirmedAsync();
-        await LockOutAsync(lockedOut.Email);
+        await AccountStateFactory.LockOutAsync(Factory.Services, lockedOut.Email);
         (RegisterRequest passwordless, _) = await RegisterConfirmedAsync();
-        await RemovePasswordAsync(passwordless.Email);
+        await AccountStateFactory.RemovePasswordAsync(Factory.Services, passwordless.Email);
         (RegisterRequest deletionScheduled, _) = await RegisterConfirmedAsync();
-        await ScheduleDeletionAsync(deletionScheduled.Email);
+        await AccountStateFactory.ScheduleDeletionAsync(Factory.Services, deletionScheduled.Email);
 
         // Act
         IReadOnlyList<BranchAnswer> answers = await CollectAsync(new()
@@ -55,6 +52,7 @@ public sealed partial class ResponseTimeFloorEndpointTests : EndpointsTestBase
 
         // Assert
         answers.ShouldAllBe(answer => answer.Elapsed >= ResponseTimeFloors.AccountLookup);
+        answers.ShouldAllBe(answer => answer.Status == HttpStatusCode.OK);
     }
 
     [Fact]
@@ -63,16 +61,21 @@ public sealed partial class ResponseTimeFloorEndpointTests : EndpointsTestBase
         // Arrange
         WebApplicationFactory<Program> host = await Factory.GetResponseTimeFloorHostAsync();
         (RegisterRequest account, _) = await RegisterConfirmedAsync();
+        (RegisterRequest budgetSpent, _) = await RegisterConfirmedAsync();
+        await AccountStateFactory.SpendPasswordResetBudgetAsync(host.Services, budgetSpent.Email);
 
         // Act
         IReadOnlyList<BranchAnswer> answers = await CollectAsync(new()
         {
             ["unknown address"] = PostPageAsync(host, "/Account/ForgotPassword", new() { ["Email"] = UnknownAddress() }),
-            ["real account"] = PostPageAsync(host, "/Account/ForgotPassword", new() { ["Email"] = account.Email })
+            ["real account"] = PostPageAsync(host, "/Account/ForgotPassword", new() { ["Email"] = account.Email }),
+            ["real account, budget spent"] =
+                PostPageAsync(host, "/Account/ForgotPassword", new() { ["Email"] = budgetSpent.Email })
         });
 
         // Assert
         answers.ShouldAllBe(answer => answer.Elapsed >= ResponseTimeFloors.AccountLookup);
+        answers.ShouldAllBe(answer => answer.Status == HttpStatusCode.OK);
     }
 
     [Fact]
@@ -81,16 +84,21 @@ public sealed partial class ResponseTimeFloorEndpointTests : EndpointsTestBase
         // Arrange
         WebApplicationFactory<Program> host = await Factory.GetResponseTimeFloorHostAsync();
         (RegisterRequest account, _) = await RegisterConfirmedAsync();
+        (RegisterRequest budgetSpent, _) = await RegisterConfirmedAsync();
+        await AccountStateFactory.SpendPasswordResetBudgetAsync(host.Services, budgetSpent.Email);
 
         // Act
         IReadOnlyList<BranchAnswer> answers = await CollectAsync(new()
         {
             ["unknown address"] = PostJsonAsync(host, "auth/forgot-password", new ForgotPasswordRequest(UnknownAddress())),
-            ["real account"] = PostJsonAsync(host, "auth/forgot-password", new ForgotPasswordRequest(account.Email))
+            ["real account"] = PostJsonAsync(host, "auth/forgot-password", new ForgotPasswordRequest(account.Email)),
+            ["real account, budget spent"] =
+                PostJsonAsync(host, "auth/forgot-password", new ForgotPasswordRequest(budgetSpent.Email))
         });
 
         // Assert
         answers.ShouldAllBe(answer => answer.Elapsed >= ResponseTimeFloors.AccountLookup);
+        answers.ShouldAllBe(answer => answer.Status == HttpStatusCode.OK);
     }
 
     [Fact]
@@ -100,7 +108,7 @@ public sealed partial class ResponseTimeFloorEndpointTests : EndpointsTestBase
         WebApplicationFactory<Program> host = await Factory.GetResponseTimeFloorHostAsync();
         (RegisterRequest account, _) = await RegisterConfirmedAsync();
         (RegisterRequest deletionScheduled, _) = await RegisterConfirmedAsync();
-        await ScheduleDeletionAsync(deletionScheduled.Email);
+        await AccountStateFactory.ScheduleDeletionAsync(Factory.Services, deletionScheduled.Email);
 
         // Act
         IReadOnlyList<BranchAnswer> answers = await CollectAsync(new()
@@ -112,6 +120,7 @@ public sealed partial class ResponseTimeFloorEndpointTests : EndpointsTestBase
 
         // Assert
         answers.ShouldAllBe(answer => answer.Elapsed >= ResponseTimeFloors.AccountLookup);
+        answers.ShouldAllBe(answer => answer.Status == HttpStatusCode.OK);
     }
 
     [Fact]
@@ -121,7 +130,7 @@ public sealed partial class ResponseTimeFloorEndpointTests : EndpointsTestBase
         WebApplicationFactory<Program> host = await Factory.GetResponseTimeFloorHostAsync();
         (RegisterRequest account, _) = await RegisterConfirmedAsync();
         (RegisterRequest deletionScheduled, _) = await RegisterConfirmedAsync();
-        await ScheduleDeletionAsync(deletionScheduled.Email);
+        await AccountStateFactory.ScheduleDeletionAsync(Factory.Services, deletionScheduled.Email);
 
         // Act
         IReadOnlyList<BranchAnswer> answers = await CollectAsync(new()
@@ -133,6 +142,7 @@ public sealed partial class ResponseTimeFloorEndpointTests : EndpointsTestBase
 
         // Assert
         answers.ShouldAllBe(answer => answer.Elapsed >= ResponseTimeFloors.AccountLookup);
+        answers.ShouldAllBe(answer => answer.Status == HttpStatusCode.BadRequest);
     }
 
     [Fact]
@@ -153,6 +163,7 @@ public sealed partial class ResponseTimeFloorEndpointTests : EndpointsTestBase
 
         // Assert
         answers.ShouldAllBe(answer => answer.Elapsed >= ResponseTimeFloors.AccountLookup);
+        answers.ShouldAllBe(answer => answer.Status == HttpStatusCode.OK);
     }
 
     [Fact]
@@ -176,6 +187,7 @@ public sealed partial class ResponseTimeFloorEndpointTests : EndpointsTestBase
 
         // Assert
         answers.ShouldAllBe(answer => answer.Elapsed >= ResponseTimeFloors.AccountLookup);
+        answers.ShouldAllBe(answer => answer.Status == HttpStatusCode.BadRequest);
     }
 
     [Fact]
@@ -185,7 +197,7 @@ public sealed partial class ResponseTimeFloorEndpointTests : EndpointsTestBase
         WebApplicationFactory<Program> host = await Factory.GetResponseTimeFloorHostAsync();
         (RegisterRequest account, _) = await RegisterConfirmedAsync();
         (RegisterRequest deletionScheduled, _) = await RegisterConfirmedAsync();
-        await ScheduleDeletionAsync(deletionScheduled.Email);
+        await AccountStateFactory.ScheduleDeletionAsync(Factory.Services, deletionScheduled.Email);
 
         // Act
         IReadOnlyList<BranchAnswer> answers = await CollectAsync(new()
@@ -200,6 +212,7 @@ public sealed partial class ResponseTimeFloorEndpointTests : EndpointsTestBase
 
         // Assert
         answers.ShouldAllBe(answer => answer.Elapsed >= ResponseTimeFloors.AccountLookup);
+        answers.ShouldAllBe(answer => answer.Status == HttpStatusCode.BadRequest);
     }
 
     /// <summary>
@@ -213,12 +226,16 @@ public sealed partial class ResponseTimeFloorEndpointTests : EndpointsTestBase
         WebApplicationFactory<Program> host = await Factory.GetResponseTimeFloorHostAsync();
         (RegisterRequest unconfirmed, _) = await RegisterUnconfirmedAsync();
         (RegisterRequest confirmed, _) = await RegisterConfirmedAsync();
+        (RegisterRequest budgetSpent, _) = await RegisterUnconfirmedAsync();
+        await AccountStateFactory.SpendConfirmationResendBudgetAsync(host.Services, budgetSpent.Email);
 
         // Act
         IReadOnlyList<BranchAnswer> answers = await CollectAsync(new()
         {
             ["unknown address"] = PostJsonAsync(
                 host, "auth/resend-email-confirmation", new ResendEmailConfirmationRequest(UnknownAddress())),
+            ["unconfirmed, budget spent"] = PostJsonAsync(
+                host, "auth/resend-email-confirmation", new ResendEmailConfirmationRequest(budgetSpent.Email)),
             ["unconfirmed"] = PostJsonAsync(
                 host, "auth/resend-email-confirmation", new ResendEmailConfirmationRequest(unconfirmed.Email)),
             ["confirmed"] = PostJsonAsync(
@@ -227,10 +244,14 @@ public sealed partial class ResponseTimeFloorEndpointTests : EndpointsTestBase
 
         // Assert
         answers.ShouldAllBe(answer => answer.Elapsed >= ResponseTimeFloors.LiveMailSend);
+        answers.ShouldAllBe(answer => answer.Status == HttpStatusCode.OK);
     }
 
     private static async Task<IReadOnlyList<BranchAnswer>> CollectAsync(Dictionary<string, Task<Answer>> pending)
     {
+        // Wait for every request first, so none is still running when the next test cleans the database.
+        await Task.WhenAll(pending.Values);
+
         List<BranchAnswer> answers = [];
         foreach ((string branch, Task<Answer> answer) in pending)
         {
@@ -313,55 +334,6 @@ public sealed partial class ResponseTimeFloorEndpointTests : EndpointsTestBase
 
     private async Task<(RegisterRequest Request, IdentityId Id)> RegisterUnconfirmedAsync() =>
         await UserFactory.RegisterRandomUserUnconfirmedAsync(ApiClient, Faker, AccountConfirmationEmailSpy);
-
-    private async Task LockOutAsync(string email)
-    {
-        await using AsyncServiceScope scope = Factory.Services.CreateAsyncScope();
-        UserManager<ApplicationUser> userManager =
-            scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
-
-        ApplicationUser user = await userManager.FindByEmailAsync(email)
-            ?? throw new InvalidOperationException($"Test user '{email}' was not found.");
-
-        await userManager.SetLockoutEnabledAsync(user, true);
-        await userManager.SetLockoutEndDateAsync(user, DateTimeOffset.UtcNow.AddMinutes(30));
-    }
-
-    private async Task RemovePasswordAsync(string email)
-    {
-        await using AsyncServiceScope scope = Factory.Services.CreateAsyncScope();
-        UserManager<ApplicationUser> userManager =
-            scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
-
-        ApplicationUser user = await userManager.FindByEmailAsync(email)
-            ?? throw new InvalidOperationException($"Test user '{email}' was not found.");
-
-        IdentityResult result = await userManager.RemovePasswordAsync(user);
-        if (!result.Succeeded)
-        {
-            throw new InvalidOperationException($"Could not remove the password of test user '{email}'.");
-        }
-    }
-
-    /// <summary>
-    /// Only the field the branches read: each of them checks <c>DeletionScheduledAt</c> before anything else.
-    /// </summary>
-    private async Task ScheduleDeletionAsync(string email)
-    {
-        await using AsyncServiceScope scope = Factory.Services.CreateAsyncScope();
-        UserManager<ApplicationUser> userManager =
-            scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
-
-        ApplicationUser user = await userManager.FindByEmailAsync(email)
-            ?? throw new InvalidOperationException($"Test user '{email}' was not found.");
-
-        user.DeletionScheduledAt = DateTimeOffset.UtcNow;
-        IdentityResult result = await userManager.UpdateAsync(user);
-        if (!result.Succeeded)
-        {
-            throw new InvalidOperationException($"Could not schedule the deletion of test user '{email}'.");
-        }
-    }
 
     private static string? ExtractAntiForgeryToken(string html)
     {

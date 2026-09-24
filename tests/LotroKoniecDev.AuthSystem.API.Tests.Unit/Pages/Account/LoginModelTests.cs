@@ -5,9 +5,13 @@ using LotroKoniecDev.AuthSystem.API.Services.ResponseTiming;
 using LotroKoniecDev.AuthSystem.API.Settings;
 using LotroKoniecDev.AuthSystem.Domain.Aggregates.ApplicationUsers.Entities;
 using LotroKoniecDev.AuthSystem.Persistence.Identity;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Identity;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Mvc.RazorPages;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
+using Microsoft.Extensions.Time.Testing;
 using NSubstitute;
 
 namespace LotroKoniecDev.AuthSystem.API.Tests.Unit.Pages.Account;
@@ -19,6 +23,16 @@ namespace LotroKoniecDev.AuthSystem.API.Tests.Unit.Pages.Account;
 /// </summary>
 public sealed class LoginModelTests
 {
+    private const string Password = "Correct-Horse-1!";
+
+    private static readonly TimeSpan CompletionTimeout = TimeSpan.FromSeconds(5);
+
+    private readonly FakeTimeProvider _clock = new();
+    private readonly IUserStore<ApplicationUser> _store = Substitute.For<
+        IUserEmailStore<ApplicationUser>,
+        IUserPasswordStore<ApplicationUser>,
+        IUserLockoutStore<ApplicationUser>>();
+
     [Theory]
     [InlineData("/connect/authorize?client_id=web", "/connect/authorize?client_id=web")]
     [InlineData("/", "/")]
@@ -54,6 +68,82 @@ public sealed class LoginModelTests
     }
 
     /// <summary>
+    /// ADR-0059: an answer that shows the general message leaves no sooner than the floor.
+    /// </summary>
+    [Fact]
+    public async Task OnPostAsync_ShouldNotAnswerBeforeTheFloor_WhenTheAddressHasNoAccount()
+    {
+        // Arrange
+        ((IUserEmailStore<ApplicationUser>)_store)
+            .FindByEmailAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns((ApplicationUser?)null);
+        LoginModel sut = CreatePostingSut("nobody@example.com", Password);
+
+        // Act
+        Task<IActionResult> posting = sut.OnPostAsync();
+        bool answeredBeforeTheFloor = posting.IsCompleted;
+        _clock.Advance(ResponseTimeFloors.AccountLookup);
+        await posting.WaitAsync(CompletionTimeout);
+
+        // Assert
+        answeredBeforeTheFloor.ShouldBeFalse();
+        sut.ErrorMessage.ShouldBe("Nieprawidłowy e-mail lub hasło.");
+    }
+
+    /// <summary>
+    /// Only an account whose password was verified skips the floor. The unconfirmed answer needs the
+    /// password (ADR-0046), so it leaves at once, without the clock moving.
+    /// </summary>
+    [Fact]
+    public async Task OnPostAsync_ShouldAnswerWithoutWaiting_WhenThePasswordIsVerified()
+    {
+        // Arrange
+        ApplicationUser user = new()
+        {
+            Email = "frodo@shire.me",
+            PasswordHash = new PasswordHasher<ApplicationUser>().HashPassword(new ApplicationUser(), Password)
+        };
+        ((IUserEmailStore<ApplicationUser>)_store)
+            .FindByEmailAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(user);
+        ((IUserPasswordStore<ApplicationUser>)_store)
+            .GetPasswordHashAsync(user, Arg.Any<CancellationToken>())
+            .Returns(user.PasswordHash);
+        LoginModel sut = CreatePostingSut(user.Email, Password);
+
+        // Act
+        Task<IActionResult> posting = sut.OnPostAsync();
+        bool answeredAtOnce = posting.IsCompletedSuccessfully;
+        await posting.WaitAsync(CompletionTimeout);
+
+        // Assert
+        answeredAtOnce.ShouldBeTrue();
+        sut.ResendConfirmationEmail.ShouldBe(user.Email);
+    }
+
+    /// <summary>
+    /// The wait sits in a finally, so a lookup that throws does not answer early either.
+    /// </summary>
+    [Fact]
+    public async Task OnPostAsync_ShouldStillWaitForTheFloor_WhenTheLookupThrows()
+    {
+        // Arrange
+        ((IUserEmailStore<ApplicationUser>)_store)
+            .FindByEmailAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromException<ApplicationUser?>(new InvalidOperationException("The database is down.")));
+        LoginModel sut = CreatePostingSut("frodo@shire.me", Password);
+
+        // Act
+        Task<IActionResult> posting = sut.OnPostAsync();
+        bool answeredBeforeTheFloor = posting.IsCompleted;
+        _clock.Advance(ResponseTimeFloors.AccountLookup);
+
+        // Assert
+        answeredBeforeTheFloor.ShouldBeFalse();
+        await Should.ThrowAsync<InvalidOperationException>(() => posting.WaitAsync(CompletionTimeout));
+    }
+
+    /// <summary>
     /// The sign-in falls back to this URL when it has nowhere else to continue, so it has to point at the
     /// frontend's own login route. This host's root serves the API discovery JSON, which is a dead end
     /// for a browser coming from the reset-password or confirm-email pages.
@@ -75,9 +165,9 @@ public sealed class LoginModelTests
         sut.FrontendLoginUrl.ShouldBeNull();
     }
 
-    private static LoginModel CreateSut(params string[] postLogoutRedirectUris) =>
+    private LoginModel CreateSut(params string[] postLogoutRedirectUris) =>
         new(
-            CreateUserManager(),
+            CreateUserManager(_store),
             Microsoft.Extensions.Options.Options.Create(new OpenIddictSettings
             {
                 Issuer = "https://auth.localhost",
@@ -87,12 +177,21 @@ public sealed class LoginModelTests
                 new EmailChangeRevertWindow(
                     Microsoft.Extensions.Options.Options.Create(new EmailChangeRevertTokenProviderOptions())),
                 Microsoft.Extensions.Options.Options.Create(new GdprSettings())),
-            new ResponseTimeFloor(TimeProvider.System),
+            new ResponseTimeFloor(_clock),
             NullLogger<LoginModel>.Instance);
 
-    private static UserManager<ApplicationUser> CreateUserManager() =>
+    private LoginModel CreatePostingSut(string email, string password)
+    {
+        LoginModel sut = CreateSut();
+        sut.PageContext = new PageContext { HttpContext = new DefaultHttpContext() };
+        sut.Email = email;
+        sut.Password = password;
+        return sut;
+    }
+
+    private static UserManager<ApplicationUser> CreateUserManager(IUserStore<ApplicationUser> store) =>
         new(
-            Substitute.For<IUserStore<ApplicationUser>>(),
+            store,
             Microsoft.Extensions.Options.Options.Create(new IdentityOptions()),
             new PasswordHasher<ApplicationUser>(),
             [],

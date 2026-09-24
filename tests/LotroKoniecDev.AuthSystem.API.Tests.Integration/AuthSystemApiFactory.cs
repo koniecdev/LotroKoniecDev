@@ -59,27 +59,40 @@ public class AuthSystemApiFactory : WebApplicationFactory<Program>, IAsyncLifeti
     /// This host with the production response-time floor in place of <see cref="NoResponseTimeFloor"/>
     /// (ADR-0059). It is built once and shared, because every request to it waits for the floor anyway.
     /// It runs no outbox relay: a second relay on this database could take a row that another test waits
-    /// for through the main host's spies.
+    /// for through the main host's spies. Not thread-safe: its callers share the one sequential "AuthApi"
+    /// collection.
     /// </summary>
     public async Task<WebApplicationFactory<Program>> GetResponseTimeFloorHostAsync()
     {
-        if (_responseTimeFloorHost is null)
+        if (_responseTimeFloorHost is not null)
         {
-            _responseTimeFloorHost = WithWebHostBuilder(builder =>
-                builder.ConfigureTestServices(services =>
-                {
-                    RemoveHostedService<OutboxRelay>(services);
-                    services.AddSingleton<IResponseTimeFloor, ResponseTimeFloor>();
-                }));
+            return _responseTimeFloorHost;
+        }
 
-            // The first request builds the host, which alone can take longer than a floor. Without this a
-            // member that forgot to wait could still pass its first floor test.
-            using HttpClient client = _responseTimeFloorHost.CreateClient();
+        WebApplicationFactory<Program> host = WithWebHostBuilder(builder =>
+            builder.ConfigureTestServices(services =>
+            {
+                RemoveHostedService<OutboxRelay>(services);
+                ReplaceSingleton<IResponseTimeFloor>(services, new ResponseTimeFloor(TimeProvider.System));
+            }));
+
+        // The first request builds the host, which alone can take longer than a floor. Without this a
+        // member that forgot to wait could still pass its first floor test. The host is kept only once it
+        // answered, so a failed warm-up is not handed to the next test.
+        try
+        {
+            using HttpClient client = host.CreateClient();
             using HttpResponseMessage response = await client.GetAsync(new Uri("health/live", UriKind.Relative));
             response.EnsureSuccessStatusCode();
         }
+        catch
+        {
+            await host.DisposeAsync();
+            throw;
+        }
 
-        return _responseTimeFloorHost;
+        _responseTimeFloorHost = host;
+        return host;
     }
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)

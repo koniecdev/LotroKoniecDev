@@ -126,19 +126,10 @@ internal sealed partial class LoginModel : PageModel
         // The clock starts before the lookup, and every answer that shows the general message waits for
         // the floor, so its time says nothing about which check failed (ADR-0059). Only an account whose
         // password was verified skips the wait: the answers it can reach need the password anyway.
-        ResponseTimer responseTimer = _responseTimeFloor.Start(ResponseTimeFloors.AccountLookup);
-        ApplicationUser? user = null;
-        try
-        {
-            user = await FindUserWithVerifiedPasswordAsync();
-        }
-        finally
-        {
-            if (user is null)
-            {
-                await responseTimer.WaitForFloorAsync(HttpContext.RequestAborted);
-            }
-        }
+        ApplicationUser? user = await _responseTimeFloor.HoldAsync(
+            ResponseTimeFloors.AccountLookup,
+            FindUserWithVerifiedPasswordAsync,
+            skipWaitFor: verifiedUser => verifiedUser is not null);
 
         if (user is null)
         {

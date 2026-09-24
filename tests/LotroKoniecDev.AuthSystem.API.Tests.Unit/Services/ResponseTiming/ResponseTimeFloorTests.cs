@@ -4,108 +4,162 @@ using LotroKoniecDev.AuthSystem.API.Services.ResponseTiming;
 namespace LotroKoniecDev.AuthSystem.API.Tests.Unit.Services.ResponseTiming;
 
 /// <summary>
-/// The floor is a lower bound on the answer's time (ADR-0059): never sooner, and no longer than the rest
-/// of the floor once part of it has passed.
+/// The floor is a lower bound on the answer's time (ADR-0059): never sooner, also when the work throws,
+/// and no longer than the rest of the floor once the work used part of it.
 /// </summary>
 public sealed class ResponseTimeFloorTests
 {
     private static readonly TimeSpan Floor = TimeSpan.FromMilliseconds(500);
     private static readonly TimeSpan CompletionTimeout = TimeSpan.FromSeconds(5);
 
+    private readonly FakeTimeProvider _clock = new();
+
     [Fact]
-    public void WaitForFloorAsync_ShouldNotComplete_BeforeTheFloorHasPassed()
+    public void HoldAsync_ShouldNotAnswer_BeforeTheFloorHasPassed()
     {
         // Arrange
-        FakeTimeProvider clock = new();
-        ResponseTimer timer = new ResponseTimeFloor(clock).Start(Floor);
+        ResponseTimeFloor sut = new(_clock);
 
         // Act
-        Task wait = timer.WaitForFloorAsync(CancellationToken.None);
-        clock.Advance(Floor - TimeSpan.FromMilliseconds(1));
+        Task<string> holding = sut.HoldAsync(Floor, () => Task.FromResult("answer"));
+        _clock.Advance(Floor - TimeSpan.FromMilliseconds(1));
 
         // Assert
-        wait.IsCompleted.ShouldBeFalse();
+        holding.IsCompleted.ShouldBeFalse();
     }
 
     [Fact]
-    public async Task WaitForFloorAsync_ShouldComplete_OnceTheFloorHasPassed()
+    public async Task HoldAsync_ShouldReturnTheWorksResult_OnceTheFloorHasPassed()
     {
         // Arrange
-        FakeTimeProvider clock = new();
-        ResponseTimer timer = new ResponseTimeFloor(clock).Start(Floor);
+        ResponseTimeFloor sut = new(_clock);
 
         // Act
-        Task wait = timer.WaitForFloorAsync(CancellationToken.None);
-        clock.Advance(Floor);
+        Task<string> holding = sut.HoldAsync(Floor, () => Task.FromResult("answer"));
+        _clock.Advance(Floor);
 
         // Assert
-        await wait.WaitAsync(CompletionTimeout);
-        wait.IsCompletedSuccessfully.ShouldBeTrue();
+        (await holding.WaitAsync(CompletionTimeout)).ShouldBe("answer");
     }
 
     [Fact]
-    public async Task WaitForFloorAsync_ShouldWaitOnlyTheRest_WhenPartOfTheFloorHasPassed()
-    {
-        // Arrange: the branch itself took 300 ms of the 500
-        FakeTimeProvider clock = new();
-        ResponseTimer timer = new ResponseTimeFloor(clock).Start(Floor);
-        clock.Advance(TimeSpan.FromMilliseconds(300));
-
-        // Act
-        Task wait = timer.WaitForFloorAsync(CancellationToken.None);
-        clock.Advance(TimeSpan.FromMilliseconds(199));
-        bool completedEarly = wait.IsCompleted;
-        clock.Advance(TimeSpan.FromMilliseconds(1));
-
-        // Assert
-        completedEarly.ShouldBeFalse();
-        await wait.WaitAsync(CompletionTimeout);
-        wait.IsCompletedSuccessfully.ShouldBeTrue();
-    }
-
-    [Theory]
-    [InlineData(0, 0)]
-    [InlineData(500, 500)]
-    [InlineData(500, 2000)]
-    public void WaitForFloorAsync_ShouldCompleteAtOnce_WhenTheFloorHasAlreadyPassed(
-        int floorMilliseconds,
-        int elapsedMilliseconds)
-    {
-        // Arrange: a branch that ran as long as the floor or longer, such as a slow SMTP relay
-        FakeTimeProvider clock = new();
-        ResponseTimer timer = new ResponseTimeFloor(clock).Start(TimeSpan.FromMilliseconds(floorMilliseconds));
-        clock.Advance(TimeSpan.FromMilliseconds(elapsedMilliseconds));
-
-        // Act
-        Task wait = timer.WaitForFloorAsync(CancellationToken.None);
-
-        // Assert
-        wait.IsCompletedSuccessfully.ShouldBeTrue();
-    }
-
-    [Fact]
-    public async Task WaitForFloorAsync_ShouldStopWaiting_WhenTheCallerHangsUp()
+    public async Task HoldAsync_ShouldWaitOnlyTheRest_WhenTheWorkUsedPartOfTheFloor()
     {
         // Arrange
-        FakeTimeProvider clock = new();
-        ResponseTimer timer = new ResponseTimeFloor(clock).Start(Floor);
-        using CancellationTokenSource requestAborted = new();
+        ResponseTimeFloor sut = new(_clock);
 
-        // Act
-        Task wait = timer.WaitForFloorAsync(requestAborted.Token);
-        await requestAborted.CancelAsync();
+        // Act: the work itself takes 300 ms of the 500
+        Task<string> holding = sut.HoldAsync(Floor, () => WorkThatTakes(TimeSpan.FromMilliseconds(300)));
+        _clock.Advance(TimeSpan.FromMilliseconds(199));
+        bool answeredEarly = holding.IsCompleted;
+        _clock.Advance(TimeSpan.FromMilliseconds(1));
 
         // Assert
-        await Should.ThrowAsync<OperationCanceledException>(() => wait.WaitAsync(CompletionTimeout));
+        answeredEarly.ShouldBeFalse();
+        (await holding.WaitAsync(CompletionTimeout)).ShouldBe("answer");
     }
 
     [Fact]
-    public void Start_ShouldRefuseANegativeFloor()
+    public async Task HoldAsync_ShouldAnswerAtOnce_WhenTheWorkRanPastTheFloor()
     {
         // Arrange
-        ResponseTimeFloor floor = new(new FakeTimeProvider());
+        ResponseTimeFloor sut = new(_clock);
+
+        // Act: a branch that ran longer than the floor, such as a slow SMTP relay
+        Task<string> holding = sut.HoldAsync(Floor, () => WorkThatTakes(TimeSpan.FromSeconds(2)));
+
+        // Assert
+        holding.IsCompletedSuccessfully.ShouldBeTrue();
+        (await holding).ShouldBe("answer");
+    }
+
+    [Fact]
+    public async Task HoldAsync_ShouldWaitForTheFloorAndKeepTheException_WhenTheWorkThrows()
+    {
+        // Arrange
+        ResponseTimeFloor sut = new(_clock);
+
+        // Act
+        Task<string> holding = sut.HoldAsync<string>(
+            Floor,
+            () => Task.FromException<string>(new InvalidOperationException("The database is down.")));
+        bool answeredBeforeTheFloor = holding.IsCompleted;
+        _clock.Advance(Floor);
+
+        // Assert
+        answeredBeforeTheFloor.ShouldBeFalse();
+        InvalidOperationException exception =
+            await Should.ThrowAsync<InvalidOperationException>(() => holding.WaitAsync(CompletionTimeout));
+        exception.Message.ShouldBe("The database is down.");
+    }
+
+    [Fact]
+    public async Task HoldAsync_ShouldAnswerAtOnce_WhenTheResultMaySkipTheWait()
+    {
+        // Arrange: the login page lets a verified password skip the floor
+        ResponseTimeFloor sut = new(_clock);
+
+        // Act
+        Task<string> holding = sut.HoldAsync(Floor, () => Task.FromResult("verified"), skipWaitFor: result => result == "verified");
+
+        // Assert
+        holding.IsCompletedSuccessfully.ShouldBeTrue();
+        (await holding).ShouldBe("verified");
+    }
+
+    [Fact]
+    public void HoldAsync_ShouldStillWait_WhenTheResultMayNotSkipTheWait()
+    {
+        // Arrange
+        ResponseTimeFloor sut = new(_clock);
+
+        // Act
+        Task<string> holding = sut.HoldAsync(Floor, () => Task.FromResult("failed"), skipWaitFor: result => result == "verified");
+
+        // Assert
+        holding.IsCompleted.ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task HoldAsync_ShouldWaitForTheFloor_WhenTheWorkReturnsNothing()
+    {
+        // Arrange
+        ResponseTimeFloor sut = new(_clock);
+        bool workRan = false;
+
+        // Act
+        Task holding = sut.HoldAsync(Floor, () =>
+        {
+            workRan = true;
+            return Task.CompletedTask;
+        });
+        bool answeredBeforeTheFloor = holding.IsCompleted;
+        _clock.Advance(Floor);
+        await holding.WaitAsync(CompletionTimeout);
+
+        // Assert
+        workRan.ShouldBeTrue();
+        answeredBeforeTheFloor.ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task HoldAsync_ShouldRefuseANegativeFloor()
+    {
+        // Arrange
+        ResponseTimeFloor sut = new(_clock);
 
         // Act & Assert
-        Should.Throw<ArgumentOutOfRangeException>(() => floor.Start(TimeSpan.FromMilliseconds(-1)));
+        await Should.ThrowAsync<ArgumentOutOfRangeException>(
+            () => sut.HoldAsync(TimeSpan.FromMilliseconds(-1), () => Task.FromResult("answer")));
+    }
+
+    /// <summary>
+    /// Moves the fake clock by the time the work "takes" and finishes at once, so the floor sees the
+    /// elapsed time without a real delay.
+    /// </summary>
+    private Task<string> WorkThatTakes(TimeSpan duration)
+    {
+        _clock.Advance(duration);
+        return Task.FromResult("answer");
     }
 }

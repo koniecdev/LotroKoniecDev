@@ -76,15 +76,9 @@ internal sealed partial class ForgotPassword : IApiEndpoint
 
             // Only a real account with a send permit writes an outbox row, so every answer waits for the
             // floor (ADR-0059).
-            ResponseTimer responseTimer = _responseTimeFloor.Start(ResponseTimeFloors.AccountLookup);
-            try
-            {
-                return await RequestResetAsync(command, cancellationToken);
-            }
-            finally
-            {
-                await responseTimer.WaitForFloorAsync(cancellationToken);
-            }
+            return await _responseTimeFloor.HoldAsync(
+                ResponseTimeFloors.AccountLookup,
+                () => RequestResetAsync(command, cancellationToken));
         }
 
         private async Task<Result> RequestResetAsync(Command command, CancellationToken cancellationToken)

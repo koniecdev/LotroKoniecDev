@@ -88,15 +88,9 @@ internal sealed partial class CancelAccountDeletion : IApiEndpoint
 
             // Every answer waits for the floor, like every other page that hides whether an address has
             // an account (ADR-0059).
-            ResponseTimer responseTimer = _responseTimeFloor.Start(ResponseTimeFloors.AccountLookup);
-            try
-            {
-                return await CancelAsync(command);
-            }
-            finally
-            {
-                await responseTimer.WaitForFloorAsync(cancellationToken);
-            }
+            return await _responseTimeFloor.HoldAsync(
+                ResponseTimeFloors.AccountLookup,
+                () => CancelAsync(command));
         }
 
         private async Task<Result<CancelledDeletion>> CancelAsync(Command command)

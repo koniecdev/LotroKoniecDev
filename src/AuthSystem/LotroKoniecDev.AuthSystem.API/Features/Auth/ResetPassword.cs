@@ -78,15 +78,9 @@ internal sealed partial class ResetPassword : IApiEndpoint
 
             // The branches differ in cost: a wrong token fails at a cheap check, and a scheduled deletion
             // returns before it. So every answer waits for the floor (ADR-0059).
-            ResponseTimer responseTimer = _responseTimeFloor.Start(ResponseTimeFloors.AccountLookup);
-            try
-            {
-                return await ResetAsync(command, cancellationToken);
-            }
-            finally
-            {
-                await responseTimer.WaitForFloorAsync(cancellationToken);
-            }
+            return await _responseTimeFloor.HoldAsync(
+                ResponseTimeFloors.AccountLookup,
+                () => ResetAsync(command, cancellationToken));
         }
 
         private async Task<Result> ResetAsync(Command command, CancellationToken cancellationToken)

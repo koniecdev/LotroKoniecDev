@@ -73,15 +73,9 @@ internal sealed partial class ResendEmailConfirmation : IApiEndpoint
 
             // Only an unconfirmed account with a permit sends a mail, live, so every answer waits for the
             // longer floor (ADR-0059).
-            ResponseTimer responseTimer = _responseTimeFloor.Start(ResponseTimeFloors.LiveMailSend);
-            try
-            {
-                return await ResendAsync(command, cancellationToken);
-            }
-            finally
-            {
-                await responseTimer.WaitForFloorAsync(cancellationToken);
-            }
+            return await _responseTimeFloor.HoldAsync(
+                ResponseTimeFloors.LiveMailSend,
+                () => ResendAsync(command, cancellationToken));
         }
 
         private async Task<Result> ResendAsync(Command command, CancellationToken cancellationToken)

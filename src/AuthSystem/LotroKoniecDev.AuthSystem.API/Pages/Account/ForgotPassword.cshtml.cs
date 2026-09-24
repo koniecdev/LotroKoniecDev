@@ -67,15 +67,7 @@ internal sealed partial class ForgotPasswordModel : PageModel
 
         // Only a real account with a send permit writes an outbox row, so every answer waits for the floor
         // (ADR-0059).
-        ResponseTimer responseTimer = _responseTimeFloor.Start(ResponseTimeFloors.AccountLookup);
-        try
-        {
-            await RequestResetAsync();
-        }
-        finally
-        {
-            await responseTimer.WaitForFloorAsync(HttpContext.RequestAborted);
-        }
+        await _responseTimeFloor.HoldAsync(ResponseTimeFloors.AccountLookup, RequestResetAsync);
 
         // Always show success, so nobody can find out which e-mails are registered.
         IsSubmitted = true;

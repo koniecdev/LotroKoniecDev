@@ -69,15 +69,9 @@ internal sealed partial class ConfirmEmail : IApiEndpoint
 
             // The branches differ in cost: a wrong token fails at a cheap check, and a confirmed address
             // returns before it. So every answer waits for the floor (ADR-0059).
-            ResponseTimer responseTimer = _responseTimeFloor.Start(ResponseTimeFloors.AccountLookup);
-            try
-            {
-                return await ConfirmAsync(command);
-            }
-            finally
-            {
-                await responseTimer.WaitForFloorAsync(cancellationToken);
-            }
+            return await _responseTimeFloor.HoldAsync(
+                ResponseTimeFloors.AccountLookup,
+                () => ConfirmAsync(command));
         }
 
         private async Task<Result> ConfirmAsync(Command command)

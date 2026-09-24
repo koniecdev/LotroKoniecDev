@@ -1,12 +1,10 @@
 using System.Text.RegularExpressions;
-using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.DependencyInjection;
 using LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared;
 using LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared.Bases;
 using LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared.Factories;
 using LotroKoniecDev.AuthSystem.Contracts.Features.Auth.Register;
-using LotroKoniecDev.AuthSystem.Domain.Aggregates.ApplicationUsers.Entities;
 
 namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Tests.Auth;
 
@@ -111,10 +109,10 @@ public sealed partial class LoginPageTests : EndpointsTestBase
             await UserFactory.RegisterRandomUserUnconfirmedAsync(ApiClient, Faker, AccountConfirmationEmailSpy);
         (RegisterRequest lockedOut, _) =
             await UserFactory.RegisterRandomUserWithRequestAsync(ApiClient, Faker, AccountConfirmationEmailSpy);
-        await LockOutAsync(lockedOut.Username);
+        await AccountStateFactory.LockOutAsync(Factory.Services, lockedOut.Email);
         (RegisterRequest passwordless, _) =
             await UserFactory.RegisterRandomUserWithRequestAsync(ApiClient, Faker, AccountConfirmationEmailSpy);
-        await RemovePasswordAsync(passwordless.Username);
+        await AccountStateFactory.RemovePasswordAsync(Factory.Services, passwordless.Email);
 
         // Act: one probe per credential-failure branch a caller can reach without the password
         string nonExistentMessage = await PostAndExtractRenderedAlertAsync(new Dictionary<string, string>
@@ -396,35 +394,6 @@ public sealed partial class LoginPageTests : EndpointsTestBase
         response.Headers.Location!.OriginalString.ShouldBe(continuation);
     }
 
-    private async Task LockOutAsync(string username)
-    {
-        await using AsyncServiceScope scope = Factory.Services.CreateAsyncScope();
-        UserManager<ApplicationUser> userManager =
-            scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
-
-        ApplicationUser user = await userManager.FindByNameAsync(username)
-            ?? throw new InvalidOperationException($"Test user '{username}' was not found.");
-
-        await userManager.SetLockoutEnabledAsync(user, true);
-        await userManager.SetLockoutEndDateAsync(user, DateTimeOffset.UtcNow.AddMinutes(30));
-    }
-
-    private async Task RemovePasswordAsync(string username)
-    {
-        await using AsyncServiceScope scope = Factory.Services.CreateAsyncScope();
-        UserManager<ApplicationUser> userManager =
-            scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
-
-        ApplicationUser user = await userManager.FindByNameAsync(username)
-            ?? throw new InvalidOperationException($"Test user '{username}' was not found.");
-
-        IdentityResult result = await userManager.RemovePasswordAsync(user);
-        if (!result.Succeeded)
-        {
-            throw new InvalidOperationException($"Could not remove the password of test user '{username}'.");
-        }
-    }
-
     private async Task<Dictionary<string, string>> ArrangeFailedLoginAsync(string failure)
     {
         if (failure is "unknown address")
@@ -443,10 +412,10 @@ public sealed partial class LoginPageTests : EndpointsTestBase
         switch (failure)
         {
             case "locked out":
-                await LockOutAsync(user.Username);
+                await AccountStateFactory.LockOutAsync(Factory.Services, user.Email);
                 break;
             case "no password":
-                await RemovePasswordAsync(user.Username);
+                await AccountStateFactory.RemovePasswordAsync(Factory.Services, user.Email);
                 break;
             case "wrong password":
                 password += "WRONG";
@@ -456,7 +425,7 @@ public sealed partial class LoginPageTests : EndpointsTestBase
                 password += "WRONG";
                 break;
             case "deletion scheduled, no password":
-                await RemovePasswordAsync(user.Username);
+                await AccountStateFactory.RemovePasswordAsync(Factory.Services, user.Email);
                 await AccountStateFactory.ScheduleDeletionAsync(Factory.Services, user.Email);
                 break;
             default:

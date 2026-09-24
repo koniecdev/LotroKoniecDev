@@ -320,6 +320,19 @@ try
         : productionCorsPolicy;
     app.UseCors(corsPolicy);
 
+    // This runs before authentication, as on the auth API (#829). UseAuthorization refuses a missing,
+    // expired or forged token with 401, so a limiter placed after it would never count that traffic.
+    // It also stops a 429 before the translator provisioning below. fixed-by-ip keys on the address
+    // and never on the user, so it does not need the login. Routing has already picked the endpoint
+    // here, so the limiter can read the policy.
+    // It is off in Development and Testing, so local flows and the test suites never hit the limit.
+    // RateLimiting:ForceEnable lets a test host turn it on to see a real 429.
+    bool rateLimiterOffByEnvironment = app.Environment.IsDevelopment() || app.Environment.IsTesting();
+    if (!rateLimiterOffByEnvironment || app.Configuration.GetValue<bool>("RateLimiting:ForceEnable"))
+    {
+        app.UseRateLimiter();
+    }
+
     app.UseAuthentication();
     app.UseAuthorization();
 
@@ -330,14 +343,6 @@ try
     // write. It sits after UseAuthorization, so a 401 or 403 stops earlier. The provisioner only writes
     // when the claims changed, so an authenticated read stays a plain lookup.
     app.UseTranslatorProvisioning();
-
-    // Off in Development and Testing, so local flows and the test suites never hit the limit.
-    // RateLimiting:ForceEnable lets a test host turn it on to see a real 429, as on the auth API.
-    bool rateLimiterOffByEnvironment = app.Environment.IsDevelopment() || app.Environment.IsTesting();
-    if (!rateLimiterOffByEnvironment || app.Configuration.GetValue<bool>("RateLimiting:ForceEnable"))
-    {
-        app.UseRateLimiter();
-    }
 
     if (app.Environment.IsDevelopment())
     {

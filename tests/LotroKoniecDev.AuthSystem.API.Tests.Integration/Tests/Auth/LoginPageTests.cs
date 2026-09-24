@@ -155,13 +155,16 @@ public sealed partial class LoginPageTests : EndpointsTestBase
     /// The failures above all show the same text, so the time they take is the only thing left that
     /// could tell them apart. Each one must verify exactly one password hash: the dummy one where there
     /// is no real hash to check. The no-password row is the seeded admin before its first reset
-    /// (ADR-0056).
+    /// (ADR-0056). The two deletion rows take the branch that runs before the lockout check, because a
+    /// scheduled deletion also locks the account.
     /// </summary>
     [Theory]
     [InlineData("unknown address")]
     [InlineData("locked out")]
     [InlineData("no password")]
     [InlineData("wrong password")]
+    [InlineData("deletion scheduled, wrong password")]
+    [InlineData("deletion scheduled, no password")]
     public async Task LoginPage_ShouldVerifyExactlyOnePasswordHash_OnEveryFailureReachableWithoutThePassword(
         string failure)
     {
@@ -447,6 +450,14 @@ public sealed partial class LoginPageTests : EndpointsTestBase
                 break;
             case "wrong password":
                 password += "WRONG";
+                break;
+            case "deletion scheduled, wrong password":
+                await AccountStateFactory.ScheduleDeletionAsync(Factory.Services, user.Email);
+                password += "WRONG";
+                break;
+            case "deletion scheduled, no password":
+                await RemovePasswordAsync(user.Username);
+                await AccountStateFactory.ScheduleDeletionAsync(Factory.Services, user.Email);
                 break;
             default:
                 throw new ArgumentOutOfRangeException(nameof(failure), failure, null);

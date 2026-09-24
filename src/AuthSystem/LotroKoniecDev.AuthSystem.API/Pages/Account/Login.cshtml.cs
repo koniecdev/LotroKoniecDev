@@ -243,6 +243,11 @@ internal sealed partial class LoginModel : PageModel
         // lockout check. Its wrong password counts like any other.
         if (user.DeletionScheduledAt is not null)
         {
+            if (!await _userManager.HasPasswordAsync(user))
+            {
+                VerifyDummyPassword();
+            }
+
             if (!await _userManager.CheckPasswordAsync(user, Password))
             {
                 await _userManager.AccessFailedAsync(user);

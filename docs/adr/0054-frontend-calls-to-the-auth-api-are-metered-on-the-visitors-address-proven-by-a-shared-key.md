@@ -1,7 +1,8 @@
 # ADR-0054: Frontend Calls to the Auth API Are Metered on the Visitor's Address, Proven by a Per-Environment Shared Key
 
 **Status:** Accepted (amended 2026-09-22 — see "Amendment: the TMS API uses the same key"; amended
-2026-09-23 — see "Amendment: resend-confirmation now has a per-account budget")
+2026-09-23 — see "Amendment: resend-confirmation now has a per-account budget"; 2026-09-24 — #829
+moved the TMS limiter before authentication, noted in the TMS amendment)
 **Date:** 2026-09-22
 **Decision-makers:** Solo maintainer (ticket #819)
 **Related:** AuthSystem.API (`Program.cs` rate-limit policies, `Services/RateLimiting`, `Settings`),
@@ -290,8 +291,9 @@ have put every page on the 429 copy. The decision above now covers the TMS API t
   handler, as on the auth clients. No box needs a new line: it is the line #819 already requires.
 - **A test host can force the TMS limiter on** with `RateLimiting:ForceEnable`, as on the auth API.
   The policy metadata is now always on the endpoint group, and `UseRateLimiter` is the one switch.
-- The TMS limiter still runs after authentication, so a request refused with 401 is not counted.
-  That is unchanged and not part of this amendment.
+- This amendment left the TMS limiter after authentication, so a request refused with 401 was not
+  counted. #829 (2026-09-24) moved it before authentication, as on the auth API: a request refused
+  with 401 or 403 now spends the bucket too (`RefusedCallsRateLimitingTests`).
 
 Tests: `TranslationSystem.API.Tests.Unit` — `RateLimitPartitionKeyResolverTests`,
 `FrontendCallerSettingsValidatorTests`; `TranslationSystem.API.Tests.Integration` —

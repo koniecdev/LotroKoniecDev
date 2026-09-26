@@ -215,6 +215,52 @@ public sealed class RevertEmailChangeHandlerTests
     }
 
     [Fact]
+    public async Task Handle_IdentityFindsThePreviousAddressTakenOnSave_RefusesAsAddressTaken()
+    {
+        // Another account took the address between the handler's lookup and Identity's own one (#866).
+        ApplicationUser user = CreateUser();
+        StubUser(user, tokenValid: true);
+        _userManager.UpdateAsync(user).Returns(IdentityResult.Failed(new IdentityError
+        {
+            Code = nameof(IdentityErrorDescriber.DuplicateEmail),
+            Description = $"Email '{PreviousEmail}' is already taken."
+        }));
+        RevertEmailChange.Handler sut = CreateSut();
+
+        SharedKernel.Monads.Result<RevertEmailChange.RevertedEmailChange> result = await sut.Handle(
+            CommandFor(user.Id.ToString()), CancellationToken.None);
+
+        result.IsFailure.ShouldBeTrue();
+        result.Error.Code.ShouldBe("Auth.UserAlreadyExistsByEmail");
+    }
+
+    [Fact]
+    public async Task Handle_IdentityRefusesTheSaveForATakenAddressAndAnotherReason_ReportsFailure()
+    {
+        // The save would fail on a free address too, so it is not a lost race and must not hide as one.
+        ApplicationUser user = CreateUser();
+        StubUser(user, tokenValid: true);
+        _userManager.UpdateAsync(user).Returns(IdentityResult.Failed(
+            new IdentityError
+            {
+                Code = nameof(IdentityErrorDescriber.InvalidUserName),
+                Description = "Username is invalid."
+            },
+            new IdentityError
+            {
+                Code = nameof(IdentityErrorDescriber.DuplicateEmail),
+                Description = $"Email '{PreviousEmail}' is already taken."
+            }));
+        RevertEmailChange.Handler sut = CreateSut();
+
+        SharedKernel.Monads.Result<RevertEmailChange.RevertedEmailChange> result = await sut.Handle(
+            CommandFor(user.Id.ToString()), CancellationToken.None);
+
+        result.IsFailure.ShouldBeTrue();
+        result.Error.Code.ShouldBe("Auth.EmailChangeFailed");
+    }
+
+    [Fact]
     public async Task Handle_AccountHasADeletionScheduled_CancelsItInsteadOfLeavingTheAccountToBeErased()
     {
         // Rotating the security stamp kills the ADR-0031 cancel token, and that link went to the

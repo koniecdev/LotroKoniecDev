@@ -242,16 +242,14 @@ internal sealed partial class RevertEmailChange
         /// <summary>
         /// Same reasoning, and the same known corner case, as the confirm leg: the uniqueness check is a
         /// plain query, the unique index is the real arbiter, and its duplicate-key error is not one
-        /// <c>UserStore.UpdateAsync</c> handles. Identity's own check inside <c>UpdateAsync</c> can lose
-        /// the same race first, and the page must then say the address is taken, not that the link is
-        /// dead (#866).
+        /// <c>UserStore.UpdateAsync</c> handles. Identity's own check can lose the race first (#866).
         /// </summary>
         private async Task<Result<IdentityResult>> TryUpdateAsync(ApplicationUser user)
         {
             try
             {
                 IdentityResult result = await _userManager.UpdateAsync(user);
-                if (result.Errors.Any(error => error.Code is nameof(IdentityErrorDescriber.DuplicateEmail)))
+                if (result.IsTakenEmail)
                 {
                     LogRevertRace(_logger, null, user.Id);
                     return Result.Failure<IdentityResult>(AuthErrors.UserAlreadyExistsByEmail);

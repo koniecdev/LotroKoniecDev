@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.ChangeTracking;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.DependencyInjection;
 using Npgsql;
@@ -221,21 +222,17 @@ public sealed partial class EmailChangeSaveFailureTests : EndpointsTestBase
     }
 
     /// <summary>
-    /// <c>UpdateAsync</c> looks the address up once more before it writes. A competitor who commits
-    /// between the handler's lookup and that one is refused by Identity, not by the index, and the page
-    /// must still say the address is taken rather than call a good link dead (#866).
+    /// Identity normalizes both sides of its own lookup, so unlike the index race the spelling does not
+    /// matter here (#866).
     /// </summary>
-    [Theory]
-    [InlineData(Spelling.Exact)]
-    [InlineData(Spelling.OtherCase)]
-    public async Task RevertPage_Post_ShouldRefuseAndKeepThePassword_WhenAnotherAccountTakesThePreviousAddressDuringIdentitysOwnCheck(
-        Spelling spelling)
+    [Fact]
+    public async Task RevertPage_Post_ShouldRefuseAndKeepThePassword_WhenAnotherAccountTakesThePreviousAddressDuringIdentitysOwnCheck()
     {
         // Arrange
         (RegisterRequest user, string newEmail, Guid userId) = await CompleteChangeAsync();
 
         CompetitorTakesTheAddressFirstInterceptor interceptor = new(
-            user.Email, RaceMoment.BeforeIdentitysOwnCheck, () => SeedUserOnAsync(Spell(user.Email, spelling)));
+            user.Email, RaceMoment.BeforeIdentitysOwnCheck, () => SeedUserOnAsync(user.Email));
         await using WebApplicationFactory<Program> host = CreateHostWith(interceptor);
         using HttpClient client = host.CreateClient();
 
@@ -263,14 +260,10 @@ public sealed partial class EmailChangeSaveFailureTests : EndpointsTestBase
     }
 
     /// <summary>
-    /// The confirm page shows one message for every refusal, so the handler's answer is checked
-    /// directly. It must be the same taken address the index race gets, not a general failure.
+    /// The confirm page shows one message for every refusal, so the handler's answer is checked directly.
     /// </summary>
-    [Theory]
-    [InlineData(Spelling.Exact)]
-    [InlineData(Spelling.OtherCase)]
-    public async Task ConfirmHandler_Handle_ShouldReturnAddressTakenAndKeepTheOldAddress_WhenAnotherAccountTakesTheAddressDuringIdentitysOwnCheck(
-        Spelling spelling)
+    [Fact]
+    public async Task ConfirmHandler_Handle_ShouldReturnAddressTakenAndKeepTheOldAddress_WhenAnotherAccountTakesTheAddressDuringIdentitysOwnCheck()
     {
         // Arrange
         (RegisterRequest user, _) = await UserFactory.RegisterRandomUserWithRequestAsync(
@@ -279,7 +272,7 @@ public sealed partial class EmailChangeSaveFailureTests : EndpointsTestBase
         string newEmail = Faker.Internet.Email(uniqueSuffix: Guid.CreateVersion7().ToString("N"));
 
         CompetitorTakesTheAddressFirstInterceptor interceptor = new(
-            newEmail, RaceMoment.BeforeIdentitysOwnCheck, () => SeedUserOnAsync(Spell(newEmail, spelling)));
+            newEmail, RaceMoment.BeforeIdentitysOwnCheck, () => SeedUserOnAsync(newEmail));
         await using WebApplicationFactory<Program> host = CreateHostWith(interceptor);
 
         string token = await CreateTokenAsync(
@@ -549,7 +542,26 @@ public sealed partial class EmailChangeSaveFailureTests : EndpointsTestBase
                 .Any(parameter => parameter.Value is string value
                                   && string.Equals(value, _address, StringComparison.OrdinalIgnoreCase))
             && eventData.Context is not null
-            && eventData.Context.ChangeTracker.Entries<ApplicationUser>()
-                .Any(entry => string.Equals(entry.Entity.Email, _address, StringComparison.OrdinalIgnoreCase));
+            && AccountAlreadyCarriesTheAddress(eventData.Context.ChangeTracker);
+
+        /// <summary>
+        /// Reads the tracked entities without detecting changes, so the save under test runs with the
+        /// same change-tracking state it has in production.
+        /// </summary>
+        private bool AccountAlreadyCarriesTheAddress(ChangeTracker changeTracker)
+        {
+            bool autoDetectChanges = changeTracker.AutoDetectChangesEnabled;
+            changeTracker.AutoDetectChangesEnabled = false;
+
+            try
+            {
+                return changeTracker.Entries<ApplicationUser>()
+                    .Any(entry => string.Equals(entry.Entity.Email, _address, StringComparison.OrdinalIgnoreCase));
+            }
+            finally
+            {
+                changeTracker.AutoDetectChangesEnabled = autoDetectChanges;
+            }
+        }
     }
 }

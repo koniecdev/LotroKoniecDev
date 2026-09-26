@@ -236,10 +236,8 @@ internal sealed partial class ConfirmEmailChange
         /// time. The unique index is what really decides, and <c>UserStore.UpdateAsync</c> only handles
         /// concurrency conflicts, so the duplicate-key error arrives here as a raw
         /// <see cref="DbUpdateException"/>. Only a duplicate on an e-mail index is a lost race; any other
-        /// save error goes on up and becomes a 500 (#864).
-        /// The race can also be lost one step earlier. <c>UpdateAsync</c> looks the address up again
-        /// before it writes, and if a competitor committed in between, Identity refuses the save with
-        /// <c>DuplicateEmail</c>. That is the same lost race, so it gets the same answer (#866).
+        /// save error goes on up and becomes a 500 (#864). Identity's own check inside <c>UpdateAsync</c>
+        /// can lose the same race first, and gets the same answer (#866).
         /// </summary>
         /// <remarks>
         /// A known corner case: if the answer to the commit is lost after the server really committed,
@@ -251,7 +249,7 @@ internal sealed partial class ConfirmEmailChange
             try
             {
                 IdentityResult result = await _userManager.UpdateAsync(user);
-                if (result.Errors.Any(error => error.Code is nameof(IdentityErrorDescriber.DuplicateEmail)))
+                if (result.IsTakenEmail)
                 {
                     LogUpdateRace(_logger, null, user.Id);
                     return Result.Failure<IdentityResult>(AuthErrors.UserAlreadyExistsByEmail);

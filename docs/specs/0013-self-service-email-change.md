@@ -320,6 +320,11 @@ outlier and explicitly **not** the pattern here.
   `422 Auth.UserAlreadyExistsByEmail` · `422 Auth.DeletionAlreadyScheduled` · `429` rate limit.
   (`ErrorExtensions` maps `Validation` → 400 and `DataConflict` → 422 repo-wide.)
   Both pages render `Auth.InvalidEmailChangeToken` as "link wygasł lub jest nieprawidłowy".
+  > **Amended 2026-09-26 (#869):** only a dead link reads as dead. `Auth.EmailChangeFailed` is a save
+  > that another write on the same account beat, for example a failed login. Both pages then show the
+  > form again under a "try again" message, because the link still works. The confirm page also has its
+  > own message for `Auth.UserAlreadyExistsByEmail` and `Auth.DeletionAlreadyScheduled`, as the revert
+  > page already had for a taken address.
 - **Files touched:** no DAT and no translation artifact. One EF migration,
   `AddEmailChangeRevertFieldsToUsers` — two nullable columns, additive and N-1 safe.
 

@@ -1,5 +1,5 @@
 using Microsoft.EntityFrameworkCore;
-using Npgsql;
+using LotroKoniecDev.AuthSystem.API.Extensions;
 using LotroKoniecDev.AuthSystem.Persistence.DbContexts;
 using LotroKoniecDev.AuthSystem.Persistence.Inbox;
 using LotroKoniecDev.SharedKernel.Monads;
@@ -64,7 +64,7 @@ internal sealed partial class EmailDeliveryProcessor
         {
             await _db.SaveChangesAsync(cancellationToken);
         }
-        catch (DbUpdateException ex) when (IsPrimaryKeyViolation(ex))
+        catch (DbUpdateException ex) when (IsInboxKeyViolation(ex))
         {
             // Another delivery of the same message inserted the row first, which means the work is
             // already done. The answer is the same as when the check at the start finds it.
@@ -74,10 +74,16 @@ internal sealed partial class EmailDeliveryProcessor
         return Result.Success();
     }
 
-    private static bool IsPrimaryKeyViolation(DbUpdateException exception)
-    {
-        return exception.InnerException is PostgresException { SqlState: PostgresErrorCodes.UniqueViolation };
-    }
+    /// <summary>
+    /// Only a duplicate on the inbox key proves that another delivery recorded this message first. Any
+    /// other error in this save is a fault, and it escapes like one.
+    /// </summary>
+    private bool IsInboxKeyViolation(DbUpdateException exception) =>
+        exception.ViolatedUniqueConstraint is { } constraint
+        && string.Equals(
+            constraint,
+            _db.Model.FindEntityType(typeof(InboxMessage))?.FindPrimaryKey()?.GetName(),
+            StringComparison.Ordinal);
 
     [LoggerMessage(
         EventId = EventIds.EmailConsumerDuplicateSkipped,

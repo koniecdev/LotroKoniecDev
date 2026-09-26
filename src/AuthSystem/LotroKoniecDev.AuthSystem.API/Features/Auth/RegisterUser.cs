@@ -2,8 +2,6 @@ using FluentValidation;
 using FluentValidation.Results;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.EntityFrameworkCore.Metadata;
-using Npgsql;
 using LotroKoniecDev.AuthSystem.API.ApiErrors;
 using LotroKoniecDev.AuthSystem.API.Common;
 using LotroKoniecDev.AuthSystem.API.Extensions;
@@ -14,7 +12,6 @@ using LotroKoniecDev.AuthSystem.Contracts.Features.Auth.Register;
 using LotroKoniecDev.AuthSystem.Domain.Aggregates.ApplicationUsers.Entities;
 using LotroKoniecDev.AuthSystem.Persistence.DbContexts;
 using LotroKoniecDev.SharedKernel.Authorization;
-using LotroKoniecDev.SharedKernel.BuildingBlocks;
 using LotroKoniecDev.SharedKernel.Constants;
 using LotroKoniecDev.SharedKernel.Messaging;
 using LotroKoniecDev.SharedKernel.Monads;
@@ -229,41 +226,13 @@ internal sealed partial class RegisterUser : IApiEndpoint
                 // is safe (ADR-0002 §7).
                 return IdentityId.Create(user.Id);
             }
-            catch (DbUpdateException ex) when (LostRaceError(ex) is { } lostRaceError)
+            // Any other save error goes up to the execution strategy, which replays a transient one (#845).
+            catch (DbUpdateException ex) when (ex.TakenAccountValueError(_db.Model) is { } lostRaceError)
             {
                 string maskedEmail = command.Email.MaskEmail();
                 LogConcurrentRegistration(_logger, ex, maskedEmail);
                 return Result.Failure<IdentityId>(lostRaceError);
             }
-        }
-
-        /// <summary>
-        /// Two requests can pass every check above at the same moment, and then the unique index decides.
-        /// The loser gets the answer the checks would have given it. Any other save error is not a taken
-        /// value: it goes up to the execution strategy, which replays a transient one (#845).
-        /// </summary>
-        private Error? LostRaceError(DbUpdateException exception)
-        {
-            if (exception.InnerException is not PostgresException { SqlState: PostgresErrorCodes.UniqueViolation } violation)
-            {
-                return null;
-            }
-
-            IIndex? index = _db.Model.FindEntityType(typeof(ApplicationUser))?
-                .GetIndexes()
-                .FirstOrDefault(i => string.Equals(
-                    i.GetDatabaseName(), violation.ConstraintName, StringComparison.Ordinal));
-
-            // Only a single-column index proves that the one value is taken. An index over more columns
-            // would clash on the combination, not on the address or the name alone.
-            return index?.Properties switch
-            {
-                [{ Name: nameof(ApplicationUser.Email) or nameof(ApplicationUser.NormalizedEmail) }] =>
-                    AuthErrors.UserAlreadyExistsByEmail,
-                [{ Name: nameof(ApplicationUser.UserName) or nameof(ApplicationUser.NormalizedUserName) }] =>
-                    AuthErrors.UserAlreadyExistsByUsername,
-                _ => null
-            };
         }
 
         [LoggerMessage(EventId = EventIds.RegisterConcurrentRace, Level = LogLevel.Warning, Message = "Concurrent registration race condition for email {Email}")]

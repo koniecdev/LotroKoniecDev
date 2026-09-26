@@ -1,7 +1,8 @@
 # ADR-0048: An E-mail Change Is Undone From the Old Mailbox, With a Token No Stamp Rotation Can Kill
 
 **Status:** Accepted (amended 2026-09-19 by #684 — the freed address is reserved, see rule 4 — and by
-#685 — a scheduled deletion may not outlive the undo, see rule 5)
+#685 — a scheduled deletion may not outlive the undo, see rule 5 — and by #864 — only a real
+duplicate is reported as a taken address)
 **Date:** 2026-08-20
 **Decision-makers:** Solo maintainer (ticket #671, LEGAL-14, legal & GDPR pack #459; amendments #684, SEC-06
 and #685, SEC-07)
@@ -240,6 +241,10 @@ revert token must do.
   `23505` surfaces as an unhandled `DbUpdateException`. Both write legs therefore carry
   `RegisterUser`'s `catch (Exception ex) when (ex is DbUpdateException or InvalidOperationException)`
   and turn the race into a `Result` failure instead of a 500.
+  > **Amended 2026-09-26 (#864):** only a duplicate on an e-mail index is a lost race. Both legs now
+  > catch just the `DbUpdateException` that the shared `IsTakenEmail` check places on an e-mail index.
+  > That check is built on the `TakenAccountValueError` placement `RegisterUser` uses since #845. Any
+  > other save error reaches the global handler as a 500 instead of being reported as a taken address.
 
 ## Alternatives Considered
 

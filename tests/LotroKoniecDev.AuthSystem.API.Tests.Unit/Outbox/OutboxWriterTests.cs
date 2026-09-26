@@ -5,9 +5,8 @@ namespace LotroKoniecDev.AuthSystem.API.Tests.Unit.Outbox;
 /// <summary>
 /// Pins the check <see cref="OutboxWriter"/> does when a row is written: a contract nobody added to
 /// <see cref="OutboxMessageRouting"/> must fail the writer's own request as soon as it is enqueued.
-/// It uses its own exception type, because writers catch broad exception types for safety, for example
-/// <c>RegisterUser</c> catches <see cref="InvalidOperationException"/> for an Identity lookup race, and
-/// this crash must never be turned into a false business outcome.
+/// It uses its own exception type, which no writer catches, so this crash can never be turned into a
+/// false business outcome.
 /// </summary>
 public sealed class OutboxWriterTests
 {

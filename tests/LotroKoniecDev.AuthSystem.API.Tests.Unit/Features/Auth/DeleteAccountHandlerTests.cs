@@ -1,11 +1,11 @@
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
-using OpenIddict.Abstractions;
 using LotroKoniecDev.AuthSystem.API.Features.Auth;
 using LotroKoniecDev.AuthSystem.API.Outbox;
 using LotroKoniecDev.AuthSystem.API.Services.Gdpr;
 using LotroKoniecDev.AuthSystem.API.Services.RateLimiting;
+using LotroKoniecDev.AuthSystem.API.Services.Sessions;
 using LotroKoniecDev.AuthSystem.API.Tests.Unit.Shared;
 using LotroKoniecDev.AuthSystem.Domain.Aggregates.ApplicationUsers.Entities;
 using LotroKoniecDev.AuthSystem.Persistence.DbContexts;
@@ -117,8 +117,7 @@ public sealed class DeleteAccountHandlerTests : IDisposable
     private DeleteAccount.Handler CreateSut() =>
         new(
             _userManager,
-            Substitute.For<IOpenIddictTokenManager>(),
-            Substitute.For<IOpenIddictAuthorizationManager>(),
+            Substitute.For<IUserSessionRevoker>(),
             new OutboxWriter(_db, new OutboxSignal(), TimeProvider.System),
             Substitute.For<IAccountDeletionSchedule>(),
             _confirmationThrottle,

@@ -13,6 +13,7 @@ using LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared.Factories;
 using LotroKoniecDev.AuthSystem.Contracts.Features.Auth.Password;
 using LotroKoniecDev.AuthSystem.Contracts.Features.Auth.Register;
 using LotroKoniecDev.AuthSystem.Domain.Aggregates.ApplicationUsers.Entities;
+using LotroKoniecDev.AuthSystem.Persistence.Identity;
 
 namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Tests.Auth;
 
@@ -27,7 +28,7 @@ public sealed partial class AbortedRequestSessionRevocationTests : EndpointsTest
     private const string NewPassword = "NewPass99!";
     private const string ClientId = "lotrokoniecdev-test";
 
-    private static readonly TimeSpan CompletionTimeout = TimeSpan.FromSeconds(30);
+    private static readonly TimeSpan CompletionTimeout = UserSessionRevoker.TimeLimit + TimeSpan.FromSeconds(10);
 
     public AbortedRequestSessionRevocationTests(AuthSystemApiFactory appFactory) : base(appFactory) { }
 
@@ -71,10 +72,15 @@ public sealed partial class AbortedRequestSessionRevocationTests : EndpointsTest
         using HttpClient client = host.CreateClient();
 
         (_, string refreshToken) = await SignInAsync(client, user.Email);
-        string resetToken = await CreatePasswordResetTokenAsync(host.Services, user.Email);
+        (_, string resetToken) = await CreateTokenAsync(
+            host.Services,
+            user.Email,
+            (userManager, account) => userManager.GeneratePasswordResetTokenAsync(account));
 
-        using HttpRequestMessage resetRequest = await CreateResetPasswordPagePostAsync(
+        using HttpRequestMessage resetRequest = await CreatePagePostAsync(
             client,
+            "/Account/ResetPassword",
+            "/Account/ResetPassword",
             new Dictionary<string, string>
             {
                 ["Email"] = user.Email,
@@ -85,6 +91,48 @@ public sealed partial class AbortedRequestSessionRevocationTests : EndpointsTest
 
         // Act: the client sees the abort as an error, so only what the server did afterwards counts
         _ = await Record.ExceptionAsync(() => client.SendAsync(resetRequest));
+        await watch.Finished.Task.WaitAsync(CompletionTimeout);
+
+        using HttpResponseMessage refreshResponse = await RefreshAsync(client, refreshToken);
+
+        // Assert
+        watch.RequestWasAborted.ShouldBeTrue();
+        refreshResponse.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+    }
+
+    [Fact]
+    public async Task ConfirmEmailChangePage_ShouldRevokeExistingRefreshTokens_WhenTheRequestIsAbortedAfterTheSave()
+    {
+        // Arrange
+        (RegisterRequest user, _) = await UserFactory.RegisterRandomUserWithRequestAsync(
+            ApiClient, Faker, AccountConfirmationEmailSpy, CurrentPassword);
+        string newEmail = Faker.Internet.Email(uniqueSuffix: Guid.CreateVersion7().ToString("N"));
+
+        RevocationWatch watch = new();
+        await using WebApplicationFactory<Program> host = CreateHostThatAbortsBeforeRevoking(watch);
+        using HttpClient client = host.CreateClient();
+
+        (_, string refreshToken) = await SignInAsync(client, user.Email);
+        (Guid userId, string changeToken) = await CreateTokenAsync(
+            host.Services,
+            user.Email,
+            (userManager, account) => userManager.GenerateUserTokenAsync(
+                account, EmailChangeTokenProvider.ProviderName, EmailChangeTokenProvider.PurposeFor(newEmail)));
+
+        using HttpRequestMessage confirmRequest = await CreatePagePostAsync(
+            client,
+            "/Account/ConfirmEmailChange",
+            $"/Account/ConfirmEmailChange?userId={userId}&email={Uri.EscapeDataString(newEmail)}"
+            + $"&token={Uri.EscapeDataString(changeToken)}",
+            new Dictionary<string, string>
+            {
+                ["UserId"] = userId.ToString(),
+                ["Email"] = newEmail,
+                ["Token"] = changeToken
+            });
+
+        // Act: the client sees the abort as an error, so only what the server did afterwards counts
+        _ = await Record.ExceptionAsync(() => client.SendAsync(confirmRequest));
         await watch.Finished.Task.WaitAsync(CompletionTimeout);
 
         using HttpResponseMessage refreshResponse = await RefreshAsync(client, refreshToken);
@@ -148,10 +196,13 @@ public sealed partial class AbortedRequestSessionRevocationTests : EndpointsTest
     }
 
     /// <summary>
-    /// The reset token is sealed with data protection, and nothing makes two test hosts share a key
-    /// ring, so the token comes from the host that will check it.
+    /// Link tokens are sealed with data protection, and nothing makes two test hosts share a key ring,
+    /// so the token comes from the host that will check it.
     /// </summary>
-    private static async Task<string> CreatePasswordResetTokenAsync(IServiceProvider services, string email)
+    private static async Task<(Guid UserId, string Token)> CreateTokenAsync(
+        IServiceProvider services,
+        string email,
+        Func<UserManager<ApplicationUser>, ApplicationUser, Task<string>> generate)
     {
         await using AsyncServiceScope scope = services.CreateAsyncScope();
         UserManager<ApplicationUser> userManager =
@@ -160,14 +211,13 @@ public sealed partial class AbortedRequestSessionRevocationTests : EndpointsTest
         ApplicationUser? user = await userManager.FindByEmailAsync(email);
         user.ShouldNotBeNull();
 
-        return await userManager.GeneratePasswordResetTokenAsync(user);
+        return (user.Id, await generate(userManager, user));
     }
 
-    private static async Task<HttpRequestMessage> CreateResetPasswordPagePostAsync(
-        HttpClient client, Dictionary<string, string> formFields)
+    private static async Task<HttpRequestMessage> CreatePagePostAsync(
+        HttpClient client, string pagePath, string getUrl, Dictionary<string, string> formFields)
     {
-        using HttpResponseMessage pageResponse = await client.GetAsync(
-            new Uri("/Account/ResetPassword", UriKind.Relative));
+        using HttpResponseMessage pageResponse = await client.GetAsync(new Uri(getUrl, UriKind.Relative));
         pageResponse.StatusCode.ShouldBe(HttpStatusCode.OK);
 
         string html = await pageResponse.Content.ReadAsStringAsync();
@@ -177,7 +227,7 @@ public sealed partial class AbortedRequestSessionRevocationTests : EndpointsTest
             formFields["__RequestVerificationToken"] = match.Groups[1].Value;
         }
 
-        HttpRequestMessage request = new(HttpMethod.Post, "/Account/ResetPassword")
+        HttpRequestMessage request = new(HttpMethod.Post, pagePath)
         {
             Content = new FormUrlEncodedContent(formFields)
         };
@@ -225,14 +275,14 @@ public sealed partial class AbortedRequestSessionRevocationTests : EndpointsTest
 
         public async Task RevokeAllAsync(string userId)
         {
-            HttpContext httpContext = _httpContextAccessor.HttpContext
-                                      ?? throw new InvalidOperationException("The revoke ran outside a request.");
-
-            httpContext.Abort();
-            _watch.RequestWasAborted = httpContext.RequestAborted.IsCancellationRequested;
-
             try
             {
+                HttpContext httpContext = _httpContextAccessor.HttpContext
+                                          ?? throw new InvalidOperationException("The revoke ran outside a request.");
+
+                httpContext.Abort();
+                _watch.RequestWasAborted = httpContext.RequestAborted.IsCancellationRequested;
+
                 await _revoker.RevokeAllAsync(userId);
             }
             finally

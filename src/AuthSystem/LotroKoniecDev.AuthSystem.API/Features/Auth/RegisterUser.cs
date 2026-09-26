@@ -254,11 +254,13 @@ internal sealed partial class RegisterUser : IApiEndpoint
                 .FirstOrDefault(i => string.Equals(
                     i.GetDatabaseName(), violation.ConstraintName, StringComparison.Ordinal));
 
-            return index?.Properties[0].Name switch
+            // Only a single-column index proves that the one value is taken. An index over more columns
+            // would clash on the combination, not on the address or the name alone.
+            return index?.Properties switch
             {
-                nameof(ApplicationUser.Email) or nameof(ApplicationUser.NormalizedEmail) =>
+                [{ Name: nameof(ApplicationUser.Email) or nameof(ApplicationUser.NormalizedEmail) }] =>
                     AuthErrors.UserAlreadyExistsByEmail,
-                nameof(ApplicationUser.UserName) or nameof(ApplicationUser.NormalizedUserName) =>
+                [{ Name: nameof(ApplicationUser.UserName) or nameof(ApplicationUser.NormalizedUserName) }] =>
                     AuthErrors.UserAlreadyExistsByUsername,
                 _ => null
             };

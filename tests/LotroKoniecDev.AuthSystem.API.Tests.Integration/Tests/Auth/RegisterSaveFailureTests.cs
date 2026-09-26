@@ -10,6 +10,7 @@ using LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared.Bases;
 using LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared.Factories;
 using LotroKoniecDev.AuthSystem.Contracts.Features.Auth.Register;
 using LotroKoniecDev.AuthSystem.Domain.Aggregates.ApplicationUsers.Entities;
+using LotroKoniecDev.AuthSystem.Persistence;
 using LotroKoniecDev.AuthSystem.Persistence.DbContexts;
 using LotroKoniecDev.SharedKernel.Authorization;
 
@@ -138,9 +139,12 @@ public sealed class RegisterSaveFailureTests : EndpointsTestBase
         Username
     }
 
+    /// <summary>
+    /// Matches the insert itself. A batch that only mentions the table, such as the role save that also
+    /// updates the account row, does not count.
+    /// </summary>
     private static bool IsInsertInto(DbCommand command, string table) =>
-        command.CommandText.Contains("INSERT INTO", StringComparison.Ordinal)
-        && command.CommandText.Contains($"\"{table}\"", StringComparison.Ordinal);
+        command.CommandText.Contains($"INSERT INTO {DatabaseSchemas.Auth}.\"{table}\"", StringComparison.Ordinal);
 
     private static NpgsqlException CreateTransientFailure() =>
         new("The operation has timed out", new TimeoutException());

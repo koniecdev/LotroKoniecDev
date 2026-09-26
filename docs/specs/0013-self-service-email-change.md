@@ -327,7 +327,8 @@ outlier and explicitly **not** the pattern here.
   > page already had for a taken address. A double click sends the same link twice, and the browser
   > shows the second answer. When the first submit lands while the second is past its token check, the
   > second reads the account again and answers as done: the confirm page shows its done state, and the
-  > revert page sends the visitor to the password reset with a fresh token.
+  > revert page sends the visitor to the password reset with a fresh token. Both end the sessions again,
+  > because the double click aborted the first request and its revocation may never have run.
 - **Files touched:** no DAT and no translation artifact. One EF migration,
   `AddEmailChangeRevertFieldsToUsers` — two nullable columns, additive and N-1 safe.
 

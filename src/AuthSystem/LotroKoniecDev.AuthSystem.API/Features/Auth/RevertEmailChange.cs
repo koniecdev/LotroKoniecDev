@@ -167,6 +167,7 @@ internal sealed partial class RevertEmailChange
                     RevertedEmailChange? landed = await FindLandedRevertAsync(user.Id, revertTarget);
                     if (landed is not null)
                     {
+                        await _sessionRevoker.RevokeAllAsync(user.Id.ToString(), cancellationToken);
                         return Result.Success(landed);
                     }
 
@@ -225,6 +226,7 @@ internal sealed partial class RevertEmailChange
                 RevertedEmailChange? landed = await FindLandedRevertAsync(user.Id, revertTarget);
                 if (landed is not null)
                 {
+                    await _sessionRevoker.RevokeAllAsync(user.Id.ToString(), cancellationToken);
                     return Result.Success(landed);
                 }
 
@@ -293,6 +295,11 @@ internal sealed partial class RevertEmailChange
         /// caller whose token passed gets here, so it gets what the first submit got: a way into the
         /// password reset. Without it the visitor would be stuck on a password that is gone (#869).
         /// </summary>
+        /// <remarks>
+        /// The caller ends the sessions again after a hit. The first submit ends them only after its save,
+        /// and a double click aborts that first request, so its revocation may never have run. That would
+        /// leave whoever took the account signed in after the undo.
+        /// </remarks>
         private async Task<RevertedEmailChange?> FindLandedRevertAsync(Guid userId, string revertTarget)
         {
             _db.ChangeTracker.Clear();

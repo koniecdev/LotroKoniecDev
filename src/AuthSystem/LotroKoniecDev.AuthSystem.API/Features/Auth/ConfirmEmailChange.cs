@@ -139,9 +139,18 @@ internal sealed partial class ConfirmEmailChange
                 // The owner is this very account when a second submit of the same link, a double click,
                 // arrives while the first one lands. Calling that "taken by another account" would be
                 // false (#869).
-                if (addressOwner.Id == user.Id && await IsAlreadyAppliedAsync(user.Id, newEmail))
+                if (addressOwner.Id == user.Id)
                 {
-                    return Result.Success();
+                    if (await IsAlreadyAppliedAsync(user.Id, newEmail))
+                    {
+                        await _sessionRevoker.RevokeAllAsync(user.Id.ToString(), cancellationToken);
+                        return Result.Success();
+                    }
+
+                    // Something else moved the account here, an undo for example, and it rotated the
+                    // security stamp on the way, so this link is spent.
+                    LogTokenInvalid(_logger, newEmail.MaskEmail(), command.IpAddress, command.UserAgent);
+                    return Result.Failure(AuthErrors.InvalidEmailChangeToken);
                 }
 
                 return Result.Failure(AuthErrors.UserAlreadyExistsByEmail);
@@ -228,6 +237,7 @@ internal sealed partial class ConfirmEmailChange
                 // link, the change is already there, and "nothing changed, try again" would be false.
                 if (await IsAlreadyAppliedAsync(user.Id, newEmail))
                 {
+                    await _sessionRevoker.RevokeAllAsync(user.Id.ToString(), cancellationToken);
                     return Result.Success();
                 }
 
@@ -294,16 +304,21 @@ internal sealed partial class ConfirmEmailChange
         }
 
         /// <summary>
-        /// Reads the account again, past everything this request holds in memory, and says whether it
-        /// already carries the new address. Only a caller whose token passed gets here, so answering
-        /// "done" tells them nothing they could not see by logging in (#869).
+        /// Reads the account again, past everything this request holds in memory, and says whether this
+        /// change already landed. Only a caller whose token passed gets here, so answering "done" tells
+        /// them nothing they could not see by logging in (#869). An undo can also put the account on this
+        /// address, but it clears the password and a confirm never does, so the password tells them apart.
         /// </summary>
+        /// <remarks>
+        /// The caller ends the sessions again after a "yes". The first submit ends them only after its
+        /// save, and a double click aborts that first request, so its revocation may never have run.
+        /// </remarks>
         private async Task<bool> IsAlreadyAppliedAsync(Guid userId, string newEmail)
         {
             _db.ChangeTracker.Clear();
 
             ApplicationUser? stored = await _userManager.FindByIdAsync(userId.ToString());
-            if (stored is not { EmailConfirmed: true }
+            if (stored is not { EmailConfirmed: true, PasswordHash: not null }
                 || !string.Equals(
                     _userManager.NormalizeEmail(stored.Email),
                     _userManager.NormalizeEmail(newEmail),

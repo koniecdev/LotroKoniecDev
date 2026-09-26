@@ -117,11 +117,15 @@ public sealed class InboxDeduplicationTests : EndpointsTestBase
     }
 
     /// <summary>
-    /// Any other error on the insert is a database fault. It escapes, so the consumer rejects the delivery
-    /// and the broker sends it again (ADR-0037 Decision 4).
+    /// Any other error on the insert is a database fault, a duplicate on some other key included. It
+    /// escapes, so the consumer rejects the delivery and the broker sends it again (ADR-0037 Decision 4).
     /// </summary>
-    [Fact]
-    public async Task ProcessOnce_ShouldThrowAndLeaveNoRecord_WhenRecordingTheMessageFailsForAnotherReason()
+    [Theory]
+    [InlineData(PostgresErrorCodes.NotNullViolation, null)]
+    [InlineData(PostgresErrorCodes.UniqueViolation, "IX_NotTheInboxKey")]
+    public async Task ProcessOnce_ShouldThrowAndLeaveNoRecord_WhenRecordingTheMessageFailsForAnotherReason(
+        string sqlState,
+        string? constraintName)
     {
         // Arrange
         (RegisterRequest _, IdentityId identityId) = await UserFactory.RegisterRandomUserUnconfirmedAsync(
@@ -130,7 +134,7 @@ public sealed class InboxDeduplicationTests : EndpointsTestBase
         Guid messageId = Guid.CreateVersion7();
         Factory.DbCommandFailures.FailNext(
             command => IsInboxInsertOf(command, messageId),
-            () => CreateFailure(PostgresErrorCodes.NotNullViolation, null));
+            () => CreateFailure(sqlState, constraintName));
 
         // Act & Assert
         await Should.ThrowAsync<DbUpdateException>(() => ProcessOnceAsync(identityId.Value, messageId));

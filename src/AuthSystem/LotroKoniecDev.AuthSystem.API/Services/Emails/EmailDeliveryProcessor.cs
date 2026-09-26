@@ -64,7 +64,7 @@ internal sealed partial class EmailDeliveryProcessor
         {
             await _db.SaveChangesAsync(cancellationToken);
         }
-        catch (DbUpdateException ex) when (ex.IsUniqueViolation)
+        catch (DbUpdateException ex) when (IsInboxKeyViolation(ex))
         {
             // Another delivery of the same message inserted the row first, which means the work is
             // already done. The answer is the same as when the check at the start finds it.
@@ -73,6 +73,17 @@ internal sealed partial class EmailDeliveryProcessor
 
         return Result.Success();
     }
+
+    /// <summary>
+    /// Only a duplicate on the inbox key proves that another delivery recorded this message first. Any
+    /// other error in this save is a fault, and it escapes like one.
+    /// </summary>
+    private bool IsInboxKeyViolation(DbUpdateException exception) =>
+        exception.ViolatedUniqueConstraint is { } constraint
+        && string.Equals(
+            constraint,
+            _db.Model.FindEntityType(typeof(InboxMessage))?.FindPrimaryKey()?.GetName(),
+            StringComparison.Ordinal);
 
     [LoggerMessage(
         EventId = EventIds.EmailConsumerDuplicateSkipped,

@@ -11,7 +11,7 @@ internal static class DbUpdateExceptionExtensions
 {
     extension(DbUpdateException exception)
     {
-        public bool IsUniqueViolation => exception.UniqueViolation is not null;
+        public string? ViolatedUniqueConstraint => exception.UniqueViolation?.ConstraintName;
 
         /// <summary>
         /// Registration and both legs of an e-mail change check that a value is free with a plain query,

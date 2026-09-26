@@ -324,7 +324,10 @@ outlier and explicitly **not** the pattern here.
   > that another write on the same account beat, for example a failed login. Both pages then show the
   > form again under a "try again" message, because the link still works. The confirm page also has its
   > own message for `Auth.UserAlreadyExistsByEmail` and `Auth.DeletionAlreadyScheduled`, as the revert
-  > page already had for a taken address.
+  > page already had for a taken address. A double click sends the same link twice, and the browser
+  > shows the second answer. When the first submit lands while the second is past its token check, the
+  > second reads the account again and answers as done: the confirm page shows its done state, and the
+  > revert page sends the visitor to the password reset with a fresh token.
 - **Files touched:** no DAT and no translation artifact. One EF migration,
   `AddEmailChangeRevertFieldsToUsers` — two nullable columns, additive and N-1 safe.
 

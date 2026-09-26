@@ -118,7 +118,12 @@ public sealed partial class EmailChangePageTests : EndpointsTestBase
                 ["Token"] = token
             });
 
-        (await replay.Content.ReadAsStringAsync()).ShouldContain("nieprawidłowy");
+        // The whole dead-link copy, because the page now builds it in code rather than in the markup (#869).
+        string html = await replay.Content.ReadAsStringAsync();
+        html.ShouldContain("Link wygasł lub jest nieprawidłowy");
+        html.ShouldContain(
+            "Link potwierdzający zmianę adresu jest nieprawidłowy lub wygasł. Link jest ważny 24 godziny "
+            + "i można go użyć tylko raz. Zaloguj się i poproś o zmianę adresu jeszcze raz.");
         (await LoadUserByIdAsync(userId)).Email.ShouldBe(newEmail);
     }
 
@@ -207,7 +212,9 @@ public sealed partial class EmailChangePageTests : EndpointsTestBase
             UriKind.Relative));
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
-        (await response.Content.ReadAsStringAsync()).ShouldContain("nieprawidłowy");
+        (await response.Content.ReadAsStringAsync()).ShouldContain(
+            "Link potwierdzający zmianę adresu jest nieprawidłowy. Link jest ważny 24 godziny "
+            + "i można go użyć tylko raz. Zaloguj się i poproś o zmianę adresu jeszcze raz.");
         (await LoadUserByIdAsync(await UserIdOfAsync(user.Email))).Email.ShouldBe(user.Email);
     }
 
@@ -487,7 +494,11 @@ public sealed partial class EmailChangePageTests : EndpointsTestBase
             RevertUrl(userId, user.Email, newEmail, revertToken),
             RevertForm(userId, user.Email, newEmail, revertToken));
 
-        (await replay.Content.ReadAsStringAsync()).ShouldContain("nieprawidłowy");
+        string html = await replay.Content.ReadAsStringAsync();
+        html.ShouldContain("Link wygasł lub jest nieprawidłowy");
+        html.ShouldContain(
+            "Linku cofającego zmianę adresu można użyć tylko raz i działa on przez 14 dni od zmiany adresu. "
+            + "Jeśli nadal nie masz dostępu do konta, skontaktuj się z nami.");
         (await LoadUserByIdAsync(userId)).Email.ShouldBe(user.Email);
     }
 

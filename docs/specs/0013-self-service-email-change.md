@@ -210,8 +210,8 @@ outlier and explicitly **not** the pattern here.
   > `DbUpdateException` that the shared `IsTakenEmail` check (`Extensions/DbUpdateExceptionExtensions.cs`,
   > built on the `TakenAccountValueError` placement `RegisterUser` uses since #845) places on an e-mail
   > index, and answer that with a `Result` failure as before. Any other save error is not a taken
-  > address: it reaches the global handler as a 500, like any other outage on these pages. A passing
-  > error never gets that far, because the save retries it by itself. The `InvalidOperationException` arm is gone: the unique `EmailIndex` means the
+  > address: it reaches the global handler as a 500, like any other outage on these pages. A temporary
+  > database error is retried by the save itself before it gets that far. The `InvalidOperationException` arm is gone: the unique `EmailIndex` means the
   > lookup can never find two rows.
 - **Do not set `NormalizedEmail` by hand.** `UpdateAsync` recomputes it after validation and before
   the write, so a hand-set value is dead code.

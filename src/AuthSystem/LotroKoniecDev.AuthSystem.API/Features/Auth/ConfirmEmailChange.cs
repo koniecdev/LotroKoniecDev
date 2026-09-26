@@ -235,10 +235,14 @@ internal sealed partial class ConfirmEmailChange
         /// The uniqueness check above is an ordinary query, so two requests can pass it at the same
         /// time. The unique index is what really decides, and <c>UserStore.UpdateAsync</c> only handles
         /// concurrency conflicts, so the duplicate-key error arrives here as a raw
-        /// <see cref="DbUpdateException"/>. Only a duplicate on an e-mail index means somebody else took
-        /// the address. Any other save error is not a taken address, so it goes on up and becomes a 500
-        /// (#864). A passing error never gets here: the save retries it by itself.
+        /// <see cref="DbUpdateException"/>. Only a duplicate on an e-mail index is a lost race; any other
+        /// save error goes on up and becomes a 500 (#864).
         /// </summary>
+        /// <remarks>
+        /// A known corner case: if the answer to the commit is lost after the server really committed,
+        /// the save retries, the retry fails on the row it already wrote, and the user is told the change
+        /// failed although it landed. We accept that, as registration does (#845).
+        /// </remarks>
         private async Task<Result<IdentityResult>> TryUpdateAsync(ApplicationUser user)
         {
             try
@@ -258,8 +262,8 @@ internal sealed partial class ConfirmEmailChange
         /// new address already on it. This context is shared with OpenIddict for the rest of the
         /// request, so a later save there would commit the change we just reported as failed, or
         /// announce one that never happened. Dropping the whole unit of work is the only version that
-        /// leaves neither half behind. A save error that escapes as an exception skips this, and that is
-        /// safe: the rest of that request only writes the error response, and nothing there saves.
+        /// leaves neither half behind. A save error that escapes as an exception skips this. That is safe,
+        /// because the rest of that request only writes the error response and saves nothing.
         /// </summary>
         private void DiscardPendingChanges()
         {

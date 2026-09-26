@@ -231,8 +231,8 @@ internal sealed partial class RevertEmailChange
         /// A failed update never reaches the store, so this unit of work is still in the change
         /// tracker with the restored address and a cleared password on it. The context is shared with
         /// OpenIddict for the rest of the request, so a later save there would commit a revert this
-        /// handler just reported as failed. A save error that escapes as an exception skips this, and
-        /// that is safe: the rest of that request only writes the error response, and nothing there saves.
+        /// handler just reported as failed. A save error that escapes as an exception skips this, for the
+        /// reason the confirm leg gives.
         /// </summary>
         private void DiscardPendingChanges()
         {
@@ -240,10 +240,9 @@ internal sealed partial class RevertEmailChange
         }
 
         /// <summary>
-        /// Same reasoning as the confirm leg: the uniqueness check is a plain query, the unique index
-        /// is the real arbiter, and its duplicate-key error is not one <c>UserStore.UpdateAsync</c>
-        /// handles. Only a duplicate on an e-mail index means the previous address was taken; any other
-        /// save error goes on up and becomes a 500 (#864).
+        /// Same reasoning, and the same known corner case, as the confirm leg: the uniqueness check is a
+        /// plain query, the unique index is the real arbiter, and its duplicate-key error is not one
+        /// <c>UserStore.UpdateAsync</c> handles.
         /// </summary>
         private async Task<Result<IdentityResult>> TryUpdateAsync(ApplicationUser user)
         {

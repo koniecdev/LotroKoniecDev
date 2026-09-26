@@ -45,7 +45,8 @@ internal static class DbUpdateExceptionExtensions
         }
 
         /// <summary>
-        /// An e-mail change writes no username, so only a taken address counts as a lost race there.
+        /// An e-mail change never picks a new username, so a clash on the username index is not a race it
+        /// lost. Only a taken address is.
         /// </summary>
         public bool IsTakenEmail(IModel model) =>
             exception.TakenAccountValueError(model) == AuthErrors.UserAlreadyExistsByEmail;

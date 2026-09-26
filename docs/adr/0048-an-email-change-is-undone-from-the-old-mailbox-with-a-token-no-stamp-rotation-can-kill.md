@@ -241,11 +241,10 @@ revert token must do.
   `23505` surfaces as an unhandled `DbUpdateException`. Both write legs therefore carry
   `RegisterUser`'s `catch (Exception ex) when (ex is DbUpdateException or InvalidOperationException)`
   and turn the race into a `Result` failure instead of a 500.
-  > **Amended 2026-09-26 (#864):** only a duplicate on an e-mail index is a lost race. Both legs
-  > now catch just the `DbUpdateException` that the shared `IsTakenEmail` check places there. That check
-  > is built on the `TakenAccountValueError` placement `RegisterUser` uses since #845. Any other save
-  > error reaches the global handler as a 500
-  > instead of being reported as a taken address.
+  > **Amended 2026-09-26 (#864):** only a duplicate on an e-mail index is a lost race. Both legs now
+  > catch just the `DbUpdateException` that the shared `IsTakenEmail` check places on an e-mail index.
+  > That check is built on the `TakenAccountValueError` placement `RegisterUser` uses since #845. Any
+  > other save error reaches the global handler as a 500 instead of being reported as a taken address.
 
 ## Alternatives Considered
 

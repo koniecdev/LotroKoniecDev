@@ -188,7 +188,7 @@ public sealed class RevertEmailChangeHandlerTests
 
         // The first submit may have been aborted before its own revocation ran, and nothing in the
         // return value shows whether this one ended the sessions, so it is asserted here.
-        await _sessionRevoker.Received(1).RevokeAllAsync(user.Id.ToString(), Arg.Any<CancellationToken>());
+        await _sessionRevoker.Received(1).RevokeAllAsync(user.Id.ToString());
     }
 
     [Fact]
@@ -239,7 +239,7 @@ public sealed class RevertEmailChangeHandlerTests
         user.EmailChangeRevertArmedAt.ShouldBeNull();
 
         // Revoking the OpenIddict artifacts leaves no trace in the return value, so it is asserted here.
-        await _sessionRevoker.Received(1).RevokeAllAsync(user.Id.ToString(), Arg.Any<CancellationToken>());
+        await _sessionRevoker.Received(1).RevokeAllAsync(user.Id.ToString());
     }
 
     [Fact]
@@ -288,7 +288,7 @@ public sealed class RevertEmailChangeHandlerTests
 
         // The first submit may have been aborted before its own revocation ran, and nothing in the
         // return value shows whether this one ended the sessions, so it is asserted here.
-        await _sessionRevoker.Received(1).RevokeAllAsync(user.Id.ToString(), Arg.Any<CancellationToken>());
+        await _sessionRevoker.Received(1).RevokeAllAsync(user.Id.ToString());
     }
 
     [Fact]

@@ -167,7 +167,7 @@ internal sealed partial class RevertEmailChange
                     RevertedEmailChange? landed = await FindLandedRevertAsync(user.Id, revertTarget);
                     if (landed is not null)
                     {
-                        await _sessionRevoker.RevokeAllAsync(user.Id.ToString(), cancellationToken);
+                        await _sessionRevoker.RevokeAllAsync(user.Id.ToString());
                         return Result.Success(landed);
                     }
 
@@ -226,7 +226,7 @@ internal sealed partial class RevertEmailChange
                 RevertedEmailChange? landed = await FindLandedRevertAsync(user.Id, revertTarget);
                 if (landed is not null)
                 {
-                    await _sessionRevoker.RevokeAllAsync(user.Id.ToString(), cancellationToken);
+                    await _sessionRevoker.RevokeAllAsync(user.Id.ToString());
                     return Result.Success(landed);
                 }
 
@@ -240,7 +240,7 @@ internal sealed partial class RevertEmailChange
                 _outboxWriter.NotifyEnqueuedCommitted();
             }
 
-            await _sessionRevoker.RevokeAllAsync(user.Id.ToString(), cancellationToken);
+            await _sessionRevoker.RevokeAllAsync(user.Id.ToString());
 
             // Created after the save, from the stored stamp. A token made before it would be
             // invalidated by the very stamp change it travels with.

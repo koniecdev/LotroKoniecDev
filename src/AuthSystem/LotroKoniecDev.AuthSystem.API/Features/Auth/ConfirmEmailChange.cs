@@ -143,7 +143,7 @@ internal sealed partial class ConfirmEmailChange
                 {
                     if (await IsAlreadyAppliedAsync(user.Id, newEmail))
                     {
-                        await _sessionRevoker.RevokeAllAsync(user.Id.ToString(), cancellationToken);
+                        await _sessionRevoker.RevokeAllAsync(user.Id.ToString());
                         return Result.Success();
                     }
 
@@ -237,7 +237,7 @@ internal sealed partial class ConfirmEmailChange
                 // link, the change is already there, and "nothing changed, try again" would be false.
                 if (await IsAlreadyAppliedAsync(user.Id, newEmail))
                 {
-                    await _sessionRevoker.RevokeAllAsync(user.Id.ToString(), cancellationToken);
+                    await _sessionRevoker.RevokeAllAsync(user.Id.ToString());
                     return Result.Success();
                 }
 
@@ -248,7 +248,7 @@ internal sealed partial class ConfirmEmailChange
 
             _outboxWriter.NotifyEnqueuedCommitted();
 
-            await _sessionRevoker.RevokeAllAsync(user.Id.ToString(), cancellationToken);
+            await _sessionRevoker.RevokeAllAsync(user.Id.ToString());
 
             LogChangeApplied(
                 _logger, user.Id, previousEmail.MaskEmail(), newEmail.MaskEmail(), command.IpAddress, command.UserAgent);

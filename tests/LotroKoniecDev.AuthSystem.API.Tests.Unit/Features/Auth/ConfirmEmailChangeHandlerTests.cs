@@ -50,7 +50,7 @@ public sealed class ConfirmEmailChangeHandlerTests
 
         // The first submit may have been aborted before its own revocation ran, and nothing in the return
         // value shows whether this one ended the sessions, so it is asserted here.
-        await _sessionRevoker.Received(1).RevokeAllAsync(user.Id.ToString(), Arg.Any<CancellationToken>());
+        await _sessionRevoker.Received(1).RevokeAllAsync(user.Id.ToString());
     }
 
     [Fact]
@@ -66,7 +66,7 @@ public sealed class ConfirmEmailChangeHandlerTests
         SharedKernel.Monads.Result result = await sut.Handle(CommandFor(user.Id), CancellationToken.None);
 
         result.IsSuccess.ShouldBeTrue();
-        await _sessionRevoker.Received(1).RevokeAllAsync(user.Id.ToString(), Arg.Any<CancellationToken>());
+        await _sessionRevoker.Received(1).RevokeAllAsync(user.Id.ToString());
     }
 
     [Fact]

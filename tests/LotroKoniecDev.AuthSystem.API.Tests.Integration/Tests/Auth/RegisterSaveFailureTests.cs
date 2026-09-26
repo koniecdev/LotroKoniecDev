@@ -91,11 +91,14 @@ public sealed class RegisterSaveFailureTests : EndpointsTestBase
 
     /// <summary>
     /// Both requests pass every check before either one writes, so the unique index decides. The losing
-    /// request must name the field it really lost on.
+    /// request must name the field it really lost on. A value in other letter case clashes only on the
+    /// case-blind index, so both spellings are raced.
     /// </summary>
     [Theory]
     [InlineData(Clash.Email, "Auth.UserAlreadyExistsByEmail")]
+    [InlineData(Clash.EmailInOtherCase, "Auth.UserAlreadyExistsByEmail")]
     [InlineData(Clash.Username, "Auth.UserAlreadyExistsByUsername")]
+    [InlineData(Clash.UsernameInOtherCase, "Auth.UserAlreadyExistsByUsername")]
     public async Task Register_ShouldNameTheTakenField_WhenARegistrationCommitsTheSameValueJustBeforeTheInsert(
         Clash clash,
         string expectedErrorCode)
@@ -106,7 +109,15 @@ public sealed class RegisterSaveFailureTests : EndpointsTestBase
         RegisterRequest competitor = clash switch
         {
             Clash.Email => UserFactory.GenerateRandomRegisterRequest(Faker) with { Email = request.Email },
+            Clash.EmailInOtherCase => UserFactory.GenerateRandomRegisterRequest(Faker) with
+            {
+                Email = request.Email.ToUpperInvariant()
+            },
             Clash.Username => UserFactory.GenerateRandomRegisterRequest(Faker) with { Username = request.Username },
+            Clash.UsernameInOtherCase => UserFactory.GenerateRandomRegisterRequest(Faker) with
+            {
+                Username = request.Username.ToUpperInvariant()
+            },
             _ => throw new ArgumentOutOfRangeException(nameof(clash), clash, null)
         };
 
@@ -141,7 +152,9 @@ public sealed class RegisterSaveFailureTests : EndpointsTestBase
     public enum Clash
     {
         Email,
-        Username
+        EmailInOtherCase,
+        Username,
+        UsernameInOtherCase
     }
 
     /// <summary>

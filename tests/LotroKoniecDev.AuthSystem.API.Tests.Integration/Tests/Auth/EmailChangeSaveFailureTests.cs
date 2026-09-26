@@ -49,7 +49,7 @@ public sealed partial class EmailChangeSaveFailureTests : EndpointsTestBase
         Factory.DbCommandFailures.FailNext(IsUpdateOfUsers, () => CreatePermanentFailure(sqlState, constraintName));
 
         // Act
-        HttpResponseMessage response = await PostToPageAsync(
+        using HttpResponseMessage response = await PostToPageAsync(
             ApiClient.Http,
             "/Account/ConfirmEmailChange",
             ConfirmUrl(userId, newEmail, token),
@@ -75,7 +75,7 @@ public sealed partial class EmailChangeSaveFailureTests : EndpointsTestBase
         Factory.DbCommandFailures.FailNext(IsUpdateOfUsers, () => CreatePermanentFailure(sqlState, constraintName));
 
         // Act
-        HttpResponseMessage response = await PostToPageAsync(
+        using HttpResponseMessage response = await PostToPageAsync(
             ApiClient.Http,
             "/Account/RevertEmailChange",
             RevertUrl(userId, user.Email, newEmail, revertToken),
@@ -103,7 +103,7 @@ public sealed partial class EmailChangeSaveFailureTests : EndpointsTestBase
         Factory.DbCommandFailures.FailNext(IsUpdateOfUsers, CreateTransientFailure);
 
         // Act
-        HttpResponseMessage response = await PostToPageAsync(
+        using HttpResponseMessage response = await PostToPageAsync(
             ApiClient.Http,
             "/Account/ConfirmEmailChange",
             ConfirmUrl(userId, newEmail, token),
@@ -124,7 +124,7 @@ public sealed partial class EmailChangeSaveFailureTests : EndpointsTestBase
         Factory.DbCommandFailures.FailNext(IsUpdateOfUsers, CreateTransientFailure);
 
         // Act
-        HttpResponseMessage response = await PostToPageAsync(
+        using HttpResponseMessage response = await PostToPageAsync(
             ApiClient.Http,
             "/Account/RevertEmailChange",
             RevertUrl(userId, user.Email, newEmail, revertToken),
@@ -138,19 +138,24 @@ public sealed partial class EmailChangeSaveFailureTests : EndpointsTestBase
 
     /// <summary>
     /// The confirm page gives one answer for every refusal, so here a lost race shows as a 200 with that
-    /// answer, where an outage is a 500.
+    /// answer, where an outage is a 500. A competitor who writes the address in other letter case clashes
+    /// only on the case-blind index of ADR-0022, so both spellings are raced.
     /// </summary>
-    [Fact]
-    public async Task ConfirmPage_Post_ShouldRefuseAndKeepTheOldAddress_WhenAnotherAccountTakesTheAddressJustBeforeTheSave()
+    [Theory]
+    [InlineData(Spelling.Exact)]
+    [InlineData(Spelling.OtherCase)]
+    public async Task ConfirmPage_Post_ShouldRefuseAndKeepTheOldAddress_WhenAnotherAccountTakesTheAddressJustBeforeTheSave(
+        Spelling spelling)
     {
         // Arrange: the competitor is created through the suite's main host, whose contexts do not carry
         // this interceptor, so it commits while our update waits
         (RegisterRequest user, _) = await UserFactory.RegisterRandomUserWithRequestAsync(
             ApiClient, Faker, AccountConfirmationEmailSpy, Password);
         Guid userId = await UserIdOfAsync(user.Email);
-        string newEmail = Faker.Internet.Email();
+        string newEmail = Faker.Internet.Email(uniqueSuffix: Guid.CreateVersion7().ToString("N"));
 
-        CompetitorTakesTheAddressFirstInterceptor interceptor = new(newEmail, () => SeedUserOnAsync(newEmail));
+        CompetitorTakesTheAddressFirstInterceptor interceptor = new(
+            newEmail, () => SeedUserOnAsync(Spell(newEmail, spelling)));
         await using WebApplicationFactory<Program> host = CreateHostWith(interceptor);
         using HttpClient client = host.CreateClient();
 
@@ -161,7 +166,7 @@ public sealed partial class EmailChangeSaveFailureTests : EndpointsTestBase
             EmailChangeTokenProvider.PurposeFor(newEmail));
 
         // Act
-        HttpResponseMessage response = await PostToPageAsync(
+        using HttpResponseMessage response = await PostToPageAsync(
             client,
             "/Account/ConfirmEmailChange",
             ConfirmUrl(userId, newEmail, token),
@@ -174,13 +179,17 @@ public sealed partial class EmailChangeSaveFailureTests : EndpointsTestBase
         (await LoadUserByIdAsync(userId)).Email.ShouldBe(user.Email);
     }
 
-    [Fact]
-    public async Task RevertPage_Post_ShouldRefuseAndKeepThePassword_WhenAnotherAccountTakesThePreviousAddressJustBeforeTheSave()
+    [Theory]
+    [InlineData(Spelling.Exact)]
+    [InlineData(Spelling.OtherCase)]
+    public async Task RevertPage_Post_ShouldRefuseAndKeepThePassword_WhenAnotherAccountTakesThePreviousAddressJustBeforeTheSave(
+        Spelling spelling)
     {
         // Arrange
         (RegisterRequest user, string newEmail, Guid userId) = await CompleteChangeAsync();
 
-        CompetitorTakesTheAddressFirstInterceptor interceptor = new(user.Email, () => SeedUserOnAsync(user.Email));
+        CompetitorTakesTheAddressFirstInterceptor interceptor = new(
+            user.Email, () => SeedUserOnAsync(Spell(user.Email, spelling)));
         await using WebApplicationFactory<Program> host = CreateHostWith(interceptor);
         using HttpClient client = host.CreateClient();
 
@@ -191,7 +200,7 @@ public sealed partial class EmailChangeSaveFailureTests : EndpointsTestBase
             EmailChangeRevertTokenProvider.PurposeFor(user.Email, newEmail));
 
         // Act
-        HttpResponseMessage response = await PostToPageAsync(
+        using HttpResponseMessage response = await PostToPageAsync(
             client,
             "/Account/RevertEmailChange",
             RevertUrl(userId, user.Email, newEmail, revertToken),
@@ -206,6 +215,20 @@ public sealed partial class EmailChangeSaveFailureTests : EndpointsTestBase
         untouched.Email.ShouldBe(newEmail);
         untouched.PasswordHash.ShouldNotBeNull();
     }
+
+    public enum Spelling
+    {
+        Exact,
+        OtherCase
+    }
+
+    private static string Spell(string address, Spelling spelling) =>
+        spelling switch
+        {
+            Spelling.Exact => address,
+            Spelling.OtherCase => address.ToUpperInvariant(),
+            _ => throw new ArgumentOutOfRangeException(nameof(spelling), spelling, null)
+        };
 
     private WebApplicationFactory<Program> CreateHostWith(DbCommandInterceptor interceptor) =>
         Factory.WithWebHostBuilder(builder =>
@@ -258,7 +281,7 @@ public sealed partial class EmailChangeSaveFailureTests : EndpointsTestBase
             ApiClient, Faker, AccountConfirmationEmailSpy, Password);
 
         string accessToken = await GetAccessTokenAsync(user.Email, Password);
-        string newEmail = Faker.Internet.Email();
+        string newEmail = Faker.Internet.Email(uniqueSuffix: Guid.CreateVersion7().ToString("N"));
 
         using HttpRequestMessage request = new(HttpMethod.Post, "auth/account/change-email");
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
@@ -275,7 +298,7 @@ public sealed partial class EmailChangeSaveFailureTests : EndpointsTestBase
         (RegisterRequest user, string newEmail, string token) = await RequestChangeAsync();
         Guid userId = await UserIdOfAsync(user.Email);
 
-        HttpResponseMessage response = await PostToPageAsync(
+        using HttpResponseMessage response = await PostToPageAsync(
             ApiClient.Http,
             "/Account/ConfirmEmailChange",
             ConfirmUrl(userId, newEmail, token),
@@ -344,7 +367,7 @@ public sealed partial class EmailChangeSaveFailureTests : EndpointsTestBase
     private static async Task<HttpResponseMessage> PostToPageAsync(
         HttpClient client, string pagePath, string getUrl, Dictionary<string, string> formFields)
     {
-        HttpResponseMessage pageResponse = await client.GetAsync(new Uri(getUrl, UriKind.Relative));
+        using HttpResponseMessage pageResponse = await client.GetAsync(new Uri(getUrl, UriKind.Relative));
         pageResponse.StatusCode.ShouldBe(HttpStatusCode.OK);
 
         string html = await pageResponse.Content.ReadAsStringAsync();

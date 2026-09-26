@@ -1,5 +1,5 @@
 using Microsoft.EntityFrameworkCore;
-using Npgsql;
+using LotroKoniecDev.AuthSystem.API.Extensions;
 using LotroKoniecDev.AuthSystem.Persistence.DbContexts;
 using LotroKoniecDev.AuthSystem.Persistence.Inbox;
 using LotroKoniecDev.SharedKernel.Monads;
@@ -64,7 +64,7 @@ internal sealed partial class EmailDeliveryProcessor
         {
             await _db.SaveChangesAsync(cancellationToken);
         }
-        catch (DbUpdateException ex) when (IsPrimaryKeyViolation(ex))
+        catch (DbUpdateException ex) when (ex.IsUniqueViolation)
         {
             // Another delivery of the same message inserted the row first, which means the work is
             // already done. The answer is the same as when the check at the start finds it.
@@ -72,11 +72,6 @@ internal sealed partial class EmailDeliveryProcessor
         }
 
         return Result.Success();
-    }
-
-    private static bool IsPrimaryKeyViolation(DbUpdateException exception)
-    {
-        return exception.InnerException is PostgresException { SqlState: PostgresErrorCodes.UniqueViolation };
     }
 
     [LoggerMessage(

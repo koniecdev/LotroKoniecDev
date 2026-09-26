@@ -4,9 +4,8 @@ namespace LotroKoniecDev.AuthSystem.API.Outbox;
 /// Thrown when a feature slice enqueues an outbox message whose type has no routing key in
 /// <see cref="OutboxMessageRouting"/>. That is a programmer error, a forgotten routing entry, and this
 /// shows it at write time instead of blocking the relay after the commit.
-/// It has its own type on purpose. Writers catch broad exception types for safety, for example
-/// <c>RegisterUser</c> catches <see cref="InvalidOperationException"/> for an Identity lookup race,
-/// and this failure must crash loudly instead of looking like a business outcome.
+/// It has its own type on purpose: no writer catches it, so this failure crashes loudly and can never
+/// be turned into a business outcome.
 /// </summary>
 internal sealed class UnroutableOutboxMessageTypeException : Exception
 {

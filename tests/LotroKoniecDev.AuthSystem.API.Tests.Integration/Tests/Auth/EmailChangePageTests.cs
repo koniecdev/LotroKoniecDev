@@ -123,6 +123,57 @@ public sealed partial class EmailChangePageTests : EndpointsTestBase
     }
 
     [Fact]
+    public async Task ConfirmPage_Post_ShouldSayTheAddressIsTaken_WhenAnotherAccountUsesIt()
+    {
+        // #869: the link is good, so calling it dead would send the visitor off for a new one, and asking
+        // for one would only be refused on the same address again.
+        (RegisterRequest user, string newEmail, string token) = await RequestChangeAsync();
+        Guid userId = await UserIdOfAsync(user.Email);
+        await SeedUserOnAsync(newEmail);
+
+        HttpResponseMessage response = await PostToPageAsync(
+            "/Account/ConfirmEmailChange",
+            ConfirmUrl(userId, newEmail, token),
+            new Dictionary<string, string>
+            {
+                ["UserId"] = userId.ToString(),
+                ["Email"] = newEmail,
+                ["Token"] = token
+            });
+
+        string html = await response.Content.ReadAsStringAsync();
+        html.ShouldContain("Ten adres należy już do innego konta");
+        html.ShouldNotContain("Link wygasł lub jest nieprawidłowy");
+        (await LoadUserByIdAsync(userId)).Email.ShouldBe(user.Email);
+    }
+
+    [Fact]
+    public async Task ConfirmPage_Post_ShouldSayTheDeletionIsScheduled_WhenTheAccountAwaitsDeletion()
+    {
+        // Scheduling a deletion through the API rotates the security stamp, and that kills this link, so
+        // the dead-link answer is the true one there. Only the deletion date is set here, which reaches the
+        // handler's own guard behind the token check (#869).
+        (RegisterRequest user, string newEmail, string token) = await RequestChangeAsync();
+        Guid userId = await UserIdOfAsync(user.Email);
+        await AccountStateFactory.ScheduleDeletionAsync(Factory.Services, user.Email);
+
+        HttpResponseMessage response = await PostToPageAsync(
+            "/Account/ConfirmEmailChange",
+            ConfirmUrl(userId, newEmail, token),
+            new Dictionary<string, string>
+            {
+                ["UserId"] = userId.ToString(),
+                ["Email"] = newEmail,
+                ["Token"] = token
+            });
+
+        string html = await response.Content.ReadAsStringAsync();
+        html.ShouldContain("Usunięcie konta jest już zaplanowane");
+        html.ShouldNotContain("Link wygasł lub jest nieprawidłowy");
+        (await LoadUserByIdAsync(userId)).Email.ShouldBe(user.Email);
+    }
+
+    [Fact]
     public async Task ConfirmPage_PostWithATamperedAddress_ShouldChangeNothing()
     {
         // The address is baked into the token's purpose, so editing it in the link has to fail.

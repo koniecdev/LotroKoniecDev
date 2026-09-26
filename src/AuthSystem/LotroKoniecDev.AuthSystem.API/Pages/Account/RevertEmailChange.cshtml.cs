@@ -1,9 +1,9 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
 using Microsoft.AspNetCore.RateLimiting;
-using LotroKoniecDev.AuthSystem.API.ApiErrors;
 using LotroKoniecDev.AuthSystem.API.Extensions;
 using LotroKoniecDev.AuthSystem.API.Features.Auth;
+using LotroKoniecDev.SharedKernel.BuildingBlocks;
 using LotroKoniecDev.SharedKernel.Messaging;
 using LotroKoniecDev.SharedKernel.Monads;
 
@@ -47,6 +47,12 @@ internal sealed partial class RevertEmailChangeModel : PageModel
 
     public string? ErrorMessage { get; set; }
 
+    /// <summary>
+    /// The link passed its token check and only the save failed, so the page shows the form again and
+    /// one more click can finish the undo (#869).
+    /// </summary>
+    public bool CanRetry { get; set; }
+
     public void OnGet(string? userId = null, string? from = null, string? to = null, string? token = null)
     {
         UserId = userId ?? string.Empty;
@@ -81,21 +87,7 @@ internal sealed partial class RevertEmailChangeModel : PageModel
 
         if (commandResult.IsFailure)
         {
-            // The address the account would go back to now belongs to somebody else, which is a
-            // different problem from a dead link and has a different answer: nothing was changed,
-            // the password still works, and only support can sort it out. Saying so tells the
-            // visitor nothing they could not learn by trying to register that address — and they
-            // already proved they hold a valid revert link for this account.
-            if (string.Equals(
-                    commandResult.Error.Code,
-                    AuthErrors.UserAlreadyExistsByEmail.Code,
-                    StringComparison.Ordinal))
-            {
-                ShowPreviousAddressTaken();
-                return Page();
-            }
-
-            ShowInvalidLink();
+            ShowRefusal(commandResult.Error);
             return Page();
         }
 
@@ -108,6 +100,32 @@ internal sealed partial class RevertEmailChangeModel : PageModel
             email = commandResult.Value.RestoredEmail,
             token = commandResult.Value.PasswordResetToken
         });
+    }
+
+    /// <summary>
+    /// Only a dead link is called dead (#869). A taken previous address is a different problem with a
+    /// different answer: nothing was changed, the password still works, and only support can sort it
+    /// out. Saying so tells the visitor nothing they could not learn by trying to register that address,
+    /// and they already proved they hold a valid revert link for this account. A failed save keeps the
+    /// form, because the link is still good and one more click can finish the undo.
+    /// </summary>
+    private void ShowRefusal(Error error)
+    {
+        switch (error.Code)
+        {
+            case "Auth.UserAlreadyExistsByEmail":
+                ShowPreviousAddressTaken();
+                break;
+            case "Auth.EmailChangeFailed":
+                ErrorTitle = "Nie udało się cofnąć zmiany";
+                ErrorMessage = "Nic nie zmieniliśmy, bo w tej samej chwili na koncie zapisało się coś innego. "
+                               + "Kliknij przycisk jeszcze raz. Jeśli błąd się powtórzy, napisz do nas.";
+                CanRetry = true;
+                break;
+            default:
+                ShowInvalidLink();
+                break;
+        }
     }
 
     private void ShowInvalidLink()

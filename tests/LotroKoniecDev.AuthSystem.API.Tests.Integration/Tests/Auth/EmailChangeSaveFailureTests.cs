@@ -9,9 +9,7 @@ using Microsoft.EntityFrameworkCore.ChangeTracking;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.DependencyInjection;
 using Npgsql;
-using LotroKoniecDev.AuthSystem.API.ApiErrors;
 using LotroKoniecDev.AuthSystem.API.BackgroundServices;
-using LotroKoniecDev.AuthSystem.API.Features.Auth;
 using LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared.Bases;
 using LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared.Factories;
 using LotroKoniecDev.AuthSystem.Contracts.Features.Auth.Account;
@@ -20,15 +18,15 @@ using LotroKoniecDev.AuthSystem.Domain.Aggregates.ApplicationUsers.Entities;
 using LotroKoniecDev.AuthSystem.Persistence;
 using LotroKoniecDev.AuthSystem.Persistence.DbContexts;
 using LotroKoniecDev.AuthSystem.Persistence.Identity;
-using LotroKoniecDev.SharedKernel.Messaging;
-using LotroKoniecDev.SharedKernel.Monads;
 
 namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Tests.Auth;
 
 /// <summary>
 /// An e-mail change whose save fails while it is confirmed or undone. Only a taken address may come back
 /// as a taken address: a duplicate on an e-mail index (#864), or Identity's own check inside the save
-/// finding the address taken (#866). Any other error is an outage: a 500, and nothing changes.
+/// finding the address taken (#866). A save that lost to another write on the same account offers the
+/// form again, because the link still works (#869). Any other error is an outage: a 500, and nothing
+/// changes.
 /// </summary>
 public sealed partial class EmailChangeSaveFailureTests : EndpointsTestBase
 {
@@ -142,9 +140,8 @@ public sealed partial class EmailChangeSaveFailureTests : EndpointsTestBase
     }
 
     /// <summary>
-    /// The confirm page gives one answer for every refusal, so here a lost race shows as a 200 with that
-    /// answer, where an outage is a 500. A competitor who writes the address in other letter case clashes
-    /// only on the case-blind index of ADR-0022, so both spellings are raced.
+    /// A competitor who writes the address in other letter case clashes only on the case-blind index of
+    /// ADR-0022, so both spellings are raced.
     /// </summary>
     [Theory]
     [InlineData(Spelling.Exact)]
@@ -159,7 +156,7 @@ public sealed partial class EmailChangeSaveFailureTests : EndpointsTestBase
         Guid userId = await UserIdOfAsync(user.Email);
         string newEmail = Faker.Internet.Email(uniqueSuffix: Guid.CreateVersion7().ToString("N"));
 
-        CompetitorTakesTheAddressFirstInterceptor interceptor = new(
+        CompetitorCommitsFirstInterceptor interceptor = new(
             newEmail, RaceMoment.BeforeTheUpdate, () => SeedUserOnAsync(Spell(newEmail, spelling)));
         await using WebApplicationFactory<Program> host = CreateHostWith(interceptor);
         using HttpClient client = host.CreateClient();
@@ -180,7 +177,7 @@ public sealed partial class EmailChangeSaveFailureTests : EndpointsTestBase
         // Assert
         interceptor.CompetitorCommitted.ShouldBeTrue();
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
-        (await response.Content.ReadAsStringAsync()).ShouldContain("nieprawidłowy lub wygasł");
+        (await response.Content.ReadAsStringAsync()).ShouldContain("Ten adres należy już do innego konta");
         (await LoadUserByIdAsync(userId)).Email.ShouldBe(user.Email);
     }
 
@@ -193,7 +190,7 @@ public sealed partial class EmailChangeSaveFailureTests : EndpointsTestBase
         // Arrange
         (RegisterRequest user, string newEmail, Guid userId) = await CompleteChangeAsync();
 
-        CompetitorTakesTheAddressFirstInterceptor interceptor = new(
+        CompetitorCommitsFirstInterceptor interceptor = new(
             user.Email, RaceMoment.BeforeTheUpdate, () => SeedUserOnAsync(Spell(user.Email, spelling)));
         await using WebApplicationFactory<Program> host = CreateHostWith(interceptor);
         using HttpClient client = host.CreateClient();
@@ -231,7 +228,7 @@ public sealed partial class EmailChangeSaveFailureTests : EndpointsTestBase
         // Arrange
         (RegisterRequest user, string newEmail, Guid userId) = await CompleteChangeAsync();
 
-        CompetitorTakesTheAddressFirstInterceptor interceptor = new(
+        CompetitorCommitsFirstInterceptor interceptor = new(
             user.Email, RaceMoment.BeforeIdentitysOwnCheck, () => SeedUserOnAsync(user.Email));
         await using WebApplicationFactory<Program> host = CreateHostWith(interceptor);
         using HttpClient client = host.CreateClient();
@@ -259,11 +256,8 @@ public sealed partial class EmailChangeSaveFailureTests : EndpointsTestBase
         untouched.PasswordHash.ShouldNotBeNull();
     }
 
-    /// <summary>
-    /// The confirm page shows one message for every refusal, so the handler's answer is checked directly.
-    /// </summary>
     [Fact]
-    public async Task ConfirmHandler_Handle_ShouldReturnAddressTakenAndKeepTheOldAddress_WhenAnotherAccountTakesTheAddressDuringIdentitysOwnCheck()
+    public async Task ConfirmPage_Post_ShouldRefuseAndKeepTheOldAddress_WhenAnotherAccountTakesTheAddressDuringIdentitysOwnCheck()
     {
         // Arrange
         (RegisterRequest user, _) = await UserFactory.RegisterRandomUserWithRequestAsync(
@@ -271,9 +265,10 @@ public sealed partial class EmailChangeSaveFailureTests : EndpointsTestBase
         Guid userId = await UserIdOfAsync(user.Email);
         string newEmail = Faker.Internet.Email(uniqueSuffix: Guid.CreateVersion7().ToString("N"));
 
-        CompetitorTakesTheAddressFirstInterceptor interceptor = new(
+        CompetitorCommitsFirstInterceptor interceptor = new(
             newEmail, RaceMoment.BeforeIdentitysOwnCheck, () => SeedUserOnAsync(newEmail));
         await using WebApplicationFactory<Program> host = CreateHostWith(interceptor);
+        using HttpClient client = host.CreateClient();
 
         string token = await CreateTokenAsync(
             host.Services,
@@ -281,19 +276,176 @@ public sealed partial class EmailChangeSaveFailureTests : EndpointsTestBase
             EmailChangeTokenProvider.ProviderName,
             EmailChangeTokenProvider.PurposeFor(newEmail));
 
-        await using AsyncServiceScope scope = host.Services.CreateAsyncScope();
-        ICommandHandler<ConfirmEmailChange.Command, Result> handler =
-            scope.ServiceProvider.GetRequiredService<ICommandHandler<ConfirmEmailChange.Command, Result>>();
-
         // Act
-        Result result = await handler.Handle(
-            new ConfirmEmailChange.Command(userId.ToString(), newEmail, token, null, null),
-            CancellationToken.None);
+        using HttpResponseMessage response = await PostToPageAsync(
+            client,
+            "/Account/ConfirmEmailChange",
+            ConfirmUrl(userId, newEmail, token),
+            ConfirmForm(userId, newEmail, token));
 
         // Assert
         interceptor.CompetitorCommitted.ShouldBeTrue();
-        result.IsFailure.ShouldBeTrue();
-        result.Error.ShouldBe(AuthErrors.UserAlreadyExistsByEmail);
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        (await response.Content.ReadAsStringAsync()).ShouldContain("Ten adres należy już do innego konta");
+        (await LoadUserByIdAsync(userId)).Email.ShouldBe(user.Email);
+    }
+
+    /// <summary>
+    /// A failed login saves the account too, so it can land between the moment the page loads the account
+    /// and the moment it saves it. The save is then refused as out of date, but the link is still good, so
+    /// the page must not call it dead (#869).
+    /// </summary>
+    [Fact]
+    public async Task ConfirmPage_Post_ShouldOfferTheFormAgainAndKeepTheOldAddress_WhenAnotherSaveOfTheAccountLandsFirst()
+    {
+        // Arrange
+        (RegisterRequest user, _) = await UserFactory.RegisterRandomUserWithRequestAsync(
+            ApiClient, Faker, AccountConfirmationEmailSpy, Password);
+        Guid userId = await UserIdOfAsync(user.Email);
+        string newEmail = Faker.Internet.Email(uniqueSuffix: Guid.CreateVersion7().ToString("N"));
+
+        CompetitorCommitsFirstInterceptor interceptor = new(
+            newEmail, RaceMoment.BeforeTheUpdate, () => RecordAFailedLoginAsync(userId));
+        await using WebApplicationFactory<Program> host = CreateHostWith(interceptor);
+        using HttpClient client = host.CreateClient();
+
+        string token = await CreateTokenAsync(
+            host.Services,
+            userId,
+            EmailChangeTokenProvider.ProviderName,
+            EmailChangeTokenProvider.PurposeFor(newEmail));
+
+        // Act
+        using HttpResponseMessage response = await PostToPageAsync(
+            client,
+            "/Account/ConfirmEmailChange",
+            ConfirmUrl(userId, newEmail, token),
+            ConfirmForm(userId, newEmail, token));
+
+        // Assert
+        interceptor.CompetitorCommitted.ShouldBeTrue();
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+
+        string html = await response.Content.ReadAsStringAsync();
+        html.ShouldContain("data-testid=\"confirm-email-change-retry\"");
+        html.ShouldContain("Nie udało się zapisać zmiany");
+        html.ShouldContain("data-testid=\"confirm-email-change-form\"");
+        html.ShouldNotContain("Link wygasł lub jest nieprawidłowy");
+
+        (await LoadUserByIdAsync(userId)).Email.ShouldBe(user.Email);
+    }
+
+    [Fact]
+    public async Task ConfirmPage_PostAgain_ShouldMoveTheAddress_AfterAnotherSaveOfTheAccountLandedFirst()
+    {
+        // Arrange: the first click loses to a failed login, which is the state the retry form offers
+        (RegisterRequest user, _) = await UserFactory.RegisterRandomUserWithRequestAsync(
+            ApiClient, Faker, AccountConfirmationEmailSpy, Password);
+        Guid userId = await UserIdOfAsync(user.Email);
+        string newEmail = Faker.Internet.Email(uniqueSuffix: Guid.CreateVersion7().ToString("N"));
+
+        CompetitorCommitsFirstInterceptor interceptor = new(
+            newEmail, RaceMoment.BeforeTheUpdate, () => RecordAFailedLoginAsync(userId));
+        await using WebApplicationFactory<Program> host = CreateHostWith(interceptor);
+        using HttpClient client = host.CreateClient();
+
+        string token = await CreateTokenAsync(
+            host.Services,
+            userId,
+            EmailChangeTokenProvider.ProviderName,
+            EmailChangeTokenProvider.PurposeFor(newEmail));
+
+        using HttpResponseMessage lost = await PostToPageAsync(
+            client,
+            "/Account/ConfirmEmailChange",
+            ConfirmUrl(userId, newEmail, token),
+            ConfirmForm(userId, newEmail, token));
+        interceptor.CompetitorCommitted.ShouldBeTrue();
+
+        // Act
+        using HttpResponseMessage retried = await PostToPageAsync(
+            client,
+            "/Account/ConfirmEmailChange",
+            ConfirmUrl(userId, newEmail, token),
+            ConfirmForm(userId, newEmail, token));
+
+        // Assert
+        retried.StatusCode.ShouldBe(HttpStatusCode.OK);
+        (await LoadUserByIdAsync(userId)).Email.ShouldBe(newEmail);
+    }
+
+    [Fact]
+    public async Task RevertPage_Post_ShouldOfferTheFormAgainAndKeepThePassword_WhenAnotherSaveOfTheAccountLandsFirst()
+    {
+        // Arrange
+        (RegisterRequest user, string newEmail, Guid userId) = await CompleteChangeAsync();
+
+        CompetitorCommitsFirstInterceptor interceptor = new(
+            user.Email, RaceMoment.BeforeTheUpdate, () => RecordAFailedLoginAsync(userId));
+        await using WebApplicationFactory<Program> host = CreateHostWith(interceptor);
+        using HttpClient client = host.CreateClient();
+
+        string revertToken = await CreateTokenAsync(
+            host.Services,
+            userId,
+            EmailChangeRevertTokenProvider.ProviderName,
+            EmailChangeRevertTokenProvider.PurposeFor(user.Email, newEmail));
+
+        // Act
+        using HttpResponseMessage response = await PostToPageAsync(
+            client,
+            "/Account/RevertEmailChange",
+            RevertUrl(userId, user.Email, newEmail, revertToken),
+            RevertForm(userId, user.Email, newEmail, revertToken));
+
+        // Assert
+        interceptor.CompetitorCommitted.ShouldBeTrue();
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+
+        string html = await response.Content.ReadAsStringAsync();
+        html.ShouldContain("data-testid=\"revert-email-change-retry\"");
+        html.ShouldContain("Nie udało się cofnąć zmiany");
+        html.ShouldContain("data-testid=\"revert-email-change-form\"");
+        html.ShouldNotContain("Link wygasł lub jest nieprawidłowy");
+
+        ApplicationUser untouched = await LoadUserByIdAsync(userId);
+        untouched.Email.ShouldBe(newEmail);
+        untouched.PasswordHash.ShouldNotBeNull();
+    }
+
+    [Fact]
+    public async Task RevertPage_PostAgain_ShouldRestoreTheAddress_AfterAnotherSaveOfTheAccountLandedFirst()
+    {
+        // Arrange: the first click loses to a failed login, which is the state the retry form offers
+        (RegisterRequest user, string newEmail, Guid userId) = await CompleteChangeAsync();
+
+        CompetitorCommitsFirstInterceptor interceptor = new(
+            user.Email, RaceMoment.BeforeTheUpdate, () => RecordAFailedLoginAsync(userId));
+        await using WebApplicationFactory<Program> host = CreateHostWith(interceptor);
+        using HttpClient client = host.CreateClient();
+
+        string revertToken = await CreateTokenAsync(
+            host.Services,
+            userId,
+            EmailChangeRevertTokenProvider.ProviderName,
+            EmailChangeRevertTokenProvider.PurposeFor(user.Email, newEmail));
+
+        using HttpResponseMessage lost = await PostToPageAsync(
+            client,
+            "/Account/RevertEmailChange",
+            RevertUrl(userId, user.Email, newEmail, revertToken),
+            RevertForm(userId, user.Email, newEmail, revertToken));
+        interceptor.CompetitorCommitted.ShouldBeTrue();
+
+        // Act
+        using HttpResponseMessage retried = await PostToPageAsync(
+            client,
+            "/Account/RevertEmailChange",
+            RevertUrl(userId, user.Email, newEmail, revertToken),
+            RevertForm(userId, user.Email, newEmail, revertToken));
+
+        // Assert: the test client follows redirects, so landing on the reset page is what proves success
+        retried.RequestMessage!.RequestUri!.ToString().ShouldContain("/Account/ResetPassword");
         (await LoadUserByIdAsync(userId)).Email.ShouldBe(user.Email);
     }
 
@@ -360,6 +512,22 @@ public sealed partial class EmailChangeSaveFailureTests : EndpointsTestBase
         };
 
         (await userManager.CreateAsync(squatter, Password)).Succeeded.ShouldBeTrue();
+    }
+
+    /// <summary>
+    /// Goes through the suite's main host, whose contexts do not carry the interceptor, the same way the
+    /// login page records a wrong password: one more save of the account that moves its concurrency stamp.
+    /// </summary>
+    private async Task RecordAFailedLoginAsync(Guid userId)
+    {
+        await using AsyncServiceScope scope = Factory.Services.CreateAsyncScope();
+        UserManager<ApplicationUser> userManager =
+            scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
+
+        ApplicationUser? user = await userManager.FindByIdAsync(userId.ToString());
+        user.ShouldNotBeNull();
+
+        (await userManager.AccessFailedAsync(user)).Succeeded.ShouldBeTrue();
     }
 
     private async Task<(RegisterRequest User, string NewEmail, string Token)> RequestChangeAsync()
@@ -482,22 +650,23 @@ public sealed partial class EmailChangeSaveFailureTests : EndpointsTestBase
     private static partial Regex AntiForgeryTokenRegex();
 
     /// <summary>
-    /// Holds one step of the account's save until another account has committed the same address. That
-    /// is the moment two real requests can reach at the same time, and the only one this suite cannot hit
-    /// on purpose any other way.
+    /// Holds one step of the account's save until a competing write has committed: another account taking
+    /// the same address, or another save of this account. That is the moment two real requests can reach
+    /// at the same time, and the only one this suite cannot hit on purpose any other way. Only the first
+    /// matching step is held, so a second click runs untouched.
     /// </summary>
-    private sealed class CompetitorTakesTheAddressFirstInterceptor : DbCommandInterceptor
+    private sealed class CompetitorCommitsFirstInterceptor : DbCommandInterceptor
     {
         private readonly string _address;
         private readonly RaceMoment _moment;
-        private readonly Func<Task> _takeTheAddress;
+        private readonly Func<Task> _competingWrite;
         private int _raced;
 
-        public CompetitorTakesTheAddressFirstInterceptor(string address, RaceMoment moment, Func<Task> takeTheAddress)
+        public CompetitorCommitsFirstInterceptor(string address, RaceMoment moment, Func<Task> competingWrite)
         {
             _address = address;
             _moment = moment;
-            _takeTheAddress = takeTheAddress;
+            _competingWrite = competingWrite;
         }
 
         public bool CompetitorCommitted { get; private set; }
@@ -510,7 +679,7 @@ public sealed partial class EmailChangeSaveFailureTests : EndpointsTestBase
         {
             if (IsTheMoment(command, eventData) && Interlocked.CompareExchange(ref _raced, 1, 0) == 0)
             {
-                await _takeTheAddress();
+                await _competingWrite();
                 CompetitorCommitted = true;
             }
 

@@ -214,10 +214,9 @@ outlier and explicitly **not** the pattern here.
   > database error is retried by the save itself before it gets that far. The `InvalidOperationException` arm is gone: the unique `EmailIndex` means the
   > lookup can never find two rows.
   >
-  > **Amended 2026-09-26 (#866):** the check inside `UpdateAsync` can lose the same race. A competitor
-  > who commits between the handler's lookup and Identity's one makes `UpdateAsync` return a failed
-  > result with `DuplicateEmail`, not an exception. Both legs map that to `UserAlreadyExistsByEmail`
-  > too, so the revert page shows its "address taken" state rather than the dead-link one.
+  > **Amended 2026-09-26 (#866):** Identity's check inside `UpdateAsync` can lose the same race and
+  > answers with a failed result instead of an exception. A result whose only errors are
+  > `DuplicateEmail` also becomes `UserAlreadyExistsByEmail` (ADR-0048).
 - **Do not set `NormalizedEmail` by hand.** `UpdateAsync` recomputes it after validation and before
   the write, so a hand-set value is dead code.
 - **The freed address is reserved for as long as the undo link lives (#684, SEC-06).** This was

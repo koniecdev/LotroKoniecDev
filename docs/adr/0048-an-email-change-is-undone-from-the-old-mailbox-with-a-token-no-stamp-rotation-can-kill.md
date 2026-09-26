@@ -4,8 +4,8 @@
 #685 — a scheduled deletion may not outlive the undo, see rule 5 — and by #864 — only a real
 duplicate is reported as a taken address, and by #866 — so is a duplicate Identity's own check finds)
 **Date:** 2026-08-20
-**Decision-makers:** Solo maintainer (ticket #671, LEGAL-14, legal & GDPR pack #459; amendments #684, SEC-06
-and #685, SEC-07)
+**Decision-makers:** Solo maintainer (ticket #671, LEGAL-14, legal & GDPR pack #459; amendments #684, SEC-06,
+#685, SEC-07, #864 and #866)
 **Related:** ADR-0031 (the same threat, answered for deletion), ADR-0038 (the one dispatch
 pipeline every e-mail here rides), ADR-0046 (what may be said behind a verified password),
 spec 0013, `Features/Auth/RequestEmailChange`, `Pages/Account/ConfirmEmailChange`,
@@ -247,9 +247,9 @@ revert token must do.
   > other save error reaches the global handler as a 500 instead of being reported as a taken address.
   >
   > **Amended 2026-09-26 (#866):** the race can also be lost at Identity's own check inside
-  > `UpdateAsync`, which then answers with a failed `IdentityResult` carrying `DuplicateEmail` and no
-  > exception. Both legs give that the same `UserAlreadyExistsByEmail`, so the revert page says the
-  > old address is taken instead of calling a good link dead.
+  > `UpdateAsync`, which then answers with a failed `IdentityResult` and no exception. When every
+  > error in it is `DuplicateEmail`, both legs give the same `UserAlreadyExistsByEmail`, so the revert
+  > page says the old address is taken instead of calling a good link dead.
 
 ## Alternatives Considered
 

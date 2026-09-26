@@ -7,6 +7,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.DependencyInjection;
 using Npgsql;
+using LotroKoniecDev.AuthSystem.API.BackgroundServices;
 using LotroKoniecDev.AuthSystem.API.Outbox;
 using LotroKoniecDev.AuthSystem.API.Services.RateLimiting;
 using LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared.Bases;
@@ -133,7 +134,11 @@ public sealed partial class MailboxBudgetTests : EndpointsTestBase
         FailFirstRegistrationCommitInterceptor interceptor = new(inbox.Tagged("1"));
         await using WebApplicationFactory<Program> host = Factory.WithWebHostBuilder(builder =>
             builder.ConfigureTestServices(services =>
-                services.ConfigureDbContext<AuthDbContext>(options => options.AddInterceptors(interceptor))));
+            {
+                // A second relay on this database could take a row another test waits for.
+                AuthSystemApiFactory.RemoveHostedService<OutboxRelay>(services);
+                services.ConfigureDbContext<AuthDbContext>(options => options.AddInterceptors(interceptor));
+            }));
         using HttpClient client = host.CreateClient();
 
         using HttpResponseMessage replayed = await RegisterAsync(client, inbox.Tagged("1"));

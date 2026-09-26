@@ -352,7 +352,7 @@ public class AuthSystemApiFactory : WebApplicationFactory<Program>, IAsyncLifeti
     /// so a production wiring that changes shape fails the whole suite instead of leaving a job on the
     /// clock or a removed one untested (#821).
     /// </summary>
-    private static void RemoveHostedService<THostedService>(IServiceCollection services)
+    internal static void RemoveHostedService<THostedService>(IServiceCollection services)
         where THostedService : IHostedService
     {
         List<ServiceDescriptor> descriptors = services

@@ -241,7 +241,8 @@ internal sealed partial class RevertEmailChange
         /// <summary>
         /// Same reasoning as the confirm leg: the uniqueness check is a plain query, the unique index
         /// is the real arbiter, and its duplicate-key error is not one <c>UserStore.UpdateAsync</c>
-        /// handles.
+        /// handles. Only a duplicate on an e-mail index means the previous address was taken; any other
+        /// save error goes on up and becomes a 500 (#864).
         /// </summary>
         private async Task<Result<IdentityResult>> TryUpdateAsync(ApplicationUser user)
         {
@@ -249,7 +250,8 @@ internal sealed partial class RevertEmailChange
             {
                 return Result.Success(await _userManager.UpdateAsync(user));
             }
-            catch (Exception ex) when (ex is DbUpdateException or InvalidOperationException)
+            catch (DbUpdateException ex)
+                when (ex.TakenAccountValueError(_db.Model) == AuthErrors.UserAlreadyExistsByEmail)
             {
                 LogRevertRace(_logger, ex, user.Id);
                 return Result.Failure<IdentityResult>(AuthErrors.UserAlreadyExistsByEmail);

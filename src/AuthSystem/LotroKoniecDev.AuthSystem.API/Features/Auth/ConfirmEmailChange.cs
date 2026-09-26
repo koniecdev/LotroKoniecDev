@@ -235,8 +235,9 @@ internal sealed partial class ConfirmEmailChange
         /// The uniqueness check above is an ordinary query, so two requests can pass it at the same
         /// time. The unique index is what really decides, and <c>UserStore.UpdateAsync</c> only handles
         /// concurrency conflicts, so the duplicate-key error arrives here as a raw
-        /// <see cref="DbUpdateException"/>. It is caught for the same reason registration catches it:
-        /// a person who followed a link from their inbox must see an error page, not a crash.
+        /// <see cref="DbUpdateException"/>. Only a duplicate on an e-mail index means somebody else took
+        /// the address. Any other save error is an outage, not a taken address, so it goes on up and
+        /// becomes a 500 (#864). A passing error never gets here: the save retries it by itself.
         /// </summary>
         private async Task<Result<IdentityResult>> TryUpdateAsync(ApplicationUser user)
         {
@@ -244,7 +245,8 @@ internal sealed partial class ConfirmEmailChange
             {
                 return Result.Success(await _userManager.UpdateAsync(user));
             }
-            catch (Exception ex) when (ex is DbUpdateException or InvalidOperationException)
+            catch (DbUpdateException ex)
+                when (ex.TakenAccountValueError(_db.Model) == AuthErrors.UserAlreadyExistsByEmail)
             {
                 LogUpdateRace(_logger, ex, user.Id);
                 return Result.Failure<IdentityResult>(AuthErrors.UserAlreadyExistsByEmail);

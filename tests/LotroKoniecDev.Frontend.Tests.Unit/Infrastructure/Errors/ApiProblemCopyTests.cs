@@ -492,7 +492,7 @@ public sealed class ApiProblemCopyTests
     [Theory]
     [InlineData("Auth.EmailChangeSameAddress", 400, "Podany adres e-mail jest taki sam jak obecny.")]
     [InlineData("Auth.InvalidEmailChangeToken", 400, "Link zmieniający adres e-mail jest nieprawidłowy lub wygasł. Poproś o nowy.")]
-    [InlineData("Auth.EmailChangeFailed", 500, "Nie udało się zmienić adresu e-mail. Mógł on zostać w międzyczasie zajęty przez inne konto.")]
+    [InlineData("Auth.EmailChangeFailed", 500, "Nie udało się zmienić adresu e-mail. Spróbuj ponownie później.")]
     [InlineData("RequestEmailChange.Validation", 400, "Podany adres e-mail jest nieprawidłowy.")]
     public void Describe_ForAnEmailChangeCode_ShowsThePolishCopyInsteadOfDegrading(
         string errorCode,

@@ -209,7 +209,7 @@ internal static class ApiProblemCopy
             ["Auth.InvalidEmailChangeToken"] =
                 "Link zmieniający adres e-mail jest nieprawidłowy lub wygasł. Poproś o nowy.",
             ["Auth.EmailChangeFailed"] =
-                "Nie udało się zmienić adresu e-mail. Mógł on zostać w międzyczasie zajęty przez inne konto.",
+                "Nie udało się zmienić adresu e-mail. Spróbuj ponownie później.",
 
             // ── Auth · per-slice request validation ────────────────────────────────────────────
             // Registration and password reset live on the auth server's own Razor Pages, so these three

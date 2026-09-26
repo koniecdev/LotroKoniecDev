@@ -236,7 +236,8 @@ internal sealed partial class ConfirmEmailChange
         /// time. The unique index is what really decides, and <c>UserStore.UpdateAsync</c> only handles
         /// concurrency conflicts, so the duplicate-key error arrives here as a raw
         /// <see cref="DbUpdateException"/>. Only a duplicate on an e-mail index is a lost race; any other
-        /// save error goes on up and becomes a 500 (#864).
+        /// save error goes on up and becomes a 500 (#864). Identity's own check inside <c>UpdateAsync</c>
+        /// can lose the same race first, and gets the same answer (#866).
         /// </summary>
         /// <remarks>
         /// A known corner case: if the answer to the commit is lost after the server really committed,
@@ -247,7 +248,14 @@ internal sealed partial class ConfirmEmailChange
         {
             try
             {
-                return Result.Success(await _userManager.UpdateAsync(user));
+                IdentityResult result = await _userManager.UpdateAsync(user);
+                if (result.IsTakenEmail)
+                {
+                    LogUpdateRace(_logger, null, user.Id);
+                    return Result.Failure<IdentityResult>(AuthErrors.UserAlreadyExistsByEmail);
+                }
+
+                return Result.Success(result);
             }
             catch (DbUpdateException ex) when (ex.IsTakenEmail(_db.Model))
             {
@@ -280,7 +288,7 @@ internal sealed partial class ConfirmEmailChange
         private static partial void LogUpdateFailed(ILogger logger, Guid userId, string errors);
 
         [LoggerMessage(EventId = EventIds.EmailChangeConfirmRace, Level = LogLevel.Warning, Message = "E-mail change for user {UserId} lost a race for the new address")]
-        private static partial void LogUpdateRace(ILogger logger, Exception exception, Guid userId);
+        private static partial void LogUpdateRace(ILogger logger, Exception? exception, Guid userId);
 
         [LoggerMessage(EventId = EventIds.EmailChangeConfirmAddressReserved, Level = LogLevel.Warning, Message = "E-mail change for user {UserId} refused: {NewEmail} is still reserved as another account's undo target")]
         private static partial void LogReservedAddressRefused(ILogger logger, Guid userId, string newEmail);

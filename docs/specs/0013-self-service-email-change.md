@@ -213,6 +213,10 @@ outlier and explicitly **not** the pattern here.
   > address: it reaches the global handler as a 500, like any other outage on these pages. A temporary
   > database error is retried by the save itself before it gets that far. The `InvalidOperationException` arm is gone: the unique `EmailIndex` means the
   > lookup can never find two rows.
+  >
+  > **Amended 2026-09-26 (#866):** Identity's check inside `UpdateAsync` can lose the same race and
+  > answers with a failed result instead of an exception. A result whose only errors are
+  > `DuplicateEmail` also becomes `UserAlreadyExistsByEmail` (ADR-0048).
 - **Do not set `NormalizedEmail` by hand.** `UpdateAsync` recomputes it after validation and before
   the write, so a hand-set value is dead code.
 - **The freed address is reserved for as long as the undo link lives (#684, SEC-06).** This was

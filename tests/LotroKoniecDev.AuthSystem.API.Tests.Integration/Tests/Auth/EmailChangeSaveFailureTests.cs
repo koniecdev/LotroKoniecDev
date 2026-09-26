@@ -5,10 +5,13 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.ChangeTracking;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.DependencyInjection;
 using Npgsql;
+using LotroKoniecDev.AuthSystem.API.ApiErrors;
 using LotroKoniecDev.AuthSystem.API.BackgroundServices;
+using LotroKoniecDev.AuthSystem.API.Features.Auth;
 using LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared.Bases;
 using LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared.Factories;
 using LotroKoniecDev.AuthSystem.Contracts.Features.Auth.Account;
@@ -17,13 +20,15 @@ using LotroKoniecDev.AuthSystem.Domain.Aggregates.ApplicationUsers.Entities;
 using LotroKoniecDev.AuthSystem.Persistence;
 using LotroKoniecDev.AuthSystem.Persistence.DbContexts;
 using LotroKoniecDev.AuthSystem.Persistence.Identity;
+using LotroKoniecDev.SharedKernel.Messaging;
+using LotroKoniecDev.SharedKernel.Monads;
 
 namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Tests.Auth;
 
 /// <summary>
-/// An e-mail change whose save fails while it is confirmed or undone. Only a real duplicate on an e-mail
-/// index may come back as a taken address. Any other error is an outage: a 500, and nothing changes
-/// (#864).
+/// An e-mail change whose save fails while it is confirmed or undone. Only a taken address may come back
+/// as a taken address: a duplicate on an e-mail index (#864), or Identity's own check inside the save
+/// finding the address taken (#866). Any other error is an outage: a 500, and nothing changes.
 /// </summary>
 public sealed partial class EmailChangeSaveFailureTests : EndpointsTestBase
 {
@@ -155,7 +160,7 @@ public sealed partial class EmailChangeSaveFailureTests : EndpointsTestBase
         string newEmail = Faker.Internet.Email(uniqueSuffix: Guid.CreateVersion7().ToString("N"));
 
         CompetitorTakesTheAddressFirstInterceptor interceptor = new(
-            newEmail, () => SeedUserOnAsync(Spell(newEmail, spelling)));
+            newEmail, RaceMoment.BeforeTheUpdate, () => SeedUserOnAsync(Spell(newEmail, spelling)));
         await using WebApplicationFactory<Program> host = CreateHostWith(interceptor);
         using HttpClient client = host.CreateClient();
 
@@ -189,7 +194,7 @@ public sealed partial class EmailChangeSaveFailureTests : EndpointsTestBase
         (RegisterRequest user, string newEmail, Guid userId) = await CompleteChangeAsync();
 
         CompetitorTakesTheAddressFirstInterceptor interceptor = new(
-            user.Email, () => SeedUserOnAsync(Spell(user.Email, spelling)));
+            user.Email, RaceMoment.BeforeTheUpdate, () => SeedUserOnAsync(Spell(user.Email, spelling)));
         await using WebApplicationFactory<Program> host = CreateHostWith(interceptor);
         using HttpClient client = host.CreateClient();
 
@@ -216,10 +221,92 @@ public sealed partial class EmailChangeSaveFailureTests : EndpointsTestBase
         untouched.PasswordHash.ShouldNotBeNull();
     }
 
+    /// <summary>
+    /// Identity normalizes both sides of its own lookup, so unlike the index race the spelling does not
+    /// matter here (#866).
+    /// </summary>
+    [Fact]
+    public async Task RevertPage_Post_ShouldRefuseAndKeepThePassword_WhenAnotherAccountTakesThePreviousAddressDuringIdentitysOwnCheck()
+    {
+        // Arrange
+        (RegisterRequest user, string newEmail, Guid userId) = await CompleteChangeAsync();
+
+        CompetitorTakesTheAddressFirstInterceptor interceptor = new(
+            user.Email, RaceMoment.BeforeIdentitysOwnCheck, () => SeedUserOnAsync(user.Email));
+        await using WebApplicationFactory<Program> host = CreateHostWith(interceptor);
+        using HttpClient client = host.CreateClient();
+
+        string revertToken = await CreateTokenAsync(
+            host.Services,
+            userId,
+            EmailChangeRevertTokenProvider.ProviderName,
+            EmailChangeRevertTokenProvider.PurposeFor(user.Email, newEmail));
+
+        // Act
+        using HttpResponseMessage response = await PostToPageAsync(
+            client,
+            "/Account/RevertEmailChange",
+            RevertUrl(userId, user.Email, newEmail, revertToken),
+            RevertForm(userId, user.Email, newEmail, revertToken));
+
+        // Assert
+        interceptor.CompetitorCommitted.ShouldBeTrue();
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        (await response.Content.ReadAsStringAsync()).ShouldContain("Poprzedni adres należy już do innego konta");
+
+        ApplicationUser untouched = await LoadUserByIdAsync(userId);
+        untouched.Email.ShouldBe(newEmail);
+        untouched.PasswordHash.ShouldNotBeNull();
+    }
+
+    /// <summary>
+    /// The confirm page shows one message for every refusal, so the handler's answer is checked directly.
+    /// </summary>
+    [Fact]
+    public async Task ConfirmHandler_Handle_ShouldReturnAddressTakenAndKeepTheOldAddress_WhenAnotherAccountTakesTheAddressDuringIdentitysOwnCheck()
+    {
+        // Arrange
+        (RegisterRequest user, _) = await UserFactory.RegisterRandomUserWithRequestAsync(
+            ApiClient, Faker, AccountConfirmationEmailSpy, Password);
+        Guid userId = await UserIdOfAsync(user.Email);
+        string newEmail = Faker.Internet.Email(uniqueSuffix: Guid.CreateVersion7().ToString("N"));
+
+        CompetitorTakesTheAddressFirstInterceptor interceptor = new(
+            newEmail, RaceMoment.BeforeIdentitysOwnCheck, () => SeedUserOnAsync(newEmail));
+        await using WebApplicationFactory<Program> host = CreateHostWith(interceptor);
+
+        string token = await CreateTokenAsync(
+            host.Services,
+            userId,
+            EmailChangeTokenProvider.ProviderName,
+            EmailChangeTokenProvider.PurposeFor(newEmail));
+
+        await using AsyncServiceScope scope = host.Services.CreateAsyncScope();
+        ICommandHandler<ConfirmEmailChange.Command, Result> handler =
+            scope.ServiceProvider.GetRequiredService<ICommandHandler<ConfirmEmailChange.Command, Result>>();
+
+        // Act
+        Result result = await handler.Handle(
+            new ConfirmEmailChange.Command(userId.ToString(), newEmail, token, null, null),
+            CancellationToken.None);
+
+        // Assert
+        interceptor.CompetitorCommitted.ShouldBeTrue();
+        result.IsFailure.ShouldBeTrue();
+        result.Error.ShouldBe(AuthErrors.UserAlreadyExistsByEmail);
+        (await LoadUserByIdAsync(userId)).Email.ShouldBe(user.Email);
+    }
+
     public enum Spelling
     {
         Exact,
         OtherCase
+    }
+
+    private enum RaceMoment
+    {
+        BeforeTheUpdate,
+        BeforeIdentitysOwnCheck
     }
 
     private static string Spell(string address, Spelling spelling) =>
@@ -395,19 +482,21 @@ public sealed partial class EmailChangeSaveFailureTests : EndpointsTestBase
     private static partial Regex AntiForgeryTokenRegex();
 
     /// <summary>
-    /// Holds the account's update until another account has committed the same address. That is the
-    /// moment two real requests can reach at the same time, and the only one this suite cannot hit on
-    /// purpose any other way.
+    /// Holds one step of the account's save until another account has committed the same address. That
+    /// is the moment two real requests can reach at the same time, and the only one this suite cannot hit
+    /// on purpose any other way.
     /// </summary>
     private sealed class CompetitorTakesTheAddressFirstInterceptor : DbCommandInterceptor
     {
         private readonly string _address;
+        private readonly RaceMoment _moment;
         private readonly Func<Task> _takeTheAddress;
         private int _raced;
 
-        public CompetitorTakesTheAddressFirstInterceptor(string address, Func<Task> takeTheAddress)
+        public CompetitorTakesTheAddressFirstInterceptor(string address, RaceMoment moment, Func<Task> takeTheAddress)
         {
             _address = address;
+            _moment = moment;
             _takeTheAddress = takeTheAddress;
         }
 
@@ -419,7 +508,7 @@ public sealed partial class EmailChangeSaveFailureTests : EndpointsTestBase
             InterceptionResult<DbDataReader> result,
             CancellationToken cancellationToken = default)
         {
-            if (IsTheAddressUpdate(command) && Interlocked.CompareExchange(ref _raced, 1, 0) == 0)
+            if (IsTheMoment(command, eventData) && Interlocked.CompareExchange(ref _raced, 1, 0) == 0)
             {
                 await _takeTheAddress();
                 CompetitorCommitted = true;
@@ -428,10 +517,51 @@ public sealed partial class EmailChangeSaveFailureTests : EndpointsTestBase
             return await base.ReaderExecutingAsync(command, eventData, result, cancellationToken);
         }
 
+        private bool IsTheMoment(DbCommand command, CommandEventData eventData) =>
+            _moment switch
+            {
+                RaceMoment.BeforeTheUpdate => IsTheAddressUpdate(command),
+                RaceMoment.BeforeIdentitysOwnCheck => IsIdentitysOwnCheck(command, eventData),
+                _ => throw new ArgumentOutOfRangeException(nameof(_moment), _moment, null)
+            };
+
         private bool IsTheAddressUpdate(DbCommand command) =>
             IsUpdateOfUsers(command)
             && command.Parameters.Cast<DbParameter>()
                 .Any(parameter => parameter.Value is string value
                                   && string.Equals(value, _address, StringComparison.Ordinal));
+
+        /// <summary>
+        /// The handler looks the address up too, with the same query. Identity's lookup is the one that
+        /// runs once the handler has already put the address on the account.
+        /// </summary>
+        private bool IsIdentitysOwnCheck(DbCommand command, CommandEventData eventData) =>
+            command.CommandText.TrimStart().StartsWith("SELECT", StringComparison.Ordinal)
+            && command.CommandText.Contains("\"NormalizedEmail\" = ", StringComparison.Ordinal)
+            && command.Parameters.Cast<DbParameter>()
+                .Any(parameter => parameter.Value is string value
+                                  && string.Equals(value, _address, StringComparison.OrdinalIgnoreCase))
+            && eventData.Context is not null
+            && AccountAlreadyCarriesTheAddress(eventData.Context.ChangeTracker);
+
+        /// <summary>
+        /// Reads the tracked entities without detecting changes, so the save under test runs with the
+        /// same change-tracking state it has in production.
+        /// </summary>
+        private bool AccountAlreadyCarriesTheAddress(ChangeTracker changeTracker)
+        {
+            bool autoDetectChanges = changeTracker.AutoDetectChangesEnabled;
+            changeTracker.AutoDetectChangesEnabled = false;
+
+            try
+            {
+                return changeTracker.Entries<ApplicationUser>()
+                    .Any(entry => string.Equals(entry.Entity.Email, _address, StringComparison.OrdinalIgnoreCase));
+            }
+            finally
+            {
+                changeTracker.AutoDetectChangesEnabled = autoDetectChanges;
+            }
+        }
     }
 }

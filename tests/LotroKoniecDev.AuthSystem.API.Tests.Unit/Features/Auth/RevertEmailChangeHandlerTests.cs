@@ -166,6 +166,53 @@ public sealed class RevertEmailChangeHandlerTests
     }
 
     [Fact]
+    public async Task Handle_TheSameLinkLandedJustBeforeTheAddressCheck_SendsThisSubmitToThePasswordResetToo()
+    {
+        // A double click: the first submit lands after this one loaded the account, so the address
+        // lookup finds this very account. The undo is done, and this visitor needs the reset as much as
+        // the first one did (#869).
+        ApplicationUser user = CreateUser();
+        StubUser(user, tokenValid: true);
+        _userManager.FindByEmailAsync(PreviousEmail).Returns(user);
+        ApplicationUser reverted = CreateRevertedCopyOf(user);
+        _userManager.FindByIdAsync(user.Id.ToString()).Returns(user, reverted);
+        _userManager.GeneratePasswordResetTokenAsync(reverted).Returns("fresh-reset-token");
+        RevertEmailChange.Handler sut = CreateSut();
+
+        SharedKernel.Monads.Result<RevertEmailChange.RevertedEmailChange> result = await sut.Handle(
+            CommandFor(user.Id.ToString()), CancellationToken.None);
+
+        result.IsSuccess.ShouldBeTrue();
+        result.Value.RestoredEmail.ShouldBe(PreviousEmail);
+        result.Value.PasswordResetToken.ShouldBe("fresh-reset-token");
+
+        // The first submit may have been aborted before its own revocation ran, and nothing in the
+        // return value shows whether this one ended the sessions, so it is asserted here.
+        await _sessionRevoker.Received(1).RevokeAllAsync(user.Id.ToString(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Handle_ItsOwnAccountGotBackThereWithoutAnUndo_RefusesAsASpentLink()
+    {
+        // The owner confirmed a change back to the armed address while this link was open. That settles
+        // the chain and keeps the password, so there is no undo to report and no reset to hand out.
+        ApplicationUser user = CreateUser();
+        StubUser(user, tokenValid: true);
+        _userManager.FindByEmailAsync(PreviousEmail).Returns(user);
+        ApplicationUser settled = CreateUser(user.Id);
+        settled.Email = PreviousEmail;
+        settled.DisarmEmailChangeRevert();
+        _userManager.FindByIdAsync(user.Id.ToString()).Returns(user, settled);
+        RevertEmailChange.Handler sut = CreateSut();
+
+        SharedKernel.Monads.Result<RevertEmailChange.RevertedEmailChange> result = await sut.Handle(
+            CommandFor(user.Id.ToString()), CancellationToken.None);
+
+        result.IsFailure.ShouldBeTrue();
+        result.Error.Code.ShouldBe("Auth.InvalidEmailChangeToken");
+    }
+
+    [Fact]
     public async Task Handle_ValidToken_RestoresTheAddressConfirmsItAndEndsEverySession()
     {
         ApplicationUser user = CreateUser();
@@ -200,6 +247,7 @@ public sealed class RevertEmailChangeHandlerTests
     {
         ApplicationUser user = CreateUser();
         StubUser(user, tokenValid: true);
+        StubTheStoredRowAfterARefusedSave(user);
         _userManager.UpdateAsync(user).Returns(IdentityResult.Failed(new IdentityError
         {
             Code = "ConcurrencyFailure",
@@ -212,6 +260,35 @@ public sealed class RevertEmailChangeHandlerTests
 
         result.IsFailure.ShouldBeTrue();
         result.Error.Code.ShouldBe("Auth.EmailChangeFailed");
+    }
+
+    [Fact]
+    public async Task Handle_TheSameLinkLandedJustBeforeTheSave_SendsThisSubmitToThePasswordResetToo()
+    {
+        // A double click: the first submit's save moved the concurrency stamp, so this one is refused.
+        // The undo is done all the same, so this is not a failure to try again (#869).
+        ApplicationUser user = CreateUser();
+        StubUser(user, tokenValid: true);
+        ApplicationUser reverted = CreateRevertedCopyOf(user);
+        _userManager.FindByIdAsync(user.Id.ToString()).Returns(user, reverted);
+        _userManager.GeneratePasswordResetTokenAsync(reverted).Returns("fresh-reset-token");
+        _userManager.UpdateAsync(user).Returns(IdentityResult.Failed(new IdentityError
+        {
+            Code = "ConcurrencyFailure",
+            Description = "Optimistic concurrency failure."
+        }));
+        RevertEmailChange.Handler sut = CreateSut();
+
+        SharedKernel.Monads.Result<RevertEmailChange.RevertedEmailChange> result = await sut.Handle(
+            CommandFor(user.Id.ToString()), CancellationToken.None);
+
+        result.IsSuccess.ShouldBeTrue();
+        result.Value.RestoredEmail.ShouldBe(PreviousEmail);
+        result.Value.PasswordResetToken.ShouldBe("fresh-reset-token");
+
+        // The first submit may have been aborted before its own revocation ran, and nothing in the
+        // return value shows whether this one ended the sessions, so it is asserted here.
+        await _sessionRevoker.Received(1).RevokeAllAsync(user.Id.ToString(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -240,6 +317,7 @@ public sealed class RevertEmailChangeHandlerTests
         // The save would fail on a free address too, so it is not a lost race and must not hide as one.
         ApplicationUser user = CreateUser();
         StubUser(user, tokenValid: true);
+        StubTheStoredRowAfterARefusedSave(user);
         _userManager.UpdateAsync(user).Returns(IdentityResult.Failed(
             new IdentityError
             {
@@ -305,6 +383,24 @@ public sealed class RevertEmailChangeHandlerTests
         _userManager.GeneratePasswordResetTokenAsync(user).Returns("reset-token");
     }
 
+    /// <summary>
+    /// After a refused save the handler reads the account again. The store still holds the old row
+    /// then, not the instance the handler already changed in memory.
+    /// </summary>
+    private void StubTheStoredRowAfterARefusedSave(ApplicationUser user) =>
+        _userManager.FindByIdAsync(user.Id.ToString()).Returns(user, CreateUser(user.Id));
+
+    /// <summary>The row an undo leaves behind: the previous address, a disarmed chain, no password.</summary>
+    private static ApplicationUser CreateRevertedCopyOf(ApplicationUser user)
+    {
+        ApplicationUser reverted = CreateUser(user.Id);
+        reverted.Email = PreviousEmail;
+        reverted.EmailConfirmed = true;
+        reverted.PasswordHash = null;
+        reverted.DisarmEmailChangeRevert();
+        return reverted;
+    }
+
     private RevertEmailChange.Handler CreateSut() =>
         new(
             _userManager,
@@ -314,10 +410,10 @@ public sealed class RevertEmailChangeHandlerTests
             new RevertEmailChange.CommandValidator(),
             NullLogger<RevertEmailChange.Handler>.Instance);
 
-    private static ApplicationUser CreateUser() =>
+    private static ApplicationUser CreateUser(Guid? id = null) =>
         new()
         {
-            Id = Guid.NewGuid(),
+            Id = id ?? Guid.NewGuid(),
             UserName = "frodo",
             Email = CurrentEmail,
             PasswordHash = "hashed",

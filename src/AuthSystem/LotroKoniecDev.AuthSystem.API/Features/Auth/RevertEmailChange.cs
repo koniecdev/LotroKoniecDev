@@ -159,6 +159,22 @@ internal sealed partial class RevertEmailChange
             ApplicationUser? previousAddressOwner = await _userManager.FindByEmailAsync(revertTarget);
             if (previousAddressOwner is not null)
             {
+                // The owner is this very account when the account got back there after this request
+                // loaded it, for example through a second submit of the same link. That is not a taken
+                // address, and "your password still works" would be false (#869).
+                if (previousAddressOwner.Id == user.Id)
+                {
+                    RevertedEmailChange? landed = await FindLandedRevertAsync(user.Id, revertTarget);
+                    if (landed is not null)
+                    {
+                        await _sessionRevoker.RevokeAllAsync(user.Id.ToString(), cancellationToken);
+                        return Result.Success(landed);
+                    }
+
+                    LogAlreadySettled(_logger, user.Id);
+                    return Result.Failure<RevertedEmailChange>(AuthErrors.InvalidEmailChangeToken);
+                }
+
                 LogPreviousAddressTaken(_logger, user.Id);
                 return Result.Failure<RevertedEmailChange>(AuthErrors.UserAlreadyExistsByEmail);
             }
@@ -204,6 +220,15 @@ internal sealed partial class RevertEmailChange
             if (!updateResult.Value.Succeeded)
             {
                 DiscardPendingChanges();
+
+                // Another save of this account got in first. When it was a second submit of this same
+                // link, the undo is already done, and "nothing changed, try again" would be false.
+                RevertedEmailChange? landed = await FindLandedRevertAsync(user.Id, revertTarget);
+                if (landed is not null)
+                {
+                    await _sessionRevoker.RevokeAllAsync(user.Id.ToString(), cancellationToken);
+                    return Result.Success(landed);
+                }
 
                 string errors = string.Join(", ", updateResult.Value.Errors.Select(e => e.Description));
                 LogRevertFailed(_logger, user.Id, errors);
@@ -263,6 +288,40 @@ internal sealed partial class RevertEmailChange
                 return Result.Failure<IdentityResult>(AuthErrors.UserAlreadyExistsByEmail);
             }
         }
+
+        /// <summary>
+        /// Reads the account again, past everything this request holds in memory. An undo that already
+        /// landed leaves it on the address it came from, with the chain disarmed and no password. Only a
+        /// caller whose token passed gets here, so it gets what the first submit got: a way into the
+        /// password reset. Without it the visitor would be stuck on a password that is gone (#869).
+        /// </summary>
+        /// <remarks>
+        /// The caller ends the sessions again after a hit. The first submit ends them only after its save,
+        /// and a double click aborts that first request, so its revocation may never have run. That would
+        /// leave whoever took the account signed in after the undo.
+        /// </remarks>
+        private async Task<RevertedEmailChange?> FindLandedRevertAsync(Guid userId, string revertTarget)
+        {
+            _db.ChangeTracker.Clear();
+
+            ApplicationUser? stored = await _userManager.FindByIdAsync(userId.ToString());
+            if (stored is not { EmailChangeRevertTo: null, PasswordHash: null }
+                || !string.Equals(
+                    _userManager.NormalizeEmail(stored.Email),
+                    _userManager.NormalizeEmail(revertTarget),
+                    StringComparison.Ordinal))
+            {
+                return null;
+            }
+
+            LogAlreadyReverted(_logger, userId);
+
+            string passwordResetToken = await _userManager.GeneratePasswordResetTokenAsync(stored);
+            return new RevertedEmailChange(revertTarget, passwordResetToken);
+        }
+
+        [LoggerMessage(EventId = EventIds.EmailChangeRevertAlreadyApplied, Level = LogLevel.Information, Message = "Revert for user {UserId} was already applied by an earlier submit of the same link")]
+        private static partial void LogAlreadyReverted(ILogger logger, Guid userId);
 
         [LoggerMessage(EventId = EventIds.EmailChangeRevertTokenInvalid, Level = LogLevel.Warning, Message = "Invalid e-mail change revert token presented for {PreviousEmail}. IP: {IpAddress}, UserAgent: {UserAgent}")]
         private static partial void LogTokenInvalid(ILogger logger, string previousEmail, string? ipAddress, string? userAgent);

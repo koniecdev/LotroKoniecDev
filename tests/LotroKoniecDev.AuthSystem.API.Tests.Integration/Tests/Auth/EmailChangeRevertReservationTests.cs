@@ -223,6 +223,7 @@ public sealed partial class EmailChangeRevertReservationTests : EndpointsTestBas
             });
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        (await response.Content.ReadAsStringAsync()).ShouldContain("Ten adres należy już do innego konta");
         (await LoadUserByIdAsync(otherUserId)).Email.ShouldBe(other.Email);
     }
 

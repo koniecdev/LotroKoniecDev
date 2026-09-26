@@ -118,8 +118,64 @@ public sealed partial class EmailChangePageTests : EndpointsTestBase
                 ["Token"] = token
             });
 
-        (await replay.Content.ReadAsStringAsync()).ShouldContain("nieprawidłowy");
+        // The whole dead-link copy, because the page now builds it in code rather than in the markup (#869).
+        string html = await replay.Content.ReadAsStringAsync();
+        html.ShouldContain("Link wygasł lub jest nieprawidłowy");
+        html.ShouldContain(
+            "Link potwierdzający zmianę adresu jest nieprawidłowy lub wygasł. Link jest ważny 24 godziny "
+            + "i można go użyć tylko raz. Zaloguj się i poproś o zmianę adresu jeszcze raz.");
         (await LoadUserByIdAsync(userId)).Email.ShouldBe(newEmail);
+    }
+
+    [Fact]
+    public async Task ConfirmPage_Post_ShouldSayTheAddressIsTaken_WhenAnotherAccountUsesIt()
+    {
+        // #869: the link is good, so calling it dead would send the visitor off for a new one, and asking
+        // for one would only be refused on the same address again.
+        (RegisterRequest user, string newEmail, string token) = await RequestChangeAsync();
+        Guid userId = await UserIdOfAsync(user.Email);
+        await SeedUserOnAsync(newEmail);
+
+        HttpResponseMessage response = await PostToPageAsync(
+            "/Account/ConfirmEmailChange",
+            ConfirmUrl(userId, newEmail, token),
+            new Dictionary<string, string>
+            {
+                ["UserId"] = userId.ToString(),
+                ["Email"] = newEmail,
+                ["Token"] = token
+            });
+
+        string html = await response.Content.ReadAsStringAsync();
+        html.ShouldContain("Ten adres należy już do innego konta");
+        html.ShouldNotContain("Link wygasł lub jest nieprawidłowy");
+        (await LoadUserByIdAsync(userId)).Email.ShouldBe(user.Email);
+    }
+
+    [Fact]
+    public async Task ConfirmPage_Post_ShouldSayTheDeletionIsScheduled_WhenTheAccountAwaitsDeletion()
+    {
+        // Scheduling a deletion through the API rotates the security stamp, and that kills this link, so
+        // the dead-link answer is the true one there. Only the deletion date is set here, which reaches the
+        // handler's own guard behind the token check (#869).
+        (RegisterRequest user, string newEmail, string token) = await RequestChangeAsync();
+        Guid userId = await UserIdOfAsync(user.Email);
+        await AccountStateFactory.ScheduleDeletionAsync(Factory.Services, user.Email);
+
+        HttpResponseMessage response = await PostToPageAsync(
+            "/Account/ConfirmEmailChange",
+            ConfirmUrl(userId, newEmail, token),
+            new Dictionary<string, string>
+            {
+                ["UserId"] = userId.ToString(),
+                ["Email"] = newEmail,
+                ["Token"] = token
+            });
+
+        string html = await response.Content.ReadAsStringAsync();
+        html.ShouldContain("Usunięcie konta jest już zaplanowane");
+        html.ShouldNotContain("Link wygasł lub jest nieprawidłowy");
+        (await LoadUserByIdAsync(userId)).Email.ShouldBe(user.Email);
     }
 
     [Fact]
@@ -156,7 +212,9 @@ public sealed partial class EmailChangePageTests : EndpointsTestBase
             UriKind.Relative));
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
-        (await response.Content.ReadAsStringAsync()).ShouldContain("nieprawidłowy");
+        (await response.Content.ReadAsStringAsync()).ShouldContain(
+            "Link potwierdzający zmianę adresu jest nieprawidłowy. Link jest ważny 24 godziny "
+            + "i można go użyć tylko raz. Zaloguj się i poproś o zmianę adresu jeszcze raz.");
         (await LoadUserByIdAsync(await UserIdOfAsync(user.Email))).Email.ShouldBe(user.Email);
     }
 
@@ -436,7 +494,11 @@ public sealed partial class EmailChangePageTests : EndpointsTestBase
             RevertUrl(userId, user.Email, newEmail, revertToken),
             RevertForm(userId, user.Email, newEmail, revertToken));
 
-        (await replay.Content.ReadAsStringAsync()).ShouldContain("nieprawidłowy");
+        string html = await replay.Content.ReadAsStringAsync();
+        html.ShouldContain("Link wygasł lub jest nieprawidłowy");
+        html.ShouldContain(
+            "Linku cofającego zmianę adresu można użyć tylko raz i działa on przez 14 dni od zmiany adresu. "
+            + "Jeśli nadal nie masz dostępu do konta, skontaktuj się z nami.");
         (await LoadUserByIdAsync(userId)).Email.ShouldBe(user.Email);
     }
 

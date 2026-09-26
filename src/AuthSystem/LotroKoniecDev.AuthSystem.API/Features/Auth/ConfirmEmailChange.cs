@@ -136,6 +136,23 @@ internal sealed partial class ConfirmEmailChange
             ApplicationUser? addressOwner = await _userManager.FindByEmailAsync(newEmail);
             if (addressOwner is not null)
             {
+                // The owner is this very account when a second submit of the same link, a double click,
+                // arrives while the first one lands. Calling that "taken by another account" would be
+                // false (#869).
+                if (addressOwner.Id == user.Id)
+                {
+                    if (await IsAlreadyAppliedAsync(user.Id, newEmail))
+                    {
+                        await _sessionRevoker.RevokeAllAsync(user.Id.ToString(), cancellationToken);
+                        return Result.Success();
+                    }
+
+                    // Something else moved the account here, an undo for example, and it rotated the
+                    // security stamp on the way, so this link is spent.
+                    LogTokenInvalid(_logger, newEmail.MaskEmail(), command.IpAddress, command.UserAgent);
+                    return Result.Failure(AuthErrors.InvalidEmailChangeToken);
+                }
+
                 return Result.Failure(AuthErrors.UserAlreadyExistsByEmail);
             }
 
@@ -216,6 +233,14 @@ internal sealed partial class ConfirmEmailChange
             {
                 DiscardPendingChanges();
 
+                // Another save of this account got in first. When it was a second submit of this same
+                // link, the change is already there, and "nothing changed, try again" would be false.
+                if (await IsAlreadyAppliedAsync(user.Id, newEmail))
+                {
+                    await _sessionRevoker.RevokeAllAsync(user.Id.ToString(), cancellationToken);
+                    return Result.Success();
+                }
+
                 string errors = string.Join(", ", updateResult.Value.Errors.Select(e => e.Description));
                 LogUpdateFailed(_logger, user.Id, errors);
                 return Result.Failure(AuthErrors.EmailChangeFailed(errors));
@@ -277,6 +302,37 @@ internal sealed partial class ConfirmEmailChange
         {
             _db.ChangeTracker.Clear();
         }
+
+        /// <summary>
+        /// Reads the account again, past everything this request holds in memory, and says whether this
+        /// change already landed. Only a caller whose token passed gets here, so answering "done" tells
+        /// them nothing they could not see by logging in (#869). An undo can also put the account on this
+        /// address, but it clears the password and a confirm never does, so the password tells them apart.
+        /// </summary>
+        /// <remarks>
+        /// The caller ends the sessions again after a "yes". The first submit ends them only after its
+        /// save, and a double click aborts that first request, so its revocation may never have run.
+        /// </remarks>
+        private async Task<bool> IsAlreadyAppliedAsync(Guid userId, string newEmail)
+        {
+            _db.ChangeTracker.Clear();
+
+            ApplicationUser? stored = await _userManager.FindByIdAsync(userId.ToString());
+            if (stored is not { EmailConfirmed: true, PasswordHash: not null }
+                || !string.Equals(
+                    _userManager.NormalizeEmail(stored.Email),
+                    _userManager.NormalizeEmail(newEmail),
+                    StringComparison.Ordinal))
+            {
+                return false;
+            }
+
+            LogAlreadyApplied(_logger, userId);
+            return true;
+        }
+
+        [LoggerMessage(EventId = EventIds.EmailChangeAlreadyApplied, Level = LogLevel.Information, Message = "E-mail change for user {UserId} was already applied by an earlier submit of the same link")]
+        private static partial void LogAlreadyApplied(ILogger logger, Guid userId);
 
         [LoggerMessage(EventId = EventIds.EmailChangeTokenInvalid, Level = LogLevel.Warning, Message = "Invalid e-mail change token presented for {NewEmail}. IP: {IpAddress}, UserAgent: {UserAgent}")]
         private static partial void LogTokenInvalid(ILogger logger, string newEmail, string? ipAddress, string? userAgent);

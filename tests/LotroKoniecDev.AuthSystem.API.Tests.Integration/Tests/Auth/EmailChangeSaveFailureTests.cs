@@ -361,16 +361,14 @@ public sealed partial class EmailChangeSaveFailureTests : EndpointsTestBase
             ConfirmUrl(userId, newEmail, token),
             ConfirmForm(userId, newEmail, token));
         interceptor.CompetitorCommitted.ShouldBeTrue();
+        (await LoadUserByIdAsync(userId)).Email.ShouldBe(user.Email);
 
-        // Act
-        using HttpResponseMessage retried = await PostToPageAsync(
-            client,
-            "/Account/ConfirmEmailChange",
-            ConfirmUrl(userId, newEmail, token),
-            ConfirmForm(userId, newEmail, token));
+        // Act: the button the retry state renders, with the values that page carries
+        using HttpResponseMessage retried = await SubmitTheFormOnAsync(client, "/Account/ConfirmEmailChange", lost);
 
         // Assert
         retried.StatusCode.ShouldBe(HttpStatusCode.OK);
+        (await retried.Content.ReadAsStringAsync()).ShouldContain("data-testid=\"confirm-email-change-success\"");
         (await LoadUserByIdAsync(userId)).Email.ShouldBe(newEmail);
     }
 
@@ -436,17 +434,120 @@ public sealed partial class EmailChangeSaveFailureTests : EndpointsTestBase
             RevertUrl(userId, user.Email, newEmail, revertToken),
             RevertForm(userId, user.Email, newEmail, revertToken));
         interceptor.CompetitorCommitted.ShouldBeTrue();
+        (await LoadUserByIdAsync(userId)).Email.ShouldBe(newEmail);
+
+        // Act: the button the retry state renders, with the values that page carries
+        using HttpResponseMessage retried = await SubmitTheFormOnAsync(client, "/Account/RevertEmailChange", lost);
+
+        // Assert: the test client follows redirects, so landing on the reset page is what proves success
+        retried.RequestMessage!.RequestUri!.ToString().ShouldContain("/Account/ResetPassword");
+        (await LoadUserByIdAsync(userId)).Email.ShouldBe(user.Email);
+    }
+
+    /// <summary>
+    /// A double click sends the same link twice, and the browser shows the answer to the second submit.
+    /// The first one lands while the second is still on its way, either before the second looks the
+    /// address up or before it saves. The second must then say the change is done, never that the address
+    /// is taken or that nothing changed (#869).
+    /// </summary>
+    [Theory]
+    [InlineData(RaceMoment.BeforeTheHandlersOwnCheck)]
+    [InlineData(RaceMoment.BeforeTheUpdate)]
+    public async Task ConfirmPage_Post_ShouldReportTheChangeDone_WhenTheSameLinkLandedAMomentEarlier(
+        RaceMoment moment)
+    {
+        // Arrange: the first submit runs inside the second one, at the chosen step
+        (RegisterRequest user, _) = await UserFactory.RegisterRandomUserWithRequestAsync(
+            ApiClient, Faker, AccountConfirmationEmailSpy, Password);
+        Guid userId = await UserIdOfAsync(user.Email);
+        string newEmail = Faker.Internet.Email(uniqueSuffix: Guid.CreateVersion7().ToString("N"));
+
+        HttpClient? browser = null;
+        string token = string.Empty;
+        CompetitorCommitsFirstInterceptor interceptor = new(
+            newEmail,
+            moment,
+            () => SubmitAndDiscardAsync(
+                browser!,
+                "/Account/ConfirmEmailChange",
+                ConfirmUrl(userId, newEmail, token),
+                ConfirmForm(userId, newEmail, token)));
+        await using WebApplicationFactory<Program> host = CreateHostWith(interceptor);
+        using HttpClient client = host.CreateClient();
+        browser = client;
+
+        token = await CreateTokenAsync(
+            host.Services,
+            userId,
+            EmailChangeTokenProvider.ProviderName,
+            EmailChangeTokenProvider.PurposeFor(newEmail));
 
         // Act
-        using HttpResponseMessage retried = await PostToPageAsync(
+        using HttpResponseMessage response = await PostToPageAsync(
+            client,
+            "/Account/ConfirmEmailChange",
+            ConfirmUrl(userId, newEmail, token),
+            ConfirmForm(userId, newEmail, token));
+
+        // Assert
+        interceptor.CompetitorCommitted.ShouldBeTrue();
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+
+        string html = await response.Content.ReadAsStringAsync();
+        html.ShouldContain("data-testid=\"confirm-email-change-success\"");
+        html.ShouldNotContain("Ten adres należy już do innego konta");
+        html.ShouldNotContain("Nie udało się zapisać zmiany");
+
+        (await LoadUserByIdAsync(userId)).Email.ShouldBe(newEmail);
+    }
+
+    /// <summary>
+    /// The same double click on the undo link. The first submit cleared the password, so the second one
+    /// has to reach the password reset too, or the visitor is left on a password that is gone (#869).
+    /// </summary>
+    [Theory]
+    [InlineData(RaceMoment.BeforeTheHandlersOwnCheck)]
+    [InlineData(RaceMoment.BeforeTheUpdate)]
+    public async Task RevertPage_Post_ShouldSendToThePasswordReset_WhenTheSameLinkLandedAMomentEarlier(
+        RaceMoment moment)
+    {
+        // Arrange: the first submit runs inside the second one, at the chosen step
+        (RegisterRequest user, string newEmail, Guid userId) = await CompleteChangeAsync();
+
+        HttpClient? browser = null;
+        string revertToken = string.Empty;
+        CompetitorCommitsFirstInterceptor interceptor = new(
+            user.Email,
+            moment,
+            () => SubmitAndDiscardAsync(
+                browser!,
+                "/Account/RevertEmailChange",
+                RevertUrl(userId, user.Email, newEmail, revertToken),
+                RevertForm(userId, user.Email, newEmail, revertToken)));
+        await using WebApplicationFactory<Program> host = CreateHostWith(interceptor);
+        using HttpClient client = host.CreateClient();
+        browser = client;
+
+        revertToken = await CreateTokenAsync(
+            host.Services,
+            userId,
+            EmailChangeRevertTokenProvider.ProviderName,
+            EmailChangeRevertTokenProvider.PurposeFor(user.Email, newEmail));
+
+        // Act
+        using HttpResponseMessage response = await PostToPageAsync(
             client,
             "/Account/RevertEmailChange",
             RevertUrl(userId, user.Email, newEmail, revertToken),
             RevertForm(userId, user.Email, newEmail, revertToken));
 
         // Assert: the test client follows redirects, so landing on the reset page is what proves success
-        retried.RequestMessage!.RequestUri!.ToString().ShouldContain("/Account/ResetPassword");
-        (await LoadUserByIdAsync(userId)).Email.ShouldBe(user.Email);
+        interceptor.CompetitorCommitted.ShouldBeTrue();
+        response.RequestMessage!.RequestUri!.ToString().ShouldContain("/Account/ResetPassword");
+
+        ApplicationUser reverted = await LoadUserByIdAsync(userId);
+        reverted.Email.ShouldBe(user.Email);
+        reverted.PasswordHash.ShouldBeNull();
     }
 
     public enum Spelling
@@ -455,9 +556,10 @@ public sealed partial class EmailChangeSaveFailureTests : EndpointsTestBase
         OtherCase
     }
 
-    private enum RaceMoment
+    public enum RaceMoment
     {
         BeforeTheUpdate,
+        BeforeTheHandlersOwnCheck,
         BeforeIdentitysOwnCheck
     }
 
@@ -646,8 +748,49 @@ public sealed partial class EmailChangeSaveFailureTests : EndpointsTestBase
         return await client.SendAsync(request);
     }
 
+    /// <summary>
+    /// The first submit of a double click. Nobody sees its answer: the browser replaces it with the answer
+    /// to the second submit.
+    /// </summary>
+    private static async Task SubmitAndDiscardAsync(
+        HttpClient client, string pagePath, string getUrl, Dictionary<string, string> formFields)
+    {
+        using HttpResponseMessage discarded = await PostToPageAsync(client, pagePath, getUrl, formFields);
+    }
+
+    /// <summary>
+    /// Posts the form the page rendered, with its own hidden values and antiforgery token, the way a
+    /// browser does when the visitor clicks the button once more. The antiforgery cookie comes from the
+    /// client's cookie jar, where the first visit to the page left it.
+    /// </summary>
+    private static async Task<HttpResponseMessage> SubmitTheFormOnAsync(
+        HttpClient client, string pagePath, HttpResponseMessage page)
+    {
+        string html = await page.Content.ReadAsStringAsync();
+        Dictionary<string, string> formFields = HiddenInputRegex().Matches(html)
+            .Select(input => input.Value)
+            .ToDictionary(
+                input => WebUtility.HtmlDecode(NameAttributeRegex().Match(input).Groups[1].Value),
+                input => WebUtility.HtmlDecode(ValueAttributeRegex().Match(input).Groups[1].Value));
+        formFields.ShouldContainKey("__RequestVerificationToken");
+
+        using FormUrlEncodedContent content = new(formFields);
+        using HttpRequestMessage request = new(HttpMethod.Post, pagePath) { Content = content };
+
+        return await client.SendAsync(request);
+    }
+
     [GeneratedRegex("""name="__RequestVerificationToken".*?value="([^"]+)""")]
     private static partial Regex AntiForgeryTokenRegex();
+
+    [GeneratedRegex("""<input\s[^>]*type="hidden"[^>]*>""")]
+    private static partial Regex HiddenInputRegex();
+
+    [GeneratedRegex("""\sname="([^"]*)""")]
+    private static partial Regex NameAttributeRegex();
+
+    [GeneratedRegex("""\svalue="([^"]*)""")]
+    private static partial Regex ValueAttributeRegex();
 
     /// <summary>
     /// Holds one step of the account's save until a competing write has committed: another account taking
@@ -690,7 +833,8 @@ public sealed partial class EmailChangeSaveFailureTests : EndpointsTestBase
             _moment switch
             {
                 RaceMoment.BeforeTheUpdate => IsTheAddressUpdate(command),
-                RaceMoment.BeforeIdentitysOwnCheck => IsIdentitysOwnCheck(command, eventData),
+                RaceMoment.BeforeTheHandlersOwnCheck => IsTheAddressLookup(command, eventData, accountCarriesIt: false),
+                RaceMoment.BeforeIdentitysOwnCheck => IsTheAddressLookup(command, eventData, accountCarriesIt: true),
                 _ => throw new ArgumentOutOfRangeException(nameof(_moment), _moment, null)
             };
 
@@ -701,31 +845,37 @@ public sealed partial class EmailChangeSaveFailureTests : EndpointsTestBase
                                   && string.Equals(value, _address, StringComparison.Ordinal));
 
         /// <summary>
-        /// The handler looks the address up too, with the same query. Identity's lookup is the one that
-        /// runs once the handler has already put the address on the account.
+        /// The handler and Identity look the address up with the same query. The handler's lookup runs
+        /// while the loaded account still has its old address, and Identity's once the handler has put
+        /// the address on the account.
         /// </summary>
-        private bool IsIdentitysOwnCheck(DbCommand command, CommandEventData eventData) =>
+        private bool IsTheAddressLookup(DbCommand command, CommandEventData eventData, bool accountCarriesIt) =>
             command.CommandText.TrimStart().StartsWith("SELECT", StringComparison.Ordinal)
             && command.CommandText.Contains("\"NormalizedEmail\" = ", StringComparison.Ordinal)
             && command.Parameters.Cast<DbParameter>()
                 .Any(parameter => parameter.Value is string value
                                   && string.Equals(value, _address, StringComparison.OrdinalIgnoreCase))
             && eventData.Context is not null
-            && AccountAlreadyCarriesTheAddress(eventData.Context.ChangeTracker);
+            && TrackedAccountCarriesTheAddress(eventData.Context.ChangeTracker) == accountCarriesIt;
 
         /// <summary>
-        /// Reads the tracked entities without detecting changes, so the save under test runs with the
-        /// same change-tracking state it has in production.
+        /// Null while no account is loaded yet. Reads the tracked entities without detecting changes, so
+        /// the save under test runs with the same change-tracking state it has in production.
         /// </summary>
-        private bool AccountAlreadyCarriesTheAddress(ChangeTracker changeTracker)
+        private bool? TrackedAccountCarriesTheAddress(ChangeTracker changeTracker)
         {
             bool autoDetectChanges = changeTracker.AutoDetectChangesEnabled;
             changeTracker.AutoDetectChangesEnabled = false;
 
             try
             {
-                return changeTracker.Entries<ApplicationUser>()
-                    .Any(entry => string.Equals(entry.Entity.Email, _address, StringComparison.OrdinalIgnoreCase));
+                List<ApplicationUser> accounts = changeTracker.Entries<ApplicationUser>()
+                    .Select(entry => entry.Entity)
+                    .ToList();
+
+                return accounts.Count == 0
+                    ? null
+                    : accounts.Any(account => string.Equals(account.Email, _address, StringComparison.OrdinalIgnoreCase));
             }
             finally
             {

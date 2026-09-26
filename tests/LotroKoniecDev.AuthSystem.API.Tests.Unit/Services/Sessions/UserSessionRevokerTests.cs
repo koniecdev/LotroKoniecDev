@@ -1,4 +1,3 @@
-using System.Runtime.CompilerServices;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Time.Testing;
 using NSubstitute;
@@ -25,32 +24,39 @@ public sealed class UserSessionRevokerTests
     private readonly FakeTimeProvider _clock = new();
 
     [Fact]
-    public async Task RevokeAllAsync_ShouldRevokeEveryTokenAndAuthorization()
+    public async Task RevokeAllAsync_ShouldRevokeTheAuthorizationsAndTheTokens_WhenTheStoreAnswers()
     {
         // Arrange
-        object firstToken = new();
-        object secondToken = new();
-        object authorization = new();
-        _tokenManager.FindBySubjectAsync(UserId, Arg.Any<CancellationToken>())
-            .Returns(Stored(firstToken, secondToken));
-        _authorizationManager.FindBySubjectAsync(UserId, Arg.Any<CancellationToken>())
-            .Returns(Stored(authorization));
         UserSessionRevoker sut = CreateSut();
 
         // Act
         await sut.RevokeAllAsync(UserId);
 
         // Assert
-        await _tokenManager.Received(1).TryRevokeAsync(firstToken, Arg.Any<CancellationToken>());
-        await _tokenManager.Received(1).TryRevokeAsync(secondToken, Arg.Any<CancellationToken>());
-        await _authorizationManager.Received(1).TryRevokeAsync(authorization, Arg.Any<CancellationToken>());
+        await _authorizationManager.Received(1).RevokeBySubjectAsync(UserId, Arg.Any<CancellationToken>());
+        await _tokenManager.Received(1).RevokeBySubjectAsync(UserId, Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task RevokeAllAsync_ShouldStillRevokeTheAuthorizations_WhenTheTokenStepFails()
+    {
+        // Arrange: a refresh token dies with its authorization, so a failing token step must not skip that one
+        _tokenManager.RevokeBySubjectAsync(UserId, Arg.Any<CancellationToken>())
+            .ThrowsAsync(new InvalidOperationException("The database is gone."));
+        UserSessionRevoker sut = CreateSut();
+
+        // Act
+        await sut.RevokeAllAsync(UserId);
+
+        // Assert
+        await _authorizationManager.Received(1).RevokeBySubjectAsync(UserId, Arg.Any<CancellationToken>());
     }
 
     [Fact]
     public void RevokeAllAsync_ShouldKeepWaiting_BeforeTheTimeLimitHasPassed()
     {
         // Arrange
-        _tokenManager.FindBySubjectAsync(UserId, Arg.Any<CancellationToken>())
+        _authorizationManager.RevokeBySubjectAsync(UserId, Arg.Any<CancellationToken>())
             .Returns(callInfo => StuckUntilCancelled(callInfo.Arg<CancellationToken>()));
         UserSessionRevoker sut = CreateSut();
 
@@ -66,7 +72,7 @@ public sealed class UserSessionRevokerTests
     public async Task RevokeAllAsync_ShouldGiveUpWithoutThrowing_WhenTheTimeLimitPasses()
     {
         // Arrange
-        _tokenManager.FindBySubjectAsync(UserId, Arg.Any<CancellationToken>())
+        _authorizationManager.RevokeBySubjectAsync(UserId, Arg.Any<CancellationToken>())
             .Returns(callInfo => StuckUntilCancelled(callInfo.Arg<CancellationToken>()));
         UserSessionRevoker sut = CreateSut();
 
@@ -82,9 +88,7 @@ public sealed class UserSessionRevokerTests
     public async Task RevokeAllAsync_ShouldNotThrow_WhenTheStoreFails()
     {
         // Arrange
-        object token = new();
-        _tokenManager.FindBySubjectAsync(UserId, Arg.Any<CancellationToken>()).Returns(Stored(token));
-        _tokenManager.TryRevokeAsync(token, Arg.Any<CancellationToken>())
+        _authorizationManager.RevokeBySubjectAsync(UserId, Arg.Any<CancellationToken>())
             .ThrowsAsync(new InvalidOperationException("The database is gone."));
         UserSessionRevoker sut = CreateSut();
 
@@ -95,19 +99,9 @@ public sealed class UserSessionRevokerTests
     private UserSessionRevoker CreateSut() =>
         new(_tokenManager, _authorizationManager, _clock, NullLogger<UserSessionRevoker>.Instance);
 
-    private static async IAsyncEnumerable<object> Stored(params object[] entries)
-    {
-        foreach (object entry in entries)
-        {
-            await Task.Yield();
-            yield return entry;
-        }
-    }
-
-    private static async IAsyncEnumerable<object> StuckUntilCancelled(
-        [EnumeratorCancellation] CancellationToken cancellationToken)
+    private static async ValueTask<long> StuckUntilCancelled(CancellationToken cancellationToken)
     {
         await Task.Delay(Timeout.Infinite, cancellationToken);
-        yield break;
+        return 0;
     }
 }

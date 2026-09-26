@@ -10,8 +10,8 @@ namespace LotroKoniecDev.AuthSystem.API.Services.Sessions;
 internal sealed partial class UserSessionRevoker : IUserSessionRevoker
 {
     /// <summary>
-    /// Long enough for an account with a few hundred token rows, short enough that a stuck database
-    /// cannot hold the request and its connection forever.
+    /// The same as one Npgsql command timeout. The revoke is two bulk updates that finish far sooner,
+    /// so this only stops a stuck database from holding the request and its connection forever.
     /// </summary>
     internal static readonly TimeSpan TimeLimit = TimeSpan.FromSeconds(30);
 
@@ -44,19 +44,11 @@ internal sealed partial class UserSessionRevoker : IUserSessionRevoker
 
         try
         {
-            int revokedTokens = 0;
-            await foreach (object token in _tokenManager.FindBySubjectAsync(userId, cancellationToken))
-            {
-                await _tokenManager.TryRevokeAsync(token, cancellationToken);
-                revokedTokens++;
-            }
-
-            int revokedAuthorizations = 0;
-            await foreach (object authorization in _authorizationManager.FindBySubjectAsync(userId, cancellationToken))
-            {
-                await _authorizationManager.TryRevokeAsync(authorization, cancellationToken);
-                revokedAuthorizations++;
-            }
+            // One bulk update each, so the cost does not grow with the rows a busy account builds up.
+            // Authorizations go first: OpenIddict refuses a refresh token whose authorization is revoked,
+            // so a refresh that lands between the two updates still gets a dead token.
+            long revokedAuthorizations = await _authorizationManager.RevokeBySubjectAsync(userId, cancellationToken);
+            long revokedTokens = await _tokenManager.RevokeBySubjectAsync(userId, cancellationToken);
 
             LogSessionsRevoked(_logger, userId, revokedTokens, revokedAuthorizations);
         }
@@ -67,8 +59,8 @@ internal sealed partial class UserSessionRevoker : IUserSessionRevoker
     }
 
     [LoggerMessage(EventId = EventIds.UserSessionsRevoked, Level = LogLevel.Information, Message = "Revoked all sessions for user {UserId}: {TokenCount} token(s), {AuthorizationCount} authorization(s)")]
-    private static partial void LogSessionsRevoked(ILogger logger, string userId, int tokenCount, int authorizationCount);
+    private static partial void LogSessionsRevoked(ILogger logger, string userId, long tokenCount, long authorizationCount);
 
-    [LoggerMessage(EventId = EventIds.UserSessionsRevocationFailed, Level = LogLevel.Error, Message = "Failed to revoke sessions for user {UserId}. Outstanding tokens will expire naturally.")]
+    [LoggerMessage(EventId = EventIds.UserSessionsRevocationFailed, Level = LogLevel.Error, Message = "Failed to revoke sessions for user {UserId}. Refresh tokens that were not revoked stay usable until they expire.")]
     private static partial void LogRevocationFailed(ILogger logger, Exception exception, string userId);
 }

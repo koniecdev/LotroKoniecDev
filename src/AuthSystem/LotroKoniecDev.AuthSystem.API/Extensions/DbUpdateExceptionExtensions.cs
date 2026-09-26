@@ -11,8 +11,7 @@ internal static class DbUpdateExceptionExtensions
 {
     extension(DbUpdateException exception)
     {
-        public bool IsUniqueViolation =>
-            exception.InnerException is PostgresException { SqlState: PostgresErrorCodes.UniqueViolation };
+        public bool IsUniqueViolation => exception.UniqueViolation is not null;
 
         /// <summary>
         /// Registration and both legs of an e-mail change check that a value is free with a plain query,
@@ -23,7 +22,7 @@ internal static class DbUpdateExceptionExtensions
         /// </summary>
         public Error? TakenAccountValueError(IModel model)
         {
-            if (exception.InnerException is not PostgresException { SqlState: PostgresErrorCodes.UniqueViolation } violation)
+            if (exception.UniqueViolation is not { } violation)
             {
                 return null;
             }
@@ -44,5 +43,16 @@ internal static class DbUpdateExceptionExtensions
                 _ => null
             };
         }
+
+        /// <summary>
+        /// An e-mail change writes no username, so only a taken address counts as a lost race there.
+        /// </summary>
+        public bool IsTakenEmail(IModel model) =>
+            exception.TakenAccountValueError(model) == AuthErrors.UserAlreadyExistsByEmail;
+
+        private PostgresException? UniqueViolation =>
+            exception.InnerException is PostgresException { SqlState: PostgresErrorCodes.UniqueViolation } violation
+                ? violation
+                : null;
     }
 }

@@ -236,8 +236,8 @@ internal sealed partial class ConfirmEmailChange
         /// time. The unique index is what really decides, and <c>UserStore.UpdateAsync</c> only handles
         /// concurrency conflicts, so the duplicate-key error arrives here as a raw
         /// <see cref="DbUpdateException"/>. Only a duplicate on an e-mail index means somebody else took
-        /// the address. Any other save error is an outage, not a taken address, so it goes on up and
-        /// becomes a 500 (#864). A passing error never gets here: the save retries it by itself.
+        /// the address. Any other save error is not a taken address, so it goes on up and becomes a 500
+        /// (#864). A passing error never gets here: the save retries it by itself.
         /// </summary>
         private async Task<Result<IdentityResult>> TryUpdateAsync(ApplicationUser user)
         {
@@ -245,8 +245,7 @@ internal sealed partial class ConfirmEmailChange
             {
                 return Result.Success(await _userManager.UpdateAsync(user));
             }
-            catch (DbUpdateException ex)
-                when (ex.TakenAccountValueError(_db.Model) == AuthErrors.UserAlreadyExistsByEmail)
+            catch (DbUpdateException ex) when (ex.IsTakenEmail(_db.Model))
             {
                 LogUpdateRace(_logger, ex, user.Id);
                 return Result.Failure<IdentityResult>(AuthErrors.UserAlreadyExistsByEmail);
@@ -259,7 +258,8 @@ internal sealed partial class ConfirmEmailChange
         /// new address already on it. This context is shared with OpenIddict for the rest of the
         /// request, so a later save there would commit the change we just reported as failed, or
         /// announce one that never happened. Dropping the whole unit of work is the only version that
-        /// leaves neither half behind.
+        /// leaves neither half behind. A save error that escapes as an exception skips this, and that is
+        /// safe: the rest of that request only writes the error response, and nothing there saves.
         /// </summary>
         private void DiscardPendingChanges()
         {

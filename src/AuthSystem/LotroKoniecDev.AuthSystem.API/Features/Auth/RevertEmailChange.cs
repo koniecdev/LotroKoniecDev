@@ -231,7 +231,8 @@ internal sealed partial class RevertEmailChange
         /// A failed update never reaches the store, so this unit of work is still in the change
         /// tracker with the restored address and a cleared password on it. The context is shared with
         /// OpenIddict for the rest of the request, so a later save there would commit a revert this
-        /// handler just reported as failed.
+        /// handler just reported as failed. A save error that escapes as an exception skips this, and
+        /// that is safe: the rest of that request only writes the error response, and nothing there saves.
         /// </summary>
         private void DiscardPendingChanges()
         {
@@ -250,8 +251,7 @@ internal sealed partial class RevertEmailChange
             {
                 return Result.Success(await _userManager.UpdateAsync(user));
             }
-            catch (DbUpdateException ex)
-                when (ex.TakenAccountValueError(_db.Model) == AuthErrors.UserAlreadyExistsByEmail)
+            catch (DbUpdateException ex) when (ex.IsTakenEmail(_db.Model))
             {
                 LogRevertRace(_logger, ex, user.Id);
                 return Result.Failure<IdentityResult>(AuthErrors.UserAlreadyExistsByEmail);

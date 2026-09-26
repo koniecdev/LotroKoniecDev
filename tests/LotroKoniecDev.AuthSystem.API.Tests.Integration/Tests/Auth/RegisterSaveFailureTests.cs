@@ -6,6 +6,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.DependencyInjection;
 using Npgsql;
+using LotroKoniecDev.AuthSystem.API.BackgroundServices;
 using LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared.Bases;
 using LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared.Factories;
 using LotroKoniecDev.AuthSystem.Contracts.Features.Auth.Register;
@@ -120,7 +121,11 @@ public sealed class RegisterSaveFailureTests : EndpointsTestBase
 
         await using WebApplicationFactory<Program> host = Factory.WithWebHostBuilder(builder =>
             builder.ConfigureTestServices(services =>
-                services.ConfigureDbContext<AuthDbContext>(options => options.AddInterceptors(interceptor))));
+            {
+                // A second relay on this database could take a row another test waits for.
+                AuthSystemApiFactory.RemoveHostedService<OutboxRelay>(services);
+                services.ConfigureDbContext<AuthDbContext>(options => options.AddInterceptors(interceptor));
+            }));
         using HttpClient client = host.CreateClient();
 
         // Act

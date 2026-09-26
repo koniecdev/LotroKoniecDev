@@ -319,7 +319,7 @@ internal sealed partial class ConfirmEmailChange
         [LoggerMessage(EventId = EventIds.EmailChangeAlreadyApplied, Level = LogLevel.Information, Message = "E-mail change for user {UserId} was already applied by an earlier submit of the same link")]
         private static partial void LogAlreadyApplied(ILogger logger, Guid userId);
 
-        [LoggerMessage(EventId = EventIds.EmailChangeTokenInvalid,Level = LogLevel.Warning, Message = "Invalid e-mail change token presented for {NewEmail}. IP: {IpAddress}, UserAgent: {UserAgent}")]
+        [LoggerMessage(EventId = EventIds.EmailChangeTokenInvalid, Level = LogLevel.Warning, Message = "Invalid e-mail change token presented for {NewEmail}. IP: {IpAddress}, UserAgent: {UserAgent}")]
         private static partial void LogTokenInvalid(ILogger logger, string newEmail, string? ipAddress, string? userAgent);
 
         [LoggerMessage(EventId = EventIds.EmailChangeApplied, Level = LogLevel.Information, Message = "E-mail change applied for user {UserId}: {PreviousEmail} -> {NewEmail}. IP: {IpAddress}, UserAgent: {UserAgent}")]

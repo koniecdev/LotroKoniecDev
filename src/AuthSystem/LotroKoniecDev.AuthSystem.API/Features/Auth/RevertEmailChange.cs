@@ -316,7 +316,7 @@ internal sealed partial class RevertEmailChange
         [LoggerMessage(EventId = EventIds.EmailChangeRevertAlreadyApplied, Level = LogLevel.Information, Message = "Revert for user {UserId} was already applied by an earlier submit of the same link")]
         private static partial void LogAlreadyReverted(ILogger logger, Guid userId);
 
-        [LoggerMessage(EventId = EventIds.EmailChangeRevertTokenInvalid,Level = LogLevel.Warning, Message = "Invalid e-mail change revert token presented for {PreviousEmail}. IP: {IpAddress}, UserAgent: {UserAgent}")]
+        [LoggerMessage(EventId = EventIds.EmailChangeRevertTokenInvalid, Level = LogLevel.Warning, Message = "Invalid e-mail change revert token presented for {PreviousEmail}. IP: {IpAddress}, UserAgent: {UserAgent}")]
         private static partial void LogTokenInvalid(ILogger logger, string previousEmail, string? ipAddress, string? userAgent);
 
         [LoggerMessage(EventId = EventIds.EmailChangeRevertAlreadySettled, Level = LogLevel.Information, Message = "Revert link for user {UserId} refused: the account no longer sits on the address it was issued against")]

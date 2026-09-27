@@ -228,14 +228,26 @@
             font-size: 14.5px;
             transition: transform .08s, background .15s, border-color .15s, color .15s;
         }
-        .btn:active { transform: translateY(1px); }
+        .btn:active:not([disabled]) { transform: translateY(1px); }
         .btn svg { width: 16px; height: 16px; flex: 0 0 16px; }
         .btn-primary {
             background: var(--accent);
             color: oklch(0.16 0.012 80);
             border-color: oklch(0.62 0.09 84);
         }
-        .btn-primary:hover { background: var(--accent-hi); }
+        .btn-primary:hover:not([disabled]) { background: var(--accent-hi); }
+        .btn-primary[disabled] { opacity: 0.6; cursor: progress; }
+        .btn .spinner-sm {
+            width: 14px; height: 14px;
+            border-radius: 50%;
+            border: 2px solid oklch(0.16 0.012 80 / 0.35);
+            border-top-color: oklch(0.16 0.012 80);
+            animation: spin 0.7s linear infinite;
+            display: none;
+        }
+        .btn.is-loading .spinner-sm { display: inline-block; }
+        .btn.is-loading .submit-arrow { display: none; }
+        @@keyframes spin { to { transform: rotate(360deg); } }
         .btn-ghost {
             background: transparent;
             color: var(--text-mute);
@@ -336,13 +348,14 @@
                                 Kliknij poniższy przycisk, aby anulować usunięcie. Ze względów bezpieczeństwa
                                 dotychczasowe hasło przestanie działać — w następnym kroku ustawisz nowe.
                             </p>
-                            <form method="post" data-testid="cancel-deletion-form">
+                            <form method="post" data-testid="cancel-deletion-form" data-submit-once>
                                 <input type="hidden" asp-for="Email" />
                                 <input type="hidden" asp-for="Token" />
                                 <div class="auth-actions">
-                                    <button type="submit" class="btn btn-primary btn-block" data-testid="cancel-deletion-submit">
-                                        Anuluj usunięcie konta
-                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m13 5 7 7-7 7"/></svg>
+                                    <button type="submit" class="btn btn-primary btn-block" data-testid="cancel-deletion-submit" data-busy-label="Anulowanie usunięcia…">
+                                        <span class="spinner-sm" aria-hidden="true"></span>
+                                        <span class="submit-btn-label">Anuluj usunięcie konta</span>
+                                        <svg class="submit-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14"/><path d="m13 5 7 7-7 7"/></svg>
                                     </button>
                                 </div>
                             </form>
@@ -357,5 +370,7 @@
             <p>lotro-translator.pl — niekomercyjny projekt społeczności polskich graczy LOTRO</p>
         </footer>
     </div>
+
+    <script src="/submit-once.js"></script>
 </body>
 </html>

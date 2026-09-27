@@ -8,8 +8,8 @@ namespace LotroKoniecDev.Frontend.E2E.Tests.Infrastructure;
 /// in too and not only the auth server.
 /// Registration happens on the auth origin at <c>/Account/Register</c> and not on the frontend, and the
 /// pages exist in Polish only.
-/// Elements are found by role or label, and <c>data-testid</c> is used only for the consent checkboxes
-/// and the state panels.
+/// Elements are found by role or label where the page gives them one. The consent checkboxes, the state
+/// panels and the account page's links and forms are found by <c>data-testid</c> or id.
 /// </summary>
 internal static class AuthActions
 {
@@ -80,6 +80,37 @@ internal static class AuthActions
         await page.GetByRole(AriaRole.Button, new() { Name = "Akceptuję", Exact = true }).ClickAsync();
         await page.GetByRole(AriaRole.Region, new() { Name = "Informacja o plikach cookie" })
             .WaitForAsync(new LocatorWaitForOptions { State = WaitForSelectorState.Detached, Timeout = 30_000 });
+    }
+
+    /// <summary>
+    /// Sends an e-mail change from the frontend's account page. The caller must be signed in with the
+    /// cookie banner already accepted.
+    /// </summary>
+    public static async Task RequestEmailChangeAsync(IPage page, TestUser user, string newEmail)
+    {
+        await page.GetByTestId("nav-account").ClickAsync();
+        await page.GetByTestId("account-change-email").ClickAsync();
+        await page.Locator("#new-email").WaitForAsync(LongWait);
+        await page.Locator("#new-email").FillAsync(newEmail);
+        await page.Locator("#repeat-email").FillAsync(newEmail);
+        await page.Locator("#current-password").FillAsync(user.Password);
+        await page.GetByTestId("change-email-submit").ClickAsync();
+    }
+
+    /// <summary>
+    /// Schedules the account's deletion from the frontend's account page and ends on the signed-out
+    /// "deletion scheduled" page. The caller must be signed in with the cookie banner already accepted.
+    /// </summary>
+    public static async Task ScheduleDeletionAsync(IPage page, string password)
+    {
+        await page.GetByTestId("nav-account").ClickAsync();
+        await page.GetByTestId("account-delete").ClickAsync();
+        await page.Locator("#delete-password").WaitForAsync(LongWait);
+        await page.Locator("#delete-password").FillAsync(password);
+        await page.Locator("#delete-confirm").FillAsync("USUWAM");
+        await page.GetByTestId("delete-submit").ClickAsync();
+        await page.GetByRole(AriaRole.Button, new() { Name = "Przejdź dalej", Exact = true }).ClickAsync();
+        await page.GetByTestId("deletion-date-line").WaitForAsync(LongWait);
     }
 
     public static async Task LogoutAsync(IPage page)

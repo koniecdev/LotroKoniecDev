@@ -1,5 +1,5 @@
-// The password toggle and the busy state of the login button. It lives in a file because the
-// auth CSP sends script-src 'self', which blocks an inline script (#670, #693).
+// The password toggle. It lives in a file because the auth CSP sends script-src 'self', which blocks
+// an inline script (#670, #693). The busy state of the login button is in submit-once.js.
 (function () {
     var toggle = document.getElementById('password-toggle');
     var icon = document.getElementById('password-toggle-icon');
@@ -13,18 +13,6 @@
             toggle.setAttribute('aria-pressed', shown ? 'false' : 'true');
             toggle.setAttribute('aria-label', shown ? 'Pokaż hasło' : 'Ukryj hasło');
             icon.innerHTML = shown ? eyeOpen : eyeOff;
-        });
-    }
-
-    var form = document.getElementById('login-form');
-    var btn = document.getElementById('submit-btn');
-    if (form && btn) {
-        form.addEventListener('submit', function () {
-            if (btn.disabled) { return; }
-            btn.disabled = true;
-            btn.classList.add('is-loading');
-            var label = btn.querySelector('.submit-btn-label');
-            if (label) { label.textContent = 'Logowanie…'; }
         });
     }
 })();

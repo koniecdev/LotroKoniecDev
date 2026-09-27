@@ -18,8 +18,8 @@ public sealed class AccountGdprSelfServiceTests : E2ETestBase
 {
     private const string DeletionScheduledSubject = "Zaplanowano usunięcie konta";
     private const string CancelDeletionLinkPath = "/Account/CancelDeletion";
-    private static readonly string ChangedPassword = ComposePassword("Ch4nged");
-    private static readonly string NewPassword = ComposePassword("N3w");
+    private static readonly string ChangedPassword = TestUser.ComposePassword("Ch4nged");
+    private static readonly string NewPassword = TestUser.ComposePassword("N3w");
     private static readonly TimeSpan MailTimeout = TimeSpan.FromSeconds(45);
     private static readonly LocatorWaitForOptions LongWait = new() { Timeout = 30_000 };
 
@@ -168,6 +168,4 @@ public sealed class AccountGdprSelfServiceTests : E2ETestBase
         CspViolations.ShouldBeEmpty();
     }
 
-    // Composed from fragments so secret scanners don't mistake the test literal for a leaked credential.
-    private static string ComposePassword(string prefix) => prefix + "-E2ePas" + "sw0rd!";
 }

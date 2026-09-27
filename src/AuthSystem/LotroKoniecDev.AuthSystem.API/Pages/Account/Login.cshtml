@@ -557,7 +557,7 @@
                            value is a raw write that CodeQL reads as an XSS sink (#681). The field is
                            hand-rolled rather than asp-for because the handler sets ReturnUrl after checking
                            it, so there is no bound property to render. *@
-                        <form id="login-form" method="post" class="auth-panel-body">
+                        <form id="login-form" method="post" class="auth-panel-body" data-submit-once>
                             @if (!string.IsNullOrEmpty(Model.ReturnUrl))
                             {
                                 <input type="hidden" name="returnUrl" value="@Model.ReturnUrl" />
@@ -645,7 +645,7 @@
                                 </label>
                             </div>
 
-                            <button id="submit-btn" type="submit" class="btn btn-primary auth-submit">
+                            <button id="submit-btn" type="submit" class="btn btn-primary auth-submit" data-busy-label="Logowanie…">
                                 <span class="spinner-sm" aria-hidden="true"></span>
                                 <span class="submit-btn-label">Zaloguj się</span>
                                 <svg class="submit-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -676,5 +676,6 @@
     </div>
 
     <script src="/login.js"></script>
+    <script src="/submit-once.js"></script>
 </body>
 </html>

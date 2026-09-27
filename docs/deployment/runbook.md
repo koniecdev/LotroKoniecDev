@@ -428,7 +428,7 @@ so this is the normal case — and it means **editing `.env` and restarting sile
 | You changed in `.env` | What silently keeps the OLD value | Symptom |
 |---|---|---|
 | `OpenIddict__ApiClientSecret` | the `lotrokoniecdev-api` client row | `client_credentials` with the new secret → **401**; smoke's token leg fails |
-| `AUTH_ADMIN_EMAIL` / `AUTH_ADMIN_USERNAME` | the admin `Users` row | a new address with the same username is skipped, with warning `2353` in the auth-api log; a new address that already belongs to a non-admin account is skipped, with warning `2354` (that row may be a stranger's account: read "Warning `2354`" under [Admin account](#admin-account--first-sign-in-and-rotation) before you delete anything); a new address **and** a new username seed a **second** admin, and the first one keeps its role |
+| `AUTH_ADMIN_EMAIL` / `AUTH_ADMIN_USERNAME` | the admin `Users` row | a new address with the same username is skipped, with warning `2353` in the auth-api log; a new address that already belongs to a non-admin account is skipped, with warning `2354` (that row may be a stranger's account: read "Warning `2354`" under [Admin account](#admin-account--first-sign-in-and-rotation) before you delete anything); a new address that an account left less than 14 days ago, and can still undo back to, is skipped, with warning `2355`; a new address **and** a new username seed a **second** admin, and the first one keeps its role |
 | `DOMAIN_APP` | the `lotrokoniecdev-web` client's redirect + post-logout URIs (written **only at creation**) | login bounces with `invalid_redirect_uri` |
 
 Fix = delete the rows and let the seeder rebuild them from the current `.env`. Schema is
@@ -604,6 +604,26 @@ Delete by the `Id`, not by the address: the stored address can differ from the `
 -- UserRoles cascades with the user.
 DELETE FROM authsystem."Users" WHERE "Id" = '<Id from the SELECT>';
 ```
+
+**Warning `2355`: an account can still undo an e-mail change back to the admin address.** The seeder
+logs it on every start when `AUTH_ADMIN_EMAIL` matches no account and `AUTH_ADMIN_USERNAME` is free,
+but an account moved off that address less than 14 days ago and its undo link still works (#849). An
+admin created at that address would make the undo link fail for good, so the seeder skips it. (When
+the admin itself changed its address, you get warning `2353` instead, because its username is
+taken.) Look at the account that holds the address:
+
+```sql
+-- Only undo links that still work: older ones, or rows from before #684 with no timestamp, reserve nothing.
+SELECT "Id", "UserName", "Email", "EmailChangeRevertArmedAt" FROM authsystem."Users" WHERE "NormalizedEmailChangeRevertTo" = upper('<admin e-mail>') AND "EmailChangeRevertArmedAt" > now() - interval '14 days';
+```
+
+- **It is an account of yours that moved to a new address.** Put that address (`Email`) into
+  `AUTH_ADMIN_EMAIL` if the account is the admin, or ignore the warning until the 14 days are over.
+- **It is someone else's account.** Leave it alone, and never clear its `EmailChangeRevertTo` by
+  hand: if the change was a hijack, that link is how the owner gets the account back. Put another
+  address into `AUTH_ADMIN_EMAIL`, or wait until 14 days after `EmailChangeRevertArmedAt` and restart
+  auth-api. If the owner uses the undo link first, the address has an account again and the seeder
+  logs `2354` instead.
 
 ### TLS certificates
 

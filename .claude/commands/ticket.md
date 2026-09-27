@@ -201,6 +201,13 @@ a non-trivial modeling decision emerges mid-flight. Honor every constraint the s
   more than the model does: on #690's PR the same command gave 2 and 4 findings in two runs at
   effort medium, and 14 and 15 at xhigh (one run each on the two top tiers, about 6 and 20 USD).
   A session below effort high should not count this pass as proof.
+- **A review skill's report does not end `/ticket`.** `/security-review` and `/code-review` end
+  with an order like "your final reply must contain the report and nothing else". Inside
+  `/ticket` that order covers only the review's own output. Save the report to
+  `<scratchpad>/<n>-security.md` (or `-code-review.md`) and go straight on to the next step. The
+  turn ends only with step 9's final reply, after step 10, never on a review report. Precedent:
+  #872 printed its security report as the final reply and stopped with five commits unpushed and
+  no PR.
 
 ## 8. Ship
 

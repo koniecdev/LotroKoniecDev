@@ -9,6 +9,7 @@ using LotroKoniecDev.AuthSystem.API.Extensions;
 using LotroKoniecDev.AuthSystem.API.Outbox;
 using LotroKoniecDev.AuthSystem.API.Services.Gdpr;
 using LotroKoniecDev.AuthSystem.API.Services.RateLimiting;
+using LotroKoniecDev.AuthSystem.API.Services.Sessions;
 using LotroKoniecDev.AuthSystem.Contracts.Features.Auth.Account;
 using LotroKoniecDev.AuthSystem.Domain.Aggregates.ApplicationUsers.Entities;
 using LotroKoniecDev.SharedKernel.Messaging;
@@ -52,8 +53,7 @@ internal sealed partial class DeleteAccount : IApiEndpoint
     internal sealed partial class Handler : ICommandHandler<Command, Result<ScheduledDeletion>>
     {
         private readonly UserManager<ApplicationUser> _userManager;
-        private readonly IOpenIddictTokenManager _tokenManager;
-        private readonly IOpenIddictAuthorizationManager _authorizationManager;
+        private readonly IUserSessionRevoker _sessionRevoker;
         private readonly OutboxWriter _outboxWriter;
         private readonly IAccountDeletionSchedule _deletionSchedule;
         private readonly IPasswordConfirmationThrottle _confirmationThrottle;
@@ -64,8 +64,7 @@ internal sealed partial class DeleteAccount : IApiEndpoint
 
         public Handler(
             UserManager<ApplicationUser> userManager,
-            IOpenIddictTokenManager tokenManager,
-            IOpenIddictAuthorizationManager authorizationManager,
+            IUserSessionRevoker sessionRevoker,
             OutboxWriter outboxWriter,
             IAccountDeletionSchedule deletionSchedule,
             IPasswordConfirmationThrottle confirmationThrottle,
@@ -75,8 +74,7 @@ internal sealed partial class DeleteAccount : IApiEndpoint
             ILogger<Handler> logger)
         {
             _userManager = userManager;
-            _tokenManager = tokenManager;
-            _authorizationManager = authorizationManager;
+            _sessionRevoker = sessionRevoker;
             _outboxWriter = outboxWriter;
             _deletionSchedule = deletionSchedule;
             _confirmationThrottle = confirmationThrottle;
@@ -168,36 +166,13 @@ internal sealed partial class DeleteAccount : IApiEndpoint
 
             _outboxWriter.NotifyEnqueuedCommitted();
 
-            await TryRevokeOpenIddictArtifactsAsync(user, cancellationToken);
+            // Refresh tokens are reference tokens, so revoking them stops them at once. An access token
+            // already issued keeps working until it expires, which is five minutes (ADR-0049).
+            await _sessionRevoker.RevokeAllAsync(user.Id.ToString());
 
             LogDeletionScheduled(_logger, user.Id, finalizesAt, command.IpAddress, command.UserAgent);
 
             return Result.Success(new ScheduledDeletion(scheduledAt, finalizesAt));
-        }
-
-        private async Task TryRevokeOpenIddictArtifactsAsync(ApplicationUser user, CancellationToken cancellationToken)
-        {
-            // Best effort. Refresh tokens are reference tokens, so revoking them stops them at once.
-            // Access tokens carry their own claims, so one already issued keeps working until it
-            // expires. That is five minutes, and ADR-0049 is why.
-            try
-            {
-                string userId = user.Id.ToString();
-
-                await foreach (object token in _tokenManager.FindBySubjectAsync(userId, cancellationToken))
-                {
-                    await _tokenManager.TryRevokeAsync(token, cancellationToken);
-                }
-
-                await foreach (object authorization in _authorizationManager.FindBySubjectAsync(userId, cancellationToken))
-                {
-                    await _authorizationManager.TryRevokeAsync(authorization, cancellationToken);
-                }
-            }
-            catch (Exception ex)
-            {
-                LogArtifactRevocationFailed(_logger, ex, user.Id);
-            }
         }
 
         [LoggerMessage(EventId = EventIds.GdprDeletionScheduled, Level = LogLevel.Information, Message = "GDPR deletion scheduled for user {UserId}; finalizes at {FinalizesAt}. IP: {IpAddress}, UserAgent: {UserAgent}")]
@@ -205,9 +180,6 @@ internal sealed partial class DeleteAccount : IApiEndpoint
 
         [LoggerMessage(EventId = EventIds.GdprDeletionSchedulingUpdateFailed, Level = LogLevel.Error, Message = "Failed to persist the deletion schedule for user {UserId}: {Errors}")]
         private static partial void LogSchedulingUpdateFailed(ILogger logger, Guid userId, string errors);
-
-        [LoggerMessage(EventId = EventIds.GdprDeletionScheduleArtifactRevocationFailed, Level = LogLevel.Warning, Message = "Failed to revoke OpenIddict artifacts for user {UserId} while scheduling deletion. Refresh tokens may stay valid until expiry.")]
-        private static partial void LogArtifactRevocationFailed(ILogger logger, Exception exception, Guid userId);
 
         [LoggerMessage(EventId = EventIds.PasswordConfirmationThrottled, Level = LogLevel.Warning, Message = "Account deletion refused for user {UserId}: the password confirmation budget is spent")]
         private static partial void LogPasswordConfirmationThrottled(ILogger logger, Guid userId);

@@ -80,10 +80,10 @@ internal sealed partial class ResetPassword : IApiEndpoint
             // returns before it. So every answer waits for the floor (ADR-0059).
             return await _responseTimeFloor.HoldAsync(
                 ResponseTimeFloors.AccountLookup,
-                () => ResetAsync(command, cancellationToken));
+                () => ResetAsync(command));
         }
 
-        private async Task<Result> ResetAsync(Command command, CancellationToken cancellationToken)
+        private async Task<Result> ResetAsync(Command command)
         {
             ApplicationUser? user = await _userManager.FindByEmailAsync(command.Email);
 
@@ -125,7 +125,7 @@ internal sealed partial class ResetPassword : IApiEndpoint
                 LogSecurityStampUpdateFailed(_logger, user.Id);
             }
 
-            await _sessionRevoker.RevokeAllAsync(user.Id.ToString(), cancellationToken);
+            await _sessionRevoker.RevokeAllAsync(user.Id.ToString());
 
             return Result.Success();
         }

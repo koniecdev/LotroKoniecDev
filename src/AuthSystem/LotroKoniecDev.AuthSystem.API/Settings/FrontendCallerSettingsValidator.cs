@@ -4,11 +4,12 @@ using LotroKoniecDev.AuthSystem.API.Extensions;
 namespace LotroKoniecDev.AuthSystem.API.Settings;
 
 /// <summary>
-/// Stops the boot when the frontend caller key is missing in a deployed environment, or too short
-/// anywhere it is set (ADR-0054 §6). Development and Testing run without the limiter, so there is
-/// nothing for the key to decide and they may leave it empty, the way <see cref="CorsSettingsValidator"/>
-/// skips its check there. Anywhere else a missing key would quietly put every visitor's frontend
-/// calls back into the frontend container's one bucket, and nothing but real traffic would notice.
+/// Stops the boot when the frontend caller key is missing in a deployed environment, or too short or
+/// padded with whitespace anywhere it is set (ADR-0054 §6, #857). Development and Testing run without
+/// the limiter, so there is nothing for the key to decide and they may leave it empty, the way
+/// <see cref="CorsSettingsValidator"/> skips its check there. Anywhere else a missing key would quietly
+/// put every visitor's frontend calls back into the frontend container's one bucket, and nothing but
+/// real traffic would notice.
 /// </summary>
 internal sealed class FrontendCallerSettingsValidator : IValidateOptions<FrontendCallerSettings>
 {
@@ -46,6 +47,14 @@ internal sealed class FrontendCallerSettingsValidator : IValidateOptions<Fronten
             return ValidateOptionsResult.Fail(
                 $"{FrontendCallerSettings.ConfigurationSection}:{nameof(FrontendCallerSettings.Key)} must be at least "
                 + $"{MinimumKeyLength} characters (openssl rand -base64 32).");
+        }
+
+        // Kestrel trims the spaces around a header value, so a key with them could never match.
+        if (key != key.Trim())
+        {
+            return ValidateOptionsResult.Fail(
+                $"{FrontendCallerSettings.ConfigurationSection}:{nameof(FrontendCallerSettings.Key)} must not start or "
+                + "end with whitespace. Check the quoting of FRONTEND_CALLER_KEY in the box .env.");
         }
 
         return ValidateOptionsResult.Success;

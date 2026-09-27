@@ -419,7 +419,7 @@ try
 
         // 429 is the one rejection a caller can act on, so it says when to come back. Rounding up, because
         // a remainder under a second would otherwise tell the caller to retry immediately.
-        // A browser gets a page instead of the bare "Status Code: 429" UseStatusCodePages writes: this is
+        // A browser gets a page instead of the problem-details JSON UseStatusCodePages writes: this is
         // now reachable from the login and register forms, and an English dead end there is no answer.
         options.OnRejected = async (context, cancellationToken) =>
         {
@@ -534,10 +534,14 @@ try
         app.UseRateLimiter();
     }
 
+    // This goes around authentication and authorization, so it sees their answers. Both can refuse a
+    // call with 401 or 403 themselves and never call the next step: UseAuthorization for a missing or
+    // bad token, and OpenIddict during authentication, for example for a wrong client secret at
+    // /connect/token. When this ran after them, it saw almost no refused call (#854).
+    app.UseAuthorizationLogging();
+
     app.UseAuthentication();
     app.UseAuthorization();
-
-    app.UseAuthorizationLogging();
 
     if (app.Environment.IsDevelopment())
     {

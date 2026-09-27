@@ -1,4 +1,6 @@
 using System.Data.Common;
+using System.Net.Http.Headers;
+using System.Text.RegularExpressions;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
@@ -9,13 +11,16 @@ using Npgsql;
 using LotroKoniecDev.AuthSystem.API.Extensions;
 using LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared;
 using LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared.Bases;
+using LotroKoniecDev.AuthSystem.Contracts.Features.Auth.Account;
 using LotroKoniecDev.AuthSystem.Contracts.Features.Auth.Password;
 using LotroKoniecDev.AuthSystem.Domain.Aggregates.ApplicationUsers.Entities;
+using LotroKoniecDev.AuthSystem.Persistence.DbContexts;
 using LotroKoniecDev.SharedKernel.Authorization;
+using LotroKoniecDev.Tests.Shared;
 
 namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Tests.Auth;
 
-public sealed class AdminSeedingTests : EndpointsTestBase
+public sealed partial class AdminSeedingTests : EndpointsTestBase
 {
     private const string AdminEmail = "admin@lotro-translator.pl";
     private const string AdminUsername = "seededadmin";
@@ -231,6 +236,118 @@ public sealed class AdminSeedingTests : EndpointsTestBase
     }
 
     /// <summary>
+    /// The translator's username differs from the admin's, so no other check stops the seed. Only the undo
+    /// reservation does (#849).
+    /// </summary>
+    [Fact]
+    public async Task SeedAuthDatabase_ConfiguredEmailIsAnotherAccountsArmedUndoTarget_SeedsNoAdmin()
+    {
+        // Arrange
+        await MoveTranslatorOffAdminEmailAsync();
+
+        // Act
+        await ReseedAsync();
+
+        // Assert
+        await using AsyncServiceScope scope = Factory.Services.CreateAsyncScope();
+        UserManager<ApplicationUser> userManager =
+            scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
+
+        (await userManager.FindByEmailAsync(AdminEmail)).ShouldBeNull();
+        (await userManager.GetUsersInRoleAsync(AuthConstants.Roles.Admin)).ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task SeedAuthDatabase_ConfiguredEmailIsAnotherAccountsArmedUndoTarget_LogsWarning2355()
+    {
+        // Arrange
+        await MoveTranslatorOffAdminEmailAsync();
+        using CapturingLoggerFactory loggerFactory = new();
+
+        // Act
+        await ReseedAsync(loggerFactory);
+
+        // Assert
+        loggerFactory.Entries
+            .Where(e => e.EventId.Id == EventIds.AdminSeedEmailReservedForUndo)
+            .ShouldHaveSingleItem()
+            .Level.ShouldBe(LogLevel.Warning);
+    }
+
+    /// <summary>
+    /// What the reservation protects: after a restart, the owner can still take the address back.
+    /// </summary>
+    [Fact]
+    public async Task SeedAuthDatabase_ConfiguredEmailIsAnotherAccountsArmedUndoTarget_UndoLinkStillRestoresTheAddress()
+    {
+        // Arrange
+        (Guid userId, string newEmail, string revertToken) = await MoveTranslatorOffAdminEmailAsync();
+        await ReseedAsync();
+
+        // Act
+        await PostToPageAsync(
+            "/Account/RevertEmailChange",
+            $"/Account/RevertEmailChange?userId={userId}&from={Uri.EscapeDataString(AdminEmail)}"
+            + $"&to={Uri.EscapeDataString(newEmail)}&token={Uri.EscapeDataString(revertToken)}",
+            new Dictionary<string, string>
+            {
+                ["UserId"] = userId.ToString(),
+                ["From"] = AdminEmail,
+                ["To"] = newEmail,
+                ["Token"] = revertToken
+            });
+
+        // Assert
+        (await LoadUserAsync(userId)).Email.ShouldBe(AdminEmail);
+    }
+
+    /// <summary>
+    /// The admin changing its own address is the common case. The username check runs first, so the
+    /// operator keeps getting 2353, which ADR-0056 decision 5 and the runbook explain, and not 2355.
+    /// </summary>
+    [Fact]
+    public async Task SeedAuthDatabase_SeededAdminMovedOffConfiguredEmail_LogsOnlyWarning2353()
+    {
+        // Arrange
+        await ReseedAsync();
+        Guid adminId = await AdminIdAsync();
+        await MoveOffAdminEmailAsync(adminId, AdminPassword);
+        using CapturingLoggerFactory loggerFactory = new();
+
+        // Act
+        await ReseedAsync(loggerFactory);
+
+        // Assert
+        loggerFactory.Entries
+            .Where(e => e.Level >= LogLevel.Warning)
+            .ShouldHaveSingleItem()
+            .EventId.Id.ShouldBe(EventIds.AdminSeedUsernameTaken);
+    }
+
+    /// <summary>
+    /// The reservation ends with the undo link it protects, so the admin is seeded on the next start
+    /// after that.
+    /// </summary>
+    [Fact]
+    public async Task SeedAuthDatabase_UndoWindowOfTheConfiguredEmailHasClosed_SeedsAdminWithAdminRole()
+    {
+        // Arrange
+        (Guid userId, _, _) = await MoveTranslatorOffAdminEmailAsync();
+        await BackdateUndoArmingAsync(userId, TimeSpan.FromDays(15));
+
+        // Act
+        await ReseedAsync();
+
+        // Assert
+        await using AsyncServiceScope scope = Factory.Services.CreateAsyncScope();
+        UserManager<ApplicationUser> userManager =
+            scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
+
+        IList<ApplicationUser> admins = await userManager.GetUsersInRoleAsync(AuthConstants.Roles.Admin);
+        admins.ShouldHaveSingleItem().Email.ShouldBe(AdminEmail);
+    }
+
+    /// <summary>
     /// Every restart of a box finds its admin in place. That normal case must not raise a warning.
     /// </summary>
     [Fact]
@@ -421,6 +538,104 @@ public sealed class AdminSeedingTests : EndpointsTestBase
         return translator.Id;
     }
 
+    private async Task<(Guid UserId, string NewEmail, string RevertToken)> MoveTranslatorOffAdminEmailAsync()
+    {
+        Guid userId = await CreateTranslatorAsync(AdminEmail, emailConfirmed: true);
+        (string newEmail, string revertToken) = await MoveOffAdminEmailAsync(userId, "Translator123!");
+
+        return (userId, newEmail, revertToken);
+    }
+
+    /// <summary>
+    /// Moves an account off the admin address the ordinary way: request, then confirm. The confirm arms
+    /// an undo link back to the admin address, so that address stays reserved for the account.
+    /// </summary>
+    private async Task<(string NewEmail, string RevertToken)> MoveOffAdminEmailAsync(Guid userId, string password)
+    {
+        string accessToken = await GetAccessTokenAsync(AdminEmail, password);
+        string newEmail = Faker.Internet.Email();
+
+        using HttpRequestMessage changeRequest = new(HttpMethod.Post, "auth/account/change-email");
+        changeRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+        changeRequest.Content = JsonContent.Create(new ChangeEmailRequest(newEmail, password));
+        (await ApiClient.Http.SendAsync(changeRequest)).StatusCode.ShouldBe(HttpStatusCode.OK);
+        await EmailChangeEmailSpy.WaitForVerificationCaptureAsync();
+
+        string confirmToken = EmailChangeEmailSpy.LastVerificationToken!;
+        await PostToPageAsync(
+            "/Account/ConfirmEmailChange",
+            $"/Account/ConfirmEmailChange?userId={userId}&email={Uri.EscapeDataString(newEmail)}"
+            + $"&token={Uri.EscapeDataString(confirmToken)}",
+            new Dictionary<string, string>
+            {
+                ["UserId"] = userId.ToString(),
+                ["Email"] = newEmail,
+                ["Token"] = confirmToken
+            });
+        await EmailChangeEmailSpy.WaitForRevertOfferCaptureAsync();
+
+        // The confirm page answers 200 when it refuses too. Without this check a failed move would leave
+        // the account on the admin address, and the seed would stop at 2354 without testing the
+        // reservation at all.
+        (await LoadUserAsync(userId)).Email.ShouldBe(newEmail);
+
+        return (newEmail, EmailChangeEmailSpy.LastRevertToken!);
+    }
+
+    private async Task<Guid> AdminIdAsync()
+    {
+        await using AsyncServiceScope scope = Factory.Services.CreateAsyncScope();
+        UserManager<ApplicationUser> userManager =
+            scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
+
+        return (await userManager.FindByEmailAsync(AdminEmail))!.Id;
+    }
+
+    private async Task<ApplicationUser> LoadUserAsync(Guid userId)
+    {
+        await using AsyncServiceScope scope = Factory.Services.CreateAsyncScope();
+        AuthDbContext db = scope.ServiceProvider.GetRequiredService<AuthDbContext>();
+
+        return await db.Users.AsNoTracking().SingleAsync(user => user.Id == userId);
+    }
+
+    private async Task BackdateUndoArmingAsync(Guid userId, TimeSpan age)
+    {
+        await using AsyncServiceScope scope = Factory.Services.CreateAsyncScope();
+        AuthDbContext db = scope.ServiceProvider.GetRequiredService<AuthDbContext>();
+
+        ApplicationUser user = await db.Users.SingleAsync(row => row.Id == userId);
+        user.EmailChangeRevertArmedAt = DateTimeOffset.UtcNow - age;
+        await db.SaveChangesAsync();
+    }
+
+    private async Task PostToPageAsync(string pagePath, string getUrl, Dictionary<string, string> formFields)
+    {
+        HttpResponseMessage pageResponse = await ApiClient.Http.GetAsync(new Uri(getUrl, UriKind.Relative));
+        pageResponse.StatusCode.ShouldBe(HttpStatusCode.OK);
+
+        string html = await pageResponse.Content.ReadAsStringAsync();
+        Match match = AntiForgeryTokenRegex().Match(html);
+        if (match.Success)
+        {
+            formFields["__RequestVerificationToken"] = match.Groups[1].Value;
+        }
+
+        using FormUrlEncodedContent content = new(formFields);
+        using HttpRequestMessage request = new(HttpMethod.Post, pagePath) { Content = content };
+
+        if (pageResponse.Headers.TryGetValues("Set-Cookie", out IEnumerable<string>? cookies))
+        {
+            foreach (string cookie in cookies)
+            {
+                request.Headers.Add("Cookie", cookie.Split(';')[0]);
+            }
+        }
+
+        HttpResponseMessage response = await ApiClient.Http.SendAsync(request);
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+    }
+
     private void ArmTransientFailure(string failurePoint)
     {
         switch (failurePoint)
@@ -449,6 +664,9 @@ public sealed class AdminSeedingTests : EndpointsTestBase
 
     private static InvalidOperationException CreateSimulatedCrash() =>
         new("Simulated crash between the account and its role");
+
+    [GeneratedRegex("""name="__RequestVerificationToken".*?value="([^"]+)""")]
+    private static partial Regex AntiForgeryTokenRegex();
 
     /// <summary>
     /// The test host's services with one change: the seeder's logger writes to the given factory. The

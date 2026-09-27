@@ -3,7 +3,8 @@
 **Status:** Accepted (amended 2026-09-22 — see "Amendment: the TMS API uses the same key"; amended
 2026-09-23 — see "Amendment: resend-confirmation now has a per-account budget"; 2026-09-24 — #829
 moved the TMS limiter before authentication, noted in the TMS amendment; amended 2026-09-24 — see
-"Amendment: an IPv6 client is its /64")
+"Amendment: an IPv6 client is its /64"; amended 2026-09-27 — see "Amendment: the refused-call warning
+names the visitor too")
 **Date:** 2026-09-22
 **Decision-makers:** Solo maintainer (ticket #819)
 **Related:** AuthSystem.API (`Program.cs` rate-limit policies, `Services/RateLimiting`, `Settings`),
@@ -87,7 +88,8 @@ and a broken header never widens anything.
 The key decides the bucket and nothing else. It opens no endpoint, carries no identity, exempts from
 no budget and leaves `Connection.RemoteIpAddress` alone: logs, the audit lines and
 `AuthorizationLoggingMiddleware` keep seeing the frontend's address. It is not machine-to-machine
-authentication.
+authentication. (Since #854 that warning names the forwarded visitor next to the connection's
+address; see the amendment.)
 
 ### 3. The three policies the frontend reaches key through the resolver; the browser-facing pages do not
 
@@ -130,7 +132,9 @@ harmless. Since #823 the same line also feeds `tms-api` (`FrontendCaller__Key`) 
   `compose config --quiet` before it touches a container, and the rollback keeps the running
   release serving.
 - **Apps:** outside Development and Testing both refuse to start without a key, and a key shorter
-  than 32 characters fails options validation wherever one is set. Development and Testing may
+  than 32 characters fails options validation wherever one is set. Since #857 so does a key that
+  starts or ends with whitespace: Kestrel trims the spaces around a header value, so such a key
+  could never match. Development and Testing may
   leave it empty: their limiter is off, the frontend then sends neither header, and the auth API
   ignores a forwarded address. Since #823 the TMS API follows the same two rules.
 
@@ -164,6 +168,8 @@ no hosted service, and its discovery cache resolves inline in the request.
   nothing more. The login, registration, reset and resend pages and the registration endpoint keep
   the connection's address as their key, and Identity's lockout (five failures, per account) and the
   per-account budgets of #692 and #813 do not read the key. Accepted: rotating the key ends it.
+  Since #854 the holder can also choose the client address that the warning about their own refused
+  call names, but not the connection address next to it (see the amendment).
 - **A cold discovery cache is fetched once per caller, not once per key.** The frontend's discovery
   cache never makes the API call inside a `HybridCache` factory: it reads the cache, calls the API in
   the request on a miss, and stores only a good answer (#825). So every fetch carries its own
@@ -179,7 +185,8 @@ no hosted service, and its discovery cache resolves inline in the request.
   `auth-page-limit` already accepts for the login form (#692).
 - **Logs keep the frontend's address for frontend calls.** Accepted: the key picks a bucket; making
   it redefine `RemoteIpAddress` is a wider trust change than this problem needs. The frontend's
-  own audit lines already carry the reader's real address (#690).
+  own audit lines already carry the reader's real address (#690). The one exception since #854 is
+  the refused-call warning, which names the visitor as well (see the amendment).
 - **The merge that ships this reds the staging deploy on a box without the key.** Accepted: that is
   decision 6 working, and the rollback keeps the old release serving.
 - **The TMS API has the same shared bucket** (`fixed-by-ip`, 100/min, every translator page load).
@@ -229,7 +236,8 @@ already bounds. Signing adds code and clock handling for no protection this thre
 ### G. Rewrite `Connection.RemoteIpAddress` for proven frontend calls
 
 Rejected for now. It would put the visitor into the auth API's logs too, but it changes the address
-every consumer sees — a trust change well beyond the limiter.
+every consumer sees — a trust change well beyond the limiter. It stays rejected after #854: the
+refused-call warning reads the visitor from the resolver and leaves `RemoteIpAddress` alone.
 
 ## Implementation Notes
 
@@ -240,7 +248,8 @@ every consumer sees — a trust change well beyond the limiter.
   by #823.)
 - Auth API:
   - `Settings/FrontendCallerSettings.cs` + `Settings/FrontendCallerSettingsValidator.cs` — **new**;
-    `FrontendCaller:Key`, required outside Development/Testing, at least 32 characters when set.
+    `FrontendCaller:Key`, required outside Development/Testing, at least 32 characters when set,
+    and no whitespace at either end (#857).
   - `Services/RateLimiting/RateLimitPartitionKeyResolver.cs` — **new**; the digest comparison and
     the choice between the forwarded address and `Connection.RemoteIpAddress`.
   - `ApiDependencyInjection.cs` registers the settings and the resolver; the three back-channel
@@ -355,6 +364,48 @@ Accepted limits, to look at again when IPv6 is turned on:
 Tests: `RateLimitPartitionKeyResolverTests` on both APIs (one client's addresses get one key, two
 clients get two, directly and through the frontend); `AuthPagesRateLimitingTests` (the login page's
 own budget follows the same rule).
+
+## Amendment: the refused-call warning names the visitor too (2026-09-27, #854)
+
+`AuthorizationLoggingMiddleware` on both APIs writes a warning for every call refused with 401 or
+403. §2 kept it on the connection's address, so for a frontend call it named the frontend container,
+which tells an operator nothing. #854 also moved it before `UseAuthentication`, because it used to
+run after `UseAuthorization` and so never saw the refusals it was written for.
+
+- **The warning names two addresses.** `{Client}` comes from the new
+  `RateLimitPartitionKeyResolver.ResolveClientAddress`: the visitor the frontend forwarded with the
+  right key, otherwise the connection's address. `{IP}` stays the connection's address, as §2
+  promised. For a direct caller both show the same address.
+- **Both, not the visitor alone.** The ticket asked to log the visitor instead of the connection. A
+  leaked key would then let its holder write any address into the line and keep their own out of
+  every log. With `{IP}` in the same line, the holder's real address stays on record, and a
+  `{Client}` that differs from `{IP}` while `{IP}` is not the frontend container points at a leaked
+  key.
+- **The warning reads the key on every route.** It does not follow §3: on the auth API, a refused
+  call to a route whose limit keys on the connection would still name the forwarded visitor. No such
+  route answers 401 or 403 today, and `{IP}` is in the line either way.
+- **The full address, not the bucket key.** `{Client}` is the whole address, so an IPv6 visitor is not
+  cut to its /64. The /64 key can always be worked out from the address, not the other way round.
+- `RemoteIpAddress` is still not rewritten, so alternative G stays rejected, and every other log line
+  still sees only the connection.
+- **Only a refused call to a real endpoint gets a warning.** A call can also be refused with 401
+  when it matches no route: the TMS fallback policy refuses a path with no endpoint and a method a
+  route does not map, and OpenIddict checks the client of a GET to `connect/introspect`, where only
+  POST is routed (#900). Those calls land on no endpoint or on routing's 405 endpoint. Neither is a
+  `RouteEndpoint` and neither carries a rate limit, so scanners could add warnings without end. The
+  request log still records them.
+- **A real endpoint with no per-address limit still warns without a cap.** On the auth API that is
+  `auth/change-password`, `POST auth/account/data-export` and `auth/account/delete`, which rely on a
+  per-account budget instead (ADR-0053). Accepted: a refused call there is exactly what the warning
+  is for, and the request log already writes one line per call there too.
+
+Tests: `AuthorizationLoggingTests` on both APIs (the right key names the visitor, a wrong key names
+the connection, the connection is in the line either way; on the auth API a wrong client secret at
+`/connect/token`, which OpenIddict refuses during authentication, is warned, an anonymous
+`auth/change-password` is warned, and a GET to `connect/introspect` is not; on the TMS API an unknown
+path, a wrong method and HEAD are not warned); the auth API's `AuthorizationLoggingMiddlewareTests`
+(the 403 line, which no auth endpoint reaches today); `RateLimitPartitionKeyResolverTests` on both
+APIs (an IPv6 visitor's whole address).
 
 ## References
 

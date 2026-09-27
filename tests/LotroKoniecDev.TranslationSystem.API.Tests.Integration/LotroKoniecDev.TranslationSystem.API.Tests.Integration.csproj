@@ -27,6 +27,7 @@
         <!-- One scrubber set for every snapshot suite (#571) — linked, never copy-pasted, exactly like
              the NaughtyStrings theory sources (#569). -->
         <Compile Include="..\Shared\VerifyModuleInitializer.cs" Link="Shared\VerifyModuleInitializer.cs" />
+        <Compile Include="..\Shared\CapturingLoggerFactory.cs" Link="Shared\CapturingLoggerFactory.cs" />
     </ItemGroup>
 
     <ItemGroup>

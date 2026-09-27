@@ -271,6 +271,20 @@ try
                     PermitLimit = 100,
                     Window = TimeSpan.FromMinutes(1)
                 }));
+
+        // 429 is the one rejection a caller can act on, so it says when to come back (#855). A fixed window
+        // reports its whole length here, not the time left in it, so the value is an upper bound: after
+        // that wait the caller's bucket is always full again. Rounding up keeps it an upper bound.
+        options.OnRejected = (context, _) =>
+        {
+            if (context.Lease.TryGetMetadata(MetadataName.RetryAfter, out TimeSpan retryAfter))
+            {
+                context.HttpContext.Response.Headers.RetryAfter =
+                    ((int)Math.Ceiling(retryAfter.TotalSeconds)).ToString(NumberFormatInfo.InvariantInfo);
+            }
+
+            return ValueTask.CompletedTask;
+        };
     });
 
     WebApplication app = builder.Build();
@@ -340,10 +354,13 @@ try
         app.UseRateLimiter();
     }
 
+    // This goes around authentication and authorization, so it sees their answers. UseAuthorization
+    // refuses a call with 401 or 403 itself and never calls the next step. When this ran after it, it
+    // saw almost no refused call (#854).
+    app.UseAuthorizationLogging();
+
     app.UseAuthentication();
     app.UseAuthorization();
-
-    app.UseAuthorizationLogging();
 
     // Create the caller's Translator on their first authenticated request (ADR-0004, amended
     // 2026-06-24), so a user who just registered and logged in already has a TMS profile before any

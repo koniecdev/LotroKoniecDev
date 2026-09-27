@@ -33,9 +33,27 @@ Because `ConnectAsync` drives an **in-container** browser, the host needs **no**
 # Requires a running Docker daemon. First run builds 4 images + pulls the Playwright image (~2 GB).
 dotnet test tests/LotroKoniecDev.Frontend.E2E.Tests
 
-# Reuse already-built app images (skip the in-fixture docker build):
+# Reuse the app images this worktree built last time (skip the in-fixture docker build):
 SKIP_DOCKER_BUILD=true dotnet test tests/LotroKoniecDev.Frontend.E2E.Tests
 ```
+
+The images are tagged per worktree as `<repository>:fe-e2e-<folder>-<hash>`: the suite name, the
+worktree's folder name, and 8 hex characters of a hash of the solution path (#884). The TMS suite uses
+the `e2e-` prefix. So two worktrees can run the suite at the same time, and each run tests its own code.
+Do not run the same suite twice at the same time in **one** worktree: the second build takes the tag, and
+the first run fails with `pull access denied for sha256` (#889). A run leaves one image set per worktree
+behind. When you delete a worktree, remove its images by hand. Copy `<folder>-<hash>` from the first
+listing:
+
+```bash
+docker image ls --filter label=lotrokoniecdev.e2e --format '{{.Repository}}:{{.Tag}}'    # all worktrees
+docker image ls --filter label=lotrokoniecdev.e2e --format '{{.Repository}}:{{.Tag}}' \
+  | grep -F -- '-<folder>-<hash>' | xargs -r docker image rm                             # one worktree
+```
+
+Images built before #884 have the fixed tags `:e2e` and `:fe-e2e` and no label, so the listing above
+does not show them. Remove them once:
+`docker image rm lotrokoniecdev-{auth,tms,migrator}:e2e lotrokoniecdev-{auth,tms,frontend,migrator}:fe-e2e`.
 
 No Docker → the suite fails fast (it cannot boot the stack); it is **off the PR/CI gate by name**
 (`*.E2E.Tests`), running via `.github/workflows/e2e.yml` — `workflow_dispatch`, or automatically on PRs

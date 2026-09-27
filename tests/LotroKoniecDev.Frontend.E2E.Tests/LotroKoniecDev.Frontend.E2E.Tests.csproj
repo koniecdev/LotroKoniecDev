@@ -30,4 +30,8 @@
         <Using Include="Xunit" />
     </ItemGroup>
 
+    <ItemGroup>
+        <Compile Include="..\Shared\E2EWorktree.cs" Link="Shared\E2EWorktree.cs" />
+    </ItemGroup>
+
 </Project>

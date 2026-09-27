@@ -32,6 +32,10 @@
     </ItemGroup>
 
     <ItemGroup>
+        <Compile Include="..\Shared\CapturingLoggerFactory.cs" Link="Shared\CapturingLoggerFactory.cs" />
+    </ItemGroup>
+
+    <ItemGroup>
       <ProjectReference Include="..\..\src\AuthSystem\LotroKoniecDev.AuthSystem.API\LotroKoniecDev.AuthSystem.API.csproj" />
     </ItemGroup>
 

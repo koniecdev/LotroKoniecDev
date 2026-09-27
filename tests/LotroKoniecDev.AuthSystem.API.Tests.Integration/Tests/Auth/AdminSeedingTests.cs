@@ -298,11 +298,30 @@ public sealed partial class AdminSeedingTests : EndpointsTestBase
             });
 
         // Assert
-        await using AsyncServiceScope scope = Factory.Services.CreateAsyncScope();
-        AuthDbContext db = scope.ServiceProvider.GetRequiredService<AuthDbContext>();
+        (await LoadUserAsync(userId)).Email.ShouldBe(AdminEmail);
+    }
 
-        ApplicationUser restored = await db.Users.AsNoTracking().SingleAsync(user => user.Id == userId);
-        restored.Email.ShouldBe(AdminEmail);
+    /// <summary>
+    /// The admin changing its own address is the common case. The username check runs first, so the
+    /// operator keeps getting 2353, which ADR-0056 decision 5 and the runbook explain, and not 2355.
+    /// </summary>
+    [Fact]
+    public async Task SeedAuthDatabase_SeededAdminMovedOffConfiguredEmail_LogsOnlyWarning2353()
+    {
+        // Arrange
+        await ReseedAsync();
+        Guid adminId = await AdminIdAsync();
+        await MoveOffAdminEmailAsync(adminId, AdminPassword);
+        using CapturingLoggerFactory loggerFactory = new();
+
+        // Act
+        await ReseedAsync(loggerFactory);
+
+        // Assert
+        loggerFactory.Entries
+            .Where(e => e.Level >= LogLevel.Warning)
+            .ShouldHaveSingleItem()
+            .EventId.Id.ShouldBe(EventIds.AdminSeedUsernameTaken);
     }
 
     /// <summary>
@@ -519,19 +538,26 @@ public sealed partial class AdminSeedingTests : EndpointsTestBase
         return translator.Id;
     }
 
-    /// <summary>
-    /// Moves a translator off the admin address the ordinary way: request, then confirm. The confirm arms
-    /// an undo link back to the admin address, so that address stays reserved for the translator.
-    /// </summary>
     private async Task<(Guid UserId, string NewEmail, string RevertToken)> MoveTranslatorOffAdminEmailAsync()
     {
         Guid userId = await CreateTranslatorAsync(AdminEmail, emailConfirmed: true);
-        string accessToken = await GetAccessTokenAsync(AdminEmail, TranslatorPassword);
+        (string newEmail, string revertToken) = await MoveOffAdminEmailAsync(userId, TranslatorPassword);
+
+        return (userId, newEmail, revertToken);
+    }
+
+    /// <summary>
+    /// Moves an account off the admin address the ordinary way: request, then confirm. The confirm arms
+    /// an undo link back to the admin address, so that address stays reserved for the account.
+    /// </summary>
+    private async Task<(string NewEmail, string RevertToken)> MoveOffAdminEmailAsync(Guid userId, string password)
+    {
+        string accessToken = await GetAccessTokenAsync(AdminEmail, password);
         string newEmail = Faker.Internet.Email();
 
         using HttpRequestMessage changeRequest = new(HttpMethod.Post, "auth/account/change-email");
         changeRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
-        changeRequest.Content = JsonContent.Create(new ChangeEmailRequest(newEmail, TranslatorPassword));
+        changeRequest.Content = JsonContent.Create(new ChangeEmailRequest(newEmail, password));
         (await ApiClient.Http.SendAsync(changeRequest)).StatusCode.ShouldBe(HttpStatusCode.OK);
         await EmailChangeEmailSpy.WaitForVerificationCaptureAsync();
 
@@ -548,7 +574,29 @@ public sealed partial class AdminSeedingTests : EndpointsTestBase
             });
         await EmailChangeEmailSpy.WaitForRevertOfferCaptureAsync();
 
-        return (userId, newEmail, EmailChangeEmailSpy.LastRevertToken!);
+        // The confirm page answers 200 when it refuses too. Without this check a failed move would leave
+        // the account on the admin address, and the seed would stop at 2354 without testing the
+        // reservation at all.
+        (await LoadUserAsync(userId)).Email.ShouldBe(newEmail);
+
+        return (newEmail, EmailChangeEmailSpy.LastRevertToken!);
+    }
+
+    private async Task<Guid> AdminIdAsync()
+    {
+        await using AsyncServiceScope scope = Factory.Services.CreateAsyncScope();
+        UserManager<ApplicationUser> userManager =
+            scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
+
+        return (await userManager.FindByEmailAsync(AdminEmail))!.Id;
+    }
+
+    private async Task<ApplicationUser> LoadUserAsync(Guid userId)
+    {
+        await using AsyncServiceScope scope = Factory.Services.CreateAsyncScope();
+        AuthDbContext db = scope.ServiceProvider.GetRequiredService<AuthDbContext>();
+
+        return await db.Users.AsNoTracking().SingleAsync(user => user.Id == userId);
     }
 
     private async Task BackdateUndoArmingAsync(Guid userId, TimeSpan age)

@@ -123,22 +123,23 @@ internal static partial class DatabaseSeederExtensions
             return;
         }
 
-        // An address freed by an e-mail change stays held while its owner can still undo the change
-        // (#684). An admin seeded there would make that undo link fail, so the seeder asks the same
-        // question as registration, in the same order (#849).
-        IEmailChangeRevertReservation revertReservation =
-            serviceProvider.GetRequiredService<IEmailChangeRevertReservation>();
-        if (await revertReservation.IsReservedAsync(email, exceptUserId: null, CancellationToken.None))
-        {
-            LogAdminSeedEmailReservedForUndo(logger);
-            return;
-        }
-
         // A username that is already taken must not break every later startup. We skip it and leave it
         // to the operator to free the username or change AdminUser.
         if (await userManager.FindByNameAsync(username) is not null)
         {
             LogAdminSeedUsernameTaken(logger, username);
+            return;
+        }
+
+        // An address freed by an e-mail change stays held while its owner can still undo the change
+        // (#684). An admin seeded there would make that undo link fail (#849). This runs after the
+        // username check on purpose: when the admin itself moved off the address, the operator keeps
+        // getting 2353, which ADR-0056 decision 5 explains.
+        IEmailChangeRevertReservation revertReservation =
+            serviceProvider.GetRequiredService<IEmailChangeRevertReservation>();
+        if (await revertReservation.IsReservedAsync(email, exceptUserId: null, CancellationToken.None))
+        {
+            LogAdminSeedEmailReservedForUndo(logger);
             return;
         }
 

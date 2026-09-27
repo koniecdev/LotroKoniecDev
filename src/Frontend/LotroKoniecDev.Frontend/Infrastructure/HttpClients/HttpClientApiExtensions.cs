@@ -239,8 +239,7 @@ internal static class HttpClientApiExtensions
 
     /// <summary>
     /// Reads a success body into <typeparamref name="T"/>. A success status does not prove the body is
-    /// the API's answer: a reverse proxy serves its maintenance page with a <c>200</c>, and an auth
-    /// redirect can land an HTML login page on an API URL.
+    /// the API's answer: a reverse proxy serves its maintenance page with a <c>200</c>.
     /// So a body that does not read as <typeparamref name="T"/>, or reads as the literal <c>null</c>, or
     /// is empty (#653), is treated like an unreadable error body: it becomes a
     /// <see cref="ProblemDetails"/> with only a status, which the Polish text ladder answers (#637). It
@@ -286,6 +285,13 @@ internal static class HttpClientApiExtensions
     /// </summary>
     private static ProblemDetails ParseProblemDetails(string content, HttpResponseMessage response)
     {
+        // The typed clients follow no redirects (#830), so a 3xx is no answer this app can use. Its status
+        // must not reach the browser either: a download route would pass on a redirect with no Location.
+        if ((int)response.StatusCode is >= 300 and < 400)
+        {
+            return ApiProblemCopy.StatusOnly(StatusCodes.Status502BadGateway);
+        }
+
         if (!string.IsNullOrWhiteSpace(content))
         {
             try

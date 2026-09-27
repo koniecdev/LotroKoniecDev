@@ -705,6 +705,9 @@ grep -qx "outcome=no-worktree" "$TMP_ROOT/run/ticket-82.meta" || fail "meta shou
 [ ! -f "$CLAUDE_MARKER" ] || fail "no session may start without a worktree"
 
 # A stop signal ends the session and everything it started, then salvages and cleans up.
+# Claude Code runs each Bash command in a process group of its own, so the fake session starts its
+# child the same way (`set -m`): killing the session's group alone would miss it. Unlike claude,
+# the fake does not end that child on TERM, so the loop's own tree kill has to.
 # stop_case <ticket> <signal...> — sends the signals in order to a worker whose session is busy.
 stop_case() {
     local ticket="$1" worker term_rc=0 session_child
@@ -714,13 +717,18 @@ stop_case() {
     rm -f "$TMP_ROOT/session-child"
     behavior "$TMP_ROOT/long.sh" 'git checkout -q -b "${PWD##*ticket-}-fixture"
 echo "partial" > partial.txt
+set -m
 "$REAL_SLEEP" 60 &
 echo $! > "'"$TMP_ROOT"'/session-child"
+set +m
 wait'
     env CLAUDE_BEHAVIOR="$TMP_ROOT/long.sh" "$WORK" "$ticket" "$TMP_ROOT/run" > "$TMP_ROOT/term.out" 2>&1 &
     worker=$!
     for _ in $(seq 1 100); do [ -s "$TMP_ROOT/session-child" ] && break; "$REAL_SLEEP" 0.1; done
     [ -s "$TMP_ROOT/session-child" ] || { kill "$worker" 2>/dev/null; fail "the fake session never started" "$(cat "$TMP_ROOT/term.out")"; }
+    session_child="$(cat "$TMP_ROOT/session-child")"
+    [ "$(ps -o pgid= -p "$session_child" | tr -d ' ')" = "$session_child" ] \
+        || { kill "$worker" 2>/dev/null; fail "the fake session's child should lead a process group of its own"; }
     for signal in "$@"; do kill -"$signal" "$worker"; done
     for _ in $(seq 1 100); do alive "$worker" || break; "$REAL_SLEEP" 0.1; done
     if alive "$worker"; then
@@ -732,7 +740,7 @@ wait'
     session_child="$(cat "$TMP_ROOT/session-child")"
     if alive "$session_child"; then
         kill "$session_child"
-        fail "a process the session started outlived the stop"
+        fail "a process the session started in its own group outlived the stop"
     fi
     grep -qx "outcome=stopped" "$TMP_ROOT/run/ticket-$ticket.meta" || fail "meta should say stopped" "$(cat "$TMP_ROOT/run/ticket-$ticket.meta")"
     [ -n "$(git -C "$FAKE_REPO" for-each-ref "refs/heads/loop-salvage/$ticket-*")" ] \
@@ -763,7 +771,8 @@ fi
 git -C "$FAKE_REPO" worktree remove --force "$WT_ROOT/ticket-86"
 cases=$((cases + 1)); printf '✓ work-ticket: a SIGKILLed worker does not leave its session running\n'
 
-# A session that ends normally may leave something running in its group; it ends with the session.
+# claude ends its own commands when it exits normally (checked by hand against a real session).
+# What is left in the session's own group, like a plain child or the watchdog, ends here.
 reset_fixtures
 fixture_issue 87 maintainer OWNER
 fixture_pr_view 787 OPEN 87-fixture

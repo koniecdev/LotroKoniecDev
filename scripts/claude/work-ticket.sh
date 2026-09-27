@@ -210,22 +210,47 @@ finish() {
     fi
 }
 
-# The session runs in its own process group, so stopping it also stops the builds and test runs
-# it started. A background child of this script ignores SIGINT and would outlive it, so the
-# session is stopped on every way out. `pid` is cleared once the session is reaped, so a trap can
-# never hit a recycled PID.
+# Every process below $1. It must be read while $1 still runs: once it exits, its children move to
+# PID 1 and can no longer be found from it.
+descendants() {
+    local kid
+    for kid in $(pgrep -P "$1" 2>/dev/null); do
+        echo "$kid"
+        descendants "$kid"
+    done
+}
+
+# Ends a session and everything it started. Claude Code runs each Bash command in a process group
+# of its own, so the session's own group holds claude but not its builds and test runs. On TERM,
+# claude ends those itself, so it gets $2 seconds to do that before anything is killed. Whatever
+# process group of its tree (read before the TERM) is still there after that is ended as well.
+end_session_tree() {
+    local leader="$1" grace="$2" groups kid group tries=0
+    groups="$(for kid in $(descendants "$leader"); do ps -o pgid= -p "$kid" 2>/dev/null; done | tr -d ' ' | sort -u)"
+    kill -TERM -- "-$leader" 2>/dev/null || true
+    while kill -0 "$leader" 2>/dev/null && [ "$tries" -lt $(( grace * 2 )) ]; do
+        sleep 0.5
+        tries=$((tries + 1))
+    done
+    for group in $groups; do
+        [ "$group" = "$leader" ] || kill -TERM -- "-$group" 2>/dev/null || true
+    done
+    sleep 1
+    for group in $groups; do
+        [ "$group" = "$leader" ] || kill -KILL -- "-$group" 2>/dev/null || true
+    done
+    kill -KILL -- "-$leader" 2>/dev/null || true
+}
+
+# A background child of this script ignores SIGINT and would outlive it, so the session is stopped
+# on every way out. `pid` is cleared once the session is reaped, so a trap can never hit a
+# recycled PID.
 pid=""
 sleeper=""
 
 stop_session() {
     [ -n "$pid" ] || return 0
-    local tries=0
-    kill -TERM -- "-$pid" 2>/dev/null || true
-    while kill -0 "$pid" 2>/dev/null && [ "$tries" -lt 10 ]; do
-        sleep 0.5
-        tries=$((tries + 1))
-    done
-    kill -KILL -- "-$pid" 2>/dev/null || true
+    end_session_tree "$pid" 20
     wait "$pid" 2>/dev/null || true
     pid=""
 }
@@ -283,16 +308,18 @@ set +e
 # `set -m` gives the session its own process group. It also stops bash from pointing a background
 # job's stdin at /dev/null, so that is done by hand: a job outside the terminal's foreground group
 # that reads the terminal is suspended. A SIGKILL to this script runs no trap, and the session is
-# no longer in this script's group, so a watchdog inside the group ends the group once this script
-# is gone. The session could otherwise go on working and pushing with nothing watching it.
+# no longer in this script's group, so a watchdog inside the group ends the session once this
+# script is gone. The session could otherwise go on working and pushing with nothing watching it.
+# The watchdog ignores TERM: the TERM it sends to its own group must not end it half way.
 set -m
 (
     set +m  # keep the watchdog in the session's group, so the group's end is its end too
     cd "$WT" || exit 1
     group="$(exec sh -c 'echo "$PPID"')"
     (
+        trap '' TERM
         while kill -0 "$$" 2>/dev/null; do sleep 5; done
-        kill -KILL -- "-$group" 2>/dev/null
+        end_session_tree "$group" 15
     ) < /dev/null > /dev/null 2>&1 &
     exec "${cmd[@]}"
 ) < /dev/null > "$OUT" 2> "$ERR" &
@@ -315,9 +342,9 @@ while kill -0 "$pid" 2>/dev/null; do
 done
 wait "$pid"
 claude_rc=$?
-# Whatever the session left running in its group (a test host, a build server, the watchdog)
-# ends with it.
-kill -TERM -- "-$pid" 2>/dev/null || true
+# claude ends its own commands when it exits normally; what is left in the session's own group
+# (the watchdog, which ignores TERM, or a plain child) ends here.
+kill -KILL -- "-$pid" 2>/dev/null || true
 pid=""
 set -e
 

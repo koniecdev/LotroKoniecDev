@@ -570,10 +570,15 @@ and has no armed undo link. That is what an admin half-made by a crash before #8
 the admin inbox can give it a password. `EmailConfirmed` alone is **not** enough. An e-mail change
 moves someone else's account onto your address, with their password, as soon as you click the confirm
 link it mails you, and its undo link can later take the row back, role included (ADR-0048). The
-statements below end any session still open on the row (a refresh does not check the security stamp,
-#848), then grant the role only when all three conditions hold:
+statements below end any session still open on the row, then grant the role only when all three
+conditions hold. Granting a role does not change the security stamp, so a session that survived would
+get the Admin role at its next refresh or sign-in. Changing the stamp ends both the auth cookie and
+every refresh token (#848). The deletes are a second layer.
 
 ```sql
+UPDATE authsystem."Users" SET "SecurityStamp" = gen_random_uuid()::text
+WHERE "Id" = '<Id from the SELECT>'
+  AND "EmailConfirmed" AND "PasswordHash" IS NULL AND "EmailChangeRevertTo" IS NULL;
 DELETE FROM authsystem."OpenIddictTokens" WHERE "Subject" = '<Id from the SELECT>';
 DELETE FROM authsystem."OpenIddictAuthorizations" WHERE "Subject" = '<Id from the SELECT>';
 -- INSERT 0 1: granted. INSERT 0 0: the row is not safe to promote, so delete it instead (below).

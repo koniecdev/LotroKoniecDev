@@ -1,6 +1,7 @@
 # ADR-0049: The revocation window is the access-token lifetime — five minutes, not introspection
 
-**Status:** Accepted
+**Status:** Accepted (amended 2026-09-27 by #848 — a refresh now also checks the security stamp, see
+the amendment below)
 **Date:** 2026-08-21
 **Decision-makers:** Solo maintainer
 **Related:** #686 (SEC-08, the defect), #701 (QA-FE-24 S03 TC06/TC07, where a tester hit it), ADR-0048 (the e-mail-change undo this protects), ADR-0041 (no API gateway), ADR-0031 (deletion grace period), `OpenIddictSettings`, `IUserSessionRevoker`, `SecurityStampCookieValidator`, `CookieTokenRefresher`, `DeadSessionRegistry`
@@ -120,3 +121,34 @@ end a takeover now, and an hour is not now.
 **Reopen this decision when:** five minutes is judged too long — most likely once there are real
 users and a real takeover — or a second consumer of user access tokens appears outside the frontend,
 which would make one shared introspection point cheaper than it is today.
+
+## Amendment (2026-09-27, #848): a changed security stamp ends the refresh, not only the revoke
+
+The Context above names two things that end a session: `RevokeAllAsync` and the stamp check on the
+auth-server cookie. The token endpoint only had the first. It refused a revoked token, but it never
+compared the security stamp. So a refresh token that the revoke missed kept working for its whole 14
+days. The revoke is best effort. A missed token was held back only while the account stayed locked,
+and it worked again as soon as a scheduled deletion was cancelled.
+
+Every sign-in now writes the current stamp into the principal, with no destination. OpenIddict keeps
+it in the authorization code and the refresh token, which only auth-api can read, and never puts it
+into the unencrypted access token or the ID token. The code exchange and every refresh compare it
+with the account's stamp (`SessionSecurityStamp`) and answer `invalid_grant` on a mismatch. One
+destination selector (`UserClaimDestinations`) serves every user sign-in and refresh, so a new sign-in
+path cannot send the stamp into a token by accident. A token
+issued before this change has no stamp and is refused, so everyone signs in again once.
+
+The revoke stays. It marks the rows revoked in the database, and the stamp check does not depend on
+it. A token refused only by the stamp check keeps the status `valid` until it expires, so the token
+table alone does not tell which sessions are live. Because the refresh is now refused either way, a
+test that proves a revoke ran reads the token row (`OpenIddictTokenState`), not a refused refresh.
+
+This amendment does not change the decision. An access token already handed out still lives up to
+five minutes. Two side effects are accepted:
+
+- Identity changes the stamp when it re-hashes a password after a hasher upgrade. A password check
+  then signs out the other devices, and the current device too when the check was a password
+  confirmation (data download, e-mail change). The auth cookie already behaved this way.
+- A rollback to a build before this change copies the stamp into access tokens at the next refresh,
+  because the older code sends unknown claims to the access token. Those tokens only reach the
+  frontend's encrypted cookie and the TMS, and the next deploy stops it.

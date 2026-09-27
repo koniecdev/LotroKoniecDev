@@ -207,8 +207,10 @@ Per-ticket outcomes:
   on no branch, because removing a worktree drops its reflog. A rebase or merge left half done is
   never committed over: that worktree stays exactly as it is, for you. Only a clean worktree is
   removed, together with the E2E images tagged for it; the branch always stays.
-- The loop runs only when `scripts/claude/` in the checkout that starts it matches `origin/main`,
-  so an old branch cannot run old loop code (which merged PRs).
+- The loop runs only when `scripts/claude/` in the checkout that starts it matches `origin/main`.
+  That guard exists only from ADR-0060 on: a branch cut before it still carries the old conductor,
+  which merges PRs and checks out `main` in your main checkout. So once, before the first run after
+  this change, bring the checkout you start the loop from up to date with `main`.
 - The worker session may commit/push/PR (that authorization is the point of loop mode). **Nothing
   in the loop merges or assigns** (ADR-0060). The merge path is `/merge-train`, and it takes only
   PRs the owner assigned to themselves after the last push, with green required checks and zero

@@ -32,7 +32,10 @@ Map `$ARGUMENTS` onto the script:
 - `-j N` passes through (default 3 at once; `-j 1` runs them one by one)
 
 Run it via Bash with `run_in_background: true`, wrapped in `caffeinate -is` unless the user says
-not to. If it exits at once with a lock message, surface that to the user and stop — never force it.
+not to. If it exits at once with a lock message, or refuses because `scripts/claude/` differs from
+`origin/main`, surface that to the user and stop — never force it. A checkout on a branch cut
+before ADR-0060 runs the OLD conductor, which merges: if `scripts/claude/work-ticket.sh` here
+still contains `gh pr merge`, stop and tell the user to bring this checkout up to date with `main`.
 
 ## 2. While it runs
 

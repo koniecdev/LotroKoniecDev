@@ -46,9 +46,11 @@ to the ticket). It does not wait for `pr-verify` and does not touch the merge bu
 conductor ends with a table of the PRs it opened (checks and open CodeQL alerts as they stand at
 that moment). That table is the owner's review queue.
 
-Old loop code merged PRs, and the loop scripts run from whichever checkout starts them. So the
-conductor refuses to start when `scripts/claude/` there differs from `origin/main`
-(`LOOP_ALLOW_LOCAL_SCRIPTS=1` is the explicit way round it, for work on the loop itself).
+Old loop code merged PRs, and the loop scripts run from whichever checkout starts them. So from
+this change on, the conductor refuses to start when `scripts/claude/` there differs from
+`origin/main` (`LOOP_ALLOW_LOCAL_SCRIPTS=1` is the explicit way round it, for work on the loop
+itself). A branch cut before this change has no such guard and still runs the old conductor, so
+the checkout that starts the loop must be brought up to date with `main` once.
 
 ### 2. One worktree per ticket, up to three at once
 
@@ -74,7 +76,9 @@ No session and no script ever sets an assignee. The owner assigns themselves aft
 In this repo, `merge-train` merges a PR written by a person only when:
 
 - the owner is an assignee, and the owner is the one who assigned them;
-- the newest commit that carries code reached GitHub before the owner's latest assignment. GitHub
+- the newest commit that carries code (found from the PR head, walking past GitHub's own
+  update-branch merges, since the commit list has no promised order) reached GitHub before the
+  owner's latest assignment. GitHub
   keeps no push time per commit, so "reached" is the first check suite GitHub created for that
   commit. The commit date alone is not enough: the client writes it, and a worker commits, runs
   the whole suite for minutes, and only then pushes. The commit date is checked as well;

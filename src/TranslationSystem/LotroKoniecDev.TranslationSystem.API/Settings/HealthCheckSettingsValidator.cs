@@ -4,10 +4,10 @@ using LotroKoniecDev.TranslationSystem.API.Extensions;
 namespace LotroKoniecDev.TranslationSystem.API.Settings;
 
 /// <summary>
-/// Stops the boot when the health check key is missing in a deployed environment, or too short anywhere
-/// it is set (ADR-0058, #853). Without a key the full /health is open to every caller. That is fine in
-/// Development and Testing and nowhere else: an open /health lets anyone run the database check as often
-/// as they like.
+/// Stops the boot when the health check key is missing in a deployed environment, or too short or padded
+/// with whitespace anywhere it is set (ADR-0058, #853). Without a key the full /health is open to every
+/// caller. That is fine in Development and Testing and nowhere else: an open /health lets anyone run the
+/// database check as often as they like.
 /// </summary>
 internal sealed class HealthCheckSettingsValidator : IValidateOptions<HealthCheckSettings>
 {

@@ -146,7 +146,8 @@ rule, the wiki stating it, and a follow-up ticket amending ADR-0003 and the vali
 | Make a PR body, report or comment readable for a non-native reader | run **`/b2-english <PR# / comment URL / file>`** — `/ticket` and `/work-ticket` run it as their last step |
 | Touch the `\|\|` translation file (parser, serializer, a column) | `README.md` → "Translation file format" for the format, the rules digest below, ADRs 0039/0042/0043/0047 for the reasoning; golden fixtures on both sides; the format changes only via ADR |
 | **File** an issue, label one, or title one | `docs/labels.md` — the five axes (`priority-*`, `type-*`, `severity-*`, `area-*`, process), the title convention and the three-signal epic rule, **shared 1:1 with TheKittySaver**; a change in one repo is ported to the other in the same session. Read it *before* `gh issue create`, not after |
-| Run the backlog autonomously (Loop mode) | **`/backlog`** → `scripts/claude/backlog-loop.sh` — one fresh headless session per ticket; manual: `docs/claude-loop.md` |
+| Run the backlog autonomously (Loop mode) | **`/backlog <numbers>`** → `scripts/claude/backlog-loop.sh` — one fresh headless session and one worktree per ticket, up to 3 at once; it opens PRs and never merges (ADR-0060); manual: `docs/claude-loop.md` |
+| Merge reviewed PRs | **`/merge-train`** — merges only PRs the owner approved by assigning themselves after the last push (ADR-0060) |
 | Touch DAT binary parsing / writing / native interop | delegate to the **`dat-format-expert`** agent |
 | Re-investigate update behavior, vnum, translation survival, launch flow | **don't** — empirically settled in `docs/knowledge-base/` (start at its README) |
 | Make a non-trivial architectural/modeling decision | skim `docs/adr/`, then **write a new ADR** (`/adr`); anchors: 0001 (no mediator), 0002 (TMS pivot + freeze/unfreeze amendments), 0008 (cloud-agnostic deployment + env strategy — M6), 0009 (browser E2E via Testcontainers + Playwright) |
@@ -186,13 +187,14 @@ gh issue view <n>                                      # body holds Context / De
 gh issue develop <n> --checkout                        # create + checkout the linked "{n}-{kebab-title}" branch
 gh pr create --fill --body "Closes #<n>"               # PR title mirrors the ticket; body closes it
 
-# Autonomous backlog loop (Loop mode) — bash conductor + one FRESH headless session per ticket
-scripts/claude/backlog-loop.sh                         # drain every ready ticket, serially
-scripts/claude/backlog-loop.sh -n 3                    # at most 3 tickets
-scripts/claude/backlog-loop.sh 123 130                 # exactly these tickets, in order
-caffeinate -is scripts/claude/backlog-loop.sh          # overnight run on macOS (blocks sleep)
-scripts/claude/next-ticket.sh                          # print the next READY ticket (priority + deps)
-scripts/claude/work-ticket.sh 123                      # one ticket, one fresh headless session
+# Autonomous backlog loop (Loop mode) — bash conductor + one FRESH headless session and worktree per
+# ticket, up to 3 at once. It stops at the PR: review, assign yourself to approve, then /merge-train.
+scripts/claude/backlog-loop.sh 123 130 131             # exactly these tickets (the normal use)
+scripts/claude/backlog-loop.sh -j 1 123 130            # one at a time
+scripts/claude/backlog-loop.sh -n 3                    # the next 3 ready tickets
+caffeinate -is scripts/claude/backlog-loop.sh 123 130  # keep macOS awake for the run
+scripts/claude/next-ticket.sh                          # print the next READY ticket (priority + deps + no open PR)
+scripts/claude/work-ticket.sh 123                      # one ticket, one fresh headless session, one worktree
 # defaults: model + effort from ~/.claude/model-policy.env (Opus 5.5 · xhigh since 2026-09-22), else opus · high · permission-mode auto — override via LOOP_MODEL /
 # LOOP_EFFORT / LOOP_PERMISSION_MODE / LOOP_UNSAFE=1 · full manual: docs/claude-loop.md
 
@@ -463,7 +465,7 @@ hash-check → patch → launch flow is validated. Re-investigating any of it is
   Razor writes a tag-helper attribute through `WriteLiteral` with the encoder switched off, and
   `RazorPageBase.WriteLiteral` is the page-output sink CodeQL's `cs/web/xss` recognises — so
   `asp-route-returnUrl="@Model.ReturnUrl"` raised two high alerts that sat open on `main` and blocked
-  every merge (`scripts/claude/work-ticket.sh` refuses a PR with open alerts). The tag helper encodes
+  every merge (`/merge-train` refuses a PR with open alerts). The tag helper encodes
   the value before the browser sees it, so it was never exploitable — but "not exploitable" does not
   clear an alert, and neither does a sanitizer that returns its input (the failed attempt in #536).
   Use a plain attribute: `<input type="hidden" name="returnUrl" value="@Model.ReturnUrl" />` compiles
@@ -620,7 +622,9 @@ hash-check → patch → launch flow is validated. Re-investigating any of it is
   0%-traffic candidate before any traffic shift.
 - **Git is rebase-based, and branches are never deleted.** Integrate a feature branch off `main`
   with `git rebase main` — never `git merge main`; no merge commits in feature branches (remote
-  `main` is squash-only, so history stays linear). After a PR's squash commit lands on `main`,
+  `main` is squash-only, so history stays linear). The one exception is the "update branch" merge
+  commit `/merge-train` makes in an approved PR: never replace it with a rebase + force push, which
+  voids the owner's approval (ADR-0060). After a PR's squash commit lands on `main`,
   **keep both the local and the remote branch** — merge with plain `gh pr merge --squash` (never
   `--delete-branch`), and never run `git branch -d/-D` or `git push origin --delete`.
 
@@ -763,7 +767,7 @@ structure.
    always needs a separate explicit ask.** **No merge with open CodeQL alerts:** green checks are not enough — the
    CodeQL check succeeds even when it uploads findings. Before any merge (interactive or loop),
    list `gh api "repos/{owner}/{repo}/code-scanning/alerts?ref=refs/pull/<n>/merge&state=open"`
-   and fix every alert (dismiss only with a stated reason); the loop's merge gate enforces this
+   and fix every alert (dismiss only with a stated reason); `/merge-train` enforces this
    mechanically.
 6. **Feed the flywheel.** Reusable correction → persist it: global rule → **this file**; real
    decision → new ADR; empirical DAT/update finding → `docs/knowledge-base/` (dated). The same
@@ -835,46 +839,48 @@ with `/qa-ticket #<n>` before handing it over.**
   without its precondition ships as `blocked:`, never as a hopeful checkbox, and the ticket is handed
   over already carrying `qa-blocked` so the gap is on the owner's queue from day one.
 
-### Loop mode — one ticket = one closed PR, in its own fresh headless process
+### Loop mode — one ticket = one PR, in its own fresh headless process and worktree
 
-Working the backlog autonomously has **two non-negotiables: one ticket = one closed PR (git
-hygiene), and one ticket = one fresh context (cost + quality).** Different rules; both must hold.
+Working the backlog autonomously has **two non-negotiables: one ticket = one PR (git hygiene), and
+one ticket = one fresh context (cost + quality).** Different rules; both must hold.
 
-**The loop is a SCRIPT, not a session — `scripts/claude/backlog-loop.sh` (the conductor).**
-Deterministic bash picks the next ready ticket (`next-ticket.sh`: priority labels + the
-`Depends on #X` gate + skip rules for qa/post-mvp/audit/Windows-only work) and runs it to completion in
-a **fresh headless process** (`work-ticket.sh` → `claude -p "/work-ticket <n>"`). This repo is
-public, so **only maintainer-written tickets may drive the loop**: `issue-trust.sh` refuses any
-issue whose author *or any commenter* lacks write access, fails closed, and is enforced in front of
-the session — naming a ticket explicitly cannot bypass it (ADR-0026). The per-ticket
-session does the whole slice — spec weight, branch, implement, tests, `code-reviewer` gate,
-commit → push → PR — then **dies**; the runner judges only its final `STATUS: DONE|BLOCKED` block,
-waits for pr-verify, squash-merges (**never `--delete-branch`** — branches are kept), syncs main,
+**The loop is a SCRIPT, not a session — `scripts/claude/backlog-loop.sh` (the conductor).** It takes
+the ticket numbers the owner hands it (the normal use: pick independent tickets in a recon session,
+then `/backlog <numbers>`), or picks ready ones itself (`next-ticket.sh`: priority labels + the
+`Depends on #X` gate + skip rules for qa/post-mvp/audit/Windows-only work + no open PR yet). Each
+ticket runs in a **fresh headless process** (`work-ticket.sh` → `claude -p "/work-ticket <n>"`)
+inside its **own worktree** `.claude/worktrees/ticket-<n>` cut from `origin/main`, up to three at
+once (`-j`). This repo is public, so **only maintainer-written tickets may drive the loop**:
+`issue-trust.sh` refuses any issue whose author *or any commenter* lacks write access, fails closed,
+and is enforced in front of the session — naming a ticket explicitly cannot bypass it (ADR-0026).
+The per-ticket session does the whole slice — spec weight, branch, implement, tests,
+`code-reviewer` gate, commit → push → PR — then **dies**; the runner judges only its final
+`STATUS: DONE|BLOCKED` block, confirms the PR exists, removes the clean worktree (the branch stays)
 and moves on. No LLM context outlives a ticket, so per-ticket cost stays flat no matter how many
-tickets run overnight. Earlier designs kept an orchestrator *session* alive across tickets (first
+tickets run. Earlier designs kept an orchestrator *session* alive across tickets (first
 `/loop /ticket`, then a subagent-spawning `/backlog` orchestrator) — both accumulate N tickets'
-returns in one context and re-read it every turn; that anti-pattern is retired. (Parallelism
-across *independent* tickets would be a separate opt-in move — worktree per ticket; the loop is
-deliberately serial.)
+returns in one context and re-read it every turn; that anti-pattern is retired.
 
-**Git hygiene — fully close each ticket before the next; never let two tickets' work share an
-uncommitted working copy.** The runner enforces it mechanically: it refuses to start on a dirty
-working copy, runs strictly serially, commits (never deletes, never stashes) anything a failed or blocked run
-leaves behind on a dedicated `loop-salvage/<n>-<timestamp>` branch, and returns to a
-freshly-pulled main between tickets. The worker (`/work-ticket`) never merges — the runner owns
-the merge gate, and that gate also refuses any PR with **open CodeQL alerts** (fail closed; the
-worker clears them first, see §5). BLOCKED tickets get the
-`loop-blocked` label plus the open questions posted as an issue comment — triage is
-`gh issue list --label loop-blocked` (raw per-ticket session logs stay in
-`logs/claude-loop/<run>/` for debugging only). Business questions are **extracted for the user,
-never invented** — that rule binds the worker and the conductor alike.
+**The loop stops at the PR (ADR-0060).** Nothing in it merges or assigns. The owner reads each PR
+and approves it by **assigning themselves** — GitHub does not let an author approve their own PR,
+and every PR here is opened under the owner's account. `/merge-train` then merges only PRs assigned
+to the owner after their last push, with green required checks and zero open CodeQL alerts, and
+never deletes a branch. The assignee therefore *is* the approval: no session ever sets it.
+
+**Git hygiene — never let two tickets share a working copy.** Each ticket owns its worktree and the
+main checkout is never touched, so the owner can keep working there while the loop runs. A ticket
+that already has an open PR or a worktree is skipped, never started twice. Anything a failed or
+blocked run leaves behind is committed (never deleted, never stashed) on a dedicated
+`loop-salvage/<n>-<timestamp>` branch. BLOCKED tickets get the `loop-blocked` label plus the open
+questions posted as an issue comment — triage is `gh issue list --label loop-blocked` (raw
+per-ticket session logs stay in `logs/claude-loop/<run>/` for debugging only). Business questions
+are **extracted for the user, never invented** — that rule binds the worker and the conductor alike.
 
 Entering loop mode (`/backlog`, or an explicit "work through the backlog") **is** the standing
-authorization for commit → push → PR → merge — the merge, which `/ticket` never takes on its own
-(§5 above), belongs to the conductor for the duration of the loop. A single wholesale lift (e.g. the AuthSystem module) is
-**one ticket**: a large diff there is expected and fine — what's not fine is two tickets' worth of
-files sitting uncommitted at once, or two tickets sharing one context. Full manual (overnight
-runs, env knobs, triage, troubleshooting): **`docs/claude-loop.md`**.
+authorization for commit → push → PR — never for a merge, which stays the owner's `/merge-train`.
+A single wholesale lift (e.g. the AuthSystem module) is **one ticket**: a large diff there is
+expected and fine — what's not fine is two tickets sharing one working copy or one context. Full
+manual (env knobs, triage, troubleshooting): **`docs/claude-loop.md`**.
 
 ## Roadmap (digest — details live as GitHub issues; `gh issue list`)
 
@@ -942,8 +948,8 @@ them yourself when the request matches, without waiting for the user to type the
 - Any **DAT binary format work** → hand off to the **`dat-format-expert`** agent.
 - User says **"kontynuuj pracę w pętli" / "continue the loop" / "work through the backlog" /
   "jazda dalej"** (any keep-grinding-tickets phrasing) → invoke **`/backlog`**, which launches
-  `scripts/claude/backlog-loop.sh` in the background — one fresh headless `claude -p` process per
-  ticket. NEVER grind tickets inline in the current session and never spawn per-ticket subagents
+  `scripts/claude/backlog-loop.sh` in the background — one fresh headless `claude -p` process and
+  one worktree per ticket; it opens PRs and never merges. NEVER grind tickets inline in the current session and never spawn per-ticket subagents
   from it — both balloon one context, the exact anti-pattern Loop mode retires — and never route
   to `/loop`.
 

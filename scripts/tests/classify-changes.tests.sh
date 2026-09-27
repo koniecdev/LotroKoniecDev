@@ -67,7 +67,6 @@ echo
 echo '── inert: nothing runs ───────────────────────────────────────────────────────────────────────'
 expect 'code=false guards=false images=false' 'agent config under .claude/'   '.claude/agents/code-reviewer.md' '.claude/settings.json'
 expect 'code=false guards=false images=false' 'project memory + docs'         'CLAUDE.md' 'docs/claude-loop.md'
-expect 'code=false guards=false images=false' 'the loop conductor script'     'scripts/claude/backlog-loop.sh'
 expect 'code=false guards=false images=false' 'another workflow'              '.github/workflows/codeql.yml'
 expect 'code=false guards=false images=false' 'the dev compose stack'         'compose.yaml'
 expect 'code=false guards=false images=false' 'an env example'                '.env.example'
@@ -75,6 +74,8 @@ expect 'code=false guards=false images=false' 'an env example'                '.
 echo
 echo '── guards only: the bash gates re-run, the .NET gate does not ────────────────────────────────'
 expect 'code=false guards=true images=false' 'a script the provenance self-test executes' 'scripts/claude/work-ticket.sh'
+expect 'code=false guards=true images=false' 'the loop conductor, which its self-test runs' 'scripts/claude/backlog-loop.sh'
+expect 'code=false guards=true images=false' 'the conductor self-test'                   'scripts/tests/claude-loop-conductor.tests.sh'
 expect 'code=false guards=true images=false' 'the provenance gate itself'                 'scripts/claude/issue-trust.sh'
 expect 'code=false guards=true images=false' 'the SSR-purity guard'                       'scripts/check-ssr-purity.sh'
 expect 'code=false guards=true images=false' 'the hypermedia guard'                       'scripts/check-client-hypermedia.sh'

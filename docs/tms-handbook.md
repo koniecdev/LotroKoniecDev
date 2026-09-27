@@ -1615,8 +1615,9 @@ a broken connection string passes readiness — the deploy smoke gate catches it
 **ADR-0026 — Only maintainer-written issues may drive the autonomous loop.**
 What: the backlog loop refuses any GitHub issue whose author *or any commenter* lacks write
 access (`scripts/claude/issue-trust.sh`, fail-closed, enforced in front of every session). Why:
-the repo is public and the loop auto-merges the result — untrusted issue text would be a
-prompt-injection channel straight to `main`.
+the repo is public and the loop pushes branches and opens PRs under the owner's account —
+untrusted issue text would be a prompt-injection channel into a process with write access. Since
+ADR-0060 the loop no longer merges; the owner's review before `/merge-train` is a second line.
 
 **ADR-0027 — Prod's warm replica comes from a schedule; the availability probe leaves Azure.** *(Partly obsolete — the warm window died with Azure (ADR-0034); the daily ping survives as the only availability signal.)*
 What: `min_replicas = 0` everywhere; production keeps one warm replica only inside a KEDA cron

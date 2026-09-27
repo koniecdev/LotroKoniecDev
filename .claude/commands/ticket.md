@@ -22,6 +22,9 @@ Run this before anything else, even before reading the ticket:
 - `git pull --ff-only` — ff-only on purpose: local `main` must never carry its own commits, so a
   pull that can't fast-forward means something is wrong — fail loudly instead of silently
   rebasing stray commits into the next PR.
+- **In a worktree** (`.claude/worktrees/…`), `main` is checked out in the main checkout and
+  `git checkout main` fails. Run `git fetch origin main` instead of the two commands above:
+  `gh issue develop` cuts the branch from GitHub's `main` anyway.
 
 This makes the post-merge loop self-contained: after merging the previous PR on GitHub, `/clear` →
 `/ticket <n>` needs no manual `git checkout main` + `git pull` first.
@@ -53,8 +56,11 @@ a human in a hurry; premises go stale and are sometimes flat wrong (TheKittySave
 and later closed — on a false one). Before any branch, verify every factual claim, in this order
 of authority:
 
-1. **The wiki.** `git -C ../LotroKoniecDev.wiki pull --ff-only` first (the clone beside the repo
-   goes stale), then read the page(s) that cover the behavior. The wiki outranks specs, ADRs and
+1. **The wiki.** It is cloned beside the **main** checkout, so from a worktree
+   `../LotroKoniecDev.wiki` points nowhere; resolve it with
+   `WIKI="$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")/../LotroKoniecDev.wiki"` and
+   `git -C "$WIKI" pull --ff-only` first (the clone goes stale), then read the page(s) that cover
+   the behavior. The wiki outranks specs, ADRs and
    code (`CLAUDE.md` → "Source of truth").
 2. **`docs/knowledge-base/`** (start at its README) — DAT, update and launch behavior is
    empirically settled there; never re-test it.
@@ -229,7 +235,8 @@ a non-trivial modeling decision emerges mid-flight. Honor every constraint the s
   every alert (dismiss only with a stated reason) — green checks are not enough, the check
   succeeds even when it uploads findings (`CLAUDE.md` → Workflow §5).
 - **Merging is the one step that always needs a separate explicit ask.** Never merge, and never
-  commit to `main` directly.
+  commit to `main` directly. Never set an assignee either: the owner approves a PR by assigning
+  themselves, and `/merge-train` merges only PRs approved that way (ADR-0060).
 
 ## 9. Report & end the session
 

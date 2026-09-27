@@ -1,10 +1,13 @@
 #!/usr/bin/env bash
-# Works ONE GitHub ticket in a FRESH headless Claude session, then judges the outcome:
-#   claude -p "/work-ticket <n>"  →  STATUS: DONE (PR)  →  wait for pr-verify  →  squash-merge  →  sync main
-#                                 →  STATUS: BLOCKED    →  label `loop-blocked` + questions as issue comment
+# Works ONE GitHub ticket in a FRESH headless Claude session inside its own git worktree, then
+# judges the outcome. It stops at the pull request — nothing here merges (ADR-0060):
+#   worktree from origin/main  →  claude -p "/work-ticket <n>"  →  STATUS: DONE (PR opened, waits for the owner's review)
+#                                                             →  STATUS: BLOCKED (label `loop-blocked` + questions as issue comment)
 #
-# This is the context-safe replacement for in-session ticket subagents: the session dies with the
-# ticket, so nothing accumulates anywhere. The conductor (backlog-loop.sh) calls this serially.
+# The worktree is `.claude/worktrees/ticket-<n>` under the main checkout — the same name a manual
+# `/ticket` session uses — so the main checkout is never touched and several tickets can run at
+# once. The session dies with the ticket, so nothing accumulates anywhere. The conductor
+# (backlog-loop.sh) calls this once per ticket, up to `-j` at a time.
 #
 # Usage: work-ticket.sh <issue-number> [run-dir]
 # Env:
@@ -16,9 +19,9 @@
 #                           2026-09-22)
 #   LOOP_CONFIG_DIR         Claude config dir = which account runs the loop
 #                           (default: ~/.claude-account1)
-#   LOOP_GH_USER            gh account whose token backs the loop's gh write calls — PR merge,
-#                           labels, issue comments (default: koniecdev, the repo owner); an
-#                           existing GH_TOKEN in the environment wins
+#   LOOP_GH_USER            gh account whose token backs the loop's gh write calls — labels and
+#                           issue comments (default: koniecdev, the repo owner); an existing
+#                           GH_TOKEN in the environment wins
 #   LOOP_PERMISSION_MODE    default: auto, plus a loop-scoped --allowedTools Bash allowlist
 #                           (git/gh/dotnet/scripts — see LOOP_ALLOWED_TOOLS below); this does NOT
 #                           widen permissions of your interactive sessions
@@ -26,13 +29,14 @@
 #   LOOP_UNSAFE=1           use --dangerously-skip-permissions instead (full overnight autonomy)
 #   LOOP_MAX_BUDGET_USD     optional per-ticket API budget cap
 #   LOOP_TICKET_TIMEOUT_MIN wall-clock kill switch per ticket (default: 90)
-#   LOOP_CHECKS_TIMEOUT_MIN how long to wait for pr-verify before queueing auto-merge (default: 30)
+#   LOOP_KEEP_WORKTREE=1    keep the worktree after the run (default: remove it when it is clean;
+#                           the branch always stays)
 #   LOOP_TRUSTED_ASSOCIATIONS / LOOP_TRUSTED_LOGINS / LOOP_TRUST_GATE — see issue-trust.sh
 #
-# Exit codes: 0 merged · 2 blocked · 3 error (incl. a provenance gate that could not reach the API)
-#             4 timeout · 5 checks failed / open CodeQL alerts / merge failed · 6 usage limit hit
-#             7 auto-merge queued (checks still running) · 10 dirty working copy
+# Exit codes: 0 PR opened · 2 blocked · 3 error (incl. a provenance gate that could not reach the API)
+#             4 timeout · 6 usage limit hit · 10 could not prepare the worktree
 #             11 issue refused by the provenance gate (untrusted author or commenter)
+#             12 skipped: the ticket already has an open PR, or its worktree already exists
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -42,7 +46,11 @@ ISSUE="${1:?usage: work-ticket.sh <issue-number> [run-dir]}"
 case "$ISSUE" in
     ''|*[!0-9]*) echo "work-ticket: not an issue number: '$ISSUE'" >&2; exit 3 ;;
 esac
-RUN_DIR="${2:-$REPO_ROOT/logs/claude-loop/adhoc-$(date +%Y%m%d-%H%M%S)}"
+
+# Worktrees, logs and the lock live under the MAIN checkout even when this script runs from a
+# worktree, so every run on the machine sees the same `.claude/worktrees/ticket-<n>` names.
+MAIN_ROOT="$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")"
+RUN_DIR="${2:-$MAIN_ROOT/logs/claude-loop/adhoc-$(date +%Y%m%d-%H%M%S)}"
 mkdir -p "$RUN_DIR"
 
 # Central per-role model/effort policy (maintainer's machine); explicit LOOP_* env still wins,
@@ -56,11 +64,12 @@ MODEL="${LOOP_MODEL:-${MODEL_POLICY_WORKER_MODEL:-opus}}"
 export CLAUDE_CONFIG_DIR="${LOOP_CONFIG_DIR:-$HOME/.claude-account1}"
 PERMISSION_MODE="${LOOP_PERMISSION_MODE:-auto}"
 TIMEOUT_MIN="${LOOP_TICKET_TIMEOUT_MIN:-90}"
-CHECKS_TIMEOUT_MIN="${LOOP_CHECKS_TIMEOUT_MIN:-30}"
+KEEP_WORKTREE="${LOOP_KEEP_WORKTREE:-0}"
 
 OUT="$RUN_DIR/ticket-$ISSUE.json"
 ERR="$RUN_DIR/ticket-$ISSUE.stderr"
 META="$RUN_DIR/ticket-$ISSUE.meta"
+WT="$MAIN_ROOT/.claude/worktrees/ticket-$ISSUE"
 
 for tool in claude gh jq git; do
     command -v "$tool" >/dev/null 2>&1 || { echo "work-ticket: missing dependency: $tool" >&2; exit 3; }
@@ -70,10 +79,15 @@ log() { echo "[loop] #$ISSUE $(date +%H:%M:%S) $*"; }
 
 meta() { echo "$1=$2" >> "$META"; }
 
+# Every exit path writes its outcome here, so the conductor's roll-up lists skipped and refused
+# tickets too, not only the ones that got a session.
+: > "$META"
+meta issue "$ISSUE"
+
 # ── gh identity: write calls must not depend on the machine's ACTIVE gh account ────────────────
-# The merge gate, labels and issue comments need write access, but the active gh account here is
-# often the EMU work account, which GitHub bars from writing outside its enterprise ("Enterprise
-# Managed User cannot access this content"). Mint the owner's token unless the caller set one.
+# Labels and issue comments need write access, but the active gh account here is often the EMU
+# work account, which GitHub bars from writing outside its enterprise ("Enterprise Managed User
+# cannot access this content"). Mint the owner's token unless the caller set one.
 if [ -z "${GH_TOKEN:-}" ]; then
     owner_token="$(gh auth token --user "${LOOP_GH_USER:-koniecdev}" 2>/dev/null || true)"
     if [ -n "$owner_token" ]; then
@@ -90,43 +104,190 @@ fi
 trust_rc=0
 "$REPO_ROOT/scripts/claude/issue-trust.sh" "$ISSUE" || trust_rc=$?
 if [ "$trust_rc" -eq 1 ]; then
+    meta outcome untrusted
     log "REFUSED by the provenance gate — untrusted writer (see above); no session spawned"
     exit 11
 fi
 if [ "$trust_rc" -ne 0 ]; then
     # An unreadable API is systemic, not a property of this ticket: report it as a session error
     # so the conductor's circuit breaker stops the run instead of "skipping" the whole backlog.
+    meta outcome error
     log "provenance gate could not verify #$ISSUE (rc=$trust_rc) — treating as an error"
     exit 3
 fi
 
-# Commit (never delete, never stash) anything a failed/blocked session left behind: leftovers
-# become ordinary named git history on a dedicated `loop-salvage/<issue>-<timestamp>` branch,
-# cut from wherever the session got to (so partial commits on the ticket branch stay reachable
-# from it too). Then return to main.
-salvage() {
-    if [ -n "$(git status --porcelain)" ]; then
-        salvage_branch="loop-salvage/$ISSUE-$(date +%Y%m%d-%H%M%S)"
-        git checkout -b "$salvage_branch" --quiet 2>/dev/null || true
-        git add -A >/dev/null 2>&1 || true
-        git commit --quiet --no-verify \
-            -m "claude-loop: salvage uncommitted work for #$ISSUE" \
-            -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>" >/dev/null 2>&1 || true
-        log "leftover changes committed on branch $salvage_branch"
-    fi
-    git checkout main --quiet 2>/dev/null || true
+# ── Never start a ticket that is already in flight ─────────────────────────────────────────────
+# A ticket with an open PR is waiting for the owner's review, and an existing worktree means a
+# manual `/ticket` session or an earlier run is still on it. Working it again would open a second
+# PR for the same ticket, or fight over the same branch.
+open_pr="$(gh pr list --state open --limit 200 --json number,headRefName,isCrossRepository \
+    --jq "[.[] | select((.isCrossRepository | not) and (.headRefName | startswith(\"$ISSUE-\"))) | .number] | first // empty")" || {
+    meta outcome error
+    log "could not list open pull requests — treating as an error"
+    exit 3
+}
+if [ -n "$open_pr" ]; then
+    meta outcome skipped
+    meta pr "$open_pr"
+    log "SKIPPED — PR #$open_pr is already open for this ticket and waits for your review"
+    exit 12
+fi
+# A worktree folder deleted by hand stays registered, and `git worktree add` then refuses the path.
+git worktree prune 2>/dev/null || true
+if [ -e "$WT" ]; then
+    meta outcome skipped
+    log "SKIPPED — $WT already exists: a session may be on this ticket. If none is, remove it with: git worktree remove \"$WT\""
+    exit 12
+fi
+
+# A rebase, merge or cherry-pick the session left half done. A commit on top of it would bury the
+# conflict, so such a worktree is left exactly as it is, for a human.
+operation_in_progress() {
+    local marker
+    for marker in rebase-merge rebase-apply MERGE_HEAD CHERRY_PICK_HEAD REVERT_HEAD; do
+        [ -e "$(git -C "$WT" rev-parse --path-format=absolute --git-path "$marker")" ] && return 0
+    done
+    return 1
 }
 
-# ── Preflight: never build on top of unrelated work ────────────────────────────────────────────
-if [ -n "$(git status --porcelain)" ]; then
-    log "ABORT: working copy is dirty — commit or stash before running the loop"
+# Commit (never delete, never stash) anything a session left behind: leftovers become ordinary
+# named git history on a dedicated `loop-salvage/<issue>-<timestamp>` branch, cut from wherever
+# the session got to (so partial commits on the ticket branch stay reachable from it too).
+# Removing a worktree also drops its reflog, so a commit that no branch and no remote-tracking ref
+# reaches (one made while detached) gets a salvage branch too. Returns 1 when it could not make
+# the worktree safe to remove.
+salvage() {
+    [ -d "$WT" ] || return 0
+    local salvage_branch
+    salvage_branch="loop-salvage/$ISSUE-$(date +%Y%m%d-%H%M%S)"
+    if [ -n "$(git -C "$WT" status --porcelain)" ]; then
+        git -C "$WT" checkout --quiet -b "$salvage_branch" 2>/dev/null || return 1
+        git -C "$WT" add -A >/dev/null 2>&1 || true
+        git -C "$WT" commit --quiet --no-verify \
+            -m "claude-loop: salvage uncommitted work for #$ISSUE" \
+            -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>" >/dev/null 2>&1 || return 1
+        log "leftover changes committed on branch $salvage_branch"
+        return 0
+    fi
+    if [ -z "$(git -C "$WT" for-each-ref --contains HEAD --format='%(refname)' refs/heads refs/remotes 2>/dev/null)" ]; then
+        git -C "$WT" branch "$salvage_branch" HEAD 2>/dev/null || return 1
+        log "commits made on no branch kept on branch $salvage_branch"
+    fi
+}
+
+# Each E2E suite tags its images per worktree as `<repository>:<suite>-<folder>-<hash>` (#884), and
+# nothing removes them with the worktree. A loop run removes its worktree, so it removes them too.
+remove_e2e_images() {
+    command -v docker >/dev/null 2>&1 || return 0
+    local images image
+    images="$(docker image ls --filter label=lotrokoniecdev.e2e --format '{{.Repository}}:{{.Tag}}' 2>/dev/null \
+        | grep -F -- "-ticket-$ISSUE-" || true)"
+    for image in $images; do
+        docker image rm "$image" >/dev/null 2>&1 || true
+    done
+}
+
+# Everything is committed by now, so removing a clean worktree loses nothing: the branch stays,
+# and `git worktree add` brings the folder back in seconds for a follow-up fix.
+finish() {
+    [ -d "$WT" ] || return 0
+    if operation_in_progress; then
+        log "worktree left as it is — a rebase or merge is half done in $WT. Finish or abort it, then: git worktree remove \"$WT\""
+        return 0
+    fi
+    if ! salvage; then
+        log "worktree left in place — its leftovers could not be committed: $WT"
+        return 0
+    fi
+    if [ "$KEEP_WORKTREE" = "1" ]; then
+        log "worktree kept: $WT"
+        return 0
+    fi
+    if git worktree remove "$WT" 2>/dev/null; then
+        remove_e2e_images
+    else
+        log "worktree left in place (not clean): $WT"
+    fi
+}
+
+# Every process below $1. It must be read while $1 still runs: once it exits, its children move to
+# PID 1 and can no longer be found from it.
+descendants() {
+    local kid
+    for kid in $(pgrep -P "$1" 2>/dev/null); do
+        echo "$kid"
+        descendants "$kid"
+    done
+}
+
+# Ends a session and everything it started. Claude Code runs each Bash command in a process group
+# of its own, so the session's own group holds claude but not its builds and test runs. On TERM,
+# claude ends those itself, so it gets $2 seconds to do that before anything is killed. Whatever
+# process group of its tree (read before the TERM) is still there after that is ended as well.
+end_session_tree() {
+    local leader="$1" grace="$2" groups kid group tries=0
+    groups="$(for kid in $(descendants "$leader"); do ps -o pgid= -p "$kid" 2>/dev/null; done | tr -d ' ' | sort -u)"
+    kill -TERM -- "-$leader" 2>/dev/null || true
+    while kill -0 "$leader" 2>/dev/null && [ "$tries" -lt $(( grace * 2 )) ]; do
+        sleep 0.5
+        tries=$((tries + 1))
+    done
+    for group in $groups; do
+        [ "$group" = "$leader" ] || kill -TERM -- "-$group" 2>/dev/null || true
+    done
+    sleep 1
+    for group in $groups; do
+        [ "$group" = "$leader" ] || kill -KILL -- "-$group" 2>/dev/null || true
+    done
+    kill -KILL -- "-$leader" 2>/dev/null || true
+}
+
+# A background child of this script ignores SIGINT and would outlive it, so the session is stopped
+# on every way out. `pid` is cleared once the session is reaped, so a trap can never hit a
+# recycled PID.
+pid=""
+sleeper=""
+
+stop_session() {
+    [ -n "$pid" ] || return 0
+    end_session_tree "$pid" 20
+    wait "$pid" 2>/dev/null || true
+    pid=""
+}
+
+stop_sleeper() {
+    [ -n "$sleeper" ] || return 0
+    kill "$sleeper" 2>/dev/null || true
+    sleeper=""
+}
+
+# Closing a terminal sends HUP to the job and then TERM from the conductor, so further signals are
+# ignored while the first one cleans up; otherwise the second would kill this script half way.
+on_stop_signal() {
+    trap '' INT TERM HUP
+    stop_sleeper
+    stop_session
+    meta outcome stopped
+    finish
+    log "STOPPED — session killed, changes salvaged"
+    exit 143
+}
+# Set before the fetch, so a stop while the worktree is being made still cleans it up.
+trap 'stop_sleeper; stop_session' EXIT
+trap on_stop_signal INT TERM HUP
+
+# ── A fresh worktree from origin/main ──────────────────────────────────────────────────────────
+# Detached on purpose: the worker creates the ticket branch itself (`gh issue develop`). Several
+# runs fetch at once, and a fetch that loses the ref lock to another one succeeds on a retry.
+if ! git fetch --quiet origin main 2>/dev/null; then
+    sleep 5
+    git fetch --quiet origin main || { meta outcome no-worktree; log "could not fetch origin/main"; exit 10; }
+fi
+if ! git worktree add --quiet --detach "$WT" origin/main; then
+    meta outcome no-worktree
+    log "could not create the worktree $WT"
     exit 10
 fi
-git checkout main --quiet
-git pull --ff-only --quiet
-
-: > "$META"
-meta issue "$ISSUE"
 
 # ── One fresh headless session for the whole ticket ────────────────────────────────────────────
 ALLOWED_TOOLS="${LOOP_ALLOWED_TOOLS:-Bash(git:*) Bash(gh:*) Bash(dotnet:*) Bash(scripts/:*) Bash(./scripts/:*)}"
@@ -135,33 +296,56 @@ cmd=(claude -p "/work-ticket $ISSUE" --output-format json --model "$MODEL" --eff
 if [ "${LOOP_UNSAFE:-0}" = "1" ]; then
     cmd+=(--dangerously-skip-permissions)
 else
-    # shellcheck disable=SC2086
+    # shellcheck disable=SC2086,SC2206
     cmd+=(--permission-mode "$PERMISSION_MODE" --allowedTools $ALLOWED_TOOLS)
 fi
 [ -n "${LOOP_MAX_BUDGET_USD:-}" ] && cmd+=(--max-budget-usd "$LOOP_MAX_BUDGET_USD")
 
-log "fresh headless session starting (model=$MODEL, effort=$EFFORT, timeout=${TIMEOUT_MIN}m)"
+log "fresh headless session starting in $WT (model=$MODEL, effort=$EFFORT, timeout=${TIMEOUT_MIN}m)"
 start_epoch="$(date +%s)"
 
 set +e
-"${cmd[@]}" > "$OUT" 2> "$ERR" &
+# `set -m` gives the session its own process group. It also stops bash from pointing a background
+# job's stdin at /dev/null, so that is done by hand: a job outside the terminal's foreground group
+# that reads the terminal is suspended. A SIGKILL to this script runs no trap, and the session is
+# no longer in this script's group, so a watchdog inside the group ends the session once this
+# script is gone. The session could otherwise go on working and pushing with nothing watching it.
+# The watchdog ignores TERM: the TERM it sends to its own group must not end it half way.
+set -m
+(
+    set +m  # keep the watchdog in the session's group, so the group's end is its end too
+    cd "$WT" || exit 1
+    group="$(exec sh -c 'echo "$PPID"')"
+    (
+        trap '' TERM
+        while kill -0 "$$" 2>/dev/null; do sleep 5; done
+        end_session_tree "$group" 15
+    ) < /dev/null > /dev/null 2>&1 &
+    exec "${cmd[@]}"
+) < /dev/null > "$OUT" 2> "$ERR" &
 pid=$!
+set +m
 while kill -0 "$pid" 2>/dev/null; do
-    sleep 30
+    # A background sleep + wait, so a stop signal runs its trap at once instead of after the nap.
+    sleep 30 &
+    sleeper=$!
+    wait "$sleeper"
+    sleeper=""
     if [ $(( $(date +%s) - start_epoch )) -ge $(( TIMEOUT_MIN * 60 )) ]; then
-        kill "$pid" 2>/dev/null
-        sleep 5
-        kill -9 "$pid" 2>/dev/null
-        wait "$pid" 2>/dev/null
+        stop_session
         set -e
         meta outcome timeout
-        salvage
+        finish
         log "TIMEOUT after ${TIMEOUT_MIN}m — session killed, changes salvaged"
         exit 4
     fi
 done
 wait "$pid"
 claude_rc=$?
+# claude ends its own commands when it exits normally; what is left in the session's own group
+# (the watchdog, which ignores TERM, or a plain child) ends here.
+kill -KILL -- "-$pid" 2>/dev/null || true
+pid=""
 set -e
 
 elapsed_min=$(( ( $(date +%s) - start_epoch ) / 60 ))
@@ -176,19 +360,26 @@ meta minutes "$elapsed_min"
 
 # ── Usage-limit / hard-error detection ─────────────────────────────────────────────────────────
 # The CLI reports plan/rate limits as api_error_status 429 in the result JSON regardless of the
-# message wording ("usage limit", "session limit", …) — trust that first; the wording grep stays
-# as the fallback for stderr-only failures where no result JSON was written.
+# message wording ("usage limit", "session limit", …) — trust that first. The wording grep is the
+# fallback for a failed session only (a limit stop always sets is_error): a session that ended
+# normally may well talk about rate limits (this repo has many such tickets), with or without a
+# STATUS block, and that must not read as a limit hit.
 api_error_status="$(jq -r '.api_error_status // 0' "$OUT" 2>/dev/null || echo 0)"
 combined="$result $(tail -c 2000 "$ERR" 2>/dev/null || true)"
-if [ "$api_error_status" = "429" ] || echo "$combined" | grep -qiE 'usage limit|session limit|rate.?limit|overloaded|quota'; then
+session_failed=0
+if [ "$claude_rc" -ne 0 ] || [ "$is_error" = "true" ]; then
+    session_failed=1
+fi
+if [ "$api_error_status" = "429" ] \
+    || { [ "$session_failed" -eq 1 ] && echo "$combined" | grep -qiE 'usage limit|session limit|rate.?limit|overloaded|quota'; }; then
     meta outcome limit
-    salvage
+    finish
     log "USAGE LIMIT hit — the conductor will sleep and retry"
     exit 6
 fi
 if [ "$claude_rc" -ne 0 ] || [ "$is_error" = "true" ]; then
     meta outcome error
-    salvage
+    finish
     log "session ERROR (rc=$claude_rc, is_error=$is_error) — see $ERR"
     exit 3
 fi
@@ -202,97 +393,50 @@ if echo "$result" | grep -qE '^STATUS:[[:space:]]*BLOCKED'; then
     comment="$(printf '🤖 **claude-loop: BLOCKED** — needs your input before the loop retries this ticket.\n\n%s' \
         "$(echo "$result" | head -c 4000)")"
     gh issue comment "$ISSUE" --body "$comment" >/dev/null 2>&1 || true
-    salvage
+    finish
     log "BLOCKED — questions posted on the issue, labeled loop-blocked"
     exit 2
 fi
 
 if ! echo "$result" | grep -qE '^STATUS:[[:space:]]*DONE'; then
     meta outcome error
-    salvage
+    finish
     log "no STATUS: DONE/BLOCKED contract in the final message — treating as error (see $OUT)"
     exit 3
 fi
 
 # ── DONE: verify the PR really exists (never trust a summary alone) ────────────────────────────
+# The number in the final message is only a hint: it must be an open PR in this repo whose branch
+# belongs to this ticket, or the run is an error. A made-up link, or a link to another PR that the
+# summary happens to mention first, must not count as this ticket's PR.
 pr_url="$(echo "$result" | grep -oE 'https://github\.com/[^ )>,]+/pull/[0-9]+' | head -1 || true)"
 pr_num=""
 if [ -n "$pr_url" ]; then
     pr_num="${pr_url##*/}"
 else
-    pr_num="$(gh pr list --state open --json number,headRefName \
-        --jq ".[] | select(.headRefName | startswith(\"$ISSUE-\")) | .number" | head -1 || true)"
+    pr_num="$(gh pr list --state open --limit 200 --json number,headRefName,isCrossRepository \
+        --jq ".[] | select((.isCrossRepository | not) and (.headRefName | startswith(\"$ISSUE-\"))) | .number" \
+        | head -1 || true)"
 fi
 if [ -z "$pr_num" ]; then
     meta outcome error
-    salvage
+    finish
     log "worker reported DONE but no PR found — treating as error"
     exit 3
 fi
+pr_state="$(gh pr view "$pr_num" --json state,isCrossRepository,headRefName \
+    --jq '"\(.state) \(.isCrossRepository) \(.headRefName)"' 2>/dev/null || true)"
+case "$pr_state" in
+    "OPEN false $ISSUE-"*) ;;
+    *)
+        meta outcome error
+        finish
+        log "worker reported PR #$pr_num, but that is not an open PR for this ticket (${pr_state:-unreadable}) — treating as error"
+        exit 3
+        ;;
+esac
 meta pr "$pr_num"
-
-# ── Merge gate: wait for pr-verify, then squash-merge (branches are KEPT — house rule) ─────────
-log "PR #$pr_num — waiting for required checks (max ${CHECKS_TIMEOUT_MIN}m)"
-checks_start="$(date +%s)"
-while :; do
-    set +e
-    gh pr checks "$pr_num" >/dev/null 2>&1
-    crc=$?
-    set -e
-    if [ "$crc" -eq 0 ]; then
-        break
-    fi
-    checks_elapsed=$(( $(date +%s) - checks_start ))
-    if [ "$crc" -ne 8 ] && [ "$checks_elapsed" -gt 180 ]; then
-        meta outcome checks-failed
-        salvage
-        log "checks FAILED on PR #$pr_num — left open for triage"
-        exit 5
-    fi
-    if [ "$checks_elapsed" -ge $(( CHECKS_TIMEOUT_MIN * 60 )) ]; then
-        if gh pr merge "$pr_num" --squash --auto >/dev/null 2>&1; then
-            meta outcome queued
-            salvage
-            log "checks still running after ${CHECKS_TIMEOUT_MIN}m — auto-merge queued"
-            exit 7
-        fi
-        meta outcome checks-timeout
-        salvage
-        log "checks timed out and auto-merge unavailable — PR #$pr_num left open"
-        exit 5
-    fi
-    sleep 45
-done
-
-# ── CodeQL gate: every code-scanning finding must be handled BEFORE merge ──────────────────────
-# Green `gh pr checks` does NOT cover this — the CodeQL check succeeds even when it uploads
-# alerts. Query the PR's open alerts directly and fail CLOSED: an unreadable API refuses to
-# merge blind (same philosophy as the provenance gate). Docs-only PRs skip CodeQL and simply
-# return an empty list here.
-alerts="$(gh api "repos/{owner}/{repo}/code-scanning/alerts?ref=refs/pull/$pr_num/merge&state=open&per_page=100" \
-    --jq '[.[] | "- \(.rule.id) (\(.rule.severity)) \(.most_recent_instance.location.path):\(.most_recent_instance.location.start_line)"] | join("\n")' \
-    2>/dev/null)" || {
-    meta outcome codeql-unverifiable
-    salvage
-    log "could not read code-scanning alerts for PR #$pr_num — refusing to merge blind"
-    exit 5
-}
-if [ -n "$alerts" ]; then
-    meta outcome codeql-alerts
-    gh pr comment "$pr_num" --body "$(printf '🤖 **claude-loop: merge refused — open CodeQL alerts on this PR.** Fix each one (or dismiss it with a stated reason) before merging:\n\n%s' "$alerts")" >/dev/null 2>&1 || true
-    salvage
-    log "open CodeQL alerts on PR #$pr_num — merge refused, PR left open for triage"
-    exit 5
-fi
-
-if ! gh pr merge "$pr_num" --squash; then
-    meta outcome merge-failed
-    salvage
-    log "merge FAILED on PR #$pr_num — left open for triage"
-    exit 5
-fi
-git checkout main --quiet
-git pull --ff-only --quiet
-meta outcome merged
-log "MERGED PR #$pr_num (cost \$$cost, $turns turns, ${elapsed_min}m)"
+meta outcome pr-opened
+finish
+log "PR #$pr_num opened — waiting for your review (cost \$$cost, $turns turns, ${elapsed_min}m)"
 exit 0

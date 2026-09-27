@@ -14,6 +14,8 @@ using LotroKoniecDev.AuthSystem.Contracts.Features.Auth.Password;
 using LotroKoniecDev.AuthSystem.Contracts.Features.Auth.Register;
 using LotroKoniecDev.AuthSystem.Domain.Aggregates.ApplicationUsers.Entities;
 using LotroKoniecDev.AuthSystem.Persistence.Identity;
+using OpenIddict.Abstractions;
+using OpenIddict.Server;
 
 namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Tests.Auth;
 
@@ -135,10 +137,31 @@ public sealed class SecurityStampTokenValidationTests : EndpointsTestBase
     }
 
     [Fact]
+    public async Task RefreshTokenGrant_ShouldFail_WhenTheRefreshTokenCarriesNoSecurityStamp()
+    {
+        // Arrange: a token issued before #848 has no stamp. Letting it through would leave a way around
+        // the check, so this host strips the stamp at sign-in to make such a token.
+        (RegisterRequest user, _) = await UserFactory.RegisterRandomUserWithRequestAsync(
+            ApiClient, Faker, AccountConfirmationEmailSpy, CurrentPassword);
+
+        await using WebApplicationFactory<Program> host = CreateHostThatIssuesTokensWithoutAStamp();
+        using HttpClient client = host.CreateClient();
+
+        (_, string refreshToken, _) = await SignInAsync(client, user.Email, OfflineScopes);
+
+        // Act
+        using HttpResponseMessage response = await RefreshAsync(client, refreshToken);
+
+        // Assert
+        response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        (await response.Content.ReadAsStringAsync()).ShouldContain("invalid_grant");
+    }
+
+    [Fact]
     public async Task TokenEndpoint_ShouldKeepTheSecurityStampOutOfTheTokensAClientCanRead()
     {
-        // Arrange: access tokens are not encrypted, and Identity uses the stamp as the key of its e-mail
-        // codes, so neither the sign-in nor the refresh may put it into a token the client can read.
+        // Arrange: access tokens are not encrypted and the stamp is server-side state, so neither the
+        // sign-in nor the refresh may put it into a token the client can read.
         (RegisterRequest user, _) = await UserFactory.RegisterRandomUserWithRequestAsync(
             ApiClient, Faker, AccountConfirmationEmailSpy, CurrentPassword);
         string securityStamp = await ReadSecurityStampAsync(user.Email);
@@ -173,6 +196,24 @@ public sealed class SecurityStampTokenValidationTests : EndpointsTestBase
 
                 services.RemoveAll<IUserSessionRevoker>();
                 services.AddScoped<IUserSessionRevoker, NoOpSessionRevoker>();
+            }));
+
+    private WebApplicationFactory<Program> CreateHostThatIssuesTokensWithoutAStamp() =>
+        Factory.WithWebHostBuilder(builder =>
+            builder.ConfigureTestServices(services =>
+            {
+                AuthSystemApiFactory.RemoveHostedService<OutboxRelay>(services);
+
+                // Runs before OpenIddict builds any token from the principal.
+                services.AddOpenIddict().AddServer(options =>
+                    options.AddEventHandler<OpenIddictServerEvents.ProcessSignInContext>(handler =>
+                        handler
+                            .UseInlineHandler(context =>
+                            {
+                                context.Principal?.RemoveClaims(SessionSecurityStamp.ClaimType);
+                                return ValueTask.CompletedTask;
+                            })
+                            .SetOrder(int.MinValue)));
             }));
 
     private static async Task<(string AccessToken, string RefreshToken, string? IdentityToken)> SignInAsync(

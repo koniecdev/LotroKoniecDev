@@ -9,6 +9,8 @@ using LotroKoniecDev.AuthSystem.Contracts.Features.Auth.Account;
 using LotroKoniecDev.AuthSystem.Contracts.Features.Auth.Register;
 using LotroKoniecDev.AuthSystem.Domain.Aggregates.ApplicationUsers.Entities;
 using LotroKoniecDev.AuthSystem.Persistence.DbContexts;
+using LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared;
+using OpenIddict.Abstractions;
 
 namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Tests.Auth;
 
@@ -311,6 +313,9 @@ public sealed partial class EmailChangePageTests : EndpointsTestBase
         // is five minutes (#686, ADR-0049). What must never survive the undo is the ability to mint a
         // new one, because that would make the takeover permanent.
         response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+
+        // The stamp check refuses this refresh on its own (#848), so the row shows that the revoke ran.
+        (await OpenIddictTokenState.StatusOfAsync(Factory.Services, takeoverRefreshToken)).ShouldBe(OpenIddictConstants.Statuses.Revoked);
     }
 
     [Fact]

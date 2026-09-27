@@ -423,6 +423,29 @@ public sealed partial class AuthorizationCodeFlowTests : AsyncLifetimeTestBase
     }
 
     [Fact]
+    public async Task AuthorizationCodeExchange_ShouldFail_WhenTheAccountWasDeletedAfterAuthorize()
+    {
+        // Arrange: the erasure finalizer removes the account while a code is still in flight
+        (string authorizationCode, string codeVerifier, _, string email) = await ObtainAuthorizationCodeAsync();
+
+        await using (AsyncServiceScope scope = Factory.Services.CreateAsyncScope())
+        {
+            UserManager<ApplicationUser> userManager =
+                scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
+            ApplicationUser? user = await userManager.FindByEmailAsync(email);
+            user.ShouldNotBeNull();
+            (await userManager.DeleteAsync(user)).Succeeded.ShouldBeTrue();
+        }
+
+        // Act
+        using HttpResponseMessage response = await ExchangeAuthorizationCodeAsync(authorizationCode, codeVerifier);
+
+        // Assert
+        response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        (await response.Content.ReadAsStringAsync()).ShouldContain("invalid_grant");
+    }
+
+    [Fact]
     public async Task AuthorizationCodeFlow_ShouldIssueARefreshTokenThatRefreshes()
     {
         // Arrange: this is the frontend's sign-in. Its refresh token must carry the stamp, or every
@@ -456,8 +479,8 @@ public sealed partial class AuthorizationCodeFlowTests : AsyncLifetimeTestBase
     [Fact]
     public async Task AuthorizationCodeExchange_ShouldKeepTheSecurityStampOutOfTheAccessAndIdentityTokens()
     {
-        // Arrange: access tokens are not encrypted, and Identity uses the stamp as the key of its e-mail
-        // codes, so it must stay in the code and the refresh token, which only the server reads.
+        // Arrange: access tokens are not encrypted and the stamp is server-side state, so it must stay
+        // in the code and the refresh token, which only the server reads.
         (string authorizationCode, string codeVerifier, _, string email) = await ObtainAuthorizationCodeAsync();
 
         string securityStamp;

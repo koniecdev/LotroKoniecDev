@@ -16,6 +16,7 @@ using LotroKoniecDev.AuthSystem.Contracts.Features.Auth.Register;
 using LotroKoniecDev.AuthSystem.Domain.Aggregates.ApplicationUsers.Entities;
 using LotroKoniecDev.AuthSystem.Persistence.DbContexts;
 using LotroKoniecDev.AuthSystem.Persistence.Outbox;
+using OpenIddict.Abstractions;
 using JsonOptions = Microsoft.AspNetCore.Http.Json.JsonOptions;
 
 namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Tests.Auth;
@@ -224,6 +225,40 @@ public sealed partial class DeletionGraceWindowTests : AsyncLifetimeTestBase
 
         // Assert: a scheduled account must not refresh its way back to a usable token
         refreshResponse.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+    }
+
+    [Fact]
+    public async Task DeleteAccount_ShouldRevokeRefreshTokensIssuedBeforeTheSchedule()
+    {
+        // Arrange: the refresh gate refuses this token on its own, so only the row shows the revoke ran
+        (RegisterRequest registerRequest, _) =
+            await UserFactory.RegisterRandomUserWithRequestAsync(ApiClient, Faker, AccountConfirmationEmailSpy, TestPassword);
+
+        using FormUrlEncodedContent passwordGrant = new(new Dictionary<string, string>
+        {
+            ["grant_type"] = "password",
+            ["username"] = registerRequest.Email,
+            ["password"] = TestPassword,
+            ["client_id"] = "lotrokoniecdev-test",
+            ["scope"] = "email profile roles api offline_access"
+        });
+        HttpResponseMessage loginResponse = await ApiClient.Http.PostAsync(
+            new Uri("connect/token", UriKind.Relative), passwordGrant);
+        loginResponse.StatusCode.ShouldBe(HttpStatusCode.OK);
+
+        string loginContent = await loginResponse.Content.ReadAsStringAsync();
+        string refreshToken;
+        using (JsonDocument loginJson = JsonDocument.Parse(loginContent))
+        {
+            refreshToken = loginJson.RootElement.GetProperty("refresh_token").GetString()!;
+        }
+
+        // Act
+        await ScheduleDeletionAsync(registerRequest.Email);
+
+        // Assert
+        (await OpenIddictTokenState.StatusOfAsync(Factory.Services, refreshToken))
+            .ShouldBe(OpenIddictConstants.Statuses.Revoked);
     }
 
     [Fact]

@@ -2,6 +2,8 @@ using LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared.Bases;
 using LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared.Factories;
 using LotroKoniecDev.AuthSystem.Contracts.Features.Auth.Password;
 using LotroKoniecDev.AuthSystem.Contracts.Features.Auth.Register;
+using LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared;
+using OpenIddict.Abstractions;
 
 namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Tests.Auth;
 
@@ -169,6 +171,9 @@ public sealed class ResetPasswordEndpointTests : EndpointsTestBase
 
         // Assert: the pre-reset refresh token must be dead
         response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+
+        // The stamp check refuses this refresh on its own (#848), so the row shows that the revoke ran.
+        (await OpenIddictTokenState.StatusOfAsync(Factory.Services, refreshToken)).ShouldBe(OpenIddictConstants.Statuses.Revoked);
     }
 
     [Fact]

@@ -14,6 +14,8 @@ using LotroKoniecDev.AuthSystem.Contracts.Features.Auth.Password;
 using LotroKoniecDev.AuthSystem.Contracts.Features.Auth.Register;
 using LotroKoniecDev.AuthSystem.Domain.Aggregates.ApplicationUsers.Entities;
 using LotroKoniecDev.AuthSystem.Persistence.Identity;
+using LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared;
+using OpenIddict.Abstractions;
 
 namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Tests.Auth;
 
@@ -60,6 +62,9 @@ public sealed partial class AbortedRequestSessionRevocationTests : EndpointsTest
 
         // Assert
         refreshResponse.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+
+        // The stamp check refuses this refresh on its own (#848), so the row shows that the revoke ran.
+        (await OpenIddictTokenState.StatusOfAsync(host.Services, refreshToken)).ShouldBe(OpenIddictConstants.Statuses.Revoked);
     }
 
     [Fact]
@@ -99,6 +104,9 @@ public sealed partial class AbortedRequestSessionRevocationTests : EndpointsTest
 
         // Assert
         refreshResponse.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+
+        // The stamp check refuses this refresh on its own (#848), so the row shows that the revoke ran.
+        (await OpenIddictTokenState.StatusOfAsync(host.Services, refreshToken)).ShouldBe(OpenIddictConstants.Statuses.Revoked);
     }
 
     [Fact]
@@ -140,6 +148,9 @@ public sealed partial class AbortedRequestSessionRevocationTests : EndpointsTest
 
         // Assert
         refreshResponse.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+
+        // The stamp check refuses this refresh on its own (#848), so the row shows that the revoke ran.
+        (await OpenIddictTokenState.StatusOfAsync(host.Services, refreshToken)).ShouldBe(OpenIddictConstants.Statuses.Revoked);
     }
 
     private WebApplicationFactory<Program> CreateHostThatAbortsBeforeRevoking(RevocationWatch watch) =>

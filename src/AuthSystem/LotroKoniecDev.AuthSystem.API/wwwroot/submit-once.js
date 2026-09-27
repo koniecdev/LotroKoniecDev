@@ -12,6 +12,10 @@
         var idleText = label ? label.textContent : null;
         var sent = false;
 
+        // Firefox can bring back a disabled state that a script set, when the page is reloaded. The server
+        // never sends a disabled button here, so a disabled one at start is always left over.
+        if (btn) { btn.disabled = false; }
+
         form.addEventListener('submit', function (event) {
             if (sent) {
                 event.preventDefault();

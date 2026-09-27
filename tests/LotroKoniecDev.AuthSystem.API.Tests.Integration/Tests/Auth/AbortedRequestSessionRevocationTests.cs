@@ -59,7 +59,6 @@ public sealed partial class AbortedRequestSessionRevocationTests : EndpointsTest
         using HttpResponseMessage refreshResponse = await RefreshAsync(client, refreshToken);
 
         // Assert
-        watch.RequestWasAborted.ShouldBeTrue();
         refreshResponse.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
     }
 
@@ -99,7 +98,6 @@ public sealed partial class AbortedRequestSessionRevocationTests : EndpointsTest
         using HttpResponseMessage refreshResponse = await RefreshAsync(client, refreshToken);
 
         // Assert
-        watch.RequestWasAborted.ShouldBeTrue();
         refreshResponse.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
     }
 
@@ -141,7 +139,6 @@ public sealed partial class AbortedRequestSessionRevocationTests : EndpointsTest
         using HttpResponseMessage refreshResponse = await RefreshAsync(client, refreshToken);
 
         // Assert
-        watch.RequestWasAborted.ShouldBeTrue();
         refreshResponse.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
     }
 
@@ -252,13 +249,12 @@ public sealed partial class AbortedRequestSessionRevocationTests : EndpointsTest
     private sealed class RevocationWatch
     {
         public TaskCompletionSource Finished { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
-
-        public bool RequestWasAborted { get; set; }
     }
 
     /// <summary>
     /// Aborts the request the moment the handler asks for the revoke, then hands the work to the real
-    /// revoker. That is the point where a dropped browser used to stop it.
+    /// revoker. That is the point where a dropped browser used to stop it. If the abort does not take, the
+    /// test would pass for the wrong reason, so the watch fails and the test fails in its Act step.
     /// </summary>
     private sealed class RequestAbortingSessionRevoker : IUserSessionRevoker
     {
@@ -284,13 +280,18 @@ public sealed partial class AbortedRequestSessionRevocationTests : EndpointsTest
                                           ?? throw new InvalidOperationException("The revoke ran outside a request.");
 
                 httpContext.Abort();
-                _watch.RequestWasAborted = httpContext.RequestAborted.IsCancellationRequested;
+                if (!httpContext.RequestAborted.IsCancellationRequested)
+                {
+                    throw new InvalidOperationException("The request was not aborted before the revoke.");
+                }
 
                 await _revoker.RevokeAllAsync(userId);
-            }
-            finally
-            {
                 _watch.Finished.TrySetResult();
+            }
+            catch (Exception exception)
+            {
+                _watch.Finished.TrySetException(exception);
+                throw;
             }
         }
     }

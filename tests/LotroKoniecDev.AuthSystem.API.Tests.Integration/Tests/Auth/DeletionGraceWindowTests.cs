@@ -56,6 +56,7 @@ public sealed partial class DeletionGraceWindowTests : AsyncLifetimeTestBase
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
         string html = await response.Content.ReadAsStringAsync();
         html.ShouldContain("zaplanowane do usunięcia");
+        html.ShouldContain("czasu polskiego");
     }
 
     [Fact]

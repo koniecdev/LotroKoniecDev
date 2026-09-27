@@ -1,4 +1,3 @@
-using System.Globalization;
 using System.Security.Claims;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Identity;
@@ -145,7 +144,7 @@ internal sealed partial class LoginModel : PageModel
             DateTimeOffset deletionDate =
                 _deletionSchedule.FinalizesAt(user.DeletionScheduledAt.Value, user.EmailChangeRevertArmedAt);
             ErrorMessage =
-                $"Twoje konto jest zaplanowane do usunięcia dnia {deletionDate.ToPolandTime().ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)} czasu polskiego. " +
+                $"Twoje konto jest zaplanowane do usunięcia dnia {deletionDate.ToPolandDateText()}. " +
                 "Jeśli chcesz je zachować, kliknij w link anulujący usunięcie, który wysłaliśmy na Twój adres e-mail.";
             return Page();
         }

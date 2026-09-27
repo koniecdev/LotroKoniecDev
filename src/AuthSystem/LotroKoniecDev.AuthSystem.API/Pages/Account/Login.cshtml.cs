@@ -231,8 +231,8 @@ internal sealed partial class LoginModel : PageModel
         }
 
         // An account with a scheduled deletion is also locked out, so this case has to come before the
-        // lockout check. Its wrong password does not count: on the fifth one Identity would replace the
-        // lock that lasts the whole grace period with a five-minute one (#861, ADR-0053 §3).
+        // lockout check. Its wrong password does not count: at the limit Identity would replace the lock
+        // that lasts the whole grace period with its own short lockout (#861, ADR-0053 §3).
         if (user.DeletionScheduledAt is not null)
         {
             if (!await _userManager.HasPasswordAsync(user))

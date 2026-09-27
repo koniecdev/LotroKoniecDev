@@ -127,17 +127,21 @@ which would make one shared introspection point cheaper than it is today.
 The Context above names two things that end a session: `RevokeAllAsync` and the stamp check on the
 auth-server cookie. The token endpoint only had the first. It refused a revoked token, but it never
 compared the security stamp. So a refresh token that the revoke missed kept working for its whole 14
-days. The revoke is best effort, and cancelling a deletion changes the stamp without revoking anything.
+days. The revoke is best effort. A missed token was held back only while the account stayed locked,
+and it worked again as soon as a scheduled deletion was cancelled.
 
 Every sign-in now writes the current stamp into the principal, with no destination. OpenIddict keeps
 it in the authorization code and the refresh token, which only auth-api can read, and never puts it
 into the unencrypted access token or the ID token. The code exchange and every refresh compare it
-with the account's stamp (`SessionSecurityStamp`) and answer `invalid_grant` on a mismatch. A token
+with the account's stamp (`SessionSecurityStamp`) and answer `invalid_grant` on a mismatch. One
+destination selector (`UserClaimDestinations`) serves every user sign-in and refresh, so a new sign-in
+path cannot send the stamp into a token by accident. A token
 issued before this change has no stamp and is refused, so everyone signs in again once.
 
-The revoke stays. It marks the rows revoked in the database, where a person can see them, and the
-stamp check does not depend on it. Because the refresh is now refused either way, a test that proves
-a revoke ran reads the token row (`OpenIddictTokenState`), not a refused refresh.
+The revoke stays. It marks the rows revoked in the database, and the stamp check does not depend on
+it. A token refused only by the stamp check keeps the status `valid` until it expires, so the token
+table alone does not tell which sessions are live. Because the refresh is now refused either way, a
+test that proves a revoke ran reads the token row (`OpenIddictTokenState`), not a refused refresh.
 
 This amendment does not change the decision. An access token already handed out still lives up to
 five minutes. Two side effects are accepted:

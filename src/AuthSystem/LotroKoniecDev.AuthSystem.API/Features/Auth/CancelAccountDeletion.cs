@@ -133,9 +133,10 @@ internal sealed partial class CancelAccountDeletion : IApiEndpoint
             user.PasswordHash = null;
 
             // Changing the security stamp makes the cancel token single-use and ends any sessions that
-            // are still open. It happens inside the same save that commits the outbox row (ADR-0038
-            // decision 2). This notice carries no token, but the rule keeps every e-mail writer's stamp
-            // final before the relay can see its row.
+            // are still open. The auth cookie and every refresh check the stamp, so a session the revoke
+            // at scheduling time missed dies here too (#848). The change happens inside the same save
+            // that commits the outbox row (ADR-0038 decision 2). This notice carries no token, but the
+            // rule keeps every e-mail writer's stamp final before the relay can see its row.
             user.SecurityStamp = Guid.NewGuid().ToString();
 
             _outboxWriter.Enqueue(new AccountDeletionCancelled(user.Id));

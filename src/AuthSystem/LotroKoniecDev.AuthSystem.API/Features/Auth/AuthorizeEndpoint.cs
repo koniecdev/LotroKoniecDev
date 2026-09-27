@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Identity;
 using OpenIddict.Abstractions;
 using OpenIddict.Server.AspNetCore;
 using LotroKoniecDev.AuthSystem.API.Common;
+using LotroKoniecDev.AuthSystem.API.Services.Sessions;
 using LotroKoniecDev.AuthSystem.Domain.Aggregates.ApplicationUsers.Entities;
 using LotroKoniecDev.SharedKernel.Authorization;
 using static OpenIddict.Abstractions.OpenIddictConstants;
@@ -105,6 +106,8 @@ internal sealed class AuthorizeEndpoint : IEndpoint
         IList<string> roles = await userManager.GetRolesAsync(user);
         identity.SetClaims(Claims.Role, [.. roles]);
 
+        await SessionSecurityStamp.AddAsync(identity, user, userManager);
+
         identity.SetScopes(request.GetScopes());
         identity.SetResources(AuthConstants.ClientIds.Api);
 
@@ -114,6 +117,7 @@ internal sealed class AuthorizeEndpoint : IEndpoint
             Claims.Email => [Destinations.AccessToken, Destinations.IdentityToken],
             Claims.Name => [Destinations.AccessToken, Destinations.IdentityToken],
             Claims.Role => [Destinations.AccessToken, Destinations.IdentityToken],
+            SessionSecurityStamp.ClaimType => [],
             _ => [Destinations.AccessToken]
         });
 

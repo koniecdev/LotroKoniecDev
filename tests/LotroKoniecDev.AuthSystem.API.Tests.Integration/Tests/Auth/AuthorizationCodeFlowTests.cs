@@ -3,6 +3,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Web;
+using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
@@ -12,6 +13,7 @@ using LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared.Bases;
 using LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared.Factories;
 using Microsoft.EntityFrameworkCore;
 using LotroKoniecDev.AuthSystem.Contracts.Features.Auth.Register;
+using LotroKoniecDev.AuthSystem.Domain.Aggregates.ApplicationUsers.Entities;
 using LotroKoniecDev.AuthSystem.Persistence.DbContexts;
 using JsonOptions = Microsoft.AspNetCore.Http.Json.JsonOptions;
 
@@ -346,7 +348,7 @@ public sealed partial class AuthorizationCodeFlowTests : AsyncLifetimeTestBase
     public async Task AuthorizationCodeExchange_ShouldFail_WhenCodeVerifierIsInvalid()
     {
         // Arrange: Get a valid authorization code through the full auth flow
-        (string authorizationCode, _, _) = await ObtainAuthorizationCodeAsync();
+        (string authorizationCode, _, _, _) = await ObtainAuthorizationCodeAsync();
 
         // Use a completely different code verifier that doesn't match the original challenge
         string wrongCodeVerifier = "this-is-a-wrong-verifier-that-does-not-match-the-challenge";
@@ -372,7 +374,7 @@ public sealed partial class AuthorizationCodeFlowTests : AsyncLifetimeTestBase
     public async Task AuthorizationCodeExchange_ShouldFail_WhenAuthorizationCodeIsExpired()
     {
         // Arrange: Get a valid authorization code
-        (string authorizationCode, string codeVerifier, _) = await ObtainAuthorizationCodeAsync();
+        (string authorizationCode, string codeVerifier, _, _) = await ObtainAuthorizationCodeAsync();
 
         // Expire the authorization code in the database
         await using AsyncServiceScope scope = Factory.Services.CreateAsyncScope();
@@ -398,10 +400,92 @@ public sealed partial class AuthorizationCodeFlowTests : AsyncLifetimeTestBase
     }
 
     [Fact]
+    public async Task AuthorizationCodeExchange_ShouldFail_WhenSecurityStampChangedAfterAuthorize()
+    {
+        // Arrange: a password reset lands between /connect/authorize and the code exchange (#848)
+        (string authorizationCode, string codeVerifier, _, string email) = await ObtainAuthorizationCodeAsync();
+
+        await using (AsyncServiceScope scope = Factory.Services.CreateAsyncScope())
+        {
+            UserManager<ApplicationUser> userManager =
+                scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
+            ApplicationUser? user = await userManager.FindByEmailAsync(email);
+            user.ShouldNotBeNull();
+            (await userManager.UpdateSecurityStampAsync(user)).Succeeded.ShouldBeTrue();
+        }
+
+        // Act
+        using HttpResponseMessage response = await ExchangeAuthorizationCodeAsync(authorizationCode, codeVerifier);
+
+        // Assert
+        response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        (await response.Content.ReadAsStringAsync()).ShouldContain("invalid_grant");
+    }
+
+    [Fact]
+    public async Task AuthorizationCodeFlow_ShouldIssueARefreshTokenThatRefreshes()
+    {
+        // Arrange: this is the frontend's sign-in. Its refresh token must carry the stamp, or every
+        // browser session would end at its first refresh (#848).
+        (string authorizationCode, string codeVerifier, _, _) = await ObtainAuthorizationCodeAsync();
+
+        using HttpResponseMessage tokenResponse = await ExchangeAuthorizationCodeAsync(authorizationCode, codeVerifier);
+        tokenResponse.StatusCode.ShouldBe(HttpStatusCode.OK);
+        string tokenContent = await tokenResponse.Content.ReadAsStringAsync();
+        string refreshToken;
+        using (JsonDocument tokenJson = JsonDocument.Parse(tokenContent))
+        {
+            refreshToken = tokenJson.RootElement.GetProperty("refresh_token").GetString()!;
+        }
+
+        using FormUrlEncodedContent refreshRequest = new(new Dictionary<string, string>
+        {
+            ["grant_type"] = "refresh_token",
+            ["refresh_token"] = refreshToken,
+            ["client_id"] = "lotrokoniecdev-web"
+        });
+
+        // Act
+        using HttpResponseMessage response = await ApiClient.Http.PostAsync(
+            new Uri("connect/token", UriKind.Relative), refreshRequest);
+
+        // Assert
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+    }
+
+    [Fact]
+    public async Task AuthorizationCodeExchange_ShouldKeepTheSecurityStampOutOfTheAccessAndIdentityTokens()
+    {
+        // Arrange: access tokens are not encrypted, and Identity uses the stamp as the key of its e-mail
+        // codes, so it must stay in the code and the refresh token, which only the server reads.
+        (string authorizationCode, string codeVerifier, _, string email) = await ObtainAuthorizationCodeAsync();
+
+        string securityStamp;
+        await using (AsyncServiceScope scope = Factory.Services.CreateAsyncScope())
+        {
+            UserManager<ApplicationUser> userManager =
+                scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
+            ApplicationUser? user = await userManager.FindByEmailAsync(email);
+            user.ShouldNotBeNull();
+            securityStamp = await userManager.GetSecurityStampAsync(user);
+        }
+
+        // Act
+        using HttpResponseMessage response = await ExchangeAuthorizationCodeAsync(authorizationCode, codeVerifier);
+
+        // Assert
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        string content = await response.Content.ReadAsStringAsync();
+        using JsonDocument json = JsonDocument.Parse(content);
+        JwtPayload.Read(json.RootElement.GetProperty("access_token").GetString()!).ShouldNotContain(securityStamp);
+        JwtPayload.Read(json.RootElement.GetProperty("id_token").GetString()!).ShouldNotContain(securityStamp);
+    }
+
+    [Fact]
     public async Task Logout_ShouldRedirectToPostLogoutRedirectUri_WhenIdTokenHintIsProvided()
     {
         // Arrange: Complete the full auth code flow to get an id_token and auth cookies
-        (string authorizationCode, string codeVerifier, List<string> authCookies) =
+        (string authorizationCode, string codeVerifier, List<string> authCookies, _) =
             await ObtainAuthorizationCodeAsync();
 
         // Exchange the authorization code for tokens (including id_token)
@@ -445,7 +529,7 @@ public sealed partial class AuthorizationCodeFlowTests : AsyncLifetimeTestBase
         location.ShouldStartWith(postLogoutRedirectUri);
     }
 
-    private async Task<(string Code, string CodeVerifier, List<string> AuthCookies)>
+    private async Task<(string Code, string CodeVerifier, List<string> AuthCookies, string Email)>
         ObtainAuthorizationCodeAsync(string? password = null)
     {
         password ??= "TestPass1!";
@@ -524,7 +608,21 @@ public sealed partial class AuthorizationCodeFlowTests : AsyncLifetimeTestBase
         NameValueCollection queryParams = HttpUtility.ParseQueryString(callbackUri.Query);
         string authorizationCode = queryParams["code"]!;
 
-        return (authorizationCode, codeVerifier, authCookies);
+        return (authorizationCode, codeVerifier, authCookies, registerRequest.Email);
+    }
+
+    private async Task<HttpResponseMessage> ExchangeAuthorizationCodeAsync(string authorizationCode, string codeVerifier)
+    {
+        using FormUrlEncodedContent tokenRequest = new(new Dictionary<string, string>
+        {
+            ["grant_type"] = "authorization_code",
+            ["code"] = authorizationCode,
+            ["redirect_uri"] = "https://localhost:5001/callback",
+            ["client_id"] = "lotrokoniecdev-web",
+            ["code_verifier"] = codeVerifier
+        });
+
+        return await ApiClient.Http.PostAsync(new Uri("connect/token", UriKind.Relative), tokenRequest);
     }
 
     private static string BuildAuthorizeUrl(string codeChallenge) =>

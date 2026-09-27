@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Identity;
 using OpenIddict.Abstractions;
 using OpenIddict.Server.AspNetCore;
 using LotroKoniecDev.AuthSystem.API.Common;
+using LotroKoniecDev.AuthSystem.API.Services.Sessions;
 using LotroKoniecDev.AuthSystem.Domain.Aggregates.ApplicationUsers.Entities;
 using LotroKoniecDev.SharedKernel.Authorization;
 using static OpenIddict.Abstractions.OpenIddictConstants;
@@ -30,7 +31,7 @@ internal sealed class TokenEndpoint : IEndpoint
 
         if (request.IsAuthorizationCodeGrantType())
         {
-            return await HandleAuthorizationCodeGrantAsync(httpContext);
+            return await HandleAuthorizationCodeGrantAsync(httpContext, userManager, signInManager);
         }
 
         // The password flow is only on in the Testing environment, for integration and E2E tests.
@@ -42,7 +43,7 @@ internal sealed class TokenEndpoint : IEndpoint
 
         if (request.IsRefreshTokenGrantType())
         {
-            return await HandleRefreshTokenGrantAsync(httpContext, userManager);
+            return await HandleRefreshTokenGrantAsync(httpContext, userManager, signInManager);
         }
 
         if (request.IsClientCredentialsGrantType())
@@ -55,12 +56,29 @@ internal sealed class TokenEndpoint : IEndpoint
             statusCode: StatusCodes.Status400BadRequest);
     }
 
-    private static async Task<IResult> HandleAuthorizationCodeGrantAsync(HttpContext httpContext)
+    private static async Task<IResult> HandleAuthorizationCodeGrantAsync(
+        HttpContext httpContext,
+        UserManager<ApplicationUser> userManager,
+        SignInManager<ApplicationUser> signInManager)
     {
         AuthenticateResult result = await httpContext.AuthenticateAsync(
             OpenIddictServerAspNetCoreDefaults.AuthenticationScheme);
 
         if (result is not { Succeeded: true })
+        {
+            return Results.Problem(
+                title: Errors.InvalidGrant,
+                detail: "The authorization code is no longer valid.",
+                statusCode: StatusCodes.Status400BadRequest);
+        }
+
+        // The code carries the stamp read at /connect/authorize. A password reset in the seconds before
+        // the code is redeemed must not hand out a refresh token that the next refresh would refuse
+        // anyway (#848).
+        string? userId = result.Principal.GetClaim(Claims.Subject);
+        ApplicationUser? user = string.IsNullOrEmpty(userId) ? null : await userManager.FindByIdAsync(userId);
+
+        if (user is null || !await SessionSecurityStamp.IsCurrentAsync(result.Principal, user, signInManager))
         {
             return Results.Problem(
                 title: Errors.InvalidGrant,
@@ -134,7 +152,8 @@ internal sealed class TokenEndpoint : IEndpoint
 
     private static async Task<IResult> HandleRefreshTokenGrantAsync(
         HttpContext httpContext,
-        UserManager<ApplicationUser> userManager)
+        UserManager<ApplicationUser> userManager,
+        SignInManager<ApplicationUser> signInManager)
     {
         AuthenticateResult authenticateResult = await httpContext.AuthenticateAsync(
             OpenIddictServerAspNetCoreDefaults.AuthenticationScheme);
@@ -170,6 +189,17 @@ internal sealed class TokenEndpoint : IEndpoint
                 statusCode: StatusCodes.Status400BadRequest);
         }
 
+        // Every flow that ends all sessions changes the stamp, and its token revocation is only best
+        // effort. Cancelling a deletion changes the stamp and revokes nothing. This check is what makes a
+        // changed stamp end the session (#848).
+        if (!await SessionSecurityStamp.IsCurrentAsync(authenticateResult.Principal!, user, signInManager))
+        {
+            return Results.Problem(
+                title: Errors.InvalidGrant,
+                detail: "The refresh token is no longer valid.",
+                statusCode: StatusCodes.Status400BadRequest);
+        }
+
         ClaimsIdentity identity = (ClaimsIdentity)authenticateResult.Principal!.Identity!;
 
         identity.SetClaim(Claims.Subject, user.Id.ToString());
@@ -185,6 +215,7 @@ internal sealed class TokenEndpoint : IEndpoint
             Claims.Email => [Destinations.AccessToken, Destinations.IdentityToken],
             Claims.Name => [Destinations.AccessToken, Destinations.IdentityToken],
             Claims.Role => [Destinations.AccessToken, Destinations.IdentityToken],
+            SessionSecurityStamp.ClaimType => [],
             _ => [Destinations.AccessToken]
         });
 
@@ -234,6 +265,8 @@ internal sealed class TokenEndpoint : IEndpoint
         IList<string> roles = await userManager.GetRolesAsync(user);
         identity.SetClaims(Claims.Role, [.. roles]);
 
+        await SessionSecurityStamp.AddAsync(identity, user, userManager);
+
         identity.SetScopes(request.GetScopes());
         identity.SetResources(AuthConstants.ClientIds.Api);
 
@@ -243,6 +276,7 @@ internal sealed class TokenEndpoint : IEndpoint
             Claims.Email => [Destinations.AccessToken, Destinations.IdentityToken],
             Claims.Name => [Destinations.AccessToken, Destinations.IdentityToken],
             Claims.Role => [Destinations.AccessToken, Destinations.IdentityToken],
+            SessionSecurityStamp.ClaimType => [],
             _ => [Destinations.AccessToken]
         });
 

@@ -4,11 +4,12 @@ using Microsoft.Playwright;
 namespace LotroKoniecDev.Frontend.E2E.Tests.Infrastructure;
 
 /// <summary>
-/// Counts every POST a page sends. On request it also holds the answer to each POST to one path for a
-/// moment after the server sent it, as a slow connection would. A second click then lands while the
-/// first request is still open, whatever the speed of this machine (#871).
-/// A route that fails is recorded, not thrown: a route handler has no caller that could catch it, so a
-/// broken harness would otherwise show up only as a locator timeout 30 seconds later.
+/// Counts every POST a page sends. <see cref="HoldAnswersAsync"/> also holds the answer to each POST to
+/// one path for a moment after the server sent it, as a slow connection would. A second click then lands
+/// while the first request is still open, whatever the speed of this machine (#871).
+/// A route that fails is recorded, not thrown: a route handler has no caller that could catch it. The
+/// request then goes on to the server unheld, so the page still ends and the test can report the record
+/// instead of a locator timeout 30 seconds later.
 /// </summary>
 internal sealed class PostWatch
 {
@@ -27,7 +28,7 @@ internal sealed class PostWatch
 
     public int PostsTo(string path) => _postedPaths.Count(postedPath => postedPath == path);
 
-    public static PostWatch Count(IPage page)
+    public static PostWatch StartCounting(IPage page)
     {
         PostWatch watch = new();
         page.Request += (_, request) =>
@@ -42,7 +43,7 @@ internal sealed class PostWatch
 
     public static async Task<PostWatch> HoldAnswersAsync(IPage page, string heldPath, TimeSpan answerDelay)
     {
-        PostWatch watch = Count(page);
+        PostWatch watch = StartCounting(page);
         await page.RouteAsync($"**{heldPath}**", async route =>
         {
             if (route.Request.Method != "POST")
@@ -60,8 +61,21 @@ internal sealed class PostWatch
             catch (PlaywrightException exception)
             {
                 watch._routeFailures.Enqueue(exception.Message);
+                await ContinueUnlessDroppedAsync(route);
             }
         });
         return watch;
+    }
+
+    private static async Task ContinueUnlessDroppedAsync(IRoute route)
+    {
+        try
+        {
+            await route.ContinueAsync();
+        }
+        catch (PlaywrightException)
+        {
+            // The browser already dropped this request for a newer one, so there is nothing to answer.
+        }
     }
 }

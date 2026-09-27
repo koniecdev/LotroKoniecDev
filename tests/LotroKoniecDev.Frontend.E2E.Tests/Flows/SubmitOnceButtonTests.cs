@@ -73,7 +73,7 @@ public sealed class SubmitOnceButtonTests : E2ETestBase
         await Page.GotoAsync($"{Fixture.FrontendBaseUrl}/");
         await Page.GetByRole(AriaRole.Link, new() { Name = Links.Login, Exact = true }).ClickAsync();
         ILocator loginButton = Page.GetByRole(AriaRole.Button, new() { Name = Buttons.Login, Exact = true });
-        PostWatch posts = PostWatch.Count(Page);
+        PostWatch posts = PostWatch.StartCounting(Page);
 
         // Act: the first click has empty fields, so the browser sends nothing
         await loginButton.ClickAsync();

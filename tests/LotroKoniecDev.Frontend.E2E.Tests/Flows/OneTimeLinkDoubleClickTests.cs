@@ -111,7 +111,7 @@ public sealed class OneTimeLinkDoubleClickTests : E2ETestBase
     {
         // Arrange
         TestUser user = await CreateSignedInUserAsync();
-        await ScheduleDeletionAsync(user);
+        await AuthActions.ScheduleDeletionAsync(Page, user.Password);
         string cancelLink = await MailpitClient.WaitForLinkAsync(
             Fixture.MailpitBaseUrl, user.Email, DeletionScheduledSubject, CancelDeletionPath, MailTimeout);
         await Page.GotoAsync(cancelLink);
@@ -172,18 +172,6 @@ public sealed class OneTimeLinkDoubleClickTests : E2ETestBase
         await AuthActions.LoginAsync(Page, Fixture, user);
         await AuthActions.AcceptCookieBannerAsync(Page);
         return user;
-    }
-
-    private async Task ScheduleDeletionAsync(TestUser user)
-    {
-        await Page.GetByTestId("nav-account").ClickAsync();
-        await Page.GetByTestId("account-delete").ClickAsync();
-        await Page.Locator("#delete-password").WaitForAsync(LongWait);
-        await Page.Locator("#delete-password").FillAsync(user.Password);
-        await Page.Locator("#delete-confirm").FillAsync("USUWAM");
-        await Page.GetByTestId("delete-submit").ClickAsync();
-        await Page.GetByRole(AriaRole.Button, new() { Name = "Przejdź dalej", Exact = true }).ClickAsync();
-        await Page.GetByTestId("deletion-date-line").WaitForAsync(LongWait);
     }
 
     /// <summary>

@@ -97,6 +97,22 @@ internal static class AuthActions
         await page.GetByTestId("change-email-submit").ClickAsync();
     }
 
+    /// <summary>
+    /// Schedules the account's deletion from the frontend's account page and ends on the signed-out
+    /// "deletion scheduled" page. The caller must be signed in with the cookie banner already accepted.
+    /// </summary>
+    public static async Task ScheduleDeletionAsync(IPage page, string password)
+    {
+        await page.GetByTestId("nav-account").ClickAsync();
+        await page.GetByTestId("account-delete").ClickAsync();
+        await page.Locator("#delete-password").WaitForAsync(LongWait);
+        await page.Locator("#delete-password").FillAsync(password);
+        await page.Locator("#delete-confirm").FillAsync("USUWAM");
+        await page.GetByTestId("delete-submit").ClickAsync();
+        await page.GetByRole(AriaRole.Button, new() { Name = "Przejdź dalej", Exact = true }).ClickAsync();
+        await page.GetByTestId("deletion-date-line").WaitForAsync(LongWait);
+    }
+
     public static async Task LogoutAsync(IPage page)
     {
         await page.GetByRole(AriaRole.Button, new() { Name = Buttons.Logout, Exact = true }).ClickAsync();

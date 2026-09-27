@@ -35,8 +35,8 @@ public sealed class SameOriginDelegatingHandlerTests
     private const string TranslationSystemBaseUrl = "https://tms.lotro.test/";
     private const string OffOriginHref = "https://attacker.example/translations";
 
-    // The circuit breaker needs ten calls in its window before it may open.
-    private const int RefusalsPastTheBreakerThroughput = 12;
+    private const int RefusalsPastTheBreakerThroughput =
+        HttpClientsDependencyInjectionExtensions.CircuitBreakerMinimumThroughput + 2;
 
     [Theory]
     [InlineData("https://tms.lotro.test/translations")]

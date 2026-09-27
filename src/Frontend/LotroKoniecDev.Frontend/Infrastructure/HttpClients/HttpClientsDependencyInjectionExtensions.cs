@@ -107,7 +107,7 @@ public static class HttpClientsDependencyInjectionExtensions
         {
             SamplingDuration = TimeSpan.FromSeconds(30),
             FailureRatio = 0.5,
-            MinimumThroughput = 10,
+            MinimumThroughput = CircuitBreakerMinimumThroughput,
             BreakDuration = TimeSpan.FromSeconds(30),
             ShouldHandle = args => ValueTask.FromResult(IsHandledTransientFailure(args.Outcome, args.Context))
         });
@@ -122,6 +122,9 @@ public static class HttpClientsDependencyInjectionExtensions
             TimeoutGenerator = args => ValueTask.FromResult(ResolveTimeout(args.Context.GetRequestMessage()))
         });
     }
+
+    /// <summary>How many calls the circuit breaker must see in its window before it may open.</summary>
+    internal const int CircuitBreakerMinimumThroughput = 10;
 
     /// <summary>The time limit per attempt for ordinary JSON calls. It is short, so a stalled API fails fast.</summary>
     internal static readonly TimeSpan DefaultRequestTimeout = TimeSpan.FromSeconds(10);

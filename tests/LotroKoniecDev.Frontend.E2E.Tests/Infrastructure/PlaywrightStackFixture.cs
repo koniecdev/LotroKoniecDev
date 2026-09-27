@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using System.Globalization;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
@@ -6,6 +5,7 @@ using System.Text;
 using DotNet.Testcontainers.Builders;
 using DotNet.Testcontainers.Containers;
 using DotNet.Testcontainers.Networks;
+using LotroKoniecDev.Tests.Shared;
 using Microsoft.Playwright;
 using Testcontainers.PostgreSql;
 
@@ -29,10 +29,10 @@ namespace LotroKoniecDev.Frontend.E2E.Tests.Infrastructure;
 /// </summary>
 public sealed class PlaywrightStackFixture : IAsyncLifetime
 {
-    private const string AuthImage = "lotrokoniecdev-auth:fe-e2e";
-    private const string TmsImage = "lotrokoniecdev-tms:fe-e2e";
-    private const string FrontendImage = "lotrokoniecdev-frontend:fe-e2e";
-    private const string MigratorImage = "lotrokoniecdev-migrator:fe-e2e";
+    private const string AuthRepository = "lotrokoniecdev-auth";
+    private const string TmsRepository = "lotrokoniecdev-tms";
+    private const string FrontendRepository = "lotrokoniecdev-frontend";
+    private const string MigratorRepository = "lotrokoniecdev-migrator";
     private const string MailpitImage = "axllent/mailpit:latest";
 
     /// <summary>
@@ -55,13 +55,13 @@ public sealed class PlaywrightStackFixture : IAsyncLifetime
         "npx -y playwright@$(sed --quiet 's/.*\\\"driverVersion\\\": *\"\\([^\"]*\\)\".*/\\1/p' ms-playwright/.docker-info) "
         + "run-server --port 8080 --host 0.0.0.0";
 
-    /// <summary>Image name → Dockerfile path (relative to the solution root), built in order if not present.</summary>
-    private static readonly (string Image, string Dockerfile)[] DockerImages =
+    /// <summary>Image repository → Dockerfile path (relative to the solution root), built in this order.</summary>
+    private static readonly (string Repository, string Dockerfile)[] DockerImages =
     [
-        (AuthImage, "src/AuthSystem/LotroKoniecDev.AuthSystem.API/Dockerfile"),
-        (TmsImage, "src/TranslationSystem/LotroKoniecDev.TranslationSystem.API/Dockerfile"),
-        (FrontendImage, "src/Frontend/LotroKoniecDev.Frontend/Dockerfile"),
-        (MigratorImage, "Dockerfile.migrator")
+        (AuthRepository, "src/AuthSystem/LotroKoniecDev.AuthSystem.API/Dockerfile"),
+        (TmsRepository, "src/TranslationSystem/LotroKoniecDev.TranslationSystem.API/Dockerfile"),
+        (FrontendRepository, "src/Frontend/LotroKoniecDev.Frontend/Dockerfile"),
+        (MigratorRepository, "Dockerfile.migrator")
     ];
 
     private const int HttpsPort = 8443;
@@ -91,6 +91,8 @@ public sealed class PlaywrightStackFixture : IAsyncLifetime
     // the network needs a user of its own. The compose stacks do the same.
     private const string RabbitMqUsername = "rabbitmq";
     private const string RabbitMqPassword = "fe-e2e-rabbitmq-password";
+
+    private readonly E2EWorktree _worktree = new("fe-e2e");
 
     private string _certPem = null!;
     private string _keyPem = null!;
@@ -123,7 +125,7 @@ public sealed class PlaywrightStackFixture : IAsyncLifetime
     public async Task InitializeAsync()
     {
         GenerateCertificate();
-        await BuildDockerImagesAsync();
+        await _worktree.BuildImagesAsync(DockerImages);
 
         _network = new NetworkBuilder()
             .WithName($"fe-e2e-{Guid.NewGuid():N}")
@@ -144,7 +146,7 @@ public sealed class PlaywrightStackFixture : IAsyncLifetime
     {
         // POSTGRES_DB creates lotro_translation on the first boot, and the mounted init script adds the
         // second database, lotro_auth, that the AuthSystem needs. The compose stack does the same.
-        string initScriptPath = Path.Combine(FindSolutionDirectory(), "scripts", "init-postgres.sh");
+        string initScriptPath = Path.Combine(_worktree.SolutionDirectory, "scripts", "init-postgres.sh");
         _postgres = new PostgreSqlBuilder("postgres:17-alpine")
             .WithNetwork(_network)
             .WithNetworkAliases("postgres")
@@ -186,7 +188,7 @@ public sealed class PlaywrightStackFixture : IAsyncLifetime
 
     private async Task RunMigratorAsync()
     {
-        _migrator = new ContainerBuilder(MigratorImage)
+        _migrator = new ContainerBuilder(_worktree.ImageName(MigratorRepository))
             .WithNetwork(_network)
             .WithEnvironment("ASPNETCORE_ENVIRONMENT", "Development")
             .WithEnvironment("ConnectionStrings__TranslationDatabase", TranslationConnectionString)
@@ -209,7 +211,7 @@ public sealed class PlaywrightStackFixture : IAsyncLifetime
         // Testing profile: seeds a deterministic admin + the OpenIddict clients. The web client's
         // redirect/post-logout URIs and the issuer are pointed at the in-network HTTPS origins, and
         // Email targets Mailpit so a registration actually sends a confirmation link (no auto-confirm).
-        _authApi = new ContainerBuilder(AuthImage)
+        _authApi = new ContainerBuilder(_worktree.ImageName(AuthRepository))
             .WithNetwork(_network)
             .WithNetworkAliases("auth-api")
             .WithPortBinding(HttpPort, true)
@@ -252,7 +254,7 @@ public sealed class PlaywrightStackFixture : IAsyncLifetime
         // tms validates JWTs against the issuer over HTTPS (JWKS from https://auth-api:8443), so it
         // trusts the e2e cert via the inline entrypoint. Not strictly exercised by the auth loop, but
         // kept wired so the stack is complete and the later editor/list flows have a target.
-        _tmsApi = new ContainerBuilder(TmsImage)
+        _tmsApi = new ContainerBuilder(_worktree.ImageName(TmsRepository))
             .WithNetwork(_network)
             .WithNetworkAliases("tms-api")
             .WithPortBinding(HttpPort, true)
@@ -279,7 +281,7 @@ public sealed class PlaywrightStackFixture : IAsyncLifetime
     {
         // The RP's single Authority + the typed tms client both back-channel over HTTPS, so the FE
         // trusts the e2e cert via the inline entrypoint. The browser hits the FE at the same origin.
-        _frontend = new ContainerBuilder(FrontendImage)
+        _frontend = new ContainerBuilder(_worktree.ImageName(FrontendRepository))
             .WithNetwork(_network)
             .WithNetworkAliases("frontend")
             .WithPortBinding(HttpPort, true)
@@ -413,73 +415,6 @@ public sealed class PlaywrightStackFixture : IAsyncLifetime
 
     private static string BuildConnectionString(string database) =>
         $"Host=postgres;Port=5432;Database={database};Username={PostgresUser};Password={PostgresPassword}";
-
-    private static async Task BuildDockerImagesAsync()
-    {
-        // CI pre-builds the images and sets SKIP_DOCKER_BUILD=true; locally the suite builds them on demand.
-        if (Environment.GetEnvironmentVariable("SKIP_DOCKER_BUILD") == "true")
-        {
-            Console.WriteLine("Skipping Docker image build (SKIP_DOCKER_BUILD=true).");
-            return;
-        }
-
-        string solutionDir = FindSolutionDirectory();
-        string cacheBust = DateTimeOffset.UtcNow.ToUnixTimeSeconds().ToString(CultureInfo.InvariantCulture);
-
-        foreach ((string imageName, string dockerfile) in DockerImages)
-        {
-            Console.WriteLine($"Building Docker image: {imageName}...");
-
-            using Process process = new();
-            process.StartInfo = new ProcessStartInfo
-            {
-                FileName = "docker",
-                Arguments = $"build --build-arg CACHEBUST={cacheBust} -f {dockerfile} -t {imageName} .",
-                WorkingDirectory = solutionDir,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                UseShellExecute = false,
-                CreateNoWindow = true
-            };
-
-            process.Start();
-
-            Task<string> stdoutTask = process.StandardOutput.ReadToEndAsync();
-            Task<string> stderrTask = process.StandardError.ReadToEndAsync();
-
-            await process.WaitForExitAsync();
-
-            if (process.ExitCode != 0)
-            {
-                string stdout = await stdoutTask;
-                string stderr = await stderrTask;
-                throw new InvalidOperationException(
-                    $"Failed to build Docker image '{imageName}' (exit code {process.ExitCode}).\n" +
-                    $"Dockerfile: {dockerfile}\nWorking directory: {solutionDir}\n" +
-                    $"Stdout:\n{stdout}\nStderr:\n{stderr}");
-            }
-
-            Console.WriteLine($"Successfully built: {imageName}");
-        }
-    }
-
-    private static string FindSolutionDirectory()
-    {
-        DirectoryInfo? directory = new(Directory.GetCurrentDirectory());
-
-        while (directory is not null)
-        {
-            if (File.Exists(Path.Combine(directory.FullName, "LotroKoniecDev.slnx")))
-            {
-                return directory.FullName;
-            }
-
-            directory = directory.Parent;
-        }
-
-        throw new InvalidOperationException(
-            $"Could not find the solution directory (LotroKoniecDev.slnx). Started from: {Directory.GetCurrentDirectory()}");
-    }
 
     public async Task DisposeAsync()
     {

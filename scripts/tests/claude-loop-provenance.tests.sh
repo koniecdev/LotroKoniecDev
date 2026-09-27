@@ -2,14 +2,15 @@
 # Test suite for the backlog loop's issue-provenance gate (AUDIT-SEC-08, ADR-0026).
 #
 # The gate is what stops attacker-authored text on this PUBLIC repo from becoming the task of an
-# agent that pushes and auto-merges. It is enforced in two places and both are covered here:
+# agent that pushes branches and opens PRs. It is enforced in two places and both are covered here:
 #   * issue-trust.sh  — the policy (author + every commenter must carry write access)
 #   * next-ticket.sh  — the picker never returns an untrusted ticket
 #   * work-ticket.sh  — an explicitly-named untrusted ticket never spawns a claude session
 # It also covers the rule that keeps the loop from working a ticket twice now that it stops at the
 # PR (ADR-0060): a ticket with an open PR, or with a worktree already on disk, is never started.
 # And it covers the worker's worktree lifecycle: the session runs in its own worktree cut from
-# origin/main, the main checkout is never touched, and a finished worktree is removed or salvaged.
+# origin/main, the main checkout is never touched, a finished worktree is removed or salvaged, a
+# stop signal ends the session and its children, and only a real open PR for the ticket counts.
 #
 # `gh` is stubbed from fixtures, so the suite is offline and hermetic. The stub applies the
 # caller's own `--jq` filter with real jq, which keeps the scripts' jq filters under test too.
@@ -19,7 +20,6 @@ set -euo pipefail
 
 SCRIPTS_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 TRUST="$SCRIPTS_DIR/claude/issue-trust.sh"
-NEXT="$SCRIPTS_DIR/claude/next-ticket.sh"
 
 TMP_ROOT="$(mktemp -d)"
 trap 'rm -rf "$TMP_ROOT"' EXIT
@@ -28,17 +28,19 @@ export GH_FIXTURES="$TMP_ROOT/fixtures"
 CLAUDE_MARKER="$TMP_ROOT/claude-was-spawned"
 mkdir -p "$GH_FIXTURES" "$TMP_ROOT/bin"
 
-# work-ticket.sh checks out branches and stashes; exercise it against a throwaway clone of the
-# two scripts, never the developer's own working copy — a regression in the gate must not be able
-# to `git checkout main` under someone's feet just because they ran the tests.
+# work-ticket.sh creates worktrees and branches, and next-ticket.sh looks at the worktrees on disk;
+# exercise both against a throwaway repo, never the developer's own working copy — a regression
+# must not be able to touch someone's checkout just because they ran the tests.
 export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null
 export GIT_AUTHOR_NAME=provenance-tests GIT_AUTHOR_EMAIL=tests@localhost
 export GIT_COMMITTER_NAME=provenance-tests GIT_COMMITTER_EMAIL=tests@localhost
 FAKE_REPO="$TMP_ROOT/fake-repo"
 WORK="$FAKE_REPO/scripts/claude/work-ticket.sh"
 mkdir -p "$FAKE_REPO/scripts/claude"
-cp "$SCRIPTS_DIR/claude/work-ticket.sh" "$SCRIPTS_DIR/claude/issue-trust.sh" "$FAKE_REPO/scripts/claude/"
-chmod +x "$FAKE_REPO/scripts/claude/work-ticket.sh" "$FAKE_REPO/scripts/claude/issue-trust.sh"
+NEXT="$FAKE_REPO/scripts/claude/next-ticket.sh"
+cp "$SCRIPTS_DIR/claude/work-ticket.sh" "$SCRIPTS_DIR/claude/issue-trust.sh" "$SCRIPTS_DIR/claude/next-ticket.sh" \
+    "$FAKE_REPO/scripts/claude/"
+chmod +x "$FAKE_REPO/scripts/claude/"*.sh
 git -C "$FAKE_REPO" init -q -b main
 git -C "$FAKE_REPO" add -A
 git -C "$FAKE_REPO" commit -qm "provenance-gate fixture repo"
@@ -134,6 +136,7 @@ case "${args[0]:-}" in
                     printf '[]'
                 fi
                 ;;
+            view) emit "$GH_FIXTURES/pr-view-${args[2]:-}.json" ;;
             *) echo "gh stub: unsupported pr subcommand" >&2; exit 1 ;;
         esac
         ;;
@@ -155,6 +158,7 @@ STUB
 cat > "$TMP_ROOT/bin/docker" <<STUB
 #!/usr/bin/env bash
 echo "docker \$*" >> "$TMP_ROOT/docker-calls"
+if [ "\$1 \$2" = "image ls" ] && [ -f "$TMP_ROOT/docker-images" ]; then cat "$TMP_ROOT/docker-images"; fi
 exit 0
 STUB
 
@@ -232,14 +236,21 @@ fixture_list() {
     printf '%s]' "$json" > "$GH_FIXTURES/issue-list.json"
 }
 
-# fixture_prs <number:headRefName> ... — builds the `gh pr list` payload of open PRs.
+# fixture_prs <number:headRefName[:fork]> ... — builds the `gh pr list` payload of open PRs.
 fixture_prs() {
-    local json="[" separator=""
+    local json="[" separator="" rest head fork
     for entry in "$@"; do
-        json="$json$separator{\"number\":${entry%%:*},\"headRefName\":\"${entry#*:}\"}"
+        rest="${entry#*:}"; head="${rest%%:*}"; fork=false
+        [ "$rest" != "$head" ] && fork=true
+        json="$json$separator{\"number\":${entry%%:*},\"headRefName\":\"$head\",\"isCrossRepository\":$fork}"
         separator=","
     done
     printf '%s]' "$json" > "$GH_FIXTURES/pr-list.json"
+}
+
+# fixture_pr_view <number> <state> <headRefName> — what `gh pr view <number>` returns.
+fixture_pr_view() {
+    printf '{"number":%s,"state":"%s","headRefName":"%s"}' "$1" "$2" "$3" > "$GH_FIXTURES/pr-view-$1.json"
 }
 
 reset_fixtures() {
@@ -458,6 +469,23 @@ fixture_prs 900:150-other-ticket
 run_case 0 "next-ticket: a PR for #150 does not hide #50" picker
 expect_stdout "50"
 
+# A fork may name its branch after our ticket; that PR is not ours and hides nothing.
+reset_fixtures
+fixture_list 53:priority-high
+fixture_issue 53 maintainer OWNER
+fixture_prs 900:53-from-a-fork:fork
+run_case 0 "next-ticket: a fork's PR does not hide a ticket" picker
+expect_stdout "53"
+
+reset_fixtures
+fixture_list 54:priority-high 55:priority-low
+fixture_issue 54 maintainer OWNER
+fixture_issue 55 maintainer OWNER
+mkdir -p "$FAKE_REPO/.claude/worktrees/ticket-54"
+run_case 0 "next-ticket: a ticket whose worktree exists is skipped" picker
+expect_stdout "55"
+rm -rf "$FAKE_REPO/.claude/worktrees/ticket-54"
+
 reset_fixtures
 fixture_list 52:priority-high
 fixture_issue 52 maintainer OWNER
@@ -499,67 +527,196 @@ expect_in_output "could not verify"
 [ ! -f "$CLAUDE_MARKER" ] || fail "work-ticket spawned a claude session for an unverifiable ticket"
 
 # ── work-ticket.sh: the worktree lifecycle ─────────────────────────────────────────────────────
-# behavior <file> <shell body> — a fake session: it runs in its cwd, then prints the result JSON.
+# behavior <file> <shell body> — a fake session. It notes where it runs and which commit it starts
+# from, then runs the body, which prints the result JSON.
 behavior() {
-    printf '#!/usr/bin/env bash\nset -e\npwd -P > "%s/session-cwd"\n%s\n' "$TMP_ROOT" "$2" > "$1"
+    printf '#!/usr/bin/env bash\nset -e\npwd -P > "%s/session-cwd"\ngit rev-parse HEAD > "%s/session-start"\n%s\n' \
+        "$TMP_ROOT" "$TMP_ROOT" "$2" > "$1"
     chmod +x "$1"
 }
 WT_ROOT="$FAKE_REPO/.claude/worktrees"
+export REAL_SLEEP
 
-# The main checkout is dirty and sits on another branch: the loop must neither care nor touch it.
+# The main checkout is dirty and sits on another branch, and its local `main` carries a commit
+# origin does not have: the loop must cut every worktree from origin/main and touch nothing here.
+git -C "$FAKE_REPO" update-ref refs/heads/main \
+    "$(git -C "$FAKE_REPO" commit-tree -p main -m "local-only commit" "main^{tree}")"
 git -C "$FAKE_REPO" checkout -q -b someone-elses-work
 echo "work in progress" > "$FAKE_REPO/dirty.txt"
 
+# The fake session names its branch after its ticket and reports PR 7<ticket>.
+behavior "$TMP_ROOT/done.sh" 'ticket="${PWD##*ticket-}"
+git checkout -q -b "$ticket-fixture"
+git commit -q --allow-empty -m "fixture work"
+echo "{\"result\":\"STATUS: DONE\\nPR: https://github.com/koniecdev/LotroKoniecDev/pull/7$ticket\\nSUMMARY: the rate limiter now sends 429 with Retry-After; quota and usage limits unchanged\",\"is_error\":false}"'
+
 reset_fixtures
 fixture_issue 70 maintainer OWNER
-behavior "$TMP_ROOT/done.sh" 'git checkout -q -b "fixture-$(basename "$PWD")"
-git commit -q --allow-empty -m "fixture work"
-echo "{\"result\":\"STATUS: DONE\\nPR: https://github.com/koniecdev/LotroKoniecDev/pull/777\",\"is_error\":false}"'
+fixture_pr_view 770 OPEN 70-fixture
+printf '%s\n' "lotrokoniecdev-auth:fe-e2e-ticket-70-hash" "lotrokoniecdev-auth:fe-e2e-ticket-700-hash" \
+    > "$TMP_ROOT/docker-images"
 : > "$TMP_ROOT/docker-calls"
 run_case 0 "work-ticket: DONE opens the PR from its own worktree" \
     env CLAUDE_BEHAVIOR="$TMP_ROOT/done.sh" "$WORK" 70 "$TMP_ROOT/run"
-expect_in_output "PR #777 opened"
+expect_in_output "PR #770 opened"
 [ "$(cat "$TMP_ROOT/session-cwd")" = "$(cd "$FAKE_REPO" && pwd -P)/.claude/worktrees/ticket-70" ] \
     || fail "the session should run in .claude/worktrees/ticket-70" "$(cat "$TMP_ROOT/session-cwd")"
+[ "$(cat "$TMP_ROOT/session-start")" = "$(git -C "$FAKE_REPO" rev-parse origin/main)" ] \
+    || fail "the worktree should start at origin/main, not at the local main"
 grep -qx "outcome=pr-opened" "$TMP_ROOT/run/ticket-70.meta" || fail "meta should say pr-opened" "$(cat "$TMP_ROOT/run/ticket-70.meta")"
-grep -qx "pr=777" "$TMP_ROOT/run/ticket-70.meta" || fail "meta should carry the PR" "$(cat "$TMP_ROOT/run/ticket-70.meta")"
+grep -qx "pr=770" "$TMP_ROOT/run/ticket-70.meta" || fail "meta should carry the PR" "$(cat "$TMP_ROOT/run/ticket-70.meta")"
 [ ! -e "$WT_ROOT/ticket-70" ] || fail "a clean worktree should be removed"
-git -C "$FAKE_REPO" rev-parse -q --verify fixture-ticket-70 >/dev/null || fail "the ticket branch must stay"
-grep -q "image ls" "$TMP_ROOT/docker-calls" || fail "the worktree's E2E images should be looked up for removal"
+git -C "$FAKE_REPO" rev-parse -q --verify 70-fixture >/dev/null || fail "the ticket branch must stay"
+grep -qx "docker image rm lotrokoniecdev-auth:fe-e2e-ticket-70-hash" "$TMP_ROOT/docker-calls" \
+    || fail "the worktree's E2E images should be removed" "$(cat "$TMP_ROOT/docker-calls")"
+! grep -q "ticket-700" "$TMP_ROOT/docker-calls" || fail "#700's images must stay" "$(cat "$TMP_ROOT/docker-calls")"
 [ "$(git -C "$FAKE_REPO" branch --show-current)" = "someone-elses-work" ] || fail "the main checkout's branch changed"
 [ -f "$FAKE_REPO/dirty.txt" ] || fail "the main checkout's work in progress is gone"
 cases=$((cases + 1)); printf '✓ work-ticket: the main checkout is untouched and the finished worktree is removed\n'
+cases=$((cases + 1)); printf '✓ work-ticket: a summary that talks about rate limits is not a usage limit\n'
 
 reset_fixtures
 fixture_issue 71 maintainer OWNER
-behavior "$TMP_ROOT/blocked.sh" 'echo "half done" > leftover.txt
+behavior "$TMP_ROOT/blocked.sh" 'git checkout -q -b 71-fixture
+echo "half done" > leftover.txt
 echo "{\"result\":\"STATUS: BLOCKED\\nCATEGORY: business-questions\",\"is_error\":false}"'
 run_case 2 "work-ticket: BLOCKED exits 2" env CLAUDE_BEHAVIOR="$TMP_ROOT/blocked.sh" "$WORK" 71 "$TMP_ROOT/run"
 salvage_branch="$(git -C "$FAKE_REPO" for-each-ref --format='%(refname:short)' 'refs/heads/loop-salvage/71-*')"
 [ -n "$salvage_branch" ] || fail "leftovers should be committed on a loop-salvage branch" "$LAST_OUTPUT"
 git -C "$FAKE_REPO" show "$salvage_branch:leftover.txt" >/dev/null 2>&1 || fail "the salvage branch should hold the leftover file"
+git -C "$FAKE_REPO" show 71-fixture:leftover.txt >/dev/null 2>&1 && fail "the salvage commit must not land on the ticket branch"
 [ ! -e "$WT_ROOT/ticket-71" ] || fail "a salvaged worktree is clean, so it should be removed"
-cases=$((cases + 1)); printf '✓ work-ticket: leftovers are salvaged on a branch before the worktree goes\n'
+cases=$((cases + 1)); printf '✓ work-ticket: leftovers are salvaged on their own branch before the worktree goes\n'
 
+# A commit made while still detached is on no branch; removing the worktree would drop it.
 reset_fixtures
 fixture_issue 72 maintainer OWNER
-behavior "$TMP_ROOT/garbage.sh" 'echo "{\"result\":\"I think I am done\",\"is_error\":false}"'
-run_case 3 "work-ticket: a final message without a STATUS block is an error" \
-    env CLAUDE_BEHAVIOR="$TMP_ROOT/garbage.sh" "$WORK" 72 "$TMP_ROOT/run"
-[ ! -e "$WT_ROOT/ticket-72" ] || fail "the worktree should be removed after an error too"
+behavior "$TMP_ROOT/detached.sh" 'echo "work" > detached.txt
+git add detached.txt
+git commit -q -m "made while detached"
+echo "{\"result\":\"STATUS: BLOCKED\\nCATEGORY: red-build\",\"is_error\":false}"'
+run_case 2 "work-ticket: a session that committed while detached" \
+    env CLAUDE_BEHAVIOR="$TMP_ROOT/detached.sh" "$WORK" 72 "$TMP_ROOT/run"
+salvage_branch="$(git -C "$FAKE_REPO" for-each-ref --format='%(refname:short)' 'refs/heads/loop-salvage/72-*')"
+[ -n "$salvage_branch" ] && git -C "$FAKE_REPO" show "$salvage_branch:detached.txt" >/dev/null 2>&1 \
+    || fail "a commit on no branch should get a salvage branch" "$LAST_OUTPUT"
+cases=$((cases + 1)); printf '✓ work-ticket: commits made on no branch survive the worktree removal\n'
 
+# A rebase stopped on a conflict must be left exactly as it is: a commit on top would bury it.
 reset_fixtures
 fixture_issue 73 maintainer OWNER
-behavior "$TMP_ROOT/done-no-pr.sh" 'echo "{\"result\":\"STATUS: DONE\",\"is_error\":false}"'
-run_case 3 "work-ticket: DONE without a PR anywhere is an error" \
-    env CLAUDE_BEHAVIOR="$TMP_ROOT/done-no-pr.sh" "$WORK" 73 "$TMP_ROOT/run"
-expect_in_output "no PR found"
+behavior "$TMP_ROOT/rebase.sh" 'git checkout -q -b 73-one
+echo one > conflict.txt; git add conflict.txt; git commit -q -m one
+git checkout -q -b 73-two HEAD~1
+echo two > conflict.txt; git add conflict.txt; git commit -q -m two
+git rebase 73-one >/dev/null 2>&1 || true
+echo "{\"result\":\"crashed mid-rebase\",\"is_error\":true}"'
+run_case 3 "work-ticket: a session that died mid-rebase is an error" \
+    env CLAUDE_BEHAVIOR="$TMP_ROOT/rebase.sh" "$WORK" 73 "$TMP_ROOT/run"
+expect_in_output "half done"
+[ -d "$WT_ROOT/ticket-73" ] || fail "a worktree with a rebase in progress must be kept"
+[ -z "$(git -C "$FAKE_REPO" for-each-ref 'refs/heads/loop-salvage/73-*')" ] || fail "nothing may be committed on top of a stopped rebase"
+git -C "$WT_ROOT/ticket-73" rebase --abort
+git -C "$FAKE_REPO" worktree remove --force "$WT_ROOT/ticket-73"
+cases=$((cases + 1)); printf '✓ work-ticket: a stopped rebase is left for a human\n'
 
 reset_fixtures
 fixture_issue 74 maintainer OWNER
+behavior "$TMP_ROOT/garbage.sh" 'echo "{\"result\":\"I think I am done\",\"is_error\":false}"'
+run_case 3 "work-ticket: a final message without a STATUS block is an error" \
+    env CLAUDE_BEHAVIOR="$TMP_ROOT/garbage.sh" "$WORK" 74 "$TMP_ROOT/run"
+[ ! -e "$WT_ROOT/ticket-74" ] || fail "the worktree should be removed after an error too"
+
+reset_fixtures
+fixture_issue 75 maintainer OWNER
+behavior "$TMP_ROOT/limit.sh" 'echo "{\"result\":\"\",\"is_error\":true,\"api_error_status\":429}"'
+run_case 6 "work-ticket: an API 429 is a usage limit" env CLAUDE_BEHAVIOR="$TMP_ROOT/limit.sh" "$WORK" 75 "$TMP_ROOT/run"
+grep -qx "outcome=limit" "$TMP_ROOT/run/ticket-75.meta" || fail "meta should say limit"
+[ ! -e "$WT_ROOT/ticket-75" ] || fail "the worktree should be removed, so the retry can make it again"
+
+# Only a real open PR for this ticket counts as DONE.
+reset_fixtures
+fixture_issue 76 maintainer OWNER
+behavior "$TMP_ROOT/done-no-pr.sh" 'echo "{\"result\":\"STATUS: DONE\",\"is_error\":false}"'
+run_case 3 "work-ticket: DONE without a PR anywhere is an error" \
+    env CLAUDE_BEHAVIOR="$TMP_ROOT/done-no-pr.sh" "$WORK" 76 "$TMP_ROOT/run"
+expect_in_output "no PR found"
+
+reset_fixtures
+fixture_issue 77 maintainer OWNER
+fixture_pr_view 777 OPEN 12-another-ticket
+run_case 3 "work-ticket: DONE naming another ticket's PR is an error" \
+    env CLAUDE_BEHAVIOR="$TMP_ROOT/done.sh" "$WORK" 77 "$TMP_ROOT/run"
+expect_in_output "not an open PR for this ticket"
+
+reset_fixtures
+fixture_issue 78 maintainer OWNER
+run_case 3 "work-ticket: DONE naming a PR that does not exist is an error" \
+    env CLAUDE_BEHAVIOR="$TMP_ROOT/done.sh" "$WORK" 78 "$TMP_ROOT/run"
+expect_in_output "unreadable"
+
+# A worktree folder deleted by hand is still registered; the run must not trip over it.
+reset_fixtures
+fixture_issue 79 maintainer OWNER
+fixture_pr_view 779 OPEN 79-fixture
+git -C "$FAKE_REPO" worktree add -q --detach "$WT_ROOT/ticket-79" origin/main
+rm -rf "$WT_ROOT/ticket-79"
+run_case 0 "work-ticket: a worktree folder deleted by hand does not block the ticket" \
+    env CLAUDE_BEHAVIOR="$TMP_ROOT/done.sh" "$WORK" 79 "$TMP_ROOT/run"
+
+reset_fixtures
+fixture_issue 80 maintainer OWNER
+fixture_pr_view 780 OPEN 80-fixture
 run_case 0 "work-ticket: LOOP_KEEP_WORKTREE=1 keeps the worktree" \
-    env LOOP_KEEP_WORKTREE=1 CLAUDE_BEHAVIOR="$TMP_ROOT/done.sh" "$WORK" 74 "$TMP_ROOT/run"
-[ -d "$WT_ROOT/ticket-74" ] || fail "the worktree should be kept"
-git -C "$FAKE_REPO" worktree remove --force "$WT_ROOT/ticket-74"
+    env LOOP_KEEP_WORKTREE=1 CLAUDE_BEHAVIOR="$TMP_ROOT/done.sh" "$WORK" 80 "$TMP_ROOT/run"
+[ -d "$WT_ROOT/ticket-80" ] || fail "the worktree should be kept"
+git -C "$FAKE_REPO" worktree remove --force "$WT_ROOT/ticket-80"
+
+reset_fixtures
+fixture_issue 81 maintainer OWNER
+printf 'x' > "$GH_FIXTURES/pr-list-fail.json"
+run_case 3 "work-ticket: an unreadable PR list is an error, not a start" "$WORK" 81 "$TMP_ROOT/run"
+[ ! -f "$CLAUDE_MARKER" ] || fail "no session may start when the in-flight check cannot run"
+
+reset_fixtures
+fixture_issue 82 maintainer OWNER
+git -C "$FAKE_REPO" remote set-url origin "$TMP_ROOT/no-such-origin.git"
+run_case 10 "work-ticket: a failed fetch exits 10" "$WORK" 82 "$TMP_ROOT/run"
+git -C "$FAKE_REPO" remote set-url origin "$TMP_ROOT/origin.git"
+grep -qx "outcome=no-worktree" "$TMP_ROOT/run/ticket-82.meta" || fail "meta should say no-worktree"
+[ ! -f "$CLAUDE_MARKER" ] || fail "no session may start without a worktree"
+
+# A stop signal ends the session and everything it started, then salvages and cleans up.
+reset_fixtures
+fixture_issue 83 maintainer OWNER
+rm -f "$TMP_ROOT/session-child"
+behavior "$TMP_ROOT/long.sh" 'git checkout -q -b 83-fixture
+echo "partial" > partial.txt
+"$REAL_SLEEP" 60 &
+echo $! > "'"$TMP_ROOT"'/session-child"
+wait'
+env CLAUDE_BEHAVIOR="$TMP_ROOT/long.sh" "$WORK" 83 "$TMP_ROOT/run" > "$TMP_ROOT/term.out" 2>&1 &
+worker=$!
+for _ in $(seq 1 100); do [ -s "$TMP_ROOT/session-child" ] && break; "$REAL_SLEEP" 0.1; done
+[ -s "$TMP_ROOT/session-child" ] || { kill "$worker" 2>/dev/null; fail "the fake session never started" "$(cat "$TMP_ROOT/term.out")"; }
+kill -TERM "$worker"
+term_rc=0
+for _ in $(seq 1 100); do kill -0 "$worker" 2>/dev/null || break; "$REAL_SLEEP" 0.1; done
+if kill -0 "$worker" 2>/dev/null; then
+    kill -KILL "$worker"
+    fail "work-ticket did not stop within 10 seconds of TERM" "$(cat "$TMP_ROOT/term.out")"
+fi
+wait "$worker" || term_rc=$?
+[ "$term_rc" -eq 143 ] || fail "a stopped worker should exit 143, got $term_rc" "$(cat "$TMP_ROOT/term.out")"
+session_child="$(cat "$TMP_ROOT/session-child")"
+if kill -0 "$session_child" 2>/dev/null; then
+    kill "$session_child"
+    fail "a process the session started outlived the stop"
+fi
+grep -qx "outcome=stopped" "$TMP_ROOT/run/ticket-83.meta" || fail "meta should say stopped" "$(cat "$TMP_ROOT/run/ticket-83.meta")"
+salvage_branch="$(git -C "$FAKE_REPO" for-each-ref --format='%(refname:short)' 'refs/heads/loop-salvage/83-*')"
+[ -n "$salvage_branch" ] || fail "a stopped session's work should be salvaged" "$(cat "$TMP_ROOT/term.out")"
+[ ! -e "$WT_ROOT/ticket-83" ] || fail "a stopped run should not leave its worktree behind"
+cases=$((cases + 1)); printf '✓ work-ticket: TERM stops the session and its children, salvages, and cleans up\n'
 
 printf 'All %d provenance-gate case(s) passed.\n' "$cases"

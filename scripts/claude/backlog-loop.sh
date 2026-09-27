@@ -22,7 +22,8 @@
 #   LOOP_TICKET_TIMEOUT_MIN, LOOP_KEEP_WORKTREE, LOOP_SKIP_LABELS,
 #   LOOP_TRUSTED_ASSOCIATIONS / LOOP_TRUSTED_LOGINS / LOOP_TRUST_GATE (the provenance gate —
 #   ADR-0026; it also fires on explicitly-named tickets, which never touch the picker).
-#   Loop-only: LOOP_PARALLEL (default 3, same as -j), LOOP_LIMIT_SLEEP_MIN (default 60),
+#   Loop-only: LOOP_PARALLEL (default 3, same as -j), LOOP_ALLOW_LOCAL_SCRIPTS=1 (run even when
+#   scripts/claude/ here differs from origin/main), LOOP_LIMIT_SLEEP_MIN (default 60),
 #   LOOP_LIMIT_RETRIES (default 8 — a limit hit at the start of a 5h usage window needs up to
 #   ~5h of naps to outlive it), LOOP_MAX_CONSECUTIVE_FAILURES (default 2).
 #
@@ -46,13 +47,28 @@ while [ $# -gt 0 ]; do
         -n) MAX="${2:?-n needs a number}"; shift 2 ;;
         -j) PARALLEL="${2:?-j needs a number}"; shift 2 ;;
         -h|--help) sed -n '2,30p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
-        [0-9]*) QUEUE="$QUEUE $1"; EXPLICIT_MODE=1; shift ;;
+        [0-9]*)
+            # A number given twice would start two workers racing for one worktree.
+            case " $QUEUE " in *" $1 "*) ;; *) QUEUE="$QUEUE $1" ;; esac
+            EXPLICIT_MODE=1; shift ;;
         *) echo "unknown argument: $1" >&2; exit 1 ;;
     esac
 done
 case "$PARALLEL" in
     ''|*[!0-9]*|0) echo "-j needs a positive number, got '$PARALLEL'" >&2; exit 1 ;;
 esac
+
+# The loop scripts run from THIS checkout, while every worker session reads its /work-ticket prompt
+# from origin/main. A checkout on an old branch would run old loop code, and before ADR-0060 that
+# code merged PRs by itself. So the loop starts only when scripts/claude/ matches origin/main.
+if [ "${LOOP_ALLOW_LOCAL_SCRIPTS:-0}" != "1" ]; then
+    git fetch --quiet origin main 2>/dev/null || true
+    if ! git diff --quiet origin/main -- scripts/claude/ 2>/dev/null; then
+        echo "scripts/claude/ in $REPO_ROOT differs from origin/main — refusing to run old or unreviewed loop code." >&2
+        echo "Run the loop from a checkout that is up to date with main, or set LOOP_ALLOW_LOCAL_SCRIPTS=1 on purpose." >&2
+        exit 1
+    fi
+fi
 
 LIMIT_SLEEP_MIN="${LOOP_LIMIT_SLEEP_MIN:-60}"
 LIMIT_RETRIES="${LOOP_LIMIT_RETRIES:-8}"
@@ -112,7 +128,17 @@ stop_workers() {
         kill "${entry%%:*}" 2>/dev/null || true
     done
 }
-trap 'stop_workers; rm -rf "$LOCK"' EXIT
+
+# Every wait here is a background sleep + `wait`, so a stop signal runs its trap at once instead
+# of after the nap (a usage-limit nap is an hour).
+SLEEPER=""
+nap() {
+    sleep "$1" &
+    SLEEPER=$!
+    wait "$SLEEPER" 2>/dev/null || true
+    SLEEPER=""
+}
+trap 'stop_workers; [ -n "$SLEEPER" ] && kill "$SLEEPER" 2>/dev/null; rm -rf "$LOCK"' EXIT
 trap 'exit 130' INT TERM HUP
 
 RUN_DIR="$MAIN_ROOT/logs/claude-loop/$(date +%Y%m%d-%H%M%S)"
@@ -230,7 +256,7 @@ while :; do
             fi
             if [ "$is_retry" -eq 1 ]; then dispatch "$NEXT" 0; else dispatch "$NEXT" 1; fi
             # Give each worker a head start on its fetch and worktree before the next one begins.
-            sleep 5
+            nap 5
         done
     fi
 
@@ -245,7 +271,7 @@ while :; do
                 break
             fi
             echo "[conductor] usage limit — sleeping ${LIMIT_SLEEP_MIN}m (nap $limit_naps/$LIMIT_RETRIES)"
-            sleep $(( LIMIT_SLEEP_MIN * 60 ))
+            nap $(( LIMIT_SLEEP_MIN * 60 ))
             limit_hold=0
             continue
         fi
@@ -253,7 +279,7 @@ while :; do
         break
     fi
 
-    sleep 10
+    nap 10
 done
 
 [ -n "$stop_reason" ] && echo "[conductor] stopped early: $stop_reason"

@@ -3,9 +3,10 @@
 #
 # This repository is PUBLIC: anyone on GitHub can open an issue or comment on one. The loop feeds
 # an issue to `/work-ticket <n>`, which reads its title, body AND comments as instructions, then
-# auto-squash-merges the resulting PR into `main` once pr-verify is green. Untrusted issue text
-# reaching that agent is therefore a prompt-injection channel straight to `main`, so every path
-# that hands an issue to the worker asks this script first.
+# pushes a branch and opens a PR under the owner's account. Untrusted issue text reaching that
+# agent is therefore a prompt-injection channel into a process with write access, so every path
+# that hands an issue to the worker asks this script first. The owner reads every PR before it
+# merges (ADR-0060), but that review is the second line of defence, not the first.
 #
 # Trusted == the writer's GitHub `author_association` is in $LOOP_TRUSTED_ASSOCIATIONS
 # (OWNER / MEMBER / COLLABORATOR — the associations that carry write access), or the writer's

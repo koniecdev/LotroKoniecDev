@@ -120,8 +120,8 @@ fi
 # A ticket with an open PR is waiting for the owner's review, and an existing worktree means a
 # manual `/ticket` session or an earlier run is still on it. Working it again would open a second
 # PR for the same ticket, or fight over the same branch.
-open_pr="$(gh pr list --state open --limit 200 --json number,headRefName \
-    --jq "[.[] | select(.headRefName | startswith(\"$ISSUE-\")) | .number] | first // empty")" || {
+open_pr="$(gh pr list --state open --limit 200 --json number,headRefName,isCrossRepository \
+    --jq "[.[] | select((.isCrossRepository | not) and (.headRefName | startswith(\"$ISSUE-\"))) | .number] | first // empty")" || {
     meta outcome error
     log "could not list open pull requests — treating as an error"
     exit 3
@@ -132,9 +132,11 @@ if [ -n "$open_pr" ]; then
     log "SKIPPED — PR #$open_pr is already open for this ticket and waits for your review"
     exit 12
 fi
+# A worktree folder deleted by hand stays registered, and `git worktree add` then refuses the path.
+git worktree prune 2>/dev/null || true
 if [ -e "$WT" ]; then
     meta outcome skipped
-    log "SKIPPED — $WT already exists (another session may be on this ticket)"
+    log "SKIPPED — $WT already exists: a session may be on this ticket. If none is, remove it with: git worktree remove \"$WT\""
     exit 12
 fi
 
@@ -151,19 +153,38 @@ if ! git worktree add --quiet --detach "$WT" origin/main; then
     exit 10
 fi
 
+# A rebase, merge or cherry-pick the session left half done. A commit on top of it would bury the
+# conflict, so such a worktree is left exactly as it is, for a human.
+operation_in_progress() {
+    local marker
+    for marker in rebase-merge rebase-apply MERGE_HEAD CHERRY_PICK_HEAD REVERT_HEAD; do
+        [ -e "$(git -C "$WT" rev-parse --path-format=absolute --git-path "$marker")" ] && return 0
+    done
+    return 1
+}
+
 # Commit (never delete, never stash) anything a session left behind: leftovers become ordinary
 # named git history on a dedicated `loop-salvage/<issue>-<timestamp>` branch, cut from wherever
 # the session got to (so partial commits on the ticket branch stay reachable from it too).
+# Removing a worktree also drops its reflog, so a commit that no branch and no remote-tracking ref
+# reaches (one made while detached) gets a salvage branch too. Returns 1 when it could not make
+# the worktree safe to remove.
 salvage() {
     [ -d "$WT" ] || return 0
+    local salvage_branch
+    salvage_branch="loop-salvage/$ISSUE-$(date +%Y%m%d-%H%M%S)"
     if [ -n "$(git -C "$WT" status --porcelain)" ]; then
-        salvage_branch="loop-salvage/$ISSUE-$(date +%Y%m%d-%H%M%S)"
-        git -C "$WT" checkout -b "$salvage_branch" --quiet 2>/dev/null || true
+        git -C "$WT" checkout --quiet -b "$salvage_branch" 2>/dev/null || return 1
         git -C "$WT" add -A >/dev/null 2>&1 || true
         git -C "$WT" commit --quiet --no-verify \
             -m "claude-loop: salvage uncommitted work for #$ISSUE" \
-            -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>" >/dev/null 2>&1 || true
+            -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>" >/dev/null 2>&1 || return 1
         log "leftover changes committed on branch $salvage_branch"
+        return 0
+    fi
+    if [ -z "$(git -C "$WT" for-each-ref --contains HEAD --format='%(refname)' refs/heads refs/remotes 2>/dev/null)" ]; then
+        git -C "$WT" branch "$salvage_branch" HEAD 2>/dev/null || return 1
+        log "commits made on no branch kept on branch $salvage_branch"
     fi
 }
 
@@ -182,7 +203,15 @@ remove_e2e_images() {
 # Everything is committed by now, so removing a clean worktree loses nothing: the branch stays,
 # and `git worktree add` brings the folder back in seconds for a follow-up fix.
 finish() {
-    salvage
+    [ -d "$WT" ] || return 0
+    if operation_in_progress; then
+        log "worktree left as it is — a rebase or merge is half done in $WT. Finish or abort it, then: git worktree remove \"$WT\""
+        return 0
+    fi
+    if ! salvage; then
+        log "worktree left in place — its leftovers could not be committed: $WT"
+        return 0
+    fi
     if [ "$KEEP_WORKTREE" = "1" ]; then
         log "worktree kept: $WT"
         return 0
@@ -209,24 +238,60 @@ fi
 log "fresh headless session starting in $WT (model=$MODEL, effort=$EFFORT, timeout=${TIMEOUT_MIN}m)"
 start_epoch="$(date +%s)"
 
-# The conductor stops a run by sending TERM to this script. A background child here ignores
-# SIGINT and outlives its parent, so the session is killed explicitly on every way out. `pid` is
-# cleared once the session is reaped, so the EXIT trap can never hit a recycled PID.
+# The session runs in its own process group, so stopping it also stops the builds and test runs
+# it started. A background child of this script ignores SIGINT and would outlive it, so the
+# session is stopped on every way out. `pid` is cleared once the session is reaped, so a trap can
+# never hit a recycled PID.
 pid=""
-trap 'if [ -n "$pid" ]; then kill "$pid" 2>/dev/null || true; fi' EXIT
-trap 'exit 143' INT TERM HUP
+sleeper=""
+
+stop_session() {
+    [ -n "$pid" ] || return 0
+    local tries=0
+    kill -TERM -- "-$pid" 2>/dev/null || true
+    while kill -0 "$pid" 2>/dev/null && [ "$tries" -lt 10 ]; do
+        sleep 0.5
+        tries=$((tries + 1))
+    done
+    kill -KILL -- "-$pid" 2>/dev/null || true
+    wait "$pid" 2>/dev/null || true
+    pid=""
+}
+
+stop_sleeper() {
+    [ -n "$sleeper" ] || return 0
+    kill "$sleeper" 2>/dev/null || true
+    sleeper=""
+}
+
+on_stop_signal() {
+    trap - INT TERM HUP
+    stop_sleeper
+    stop_session
+    meta outcome stopped
+    finish
+    log "STOPPED — session killed, changes salvaged"
+    exit 143
+}
+trap 'stop_sleeper; stop_session' EXIT
+trap on_stop_signal INT TERM HUP
 
 set +e
-( cd "$WT" && exec "${cmd[@]}" ) > "$OUT" 2> "$ERR" &
+# `set -m` gives the session its own process group. It also stops bash from pointing a background
+# job's stdin at /dev/null, so that is done by hand: a job outside the terminal's foreground group
+# that reads the terminal is suspended.
+set -m
+( cd "$WT" && exec "${cmd[@]}" ) < /dev/null > "$OUT" 2> "$ERR" &
 pid=$!
+set +m
 while kill -0 "$pid" 2>/dev/null; do
-    sleep 30
+    # A background sleep + wait, so a stop signal runs its trap at once instead of after the nap.
+    sleep 30 &
+    sleeper=$!
+    wait "$sleeper"
+    sleeper=""
     if [ $(( $(date +%s) - start_epoch )) -ge $(( TIMEOUT_MIN * 60 )) ]; then
-        kill "$pid" 2>/dev/null
-        sleep 5
-        kill -9 "$pid" 2>/dev/null
-        wait "$pid" 2>/dev/null
-        pid=""
+        stop_session
         set -e
         meta outcome timeout
         finish
@@ -251,11 +316,17 @@ meta minutes "$elapsed_min"
 
 # ── Usage-limit / hard-error detection ─────────────────────────────────────────────────────────
 # The CLI reports plan/rate limits as api_error_status 429 in the result JSON regardless of the
-# message wording ("usage limit", "session limit", …) — trust that first; the wording grep stays
-# as the fallback for stderr-only failures where no result JSON was written.
+# message wording ("usage limit", "session limit", …) — trust that first. The wording grep is the
+# fallback for a failed session only: a finished ticket's summary may well talk about rate limits
+# (this repo has many such tickets), and that must not read as a limit hit.
 api_error_status="$(jq -r '.api_error_status // 0' "$OUT" 2>/dev/null || echo 0)"
 combined="$result $(tail -c 2000 "$ERR" 2>/dev/null || true)"
-if [ "$api_error_status" = "429" ] || echo "$combined" | grep -qiE 'usage limit|session limit|rate.?limit|overloaded|quota'; then
+session_failed=0
+if [ "$claude_rc" -ne 0 ] || [ "$is_error" = "true" ] || ! echo "$result" | grep -qE '^STATUS:[[:space:]]*(DONE|BLOCKED)'; then
+    session_failed=1
+fi
+if [ "$api_error_status" = "429" ] \
+    || { [ "$session_failed" -eq 1 ] && echo "$combined" | grep -qiE 'usage limit|session limit|rate.?limit|overloaded|quota'; }; then
     meta outcome limit
     finish
     log "USAGE LIMIT hit — the conductor will sleep and retry"
@@ -290,13 +361,17 @@ if ! echo "$result" | grep -qE '^STATUS:[[:space:]]*DONE'; then
 fi
 
 # ── DONE: verify the PR really exists (never trust a summary alone) ────────────────────────────
+# The number in the final message is only a hint: it must be an open PR in this repo whose branch
+# belongs to this ticket, or the run is an error. A made-up link, or a link to another PR that the
+# summary happens to mention first, must not count as this ticket's PR.
 pr_url="$(echo "$result" | grep -oE 'https://github\.com/[^ )>,]+/pull/[0-9]+' | head -1 || true)"
 pr_num=""
 if [ -n "$pr_url" ]; then
     pr_num="${pr_url##*/}"
 else
-    pr_num="$(gh pr list --state open --json number,headRefName \
-        --jq ".[] | select(.headRefName | startswith(\"$ISSUE-\")) | .number" | head -1 || true)"
+    pr_num="$(gh pr list --state open --limit 200 --json number,headRefName,isCrossRepository \
+        --jq ".[] | select((.isCrossRepository | not) and (.headRefName | startswith(\"$ISSUE-\"))) | .number" \
+        | head -1 || true)"
 fi
 if [ -z "$pr_num" ]; then
     meta outcome error
@@ -304,6 +379,16 @@ if [ -z "$pr_num" ]; then
     log "worker reported DONE but no PR found — treating as error"
     exit 3
 fi
+pr_state="$(gh pr view "$pr_num" --json state,headRefName --jq '"\(.state) \(.headRefName)"' 2>/dev/null || true)"
+case "$pr_state" in
+    "OPEN $ISSUE-"*) ;;
+    *)
+        meta outcome error
+        finish
+        log "worker reported PR #$pr_num, but that is not an open PR for this ticket (${pr_state:-unreadable}) — treating as error"
+        exit 3
+        ;;
+esac
 meta pr "$pr_num"
 meta outcome pr-opened
 finish

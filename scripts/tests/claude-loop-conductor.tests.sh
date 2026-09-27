@@ -10,7 +10,8 @@
 #   * a usage limit waits for the running tickets, naps, then runs the same ticket again,
 #   * a worktree that cannot be made, or two failures in a row, stop new starts,
 #   * a skip, a refusal or a blocked ticket is not a failure,
-#   * drain mode and -n still work, and nothing ever calls `gh pr merge`,
+#   * drain mode and -n still work, a number given twice runs once, and nothing calls `gh pr merge`,
+#   * the loop refuses to run loop scripts that differ from origin/main,
 #   * stopping the conductor stops its workers.
 #
 # `work-ticket.sh` and `next-ticket.sh` are replaced by fakes, and `gh`, `sleep` and `osascript`
@@ -44,6 +45,12 @@ cp "$SCRIPTS_DIR/claude/backlog-loop.sh" "$CONDUCTOR"
 git -C "$FAKE_REPO" init -q -b main
 git -C "$FAKE_REPO" add -A
 git -C "$FAKE_REPO" commit -qm "conductor fixture repo"
+git init -q --bare "$TMP_ROOT/origin.git"
+git -C "$FAKE_REPO" remote add origin "$TMP_ROOT/origin.git"
+git -C "$FAKE_REPO" push -q origin main
+# The fakes below differ from origin/main by design; the one case that tests that guard turns
+# this back off.
+export LOOP_ALLOW_LOCAL_SCRIPTS=1
 
 cases=0
 LAST_OUTPUT=""
@@ -64,12 +71,17 @@ cat > "$FAKE_REPO/scripts/claude/work-ticket.sh" <<'FAKE'
 #!/usr/bin/env bash
 set -euo pipefail
 ticket="$1" run_dir="$2"
+sleeper=""
+trap '[ -n "$sleeper" ] && kill "$sleeper" 2>/dev/null; exit 143' TERM
 echo "$$" >> "$STATE/pids"
 echo "$ticket" >> "$STATE/started"
 mkdir -p "$STATE/running"
 touch "$STATE/running/$ticket"
 ls "$STATE/running" | wc -l | tr -d ' ' >> "$STATE/concurrency"
-"$REAL_SLEEP" "${FAKE_WORK_SEC:-0.6}"
+"$REAL_SLEEP" "${FAKE_WORK_SEC:-0.6}" &
+sleeper=$!
+wait "$sleeper"
+sleeper=""
 rm -f "$STATE/running/$ticket"
 rc=0
 if [ -f "$STATE/rc-$ticket" ]; then
@@ -107,9 +119,14 @@ case "$1 ${2:-}" in
 esac
 exit 0
 STUB
-# Every wait in the conductor is a `sleep`: shrink them so a 60-minute nap takes a moment.
+# Every wait in the conductor is a `sleep`: shrink them so a 60-minute nap takes a moment. With
+# $STATE/slow-naps present, a nap of a minute or more really waits, so a case can stop the
+# conductor in the middle of one.
 cat > "$TMP_ROOT/bin/sleep" <<'STUB'
 #!/usr/bin/env bash
+if [ -f "$STATE/slow-naps" ] && [ "${1%%.*}" -ge 60 ]; then
+    exec "$REAL_SLEEP" 30
+fi
 exec "$REAL_SLEEP" 0.05
 STUB
 # Never pop real macOS notifications from a test run.
@@ -244,11 +261,27 @@ run_conductor 0 "conductor: -n 2 stops after two tickets" -j 1 -n 2
 expect_started "51 52"
 expect_no_merge
 
+reset_state
+run_conductor 0 "conductor: a ticket number given twice runs once" -j 2 5 5
+expect_started "5"
+
+# ── Old or unreviewed loop code does not run ───────────────────────────────────────────────────
+reset_state
+echo "# a local change" >> "$CONDUCTOR"
+export LOOP_ALLOW_LOCAL_SCRIPTS=0
+run_conductor 1 "conductor: scripts/claude/ that differs from origin/main is refused" -j 1 91
+expect_in_output "differs from origin/main"
+[ "$(started)" = "" ] || fail "a refused run must start nothing" "$(started)"
+git -C "$FAKE_REPO" checkout -q -- scripts/claude/backlog-loop.sh
+run_conductor 0 "conductor: scripts/claude/ that matches origin/main runs" -j 1 92
+expect_started "92"
+export LOOP_ALLOW_LOCAL_SCRIPTS=1
+
 # ── Stopping the conductor stops its workers ───────────────────────────────────────────────────
 reset_state
 FAKE_WORK_SEC=20 "$CONDUCTOR" -j 2 61 62 >/dev/null 2>&1 &
 conductor_pid=$!
-for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
+for _ in $(seq 1 100); do
     [ "$(wc -l < "$STATE/started" | tr -d ' ')" -ge 2 ] && break
     "$REAL_SLEEP" 0.2
 done
@@ -263,5 +296,25 @@ while read -r worker; do
 done < "$STATE/pids"
 [ ! -d "$FAKE_REPO/.claude/backlog-loop.lock" ] || fail "the lock outlived the conductor"
 cases=$((cases + 1)); printf '✓ conductor: TERM stops every worker and frees the lock\n'
+
+# A usage-limit nap is an hour; a stop signal must not wait for it to end.
+reset_state
+touch "$STATE/slow-naps"
+echo 6 > "$STATE/rc-96"
+"$CONDUCTOR" -j 1 96 > "$TMP_ROOT/nap.out" 2>&1 &
+conductor_pid=$!
+for _ in $(seq 1 100); do
+    grep -q "usage limit — sleeping" "$TMP_ROOT/nap.out" && break
+    "$REAL_SLEEP" 0.1
+done
+grep -q "usage limit — sleeping" "$TMP_ROOT/nap.out" || { kill "$conductor_pid" 2>/dev/null; fail "the conductor never started its nap" "$(cat "$TMP_ROOT/nap.out")"; }
+kill -TERM "$conductor_pid"
+for _ in $(seq 1 50); do kill -0 "$conductor_pid" 2>/dev/null || break; "$REAL_SLEEP" 0.1; done
+if kill -0 "$conductor_pid" 2>/dev/null; then
+    kill -KILL "$conductor_pid"
+    fail "the conductor was still napping 5 seconds after TERM"
+fi
+wait "$conductor_pid" 2>/dev/null || true
+cases=$((cases + 1)); printf '✓ conductor: TERM ends a usage-limit nap at once\n'
 
 printf 'All %d conductor case(s) passed.\n' "$cases"

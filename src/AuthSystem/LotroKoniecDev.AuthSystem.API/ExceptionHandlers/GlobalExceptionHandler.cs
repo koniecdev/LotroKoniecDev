@@ -1,3 +1,4 @@
+using LotroKoniecDev.AuthSystem.API.Middleware;
 using Microsoft.AspNetCore.Diagnostics;
 using Microsoft.AspNetCore.Mvc;
 namespace LotroKoniecDev.AuthSystem.API.ExceptionHandlers;
@@ -24,6 +25,16 @@ internal sealed partial class GlobalExceptionHandler : IExceptionHandler
         Exception exception,
         CancellationToken cancellationToken)
     {
+        LogGlobalException(_logger, exception, exception.GetType().Name, "Exception", exception.Message);
+
+        httpContext.Response.StatusCode = StatusCodes.Status500InternalServerError;
+
+        // A browser also accepts */*, so without this it would get the JSON below (#867).
+        if (await ServerErrorPage.WriteIfBrowserRequestAsync(httpContext, cancellationToken))
+        {
+            return true;
+        }
+
         ProblemDetails problemDetails = new()
         {
             Status = StatusCodes.Status500InternalServerError,
@@ -38,10 +49,6 @@ internal sealed partial class GlobalExceptionHandler : IExceptionHandler
             problemDetails.Extensions["exceptionType"] = exception.GetType().Name;
             problemDetails.Extensions["stackTrace"] = exception.StackTrace;
         }
-
-        LogGlobalException(_logger, exception, exception.GetType().Name, "Exception", exception.Message);
-
-        httpContext.Response.StatusCode = problemDetails.Status!.Value;
 
         await _problemDetailsService.WriteAsync(new ProblemDetailsContext
         {

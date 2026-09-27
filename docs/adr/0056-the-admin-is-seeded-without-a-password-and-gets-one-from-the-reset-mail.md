@@ -175,6 +175,8 @@ an outage. A warning says the same thing without taking the site down.
 - `LoginPageTests` pins decision 4 with `SpyPasswordHasher`: every failure a caller can reach without
   the password verifies exactly one hash.
 - Event ids `2351`–`2353` sit in the Startup range of `EventIds.cs`. The amendment below adds `2354`.
+  #849 adds `2355`: the seeder also skips an address that another account can still undo an e-mail
+  change back to. It asks the same reservation check as registration (#684).
 - The integration tests seed with a stub `IWebHostEnvironment` (`Production`, `Staging`) against the
   Testing host. The cleaner does not truncate `OpenIddictApplications`, so the reseed leaves the test
   client in place.

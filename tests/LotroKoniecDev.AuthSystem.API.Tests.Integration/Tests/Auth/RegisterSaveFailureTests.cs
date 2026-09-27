@@ -90,6 +90,41 @@ public sealed class RegisterSaveFailureTests : EndpointsTestBase
     }
 
     /// <summary>
+    /// The Polish error page is for a browser only (#867). The frontend's back-channel sends the first
+    /// value, and curl or fetch send <c>*/*</c>. Each of them keeps the problem details it can parse.
+    /// </summary>
+    [Theory]
+    [InlineData("application/vnd.dev-lotrokoniecdev.hateoas.json")]
+    [InlineData("application/json")]
+    [InlineData("*/*")]
+    [InlineData(null)]
+    public async Task Register_ShouldAnswerAnApiClientWithProblemDetails_WhenAWriteFailsForAnotherReason(string? accept)
+    {
+        // Arrange
+        RegisterRequest registerRequest = UserFactory.GenerateRandomRegisterRequest(Faker);
+        Factory.DbCommandFailures.FailNext(
+            command => IsInsertInto(command, "Users"),
+            () => new PostgresException(
+                "simulated permanent failure", "ERROR", "ERROR", PostgresErrorCodes.NotNullViolation));
+
+        using HttpRequestMessage request = new(HttpMethod.Post, RegisterEndpoint);
+        request.Content = JsonContent.Create(registerRequest);
+        if (accept is not null)
+        {
+            request.Headers.Accept.ParseAdd(accept);
+        }
+
+        // Act
+        using HttpResponseMessage response = await ApiClient.Http.SendAsync(request);
+
+        // Assert
+        response.StatusCode.ShouldBe(HttpStatusCode.InternalServerError);
+        response.Content.Headers.ContentType?.MediaType.ShouldBe("application/problem+json");
+        using JsonDocument json = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        json.RootElement.GetProperty("errorCode").GetString().ShouldBe("Internal.UnhandledException");
+    }
+
+    /// <summary>
     /// Both requests pass every check before either one writes, so the unique index decides. The losing
     /// request must name the field it really lost on. A value in other letter case clashes only on the
     /// case-blind index, so both spellings are raced.

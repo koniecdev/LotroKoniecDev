@@ -621,10 +621,13 @@ hash-check → patch → launch flow is validated. Re-investigating any of it is
   resolved its manifest. `scripts/smoke.{sh,ps1}` leg 2 asserts exactly that, and CD smokes the
   0%-traffic candidate before any traffic shift.
 - **Git is rebase-based, and branches are never deleted.** Integrate a feature branch off `main`
-  with `git rebase main` — never `git merge main`; no merge commits in feature branches (remote
-  `main` is squash-only, so history stays linear). The one exception is the "update branch" merge
-  commit `/merge-train` makes in an approved PR: never replace it with a rebase + force push, which
-  voids the owner's approval (ADR-0060). After a PR's squash commit lands on `main`,
+  with `git rebase main` — never `git merge main`; no merge commits in feature branches, from any
+  tool (remote `main` is squash-only, so history stays linear). `/merge-train` brings a branch up
+  to date with GitHub's rebase, never falls back to a merge, and refuses a branch that holds a
+  merge commit. A branch GitHub cannot rebase is rebased locally and pushed with
+  `--force-with-lease`. A rebase keeps the owner's approval when its result is exactly the
+  approved code on top of `main` (ADR-0060, amended 2026-09-28).
+  After a PR's squash commit lands on `main`,
   **keep both the local and the remote branch** — merge with plain `gh pr merge --squash` (never
   `--delete-branch`), and never run `git branch -d/-D` or `git push origin --delete`.
 
@@ -864,8 +867,8 @@ returns in one context and re-read it every turn; that anti-pattern is retired.
 **The loop stops at the PR (ADR-0060).** Nothing in it merges or assigns. The owner reads each PR
 and approves it by **assigning themselves** — GitHub does not let an author approve their own PR,
 and every PR here is opened under the owner's account. `/merge-train` then merges only PRs assigned
-to the owner after their last push, with green required checks and zero open CodeQL alerts, and
-never deletes a branch. The assignee therefore *is* the approval: no session ever sets it.
+to the owner after their last push (a clean rebase onto `main` does not count as new code), with
+green required checks and zero open CodeQL alerts, and never deletes a branch. The assignee therefore *is* the approval: no session ever sets it.
 
 **Git hygiene — never let two tickets share a working copy.** Each ticket owns its worktree and the
 main checkout is never touched, so the owner can keep working there while the loop runs. A ticket

@@ -62,7 +62,8 @@ until PR #895 lands. Once a ticket ends, the loop commits any leftovers to a sal
 gives one to commits made on no branch, since removing a worktree drops its reflog), removes the
 worktree, and removes the E2E images tagged for it. A rebase or merge left half done is never
 committed over: that worktree stays as it is, for the owner. The branch always stays. Stopping the
-loop stops each session's whole process group, then salvages and cleans up the same way.
+loop stops each session and every process group it started (Claude Code runs each Bash command
+in a group of its own), then salvages and cleans up the same way.
 
 ### 3. A ticket already in flight is never started again
 
@@ -165,7 +166,8 @@ the same either way, so serial only costs wall-clock time. `-j 1` stays availabl
 ## Implementation Notes
 
 - `scripts/claude/work-ticket.sh`: worktree from `origin/main`; skip (exit 12) on an open PR or an
-  existing worktree; the session runs inside the worktree in its own process group; no checks
+  existing worktree; the session runs inside the worktree in its own process group, and a stop,
+  a timeout or a SIGKILL of the worker ends its whole process tree; no checks
   wait, no merge; the PR it reports must be open and belong to the ticket; salvage, then the
   worktree and its E2E images are removed; every exit writes its outcome to the `.meta` file.
 - `scripts/claude/backlog-loop.sh`: up to `-j` workers; refuses loop scripts that differ from

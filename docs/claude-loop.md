@@ -189,8 +189,9 @@ Per-ticket outcomes:
 - **no-worktree** — `git fetch` or `git worktree add` failed. That is the machine, not the ticket,
   so the loop starts nothing more.
 - **stopped** — you stopped the loop (Ctrl-C, `kill`, closing the terminal). Each running session
-  is killed together with the builds and tests it started, its leftovers are salvaged, and its
-  worktree is removed, so the next run can start the ticket again.
+  gets 20 seconds to end the builds and tests it started (claude does that itself on TERM); then
+  the loop ends whatever of them is left. Its leftovers are salvaged and its worktree is removed,
+  so the next run can start the ticket again.
 - **usage limit** — the loop starts nothing new, lets the running tickets finish, naps
   (`LOOP_LIMIT_SLEEP_MIN`) and runs the limited tickets again.
 - **untrusted** — the ticket failed the provenance gate; it is skipped without spawning a session
@@ -215,9 +216,11 @@ Per-ticket outcomes:
   in the loop merges or assigns** (ADR-0060). The merge path is `/merge-train`, and it takes only
   PRs the owner assigned to themselves after the last push, with green required checks and zero
   open CodeQL alerts — and it never deletes the branch.
-- Stopping the conductor (Ctrl-C, `kill`, closing the terminal) stops every running worker, and
-  each worker stops its session's whole process group, at once, even in the middle of an
-  hour-long usage-limit nap. `scripts/tests/claude-loop-conductor.tests.sh` pins the conductor
+- Stopping the conductor (Ctrl-C, `kill`, closing the terminal) stops every running worker at
+  once, even in the middle of an hour-long usage-limit nap. Each worker then stops its session and
+  every process group the session started: Claude Code runs each Bash command in a group of its
+  own, so killing the session's own group would miss them. A watchdog does the same if the worker
+  itself is SIGKILLed. `scripts/tests/claude-loop-conductor.tests.sh` pins the conductor
   side (with the slot count, the retry after a usage limit and the stop conditions), and
   `scripts/tests/claude-loop-provenance.tests.sh` the worker side.
 - Business decisions are never invented: they come back as BLOCKED questions on the issue.

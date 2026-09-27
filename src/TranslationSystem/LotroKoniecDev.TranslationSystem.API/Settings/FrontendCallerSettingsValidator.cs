@@ -4,11 +4,12 @@ using LotroKoniecDev.TranslationSystem.API.Extensions;
 namespace LotroKoniecDev.TranslationSystem.API.Settings;
 
 /// <summary>
-/// Stops the boot when the frontend caller key is missing in a deployed environment, or too short
-/// anywhere it is set (ADR-0054 §6, #823). Development and Testing run without the limiter, so there is
-/// nothing for the key to decide and they may leave it empty, the way <see cref="CorsSettingsValidator"/>
-/// skips its check there. Anywhere else a missing key would quietly put every translator's frontend
-/// calls back into the frontend container's one bucket, and nothing but real traffic would notice.
+/// Stops the boot when the frontend caller key is missing in a deployed environment, or too short or
+/// padded with whitespace anywhere it is set (ADR-0054 §6, #823, #857). Development and Testing run
+/// without the limiter, so there is nothing for the key to decide and they may leave it empty, the way
+/// <see cref="CorsSettingsValidator"/> skips its check there. Anywhere else a missing key would quietly
+/// put every translator's frontend calls back into the frontend container's one bucket, and nothing but
+/// real traffic would notice.
 /// </summary>
 internal sealed class FrontendCallerSettingsValidator : IValidateOptions<FrontendCallerSettings>
 {

@@ -77,12 +77,14 @@ public sealed class FrontendCallerSettingsValidatorTests
     }
 
     [Theory]
-    [InlineData(" a-frontend-caller-key-of-at-least-32-characters")]
-    [InlineData("a-frontend-caller-key-of-at-least-32-characters ")]
-    [InlineData("a-frontend-caller-key-of-at-least-32-characters\n")]
-    public void Validate_KeyWithWhitespaceAroundIt_FailsBecauseNoCallerCouldSendIt(string key)
+    [InlineData(Development, " a-frontend-caller-key-of-at-least-32-characters")]
+    [InlineData(Testing, "a-frontend-caller-key-of-at-least-32-characters ")]
+    [InlineData(Production, " a-frontend-caller-key-of-at-least-32-characters")]
+    [InlineData(Production, "a-frontend-caller-key-of-at-least-32-characters ")]
+    [InlineData(Production, "a-frontend-caller-key-of-at-least-32-characters\n")]
+    public void Validate_KeyWithWhitespaceAroundIt_FailsInEveryEnvironment(string environmentName, string key)
     {
-        FrontendCallerSettingsValidator validator = CreateValidator(Production);
+        FrontendCallerSettingsValidator validator = CreateValidator(environmentName);
         FrontendCallerSettings settings = new() { Key = key };
 
         ValidateOptionsResult result = validator.Validate(name: null, settings);

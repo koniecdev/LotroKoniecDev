@@ -147,14 +147,16 @@ public sealed class AuthSystemSettingsValidatorTests
     }
 
     [Theory]
-    [InlineData(" a-frontend-caller-key-of-at-least-32-characters")]
-    [InlineData("a-frontend-caller-key-of-at-least-32-characters ")]
-    [InlineData("a-frontend-caller-key-of-at-least-32-characters\n")]
-    public void Validate_CallerKeyWithWhitespaceAroundIt_FailsBecauseTheApiCouldNeverMatchIt(string callerKey)
+    [InlineData(Development, " a-frontend-caller-key-of-at-least-32-characters")]
+    [InlineData(Testing, "a-frontend-caller-key-of-at-least-32-characters ")]
+    [InlineData(Production, " a-frontend-caller-key-of-at-least-32-characters")]
+    [InlineData(Production, "a-frontend-caller-key-of-at-least-32-characters ")]
+    [InlineData(Production, "a-frontend-caller-key-of-at-least-32-characters\n")]
+    public void Validate_CallerKeyWithWhitespaceAroundIt_FailsInEveryEnvironment(string environmentName, string callerKey)
     {
         AuthSystemSettings settings = Settings(callerKey: callerKey);
 
-        ValidationResult result = CreateValidator(Production).Validate(settings);
+        ValidationResult result = CreateValidator(environmentName).Validate(settings);
 
         result.IsValid.ShouldBeFalse();
         result.Errors.ShouldContain(error =>

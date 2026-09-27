@@ -61,7 +61,8 @@ internal sealed class AuthSystemSettingsValidator : AbstractValidator<AuthSystem
                 KeyPath(nameof(AuthSystemSettings.CallerKey))
                 + $" must be at least {MinimumCallerKeyLength} characters (openssl rand -base64 32).");
 
-        // Kestrel trims the spaces around a header value, so a key with them could never match.
+        // The API trims the spaces around a header value, and HttpClient refuses to send a newline,
+        // so a padded key could never match.
         RuleFor(x => x.CallerKey!)
             .Must(HaveNoWhitespaceAround)
             .When(x => !string.IsNullOrWhiteSpace(x.CallerKey))

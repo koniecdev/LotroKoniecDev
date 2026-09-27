@@ -301,7 +301,9 @@ other worktree's code (seen on #871). `tests/Shared/E2EWorktree.cs`, linked into
 `--iidfile` and hands each container the ID its own build produced. The tag only names the worktree
 (`<repository>:<suite>-<folder>-<8 hex of the solution path>`, label `lotrokoniecdev.e2e`), so
 `SKIP_DOCKER_BUILD=true` reuses this worktree's images and a run leaves one set per worktree. Never start a
-container from a tag, and never give a fixture its own copy of the build loop.
+container from a tag, and never give a fixture its own copy of the build loop. Two runs of the same suite in
+**one** worktree still collide: the second build takes the tag, Docker's containerd store deletes the first
+run's image, and that run fails with `pull access denied for sha256` (#889).
 
 ## Frontend Browser E2E Tests (LotroKoniecDev.Frontend.E2E.Tests)
 

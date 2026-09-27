@@ -37,12 +37,13 @@ dotnet test tests/LotroKoniecDev.Frontend.E2E.Tests
 SKIP_DOCKER_BUILD=true dotnet test tests/LotroKoniecDev.Frontend.E2E.Tests
 ```
 
-Each run starts its containers from the image IDs its own build produced, so two runs at the same time,
-from two worktrees or from one, each test their own code (#884). The images are also tagged per worktree
-as `<repository>:fe-e2e-<folder>-<hash>`: the suite name, the worktree's folder name, and 8 hex characters
-of a hash of the solution path. The TMS suite uses the `e2e-` prefix. A run leaves one image set per
-worktree behind. When you delete a worktree, remove its images by hand. Copy `<folder>-<hash>` from the
-first listing:
+The images are tagged per worktree as `<repository>:fe-e2e-<folder>-<hash>`: the suite name, the
+worktree's folder name, and 8 hex characters of a hash of the solution path (#884). The TMS suite uses
+the `e2e-` prefix. So two worktrees can run the suite at the same time, and each run tests its own code.
+Do not run the same suite twice at the same time in **one** worktree: the second build takes the tag, and
+the first run fails with `pull access denied for sha256` (#889). A run leaves one image set per worktree
+behind. When you delete a worktree, remove its images by hand. Copy `<folder>-<hash>` from the first
+listing:
 
 ```bash
 docker image ls --filter label=lotrokoniecdev.e2e --format '{{.Repository}}:{{.Tag}}'    # all worktrees

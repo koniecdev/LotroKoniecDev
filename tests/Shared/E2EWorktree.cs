@@ -11,17 +11,22 @@ namespace LotroKoniecDev.Tests.Shared;
 /// </summary>
 /// <remarks>
 /// <para>
-/// A run starts its containers from the image IDs it built or found, never from a tag. The images used
-/// to have one fixed tag on every machine. A second worktree that built at the same time moved that tag
-/// while the first run was still starting containers, and the first run then tested the other
-/// worktree's code. An ID cannot move, so no other build can change what a run starts.
+/// The images used to have one fixed tag on every machine. A second worktree that built at the same
+/// time moved that tag while the first run was still starting containers, and the first run then tested
+/// the other worktree's code. So the tag now names the worktree: the folder name, for a person who reads
+/// <c>docker images</c>, and a hash of the full path, because two clones can have the same folder name.
 /// </para>
 /// <para>
-/// The tag still names the worktree: the folder name, for a person who reads <c>docker images</c>, and a
-/// hash of the full path, because two clones can have the same folder name. So
-/// <c>SKIP_DOCKER_BUILD=true</c> reuses the images this worktree built last time, and a run leaves one
-/// image set per worktree behind. A person removes the set of a deleted worktree by
-/// <see cref="ImageLabel"/>.
+/// A run also starts its containers from the image IDs it built or found, never from the tag, so it only
+/// ever tests what it built. Two runs of the same suite in one worktree still share a tag (#889). The
+/// second build takes the tag, and Docker's containerd image store, the Docker Desktop default, then
+/// deletes the first run's image at once. The first run fails with "pull access denied for sha256"
+/// instead of testing the other build.
+/// </para>
+/// <para>
+/// The tag belongs to the worktree and not to one run, so <c>SKIP_DOCKER_BUILD=true</c> reuses the
+/// images this worktree built last time, and a run leaves one image set per worktree behind. A person
+/// removes the set of a deleted worktree by <see cref="ImageLabel"/>.
 /// </para>
 /// </remarks>
 internal sealed class E2EWorktree
@@ -128,11 +133,11 @@ internal sealed class E2EWorktree
     }
 
     /// <summary>
-    /// A rebuild moves the tag to the new image. On some Docker setups the old image then stays on disk
-    /// without a name, so every run would leave one more image set behind. Prune removes only images that
-    /// have no tag, that no container uses, and that are older than an hour. A run starts all of its
-    /// containers within minutes of finding its images, so the image a run is about to start is never
-    /// that old, even when another build in the same worktree has just taken its tag.
+    /// On Docker's classic image store, a rebuild leaves the old image on disk without a name, so every
+    /// run would leave one more image set behind. The containerd store deletes that image at once, so
+    /// there this finds nothing. Prune removes only images that have no tag, that no container uses, and
+    /// that are older than an hour. The age limit protects an image that the classic builder has made but
+    /// not tagged yet, and an image that a run found minutes ago and has not started yet.
     /// </summary>
     private async Task RemoveOldUntaggedImagesAsync()
     {

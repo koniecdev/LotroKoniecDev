@@ -39,6 +39,23 @@ public sealed class UserSessionRevokerTests
     }
 
     [Fact]
+    public async Task RevokeAllAsync_ShouldRevokeTheAuthorizationsBeforeTheTokens_WhenTheStoreAnswers()
+    {
+        // Arrange: a refresh that races the revoke gets a dead token only when its authorization went first
+        UserSessionRevoker sut = CreateSut();
+
+        // Act
+        await sut.RevokeAllAsync(UserId);
+
+        // Assert
+        Received.InOrder(async () =>
+        {
+            await _authorizationManager.RevokeBySubjectAsync(UserId, Arg.Any<CancellationToken>());
+            await _tokenManager.RevokeBySubjectAsync(UserId, Arg.Any<CancellationToken>());
+        });
+    }
+
+    [Fact]
     public async Task RevokeAllAsync_ShouldStillRevokeTheAuthorizations_WhenTheTokenStepFails()
     {
         // Arrange: a refresh token dies with its authorization, so a failing token step must not skip that one

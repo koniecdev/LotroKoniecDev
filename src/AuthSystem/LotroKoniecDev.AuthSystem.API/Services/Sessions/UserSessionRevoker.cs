@@ -40,8 +40,8 @@ internal sealed partial class UserSessionRevoker : IUserSessionRevoker
         // Authorizations go first, because OpenIddict refuses a refresh token whose authorization is
         // revoked: a refresh that lands between the two steps still gets a dead token. That also makes the
         // authorization the real guard, since a bulk update does not change a row's concurrency token and
-        // a refresh racing it can save its own copy of a token row over the revoke. Either step alone ends
-        // the refresh tokens, so a step that fails never skips the other one.
+        // a refresh racing it can save its own copy of a token row over the revoke. A step that fails
+        // never skips the other one.
         long? revokedAuthorizations = await TryRevokeAsync(userId, AuthorizationsStep, _authorizationManager.RevokeBySubjectAsync);
         long? revokedTokens = await TryRevokeAsync(userId, TokensStep, _tokenManager.RevokeBySubjectAsync);
 
@@ -72,6 +72,6 @@ internal sealed partial class UserSessionRevoker : IUserSessionRevoker
     [LoggerMessage(EventId = EventIds.UserSessionsRevoked, Level = LogLevel.Information, Message = "Revoked all sessions for user {UserId}: {TokenCount} token row(s) and {AuthorizationCount} authorization row(s) updated")]
     private static partial void LogSessionsRevoked(ILogger logger, string userId, long tokenCount, long authorizationCount);
 
-    [LoggerMessage(EventId = EventIds.UserSessionsRevocationFailed, Level = LogLevel.Error, Message = "Failed to revoke the {Step} of user {UserId}. The other step runs either way, and a refresh token that neither step revoked stays usable until it expires.")]
+    [LoggerMessage(EventId = EventIds.UserSessionsRevocationFailed, Level = LogLevel.Error, Message = "Failed to revoke the {Step} of user {UserId}. The other step is not skipped, but a refresh token that neither step revoked stays usable until it expires.")]
     private static partial void LogRevocationFailed(ILogger logger, Exception exception, string step, string userId);
 }

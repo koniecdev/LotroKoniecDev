@@ -48,6 +48,14 @@ internal sealed class FrontendCallerSettingsValidator : IValidateOptions<Fronten
                 + $"{MinimumKeyLength} characters (openssl rand -base64 32).");
         }
 
+        // Kestrel trims the spaces around a header value, so a key with them could never match.
+        if (key != key.Trim())
+        {
+            return ValidateOptionsResult.Fail(
+                $"{FrontendCallerSettings.ConfigurationSection}:{nameof(FrontendCallerSettings.Key)} must not start or "
+                + "end with whitespace. Check the quoting of FRONTEND_CALLER_KEY in the box .env.");
+        }
+
         return ValidateOptionsResult.Success;
     }
 }

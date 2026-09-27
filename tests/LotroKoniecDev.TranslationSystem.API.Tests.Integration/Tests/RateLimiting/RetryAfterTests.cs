@@ -17,6 +17,7 @@ public sealed class RetryAfterTests
 
     private const string ForwardedForHeader = "X-Forwarded-For";
     private const string DiscoveryPath = "/";
+    private const string GameVersionsPath = "/api/v1/game-versions";
 
     private static readonly TimeSpan Window = TimeSpan.FromMinutes(1);
 
@@ -27,17 +28,19 @@ public sealed class RetryAfterTests
         _factory = factory;
     }
 
-    [Fact]
-    public async Task GetDiscovery_WhenOverTheLimit_ShouldSayWhenToTryAgain()
+    [Theory]
+    [InlineData(DiscoveryPath, HttpStatusCode.OK)]
+    [InlineData(GameVersionsPath, HttpStatusCode.Unauthorized)]
+    public async Task Get_WhenTheBucketIsSpent_ShouldSayWhenToTryAgain(string path, HttpStatusCode underTheLimit)
     {
-        // Arrange
+        // Arrange: the anonymous discovery root, and an API route called without a token
         using WebApplicationFactory<Program> limitedHost = CreateRateLimitedHost();
         using HttpClient client = limitedHost.CreateClient();
         const string callerAddress = "203.0.113.80";
-        await SpendBucketAsync(client, callerAddress);
+        await SpendBucketAsync(client, path, callerAddress, underTheLimit);
 
         // Act
-        using HttpResponseMessage overTheLimit = await GetDiscoveryAsync(client, callerAddress);
+        using HttpResponseMessage overTheLimit = await GetAsync(client, path, callerAddress);
 
         // Assert: a fraction of a second would not parse as a delta, so a delta proves whole seconds
         overTheLimit.StatusCode.ShouldBe(HttpStatusCode.TooManyRequests);
@@ -46,24 +49,29 @@ public sealed class RetryAfterTests
         overTheLimit.Headers.RetryAfter.Delta!.Value.ShouldBeInRange(TimeSpan.FromSeconds(1), Window);
     }
 
-    private static async Task<HttpResponseMessage> GetDiscoveryAsync(HttpClient client, string callerAddress)
+    private static async Task<HttpResponseMessage> GetAsync(HttpClient client, string path, string callerAddress)
     {
-        using HttpRequestMessage request = new(HttpMethod.Get, new Uri(DiscoveryPath, UriKind.Relative));
+        using HttpRequestMessage request = new(HttpMethod.Get, new Uri(path, UriKind.Relative));
         request.Headers.Add(ForwardedForHeader, callerAddress);
         return await client.SendAsync(request);
     }
 
-    // Spends the whole bucket. Not an assertion: a call refused inside the bucket means the next call
-    // is not the first one over the limit, so it throws.
-    private static async Task SpendBucketAsync(HttpClient client, string callerAddress)
+    private static async Task SpendBucketAsync(
+        HttpClient client,
+        string path,
+        string callerAddress,
+        HttpStatusCode underTheLimit)
     {
         for (int i = 0; i < Bucket; i++)
         {
-            using HttpResponseMessage response = await GetDiscoveryAsync(client, callerAddress);
-            if (response.StatusCode != HttpStatusCode.OK)
+            using HttpResponseMessage response = await GetAsync(client, path, callerAddress);
+
+            // Not an assertion: a call refused inside the bucket means the next call is not the first one
+            // over the limit, so the test would prove nothing.
+            if (response.StatusCode != underTheLimit)
             {
                 throw new InvalidOperationException(
-                    $"Call {i + 1} from {callerAddress} answered {response.StatusCode}, not {HttpStatusCode.OK}.");
+                    $"Call {i + 1} to {path} from {callerAddress} answered {response.StatusCode}, not {underTheLimit}.");
             }
         }
     }

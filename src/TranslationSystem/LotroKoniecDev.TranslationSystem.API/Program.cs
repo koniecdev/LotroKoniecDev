@@ -272,8 +272,9 @@ try
                     Window = TimeSpan.FromMinutes(1)
                 }));
 
-        // 429 is the one rejection a caller can act on, so it says when to come back (#855). Rounding up,
-        // because a remainder under a second would otherwise tell the caller to retry immediately.
+        // 429 is the one rejection a caller can act on, so it says when to come back (#855). A fixed window
+        // reports its whole length here, not the time left in it, so the value is an upper bound: after
+        // that wait the caller's bucket is always full again. Rounding up keeps it an upper bound.
         options.OnRejected = (context, _) =>
         {
             if (context.Lease.TryGetMetadata(MetadataName.RetryAfter, out TimeSpan retryAfter))

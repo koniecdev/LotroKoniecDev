@@ -425,7 +425,8 @@ public sealed partial class AuthorizationCodeFlowTests : AsyncLifetimeTestBase
     [Fact]
     public async Task AuthorizationCodeExchange_ShouldFail_WhenTheAccountWasDeletedAfterAuthorize()
     {
-        // Arrange: the erasure finalizer removes the account while a code is still in flight
+        // Arrange: an operator deletes the row by hand, as the runbook's admin fixes do, while a code is
+        // still in flight
         (string authorizationCode, string codeVerifier, _, string email) = await ObtainAuthorizationCodeAsync();
 
         await using (AsyncServiceScope scope = Factory.Services.CreateAsyncScope())

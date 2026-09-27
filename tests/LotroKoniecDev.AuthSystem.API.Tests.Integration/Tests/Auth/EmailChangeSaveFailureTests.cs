@@ -26,11 +26,12 @@ namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Tests.Auth;
 /// as a taken address: a duplicate on an e-mail index (#864), or Identity's own check inside the save
 /// finding the address taken (#866). A save that lost to another write on the same account offers the
 /// form again, because the link still works (#869). Any other error is an outage: a 500, and nothing
-/// changes.
+/// changes. A browser gets the Polish error page for it, not the problem-details JSON (#867).
 /// </summary>
 public sealed partial class EmailChangeSaveFailureTests : EndpointsTestBase
 {
     private const string Password = "TestPass1!";
+    private const string BrowserAccept = "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8";
 
     public EmailChangeSaveFailureTests(AuthSystemApiFactory appFactory) : base(appFactory) { }
 
@@ -91,6 +92,109 @@ public sealed partial class EmailChangeSaveFailureTests : EndpointsTestBase
         ApplicationUser untouched = await LoadUserByIdAsync(userId);
         untouched.Email.ShouldBe(newEmail);
         untouched.PasswordHash.ShouldNotBeNull();
+    }
+
+    /// <summary>
+    /// A browser also accepts <c>*/*</c>, so it used to get the problem-details JSON an API client gets
+    /// (#867).
+    /// </summary>
+    [Fact]
+    public async Task ConfirmPage_Post_ShouldShowABrowserThePolishErrorPage_WhenTheSaveFailsForAnotherReason()
+    {
+        // Arrange
+        (Guid userId, string newEmail, string token) = await RequestAChangeWhoseConfirmWillFailAsync();
+
+        // Act
+        using HttpResponseMessage response = await PostToPageAsync(
+            ApiClient.Http,
+            "/Account/ConfirmEmailChange",
+            ConfirmUrl(userId, newEmail, token),
+            ConfirmForm(userId, newEmail, token),
+            BrowserAccept);
+
+        // Assert
+        response.StatusCode.ShouldBe(HttpStatusCode.InternalServerError);
+        response.Content.Headers.ContentType?.MediaType.ShouldBe("text/html");
+        string html = await response.Content.ReadAsStringAsync();
+        html.ShouldContain("<h1>Coś poszło nie tak</h1>");
+    }
+
+    [Fact]
+    public async Task RevertPage_Post_ShouldShowABrowserThePolishErrorPage_WhenTheSaveFailsForAnotherReason()
+    {
+        // Arrange
+        (RegisterRequest user, string newEmail, Guid userId) = await CompleteChangeAsync();
+        string revertToken = EmailChangeEmailSpy.LastRevertToken!;
+        Factory.DbCommandFailures.FailNext(
+            IsUpdateOfUsers, () => CreatePermanentFailure(PostgresErrorCodes.NotNullViolation, null));
+
+        // Act
+        using HttpResponseMessage response = await PostToPageAsync(
+            ApiClient.Http,
+            "/Account/RevertEmailChange",
+            RevertUrl(userId, user.Email, newEmail, revertToken),
+            RevertForm(userId, user.Email, newEmail, revertToken),
+            BrowserAccept);
+
+        // Assert
+        response.StatusCode.ShouldBe(HttpStatusCode.InternalServerError);
+        response.Content.Headers.ContentType?.MediaType.ShouldBe("text/html");
+        string html = await response.Content.ReadAsStringAsync();
+        html.ShouldContain("<h1>Coś poszło nie tak</h1>");
+    }
+
+    /// <summary>
+    /// Testing is one of the environments whose JSON carries the exception's message and type, so the page
+    /// is checked here. EF wraps the database error, and the wrapper's type and message are what would leak.
+    /// </summary>
+    [Fact]
+    public async Task ConfirmPage_Post_ShouldNotNameTheExceptionOnTheErrorPage_WhenTheSaveFailsForAnotherReason()
+    {
+        // Arrange
+        (Guid userId, string newEmail, string token) = await RequestAChangeWhoseConfirmWillFailAsync();
+
+        // Act
+        using HttpResponseMessage response = await PostToPageAsync(
+            ApiClient.Http,
+            "/Account/ConfirmEmailChange",
+            ConfirmUrl(userId, newEmail, token),
+            ConfirmForm(userId, newEmail, token),
+            BrowserAccept);
+
+        // Assert
+        response.StatusCode.ShouldBe(HttpStatusCode.InternalServerError);
+        string html = await response.Content.ReadAsStringAsync();
+        html.ShouldNotContain("DbUpdateException");
+        html.ShouldNotContain("An error occurred while saving");
+        html.ShouldNotContain("simulated permanent failure");
+    }
+
+    /// <summary>
+    /// The exception handler clears the response before the page is written, so the security headers have
+    /// to arrive later, and the CSP still has to match the page's inline style (#693).
+    /// </summary>
+    [Fact]
+    public async Task ConfirmPage_Post_ShouldKeepTheSecurityHeadersOnTheErrorPage_WhenTheSaveFailsForAnotherReason()
+    {
+        // Arrange
+        (Guid userId, string newEmail, string token) = await RequestAChangeWhoseConfirmWillFailAsync();
+
+        // Act
+        using HttpResponseMessage response = await PostToPageAsync(
+            ApiClient.Http,
+            "/Account/ConfirmEmailChange",
+            ConfirmUrl(userId, newEmail, token),
+            ConfirmForm(userId, newEmail, token),
+            BrowserAccept);
+
+        // Assert
+        response.StatusCode.ShouldBe(HttpStatusCode.InternalServerError);
+        string policy = response.Headers.GetValues("Content-Security-Policy").ShouldHaveSingleItem();
+        Match nonce = StyleNonceRegex().Match(policy);
+        nonce.Success.ShouldBeTrue();
+        string html = await response.Content.ReadAsStringAsync();
+        html.ShouldContain($"<style nonce=\"{nonce.Groups[1].Value}\">");
+        response.Headers.GetValues("X-Frame-Options").ShouldHaveSingleItem().ShouldBe("DENY");
     }
 
     /// <summary>
@@ -632,6 +736,19 @@ public sealed partial class EmailChangeSaveFailureTests : EndpointsTestBase
         (await userManager.AccessFailedAsync(user)).Succeeded.ShouldBeTrue();
     }
 
+    /// <summary>
+    /// A pending change whose confirm save will fail with an error that is not about the address.
+    /// </summary>
+    private async Task<(Guid UserId, string NewEmail, string Token)> RequestAChangeWhoseConfirmWillFailAsync()
+    {
+        (RegisterRequest user, string newEmail, string token) = await RequestChangeAsync();
+        Guid userId = await UserIdOfAsync(user.Email);
+        Factory.DbCommandFailures.FailNext(
+            IsUpdateOfUsers, () => CreatePermanentFailure(PostgresErrorCodes.NotNullViolation, null));
+
+        return (userId, newEmail, token);
+    }
+
     private async Task<(RegisterRequest User, string NewEmail, string Token)> RequestChangeAsync()
     {
         (RegisterRequest user, _) = await UserFactory.RegisterRandomUserWithRequestAsync(
@@ -722,7 +839,11 @@ public sealed partial class EmailChangeSaveFailureTests : EndpointsTestBase
     }
 
     private static async Task<HttpResponseMessage> PostToPageAsync(
-        HttpClient client, string pagePath, string getUrl, Dictionary<string, string> formFields)
+        HttpClient client,
+        string pagePath,
+        string getUrl,
+        Dictionary<string, string> formFields,
+        string? accept = null)
     {
         using HttpResponseMessage pageResponse = await client.GetAsync(new Uri(getUrl, UriKind.Relative));
         pageResponse.StatusCode.ShouldBe(HttpStatusCode.OK);
@@ -743,6 +864,11 @@ public sealed partial class EmailChangeSaveFailureTests : EndpointsTestBase
             {
                 request.Headers.Add("Cookie", cookie.Split(';')[0]);
             }
+        }
+
+        if (accept is not null)
+        {
+            request.Headers.Accept.ParseAdd(accept);
         }
 
         return await client.SendAsync(request);
@@ -791,6 +917,9 @@ public sealed partial class EmailChangeSaveFailureTests : EndpointsTestBase
 
     [GeneratedRegex("""\svalue="([^"]*)""")]
     private static partial Regex ValueAttributeRegex();
+
+    [GeneratedRegex("""style-src [^;]*'nonce-([^']+)'""")]
+    private static partial Regex StyleNonceRegex();
 
     /// <summary>
     /// Holds one step of the account's save until a competing write has committed: another account taking

@@ -76,6 +76,24 @@ public sealed class FrontendCallerSettingsValidatorTests
         result.Succeeded.ShouldBeTrue();
     }
 
+    [Theory]
+    [InlineData(Development, " a-frontend-caller-key-of-at-least-32-characters")]
+    [InlineData(Testing, "a-frontend-caller-key-of-at-least-32-characters ")]
+    [InlineData(Production, " a-frontend-caller-key-of-at-least-32-characters")]
+    [InlineData(Production, "a-frontend-caller-key-of-at-least-32-characters ")]
+    [InlineData(Production, "a-frontend-caller-key-of-at-least-32-characters\n")]
+    public void Validate_KeyWithWhitespaceAroundIt_FailsInEveryEnvironment(string environmentName, string key)
+    {
+        FrontendCallerSettingsValidator validator = CreateValidator(environmentName);
+        FrontendCallerSettings settings = new() { Key = key };
+
+        ValidateOptionsResult result = validator.Validate(name: null, settings);
+
+        result.Failed.ShouldBeTrue();
+        result.Failures.ShouldNotBeNull();
+        result.Failures.ShouldContain(failure => failure.Contains("whitespace", StringComparison.Ordinal));
+    }
+
     private static FrontendCallerSettingsValidator CreateValidator(string environmentName)
     {
         IWebHostEnvironment environment = Substitute.For<IWebHostEnvironment>();

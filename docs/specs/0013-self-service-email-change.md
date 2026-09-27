@@ -230,6 +230,7 @@ outlier and explicitly **not** the pattern here.
   `NormalizedEmailChangeRevertTo` when it arms the undo, and `IEmailChangeRevertReservation`
   refuses that address to `RegisterUser`, `RequestEmailChange` and `ConfirmEmailChange` — with the
   `UserAlreadyExistsByEmail` they already give a taken address, because it was taken a moment ago.
+  The admin seeder asks the same check and skips the seed with warning `2355` (#849).
   The reservation is one indexed lookup, it excludes the account that armed it (going back is the
   move it protects), and it dies with the revert token's own 14-day lifespan, so no address is ever
   blocked for good. A later change in the chain re-arms nothing and does not extend the window, and
@@ -328,7 +329,8 @@ outlier and explicitly **not** the pattern here.
   > shows the second answer. When the first submit lands while the second is past its token check, the
   > second reads the account again and answers as done: the confirm page shows its done state, and the
   > revert page sends the visitor to the password reset with a fresh token. Both end the sessions again,
-  > because the double click aborted the first request and its revocation may never have run.
+  > because the first submit may still be ending them when the second one answers, or its revoke may
+  > have failed (#872).
 - **Files touched:** no DAT and no translation artifact. One EF migration,
   `AddEmailChangeRevertFieldsToUsers` — two nullable columns, additive and N-1 safe.
 

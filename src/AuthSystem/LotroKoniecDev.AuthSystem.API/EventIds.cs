@@ -110,6 +110,7 @@ internal static class EventIds
     public const int AdminSeedPasswordIgnored = 2352;
     public const int AdminSeedUsernameTaken = 2353;
     public const int AdminSeedEmailTakenWithoutAdminRole = 2354;
+    public const int AdminSeedEmailReservedForUndo = 2355;
 
     // Password Reset Dispatch (2360-2369)
     public const int PasswordResetUserGone = 2360;
@@ -177,9 +178,10 @@ internal static class EventIds
 
     // GDPR Deletion Scheduling internals (2700-2709). 2701-2703 and 2705 are no longer used: the undo
     // step is gone (ADR-0038 decision 5), and both deletion flows now change the security stamp inside
-    // their single save (decision 2), so there is no separate stamp update that could fail.
+    // their single save (decision 2), so there is no separate stamp update that could fail. 2704 is no
+    // longer used either: scheduling a deletion ends sessions through the shared revoker, which logs
+    // 2302 (#872).
     public const int GdprDeletionSchedulingUpdateFailed = 2700;
-    public const int GdprDeletionScheduleArtifactRevocationFailed = 2704;
     public const int GdprDeletionScheduleThrottled = 2706;
 
     // Forgot/Reset Password checks during the deletion window (2710-2719). 2710

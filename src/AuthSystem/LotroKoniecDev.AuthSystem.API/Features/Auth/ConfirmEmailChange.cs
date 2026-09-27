@@ -143,7 +143,7 @@ internal sealed partial class ConfirmEmailChange
                 {
                     if (await IsAlreadyAppliedAsync(user.Id, newEmail))
                     {
-                        await _sessionRevoker.RevokeAllAsync(user.Id.ToString(), cancellationToken);
+                        await _sessionRevoker.RevokeAllAsync(user.Id.ToString());
                         return Result.Success();
                     }
 
@@ -237,7 +237,7 @@ internal sealed partial class ConfirmEmailChange
                 // link, the change is already there, and "nothing changed, try again" would be false.
                 if (await IsAlreadyAppliedAsync(user.Id, newEmail))
                 {
-                    await _sessionRevoker.RevokeAllAsync(user.Id.ToString(), cancellationToken);
+                    await _sessionRevoker.RevokeAllAsync(user.Id.ToString());
                     return Result.Success();
                 }
 
@@ -248,7 +248,7 @@ internal sealed partial class ConfirmEmailChange
 
             _outboxWriter.NotifyEnqueuedCommitted();
 
-            await _sessionRevoker.RevokeAllAsync(user.Id.ToString(), cancellationToken);
+            await _sessionRevoker.RevokeAllAsync(user.Id.ToString());
 
             LogChangeApplied(
                 _logger, user.Id, previousEmail.MaskEmail(), newEmail.MaskEmail(), command.IpAddress, command.UserAgent);
@@ -310,8 +310,8 @@ internal sealed partial class ConfirmEmailChange
         /// address, but it clears the password and a confirm never does, so the password tells them apart.
         /// </summary>
         /// <remarks>
-        /// The caller ends the sessions again after a "yes". The first submit ends them only after its
-        /// save, and a double click aborts that first request, so its revocation may never have run.
+        /// The caller ends the sessions again after a "yes". The first submit may still be ending them
+        /// when this one answers, or its revoke may have failed.
         /// </remarks>
         private async Task<bool> IsAlreadyAppliedAsync(Guid userId, string newEmail)
         {

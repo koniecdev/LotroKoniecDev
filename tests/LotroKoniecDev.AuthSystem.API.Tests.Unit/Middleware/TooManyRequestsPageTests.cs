@@ -49,6 +49,16 @@ public sealed class TooManyRequestsPageTests
     }
 
     [Fact]
+    public void BuildHtml_ShouldTellTheUserHowLongToWait()
+    {
+        // Act: the wait is the one thing a throttled user can act on (#692)
+        string html = TooManyRequestsPage.BuildHtml(TimeSpan.FromMinutes(3), nonce: null);
+
+        // Assert
+        html.ShouldContain("Spróbuj ponownie za około 3 minuty.");
+    }
+
+    [Fact]
     public void BuildHtml_ShouldPutTheRequestsNonceOnItsStyleBlock()
     {
         // Act: the page is written after the security headers were planned, so its only inline style

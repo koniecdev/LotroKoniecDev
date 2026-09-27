@@ -1,14 +1,15 @@
 using System.Collections.Concurrent;
 using Microsoft.Extensions.Logging;
 
-namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared;
+namespace LotroKoniecDev.Tests.Shared;
 
 /// <summary>
-/// Captures what the code under test logged. It is used where the log is the only visible behaviour:
-/// the seeder leaves an account at the admin address as it is and only warns (#839), and a refused call
-/// answers 401 whether or not the warning about it was written (#854). A test that could not read the
-/// warning would pass with the warning gone. Filter on the category, not on the event id alone:
-/// libraries reuse the same numbers.
+/// Captures what the code under test logged. It is used where the log is the only visible behaviour: the
+/// auth seeder leaves an account at the admin address as it is and only warns (#839), and a refused call
+/// answers 401 or 403 whether or not the warning about it was written (#854). A test that could not read
+/// the warning would pass with the warning gone. A test that captures a whole host's log filters on the
+/// category too: libraries reuse event ids (Npgsql's 1300 and 1301 are the TMS API's refused-call ids).
+/// Linked into both API integration suites.
 /// </summary>
 internal sealed class CapturingLoggerFactory : ILoggerFactory
 {

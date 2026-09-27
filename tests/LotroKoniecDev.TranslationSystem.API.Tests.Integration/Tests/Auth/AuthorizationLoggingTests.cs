@@ -1,6 +1,7 @@
 using System.Net.Http.Headers;
 using LotroKoniecDev.Hateoas.Abstractions;
 using LotroKoniecDev.SharedKernel.Authorization;
+using LotroKoniecDev.Tests.Shared;
 using LotroKoniecDev.TranslationSystem.API.Middleware;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
@@ -115,7 +116,7 @@ public sealed class AuthorizationLoggingTests : IAsyncLifetime
     [InlineData("GET", "/does-not-exist")]
     [InlineData("PUT", GameVersionsPath)]
     [InlineData("HEAD", GameVersionsPath)]
-    public async Task Request_WhereNoRateLimitApplies_ShouldNotWarn(string method, string path)
+    public async Task Request_ToNoRealEndpoint_ShouldNotWarn(string method, string path)
     {
         // Arrange: the fallback policy refuses a path that matches no endpoint, and a method the route does
         // not map, with 401. Neither carries a rate limit, so a warning there would have no cap.

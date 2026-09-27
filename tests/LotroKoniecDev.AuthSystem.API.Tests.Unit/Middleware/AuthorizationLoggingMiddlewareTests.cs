@@ -1,0 +1,62 @@
+using System.Net;
+using System.Security.Claims;
+using LotroKoniecDev.AuthSystem.API.Middleware;
+using LotroKoniecDev.AuthSystem.API.Services.RateLimiting;
+using LotroKoniecDev.AuthSystem.API.Settings;
+using LotroKoniecDev.AuthSystem.API.Tests.Unit.Shared;
+using LotroKoniecDev.Hateoas.Abstractions;
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Routing;
+using Microsoft.AspNetCore.Routing.Patterns;
+using Microsoft.Extensions.Logging;
+
+namespace LotroKoniecDev.AuthSystem.API.Tests.Unit.Middleware;
+
+/// <summary>
+/// No endpoint of the auth API refuses a signed-in caller with 403 today, so the integration suite cannot
+/// reach the 403 warning. This pins its wording here (#854); the TMS integration suite proves the same line
+/// end to end.
+/// </summary>
+public sealed class AuthorizationLoggingMiddlewareTests
+{
+    // Built rather than written out, so no secret scanner mistakes test data for a key.
+    private static readonly string FrontendKey = new('k', 40);
+
+    [Fact]
+    public async Task InvokeAsync_WhenARealEndpointForbidsAFrontendCall_ShouldNameTheVisitorTheConnectionAndTheUser()
+    {
+        // Arrange
+        CapturingLogger<AuthorizationLoggingMiddleware> logger = new();
+        AuthorizationLoggingMiddleware middleware = new(
+            context =>
+            {
+                context.Response.StatusCode = StatusCodes.Status403Forbidden;
+                return Task.CompletedTask;
+            },
+            new RateLimitPartitionKeyResolver(
+                Microsoft.Extensions.Options.Options.Create(new FrontendCallerSettings { Key = FrontendKey })),
+            logger);
+        DefaultHttpContext context = new();
+        context.Request.Method = HttpMethods.Post;
+        context.Request.Path = "/auth/account/change-email";
+        context.Connection.RemoteIpAddress = IPAddress.Parse("10.60.0.7");
+        context.Request.Headers.Append(FrontendCallerHeaders.Key, FrontendKey);
+        context.Request.Headers.Append(FrontendCallerHeaders.ClientAddress, "203.0.113.5");
+        context.User = new ClaimsPrincipal(new ClaimsIdentity([new Claim(ClaimTypes.Name, "anna")], "Bearer"));
+        context.SetEndpoint(new RouteEndpoint(
+            _ => Task.CompletedTask,
+            RoutePatternFactory.Parse("auth/account/change-email"),
+            0,
+            EndpointMetadataCollection.Empty,
+            "change-email"));
+
+        // Act
+        await middleware.InvokeAsync(context);
+
+        // Assert
+        CapturingLogger<AuthorizationLoggingMiddleware>.LogEntry warning = logger.Entries.ShouldHaveSingleItem();
+        warning.Level.ShouldBe(LogLevel.Warning);
+        warning.EventId.ShouldBe(EventIds.ForbiddenAccessAttempt);
+        warning.Message.ShouldBe("Forbidden access attempt: POST /auth/account/change-email from 203.0.113.5 via 10.60.0.7 by anna");
+    }
+}

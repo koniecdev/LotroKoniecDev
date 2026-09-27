@@ -28,6 +28,15 @@ internal sealed partial class AuthorizationLoggingMiddleware
     {
         await _next(context);
 
+        // Only a refused call to a real endpoint gets a warning. OpenIddict checks the client of a GET
+        // to connect/introspect too, but only POST is routed there, so that call lands on routing's 405
+        // endpoint, which is not a RouteEndpoint and carries no rate limit. Scanners send such calls
+        // without end. The request log still records them.
+        if (context.GetEndpoint() is not RouteEndpoint)
+        {
+            return;
+        }
+
         switch (context.Response.StatusCode)
         {
             case StatusCodes.Status401Unauthorized:

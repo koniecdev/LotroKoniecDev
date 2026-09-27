@@ -6,6 +6,10 @@
 #   * issue-trust.sh  — the policy (author + every commenter must carry write access)
 #   * next-ticket.sh  — the picker never returns an untrusted ticket
 #   * work-ticket.sh  — an explicitly-named untrusted ticket never spawns a claude session
+# It also covers the rule that keeps the loop from working a ticket twice now that it stops at the
+# PR (ADR-0060): a ticket with an open PR, or with a worktree already on disk, is never started.
+# And it covers the worker's worktree lifecycle: the session runs in its own worktree cut from
+# origin/main, the main checkout is never touched, and a finished worktree is removed or salvaged.
 #
 # `gh` is stubbed from fixtures, so the suite is offline and hermetic. The stub applies the
 # caller's own `--jq` filter with real jq, which keeps the scripts' jq filters under test too.
@@ -38,6 +42,10 @@ chmod +x "$FAKE_REPO/scripts/claude/work-ticket.sh" "$FAKE_REPO/scripts/claude/i
 git -C "$FAKE_REPO" init -q -b main
 git -C "$FAKE_REPO" add -A
 git -C "$FAKE_REPO" commit -qm "provenance-gate fixture repo"
+# A local bare "origin", so work-ticket.sh can fetch origin/main and cut a worktree from it.
+git init -q --bare "$TMP_ROOT/origin.git"
+git -C "$FAKE_REPO" remote add origin "$TMP_ROOT/origin.git"
+git -C "$FAKE_REPO" push -q origin main
 
 LAST_OUTPUT=""
 LAST_STDOUT=""
@@ -111,6 +119,24 @@ case "${args[0]:-}" in
             *) echo "gh stub: unsupported issue subcommand" >&2; exit 1 ;;
         esac
         ;;
+    pr)
+        case "${args[1]:-}" in
+            list)
+                if [ -f "$GH_FIXTURES/pr-list-fail.json" ]; then
+                    echo "gh: HTTP 502" >&2
+                    exit 1
+                fi
+                if [ -f "$GH_FIXTURES/pr-list.json" ]; then
+                    emit_file "$GH_FIXTURES/pr-list.json"
+                elif [ -n "$filter" ]; then
+                    printf '[]' | jq -r "$filter"
+                else
+                    printf '[]'
+                fi
+                ;;
+            *) echo "gh stub: unsupported pr subcommand" >&2; exit 1 ;;
+        esac
+        ;;
     *) echo "gh stub: unsupported command" >&2; exit 1 ;;
 esac
 exit 0
@@ -120,10 +146,23 @@ cat > "$TMP_ROOT/bin/claude" <<STUB
 #!/usr/bin/env bash
 # The worker session must never start for an untrusted ticket — leave proof if it does.
 touch "$CLAUDE_MARKER"
+# The lifecycle cases script what the session does in its worktree.
+if [ -n "\${CLAUDE_BEHAVIOR:-}" ]; then exec "\$CLAUDE_BEHAVIOR"; fi
 echo '{"result":"STATUS: DONE","is_error":false}'
 STUB
 
-chmod +x "$TMP_ROOT/bin/gh" "$TMP_ROOT/bin/claude"
+# Never touch the real Docker daemon: the worker removes a finished worktree's E2E images.
+cat > "$TMP_ROOT/bin/docker" <<STUB
+#!/usr/bin/env bash
+echo "docker \$*" >> "$TMP_ROOT/docker-calls"
+exit 0
+STUB
+
+# work-ticket.sh polls its session every 30 seconds; a test has no reason to wait that long.
+REAL_SLEEP="$(command -v sleep)"
+printf '#!/usr/bin/env bash\nexec "%s" 0.05\n' "$REAL_SLEEP" > "$TMP_ROOT/bin/sleep"
+
+chmod +x "$TMP_ROOT/bin/gh" "$TMP_ROOT/bin/claude" "$TMP_ROOT/bin/docker" "$TMP_ROOT/bin/sleep"
 export PATH="$TMP_ROOT/bin:$PATH"
 
 command -v jq >/dev/null 2>&1 || fail "this suite needs jq on PATH"
@@ -191,6 +230,16 @@ fixture_list() {
         separator=","
     done
     printf '%s]' "$json" > "$GH_FIXTURES/issue-list.json"
+}
+
+# fixture_prs <number:headRefName> ... — builds the `gh pr list` payload of open PRs.
+fixture_prs() {
+    local json="[" separator=""
+    for entry in "$@"; do
+        json="$json$separator{\"number\":${entry%%:*},\"headRefName\":\"${entry#*:}\"}"
+        separator=","
+    done
+    printf '%s]' "$json" > "$GH_FIXTURES/pr-list.json"
 }
 
 reset_fixtures() {
@@ -384,6 +433,39 @@ fixture_issue 39 maintainer OWNER CLOSED
 run_case 0 "next-ticket: a closed dependency releases a trusted ticket" picker
 expect_stdout "38"
 
+# The loop stops at the PR (ADR-0060), so a worked ticket stays open until its PR merges.
+reset_fixtures
+fixture_list 50:priority-high 51:priority-low
+fixture_issue 50 maintainer OWNER
+fixture_issue 51 maintainer OWNER
+fixture_prs 900:50-already-worked
+run_case 0 "next-ticket: a ticket with an open PR is skipped" picker
+expect_stdout "51"
+
+# The branch prefix is matched whole: a PR for #50 must not hide #5, and a PR for #150 must not
+# hide #50.
+reset_fixtures
+fixture_list 5:priority-high
+fixture_issue 5 maintainer OWNER
+fixture_prs 900:50-other-ticket
+run_case 0 "next-ticket: a PR for #50 does not hide #5" picker
+expect_stdout "5"
+
+reset_fixtures
+fixture_list 50:priority-high
+fixture_issue 50 maintainer OWNER
+fixture_prs 900:150-other-ticket
+run_case 0 "next-ticket: a PR for #150 does not hide #50" picker
+expect_stdout "50"
+
+reset_fixtures
+fixture_list 52:priority-high
+fixture_issue 52 maintainer OWNER
+printf 'x' > "$GH_FIXTURES/pr-list-fail.json"
+run_case 1 "next-ticket: an unreadable PR list picks nothing (fail-closed)" picker
+expect_stdout ""
+expect_in_output "cannot list open pull requests"
+
 # ── work-ticket.sh: naming a ticket explicitly cannot bypass the gate ──────────────────────────
 reset_fixtures
 fixture_issue 40 outsider NONE
@@ -393,11 +475,91 @@ expect_in_output "REFUSED"
 cases=$((cases + 1))
 printf '✓ work-ticket: no claude session is spawned for an untrusted ticket\n'
 
+# A ticket already in flight is skipped before any worktree or session exists.
+reset_fixtures
+fixture_issue 60 maintainer OWNER
+fixture_prs 901:60-already-worked
+run_case 12 "work-ticket: a ticket with an open PR exits 12" "$WORK" 60 "$TMP_ROOT/run"
+expect_in_output "PR #901 is already open"
+[ ! -f "$CLAUDE_MARKER" ] || fail "work-ticket spawned a claude session for a ticket that already has a PR"
+
+reset_fixtures
+fixture_issue 61 maintainer OWNER
+mkdir -p "$FAKE_REPO/.claude/worktrees/ticket-61"
+run_case 12 "work-ticket: a ticket whose worktree exists exits 12" "$WORK" 61 "$TMP_ROOT/run"
+expect_in_output "already exists"
+[ ! -f "$CLAUDE_MARKER" ] || fail "work-ticket spawned a claude session next to an existing worktree"
+rm -rf "$FAKE_REPO/.claude/worktrees/ticket-61"
+
 # An unreadable API is systemic, not a property of the ticket: exit 3 so the conductor's
 # circuit breaker stops the run rather than "skipping" every remaining ticket as untrusted.
 reset_fixtures
 run_case 3 "work-ticket: an unverifiable ticket is an error, not a skip" "$WORK" 41 "$TMP_ROOT/run"
 expect_in_output "could not verify"
 [ ! -f "$CLAUDE_MARKER" ] || fail "work-ticket spawned a claude session for an unverifiable ticket"
+
+# ── work-ticket.sh: the worktree lifecycle ─────────────────────────────────────────────────────
+# behavior <file> <shell body> — a fake session: it runs in its cwd, then prints the result JSON.
+behavior() {
+    printf '#!/usr/bin/env bash\nset -e\npwd -P > "%s/session-cwd"\n%s\n' "$TMP_ROOT" "$2" > "$1"
+    chmod +x "$1"
+}
+WT_ROOT="$FAKE_REPO/.claude/worktrees"
+
+# The main checkout is dirty and sits on another branch: the loop must neither care nor touch it.
+git -C "$FAKE_REPO" checkout -q -b someone-elses-work
+echo "work in progress" > "$FAKE_REPO/dirty.txt"
+
+reset_fixtures
+fixture_issue 70 maintainer OWNER
+behavior "$TMP_ROOT/done.sh" 'git checkout -q -b "fixture-$(basename "$PWD")"
+git commit -q --allow-empty -m "fixture work"
+echo "{\"result\":\"STATUS: DONE\\nPR: https://github.com/koniecdev/LotroKoniecDev/pull/777\",\"is_error\":false}"'
+: > "$TMP_ROOT/docker-calls"
+run_case 0 "work-ticket: DONE opens the PR from its own worktree" \
+    env CLAUDE_BEHAVIOR="$TMP_ROOT/done.sh" "$WORK" 70 "$TMP_ROOT/run"
+expect_in_output "PR #777 opened"
+[ "$(cat "$TMP_ROOT/session-cwd")" = "$(cd "$FAKE_REPO" && pwd -P)/.claude/worktrees/ticket-70" ] \
+    || fail "the session should run in .claude/worktrees/ticket-70" "$(cat "$TMP_ROOT/session-cwd")"
+grep -qx "outcome=pr-opened" "$TMP_ROOT/run/ticket-70.meta" || fail "meta should say pr-opened" "$(cat "$TMP_ROOT/run/ticket-70.meta")"
+grep -qx "pr=777" "$TMP_ROOT/run/ticket-70.meta" || fail "meta should carry the PR" "$(cat "$TMP_ROOT/run/ticket-70.meta")"
+[ ! -e "$WT_ROOT/ticket-70" ] || fail "a clean worktree should be removed"
+git -C "$FAKE_REPO" rev-parse -q --verify fixture-ticket-70 >/dev/null || fail "the ticket branch must stay"
+grep -q "image ls" "$TMP_ROOT/docker-calls" || fail "the worktree's E2E images should be looked up for removal"
+[ "$(git -C "$FAKE_REPO" branch --show-current)" = "someone-elses-work" ] || fail "the main checkout's branch changed"
+[ -f "$FAKE_REPO/dirty.txt" ] || fail "the main checkout's work in progress is gone"
+cases=$((cases + 1)); printf '✓ work-ticket: the main checkout is untouched and the finished worktree is removed\n'
+
+reset_fixtures
+fixture_issue 71 maintainer OWNER
+behavior "$TMP_ROOT/blocked.sh" 'echo "half done" > leftover.txt
+echo "{\"result\":\"STATUS: BLOCKED\\nCATEGORY: business-questions\",\"is_error\":false}"'
+run_case 2 "work-ticket: BLOCKED exits 2" env CLAUDE_BEHAVIOR="$TMP_ROOT/blocked.sh" "$WORK" 71 "$TMP_ROOT/run"
+salvage_branch="$(git -C "$FAKE_REPO" for-each-ref --format='%(refname:short)' 'refs/heads/loop-salvage/71-*')"
+[ -n "$salvage_branch" ] || fail "leftovers should be committed on a loop-salvage branch" "$LAST_OUTPUT"
+git -C "$FAKE_REPO" show "$salvage_branch:leftover.txt" >/dev/null 2>&1 || fail "the salvage branch should hold the leftover file"
+[ ! -e "$WT_ROOT/ticket-71" ] || fail "a salvaged worktree is clean, so it should be removed"
+cases=$((cases + 1)); printf '✓ work-ticket: leftovers are salvaged on a branch before the worktree goes\n'
+
+reset_fixtures
+fixture_issue 72 maintainer OWNER
+behavior "$TMP_ROOT/garbage.sh" 'echo "{\"result\":\"I think I am done\",\"is_error\":false}"'
+run_case 3 "work-ticket: a final message without a STATUS block is an error" \
+    env CLAUDE_BEHAVIOR="$TMP_ROOT/garbage.sh" "$WORK" 72 "$TMP_ROOT/run"
+[ ! -e "$WT_ROOT/ticket-72" ] || fail "the worktree should be removed after an error too"
+
+reset_fixtures
+fixture_issue 73 maintainer OWNER
+behavior "$TMP_ROOT/done-no-pr.sh" 'echo "{\"result\":\"STATUS: DONE\",\"is_error\":false}"'
+run_case 3 "work-ticket: DONE without a PR anywhere is an error" \
+    env CLAUDE_BEHAVIOR="$TMP_ROOT/done-no-pr.sh" "$WORK" 73 "$TMP_ROOT/run"
+expect_in_output "no PR found"
+
+reset_fixtures
+fixture_issue 74 maintainer OWNER
+run_case 0 "work-ticket: LOOP_KEEP_WORKTREE=1 keeps the worktree" \
+    env LOOP_KEEP_WORKTREE=1 CLAUDE_BEHAVIOR="$TMP_ROOT/done.sh" "$WORK" 74 "$TMP_ROOT/run"
+[ -d "$WT_ROOT/ticket-74" ] || fail "the worktree should be kept"
+git -C "$FAKE_REPO" worktree remove --force "$WT_ROOT/ticket-74"
 
 printf 'All %d provenance-gate case(s) passed.\n' "$cases"

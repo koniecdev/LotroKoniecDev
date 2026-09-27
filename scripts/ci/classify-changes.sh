@@ -5,7 +5,8 @@
 #   code=…    the .NET gate — restore + Release build (the repo-wide zero-warning gate)
 #             + unit tests + integration tests (real PostgreSQL). Minutes.
 #   guards=…  the cheap bash gates CI EXECUTES — SSR purity, Dockerfile restore graph,
-#             migration safety (+ its self-test), backlog-loop provenance self-test. Seconds.
+#             migration safety (+ its self-test), backlog-loop provenance + conductor self-tests.
+#             Seconds.
 #   images=…  the four shipped OCI images — build + Trivy scan.
 #
 # Why three and not one: a change to a script that CI executes (say scripts/claude/work-ticket.sh)
@@ -54,7 +55,7 @@ INERT='\.md$|^docs/|^LICENSE$|^\.gitignore$|^\.gitattributes$|\.sh$|\.ps1$|(^|/)
 # scripts/n1-compat.sh, the proof those halves call, whose
 # verdict classification decides whether a blocked promotion reads as "your migrations break prod"
 # or as "the proof never ran" (#679).
-GUARD_INPUTS='^scripts/check-ssr-purity\.(sh|ps1)$|^scripts/tests/check-ssr-purity\.tests\.sh$|^scripts/smoke\.(sh|ps1)$|^scripts/tests/smoke-csp\.tests\.sh$|^scripts/check-client-hypermedia\.(sh|ps1)$|^scripts/check-migration-safety\.(sh|ps1)$|^scripts/tests/check-migration-safety\.tests\.sh$|^scripts/check-dockerfile-restore-graph\.(sh|ps1)$|^scripts/claude/(issue-trust|next-ticket|work-ticket)\.sh$|^scripts/tests/claude-loop-provenance\.tests\.sh$|^scripts/hetzner/(deploy|bootstrap)\.sh$|^scripts/tests/hetzner-(deploy|bootstrap-swap)\.tests\.sh$|^scripts/ci/(resolve-prod-baseline|n1-promotion-gate)\.sh$|^scripts/n1-compat\.sh$|^scripts/tests/(resolve-prod-baseline|n1-promotion-gate|n1-compat)\.tests\.sh$|(^|/)Dockerfile[^/]*$|^\.github/workflows/(pr-verify|ci)\.yml$'
+GUARD_INPUTS='^scripts/check-ssr-purity\.(sh|ps1)$|^scripts/tests/check-ssr-purity\.tests\.sh$|^scripts/smoke\.(sh|ps1)$|^scripts/tests/smoke-csp\.tests\.sh$|^scripts/check-client-hypermedia\.(sh|ps1)$|^scripts/check-migration-safety\.(sh|ps1)$|^scripts/tests/check-migration-safety\.tests\.sh$|^scripts/check-dockerfile-restore-graph\.(sh|ps1)$|^scripts/claude/(issue-trust|next-ticket|work-ticket|backlog-loop)\.sh$|^scripts/tests/claude-loop-(provenance|conductor)\.tests\.sh$|^scripts/hetzner/(deploy|bootstrap)\.sh$|^scripts/tests/hetzner-(deploy|bootstrap-swap)\.tests\.sh$|^scripts/ci/(resolve-prod-baseline|n1-promotion-gate)\.sh$|^scripts/n1-compat\.sh$|^scripts/tests/(resolve-prod-baseline|n1-promotion-gate|n1-compat)\.tests\.sh$|(^|/)Dockerfile[^/]*$|^\.github/workflows/(pr-verify|ci)\.yml$'
 
 # Build-relevant despite matching INERT: the two workflows that DEFINE the .NET gate.
 CODE_INPUTS='^\.github/workflows/(pr-verify|ci)\.yml$'

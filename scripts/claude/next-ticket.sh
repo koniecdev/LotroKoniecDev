@@ -3,9 +3,9 @@
 # Prints the number of the next ready ticket and exits 0; exits 1 when none is ready.
 #
 # "Ready" = open, not skip-labeled, not an [Epic]/[Tracking] title, written only by trusted
-# maintainers (issue-trust.sh — ADR-0026), and every "Depends on #X" reference in the body points
-# at a CLOSED issue (a ticket is closed by its merged PR, so closed == merged in this repo's
-# workflow). Order: priority label (priority-critical > -high > -medium > -low > none), then issue
+# maintainers (issue-trust.sh — ADR-0026), no open PR yet (that one waits for the owner's review —
+# ADR-0060), and every "Depends on #X" reference in the body points at a CLOSED issue (a ticket is
+# closed by its merged PR, so closed == merged in this repo's workflow). Order: priority label (priority-critical > -high > -medium > -low > none), then issue
 # number. Label taxonomy: docs/labels.md (kept in sync with TheKittySaver).
 #
 # Usage: next-ticket.sh [--exclude "296 293"]     # numbers already attempted this run
@@ -57,10 +57,21 @@ candidates="$(gh issue list --state open --limit 200 --json number,title,labels 
         | sort_by(.prio, .number)
         | .[].number')"
 
+# The loop stops at the PR, so a worked ticket stays open until the owner merges it. Its branch
+# is named "<n>-<title>" (gh issue develop). Fail closed: without this list every ticket that
+# already has a PR would look ready again.
+open_heads="$(gh pr list --state open --limit 200 --json headRefName --jq '.[].headRefName')" || {
+    echo "next-ticket: cannot list open pull requests (GitHub API) — refusing to pick" >&2
+    exit 1
+}
+
 for n in $candidates; do
     case " $EXCLUDE " in
         *" $n "*) continue ;;
     esac
+    if printf '%s\n' "$open_heads" | grep -q "^$n-"; then
+        continue
+    fi
 
     # Provenance gate (ADR-0026): on a public repo anyone can write the text the worker reads as
     # its task. An issue whose author — or any of whose commenters — lacks write access is never

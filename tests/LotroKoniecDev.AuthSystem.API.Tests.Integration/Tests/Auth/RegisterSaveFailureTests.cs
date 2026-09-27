@@ -97,7 +97,8 @@ public sealed class RegisterSaveFailureTests : EndpointsTestBase
     [InlineData("application/vnd.dev-lotrokoniecdev.hateoas.json")]
     [InlineData("application/json")]
     [InlineData("*/*")]
-    public async Task Register_ShouldAnswerAnApiClientWithProblemDetails_WhenAWriteFailsForAnotherReason(string accept)
+    [InlineData(null)]
+    public async Task Register_ShouldAnswerAnApiClientWithProblemDetails_WhenAWriteFailsForAnotherReason(string? accept)
     {
         // Arrange
         RegisterRequest registerRequest = UserFactory.GenerateRandomRegisterRequest(Faker);
@@ -108,7 +109,10 @@ public sealed class RegisterSaveFailureTests : EndpointsTestBase
 
         using HttpRequestMessage request = new(HttpMethod.Post, RegisterEndpoint);
         request.Content = JsonContent.Create(registerRequest);
-        request.Headers.Accept.ParseAdd(accept);
+        if (accept is not null)
+        {
+            request.Headers.Accept.ParseAdd(accept);
+        }
 
         // Act
         using HttpResponseMessage response = await ApiClient.Http.SendAsync(request);

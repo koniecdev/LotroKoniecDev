@@ -120,7 +120,6 @@ public sealed partial class EmailChangeSaveFailureTests : EndpointsTestBase
         response.Content.Headers.ContentType?.MediaType.ShouldBe("text/html");
         string html = await response.Content.ReadAsStringAsync();
         html.ShouldContain("<h1>Coś poszło nie tak</h1>");
-        html.ShouldNotContain("simulated permanent failure");
     }
 
     [Fact]
@@ -145,15 +144,43 @@ public sealed partial class EmailChangeSaveFailureTests : EndpointsTestBase
         response.Content.Headers.ContentType?.MediaType.ShouldBe("text/html");
         string html = await response.Content.ReadAsStringAsync();
         html.ShouldContain("<h1>Coś poszło nie tak</h1>");
+    }
+
+    /// <summary>
+    /// Testing is one of the environments whose JSON carries the exception's message and type, so the page
+    /// is checked here. EF wraps the database error, and the wrapper's type and message are what would leak.
+    /// </summary>
+    [Fact]
+    public async Task ConfirmPage_Post_ShouldNotNameTheExceptionOnTheErrorPage_WhenTheSaveFailsForAnotherReason()
+    {
+        // Arrange
+        (RegisterRequest user, string newEmail, string token) = await RequestChangeAsync();
+        Guid userId = await UserIdOfAsync(user.Email);
+        Factory.DbCommandFailures.FailNext(
+            IsUpdateOfUsers, () => CreatePermanentFailure(PostgresErrorCodes.NotNullViolation, null));
+
+        // Act
+        using HttpResponseMessage response = await PostToPageAsync(
+            ApiClient.Http,
+            "/Account/ConfirmEmailChange",
+            ConfirmUrl(userId, newEmail, token),
+            ConfirmForm(userId, newEmail, token),
+            BrowserAccept);
+
+        // Assert
+        response.StatusCode.ShouldBe(HttpStatusCode.InternalServerError);
+        string html = await response.Content.ReadAsStringAsync();
+        html.ShouldNotContain("DbUpdateException");
+        html.ShouldNotContain("An error occurred while saving");
         html.ShouldNotContain("simulated permanent failure");
     }
 
     /// <summary>
-    /// The exception handler clears the response before the page is written, so the CSP has to arrive
-    /// later and still match the page's inline style (#693).
+    /// The exception handler clears the response before the page is written, so the security headers have
+    /// to arrive later, and the CSP still has to match the page's inline style (#693).
     /// </summary>
     [Fact]
-    public async Task ConfirmPage_Post_ShouldStyleTheErrorPageWithTheResponsesCspNonce_WhenTheSaveFailsForAnotherReason()
+    public async Task ConfirmPage_Post_ShouldKeepTheSecurityHeadersOnTheErrorPage_WhenTheSaveFailsForAnotherReason()
     {
         // Arrange
         (RegisterRequest user, string newEmail, string token) = await RequestChangeAsync();
@@ -176,6 +203,7 @@ public sealed partial class EmailChangeSaveFailureTests : EndpointsTestBase
         nonce.Success.ShouldBeTrue();
         string html = await response.Content.ReadAsStringAsync();
         html.ShouldContain($"<style nonce=\"{nonce.Groups[1].Value}\">");
+        response.Headers.GetValues("X-Frame-Options").ShouldHaveSingleItem().ShouldBe("DENY");
     }
 
     /// <summary>

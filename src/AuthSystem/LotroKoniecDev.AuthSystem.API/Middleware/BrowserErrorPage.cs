@@ -16,6 +16,8 @@ namespace LotroKoniecDev.AuthSystem.API.Middleware;
 /// </remarks>
 internal static class BrowserErrorPage
 {
+    internal const string BackToLoginLink = "<a href=\"/Account/Login\">Wróć do logowania</a>";
+
     /// <summary>
     /// A browser names <c>text/html</c> when it opens a page. An API client does not: the frontend asks for
     /// the HATEOAS JSON type, and <c>curl</c> or <c>fetch</c> send <c>*/*</c>.

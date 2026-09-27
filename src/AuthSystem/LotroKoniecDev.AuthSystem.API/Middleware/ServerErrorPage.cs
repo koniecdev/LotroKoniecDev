@@ -12,8 +12,8 @@ namespace LotroKoniecDev.AuthSystem.API.Middleware;
 internal static class ServerErrorPage
 {
     /// <summary>
-    /// Writes the page when the caller is a browser and tells the caller whether it did, so an API client
-    /// can still get problem details.
+    /// Writes the page for a browser and returns true when it did, so an API client can still get
+    /// problem details.
     /// </summary>
     internal static async Task<bool> WriteIfBrowserRequestAsync(
         HttpContext httpContext,
@@ -33,5 +33,5 @@ internal static class ServerErrorPage
             "Coś poszło nie tak",
             nonce,
             "Wystąpił błąd po naszej stronie. Spróbuj ponownie za chwilę.",
-            "<a href=\"/Account/Login\">Wróć do logowania</a>");
+            BrowserErrorPage.BackToLoginLink);
 }

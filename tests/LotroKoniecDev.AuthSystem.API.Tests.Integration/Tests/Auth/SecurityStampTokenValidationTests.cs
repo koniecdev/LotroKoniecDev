@@ -50,6 +50,9 @@ public sealed class SecurityStampTokenValidationTests : EndpointsTestBase
             (await userManager.UpdateSecurityStampAsync(account)).Succeeded.ShouldBeTrue();
         }
 
+        // The row is still valid, so only the stamp check can refuse the refresh below.
+        (await OpenIddictTokenState.StatusOfAsync(Factory.Services, refreshToken)).ShouldBe(OpenIddictConstants.Statuses.Valid);
+
         // Act
         using HttpResponseMessage response = await RefreshAsync(ApiClient.Http, refreshToken);
 
@@ -102,7 +105,10 @@ public sealed class SecurityStampTokenValidationTests : EndpointsTestBase
             new CancelAccountDeletionRequest(user.Email, cancelToken));
         cancelResponse.StatusCode.ShouldBe(HttpStatusCode.OK);
 
-        // Act: the account is no longer locked or waiting for deletion, so only the stamp can refuse this
+        // The row is still valid, so only the stamp check can refuse the refresh below.
+        (await OpenIddictTokenState.StatusOfAsync(host.Services, refreshToken)).ShouldBe(OpenIddictConstants.Statuses.Valid);
+
+        // Act: the account is no longer locked or waiting for deletion
         using HttpResponseMessage response = await RefreshAsync(client, refreshToken);
 
         // Assert
@@ -128,6 +134,9 @@ public sealed class SecurityStampTokenValidationTests : EndpointsTestBase
         using HttpResponseMessage changeResponse = await client.SendAsync(changeRequest);
         changeResponse.StatusCode.ShouldBe(HttpStatusCode.OK);
 
+        // The row is still valid, so only the stamp check can refuse the refresh below.
+        (await OpenIddictTokenState.StatusOfAsync(host.Services, refreshToken)).ShouldBe(OpenIddictConstants.Statuses.Valid);
+
         // Act
         using HttpResponseMessage response = await RefreshAsync(client, refreshToken);
 
@@ -148,6 +157,9 @@ public sealed class SecurityStampTokenValidationTests : EndpointsTestBase
         using HttpClient client = host.CreateClient();
 
         (_, string refreshToken, _) = await SignInAsync(client, user.Email, OfflineScopes);
+
+        // The row is still valid, so only the stamp check can refuse the refresh below.
+        (await OpenIddictTokenState.StatusOfAsync(host.Services, refreshToken)).ShouldBe(OpenIddictConstants.Statuses.Valid);
 
         // Act
         using HttpResponseMessage response = await RefreshAsync(client, refreshToken);

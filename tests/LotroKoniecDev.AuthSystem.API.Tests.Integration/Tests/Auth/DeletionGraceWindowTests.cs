@@ -242,7 +242,7 @@ public sealed partial class DeletionGraceWindowTests : AsyncLifetimeTestBase
             ["client_id"] = "lotrokoniecdev-test",
             ["scope"] = "email profile roles api offline_access"
         });
-        HttpResponseMessage loginResponse = await ApiClient.Http.PostAsync(
+        using HttpResponseMessage loginResponse = await ApiClient.Http.PostAsync(
             new Uri("connect/token", UriKind.Relative), passwordGrant);
         loginResponse.StatusCode.ShouldBe(HttpStatusCode.OK);
 

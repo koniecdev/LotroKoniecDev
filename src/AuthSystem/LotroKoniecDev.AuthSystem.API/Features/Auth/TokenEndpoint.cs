@@ -72,13 +72,16 @@ internal sealed class TokenEndpoint : IEndpoint
                 statusCode: StatusCodes.Status400BadRequest);
         }
 
-        // The code carries the stamp read at /connect/authorize. A password reset in the seconds before
-        // the code is redeemed must not hand out tokens: the access token would still work for five
-        // minutes after the reset (#848, ADR-0049).
+        // The code carries the stamp read at /connect/authorize, and the account can change in the
+        // seconds before the code is redeemed. A password reset, a lockout or a scheduled deletion must
+        // not hand out tokens: the access token would still work for five minutes (#848, ADR-0049).
         string? userId = result.Principal.GetClaim(Claims.Subject);
         ApplicationUser? user = string.IsNullOrEmpty(userId) ? null : await userManager.FindByIdAsync(userId);
 
-        if (user is null || !await SessionSecurityStamp.IsCurrentAsync(result.Principal, user, signInManager))
+        if (user is null
+            || user.DeletionScheduledAt is not null
+            || await userManager.IsLockedOutAsync(user)
+            || !await SessionSecurityStamp.IsCurrentAsync(result.Principal, user, signInManager))
         {
             return Results.Problem(
                 title: Errors.InvalidGrant,
@@ -190,8 +193,8 @@ internal sealed class TokenEndpoint : IEndpoint
         }
 
         // Every flow that ends all sessions changes the stamp, and its token revocation is only best
-        // effort. Cancelling a deletion changes the stamp and revokes nothing. This check is what makes a
-        // changed stamp end the session (#848).
+        // effort. Without this check a token the revoke missed works again as soon as the account is
+        // unlocked, for example when a scheduled deletion is cancelled (#848).
         if (!await SessionSecurityStamp.IsCurrentAsync(authenticateResult.Principal!, user, signInManager))
         {
             return Results.Problem(
@@ -209,15 +212,7 @@ internal sealed class TokenEndpoint : IEndpoint
         IList<string> roles = await userManager.GetRolesAsync(user);
         identity.SetClaims(Claims.Role, [.. roles]);
 
-        identity.SetDestinations(static claim => claim.Type switch
-        {
-            Claims.Subject => [Destinations.AccessToken, Destinations.IdentityToken],
-            Claims.Email => [Destinations.AccessToken, Destinations.IdentityToken],
-            Claims.Name => [Destinations.AccessToken, Destinations.IdentityToken],
-            Claims.Role => [Destinations.AccessToken, Destinations.IdentityToken],
-            SessionSecurityStamp.ClaimType => [],
-            _ => [Destinations.AccessToken]
-        });
+        identity.SetDestinations(UserClaimDestinations.Select);
 
         return Results.SignIn(
             new ClaimsPrincipal(identity),
@@ -270,15 +265,7 @@ internal sealed class TokenEndpoint : IEndpoint
         identity.SetScopes(request.GetScopes());
         identity.SetResources(AuthConstants.ClientIds.Api);
 
-        identity.SetDestinations(static claim => claim.Type switch
-        {
-            Claims.Subject => [Destinations.AccessToken, Destinations.IdentityToken],
-            Claims.Email => [Destinations.AccessToken, Destinations.IdentityToken],
-            Claims.Name => [Destinations.AccessToken, Destinations.IdentityToken],
-            Claims.Role => [Destinations.AccessToken, Destinations.IdentityToken],
-            SessionSecurityStamp.ClaimType => [],
-            _ => [Destinations.AccessToken]
-        });
+        identity.SetDestinations(UserClaimDestinations.Select);
 
         return identity;
     }

@@ -111,15 +111,7 @@ internal sealed class AuthorizeEndpoint : IEndpoint
         identity.SetScopes(request.GetScopes());
         identity.SetResources(AuthConstants.ClientIds.Api);
 
-        identity.SetDestinations(static claim => claim.Type switch
-        {
-            Claims.Subject => [Destinations.AccessToken, Destinations.IdentityToken],
-            Claims.Email => [Destinations.AccessToken, Destinations.IdentityToken],
-            Claims.Name => [Destinations.AccessToken, Destinations.IdentityToken],
-            Claims.Role => [Destinations.AccessToken, Destinations.IdentityToken],
-            SessionSecurityStamp.ClaimType => [],
-            _ => [Destinations.AccessToken]
-        });
+        identity.SetDestinations(UserClaimDestinations.Select);
 
         return Results.SignIn(
             new ClaimsPrincipal(identity),

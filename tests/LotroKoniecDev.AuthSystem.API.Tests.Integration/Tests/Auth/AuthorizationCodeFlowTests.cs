@@ -423,6 +423,29 @@ public sealed partial class AuthorizationCodeFlowTests : AsyncLifetimeTestBase
     }
 
     [Fact]
+    public async Task AuthorizationCodeExchange_ShouldFail_WhenTheAccountWasLockedOutAfterAuthorize()
+    {
+        // Arrange: a lockout does not change the stamp, so the exchange has to check it on its own
+        (string authorizationCode, string codeVerifier, _, string email) = await ObtainAuthorizationCodeAsync();
+
+        await using (AsyncServiceScope scope = Factory.Services.CreateAsyncScope())
+        {
+            UserManager<ApplicationUser> userManager =
+                scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
+            ApplicationUser? user = await userManager.FindByEmailAsync(email);
+            user.ShouldNotBeNull();
+            (await userManager.SetLockoutEndDateAsync(user, DateTimeOffset.UtcNow.AddMinutes(15))).Succeeded.ShouldBeTrue();
+        }
+
+        // Act
+        using HttpResponseMessage response = await ExchangeAuthorizationCodeAsync(authorizationCode, codeVerifier);
+
+        // Assert
+        response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        (await response.Content.ReadAsStringAsync()).ShouldContain("invalid_grant");
+    }
+
+    [Fact]
     public async Task AuthorizationCodeExchange_ShouldFail_WhenTheAccountWasDeletedAfterAuthorize()
     {
         // Arrange: an operator deletes the row by hand, as the runbook's admin fixes do, while a code is

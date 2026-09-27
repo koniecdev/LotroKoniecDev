@@ -33,8 +33,20 @@ Because `ConnectAsync` drives an **in-container** browser, the host needs **no**
 # Requires a running Docker daemon. First run builds 4 images + pulls the Playwright image (~2 GB).
 dotnet test tests/LotroKoniecDev.Frontend.E2E.Tests
 
-# Reuse already-built app images (skip the in-fixture docker build):
+# Reuse the app images this worktree built last time (skip the in-fixture docker build):
 SKIP_DOCKER_BUILD=true dotnet test tests/LotroKoniecDev.Frontend.E2E.Tests
+```
+
+The images are tagged per worktree (#884) as `<repository>:fe-e2e-<folder>-<hash>`: the suite name, the
+worktree's folder name, and 8 hex characters of a hash of the solution path. So two worktrees can run the
+suite at the same time, and each run tests its own code. The TMS suite does the same with the `e2e-`
+prefix. A run leaves one image set per worktree behind. When you delete a worktree, remove its images by
+hand:
+
+```bash
+docker image ls --filter label=lotrokoniecdev.e2e                     # every E2E image, all worktrees
+docker image ls --filter label=lotrokoniecdev.e2e --format '{{.Repository}}:{{.Tag}}' \
+  | grep -- '-ticket-884-' | xargs docker image rm                     # one worktree's set
 ```
 
 No Docker → the suite fails fast (it cannot boot the stack); it is **off the PR/CI gate by name**

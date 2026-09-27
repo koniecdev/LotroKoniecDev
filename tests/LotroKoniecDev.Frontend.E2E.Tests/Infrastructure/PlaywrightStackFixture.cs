@@ -188,7 +188,7 @@ public sealed class PlaywrightStackFixture : IAsyncLifetime
 
     private async Task RunMigratorAsync()
     {
-        _migrator = new ContainerBuilder(_worktree.ImageName(MigratorRepository))
+        _migrator = new ContainerBuilder(_worktree.Image(MigratorRepository))
             .WithNetwork(_network)
             .WithEnvironment("ASPNETCORE_ENVIRONMENT", "Development")
             .WithEnvironment("ConnectionStrings__TranslationDatabase", TranslationConnectionString)
@@ -211,7 +211,7 @@ public sealed class PlaywrightStackFixture : IAsyncLifetime
         // Testing profile: seeds a deterministic admin + the OpenIddict clients. The web client's
         // redirect/post-logout URIs and the issuer are pointed at the in-network HTTPS origins, and
         // Email targets Mailpit so a registration actually sends a confirmation link (no auto-confirm).
-        _authApi = new ContainerBuilder(_worktree.ImageName(AuthRepository))
+        _authApi = new ContainerBuilder(_worktree.Image(AuthRepository))
             .WithNetwork(_network)
             .WithNetworkAliases("auth-api")
             .WithPortBinding(HttpPort, true)
@@ -254,7 +254,7 @@ public sealed class PlaywrightStackFixture : IAsyncLifetime
         // tms validates JWTs against the issuer over HTTPS (JWKS from https://auth-api:8443), so it
         // trusts the e2e cert via the inline entrypoint. Not strictly exercised by the auth loop, but
         // kept wired so the stack is complete and the later editor/list flows have a target.
-        _tmsApi = new ContainerBuilder(_worktree.ImageName(TmsRepository))
+        _tmsApi = new ContainerBuilder(_worktree.Image(TmsRepository))
             .WithNetwork(_network)
             .WithNetworkAliases("tms-api")
             .WithPortBinding(HttpPort, true)
@@ -281,7 +281,7 @@ public sealed class PlaywrightStackFixture : IAsyncLifetime
     {
         // The RP's single Authority + the typed tms client both back-channel over HTTPS, so the FE
         // trusts the e2e cert via the inline entrypoint. The browser hits the FE at the same origin.
-        _frontend = new ContainerBuilder(_worktree.ImageName(FrontendRepository))
+        _frontend = new ContainerBuilder(_worktree.Image(FrontendRepository))
             .WithNetwork(_network)
             .WithNetworkAliases("frontend")
             .WithPortBinding(HttpPort, true)

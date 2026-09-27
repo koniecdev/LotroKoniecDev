@@ -148,7 +148,7 @@ public sealed class E2ETestFixture : IAsyncLifetime
         // A one-shot container: it migrates the TMS context through Persistence and then the Auth context
         // through the Auth API, exactly as the compose migrator does. Its environment matches compose and
         // carries only the connection strings.
-        _migrator = new ContainerBuilder(_worktree.ImageName(MigratorRepository))
+        _migrator = new ContainerBuilder(_worktree.Image(MigratorRepository))
             .WithNetwork(_network)
             .WithEnvironment("ASPNETCORE_ENVIRONMENT", "Development")
             .WithEnvironment("ConnectionStrings__TranslationDatabase", TranslationConnectionString)
@@ -171,7 +171,7 @@ public sealed class E2ETestFixture : IAsyncLifetime
         // No RegisterUser->CreatePerson saga is lifted (the translator profile is provisioned lazily on the first
         // authenticated TMS request), so there is no auth->tms startup dependency. auth-api is started first only
         // because tms-api fetches its JWKS from it; the seeded admin must also be live before any test logs in.
-        _authApi = new ContainerBuilder(_worktree.ImageName(AuthRepository))
+        _authApi = new ContainerBuilder(_worktree.Image(AuthRepository))
             .WithNetwork(_network)
             .WithNetworkAliases("auth-api")
             .WithPortBinding(8080, true)
@@ -207,7 +207,7 @@ public sealed class E2ETestFixture : IAsyncLifetime
 
         await _authApi.StartAsync();
 
-        _tmsApi = new ContainerBuilder(_worktree.ImageName(TmsRepository))
+        _tmsApi = new ContainerBuilder(_worktree.Image(TmsRepository))
             .WithNetwork(_network)
             .WithNetworkAliases("tms-api")
             .WithPortBinding(8080, true)

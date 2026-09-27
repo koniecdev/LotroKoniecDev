@@ -7,19 +7,21 @@ namespace LotroKoniecDev.Tests.Shared;
 
 /// <summary>
 /// The source tree an E2E run tests, and the Docker images the run builds from it (#884). The file is
-/// linked into both E2E suites, so they share one rule for naming their images.
+/// linked into both E2E suites, so they share one rule for naming and starting their images.
 /// </summary>
 /// <remarks>
 /// <para>
-/// The images used to have one fixed tag on every machine. A second worktree that built at the same
-/// time moved that tag, and the first run then started its containers from the other worktree's code.
-/// So the tag now names the worktree: the folder name, for a person who reads <c>docker images</c>, and
-/// a hash of the full path, because two clones can have the same folder name.
+/// A run starts its containers from the image IDs it built or found, never from a tag. The images used
+/// to have one fixed tag on every machine. A second worktree that built at the same time moved that tag
+/// while the first run was still starting containers, and the first run then tested the other
+/// worktree's code. An ID cannot move, so no other build can change what a run starts.
 /// </para>
 /// <para>
-/// The tag belongs to the worktree and not to one run. That keeps <c>SKIP_DOCKER_BUILD=true</c> useful:
-/// it reuses the images this worktree built last time. The price is that one image set stays behind per
-/// worktree, until someone removes it by <see cref="ImageLabel"/>.
+/// The tag still names the worktree: the folder name, for a person who reads <c>docker images</c>, and a
+/// hash of the full path, because two clones can have the same folder name. So
+/// <c>SKIP_DOCKER_BUILD=true</c> reuses the images this worktree built last time, and a run leaves one
+/// image set per worktree behind. A person removes the set of a deleted worktree by
+/// <see cref="ImageLabel"/>.
 /// </para>
 /// </remarks>
 internal sealed class E2EWorktree
@@ -34,30 +36,33 @@ internal sealed class E2EWorktree
     private const int FolderNameMaxLength = 40;
     private const int PathHashLength = 8;
 
+    private readonly string _imageTag;
+    private readonly Dictionary<string, string> _imageIds = [];
+
     public E2EWorktree(string suite)
     {
         SolutionDirectory = FindSolutionDirectory();
-        ImageTag = BuildImageTag(suite, SolutionDirectory);
+        _imageTag = BuildImageTag(suite, SolutionDirectory);
     }
 
     public string SolutionDirectory { get; }
 
-    public string ImageTag { get; }
-
-    public string ImageName(string repository) => $"{repository}:{ImageTag}";
+    /// <summary>The image ID a container of <paramref name="repository"/> must start from.</summary>
+    public string Image(string repository) =>
+        _imageIds.TryGetValue(repository, out string? imageId)
+            ? imageId
+            : throw new InvalidOperationException($"No image for '{repository}'. Call {nameof(BuildImagesAsync)} first.");
 
     /// <summary>
     /// Builds each image from this worktree. With <c>SKIP_DOCKER_BUILD=true</c> it builds nothing and
-    /// only checks that this worktree already has the images.
+    /// takes the images this worktree already has.
     /// </summary>
     public async Task BuildImagesAsync(IReadOnlyList<(string Repository, string Dockerfile)> images)
     {
-        string[] imageNames = images.Select(image => ImageName(image.Repository)).ToArray();
-
         if (Environment.GetEnvironmentVariable(SkipBuildVariable) == "true")
         {
-            Console.WriteLine($"Skipping Docker image build ({SkipBuildVariable}=true). Reusing the images tagged {ImageTag}.");
-            await EnsureImagesExistAsync(imageNames);
+            Console.WriteLine($"Skipping Docker image build ({SkipBuildVariable}=true). Reusing the images tagged {_imageTag}.");
+            await FindExistingImagesAsync(images.Select(image => image.Repository).ToArray());
             return;
         }
 
@@ -65,12 +70,24 @@ internal sealed class E2EWorktree
 
         foreach ((string repository, string dockerfile) in images)
         {
-            string imageName = ImageName(repository);
+            _imageIds[repository] = await BuildImageAsync(repository, dockerfile, cacheBust);
+        }
+
+        await RemoveOldUntaggedImagesAsync();
+    }
+
+    private async Task<string> BuildImageAsync(string repository, string dockerfile, string cacheBust)
+    {
+        string imageName = ImageName(repository);
+        string imageIdFile = Path.GetTempFileName();
+
+        try
+        {
             Console.WriteLine($"Building Docker image: {imageName}...");
 
             DockerResult result = await RunDockerAsync(
                 "build", "--build-arg", $"CACHEBUST={cacheBust}", "--label", ImageLabel,
-                "-f", dockerfile, "-t", imageName, ".");
+                "--iidfile", imageIdFile, "-f", dockerfile, "-t", imageName, ".");
 
             if (result.ExitCode != 0)
             {
@@ -80,34 +97,47 @@ internal sealed class E2EWorktree
                     $"Stdout:\n{result.Stdout}\nStderr:\n{result.Stderr}");
             }
 
-            Console.WriteLine($"Successfully built: {imageName}");
+            string imageId = (await File.ReadAllTextAsync(imageIdFile)).Trim();
+            Console.WriteLine($"Successfully built: {imageName} ({imageId})");
+            return imageId;
         }
-
-        await RemoveUntaggedImagesAsync();
+        finally
+        {
+            File.Delete(imageIdFile);
+        }
     }
 
-    private async Task EnsureImagesExistAsync(string[] imageNames)
+    private async Task FindExistingImagesAsync(string[] repositories)
     {
+        string[] imageNames = repositories.Select(ImageName).ToArray();
         DockerResult result = await RunDockerAsync(["image", "inspect", "--format", "{{.Id}}", .. imageNames]);
+        string[] imageIds = result.Stdout.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
 
-        if (result.ExitCode != 0)
+        if (result.ExitCode != 0 || imageIds.Length != repositories.Length)
         {
             throw new InvalidOperationException(
                 $"{SkipBuildVariable}=true, but this worktree does not have all of its images yet: " +
                 $"{string.Join(", ", imageNames)}.\n" +
                 $"Run the suite once without {SkipBuildVariable} to build them.\nStderr:\n{result.Stderr}");
         }
+
+        foreach ((string repository, string imageId) in repositories.Zip(imageIds))
+        {
+            _imageIds[repository] = imageId;
+        }
     }
 
     /// <summary>
     /// A rebuild moves the tag to the new image. On some Docker setups the old image then stays on disk
-    /// without a name, so every run would leave one more image set behind. Prune removes only such
-    /// untagged images, and never one that a container still uses, so it cannot break a run that is
-    /// going on in another worktree.
+    /// without a name, so every run would leave one more image set behind. Prune removes only images that
+    /// have no tag, that no container uses, and that are older than an hour. A run starts all of its
+    /// containers within minutes of finding its images, so the image a run is about to start is never
+    /// that old, even when another build in the same worktree has just taken its tag.
     /// </summary>
-    private async Task RemoveUntaggedImagesAsync()
+    private async Task RemoveOldUntaggedImagesAsync()
     {
-        DockerResult result = await RunDockerAsync("image", "prune", "--force", "--filter", $"label={ImageLabel}");
+        DockerResult result = await RunDockerAsync(
+            "image", "prune", "--force", "--filter", $"label={ImageLabel}", "--filter", "until=1h");
 
         if (result.ExitCode != 0)
         {
@@ -115,6 +145,8 @@ internal sealed class E2EWorktree
             Console.WriteLine($"Could not remove untagged E2E images (exit code {result.ExitCode}).\nStderr:\n{result.Stderr}");
         }
     }
+
+    private string ImageName(string repository) => $"{repository}:{_imageTag}";
 
     private async Task<DockerResult> RunDockerAsync(params string[] arguments)
     {
@@ -153,7 +185,10 @@ internal sealed class E2EWorktree
             .Take(FolderNameMaxLength)
             .ToArray());
 
-        string pathHash = Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(solutionDirectory)))[..PathHashLength];
+        // Lower case first: Windows and macOS ignore case in paths, and two ways of starting the tests
+        // can spell the same folder differently. The same worktree must always get the same tag.
+        string pathHash = Convert.ToHexStringLower(
+            SHA256.HashData(Encoding.UTF8.GetBytes(solutionDirectory.ToLowerInvariant())))[..PathHashLength];
 
         return $"{suite}-{folderName}-{pathHash}";
     }

@@ -295,11 +295,13 @@ layer the in-process `*.Tests.Integration` suite fakes by forging HS256 tokens.
 `.config/dotnet-tools.json` or any Dockerfile — CI-03/#433, so Dependabot bumps exercise it) or a local
 `dotnet test` of the project. It IS compiled by the solution build, so the zero-warning gate still covers it.
 
-**Both E2E suites tag their images per worktree (#884).** `tests/Shared/E2EWorktree.cs`, linked into both
-projects, names every image `<repository>:<suite>-<folder>-<8 hex of the solution path>` and labels it
-`lotrokoniecdev.e2e`. A fixed tag let a second worktree's build move the tag while the first run was still
-starting its containers, so that run tested the other worktree's code (seen on #871). Never go back to a
-fixed tag, and never give a fixture its own copy of the build loop: both suites must name images the same way.
+**Both E2E suites start their containers from image IDs, never from tags (#884).** A fixed tag let a second
+worktree's build move the tag while the first run was still starting its containers, so that run tested the
+other worktree's code (seen on #871). `tests/Shared/E2EWorktree.cs`, linked into both projects, builds with
+`--iidfile` and hands each container the ID its own build produced. The tag only names the worktree
+(`<repository>:<suite>-<folder>-<8 hex of the solution path>`, label `lotrokoniecdev.e2e`), so
+`SKIP_DOCKER_BUILD=true` reuses this worktree's images and a run leaves one set per worktree. Never start a
+container from a tag, and never give a fixture its own copy of the build loop.
 
 ## Frontend Browser E2E Tests (LotroKoniecDev.Frontend.E2E.Tests)
 

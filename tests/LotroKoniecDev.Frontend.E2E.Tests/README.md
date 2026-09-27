@@ -37,16 +37,17 @@ dotnet test tests/LotroKoniecDev.Frontend.E2E.Tests
 SKIP_DOCKER_BUILD=true dotnet test tests/LotroKoniecDev.Frontend.E2E.Tests
 ```
 
-The images are tagged per worktree (#884) as `<repository>:fe-e2e-<folder>-<hash>`: the suite name, the
-worktree's folder name, and 8 hex characters of a hash of the solution path. So two worktrees can run the
-suite at the same time, and each run tests its own code. The TMS suite does the same with the `e2e-`
-prefix. A run leaves one image set per worktree behind. When you delete a worktree, remove its images by
-hand:
+Each run starts its containers from the image IDs its own build produced, so two runs at the same time,
+from two worktrees or from one, each test their own code (#884). The images are also tagged per worktree
+as `<repository>:fe-e2e-<folder>-<hash>`: the suite name, the worktree's folder name, and 8 hex characters
+of a hash of the solution path. The TMS suite uses the `e2e-` prefix. A run leaves one image set per
+worktree behind. When you delete a worktree, remove its images by hand. Copy `<folder>-<hash>` from the
+first listing:
 
 ```bash
-docker image ls --filter label=lotrokoniecdev.e2e                     # every E2E image, all worktrees
+docker image ls --filter label=lotrokoniecdev.e2e --format '{{.Repository}}:{{.Tag}}'    # all worktrees
 docker image ls --filter label=lotrokoniecdev.e2e --format '{{.Repository}}:{{.Tag}}' \
-  | grep -- '-ticket-884-' | xargs docker image rm                     # one worktree's set
+  | grep -E ':(fe-)?e2e-<folder>-<hash>$' | xargs -r docker image rm                     # one worktree
 ```
 
 No Docker → the suite fails fast (it cannot boot the stack); it is **off the PR/CI gate by name**

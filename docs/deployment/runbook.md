@@ -570,8 +570,10 @@ and has no armed undo link. That is what an admin half-made by a crash before #8
 the admin inbox can give it a password. `EmailConfirmed` alone is **not** enough. An e-mail change
 moves someone else's account onto your address, with their password, as soon as you click the confirm
 link it mails you, and its undo link can later take the row back, role included (ADR-0048). The
-statements below end any session still open on the row (a refresh does not check the security stamp,
-#848), then grant the role only when all three conditions hold:
+statements below end any session still open on the row, then grant the role only when all three
+conditions hold. The deletes are a second layer: every flow that wipes a password also changes the
+security stamp, and a refresh fails once the stamp has changed (#848). But granting a role does not
+change the stamp, and a session that survived would get the Admin role at its next refresh.
 
 ```sql
 DELETE FROM authsystem."OpenIddictTokens" WHERE "Subject" = '<Id from the SELECT>';

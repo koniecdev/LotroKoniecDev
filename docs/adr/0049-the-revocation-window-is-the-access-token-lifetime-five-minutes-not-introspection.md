@@ -120,3 +120,21 @@ end a takeover now, and an hour is not now.
 **Reopen this decision when:** five minutes is judged too long — most likely once there are real
 users and a real takeover — or a second consumer of user access tokens appears outside the frontend,
 which would make one shared introspection point cheaper than it is today.
+
+## Amendment (2026-09-27, #848): a changed security stamp ends the refresh, not only the revoke
+
+The Context above names two things that end a session: `RevokeAllAsync` and the stamp check on the
+auth-server cookie. The token endpoint had neither. It never compared the security stamp, so a
+refresh token that the revoke missed kept working for its whole 14 days. The revoke is best effort,
+and cancelling a deletion changes the stamp without revoking anything.
+
+Every sign-in now writes the current stamp into the principal, with no destination. OpenIddict keeps
+it in the authorization code and the refresh token, which only auth-api can read, and never puts it
+into the unencrypted access token or the ID token. The code exchange and every refresh compare it
+with the account's stamp (`SessionSecurityStamp`) and answer `invalid_grant` on a mismatch. A token
+issued before this change has no stamp and is refused, so everyone signs in again once.
+
+The revoke stays. The two layers now fail independently: the revoke still ends a session if a stamp
+update fails, and the stamp check ends one the revoke missed. This amendment does not change the
+decision. An access token already handed out still lives up to five minutes.
+

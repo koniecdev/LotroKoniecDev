@@ -704,7 +704,9 @@ The system uses the standard web login flow. In plain words:
      ID), `name`, `email`, and `role`. It is short on purpose: the TMS validates it locally, so
      this is also how long a revoked session keeps working (ADR-0049);
    - a **refresh token** — a *reference* token, valid **14 days**, stored server-side in the
-     auth database, so it can be revoked; it is *rolling*: every use replaces it.
+     auth database, so it can be revoked; it is *rolling*: every use replaces it. It also
+     carries your account's security stamp, so it stops working once a password change, a reset
+     or a cancelled deletion changes that stamp, even if revoking it failed (#848).
 5. The frontend stores the tokens **inside an encrypted cookie** (`.lotrokoniecdev.auth`,
    HttpOnly, 8-hour sliding). The browser never sees raw tokens in JavaScript — there is no
    JavaScript.

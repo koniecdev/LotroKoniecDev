@@ -354,10 +354,13 @@ try
         app.UseRateLimiter();
     }
 
+    // This goes around authentication and authorization, so it sees their answers. UseAuthorization
+    // refuses a call with 401 or 403 itself and never calls the next step. When this ran after it, it
+    // saw almost no refused call (#854).
+    app.UseAuthorizationLogging();
+
     app.UseAuthentication();
     app.UseAuthorization();
-
-    app.UseAuthorizationLogging();
 
     // Create the caller's Translator on their first authenticated request (ADR-0004, amended
     // 2026-06-24), so a user who just registered and logged in already has a TMS profile before any

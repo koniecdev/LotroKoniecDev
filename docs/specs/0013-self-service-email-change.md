@@ -230,6 +230,7 @@ outlier and explicitly **not** the pattern here.
   `NormalizedEmailChangeRevertTo` when it arms the undo, and `IEmailChangeRevertReservation`
   refuses that address to `RegisterUser`, `RequestEmailChange` and `ConfirmEmailChange` — with the
   `UserAlreadyExistsByEmail` they already give a taken address, because it was taken a moment ago.
+  The admin seeder asks the same check and skips the seed with warning `2355` (#849).
   The reservation is one indexed lookup, it excludes the account that armed it (going back is the
   move it protects), and it dies with the revert token's own 14-day lifespan, so no address is ever
   blocked for good. A later change in the chain re-arms nothing and does not extend the window, and

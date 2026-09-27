@@ -606,18 +606,19 @@ DELETE FROM authsystem."Users" WHERE "Id" = '<Id from the SELECT>';
 ```
 
 **Warning `2355`: an account can still undo an e-mail change back to the admin address.** The seeder
-logs it on every start when `AUTH_ADMIN_EMAIL` matches no account, but an account moved off that
-address less than 14 days ago and its undo link still works (#849). An admin created at that address
-would make the undo link fail for good, so the seeder skips it. Look at the account that holds the
-address:
+logs it on every start when `AUTH_ADMIN_EMAIL` matches no account and `AUTH_ADMIN_USERNAME` is free,
+but an account moved off that address less than 14 days ago and its undo link still works (#849). An
+admin created at that address would make the undo link fail for good, so the seeder skips it. (When
+the admin itself changed its address, you get warning `2353` instead, because its username is
+taken.) Look at the account that holds the address:
 
 ```sql
-SELECT "Id", "UserName", "Email", "EmailChangeRevertArmedAt" FROM authsystem."Users" WHERE "NormalizedEmailChangeRevertTo" = upper('<admin e-mail>');
+-- Only undo links that still work: older ones, or rows from before #684 with no timestamp, reserve nothing.
+SELECT "Id", "UserName", "Email", "EmailChangeRevertArmedAt" FROM authsystem."Users" WHERE "NormalizedEmailChangeRevertTo" = upper('<admin e-mail>') AND "EmailChangeRevertArmedAt" > now() - interval '14 days';
 ```
 
-- **It is your own admin, which moved to a new address in the product.** Put its new address
-  (`Email`) into `AUTH_ADMIN_EMAIL`, or ignore the warning. When the 14 days are over, warning `2353`
-  takes its place, because the username is taken.
+- **It is an account of yours that moved to a new address.** Put that address (`Email`) into
+  `AUTH_ADMIN_EMAIL` if the account is the admin, or ignore the warning until the 14 days are over.
 - **It is someone else's account.** Leave it alone, and never clear its `EmailChangeRevertTo` by
   hand: if the change was a hijack, that link is how the owner gets the account back. Put another
   address into `AUTH_ADMIN_EMAIL`, or wait until 14 days after `EmailChangeRevertArmedAt` and restart

@@ -1,7 +1,8 @@
 # ADR-0056: The Admin Is Seeded Without a Password and Gets One From the Reset Mail
 
 **Status:** Accepted (amended 2026-09-24 by #839 — the account and its role are one write, and an
-existing account is never promoted)
+existing account is never promoted — and 2026-09-27 by #849 — an address held for an undo link is
+skipped)
 **Date:** 2026-09-23
 **Decision-makers:** Solo maintainer (ticket #696)
 **Related:** AuthSystem.API (`Extensions/DatabaseSeederExtensions.cs`, `Pages/Account/Login.cshtml.cs`),
@@ -174,9 +175,8 @@ an outage. A warning says the same thing without taking the site down.
   `DatabaseSeederExtensionsTests`.
 - `LoginPageTests` pins decision 4 with `SpyPasswordHasher`: every failure a caller can reach without
   the password verifies exactly one hash.
-- Event ids `2351`–`2353` sit in the Startup range of `EventIds.cs`. The amendment below adds `2354`.
-  #849 adds `2355`: the seeder also skips an address that another account can still undo an e-mail
-  change back to. It asks the same reservation check as registration (#684).
+- Event ids `2351`–`2353` sit in the Startup range of `EventIds.cs`. The amendments below add `2354`
+  and `2355`.
 - The integration tests seed with a stub `IWebHostEnvironment` (`Production`, `Staging`) against the
   Testing host. The cleaner does not truncate `OpenIddictApplications`, so the reseed leaves the test
   client in place.
@@ -211,6 +211,22 @@ This is the same choice as decision 5: a startup that meets something it did not
 moves on, and never crashes or guesses. The tests are in `AdminSeedingTests`: a failure between the
 two writes, a transient failure on the role write, a commit that lands but whose answer is lost, and
 an existing account at the admin address.
+
+## Amendment (2026-09-27, #849 — SEC-28): an address held for an undo link is skipped
+
+When an account changes its e-mail address, the old address stays reserved while the undo link lives
+(ADR-0048 rule 4, #684). Registration and both legs of the e-mail change already refuse it. The seeder
+did not: it only asked whether an account had the address right now. So it could create the admin on
+a reserved address, and the owner's undo link then failed for good. If the change was a hijack, that
+link is the owner's easy way back.
+
+The seeder now asks the same reservation check. When the address is reserved, it logs warning `2355`
+and moves on, the same choice as decision 5. The check runs **after** the username check, not in
+`RegisterUser`'s order. When the admin itself moved off the configured address, its username is taken,
+so the operator keeps getting `2353`, which decision 5 and the runbook already explain. `2355`
+therefore appears only when the configured username is free, so the holder is some other account. The
+warning names no account, because the reservation only answers yes or no. The runbook's query finds
+the holder. The tests are in `AdminSeedingTests`.
 
 ## References
 

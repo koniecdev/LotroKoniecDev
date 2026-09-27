@@ -73,8 +73,8 @@ internal sealed class TokenEndpoint : IEndpoint
         }
 
         // The code carries the stamp read at /connect/authorize. A password reset in the seconds before
-        // the code is redeemed must not hand out a refresh token that the next refresh would refuse
-        // anyway (#848).
+        // the code is redeemed must not hand out tokens: the access token would still work for five
+        // minutes after the reset (#848, ADR-0049).
         string? userId = result.Principal.GetClaim(Claims.Subject);
         ApplicationUser? user = string.IsNullOrEmpty(userId) ? null : await userManager.FindByIdAsync(userId);
 
@@ -87,7 +87,7 @@ internal sealed class TokenEndpoint : IEndpoint
         }
 
         return Results.SignIn(
-            result.Principal!,
+            result.Principal,
             authenticationScheme: OpenIddictServerAspNetCoreDefaults.AuthenticationScheme);
     }
 

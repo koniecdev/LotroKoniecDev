@@ -14,8 +14,8 @@ namespace LotroKoniecDev.AuthSystem.API.Services.Sessions;
 /// </summary>
 /// <remarks>
 /// The claim must get no destination. OpenIddict then keeps it only in the authorization code and the
-/// refresh token, which only this server can read. Access tokens are not encrypted, and Identity uses
-/// the stamp as the key of its e-mail codes, so the stamp must never reach a token a client can read.
+/// refresh token, which only this server can read. Access tokens are not encrypted, and the stamp is
+/// server-side state that Identity checks its own tokens against, so no client needs to see it.
 /// </remarks>
 internal static class SessionSecurityStamp
 {

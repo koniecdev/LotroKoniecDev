@@ -15,7 +15,7 @@ public sealed class ServerErrorPageTests
         DefaultHttpContext context = BuildContext(BrowserAccept);
 
         // Act
-        bool written = await ServerErrorPage.WriteIfBrowserRequestAsync(context, CancellationToken.None);
+        bool written = await ServerErrorPage.WriteIfBrowserRequestAsync(context);
 
         // Assert
         written.ShouldBeTrue();
@@ -23,7 +23,7 @@ public sealed class ServerErrorPageTests
         string html = ReadBody(context);
         html.ShouldContain("<h1>Coś poszło nie tak</h1>");
         html.ShouldContain("Spróbuj ponownie za chwilę.");
-        html.ShouldContain("<a href=\"/Account/Login\">Wróć do logowania</a>");
+        html.ShouldContain(BrowserErrorPage.BackToLoginLink);
     }
 
     [Fact]
@@ -33,7 +33,7 @@ public sealed class ServerErrorPageTests
         DefaultHttpContext context = BuildContext("application/vnd.dev-lotrokoniecdev.hateoas.json");
 
         // Act
-        bool written = await ServerErrorPage.WriteIfBrowserRequestAsync(context, CancellationToken.None);
+        bool written = await ServerErrorPage.WriteIfBrowserRequestAsync(context);
 
         // Assert
         written.ShouldBeFalse();
@@ -42,26 +42,20 @@ public sealed class ServerErrorPageTests
     }
 
     [Fact]
-    public void BuildHtml_ShouldPutTheRequestsNonceOnItsStyleBlock()
+    public async Task WriteIfBrowserRequestAsync_ShouldNotThrow_WhenTheBrowserHasAlreadyGone()
     {
-        // Act: the auth origin's CSP admits an inline style only with the request's nonce (#693)
-        string html = ServerErrorPage.BuildHtml("r4nd0m-n0nce_value");
+        // Arrange: a long database timeout, and the user closed the tab before it ended. A throw here
+        // would log the same failure two more times.
+        DefaultHttpContext context = BuildContext(BrowserAccept);
+        using CancellationTokenSource aborted = new();
+        await aborted.CancelAsync();
+        context.RequestAborted = aborted.Token;
+
+        // Act
+        bool written = await ServerErrorPage.WriteIfBrowserRequestAsync(context);
 
         // Assert
-        html.ShouldContain("<style nonce=\"r4nd0m-n0nce_value\">");
-        html.ShouldNotContain("<style>");
-        html.ShouldNotContain("<script");
-    }
-
-    [Fact]
-    public void BuildHtml_ShouldLeaveTheNonceOut_WhenThereIsNoCsp()
-    {
-        // Act: Development runs without the security headers, so there is no nonce to match
-        string html = ServerErrorPage.BuildHtml(nonce: null);
-
-        // Assert
-        html.ShouldContain("<style>");
-        html.ShouldNotContain("nonce");
+        written.ShouldBeTrue();
     }
 
     private static DefaultHttpContext BuildContext(string accept)

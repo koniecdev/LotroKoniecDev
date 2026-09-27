@@ -20,12 +20,14 @@ internal static class BrowserErrorPage
 
     /// <summary>
     /// A browser names <c>text/html</c> when it opens a page. An API client does not: the frontend asks for
-    /// the HATEOAS JSON type, and <c>curl</c> or <c>fetch</c> send <c>*/*</c>.
+    /// the HATEOAS JSON type, and <c>curl</c> or <c>fetch</c> send <c>*/*</c>. A caller that names it with
+    /// <c>q=0</c> says it does not accept HTML, so it keeps the JSON.
     /// </summary>
     internal static bool WantsHtml(HttpRequest request)
     {
-        return request.Headers.Accept.Any(value =>
-            value?.Contains(MediaTypeNames.Text.Html, StringComparison.OrdinalIgnoreCase) == true);
+        return request.GetTypedHeaders().Accept.Any(value =>
+            value.MediaType.Equals(MediaTypeNames.Text.Html, StringComparison.OrdinalIgnoreCase)
+            && value.Quality is not 0.0);
     }
 
     internal static Task WriteAsync(HttpContext httpContext, string html, CancellationToken cancellationToken)

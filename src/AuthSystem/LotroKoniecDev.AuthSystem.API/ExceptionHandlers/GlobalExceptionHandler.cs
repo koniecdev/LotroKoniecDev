@@ -30,7 +30,7 @@ internal sealed partial class GlobalExceptionHandler : IExceptionHandler
         httpContext.Response.StatusCode = StatusCodes.Status500InternalServerError;
 
         // A browser also accepts */*, so without this it would get the JSON below (#867).
-        if (await ServerErrorPage.WriteIfBrowserRequestAsync(httpContext, cancellationToken))
+        if (await ServerErrorPage.WriteIfBrowserRequestAsync(httpContext))
         {
             return true;
         }

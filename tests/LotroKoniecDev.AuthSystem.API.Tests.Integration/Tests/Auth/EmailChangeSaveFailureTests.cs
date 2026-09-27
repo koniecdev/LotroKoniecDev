@@ -102,10 +102,7 @@ public sealed partial class EmailChangeSaveFailureTests : EndpointsTestBase
     public async Task ConfirmPage_Post_ShouldShowABrowserThePolishErrorPage_WhenTheSaveFailsForAnotherReason()
     {
         // Arrange
-        (RegisterRequest user, string newEmail, string token) = await RequestChangeAsync();
-        Guid userId = await UserIdOfAsync(user.Email);
-        Factory.DbCommandFailures.FailNext(
-            IsUpdateOfUsers, () => CreatePermanentFailure(PostgresErrorCodes.NotNullViolation, null));
+        (Guid userId, string newEmail, string token) = await RequestAChangeWhoseConfirmWillFailAsync();
 
         // Act
         using HttpResponseMessage response = await PostToPageAsync(
@@ -154,10 +151,7 @@ public sealed partial class EmailChangeSaveFailureTests : EndpointsTestBase
     public async Task ConfirmPage_Post_ShouldNotNameTheExceptionOnTheErrorPage_WhenTheSaveFailsForAnotherReason()
     {
         // Arrange
-        (RegisterRequest user, string newEmail, string token) = await RequestChangeAsync();
-        Guid userId = await UserIdOfAsync(user.Email);
-        Factory.DbCommandFailures.FailNext(
-            IsUpdateOfUsers, () => CreatePermanentFailure(PostgresErrorCodes.NotNullViolation, null));
+        (Guid userId, string newEmail, string token) = await RequestAChangeWhoseConfirmWillFailAsync();
 
         // Act
         using HttpResponseMessage response = await PostToPageAsync(
@@ -183,10 +177,7 @@ public sealed partial class EmailChangeSaveFailureTests : EndpointsTestBase
     public async Task ConfirmPage_Post_ShouldKeepTheSecurityHeadersOnTheErrorPage_WhenTheSaveFailsForAnotherReason()
     {
         // Arrange
-        (RegisterRequest user, string newEmail, string token) = await RequestChangeAsync();
-        Guid userId = await UserIdOfAsync(user.Email);
-        Factory.DbCommandFailures.FailNext(
-            IsUpdateOfUsers, () => CreatePermanentFailure(PostgresErrorCodes.NotNullViolation, null));
+        (Guid userId, string newEmail, string token) = await RequestAChangeWhoseConfirmWillFailAsync();
 
         // Act
         using HttpResponseMessage response = await PostToPageAsync(
@@ -743,6 +734,19 @@ public sealed partial class EmailChangeSaveFailureTests : EndpointsTestBase
         user.ShouldNotBeNull();
 
         (await userManager.AccessFailedAsync(user)).Succeeded.ShouldBeTrue();
+    }
+
+    /// <summary>
+    /// A pending change whose confirm save will fail with an error that is not about the address.
+    /// </summary>
+    private async Task<(Guid UserId, string NewEmail, string Token)> RequestAChangeWhoseConfirmWillFailAsync()
+    {
+        (RegisterRequest user, string newEmail, string token) = await RequestChangeAsync();
+        Guid userId = await UserIdOfAsync(user.Email);
+        Factory.DbCommandFailures.FailNext(
+            IsUpdateOfUsers, () => CreatePermanentFailure(PostgresErrorCodes.NotNullViolation, null));
+
+        return (userId, newEmail, token);
     }
 
     private async Task<(RegisterRequest User, string NewEmail, string Token)> RequestChangeAsync()

@@ -15,16 +15,20 @@ internal static class ServerErrorPage
     /// Writes the page for a browser and returns true when it did, so an API client can still get
     /// problem details.
     /// </summary>
-    internal static async Task<bool> WriteIfBrowserRequestAsync(
-        HttpContext httpContext,
-        CancellationToken cancellationToken)
+    /// <remarks>
+    /// The write does not listen to <c>RequestAborted</c>. A failure that takes long, like a database
+    /// timeout, is often the one after which the user has closed the tab. A cancelled write would then
+    /// throw inside the exception handler and log the same failure two more times. Kestrel drops a write
+    /// to a closed connection anyway.
+    /// </remarks>
+    internal static async Task<bool> WriteIfBrowserRequestAsync(HttpContext httpContext)
     {
         if (!BrowserErrorPage.WantsHtml(httpContext.Request))
         {
             return false;
         }
 
-        await BrowserErrorPage.WriteAsync(httpContext, BuildHtml(CspNonce.Get(httpContext)), cancellationToken);
+        await BrowserErrorPage.WriteAsync(httpContext, BuildHtml(CspNonce.Get(httpContext)), CancellationToken.None);
         return true;
     }
 

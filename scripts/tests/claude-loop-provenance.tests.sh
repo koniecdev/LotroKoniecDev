@@ -248,9 +248,12 @@ fixture_prs() {
     printf '%s]' "$json" > "$GH_FIXTURES/pr-list.json"
 }
 
-# fixture_pr_view <number> <state> <headRefName> — what `gh pr view <number>` returns.
+# fixture_pr_view <number> <state> <headRefName> [fork] — what `gh pr view <number>` returns.
 fixture_pr_view() {
-    printf '{"number":%s,"state":"%s","headRefName":"%s"}' "$1" "$2" "$3" > "$GH_FIXTURES/pr-view-$1.json"
+    local fork=false
+    [ "${4:-}" = "fork" ] && fork=true
+    printf '{"number":%s,"state":"%s","headRefName":"%s","isCrossRepository":%s}' "$1" "$2" "$3" "$fork" \
+        > "$GH_FIXTURES/pr-view-$1.json"
 }
 
 reset_fixtures() {
@@ -537,6 +540,14 @@ behavior() {
 WT_ROOT="$FAKE_REPO/.claude/worktrees"
 export REAL_SLEEP
 
+# A process that has exited but was never reaped still answers `kill -0`; in a container whose PID 1
+# reaps nothing, an orphan stays that way. Such a zombie is dead for these tests.
+alive() {
+    kill -0 "$1" 2>/dev/null || return 1
+    case "$(ps -o stat= -p "$1" 2>/dev/null)" in Z*|"") return 1 ;; esac
+    return 0
+}
+
 # The main checkout is dirty and sits on another branch, and its local `main` carries a commit
 # origin does not have: the loop must cut every worktree from origin/main and touch nothing here.
 git -C "$FAKE_REPO" update-ref refs/heads/main \
@@ -622,8 +633,8 @@ cases=$((cases + 1)); printf '✓ work-ticket: a stopped rebase is left for a hu
 
 reset_fixtures
 fixture_issue 74 maintainer OWNER
-behavior "$TMP_ROOT/garbage.sh" 'echo "{\"result\":\"I think I am done\",\"is_error\":false}"'
-run_case 3 "work-ticket: a final message without a STATUS block is an error" \
+behavior "$TMP_ROOT/garbage.sh" 'echo "{\"result\":\"Review done: the rate limit and quota checks look right.\",\"is_error\":false}"'
+run_case 3 "work-ticket: a final message without a STATUS block is an error, even one about rate limits" \
     env CLAUDE_BEHAVIOR="$TMP_ROOT/garbage.sh" "$WORK" 74 "$TMP_ROOT/run"
 [ ! -e "$WT_ROOT/ticket-74" ] || fail "the worktree should be removed after an error too"
 
@@ -647,6 +658,13 @@ fixture_issue 77 maintainer OWNER
 fixture_pr_view 777 OPEN 12-another-ticket
 run_case 3 "work-ticket: DONE naming another ticket's PR is an error" \
     env CLAUDE_BEHAVIOR="$TMP_ROOT/done.sh" "$WORK" 77 "$TMP_ROOT/run"
+expect_in_output "not an open PR for this ticket"
+
+reset_fixtures
+fixture_issue 84 maintainer OWNER
+fixture_pr_view 784 OPEN 84-fixture fork
+run_case 3 "work-ticket: DONE naming a fork's PR is an error" \
+    env CLAUDE_BEHAVIOR="$TMP_ROOT/done.sh" "$WORK" 84 "$TMP_ROOT/run"
 expect_in_output "not an open PR for this ticket"
 
 reset_fixtures
@@ -687,36 +705,81 @@ grep -qx "outcome=no-worktree" "$TMP_ROOT/run/ticket-82.meta" || fail "meta shou
 [ ! -f "$CLAUDE_MARKER" ] || fail "no session may start without a worktree"
 
 # A stop signal ends the session and everything it started, then salvages and cleans up.
-reset_fixtures
-fixture_issue 83 maintainer OWNER
-rm -f "$TMP_ROOT/session-child"
-behavior "$TMP_ROOT/long.sh" 'git checkout -q -b 83-fixture
+# stop_case <ticket> <signal...> — sends the signals in order to a worker whose session is busy.
+stop_case() {
+    local ticket="$1" worker term_rc=0 session_child
+    shift
+    reset_fixtures
+    fixture_issue "$ticket" maintainer OWNER
+    rm -f "$TMP_ROOT/session-child"
+    behavior "$TMP_ROOT/long.sh" 'git checkout -q -b "${PWD##*ticket-}-fixture"
 echo "partial" > partial.txt
 "$REAL_SLEEP" 60 &
 echo $! > "'"$TMP_ROOT"'/session-child"
 wait'
-env CLAUDE_BEHAVIOR="$TMP_ROOT/long.sh" "$WORK" 83 "$TMP_ROOT/run" > "$TMP_ROOT/term.out" 2>&1 &
+    env CLAUDE_BEHAVIOR="$TMP_ROOT/long.sh" "$WORK" "$ticket" "$TMP_ROOT/run" > "$TMP_ROOT/term.out" 2>&1 &
+    worker=$!
+    for _ in $(seq 1 100); do [ -s "$TMP_ROOT/session-child" ] && break; "$REAL_SLEEP" 0.1; done
+    [ -s "$TMP_ROOT/session-child" ] || { kill "$worker" 2>/dev/null; fail "the fake session never started" "$(cat "$TMP_ROOT/term.out")"; }
+    for signal in "$@"; do kill -"$signal" "$worker"; done
+    for _ in $(seq 1 100); do alive "$worker" || break; "$REAL_SLEEP" 0.1; done
+    if alive "$worker"; then
+        kill -KILL "$worker"
+        fail "work-ticket did not stop within 10 seconds of $*" "$(cat "$TMP_ROOT/term.out")"
+    fi
+    wait "$worker" || term_rc=$?
+    [ "$term_rc" -eq 143 ] || fail "a stopped worker should exit 143, got $term_rc" "$(cat "$TMP_ROOT/term.out")"
+    session_child="$(cat "$TMP_ROOT/session-child")"
+    if alive "$session_child"; then
+        kill "$session_child"
+        fail "a process the session started outlived the stop"
+    fi
+    grep -qx "outcome=stopped" "$TMP_ROOT/run/ticket-$ticket.meta" || fail "meta should say stopped" "$(cat "$TMP_ROOT/run/ticket-$ticket.meta")"
+    [ -n "$(git -C "$FAKE_REPO" for-each-ref "refs/heads/loop-salvage/$ticket-*")" ] \
+        || fail "a stopped session's work should be salvaged" "$(cat "$TMP_ROOT/term.out")"
+    [ ! -e "$WT_ROOT/ticket-$ticket" ] || fail "a stopped run should not leave its worktree behind"
+    cases=$((cases + 1)); printf '✓ work-ticket: %s stops the session and its children, salvages, and cleans up\n' "$*"
+}
+stop_case 83 TERM
+# Closing the terminal: HUP to the job, then TERM from the conductor's trap.
+stop_case 85 HUP TERM
+
+# A SIGKILL runs no trap. The watchdog inside the session's group must end the session anyway.
+reset_fixtures
+fixture_issue 86 maintainer OWNER
+rm -f "$TMP_ROOT/session-child"
+env CLAUDE_BEHAVIOR="$TMP_ROOT/long.sh" "$WORK" 86 "$TMP_ROOT/run" > "$TMP_ROOT/kill.out" 2>&1 &
 worker=$!
 for _ in $(seq 1 100); do [ -s "$TMP_ROOT/session-child" ] && break; "$REAL_SLEEP" 0.1; done
-[ -s "$TMP_ROOT/session-child" ] || { kill "$worker" 2>/dev/null; fail "the fake session never started" "$(cat "$TMP_ROOT/term.out")"; }
-kill -TERM "$worker"
-term_rc=0
-for _ in $(seq 1 100); do kill -0 "$worker" 2>/dev/null || break; "$REAL_SLEEP" 0.1; done
-if kill -0 "$worker" 2>/dev/null; then
-    kill -KILL "$worker"
-    fail "work-ticket did not stop within 10 seconds of TERM" "$(cat "$TMP_ROOT/term.out")"
-fi
-wait "$worker" || term_rc=$?
-[ "$term_rc" -eq 143 ] || fail "a stopped worker should exit 143, got $term_rc" "$(cat "$TMP_ROOT/term.out")"
+[ -s "$TMP_ROOT/session-child" ] || { kill "$worker" 2>/dev/null; fail "the fake session never started" "$(cat "$TMP_ROOT/kill.out")"; }
+kill -KILL "$worker"
+wait "$worker" 2>/dev/null || true
 session_child="$(cat "$TMP_ROOT/session-child")"
-if kill -0 "$session_child" 2>/dev/null; then
+for _ in $(seq 1 100); do alive "$session_child" || break; "$REAL_SLEEP" 0.1; done
+if alive "$session_child"; then
     kill "$session_child"
-    fail "a process the session started outlived the stop"
+    fail "the session outlived a SIGKILL of its worker"
 fi
-grep -qx "outcome=stopped" "$TMP_ROOT/run/ticket-83.meta" || fail "meta should say stopped" "$(cat "$TMP_ROOT/run/ticket-83.meta")"
-salvage_branch="$(git -C "$FAKE_REPO" for-each-ref --format='%(refname:short)' 'refs/heads/loop-salvage/83-*')"
-[ -n "$salvage_branch" ] || fail "a stopped session's work should be salvaged" "$(cat "$TMP_ROOT/term.out")"
-[ ! -e "$WT_ROOT/ticket-83" ] || fail "a stopped run should not leave its worktree behind"
-cases=$((cases + 1)); printf '✓ work-ticket: TERM stops the session and its children, salvages, and cleans up\n'
+git -C "$FAKE_REPO" worktree remove --force "$WT_ROOT/ticket-86"
+cases=$((cases + 1)); printf '✓ work-ticket: a SIGKILLed worker does not leave its session running\n'
+
+# A session that ends normally may leave something running in its group; it ends with the session.
+reset_fixtures
+fixture_issue 87 maintainer OWNER
+fixture_pr_view 787 OPEN 87-fixture
+rm -f "$TMP_ROOT/session-child"
+behavior "$TMP_ROOT/done-leaves-child.sh" 'git checkout -q -b 87-fixture
+"$REAL_SLEEP" 60 > /dev/null 2>&1 &
+echo $! > "'"$TMP_ROOT"'/session-child"
+echo "{\"result\":\"STATUS: DONE\\nPR: https://github.com/koniecdev/LotroKoniecDev/pull/787\",\"is_error\":false}"'
+run_case 0 "work-ticket: a session that ends normally" \
+    env CLAUDE_BEHAVIOR="$TMP_ROOT/done-leaves-child.sh" "$WORK" 87 "$TMP_ROOT/run"
+session_child="$(cat "$TMP_ROOT/session-child")"
+for _ in $(seq 1 50); do alive "$session_child" || break; "$REAL_SLEEP" 0.1; done
+if alive "$session_child"; then
+    kill "$session_child"
+    fail "a process a finished session left behind is still running"
+fi
+cases=$((cases + 1)); printf '✓ work-ticket: what a finished session left running ends with it\n'
 
 printf 'All %d provenance-gate case(s) passed.\n' "$cases"

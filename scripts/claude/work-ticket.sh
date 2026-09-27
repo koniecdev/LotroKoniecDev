@@ -140,19 +140,6 @@ if [ -e "$WT" ]; then
     exit 12
 fi
 
-# ── A fresh worktree from origin/main ──────────────────────────────────────────────────────────
-# Detached on purpose: the worker creates the ticket branch itself (`gh issue develop`). Several
-# runs fetch at once, and a fetch that loses the ref lock to another one succeeds on a retry.
-if ! git fetch --quiet origin main 2>/dev/null; then
-    sleep 5
-    git fetch --quiet origin main || { meta outcome no-worktree; log "could not fetch origin/main"; exit 10; }
-fi
-if ! git worktree add --quiet --detach "$WT" origin/main; then
-    meta outcome no-worktree
-    log "could not create the worktree $WT"
-    exit 10
-fi
-
 # A rebase, merge or cherry-pick the session left half done. A commit on top of it would bury the
 # conflict, so such a worktree is left exactly as it is, for a human.
 operation_in_progress() {
@@ -223,21 +210,6 @@ finish() {
     fi
 }
 
-# ── One fresh headless session for the whole ticket ────────────────────────────────────────────
-ALLOWED_TOOLS="${LOOP_ALLOWED_TOOLS:-Bash(git:*) Bash(gh:*) Bash(dotnet:*) Bash(scripts/:*) Bash(./scripts/:*)}"
-
-cmd=(claude -p "/work-ticket $ISSUE" --output-format json --model "$MODEL" --effort "$EFFORT")
-if [ "${LOOP_UNSAFE:-0}" = "1" ]; then
-    cmd+=(--dangerously-skip-permissions)
-else
-    # shellcheck disable=SC2086,SC2206
-    cmd+=(--permission-mode "$PERMISSION_MODE" --allowedTools $ALLOWED_TOOLS)
-fi
-[ -n "${LOOP_MAX_BUDGET_USD:-}" ] && cmd+=(--max-budget-usd "$LOOP_MAX_BUDGET_USD")
-
-log "fresh headless session starting in $WT (model=$MODEL, effort=$EFFORT, timeout=${TIMEOUT_MIN}m)"
-start_epoch="$(date +%s)"
-
 # The session runs in its own process group, so stopping it also stops the builds and test runs
 # it started. A background child of this script ignores SIGINT and would outlive it, so the
 # session is stopped on every way out. `pid` is cleared once the session is reaped, so a trap can
@@ -264,8 +236,10 @@ stop_sleeper() {
     sleeper=""
 }
 
+# Closing a terminal sends HUP to the job and then TERM from the conductor, so further signals are
+# ignored while the first one cleans up; otherwise the second would kill this script half way.
 on_stop_signal() {
-    trap - INT TERM HUP
+    trap '' INT TERM HUP
     stop_sleeper
     stop_session
     meta outcome stopped
@@ -273,15 +247,55 @@ on_stop_signal() {
     log "STOPPED — session killed, changes salvaged"
     exit 143
 }
+# Set before the fetch, so a stop while the worktree is being made still cleans it up.
 trap 'stop_sleeper; stop_session' EXIT
 trap on_stop_signal INT TERM HUP
+
+# ── A fresh worktree from origin/main ──────────────────────────────────────────────────────────
+# Detached on purpose: the worker creates the ticket branch itself (`gh issue develop`). Several
+# runs fetch at once, and a fetch that loses the ref lock to another one succeeds on a retry.
+if ! git fetch --quiet origin main 2>/dev/null; then
+    sleep 5
+    git fetch --quiet origin main || { meta outcome no-worktree; log "could not fetch origin/main"; exit 10; }
+fi
+if ! git worktree add --quiet --detach "$WT" origin/main; then
+    meta outcome no-worktree
+    log "could not create the worktree $WT"
+    exit 10
+fi
+
+# ── One fresh headless session for the whole ticket ────────────────────────────────────────────
+ALLOWED_TOOLS="${LOOP_ALLOWED_TOOLS:-Bash(git:*) Bash(gh:*) Bash(dotnet:*) Bash(scripts/:*) Bash(./scripts/:*)}"
+
+cmd=(claude -p "/work-ticket $ISSUE" --output-format json --model "$MODEL" --effort "$EFFORT")
+if [ "${LOOP_UNSAFE:-0}" = "1" ]; then
+    cmd+=(--dangerously-skip-permissions)
+else
+    # shellcheck disable=SC2086,SC2206
+    cmd+=(--permission-mode "$PERMISSION_MODE" --allowedTools $ALLOWED_TOOLS)
+fi
+[ -n "${LOOP_MAX_BUDGET_USD:-}" ] && cmd+=(--max-budget-usd "$LOOP_MAX_BUDGET_USD")
+
+log "fresh headless session starting in $WT (model=$MODEL, effort=$EFFORT, timeout=${TIMEOUT_MIN}m)"
+start_epoch="$(date +%s)"
 
 set +e
 # `set -m` gives the session its own process group. It also stops bash from pointing a background
 # job's stdin at /dev/null, so that is done by hand: a job outside the terminal's foreground group
-# that reads the terminal is suspended.
+# that reads the terminal is suspended. A SIGKILL to this script runs no trap, and the session is
+# no longer in this script's group, so a watchdog inside the group ends the group once this script
+# is gone. The session could otherwise go on working and pushing with nothing watching it.
 set -m
-( cd "$WT" && exec "${cmd[@]}" ) < /dev/null > "$OUT" 2> "$ERR" &
+(
+    set +m  # keep the watchdog in the session's group, so the group's end is its end too
+    cd "$WT" || exit 1
+    group="$(exec sh -c 'echo "$PPID"')"
+    (
+        while kill -0 "$$" 2>/dev/null; do sleep 5; done
+        kill -KILL -- "-$group" 2>/dev/null
+    ) < /dev/null > /dev/null 2>&1 &
+    exec "${cmd[@]}"
+) < /dev/null > "$OUT" 2> "$ERR" &
 pid=$!
 set +m
 while kill -0 "$pid" 2>/dev/null; do
@@ -301,6 +315,9 @@ while kill -0 "$pid" 2>/dev/null; do
 done
 wait "$pid"
 claude_rc=$?
+# Whatever the session left running in its group (a test host, a build server, the watchdog)
+# ends with it.
+kill -TERM -- "-$pid" 2>/dev/null || true
 pid=""
 set -e
 
@@ -317,12 +334,13 @@ meta minutes "$elapsed_min"
 # ── Usage-limit / hard-error detection ─────────────────────────────────────────────────────────
 # The CLI reports plan/rate limits as api_error_status 429 in the result JSON regardless of the
 # message wording ("usage limit", "session limit", …) — trust that first. The wording grep is the
-# fallback for a failed session only: a finished ticket's summary may well talk about rate limits
-# (this repo has many such tickets), and that must not read as a limit hit.
+# fallback for a failed session only (a limit stop always sets is_error): a session that ended
+# normally may well talk about rate limits (this repo has many such tickets), with or without a
+# STATUS block, and that must not read as a limit hit.
 api_error_status="$(jq -r '.api_error_status // 0' "$OUT" 2>/dev/null || echo 0)"
 combined="$result $(tail -c 2000 "$ERR" 2>/dev/null || true)"
 session_failed=0
-if [ "$claude_rc" -ne 0 ] || [ "$is_error" = "true" ] || ! echo "$result" | grep -qE '^STATUS:[[:space:]]*(DONE|BLOCKED)'; then
+if [ "$claude_rc" -ne 0 ] || [ "$is_error" = "true" ]; then
     session_failed=1
 fi
 if [ "$api_error_status" = "429" ] \
@@ -379,9 +397,10 @@ if [ -z "$pr_num" ]; then
     log "worker reported DONE but no PR found — treating as error"
     exit 3
 fi
-pr_state="$(gh pr view "$pr_num" --json state,headRefName --jq '"\(.state) \(.headRefName)"' 2>/dev/null || true)"
+pr_state="$(gh pr view "$pr_num" --json state,isCrossRepository,headRefName \
+    --jq '"\(.state) \(.isCrossRepository) \(.headRefName)"' 2>/dev/null || true)"
 case "$pr_state" in
-    "OPEN $ISSUE-"*) ;;
+    "OPEN false $ISSUE-"*) ;;
     *)
         meta outcome error
         finish

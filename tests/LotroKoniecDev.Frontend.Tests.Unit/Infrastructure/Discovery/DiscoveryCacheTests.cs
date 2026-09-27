@@ -296,6 +296,24 @@ public sealed class DiscoveryCacheTests
     }
 
     [Fact]
+    public async Task GetTranslationSystemDiscoveryAsync_WhenTwoGuestsCall_ServesTheSecondFromTheCache()
+    {
+        // Guests still share one entry, so the second guest never sees the client's queued failure.
+        _translationClient.GetDiscoveryAsync(Arg.Any<CancellationToken>())
+            .Returns(
+                ApiResult.Success(AnonymousTranslationDiscovery()),
+                ApiResult.Failure<TranslationDiscoveryResponse>(Problem(503)));
+        HybridCache hybridCache = CreateHybridCache();
+
+        await CreateCache(authenticated: false, hybridCache).GetTranslationSystemDiscoveryAsync();
+        ApiResult<TranslationDiscoveryResponse> secondGuest =
+            await CreateCache(authenticated: false, hybridCache).GetTranslationSystemDiscoveryAsync();
+
+        secondGuest.IsSuccess.ShouldBeTrue();
+        secondGuest.Value.Links.ShouldContain(link => link.Rel == TranslationRels.Progress);
+    }
+
+    [Fact]
     public async Task GetTranslationSystemDiscoveryAsync_AfterAnAdminCall_NeverServesTheAdminLinksToATranslator()
     {
         // The third answer is a failure, so the admin's second call proves it came from the cache.

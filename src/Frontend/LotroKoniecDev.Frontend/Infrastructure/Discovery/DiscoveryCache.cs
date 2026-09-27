@@ -85,7 +85,9 @@ internal sealed class DiscoveryCache : IDiscoveryCache
     {
         ClaimsPrincipal? signedInUser =
             _httpContextAccessor.HttpContext?.User is { Identity.IsAuthenticated: true } user ? user : null;
-        string? subject = signedInUser?.FindFirst(SubjectClaimType)?.Value;
+        string? subject = signedInUser?.FindFirst(SubjectClaimType)?.Value is { } value && !string.IsNullOrWhiteSpace(value)
+            ? value
+            : null;
         string? cacheKey = signedInUser is null
             ? cacheKeyPrefix + AnonymousSuffix
             : GetAccountCacheKey(cacheKeyPrefix, subject, signedInUser);
@@ -135,7 +137,7 @@ internal sealed class DiscoveryCache : IDiscoveryCache
 
     private async Task MarkSessionDeadAsync(string? subject, CancellationToken cancellationToken)
     {
-        if (!string.IsNullOrWhiteSpace(subject))
+        if (subject is not null)
         {
             await _deadSessionRegistry.MarkDeadAsync(subject, cancellationToken);
         }
@@ -147,8 +149,8 @@ internal sealed class DiscoveryCache : IDiscoveryCache
     /// keeps users apart. The API decides from the roles in the current access token, but the cookie
     /// keeps the roles it got at sign-in, and a token refresh does not update them. So the roles here
     /// only give a new entry to a user who signs in again after a role change. A role change inside one
-    /// session shows up after at most a day. Today roles are given only at registration and by the admin
-    /// seed, so this does not happen yet.
+    /// session shows up after at most a day (#896). Today roles are given only at registration and by the
+    /// admin seed, so this does not happen yet.
     /// </summary>
     /// <returns>
     /// <see langword="null"/> for a session with no subject. Such a session cannot be told apart from
@@ -156,7 +158,7 @@ internal sealed class DiscoveryCache : IDiscoveryCache
     /// </returns>
     private static string? GetAccountCacheKey(string cacheKeyPrefix, string? subject, ClaimsPrincipal user)
     {
-        if (string.IsNullOrWhiteSpace(subject))
+        if (subject is null)
         {
             return null;
         }

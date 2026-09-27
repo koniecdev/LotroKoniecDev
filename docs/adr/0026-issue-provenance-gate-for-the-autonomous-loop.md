@@ -1,6 +1,6 @@
 # ADR-0026: Issue provenance gate — only maintainer-written text may drive the autonomous loop
 
-**Status:** Accepted
+**Status:** Accepted — §D reversed by ADR-0060 (2026-09-27): the loop no longer merges
 **Date:** 2026-07-09
 **Decision-makers:** Solo maintainer
 **Related:** ticket #398 (AUDIT-SEC-08), `docs/claude-loop.md` (the loop manual — Safety model),
@@ -145,7 +145,11 @@ be refused, and a labeled ticket with a hostile comment would pass. Kept as the 
 
 ### D. Require human approval before every loop merge
 
-Rejected: CLAUDE.md's Loop mode makes commit → push → PR → merge the standing authorization, and
+> **Reversed by ADR-0060 (2026-09-27).** The owner now reads every PR, so the loop stops at the PR
+> and the owner approves by assigning themselves before `/merge-train` merges. The gate in this
+> ADR stays: the review is a second line of defence, not a replacement.
+
+Rejected at the time: CLAUDE.md's Loop mode makes commit → push → PR → merge the standing authorization, and
 that is the point of an overnight loop. With the input provenance fixed, the agent is acting on
 maintainer-written instructions again — which is the trust assumption the merge authorization was
 granted under in the first place. If the loop ever runs on tickets from a wider circle, revisit

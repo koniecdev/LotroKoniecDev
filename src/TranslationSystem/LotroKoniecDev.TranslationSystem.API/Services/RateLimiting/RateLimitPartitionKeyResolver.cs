@@ -33,8 +33,14 @@ internal sealed class RateLimitPartitionKeyResolver
         _frontendKeyDigest = string.IsNullOrWhiteSpace(configuredKey) ? null : Digest(configuredKey);
     }
 
-    public string Resolve(HttpContext httpContext) =>
-        KeyFor(ReadForwardedClientAddress(httpContext.Request.Headers) ?? httpContext.Connection.RemoteIpAddress);
+    public string Resolve(HttpContext httpContext) => KeyFor(ResolveClientAddress(httpContext));
+
+    /// <summary>
+    /// The full address behind <see cref="Resolve"/>: the visitor the frontend forwarded with the right key,
+    /// otherwise the connection's own address. The warning about a refused call names it (#854).
+    /// </summary>
+    public IPAddress? ResolveClientAddress(HttpContext httpContext) =>
+        ReadForwardedClientAddress(httpContext.Request.Headers) ?? httpContext.Connection.RemoteIpAddress;
 
     /// <summary>
     /// One client, one key (#831). An IPv6 client usually owns a whole /64 and can move to a new address

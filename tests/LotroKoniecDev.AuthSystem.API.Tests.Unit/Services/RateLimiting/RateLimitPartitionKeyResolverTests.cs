@@ -43,6 +43,17 @@ public sealed class RateLimitPartitionKeyResolverTests
         partitionKey.ShouldBe("2001:db8:0:1::/64");
     }
 
+    [Fact]
+    public void ResolveClientAddress_ForAProvenIPv6Visitor_ReturnsTheWholeAddress()
+    {
+        RateLimitPartitionKeyResolver resolver = CreateResolver(FrontendKey);
+        HttpContext httpContext = ContextFrom(ConnectionAddress, [FrontendKey], ["2001:db8:0:1:aaaa:bbbb:cccc:dddd"]);
+
+        IPAddress? clientAddress = resolver.ResolveClientAddress(httpContext);
+
+        clientAddress.ShouldBe(IPAddress.Parse("2001:db8:0:1:aaaa:bbbb:cccc:dddd"));
+    }
+
     [Theory]
     [InlineData("203.0.113.7")]
     [InlineData("2001:db8:0:1::7")]

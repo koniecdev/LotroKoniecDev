@@ -1,12 +1,13 @@
 using System.Collections.Concurrent;
 using Microsoft.Extensions.Logging;
 
-namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared;
+namespace LotroKoniecDev.TranslationSystem.API.Tests.Integration;
 
 /// <summary>
-/// Captures what the code under test logged. It is used where the log is the only visible behaviour:
-/// the seeder leaves an account at the admin address as it is and only warns (#839), so a test that
-/// could not read the warning would pass with the warning gone.
+/// Captures what the host logged. It is used where the log is the only visible behaviour: a refused call
+/// answers 401 or 403 whether or not the warning about it was written (#854), so a test that could not
+/// read the warning would pass with the warning gone. Filter on the category, not on the event id alone:
+/// libraries reuse the same numbers (Npgsql's 1300 and 1301 are ours too).
 /// </summary>
 internal sealed class CapturingLoggerFactory : ILoggerFactory
 {

@@ -48,8 +48,12 @@ listing:
 ```bash
 docker image ls --filter label=lotrokoniecdev.e2e --format '{{.Repository}}:{{.Tag}}'    # all worktrees
 docker image ls --filter label=lotrokoniecdev.e2e --format '{{.Repository}}:{{.Tag}}' \
-  | grep -E ':(fe-)?e2e-<folder>-<hash>$' | xargs -r docker image rm                     # one worktree
+  | grep -F -- '-<folder>-<hash>' | xargs -r docker image rm                             # one worktree
 ```
+
+Images built before #884 have the fixed tags `:e2e` and `:fe-e2e` and no label, so the listing above
+does not show them. Remove them once:
+`docker image rm lotrokoniecdev-{auth,tms,migrator}:e2e lotrokoniecdev-{auth,tms,frontend,migrator}:fe-e2e`.
 
 No Docker → the suite fails fast (it cannot boot the stack); it is **off the PR/CI gate by name**
 (`*.E2E.Tests`), running via `.github/workflows/e2e.yml` — `workflow_dispatch`, or automatically on PRs

@@ -47,7 +47,7 @@ public sealed class E2ETestFixture : IAsyncLifetime
     /// <summary>The public, password-grant OpenIddict client seeded only under the <c>Testing</c> environment.</summary>
     public const string TestClientId = "lotrokoniecdev-test";
 
-    private readonly E2EWorktree _worktree = new("e2e");
+    private E2EWorktree _worktree = null!;
 
     private INetwork _network = null!;
     private PostgreSqlContainer _postgres = null!;
@@ -63,6 +63,7 @@ public sealed class E2ETestFixture : IAsyncLifetime
 
     public async Task InitializeAsync()
     {
+        _worktree = new E2EWorktree("e2e");
         await _worktree.BuildImagesAsync(DockerImages);
 
         _network = new NetworkBuilder()

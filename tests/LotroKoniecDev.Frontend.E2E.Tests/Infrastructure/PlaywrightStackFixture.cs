@@ -92,7 +92,7 @@ public sealed class PlaywrightStackFixture : IAsyncLifetime
     private const string RabbitMqUsername = "rabbitmq";
     private const string RabbitMqPassword = "fe-e2e-rabbitmq-password";
 
-    private readonly E2EWorktree _worktree = new("fe-e2e");
+    private E2EWorktree _worktree = null!;
 
     private string _certPem = null!;
     private string _keyPem = null!;
@@ -125,6 +125,7 @@ public sealed class PlaywrightStackFixture : IAsyncLifetime
     public async Task InitializeAsync()
     {
         GenerateCertificate();
+        _worktree = new E2EWorktree("fe-e2e");
         await _worktree.BuildImagesAsync(DockerImages);
 
         _network = new NetworkBuilder()

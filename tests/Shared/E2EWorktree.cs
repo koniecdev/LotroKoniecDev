@@ -136,8 +136,10 @@ internal sealed class E2EWorktree
     /// On Docker's classic image store, a rebuild leaves the old image on disk without a name, so every
     /// run would leave one more image set behind. The containerd store deletes that image at once, so
     /// there this finds nothing. Prune removes only images that have no tag, that no container uses, and
-    /// that are older than an hour. The age limit protects an image that the classic builder has made but
-    /// not tagged yet, and an image that a run found minutes ago and has not started yet.
+    /// that were built more than an hour ago. The age limit protects a fresh image that the classic
+    /// builder has made but not tagged yet, in this worktree or another one. It does not protect an older
+    /// image that a <c>SKIP_DOCKER_BUILD</c> run in the same worktree is about to start: that is the
+    /// same-worktree collision of #889.
     /// </summary>
     private async Task RemoveOldUntaggedImagesAsync()
     {
@@ -190,10 +192,11 @@ internal sealed class E2EWorktree
             .Take(FolderNameMaxLength)
             .ToArray());
 
-        // Lower case first: Windows and macOS ignore case in paths, and two ways of starting the tests
-        // can spell the same folder differently. The same worktree must always get the same tag.
-        string pathHash = Convert.ToHexStringLower(
-            SHA256.HashData(Encoding.UTF8.GetBytes(solutionDirectory.ToLowerInvariant())))[..PathHashLength];
+        // Windows and macOS ignore case in paths, so two ways of starting the tests can spell the same
+        // worktree differently, and it must still get one tag. Linux does not, so there two paths that
+        // differ only in case are two clones and must keep two tags.
+        string hashedPath = OperatingSystem.IsLinux() ? solutionDirectory : solutionDirectory.ToLowerInvariant();
+        string pathHash = Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(hashedPath)))[..PathHashLength];
 
         return $"{suite}-{folderName}-{pathHash}";
     }

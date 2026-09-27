@@ -139,7 +139,7 @@ public sealed class AccountDeletionEmailSenderTests
             Guid.NewGuid(), CurrentEmail, "cancel-token", EveningFinalizesAt, CancellationToken.None);
 
         captured.ShouldNotBeNull();
-        captured.Html.ShouldContain("usunięte 2026-08-19 czasu polskiego.");
+        captured.Html.ShouldContain("trwale usunięte dnia 2026-08-19 czasu polskiego.");
         captured.Html.ShouldNotContain("2026-08-18");
         Occurrences(captured.Html, "2026-08-19").ShouldBe(Occurrences(captured.Html, "2026-08-19 czasu polskiego"));
         captured.PlainText.ShouldContain("2026-08-19 czasu polskiego");
@@ -161,7 +161,7 @@ public sealed class AccountDeletionEmailSenderTests
             Guid.NewGuid(), PreviousEmail, CurrentEmail, "cancel-token", EveningFinalizesAt, CancellationToken.None);
 
         captured.ShouldNotBeNull();
-        captured.Html.ShouldContain("usunięte 2026-08-19 czasu polskiego.");
+        captured.Html.ShouldContain("zostanie usunięte dnia 2026-08-19 czasu polskiego.");
         captured.Html.ShouldNotContain("2026-08-18");
         Occurrences(captured.Html, "2026-08-19").ShouldBe(Occurrences(captured.Html, "2026-08-19 czasu polskiego"));
         captured.PlainText.ShouldContain("2026-08-19 czasu polskiego");

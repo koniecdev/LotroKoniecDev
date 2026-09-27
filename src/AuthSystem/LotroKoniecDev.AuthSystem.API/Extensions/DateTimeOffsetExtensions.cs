@@ -7,9 +7,10 @@ namespace LotroKoniecDev.AuthSystem.API.Extensions;
 /// server's own zone is UTC in a container, and lotro-translator.pl serves Polish users, so every
 /// visible date is converted to Poland time. A date that stands on its own also names the zone, because
 /// a reader in another zone cannot tell which day is meant near midnight. That includes an e-mail's
-/// preheader, which the inbox list shows with nothing around it. A sentence that already names the zone
-/// in its own words formats <see cref="ToPolandTime"/> itself instead. The frontend follows the same
-/// rule through its own copy (<c>Frontend.Infrastructure.Formatting.DateTimeOffsetExtensions</c>).
+/// preheader, which the inbox list shows with nothing around it. No auth text names the zone in its own
+/// words today. The first one that does gets an unlabelled twin of <see cref="ToPolandDateText"/> here,
+/// so the date format stays in this class. The frontend follows the same rule through its own copy
+/// (<c>Frontend.Infrastructure.Formatting.DateTimeOffsetExtensions</c>).
 /// </summary>
 internal static class DateTimeOffsetExtensions
 {

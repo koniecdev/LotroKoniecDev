@@ -36,7 +36,7 @@ internal sealed class AccountDeletionEmailSender : IAccountDeletionEmailSender
 
         EmailTemplateModel template = new()
         {
-            Preheader = $"Konto zostanie trwale usunięte {deletionDate}.",
+            Preheader = $"Konto zostanie trwale usunięte dnia {deletionDate}.",
             Heading = "Zaplanowano usunięcie konta",
             Paragraphs =
             [
@@ -79,7 +79,7 @@ internal sealed class AccountDeletionEmailSender : IAccountDeletionEmailSender
 
         EmailTemplateModel template = new()
         {
-            Preheader = $"Konto, które działało na tym adresie, zostanie usunięte {deletionDate}.",
+            Preheader = $"Konto, które działało na tym adresie, zostanie usunięte dnia {deletionDate}.",
             Heading = "Zaplanowano usunięcie konta powiązanego z tym adresem",
             Paragraphs =
             [

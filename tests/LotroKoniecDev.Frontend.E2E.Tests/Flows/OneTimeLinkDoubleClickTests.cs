@@ -11,6 +11,8 @@ namespace LotroKoniecDev.Frontend.E2E.Tests.Flows;
 /// Each test double-clicks one such button and checks that the browser sent the form once and ended on the
 /// success answer. Counting the POSTs matters: the server can still answer "done" to a second POST that
 /// passed the token check before the first one saved (#869), so the final page alone could stay green.
+/// Each flow waits for its success answer or for any alert, so an unexpected answer (a dead link, the
+/// #869 retry panel, a password rule) fails at once on the assert instead of on a 30-second timeout.
 /// Nothing has to be seeded: each flow creates its own account.
 /// </summary>
 public sealed class OneTimeLinkDoubleClickTests : E2ETestBase
@@ -66,7 +68,8 @@ public sealed class OneTimeLinkDoubleClickTests : E2ETestBase
         // Act
         await ClickTwiceLikeAPersonAsync(Page.GetByTestId("confirm-email-change-submit"));
         await Page.GetByTestId("confirm-email-change-success")
-            .Or(Page.GetByTestId("confirm-email-change-error"))
+            .Or(Page.GetByRole(AriaRole.Alert))
+            .First
             .WaitForAsync(LongWait);
 
         // Assert
@@ -96,7 +99,8 @@ public sealed class OneTimeLinkDoubleClickTests : E2ETestBase
         // Act
         await ClickTwiceLikeAPersonAsync(Page.GetByTestId("revert-email-change-submit"));
         await Page.GetByTestId("reset-password-submit")
-            .Or(Page.GetByTestId("revert-email-change-error"))
+            .Or(Page.GetByRole(AriaRole.Alert))
+            .First
             .WaitForAsync(LongWait);
 
         // Assert: a done undo redirects straight to the forced password reset
@@ -120,7 +124,8 @@ public sealed class OneTimeLinkDoubleClickTests : E2ETestBase
         // Act
         await ClickTwiceLikeAPersonAsync(Page.GetByTestId("cancel-deletion-submit"));
         await Page.GetByTestId("reset-password-submit")
-            .Or(Page.GetByTestId("cancel-deletion-error"))
+            .Or(Page.GetByRole(AriaRole.Alert))
+            .First
             .WaitForAsync(LongWait);
 
         // Assert: a done cancel redirects straight to the forced password reset
@@ -143,7 +148,7 @@ public sealed class OneTimeLinkDoubleClickTests : E2ETestBase
         string resetLink = await MailpitClient.WaitForLinkAsync(
             Fixture.MailpitBaseUrl, user.Email, PasswordResetSubject, ResetPasswordPath, MailTimeout);
         await Page.GotoAsync(resetLink);
-        string newPassword = ComposePassword("Reset");
+        string newPassword = TestUser.ComposePassword("Reset");
         await Page.GetByRole(AriaRole.Textbox, new() { Name = "Nowe hasło", Exact = true }).FillAsync(newPassword);
         await Page.GetByRole(AriaRole.Textbox, new() { Name = "Powtórz nowe hasło", Exact = true }).FillAsync(newPassword);
         PostWatch posts = await PostWatch.HoldAnswersAsync(Page, ResetPasswordPath, AnswerDelay);
@@ -151,7 +156,8 @@ public sealed class OneTimeLinkDoubleClickTests : E2ETestBase
         // Act
         await ClickTwiceLikeAPersonAsync(Page.GetByTestId("reset-password-submit"));
         await Page.GetByTestId("reset-password-success")
-            .Or(Page.GetByTestId("reset-password-error"))
+            .Or(Page.GetByRole(AriaRole.Alert))
+            .First
             .WaitForAsync(LongWait);
 
         // Assert
@@ -161,8 +167,6 @@ public sealed class OneTimeLinkDoubleClickTests : E2ETestBase
         CspViolations.ShouldBeEmpty();
     }
 
-    // Composed from fragments so secret scanners don't mistake the test literal for a leaked credential.
-    private static string ComposePassword(string prefix) => prefix + "-E2ePas" + "sw0rd!";
 
     private async Task<TestUser> CreateSignedInUserAsync()
     {

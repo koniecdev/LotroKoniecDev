@@ -44,7 +44,7 @@ public sealed partial class SubmitOnceFormTests : EndpointsTestBase
 
         // Assert
         script.StatusCode.ShouldBe(HttpStatusCode.OK);
-        script.Content.Headers.ContentType?.MediaType.ShouldBe("text/javascript");
+        script.Content.Headers.ContentType.ShouldNotBeNull().MediaType.ShouldBe("text/javascript");
         string body = await script.Content.ReadAsStringAsync();
         body.ShouldContain("form[data-submit-once]");
     }

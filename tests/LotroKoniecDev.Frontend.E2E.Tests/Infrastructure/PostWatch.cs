@@ -8,8 +8,9 @@ namespace LotroKoniecDev.Frontend.E2E.Tests.Infrastructure;
 /// one path for a moment after the server sent it, as a slow connection would. A second click then lands
 /// while the first request is still open, whatever the speed of this machine (#871).
 /// A route that fails is recorded, not thrown: a route handler has no caller that could catch it. The
-/// request then goes on to the server unheld, so the page still ends and the test can report the record
-/// instead of a locator timeout 30 seconds later.
+/// request is then sent once more without the hold, so the page still ends and the test can report the
+/// record instead of a locator timeout 30 seconds later. If the server had already seen the first send,
+/// the page then shows the server's second answer; the recorded failure is what the test reports.
 /// </summary>
 internal sealed class PostWatch
 {
@@ -33,7 +34,7 @@ internal sealed class PostWatch
         PostWatch watch = new();
         page.Request += (_, request) =>
         {
-            if (request.Method == "POST")
+            if (request.Method is "POST")
             {
                 watch._postedPaths.Enqueue(new Uri(request.Url).AbsolutePath);
             }
@@ -46,7 +47,7 @@ internal sealed class PostWatch
         PostWatch watch = StartCounting(page);
         await page.RouteAsync($"**{heldPath}**", async route =>
         {
-            if (route.Request.Method != "POST")
+            if (route.Request.Method is not "POST")
             {
                 await route.ContinueAsync();
                 return;

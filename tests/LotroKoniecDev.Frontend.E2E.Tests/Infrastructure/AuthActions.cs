@@ -8,8 +8,8 @@ namespace LotroKoniecDev.Frontend.E2E.Tests.Infrastructure;
 /// in too and not only the auth server.
 /// Registration happens on the auth origin at <c>/Account/Register</c> and not on the frontend, and the
 /// pages exist in Polish only.
-/// Elements are found by role or label, and <c>data-testid</c> is used only for the consent checkboxes
-/// and the state panels.
+/// Elements are found by role or label where the page gives them one. The consent checkboxes, the state
+/// panels and the account page's links and forms are found by <c>data-testid</c> or id.
 /// </summary>
 internal static class AuthActions
 {

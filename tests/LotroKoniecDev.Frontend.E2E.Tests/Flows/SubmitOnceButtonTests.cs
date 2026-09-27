@@ -35,7 +35,7 @@ public sealed class SubmitOnceButtonTests : E2ETestBase
         foreach (ILocator input in await Page.Locator("form[data-submit-once] input[required]").AllAsync())
         {
             string? type = await input.GetAttributeAsync("type");
-            await input.FillAsync(type is "email" ? TestUser.CreateRandomEmail() : ComposePassword("Busy"));
+            await input.FillAsync(type is "email" ? TestUser.CreateRandomEmail() : TestUser.ComposePassword("Busy"));
         }
 
         ILocator button = Page.Locator(SubmitButton);
@@ -87,6 +87,4 @@ public sealed class SubmitOnceButtonTests : E2ETestBase
         CspViolations.ShouldBeEmpty();
     }
 
-    // Composed from fragments so secret scanners don't mistake the test literal for a leaked credential.
-    private static string ComposePassword(string prefix) => prefix + "-E2ePas" + "sw0rd!";
 }

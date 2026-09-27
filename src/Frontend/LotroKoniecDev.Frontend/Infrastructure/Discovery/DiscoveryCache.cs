@@ -1,3 +1,4 @@
+using System.Security.Claims;
 using LotroKoniecDev.Frontend.Infrastructure.Auth.DeadSession;
 using LotroKoniecDev.Frontend.Infrastructure.HttpClients;
 using LotroKoniecDev.Frontend.Infrastructure.HttpClients.AuthSystemHttpClients;
@@ -82,10 +83,12 @@ internal sealed class DiscoveryCache : IDiscoveryCache
         CancellationToken cancellationToken)
         where TResponse : class, ILinksResponse
     {
-        HttpContext? context = _httpContextAccessor.HttpContext;
-        bool isSignedIn = context?.User.Identity?.IsAuthenticated is true;
-        string? subject = context?.User.FindFirst(SubjectClaimType)?.Value;
-        string? cacheKey = GetCacheKey(cacheKeyPrefix, isSignedIn, subject);
+        ClaimsPrincipal? signedInUser =
+            _httpContextAccessor.HttpContext?.User is { Identity.IsAuthenticated: true } user ? user : null;
+        string? subject = signedInUser?.FindFirst(SubjectClaimType)?.Value;
+        string? cacheKey = signedInUser is null
+            ? cacheKeyPrefix + AnonymousSuffix
+            : GetAccountCacheKey(cacheKeyPrefix, subject, signedInUser);
 
         if (cacheKey is not null)
         {
@@ -110,7 +113,7 @@ internal sealed class DiscoveryCache : IDiscoveryCache
             return live;
         }
 
-        if (isSignedIn && !ContainsGetRel(live.Value.Links, signedInMarkerRel))
+        if (signedInUser is not null && !ContainsGetRel(live.Value.Links, signedInMarkerRel))
         {
             // The cookie says the user is logged in, but the API sent the anonymous set of links, so the
             // token never reached it: it expired, is invalid, or its key was rotated. Mark the session
@@ -139,25 +142,30 @@ internal sealed class DiscoveryCache : IDiscoveryCache
     }
 
     /// <summary>
-    /// One entry for all guests, and one for each signed-in account. The API sends each caller only the
-    /// links that caller may follow, and an admin gets more links than a translator (#842). The key is
-    /// the account and not the role set: the API decides from the roles in the access token, not from
-    /// the roles in the cookie. So a key per account is right whatever the roles are.
+    /// Guests share one entry. A signed-in caller gets an entry for the account and the roles in the
+    /// cookie, because the API sends an admin more links than a translator (#842). The account is what
+    /// keeps users apart: the API decides from the roles in the access token, and the cookie cannot see
+    /// those. The roles are there so that a user who signs in again after a role change gets a new
+    /// entry and not the old one.
     /// </summary>
     /// <returns>
-    /// <see langword="null"/> for a signed-in session with no subject. Such a session cannot be told
-    /// apart from any other, so its answer is never cached.
+    /// <see langword="null"/> for a session with no subject. Such a session cannot be told apart from
+    /// any other, so its answer is never cached.
     /// </returns>
-    private static string? GetCacheKey(string cacheKeyPrefix, bool isSignedIn, string? subject)
+    private static string? GetAccountCacheKey(string cacheKeyPrefix, string? subject, ClaimsPrincipal user)
     {
-        if (!isSignedIn)
+        if (string.IsNullOrWhiteSpace(subject))
         {
-            return cacheKeyPrefix + AnonymousSuffix;
+            return null;
         }
 
-        return string.IsNullOrWhiteSpace(subject)
-            ? null
-            : cacheKeyPrefix + AccountSuffixPrefix + subject;
+        IEnumerable<string> roles = user.Identities
+            .SelectMany(identity => identity.FindAll(identity.RoleClaimType))
+            .Select(claim => claim.Value)
+            .Distinct(StringComparer.Ordinal)
+            .Order(StringComparer.Ordinal);
+
+        return $"{cacheKeyPrefix}{AccountSuffixPrefix}{subject}:{string.Join(',', roles)}";
     }
 
     private static bool ContainsGetRel(IEnumerable<LinkDto> links, string rel) =>

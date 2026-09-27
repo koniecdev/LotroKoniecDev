@@ -20,12 +20,12 @@ namespace LotroKoniecDev.Frontend.Tests.Unit.Infrastructure.Discovery;
 
 /// <summary>
 /// Both halves of the discovery cache, over a real <see cref="HybridCache"/> and substituted clients.
-/// Guests share one entry and every signed-in account has its own, because the API sends each caller
-/// only the links that caller may follow (#842). Both halves follow the same rule: an anonymous set of
-/// links must never be cached under a logged-in key,
-/// because that would take away, for a whole day, everything a signed-in user is allowed to do. Such a
-/// response must mark the session dead and be served without being cached under either key. A real
-/// outage stays a ProblemDetails failure, is never cached, and is never turned into "session expired".
+/// Guests share one entry. A signed-in caller gets one for the account and its roles, because the API
+/// sends each caller only the links that caller may follow (#842). An anonymous set of links is never
+/// cached under a signed-in key, because that would take away, for a whole day, everything that user is
+/// allowed to do. Such a response must mark the session dead and be served without being cached under
+/// either key. A real outage stays a ProblemDetails failure, is never cached, and is never turned into
+/// "session expired".
 /// </summary>
 public sealed class DiscoveryCacheTests
 {
@@ -254,6 +254,48 @@ public sealed class DiscoveryCacheTests
     }
 
     [Fact]
+    public async Task GetAuthSystemDiscoveryAsync_WhenTwoAccountsAreSignedIn_NeverShareAnAnswer()
+    {
+        // The second account must reach the API, so its queued failure appears.
+        _authClient.GetDiscoveryAsync(Arg.Any<CancellationToken>())
+            .Returns(
+                ApiResult.Success(AuthenticatedDiscovery()),
+                ApiResult.Failure<AuthDiscoveryResponse>(Problem(503)));
+        HybridCache hybridCache = CreateHybridCache();
+
+        await CreateCache(SignedIn(Subject, AuthConstants.Roles.Translator), hybridCache)
+            .GetAuthSystemDiscoveryAsync();
+        ApiResult<AuthDiscoveryResponse> otherAccount =
+            await CreateCache(SignedIn(TranslatorSubject, AuthConstants.Roles.Translator), hybridCache)
+                .GetAuthSystemDiscoveryAsync();
+
+        otherAccount.ProblemDetails.ShouldNotBeNull().Status.ShouldBe(503);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    public async Task GetAuthSystemDiscoveryAsync_WhenTheSessionHasNoSubject_NeverCachesTheAnswer(string? subject)
+    {
+        _authClient.GetDiscoveryAsync(Arg.Any<CancellationToken>())
+            .Returns(
+                ApiResult.Success(AuthenticatedDiscovery()),
+                ApiResult.Failure<AuthDiscoveryResponse>(Problem(503)));
+        HybridCache hybridCache = CreateHybridCache();
+
+        ApiResult<AuthDiscoveryResponse> first =
+            await CreateCache(SignedIn(subject, AuthConstants.Roles.Translator), hybridCache)
+                .GetAuthSystemDiscoveryAsync();
+        ApiResult<AuthDiscoveryResponse> second =
+            await CreateCache(SignedIn(subject, AuthConstants.Roles.Translator), hybridCache)
+                .GetAuthSystemDiscoveryAsync();
+
+        first.IsSuccess.ShouldBeTrue();
+        second.ProblemDetails.ShouldNotBeNull().Status.ShouldBe(503);
+    }
+
+    [Fact]
     public async Task GetTranslationSystemDiscoveryAsync_AfterAnAdminCall_NeverServesTheAdminLinksToATranslator()
     {
         // The third answer is a failure, so the admin's second call proves it came from the cache.
@@ -313,6 +355,26 @@ public sealed class DiscoveryCacheTests
                 .GetTranslationSystemDiscoveryAsync();
 
         otherAccount.ProblemDetails.ShouldNotBeNull().Status.ShouldBe(503);
+    }
+
+    [Fact]
+    public async Task GetTranslationSystemDiscoveryAsync_WhenTheAccountSignsInAgainWithNewRoles_GetsAFreshAnswer()
+    {
+        // The account was a translator, then became an admin and signed in again. The cookie now carries
+        // the new role, so the old translator answer must not be served.
+        _translationClient.GetDiscoveryAsync(Arg.Any<CancellationToken>())
+            .Returns(
+                ApiResult.Success(AuthenticatedTranslationDiscovery()),
+                ApiResult.Success(AdminTranslationDiscovery()));
+        HybridCache hybridCache = CreateHybridCache();
+
+        await CreateCache(SignedIn(Subject, AuthConstants.Roles.Translator), hybridCache)
+            .GetTranslationSystemDiscoveryAsync();
+        ApiResult<TranslationDiscoveryResponse> promoted =
+            await CreateCache(SignedIn(Subject, AuthConstants.Roles.Admin), hybridCache)
+                .GetTranslationSystemDiscoveryAsync();
+
+        promoted.Value.Links.ShouldContain(link => link.Rel == TranslationRels.BulkApprove);
     }
 
     [Theory]

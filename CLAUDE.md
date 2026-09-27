@@ -622,7 +622,9 @@ hash-check → patch → launch flow is validated. Re-investigating any of it is
   0%-traffic candidate before any traffic shift.
 - **Git is rebase-based, and branches are never deleted.** Integrate a feature branch off `main`
   with `git rebase main` — never `git merge main`; no merge commits in feature branches (remote
-  `main` is squash-only, so history stays linear). After a PR's squash commit lands on `main`,
+  `main` is squash-only, so history stays linear). The one exception is the "update branch" merge
+  commit `/merge-train` makes in an approved PR: never replace it with a rebase + force push, which
+  voids the owner's approval (ADR-0060). After a PR's squash commit lands on `main`,
   **keep both the local and the remote branch** — merge with plain `gh pr merge --squash` (never
   `--delete-branch`), and never run `git branch -d/-D` or `git push origin --delete`.
 

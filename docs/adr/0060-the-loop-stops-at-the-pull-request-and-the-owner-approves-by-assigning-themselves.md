@@ -33,26 +33,34 @@ Three more facts shape the decision:
   their last commit.
 - **`merge-train` merged every green PR from a trusted author**, reviewed or not, and it passed
   `--delete-branch`, which breaks this repo's rule that branches are never deleted.
-- **Parallel worktrees used to break the E2E suites.** Each suite tagged its Docker images with one
-  fixed name per machine, so two worktrees could test each other's build (#884). PR #895 tags the
-  images per worktree.
+- **Parallel worktrees break the E2E suites until PR #895 lands.** Each suite tags its Docker
+  images with one fixed name per machine, so two worktrees can test each other's build (#884).
+  PR #895 tags the images per worktree.
 
 ## Decision
 
 ### 1. The loop never merges
 
-`work-ticket.sh` ends when the worker's PR exists. It does not wait for `pr-verify` and does not
-touch the merge button. The conductor ends with a table of the PRs it opened (checks and open
-CodeQL alerts as they stand at that moment). That table is the owner's review queue.
+`work-ticket.sh` ends when the worker's PR exists (an open PR in this repo whose branch belongs
+to the ticket). It does not wait for `pr-verify` and does not touch the merge button. The
+conductor ends with a table of the PRs it opened (checks and open CodeQL alerts as they stand at
+that moment). That table is the owner's review queue.
+
+Old loop code merged PRs, and the loop scripts run from whichever checkout starts them. So the
+conductor refuses to start when `scripts/claude/` there differs from `origin/main`
+(`LOOP_ALLOW_LOCAL_SCRIPTS=1` is the explicit way round it, for work on the loop itself).
 
 ### 2. One worktree per ticket, up to three at once
 
 Each ticket runs in `.claude/worktrees/ticket-<n>`, cut from `origin/main` (the name a manual
 `/ticket` session uses). The main checkout is never touched. The conductor runs up to three
 tickets at once (`-j`, default 3). Three is the global cap on parallel sessions, and it is what the
-owner already runs by hand; `-j 1` keeps the old serial behavior. Once a ticket ends, the loop
-commits any leftovers to a salvage branch, removes the worktree if it is clean, and removes the
-E2E images tagged for it. The branch always stays.
+owner already runs by hand; `-j 1` keeps the old serial behavior, and it is the setting to use
+until PR #895 lands. Once a ticket ends, the loop commits any leftovers to a salvage branch (and
+gives one to commits made on no branch, since removing a worktree drops its reflog), removes the
+worktree, and removes the E2E images tagged for it. A rebase or merge left half done is never
+committed over: that worktree stays as it is, for the owner. The branch always stays. Stopping the
+loop stops each session's whole process group, then salvages and cleans up the same way.
 
 ### 3. A ticket already in flight is never started again
 
@@ -65,16 +73,21 @@ treat it as ready, and `work-ticket.sh` skips it even when it is named explicitl
 No session and no script ever sets an assignee. The owner assigns themselves after reading a PR.
 In this repo, `merge-train` merges a PR written by a person only when:
 
-- the owner is an assignee,
-- no commit on the PR that was made outside GitHub is newer than the owner's latest assignment,
+- the owner is an assignee, and the owner is the one who assigned them;
+- the newest commit that carries code reached GitHub before the owner's latest assignment. GitHub
+  keeps no push time per commit, so "reached" is the first check suite GitHub created for that
+  commit. The commit date alone is not enough: the client writes it, and a worker commits, runs
+  the whole suite for minutes, and only then pushes. The commit date is checked as well;
 - no force push happened after that assignment.
 
-Commits GitHub makes itself (the "update branch" merge commit) do not count: they carry no code the
-owner has not seen. So in this repo the train brings a branch up to date with a merge commit, never
-a rebase. A rebase is a force push, and it would void the approval it is about to act on. The merge
-call passes `--match-head-commit`, so a push that lands between the check and the merge makes the
-merge fail instead of merging unread code. To approve again after a push, the owner unassigns and
-assigns again.
+GitHub's own two-parent merge (the "update branch" commit) does not count: it brings in `main` and
+no code the owner has not seen. A web-UI edit or a committed suggestion is also committed by
+GitHub, but it changes code, so it counts. In this repo the train therefore brings a branch up to
+date with a merge commit, never a rebase: a rebase is a force push, and it would void the approval
+it is about to act on. It checks the approval before that update and again right before the merge,
+and the merge call passes `--match-head-commit`, so a push that lands after the last check makes
+the merge fail instead of merging unread code. To approve again after a push, the owner unassigns
+and assigns again.
 
 Bots keep the old rule. Dependabot is trusted by login and needs no assignee: its PRs are version
 bumps that CI proves, and the owner never reviewed them one by one.
@@ -109,8 +122,8 @@ session.
 - GitHub does not enforce the assignee. Any session holding the owner's token could set it. The
   rule "no session sets an assignee" lives in the worker and `/ticket` prompts, and the staleness
   check limits the damage to code that existed before the owner looked.
-- A commit made before the assignment but pushed after it is not caught: the committer date is the
-  only per-commit time the API gives. In practice the owner assigns after the push they read.
+- The push time comes from check suites. A PR whose newest commit has no check suite is refused
+  until one exists. Every PR here runs `pr-verify`, so in practice every pushed commit has one.
 - PR branches can carry a GitHub merge commit from the train. The squash merge removes it from
   `main`, so `main` stays linear.
 - The approval rule lives in the maintainer's `merge-train` script, outside this repo.
@@ -148,18 +161,21 @@ the same either way, so serial only costs wall-clock time. `-j 1` stays availabl
 ## Implementation Notes
 
 - `scripts/claude/work-ticket.sh`: worktree from `origin/main`; skip (exit 12) on an open PR or an
-  existing worktree; the session runs inside the worktree; no checks wait, no merge; a clean
+  existing worktree; the session runs inside the worktree in its own process group; no checks
+  wait, no merge; the PR it reports must be open and belong to the ticket; salvage, then the
   worktree and its E2E images are removed; every exit writes its outcome to the `.meta` file.
-- `scripts/claude/backlog-loop.sh`: up to `-j` workers; a usage limit starts nothing new, waits for
-  the running tickets, naps and retries the limited ones; a worktree failure (exit 10) or two
-  failures in a row stop new starts; TERM stops every worker; the roll-up table lists the PRs.
-- `scripts/claude/next-ticket.sh`: a ticket with an open PR is not ready.
+- `scripts/claude/backlog-loop.sh`: up to `-j` workers; refuses loop scripts that differ from
+  `origin/main`; a usage limit starts nothing new, waits for the running tickets, naps and retries
+  the limited ones; a worktree failure (exit 10) or two failures in a row stop new starts; TERM
+  stops every worker at once, even mid-nap; the roll-up table lists the PRs.
+- `scripts/claude/next-ticket.sh`: a ticket with an open PR or a worktree is not ready.
 - `scripts/tests/claude-loop-conductor.tests.sh` (new, in `pr-verify` and `ci`) pins the conductor;
   `scripts/tests/claude-loop-provenance.tests.sh` gains the in-flight cases.
 - `.claude/commands/work-ticket.md`, `ticket.md`: never set an assignee; the wiki path works from a
   worktree. `.claude/commands/backlog.md`, `docs/claude-loop.md`, `CLAUDE.md` (Loop mode) follow.
 - The maintainer's `~/.claude-account1/skills/merge-train/merge-train.sh`: the approval check, a
-  merge-commit branch update, `--match-head-commit`, and no `--delete-branch` for this repo.
+  merge-commit branch update, `--match-head-commit`, and no `--delete-branch` for this repo, with
+  its own offline self-test `merge-train.tests.sh` next to it.
 
 ## References
 

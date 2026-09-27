@@ -14,8 +14,9 @@ is flat whether you run 1 ticket or grind the backlog all night.
    and ends with a table of the PRs it opened.
 3. Read each PR. When you are happy with one, **assign yourself** — that is the approval, because
    GitHub does not let you approve your own PR.
-4. When the batch is read, run **`/merge-train`**. It merges only PRs assigned to you, and only if
-   nothing was pushed to the PR after you assigned yourself.
+4. When the batch is read, run **`/merge-train`**. It merges only PRs you assigned yourself to, and
+   only if nothing reached the PR after that. If something did, read it, then unassign and assign
+   again.
 
 ## Why this shape (context economics)
 
@@ -68,7 +69,8 @@ the tickets do share is this machine: the CPU for builds and the Docker daemon f
 containers. Three is the global cap on parallel sessions, and it is what the owner already runs by
 hand. Two things keep parallel runs honest: tickets you pick should touch different areas (two
 tickets that edit the same file give the second PR a conflict at merge time), and each E2E suite
-tags its Docker images per worktree (#884), so two runs never test each other's build.
+must tag its Docker images per worktree, so two runs never test each other's build. That tagging
+arrives with PR #895 (#884); until it is on `main`, run with `-j 1`.
 
 **Overnight (macOS):** the machine must not sleep mid-run:
 
@@ -142,6 +144,7 @@ one ticket with `LOOP_TRUST_GATE=0`, or add the commenter to `LOOP_TRUSTED_LOGIN
 | `LOOP_UNSAFE` | `0` | `1` = `--dangerously-skip-permissions` (full overnight autonomy) |
 | `LOOP_MAX_BUDGET_USD` | (none) | optional per-ticket API budget cap |
 | `LOOP_PARALLEL` | `3` | tickets at once (same as `-j`) |
+| `LOOP_ALLOW_LOCAL_SCRIPTS` | `0` | `1` = run even when `scripts/claude/` here differs from `origin/main` (only when you are changing the loop itself) |
 | `LOOP_TICKET_TIMEOUT_MIN` | `90` | wall-clock kill switch per ticket; leftovers are committed on a `loop-salvage/…` branch |
 | `LOOP_KEEP_WORKTREE` | `0` | `1` = keep `.claude/worktrees/ticket-<n>` after the run (by default a clean worktree is removed; the branch always stays) |
 | `LOOP_GH_USER` | `koniecdev` | gh account whose token backs the loop's gh write calls (labels, issue comments); an existing `GH_TOKEN` in the environment wins |
@@ -185,6 +188,9 @@ Per-ticket outcomes:
   consecutive failures stop new starts (something systemic); the running tickets finish first.
 - **no-worktree** — `git fetch` or `git worktree add` failed. That is the machine, not the ticket,
   so the loop starts nothing more.
+- **stopped** — you stopped the loop (Ctrl-C, `kill`, closing the terminal). Each running session
+  is killed together with the builds and tests it started, its leftovers are salvaged, and its
+  worktree is removed, so the next run can start the ticket again.
 - **usage limit** — the loop starts nothing new, lets the running tickets finish, naps
   (`LOOP_LIMIT_SLEEP_MIN`) and runs the limited tickets again.
 - **untrusted** — the ticket failed the provenance gate; it is skipped without spawning a session
@@ -197,15 +203,21 @@ Per-ticket outcomes:
   `scripts/tests/claude-loop-provenance.tests.sh`, which runs in `pr-verify` and `ci`.
 - Each ticket gets its **own worktree** from `origin/main`; the main checkout is never touched,
   and the runner never deletes work — anything left behind is committed on a dedicated
-  `loop-salvage/<n>-<timestamp>` branch, never stashed, never reset. Only a clean worktree is
+  `loop-salvage/<n>-<timestamp>` branch, never stashed, never reset. So are commits a session made
+  on no branch, because removing a worktree drops its reflog. A rebase or merge left half done is
+  never committed over: that worktree stays exactly as it is, for you. Only a clean worktree is
   removed, together with the E2E images tagged for it; the branch always stays.
+- The loop runs only when `scripts/claude/` in the checkout that starts it matches `origin/main`,
+  so an old branch cannot run old loop code (which merged PRs).
 - The worker session may commit/push/PR (that authorization is the point of loop mode). **Nothing
   in the loop merges or assigns** (ADR-0060). The merge path is `/merge-train`, and it takes only
   PRs the owner assigned to themselves after the last push, with green required checks and zero
   open CodeQL alerts — and it never deletes the branch.
-- Stopping the conductor (Ctrl-C, `kill`, closing the terminal) stops every running worker and
-  its session; `scripts/tests/claude-loop-conductor.tests.sh` pins that, together with the slot
-  count, the retry after a usage limit and the stop conditions.
+- Stopping the conductor (Ctrl-C, `kill`, closing the terminal) stops every running worker, and
+  each worker stops its session's whole process group, at once, even in the middle of an
+  hour-long usage-limit nap. `scripts/tests/claude-loop-conductor.tests.sh` pins the conductor
+  side (with the slot count, the retry after a usage limit and the stop conditions), and
+  `scripts/tests/claude-loop-provenance.tests.sh` the worker side.
 - Business decisions are never invented: they come back as BLOCKED questions on the issue.
 - Default permission mode is `auto` plus a loop-scoped git/gh/dotnet/scripts `--allowedTools`
   allowlist (interactive sessions are unaffected). `LOOP_UNSAFE=1` trades that for
@@ -223,8 +235,14 @@ Per-ticket outcomes:
 - **Ticket ended `error` with no STATUS block** — read `logs/claude-loop/<run>/ticket-<n>.json`
   (`.result` field) and `.stderr`; usually a permission denial (extend `LOOP_ALLOWED_TOOLS`) or a
   mid-run crash.
-- **Checks keep timing out** — raise `LOOP_CHECKS_TIMEOUT_MIN`; pr-verify runs the integration
-  suite and can be slow on cold runners.
+- **"scripts/claude/ … differs from origin/main — refusing"** — the loop scripts run from the
+  checkout you start them in, and that checkout is on an old branch or has local edits. Old loop
+  code may still merge PRs (it did before ADR-0060). Start the loop from a checkout that is up to
+  date with `main`; set `LOOP_ALLOW_LOCAL_SCRIPTS=1` only when you are changing the loop itself.
+- **A ticket is always "SKIPPED — … already exists"** — a worktree `.claude/worktrees/ticket-<n>`
+  is still on disk: a manual session, or a run the loop could not clean up (a rebase or merge left
+  half done, or leftovers it could not commit — the run's log line says which). Look inside, finish
+  or abort what is there, then `git worktree remove .claude/worktrees/ticket-<n>`.
 - **The picker returns nothing but issues exist** — they're excluded (labels/titles/deps/provenance);
   run `LOOP_SKIP_LABELS= LOOP_SKIP_TITLES= LOOP_SKIP_ISSUES= scripts/claude/next-ticket.sh` to see the
   unfiltered choice (its stderr names every ticket the provenance gate refused), then fix

@@ -130,7 +130,9 @@ harmless. Since #823 the same line also feeds `tms-api` (`FrontendCaller__Key`) 
   `compose config --quiet` before it touches a container, and the rollback keeps the running
   release serving.
 - **Apps:** outside Development and Testing both refuse to start without a key, and a key shorter
-  than 32 characters fails options validation wherever one is set. Development and Testing may
+  than 32 characters fails options validation wherever one is set. Since #857 so does a key that
+  starts or ends with whitespace: Kestrel trims the spaces around a header value, so such a key
+  could never match. Development and Testing may
   leave it empty: their limiter is off, the frontend then sends neither header, and the auth API
   ignores a forwarded address. Since #823 the TMS API follows the same two rules.
 
@@ -240,7 +242,8 @@ every consumer sees — a trust change well beyond the limiter.
   by #823.)
 - Auth API:
   - `Settings/FrontendCallerSettings.cs` + `Settings/FrontendCallerSettingsValidator.cs` — **new**;
-    `FrontendCaller:Key`, required outside Development/Testing, at least 32 characters when set.
+    `FrontendCaller:Key`, required outside Development/Testing, at least 32 characters when set,
+    and no whitespace at either end (#857).
   - `Services/RateLimiting/RateLimitPartitionKeyResolver.cs` — **new**; the digest comparison and
     the choice between the forwarded address and `Connection.RemoteIpAddress`.
   - `ApiDependencyInjection.cs` registers the settings and the resolver; the three back-channel

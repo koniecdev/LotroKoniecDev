@@ -385,11 +385,16 @@ run after `UseAuthorization` and so never saw the refusals it was written for.
   cut to its /64. The /64 key can always be worked out from the address, not the other way round.
 - `RemoteIpAddress` is still not rewritten, so alternative G stays rejected, and every other log line
   still sees only the connection.
+- **On the TMS API, a refusal with no rate limit gets no warning.** Its fallback policy answers 401
+  for a path that matches no endpoint and for a method a route does not map. Neither carries a rate
+  limit, so every such call would add a warning with no cap. The request log still records them. The
+  auth API needs no such rule: it has no fallback policy, so those calls get 404 or 405 there.
 
 Tests: `AuthorizationLoggingTests` on both APIs (the right key names the visitor, a wrong key names
 the connection, the connection is in the line either way; on the auth API a wrong client secret at
-`/connect/token`, which OpenIddict refuses during authentication, is warned too);
-`RateLimitPartitionKeyResolverTests` on both APIs (an IPv6 visitor's whole address).
+`/connect/token`, which OpenIddict refuses during authentication, is warned too; on the TMS API an
+unknown path, a wrong method and HEAD are not warned); `RateLimitPartitionKeyResolverTests` on both
+APIs (an IPv6 visitor's whole address).
 
 ## References
 

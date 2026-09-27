@@ -111,14 +111,18 @@ public sealed class AuthorizationLoggingTests : IAsyncLifetime
             .ShouldBe($"Unauthorized access attempt: GET {GameVersionsPath} from {namedClient} via {FrontendAddress}");
     }
 
-    [Fact]
-    public async Task GetUnknownRoute_WithoutAToken_ShouldNotWarn()
+    [Theory]
+    [InlineData("GET", "/does-not-exist")]
+    [InlineData("PUT", GameVersionsPath)]
+    [InlineData("HEAD", GameVersionsPath)]
+    public async Task Request_WhereNoRateLimitApplies_ShouldNotWarn(string method, string path)
     {
-        // Arrange: the fallback policy refuses a path that matches no endpoint, and no rate limit caps it
+        // Arrange: the fallback policy refuses a path that matches no endpoint, and a method the route does
+        // not map, with 401. Neither carries a rate limit, so a warning there would have no cap.
         using CapturingLoggerFactory loggerFactory = new();
         using WebApplicationFactory<Program> host = CreateHost(loggerFactory);
         using HttpClient client = host.CreateClient();
-        using HttpRequestMessage request = CreateRequest("/does-not-exist", "203.0.113.84");
+        using HttpRequestMessage request = CreateRequest(path, "203.0.113.84", new HttpMethod(method));
 
         // Act
         using HttpResponseMessage response = await client.SendAsync(request);
@@ -152,9 +156,9 @@ public sealed class AuthorizationLoggingTests : IAsyncLifetime
             .Where(entry => entry.Category == typeof(AuthorizationLoggingMiddleware).FullName)
             .ToList();
 
-    private static HttpRequestMessage CreateRequest(string path, string connectionAddress)
+    private static HttpRequestMessage CreateRequest(string path, string connectionAddress, HttpMethod? method = null)
     {
-        HttpRequestMessage request = new(HttpMethod.Get, new Uri(path, UriKind.Relative));
+        HttpRequestMessage request = new(method ?? HttpMethod.Get, new Uri(path, UriKind.Relative));
         request.Headers.Add(ForwardedForHeader, connectionAddress);
         return request;
     }

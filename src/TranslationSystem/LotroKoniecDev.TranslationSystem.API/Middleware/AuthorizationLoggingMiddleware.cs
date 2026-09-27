@@ -1,5 +1,6 @@
 using System.Net;
 using LotroKoniecDev.TranslationSystem.API.Services.RateLimiting;
+using Microsoft.AspNetCore.RateLimiting;
 
 namespace LotroKoniecDev.TranslationSystem.API.Middleware;
 
@@ -28,9 +29,10 @@ internal sealed partial class AuthorizationLoggingMiddleware
     {
         await _next(context);
 
-        // A path that matches no endpoint gets 401 from the fallback policy, but no rate limit applies
-        // there, so a scanner could write warnings without end. The request log still records it.
-        if (context.GetEndpoint() is null)
+        // The fallback policy also answers 401 for a path that matches no endpoint, and for a method the
+        // route does not map. No rate limit applies there, so a scanner could write warnings without end.
+        // The request log still records those calls.
+        if (context.GetEndpoint()?.Metadata.GetMetadata<EnableRateLimitingAttribute>() is null)
         {
             return;
         }

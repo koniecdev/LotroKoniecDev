@@ -341,8 +341,8 @@ try
     }
 
     // This goes around authentication and authorization, so it sees their answers. UseAuthorization
-    // refuses a call with 401 or 403 itself and never calls the next step, so from after it this saw
-    // almost no refused call (#854).
+    // refuses a call with 401 or 403 itself and never calls the next step. When this ran after it, it
+    // saw almost no refused call (#854).
     app.UseAuthorizationLogging();
 
     app.UseAuthentication();

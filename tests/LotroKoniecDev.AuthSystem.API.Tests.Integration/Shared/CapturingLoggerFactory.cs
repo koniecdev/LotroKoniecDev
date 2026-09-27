@@ -5,8 +5,10 @@ namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared;
 
 /// <summary>
 /// Captures what the code under test logged. It is used where the log is the only visible behaviour:
-/// the seeder leaves an account at the admin address as it is and only warns (#839), so a test that
-/// could not read the warning would pass with the warning gone.
+/// the seeder leaves an account at the admin address as it is and only warns (#839), and a refused call
+/// answers 401 whether or not the warning about it was written (#854). A test that could not read the
+/// warning would pass with the warning gone. Filter on the category, not on the event id alone:
+/// libraries reuse the same numbers.
 /// </summary>
 internal sealed class CapturingLoggerFactory : ILoggerFactory
 {

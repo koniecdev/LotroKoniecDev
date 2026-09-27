@@ -122,7 +122,7 @@ internal sealed partial class ResetPasswordModel : PageModel
         }
 
         await _userManager.UpdateSecurityStampAsync(user);
-        await _sessionRevoker.RevokeAllAsync(user.Id.ToString(), HttpContext.RequestAborted);
+        await _sessionRevoker.RevokeAllAsync(user.Id.ToString());
 
         LogPasswordResetCompleted(_logger, user.Id);
 

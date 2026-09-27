@@ -1,11 +1,11 @@
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
-using OpenIddict.Abstractions;
 using LotroKoniecDev.AuthSystem.API.Features.Auth;
 using LotroKoniecDev.AuthSystem.API.Outbox;
 using LotroKoniecDev.AuthSystem.API.Services.Gdpr;
 using LotroKoniecDev.AuthSystem.API.Services.RateLimiting;
+using LotroKoniecDev.AuthSystem.API.Services.Sessions;
 using LotroKoniecDev.AuthSystem.API.Tests.Unit.Shared;
 using LotroKoniecDev.AuthSystem.Domain.Aggregates.ApplicationUsers.Entities;
 using LotroKoniecDev.AuthSystem.Persistence.DbContexts;
@@ -18,7 +18,8 @@ namespace LotroKoniecDev.AuthSystem.API.Tests.Unit.Features.Auth;
 /// <summary>
 /// Where the deletion schedule permit is taken (#811). It must be the last check before the save, so only
 /// a schedule that would happen spends one (ADR-0055). The budget is a real one-permit throttle, so each
-/// test reads what is left of it instead of how the handler called it.
+/// test reads what is left of it instead of how the handler called it. The sessions a schedule ends leave
+/// no trace in the result, so that one side effect is asserted on the revoker (#872).
 /// </summary>
 public sealed class DeleteAccountHandlerTests : IDisposable
 {
@@ -28,6 +29,7 @@ public sealed class DeleteAccountHandlerTests : IDisposable
         new(AccountBudgets.PasswordConfirmationPermitLimit, AccountBudgets.Window);
     private readonly PerAccountFixedWindowThrottle _scheduleThrottle =
         new(permitLimit: 1, AccountBudgets.DeletionScheduleWindow);
+    private readonly IUserSessionRevoker _sessionRevoker = Substitute.For<IUserSessionRevoker>();
     private readonly CapturingLogger<DeleteAccount.Handler> _logger = new();
 
     public void Dispose()
@@ -47,6 +49,16 @@ public sealed class DeleteAccountHandlerTests : IDisposable
         result.IsSuccess.ShouldBeTrue();
         user.DeletionScheduledAt.ShouldNotBeNull();
         _scheduleThrottle.TryAcquire(user.Id).ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task Handle_CorrectPassword_EndsEverySession()
+    {
+        ApplicationUser user = StubUser(passwordValid: true);
+
+        await CreateSut().Handle(CommandFor(user), CancellationToken.None);
+
+        await _sessionRevoker.Received(1).RevokeAllAsync(user.Id.ToString());
     }
 
     [Fact]
@@ -117,8 +129,7 @@ public sealed class DeleteAccountHandlerTests : IDisposable
     private DeleteAccount.Handler CreateSut() =>
         new(
             _userManager,
-            Substitute.For<IOpenIddictTokenManager>(),
-            Substitute.For<IOpenIddictAuthorizationManager>(),
+            _sessionRevoker,
             new OutboxWriter(_db, new OutboxSignal(), TimeProvider.System),
             Substitute.For<IAccountDeletionSchedule>(),
             _confirmationThrottle,

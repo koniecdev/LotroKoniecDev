@@ -29,11 +29,9 @@ public static class HttpClientsDependencyInjectionExtensions
                     // short. The per-attempt timeout below is chosen per kind of request instead.
                     client.Timeout = Timeout.InfiniteTimeSpan;
                 })
-                .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler
-                {
-                    PooledConnectionLifetime = TimeSpan.FromMinutes(15)
-                })
+                .ConfigurePrimaryHttpMessageHandler(CreatePrimaryHandler)
                 .SetHandlerLifetime(Timeout.InfiniteTimeSpan)
+                .AddSameOriginHandler<TranslationSystemSettings>(settings => settings.BaseUrl)
                 .AddHttpMessageHandler<TranslationContentNegotiationAndAuthDelegatingHandler>()
                 // Outside the resilience handler on purpose: a retried request is the same message, so
                 // the caller headers are added once and the TMS API sees one value each (ADR-0054, #823).
@@ -50,11 +48,9 @@ public static class HttpClientsDependencyInjectionExtensions
                     client.BaseAddress = new Uri(settings.BaseUrl);
                     client.Timeout = Timeout.InfiniteTimeSpan;
                 })
-                .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler
-                {
-                    PooledConnectionLifetime = TimeSpan.FromMinutes(15)
-                })
+                .ConfigurePrimaryHttpMessageHandler(CreatePrimaryHandler)
                 .SetHandlerLifetime(Timeout.InfiniteTimeSpan)
+                .AddSameOriginHandler<AuthSystemSettings>(settings => settings.BaseUrl)
                 .AddHttpMessageHandler<AuthContentNegotiationAndAuthDelegatingHandler>()
                 // Outside the resilience handler on purpose: a retried request is the same message, so
                 // the caller headers are added once and the auth API sees one value each (ADR-0054).
@@ -68,6 +64,16 @@ public static class HttpClientsDependencyInjectionExtensions
     extension(IHttpClientBuilder builder)
     {
         /// <summary>
+        /// Adds <see cref="SameOriginDelegatingHandler"/> bound to the base address of the API this client
+        /// calls. It must be the first handler (#830).
+        /// </summary>
+        internal IHttpClientBuilder AddSameOriginHandler<TSettings>(Func<TSettings, string> readBaseUrl)
+            where TSettings : class =>
+            builder.AddHttpMessageHandler(serviceProvider => new SameOriginDelegatingHandler(
+                new Uri(readBaseUrl(serviceProvider.GetRequiredService<IOptions<TSettings>>().Value)),
+                serviceProvider.GetRequiredService<ILogger<SameOriginDelegatingHandler>>()));
+
+        /// <summary>
         /// Adds <see cref="FrontendCallerDelegatingHandler"/> with the caller key of the API this client
         /// calls (ADR-0054). One box has one key today, but each API's settings carry their own copy.
         /// </summary>
@@ -77,6 +83,16 @@ public static class HttpClientsDependencyInjectionExtensions
                 serviceProvider.GetRequiredService<IHttpContextAccessor>(),
                 readCallerKey(serviceProvider.GetRequiredService<IOptions<TSettings>>().Value)));
     }
+
+    /// <summary>
+    /// A redirect would take the caller key past the origin check (#830), so the typed clients follow
+    /// none.
+    /// </summary>
+    private static SocketsHttpHandler CreatePrimaryHandler() => new()
+    {
+        PooledConnectionLifetime = TimeSpan.FromMinutes(15),
+        AllowAutoRedirect = false
+    };
 
     private static void ConfigureResiliencePipeline(ResiliencePipelineBuilder<HttpResponseMessage> pipeline)
     {
@@ -93,7 +109,7 @@ public static class HttpClientsDependencyInjectionExtensions
         {
             SamplingDuration = TimeSpan.FromSeconds(30),
             FailureRatio = 0.5,
-            MinimumThroughput = 10,
+            MinimumThroughput = CircuitBreakerMinimumThroughput,
             BreakDuration = TimeSpan.FromSeconds(30),
             ShouldHandle = args => ValueTask.FromResult(IsHandledTransientFailure(args.Outcome, args.Context))
         });
@@ -108,6 +124,9 @@ public static class HttpClientsDependencyInjectionExtensions
             TimeoutGenerator = args => ValueTask.FromResult(ResolveTimeout(args.Context.GetRequestMessage()))
         });
     }
+
+    /// <summary>How many calls the circuit breaker must see in its window before it may open.</summary>
+    internal const int CircuitBreakerMinimumThroughput = 10;
 
     /// <summary>The time limit per attempt for ordinary JSON calls. It is short, so a stalled API fails fast.</summary>
     internal static readonly TimeSpan DefaultRequestTimeout = TimeSpan.FromSeconds(10);

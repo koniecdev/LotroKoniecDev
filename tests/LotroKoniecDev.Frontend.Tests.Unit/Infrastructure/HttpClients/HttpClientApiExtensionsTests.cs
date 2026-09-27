@@ -204,6 +204,37 @@ public sealed class HttpClientApiExtensionsTests
     }
 
     [Theory]
+    [InlineData(HttpStatusCode.MovedPermanently)]
+    [InlineData(HttpStatusCode.Found)]
+    [InlineData(HttpStatusCode.SeeOther)]
+    [InlineData(HttpStatusCode.TemporaryRedirect)]
+    [InlineData(HttpStatusCode.PermanentRedirect)]
+    public async Task GetApiResultAsync_WhenTheApiAnswersWithARedirect_MapsToBadGatewayProblem(HttpStatusCode statusCode)
+    {
+        HttpClient httpClient = CreateClient(StubHttpMessageHandler.RespondWith(
+            statusCode,
+            """{ "title": "Moved", "status": 302 }"""));
+
+        ApiResult<string> result = await httpClient.GetApiResultAsync<string>("translations");
+
+        result.IsFailure.ShouldBeTrue();
+        result.ProblemDetails!.Status.ShouldBe(StatusCodes.Status502BadGateway);
+    }
+
+    [Theory]
+    [InlineData(HttpStatusCode.Found)]
+    [InlineData(HttpStatusCode.TemporaryRedirect)]
+    public async Task GetTextAsync_WhenTheApiAnswersWithARedirect_MapsToBadGatewayProblem(HttpStatusCode statusCode)
+    {
+        HttpClient httpClient = CreateClient(StubHttpMessageHandler.RespondWith(statusCode, ""));
+
+        ApiResult<string> result = await httpClient.GetTextAsync("translation-files/pl");
+
+        result.IsFailure.ShouldBeTrue();
+        result.ProblemDetails!.Status.ShouldBe(StatusCodes.Status502BadGateway);
+    }
+
+    [Theory]
     [InlineData("<html><head><title>Maintenance</title></head><body>Back soon</body></html>")]
     [InlineData("<!DOCTYPE html><html><body><form action=\"/login\"></form></body></html>")]
     [InlineData("plain text")]

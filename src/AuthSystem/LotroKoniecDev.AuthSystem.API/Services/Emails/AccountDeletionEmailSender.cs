@@ -1,4 +1,3 @@
-using System.Globalization;
 using LotroKoniecDev.AuthSystem.API.Extensions;
 using LotroKoniecDev.AuthSystem.API.Services.Emails.Templates;
 using LotroKoniecDev.AuthSystem.Infrastructure.Emails;
@@ -33,16 +32,16 @@ internal sealed class AccountDeletionEmailSender : IAccountDeletionEmailSender
         CancellationToken cancellationToken)
     {
         string link = _cancelDeletionLinkFactory.Create(email, cancelToken);
-        string deletionDate = finalizesAt.ToPolandTime().ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+        string deletionDate = finalizesAt.ToPolandDateText();
 
         EmailTemplateModel template = new()
         {
-            Preheader = $"Konto zostanie trwale usunięte {deletionDate}.",
+            Preheader = $"Konto zostanie trwale usunięte dnia {deletionDate}.",
             Heading = "Zaplanowano usunięcie konta",
             Paragraphs =
             [
                 $"Otrzymaliśmy prośbę o usunięcie Twojego konta na {EmailBranding.Name}.",
-                $"Konto zostanie trwale usunięte dnia {deletionDate} czasu polskiego i do tego czasu pozostaje zablokowane.",
+                $"Konto zostanie trwale usunięte dnia {deletionDate} i do tego czasu pozostaje zablokowane.",
                 "Usunięcie możesz anulować przyciskiem poniżej."
             ],
             CallToAction = new EmailCallToAction("Anuluj usunięcie konta", link),
@@ -76,16 +75,16 @@ internal sealed class AccountDeletionEmailSender : IAccountDeletionEmailSender
         // value CancelAccountDeletion looks the account up with, so it is the same link the current
         // address gets — only the wording differs.
         string link = _cancelDeletionLinkFactory.Create(currentEmail, cancelToken);
-        string deletionDate = finalizesAt.ToPolandTime().ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+        string deletionDate = finalizesAt.ToPolandDateText();
 
         EmailTemplateModel template = new()
         {
-            Preheader = $"Konto, które działało na tym adresie, zostanie usunięte {deletionDate}.",
+            Preheader = $"Konto, które działało na tym adresie, zostanie usunięte dnia {deletionDate}.",
             Heading = "Zaplanowano usunięcie konta powiązanego z tym adresem",
             Paragraphs =
             [
                 $"Adres e-mail konta w {EmailBranding.Name}, które działało na tym adresie, został niedawno zmieniony na {currentEmail}. Teraz ktoś zaplanował trwałe usunięcie tego konta.",
-                $"Konto zostanie trwale usunięte dnia {deletionDate} czasu polskiego.",
+                $"Konto zostanie trwale usunięte dnia {deletionDate}.",
                 "Jeśli to nie Ty, użyj przycisku poniżej. Anuluje on usunięcie i unieważni obecne hasło, a następnie pozwoli Ci ustawić nowe."
             ],
             CallToAction = new EmailCallToAction("Anuluj usunięcie konta", link),

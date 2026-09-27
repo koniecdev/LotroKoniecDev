@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Storage;
 using Microsoft.Extensions.Options;
 using OpenIddict.Abstractions;
+using LotroKoniecDev.AuthSystem.API.Services.Accounts;
 using LotroKoniecDev.AuthSystem.API.Settings;
 using LotroKoniecDev.AuthSystem.Domain.Aggregates.ApplicationRoles.Entities;
 using LotroKoniecDev.AuthSystem.Domain.Aggregates.ApplicationUsers.Entities;
@@ -127,6 +128,18 @@ internal static partial class DatabaseSeederExtensions
         if (await userManager.FindByNameAsync(username) is not null)
         {
             LogAdminSeedUsernameTaken(logger, username);
+            return;
+        }
+
+        // An address freed by an e-mail change stays held while its owner can still undo the change
+        // (#684). An admin seeded there would make that undo link fail (#849). This runs after the
+        // username check on purpose: when the admin itself moved off the address, the operator keeps
+        // getting 2353, which ADR-0056 decision 5 explains.
+        IEmailChangeRevertReservation revertReservation =
+            serviceProvider.GetRequiredService<IEmailChangeRevertReservation>();
+        if (await revertReservation.IsReservedAsync(email, exceptUserId: null, CancellationToken.None))
+        {
+            LogAdminSeedEmailReservedForUndo(logger);
             return;
         }
 
@@ -325,4 +338,7 @@ internal static partial class DatabaseSeederExtensions
 
     [LoggerMessage(EventId = EventIds.AdminSeedEmailTakenWithoutAdminRole, Level = LogLevel.Warning, Message = "Admin seeding skipped: the configured e-mail address belongs to account {UserId}, which does not have the Admin role. The seeder never promotes an existing account")]
     private static partial void LogAdminSeedEmailTakenWithoutAdminRole(ILogger logger, Guid userId);
+
+    [LoggerMessage(EventId = EventIds.AdminSeedEmailReservedForUndo, Level = LogLevel.Warning, Message = "Admin seeding skipped: an existing account can still undo an e-mail change back to the configured e-mail address. The address stays reserved until that undo link expires")]
+    private static partial void LogAdminSeedEmailReservedForUndo(ILogger logger);
 }

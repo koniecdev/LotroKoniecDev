@@ -277,7 +277,7 @@ off-Windows or without a DAT available — `Skipped` on macOS is expected, not a
 ## TMS Real-Process E2E Tests (LotroKoniecDev.TranslationSystem.E2E.Tests)
 
 A Testcontainers-driven suite that mirrors TheKittySaver's `E2E.Tests`: `E2ETestFixture` builds the
-`auth`/`tms`/`migrator` Docker images (`SKIP_DOCKER_BUILD=true` to reuse pre-built ones), spins up a private
+`auth`/`tms`/`migrator` Docker images (`SKIP_DOCKER_BUILD=true` reuses the ones this worktree built last time), spins up a private
 network with `postgres:17-alpine` (+ the bind-mounted `scripts/init-postgres.sh` for the second `lotro_auth`
 DB), runs the one-shot migrator, then boots `auth-api` (env `Testing` → password-grant `lotrokoniecdev-test`
 client + seeded Admin) and `tms-api` on `http://+:8080`, waiting on `/health/live`. Tests drive the loop over
@@ -294,6 +294,16 @@ layer the in-process `*.Tests.Integration` suite fakes by forging HS256 tokens.
 `.github/workflows/e2e.yml` (`workflow_dispatch`, plus PRs touching `Directory.Packages.props`,
 `.config/dotnet-tools.json` or any Dockerfile — CI-03/#433, so Dependabot bumps exercise it) or a local
 `dotnet test` of the project. It IS compiled by the solution build, so the zero-warning gate still covers it.
+
+**Both E2E suites start their containers from image IDs, never from tags (#884).** A fixed tag let a second
+worktree's build move the tag while the first run was still starting its containers, so that run tested the
+other worktree's code (seen on #871). `tests/Shared/E2EWorktree.cs`, linked into both projects, builds with
+`--iidfile` and hands each container the ID its own build produced. The tag only names the worktree
+(`<repository>:<suite>-<folder>-<8 hex of the solution path>`, label `lotrokoniecdev.e2e`), so
+`SKIP_DOCKER_BUILD=true` reuses this worktree's images and a run leaves one set per worktree. Never start a
+container from a tag, and never give a fixture its own copy of the build loop. Two runs of the same suite in
+**one** worktree still collide: the second build takes the tag, Docker's containerd store deletes the first
+run's image, and that run fails with `pull access denied for sha256` (#889).
 
 ## Frontend Browser E2E Tests (LotroKoniecDev.Frontend.E2E.Tests)
 

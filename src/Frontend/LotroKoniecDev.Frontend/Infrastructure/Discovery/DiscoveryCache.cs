@@ -1,3 +1,4 @@
+using System.Security.Claims;
 using LotroKoniecDev.Frontend.Infrastructure.Auth.DeadSession;
 using LotroKoniecDev.Frontend.Infrastructure.HttpClients;
 using LotroKoniecDev.Frontend.Infrastructure.HttpClients.AuthSystemHttpClients;
@@ -17,7 +18,7 @@ internal sealed class DiscoveryCache : IDiscoveryCache
     internal const string AuthSystemDiscoveryCacheKeyPrefix = "discovery:auth-system:";
 
     private const string AnonymousSuffix = "anon";
-    private const string UserSuffix = "user";
+    private const string AccountSuffixPrefix = "user:";
     private const string SubjectClaimType = "sub";
 
     private static readonly HybridCacheEntryOptions OneDayEntryOptions = new()
@@ -82,20 +83,26 @@ internal sealed class DiscoveryCache : IDiscoveryCache
         CancellationToken cancellationToken)
         where TResponse : class, ILinksResponse
     {
-        // The key includes whether the caller is logged in, because the API sends a different set of
-        // links per role. With one shared key, whoever called first would fix the wrong set for everyone
-        // for a day.
-        string authSuffix = GetAuthSuffix();
-        string cacheKey = cacheKeyPrefix + authSuffix;
+        ClaimsPrincipal? signedInUser =
+            _httpContextAccessor.HttpContext?.User is { Identity.IsAuthenticated: true } user ? user : null;
+        string? subject = signedInUser?.FindFirst(SubjectClaimType)?.Value is { } value && !string.IsNullOrWhiteSpace(value)
+            ? value
+            : null;
+        string? cacheKey = signedInUser is null
+            ? cacheKeyPrefix + AnonymousSuffix
+            : GetAccountCacheKey(cacheKeyPrefix, subject, signedInUser);
 
-        TResponse? cached = await _hybridCache.GetOrCreateAsync<TResponse?>(
-            cacheKey,
-            static _ => ValueTask.FromResult<TResponse?>(null),
-            CachedOnlyEntryOptions,
-            cancellationToken: cancellationToken);
-        if (cached is not null)
+        if (cacheKey is not null)
         {
-            return ApiResult.Success(cached);
+            TResponse? cached = await _hybridCache.GetOrCreateAsync<TResponse?>(
+                cacheKey,
+                static _ => ValueTask.FromResult<TResponse?>(null),
+                CachedOnlyEntryOptions,
+                cancellationToken: cancellationToken);
+            if (cached is not null)
+            {
+                return ApiResult.Success(cached);
+            }
         }
 
         // Never inside a HybridCache factory: a factory can run without the request's context, and this
@@ -108,37 +115,62 @@ internal sealed class DiscoveryCache : IDiscoveryCache
             return live;
         }
 
-        if (authSuffix is UserSuffix && !ContainsGetRel(live.Value.Links, signedInMarkerRel))
+        if (signedInUser is not null && !ContainsGetRel(live.Value.Links, signedInMarkerRel))
         {
             // The cookie says the user is logged in, but the API sent the anonymous set of links, so the
             // token never reached it: it expired, is invalid, or its key was rotated. Mark the session
             // dead, so the next cookie validation signs the user out cleanly, and serve this set, so the
             // public pages still render on the way out. It is cached under neither key: under the
-            // logged-in key it would take every signed-in feature away from everyone for a day, and an
+            // account's key it would take every signed-in feature away from this user for a day, and an
             // answer to a call that carried a bearer is not what an anonymous call gets.
-            await MarkSessionDeadAsync(cancellationToken);
+            await MarkSessionDeadAsync(subject, cancellationToken);
             return live;
         }
 
-        await _hybridCache.SetAsync(cacheKey, live.Value, OneDayEntryOptions, cancellationToken: cancellationToken);
+        if (cacheKey is not null)
+        {
+            await _hybridCache.SetAsync(cacheKey, live.Value, OneDayEntryOptions, cancellationToken: cancellationToken);
+        }
+
         return live;
     }
 
-    private async Task MarkSessionDeadAsync(CancellationToken cancellationToken)
+    private async Task MarkSessionDeadAsync(string? subject, CancellationToken cancellationToken)
     {
-        string? subject = _httpContextAccessor.HttpContext?.User.FindFirst(SubjectClaimType)?.Value;
-        if (!string.IsNullOrWhiteSpace(subject))
+        if (subject is not null)
         {
             await _deadSessionRegistry.MarkDeadAsync(subject, cancellationToken);
         }
     }
 
-    private string GetAuthSuffix()
+    /// <summary>
+    /// Guests share one entry. A signed-in caller gets an entry for the account and the roles in the
+    /// cookie, because the API sends an admin more links than a translator (#842). The account is what
+    /// keeps users apart. The API decides from the roles in the current access token, but the cookie
+    /// keeps the roles it got at sign-in, and a token refresh does not update them. So the roles here
+    /// only give a new entry to a user who signs in again after a role change. A role change inside one
+    /// session shows up after at most a day (#896). Today roles are given only at registration and by the
+    /// admin seed, so this does not happen yet.
+    /// </summary>
+    /// <returns>
+    /// <see langword="null"/> for a session with no subject. Such a session cannot be told apart from
+    /// any other, so its answer is never cached.
+    /// </returns>
+    private static string? GetAccountCacheKey(string cacheKeyPrefix, string? subject, ClaimsPrincipal user)
     {
-        HttpContext? context = _httpContextAccessor.HttpContext;
-        return context?.User.Identity?.IsAuthenticated is true
-            ? UserSuffix
-            : AnonymousSuffix;
+        if (subject is null)
+        {
+            return null;
+        }
+
+        IEnumerable<string> roles = user.Identities
+            .SelectMany(identity => identity.FindAll(identity.RoleClaimType))
+            .Select(claim => claim.Value)
+            .Distinct(StringComparer.Ordinal)
+            .Order(StringComparer.Ordinal);
+
+        // The subject's length goes first, so no subject and role set can spell another account's key.
+        return $"{cacheKeyPrefix}{AccountSuffixPrefix}{subject.Length}:{subject}:{string.Join(',', roles)}";
     }
 
     private static bool ContainsGetRel(IEnumerable<LinkDto> links, string rel) =>

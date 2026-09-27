@@ -271,6 +271,20 @@ try
                     PermitLimit = 100,
                     Window = TimeSpan.FromMinutes(1)
                 }));
+
+        // 429 is the one rejection a caller can act on, so it says when to come back (#855). A fixed window
+        // reports its whole length here, not the time left in it, so the value is an upper bound: after
+        // that wait the caller's bucket is always full again. Rounding up keeps it an upper bound.
+        options.OnRejected = (context, _) =>
+        {
+            if (context.Lease.TryGetMetadata(MetadataName.RetryAfter, out TimeSpan retryAfter))
+            {
+                context.HttpContext.Response.Headers.RetryAfter =
+                    ((int)Math.Ceiling(retryAfter.TotalSeconds)).ToString(NumberFormatInfo.InvariantInfo);
+            }
+
+            return ValueTask.CompletedTask;
+        };
     });
 
     WebApplication app = builder.Build();

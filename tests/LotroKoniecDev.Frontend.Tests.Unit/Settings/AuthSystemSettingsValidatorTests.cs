@@ -146,6 +146,24 @@ public sealed class AuthSystemSettingsValidatorTests
         result.IsValid.ShouldBeTrue();
     }
 
+    [Theory]
+    [InlineData(Development, " a-frontend-caller-key-of-at-least-32-characters")]
+    [InlineData(Testing, "a-frontend-caller-key-of-at-least-32-characters ")]
+    [InlineData(Production, " a-frontend-caller-key-of-at-least-32-characters")]
+    [InlineData(Production, "a-frontend-caller-key-of-at-least-32-characters ")]
+    [InlineData(Production, "a-frontend-caller-key-of-at-least-32-characters\n")]
+    public void Validate_CallerKeyWithWhitespaceAroundIt_FailsInEveryEnvironment(string environmentName, string callerKey)
+    {
+        AuthSystemSettings settings = Settings(callerKey: callerKey);
+
+        ValidationResult result = CreateValidator(environmentName).Validate(settings);
+
+        result.IsValid.ShouldBeFalse();
+        result.Errors.ShouldContain(error =>
+            error.PropertyName == nameof(AuthSystemSettings.CallerKey)
+            && error.ErrorMessage.Contains("whitespace", StringComparison.Ordinal));
+    }
+
     private static AuthSystemSettingsValidator CreateValidator(string environmentName)
     {
         IHostEnvironment environment = Substitute.For<IHostEnvironment>();

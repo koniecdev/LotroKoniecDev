@@ -60,6 +60,15 @@ internal sealed class AuthSystemSettingsValidator : AbstractValidator<AuthSystem
             .WithMessage(
                 KeyPath(nameof(AuthSystemSettings.CallerKey))
                 + $" must be at least {MinimumCallerKeyLength} characters (openssl rand -base64 32).");
+
+        // The API trims the spaces around a header value, and HttpClient refuses to send a newline,
+        // so a padded key could never match.
+        RuleFor(x => x.CallerKey!)
+            .Must(HaveNoWhitespaceAround)
+            .When(x => !string.IsNullOrWhiteSpace(x.CallerKey))
+            .WithMessage(
+                KeyPath(nameof(AuthSystemSettings.CallerKey))
+                + " must not start or end with whitespace. Check the quoting of FRONTEND_CALLER_KEY in the box .env.");
     }
 
     private static string KeyPath(string propertyName)
@@ -75,4 +84,6 @@ internal sealed class AuthSystemSettingsValidator : AbstractValidator<AuthSystem
     {
         return !string.IsNullOrWhiteSpace(value) && value.StartsWith('/');
     }
+
+    private static bool HaveNoWhitespaceAround(string value) => value == value.Trim();
 }

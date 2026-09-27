@@ -553,9 +553,10 @@ hash-check → patch → launch flow is validated. Re-investigating any of it is
   resource advertises. A missing rel is a failure (`ProblemDetails` in the Frontend, a `Result`
   error in the CLI) — never a locally composed path, because an absent rel means the server does
   not offer that affordance to this caller. An href off the client's configured origin is refused
-  too, on both sides: the CLI in its resolver (#611), the frontend in `SameOriginDelegatingHandler`,
-  the first handler on the TMS and auth typed clients, so the bearer token and the caller key never
-  leave for another host (#830). `scripts/check-client-hypermedia.sh` (with a `.ps1`
+  too. The CLI does it in its resolver (#611). The frontend does it in `SameOriginDelegatingHandler`,
+  the first handler on the TMS and auth typed clients (#830). Their socket handlers follow no
+  redirects, so the bearer token and the caller key never leave for another host.
+  `scripts/check-client-hypermedia.sh` (with a `.ps1`
   twin) flags an API path in any string literal under `src/Frontend/` **and** `src/Patcher/` and
   gates it in **both** `pr-verify` and `ci`, alongside the SSR guard; prose mentions in comments
   stay allowed. The one bounded exception is the editor's detail URI

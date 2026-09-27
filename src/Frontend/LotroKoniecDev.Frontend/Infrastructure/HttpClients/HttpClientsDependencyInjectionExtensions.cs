@@ -31,7 +31,8 @@ public static class HttpClientsDependencyInjectionExtensions
                 })
                 .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler
                 {
-                    PooledConnectionLifetime = TimeSpan.FromMinutes(15)
+                    PooledConnectionLifetime = TimeSpan.FromMinutes(15),
+                    AllowAutoRedirect = false
                 })
                 .SetHandlerLifetime(Timeout.InfiniteTimeSpan)
                 .AddSameOriginHandler<TranslationSystemSettings>(settings => settings.BaseUrl)
@@ -53,7 +54,8 @@ public static class HttpClientsDependencyInjectionExtensions
                 })
                 .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler
                 {
-                    PooledConnectionLifetime = TimeSpan.FromMinutes(15)
+                    PooledConnectionLifetime = TimeSpan.FromMinutes(15),
+                    AllowAutoRedirect = false
                 })
                 .SetHandlerLifetime(Timeout.InfiniteTimeSpan)
                 .AddSameOriginHandler<AuthSystemSettings>(settings => settings.BaseUrl)
@@ -71,7 +73,7 @@ public static class HttpClientsDependencyInjectionExtensions
     {
         /// <summary>
         /// Adds <see cref="SameOriginDelegatingHandler"/> bound to the base address of the API this client
-        /// calls (#830). It has to be the first handler, so a refused request never gets a header.
+        /// calls. It must be the first handler (#830).
         /// </summary>
         internal IHttpClientBuilder AddSameOriginHandler<TSettings>(Func<TSettings, string> readBaseUrl)
             where TSettings : class =>

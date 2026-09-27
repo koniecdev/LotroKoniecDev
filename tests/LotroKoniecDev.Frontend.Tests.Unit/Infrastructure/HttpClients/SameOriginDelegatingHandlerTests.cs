@@ -19,9 +19,9 @@ namespace LotroKoniecDev.Frontend.Tests.Unit.Infrastructure.HttpClients;
 /// <summary>
 /// #830: the frontend follows the links an API sends, and the handlers after this one add the bearer
 /// token and the caller key to whatever address they get. So a link to another origin is refused before
-/// anything is sent. The first tests drive the handler alone; the rest go through the real
-/// <c>AddHttpClients</c> registration with a signed-in visitor, because a guard that sits after the
-/// header handlers, or is not wired at all, would still pass the handler tests.
+/// anything is sent. The first tests drive the handler alone. The rest go through the real
+/// <c>AddHttpClients</c> registration with a signed-in visitor: they fail when the guard is not wired,
+/// when it sits inside the resilience handler, or when a client follows redirects.
 /// </summary>
 public sealed class SameOriginDelegatingHandlerTests
 {
@@ -34,6 +34,9 @@ public sealed class SameOriginDelegatingHandlerTests
     private const string AuthBaseUrl = "https://auth.lotro.test/";
     private const string TranslationSystemBaseUrl = "https://tms.lotro.test/";
     private const string OffOriginHref = "https://attacker.example/translations";
+
+    // The circuit breaker needs ten calls in its window before it may open.
+    private const int RefusalsPastTheBreakerThroughput = 12;
 
     [Theory]
     [InlineData("https://tms.lotro.test/translations")]
@@ -59,6 +62,7 @@ public sealed class SameOriginDelegatingHandlerTests
     [InlineData("https://tms.lotro.test:8443/translations")]
     [InlineData("http://tms.lotro.test/translations")]
     [InlineData("http://tms.lotro.test:443/translations")]
+    [InlineData("https://tms.lotro.test./translations")]
     public async Task SendAsync_ToAnotherOrigin_ThrowsAndSendsNothing(string href)
     {
         (HttpMessageInvoker invoker, StubHttpMessageHandler inner) = CreateInvoker();
@@ -82,14 +86,17 @@ public sealed class SameOriginDelegatingHandlerTests
         inner.LastRequest.ShouldBeNull();
     }
 
-    [Fact]
-    public async Task TranslationSystemClient_ThroughTheRealPipeline_RefusesAnOffOriginLinkAndSendsNothing()
+    [Theory]
+    [InlineData(OffOriginHref)]
+    [InlineData("//attacker.example/translations")]
+    [InlineData("http://tms.lotro.test/translations")]
+    public async Task TranslationSystemClient_ThroughTheRealPipeline_RefusesAnOffOriginLinkAndSendsNothing(string href)
     {
         RecordingHttpMessageHandler primary = new();
         await using ServiceProvider provider = BuildProvider(primary);
         ITranslationSystemClient client = provider.GetRequiredService<ITranslationSystemClient>();
 
-        ApiResult<object> result = await client.GetApiResultAsync<object>(OffOriginHref);
+        ApiResult<object> result = await client.GetApiResultAsync<object>(href);
 
         result.IsFailure.ShouldBeTrue();
         result.ProblemDetails!.Status.ShouldBe(StatusCodes.Status503ServiceUnavailable);
@@ -140,6 +147,65 @@ public sealed class SameOriginDelegatingHandlerTests
         primary.LastCallerKey.ShouldBe(CallerKey);
     }
 
+    [Fact]
+    public async Task TranslationSystemClient_AfterManyRefusedLinks_StillReachesItsOwnOrigin()
+    {
+        // A guard inside the resilience handler would retry each refusal and count it as a failure, so
+        // the circuit breaker would open and stop every TMS call for every visitor for 30 seconds.
+        RecordingHttpMessageHandler primary = new();
+        await using ServiceProvider provider = BuildProvider(primary);
+        ITranslationSystemClient client = provider.GetRequiredService<ITranslationSystemClient>();
+        for (int attempt = 0; attempt < RefusalsPastTheBreakerThroughput; attempt++)
+        {
+            await client.GetApiResultAsync<object>(OffOriginHref);
+        }
+
+        ApiResult<object> result = await client.GetApiResultAsync<object>(TranslationSystemBaseUrl + "translations");
+
+        result.IsSuccess.ShouldBeTrue();
+        primary.SendCount.ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task AuthSystemClient_AfterManyRefusedLinks_StillReachesItsOwnOrigin()
+    {
+        RecordingHttpMessageHandler primary = new();
+        await using ServiceProvider provider = BuildProvider(primary);
+        IAuthSystemClient client = provider.GetRequiredService<IAuthSystemClient>();
+        for (int attempt = 0; attempt < RefusalsPastTheBreakerThroughput; attempt++)
+        {
+            await client.GetApiResultAsync<object>("https://attacker.example/auth/account/data-export");
+        }
+
+        ApiResult<object> result = await client.GetApiResultAsync<object>(AuthBaseUrl + "auth/account/data-export");
+
+        result.IsSuccess.ShouldBeTrue();
+        primary.SendCount.ShouldBe(1);
+    }
+
+    [Theory]
+    [InlineData(nameof(ITranslationSystemClient))]
+    [InlineData(nameof(IAuthSystemClient))]
+    public void TypedClient_ThroughTheRealRegistration_DoesNotFollowRedirects(string clientName)
+    {
+        // The guard sees only the first address. A redirect the socket handler followed on its own would
+        // take the caller key to the new host, and only the bearer token is dropped on the way.
+        ServiceCollection services = new();
+        services.AddLogging();
+        services.AddSingleton(SignedInVisitor());
+        AddSettings(services);
+        services.AddHttpClients();
+        using ServiceProvider provider = services.BuildServiceProvider();
+
+        HttpMessageHandler handler = provider.GetRequiredService<IHttpMessageHandlerFactory>().CreateHandler(clientName);
+        while (handler is DelegatingHandler delegatingHandler)
+        {
+            handler = delegatingHandler.InnerHandler!;
+        }
+
+        handler.ShouldBeOfType<SocketsHttpHandler>().AllowAutoRedirect.ShouldBeFalse();
+    }
+
     private static (HttpMessageInvoker Invoker, StubHttpMessageHandler Inner) CreateInvoker()
     {
         StubHttpMessageHandler inner = StubHttpMessageHandler.RespondWith(HttpStatusCode.OK, "{}");
@@ -162,6 +228,18 @@ public sealed class SameOriginDelegatingHandlerTests
         ServiceCollection services = new();
         services.AddLogging();
         services.AddSingleton(SignedInVisitor());
+        AddSettings(services);
+        services.AddHttpClients();
+        services.AddHttpClient<IAuthSystemClient, AuthSystemClient>()
+            .ConfigurePrimaryHttpMessageHandler(() => primary);
+        services.AddHttpClient<ITranslationSystemClient, TranslationSystemClient>()
+            .ConfigurePrimaryHttpMessageHandler(() => primary);
+
+        return services.BuildServiceProvider();
+    }
+
+    private static void AddSettings(ServiceCollection services)
+    {
         services.AddSingleton<IOptions<AuthSystemSettings>>(Microsoft.Extensions.Options.Options.Create(new AuthSystemSettings
         {
             BaseUrl = AuthBaseUrl,
@@ -174,13 +252,6 @@ public sealed class SameOriginDelegatingHandlerTests
         }));
         services.AddSingleton<IOptions<TranslationSystemSettings>>(Microsoft.Extensions.Options.Options.Create(
             new TranslationSystemSettings { BaseUrl = TranslationSystemBaseUrl, CallerKey = CallerKey }));
-        services.AddHttpClients();
-        services.AddHttpClient<IAuthSystemClient, AuthSystemClient>()
-            .ConfigurePrimaryHttpMessageHandler(() => primary);
-        services.AddHttpClient<ITranslationSystemClient, TranslationSystemClient>()
-            .ConfigurePrimaryHttpMessageHandler(() => primary);
-
-        return services.BuildServiceProvider();
     }
 
     private static IHttpContextAccessor SignedInVisitor()

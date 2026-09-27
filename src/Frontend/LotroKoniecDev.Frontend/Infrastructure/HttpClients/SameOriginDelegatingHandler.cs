@@ -4,10 +4,11 @@ namespace LotroKoniecDev.Frontend.Infrastructure.HttpClients;
 /// Refuses a request that leaves the origin of the API this client is configured for (#830). The
 /// frontend follows the links an API sends, and an absolute link replaces the client's base address.
 /// The handlers after this one add the translator's bearer token and the box's caller key to whatever
-/// address they get, so a link to another host would carry both there. It sits first in the pipeline:
-/// a refused request reaches no header handler and no retry, and it surfaces as a transport failure.
-/// The CLI refuses an off-origin link the same way (#611). A split-off service (ADR-0041) gets its own
-/// typed client with its own base address, never a link through this one.
+/// address they get, so a link to another host would carry both there. It sits first in the pipeline,
+/// so a refused request is never retried and never counts toward the circuit breaker. It surfaces as a
+/// transport failure. The client's socket handler does not follow redirects, because a redirect to
+/// another host would carry the caller key past this check. The CLI works the same way (#611). A
+/// split-off service (ADR-0041) gets its own typed client with its own base address.
 /// </summary>
 internal sealed class SameOriginDelegatingHandler : DelegatingHandler
 {
@@ -30,9 +31,9 @@ internal sealed class SameOriginDelegatingHandler : DelegatingHandler
         }
 
         string refusedOrigin = request.RequestUri is { IsAbsoluteUri: true } absoluteUri
-            ? absoluteUri.GetLeftPart(UriPartial.Authority)
+            ? OriginOf(absoluteUri)
             : "(not an absolute address)";
-        string configuredOrigin = _origin.GetLeftPart(UriPartial.Authority);
+        string configuredOrigin = OriginOf(_origin);
         LogRefused(_logger, refusedOrigin, configuredOrigin, null);
 
         throw new HttpRequestException(
@@ -43,6 +44,12 @@ internal sealed class SameOriginDelegatingHandler : DelegatingHandler
         string.Equals(requestUri.Scheme, _origin.Scheme, StringComparison.OrdinalIgnoreCase)
         && string.Equals(requestUri.IdnHost, _origin.IdnHost, StringComparison.OrdinalIgnoreCase)
         && requestUri.Port == _origin.Port;
+
+    /// <summary>
+    /// <see cref="Uri.Authority"/> leaves out any <c>user:password@</c> part, so a link that carries one
+    /// never reaches the log.
+    /// </summary>
+    private static string OriginOf(Uri uri) => $"{uri.Scheme}://{uri.Authority}";
 
     private static readonly Action<ILogger, string, string, Exception?> LogRefused =
         LoggerMessage.Define<string, string>(

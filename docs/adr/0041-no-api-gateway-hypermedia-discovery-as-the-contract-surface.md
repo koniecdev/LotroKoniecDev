@@ -190,12 +190,13 @@ are the answer to that case.
   no client carries an API path any more, and `scripts/check-client-hypermedia.sh` keeps it that way
   in CI. The CLI keeps a last-known-good href sidecar as an *outage* fallback only: a server that
   answers without the rel is a refusal, not an outage, so it gets no fallback and no composed path.
-- Every client is bound to the origin it is configured for. The CLI refuses an href off its base
-  URL (#611). The frontend's TMS and auth typed clients refuse one in `SameOriginDelegatingHandler`
-  (#830), before the bearer token or the caller key is added, and neither client follows a
-  redirect. So when §3 happens, the frontend
-  follows the parent's link to the new root through a new typed client whose `BaseUrl` is that
-  root's origin, never through the parent's client.
+- Every client that follows API links is bound to the origin it is configured for. The CLI refuses
+  an href off its base URL (#611). The frontend's TMS and auth typed clients refuse one in
+  `SameOriginDelegatingHandler` (#830), before the bearer token or the caller key is added, and
+  neither follows a redirect. The frontend's token client and OIDC back-channel follow no links and
+  are not covered; #899 tracks their redirects. So when §3 happens, the frontend follows the
+  parent's link to the new root through a new typed client whose `BaseUrl` is that root's origin,
+  never through the parent's client.
 
 ## References
 

@@ -1,14 +1,10 @@
 namespace LotroKoniecDev.Frontend.Infrastructure.HttpClients;
 
 /// <summary>
-/// Refuses a request that leaves the origin of the API this client is configured for (#830). The
-/// frontend follows the links an API sends, and an absolute link replaces the client's base address.
-/// The handlers after this one add the translator's bearer token and the box's caller key to whatever
-/// address they get, so a link to another host would carry both there. It sits first in the pipeline,
-/// so a refused request is never retried and never counts toward the circuit breaker. It surfaces as a
-/// transport failure. The client's socket handler does not follow redirects, because a redirect to
-/// another host would carry the caller key past this check. The CLI works the same way (#611). A
-/// split-off service (ADR-0041) gets its own typed client with its own base address.
+/// Refuses a request to any origin other than the API this client is configured for, before the bearer
+/// token and the caller key are added (#830, ADR-0041). An absolute link from an API replaces the
+/// client's base address, so without it a link to another host would carry both there. It must stay
+/// outside the resilience handler, so a refusal is never retried and never opens the circuit breaker.
 /// </summary>
 internal sealed class SameOriginDelegatingHandler : DelegatingHandler
 {

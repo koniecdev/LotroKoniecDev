@@ -17,11 +17,8 @@ using NSubstitute;
 namespace LotroKoniecDev.Frontend.Tests.Unit.Infrastructure.HttpClients;
 
 /// <summary>
-/// #830: the frontend follows the links an API sends, and the handlers after this one add the bearer
-/// token and the caller key to whatever address they get. So a link to another origin is refused before
-/// anything is sent. The first tests drive the handler alone. The rest go through the real
-/// <c>AddHttpClients</c> registration with a signed-in visitor: they fail when the guard is not wired,
-/// when it sits inside the resilience handler, or when a client follows redirects.
+/// #830. The first tests drive the handler alone; the rest go through the real <c>AddHttpClients</c>
+/// registration with a signed-in visitor.
 /// </summary>
 public sealed class SameOriginDelegatingHandlerTests
 {
@@ -150,8 +147,6 @@ public sealed class SameOriginDelegatingHandlerTests
     [Fact]
     public async Task TranslationSystemClient_AfterManyRefusedLinks_StillReachesItsOwnOrigin()
     {
-        // A guard inside the resilience handler would retry each refusal and count it as a failure, so
-        // the circuit breaker would open and stop every TMS call for every visitor for 30 seconds.
         RecordingHttpMessageHandler primary = new();
         await using ServiceProvider provider = BuildProvider(primary);
         ITranslationSystemClient client = provider.GetRequiredService<ITranslationSystemClient>();
@@ -188,22 +183,25 @@ public sealed class SameOriginDelegatingHandlerTests
     [InlineData(nameof(IAuthSystemClient))]
     public void TypedClient_ThroughTheRealRegistration_DoesNotFollowRedirects(string clientName)
     {
-        // The guard sees only the first address. A redirect the socket handler followed on its own would
-        // take the caller key to the new host, and only the bearer token is dropped on the way.
-        ServiceCollection services = new();
-        services.AddLogging();
-        services.AddSingleton(SignedInVisitor());
-        AddSettings(services);
-        services.AddHttpClients();
-        using ServiceProvider provider = services.BuildServiceProvider();
+        using ServiceProvider provider = BuildRealProvider();
 
-        HttpMessageHandler handler = provider.GetRequiredService<IHttpMessageHandlerFactory>().CreateHandler(clientName);
-        while (handler is DelegatingHandler delegatingHandler)
-        {
-            handler = delegatingHandler.InnerHandler!;
-        }
+        List<HttpMessageHandler> chain = HandlerChain(provider, clientName);
 
-        handler.ShouldBeOfType<SocketsHttpHandler>().AllowAutoRedirect.ShouldBeFalse();
+        chain[^1].ShouldBeOfType<SocketsHttpHandler>().AllowAutoRedirect.ShouldBeFalse();
+    }
+
+    [Theory]
+    [InlineData(nameof(ITranslationSystemClient))]
+    [InlineData(nameof(IAuthSystemClient))]
+    public void TypedClient_ThroughTheRealRegistration_ChecksTheOriginBeforeAnyOtherFrontendHandler(string clientName)
+    {
+        // The bearer and caller-key handlers come from this assembly, the factory's own handlers do not.
+        using ServiceProvider provider = BuildRealProvider();
+
+        List<HttpMessageHandler> chain = HandlerChain(provider, clientName);
+
+        chain.First(handler => handler.GetType().Assembly == typeof(SameOriginDelegatingHandler).Assembly)
+            .ShouldBeOfType<SameOriginDelegatingHandler>();
     }
 
     private static (HttpMessageInvoker Invoker, StubHttpMessageHandler Inner) CreateInvoker()
@@ -236,6 +234,31 @@ public sealed class SameOriginDelegatingHandlerTests
             .ConfigurePrimaryHttpMessageHandler(() => primary);
 
         return services.BuildServiceProvider();
+    }
+
+    /// <summary>The registration exactly as the app wires it, with the real socket handler.</summary>
+    private static ServiceProvider BuildRealProvider()
+    {
+        ServiceCollection services = new();
+        services.AddLogging();
+        services.AddSingleton(SignedInVisitor());
+        AddSettings(services);
+        services.AddHttpClients();
+
+        return services.BuildServiceProvider();
+    }
+
+    private static List<HttpMessageHandler> HandlerChain(ServiceProvider provider, string clientName)
+    {
+        List<HttpMessageHandler> chain = [];
+        HttpMessageHandler? handler = provider.GetRequiredService<IHttpMessageHandlerFactory>().CreateHandler(clientName);
+        while (handler is not null)
+        {
+            chain.Add(handler);
+            handler = handler is DelegatingHandler delegatingHandler ? delegatingHandler.InnerHandler : null;
+        }
+
+        return chain;
     }
 
     private static void AddSettings(ServiceCollection services)

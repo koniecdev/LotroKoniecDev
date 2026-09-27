@@ -29,11 +29,7 @@ public static class HttpClientsDependencyInjectionExtensions
                     // short. The per-attempt timeout below is chosen per kind of request instead.
                     client.Timeout = Timeout.InfiniteTimeSpan;
                 })
-                .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler
-                {
-                    PooledConnectionLifetime = TimeSpan.FromMinutes(15),
-                    AllowAutoRedirect = false
-                })
+                .ConfigurePrimaryHttpMessageHandler(CreatePrimaryHandler)
                 .SetHandlerLifetime(Timeout.InfiniteTimeSpan)
                 .AddSameOriginHandler<TranslationSystemSettings>(settings => settings.BaseUrl)
                 .AddHttpMessageHandler<TranslationContentNegotiationAndAuthDelegatingHandler>()
@@ -52,11 +48,7 @@ public static class HttpClientsDependencyInjectionExtensions
                     client.BaseAddress = new Uri(settings.BaseUrl);
                     client.Timeout = Timeout.InfiniteTimeSpan;
                 })
-                .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler
-                {
-                    PooledConnectionLifetime = TimeSpan.FromMinutes(15),
-                    AllowAutoRedirect = false
-                })
+                .ConfigurePrimaryHttpMessageHandler(CreatePrimaryHandler)
                 .SetHandlerLifetime(Timeout.InfiniteTimeSpan)
                 .AddSameOriginHandler<AuthSystemSettings>(settings => settings.BaseUrl)
                 .AddHttpMessageHandler<AuthContentNegotiationAndAuthDelegatingHandler>()
@@ -91,6 +83,16 @@ public static class HttpClientsDependencyInjectionExtensions
                 serviceProvider.GetRequiredService<IHttpContextAccessor>(),
                 readCallerKey(serviceProvider.GetRequiredService<IOptions<TSettings>>().Value)));
     }
+
+    /// <summary>
+    /// A redirect would take the caller key past the origin check (#830), so the typed clients follow
+    /// none.
+    /// </summary>
+    private static SocketsHttpHandler CreatePrimaryHandler() => new()
+    {
+        PooledConnectionLifetime = TimeSpan.FromMinutes(15),
+        AllowAutoRedirect = false
+    };
 
     private static void ConfigureResiliencePipeline(ResiliencePipelineBuilder<HttpResponseMessage> pipeline)
     {

@@ -6,6 +6,7 @@ using System.Web;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
+using Npgsql;
 using LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared;
 using LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared.Bases;
 using LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared.Factories;
@@ -56,6 +57,34 @@ public sealed partial class AuthorizationCodeFlowTests : AsyncLifetimeTestBase
         location.ShouldNotBeNull();
         location.ShouldContain("/Account/Login");
         location.ShouldContain("ReturnUrl=");
+    }
+
+    /// <summary>
+    /// Sign-in starts here, and the browser reaches this endpoint directly, not through an account page.
+    /// When the database is down, the browser still gets the Polish error page and not the JSON (#867).
+    /// </summary>
+    [Fact]
+    public async Task Authorize_ShouldShowABrowserThePolishErrorPage_WhenTheDatabaseFails()
+    {
+        // Arrange: a permanent error, because the execution strategy would replay a passing one and succeed
+        (_, string codeChallenge) = GeneratePkce();
+        Factory.DbCommandFailures.FailNext(
+            command => command.CommandText.Contains("\"OpenIddictApplications\"", StringComparison.Ordinal),
+            () => new PostgresException(
+                "simulated permanent failure", "ERROR", "ERROR", PostgresErrorCodes.UndefinedTable));
+
+        using HttpRequestMessage request = new(HttpMethod.Get, new Uri(BuildAuthorizeUrl(codeChallenge), UriKind.Relative));
+        request.Headers.Accept.ParseAdd("text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8");
+
+        // Act
+        using HttpResponseMessage response = await _noRedirectClient.SendAsync(request);
+
+        // Assert
+        response.StatusCode.ShouldBe(HttpStatusCode.InternalServerError);
+        Factory.DbCommandFailures.FailuresInjected.ShouldBe(1);
+        response.Content.Headers.ContentType?.MediaType.ShouldBe("text/html");
+        string html = await response.Content.ReadAsStringAsync();
+        html.ShouldContain("<h1>Coś poszło nie tak</h1>");
     }
 
     [Fact]

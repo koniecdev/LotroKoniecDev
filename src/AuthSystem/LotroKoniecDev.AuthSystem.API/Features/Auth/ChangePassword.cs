@@ -107,7 +107,7 @@ internal sealed partial class ChangePassword : IApiEndpoint
                     LogSecurityStampUpdateFailed(_logger, user.Id);
                 }
 
-                await _sessionRevoker.RevokeAllAsync(user.Id.ToString(), cancellationToken);
+                await _sessionRevoker.RevokeAllAsync(user.Id.ToString());
 
                 return Result.Success();
             }

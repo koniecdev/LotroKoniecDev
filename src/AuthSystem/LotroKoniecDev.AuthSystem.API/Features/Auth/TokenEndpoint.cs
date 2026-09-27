@@ -96,13 +96,13 @@ internal sealed class TokenEndpoint : IEndpoint
 
         // An account with a scheduled deletion is also locked out, so this check has to come before
         // the sign-in check that looks at the lockout. The exact error is only shown after the password
-        // was verified, so this endpoint cannot be used to learn the state of an account.
+        // was verified, so this endpoint cannot be used to learn the state of an account. A wrong password
+        // here does not count, for the same reason as on the login page (#861).
         if (user.DeletionScheduledAt is not null)
         {
             bool deletionScheduledPasswordValid = await userManager.CheckPasswordAsync(user, request.Password!);
             if (!deletionScheduledPasswordValid)
             {
-                await userManager.AccessFailedAsync(user);
                 return Results.Problem(
                     title: Errors.InvalidGrant,
                     detail: "The email/password combination is invalid.",

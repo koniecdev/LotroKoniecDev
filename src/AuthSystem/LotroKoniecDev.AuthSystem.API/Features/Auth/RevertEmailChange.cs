@@ -296,9 +296,9 @@ internal sealed partial class RevertEmailChange
         /// password reset. Without it the visitor would be stuck on a password that is gone (#869).
         /// </summary>
         /// <remarks>
-        /// The caller ends the sessions again after a hit. The first submit ends them only after its save,
-        /// and a double click aborts that first request, so its revocation may never have run. That would
-        /// leave whoever took the account signed in after the undo.
+        /// The caller ends the sessions again after a hit. The first submit may still be ending them when
+        /// this one answers, or its revoke may have failed. Either way, whoever took the account could stay
+        /// signed in after the undo.
         /// </remarks>
         private async Task<RevertedEmailChange?> FindLandedRevertAsync(Guid userId, string revertTarget)
         {

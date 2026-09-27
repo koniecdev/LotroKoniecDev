@@ -310,8 +310,8 @@ internal sealed partial class ConfirmEmailChange
         /// address, but it clears the password and a confirm never does, so the password tells them apart.
         /// </summary>
         /// <remarks>
-        /// The caller ends the sessions again after a "yes". The first submit ends them only after its
-        /// save, and a double click aborts that first request, so its revocation may never have run.
+        /// The caller ends the sessions again after a "yes". The first submit may still be ending them
+        /// when this one answers, or its revoke may have failed.
         /// </remarks>
         private async Task<bool> IsAlreadyAppliedAsync(Guid userId, string newEmail)
         {

@@ -48,8 +48,8 @@ public sealed class ConfirmEmailChangeHandlerTests
 
         result.IsSuccess.ShouldBeTrue();
 
-        // The first submit may have been aborted before its own revocation ran, and nothing in the return
-        // value shows whether this one ended the sessions, so it is asserted here.
+        // The first submit may not have finished its own revoke yet, and nothing in the return value
+        // shows whether this one ended the sessions, so it is asserted here.
         await _sessionRevoker.Received(1).RevokeAllAsync(user.Id.ToString());
     }
 

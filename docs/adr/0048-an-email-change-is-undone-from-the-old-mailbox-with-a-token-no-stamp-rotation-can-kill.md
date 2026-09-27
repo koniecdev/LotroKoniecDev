@@ -103,8 +103,8 @@ after the same threat was found reaching the undo from a direction the token cou
    row before any confirmation, `RequireConfirmedEmail` only blocks login, and nothing ever removes
    an unconfirmed registration. Free, permanent, no mailbox needed. So arming now also stamps
    `EmailChangeRevertArmedAt` and `NormalizedEmailChangeRevertTo`, and
-   `IEmailChangeRevertReservation` refuses that address to `RegisterUser`, `RequestEmailChange` and
-   `ConfirmEmailChange` for the revert token's own lifespan. It is one indexed lookup, it excludes
+   `IEmailChangeRevertReservation` refuses that address to `RegisterUser`, `RequestEmailChange`,
+   `ConfirmEmailChange` and the admin seeder (#849, ADR-0056) for the revert token's own lifespan. It is one indexed lookup, it excludes
    the account that armed it, and it expires with the link, so no address is blocked for good.
    The refusal reuses `UserAlreadyExistsByEmail`, which leaks nothing: the address really was in
    use a moment earlier.

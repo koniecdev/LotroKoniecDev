@@ -37,10 +37,10 @@ public sealed class ApplicationUser : IdentityUser<Guid>
     public string? NormalizedEmailChangeRevertTo { get; set; }
 
     /// <summary>
-    /// When the undo above was armed. The address stays reserved against registration and against
-    /// another account's e-mail change for exactly as long as the revert token lives, so nobody can
-    /// take the address the owner still has a link back to (#684). A row armed before that ticket
-    /// shipped has no timestamp and is not reserved.
+    /// When the undo above was armed. The address stays reserved against registration, against
+    /// another account's e-mail change and against the admin seed (#849) for exactly as long as the
+    /// revert token lives, so nobody can take the address the owner still has a link back to (#684).
+    /// A row armed before that ticket shipped has no timestamp and is not reserved.
     /// </summary>
     public DateTimeOffset? EmailChangeRevertArmedAt { get; set; }
 

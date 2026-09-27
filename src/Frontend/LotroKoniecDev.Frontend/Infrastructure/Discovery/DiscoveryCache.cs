@@ -144,9 +144,11 @@ internal sealed class DiscoveryCache : IDiscoveryCache
     /// <summary>
     /// Guests share one entry. A signed-in caller gets an entry for the account and the roles in the
     /// cookie, because the API sends an admin more links than a translator (#842). The account is what
-    /// keeps users apart: the API decides from the roles in the access token, and the cookie cannot see
-    /// those. The roles are there so that a user who signs in again after a role change gets a new
-    /// entry and not the old one.
+    /// keeps users apart. The API decides from the roles in the current access token, but the cookie
+    /// keeps the roles it got at sign-in, and a token refresh does not update them. So the roles here
+    /// only give a new entry to a user who signs in again after a role change. A role change inside one
+    /// session shows up after at most a day. Today roles are given only at registration and by the admin
+    /// seed, so this does not happen yet.
     /// </summary>
     /// <returns>
     /// <see langword="null"/> for a session with no subject. Such a session cannot be told apart from
@@ -165,7 +167,8 @@ internal sealed class DiscoveryCache : IDiscoveryCache
             .Distinct(StringComparer.Ordinal)
             .Order(StringComparer.Ordinal);
 
-        return $"{cacheKeyPrefix}{AccountSuffixPrefix}{subject}:{string.Join(',', roles)}";
+        // The subject's length goes first, so no subject and role set can spell another account's key.
+        return $"{cacheKeyPrefix}{AccountSuffixPrefix}{subject.Length}:{subject}:{string.Join(',', roles)}";
     }
 
     private static bool ContainsGetRel(IEnumerable<LinkDto> links, string rel) =>

@@ -34,6 +34,7 @@ public static class HttpClientsDependencyInjectionExtensions
                     PooledConnectionLifetime = TimeSpan.FromMinutes(15)
                 })
                 .SetHandlerLifetime(Timeout.InfiniteTimeSpan)
+                .AddSameOriginHandler<TranslationSystemSettings>(settings => settings.BaseUrl)
                 .AddHttpMessageHandler<TranslationContentNegotiationAndAuthDelegatingHandler>()
                 // Outside the resilience handler on purpose: a retried request is the same message, so
                 // the caller headers are added once and the TMS API sees one value each (ADR-0054, #823).
@@ -55,6 +56,7 @@ public static class HttpClientsDependencyInjectionExtensions
                     PooledConnectionLifetime = TimeSpan.FromMinutes(15)
                 })
                 .SetHandlerLifetime(Timeout.InfiniteTimeSpan)
+                .AddSameOriginHandler<AuthSystemSettings>(settings => settings.BaseUrl)
                 .AddHttpMessageHandler<AuthContentNegotiationAndAuthDelegatingHandler>()
                 // Outside the resilience handler on purpose: a retried request is the same message, so
                 // the caller headers are added once and the auth API sees one value each (ADR-0054).
@@ -67,6 +69,16 @@ public static class HttpClientsDependencyInjectionExtensions
 
     extension(IHttpClientBuilder builder)
     {
+        /// <summary>
+        /// Adds <see cref="SameOriginDelegatingHandler"/> bound to the base address of the API this client
+        /// calls (#830). It has to be the first handler, so a refused request never gets a header.
+        /// </summary>
+        internal IHttpClientBuilder AddSameOriginHandler<TSettings>(Func<TSettings, string> readBaseUrl)
+            where TSettings : class =>
+            builder.AddHttpMessageHandler(serviceProvider => new SameOriginDelegatingHandler(
+                new Uri(readBaseUrl(serviceProvider.GetRequiredService<IOptions<TSettings>>().Value)),
+                serviceProvider.GetRequiredService<ILogger<SameOriginDelegatingHandler>>()));
+
         /// <summary>
         /// Adds <see cref="FrontendCallerDelegatingHandler"/> with the caller key of the API this client
         /// calls (ADR-0054). One box has one key today, but each API's settings carry their own copy.

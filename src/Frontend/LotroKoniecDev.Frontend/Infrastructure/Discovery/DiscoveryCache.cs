@@ -17,7 +17,7 @@ internal sealed class DiscoveryCache : IDiscoveryCache
     internal const string AuthSystemDiscoveryCacheKeyPrefix = "discovery:auth-system:";
 
     private const string AnonymousSuffix = "anon";
-    private const string UserSuffix = "user";
+    private const string AccountSuffixPrefix = "user:";
     private const string SubjectClaimType = "sub";
 
     private static readonly HybridCacheEntryOptions OneDayEntryOptions = new()
@@ -82,20 +82,22 @@ internal sealed class DiscoveryCache : IDiscoveryCache
         CancellationToken cancellationToken)
         where TResponse : class, ILinksResponse
     {
-        // The key includes whether the caller is logged in, because the API sends a different set of
-        // links per role. With one shared key, whoever called first would fix the wrong set for everyone
-        // for a day.
-        string authSuffix = GetAuthSuffix();
-        string cacheKey = cacheKeyPrefix + authSuffix;
+        HttpContext? context = _httpContextAccessor.HttpContext;
+        bool isSignedIn = context?.User.Identity?.IsAuthenticated is true;
+        string? subject = context?.User.FindFirst(SubjectClaimType)?.Value;
+        string? cacheKey = GetCacheKey(cacheKeyPrefix, isSignedIn, subject);
 
-        TResponse? cached = await _hybridCache.GetOrCreateAsync<TResponse?>(
-            cacheKey,
-            static _ => ValueTask.FromResult<TResponse?>(null),
-            CachedOnlyEntryOptions,
-            cancellationToken: cancellationToken);
-        if (cached is not null)
+        if (cacheKey is not null)
         {
-            return ApiResult.Success(cached);
+            TResponse? cached = await _hybridCache.GetOrCreateAsync<TResponse?>(
+                cacheKey,
+                static _ => ValueTask.FromResult<TResponse?>(null),
+                CachedOnlyEntryOptions,
+                cancellationToken: cancellationToken);
+            if (cached is not null)
+            {
+                return ApiResult.Success(cached);
+            }
         }
 
         // Never inside a HybridCache factory: a factory can run without the request's context, and this
@@ -108,37 +110,54 @@ internal sealed class DiscoveryCache : IDiscoveryCache
             return live;
         }
 
-        if (authSuffix is UserSuffix && !ContainsGetRel(live.Value.Links, signedInMarkerRel))
+        if (isSignedIn && !ContainsGetRel(live.Value.Links, signedInMarkerRel))
         {
             // The cookie says the user is logged in, but the API sent the anonymous set of links, so the
             // token never reached it: it expired, is invalid, or its key was rotated. Mark the session
             // dead, so the next cookie validation signs the user out cleanly, and serve this set, so the
             // public pages still render on the way out. It is cached under neither key: under the
-            // logged-in key it would take every signed-in feature away from everyone for a day, and an
+            // account's key it would take every signed-in feature away from this user for a day, and an
             // answer to a call that carried a bearer is not what an anonymous call gets.
-            await MarkSessionDeadAsync(cancellationToken);
+            await MarkSessionDeadAsync(subject, cancellationToken);
             return live;
         }
 
-        await _hybridCache.SetAsync(cacheKey, live.Value, OneDayEntryOptions, cancellationToken: cancellationToken);
+        if (cacheKey is not null)
+        {
+            await _hybridCache.SetAsync(cacheKey, live.Value, OneDayEntryOptions, cancellationToken: cancellationToken);
+        }
+
         return live;
     }
 
-    private async Task MarkSessionDeadAsync(CancellationToken cancellationToken)
+    private async Task MarkSessionDeadAsync(string? subject, CancellationToken cancellationToken)
     {
-        string? subject = _httpContextAccessor.HttpContext?.User.FindFirst(SubjectClaimType)?.Value;
         if (!string.IsNullOrWhiteSpace(subject))
         {
             await _deadSessionRegistry.MarkDeadAsync(subject, cancellationToken);
         }
     }
 
-    private string GetAuthSuffix()
+    /// <summary>
+    /// One entry for all guests, and one for each signed-in account. The API sends each caller only the
+    /// links that caller may follow, and an admin gets more links than a translator (#842). The key is
+    /// the account and not the role set: the API decides from the roles in the access token, not from
+    /// the roles in the cookie. So a key per account is right whatever the roles are.
+    /// </summary>
+    /// <returns>
+    /// <see langword="null"/> for a signed-in session with no subject. Such a session cannot be told
+    /// apart from any other, so its answer is never cached.
+    /// </returns>
+    private static string? GetCacheKey(string cacheKeyPrefix, bool isSignedIn, string? subject)
     {
-        HttpContext? context = _httpContextAccessor.HttpContext;
-        return context?.User.Identity?.IsAuthenticated is true
-            ? UserSuffix
-            : AnonymousSuffix;
+        if (!isSignedIn)
+        {
+            return cacheKeyPrefix + AnonymousSuffix;
+        }
+
+        return string.IsNullOrWhiteSpace(subject)
+            ? null
+            : cacheKeyPrefix + AccountSuffixPrefix + subject;
     }
 
     private static bool ContainsGetRel(IEnumerable<LinkDto> links, string rel) =>

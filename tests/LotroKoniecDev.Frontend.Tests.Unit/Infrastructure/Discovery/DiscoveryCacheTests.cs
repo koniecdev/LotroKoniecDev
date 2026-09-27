@@ -6,6 +6,7 @@ using LotroKoniecDev.Frontend.Infrastructure.HttpClients;
 using LotroKoniecDev.Frontend.Infrastructure.HttpClients.AuthSystemHttpClients;
 using LotroKoniecDev.Frontend.Infrastructure.HttpClients.TranslationSystemHttpClients;
 using LotroKoniecDev.Hateoas.Abstractions;
+using LotroKoniecDev.SharedKernel.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Caching.Hybrid;
@@ -19,7 +20,9 @@ namespace LotroKoniecDev.Frontend.Tests.Unit.Infrastructure.Discovery;
 
 /// <summary>
 /// Both halves of the discovery cache, over a real <see cref="HybridCache"/> and substituted clients.
-/// Both follow the same rule: an anonymous set of links must never be cached under a logged-in key,
+/// Guests share one entry and every signed-in account has its own, because the API sends each caller
+/// only the links that caller may follow (#842). Both halves follow the same rule: an anonymous set of
+/// links must never be cached under a logged-in key,
 /// because that would take away, for a whole day, everything a signed-in user is allowed to do. Such a
 /// response must mark the session dead and be served without being cached under either key. A real
 /// outage stays a ProblemDetails failure, is never cached, and is never turned into "session expired".
@@ -29,6 +32,9 @@ public sealed class DiscoveryCacheTests
     private const string ExportHref = "auth/account/data-export";
     private const string ContributionExportHref = "api/v1/translators/me/data-export";
     private const string Subject = "user-sub-1";
+    private const string AdminSubject = "admin-sub-1";
+    private const string TranslatorSubject = "translator-sub-1";
+    private const string RoleClaimType = "role";
 
     private readonly IAuthSystemClient _authClient = Substitute.For<IAuthSystemClient>();
     private readonly ITranslationSystemClient _translationClient = Substitute.For<ITranslationSystemClient>();
@@ -72,7 +78,7 @@ public sealed class DiscoveryCacheTests
     public async Task GetAuthSystemDiscoveryAsync_NeverCachesAnonymousLinksUnderTheAuthenticatedKey()
     {
         // First call: the token never reached the API, so we get the anonymous set. Second call: the API
-        // answers properly. If the first, incomplete set had been cached under the "user" key, the second
+        // answers properly. If the first, incomplete set had been cached under the account's key, the second
         // call would still be missing the export rel, for a whole day.
         _authClient.GetDiscoveryAsync(Arg.Any<CancellationToken>())
             .Returns(
@@ -178,7 +184,7 @@ public sealed class DiscoveryCacheTests
     public async Task GetTranslationSystemDiscoveryAsync_NeverCachesAnonymousLinksUnderTheAuthenticatedKey()
     {
         // First call: the token never reached the API, so we get the anonymous set. Second call: the API
-        // answers properly. If the first, incomplete set had been cached under the "user" key, the second
+        // answers properly. If the first, incomplete set had been cached under the account's key, the second
         // call would still be missing the logged-in entry points, for a whole day.
         _translationClient.GetDiscoveryAsync(Arg.Any<CancellationToken>())
             .Returns(
@@ -247,25 +253,123 @@ public sealed class DiscoveryCacheTests
         guest.ProblemDetails.ShouldNotBeNull().Status.ShouldBe(503);
     }
 
-    private DiscoveryCache CreateCache(bool authenticated, HybridCache? hybridCache = null)
+    [Fact]
+    public async Task GetTranslationSystemDiscoveryAsync_AfterAnAdminCall_NeverServesTheAdminLinksToATranslator()
     {
-        DefaultHttpContext httpContext = new();
-        if (authenticated)
-        {
-            httpContext.User = new ClaimsPrincipal(new ClaimsIdentity(
-                [new Claim("sub", Subject)],
-                authenticationType: "test"));
-        }
+        // The third answer is a failure, so the admin's second call proves it came from the cache.
+        _translationClient.GetDiscoveryAsync(Arg.Any<CancellationToken>())
+            .Returns(
+                ApiResult.Success(AdminTranslationDiscovery()),
+                ApiResult.Success(AuthenticatedTranslationDiscovery()),
+                ApiResult.Failure<TranslationDiscoveryResponse>(Problem(503)));
+        HybridCache hybridCache = CreateHybridCache();
+        DiscoveryCache adminCache = CreateCache(SignedIn(AdminSubject, AuthConstants.Roles.Admin), hybridCache);
+        DiscoveryCache translatorCache =
+            CreateCache(SignedIn(TranslatorSubject, AuthConstants.Roles.Translator), hybridCache);
+
+        await adminCache.GetTranslationSystemDiscoveryAsync();
+        ApiResult<TranslationDiscoveryResponse> translator = await translatorCache.GetTranslationSystemDiscoveryAsync();
+        ApiResult<TranslationDiscoveryResponse> adminAgain = await adminCache.GetTranslationSystemDiscoveryAsync();
+
+        translator.Value.Links.ShouldNotContain(link => link.Rel == TranslationRels.BulkApprove);
+        translator.Value.Links.ShouldNotContain(link => link.Rel == TranslationRels.Register);
+        adminAgain.Value.Links.ShouldContain(link => link.Rel == TranslationRels.BulkApprove);
+    }
+
+    [Fact]
+    public async Task GetTranslationSystemDiscoveryAsync_AfterATranslatorCall_NeverHidesTheAdminLinksFromAnAdmin()
+    {
+        _translationClient.GetDiscoveryAsync(Arg.Any<CancellationToken>())
+            .Returns(
+                ApiResult.Success(AuthenticatedTranslationDiscovery()),
+                ApiResult.Success(AdminTranslationDiscovery()));
+        HybridCache hybridCache = CreateHybridCache();
+
+        await CreateCache(SignedIn(TranslatorSubject, AuthConstants.Roles.Translator), hybridCache)
+            .GetTranslationSystemDiscoveryAsync();
+        ApiResult<TranslationDiscoveryResponse> admin =
+            await CreateCache(SignedIn(AdminSubject, AuthConstants.Roles.Admin), hybridCache)
+                .GetTranslationSystemDiscoveryAsync();
+
+        admin.Value.Links.ShouldContain(link => link.Rel == TranslationRels.BulkApprove);
+        admin.Value.Links.ShouldContain(link => link.Rel == TranslationRels.Register);
+    }
+
+    [Fact]
+    public async Task GetTranslationSystemDiscoveryAsync_WhenTwoAccountsShareARoleInTheCookie_NeverShareAnAnswer()
+    {
+        // The API decides from the roles in the access token, so two cookies with the same role can still
+        // get different answers. The second account must reach the API, so its queued failure appears.
+        _translationClient.GetDiscoveryAsync(Arg.Any<CancellationToken>())
+            .Returns(
+                ApiResult.Success(AdminTranslationDiscovery()),
+                ApiResult.Failure<TranslationDiscoveryResponse>(Problem(503)));
+        HybridCache hybridCache = CreateHybridCache();
+
+        await CreateCache(SignedIn(Subject, AuthConstants.Roles.Translator), hybridCache)
+            .GetTranslationSystemDiscoveryAsync();
+        ApiResult<TranslationDiscoveryResponse> otherAccount =
+            await CreateCache(SignedIn(TranslatorSubject, AuthConstants.Roles.Translator), hybridCache)
+                .GetTranslationSystemDiscoveryAsync();
+
+        otherAccount.ProblemDetails.ShouldNotBeNull().Status.ShouldBe(503);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    public async Task GetTranslationSystemDiscoveryAsync_WhenTheSessionHasNoSubject_NeverCachesTheAnswer(
+        string? subject)
+    {
+        _translationClient.GetDiscoveryAsync(Arg.Any<CancellationToken>())
+            .Returns(
+                ApiResult.Success(AuthenticatedTranslationDiscovery()),
+                ApiResult.Failure<TranslationDiscoveryResponse>(Problem(503)));
+        HybridCache hybridCache = CreateHybridCache();
+
+        ApiResult<TranslationDiscoveryResponse> first =
+            await CreateCache(SignedIn(subject, AuthConstants.Roles.Translator), hybridCache)
+                .GetTranslationSystemDiscoveryAsync();
+        ApiResult<TranslationDiscoveryResponse> second =
+            await CreateCache(SignedIn(subject, AuthConstants.Roles.Translator), hybridCache)
+                .GetTranslationSystemDiscoveryAsync();
+
+        first.IsSuccess.ShouldBeTrue();
+        second.ProblemDetails.ShouldNotBeNull().Status.ShouldBe(503);
+    }
+
+    private DiscoveryCache CreateCache(bool authenticated, HybridCache? hybridCache = null) =>
+        CreateCache(
+            authenticated
+                ? SignedIn(Subject, AuthConstants.Roles.Translator)
+                : new ClaimsPrincipal(new ClaimsIdentity()),
+            hybridCache ?? CreateHybridCache());
+
+    private DiscoveryCache CreateCache(ClaimsPrincipal user, HybridCache hybridCache)
+    {
+        DefaultHttpContext httpContext = new() { User = user };
 
         IHttpContextAccessor accessor = Substitute.For<IHttpContextAccessor>();
         accessor.HttpContext.Returns(httpContext);
 
         return new DiscoveryCache(
-            hybridCache ?? CreateHybridCache(),
+            hybridCache,
             _translationClient,
             _authClient,
             accessor,
             _deadSessionRegistry);
+    }
+
+    private static ClaimsPrincipal SignedIn(string? subject, string role)
+    {
+        List<Claim> claims = [new Claim(RoleClaimType, role)];
+        if (subject is not null)
+        {
+            claims.Add(new Claim("sub", subject));
+        }
+
+        return new ClaimsPrincipal(new ClaimsIdentity(claims, "test", "name", RoleClaimType));
     }
 
     private static HybridCache CreateHybridCache()
@@ -299,6 +403,21 @@ public sealed class DiscoveryCacheTests
             [
                 new LinkDto("api/v1/progress", TranslationRels.Progress, "GET"),
                 new LinkDto(ContributionExportHref, TranslationRels.ContributionDataExport, "GET")
+            ]
+        };
+
+    /// <summary>
+    /// What the TMS root sends an admin: the translator's set plus the two admin-only entry points.
+    /// </summary>
+    private static TranslationDiscoveryResponse AdminTranslationDiscovery() =>
+        new("LotroKoniecDev.TranslationSystem")
+        {
+            Links =
+            [
+                new LinkDto("api/v1/progress", TranslationRels.Progress, "GET"),
+                new LinkDto(ContributionExportHref, TranslationRels.ContributionDataExport, "GET"),
+                new LinkDto("api/v1/translations/bulk-approve", TranslationRels.BulkApprove, "POST"),
+                new LinkDto("api/v1/game-versions", TranslationRels.Register, "POST")
             ]
         };
 

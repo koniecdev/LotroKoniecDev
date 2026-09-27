@@ -146,6 +146,22 @@ public sealed class AuthSystemSettingsValidatorTests
         result.IsValid.ShouldBeTrue();
     }
 
+    [Theory]
+    [InlineData(" a-frontend-caller-key-of-at-least-32-characters")]
+    [InlineData("a-frontend-caller-key-of-at-least-32-characters ")]
+    [InlineData("a-frontend-caller-key-of-at-least-32-characters\n")]
+    public void Validate_CallerKeyWithWhitespaceAroundIt_FailsBecauseTheApiCouldNeverMatchIt(string callerKey)
+    {
+        AuthSystemSettings settings = Settings(callerKey: callerKey);
+
+        ValidationResult result = CreateValidator(Production).Validate(settings);
+
+        result.IsValid.ShouldBeFalse();
+        result.Errors.ShouldContain(error =>
+            error.PropertyName == nameof(AuthSystemSettings.CallerKey)
+            && error.ErrorMessage.Contains("whitespace", StringComparison.Ordinal));
+    }
+
     private static AuthSystemSettingsValidator CreateValidator(string environmentName)
     {
         IHostEnvironment environment = Substitute.For<IHostEnvironment>();

@@ -107,6 +107,22 @@ public sealed class TranslationSystemSettingsValidatorTests
         result.IsValid.ShouldBeTrue();
     }
 
+    [Theory]
+    [InlineData(" a-frontend-caller-key-of-at-least-32-characters")]
+    [InlineData("a-frontend-caller-key-of-at-least-32-characters ")]
+    [InlineData("a-frontend-caller-key-of-at-least-32-characters\n")]
+    public void Validate_CallerKeyWithWhitespaceAroundIt_FailsBecauseTheApiCouldNeverMatchIt(string callerKey)
+    {
+        TranslationSystemSettings settings = new() { BaseUrl = BaseUrl, CallerKey = callerKey };
+
+        ValidationResult result = CreateValidator(Production).Validate(settings);
+
+        result.IsValid.ShouldBeFalse();
+        result.Errors.ShouldContain(error =>
+            error.PropertyName == nameof(TranslationSystemSettings.CallerKey)
+            && error.ErrorMessage.Contains("whitespace", StringComparison.Ordinal));
+    }
+
     private static TranslationSystemSettingsValidator CreateValidator(string environmentName)
     {
         IHostEnvironment environment = Substitute.For<IHostEnvironment>();

@@ -271,6 +271,19 @@ try
                     PermitLimit = 100,
                     Window = TimeSpan.FromMinutes(1)
                 }));
+
+        // 429 is the one rejection a caller can act on, so it says when to come back (#855). Rounding up,
+        // because a remainder under a second would otherwise tell the caller to retry immediately.
+        options.OnRejected = (context, _) =>
+        {
+            if (context.Lease.TryGetMetadata(MetadataName.RetryAfter, out TimeSpan retryAfter))
+            {
+                context.HttpContext.Response.Headers.RetryAfter =
+                    ((int)Math.Ceiling(retryAfter.TotalSeconds)).ToString(NumberFormatInfo.InvariantInfo);
+            }
+
+            return ValueTask.CompletedTask;
+        };
     });
 
     WebApplication app = builder.Build();

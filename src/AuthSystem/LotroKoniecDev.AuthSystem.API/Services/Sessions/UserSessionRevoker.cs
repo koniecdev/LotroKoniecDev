@@ -4,14 +4,16 @@ namespace LotroKoniecDev.AuthSystem.API.Services.Sessions;
 
 /// <summary>
 /// The <see cref="IUserSessionRevoker"/> built on the OpenIddict token and authorization managers. Every
-/// flow that changes credentials or schedules a deletion ends sessions through this one class, so each
-/// of them gets the same guarantee about the request's cancel signal (#872).
+/// flow that changes credentials or schedules a deletion ends sessions through this one class.
 /// </summary>
 internal sealed partial class UserSessionRevoker : IUserSessionRevoker
 {
+    private const string AuthorizationsStep = "authorizations";
+    private const string TokensStep = "tokens";
+
     /// <summary>
-    /// The revoke is two bulk updates that finish far sooner, so this only stops a stuck database from
-    /// holding the request and its connection forever.
+    /// Stops a stuck database from holding the request and its connection forever. Each step gets its own
+    /// limit, so a step that used up its time never takes the other step's.
     /// </summary>
     internal static readonly TimeSpan TimeLimit = TimeSpan.FromSeconds(30);
 
@@ -34,35 +36,42 @@ internal sealed partial class UserSessionRevoker : IUserSessionRevoker
 
     public async Task RevokeAllAsync(string userId)
     {
-        // Best effort: the change is already saved, so a failure here must not fail it, and it is only
-        // logged. A refresh token that survives keeps working, though, because the refresh grant does not
-        // check the security stamp. So nothing may stop this early on purpose: it ignores the request's
-        // cancel signal, and a browser that drops the request now cannot keep the other devices signed
-        // in (#872). The time limit only stops a stuck database from holding the request forever.
+        // Best effort: the change is already saved, so a failure here must not fail it and is only logged.
+        // Authorizations go first, because OpenIddict refuses a refresh token whose authorization is
+        // revoked: a refresh that lands between the two steps still gets a dead token. That also makes the
+        // authorization the real guard, since a bulk update does not change a row's concurrency token and
+        // a refresh racing it can save its own copy of a token row over the revoke. Either step alone ends
+        // the refresh tokens, so a step that fails never skips the other one.
+        long? revokedAuthorizations = await TryRevokeAsync(userId, AuthorizationsStep, _authorizationManager.RevokeBySubjectAsync);
+        long? revokedTokens = await TryRevokeAsync(userId, TokensStep, _tokenManager.RevokeBySubjectAsync);
+
+        if (revokedAuthorizations is long authorizationCount && revokedTokens is long tokenCount)
+        {
+            LogSessionsRevoked(_logger, userId, tokenCount, authorizationCount);
+        }
+    }
+
+    private async Task<long?> TryRevokeAsync(
+        string userId,
+        string step,
+        Func<string, CancellationToken, ValueTask<long>> revokeBySubject)
+    {
         using CancellationTokenSource timeLimit = new(TimeLimit, _timeProvider);
-        CancellationToken cancellationToken = timeLimit.Token;
 
         try
         {
-            // One bulk update each, so the cost does not grow with the rows a busy account builds up.
-            // Authorizations go first: OpenIddict refuses a refresh token whose authorization is revoked,
-            // so a refresh that lands between the two updates still gets a dead token. The authorization
-            // is the real guard. A bulk update does not change a row's concurrency token, so a refresh
-            // racing it can save its own copy of a token row over the revoke.
-            long revokedAuthorizations = await _authorizationManager.RevokeBySubjectAsync(userId, cancellationToken);
-            long revokedTokens = await _tokenManager.RevokeBySubjectAsync(userId, cancellationToken);
-
-            LogSessionsRevoked(_logger, userId, revokedTokens, revokedAuthorizations);
+            return await revokeBySubject(userId, timeLimit.Token);
         }
         catch (Exception ex)
         {
-            LogRevocationFailed(_logger, ex, userId);
+            LogRevocationFailed(_logger, ex, step, userId);
+            return null;
         }
     }
 
     [LoggerMessage(EventId = EventIds.UserSessionsRevoked, Level = LogLevel.Information, Message = "Revoked all sessions for user {UserId}: {TokenCount} token row(s) and {AuthorizationCount} authorization row(s) updated")]
     private static partial void LogSessionsRevoked(ILogger logger, string userId, long tokenCount, long authorizationCount);
 
-    [LoggerMessage(EventId = EventIds.UserSessionsRevocationFailed, Level = LogLevel.Error, Message = "Failed to revoke sessions for user {UserId}. Refresh tokens that were not revoked stay usable until they expire.")]
-    private static partial void LogRevocationFailed(ILogger logger, Exception exception, string userId);
+    [LoggerMessage(EventId = EventIds.UserSessionsRevocationFailed, Level = LogLevel.Error, Message = "Failed to revoke the {Step} of user {UserId}. The other step runs either way, and a refresh token that neither step revoked stays usable until it expires.")]
+    private static partial void LogRevocationFailed(ILogger logger, Exception exception, string step, string userId);
 }

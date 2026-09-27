@@ -28,7 +28,10 @@ public sealed partial class AbortedRequestSessionRevocationTests : EndpointsTest
     private const string NewPassword = "NewPass99!";
     private const string ClientId = "lotrokoniecdev-test";
 
-    private static readonly TimeSpan CompletionTimeout = UserSessionRevoker.TimeLimit + TimeSpan.FromSeconds(10);
+    /// <summary>
+    /// Each of the revoker's two steps has its own time limit, so this outlasts both.
+    /// </summary>
+    private static readonly TimeSpan CompletionTimeout = UserSessionRevoker.TimeLimit * 2 + TimeSpan.FromSeconds(10);
 
     public AbortedRequestSessionRevocationTests(AuthSystemApiFactory appFactory) : base(appFactory) { }
 

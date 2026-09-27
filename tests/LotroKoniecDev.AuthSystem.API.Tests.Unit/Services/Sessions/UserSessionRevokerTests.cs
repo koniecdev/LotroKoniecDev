@@ -9,8 +9,9 @@ using LotroKoniecDev.AuthSystem.API.Services.Sessions;
 namespace LotroKoniecDev.AuthSystem.API.Tests.Unit.Services.Sessions;
 
 /// <summary>
-/// The revoker runs after a committed save, so it never throws and never listens to the request. Its
-/// own time limit is the only thing that may stop it early (#872).
+/// The revoker runs after a committed save, so it never throws and never listens to the request. Each
+/// step has its own time limit, which is the only thing that may stop it early, and a step that fails or
+/// runs out of time never skips the other one (#872).
 /// </summary>
 public sealed class UserSessionRevokerTests
 {
@@ -50,6 +51,46 @@ public sealed class UserSessionRevokerTests
 
         // Assert
         await _authorizationManager.Received(1).RevokeBySubjectAsync(UserId, Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task RevokeAllAsync_ShouldStillRevokeTheTokens_WhenTheAuthorizationStepFails()
+    {
+        // Arrange
+        _authorizationManager.RevokeBySubjectAsync(UserId, Arg.Any<CancellationToken>())
+            .ThrowsAsync(new InvalidOperationException("The database is gone."));
+        UserSessionRevoker sut = CreateSut();
+
+        // Act
+        await sut.RevokeAllAsync(UserId);
+
+        // Assert
+        await _tokenManager.Received(1).RevokeBySubjectAsync(UserId, Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task RevokeAllAsync_ShouldStillRevokeTheTokens_WhenTheAuthorizationStepRanOutOfTime()
+    {
+        // Arrange: the token stub refuses a cancelled token, as the real store does
+        bool tokensRevoked = false;
+        _authorizationManager.RevokeBySubjectAsync(UserId, Arg.Any<CancellationToken>())
+            .Returns(callInfo => StuckUntilCancelled(callInfo.Arg<CancellationToken>()));
+        _tokenManager.RevokeBySubjectAsync(UserId, Arg.Any<CancellationToken>())
+            .Returns(callInfo =>
+            {
+                callInfo.Arg<CancellationToken>().ThrowIfCancellationRequested();
+                tokensRevoked = true;
+                return ValueTask.FromResult(0L);
+            });
+        UserSessionRevoker sut = CreateSut();
+
+        // Act
+        Task revoking = sut.RevokeAllAsync(UserId);
+        _clock.Advance(UserSessionRevoker.TimeLimit);
+        await revoking.WaitAsync(CompletionTimeout);
+
+        // Assert
+        tokensRevoked.ShouldBeTrue();
     }
 
     [Fact]

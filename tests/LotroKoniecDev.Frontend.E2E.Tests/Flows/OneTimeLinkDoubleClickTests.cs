@@ -1,4 +1,3 @@
-using System.Collections.Concurrent;
 using LotroKoniecDev.Frontend.E2E.Tests.Infrastructure;
 using Microsoft.Playwright;
 using Shouldly;
@@ -22,14 +21,17 @@ public sealed class OneTimeLinkDoubleClickTests : E2ETestBase
     private const string ConfirmNewAddressSubject = "Potwierdź nowy adres e-mail";
 
     /// <summary>
-    /// After the change, the old address gets this notice with the undo link. The notice sent at request
-    /// time has a similar subject but no link.
+    /// After the change, the old address gets this notice with the undo link. The new address gets a
+    /// notice with a similar subject but no undo link; the search is by the old address, so only this
+    /// one matches.
     /// </summary>
     private const string RevertOfferSubject = "Adres e-mail Twojego konta został zmieniony";
 
+    private const string DeletionScheduledSubject = "Zaplanowano usunięcie konta";
     private const string PasswordResetSubject = "Reset hasła";
     private const string ConfirmEmailChangePath = "/Account/ConfirmEmailChange";
     private const string RevertEmailChangePath = "/Account/RevertEmailChange";
+    private const string CancelDeletionPath = "/Account/CancelDeletion";
     private const string ResetPasswordPath = "/Account/ResetPassword";
 
     /// <summary>
@@ -38,15 +40,12 @@ public sealed class OneTimeLinkDoubleClickTests : E2ETestBase
     private const int SecondClickDelayMs = 200;
 
     /// <summary>
-    /// How long the answer to a POST waits before the browser gets it, as on a slow connection. It keeps
-    /// the first request open when the second click lands, whatever the speed of this machine.
+    /// Long enough that the first request is still open when the second click lands.
     /// </summary>
     private static readonly TimeSpan AnswerDelay = TimeSpan.FromSeconds(2);
 
     private static readonly LocatorWaitForOptions LongWait = new() { Timeout = 30_000 };
     private static readonly TimeSpan MailTimeout = TimeSpan.FromSeconds(45);
-
-    private readonly ConcurrentQueue<string> _postedPaths = new();
 
     public OneTimeLinkDoubleClickTests(PlaywrightStackFixture fixture) : base(fixture)
     {
@@ -58,19 +57,21 @@ public sealed class OneTimeLinkDoubleClickTests : E2ETestBase
         // Arrange
         TestUser user = await CreateSignedInUserAsync();
         string newEmail = TestUser.CreateRandomEmail();
-        await RequestEmailChangeAsync(user, newEmail);
+        await AuthActions.RequestEmailChangeAsync(Page, user, newEmail);
         string confirmLink = await MailpitClient.WaitForLinkAsync(
             Fixture.MailpitBaseUrl, newEmail, ConfirmNewAddressSubject, ConfirmEmailChangePath, MailTimeout);
         await Page.GotoAsync(confirmLink);
+        PostWatch posts = await PostWatch.HoldAnswersAsync(Page, ConfirmEmailChangePath, AnswerDelay);
 
         // Act
-        await DoubleClickOnSlowConnectionAsync(Page.GetByTestId("confirm-email-change-submit"), ConfirmEmailChangePath);
+        await ClickTwiceLikeAPersonAsync(Page.GetByTestId("confirm-email-change-submit"));
         await Page.GetByTestId("confirm-email-change-success")
             .Or(Page.GetByTestId("confirm-email-change-error"))
             .WaitForAsync(LongWait);
 
         // Assert
-        _postedPaths.Count(path => path == ConfirmEmailChangePath).ShouldBe(1);
+        posts.PostsTo(ConfirmEmailChangePath).ShouldBe(1);
+        posts.RouteFailures.ShouldBeEmpty();
         (await Page.GetByTestId("confirm-email-change-success").CountAsync()).ShouldBe(1);
         CspViolations.ShouldBeEmpty();
     }
@@ -81,7 +82,7 @@ public sealed class OneTimeLinkDoubleClickTests : E2ETestBase
         // Arrange
         TestUser user = await CreateSignedInUserAsync();
         string newEmail = TestUser.CreateRandomEmail();
-        await RequestEmailChangeAsync(user, newEmail);
+        await AuthActions.RequestEmailChangeAsync(Page, user, newEmail);
         string confirmLink = await MailpitClient.WaitForLinkAsync(
             Fixture.MailpitBaseUrl, newEmail, ConfirmNewAddressSubject, ConfirmEmailChangePath, MailTimeout);
         await Page.GotoAsync(confirmLink);
@@ -90,15 +91,41 @@ public sealed class OneTimeLinkDoubleClickTests : E2ETestBase
         string revertLink = await MailpitClient.WaitForLinkAsync(
             Fixture.MailpitBaseUrl, user.Email, RevertOfferSubject, RevertEmailChangePath, MailTimeout);
         await Page.GotoAsync(revertLink);
+        PostWatch posts = await PostWatch.HoldAnswersAsync(Page, RevertEmailChangePath, AnswerDelay);
 
         // Act
-        await DoubleClickOnSlowConnectionAsync(Page.GetByTestId("revert-email-change-submit"), RevertEmailChangePath);
+        await ClickTwiceLikeAPersonAsync(Page.GetByTestId("revert-email-change-submit"));
         await Page.GetByTestId("reset-password-submit")
             .Or(Page.GetByTestId("revert-email-change-error"))
             .WaitForAsync(LongWait);
 
         // Assert: a done undo redirects straight to the forced password reset
-        _postedPaths.Count(path => path == RevertEmailChangePath).ShouldBe(1);
+        posts.PostsTo(RevertEmailChangePath).ShouldBe(1);
+        posts.RouteFailures.ShouldBeEmpty();
+        new Uri(Page.Url).AbsolutePath.ShouldBe(ResetPasswordPath);
+        CspViolations.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task Double_click_on_cancel_deletion_sends_the_form_once_and_opens_the_password_reset()
+    {
+        // Arrange
+        TestUser user = await CreateSignedInUserAsync();
+        await ScheduleDeletionAsync(user);
+        string cancelLink = await MailpitClient.WaitForLinkAsync(
+            Fixture.MailpitBaseUrl, user.Email, DeletionScheduledSubject, CancelDeletionPath, MailTimeout);
+        await Page.GotoAsync(cancelLink);
+        PostWatch posts = await PostWatch.HoldAnswersAsync(Page, CancelDeletionPath, AnswerDelay);
+
+        // Act
+        await ClickTwiceLikeAPersonAsync(Page.GetByTestId("cancel-deletion-submit"));
+        await Page.GetByTestId("reset-password-submit")
+            .Or(Page.GetByTestId("cancel-deletion-error"))
+            .WaitForAsync(LongWait);
+
+        // Assert: a done cancel redirects straight to the forced password reset
+        posts.PostsTo(CancelDeletionPath).ShouldBe(1);
+        posts.RouteFailures.ShouldBeEmpty();
         new Uri(Page.Url).AbsolutePath.ShouldBe(ResetPasswordPath);
         CspViolations.ShouldBeEmpty();
     }
@@ -119,15 +146,17 @@ public sealed class OneTimeLinkDoubleClickTests : E2ETestBase
         string newPassword = ComposePassword("Reset");
         await Page.GetByRole(AriaRole.Textbox, new() { Name = "Nowe hasło", Exact = true }).FillAsync(newPassword);
         await Page.GetByRole(AriaRole.Textbox, new() { Name = "Powtórz nowe hasło", Exact = true }).FillAsync(newPassword);
+        PostWatch posts = await PostWatch.HoldAnswersAsync(Page, ResetPasswordPath, AnswerDelay);
 
         // Act
-        await DoubleClickOnSlowConnectionAsync(Page.GetByTestId("reset-password-submit"), ResetPasswordPath);
+        await ClickTwiceLikeAPersonAsync(Page.GetByTestId("reset-password-submit"));
         await Page.GetByTestId("reset-password-success")
             .Or(Page.GetByTestId("reset-password-error"))
             .WaitForAsync(LongWait);
 
         // Assert
-        _postedPaths.Count(path => path == ResetPasswordPath).ShouldBe(1);
+        posts.PostsTo(ResetPasswordPath).ShouldBe(1);
+        posts.RouteFailures.ShouldBeEmpty();
         (await Page.GetByTestId("reset-password-success").CountAsync()).ShouldBe(1);
         CspViolations.ShouldBeEmpty();
     }
@@ -145,54 +174,28 @@ public sealed class OneTimeLinkDoubleClickTests : E2ETestBase
         return user;
     }
 
-    private async Task RequestEmailChangeAsync(TestUser user, string newEmail)
+    private async Task ScheduleDeletionAsync(TestUser user)
     {
         await Page.GetByTestId("nav-account").ClickAsync();
-        await Page.GetByTestId("account-change-email").ClickAsync();
-        await Page.Locator("#new-email").WaitForAsync(LongWait);
-        await Page.Locator("#new-email").FillAsync(newEmail);
-        await Page.Locator("#repeat-email").FillAsync(newEmail);
-        await Page.Locator("#current-password").FillAsync(user.Password);
-        await Page.GetByTestId("change-email-submit").ClickAsync();
+        await Page.GetByTestId("account-delete").ClickAsync();
+        await Page.Locator("#delete-password").WaitForAsync(LongWait);
+        await Page.Locator("#delete-password").FillAsync(user.Password);
+        await Page.Locator("#delete-confirm").FillAsync("USUWAM");
+        await Page.GetByTestId("delete-submit").ClickAsync();
+        await Page.GetByRole(AriaRole.Button, new() { Name = "Przejdź dalej", Exact = true }).ClickAsync();
+        await Page.GetByTestId("deletion-date-line").WaitForAsync(LongWait);
     }
 
     /// <summary>
-    /// Clicks the button twice, the way a person double-clicks, and counts every POST from then on.
     /// DblClickAsync would not do: its two clicks come so close that the browser folds them into one
-    /// request, and the test would stay green without the fix. The mouse clicks here do not wait for the
-    /// page to load, and the held answer keeps the first request open until the second click has landed.
+    /// request, and the test would stay green without the fix. The mouse clicks here also do not wait for
+    /// the page to load, so the second one lands while the first request is still open.
     /// </summary>
-    private async Task DoubleClickOnSlowConnectionAsync(ILocator button, string postPath)
+    private async Task ClickTwiceLikeAPersonAsync(ILocator button)
     {
-        Page.Request += (_, request) =>
-        {
-            if (request.Method == "POST")
-            {
-                _postedPaths.Enqueue(new Uri(request.Url).AbsolutePath);
-            }
-        };
-        await Page.RouteAsync($"**{postPath}**", async route =>
-        {
-            if (route.Request.Method != "POST")
-            {
-                await route.ContinueAsync();
-                return;
-            }
-
-            IAPIResponse answer = await route.FetchAsync(new RouteFetchOptions { MaxRedirects = 0 });
-            await Task.Delay(AnswerDelay);
-            try
-            {
-                await route.FulfillAsync(new RouteFulfillOptions { Response = answer });
-            }
-            catch (PlaywrightException)
-            {
-                // The browser dropped this request because a second click started a new one.
-            }
-        });
-
         await button.ScrollIntoViewIfNeededAsync();
-        LocatorBoundingBoxResult box = (await button.BoundingBoxAsync()).ShouldNotBeNull();
+        LocatorBoundingBoxResult box = await button.BoundingBoxAsync()
+            ?? throw new InvalidOperationException("The button to double-click is not visible.");
         float x = box.X + box.Width / 2;
         float y = box.Y + box.Height / 2;
 

@@ -24,7 +24,7 @@ public sealed partial class SubmitOnceFormTests : EndpointsTestBase
     [InlineData("/Account/CancelDeletion?email=a%40b.pl&token=z")]
     [InlineData("/Account/ResetPassword?email=a%40b.pl&token=z")]
     [InlineData("/Account/Login")]
-    public async Task FormPage_ShouldSendItsFormOnlyOnce(string path)
+    public async Task FormPage_ShouldMarkItsFormAndLoadTheSubmitOnceScript(string path)
     {
         // Act
         using HttpResponseMessage response = await ApiClient.Http.GetAsync(new Uri(path, UriKind.Relative));

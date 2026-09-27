@@ -59,13 +59,7 @@ public sealed class ChangeEmailSuccessStyleTests : E2ETestBase
 
         // Act
         string newEmail = TestUser.CreateRandomEmail();
-        await Page.GetByTestId("nav-account").ClickAsync();
-        await Page.GetByTestId("account-change-email").ClickAsync();
-        await Page.Locator("#new-email").WaitForAsync(LongWait);
-        await Page.Locator("#new-email").FillAsync(newEmail);
-        await Page.Locator("#repeat-email").FillAsync(newEmail);
-        await Page.Locator("#current-password").FillAsync(user.Password);
-        await Page.GetByTestId("change-email-submit").ClickAsync();
+        await AuthActions.RequestEmailChangeAsync(Page, user, newEmail);
 
         string confirmLink = await MailpitClient.WaitForLinkAsync(
             Fixture.MailpitBaseUrl,

@@ -82,6 +82,21 @@ internal static class AuthActions
             .WaitForAsync(new LocatorWaitForOptions { State = WaitForSelectorState.Detached, Timeout = 30_000 });
     }
 
+    /// <summary>
+    /// Sends an e-mail change from the frontend's account page. The caller must be signed in with the
+    /// cookie banner already accepted.
+    /// </summary>
+    public static async Task RequestEmailChangeAsync(IPage page, TestUser user, string newEmail)
+    {
+        await page.GetByTestId("nav-account").ClickAsync();
+        await page.GetByTestId("account-change-email").ClickAsync();
+        await page.Locator("#new-email").WaitForAsync(LongWait);
+        await page.Locator("#new-email").FillAsync(newEmail);
+        await page.Locator("#repeat-email").FillAsync(newEmail);
+        await page.Locator("#current-password").FillAsync(user.Password);
+        await page.GetByTestId("change-email-submit").ClickAsync();
+    }
+
     public static async Task LogoutAsync(IPage page)
     {
         await page.GetByRole(AriaRole.Button, new() { Name = Buttons.Logout, Exact = true }).ClickAsync();

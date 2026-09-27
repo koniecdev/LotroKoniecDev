@@ -2,6 +2,8 @@
 // progress. Most of these forms carry a one-time link. A second click would reach the server after the
 // first one used the link up, and the browser would show that second answer: "link dead" (#871).
 // It lives in a file because the auth CSP sends script-src 'self', which blocks an inline script (#670, #693).
+// The button is disabled inside the submit event, so the browser leaves it out of the posted data.
+// Do not give the submit button of such a form a name: its value would never reach the server.
 (function () {
     var forms = document.querySelectorAll('form[data-submit-once]');
     Array.prototype.forEach.call(forms, function (form) {

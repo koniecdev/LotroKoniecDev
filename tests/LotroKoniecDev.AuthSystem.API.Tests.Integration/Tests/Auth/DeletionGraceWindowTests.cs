@@ -1,15 +1,20 @@
 using System.Net.Http.Headers;
 using System.Text.RegularExpressions;
+using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using LotroKoniecDev.AuthSystem.API.Outbox;
+using LotroKoniecDev.AuthSystem.API.Services.Gdpr;
 using LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared;
 using LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared.Bases;
 using LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared.Factories;
 using LotroKoniecDev.AuthSystem.Contracts.Features.Auth.Account;
 using LotroKoniecDev.AuthSystem.Contracts.Features.Auth.Password;
 using LotroKoniecDev.AuthSystem.Contracts.Features.Auth.Register;
+using LotroKoniecDev.AuthSystem.Domain.Aggregates.ApplicationUsers.Entities;
+using LotroKoniecDev.AuthSystem.Persistence.DbContexts;
 using LotroKoniecDev.AuthSystem.Persistence.Outbox;
 using JsonOptions = Microsoft.AspNetCore.Http.Json.JsonOptions;
 
@@ -25,6 +30,8 @@ namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Tests.Auth;
 public sealed partial class DeletionGraceWindowTests : AsyncLifetimeTestBase
 {
     private const string TestPassword = "TestPass1!";
+    private const string WrongPassword = "WrongPassword1!";
+    private const string ApiScope = "email profile roles api";
 
     protected override TestApiClient ApiClient { get; }
 
@@ -65,13 +72,34 @@ public sealed partial class DeletionGraceWindowTests : AsyncLifetimeTestBase
         (RegisterRequest registerRequest, _) = await RegisterAndScheduleDeletionAsync();
 
         // Act
-        HttpResponseMessage response = await PostLoginFormAsync(registerRequest.Email, "WrongPassword1!");
+        HttpResponseMessage response = await PostLoginFormAsync(registerRequest.Email, WrongPassword);
 
         // Assert: the scheduled state must not leak without the correct password
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
         string html = await response.Content.ReadAsStringAsync();
         html.ShouldContain("Nieprawidłowy e-mail lub hasło");
         html.ShouldNotContain("zaplanowane do usunięcia");
+    }
+
+    [Fact]
+    public async Task LoginPage_ShouldKeepTheGracePeriodLock_WhenTheLockoutLimitOfWrongPasswordsArrives()
+    {
+        // Arrange: when the limit is reached, Identity's AccessFailedAsync replaces LockoutEnd with its own
+        // short lockout, so a counted guess would end the grace period lock early (#861)
+        (RegisterRequest registerRequest, _) = await RegisterAndScheduleDeletionAsync();
+        int lockoutLimit = MaxFailedAccessAttempts();
+
+        // Act
+        for (int attempt = 0; attempt < lockoutLimit; attempt++)
+        {
+            HttpResponseMessage response = await PostLoginFormAsync(registerRequest.Email, WrongPassword);
+            string html = await response.Content.ReadAsStringAsync();
+            html.ShouldContain("Nieprawidłowy e-mail lub hasło", customMessage: "the POST must reach the credential check");
+        }
+
+        // Assert
+        ApplicationUser user = await GetUserAsync(registerRequest.Email);
+        user.LockoutEnd.ShouldBe(GracePeriodEnd(user));
     }
 
     [Fact]
@@ -169,16 +197,8 @@ public sealed partial class DeletionGraceWindowTests : AsyncLifetimeTestBase
         (RegisterRequest registerRequest, _) =
             await UserFactory.RegisterRandomUserWithRequestAsync(ApiClient, Faker, AccountConfirmationEmailSpy, TestPassword);
 
-        using FormUrlEncodedContent passwordGrant = new(new Dictionary<string, string>
-        {
-            ["grant_type"] = "password",
-            ["username"] = registerRequest.Email,
-            ["password"] = TestPassword,
-            ["client_id"] = "lotrokoniecdev-test",
-            ["scope"] = "email profile roles api offline_access"
-        });
-        HttpResponseMessage loginResponse = await ApiClient.Http.PostAsync(
-            new Uri("connect/token", UriKind.Relative), passwordGrant);
+        HttpResponseMessage loginResponse =
+            await PostPasswordGrantAsync(registerRequest.Email, TestPassword, $"{ApiScope} offline_access");
         loginResponse.StatusCode.ShouldBe(HttpStatusCode.OK);
 
         string loginContent = await loginResponse.Content.ReadAsStringAsync();
@@ -203,6 +223,26 @@ public sealed partial class DeletionGraceWindowTests : AsyncLifetimeTestBase
 
         // Assert: a scheduled account must not refresh its way back to a usable token
         refreshResponse.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+    }
+
+    [Fact]
+    public async Task PasswordGrant_ShouldKeepTheGracePeriodLock_WhenTheLockoutLimitOfWrongPasswordsArrives()
+    {
+        // Arrange
+        (RegisterRequest registerRequest, _) = await RegisterAndScheduleDeletionAsync();
+        int lockoutLimit = MaxFailedAccessAttempts();
+
+        // Act
+        for (int attempt = 0; attempt < lockoutLimit; attempt++)
+        {
+            HttpResponseMessage response = await PostPasswordGrantAsync(registerRequest.Email, WrongPassword, ApiScope);
+            string body = await response.Content.ReadAsStringAsync();
+            body.ShouldContain("The email/password combination is invalid.", customMessage: "the grant must reach the credential check");
+        }
+
+        // Assert
+        ApplicationUser user = await GetUserAsync(registerRequest.Email);
+        user.LockoutEnd.ShouldBe(GracePeriodEnd(user));
     }
 
     [Fact]
@@ -303,22 +343,45 @@ public sealed partial class DeletionGraceWindowTests : AsyncLifetimeTestBase
 
     private async Task<string> GetAccessTokenAsync(string email)
     {
-        using FormUrlEncodedContent tokenRequest = new(new Dictionary<string, string>
-        {
-            ["grant_type"] = "password",
-            ["username"] = email,
-            ["password"] = TestPassword,
-            ["client_id"] = "lotrokoniecdev-test",
-            ["scope"] = "email profile roles api"
-        });
-
-        HttpResponseMessage tokenResponse = await ApiClient.Http.PostAsync(
-            new Uri("connect/token", UriKind.Relative), tokenRequest);
+        HttpResponseMessage tokenResponse = await PostPasswordGrantAsync(email, TestPassword, ApiScope);
         tokenResponse.StatusCode.ShouldBe(HttpStatusCode.OK);
 
         string content = await tokenResponse.Content.ReadAsStringAsync();
         using JsonDocument json = JsonDocument.Parse(content);
         return json.RootElement.GetProperty("access_token").GetString()!;
+    }
+
+    private async Task<HttpResponseMessage> PostPasswordGrantAsync(string email, string password, string scope)
+    {
+        using FormUrlEncodedContent passwordGrant = new(new Dictionary<string, string>
+        {
+            ["grant_type"] = "password",
+            ["username"] = email,
+            ["password"] = password,
+            ["client_id"] = "lotrokoniecdev-test",
+            ["scope"] = scope
+        });
+
+        return await ApiClient.Http.PostAsync(new Uri("connect/token", UriKind.Relative), passwordGrant);
+    }
+
+    private async Task<ApplicationUser> GetUserAsync(string email)
+    {
+        await using AsyncServiceScope scope = Factory.Services.CreateAsyncScope();
+        AuthDbContext db = scope.ServiceProvider.GetRequiredService<AuthDbContext>();
+        return await db.Users.AsNoTracking().SingleAsync(u => u.Email == email);
+    }
+
+    private DateTimeOffset GracePeriodEnd(ApplicationUser user)
+    {
+        using IServiceScope scope = Factory.Services.CreateScope();
+        IAccountDeletionSchedule deletionSchedule = scope.ServiceProvider.GetRequiredService<IAccountDeletionSchedule>();
+        return deletionSchedule.FinalizesAt(user.DeletionScheduledAt!.Value, user.EmailChangeRevertArmedAt);
+    }
+
+    private int MaxFailedAccessAttempts()
+    {
+        return Factory.Services.GetRequiredService<IOptions<IdentityOptions>>().Value.Lockout.MaxFailedAccessAttempts;
     }
 
     private async Task<HttpResponseMessage> PostLoginFormAsync(string email, string password)

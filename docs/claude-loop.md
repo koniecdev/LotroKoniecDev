@@ -127,6 +127,8 @@ reason to drop the first: every path into the worker still asks `issue-trust.sh`
 It **fails closed** — a missing association or any GitHub API failure refuses the ticket. The gate
 runs inside `work-ticket.sh`, not just the picker, so `backlog-loop.sh 123` and a bare
 `work-ticket.sh 123` are gated too; a refused ticket exits `11` and no session is ever spawned.
+It runs again before each resume of a session (#925), because a resume is a new process that may
+read the issue again.
 A gate that cannot *reach* the API is systemic rather than a property of the ticket, so it surfaces
 as the ordinary error exit `3` and the conductor's circuit breaker stops the run.
 A stranger's harmless "+1" comment will therefore park a ticket: read it yourself, then run that
@@ -226,18 +228,25 @@ and nothing can wake the session again. Nothing was pushed, and the final messag
   background, asks the worker to run what it was waiting for in the foreground, finish the open
   steps and end with the STATUS block. The resume passes the same model, effort, permission and
   budget flags as the first run, works in the same worktree, and uses what is left of the
-  ticket's wall clock. After `LOOP_MAX_RESUMES` resumes (default 2) the ticket is an `error` as
-  before. A usage limit during a resume is still a usage limit (exit 6). `.meta` gets a new
-  `resumes=` line as each resume starts (the last line wins, as for every key), and the end-of-run
-  table marks such a ticket with `resumed Nx`.
+  ticket's wall clock. It starts only when at least ten minutes of that clock are left, and the
+  prompt says how many remain. After `LOOP_MAX_RESUMES` resumes (default 2) the ticket is an
+  `error` as before. A usage limit during a resume is still a usage limit (exit 6). `.meta` gets a
+  new `resumes=` line as each resume starts (the last line wins, as for every key), and the
+  end-of-run table marks such a ticket with `resumed Nx`.
+- **The provenance gate runs again before each resume.** A resume is a new process that may read
+  the issue again, and it can start an hour after the first check. A comment from someone
+  without write access that arrived in between refuses the ticket (exit 11, `untrusted`), exactly
+  as it would at the start (ADR-0026).
 
-Each earlier result of the current attempt stays next to the final one as
-`ticket-<n>.json.before-resume-<k>`. The name is chosen so that the conductor's cost total does not
-count it: a resumed run already reports the cost of the whole session. A usage-limit retry runs the
-ticket again in the same run folder, so it clears these files, as it already overwrote the
-`.json` and `.stderr` of the attempt before. One gap: a run stopped by the timeout or by you writes
-no result, so its cost is missing from the total. After a resume, the missing cost also covers the
-runs before it.
+A resume writes its result to `ticket-<n>.json.resume-<k>` and replaces `ticket-<n>.json` only
+when it ends. The result it replaces moves to `ticket-<n>.json.before-resume-<k>`. Neither name
+matches the conductor's `ticket-*.json`, and that matters for the cost total: a resumed run
+reports the cost of the whole session, not of its own run. That was checked in a real run, and so
+was the budget: `--max-budget-usd` also counts the whole session, so `LOOP_MAX_BUDGET_USD` stays
+a cap per ticket. A resume that is killed by the clock or by you leaves the last result, and its
+cost, in `ticket-<n>.json`. Only a first run that is stopped leaves no cost, as before. A
+usage-limit retry runs the ticket again in the same run folder, so it clears these files first,
+just as it overwrites the `.json` and `.stderr` of the attempt before.
 
 ## Safety model
 
@@ -283,11 +292,18 @@ runs before it.
   `LOOP_MAX_RESUMES` times, or it could not be resumed (no `session_id` in the result). Read
   `logs/claude-loop/<run>/ticket-<n>.json` (`.result` field), the earlier results in
   `ticket-<n>.json.before-resume-*`, and `.stderr`; usually a permission denial (extend
-  `LOOP_ALLOWED_TOOLS`) or a mid-run crash. The session id in the JSON still resumes by hand:
-  bring the worktree back (`git worktree add .claude/worktrees/ticket-<n> <branch>`), then run
-  `CLAUDE_CONFIG_DIR=~/.claude-account1 CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1 claude -p --resume <session_id> "…"`
-  inside it. The config dir must be the loop's account (`LOOP_CONFIG_DIR`), or the session is not
-  found.
+  `LOOP_ALLOWED_TOOLS`) or a mid-run crash. The session id in the JSON still resumes by hand.
+  Bring the worktree back, then resume the session inside it with the loop's account, switches
+  and flags (the config dir must be `LOOP_CONFIG_DIR`, or the session is not found; without the
+  permission flags every git/gh/dotnet call is refused):
+
+  ```bash
+  git worktree add .claude/worktrees/ticket-<n> <branch> && cd .claude/worktrees/ticket-<n>
+  CLAUDE_CONFIG_DIR=~/.claude-account1 CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1 \
+  BASH_MAX_TIMEOUT_MS=3600000 BASH_DEFAULT_TIMEOUT_MS=600000 \
+  claude -p "…" --resume <session_id> --model <model> --effort <effort> --permission-mode auto \
+    --allowedTools 'Bash(git:*)' 'Bash(gh:*)' 'Bash(dotnet:*)' 'Bash(scripts/:*)' 'Bash(./scripts/:*)'
+  ```
 - **"scripts/claude/ … differs from origin/main — refusing"** — the loop scripts run from the
   checkout you start them in, and that checkout is on an old branch or has local edits. Old loop
   code may still merge PRs (it did before ADR-0060). Start the loop from a checkout that is up to

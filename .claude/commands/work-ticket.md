@@ -75,8 +75,9 @@ everything that matters must be committed and pushed.
    suite in the foreground — `dotnet test`, no filter, everything runnable on this OS — never just
    the touched area and never "integration only when the slice ships an endpoint". The loop turns
    background runs off, and a command that reaches its timeout is stopped, so give the full suite
-   a Bash `timeout` of 3600000 ms (one hour, the ceiling the loop allows). A call with no timeout
-   gets ten minutes; name a longer one for anything slower (a CodeQL wait). Green, with
+   the longest Bash `timeout` the loop allows (`BASH_MAX_TIMEOUT_MS`, 3600000 ms unless the owner
+   changed it). A call with no timeout gets ten minutes; name a longer one for anything slower (a
+   CodeQL wait). Green, with
    happy path + failure modes + boundary `[Theory]` cases, and report the counts. Then spawn the
    **`code-reviewer`** agent with the ticket's acceptance criteria; fix every finding; repeat until
    **APPROVE**. Then the second pass, exactly as `/ticket` step 7 has it: run `/code-review` on the

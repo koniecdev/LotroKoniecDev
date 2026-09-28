@@ -3,7 +3,6 @@ using LotroKoniecDev.Frontend.Infrastructure.Auth.TokenRefresh;
 using LotroKoniecDev.Frontend.Settings;
 using LotroKoniecDev.Frontend.Tests.Unit.Infrastructure.HttpClients;
 using Microsoft.Extensions.Logging.Abstractions;
-using Microsoft.Extensions.Options;
 
 namespace LotroKoniecDev.Frontend.Tests.Unit.Infrastructure.Auth.TokenRefresh;
 

@@ -197,8 +197,8 @@ are the answer to that case.
   root through a new typed client whose `BaseUrl` is that root's origin, never through the parent's
   client. The frontend's token client posts to one fixed path. Its OIDC back-channel calls the
   endpoints named in the auth API's own discovery document, which the frontend trusts as the
-  issuer's metadata. So the origin check does not apply to either, and since #899 neither follows a
-  redirect.
+  issuer's metadata. So the origin check does not apply to either. Since #899 neither follows a
+  redirect, unless other code sets its own back-channel handler first (today only tests do).
 
 ## References
 

@@ -18,9 +18,10 @@ public sealed class TokenEndpointClientTests
     [Fact]
     public async Task RefreshAsync_WhenTheAuthApiAnswersWithTokens_ReturnsThem()
     {
-        TokenEndpointClient client = CreateClient(StubHttpMessageHandler.RespondWith(
+        using HttpClient httpClient = CreateHttpClient(StubHttpMessageHandler.RespondWith(
             HttpStatusCode.OK,
             $$"""{"access_token":"{{AccessToken}}","expires_in":3600}"""));
+        TokenEndpointClient client = CreateClient(httpClient);
 
         TokenResponse? response = await client.RefreshAsync(RefreshToken);
 
@@ -39,17 +40,21 @@ public sealed class TokenEndpointClientTests
     [InlineData(HttpStatusCode.PermanentRedirect)]
     public async Task RefreshAsync_WhenTheAuthApiAnswersWithARedirect_ReturnsNull(HttpStatusCode statusCode)
     {
-        TokenEndpointClient client = CreateClient(StubHttpMessageHandler.RespondWithHeaders(
+        using HttpClient httpClient = CreateHttpClient(StubHttpMessageHandler.RespondWithHeaders(
             statusCode,
             new Dictionary<string, string> { ["Location"] = "https://attacker.example/connect/token" }));
+        TokenEndpointClient client = CreateClient(httpClient);
 
         TokenResponse? response = await client.RefreshAsync(RefreshToken);
 
         response.ShouldBeNull();
     }
 
-    private static TokenEndpointClient CreateClient(HttpMessageHandler transport) => new(
-        new HttpClient(transport) { BaseAddress = new Uri(AuthBaseUrl) },
+    private static HttpClient CreateHttpClient(HttpMessageHandler transport) =>
+        new(transport) { BaseAddress = new Uri(AuthBaseUrl) };
+
+    private static TokenEndpointClient CreateClient(HttpClient httpClient) => new(
+        httpClient,
         Microsoft.Extensions.Options.Options.Create(new AuthSystemSettings
         {
             BaseUrl = AuthBaseUrl,

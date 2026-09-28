@@ -1,6 +1,7 @@
 using LotroKoniecDev.Frontend.Infrastructure.Auth;
 using LotroKoniecDev.Frontend.Infrastructure.Auth.TokenRefresh;
 using LotroKoniecDev.Frontend.Settings;
+using LotroKoniecDev.Frontend.Tests.Unit.Infrastructure.HttpClients;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authentication.OpenIdConnect;
 using Microsoft.AspNetCore.DataProtection;
@@ -44,7 +45,7 @@ public sealed class AuthenticationDependencyInjectionExtensionsTests
     {
         using ServiceProvider provider = CreateFrontendAuthenticationServices().BuildServiceProvider();
 
-        List<HttpMessageHandler> chain = HandlerChain(provider
+        List<HttpMessageHandler> chain = HttpMessageHandlerChain.From(provider
             .GetRequiredService<IHttpMessageHandlerFactory>()
             .CreateHandler(nameof(ITokenEndpointClient)));
 
@@ -60,7 +61,7 @@ public sealed class AuthenticationDependencyInjectionExtensionsTests
     {
         OpenIdConnectOptions options = ResolveConfiguredOidcOptions();
 
-        List<HttpMessageHandler> chain = HandlerChain(options.BackchannelHttpHandler);
+        List<HttpMessageHandler> chain = HttpMessageHandlerChain.From(options.BackchannelHttpHandler);
 
         chain[^1].ShouldBeOfType<SocketsHttpHandler>().AllowAutoRedirect.ShouldBeFalse();
     }
@@ -125,17 +126,5 @@ public sealed class AuthenticationDependencyInjectionExtensionsTests
         services.AddFrontendAuthentication();
 
         return services;
-    }
-
-    private static List<HttpMessageHandler> HandlerChain(HttpMessageHandler? handler)
-    {
-        List<HttpMessageHandler> chain = [];
-        while (handler is not null)
-        {
-            chain.Add(handler);
-            handler = handler is DelegatingHandler delegatingHandler ? delegatingHandler.InnerHandler : null;
-        }
-
-        return chain;
     }
 }

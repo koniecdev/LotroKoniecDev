@@ -248,18 +248,8 @@ public sealed class SameOriginDelegatingHandlerTests
         return services.BuildServiceProvider();
     }
 
-    private static List<HttpMessageHandler> HandlerChain(ServiceProvider provider, string clientName)
-    {
-        List<HttpMessageHandler> chain = [];
-        HttpMessageHandler? handler = provider.GetRequiredService<IHttpMessageHandlerFactory>().CreateHandler(clientName);
-        while (handler is not null)
-        {
-            chain.Add(handler);
-            handler = handler is DelegatingHandler delegatingHandler ? delegatingHandler.InnerHandler : null;
-        }
-
-        return chain;
-    }
+    private static List<HttpMessageHandler> HandlerChain(ServiceProvider provider, string clientName) =>
+        HttpMessageHandlerChain.From(provider.GetRequiredService<IHttpMessageHandlerFactory>().CreateHandler(clientName));
 
     private static void AddSettings(ServiceCollection services)
     {

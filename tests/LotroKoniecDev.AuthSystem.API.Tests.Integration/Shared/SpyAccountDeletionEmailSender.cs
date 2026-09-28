@@ -31,10 +31,9 @@ public sealed class SpyAccountDeletionEmailSender : IAccountDeletionEmailSender
         DateTimeOffset finalizesAt,
         CancellationToken cancellationToken)
     {
-        // WaitForScheduledCaptureAsync waits for the token, so everything a test reads is set before it.
         LastScheduledEmail = email;
-        LastFinalizesAt = finalizesAt;
         LastCancelToken = cancelToken;
+        LastFinalizesAt = finalizesAt;
         Interlocked.Increment(ref _scheduledCallCount);
 
         return ShouldFailScheduledEmail

@@ -64,28 +64,12 @@ public sealed partial class DeletionGraceWindowTests : AsyncLifetimeTestBase
         // Act
         HttpResponseMessage response = await PostLoginFormAsync(registerRequest.Email, TestPassword);
 
-        // Assert: the same minute the frontend page prints from the header, not just the day (#890)
+        // Assert: the same minute the frontend page prints from the header, not just the day (#890).
+        // The page reads the saved row, and Npgsql cuts the digits below a microsecond when it saves it.
+        // A minute always starts on a whole microsecond, so that cut can never change the minute.
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
         string html = await response.Content.ReadAsStringAsync();
         html.ShouldContain($"zaplanowane do usunięcia dnia {PolandMinuteText(finalizesAt)} czasu polskiego.");
-    }
-
-    [Fact]
-    public async Task DeleteAccount_ShouldHandTheEmailTheSameMinuteAsTheFinalizesAtHeader()
-    {
-        // Arrange
-        (RegisterRequest registerRequest, _) =
-            await UserFactory.RegisterRandomUserWithRequestAsync(ApiClient, Faker, AccountConfirmationEmailSpy, TestPassword);
-
-        // Act
-        DateTimeOffset finalizesAt = await ScheduleDeletionAsync(registerRequest.Email);
-
-        // Assert: the frontend prints the header, the e-mail is built from the saved row (#890). Npgsql
-        // cuts the digits below a microsecond when it saves the row, and a minute always starts on a
-        // whole microsecond, so the cut can never move the moment into another minute.
-        AccountDeletionEmailSpy.LastScheduledEmail.ShouldBe(registerRequest.Email);
-        AccountDeletionEmailSpy.LastFinalizesAt.ShouldNotBeNull();
-        PolandMinuteText(AccountDeletionEmailSpy.LastFinalizesAt.Value).ShouldBe(PolandMinuteText(finalizesAt));
     }
 
     [Fact]

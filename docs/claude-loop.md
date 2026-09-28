@@ -236,7 +236,7 @@ Each earlier result of the current attempt stays next to the final one as
 count it: a resumed run already reports the cost of the whole session. A usage-limit retry runs the
 ticket again in the same run folder, so it clears these files, as it already overwrote the
 `.json` and `.stderr` of the attempt before. One gap: a run stopped by the timeout or by you writes
-no result, so its cost is missing from the total, and after a resume that includes the cost of the
+no result, so its cost is missing from the total. After a resume, the missing cost also covers the
 runs before it.
 
 ## Safety model

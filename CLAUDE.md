@@ -863,9 +863,10 @@ The per-ticket session does the whole slice — spec weight, branch, implement, 
 `STATUS: DONE|BLOCKED` block, confirms the PR exists, removes the clean worktree (the branch stays)
 and moves on. The worker's Bash tool cannot start a background run, and a session that ends
 without a STATUS line is resumed, at most `LOOP_MAX_RESUMES` times (default 2 — #925). No LLM
-context outlives a ticket, so per-ticket cost stays flat no matter how many tickets run. Earlier designs kept an orchestrator *session* alive across tickets (first
-`/loop /ticket`, then a subagent-spawning `/backlog` orchestrator) — both accumulate N tickets'
-returns in one context and re-read it every turn; that anti-pattern is retired.
+context outlives a ticket, so per-ticket cost stays flat no matter how many tickets run. Earlier
+designs kept an orchestrator *session* alive across tickets (first `/loop /ticket`, then a
+subagent-spawning `/backlog` orchestrator) — both accumulate N tickets' returns in one context and
+re-read it every turn; that anti-pattern is retired.
 
 **The loop stops at the PR (ADR-0060).** Nothing in it merges or assigns. The owner reads each PR
 and approves it by **assigning themselves** — GitHub does not let an author approve their own PR,

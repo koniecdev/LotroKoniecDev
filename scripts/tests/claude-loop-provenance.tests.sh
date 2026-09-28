@@ -690,8 +690,12 @@ esac'
 reset_fixtures
 fixture_issue 88 maintainer OWNER
 fixture_pr_view 788 OPEN 88-fixture
+# A usage-limit retry reuses the run folder; an earlier attempt's resume results must not stay.
+mkdir -p "$TMP_ROOT/run"
+echo stale > "$TMP_ROOT/run/ticket-88.json.before-resume-2"
 run_case 0 "work-ticket: a session that stopped to wait is resumed and opens its PR" \
     env CLAUDE_BEHAVIOR="$TMP_ROOT/waits.sh" "$WORK" 88 "$TMP_ROOT/run"
+[ ! -e "$TMP_ROOT/run/ticket-88.json.before-resume-2" ] || fail "an earlier attempt's resume results should be cleared"
 expect_in_output "resuming it (1 of 2)"
 expect_in_output "PR #788 opened"
 [ "$(cat "$TMP_ROOT/claude-runs")" = "2" ] || fail "expected the first run and one resume" "$LAST_OUTPUT"
@@ -773,12 +777,13 @@ run_case 3 "work-ticket: a session that exits non-zero is not resumed" \
 
 # The wall clock. A fake `date` adds $TMP_ROOT/clock-skew seconds to `date +%s`, so a case can
 # jump the clock forward without waiting.
+REAL_DATE="$(command -v date)"
 cat > "$TMP_ROOT/bin/date" <<STUB
 #!/usr/bin/env bash
 if [ "\${1:-}" = "+%s" ]; then
-    echo \$(( \$(/bin/date +%s) + \$(cat "$TMP_ROOT/clock-skew" 2>/dev/null || echo 0) ))
+    echo \$(( \$("$REAL_DATE" +%s) + \$(cat "$TMP_ROOT/clock-skew" 2>/dev/null || echo 0) ))
 else
-    exec /bin/date "\$@"
+    exec "$REAL_DATE" "\$@"
 fi
 STUB
 chmod +x "$TMP_ROOT/bin/date"

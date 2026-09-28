@@ -332,6 +332,12 @@ always appended so pagination order is total. Without `sort`, translations order
 | `GET` | `/.well-known/openid-configuration` | anonymous | OIDC discovery document |
 | `GET` | `/.well-known/jwks` | anonymous | JSON Web Key Set (public signing key) |
 
+The `connect/*` endpoints answer errors in the OAuth shape, never as `ProblemDetails`: a JSON body
+with `error`, `error_description` and `error_uri` (RFC 6749 §5.2). OAuth clients, the frontend's
+OpenID Connect handler among them, read only `error` (#903). A refused `connect/token` request is
+**400** `invalid_grant`, including the password grant's `account_deletion_scheduled` answer, which
+rides in `error_description`. A wrong client secret is **401** `invalid_client`.
+
 The login/consent UI is server-rendered Razor Pages: `/Account/Login`, `/Account/Register`,
 `/Account/ConfirmEmail`, `/Account/ResendConfirmation`, `/Account/ForgotPassword`,
 `/Account/ResetPassword`, `/Account/PrivacyPolicy`, `/Account/CancelDeletion` (the emailed
@@ -624,7 +630,8 @@ own data stays a right.
 - **Roles**: `Translator` reads + upserts; `Admin` also approves (single + bulk) / imports /
   registers & deletes versions.
 - **IDs**: bare GUID strings (GUID v7). **Enums**: strings.
-- **Errors**: RFC 7807 `ProblemDetails`; branch on the `errorCode` extension, not `detail`.
+- **Errors**: RFC 7807 `ProblemDetails` on `tms-api` and `auth/*`; branch on the `errorCode`
+  extension, not `detail`. `connect/*` answers in the OAuth `error` / `error_description` shape (§7.1).
 - **Links**: opt in with the vendor `Accept`; they're state/role-aware — drive the UI off rels.
 - **Pagination**: `pageSize` clamped 1–100; deterministic default order + optional multi-field
   `?sort=key:asc,key2:desc` (§6).

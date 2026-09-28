@@ -164,6 +164,7 @@ public sealed class DeleteAccountEndpointTests : EndpointsTestBase
         using JsonDocument body = JsonDocument.Parse(await loginResponse.Content.ReadAsStringAsync());
         body.RootElement.GetProperty("error").GetString().ShouldBe("invalid_grant");
         body.RootElement.GetProperty("error_description").GetString().ShouldBe("The email/password combination is invalid.");
+        body.RootElement.GetRawText().ShouldNotContain("account_deletion_scheduled");
     }
 
     [Fact]

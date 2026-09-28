@@ -463,6 +463,7 @@ public sealed partial class AuthorizationCodeFlowTests : AsyncLifetimeTestBase
 
         // Assert
         response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        response.Content.Headers.ContentType?.MediaType.ShouldBe("application/json");
         using JsonDocument body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
         body.RootElement.GetProperty("error").GetString().ShouldBe("invalid_grant");
         body.RootElement.GetProperty("error_description").GetString().ShouldBe("The authorization code is no longer valid.");

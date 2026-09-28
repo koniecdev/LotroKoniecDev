@@ -371,6 +371,7 @@ public sealed class TokenEndpointTests : EndpointsTestBase
 
         // Assert
         response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        response.Content.Headers.ContentType?.MediaType.ShouldBe("application/json");
         using JsonDocument body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
         body.RootElement.GetProperty("error").GetString().ShouldBe("invalid_grant");
         body.RootElement.GetProperty("error_description").GetString().ShouldBe("The refresh token is no longer valid.");

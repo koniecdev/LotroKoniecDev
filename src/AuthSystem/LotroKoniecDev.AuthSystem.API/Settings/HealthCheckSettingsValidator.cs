@@ -56,9 +56,8 @@ internal sealed class HealthCheckSettingsValidator : IValidateOptions<HealthChec
                 + "end with whitespace. Check the quoting of HEALTH_CHECK_KEY in the box .env.");
         }
 
-        // A header cannot carry a line break, and Caddy answers 400 to every other control character except
-        // a tab. A tab or a non-ASCII character could get through from curl, but HttpClient refuses
-        // non-ASCII and no generated key has either, so this follows the frontend caller key's rule (#877).
+        // A header cannot carry most of these characters, and the frontend caller key has the same rule
+        // (ADR-0058 §2, #877).
         if (!key.All(IsPrintableAscii))
         {
             return ValidateOptionsResult.Fail(

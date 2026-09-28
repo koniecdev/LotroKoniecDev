@@ -70,9 +70,8 @@ internal sealed class AuthSystemSettingsValidator : AbstractValidator<AuthSystem
                 KeyPath(nameof(AuthSystemSettings.CallerKey))
                 + " must not start or end with whitespace. Check the quoting of FRONTEND_CALLER_KEY in the box .env.");
 
-        // HttpClient refuses a line break or a non-ASCII character in a header, and Caddy answers 400 to
-        // every other control character except a tab. A tab would get through, but no generated key has
-        // one, so the one simple rule refuses it too (#877).
+        // A header cannot carry most of these characters, and one simple rule covers the rest
+        // (ADR-0054 §6, #877).
         RuleFor(x => x.CallerKey!)
             .Must(BePrintableAscii)
             .When(x => !string.IsNullOrWhiteSpace(x.CallerKey))

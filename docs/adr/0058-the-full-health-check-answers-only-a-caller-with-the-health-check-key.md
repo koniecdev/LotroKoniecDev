@@ -65,10 +65,10 @@ ASCII (`' '` to `'~'`) inside it. A line break cannot go into a header, and Cadd
 other control character except a tab. A tab, or a non-ASCII character sent as raw UTF-8 bytes, does
 get through Caddy and Kestrel (checked on .NET 10 and `caddy:2-alpine`), but HttpClient refuses
 non-ASCII and no generated key has either. The frontend caller key follows the same rules
-(ADR-0054 §6), so the health check key and the frontend caller key are checked alike in all three
-apps. Write the value unquoted in the `.env`; base64 needs no quotes. In Development and Testing an
-empty key leaves the gate open, so the local `curl …/health` and the integration suites keep working.
-`scripts/gen-openiddict-keys` mints it for the parity stack.
+(ADR-0054 §6), so both APIs check the two keys alike. Write the value unquoted in the `.env`; base64
+needs no quotes. In Development and Testing an empty key leaves the gate open, so the local
+`curl …/health` and the integration suites keep working. `scripts/gen-openiddict-keys` mints it for
+the parity stack.
 
 ### 3. The daily ping sends the prod key from a repository secret
 

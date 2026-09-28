@@ -25,7 +25,7 @@ public sealed partial class PasswordSaveTests : EndpointsTestBase
     public PasswordSaveTests(AuthSystemApiFactory appFactory) : base(appFactory) { }
 
     [Fact]
-    public async Task ChangePassword_ShouldSaveTheAccountOnce()
+    public async Task ChangePassword_ShouldAnswerOkAfterOneSave_WhenASecondSaveWouldFail()
     {
         // Arrange
         (RegisterRequest user, IdentityId userId) = await UserFactory.RegisterRandomUserWithRequestAsync(
@@ -46,7 +46,7 @@ public sealed partial class PasswordSaveTests : EndpointsTestBase
     }
 
     [Fact]
-    public async Task ResetPassword_ShouldSaveTheAccountOnce()
+    public async Task ResetPassword_ShouldAnswerOkAfterOneSave_WhenASecondSaveWouldFail()
     {
         // Arrange
         (RegisterRequest user, IdentityId userId) = await UserFactory.RegisterRandomUserWithRequestAsync(
@@ -65,7 +65,7 @@ public sealed partial class PasswordSaveTests : EndpointsTestBase
     }
 
     [Fact]
-    public async Task ResetPasswordPage_Post_ShouldSaveTheAccountOnce()
+    public async Task ResetPasswordPage_Post_ShouldShowTheSuccessPanelAfterOneSave_WhenASecondSaveWouldFail()
     {
         // Arrange
         (RegisterRequest user, IdentityId userId) = await UserFactory.RegisterRandomUserWithRequestAsync(

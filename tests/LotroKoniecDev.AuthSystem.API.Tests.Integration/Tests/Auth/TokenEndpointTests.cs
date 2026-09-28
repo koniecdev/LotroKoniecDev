@@ -377,6 +377,28 @@ public sealed class TokenEndpointTests : EndpointsTestBase
     }
 
     [Fact]
+    public async Task RefreshTokenGrant_ShouldRefuseWithTheOAuthErrorBody_WhenTheAccountIsScheduledForDeletion()
+    {
+        // Arrange: only the deletion date is set and no token is revoked, so the token endpoint's own check
+        // has to refuse the refresh
+        const string password = "TestPass1!";
+        (RegisterRequest request, _) =
+            await UserFactory.RegisterRandomUserWithRequestAsync(ApiClient, Faker, AccountConfirmationEmailSpy, password);
+        string refreshToken = await SignInForRefreshTokenAsync(request.Email, password);
+
+        await AccountStateFactory.ScheduleDeletionAsync(Factory.Services, request.Email);
+
+        // Act
+        using HttpResponseMessage response = await RefreshAsync(refreshToken);
+
+        // Assert
+        response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        using JsonDocument body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        body.RootElement.GetProperty("error").GetString().ShouldBe("invalid_grant");
+        body.RootElement.GetProperty("error_description").GetString().ShouldBe("The refresh token is no longer valid.");
+    }
+
+    [Fact]
     public async Task RefreshTokenGrant_ShouldRefuseWithTheOAuthErrorBody_WhenTheAccountWasDeleted()
     {
         // Arrange: an operator deletes the row by hand, as the runbook's admin fixes do. That revokes
@@ -407,17 +429,8 @@ public sealed class TokenEndpointTests : EndpointsTestBase
 
     private async Task<string> SignInForRefreshTokenAsync(string email, string password)
     {
-        using FormUrlEncodedContent loginRequest = new(new Dictionary<string, string>
-        {
-            ["grant_type"] = "password",
-            ["username"] = email,
-            ["password"] = password,
-            ["client_id"] = "lotrokoniecdev-test",
-            ["scope"] = "email profile roles api offline_access"
-        });
-
-        using HttpResponseMessage loginResponse = await ApiClient.Http.PostAsync(
-            new Uri("connect/token", UriKind.Relative), loginRequest);
+        using HttpResponseMessage loginResponse =
+            await RequestPasswordGrantAsync(email, password, "email profile roles api offline_access");
         loginResponse.StatusCode.ShouldBe(HttpStatusCode.OK);
 
         using JsonDocument loginJson = JsonDocument.Parse(await loginResponse.Content.ReadAsStringAsync());

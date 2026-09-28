@@ -7,7 +7,7 @@ namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared.Factories;
 
 /// <summary>
 /// Puts a registered account into the state a branch needs. The account states live in the shared
-/// database, so any host's services will do for them. The mail budgets live in each host's memory, so the
+/// database, so any host's services will do for them. The budgets live in each host's memory, so the
 /// budget methods need the services of the host that will answer.
 /// </summary>
 internal static class AccountStateFactory
@@ -71,6 +71,16 @@ internal static class AccountStateFactory
         MailboxKey mailbox = MailboxKey.FromNormalizedEmail(user.NormalizedEmail);
 
         SpendUntilRefused(() => throttle.TryAcquire(mailbox), AccountBudgets.EmailConfirmationResendPermitLimit);
+    }
+
+    public static async Task SpendDeletionScheduledLoginBudgetAsync(IServiceProvider services, string email)
+    {
+        await using AsyncServiceScope scope = services.CreateAsyncScope();
+        UserManager<ApplicationUser> userManager = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
+        ApplicationUser user = await FindAsync(userManager, email);
+        IDeletionScheduledLoginThrottle throttle = services.GetRequiredService<IDeletionScheduledLoginThrottle>();
+
+        SpendUntilRefused(() => throttle.TryAcquire(user.Id), AccountBudgets.DeletionScheduledLoginPermitLimit);
     }
 
     /// <summary>

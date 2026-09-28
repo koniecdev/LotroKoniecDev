@@ -1,14 +1,14 @@
 namespace LotroKoniecDev.AuthSystem.API.Services.RateLimiting;
 
 /// <summary>
-/// The budgets the handlers take themselves, in one place so the registration and the tests read the same
-/// numbers.
+/// The budgets the handlers and pages take themselves, in one place so the registration and the tests read
+/// the same numbers.
 /// </summary>
 internal static class AccountBudgets
 {
     /// <summary>
-    /// The window every in-handler budget uses except the deletion schedule: the same quarter of an hour
-    /// as the auth pages' POST budgets, so "come back later" means the same wait everywhere.
+    /// The window every in-handler and in-page budget uses except the deletion schedule: the same quarter of
+    /// an hour as the auth pages' POST budgets, so "come back later" means the same wait everywhere.
     /// </summary>
     internal static readonly TimeSpan Window = TimeSpan.FromMinutes(15);
 
@@ -38,6 +38,16 @@ internal static class AccountBudgets
     /// enough for a few typos and every sensitive action in a row, far too few for a guessing script.
     /// </summary>
     internal const int PasswordConfirmationPermitLimit = 10;
+
+    /// <summary>
+    /// Login attempts per account while its deletion is scheduled (#881). The same 10 per quarter hour as the
+    /// confirmation budget and the login page's limit per address. On average that is below the 15 per
+    /// quarter hour Identity's lockout allows on a normal account, though a fixed window lets a burst of 20
+    /// through at its edge. The owner cannot sign in during the grace period anyway: a spent budget shows
+    /// them the general message instead of the deletion date, and the deletion mail still carries the date
+    /// and the cancel link.
+    /// </summary>
+    internal const int DeletionScheduledLoginPermitLimit = 10;
 
     /// <summary>
     /// Deletion schedules per account per <see cref="DeletionScheduleWindow"/> (#811). A person needs two at

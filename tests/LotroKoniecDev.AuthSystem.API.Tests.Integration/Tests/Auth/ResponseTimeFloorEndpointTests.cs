@@ -38,6 +38,9 @@ public sealed partial class ResponseTimeFloorEndpointTests : EndpointsTestBase
         await AccountStateFactory.RemovePasswordAsync(Factory.Services, passwordless.Email);
         (RegisterRequest deletionScheduled, _) = await RegisterConfirmedAsync();
         await AccountStateFactory.ScheduleDeletionAsync(Factory.Services, deletionScheduled.Email);
+        (RegisterRequest budgetSpent, _) = await RegisterConfirmedAsync();
+        await AccountStateFactory.ScheduleDeletionAsync(Factory.Services, budgetSpent.Email);
+        await AccountStateFactory.SpendDeletionScheduledLoginBudgetAsync(host.Services, budgetSpent.Email);
 
         // Act
         IReadOnlyList<BranchAnswer> answers = await CollectAsync(new()
@@ -47,7 +50,9 @@ public sealed partial class ResponseTimeFloorEndpointTests : EndpointsTestBase
             ["locked out"] = PostLoginAsync(host, lockedOut.Email, lockedOut.Password),
             ["no password"] = PostLoginAsync(host, passwordless.Email, passwordless.Password),
             ["deletion scheduled, wrong password"] =
-                PostLoginAsync(host, deletionScheduled.Email, deletionScheduled.Password + "WRONG")
+                PostLoginAsync(host, deletionScheduled.Email, deletionScheduled.Password + "WRONG"),
+            ["deletion scheduled, login budget spent, right password"] =
+                PostLoginAsync(host, budgetSpent.Email, budgetSpent.Password)
         });
 
         // Assert

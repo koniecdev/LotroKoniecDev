@@ -7,6 +7,7 @@ using Microsoft.Extensions.Options;
 using LotroKoniecDev.AuthSystem.API.Common;
 using LotroKoniecDev.AuthSystem.API.Extensions;
 using LotroKoniecDev.AuthSystem.API.Services.Gdpr;
+using LotroKoniecDev.AuthSystem.API.Services.RateLimiting;
 using LotroKoniecDev.AuthSystem.API.Services.ResponseTiming;
 using LotroKoniecDev.AuthSystem.API.Settings;
 using LotroKoniecDev.AuthSystem.Domain.Aggregates.ApplicationUsers.Entities;
@@ -18,7 +19,8 @@ internal sealed partial class LoginModel : PageModel
     /// <summary>
     /// The one message for every login failure a caller can reach without proving they know the
     /// password: no such user, locked out, and wrong password. All three say the same thing, so none of
-    /// them reveals whether the address is registered.
+    /// them reveals whether the address is registered. A scheduled deletion whose login budget is spent
+    /// says it too, even for the right password (#881).
     /// The cases that only happen after the password was verified, a scheduled deletion or an
     /// unconfirmed address, name their reason instead. ADR-0046 explains why that is safe.
     /// </summary>
@@ -35,8 +37,9 @@ internal sealed partial class LoginModel : PageModel
 
     /// <summary>
     /// A hash computed up front for the failure paths that would otherwise skip password hashing: no
-    /// such user, locked out, and an account with no password. They then cost as much CPU as the
-    /// wrong-password path. That is the second layer under the time floor (ADR-0059 §5).
+    /// such user, locked out, an account with no password, and a scheduled deletion whose login budget
+    /// is spent (#881). They then cost as much CPU as the wrong-password path. That is the second layer
+    /// under the time floor (ADR-0059 §5).
     /// </summary>
     private static readonly string DummyPasswordHash =
         new PasswordHasher<ApplicationUser>().HashPassword(new ApplicationUser(), "DummyP@ssw0rd!");
@@ -52,6 +55,7 @@ internal sealed partial class LoginModel : PageModel
     private readonly UserManager<ApplicationUser> _userManager;
     private readonly IOptions<OpenIddictSettings> _openIddictSettings;
     private readonly IAccountDeletionSchedule _deletionSchedule;
+    private readonly IDeletionScheduledLoginThrottle _deletionScheduledLoginThrottle;
     private readonly IResponseTimeFloor _responseTimeFloor;
     private readonly ILogger<LoginModel> _logger;
 
@@ -59,12 +63,14 @@ internal sealed partial class LoginModel : PageModel
         UserManager<ApplicationUser> userManager,
         IOptions<OpenIddictSettings> openIddictSettings,
         IAccountDeletionSchedule deletionSchedule,
+        IDeletionScheduledLoginThrottle deletionScheduledLoginThrottle,
         IResponseTimeFloor responseTimeFloor,
         ILogger<LoginModel> logger)
     {
         _userManager = userManager;
         _openIddictSettings = openIddictSettings;
         _deletionSchedule = deletionSchedule;
+        _deletionScheduledLoginThrottle = deletionScheduledLoginThrottle;
         _responseTimeFloor = responseTimeFloor;
         _logger = logger;
     }
@@ -212,7 +218,8 @@ internal sealed partial class LoginModel : PageModel
 
     /// <summary>
     /// Returns the account only when the posted password is its password, and null for every failure a
-    /// caller can reach without it: no such user, locked out, wrong password. Each of those verifies
+    /// caller can reach without it: no such user, locked out, wrong password, and a scheduled deletion
+    /// whose login budget is spent. Each of those verifies
     /// exactly one password hash, the dummy one where there is no real hash to check, and none of them
     /// sets a message, so the caller shows the same one for all.
     /// </summary>
@@ -231,9 +238,18 @@ internal sealed partial class LoginModel : PageModel
 
         // An account with a scheduled deletion is also locked out, so this case has to come before the
         // lockout check. Its wrong password does not count: at the limit Identity would replace the lock
-        // that lasts the whole grace period with its own short lockout (#861, ADR-0053 §3).
+        // that lasts the whole grace period with its own short lockout (#861, ADR-0053 §3). So the
+        // lockout never slows guessing here, and a budget per account does it instead (#881).
         if (user.DeletionScheduledAt is not null)
         {
+            // The permit comes before the password check, so a refusal says nothing about the password.
+            if (!_deletionScheduledLoginThrottle.TryAcquire(user.Id))
+            {
+                VerifyDummyPassword();
+                LogDeletionScheduledThrottled(_logger, user.Id, HttpContext.Connection.RemoteIpAddress);
+                return null;
+            }
+
             if (!await _userManager.HasPasswordAsync(user))
             {
                 VerifyDummyPassword();
@@ -295,4 +311,7 @@ internal sealed partial class LoginModel : PageModel
 
     [LoggerMessage(EventId = EventIds.LoginDeletionScheduled, Level = LogLevel.Information, Message = "Login blocked: account deletion is scheduled. UserId: {UserId}, IP: {IP}")]
     private static partial void LogDeletionScheduled(ILogger logger, Guid userId, System.Net.IPAddress? ip);
+
+    [LoggerMessage(EventId = EventIds.LoginDeletionScheduledThrottled, Level = LogLevel.Warning, Message = "Failed login: the login budget of an account with a scheduled deletion is spent. UserId: {UserId}, IP: {IP}")]
+    private static partial void LogDeletionScheduledThrottled(ILogger logger, Guid userId, System.Net.IPAddress? ip);
 }

@@ -53,8 +53,10 @@ anything.
 
 `ConnectRateLimitingTests` reads the URIs of every endpoint type that checks a client secret from
 `OpenIddictServerOptions`. For each one without a GET route, a GET carrying the right secret must be
-refused with `400 invalid_request`. A new endpoint, or an OpenIddict upgrade that widens a reader,
-fails there instead of shipping a method with no brake.
+refused with `400 invalid_request`. GET is the only method it needs to try: OpenIddict's readers
+accept only GET, POST or both, and the POST side is covered by the tests that every such URI has a
+rate-limited route. A new endpoint, or an OpenIddict upgrade that widens a reader, fails there
+instead of shipping a method with no brake.
 
 ## Consequences
 
@@ -69,8 +71,9 @@ fails there instead of shipping a method with no brake.
 
 ### Negative / Accepted Trade-offs
 
-- We name two OpenIddict handler types that are public but marked for advanced use. A rename breaks
-  the build, which is loud. A change in what they do is caught by the test in decision 3.
+- We name two OpenIddict handler types that are public but hidden from IntelliSense
+  (`EditorBrowsable(Never)`), which warns they may change. A rename breaks the build, which is loud.
+  A change in what they do is caught by the test in decision 3.
 - A flood of GET requests still meets no limiter. Each one gets a 400 with no database lookup, the
   same as a GET to `connect/token` always did.
 - A client that sends introspection over GET breaks. None exists, and RFC 7662 never allowed one.
@@ -99,14 +102,13 @@ path prefix. Revisit if another gap of this kind appears.
 
 - `src/AuthSystem/LotroKoniecDev.AuthSystem.API/Extensions/OpenIddictExtensions.cs` — the handler
   swap, inside `AddServer`, after `UseAspNetCore()`. `RemoveEventHandler` works in a `PostConfigure`,
-  so the order of the two calls does not matter.
+  so the swap would work before `UseAspNetCore()` too.
 - `src/AuthSystem/LotroKoniecDev.AuthSystem.API/Features/Auth/MiddlewareServedEndpoints.cs` — its
   summary points here.
 - `tests/LotroKoniecDev.AuthSystem.API.Tests.Integration/Tests/RateLimiting/ConnectRateLimitingTests.cs`
   — the guard of decision 3.
 - `tests/LotroKoniecDev.AuthSystem.API.Tests.Unit/Middleware/AuthorizationLoggingMiddlewareTests.cs`
-  — a 401 with no real endpoint is not warned. The integration suite proved that with a GET to
-  `connect/introspect`, which is now a 400.
+  — a 401 with no real endpoint is not warned.
 - TheKittySaver has no OpenIddict server any more (its ADR-0007), so there is nothing to mirror.
 
 ## References

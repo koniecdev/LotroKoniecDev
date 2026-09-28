@@ -154,7 +154,10 @@ public sealed class ConnectRateLimitingTests : EndpointsTestBase
             using HttpResponseMessage response = await ApiClient.Http.GetAsync(
                 new Uri(QueryHelpers.AddQueryString(route, credentials), UriKind.Relative));
             using JsonDocument body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
-            answers[route] = $"{(int)response.StatusCode} {body.RootElement.GetProperty("error").GetString()}";
+            string error = body.RootElement.TryGetProperty("error", out JsonElement errorElement)
+                ? errorElement.GetString() ?? "(none)"
+                : "(none)";
+            answers[route] = $"{(int)response.StatusCode} {error}";
         }
 
         // Assert

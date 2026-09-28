@@ -411,8 +411,8 @@ the connection, the connection is in the line either way; on the auth API a wron
 `/connect/token`, which OpenIddict refuses during authentication, is warned, an anonymous
 `auth/change-password` is warned; on the TMS API an unknown path, a wrong method and HEAD are not
 warned); the auth API's `AuthorizationLoggingMiddlewareTests` (the 403 line, which no auth endpoint
-reaches today, and no warning for a 401 without a real endpoint, since #900); `RateLimitPartitionKeyResolverTests` on both
-APIs (an IPv6 visitor's whole address).
+reaches today, and no warning for a 401 without a real endpoint, since #900);
+`RateLimitPartitionKeyResolverTests` on both APIs (an IPv6 visitor's whole address).
 
 ## References
 

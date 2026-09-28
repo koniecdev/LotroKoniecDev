@@ -333,11 +333,11 @@ always appended so pagination order is total. Without `sort`, translations order
 | `GET` | `/.well-known/jwks` | anonymous | JSON Web Key Set (public signing key) |
 
 A request that OpenIddict or a `connect/*` handler refuses gets the OAuth error shape, not
-`ProblemDetails`: an `application/json` body with `error` and `error_description` (RFC 6749 §5.2).
-OAuth clients read those fields. The frontend's OpenID Connect handler logged an empty reason while
-the token endpoint still answered with `ProblemDetails` (#903). Every refusal the token handler
-makes itself is **400** `invalid_grant`: a code or refresh token that is no longer valid, wrong
-credentials on the Testing-only password grant, and that grant's `account_deletion_scheduled`
+`ProblemDetails`: `error` and `error_description`, the fields OAuth clients read. `connect/token`
+sends them as an `application/json` body (RFC 6749 §5.2). `connect/authorize` sends them back to the
+client's `redirect_uri` in the query string (RFC 6749 §4.1.2.1). Every refusal the token handler
+makes itself is **400** `invalid_grant` (#903): a code or refresh token that is no longer valid,
+wrong credentials on the Testing-only password grant, and that grant's `account_deletion_scheduled`
 answer, which is in `error_description`. OpenIddict's own checks can answer other codes, for example
 **401** `invalid_client` for a wrong client secret or **400** `unsupported_grant_type`. A 429 from
 the rate limiter and a 500 from an unhandled exception still come from the shared pipeline as

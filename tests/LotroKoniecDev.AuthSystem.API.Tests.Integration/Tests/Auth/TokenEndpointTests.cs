@@ -106,6 +106,9 @@ public sealed class TokenEndpointTests : EndpointsTestBase
 
         // Assert
         response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        using JsonDocument body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        body.RootElement.GetProperty("error").GetString().ShouldBe("invalid_grant");
+        body.RootElement.GetProperty("error_description").GetString().ShouldBe("The email/password combination is invalid.");
     }
 
     [Fact]
@@ -126,6 +129,9 @@ public sealed class TokenEndpointTests : EndpointsTestBase
 
         // Assert
         response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        using JsonDocument body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        body.RootElement.GetProperty("error").GetString().ShouldBe("invalid_grant");
+        body.RootElement.GetProperty("error_description").GetString().ShouldBe("The email/password combination is invalid.");
     }
 
     [Fact]
@@ -347,6 +353,52 @@ public sealed class TokenEndpointTests : EndpointsTestBase
 
         // Assert: Revoked refresh token should be rejected
         response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+    }
+
+    [Fact]
+    public async Task RefreshTokenGrant_ShouldRefuseWithTheOAuthErrorBody_WhenTheAccountIsLockedOut()
+    {
+        // Arrange: a lockout revokes nothing, so only the token endpoint's own check refuses the refresh.
+        // The frontend's OpenID Connect handler reads the reason from "error" (#903).
+        const string password = "TestPass1!";
+        (RegisterRequest request, _) =
+            await UserFactory.RegisterRandomUserWithRequestAsync(ApiClient, Faker, AccountConfirmationEmailSpy, password);
+
+        using FormUrlEncodedContent loginRequest = new(new Dictionary<string, string>
+        {
+            ["grant_type"] = "password",
+            ["username"] = request.Email,
+            ["password"] = password,
+            ["client_id"] = "lotrokoniecdev-test",
+            ["scope"] = "email profile roles api offline_access"
+        });
+
+        HttpResponseMessage loginResponse = await ApiClient.Http.PostAsync(
+            new Uri("connect/token", UriKind.Relative), loginRequest);
+        loginResponse.StatusCode.ShouldBe(HttpStatusCode.OK);
+
+        string loginContent = await loginResponse.Content.ReadAsStringAsync();
+        using JsonDocument loginJson = JsonDocument.Parse(loginContent);
+        string refreshToken = loginJson.RootElement.GetProperty("refresh_token").GetString()!;
+
+        await AccountStateFactory.LockOutAsync(Factory.Services, request.Email);
+
+        using FormUrlEncodedContent refreshRequest = new(new Dictionary<string, string>
+        {
+            ["grant_type"] = "refresh_token",
+            ["refresh_token"] = refreshToken,
+            ["client_id"] = "lotrokoniecdev-test"
+        });
+
+        // Act
+        HttpResponseMessage response = await ApiClient.Http.PostAsync(
+            new Uri("connect/token", UriKind.Relative), refreshRequest);
+
+        // Assert
+        response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        using JsonDocument body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        body.RootElement.GetProperty("error").GetString().ShouldBe("invalid_grant");
+        body.RootElement.GetProperty("error_description").GetString().ShouldBe("The refresh token is no longer valid.");
     }
 
     private async Task<JsonDocument> IntrospectTokenAsync(string token)

@@ -14,6 +14,15 @@ namespace LotroKoniecDev.AuthSystem.API.Features.Auth;
 
 internal sealed class TokenEndpoint : IEndpoint
 {
+    private const string AuthorizationCodeNoLongerValid = "The authorization code is no longer valid.";
+    private const string InvalidCredentials = "The email/password combination is invalid.";
+    private const string RefreshTokenNoLongerValid = "The refresh token is no longer valid.";
+
+    /// <summary>
+    /// A code, not a sentence: a client matches on it to show the "scheduled for deletion" state.
+    /// </summary>
+    private const string AccountDeletionScheduled = "account_deletion_scheduled";
+
     /// <summary>
     /// A hash computed up front, so the not-found path takes as long as the normal one. Without it,
     /// response time would tell an attacker "no such user" from "wrong password".
@@ -51,9 +60,7 @@ internal sealed class TokenEndpoint : IEndpoint
             return HandleClientCredentialsGrant(request);
         }
 
-        return Results.Problem(
-            title: "The specified grant type is not supported.",
-            statusCode: StatusCodes.Status400BadRequest);
+        return Refuse(Errors.UnsupportedGrantType, "The specified grant type is not supported.");
     }
 
     private static async Task<IResult> HandleAuthorizationCodeGrantAsync(
@@ -66,10 +73,7 @@ internal sealed class TokenEndpoint : IEndpoint
 
         if (result is not { Succeeded: true })
         {
-            return Results.Problem(
-                title: Errors.InvalidGrant,
-                detail: "The authorization code is no longer valid.",
-                statusCode: StatusCodes.Status400BadRequest);
+            return Refuse(Errors.InvalidGrant, AuthorizationCodeNoLongerValid);
         }
 
         // The code carries the stamp read at /connect/authorize, and the account can change in the
@@ -83,10 +87,7 @@ internal sealed class TokenEndpoint : IEndpoint
             || await userManager.IsLockedOutAsync(user)
             || !await SessionSecurityStamp.IsCurrentAsync(result.Principal, user, signInManager))
         {
-            return Results.Problem(
-                title: Errors.InvalidGrant,
-                detail: "The authorization code is no longer valid.",
-                statusCode: StatusCodes.Status400BadRequest);
+            return Refuse(Errors.InvalidGrant, AuthorizationCodeNoLongerValid);
         }
 
         return Results.SignIn(
@@ -109,10 +110,7 @@ internal sealed class TokenEndpoint : IEndpoint
             // exists.
             _ = userManager.PasswordHasher.VerifyHashedPassword(
                 new ApplicationUser(), DummyPasswordHash, request.Password!);
-            return Results.Problem(
-                title: Errors.InvalidGrant,
-                detail: "The email/password combination is invalid.",
-                statusCode: StatusCodes.Status400BadRequest);
+            return Refuse(Errors.InvalidGrant, InvalidCredentials);
         }
 
         // An account with a scheduled deletion is also locked out, so this check has to come before
@@ -124,26 +122,17 @@ internal sealed class TokenEndpoint : IEndpoint
             bool deletionScheduledPasswordValid = await userManager.CheckPasswordAsync(user, request.Password!);
             if (!deletionScheduledPasswordValid)
             {
-                return Results.Problem(
-                    title: Errors.InvalidGrant,
-                    detail: "The email/password combination is invalid.",
-                    statusCode: StatusCodes.Status400BadRequest);
+                return Refuse(Errors.InvalidGrant, InvalidCredentials);
             }
 
-            return Results.Problem(
-                title: Errors.InvalidGrant,
-                detail: "account_deletion_scheduled",
-                statusCode: StatusCodes.Status400BadRequest);
+            return Refuse(Errors.InvalidGrant, AccountDeletionScheduled);
         }
 
         SignInResult result = await signInManager.CheckPasswordSignInAsync(user, request.Password!, lockoutOnFailure: true);
 
         if (result.IsLockedOut || !result.Succeeded)
         {
-            return Results.Problem(
-                title: Errors.InvalidGrant,
-                detail: "The email/password combination is invalid.",
-                statusCode: StatusCodes.Status400BadRequest);
+            return Refuse(Errors.InvalidGrant, InvalidCredentials);
         }
 
         ClaimsIdentity identity = await CreateClaimsIdentityAsync(user, userManager, request);
@@ -165,20 +154,14 @@ internal sealed class TokenEndpoint : IEndpoint
 
         if (string.IsNullOrEmpty(userId))
         {
-            return Results.Problem(
-                title: Errors.InvalidGrant,
-                detail: "The refresh token is no longer valid.",
-                statusCode: StatusCodes.Status400BadRequest);
+            return Refuse(Errors.InvalidGrant, RefreshTokenNoLongerValid);
         }
 
         ApplicationUser? user = await userManager.FindByIdAsync(userId);
 
         if (user is null)
         {
-            return Results.Problem(
-                title: Errors.InvalidGrant,
-                detail: "The refresh token is no longer valid.",
-                statusCode: StatusCodes.Status400BadRequest);
+            return Refuse(Errors.InvalidGrant, RefreshTokenNoLongerValid);
         }
 
         // Refresh tokens are revoked when a GDPR deletion is scheduled, but that revocation is only
@@ -186,10 +169,7 @@ internal sealed class TokenEndpoint : IEndpoint
         // refresh its way back to a working access token.
         if (user.DeletionScheduledAt is not null || await userManager.IsLockedOutAsync(user))
         {
-            return Results.Problem(
-                title: Errors.InvalidGrant,
-                detail: "The refresh token is no longer valid.",
-                statusCode: StatusCodes.Status400BadRequest);
+            return Refuse(Errors.InvalidGrant, RefreshTokenNoLongerValid);
         }
 
         // Every flow that ends all sessions changes the stamp, and its token revocation is only best
@@ -197,10 +177,7 @@ internal sealed class TokenEndpoint : IEndpoint
         // unlocked, for example when a scheduled deletion is cancelled (#848).
         if (!await SessionSecurityStamp.IsCurrentAsync(authenticateResult.Principal!, user, signInManager))
         {
-            return Results.Problem(
-                title: Errors.InvalidGrant,
-                detail: "The refresh token is no longer valid.",
-                statusCode: StatusCodes.Status400BadRequest);
+            return Refuse(Errors.InvalidGrant, RefreshTokenNoLongerValid);
         }
 
         ClaimsIdentity identity = (ClaimsIdentity)authenticateResult.Principal!.Identity!;
@@ -269,6 +246,20 @@ internal sealed class TokenEndpoint : IEndpoint
 
         return identity;
     }
+
+    /// <summary>
+    /// OAuth clients read refusals from the standard error body (RFC 6749 §5.2), not from ProblemDetails.
+    /// The frontend's OpenID Connect handler reads only "error", so a ProblemDetails body left its log
+    /// with an empty reason (#903).
+    /// </summary>
+    private static IResult Refuse(string error, string description) =>
+        Results.Forbid(
+            new AuthenticationProperties(new Dictionary<string, string?>
+            {
+                [OpenIddictServerAspNetCoreConstants.Properties.Error] = error,
+                [OpenIddictServerAspNetCoreConstants.Properties.ErrorDescription] = description
+            }),
+            [OpenIddictServerAspNetCoreDefaults.AuthenticationScheme]);
 
     public void MapEndpoint(IEndpointRouteBuilder endpointRouteBuilder)
     {

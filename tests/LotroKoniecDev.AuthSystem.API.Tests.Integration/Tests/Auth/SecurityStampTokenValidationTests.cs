@@ -59,7 +59,9 @@ public sealed partial class SecurityStampTokenValidationTests : EndpointsTestBas
 
         // Assert
         response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
-        (await response.Content.ReadAsStringAsync()).ShouldContain("invalid_grant");
+        using JsonDocument body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        body.RootElement.GetProperty("error").GetString().ShouldBe("invalid_grant");
+        body.RootElement.GetProperty("error_description").GetString().ShouldBe("The refresh token is no longer valid.");
     }
 
     [Fact]
@@ -114,7 +116,9 @@ public sealed partial class SecurityStampTokenValidationTests : EndpointsTestBas
 
         // Assert
         response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
-        (await response.Content.ReadAsStringAsync()).ShouldContain("invalid_grant");
+        using JsonDocument body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        body.RootElement.GetProperty("error").GetString().ShouldBe("invalid_grant");
+        body.RootElement.GetProperty("error_description").GetString().ShouldBe("The refresh token is no longer valid.");
     }
 
     [Fact]
@@ -143,7 +147,9 @@ public sealed partial class SecurityStampTokenValidationTests : EndpointsTestBas
 
         // Assert
         response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
-        (await response.Content.ReadAsStringAsync()).ShouldContain("invalid_grant");
+        using JsonDocument body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        body.RootElement.GetProperty("error").GetString().ShouldBe("invalid_grant");
+        body.RootElement.GetProperty("error_description").GetString().ShouldBe("The refresh token is no longer valid.");
     }
 
     [Fact]
@@ -229,7 +235,9 @@ public sealed partial class SecurityStampTokenValidationTests : EndpointsTestBas
 
         // Assert
         response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
-        (await response.Content.ReadAsStringAsync()).ShouldContain("invalid_grant");
+        using JsonDocument body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        body.RootElement.GetProperty("error").GetString().ShouldBe("invalid_grant");
+        body.RootElement.GetProperty("error_description").GetString().ShouldBe("The refresh token is no longer valid.");
     }
 
     [Fact]

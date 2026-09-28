@@ -358,31 +358,74 @@ public sealed class TokenEndpointTests : EndpointsTestBase
     [Fact]
     public async Task RefreshTokenGrant_ShouldRefuseWithTheOAuthErrorBody_WhenTheAccountIsLockedOut()
     {
-        // Arrange: a lockout revokes nothing, so only the token endpoint's own check refuses the refresh.
-        // The frontend's OpenID Connect handler reads the reason from "error" (#903).
+        // Arrange: a lockout revokes nothing, so only the token endpoint's own check refuses the refresh
         const string password = "TestPass1!";
         (RegisterRequest request, _) =
             await UserFactory.RegisterRandomUserWithRequestAsync(ApiClient, Faker, AccountConfirmationEmailSpy, password);
+        string refreshToken = await SignInForRefreshTokenAsync(request.Email, password);
 
+        await AccountStateFactory.LockOutAsync(Factory.Services, request.Email);
+
+        // Act
+        using HttpResponseMessage response = await RefreshAsync(refreshToken);
+
+        // Assert
+        response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        using JsonDocument body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        body.RootElement.GetProperty("error").GetString().ShouldBe("invalid_grant");
+        body.RootElement.GetProperty("error_description").GetString().ShouldBe("The refresh token is no longer valid.");
+    }
+
+    [Fact]
+    public async Task RefreshTokenGrant_ShouldRefuseWithTheOAuthErrorBody_WhenTheAccountWasDeleted()
+    {
+        // Arrange: an operator deletes the row by hand, as the runbook's admin fixes do. That revokes
+        // nothing, so the refresh token row is still valid.
+        const string password = "TestPass1!";
+        (RegisterRequest request, _) =
+            await UserFactory.RegisterRandomUserWithRequestAsync(ApiClient, Faker, AccountConfirmationEmailSpy, password);
+        string refreshToken = await SignInForRefreshTokenAsync(request.Email, password);
+
+        await using (AsyncServiceScope scope = Factory.Services.CreateAsyncScope())
+        {
+            UserManager<ApplicationUser> userManager =
+                scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
+            ApplicationUser? user = await userManager.FindByEmailAsync(request.Email);
+            user.ShouldNotBeNull();
+            (await userManager.DeleteAsync(user)).Succeeded.ShouldBeTrue();
+        }
+
+        // Act
+        using HttpResponseMessage response = await RefreshAsync(refreshToken);
+
+        // Assert
+        response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        using JsonDocument body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        body.RootElement.GetProperty("error").GetString().ShouldBe("invalid_grant");
+        body.RootElement.GetProperty("error_description").GetString().ShouldBe("The refresh token is no longer valid.");
+    }
+
+    private async Task<string> SignInForRefreshTokenAsync(string email, string password)
+    {
         using FormUrlEncodedContent loginRequest = new(new Dictionary<string, string>
         {
             ["grant_type"] = "password",
-            ["username"] = request.Email,
+            ["username"] = email,
             ["password"] = password,
             ["client_id"] = "lotrokoniecdev-test",
             ["scope"] = "email profile roles api offline_access"
         });
 
-        HttpResponseMessage loginResponse = await ApiClient.Http.PostAsync(
+        using HttpResponseMessage loginResponse = await ApiClient.Http.PostAsync(
             new Uri("connect/token", UriKind.Relative), loginRequest);
         loginResponse.StatusCode.ShouldBe(HttpStatusCode.OK);
 
-        string loginContent = await loginResponse.Content.ReadAsStringAsync();
-        using JsonDocument loginJson = JsonDocument.Parse(loginContent);
-        string refreshToken = loginJson.RootElement.GetProperty("refresh_token").GetString()!;
+        using JsonDocument loginJson = JsonDocument.Parse(await loginResponse.Content.ReadAsStringAsync());
+        return loginJson.RootElement.GetProperty("refresh_token").GetString()!;
+    }
 
-        await AccountStateFactory.LockOutAsync(Factory.Services, request.Email);
-
+    private async Task<HttpResponseMessage> RefreshAsync(string refreshToken)
+    {
         using FormUrlEncodedContent refreshRequest = new(new Dictionary<string, string>
         {
             ["grant_type"] = "refresh_token",
@@ -390,15 +433,7 @@ public sealed class TokenEndpointTests : EndpointsTestBase
             ["client_id"] = "lotrokoniecdev-test"
         });
 
-        // Act
-        HttpResponseMessage response = await ApiClient.Http.PostAsync(
-            new Uri("connect/token", UriKind.Relative), refreshRequest);
-
-        // Assert
-        response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
-        using JsonDocument body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
-        body.RootElement.GetProperty("error").GetString().ShouldBe("invalid_grant");
-        body.RootElement.GetProperty("error_description").GetString().ShouldBe("The refresh token is no longer valid.");
+        return await ApiClient.Http.PostAsync(new Uri("connect/token", UriKind.Relative), refreshRequest);
     }
 
     private async Task<JsonDocument> IntrospectTokenAsync(string token)

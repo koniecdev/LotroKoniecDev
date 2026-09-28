@@ -19,9 +19,9 @@ internal sealed class TokenEndpoint : IEndpoint
     private const string RefreshTokenNoLongerValid = "The refresh token is no longer valid.";
 
     /// <summary>
-    /// A code, not a sentence: a client matches on it to show the "scheduled for deletion" state.
+    /// A code, not a sentence, so a test or a client can match on it.
     /// </summary>
-    private const string AccountDeletionScheduled = "account_deletion_scheduled";
+    private const string AccountDeletionScheduledCode = "account_deletion_scheduled";
 
     /// <summary>
     /// A hash computed up front, so the not-found path takes as long as the normal one. Without it,
@@ -125,7 +125,7 @@ internal sealed class TokenEndpoint : IEndpoint
                 return Refuse(Errors.InvalidGrant, InvalidCredentials);
             }
 
-            return Refuse(Errors.InvalidGrant, AccountDeletionScheduled);
+            return Refuse(Errors.InvalidGrant, AccountDeletionScheduledCode);
         }
 
         SignInResult result = await signInManager.CheckPasswordSignInAsync(user, request.Password!, lockoutOnFailure: true);
@@ -248,9 +248,9 @@ internal sealed class TokenEndpoint : IEndpoint
     }
 
     /// <summary>
-    /// OAuth clients read refusals from the standard error body (RFC 6749 §5.2), not from ProblemDetails.
-    /// The frontend's OpenID Connect handler reads only "error", so a ProblemDetails body left its log
-    /// with an empty reason (#903).
+    /// OAuth clients read a refusal from the standard "error" and "error_description" fields
+    /// (RFC 6749 §5.2), not from ProblemDetails. With ProblemDetails, the frontend's OpenID Connect
+    /// handler logged a failed sign-in with an empty reason (#903).
     /// </summary>
     private static IResult Refuse(string error, string description) =>
         Results.Forbid(

@@ -332,6 +332,17 @@ always appended so pagination order is total. Without `sort`, translations order
 | `GET` | `/.well-known/openid-configuration` | anonymous | OIDC discovery document |
 | `GET` | `/.well-known/jwks` | anonymous | JSON Web Key Set (public signing key) |
 
+A request that OpenIddict or a `connect/*` handler refuses gets the OAuth error shape, not
+`ProblemDetails`: `error` and `error_description`, the fields OAuth clients read. `connect/token`
+sends them as an `application/json` body (RFC 6749 §5.2). `connect/authorize` sends them back to the
+client's `redirect_uri` in the query string (RFC 6749 §4.1.2.1). Every refusal the token handler
+makes itself is **400** `invalid_grant` (#903): a code or refresh token that is no longer valid,
+wrong credentials on the Testing-only password grant, and that grant's `account_deletion_scheduled`
+answer, which is in `error_description`. OpenIddict's own checks can answer other codes, for example
+**401** `invalid_client` for a wrong client secret or **400** `unsupported_grant_type`. A 429 from
+the rate limiter and a 500 from an unhandled exception still come from the shared pipeline as
+`ProblemDetails` (#917).
+
 The login/consent UI is server-rendered Razor Pages: `/Account/Login`, `/Account/Register`,
 `/Account/ConfirmEmail`, `/Account/ResendConfirmation`, `/Account/ForgotPassword`,
 `/Account/ResetPassword`, `/Account/PrivacyPolicy`, `/Account/CancelDeletion` (the emailed
@@ -624,7 +635,9 @@ own data stays a right.
 - **Roles**: `Translator` reads + upserts; `Admin` also approves (single + bulk) / imports /
   registers & deletes versions.
 - **IDs**: bare GUID strings (GUID v7). **Enums**: strings.
-- **Errors**: RFC 7807 `ProblemDetails`; branch on the `errorCode` extension, not `detail`.
+- **Errors**: RFC 7807 `ProblemDetails` on `tms-api` and `auth/*`; branch on the `errorCode`
+  extension, not `detail`. A `connect/*` refusal comes in the OAuth `error` / `error_description`
+  shape instead (§7.1).
 - **Links**: opt in with the vendor `Accept`; they're state/role-aware — drive the UI off rels.
 - **Pagination**: `pageSize` clamped 1–100; deterministic default order + optional multi-field
   `?sort=key:asc,key2:desc` (§6).

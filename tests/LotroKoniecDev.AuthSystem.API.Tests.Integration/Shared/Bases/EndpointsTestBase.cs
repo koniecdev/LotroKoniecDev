@@ -28,7 +28,34 @@ public abstract class EndpointsTestBase : AsyncLifetimeTestBase
         return json.RootElement.GetProperty("access_token").GetString()!;
     }
 
-    protected async Task<HttpResponseMessage> RequestPasswordGrantAsync(string email, string password)
+    protected async Task<string> GetRefreshTokenAsync(string email, string password)
+    {
+        using HttpResponseMessage tokenResponse =
+            await RequestPasswordGrantAsync(email, password, "email profile roles api offline_access");
+
+        tokenResponse.StatusCode.ShouldBe(HttpStatusCode.OK);
+
+        string content = await tokenResponse.Content.ReadAsStringAsync();
+        using JsonDocument json = JsonDocument.Parse(content);
+        return json.RootElement.GetProperty("refresh_token").GetString()!;
+    }
+
+    protected async Task<HttpResponseMessage> RequestRefreshGrantAsync(string refreshToken)
+    {
+        using FormUrlEncodedContent refreshRequest = new(new Dictionary<string, string>
+        {
+            ["grant_type"] = "refresh_token",
+            ["refresh_token"] = refreshToken,
+            ["client_id"] = "lotrokoniecdev-test"
+        });
+
+        return await ApiClient.Http.PostAsync(new Uri("connect/token", UriKind.Relative), refreshRequest);
+    }
+
+    protected async Task<HttpResponseMessage> RequestPasswordGrantAsync(
+        string email,
+        string password,
+        string scope = "email profile roles api")
     {
         // "username" is a fixed name in the OIDC protocol. What it carries is the e-mail (ADR-0022).
         using FormUrlEncodedContent tokenRequest = new(new Dictionary<string, string>
@@ -37,7 +64,7 @@ public abstract class EndpointsTestBase : AsyncLifetimeTestBase
             ["username"] = email,
             ["password"] = password,
             ["client_id"] = "lotrokoniecdev-test",
-            ["scope"] = "email profile roles api"
+            ["scope"] = scope
         });
 
         return await ApiClient.Http.PostAsync(new Uri("connect/token", UriKind.Relative), tokenRequest);

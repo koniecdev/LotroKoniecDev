@@ -419,7 +419,9 @@ public sealed partial class AuthorizationCodeFlowTests : AsyncLifetimeTestBase
 
         // Assert
         response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
-        (await response.Content.ReadAsStringAsync()).ShouldContain("invalid_grant");
+        using JsonDocument body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        body.RootElement.GetProperty("error").GetString().ShouldBe("invalid_grant");
+        body.RootElement.GetProperty("error_description").GetString().ShouldBe("The authorization code is no longer valid.");
     }
 
     [Fact]
@@ -442,7 +444,29 @@ public sealed partial class AuthorizationCodeFlowTests : AsyncLifetimeTestBase
 
         // Assert
         response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
-        (await response.Content.ReadAsStringAsync()).ShouldContain("invalid_grant");
+        using JsonDocument body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        body.RootElement.GetProperty("error").GetString().ShouldBe("invalid_grant");
+        body.RootElement.GetProperty("error_description").GetString().ShouldBe("The authorization code is no longer valid.");
+    }
+
+    [Fact]
+    public async Task AuthorizationCodeExchange_ShouldFail_WhenTheAccountWasScheduledForDeletionAfterAuthorize()
+    {
+        // Arrange: only the deletion date is set, so the stamp is unchanged and the exchange has to check
+        // the date on its own
+        (string authorizationCode, string codeVerifier, _, string email) = await ObtainAuthorizationCodeAsync();
+
+        await AccountStateFactory.ScheduleDeletionAsync(Factory.Services, email);
+
+        // Act
+        using HttpResponseMessage response = await ExchangeAuthorizationCodeAsync(authorizationCode, codeVerifier);
+
+        // Assert
+        response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        response.Content.Headers.ContentType?.MediaType.ShouldBe("application/json");
+        using JsonDocument body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        body.RootElement.GetProperty("error").GetString().ShouldBe("invalid_grant");
+        body.RootElement.GetProperty("error_description").GetString().ShouldBe("The authorization code is no longer valid.");
     }
 
     [Fact]
@@ -466,7 +490,9 @@ public sealed partial class AuthorizationCodeFlowTests : AsyncLifetimeTestBase
 
         // Assert
         response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
-        (await response.Content.ReadAsStringAsync()).ShouldContain("invalid_grant");
+        using JsonDocument body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        body.RootElement.GetProperty("error").GetString().ShouldBe("invalid_grant");
+        body.RootElement.GetProperty("error_description").GetString().ShouldBe("The authorization code is no longer valid.");
     }
 
     [Fact]

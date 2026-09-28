@@ -613,29 +613,6 @@ public sealed partial class EmailChangePageTests : EndpointsTestBase
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
     }
 
-    /// <summary>
-    /// The base class helper does not ask for <c>offline_access</c>, so it never gets a refresh token.
-    /// </summary>
-    private async Task<string> GetRefreshTokenAsync(string email, string password)
-    {
-        using FormUrlEncodedContent tokenRequest = new(new Dictionary<string, string>
-        {
-            ["grant_type"] = "password",
-            ["username"] = email,
-            ["password"] = password,
-            ["client_id"] = "lotrokoniecdev-test",
-            ["scope"] = "email profile roles api offline_access"
-        });
-
-        HttpResponseMessage tokenResponse = await ApiClient.Http.PostAsync(
-            new Uri("connect/token", UriKind.Relative), tokenRequest);
-        tokenResponse.StatusCode.ShouldBe(HttpStatusCode.OK);
-
-        string content = await tokenResponse.Content.ReadAsStringAsync();
-        using JsonDocument json = JsonDocument.Parse(content);
-        return json.RootElement.GetProperty("refresh_token").GetString()!;
-    }
-
     private static Dictionary<string, string> RevertForm(Guid userId, string from, string to, string token) =>
         new()
         {

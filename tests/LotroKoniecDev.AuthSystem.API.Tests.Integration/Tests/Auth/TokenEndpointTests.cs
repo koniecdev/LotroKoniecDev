@@ -106,6 +106,9 @@ public sealed class TokenEndpointTests : EndpointsTestBase
 
         // Assert
         response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        using JsonDocument body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        body.RootElement.GetProperty("error").GetString().ShouldBe("invalid_grant");
+        body.RootElement.GetProperty("error_description").GetString().ShouldBe("The email/password combination is invalid.");
     }
 
     [Fact]
@@ -126,6 +129,9 @@ public sealed class TokenEndpointTests : EndpointsTestBase
 
         // Assert
         response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        using JsonDocument body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        body.RootElement.GetProperty("error").GetString().ShouldBe("invalid_grant");
+        body.RootElement.GetProperty("error_description").GetString().ShouldBe("The email/password combination is invalid.");
     }
 
     [Fact]
@@ -347,6 +353,103 @@ public sealed class TokenEndpointTests : EndpointsTestBase
 
         // Assert: Revoked refresh token should be rejected
         response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+    }
+
+    [Fact]
+    public async Task RefreshTokenGrant_ShouldRefuseWithTheOAuthErrorBody_WhenTheAccountIsLockedOut()
+    {
+        // Arrange: a lockout revokes nothing, so only the token endpoint's own check refuses the refresh
+        const string password = "TestPass1!";
+        (RegisterRequest request, _) =
+            await UserFactory.RegisterRandomUserWithRequestAsync(ApiClient, Faker, AccountConfirmationEmailSpy, password);
+        string refreshToken = await GetRefreshTokenAsync(request.Email, password);
+
+        await AccountStateFactory.LockOutAsync(Factory.Services, request.Email);
+
+        // Act
+        using HttpResponseMessage response = await RequestRefreshGrantAsync(refreshToken);
+
+        // Assert
+        response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        response.Content.Headers.ContentType?.MediaType.ShouldBe("application/json");
+        using JsonDocument body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        body.RootElement.GetProperty("error").GetString().ShouldBe("invalid_grant");
+        body.RootElement.GetProperty("error_description").GetString().ShouldBe("The refresh token is no longer valid.");
+    }
+
+    [Fact]
+    public async Task RefreshTokenGrant_ShouldRefuseWithTheOAuthErrorBody_WhenTheAccountIsScheduledForDeletion()
+    {
+        // Arrange: only the deletion date is set and no token is revoked, so the token endpoint's own check
+        // has to refuse the refresh
+        const string password = "TestPass1!";
+        (RegisterRequest request, _) =
+            await UserFactory.RegisterRandomUserWithRequestAsync(ApiClient, Faker, AccountConfirmationEmailSpy, password);
+        string refreshToken = await GetRefreshTokenAsync(request.Email, password);
+
+        await AccountStateFactory.ScheduleDeletionAsync(Factory.Services, request.Email);
+
+        // Act
+        using HttpResponseMessage response = await RequestRefreshGrantAsync(refreshToken);
+
+        // Assert
+        response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        using JsonDocument body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        body.RootElement.GetProperty("error").GetString().ShouldBe("invalid_grant");
+        body.RootElement.GetProperty("error_description").GetString().ShouldBe("The refresh token is no longer valid.");
+    }
+
+    [Fact]
+    public async Task RefreshTokenGrant_ShouldRefuseWithTheOAuthErrorBody_WhenTheAccountWasDeleted()
+    {
+        // Arrange: an operator deletes the row by hand, as the runbook's admin fixes do. That revokes
+        // nothing, so the refresh token row is still valid.
+        const string password = "TestPass1!";
+        (RegisterRequest request, _) =
+            await UserFactory.RegisterRandomUserWithRequestAsync(ApiClient, Faker, AccountConfirmationEmailSpy, password);
+        string refreshToken = await GetRefreshTokenAsync(request.Email, password);
+
+        await using (AsyncServiceScope scope = Factory.Services.CreateAsyncScope())
+        {
+            UserManager<ApplicationUser> userManager =
+                scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
+            ApplicationUser? user = await userManager.FindByEmailAsync(request.Email);
+            user.ShouldNotBeNull();
+            (await userManager.DeleteAsync(user)).Succeeded.ShouldBeTrue();
+        }
+
+        // Act
+        using HttpResponseMessage response = await RequestRefreshGrantAsync(refreshToken);
+
+        // Assert
+        response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        using JsonDocument body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        body.RootElement.GetProperty("error").GetString().ShouldBe("invalid_grant");
+        body.RootElement.GetProperty("error_description").GetString().ShouldBe("The refresh token is no longer valid.");
+    }
+
+    [Theory]
+    [InlineData("urn:ietf:params:oauth:grant-type:device_code")]
+    [InlineData("urn:ietf:params:oauth:grant-type:token-exchange")]
+    [InlineData("made_up_grant")]
+    public async Task TokenRequest_ShouldRefuseWithUnsupportedGrantType_WhenTheGrantTypeIsNotEnabled(string grantType)
+    {
+        // Arrange: the handler throws for a grant it has no branch for, so OpenIddict must refuse these
+        // before the handler runs
+        using FormUrlEncodedContent tokenRequest = new(new Dictionary<string, string>
+        {
+            ["grant_type"] = grantType,
+            ["client_id"] = "lotrokoniecdev-test"
+        });
+
+        // Act
+        using HttpResponseMessage response = await ApiClient.Http.PostAsync(
+            new Uri("connect/token", UriKind.Relative), tokenRequest);
+
+        // Assert
+        response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        using JsonDocument body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        body.RootElement.GetProperty("error").GetString().ShouldBe("unsupported_grant_type");
     }
 
     private async Task<JsonDocument> IntrospectTokenAsync(string token)

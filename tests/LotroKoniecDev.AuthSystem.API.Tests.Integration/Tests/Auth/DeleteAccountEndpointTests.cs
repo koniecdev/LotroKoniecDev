@@ -139,10 +139,11 @@ public sealed class DeleteAccountEndpointTests : EndpointsTestBase
         // Act: try to login with the (still correct) credentials
         HttpResponseMessage loginResponse = await RequestTokenAsync(registerRequest.Email, TestPassword);
 
-        // Assert: the dedicated error lets clients show the "scheduled for deletion" state
+        // Assert: the dedicated description lets clients show the "scheduled for deletion" state
         loginResponse.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
-        string body = await loginResponse.Content.ReadAsStringAsync();
-        body.ShouldContain("account_deletion_scheduled");
+        using JsonDocument body = JsonDocument.Parse(await loginResponse.Content.ReadAsStringAsync());
+        body.RootElement.GetProperty("error").GetString().ShouldBe("invalid_grant");
+        body.RootElement.GetProperty("error_description").GetString().ShouldBe("account_deletion_scheduled");
     }
 
     [Fact]
@@ -160,8 +161,10 @@ public sealed class DeleteAccountEndpointTests : EndpointsTestBase
 
         // Assert
         loginResponse.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
-        string body = await loginResponse.Content.ReadAsStringAsync();
-        body.ShouldNotContain("account_deletion_scheduled");
+        using JsonDocument body = JsonDocument.Parse(await loginResponse.Content.ReadAsStringAsync());
+        body.RootElement.GetProperty("error").GetString().ShouldBe("invalid_grant");
+        body.RootElement.GetProperty("error_description").GetString().ShouldBe("The email/password combination is invalid.");
+        body.RootElement.GetRawText().ShouldNotContain("account_deletion_scheduled");
     }
 
     [Fact]

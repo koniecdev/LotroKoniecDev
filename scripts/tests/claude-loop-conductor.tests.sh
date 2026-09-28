@@ -95,7 +95,8 @@ outcome=pr-opened
 case "$rc" in 2) outcome=blocked ;; 3) outcome=error ;; 6) outcome=limit ;; 11) outcome=untrusted ;; 12) outcome=skipped ;; esac
 printf 'issue=%s\noutcome=%s\n' "$ticket" "$outcome" > "$run_dir/ticket-$ticket.meta"
 [ "$rc" -eq 0 ] && echo "pr=$((ticket + 1000))" >> "$run_dir/ticket-$ticket.meta"
-[ -f "$STATE/resumes-$ticket" ] && echo "resumes=$(cat "$STATE/resumes-$ticket")" >> "$run_dir/ticket-$ticket.meta"
+# The real worker writes resumes= for every ticket, 0 when none was needed.
+echo "resumes=$(cat "$STATE/resumes-$ticket" 2>/dev/null || echo 0)" >> "$run_dir/ticket-$ticket.meta"
 exit "$rc"
 FAKE
 

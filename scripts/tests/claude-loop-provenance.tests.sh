@@ -26,7 +26,7 @@ TMP_ROOT="$(mktemp -d)"
 trap 'rm -rf "$TMP_ROOT"' EXIT
 
 # The worker's own defaults are under test, not the caller's environment.
-unset BASH_MAX_TIMEOUT_MS CLAUDE_CODE_DISABLE_BACKGROUND_TASKS LOOP_MAX_RESUMES
+unset BASH_MAX_TIMEOUT_MS BASH_DEFAULT_TIMEOUT_MS CLAUDE_CODE_DISABLE_BACKGROUND_TASKS LOOP_MAX_RESUMES
 
 export GH_FIXTURES="$TMP_ROOT/fixtures"
 CLAUDE_MARKER="$TMP_ROOT/claude-was-spawned"
@@ -158,7 +158,8 @@ touch "$CLAUDE_MARKER"
 run=\$(( \$(cat "$TMP_ROOT/claude-runs" 2>/dev/null || echo 0) + 1 ))
 echo "\$run" > "$TMP_ROOT/claude-runs"
 printf '%s\n' "\$@" > "$TMP_ROOT/claude-args-\$run"
-echo "\${CLAUDE_CODE_DISABLE_BACKGROUND_TASKS:-unset} \${BASH_MAX_TIMEOUT_MS:-unset}" > "$TMP_ROOT/claude-env-\$run"
+echo "\${CLAUDE_CODE_DISABLE_BACKGROUND_TASKS:-unset} \${BASH_MAX_TIMEOUT_MS:-unset} \${BASH_DEFAULT_TIMEOUT_MS:-unset}" \
+    > "$TMP_ROOT/claude-env-\$run"
 pwd -P > "$TMP_ROOT/claude-cwd-\$run"
 # The lifecycle cases script what the session does in its worktree.
 if [ -n "\${CLAUDE_BEHAVIOR:-}" ]; then exec "\$CLAUDE_BEHAVIOR" "\$@"; fi
@@ -290,6 +291,16 @@ run_case() {
 expect_in_output() {
     printf '%s' "$LAST_OUTPUT" | grep -qF "$1" \
         || fail "output should contain '$1'" "$LAST_OUTPUT"
+}
+
+# expect_meta <ticket> <key=value>... — the last line of a key wins, as in the conductor's table.
+expect_meta() {
+    local meta="$TMP_ROOT/run/ticket-$1.meta" pair
+    shift
+    for pair in "$@"; do
+        [ "$(sed -n "s/^${pair%%=*}=//p" "$meta" | tail -1)" = "${pair#*=}" ] \
+            || fail "meta should end with $pair" "$(cat "$meta")"
+    done
 }
 
 expect_stdout() {
@@ -571,7 +582,7 @@ echo "work in progress" > "$FAKE_REPO/dirty.txt"
 behavior "$TMP_ROOT/done.sh" 'ticket="${PWD##*ticket-}"
 git checkout -q -b "$ticket-fixture"
 git commit -q --allow-empty -m "fixture work"
-echo "{\"result\":\"STATUS: DONE\\nPR: https://github.com/koniecdev/LotroKoniecDev/pull/7$ticket\\nSUMMARY: the rate limiter now sends 429 with Retry-After; quota and usage limits unchanged\",\"is_error\":false}"'
+echo "{\"result\":\"STATUS: DONE\\nPR: https://github.com/koniecdev/LotroKoniecDev/pull/7$ticket\\nSUMMARY: the rate limiter now sends 429 with Retry-After; quota and usage limits unchanged\",\"is_error\":false,\"session_id\":\"s-done\"}"'
 
 reset_fixtures
 fixture_issue 70 maintainer OWNER
@@ -588,6 +599,8 @@ expect_in_output "PR #770 opened"
     || fail "the worktree should start at origin/main, not at the local main"
 grep -qx "outcome=pr-opened" "$TMP_ROOT/run/ticket-70.meta" || fail "meta should say pr-opened" "$(cat "$TMP_ROOT/run/ticket-70.meta")"
 grep -qx "pr=770" "$TMP_ROOT/run/ticket-70.meta" || fail "meta should carry the PR" "$(cat "$TMP_ROOT/run/ticket-70.meta")"
+[ "$(cat "$TMP_ROOT/claude-runs")" = "1" ] || fail "a DONE session must not be resumed" "$LAST_OUTPUT"
+expect_meta 70 resumes=0
 [ ! -e "$WT_ROOT/ticket-70" ] || fail "a clean worktree should be removed"
 git -C "$FAKE_REPO" rev-parse -q --verify 70-fixture >/dev/null || fail "the ticket branch must stay"
 grep -qx "docker image rm lotrokoniecdev-auth:fe-e2e-ticket-70-hash" "$TMP_ROOT/docker-calls" \
@@ -602,8 +615,9 @@ reset_fixtures
 fixture_issue 71 maintainer OWNER
 behavior "$TMP_ROOT/blocked.sh" 'git checkout -q -b 71-fixture
 echo "half done" > leftover.txt
-echo "{\"result\":\"STATUS: BLOCKED\\nCATEGORY: business-questions\",\"is_error\":false}"'
+echo "{\"result\":\"STATUS: BLOCKED\\nCATEGORY: business-questions\",\"is_error\":false,\"session_id\":\"s-71\"}"'
 run_case 2 "work-ticket: BLOCKED exits 2" env CLAUDE_BEHAVIOR="$TMP_ROOT/blocked.sh" "$WORK" 71 "$TMP_ROOT/run"
+[ "$(cat "$TMP_ROOT/claude-runs")" = "1" ] || fail "a BLOCKED session asks questions and must not be resumed" "$LAST_OUTPUT"
 salvage_branch="$(git -C "$FAKE_REPO" for-each-ref --format='%(refname:short)' 'refs/heads/loop-salvage/71-*')"
 [ -n "$salvage_branch" ] || fail "leftovers should be committed on a loop-salvage branch" "$LAST_OUTPUT"
 git -C "$FAKE_REPO" show "$salvage_branch:leftover.txt" >/dev/null 2>&1 || fail "the salvage branch should hold the leftover file"
@@ -650,7 +664,7 @@ run_case 3 "work-ticket: a final message without a STATUS block is an error, eve
     env CLAUDE_BEHAVIOR="$TMP_ROOT/garbage.sh" "$WORK" 74 "$TMP_ROOT/run"
 [ ! -e "$WT_ROOT/ticket-74" ] || fail "the worktree should be removed after an error too"
 [ "$(cat "$TMP_ROOT/claude-runs")" = "1" ] || fail "a result with no session id cannot be resumed"
-grep -qx "resumes=0" "$TMP_ROOT/run/ticket-74.meta" || fail "meta should say resumes=0" "$(cat "$TMP_ROOT/run/ticket-74.meta")"
+expect_meta 74 resumes=0
 
 reset_fixtures
 fixture_issue 75 maintainer OWNER
@@ -667,6 +681,7 @@ behavior "$TMP_ROOT/waits.sh" 'case " $* " in
 *" --resume "*)
     echo "{\"result\":\"STATUS: DONE\\nPR: https://github.com/koniecdev/LotroKoniecDev/pull/788\\nSUMMARY: suite green\",\"is_error\":false,\"session_id\":\"s-88\",\"num_turns\":3,\"total_cost_usd\":12.5}" ;;
 *)
+    echo "first-run stderr" >&2
     git checkout -q -b 88-fixture
     git commit -q --allow-empty -m "reviewed work"
     echo "{\"result\":\"The suite is still running; the task notification will wake me.\",\"is_error\":false,\"session_id\":\"s-88\",\"num_turns\":35,\"total_cost_usd\":11.05}" ;;
@@ -680,9 +695,8 @@ run_case 0 "work-ticket: a session that stopped to wait is resumed and opens its
 expect_in_output "resuming it (1 of 2)"
 expect_in_output "PR #788 opened"
 [ "$(cat "$TMP_ROOT/claude-runs")" = "2" ] || fail "expected the first run and one resume" "$LAST_OUTPUT"
-for line in outcome=pr-opened pr=788 resumes=1 turns=38 cost=12.5; do
-    grep -qx "$line" "$TMP_ROOT/run/ticket-88.meta" || fail "meta should carry $line" "$(cat "$TMP_ROOT/run/ticket-88.meta")"
-done
+expect_meta 88 outcome=pr-opened pr=788 resumes=1 turns=38 cost=12.5
+grep -q "first-run stderr" "$TMP_ROOT/run/ticket-88.stderr" || fail "the resume must not wipe the first run's stderr"
 [ "$(sed -n 2p "$TMP_ROOT/claude-args-1")" = "/work-ticket 88" ] || fail "the first run should get /work-ticket 88"
 sed -n 2p "$TMP_ROOT/claude-args-2" | grep -q "end with the STATUS: DONE or STATUS: BLOCKED block" \
     || fail "the resume should ask for the STATUS block" "$(sed -n 2p "$TMP_ROOT/claude-args-2")"
@@ -693,8 +707,8 @@ sed -n 2p "$TMP_ROOT/claude-args-2" | grep -q "end with the STATUS: DONE or STAT
 [ "$(cat "$TMP_ROOT/claude-cwd-1")" = "$(cd "$FAKE_REPO" && pwd -P)/.claude/worktrees/ticket-88" ] \
     && [ "$(cat "$TMP_ROOT/claude-cwd-2")" = "$(cat "$TMP_ROOT/claude-cwd-1")" ] \
     || fail "both runs should work in .claude/worktrees/ticket-88" "$(cat "$TMP_ROOT"/claude-cwd-*)"
-[ "$(cat "$TMP_ROOT/claude-env-1")" = "1 3600000" ] && [ "$(cat "$TMP_ROOT/claude-env-2")" = "1 3600000" ] \
-    || fail "every run should get background tasks off and a one-hour Bash timeout" "$(cat "$TMP_ROOT"/claude-env-*)"
+[ "$(cat "$TMP_ROOT/claude-env-1")" = "1 3600000 600000" ] && [ "$(cat "$TMP_ROOT/claude-env-2")" = "1 3600000 600000" ] \
+    || fail "every run should get background tasks off and the raised Bash timeouts" "$(cat "$TMP_ROOT"/claude-env-*)"
 grep -q "still running" "$TMP_ROOT/run/ticket-88.json.before-resume-1" || fail "the first run's result should be kept"
 [ "$(find "$TMP_ROOT/run" -name 'ticket-88*.json' | wc -l | tr -d ' ')" = "1" ] \
     || fail "the conductor adds up ticket-*.json, and a resumed run already reports the whole session's cost"
@@ -707,16 +721,14 @@ run_case 3 "work-ticket: a session that never prints a STATUS line is an error a
     env CLAUDE_BEHAVIOR="$TMP_ROOT/never-status.sh" "$WORK" 89 "$TMP_ROOT/run"
 expect_in_output "after 2 resume(s)"
 [ "$(cat "$TMP_ROOT/claude-runs")" = "3" ] || fail "expected the first run and two resumes" "$LAST_OUTPUT"
-for line in outcome=error resumes=2 turns=6; do
-    grep -qx "$line" "$TMP_ROOT/run/ticket-89.meta" || fail "meta should carry $line" "$(cat "$TMP_ROOT/run/ticket-89.meta")"
-done
+expect_meta 89 outcome=error resumes=2 turns=6
 
 reset_fixtures
 fixture_issue 92 maintainer OWNER
 run_case 3 "work-ticket: LOOP_MAX_RESUMES=0 turns the resume off" \
     env LOOP_MAX_RESUMES=0 CLAUDE_BEHAVIOR="$TMP_ROOT/never-status.sh" "$WORK" 92 "$TMP_ROOT/run"
 [ "$(cat "$TMP_ROOT/claude-runs")" = "1" ] || fail "no resume was allowed" "$LAST_OUTPUT"
-grep -qx "resumes=0" "$TMP_ROOT/run/ticket-92.meta" || fail "meta should say resumes=0"
+expect_meta 92 resumes=0
 
 reset_fixtures
 fixture_issue 93 maintainer OWNER
@@ -732,9 +744,7 @@ behavior "$TMP_ROOT/limit-on-resume.sh" 'case " $* " in
 esac'
 run_case 6 "work-ticket: a usage limit during a resume is still a usage limit" \
     env CLAUDE_BEHAVIOR="$TMP_ROOT/limit-on-resume.sh" "$WORK" 90 "$TMP_ROOT/run"
-for line in outcome=limit resumes=1; do
-    grep -qx "$line" "$TMP_ROOT/run/ticket-90.meta" || fail "meta should carry $line" "$(cat "$TMP_ROOT/run/ticket-90.meta")"
-done
+expect_meta 90 outcome=limit resumes=1
 
 # The loop trusts api_error_status 429 even without is_error, so such a stop is never resumed.
 reset_fixtures
@@ -750,7 +760,67 @@ behavior "$TMP_ROOT/crash.sh" 'echo "{\"result\":\"API Error: 500\",\"is_error\"
 run_case 3 "work-ticket: a session that failed is not resumed" \
     env CLAUDE_BEHAVIOR="$TMP_ROOT/crash.sh" "$WORK" 91 "$TMP_ROOT/run"
 [ "$(cat "$TMP_ROOT/claude-runs")" = "1" ] || fail "a failed session must not be resumed" "$LAST_OUTPUT"
-grep -qx "resumes=0" "$TMP_ROOT/run/ticket-91.meta" || fail "meta should say resumes=0"
+expect_meta 91 resumes=0
+
+# F11 of the #925 review: a session that exits non-zero crashed, whatever its JSON says.
+reset_fixtures
+fixture_issue 97 maintainer OWNER
+behavior "$TMP_ROOT/exit-1.sh" 'echo "{\"result\":\"still running\",\"is_error\":false,\"session_id\":\"s-97\"}"
+exit 1'
+run_case 3 "work-ticket: a session that exits non-zero is not resumed" \
+    env CLAUDE_BEHAVIOR="$TMP_ROOT/exit-1.sh" "$WORK" 97 "$TMP_ROOT/run"
+[ "$(cat "$TMP_ROOT/claude-runs")" = "1" ] || fail "a crashed session must not be resumed" "$LAST_OUTPUT"
+
+# The wall clock. A fake `date` adds $TMP_ROOT/clock-skew seconds to `date +%s`, so a case can
+# jump the clock forward without waiting.
+cat > "$TMP_ROOT/bin/date" <<STUB
+#!/usr/bin/env bash
+if [ "\${1:-}" = "+%s" ]; then
+    echo \$(( \$(/bin/date +%s) + \$(cat "$TMP_ROOT/clock-skew" 2>/dev/null || echo 0) ))
+else
+    exec /bin/date "\$@"
+fi
+STUB
+chmod +x "$TMP_ROOT/bin/date"
+
+# The skew is set only after the child has started, so the stop finds it.
+reset_fixtures
+rm -f "$TMP_ROOT/session-child" "$TMP_ROOT/clock-skew"
+fixture_issue 95 maintainer OWNER
+behavior "$TMP_ROOT/long-skew.sh" 'git checkout -q -b 95-fixture
+echo "partial" > partial.txt
+set -m
+"$REAL_SLEEP" 60 &
+echo $! > "'"$TMP_ROOT"'/session-child"
+set +m
+echo 6000 > "'"$TMP_ROOT"'/clock-skew"
+wait'
+run_case 4 "work-ticket: the wall clock ends a session" \
+    env CLAUDE_BEHAVIOR="$TMP_ROOT/long-skew.sh" "$WORK" 95 "$TMP_ROOT/run"
+expect_meta 95 outcome=timeout resumes=0
+[ -n "$(git -C "$FAKE_REPO" for-each-ref 'refs/heads/loop-salvage/95-*')" ] || fail "a timed-out session's work should be salvaged" "$LAST_OUTPUT"
+[ ! -e "$WT_ROOT/ticket-95" ] || fail "a timed-out run should not leave its worktree behind"
+session_child="$(cat "$TMP_ROOT/session-child")"
+for _ in $(seq 1 50); do alive "$session_child" || break; "$REAL_SLEEP" 0.1; done
+if alive "$session_child"; then
+    kill -KILL "$session_child"
+    fail "a process the timed-out session started outlived it"
+fi
+
+# One clock for the whole ticket: the first run uses 40 of 60 seconds, and the resume reaches 80.
+# A resume with a clock of its own would count only 40 and run on.
+reset_fixtures
+rm -f "$TMP_ROOT/clock-skew"
+fixture_issue 96 maintainer OWNER
+behavior "$TMP_ROOT/waits-long.sh" 'case " $* " in
+*" --resume "*) echo 80 > "'"$TMP_ROOT"'/clock-skew"; "$REAL_SLEEP" 15; echo "{\"result\":\"STATUS: DONE\",\"is_error\":false,\"session_id\":\"s-96\"}" ;;
+*) echo 40 > "'"$TMP_ROOT"'/clock-skew"; echo "{\"result\":\"still running\",\"is_error\":false,\"session_id\":\"s-96\"}" ;;
+esac'
+run_case 4 "work-ticket: a resume gets only what is left of the ticket's clock" \
+    env LOOP_TICKET_TIMEOUT_MIN=1 CLAUDE_BEHAVIOR="$TMP_ROOT/waits-long.sh" "$WORK" 96 "$TMP_ROOT/run"
+[ "$(cat "$TMP_ROOT/claude-runs")" = "2" ] || fail "expected a resume that then timed out" "$LAST_OUTPUT"
+expect_meta 96 outcome=timeout resumes=1
+rm -f "$TMP_ROOT/clock-skew" "$TMP_ROOT/bin/date"
 
 # Only a real open PR for this ticket counts as DONE.
 reset_fixtures

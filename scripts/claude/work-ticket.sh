@@ -34,6 +34,8 @@
 #                           resumed before the ticket counts as an error (default: 2)
 #   BASH_MAX_TIMEOUT_MS     the longest Bash timeout the session may ask for (default here:
 #                           3600000, one hour), so the whole test suite fits in one foreground call
+#   BASH_DEFAULT_TIMEOUT_MS the timeout of a Bash call that names none (default here: 600000,
+#                           ten minutes), because a call that runs out is stopped, not moved
 #   LOOP_KEEP_WORKTREE=1    keep the worktree after the run (default: remove it when it is clean;
 #                           the branch always stays)
 #   LOOP_TRUSTED_ASSOCIATIONS / LOOP_TRUSTED_LOGINS / LOOP_TRUST_GATE — see issue-trust.sh
@@ -314,9 +316,11 @@ fi
 # wake the session after that. Two workers lost finished tickets this way: they started the test
 # suite in the background and ended their turn to wait for it (#925). With this switch the Bash
 # tool has no `run_in_background`, and a command that reaches its timeout is stopped instead of
-# moved to the background. So the timeout ceiling is raised to fit the whole suite.
+# moved to the background. So the timeout ceiling is raised to fit the whole suite, and a call
+# that names no timeout (a cold build, a CodeQL wait) gets ten minutes instead of two.
 export CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1
 export BASH_MAX_TIMEOUT_MS="${BASH_MAX_TIMEOUT_MS:-3600000}"
+export BASH_DEFAULT_TIMEOUT_MS="${BASH_DEFAULT_TIMEOUT_MS:-600000}"
 
 NUDGE="Your last message has no STATUS line, so the loop cannot tell how ticket #$ISSUE ended. \
 This is a headless run: when you end your turn, the process exits and nothing wakes you again. \
@@ -377,7 +381,10 @@ run_session() {
 
 log "fresh headless session starting in $WT (model=$MODEL, effort=$EFFORT, timeout=${TIMEOUT_MIN}m)"
 start_epoch="$(date +%s)"
+# A usage-limit retry runs the ticket again in the same run folder: start from clean logs.
 : > "$ERR"
+rm -f "$OUT".before-resume-*
+meta resumes 0
 run_session "/work-ticket $ISSUE"
 
 # ── A session that stopped without a verdict is resumed ────────────────────────────────────────
@@ -400,6 +407,7 @@ while :; do
     session_id="$(jq -r '.session_id // ""' "$OUT" 2>/dev/null || true)"
     [ -n "$session_id" ] || break
     resumes=$((resumes + 1))
+    meta resumes "$resumes"
     mv "$OUT" "$OUT.before-resume-$resumes"
     log "the session stopped without a STATUS line — resuming it ($resumes of $MAX_RESUMES)"
     run_session "$NUDGE" --resume "$session_id"
@@ -413,7 +421,6 @@ cost="$(jq -r '.total_cost_usd // 0' "$OUT" 2>/dev/null || echo 0)"
 meta cost "$cost"
 meta turns "$turns"
 meta minutes "$elapsed_min"
-meta resumes "$resumes"
 
 # ── Usage-limit / hard-error detection ─────────────────────────────────────────────────────────
 # The CLI reports plan/rate limits as api_error_status 429 in the result JSON regardless of the

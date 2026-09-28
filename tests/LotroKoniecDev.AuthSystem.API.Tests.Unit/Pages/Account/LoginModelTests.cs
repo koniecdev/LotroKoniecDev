@@ -1,6 +1,7 @@
 using LotroKoniecDev.AuthSystem.API.Pages.Account;
 using LotroKoniecDev.AuthSystem.API.Services.Accounts;
 using LotroKoniecDev.AuthSystem.API.Services.Gdpr;
+using LotroKoniecDev.AuthSystem.API.Services.RateLimiting;
 using LotroKoniecDev.AuthSystem.API.Services.ResponseTiming;
 using LotroKoniecDev.AuthSystem.API.Settings;
 using LotroKoniecDev.AuthSystem.Domain.Aggregates.ApplicationUsers.Entities;
@@ -21,13 +22,15 @@ namespace LotroKoniecDev.AuthSystem.API.Tests.Unit.Pages.Account;
 /// after sign-in, so the value has to be checked on the way in and a raw query value must never reach
 /// the property. This pins the same wiring the register page already had.
 /// </summary>
-public sealed class LoginModelTests
+public sealed class LoginModelTests : IDisposable
 {
     private const string Password = "Correct-Horse-1!";
+    private const string GeneralMessage = "Nieprawidłowy e-mail lub hasło.";
 
     private static readonly TimeSpan CompletionTimeout = TimeSpan.FromSeconds(5);
 
     private readonly FakeTimeProvider _clock = new();
+    private readonly PerAccountFixedWindowThrottle _deletionScheduledLoginThrottle = new(1, TimeSpan.FromMinutes(15));
     private readonly IUserStore<ApplicationUser> _store = Substitute.For<
         IUserEmailStore<ApplicationUser>,
         IUserPasswordStore<ApplicationUser>,
@@ -87,7 +90,7 @@ public sealed class LoginModelTests
 
         // Assert
         answeredBeforeTheFloor.ShouldBeFalse();
-        sut.ErrorMessage.ShouldBe("Nieprawidłowy e-mail lub hasło.");
+        sut.ErrorMessage.ShouldBe(GeneralMessage);
     }
 
     /// <summary>
@@ -119,6 +122,48 @@ public sealed class LoginModelTests
         // Assert
         answeredAtOnce.ShouldBeTrue();
         sut.ResendConfirmationEmail.ShouldBe(user.Email);
+    }
+
+    /// <summary>
+    /// #881: the lockout never slows guessing on an account with a scheduled deletion, so its own budget
+    /// does. Once the budget is spent even the right password gets the general message after the floor, so
+    /// the answer says nothing about the password.
+    /// </summary>
+    [Fact]
+    public async Task OnPostAsync_ShouldShowTheGeneralMessageAfterTheFloor_WhenTheDeletionScheduledLoginBudgetIsSpent()
+    {
+        // Arrange
+        ApplicationUser user = ArrangeDeletionScheduledAccount();
+        _ = _deletionScheduledLoginThrottle.TryAcquire(user.Id);
+        LoginModel sut = CreatePostingSut(user.Email!, Password);
+
+        // Act
+        Task<IActionResult> posting = sut.OnPostAsync();
+        bool answeredBeforeTheFloor = posting.IsCompleted;
+        _clock.Advance(ResponseTimeFloors.AccountLookup);
+        await posting.WaitAsync(CompletionTimeout);
+
+        // Assert
+        answeredBeforeTheFloor.ShouldBeFalse();
+        sut.ErrorMessage.ShouldBe(GeneralMessage);
+    }
+
+    [Fact]
+    public async Task OnPostAsync_ShouldNameTheScheduledDeletion_WhileTheDeletionScheduledLoginBudgetLasts()
+    {
+        // Arrange
+        ApplicationUser user = ArrangeDeletionScheduledAccount();
+        LoginModel sut = CreatePostingSut(user.Email!, Password);
+
+        // Act
+        Task<IActionResult> posting = sut.OnPostAsync();
+        bool answeredAtOnce = posting.IsCompletedSuccessfully;
+        await posting.WaitAsync(CompletionTimeout);
+
+        // Assert
+        answeredAtOnce.ShouldBeTrue();
+        sut.ErrorMessage.ShouldNotBeNull();
+        sut.ErrorMessage.ShouldStartWith("Twoje konto jest zaplanowane do usunięcia");
     }
 
     /// <summary>
@@ -165,6 +210,29 @@ public sealed class LoginModelTests
         sut.FrontendLoginUrl.ShouldBeNull();
     }
 
+    public void Dispose()
+    {
+        _deletionScheduledLoginThrottle.Dispose();
+    }
+
+    private ApplicationUser ArrangeDeletionScheduledAccount()
+    {
+        ApplicationUser user = new()
+        {
+            Id = Guid.NewGuid(),
+            Email = "frodo@shire.me",
+            PasswordHash = new PasswordHasher<ApplicationUser>().HashPassword(new ApplicationUser(), Password),
+            DeletionScheduledAt = DateTimeOffset.UtcNow
+        };
+        ((IUserEmailStore<ApplicationUser>)_store)
+            .FindByEmailAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(user);
+        ((IUserPasswordStore<ApplicationUser>)_store)
+            .GetPasswordHashAsync(user, Arg.Any<CancellationToken>())
+            .Returns(user.PasswordHash);
+        return user;
+    }
+
     private LoginModel CreateSut(params string[] postLogoutRedirectUris) =>
         new(
             CreateUserManager(_store),
@@ -177,6 +245,7 @@ public sealed class LoginModelTests
                 new EmailChangeRevertWindow(
                     Microsoft.Extensions.Options.Options.Create(new EmailChangeRevertTokenProviderOptions())),
                 Microsoft.Extensions.Options.Options.Create(new GdprSettings())),
+            _deletionScheduledLoginThrottle,
             new ResponseTimeFloor(_clock),
             NullLogger<LoginModel>.Instance);
 

@@ -153,7 +153,7 @@ public sealed partial class LoginPageTests : EndpointsTestBase
     /// The failures above all show the same text, so the time they take is the only thing left that
     /// could tell them apart. Each one must verify exactly one password hash: the dummy one where there
     /// is no real hash to check. The no-password row is the seeded admin before its first reset
-    /// (ADR-0056). The two deletion rows take the branch that runs before the lockout check, because a
+    /// (ADR-0056). The deletion rows take the branch that runs before the lockout check, because a
     /// scheduled deletion also locks the account.
     /// </summary>
     [Theory]
@@ -177,6 +177,34 @@ public sealed partial class LoginPageTests : EndpointsTestBase
         // Assert
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
         passwordHasher.VerifyCount.ShouldBe(1);
+    }
+
+    /// <summary>
+    /// A refused attempt against a scheduled deletion must cost what a wrong password costs, and must not
+    /// touch the account's real hash: checking it would do the very work the budget refuses (#881).
+    /// </summary>
+    [Fact]
+    public async Task LoginPage_ShouldVerifyOnlyTheDummyHash_WhenTheDeletionScheduledLoginBudgetIsSpent()
+    {
+        // Arrange
+        (RegisterRequest user, _) =
+            await UserFactory.RegisterRandomUserWithRequestAsync(ApiClient, Faker, AccountConfirmationEmailSpy);
+        await AccountStateFactory.ScheduleDeletionAsync(Factory.Services, user.Email);
+        await AccountStateFactory.SpendDeletionScheduledLoginBudgetAsync(Factory.Services, user.Email);
+        SpyPasswordHasher passwordHasher = Factory.Services.GetRequiredService<SpyPasswordHasher>();
+        passwordHasher.Reset();
+
+        // Act: the right password
+        HttpResponseMessage response = await PostToLoginPageAsync(new Dictionary<string, string>
+        {
+            ["Email"] = user.Email,
+            ["Password"] = user.Password
+        });
+
+        // Assert
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        passwordHasher.VerifyCount.ShouldBe(1);
+        passwordHasher.DummyVerifyCount.ShouldBe(1);
     }
 
     /// <summary>

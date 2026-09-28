@@ -21,7 +21,7 @@ namespace LotroKoniecDev.AuthSystem.API.Services.RateLimiting;
 /// budgets and a restart empties it. That is the existing trade-off, not a new one.
 /// </remarks>
 internal sealed class PerAccountFixedWindowThrottle
-    : IPasswordConfirmationThrottle, IAccountDeletionScheduleThrottle, IDisposable
+    : IPasswordConfirmationThrottle, IAccountDeletionScheduleThrottle, IDeletionScheduledLoginThrottle, IDisposable
 {
     private readonly PartitionedRateLimiter<Guid> _limiter;
 

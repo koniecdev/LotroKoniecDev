@@ -13,8 +13,15 @@ public sealed class SpyPasswordHasher : IPasswordHasher<ApplicationUser>
 {
     private readonly PasswordHasher<ApplicationUser> _inner = new();
     private int _verifyCount;
+    private int _dummyVerifyCount;
 
     public int VerifyCount => Volatile.Read(ref _verifyCount);
+
+    /// <summary>
+    /// The verifications made for a user with no id. The login page checks its dummy hash that way, so this
+    /// tells the dummy hash apart from a real account's hash.
+    /// </summary>
+    public int DummyVerifyCount => Volatile.Read(ref _dummyVerifyCount);
 
     public string HashPassword(ApplicationUser user, string password) =>
         _inner.HashPassword(user, password);
@@ -25,11 +32,17 @@ public sealed class SpyPasswordHasher : IPasswordHasher<ApplicationUser>
         string providedPassword)
     {
         Interlocked.Increment(ref _verifyCount);
+        if (user.Id == Guid.Empty)
+        {
+            Interlocked.Increment(ref _dummyVerifyCount);
+        }
+
         return _inner.VerifyHashedPassword(user, hashedPassword, providedPassword);
     }
 
     public void Reset()
     {
         Interlocked.Exchange(ref _verifyCount, 0);
+        Interlocked.Exchange(ref _dummyVerifyCount, 0);
     }
 }

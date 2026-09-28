@@ -170,6 +170,7 @@ internal static class EventIds
     public const int LoginSuccessful = 2623;
     public const int LoginEmailNotConfirmed = 2624;
     public const int LoginDeletionScheduled = 2625;
+    public const int LoginDeletionScheduledThrottled = 2626;
     public const int PasswordResetCompletedViaUi = 2630;
     public const int RegisterCompletedViaUi = 2640;
     public const int DeletionCancelledViaUi = 2650;

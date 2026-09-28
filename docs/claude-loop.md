@@ -46,7 +46,7 @@ produces PRs, and the one merge path is `/merge-train` over PRs the owner approv
 | `scripts/claude/backlog-loop.sh` | the conductor — up to `-j` tickets at once, lock, stop conditions, roll-up table of PRs |
 | `scripts/claude/next-ticket.sh` | deterministic picker: priority labels + `Depends on #X` gate + skip rules + "no open PR yet" |
 | `scripts/claude/issue-trust.sh` | the provenance gate: refuses an issue written by anyone without write access (ADR-0026) |
-| `scripts/claude/work-ticket.sh` | one ticket: provenance gate → skip if already in flight → worktree from `origin/main` → fresh headless session → judge `STATUS:` → confirm the PR exists → remove the clean worktree |
+| `scripts/claude/work-ticket.sh` | one ticket: provenance gate → skip if already in flight → worktree from `origin/main` → fresh headless session → judge `STATUS:` (no line: resume the same session, at most `LOOP_MAX_RESUMES` times) → confirm the PR exists → remove the clean worktree |
 | `.claude/commands/work-ticket.md` | the per-ticket discipline prompt (the old `ticket-worker` agent, promoted to a slash command) |
 | `.claude/commands/backlog.md` | `/backlog` in an interactive session = launch the script in background + report the roll-up |
 | `~/.claude-account1/skills/merge-train/` | the maintainer's merge path — merges PRs the owner approved by assigning themselves (lives outside this repo) |
@@ -145,7 +145,9 @@ one ticket with `LOOP_TRUST_GATE=0`, or add the commenter to `LOOP_TRUSTED_LOGIN
 | `LOOP_MAX_BUDGET_USD` | (none) | optional per-ticket API budget cap |
 | `LOOP_PARALLEL` | `3` | tickets at once (same as `-j`) |
 | `LOOP_ALLOW_LOCAL_SCRIPTS` | `0` | `1` = run even when `scripts/claude/` here differs from `origin/main` (only when you are changing the loop itself) |
-| `LOOP_TICKET_TIMEOUT_MIN` | `90` | wall-clock kill switch per ticket; leftovers are committed on a `loop-salvage/…` branch |
+| `LOOP_TICKET_TIMEOUT_MIN` | `90` | wall-clock kill switch per ticket, resumes included; leftovers are committed on a `loop-salvage/…` branch |
+| `LOOP_MAX_RESUMES` | `2` | how many times a session that ended normally without a `STATUS:` line is resumed before the ticket counts as `error`; `0` turns the resume off |
+| `BASH_MAX_TIMEOUT_MS` | `3600000` | the longest Bash timeout the worker may ask for (one hour), so the whole test suite fits in one foreground call — see "A session that stops without a verdict" |
 | `LOOP_KEEP_WORKTREE` | `0` | `1` = keep `.claude/worktrees/ticket-<n>` after the run (by default a clean worktree is removed; the branch always stays) |
 | `LOOP_GH_USER` | `koniecdev` | gh account whose token backs the loop's gh write calls (labels, issue comments); an existing `GH_TOKEN` in the environment wins |
 | `LOOP_SKIP_LABELS` | `loop-blocked,epic,qa,post-mvp,audit` | picker label exclusions |
@@ -186,6 +188,8 @@ Per-ticket outcomes:
 - **failed / timeout** — session error or kill switch; leftovers are committed on a dedicated
   `loop-salvage/<n>-<timestamp>` branch (never stash — ordinary named git history). Two
   consecutive failures stop new starts (something systemic); the running tickets finish first.
+  A session that ended without a `STATUS:` line is resumed first, and fails only after the cap
+  (next section).
 - **no-worktree** — `git fetch` or `git worktree add` failed. That is the machine, not the ticket,
   so the loop starts nothing more.
 - **stopped** — you stopped the loop (Ctrl-C, `kill`, closing the terminal). Each running session
@@ -196,6 +200,36 @@ Per-ticket outcomes:
   (`LOOP_LIMIT_SLEEP_MIN`) and runs the limited tickets again.
 - **untrusted** — the ticket failed the provenance gate; it is skipped without spawning a session
   and without counting toward the failure circuit breaker (drain mode never selects one anyway).
+
+### A session that stops without a verdict (#925)
+
+On the night run of 2026-09-28, two of eight workers lost finished, reviewed tickets. Each one
+started the whole test suite in the background and ended its turn to wait for it. A headless run
+has no "later": `claude -p` ends a background shell about five seconds after its final message,
+and nothing can wake the session again. Nothing was pushed, and the final message had no
+`STATUS:` line, so the loop called it an error. Two things now stop that:
+
+- **No background work in a worker.** `work-ticket.sh` exports
+  `CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1`. Checked in a real `claude -p` run: the Bash tool then
+  has no `run_in_background` (a call with it fails validation), and a command that reaches its
+  timeout is stopped instead of moved to the background. Without the switch it is moved, so even
+  a foreground suite longer than the default ten-minute ceiling would end the same way. Per the
+  CLI docs, subagents also run in the foreground with this switch. Because a long command is now
+  stopped at its timeout, the script sets `BASH_MAX_TIMEOUT_MS` to one hour (unless you set it),
+  and the worker prompt asks for a timeout that long for the suite.
+- **Resume instead of giving up.** If a session ends normally (no crash, no usage limit, no 429)
+  and its final message has no `STATUS:` line, the script resumes the same session:
+  `claude -p --resume <session_id>` with a short prompt. The prompt says that nothing runs in the
+  background, asks the worker to run what it was waiting for in the foreground, finish the open
+  steps and end with the STATUS block. The resume passes the same model, effort, permission and
+  budget flags as the first run, works in the same worktree, and uses what is left of the
+  ticket's wall clock. After `LOOP_MAX_RESUMES` resumes (default 2) the ticket is an `error` as
+  before. A usage limit during a resume is still a usage limit (exit 6). `.meta` records the count
+  as `resumes=`, and the end-of-run table marks such a ticket with `resumed Nx`.
+
+Each earlier result stays next to the final one as `ticket-<n>.json.before-resume-<k>`. The name
+is chosen so that the conductor's cost total does not count it: a resumed run already reports the
+cost of the whole session.
 
 ## Safety model
 
@@ -237,9 +271,13 @@ Per-ticket outcomes:
 
 - **"another loop is running (pid N)"** — a live conductor owns the lock; `ps -p N` to see it. A
   *stale* lock (owner dead) is reclaimed automatically, so this message means a real second loop.
-- **Ticket ended `error` with no STATUS block** — read `logs/claude-loop/<run>/ticket-<n>.json`
-  (`.result` field) and `.stderr`; usually a permission denial (extend `LOOP_ALLOWED_TOOLS`) or a
-  mid-run crash.
+- **Ticket ended `error` with no STATUS block** — the session was already resumed
+  `LOOP_MAX_RESUMES` times, or it could not be resumed (no `session_id` in the result). Read
+  `logs/claude-loop/<run>/ticket-<n>.json` (`.result` field), the earlier results in
+  `ticket-<n>.json.before-resume-*`, and `.stderr`; usually a permission denial (extend
+  `LOOP_ALLOWED_TOOLS`) or a mid-run crash. The session id in the JSON still resumes by hand:
+  bring the worktree back (`git worktree add .claude/worktrees/ticket-<n> <branch>`), then run
+  `claude -p --resume <session_id> "…"` inside it.
 - **"scripts/claude/ … differs from origin/main — refusing"** — the loop scripts run from the
   checkout you start them in, and that checkout is on an old branch or has local edits. Old loop
   code may still merge PRs (it did before ADR-0060). Start the loop from a checkout that is up to

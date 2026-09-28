@@ -22,7 +22,7 @@ If you are here to contribute, the things that *are* meant for you are:
 |---|---|
 | `backlog-loop.sh` | The conductor. Runs the given (or ready) tickets, up to three at once, each in its own fresh headless process, and prints the PRs they opened. |
 | `next-ticket.sh` | Deterministic ready-ticket picker — priority labels + `Depends on #X` + no open PR yet. No LLM, no tokens. |
-| `work-ticket.sh` | Runs exactly one ticket in its own worktree and a fresh process, then judges its `STATUS: DONE\|BLOCKED` block. |
+| `work-ticket.sh` | Runs exactly one ticket in its own worktree and a fresh process, then judges its `STATUS: DONE\|BLOCKED` block. A session that ends without one is resumed, at most twice. |
 | `issue-trust.sh` | The provenance gate. See below — read this one before you touch anything. |
 
 Full manual: **[`docs/claude-loop.md`](../../docs/claude-loop.md)**.

@@ -87,8 +87,9 @@ internal sealed partial class ChangePassword : IApiEndpoint
             }
 
             // An access token issued before the deletion was scheduled must not change auth state
-            // during the grace period. The security stamp change below would break the cancel link in
-            // the e-mail, which is the only way back into a locked-out account (ADR-0031).
+            // during the grace period. The password change below also changes the security stamp, which
+            // would break the cancel link in the e-mail, the only way back into a locked-out account
+            // (ADR-0031).
             if (user.DeletionScheduledAt is not null)
             {
                 return Result.Failure(AuthErrors.DeletionAlreadyScheduled);
@@ -101,12 +102,7 @@ internal sealed partial class ChangePassword : IApiEndpoint
 
             if (identityResult.Succeeded)
             {
-                IdentityResult stampResult = await _userManager.UpdateSecurityStampAsync(user);
-                if (!stampResult.Succeeded)
-                {
-                    LogSecurityStampUpdateFailed(_logger, user.Id);
-                }
-
+                // ChangePasswordAsync gave the account a new security stamp in its one save (#874).
                 await _sessionRevoker.RevokeAllAsync(user.Id.ToString());
 
                 return Result.Success();
@@ -122,9 +118,6 @@ internal sealed partial class ChangePassword : IApiEndpoint
 
             return Result.Failure(AuthErrors.PasswordChangeFailed(errors));
         }
-
-        [LoggerMessage(EventId = EventIds.ChangePasswordSecurityStampFailed, Level = LogLevel.Error, Message = "Failed to update security stamp for user {UserId} after password change")]
-        private static partial void LogSecurityStampUpdateFailed(ILogger logger, Guid userId);
 
         [LoggerMessage(EventId = EventIds.ChangePasswordFailed, Level = LogLevel.Warning, Message = "Password change failed for user {UserId}. Errors: {Errors}")]
         private static partial void LogPasswordChangeFailed(ILogger logger, Guid userId, string errors);

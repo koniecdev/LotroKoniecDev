@@ -119,12 +119,7 @@ internal sealed partial class ResetPassword : IApiEndpoint
                 return Result.Failure(AuthErrors.PasswordResetFailed(errors));
             }
 
-            IdentityResult stampResult = await _userManager.UpdateSecurityStampAsync(user);
-            if (!stampResult.Succeeded)
-            {
-                LogSecurityStampUpdateFailed(_logger, user.Id);
-            }
-
+            // ResetPasswordAsync gave the account a new security stamp in its one save (#874).
             await _sessionRevoker.RevokeAllAsync(user.Id.ToString());
 
             return Result.Success();
@@ -132,9 +127,6 @@ internal sealed partial class ResetPassword : IApiEndpoint
 
         [LoggerMessage(EventId = EventIds.ResetPasswordFailed, Level = LogLevel.Warning, Message = "Password reset failed for user {UserId}. Errors: {Errors}")]
         private static partial void LogPasswordResetFailed(ILogger logger, Guid userId, string errors);
-
-        [LoggerMessage(EventId = EventIds.ResetPasswordSecurityStampFailed, Level = LogLevel.Error, Message = "Failed to update security stamp for user {UserId} after password change")]
-        private static partial void LogSecurityStampUpdateFailed(ILogger logger, Guid userId);
 
         [LoggerMessage(EventId = EventIds.ResetPasswordDeletionScheduled, Level = LogLevel.Warning, Message = "Password reset blocked for user {UserId}: account deletion is scheduled")]
         private static partial void LogPasswordResetBlockedDeletionScheduled(ILogger logger, Guid userId);

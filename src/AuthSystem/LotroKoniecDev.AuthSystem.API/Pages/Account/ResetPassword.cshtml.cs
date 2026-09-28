@@ -121,7 +121,7 @@ internal sealed partial class ResetPasswordModel : PageModel
             return;
         }
 
-        await _userManager.UpdateSecurityStampAsync(user);
+        // ResetPasswordAsync gave the account a new security stamp in its one save (#874).
         await _sessionRevoker.RevokeAllAsync(user.Id.ToString());
 
         LogPasswordResetCompleted(_logger, user.Id);

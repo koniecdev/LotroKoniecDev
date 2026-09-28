@@ -1,4 +1,5 @@
 using System.Net.Http.Headers;
+using System.Text.RegularExpressions;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
@@ -24,7 +25,7 @@ namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Tests.Auth;
 /// effort, and cancelling a deletion changes the stamp without revoking anything. So the flow tests run on
 /// a host whose revoke does nothing, and only the stamp check is left to refuse the refresh.
 /// </summary>
-public sealed class SecurityStampTokenValidationTests : EndpointsTestBase
+public sealed partial class SecurityStampTokenValidationTests : EndpointsTestBase
 {
     private const string CurrentPassword = "TestPass1!";
     private const string NewPassword = "NewPass99!";
@@ -133,6 +134,68 @@ public sealed class SecurityStampTokenValidationTests : EndpointsTestBase
         changeRequest.Content = JsonContent.Create(new ChangePasswordRequest(CurrentPassword, NewPassword));
         using HttpResponseMessage changeResponse = await client.SendAsync(changeRequest);
         changeResponse.StatusCode.ShouldBe(HttpStatusCode.OK);
+
+        // The row is still valid, so only the stamp check can refuse the refresh below.
+        (await OpenIddictTokenState.StatusOfAsync(host.Services, refreshToken)).ShouldBe(OpenIddictConstants.Statuses.Valid);
+
+        // Act
+        using HttpResponseMessage response = await RefreshAsync(client, refreshToken);
+
+        // Assert
+        response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        (await response.Content.ReadAsStringAsync()).ShouldContain("invalid_grant");
+    }
+
+    [Fact]
+    public async Task RefreshTokenGrant_ShouldFail_AfterAPasswordResetWhoseRevocationDidNotRun()
+    {
+        // Arrange
+        (RegisterRequest user, _) = await UserFactory.RegisterRandomUserWithRequestAsync(
+            ApiClient, Faker, AccountConfirmationEmailSpy, CurrentPassword);
+
+        await using WebApplicationFactory<Program> host = CreateHostThatNeverRevokes();
+        using HttpClient client = host.CreateClient();
+
+        (_, string refreshToken, _) = await SignInAsync(client, user.Email, OfflineScopes);
+
+        string resetToken = await CreateResetTokenAsync(host.Services, user.Email);
+        using HttpResponseMessage resetResponse = await client.PostAsJsonAsync(
+            new Uri("auth/reset-password", UriKind.Relative),
+            new ResetPasswordRequest(user.Email, resetToken, NewPassword));
+        resetResponse.StatusCode.ShouldBe(HttpStatusCode.OK);
+
+        // The row is still valid, so only the stamp check can refuse the refresh below.
+        (await OpenIddictTokenState.StatusOfAsync(host.Services, refreshToken)).ShouldBe(OpenIddictConstants.Statuses.Valid);
+
+        // Act
+        using HttpResponseMessage response = await RefreshAsync(client, refreshToken);
+
+        // Assert
+        response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        (await response.Content.ReadAsStringAsync()).ShouldContain("invalid_grant");
+    }
+
+    [Fact]
+    public async Task RefreshTokenGrant_ShouldFail_AfterAPasswordResetOnThePageWhoseRevocationDidNotRun()
+    {
+        // Arrange
+        (RegisterRequest user, _) = await UserFactory.RegisterRandomUserWithRequestAsync(
+            ApiClient, Faker, AccountConfirmationEmailSpy, CurrentPassword);
+
+        await using WebApplicationFactory<Program> host = CreateHostThatNeverRevokes();
+        using HttpClient client = host.CreateClient();
+
+        (_, string refreshToken, _) = await SignInAsync(client, user.Email, OfflineScopes);
+
+        string resetToken = await CreateResetTokenAsync(host.Services, user.Email);
+        using HttpResponseMessage resetResponse = await PostToResetPasswordPageAsync(client, new Dictionary<string, string>
+        {
+            ["Email"] = user.Email,
+            ["Token"] = resetToken,
+            ["NewPassword"] = NewPassword,
+            ["ConfirmPassword"] = NewPassword
+        });
+        (await resetResponse.Content.ReadAsStringAsync()).ShouldContain("Hasło zmienione");
 
         // The row is still valid, so only the stamp check can refuse the refresh below.
         (await OpenIddictTokenState.StatusOfAsync(host.Services, refreshToken)).ShouldBe(OpenIddictConstants.Statuses.Valid);
@@ -302,6 +365,50 @@ public sealed class SecurityStampTokenValidationTests : EndpointsTestBase
             AccountDeletionCancellationTokenProvider.ProviderName,
             AccountDeletionCancellationTokenProvider.CancelDeletionPurpose);
     }
+
+    /// <inheritdoc cref="CreateCancelTokenAsync"/>
+    private static async Task<string> CreateResetTokenAsync(IServiceProvider services, string email)
+    {
+        await using AsyncServiceScope scope = services.CreateAsyncScope();
+        UserManager<ApplicationUser> userManager =
+            scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
+
+        ApplicationUser? user = await userManager.FindByEmailAsync(email);
+        user.ShouldNotBeNull();
+
+        return await userManager.GeneratePasswordResetTokenAsync(user);
+    }
+
+    private static async Task<HttpResponseMessage> PostToResetPasswordPageAsync(
+        HttpClient client, Dictionary<string, string> formFields)
+    {
+        using HttpResponseMessage pageResponse = await client.GetAsync(
+            new Uri("/Account/ResetPassword", UriKind.Relative));
+        pageResponse.StatusCode.ShouldBe(HttpStatusCode.OK);
+
+        string html = await pageResponse.Content.ReadAsStringAsync();
+        Match match = AntiForgeryTokenRegex().Match(html);
+        if (match.Success)
+        {
+            formFields["__RequestVerificationToken"] = match.Groups[1].Value;
+        }
+
+        using FormUrlEncodedContent content = new(formFields);
+        using HttpRequestMessage request = new(HttpMethod.Post, "/Account/ResetPassword") { Content = content };
+
+        if (pageResponse.Headers.TryGetValues("Set-Cookie", out IEnumerable<string>? cookies))
+        {
+            foreach (string cookie in cookies)
+            {
+                request.Headers.Add("Cookie", cookie.Split(';')[0]);
+            }
+        }
+
+        return await client.SendAsync(request);
+    }
+
+    [GeneratedRegex("""name="__RequestVerificationToken".*?value="([^"]+)""")]
+    private static partial Regex AntiForgeryTokenRegex();
 
     private sealed class NoOpSessionRevoker : IUserSessionRevoker
     {

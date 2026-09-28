@@ -12,8 +12,8 @@ internal static class EventIds
     public const int ValidationFailure = 2140;
     public const int UnhandledException = 2150;
 
-    // Change Password (2200-2209)
-    public const int ChangePasswordSecurityStampFailed = 2200;
+    // Change Password (2200-2209). 2200 (ChangePasswordSecurityStampFailed) went away with the second
+    // save of the account (#874).
     public const int ChangePasswordFailed = 2201;
 
     // Email Confirmation (2210-2219)
@@ -68,9 +68,9 @@ internal static class EventIds
     public const int ResendConfirmEmailFailed = 2282;
     public const int ResendConfirmThrottled = 2283;
 
-    // Reset Password (2290-2299)
+    // Reset Password (2290-2299). 2291 (ResetPasswordSecurityStampFailed) went away with the second
+    // save of the account (#874).
     public const int ResetPasswordFailed = 2290;
-    public const int ResetPasswordSecurityStampFailed = 2291;
 
     // Token Revocation (2300-2309). 2300 (TokenRevoked) went away with the unused RevokeEndpoint
     // (#349).

@@ -91,6 +91,59 @@ public sealed class HealthCheckSettingsValidatorTests
         result.Failures.ShouldContain(failure => failure.Contains("whitespace", StringComparison.Ordinal));
     }
 
+    [Theory]
+    [InlineData(Development, 0x0A)]
+    [InlineData(Testing, 0x0D)]
+    [InlineData(Production, 0x00)]
+    [InlineData(Production, 0x09)]
+    [InlineData(Production, 0x01)]
+    [InlineData(Production, 0x1F)]
+    [InlineData(Production, 0x7F)]
+    [InlineData(Production, 0xA0)]
+    [InlineData(Production, 0xE9)]
+    [InlineData(Production, 0x2028)]
+    [InlineData(Production, 0x1F600)]
+    public void Validate_KeyWithACharacterOutsidePrintableAscii_FailsInEveryEnvironment(string environmentName, int codePoint)
+    {
+        HealthCheckSettingsValidator validator = CreateValidator(environmentName);
+        HealthCheckSettings settings = new()
+        {
+            Key = "a-health-check-key" + char.ConvertFromUtf32(codePoint) + "of-at-least-32-characters"
+        };
+
+        ValidateOptionsResult result = validator.Validate(name: null, settings);
+
+        result.Failed.ShouldBeTrue();
+        result.Failures.ShouldNotBeNull();
+        result.Failures.ShouldContain(failure => failure.Contains("printable ASCII", StringComparison.Ordinal));
+    }
+
+    [Theory]
+    [InlineData("abcdefghijklmnopqrstuvwxyz+ABCDEFGHIJ/012345=")]
+    // A space inside the key can be sent and still matches, so it stays allowed (#877).
+    [InlineData("a health check key with spaces inside it")]
+    public void Validate_ProductionWithAPrintableAsciiKey_Succeeds(string key)
+    {
+        HealthCheckSettingsValidator validator = CreateValidator(Production);
+        HealthCheckSettings settings = new() { Key = key };
+
+        ValidateOptionsResult result = validator.Validate(name: null, settings);
+
+        result.Succeeded.ShouldBeTrue();
+    }
+
+    [Fact]
+    public void Validate_ProductionWithEveryPrintableAsciiCharacterInsideTheKey_Succeeds()
+    {
+        HealthCheckSettingsValidator validator = CreateValidator(Production);
+        string everyPrintableAsciiCharacter = new(Enumerable.Range(' ', '~' - ' ' + 1).Select(code => (char)code).ToArray());
+        HealthCheckSettings settings = new() { Key = "k" + everyPrintableAsciiCharacter + "k" };
+
+        ValidateOptionsResult result = validator.Validate(name: null, settings);
+
+        result.Succeeded.ShouldBeTrue();
+    }
+
     private static HealthCheckSettingsValidator CreateValidator(string environmentName)
     {
         IWebHostEnvironment environment = Substitute.For<IWebHostEnvironment>();

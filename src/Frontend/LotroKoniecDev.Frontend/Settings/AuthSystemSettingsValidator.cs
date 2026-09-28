@@ -69,6 +69,17 @@ internal sealed class AuthSystemSettingsValidator : AbstractValidator<AuthSystem
             .WithMessage(
                 KeyPath(nameof(AuthSystemSettings.CallerKey))
                 + " must not start or end with whitespace. Check the quoting of FRONTEND_CALLER_KEY in the box .env.");
+
+        // A header cannot carry most of these characters, and one simple rule covers the rest
+        // (ADR-0054 §6, #877).
+        RuleFor(x => x.CallerKey!)
+            .Must(BePrintableAscii)
+            .When(x => !string.IsNullOrWhiteSpace(x.CallerKey))
+            .WithMessage(
+                KeyPath(nameof(AuthSystemSettings.CallerKey))
+                + " must contain only printable ASCII characters: no line break, tab, other control character or "
+                + "non-ASCII character such as a non-breaking space. Check FRONTEND_CALLER_KEY in the box .env "
+                + "(openssl rand -base64 32).");
     }
 
     private static string KeyPath(string propertyName)
@@ -86,4 +97,6 @@ internal sealed class AuthSystemSettingsValidator : AbstractValidator<AuthSystem
     }
 
     private static bool HaveNoWhitespaceAround(string value) => value == value.Trim();
+
+    private static bool BePrintableAscii(string value) => value.All(character => character is >= ' ' and <= '~');
 }

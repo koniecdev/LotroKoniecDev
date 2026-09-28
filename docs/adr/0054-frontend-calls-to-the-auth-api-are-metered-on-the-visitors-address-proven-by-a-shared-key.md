@@ -134,9 +134,15 @@ harmless. Since #823 the same line also feeds `tms-api` (`FrontendCaller__Key`) 
 - **Apps:** outside Development and Testing both refuse to start without a key, and a key shorter
   than 32 characters fails options validation wherever one is set. Since #857 so does a key that
   starts or ends with whitespace: Kestrel trims the spaces around a header value, so such a key
-  could never match. Development and Testing may
-  leave it empty: their limiter is off, the frontend then sends neither header, and the auth API
-  ignores a forwarded address. Since #823 the TMS API follows the same two rules.
+  could never match. Since #877 so does a key with anything but printable ASCII (`' '` to `'~'`)
+  inside it. Checked on .NET 10 and `caddy:2-alpine`: HttpClient refuses a line break or NUL when
+  the header is added, and any non-ASCII character (a pasted non-breaking space too) when the
+  request is sent. Caddy answers 400 to any other control character except a tab, and to DEL. So
+  none of these can reach the API from the frontend except a tab, which passes HttpClient, Caddy
+  and Kestrel. No generated key has one, so the one simple rule refuses it too. A space inside
+  passes and matches, so it stays allowed. Development and Testing may leave it empty: their
+  limiter is off, the frontend then sends neither header, and the auth API ignores a forwarded
+  address. Since #823 the TMS API follows the same rules.
 
 A missing key would quietly bring back the one shared bucket, and nothing but real traffic would
 notice. Operator order: the key goes into the staging `.env` before the change merges (CD deploys
@@ -249,7 +255,7 @@ refused-call warning reads the visitor from the resolver and leaves `RemoteIpAdd
 - Auth API:
   - `Settings/FrontendCallerSettings.cs` + `Settings/FrontendCallerSettingsValidator.cs` — **new**;
     `FrontendCaller:Key`, required outside Development/Testing, at least 32 characters when set,
-    and no whitespace at either end (#857).
+    no whitespace at either end (#857), and printable ASCII only (#877).
   - `Services/RateLimiting/RateLimitPartitionKeyResolver.cs` — **new**; the digest comparison and
     the choice between the forwarded address and `Connection.RemoteIpAddress`.
   - `ApiDependencyInjection.cs` registers the settings and the resolver; the three back-channel

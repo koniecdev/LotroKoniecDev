@@ -13,8 +13,9 @@ namespace LotroKoniecDev.AuthSystem.API.Features.Auth;
 /// These routes exist only to carry the brute-force rate-limit policy. The limiter runs after routing
 /// and before authentication (#347) and reads the policy from the matched endpoint's metadata, so
 /// without a route these URIs would allow unlimited guessing of the client secret.
-/// A non-POST request matches no route and therefore no limiter, which is harmless: OpenIddict rejects
-/// a non-POST protocol request before it ever checks client credentials.
+/// A non-POST request lands on routing's 405 endpoint, which carries no limiter. That is harmless only
+/// because OpenIddict refuses it before it checks the client: revocation by default, introspection
+/// because <c>OpenIddictExtensions</c> makes it read POST only (ADR-0061).
 /// </summary>
 internal sealed class MiddlewareServedEndpoints : IEndpoint
 {

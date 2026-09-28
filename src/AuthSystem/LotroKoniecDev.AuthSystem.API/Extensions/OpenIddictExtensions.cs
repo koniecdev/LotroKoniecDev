@@ -2,6 +2,7 @@ using System.Security.Cryptography;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
 using OpenIddict.Server;
+using OpenIddict.Server.AspNetCore;
 using LotroKoniecDev.AuthSystem.API.Settings;
 using LotroKoniecDev.AuthSystem.Persistence.DbContexts;
 using LotroKoniecDev.SharedKernel.Authorization;
@@ -81,6 +82,14 @@ internal static class OpenIddictExtensions
                 {
                     aspNetCoreBuilder.DisableTransportSecurityRequirement();
                 }
+
+                // Introspection reads POST only, like token and revocation. By default OpenIddict also
+                // reads it from GET and checks the client secret there, and a GET meets no rate limit
+                // (ADR-0061, #900).
+                options.RemoveEventHandler(
+                    OpenIddictServerAspNetCoreHandlers.ExtractGetOrPostRequest<OpenIddictServerEvents.ExtractIntrospectionRequestContext>.Descriptor);
+                options.AddEventHandler(
+                    OpenIddictServerAspNetCoreHandlers.ExtractPostRequest<OpenIddictServerEvents.ExtractIntrospectionRequestContext>.Descriptor);
             })
             .AddValidation(options =>
             {

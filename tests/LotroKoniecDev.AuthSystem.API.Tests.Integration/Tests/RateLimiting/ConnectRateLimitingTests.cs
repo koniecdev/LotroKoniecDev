@@ -1,11 +1,14 @@
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.AspNetCore.Routing;
+using Microsoft.AspNetCore.WebUtilities;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using OpenIddict.Server;
 using LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared.Bases;
+using LotroKoniecDev.SharedKernel.Authorization;
 
 namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Tests.RateLimiting;
 
@@ -18,10 +21,10 @@ namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Tests.RateLimiting;
 /// never count exactly the junk traffic it exists to stop.
 /// Introspection and revocation are served entirely by OpenIddict middleware and cannot be handed to
 /// us at all, so their limits sit on routes that carry metadata only (#349,
-/// <c>MiddlewareServedEndpoints</c>). The suite's
-/// Testing host keeps the limiter middleware off; the burst tests force-arm it on a derived host to
-/// observe real 429 rejection, which a Staging-environment factory cannot do in-suite (outside
-/// Dev/Testing the settings validators demand production key material at startup).
+/// <c>MiddlewareServedEndpoints</c>). The suite's Testing host keeps the limiter middleware off; the
+/// burst tests force-arm it on a derived host to observe real 429 rejection, which a
+/// Staging-environment factory cannot do in-suite (outside Dev/Testing the settings validators demand
+/// production key material at startup).
 /// </summary>
 public sealed class ConnectRateLimitingTests : EndpointsTestBase
 {
@@ -29,6 +32,8 @@ public sealed class ConnectRateLimitingTests : EndpointsTestBase
 
     /// <summary>Mirrors the auth-endpoint-limit policy: 10 permits per minute per client IP.</summary>
     private const int AuthEndpointPermitLimit = 10;
+
+    private const string WrongClientSecret = "DefinitelyWrongSecret1!";
 
     public ConnectRateLimitingTests(AuthSystemApiFactory appFactory) : base(appFactory)
     {
@@ -104,6 +109,60 @@ public sealed class ConnectRateLimitingTests : EndpointsTestBase
                 carrier => carrier.Metadata.GetMetadata<EnableRateLimitingAttribute>() != null,
                 $"every routed endpoint for '{route}' must carry a rate-limit policy");
         }
+    }
+
+    [Theory]
+    [InlineData(AuthSystemApiFactory.TestApiClientSecret)]
+    [InlineData(WrongClientSecret)]
+    public async Task ClientAuthenticatingEndpointUri_WithGetAndNoGetRoute_IsRefusedBeforeTheSecretIsChecked(
+        string clientSecret)
+    {
+        // Arrange: a GET with no route meets no limiter, so it must be refused before the client is looked
+        // up. Then the right secret and a wrong one get the same 400 (ADR-0061). The URIs come from
+        // OpenIddict's own options, so an endpoint type that checks a client secret is covered the day it
+        // is turned on.
+        OpenIddictServerOptions serverOptions = Factory.Services
+            .GetRequiredService<IOptionsMonitor<OpenIddictServerOptions>>().CurrentValue;
+        EndpointDataSource endpointDataSource = Factory.Services.GetRequiredService<EndpointDataSource>();
+
+        List<string> routesWithoutGet = serverOptions.TokenEndpointUris
+            .Concat(serverOptions.IntrospectionEndpointUris)
+            .Concat(serverOptions.RevocationEndpointUris)
+            .Concat(serverOptions.DeviceAuthorizationEndpointUris)
+            .Concat(serverOptions.PushedAuthorizationEndpointUris)
+            .Select(uri => uri.OriginalString.TrimStart('/'))
+            .Where(route => !endpointDataSource.Endpoints
+                .OfType<RouteEndpoint>()
+                .Any(routeEndpoint => routeEndpoint.RoutePattern.RawText?.TrimStart('/') == route
+                                      && (routeEndpoint.Metadata.GetMetadata<HttpMethodMetadata>()?.HttpMethods
+                                          .Contains(HttpMethods.Get) ?? true)))
+            .ToList();
+
+        Dictionary<string, string?> credentials = new()
+        {
+            ["grant_type"] = "client_credentials",
+            ["token"] = "not-a-real-reference-token",
+            ["client_id"] = AuthConstants.ClientIds.Api,
+            ["client_secret"] = clientSecret
+        };
+
+        Dictionary<string, string> answers = [];
+
+        // Act
+        foreach (string route in routesWithoutGet)
+        {
+            using HttpResponseMessage response = await ApiClient.Http.GetAsync(
+                new Uri(QueryHelpers.AddQueryString(route, credentials), UriKind.Relative));
+            using JsonDocument body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+            string error = body.RootElement.TryGetProperty("error", out JsonElement errorElement)
+                ? errorElement.GetString() ?? "(none)"
+                : "(none)";
+            answers[route] = $"{(int)response.StatusCode} {error}";
+        }
+
+        // Assert
+        answers.ShouldContainKey("connect/introspect");
+        answers.ShouldAllBe(answer => answer.Value == "400 invalid_request");
     }
 
     [Theory]
@@ -252,8 +311,8 @@ public sealed class ConnectRateLimitingTests : EndpointsTestBase
         return new FormUrlEncodedContent(new Dictionary<string, string>
         {
             ["token"] = "not-a-real-reference-token",
-            ["client_id"] = "lotrokoniecdev-api",
-            ["client_secret"] = "DefinitelyWrongSecret1!"
+            ["client_id"] = AuthConstants.ClientIds.Api,
+            ["client_secret"] = WrongClientSecret
         });
     }
 }

@@ -15,7 +15,8 @@ namespace LotroKoniecDev.AuthSystem.API.Tests.Unit.Middleware;
 /// <summary>
 /// No endpoint of the auth API refuses a signed-in caller with 403 today, so the integration suite cannot
 /// reach the 403 warning. This pins its wording here (#854); the TMS integration suite proves the same line
-/// end to end.
+/// end to end. The rule that a refused call with no real endpoint is not warned is pinned here too: the
+/// integration suite proved it with a GET to connect/introspect until #900 made that call a 400.
 /// </summary>
 public sealed class AuthorizationLoggingMiddlewareTests
 {
@@ -27,19 +28,8 @@ public sealed class AuthorizationLoggingMiddlewareTests
     {
         // Arrange
         CapturingLogger<AuthorizationLoggingMiddleware> logger = new();
-        AuthorizationLoggingMiddleware middleware = new(
-            context =>
-            {
-                context.Response.StatusCode = StatusCodes.Status403Forbidden;
-                return Task.CompletedTask;
-            },
-            new RateLimitPartitionKeyResolver(
-                Microsoft.Extensions.Options.Options.Create(new FrontendCallerSettings { Key = FrontendKey })),
-            logger);
-        DefaultHttpContext context = new();
-        context.Request.Method = HttpMethods.Post;
-        context.Request.Path = "/auth/account/change-email";
-        context.Connection.RemoteIpAddress = IPAddress.Parse("10.60.0.7");
+        AuthorizationLoggingMiddleware middleware = CreateMiddleware(StatusCodes.Status403Forbidden, logger);
+        DefaultHttpContext context = CreateContext(HttpMethods.Post, "/auth/account/change-email", "10.60.0.7");
         context.Request.Headers.Append(FrontendCallerHeaders.Key, FrontendKey);
         context.Request.Headers.Append(FrontendCallerHeaders.ClientAddress, "203.0.113.5");
         context.User = new ClaimsPrincipal(new ClaimsIdentity([new Claim(ClaimTypes.Name, "anna")], "Bearer"));
@@ -58,5 +48,64 @@ public sealed class AuthorizationLoggingMiddlewareTests
         warning.Level.ShouldBe(LogLevel.Warning);
         warning.EventId.ShouldBe(EventIds.ForbiddenAccessAttempt);
         warning.Message.ShouldBe("Forbidden access attempt: POST /auth/account/change-email from 203.0.113.5 via 10.60.0.7 by anna");
+    }
+
+    [Fact]
+    public async Task InvokeAsync_WhenACallThatMatchesNoRouteIsRefused_ShouldNotWarn()
+    {
+        // Arrange: a call with no real endpoint carries no rate limit, so scanners could add warnings
+        // there without end.
+        CapturingLogger<AuthorizationLoggingMiddleware> logger = new();
+        AuthorizationLoggingMiddleware middleware = CreateMiddleware(StatusCodes.Status401Unauthorized, logger);
+        DefaultHttpContext context = CreateContext(HttpMethods.Get, "/no-such-path", "203.0.113.6");
+
+        // Act
+        await middleware.InvokeAsync(context);
+
+        // Assert
+        logger.Entries.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task InvokeAsync_WhenACallOnRoutingsMethodNotAllowedEndpointIsRefused_ShouldNotWarn()
+    {
+        // Arrange: routing's 405 endpoint is a plain Endpoint, not a RouteEndpoint, and carries no rate limit
+        CapturingLogger<AuthorizationLoggingMiddleware> logger = new();
+        AuthorizationLoggingMiddleware middleware = CreateMiddleware(StatusCodes.Status401Unauthorized, logger);
+        DefaultHttpContext context = CreateContext(HttpMethods.Get, "/auth/change-password", "203.0.113.7");
+        context.SetEndpoint(new Endpoint(
+            _ => Task.CompletedTask,
+            EndpointMetadataCollection.Empty,
+            "405 HTTP Method Not Supported"));
+
+        // Act
+        await middleware.InvokeAsync(context);
+
+        // Assert
+        logger.Entries.ShouldBeEmpty();
+    }
+
+    private static AuthorizationLoggingMiddleware CreateMiddleware(
+        int statusCode,
+        CapturingLogger<AuthorizationLoggingMiddleware> logger)
+    {
+        return new AuthorizationLoggingMiddleware(
+            context =>
+            {
+                context.Response.StatusCode = statusCode;
+                return Task.CompletedTask;
+            },
+            new RateLimitPartitionKeyResolver(
+                Microsoft.Extensions.Options.Options.Create(new FrontendCallerSettings { Key = FrontendKey })),
+            logger);
+    }
+
+    private static DefaultHttpContext CreateContext(string method, string path, string connectionAddress)
+    {
+        DefaultHttpContext context = new();
+        context.Request.Method = method;
+        context.Request.Path = path;
+        context.Connection.RemoteIpAddress = IPAddress.Parse(connectionAddress);
+        return context;
     }
 }

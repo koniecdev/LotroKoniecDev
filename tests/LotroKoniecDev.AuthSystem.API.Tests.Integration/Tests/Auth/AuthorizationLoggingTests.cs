@@ -30,7 +30,6 @@ public sealed class AuthorizationLoggingTests : EndpointsTestBase
     private const string ForwardedForHeader = "X-Forwarded-For";
     private const string AccountPath = "auth/account/data-export";
     private const string TokenPath = "connect/token";
-    private const string IntrospectionPath = "connect/introspect";
     private const string ChangePasswordPath = "auth/change-password";
 
     public AuthorizationLoggingTests(AuthSystemApiFactory appFactory) : base(appFactory)
@@ -120,27 +119,6 @@ public sealed class AuthorizationLoggingTests : EndpointsTestBase
         response.StatusCode.ShouldBe(HttpStatusCode.Unauthorized);
         MiddlewareEntries(loggerFactory).ShouldHaveSingleItem().Message
             .ShouldBe($"Unauthorized access attempt: POST /{ChangePasswordPath} from 203.0.113.94 via 203.0.113.94");
-    }
-
-    [Fact]
-    public async Task IntrospectionWithGet_WithAWrongClientSecret_ShouldNotWarn()
-    {
-        // Arrange: only POST is routed to connect/introspect, so a GET lands on routing's 405 endpoint,
-        // which carries no rate limit. OpenIddict still refuses the client during authentication.
-        using CapturingLoggerFactory loggerFactory = new();
-        using WebApplicationFactory<Program> host = CreateHost(loggerFactory);
-        using HttpClient client = host.CreateClient();
-        using HttpRequestMessage request = CreateRequest(
-            HttpMethod.Get,
-            $"{IntrospectionPath}?token=not-a-real-token&client_id={AuthConstants.ClientIds.Api}&client_secret=DefinitelyWrongSecret1!",
-            "203.0.113.95");
-
-        // Act
-        using HttpResponseMessage response = await client.SendAsync(request);
-
-        // Assert
-        response.StatusCode.ShouldBe(HttpStatusCode.Unauthorized);
-        MiddlewareEntries(loggerFactory).ShouldBeEmpty();
     }
 
     [Fact]

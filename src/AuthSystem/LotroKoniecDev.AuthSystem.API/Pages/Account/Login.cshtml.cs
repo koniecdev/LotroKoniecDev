@@ -147,10 +147,10 @@ internal sealed partial class LoginModel : PageModel
         if (user.DeletionScheduledAt is not null)
         {
             LogDeletionScheduled(_logger, user.Id, HttpContext.Connection.RemoteIpAddress);
-            DateTimeOffset deletionDate =
+            DateTimeOffset deletionTime =
                 _deletionSchedule.FinalizesAt(user.DeletionScheduledAt.Value, user.EmailChangeRevertArmedAt);
             ErrorMessage =
-                $"Twoje konto jest zaplanowane do usunięcia dnia {deletionDate.ToPolandDateTimeText()}. " +
+                $"Twoje konto jest zaplanowane do usunięcia dnia {deletionTime.ToPolandDateTimeText()}. " +
                 "Jeśli chcesz je zachować, kliknij w link anulujący usunięcie, który wysłaliśmy na Twój adres e-mail.";
             return Page();
         }

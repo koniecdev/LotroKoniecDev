@@ -71,7 +71,7 @@ public sealed partial class DeletionGraceWindowTests : AsyncLifetimeTestBase
     }
 
     [Fact]
-    public async Task DeleteAccount_ShouldGiveTheEmailTheMomentTheFrontendPrints()
+    public async Task DeleteAccount_ShouldHandTheEmailTheSameMinuteAsTheFinalizesAtHeader()
     {
         // Arrange
         (RegisterRequest registerRequest, _) =
@@ -80,8 +80,10 @@ public sealed partial class DeletionGraceWindowTests : AsyncLifetimeTestBase
         // Act
         DateTimeOffset finalizesAt = await ScheduleDeletionAsync(registerRequest.Email);
 
-        // Assert: the e-mail is built from the row, and PostgreSQL keeps microseconds where the header
-        // keeps ticks, so the two can differ below a microsecond but never by a printed minute (#890)
+        // Assert: the frontend prints the header, the e-mail is built from the saved row (#890). Npgsql
+        // cuts the digits below a microsecond when it saves the row, and a minute always starts on a
+        // whole microsecond, so the cut can never move the moment into another minute.
+        AccountDeletionEmailSpy.LastScheduledEmail.ShouldBe(registerRequest.Email);
         AccountDeletionEmailSpy.LastFinalizesAt.ShouldNotBeNull();
         PolandMinuteText(AccountDeletionEmailSpy.LastFinalizesAt.Value).ShouldBe(PolandMinuteText(finalizesAt));
     }

@@ -1,8 +1,9 @@
 # ADR-0053: Password Confirmation Is Braked per Account, Not by Identity's Lockout
 
-**Status:** Accepted
+**Status:** Accepted (amended 2026-09-28 by #881 — the login page's deletion branch gets its own
+budget per account, see the amendment below)
 **Date:** 2026-09-22
-**Decision-makers:** Solo maintainer (ticket #813)
+**Decision-makers:** Solo maintainer (ticket #813; amendment #881, SEC-31)
 **Related:** AuthSystem.API (`Features/Auth`, `Services/RateLimiting`), Frontend HTTP resilience,
 ADR-0031 (deletion grace period locks the account through `LockoutEnd`), ADR-0046 (the rate-limit
 lesson on the auth pages), ADR-0052 (the export step-up, which surfaced this), tickets #690, #692,
@@ -192,3 +193,67 @@ nothing against guessing.
   `NormalizeEmail` reasoning); ADR-0031 (the `LockoutEnd` grace lock); ADR-0046.
 - `System.Threading.RateLimiting`: a `FixedWindowRateLimiter` partition reports no idle time while
   permits are spent, so the partitioned limiter never evicts a live budget early.
+
+## Amendment (2026-09-28) — the login page's deletion branch gets its own budget per account
+
+**Ticket:** #881 (SEC-31).
+
+For the 14 days of a scheduled deletion, anyone could guess the account's password on the login page
+with no limit per account. The deletion sets `LockoutEnd` to the end of the grace period (ADR-0031), so
+the login page checks for a scheduled deletion before it checks the lockout. Since #861 a wrong
+password there does not call `AccessFailedAsync`, for the reason §3 gives. So Identity's lockout never
+slowed guessing on this branch. The only brake left was `auth-page-limit`, which counts per address,
+and an attacker who changes address gets a new budget each time. A right guess shows the deletion
+message, so it tells the attacker the password. The account cannot sign in with it, because every
+sign-in path refuses a scheduled account. But people reuse passwords on other sites, and the owner may
+choose the same password again in the reset that follows a cancel.
+
+**What changes.**
+
+- `LoginModel.FindUserWithVerifiedPasswordAsync` takes a permit from `IDeletionScheduledLoginThrottle`
+  as the first step of the deletion branch, before the password check, for the reason §2 gives. A
+  refusal verifies the dummy hash once and returns null. The page then shows the general message after
+  the time floor (ADR-0059), which is the same answer a wrong password gets.
+- The budget is **10 attempts per 15 minutes per account** (`AccountBudgets.DeletionScheduledLoginPermitLimit`,
+  `AccountBudgets.Window`), the same room as §1. On average that is fewer guesses than Identity's
+  lockout lets through on a normal account: 5 wrong passwords, then 5 minutes locked, which is up to
+  15 guesses per 15 minutes. A fixed window is weaker in one place: a guesser who waits for the edge
+  of a window can send 10 guesses just before it and 10 just after, where the lockout stops a burst
+  at 5. §2 accepts the fixed window for every budget in this app, and over the 14 days of the grace
+  period it is the average that counts.
+- It is keyed on the account id, as in §1. Unlike §2, the permit comes after the account is loaded:
+  the caller is anonymous and types only an address, and §1 rejects a key built from the address text.
+  The lookup and the permit both run inside the time floor, so the order shows nothing.
+- It is its **own** budget, not the confirmation budget of §1. The login page is anonymous. A shared
+  budget would let a stranger refuse the owner's data export, which is served during the grace period
+  on purpose (ADR-0052).
+- The password grant in `TokenEndpoint.cs` gets no budget. It runs only in Testing (INV-11.10).
+- A refusal logs one warning line, `EventIds.LoginDeletionScheduledThrottled` (2626), with the account
+  id and the address.
+
+**What does not change: the branch without a scheduled deletion.** It keeps Identity's lockout and gets
+no budget of its own. A budget per account would lock the owner out in the same way the lockout does:
+a stranger's guesses spend the owner's permits, and a spent budget refuses the right password too. It
+would add a second brake that lives only in memory next to one that lives in the database, and it would
+remove nothing. To let the owner in while a stranger stays locked out, the server has to tell the two
+apart, for example with a trusted-device cookie. That is a different decision.
+
+**Rejected alternative: take the grace lock out of `LockoutEnd`.** If the deletion lived only in
+`DeletionScheduledAt`, Identity's lockout could count wrong passwords on this branch as on any other.
+It was not done here. ADR-0031 puts the grace lock in `LockoutEnd`, and four places write it
+(`DeleteAccount`, `CancelAccountDeletion`, `RevertEmailChange`, `AccountErasureService`), so the change
+is much wider than this ticket. #861 already chose the narrow fix, and #881 names the per-account
+budget as its fix. The lockout would also lock the owner out in the same way a budget does.
+
+**Accepted trade-offs.**
+
+- A stranger can spend the owner's login budget during the grace period. For up to 15 minutes the owner
+  then sees the general message, even for the right password, instead of the deletion date. A
+  "forgot password" request does not help: during the grace period it sends nothing, on purpose
+  (INV-11.9). This is the same dead end an owner who mistypes the password already had. The way out
+  is the deletion mail: it carries the date and the cancel link, and the cancel link needs no login.
+- As in §1, the budget lives in memory. Two containers mean two budgets, and a restart empties it.
+
+**Tests:** `DeletionScheduledLoginBudgetTests` (integration); a new test in `LoginPageTests` (one hash,
+the dummy one) and a new row in `ResponseTimeFloorEndpointTests` (the floor); two new `LoginModelTests`
+(unit).

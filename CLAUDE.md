@@ -556,9 +556,10 @@ hash-check → patch → launch flow is validated. Re-investigating any of it is
   error in the CLI) — never a locally composed path, because an absent rel means the server does
   not offer that affordance to this caller. An href off the client's configured origin is refused
   too. The CLI does it in its resolver (#611). The frontend does it in `SameOriginDelegatingHandler`,
-  the first handler on the TMS and auth typed clients (#830). These two clients follow no
-  redirects, so their bearer token and caller key never leave for another host. The token client
-  and the OIDC back-channel still do (#899).
+  the first handler on the TMS and auth typed clients (#830). No frontend client to either API
+  follows a redirect — the two typed clients (#830), the token client and the OIDC back-channel
+  (#899) all share `CreatePrimaryHandler` — so no bearer token, refresh token or caller key leaves
+  for another host.
   `scripts/check-client-hypermedia.sh` (with a `.ps1`
   twin) flags an API path in any string literal under `src/Frontend/` **and** `src/Patcher/` and
   gates it in **both** `pr-verify` and `ci`, alongside the SSR guard; prose mentions in comments

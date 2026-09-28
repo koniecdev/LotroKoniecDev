@@ -1,4 +1,5 @@
 using LotroKoniecDev.Frontend.Infrastructure.Auth;
+using LotroKoniecDev.Frontend.Infrastructure.Auth.TokenRefresh;
 using LotroKoniecDev.Frontend.Settings;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authentication.OpenIdConnect;
@@ -32,6 +33,36 @@ public sealed class AuthenticationDependencyInjectionExtensionsTests
         OpenIdConnectOptions options = ResolveConfiguredOidcOptions();
 
         options.UsePkce.ShouldBeTrue();
+    }
+
+    /// <summary>
+    /// #899: a followed redirect would carry the caller key, the visitor's address and, on a 307/308, the
+    /// refresh token to wherever the auth API pointed.
+    /// </summary>
+    [Fact]
+    public void AddFrontendAuthentication_TokenEndpointClient_DoesNotFollowRedirects()
+    {
+        using ServiceProvider provider = CreateFrontendAuthenticationServices().BuildServiceProvider();
+
+        List<HttpMessageHandler> chain = HandlerChain(provider
+            .GetRequiredService<IHttpMessageHandlerFactory>()
+            .CreateHandler(nameof(ITokenEndpointClient)));
+
+        chain[^1].ShouldBeOfType<SocketsHttpHandler>().AllowAutoRedirect.ShouldBeFalse();
+    }
+
+    /// <summary>
+    /// #899: the same for the code exchange, which carries the login code in its form, and for the
+    /// userinfo and metadata calls.
+    /// </summary>
+    [Fact]
+    public void AddFrontendAuthentication_OpenIdConnectBackchannel_DoesNotFollowRedirects()
+    {
+        OpenIdConnectOptions options = ResolveConfiguredOidcOptions();
+
+        List<HttpMessageHandler> chain = HandlerChain(options.BackchannelHttpHandler);
+
+        chain[^1].ShouldBeOfType<SocketsHttpHandler>().AllowAutoRedirect.ShouldBeFalse();
     }
 
     [Theory]
@@ -94,5 +125,17 @@ public sealed class AuthenticationDependencyInjectionExtensionsTests
         services.AddFrontendAuthentication();
 
         return services;
+    }
+
+    private static List<HttpMessageHandler> HandlerChain(HttpMessageHandler? handler)
+    {
+        List<HttpMessageHandler> chain = [];
+        while (handler is not null)
+        {
+            chain.Add(handler);
+            handler = handler is DelegatingHandler delegatingHandler ? delegatingHandler.InnerHandler : null;
+        }
+
+        return chain;
     }
 }

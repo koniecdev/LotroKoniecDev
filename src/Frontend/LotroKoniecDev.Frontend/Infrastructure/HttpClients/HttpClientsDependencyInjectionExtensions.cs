@@ -85,10 +85,11 @@ public static class HttpClientsDependencyInjectionExtensions
     }
 
     /// <summary>
-    /// A redirect would take the caller key past the origin check (#830), so the typed clients follow
-    /// none.
+    /// .NET drops only the bearer token when it follows a redirect and sends every other header on, the
+    /// caller key among them, and a <c>307</c>/<c>308</c> sends the form again. So no frontend client to
+    /// either API follows one: the typed clients (#830), the token client and the OIDC back-channel (#899).
     /// </summary>
-    private static SocketsHttpHandler CreatePrimaryHandler() => new()
+    internal static SocketsHttpHandler CreatePrimaryHandler() => new()
     {
         PooledConnectionLifetime = TimeSpan.FromMinutes(15),
         AllowAutoRedirect = false

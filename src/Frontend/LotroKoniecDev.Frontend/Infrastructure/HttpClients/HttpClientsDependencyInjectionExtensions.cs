@@ -85,9 +85,10 @@ public static class HttpClientsDependencyInjectionExtensions
     }
 
     /// <summary>
-    /// .NET drops only the bearer token when it follows a redirect and sends every other header on, the
-    /// caller key among them, and a <c>307</c>/<c>308</c> sends the form again. So no frontend client to
-    /// either API follows one: the typed clients (#830), the token client and the OIDC back-channel (#899).
+    /// When .NET follows a redirect, it drops the <c>Authorization</c> header but sends every other header
+    /// again, the caller key too. A <c>307</c> or <c>308</c> also sends the form body again. So no frontend
+    /// client to either API follows a redirect: the typed clients (#830), the token client and the OIDC
+    /// back-channel (#899).
     /// </summary>
     internal static SocketsHttpHandler CreatePrimaryHandler() => new()
     {

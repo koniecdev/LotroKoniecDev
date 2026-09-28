@@ -15,8 +15,7 @@ namespace LotroKoniecDev.AuthSystem.API.Features.Auth;
 /// without a route these URIs would allow unlimited guessing of the client secret.
 /// A non-POST request matches no route and therefore no limiter, which is harmless: OpenIddict rejects
 /// a non-POST protocol request before it ever checks client credentials. For introspection that holds
-/// only because <c>OpenIddictExtensions</c> makes it read POST only. By default OpenIddict reads it
-/// from GET too, and such a GET could guess the client secret without a limit (#900).
+/// only because <c>OpenIddictExtensions</c> makes it read POST only (#900).
 /// </summary>
 internal sealed class MiddlewareServedEndpoints : IEndpoint
 {

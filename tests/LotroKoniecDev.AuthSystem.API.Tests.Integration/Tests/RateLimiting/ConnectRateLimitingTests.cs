@@ -18,12 +18,10 @@ namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Tests.RateLimiting;
 /// never count exactly the junk traffic it exists to stop.
 /// Introspection and revocation are served entirely by OpenIddict middleware and cannot be handed to
 /// us at all, so their limits sit on routes that carry metadata only (#349,
-/// <c>MiddlewareServedEndpoints</c>). Those routes, like token's, map POST only, so a GET there meets no
-/// limiter. That is safe only while the server refuses such a GET before it checks the client secret
-/// (#900). The suite's
-/// Testing host keeps the limiter middleware off; the burst tests force-arm it on a derived host to
-/// observe real 429 rejection, which a Staging-environment factory cannot do in-suite (outside
-/// Dev/Testing the settings validators demand production key material at startup).
+/// <c>MiddlewareServedEndpoints</c>). The suite's Testing host keeps the limiter middleware off; the
+/// burst tests force-arm it on a derived host to observe real 429 rejection, which a
+/// Staging-environment factory cannot do in-suite (outside Dev/Testing the settings validators demand
+/// production key material at startup).
 /// </summary>
 public sealed class ConnectRateLimitingTests : EndpointsTestBase
 {
@@ -122,8 +120,7 @@ public sealed class ConnectRateLimitingTests : EndpointsTestBase
         string clientSecret)
     {
         // Arrange: only POST is routed here, so a GET meets no limiter. The right secret and a wrong one
-        // must get the same 400, or a GET could test guesses without a brake. OpenIddict reads
-        // introspection from GET by default, and that was the gap (#900).
+        // must get the same 400, or a caller could test guesses over GET without a brake (#900).
         string query = string.Join('&', new Dictionary<string, string>
             {
                 ["grant_type"] = "client_credentials",

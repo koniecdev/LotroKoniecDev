@@ -328,7 +328,7 @@ always appended so pagination order is total. Without `sort`, translations order
 | `GET` `POST` | `connect/userinfo` | bearer token | OIDC userinfo — `sub`, and `email`/`name`/`role` per granted scope |
 | `GET` `POST` | `connect/logout` | anonymous | RP-initiated end-session; revokes the user's reference tokens, clears the cookie |
 | `POST` | `connect/revoke` | client-authenticated | token revocation |
-| (OpenIddict) | `connect/introspect` | confidential client | token introspection |
+| `POST` | `connect/introspect` | confidential client | token introspection (POST only, RFC 7662 — #900) |
 | `GET` | `/.well-known/openid-configuration` | anonymous | OIDC discovery document |
 | `GET` | `/.well-known/jwks` | anonymous | JSON Web Key Set (public signing key) |
 

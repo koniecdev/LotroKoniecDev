@@ -1,5 +1,7 @@
 using LotroKoniecDev.Frontend.Infrastructure.Auth;
+using LotroKoniecDev.Frontend.Infrastructure.Auth.TokenRefresh;
 using LotroKoniecDev.Frontend.Settings;
+using LotroKoniecDev.Frontend.Tests.Unit.Infrastructure.HttpClients;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authentication.OpenIdConnect;
 using Microsoft.AspNetCore.DataProtection;
@@ -32,6 +34,36 @@ public sealed class AuthenticationDependencyInjectionExtensionsTests
         OpenIdConnectOptions options = ResolveConfiguredOidcOptions();
 
         options.UsePkce.ShouldBeTrue();
+    }
+
+    /// <summary>
+    /// #899: a followed redirect would carry the caller key, the visitor's address and, on a 307/308, the
+    /// refresh token to wherever the auth API pointed.
+    /// </summary>
+    [Fact]
+    public void AddFrontendAuthentication_TokenEndpointClient_DoesNotFollowRedirects()
+    {
+        using ServiceProvider provider = CreateFrontendAuthenticationServices().BuildServiceProvider();
+
+        List<HttpMessageHandler> chain = HttpMessageHandlerChain.From(provider
+            .GetRequiredService<IHttpMessageHandlerFactory>()
+            .CreateHandler(nameof(ITokenEndpointClient)));
+
+        chain[^1].ShouldBeOfType<SocketsHttpHandler>().AllowAutoRedirect.ShouldBeFalse();
+    }
+
+    /// <summary>
+    /// #899: the same for the code exchange, which carries the login code in its form, and for the
+    /// userinfo and metadata calls.
+    /// </summary>
+    [Fact]
+    public void AddFrontendAuthentication_OpenIdConnectBackchannel_DoesNotFollowRedirects()
+    {
+        OpenIdConnectOptions options = ResolveConfiguredOidcOptions();
+
+        List<HttpMessageHandler> chain = HttpMessageHandlerChain.From(options.BackchannelHttpHandler);
+
+        chain[^1].ShouldBeOfType<SocketsHttpHandler>().AllowAutoRedirect.ShouldBeFalse();
     }
 
     [Theory]

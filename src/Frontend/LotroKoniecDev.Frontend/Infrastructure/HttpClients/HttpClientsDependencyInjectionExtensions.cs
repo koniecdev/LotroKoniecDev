@@ -85,10 +85,12 @@ public static class HttpClientsDependencyInjectionExtensions
     }
 
     /// <summary>
-    /// A redirect would take the caller key past the origin check (#830), so the typed clients follow
-    /// none.
+    /// When .NET follows a redirect, it drops the <c>Authorization</c> header but sends every other header
+    /// again, the caller key too. A <c>307</c> or <c>308</c> also sends the form body again. So no frontend
+    /// client to either API follows a redirect: the typed clients (#830), the token client and the OIDC
+    /// back-channel (#899).
     /// </summary>
-    private static SocketsHttpHandler CreatePrimaryHandler() => new()
+    internal static SocketsHttpHandler CreatePrimaryHandler() => new()
     {
         PooledConnectionLifetime = TimeSpan.FromMinutes(15),
         AllowAutoRedirect = false

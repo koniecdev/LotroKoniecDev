@@ -193,10 +193,12 @@ are the answer to that case.
 - Every client that follows API links is bound to the origin it is configured for. The CLI refuses
   an href off its base URL (#611). The frontend's TMS and auth typed clients refuse one in
   `SameOriginDelegatingHandler` (#830), before the bearer token or the caller key is added, and
-  neither follows a redirect. The frontend's token client and OIDC back-channel follow no links and
-  are not covered; #899 tracks their redirects. So when §3 happens, the frontend follows the
-  parent's link to the new root through a new typed client whose `BaseUrl` is that root's origin,
-  never through the parent's client.
+  neither follows a redirect. So when §3 happens, the frontend follows the parent's link to the new
+  root through a new typed client whose `BaseUrl` is that root's origin, never through the parent's
+  client. The frontend's token client posts to one fixed path. The frontend's OIDC back-channel
+  calls the endpoints named in the auth API's own discovery document, which the frontend trusts as
+  the issuer's metadata. So the origin check does not apply to either. Since #899 neither follows a
+  redirect, unless other code sets its own back-channel handler first (today only tests do).
 
 ## References
 

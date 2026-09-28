@@ -58,6 +58,7 @@ internal static class AuthenticationDependencyInjectionExtensions
                         .GetRequiredService<IOptions<AuthSystemSettings>>().Value;
                     client.BaseAddress = new Uri(settings.BaseUrl);
                 })
+                .ConfigurePrimaryHttpMessageHandler(HttpClientsDependencyInjectionExtensions.CreatePrimaryHandler)
                 .AddFrontendCallerHandler<AuthSystemSettings>(settings => settings.CallerKey);
 
             services.AddAuthentication(options =>
@@ -166,13 +167,14 @@ internal static class AuthenticationDependencyInjectionExtensions
         options.Events.OnRemoteFailure = OnRemoteFailureAsync;
         options.Events.OnAccessDenied = OnAccessDeniedAsync;
 
-        // The code exchange and the userinfo call go through the handler's own back-channel client,
-        // not through the typed clients, so the visitor's address rides on it too (ADR-0054). The
-        // framework builds that client from this handler after every Configure has run. A back-channel
-        // handler configured elsewhere is wrapped, never replaced.
+        // The code exchange, the userinfo call and the metadata and key fetch go through the handler's
+        // own back-channel client, not through the typed clients, so the visitor's address rides on it
+        // too (ADR-0054). Like the typed clients, it follows no redirect (#899). The framework builds
+        // that client from this handler after every Configure has run. A back-channel handler configured
+        // elsewhere is wrapped, never replaced, so it keeps its own redirect setting.
         options.BackchannelHttpHandler = new FrontendCallerDelegatingHandler(httpContextAccessor, settings.CallerKey)
         {
-            InnerHandler = options.BackchannelHttpHandler ?? new HttpClientHandler()
+            InnerHandler = options.BackchannelHttpHandler ?? HttpClientsDependencyInjectionExtensions.CreatePrimaryHandler()
         };
     }
 

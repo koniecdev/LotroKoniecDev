@@ -162,6 +162,31 @@ public sealed class CookieTokenRefresherTests : IDisposable
     }
 
     [Fact]
+    public async Task ValidateAsync_WhenNearExpiryAndRefreshFails_RejectsPrincipalAndSignsOut()
+    {
+        // No refresh result is set up, so the token client answers null. That is what it returns for any
+        // failed refresh grant, a redirect included (#899).
+        RsaSecurityKey signingKey = CreateRsaKey();
+        string accessToken = MintAccessToken(signingKey, tokenIssuer: DiscoveryIssuer);
+
+        IAuthenticationService authenticationService = Substitute.For<IAuthenticationService>();
+        CookieTokenRefresher refresher = CreateRefresher(trustedKeys: [signingKey], discoveryIssuer: DiscoveryIssuer);
+        CookieValidatePrincipalContext context = CreateContext(
+            accessToken,
+            authenticationService,
+            expiresAt: DateTimeOffset.UtcNow.AddSeconds(30),
+            refreshToken: "refresh-token");
+
+        await refresher.ValidateAsync(context);
+
+        context.Principal.ShouldBeNull();
+        await authenticationService.Received(1).SignOutAsync(
+            Arg.Any<HttpContext>(),
+            CookieAuthenticationDefaults.AuthenticationScheme,
+            Arg.Any<AuthenticationProperties>());
+    }
+
+    [Fact]
     public async Task ValidateAsync_WhenSessionMarkedDead_RejectsPrincipalAndSignsOut()
     {
         // An earlier 401 marked this subject dead. That check has to reject the session before any

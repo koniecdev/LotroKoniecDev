@@ -1,14 +1,18 @@
 namespace LotroKoniecDev.AuthSystem.API.Middleware;
 
 /// <summary>
-/// Answers a browser with a Polish page instead of problem details (#867, #879). Every error answer of
-/// the auth origin goes through <see cref="IProblemDetailsService"/>: the status-code pages (a 404, a
-/// failed form check) and every exception handler. So this one writer covers all of them, and an API
-/// client still gets the JSON.
+/// Answers a browser with a Polish page instead of problem details (#867, #879). The status-code pages
+/// (a 404, a failed form check), every exception handler and every <c>Results.Problem</c> of an endpoint
+/// write through <see cref="IProblemDetailsService"/>, so this one writer covers all of them. An API client
+/// still gets the JSON.
 /// </summary>
 /// <remarks>
+/// Some error answers never reach it: the rate limiter's 429 page, which the limiter writes itself, and
+/// OpenIddict's own protocol errors on <c>/connect/*</c>.
+/// <para>
 /// It has to be registered before <c>AddProblemDetails()</c>. The service asks the writers in order, and
 /// ASP.NET Core's own writer takes a browser too, because a browser also accepts <c>*/*</c>.
+/// </para>
 /// <para>
 /// The page never shows the problem details, not even in Development or Testing, where they carry the
 /// exception's message and stack trace. The log has the details, and a page is the one place a stranger
@@ -36,8 +40,8 @@ internal sealed class BrowserErrorPageWriter : IProblemDetailsWriter
     }
 
     /// <summary>
-    /// The 429 page is not chosen here: the rate limiter writes it itself, because only the limiter knows
-    /// how long the wait is.
+    /// A 429 that gets here comes from an endpoint's own budget, not from the limiter. Only the limiter
+    /// knows the wait, so this page names no number.
     /// </summary>
     private static string BuildHtml(HttpContext httpContext)
     {
@@ -47,6 +51,7 @@ internal sealed class BrowserErrorPageWriter : IProblemDetailsWriter
         {
             >= StatusCodes.Status500InternalServerError => ServerErrorPage.BuildHtml(nonce),
             StatusCodes.Status404NotFound => ClientErrorPage.BuildNotFoundHtml(nonce),
+            StatusCodes.Status429TooManyRequests => TooManyRequestsPage.BuildHtml(TimeSpan.Zero, nonce),
             _ when AntiforgeryFailureFilter.HasFailed(httpContext) => ClientErrorPage.BuildFormExpiredHtml(nonce),
             _ => ClientErrorPage.BuildHtml(nonce)
         };

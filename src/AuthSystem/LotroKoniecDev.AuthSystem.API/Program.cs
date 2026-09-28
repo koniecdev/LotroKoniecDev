@@ -144,7 +144,6 @@ try
     });
 
     builder.Services.AddAuthorization();
-    // The filter lets a browser's error page tell a failed antiforgery check apart from any other 400 (#879).
     builder.Services.AddRazorPages()
         .AddMvcOptions(options => options.Filters.Add(new AntiforgeryFailureFilter()));
 

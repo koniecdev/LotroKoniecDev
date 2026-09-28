@@ -45,8 +45,7 @@ internal static class ApiDependencyInjection
             services.AddExceptionHandler<DbUpdateConcurrencyExceptionHandler>();
             services.AddExceptionHandler<GlobalExceptionHandler>();
 
-            // Before AddProblemDetails(): the writers are asked in order, and ASP.NET Core's own writer
-            // would take a browser too, because a browser also accepts */* (#879).
+            // Must stay before AddProblemDetails(); BrowserErrorPageWriter says why.
             services.AddSingleton<IProblemDetailsWriter, BrowserErrorPageWriter>();
             services.AddProblemDetails();
 

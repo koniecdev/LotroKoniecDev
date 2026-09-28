@@ -22,7 +22,7 @@ public sealed partial class BrowserErrorPagesTests : EndpointsTestBase
     public async Task UnknownAddress_ShouldShowABrowserThePolishNotFoundPage()
     {
         // Arrange
-        using HttpClient browser = CreateBrowser();
+        using HttpClient browser = CreateClientWithoutRedirects();
 
         // Act
         using HttpResponseMessage response = await GetAsync(browser, "/does-not-exist", BrowserAccept);
@@ -32,7 +32,8 @@ public sealed partial class BrowserErrorPagesTests : EndpointsTestBase
         response.Content.Headers.ContentType?.MediaType.ShouldBe("text/html");
         string html = await response.Content.ReadAsStringAsync();
         html.ShouldContain("<h1>Nie ma takiej strony</h1>");
-        html.ShouldContain($"<style nonce=\"{StyleNonce(response)}\">");
+        string nonce = StyleNonce(response).ShouldNotBeNull();
+        html.ShouldContain($"<style nonce=\"{nonce}\">");
     }
 
     [Theory]
@@ -43,7 +44,7 @@ public sealed partial class BrowserErrorPagesTests : EndpointsTestBase
     public async Task UnknownAddress_ShouldAnswerAnApiClientWithProblemDetails(string? accept)
     {
         // Arrange: the frontend's back-channel sends the first value, and curl or fetch send */*
-        using HttpClient client = CreateBrowser();
+        using HttpClient client = CreateClientWithoutRedirects();
 
         // Act
         using HttpResponseMessage response = await GetAsync(client, "/does-not-exist", accept);
@@ -63,9 +64,9 @@ public sealed partial class BrowserErrorPagesTests : EndpointsTestBase
     public async Task LoginPost_ShouldShowABrowserTheFormExpiredPage_WhenTheFormsCookieIsGone()
     {
         // Arrange
-        using HttpClient formLoader = CreateBrowser();
+        using HttpClient formLoader = CreateClientWithoutRedirects();
         string token = await LoadLoginFormTokenAsync(formLoader);
-        using HttpClient browserWithoutTheCookie = CreateBrowser();
+        using HttpClient browserWithoutTheCookie = CreateClientWithoutRedirects();
 
         // Act
         using HttpResponseMessage response = await PostLoginAsync(browserWithoutTheCookie, token, BrowserAccept);
@@ -75,14 +76,15 @@ public sealed partial class BrowserErrorPagesTests : EndpointsTestBase
         response.Content.Headers.ContentType?.MediaType.ShouldBe("text/html");
         string html = await response.Content.ReadAsStringAsync();
         html.ShouldContain("<h1>Formularz wygasł</h1>");
-        html.ShouldContain($"<style nonce=\"{StyleNonce(response)}\">");
+        string nonce = StyleNonce(response).ShouldNotBeNull();
+        html.ShouldContain($"<style nonce=\"{nonce}\">");
     }
 
     [Fact]
     public async Task LoginPost_ShouldShowABrowserTheFormExpiredPage_WhenTheFormCarriesNoToken()
     {
         // Arrange
-        using HttpClient browser = CreateBrowser();
+        using HttpClient browser = CreateClientWithoutRedirects();
 
         // Act
         using HttpResponseMessage response = await PostLoginAsync(browser, token: null, BrowserAccept);
@@ -99,7 +101,7 @@ public sealed partial class BrowserErrorPagesTests : EndpointsTestBase
     public async Task LoginPost_ShouldAnswerAnApiClientWithProblemDetails_WhenTheFormCheckFails(string? accept)
     {
         // Arrange
-        using HttpClient client = CreateBrowser();
+        using HttpClient client = CreateClientWithoutRedirects();
 
         // Act
         using HttpResponseMessage response = await PostLoginAsync(client, token: null, accept);
@@ -118,7 +120,7 @@ public sealed partial class BrowserErrorPagesTests : EndpointsTestBase
     public async Task MalformedRequest_ShouldShowABrowserTheGeneralPage()
     {
         // Arrange
-        using HttpClient browser = CreateBrowser();
+        using HttpClient browser = CreateClientWithoutRedirects();
 
         // Act
         using HttpResponseMessage response = await PostMalformedRegisterAsync(browser, BrowserAccept);
@@ -138,7 +140,7 @@ public sealed partial class BrowserErrorPagesTests : EndpointsTestBase
     public async Task MalformedRequest_ShouldAnswerAnApiClientWithProblemDetails(string? accept)
     {
         // Arrange
-        using HttpClient client = CreateBrowser();
+        using HttpClient client = CreateClientWithoutRedirects();
 
         // Act
         using HttpResponseMessage response = await PostMalformedRegisterAsync(client, accept);
@@ -150,7 +152,42 @@ public sealed partial class BrowserErrorPagesTests : EndpointsTestBase
         json.RootElement.GetProperty("errorCode").GetString().ShouldBe("Http.BadRequest");
     }
 
-    private HttpClient CreateBrowser() =>
+    /// <summary>
+    /// An endpoint's own <c>Results.Problem</c> goes through the same writer. The frontend reads the
+    /// <c>errorCode</c> from it, so an API client must keep it.
+    /// </summary>
+    [Fact]
+    public async Task RefusedRegistration_ShouldAnswerAnApiClientWithItsErrorCode()
+    {
+        // Arrange
+        using HttpClient client = CreateClientWithoutRedirects();
+
+        // Act
+        using HttpResponseMessage response = await PostRegisterWithoutConsentAsync(client, accept: null);
+
+        // Assert
+        response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        response.Content.Headers.ContentType?.MediaType.ShouldBe("application/problem+json");
+        using JsonDocument json = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        json.RootElement.GetProperty("errorCode").GetString().ShouldNotBeNullOrWhiteSpace();
+    }
+
+    [Fact]
+    public async Task RefusedRegistration_ShouldShowABrowserTheGeneralPage()
+    {
+        // Arrange: no browser posts JSON here, but one that names text/html gets a page, never raw JSON
+        using HttpClient browser = CreateClientWithoutRedirects();
+
+        // Act
+        using HttpResponseMessage response = await PostRegisterWithoutConsentAsync(browser, BrowserAccept);
+
+        // Assert
+        response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        response.Content.Headers.ContentType?.MediaType.ShouldBe("text/html");
+        (await response.Content.ReadAsStringAsync()).ShouldContain("<h1>Nie udało się obsłużyć żądania</h1>");
+    }
+
+    private HttpClient CreateClientWithoutRedirects() =>
         Factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
 
     private static async Task<HttpResponseMessage> GetAsync(HttpClient client, string path, string? accept)
@@ -209,12 +246,35 @@ public sealed partial class BrowserErrorPagesTests : EndpointsTestBase
         return await client.SendAsync(request);
     }
 
-    private static string StyleNonce(HttpResponseMessage response)
+    private async Task<HttpResponseMessage> PostRegisterWithoutConsentAsync(HttpClient client, string? accept)
     {
-        string policy = response.Headers.GetValues("Content-Security-Policy").Single();
-        Match match = StyleNonceRegex().Match(policy);
-        match.Success.ShouldBeTrue();
-        return match.Groups["nonce"].Value;
+        RegisterRequest registerRequest = new(
+            Faker.Random.AlphaNumeric(16),
+            Faker.Internet.Email(),
+            "TestPass1!",
+            AcceptedPrivacyPolicy: false,
+            AcceptedDataProcessingConsent: true,
+            AcceptedTermsOfService: true);
+
+        using HttpRequestMessage request = new(HttpMethod.Post, new Uri("/auth/register", UriKind.Relative));
+        request.Content = JsonContent.Create(registerRequest);
+        if (accept is not null)
+        {
+            request.Headers.Accept.ParseAdd(accept);
+        }
+
+        return await client.SendAsync(request);
+    }
+
+    private static string? StyleNonce(HttpResponseMessage response)
+    {
+        if (!response.Headers.TryGetValues("Content-Security-Policy", out IEnumerable<string>? policies))
+        {
+            return null;
+        }
+
+        Match match = StyleNonceRegex().Match(string.Join(", ", policies));
+        return match.Success ? match.Groups["nonce"].Value : null;
     }
 
     [GeneratedRegex("""name="__RequestVerificationToken".*?value="([^"]+)""")]

@@ -103,6 +103,7 @@ public sealed class BrowserErrorPageWriterTests
         string html = ReadBody(context);
         html.ShouldContain("<h1>Formularz wygasł</h1>");
         html.ShouldContain("odśwież stronę i wyślij go jeszcze raz");
+        html.ShouldContain("nie blokuje ciasteczek");
         html.ShouldContain(BrowserErrorPage.BackToLoginLink);
     }
 
@@ -113,6 +114,7 @@ public sealed class BrowserErrorPageWriterTests
     [InlineData(StatusCodes.Status405MethodNotAllowed)]
     [InlineData(StatusCodes.Status409Conflict)]
     [InlineData(StatusCodes.Status413PayloadTooLarge)]
+    [InlineData(StatusCodes.Status422UnprocessableEntity)]
     public async Task WriteAsync_ShouldWriteTheGeneralPage_ForAnyOther4xx(int statusCode)
     {
         // Arrange: a 400 without the antiforgery mark is not an expired form
@@ -147,7 +149,23 @@ public sealed class BrowserErrorPageWriterTests
     }
 
     [Fact]
-    public async Task WriteAsync_ShouldNeverShowTheProblemDetails()
+    public async Task WriteAsync_ShouldAskTheUserToWait_WhenAnEndpointsOwnBudgetAnswers429()
+    {
+        // Arrange: the general page would invite an immediate retry, which the budget refuses again
+        BrowserErrorPageWriter writer = new();
+        ProblemDetailsContext context = BuildContext(BrowserAccept, StatusCodes.Status429TooManyRequests);
+
+        // Act
+        await writer.WriteAsync(context);
+
+        // Assert
+        string html = ReadBody(context);
+        html.ShouldContain("<h1>Za dużo prób</h1>");
+        html.ShouldContain("Odczekaj chwilę i spróbuj ponownie.");
+    }
+
+    [Fact]
+    public async Task WriteAsync_ShouldNotShowTheProblemDetails_WhenTheyCarryTheException()
     {
         // Arrange: in Development and Testing the details carry the exception's message and stack trace
         BrowserErrorPageWriter writer = new();

@@ -150,7 +150,7 @@ internal sealed partial class LoginModel : PageModel
             DateTimeOffset deletionDate =
                 _deletionSchedule.FinalizesAt(user.DeletionScheduledAt.Value, user.EmailChangeRevertArmedAt);
             ErrorMessage =
-                $"Twoje konto jest zaplanowane do usunięcia dnia {deletionDate.ToPolandDateText()}. " +
+                $"Twoje konto jest zaplanowane do usunięcia dnia {deletionDate.ToPolandDateTimeText()}. " +
                 "Jeśli chcesz je zachować, kliknij w link anulujący usunięcie, który wysłaliśmy na Twój adres e-mail.";
             return Page();
         }

@@ -123,10 +123,10 @@ public sealed class AuthorizationLoggingTests : EndpointsTestBase
     }
 
     [Fact]
-    public async Task IntrospectionWithGet_WithAWrongClientSecret_ShouldNotWarn()
+    public async Task IntrospectionWithGet_WithAWrongClientSecret_ShouldBeRefusedWithoutAWarning()
     {
-        // Arrange: only POST is routed to connect/introspect, so a GET lands on routing's 405 endpoint,
-        // which carries no rate limit. OpenIddict still refuses the client during authentication.
+        // Arrange: introspection reads POST only (#900), so OpenIddict refuses a GET with 400 before it
+        // checks the client. A GET lands on routing's 405 endpoint, which carries no rate limit.
         using CapturingLoggerFactory loggerFactory = new();
         using WebApplicationFactory<Program> host = CreateHost(loggerFactory);
         using HttpClient client = host.CreateClient();
@@ -139,7 +139,7 @@ public sealed class AuthorizationLoggingTests : EndpointsTestBase
         using HttpResponseMessage response = await client.SendAsync(request);
 
         // Assert
-        response.StatusCode.ShouldBe(HttpStatusCode.Unauthorized);
+        response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
         MiddlewareEntries(loggerFactory).ShouldBeEmpty();
     }
 

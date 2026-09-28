@@ -4,7 +4,7 @@
 2026-09-23 — see "Amendment: resend-confirmation now has a per-account budget"; 2026-09-24 — #829
 moved the TMS limiter before authentication, noted in the TMS amendment; amended 2026-09-24 — see
 "Amendment: an IPv6 client is its /64"; amended 2026-09-27 — see "Amendment: the refused-call warning
-names the visitor too")
+names the visitor too"; 2026-09-28 — #900 made introspection POST only, noted in that amendment)
 **Date:** 2026-09-22
 **Decision-makers:** Solo maintainer (ticket #819)
 **Related:** AuthSystem.API (`Program.cs` rate-limit policies, `Services/RateLimiting`, `Settings`),
@@ -396,10 +396,11 @@ run after `UseAuthorization` and so never saw the refusals it was written for.
   still sees only the connection.
 - **Only a refused call to a real endpoint gets a warning.** A call can also be refused with 401
   when it matches no route: the TMS fallback policy refuses a path with no endpoint and a method a
-  route does not map, and OpenIddict checks the client of a GET to `connect/introspect`, where only
-  POST is routed (#900). Those calls land on no endpoint or on routing's 405 endpoint. Neither is a
+  route does not map. Those calls land on no endpoint or on routing's 405 endpoint. Neither is a
   `RouteEndpoint` and neither carries a rate limit, so scanners could add warnings without end. The
-  request log still records them.
+  request log still records them. On the auth API a GET to `connect/introspect` was such a call,
+  because OpenIddict checked its client although only POST is routed there. Since #900 introspection
+  reads POST only, so that GET is refused with 400 before the client is checked.
 - **A real endpoint with no per-address limit still warns without a cap.** On the auth API that is
   `auth/change-password`, `POST auth/account/data-export` and `auth/account/delete`, which rely on a
   per-account budget instead (ADR-0053). Accepted: a refused call there is exactly what the warning
@@ -408,9 +409,10 @@ run after `UseAuthorization` and so never saw the refusals it was written for.
 Tests: `AuthorizationLoggingTests` on both APIs (the right key names the visitor, a wrong key names
 the connection, the connection is in the line either way; on the auth API a wrong client secret at
 `/connect/token`, which OpenIddict refuses during authentication, is warned, an anonymous
-`auth/change-password` is warned, and a GET to `connect/introspect` is not; on the TMS API an unknown
-path, a wrong method and HEAD are not warned); the auth API's `AuthorizationLoggingMiddlewareTests`
-(the 403 line, which no auth endpoint reaches today); `RateLimitPartitionKeyResolverTests` on both
+`auth/change-password` is warned, and a GET to `connect/introspect` is refused with 400 and not warned;
+on the TMS API an unknown path, a wrong method and HEAD are not warned); the auth API's
+`AuthorizationLoggingMiddlewareTests` (the 403 line, which no auth endpoint reaches today, and no
+warning for a 401 without a real endpoint); `RateLimitPartitionKeyResolverTests` on both
 APIs (an IPv6 visitor's whole address).
 
 ## References

@@ -217,7 +217,7 @@ Tokeny email-confirmation/reset żyją 24 h (`DataProtectionTokenProviderOptions
 | `connect/userinfo` | `UserInfoEndpoint.cs` | claimy usera wg przyznanych scope'ów (`email`/`profile`/`roles`) |
 | `connect/logout` | `LogoutEndpoint.cs` | RP-initiated end-session: **rewokuje reference tokeny** usera, czyści cookie |
 | `connect/revoke` | — middleware OpenIddict | rewokacja pojedynczego tokena; OpenIddict nie ma dla niej passthrough, więc obsługuje ją sam — trasa w `MiddlewareServedEndpoints.cs` niesie wyłącznie metadane rate-limit (#349) |
-| `connect/introspect` | — middleware OpenIddict | introspekcja tokena (RFC 7662) dla confidential clients; jak wyżej — trasa w `MiddlewareServedEndpoints.cs` tylko pod rate-limit (#349) |
+| `connect/introspect` | — middleware OpenIddict | introspekcja tokena (RFC 7662) dla confidential clients; jak wyżej — trasa w `MiddlewareServedEndpoints.cs` tylko pod rate-limit (#349). Czyta wyłącznie POST: domyślnie OpenIddict czyta ją też z GET, a GET nie ma trasy ani limitu, więc `OpenIddictExtensions.cs` odrzuca GET kodem 400, zanim sprawdzi sekret klienta (#900) |
 
 `TokenEndpoint.cs:239-244` (współdzielony `CreateClaimsIdentityAsync`; refresh grant powiela
 switch inline w `:181-187`) ustawia **destinations** — które claimy lądują w access tokenie, a

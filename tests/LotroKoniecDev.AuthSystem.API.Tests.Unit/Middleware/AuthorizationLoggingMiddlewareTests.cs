@@ -15,7 +15,8 @@ namespace LotroKoniecDev.AuthSystem.API.Tests.Unit.Middleware;
 /// <summary>
 /// No endpoint of the auth API refuses a signed-in caller with 403 today, so the integration suite cannot
 /// reach the 403 warning. This pins its wording here (#854); the TMS integration suite proves the same line
-/// end to end.
+/// end to end. The rule that a refused call with no real endpoint is not warned is pinned here too: the
+/// integration suite proved it with a GET to connect/introspect until #900 made that call a 400.
 /// </summary>
 public sealed class AuthorizationLoggingMiddlewareTests
 {
@@ -58,5 +59,41 @@ public sealed class AuthorizationLoggingMiddlewareTests
         warning.Level.ShouldBe(LogLevel.Warning);
         warning.EventId.ShouldBe(EventIds.ForbiddenAccessAttempt);
         warning.Message.ShouldBe("Forbidden access attempt: POST /auth/account/change-email from 203.0.113.5 via 10.60.0.7 by anna");
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task InvokeAsync_WhenACallWithNoRealEndpointIsRefused_ShouldNotWarn(bool landsOnRoutingsMethodNotAllowedEndpoint)
+    {
+        // Arrange: neither a call that matches no route nor routing's 405 endpoint is a RouteEndpoint,
+        // and neither carries a rate limit, so scanners could add warnings there without end.
+        CapturingLogger<AuthorizationLoggingMiddleware> logger = new();
+        AuthorizationLoggingMiddleware middleware = new(
+            context =>
+            {
+                context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+                return Task.CompletedTask;
+            },
+            new RateLimitPartitionKeyResolver(
+                Microsoft.Extensions.Options.Options.Create(new FrontendCallerSettings { Key = FrontendKey })),
+            logger);
+        DefaultHttpContext context = new();
+        context.Request.Method = HttpMethods.Get;
+        context.Request.Path = "/connect/introspect";
+        context.Connection.RemoteIpAddress = IPAddress.Parse("203.0.113.6");
+        if (landsOnRoutingsMethodNotAllowedEndpoint)
+        {
+            context.SetEndpoint(new Endpoint(
+                _ => Task.CompletedTask,
+                EndpointMetadataCollection.Empty,
+                "405 HTTP Method Not Supported"));
+        }
+
+        // Act
+        await middleware.InvokeAsync(context);
+
+        // Assert
+        logger.Entries.ShouldBeEmpty();
     }
 }

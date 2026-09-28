@@ -144,7 +144,8 @@ try
     });
 
     builder.Services.AddAuthorization();
-    builder.Services.AddRazorPages();
+    builder.Services.AddRazorPages()
+        .AddMvcOptions(options => options.Filters.Add(new AntiforgeryFailureFilter()));
 
     builder.Services.AddEndpointsApiExplorer();
     builder.Services.AddOpenApi();

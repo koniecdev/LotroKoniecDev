@@ -1,11 +1,14 @@
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.AspNetCore.Routing;
+using Microsoft.AspNetCore.WebUtilities;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using OpenIddict.Server;
 using LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared.Bases;
+using LotroKoniecDev.SharedKernel.Authorization;
 
 namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Tests.RateLimiting;
 
@@ -109,35 +112,54 @@ public sealed class ConnectRateLimitingTests : EndpointsTestBase
     }
 
     [Theory]
-    [InlineData("connect/introspect", AuthSystemApiFactory.TestApiClientSecret)]
-    [InlineData("connect/introspect", WrongClientSecret)]
-    [InlineData("connect/revoke", AuthSystemApiFactory.TestApiClientSecret)]
-    [InlineData("connect/revoke", WrongClientSecret)]
-    [InlineData("connect/token", AuthSystemApiFactory.TestApiClientSecret)]
-    [InlineData("connect/token", WrongClientSecret)]
-    public async Task ConnectEndpointCheckingAClientSecret_WithGet_IsRefusedBeforeTheSecretIsChecked(
-        string route,
+    [InlineData(AuthSystemApiFactory.TestApiClientSecret)]
+    [InlineData(WrongClientSecret)]
+    public async Task ClientAuthenticatingEndpointUri_WithGetAndNoGetRoute_IsRefusedBeforeTheSecretIsChecked(
         string clientSecret)
     {
-        // Arrange: only POST is routed here, so a GET meets no limiter. The right secret and a wrong one
-        // must get the same 400, or a caller could test guesses over GET without a brake (#900).
-        string query = string.Join('&', new Dictionary<string, string>
-            {
-                ["grant_type"] = "client_credentials",
-                ["token"] = "not-a-real-reference-token",
-                ["client_id"] = "lotrokoniecdev-api",
-                ["client_secret"] = clientSecret
-            }
-            .Select(parameter => $"{parameter.Key}={Uri.EscapeDataString(parameter.Value)}"));
+        // Arrange: a GET with no route meets no limiter, so it must be refused before the client is looked
+        // up. Then the right secret and a wrong one get the same 400 (ADR-0061). The URIs come from
+        // OpenIddict's own options, so an endpoint type that checks a client secret is covered the day it
+        // is turned on.
+        OpenIddictServerOptions serverOptions = Factory.Services
+            .GetRequiredService<IOptionsMonitor<OpenIddictServerOptions>>().CurrentValue;
+        EndpointDataSource endpointDataSource = Factory.Services.GetRequiredService<EndpointDataSource>();
+
+        List<string> routesWithoutGet = serverOptions.TokenEndpointUris
+            .Concat(serverOptions.IntrospectionEndpointUris)
+            .Concat(serverOptions.RevocationEndpointUris)
+            .Concat(serverOptions.DeviceAuthorizationEndpointUris)
+            .Concat(serverOptions.PushedAuthorizationEndpointUris)
+            .Select(uri => uri.OriginalString.TrimStart('/'))
+            .Where(route => !endpointDataSource.Endpoints
+                .OfType<RouteEndpoint>()
+                .Any(routeEndpoint => routeEndpoint.RoutePattern.RawText?.TrimStart('/') == route
+                                      && (routeEndpoint.Metadata.GetMetadata<HttpMethodMetadata>()?.HttpMethods
+                                          .Contains(HttpMethods.Get) ?? true)))
+            .ToList();
+
+        Dictionary<string, string?> credentials = new()
+        {
+            ["grant_type"] = "client_credentials",
+            ["token"] = "not-a-real-reference-token",
+            ["client_id"] = AuthConstants.ClientIds.Api,
+            ["client_secret"] = clientSecret
+        };
+
+        Dictionary<string, string> answers = [];
 
         // Act
-        using HttpResponseMessage response = await ApiClient.Http.GetAsync(
-            new Uri($"{route}?{query}", UriKind.Relative));
+        foreach (string route in routesWithoutGet)
+        {
+            using HttpResponseMessage response = await ApiClient.Http.GetAsync(
+                new Uri(QueryHelpers.AddQueryString(route, credentials), UriKind.Relative));
+            using JsonDocument body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+            answers[route] = $"{(int)response.StatusCode} {body.RootElement.GetProperty("error").GetString()}";
+        }
 
         // Assert
-        response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
-        using JsonDocument body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
-        body.RootElement.GetProperty("error").GetString().ShouldBe("invalid_request");
+        answers.ShouldContainKey("connect/introspect");
+        answers.ShouldAllBe(answer => answer.Value == "400 invalid_request");
     }
 
     [Theory]
@@ -286,7 +308,7 @@ public sealed class ConnectRateLimitingTests : EndpointsTestBase
         return new FormUrlEncodedContent(new Dictionary<string, string>
         {
             ["token"] = "not-a-real-reference-token",
-            ["client_id"] = "lotrokoniecdev-api",
+            ["client_id"] = AuthConstants.ClientIds.Api,
             ["client_secret"] = WrongClientSecret
         });
     }

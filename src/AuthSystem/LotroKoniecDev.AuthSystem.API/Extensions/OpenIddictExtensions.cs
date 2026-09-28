@@ -83,11 +83,9 @@ internal static class OpenIddictExtensions
                     aspNetCoreBuilder.DisableTransportSecurityRequirement();
                 }
 
-                // By default OpenIddict also reads an introspection request from a GET query string and
-                // checks its client secret. Only POST is routed to connect/introspect, so a GET would
-                // meet no rate limit, and a caller could guess the secret without a brake (#900).
-                // Reading POST only, as RFC 7662 defines it, refuses a GET with 400 before the client is
-                // checked, the same way token and revocation already do.
+                // Introspection reads POST only, like token and revocation. By default OpenIddict also
+                // reads it from GET and checks the client secret there, and a GET meets no rate limit
+                // (ADR-0061, #900).
                 options.RemoveEventHandler(
                     OpenIddictServerAspNetCoreHandlers.ExtractGetOrPostRequest<OpenIddictServerEvents.ExtractIntrospectionRequestContext>.Descriptor);
                 options.AddEventHandler(

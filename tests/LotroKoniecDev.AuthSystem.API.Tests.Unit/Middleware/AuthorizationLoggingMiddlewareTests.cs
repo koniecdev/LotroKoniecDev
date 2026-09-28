@@ -28,19 +28,8 @@ public sealed class AuthorizationLoggingMiddlewareTests
     {
         // Arrange
         CapturingLogger<AuthorizationLoggingMiddleware> logger = new();
-        AuthorizationLoggingMiddleware middleware = new(
-            context =>
-            {
-                context.Response.StatusCode = StatusCodes.Status403Forbidden;
-                return Task.CompletedTask;
-            },
-            new RateLimitPartitionKeyResolver(
-                Microsoft.Extensions.Options.Options.Create(new FrontendCallerSettings { Key = FrontendKey })),
-            logger);
-        DefaultHttpContext context = new();
-        context.Request.Method = HttpMethods.Post;
-        context.Request.Path = "/auth/account/change-email";
-        context.Connection.RemoteIpAddress = IPAddress.Parse("10.60.0.7");
+        AuthorizationLoggingMiddleware middleware = CreateMiddleware(StatusCodes.Status403Forbidden, logger);
+        DefaultHttpContext context = CreateContext(HttpMethods.Post, "/auth/account/change-email", "10.60.0.7");
         context.Request.Headers.Append(FrontendCallerHeaders.Key, FrontendKey);
         context.Request.Headers.Append(FrontendCallerHeaders.ClientAddress, "203.0.113.5");
         context.User = new ClaimsPrincipal(new ClaimsIdentity([new Claim(ClaimTypes.Name, "anna")], "Bearer"));
@@ -61,39 +50,62 @@ public sealed class AuthorizationLoggingMiddlewareTests
         warning.Message.ShouldBe("Forbidden access attempt: POST /auth/account/change-email from 203.0.113.5 via 10.60.0.7 by anna");
     }
 
-    [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public async Task InvokeAsync_WhenACallWithNoRealEndpointIsRefused_ShouldNotWarn(bool landsOnRoutingsMethodNotAllowedEndpoint)
+    [Fact]
+    public async Task InvokeAsync_WhenACallThatMatchesNoRouteIsRefused_ShouldNotWarn()
     {
-        // Arrange: neither a call that matches no route nor routing's 405 endpoint is a RouteEndpoint,
-        // and neither carries a rate limit, so scanners could add warnings there without end.
+        // Arrange: a call with no real endpoint carries no rate limit, so scanners could add warnings
+        // there without end.
         CapturingLogger<AuthorizationLoggingMiddleware> logger = new();
-        AuthorizationLoggingMiddleware middleware = new(
-            context =>
-            {
-                context.Response.StatusCode = StatusCodes.Status401Unauthorized;
-                return Task.CompletedTask;
-            },
-            new RateLimitPartitionKeyResolver(
-                Microsoft.Extensions.Options.Options.Create(new FrontendCallerSettings { Key = FrontendKey })),
-            logger);
-        DefaultHttpContext context = new();
-        context.Request.Method = HttpMethods.Get;
-        context.Request.Path = "/connect/introspect";
-        context.Connection.RemoteIpAddress = IPAddress.Parse("203.0.113.6");
-        if (landsOnRoutingsMethodNotAllowedEndpoint)
-        {
-            context.SetEndpoint(new Endpoint(
-                _ => Task.CompletedTask,
-                EndpointMetadataCollection.Empty,
-                "405 HTTP Method Not Supported"));
-        }
+        AuthorizationLoggingMiddleware middleware = CreateMiddleware(StatusCodes.Status401Unauthorized, logger);
+        DefaultHttpContext context = CreateContext(HttpMethods.Get, "/no-such-path", "203.0.113.6");
 
         // Act
         await middleware.InvokeAsync(context);
 
         // Assert
         logger.Entries.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task InvokeAsync_WhenACallOnRoutingsMethodNotAllowedEndpointIsRefused_ShouldNotWarn()
+    {
+        // Arrange: routing's 405 endpoint is a plain Endpoint, not a RouteEndpoint, and carries no rate limit
+        CapturingLogger<AuthorizationLoggingMiddleware> logger = new();
+        AuthorizationLoggingMiddleware middleware = CreateMiddleware(StatusCodes.Status401Unauthorized, logger);
+        DefaultHttpContext context = CreateContext(HttpMethods.Get, "/auth/change-password", "203.0.113.7");
+        context.SetEndpoint(new Endpoint(
+            _ => Task.CompletedTask,
+            EndpointMetadataCollection.Empty,
+            "405 HTTP Method Not Supported"));
+
+        // Act
+        await middleware.InvokeAsync(context);
+
+        // Assert
+        logger.Entries.ShouldBeEmpty();
+    }
+
+    private static AuthorizationLoggingMiddleware CreateMiddleware(
+        int statusCode,
+        CapturingLogger<AuthorizationLoggingMiddleware> logger)
+    {
+        return new AuthorizationLoggingMiddleware(
+            context =>
+            {
+                context.Response.StatusCode = statusCode;
+                return Task.CompletedTask;
+            },
+            new RateLimitPartitionKeyResolver(
+                Microsoft.Extensions.Options.Options.Create(new FrontendCallerSettings { Key = FrontendKey })),
+            logger);
+    }
+
+    private static DefaultHttpContext CreateContext(string method, string path, string connectionAddress)
+    {
+        DefaultHttpContext context = new();
+        context.Request.Method = method;
+        context.Request.Path = path;
+        context.Connection.RemoteIpAddress = IPAddress.Parse(connectionAddress);
+        return context;
     }
 }

@@ -4,8 +4,9 @@ using LotroKoniecDev.AuthSystem.API.Extensions;
 namespace LotroKoniecDev.AuthSystem.API.Settings;
 
 /// <summary>
-/// Stops the boot when the frontend caller key is missing in a deployed environment, or too short or
-/// padded with whitespace anywhere it is set (ADR-0054 §6, #857). Development and Testing run without
+/// Stops the boot when the frontend caller key is missing in a deployed environment. Anywhere it is set,
+/// it also stops the boot when the key is too short, has whitespace at either end, or holds a character
+/// a header cannot carry (ADR-0054 §6, #857, #877). Development and Testing run without
 /// the limiter, so there is nothing for the key to decide and they may leave it empty, the way
 /// <see cref="CorsSettingsValidator"/> skips its check there. Anywhere else a missing key would quietly
 /// put every visitor's frontend calls back into the frontend container's one bucket, and nothing but
@@ -57,6 +58,19 @@ internal sealed class FrontendCallerSettingsValidator : IValidateOptions<Fronten
                 + "end with whitespace. Check the quoting of FRONTEND_CALLER_KEY in the box .env.");
         }
 
+        // HttpClient refuses a line break or a non-ASCII character in a header, and Caddy answers 400 to
+        // every other control character except a tab. A tab would get through, but no generated key has
+        // one, so the one simple rule refuses it too (#877).
+        if (!key.All(IsPrintableAscii))
+        {
+            return ValidateOptionsResult.Fail(
+                $"{FrontendCallerSettings.ConfigurationSection}:{nameof(FrontendCallerSettings.Key)} must contain only "
+                + "printable ASCII characters: no line break, tab, other control character or non-ASCII character "
+                + "such as a non-breaking space. Check FRONTEND_CALLER_KEY in the box .env (openssl rand -base64 32).");
+        }
+
         return ValidateOptionsResult.Success;
     }
+
+    private static bool IsPrintableAscii(char character) => character is >= ' ' and <= '~';
 }

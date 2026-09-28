@@ -11,6 +11,7 @@ using LotroKoniecDev.AuthSystem.API.Extensions;
 using LotroKoniecDev.AuthSystem.API.Features.Auth;
 using LotroKoniecDev.AuthSystem.API.Hateoas.AccountAggregateFactories;
 using LotroKoniecDev.AuthSystem.API.Hateoas.DiscoveryFactories;
+using LotroKoniecDev.AuthSystem.API.Middleware;
 using LotroKoniecDev.AuthSystem.API.Outbox;
 using LotroKoniecDev.AuthSystem.API.Services.Accounts;
 using LotroKoniecDev.AuthSystem.API.Services.Emails;
@@ -43,6 +44,10 @@ internal static class ApiDependencyInjection
             services.AddExceptionHandler<ArgumentExceptionHandler>();
             services.AddExceptionHandler<DbUpdateConcurrencyExceptionHandler>();
             services.AddExceptionHandler<GlobalExceptionHandler>();
+
+            // Before AddProblemDetails(): the writers are asked in order, and ASP.NET Core's own writer
+            // would take a browser too, because a browser also accepts */* (#879).
+            services.AddSingleton<IProblemDetailsWriter, BrowserErrorPageWriter>();
             services.AddProblemDetails();
 
             services.ConfigureHttpJsonOptions(jsonOptions =>

@@ -4,9 +4,9 @@ using System.Text;
 namespace LotroKoniecDev.AuthSystem.API.Middleware;
 
 /// <summary>
-/// The frame of the pages a browser gets when the auth origin cannot answer normally: the 429 page and
-/// the 500 page. An API client keeps the machine-readable answer, so each page is written only for a
-/// browser.
+/// The frame of the pages a browser gets when the auth origin cannot answer normally: the 429 page, the
+/// 5xx page and the 4xx pages. An API client keeps the machine-readable answer, so each page is written
+/// only for a browser.
 /// </summary>
 /// <remarks>
 /// These pages are written here and not as Razor pages. Re-executing into a Razor page would keep the

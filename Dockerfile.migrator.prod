@@ -22,7 +22,7 @@ ARG BUILD_CONFIGURATION=Release
 # resolve step in the build stage). An explicit --build-arg TARGET_RUNTIME=<rid> still wins.
 ARG TARGET_RUNTIME=
 
-FROM mcr.microsoft.com/dotnet/sdk:10.0@sha256:2fa828c68761b1b8c23d7662dc134421b9d3b59fe1425fdbc80804e390cdb24d AS build
+FROM mcr.microsoft.com/dotnet/sdk:10.0@sha256:35d40304542c8689331f8cab17c65926cdf48fe711e289321d71924b230a7d29 AS build
 ARG BUILD_CONFIGURATION
 ARG TARGET_RUNTIME
 # Set automatically by BuildKit from the platform being built for; must be re-declared per stage to
@@ -98,7 +98,7 @@ RUN rid="$(cat /tmp/target-runtime)" && dotnet ef migrations bundle \
 # libgssapi-krb5-2 lets Npgsql negotiate GSSAPI cleanly (some Postgres hosts advertise it); without
 # it Npgsql logs a noisy `libgssapi_krb5.so.2: cannot open shared object file` before falling back to
 # password auth. Installing it keeps the migrator output clean and works against GSSAPI-capable hosts.
-FROM mcr.microsoft.com/dotnet/runtime-deps:10.0@sha256:23257ea51d7c12e0d5aabecaffe24b4eccacff63a2e669ea9408ac29790d4ce1 AS final
+FROM mcr.microsoft.com/dotnet/runtime-deps:10.0@sha256:099f6f87ed745377dd27bd722f0d1a352bca71b4fddaabfd75e7c064bcaa82da AS final
 RUN apt-get update \
     && apt-get install -y --no-install-recommends libgssapi-krb5-2 \
     && rm -rf /var/lib/apt/lists/*

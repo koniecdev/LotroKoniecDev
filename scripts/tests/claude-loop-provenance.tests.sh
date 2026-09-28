@@ -693,9 +693,11 @@ fixture_pr_view 788 OPEN 88-fixture
 # A usage-limit retry reuses the run folder; an earlier attempt's resume results must not stay.
 mkdir -p "$TMP_ROOT/run"
 echo stale > "$TMP_ROOT/run/ticket-88.json.before-resume-2"
+echo stale > "$TMP_ROOT/run/ticket-88.json.resume-2"
 run_case 0 "work-ticket: a session that stopped to wait is resumed and opens its PR" \
     env CLAUDE_BEHAVIOR="$TMP_ROOT/waits.sh" "$WORK" 88 "$TMP_ROOT/run"
-[ ! -e "$TMP_ROOT/run/ticket-88.json.before-resume-2" ] || fail "an earlier attempt's resume results should be cleared"
+[ ! -e "$TMP_ROOT/run/ticket-88.json.before-resume-2" ] && [ ! -e "$TMP_ROOT/run/ticket-88.json.resume-2" ] \
+    || fail "an earlier attempt's resume results should be cleared"
 expect_in_output "resuming it (1 of 2)"
 expect_in_output "PR #788 opened"
 [ "$(cat "$TMP_ROOT/claude-runs")" = "2" ] || fail "expected the first run and one resume" "$LAST_OUTPUT"
@@ -754,6 +756,17 @@ run_case 11 "work-ticket: a stranger's comment added during the run blocks the r
 [ "$(cat "$TMP_ROOT/claude-runs")" = "1" ] || fail "an untrusted ticket must not be resumed" "$LAST_OUTPUT"
 expect_meta 98 outcome=untrusted resumes=0
 [ ! -e "$WT_ROOT/ticket-98" ] || fail "the worktree should be removed"
+
+# The gate fails closed before a resume too: an issue it cannot read is never resumed.
+reset_fixtures
+fixture_issue 100 maintainer OWNER
+behavior "$TMP_ROOT/issue-unreadable.sh" 'rm -f "$GH_FIXTURES/issue-100.json"
+echo "{\"result\":\"The suite is still running.\",\"is_error\":false,\"session_id\":\"s-100\"}"'
+run_case 3 "work-ticket: an issue the gate cannot read before a resume is not resumed" \
+    env CLAUDE_BEHAVIOR="$TMP_ROOT/issue-unreadable.sh" "$WORK" 100 "$TMP_ROOT/run"
+expect_in_output "could not verify #100 before a resume"
+[ "$(cat "$TMP_ROOT/claude-runs")" = "1" ] || fail "an unverifiable ticket must not be resumed" "$LAST_OUTPUT"
+expect_meta 100 outcome=error resumes=0
 
 reset_fixtures
 fixture_issue 90 maintainer OWNER

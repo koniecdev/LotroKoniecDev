@@ -206,7 +206,8 @@ handle_exit() {
         2) blocked=$((blocked + 1)); consecutive_failures=0 ;;
         12) skipped=$((skipped + 1)); consecutive_failures=0 ;;
         11)
-            # Refused before any session started: the ticket carries untrusted text. Not a
+            # Refused by the provenance gate, at the start (no session ran) or before a resume
+            # (the work so far is kept on its branch): the ticket carries untrusted text. Not a
             # systemic failure — skip it and keep going (drain mode never selects one anyway).
             untrusted=$((untrusted + 1)); consecutive_failures=0 ;;
         6)

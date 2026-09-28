@@ -442,7 +442,8 @@ while :; do
     meta resumes "$resumes"
     log "the session stopped without a STATUS line — resuming it ($resumes of $MAX_RESUMES)"
     run_session "$OUT.resume-$resumes" "$(nudge "$left_min")" --resume "$session_id"
-    mv "$OUT" "$OUT.before-resume-$resumes"
+    # Copy, then rename over: a stop between the two steps still leaves a result in $OUT.
+    cp "$OUT" "$OUT.before-resume-$resumes"
     mv "$OUT.resume-$resumes" "$OUT"
 done
 

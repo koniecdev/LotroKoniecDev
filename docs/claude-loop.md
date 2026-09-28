@@ -201,8 +201,9 @@ Per-ticket outcomes:
   so the next run can start the ticket again.
 - **usage limit** — the loop starts nothing new, lets the running tickets finish, naps
   (`LOOP_LIMIT_SLEEP_MIN`) and runs the limited tickets again.
-- **untrusted** — the ticket failed the provenance gate; it is skipped without spawning a session
-  and without counting toward the failure circuit breaker (drain mode never selects one anyway).
+- **untrusted** — the ticket failed the provenance gate, either at the start (no session is
+  spawned) or before a resume (the work so far is kept on its branch). It does not count toward
+  the failure circuit breaker (drain mode never selects one anyway).
 
 ### A session that stops without a verdict (#925)
 
@@ -243,8 +244,9 @@ when it ends. The result it replaces moves to `ticket-<n>.json.before-resume-<k>
 matches the conductor's `ticket-*.json`, and that matters for the cost total: a resumed run
 reports the cost of the whole session, not of its own run. That was checked in a real run, and so
 was the budget: `--max-budget-usd` also counts the whole session, so `LOOP_MAX_BUDGET_USD` stays
-a cap per ticket. A resume that is killed by the clock or by you leaves the last result, and its
-cost, in `ticket-<n>.json`. Only a first run that is stopped leaves no cost, as before. A
+a cap per ticket. A resume that is killed by the clock or by you leaves the last finished result,
+and the cost up to it, in `ticket-<n>.json`; only the killed run's own spend is missing, as it is
+for a first run that is stopped. A
 usage-limit retry runs the ticket again in the same run folder, so it clears these files first,
 just as it overwrites the `.json` and `.stderr` of the attempt before.
 

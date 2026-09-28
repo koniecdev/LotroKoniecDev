@@ -8,6 +8,46 @@
 `docs/claude-loop.md`, the maintainer's `merge-train` skill (outside this repo); ADR-0026 (its §D is
 reversed here); ticket #884 / PR #895 (per-worktree E2E images)
 
+## Amendment (2026-09-28): rebase only, and the push log decides what the owner read
+
+**Supersedes §4's "a merge commit, never a rebase" and its push-time rules.** The owner's rule: a
+feature branch is brought up to date by a rebase only, whatever tool does it. A merge of `main`
+into a branch never happens.
+
+The merge-commit update had a cost nobody saw on 2026-09-27. Once a branch holds a merge of `main`,
+GitHub's rebase button can no longer update it: a rebase replays each commit on its own and meets
+again the conflict that the merge had already resolved. PR #904 got stuck exactly like that.
+Sessions copied the idea too, and "fixed" a conflict with a local `git merge origin/main`.
+
+A rebase is a force push, and until now any force push after the assignment voided the approval.
+The review of this change also found two older holes in the gate:
+
+- The push time of a commit was its first check suite. That is the first time GitHub saw the
+  commit anywhere, not the time it reached this PR. A commit dropped before the review and pushed
+  back after it passed as "old".
+- Any two-parent commit made by GitHub counted as "brings in `main` and nothing else". A conflict
+  resolved in GitHub's web editor makes exactly such a commit, and it holds new code.
+
+So the gate now works from GitHub's push log for the branch (the Activity API). It lists every
+push and force push, with the commit before and after it:
+
+- The approved commit is the head after the last push before the owner's latest assignment. A
+  push in the same second as the assignment counts as after it, so a tie refuses.
+- If nothing was pushed after the assignment, the PR head must be the approved commit.
+- If something was, the train fetches the approved commit, the head and `main` into a cache repo.
+  Then it merges the approved commit into the `main` commit that the head sits on
+  (`git merge-tree`). The approval holds only when that merge is clean and its tree is exactly the
+  head's tree. A conflict resolution, extra code, or a rebase onto another branch is code the owner
+  has not read. The owner reads it and assigns again.
+- A branch that holds a merge commit is refused, in every repo, whatever made it.
+- The branch must live in this repo. The push log of a fork's branch cannot be read, so such a PR
+  is refused.
+
+The train updates a branch that is behind with `gh pr update-branch --rebase`. When GitHub cannot
+rebase it (a conflict), the train leaves the PR for a person and never falls back to a merge
+commit. The fix is a local `git rebase origin/main` and a `--force-with-lease` push. The same check
+applies to that push, so a clean local rebase keeps the approval too.
+
 ## Context
 
 Until now the backlog loop merged its own work. `work-ticket.sh` waited for `pr-verify`, checked
@@ -77,22 +117,18 @@ No session and no script ever sets an assignee. The owner assigns themselves aft
 In this repo, `merge-train` merges a PR written by a person only when:
 
 - the owner is an assignee, and the owner is the one who assigned them;
-- the newest commit that carries code (found from the PR head, walking past GitHub's own
-  update-branch merges, since the commit list has no promised order) reached GitHub before the
-  owner's latest assignment. GitHub
-  keeps no push time per commit, so "reached" is the first check suite GitHub created for that
-  commit. The commit date alone is not enough: the client writes it, and a worker commits, runs
-  the whole suite for minutes, and only then pushes. The commit date is checked as well;
-- no force push happened after that assignment.
+- the branch's push log shows which head the owner read: the one left by the last push before the
+  owner's latest assignment;
+- nothing was pushed after that, or everything pushed after it adds up to that head rebased onto
+  `main` and nothing more;
+- the branch holds no merge commit, and it lives in this repo, not in a fork.
 
-GitHub's own two-parent merge (the "update branch" commit) does not count: it brings in `main` and
-no code the owner has not seen. A web-UI edit or a committed suggestion is also committed by
-GitHub, but it changes code, so it counts. In this repo the train therefore brings a branch up to
-date with a merge commit, never a rebase: a rebase is a force push, and it would void the approval
-it is about to act on. It checks the approval before that update and again right before the merge,
-and the merge call passes `--match-head-commit`, so a push that lands after the last check makes
-the merge fail instead of merging unread code. To approve again after a push, the owner unassigns
-and assigns again.
+(Amended 2026-09-28, see the amendment above. The first version took each commit's push time from
+its first check suite and let GitHub's own two-parent merge through.) The train brings a branch up
+to date with a rebase, never a merge commit. It checks the approval before that update and again
+right before the merge, and the merge call passes `--match-head-commit`, so a push that lands after
+the last check makes the merge fail instead of merging unread code. To approve again after a push,
+the owner unassigns and assigns again.
 
 Bots keep the old rule. Dependabot is trusted by login and needs no assignee: its PRs are version
 bumps that CI proves, and the owner never reviewed them one by one.
@@ -122,15 +158,15 @@ session.
 
 - Merges wait for the owner. The loop's throughput is now bounded by review time.
 - PRs cut from the same `main` can conflict. After the first one merges, the second may need a
-  rebase, which is a force push, so it needs a fresh look and a fresh assignment. Picking tickets
-  that touch different areas keeps this rare.
+  rebase. When that rebase needs a conflict resolution, the resolution is new code, so it needs a
+  fresh look and a fresh assignment. Picking tickets that touch different areas keeps this rare.
 - GitHub does not enforce the assignee. Any session holding the owner's token could set it. The
   rule "no session sets an assignee" lives in the worker and `/ticket` prompts, and the staleness
-  check limits the damage to code that existed before the owner looked.
-- The push time comes from check suites. A PR whose newest commit has no check suite is refused
-  until one exists. Every PR here runs `pr-verify`, so in practice every pushed commit has one.
-- PR branches can carry a GitHub merge commit from the train. The squash merge removes it from
-  `main`, so `main` stays linear.
+  check limits the damage to code that was on GitHub when the owner assigned themselves.
+- The gate knows when the owner clicked, not what the owner saw. A push that lands while the owner
+  reads, before the click, counts as read. So the owner reloads the PR right before assigning.
+- The gate trusts GitHub's push log (the Activity API). A branch whose log is missing, or does not
+  reach the PR head yet, is refused until it does (amended 2026-09-28).
 - The approval rule lives in the maintainer's `merge-train` script, outside this repo.
 
 ## Alternatives Considered
@@ -179,9 +215,10 @@ the same either way, so serial only costs wall-clock time. `-j 1` stays availabl
   `scripts/tests/claude-loop-provenance.tests.sh` gains the in-flight cases.
 - `.claude/commands/work-ticket.md`, `ticket.md`: never set an assignee; the wiki path works from a
   worktree. `.claude/commands/backlog.md`, `docs/claude-loop.md`, `CLAUDE.md` (Loop mode) follow.
-- The maintainer's `~/.claude-account1/skills/merge-train/merge-train.sh`: the approval check, a
-  merge-commit branch update, `--match-head-commit`, and no `--delete-branch` for this repo, with
-  its own offline self-test `merge-train.tests.sh` next to it.
+- The maintainer's `~/.claude-account1/skills/merge-train/merge-train.sh`: the approval check
+  (the push log and the tree check since 2026-09-28), a rebase-only branch update, the merge-commit
+  refusal, `--match-head-commit`, and no `--delete-branch` for this repo, with its own offline
+  self-test `merge-train.tests.sh` next to it.
 
 ## References
 

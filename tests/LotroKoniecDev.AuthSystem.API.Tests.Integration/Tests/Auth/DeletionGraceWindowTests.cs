@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Net.Http.Headers;
 using System.Text.RegularExpressions;
 using Microsoft.AspNetCore.Identity;
@@ -5,6 +6,7 @@ using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
+using LotroKoniecDev.AuthSystem.API.Features.Auth;
 using LotroKoniecDev.AuthSystem.API.Outbox;
 using LotroKoniecDev.AuthSystem.API.Services.Gdpr;
 using LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared;
@@ -55,16 +57,19 @@ public sealed partial class DeletionGraceWindowTests : AsyncLifetimeTestBase
     public async Task LoginPage_ShouldShowScheduledDeletionMessage_WhenPasswordIsCorrect()
     {
         // Arrange
-        (RegisterRequest registerRequest, _) = await RegisterAndScheduleDeletionAsync();
+        (RegisterRequest registerRequest, _) =
+            await UserFactory.RegisterRandomUserWithRequestAsync(ApiClient, Faker, AccountConfirmationEmailSpy, TestPassword);
+        DateTimeOffset finalizesAt = await ScheduleDeletionAsync(registerRequest.Email);
 
         // Act
         HttpResponseMessage response = await PostLoginFormAsync(registerRequest.Email, TestPassword);
 
-        // Assert
+        // Assert: the same minute the frontend page prints from the header, not just the day (#890).
+        // The page reads the saved row, and Npgsql cuts the digits below a microsecond when it saves it.
+        // A minute always starts on a whole microsecond, so that cut can never change the minute.
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
         string html = await response.Content.ReadAsStringAsync();
-        html.ShouldContain("zaplanowane do usunięcia");
-        html.ShouldMatch(@"\d{4}-\d{2}-\d{2} czasu polskiego");
+        html.ShouldContain($"zaplanowane do usunięcia dnia {PolandMinuteText(finalizesAt)} czasu polskiego.");
     }
 
     [Fact]
@@ -360,7 +365,11 @@ public sealed partial class DeletionGraceWindowTests : AsyncLifetimeTestBase
         return (registerRequest, AccountDeletionEmailSpy.LastCancelToken!);
     }
 
-    private async Task ScheduleDeletionAsync(string email)
+    /// <summary>
+    /// Returns the moment from the <c>X-Deletion-Finalizes-At</c> header, which is what the frontend
+    /// page prints.
+    /// </summary>
+    private async Task<DateTimeOffset> ScheduleDeletionAsync(string email)
     {
         string accessToken = await GetAccessTokenAsync(email);
 
@@ -375,6 +384,9 @@ public sealed partial class DeletionGraceWindowTests : AsyncLifetimeTestBase
         // The cancel token arrives through the pipeline (ADR-0038) and not with the request. Callers
         // read it off the spy right after this returns, so wait for the delivery here.
         await AccountDeletionEmailSpy.WaitForScheduledCaptureAsync();
+
+        string finalizesAtHeader = response.Headers.GetValues(DeleteAccount.DeletionFinalizesAtHeader).Single();
+        return DateTimeOffset.Parse(finalizesAtHeader, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind);
     }
 
     private async Task<string> GetAccessTokenAsync(string email)
@@ -407,6 +419,14 @@ public sealed partial class DeletionGraceWindowTests : AsyncLifetimeTestBase
         AuthDbContext db = scope.ServiceProvider.GetRequiredService<AuthDbContext>();
         return await db.Users.AsNoTracking().SingleAsync(u => u.Email == email);
     }
+
+    /// <summary>
+    /// Written out here instead of calling the production helper, so a change to its format fails the
+    /// test instead of moving the expectation with it.
+    /// </summary>
+    private static string PolandMinuteText(DateTimeOffset instant) =>
+        TimeZoneInfo.ConvertTime(instant, TimeZoneInfo.FindSystemTimeZoneById("Europe/Warsaw"))
+            .ToString("yyyy-MM-dd 'o' HH:mm", CultureInfo.InvariantCulture);
 
     private DateTimeOffset GracePeriodEnd(ApplicationUser user)
     {

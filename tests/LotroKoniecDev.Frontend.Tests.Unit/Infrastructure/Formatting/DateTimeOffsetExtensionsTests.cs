@@ -22,6 +22,9 @@ public sealed class DateTimeOffsetExtensionsTests
     // The last minute before the spring-forward jump, and the first one after it.
     [InlineData("2026-03-29T00:59:00Z", "2026-03-29 01:59 czasu polskiego")]
     [InlineData("2026-03-29T01:00:00Z", "2026-03-29 03:00 czasu polskiego")]
+    // The seconds are cut, never rounded. The auth e-mails and login page cut them too, so both name
+    // the same minute for the deletion moment (#890).
+    [InlineData("2026-08-18T22:30:59.999Z", "2026-08-19 00:30 czasu polskiego")]
     // An input carrying its own non-UTC offset still converts by instant.
     [InlineData("2026-08-24T16:48:00-05:00", "2026-08-24 23:48 czasu polskiego")]
     public void ToPolandTimeText_RendersTheInstantInPolandTimeWithTheZoneNamed(string instant, string expected)

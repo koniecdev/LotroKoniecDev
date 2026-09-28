@@ -3,18 +3,16 @@ using System.Globalization;
 namespace LotroKoniecDev.AuthSystem.API.Extensions;
 
 /// <summary>
-/// The one place a stored instant becomes a date that an auth page or e-mail prints (#736, #812). The
-/// server's own zone is UTC in a container, and lotro-translator.pl serves Polish users, so every
-/// visible date is converted to Poland time. A date that stands on its own also names the zone, because
-/// a reader in another zone cannot tell which day is meant near midnight. That includes an e-mail's
-/// preheader, which the inbox list shows with nothing around it. No auth text names the zone in its own
-/// words today. The first one that does gets an unlabelled twin of <see cref="ToPolandDateText"/> here,
-/// so the date format stays in this class. The frontend follows the same rule through its own copy
-/// (<c>Frontend.Infrastructure.Formatting.DateTimeOffsetExtensions</c>).
+/// The one place a stored instant becomes text that an auth page or e-mail prints (#736). The server
+/// runs in UTC, but the users are in Poland, so every date is shown in Poland time. The text names the
+/// zone, because near midnight a reader in another zone would see another day (#812). It also names
+/// the hour and minute, because a deletion can fall just after midnight (#890). The frontend has its
+/// own copy with the same digits (<c>Frontend.Infrastructure.Formatting.DateTimeOffsetExtensions</c>),
+/// so a page and an e-mail name the same minute. A new auth date format goes in this class too.
 /// </summary>
 internal static class DateTimeOffsetExtensions
 {
-    private const string LabelledPolandDateFormat = "yyyy-MM-dd 'czasu polskiego'";
+    private const string LabelledPolandDateTimeFormat = "yyyy-MM-dd 'o' HH:mm 'czasu polskiego'";
 
     private static readonly TimeZoneInfo PolandTimeZone =
         TimeZoneInfo.FindSystemTimeZoneById("Europe/Warsaw");
@@ -22,6 +20,6 @@ internal static class DateTimeOffsetExtensions
     public static DateTimeOffset ToPolandTime(this DateTimeOffset value) =>
         TimeZoneInfo.ConvertTime(value, PolandTimeZone);
 
-    public static string ToPolandDateText(this DateTimeOffset value) =>
-        value.ToPolandTime().ToString(LabelledPolandDateFormat, CultureInfo.InvariantCulture);
+    public static string ToPolandDateTimeText(this DateTimeOffset value) =>
+        value.ToPolandTime().ToString(LabelledPolandDateTimeFormat, CultureInfo.InvariantCulture);
 }

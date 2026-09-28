@@ -123,10 +123,11 @@ public sealed class AccountDeletionEmailSenderTests
     }
 
     [Fact]
-    public async Task SendDeletionScheduledEmail_NamesPolandTimeWhereverItPrintsTheDate()
+    public async Task SendDeletionScheduledEmail_NamesTheMinuteInPolandTimeWhereverItPrintsTheDate()
     {
         // The inbox list shows the preheader with nothing around it, so the date there needs the zone
-        // as much as the one in the body (#812). The instant is still the 18th in UTC.
+        // as much as the one in the body (#812). The instant is still the 18th in UTC. In Poland it is
+        // half an hour into the 19th, so the day alone would promise a whole day that is not there (#890).
         _linkFactory.Create(Arg.Any<string>(), Arg.Any<string>()).Returns("https://auth.test/cancel");
         EmailBody? captured = null;
         _emailService.SendAsync(
@@ -139,15 +140,15 @@ public sealed class AccountDeletionEmailSenderTests
             Guid.NewGuid(), CurrentEmail, "cancel-token", EveningFinalizesAt, CancellationToken.None);
 
         captured.ShouldNotBeNull();
-        captured.Html.ShouldContain("trwale usunięte dnia 2026-08-19 czasu polskiego.");
+        captured.Html.ShouldContain("trwale usunięte dnia 2026-08-19 o 00:30 czasu polskiego.");
         captured.Html.ShouldNotContain("2026-08-18");
-        Occurrences(captured.Html, "2026-08-19").ShouldBe(Occurrences(captured.Html, "2026-08-19 czasu polskiego"));
-        captured.PlainText.ShouldContain("2026-08-19 czasu polskiego");
-        Occurrences(captured.PlainText, "2026-08-19").ShouldBe(Occurrences(captured.PlainText, "2026-08-19 czasu polskiego"));
+        Occurrences(captured.Html, "2026-08-19").ShouldBe(Occurrences(captured.Html, "2026-08-19 o 00:30 czasu polskiego"));
+        captured.PlainText.ShouldContain("2026-08-19 o 00:30 czasu polskiego");
+        Occurrences(captured.PlainText, "2026-08-19").ShouldBe(Occurrences(captured.PlainText, "2026-08-19 o 00:30 czasu polskiego"));
     }
 
     [Fact]
-    public async Task SendDeletionScheduledNoticeToPreviousAddress_NamesPolandTimeWhereverItPrintsTheDate()
+    public async Task SendDeletionScheduledNoticeToPreviousAddress_NamesTheMinuteInPolandTimeWhereverItPrintsTheDate()
     {
         _linkFactory.Create(Arg.Any<string>(), Arg.Any<string>()).Returns("https://auth.test/cancel");
         EmailBody? captured = null;
@@ -161,11 +162,11 @@ public sealed class AccountDeletionEmailSenderTests
             Guid.NewGuid(), PreviousEmail, CurrentEmail, "cancel-token", EveningFinalizesAt, CancellationToken.None);
 
         captured.ShouldNotBeNull();
-        captured.Html.ShouldContain("zostanie usunięte dnia 2026-08-19 czasu polskiego.");
+        captured.Html.ShouldContain("zostanie usunięte dnia 2026-08-19 o 00:30 czasu polskiego.");
         captured.Html.ShouldNotContain("2026-08-18");
-        Occurrences(captured.Html, "2026-08-19").ShouldBe(Occurrences(captured.Html, "2026-08-19 czasu polskiego"));
-        captured.PlainText.ShouldContain("2026-08-19 czasu polskiego");
-        Occurrences(captured.PlainText, "2026-08-19").ShouldBe(Occurrences(captured.PlainText, "2026-08-19 czasu polskiego"));
+        Occurrences(captured.Html, "2026-08-19").ShouldBe(Occurrences(captured.Html, "2026-08-19 o 00:30 czasu polskiego"));
+        captured.PlainText.ShouldContain("2026-08-19 o 00:30 czasu polskiego");
+        Occurrences(captured.PlainText, "2026-08-19").ShouldBe(Occurrences(captured.PlainText, "2026-08-19 o 00:30 czasu polskiego"));
     }
 
     private static int Occurrences(string text, string value) =>

@@ -96,10 +96,10 @@ internal sealed partial class AccountDeletionScheduledProcessor : IEmailMessageP
         }
 
         // Guards against a delivery that arrives much later, such as a replay from the dead-letter
-        // queue. Once the cancel token's own window is over, the e-mail's "cancel until <date>" is
-        // wrong and the link in it is dead. Erasure also leaves DeletionScheduledAt set, with a
-        // made-up address on the row, so the check above on its own would let a late replay create a
-        // working cancel token for an anonymized account.
+        // queue. Once the cancel token's own window is over, the cancel link in the e-mail is dead.
+        // Erasure also leaves DeletionScheduledAt set, with a made-up address on the row, so the check
+        // above on its own would let a late replay create a working cancel token for an anonymized
+        // account.
         DateTimeOffset now = _timeProvider.GetUtcNow();
         DateTimeOffset cancellableUntil = _deletionSchedule.CancellableUntil(user.DeletionScheduledAt.Value);
         if (cancellableUntil <= now)

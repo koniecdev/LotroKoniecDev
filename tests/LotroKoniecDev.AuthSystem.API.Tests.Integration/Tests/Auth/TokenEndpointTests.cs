@@ -362,12 +362,12 @@ public sealed class TokenEndpointTests : EndpointsTestBase
         const string password = "TestPass1!";
         (RegisterRequest request, _) =
             await UserFactory.RegisterRandomUserWithRequestAsync(ApiClient, Faker, AccountConfirmationEmailSpy, password);
-        string refreshToken = await SignInForRefreshTokenAsync(request.Email, password);
+        string refreshToken = await GetRefreshTokenAsync(request.Email, password);
 
         await AccountStateFactory.LockOutAsync(Factory.Services, request.Email);
 
         // Act
-        using HttpResponseMessage response = await RefreshAsync(refreshToken);
+        using HttpResponseMessage response = await RequestRefreshGrantAsync(refreshToken);
 
         // Assert
         response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
@@ -385,12 +385,12 @@ public sealed class TokenEndpointTests : EndpointsTestBase
         const string password = "TestPass1!";
         (RegisterRequest request, _) =
             await UserFactory.RegisterRandomUserWithRequestAsync(ApiClient, Faker, AccountConfirmationEmailSpy, password);
-        string refreshToken = await SignInForRefreshTokenAsync(request.Email, password);
+        string refreshToken = await GetRefreshTokenAsync(request.Email, password);
 
         await AccountStateFactory.ScheduleDeletionAsync(Factory.Services, request.Email);
 
         // Act
-        using HttpResponseMessage response = await RefreshAsync(refreshToken);
+        using HttpResponseMessage response = await RequestRefreshGrantAsync(refreshToken);
 
         // Assert
         response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
@@ -407,7 +407,7 @@ public sealed class TokenEndpointTests : EndpointsTestBase
         const string password = "TestPass1!";
         (RegisterRequest request, _) =
             await UserFactory.RegisterRandomUserWithRequestAsync(ApiClient, Faker, AccountConfirmationEmailSpy, password);
-        string refreshToken = await SignInForRefreshTokenAsync(request.Email, password);
+        string refreshToken = await GetRefreshTokenAsync(request.Email, password);
 
         await using (AsyncServiceScope scope = Factory.Services.CreateAsyncScope())
         {
@@ -419,7 +419,7 @@ public sealed class TokenEndpointTests : EndpointsTestBase
         }
 
         // Act
-        using HttpResponseMessage response = await RefreshAsync(refreshToken);
+        using HttpResponseMessage response = await RequestRefreshGrantAsync(refreshToken);
 
         // Assert
         response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
@@ -428,26 +428,28 @@ public sealed class TokenEndpointTests : EndpointsTestBase
         body.RootElement.GetProperty("error_description").GetString().ShouldBe("The refresh token is no longer valid.");
     }
 
-    private async Task<string> SignInForRefreshTokenAsync(string email, string password)
+    [Theory]
+    [InlineData("urn:ietf:params:oauth:grant-type:device_code")]
+    [InlineData("urn:ietf:params:oauth:grant-type:token-exchange")]
+    [InlineData("made_up_grant")]
+    public async Task TokenRequest_ShouldRefuseWithUnsupportedGrantType_WhenTheGrantTypeIsNotEnabled(string grantType)
     {
-        using HttpResponseMessage loginResponse =
-            await RequestPasswordGrantAsync(email, password, "email profile roles api offline_access");
-        loginResponse.StatusCode.ShouldBe(HttpStatusCode.OK);
-
-        using JsonDocument loginJson = JsonDocument.Parse(await loginResponse.Content.ReadAsStringAsync());
-        return loginJson.RootElement.GetProperty("refresh_token").GetString()!;
-    }
-
-    private async Task<HttpResponseMessage> RefreshAsync(string refreshToken)
-    {
-        using FormUrlEncodedContent refreshRequest = new(new Dictionary<string, string>
+        // Arrange: the handler throws for a grant it has no branch for, so OpenIddict must refuse these
+        // before the handler runs
+        using FormUrlEncodedContent tokenRequest = new(new Dictionary<string, string>
         {
-            ["grant_type"] = "refresh_token",
-            ["refresh_token"] = refreshToken,
+            ["grant_type"] = grantType,
             ["client_id"] = "lotrokoniecdev-test"
         });
 
-        return await ApiClient.Http.PostAsync(new Uri("connect/token", UriKind.Relative), refreshRequest);
+        // Act
+        using HttpResponseMessage response = await ApiClient.Http.PostAsync(
+            new Uri("connect/token", UriKind.Relative), tokenRequest);
+
+        // Assert
+        response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        using JsonDocument body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        body.RootElement.GetProperty("error").GetString().ShouldBe("unsupported_grant_type");
     }
 
     private async Task<JsonDocument> IntrospectTokenAsync(string token)

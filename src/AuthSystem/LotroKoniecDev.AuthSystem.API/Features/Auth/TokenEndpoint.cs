@@ -60,7 +60,9 @@ internal sealed class TokenEndpoint : IEndpoint
             return HandleClientCredentialsGrant(request);
         }
 
-        return Refuse(Errors.UnsupportedGrantType, "The specified grant type is not supported.");
+        // OpenIddict refuses every grant type that is not enabled before this handler runs. Reaching
+        // this line means a flow was enabled without a branch above.
+        throw new InvalidOperationException($"The grant type '{request.GrantType}' is enabled but not handled.");
     }
 
     private static async Task<IResult> HandleAuthorizationCodeGrantAsync(
@@ -73,7 +75,7 @@ internal sealed class TokenEndpoint : IEndpoint
 
         if (result is not { Succeeded: true })
         {
-            return Refuse(Errors.InvalidGrant, AuthorizationCodeNoLongerValid);
+            return Refuse(AuthorizationCodeNoLongerValid);
         }
 
         // The code carries the stamp read at /connect/authorize, and the account can change in the
@@ -87,7 +89,7 @@ internal sealed class TokenEndpoint : IEndpoint
             || await userManager.IsLockedOutAsync(user)
             || !await SessionSecurityStamp.IsCurrentAsync(result.Principal, user, signInManager))
         {
-            return Refuse(Errors.InvalidGrant, AuthorizationCodeNoLongerValid);
+            return Refuse(AuthorizationCodeNoLongerValid);
         }
 
         return Results.SignIn(
@@ -110,7 +112,7 @@ internal sealed class TokenEndpoint : IEndpoint
             // exists.
             _ = userManager.PasswordHasher.VerifyHashedPassword(
                 new ApplicationUser(), DummyPasswordHash, request.Password!);
-            return Refuse(Errors.InvalidGrant, InvalidCredentials);
+            return Refuse(InvalidCredentials);
         }
 
         // An account with a scheduled deletion is also locked out, so this check has to come before
@@ -122,17 +124,17 @@ internal sealed class TokenEndpoint : IEndpoint
             bool deletionScheduledPasswordValid = await userManager.CheckPasswordAsync(user, request.Password!);
             if (!deletionScheduledPasswordValid)
             {
-                return Refuse(Errors.InvalidGrant, InvalidCredentials);
+                return Refuse(InvalidCredentials);
             }
 
-            return Refuse(Errors.InvalidGrant, AccountDeletionScheduledCode);
+            return Refuse(AccountDeletionScheduledCode);
         }
 
         SignInResult result = await signInManager.CheckPasswordSignInAsync(user, request.Password!, lockoutOnFailure: true);
 
         if (result.IsLockedOut || !result.Succeeded)
         {
-            return Refuse(Errors.InvalidGrant, InvalidCredentials);
+            return Refuse(InvalidCredentials);
         }
 
         ClaimsIdentity identity = await CreateClaimsIdentityAsync(user, userManager, request);
@@ -154,14 +156,14 @@ internal sealed class TokenEndpoint : IEndpoint
 
         if (string.IsNullOrEmpty(userId))
         {
-            return Refuse(Errors.InvalidGrant, RefreshTokenNoLongerValid);
+            return Refuse(RefreshTokenNoLongerValid);
         }
 
         ApplicationUser? user = await userManager.FindByIdAsync(userId);
 
         if (user is null)
         {
-            return Refuse(Errors.InvalidGrant, RefreshTokenNoLongerValid);
+            return Refuse(RefreshTokenNoLongerValid);
         }
 
         // Refresh tokens are revoked when a GDPR deletion is scheduled, but that revocation is only
@@ -169,7 +171,7 @@ internal sealed class TokenEndpoint : IEndpoint
         // refresh its way back to a working access token.
         if (user.DeletionScheduledAt is not null || await userManager.IsLockedOutAsync(user))
         {
-            return Refuse(Errors.InvalidGrant, RefreshTokenNoLongerValid);
+            return Refuse(RefreshTokenNoLongerValid);
         }
 
         // Every flow that ends all sessions changes the stamp, and its token revocation is only best
@@ -177,7 +179,7 @@ internal sealed class TokenEndpoint : IEndpoint
         // unlocked, for example when a scheduled deletion is cancelled (#848).
         if (!await SessionSecurityStamp.IsCurrentAsync(authenticateResult.Principal!, user, signInManager))
         {
-            return Refuse(Errors.InvalidGrant, RefreshTokenNoLongerValid);
+            return Refuse(RefreshTokenNoLongerValid);
         }
 
         ClaimsIdentity identity = (ClaimsIdentity)authenticateResult.Principal!.Identity!;
@@ -252,11 +254,11 @@ internal sealed class TokenEndpoint : IEndpoint
     /// (RFC 6749 §5.2), not from ProblemDetails. With ProblemDetails, the frontend's OpenID Connect
     /// handler logged a failed sign-in with an empty reason (#903).
     /// </summary>
-    private static IResult Refuse(string error, string description) =>
+    private static IResult Refuse(string description) =>
         Results.Forbid(
             new AuthenticationProperties(new Dictionary<string, string?>
             {
-                [OpenIddictServerAspNetCoreConstants.Properties.Error] = error,
+                [OpenIddictServerAspNetCoreConstants.Properties.Error] = Errors.InvalidGrant,
                 [OpenIddictServerAspNetCoreConstants.Properties.ErrorDescription] = description
             }),
             [OpenIddictServerAspNetCoreDefaults.AuthenticationScheme]);

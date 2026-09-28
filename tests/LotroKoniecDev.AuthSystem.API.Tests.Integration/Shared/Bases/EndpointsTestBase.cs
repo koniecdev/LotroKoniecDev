@@ -28,6 +28,30 @@ public abstract class EndpointsTestBase : AsyncLifetimeTestBase
         return json.RootElement.GetProperty("access_token").GetString()!;
     }
 
+    protected async Task<string> GetRefreshTokenAsync(string email, string password)
+    {
+        using HttpResponseMessage tokenResponse =
+            await RequestPasswordGrantAsync(email, password, "email profile roles api offline_access");
+
+        tokenResponse.StatusCode.ShouldBe(HttpStatusCode.OK);
+
+        string content = await tokenResponse.Content.ReadAsStringAsync();
+        using JsonDocument json = JsonDocument.Parse(content);
+        return json.RootElement.GetProperty("refresh_token").GetString()!;
+    }
+
+    protected async Task<HttpResponseMessage> RequestRefreshGrantAsync(string refreshToken)
+    {
+        using FormUrlEncodedContent refreshRequest = new(new Dictionary<string, string>
+        {
+            ["grant_type"] = "refresh_token",
+            ["refresh_token"] = refreshToken,
+            ["client_id"] = "lotrokoniecdev-test"
+        });
+
+        return await ApiClient.Http.PostAsync(new Uri("connect/token", UriKind.Relative), refreshRequest);
+    }
+
     protected async Task<HttpResponseMessage> RequestPasswordGrantAsync(
         string email,
         string password,

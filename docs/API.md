@@ -332,11 +332,16 @@ always appended so pagination order is total. Without `sort`, translations order
 | `GET` | `/.well-known/openid-configuration` | anonymous | OIDC discovery document |
 | `GET` | `/.well-known/jwks` | anonymous | JSON Web Key Set (public signing key) |
 
-The `connect/*` endpoints answer errors in the OAuth shape, never as `ProblemDetails`: a JSON body
-with `error`, `error_description` and `error_uri` (RFC 6749 §5.2). OAuth clients, the frontend's
-OpenID Connect handler among them, read only `error` (#903). A refused `connect/token` request is
-**400** `invalid_grant`, including the password grant's `account_deletion_scheduled` answer, which
-rides in `error_description`. A wrong client secret is **401** `invalid_client`.
+A request that OpenIddict or a `connect/*` handler refuses gets the OAuth error shape, not
+`ProblemDetails`: an `application/json` body with `error` and `error_description` (RFC 6749 §5.2).
+OAuth clients read those fields. The frontend's OpenID Connect handler logged an empty reason while
+the token endpoint still answered with `ProblemDetails` (#903). Every refusal the token handler
+makes itself is **400** `invalid_grant`: a code or refresh token that is no longer valid, wrong
+credentials on the Testing-only password grant, and that grant's `account_deletion_scheduled`
+answer, which is in `error_description`. OpenIddict's own checks can answer other codes, for example
+**401** `invalid_client` for a wrong client secret or **400** `unsupported_grant_type`. A 429 from
+the rate limiter and a 500 from an unhandled exception still come from the shared pipeline as
+`ProblemDetails` (#917).
 
 The login/consent UI is server-rendered Razor Pages: `/Account/Login`, `/Account/Register`,
 `/Account/ConfirmEmail`, `/Account/ResendConfirmation`, `/Account/ForgotPassword`,
@@ -631,7 +636,8 @@ own data stays a right.
   registers & deletes versions.
 - **IDs**: bare GUID strings (GUID v7). **Enums**: strings.
 - **Errors**: RFC 7807 `ProblemDetails` on `tms-api` and `auth/*`; branch on the `errorCode`
-  extension, not `detail`. `connect/*` answers in the OAuth `error` / `error_description` shape (§7.1).
+  extension, not `detail`. A `connect/*` refusal comes in the OAuth `error` / `error_description`
+  shape instead (§7.1).
 - **Links**: opt in with the vendor `Accept`; they're state/role-aware — drive the UI off rels.
 - **Pagination**: `pageSize` clamped 1–100; deterministic default order + optional multi-field
   `?sort=key:asc,key2:desc` (§6).

@@ -73,9 +73,8 @@ PERMISSION_MODE="${LOOP_PERMISSION_MODE:-auto}"
 TIMEOUT_MIN="${LOOP_TICKET_TIMEOUT_MIN:-90}"
 KEEP_WORKTREE="${LOOP_KEEP_WORKTREE:-0}"
 MAX_RESUMES="${LOOP_MAX_RESUMES:-2}"
-case "$MAX_RESUMES" in
-    ''|*[!0-9]*) echo "work-ticket: LOOP_MAX_RESUMES is not a number: '$MAX_RESUMES'" >&2; exit 3 ;;
-esac
+# A resume needs time for at least the test suite and the push.
+MIN_RESUME_MIN=10
 
 OUT="$RUN_DIR/ticket-$ISSUE.json"
 ERR="$RUN_DIR/ticket-$ISSUE.stderr"
@@ -94,6 +93,14 @@ meta() { echo "$1=$2" >> "$META"; }
 # tickets too, not only the ones that got a session.
 : > "$META"
 meta issue "$ISSUE"
+
+case "$MAX_RESUMES" in
+    ''|*[!0-9]*)
+        meta outcome error
+        echo "work-ticket: LOOP_MAX_RESUMES is not a number: '$MAX_RESUMES'" >&2
+        exit 3
+        ;;
+esac
 
 # ── gh identity: write calls must not depend on the machine's ACTIVE gh account ────────────────
 # Labels and issue comments need write access, but the active gh account here is often the EMU
@@ -322,17 +329,21 @@ export CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1
 export BASH_MAX_TIMEOUT_MS="${BASH_MAX_TIMEOUT_MS:-3600000}"
 export BASH_DEFAULT_TIMEOUT_MS="${BASH_DEFAULT_TIMEOUT_MS:-600000}"
 
-NUDGE="Your last message has no STATUS line, so the loop cannot tell how ticket #$ISSUE ended. \
+# nudge <minutes left> — the prompt of a resume.
+nudge() {
+    echo "Your last message has no STATUS line, so the loop cannot tell how ticket #$ISSUE ended. \
 This is a headless run: when you end your turn, the process exits and nothing wakes you again. \
 Background runs are switched off here. If you were waiting for something, such as the test suite, \
-run it again now in the foreground, with a Bash timeout of up to $BASH_MAX_TIMEOUT_MS ms. \
+run it again now in the foreground, with a Bash timeout long enough for it (at most $BASH_MAX_TIMEOUT_MS ms). \
+The loop stops this session in about $1 minutes. \
 Then finish the /work-ticket steps that are still open (commit, push, PR, CodeQL, the plain-English pass) \
 and end with the STATUS: DONE or STATUS: BLOCKED block from /work-ticket, with nothing after it."
+}
 
-# run_session <prompt> [more claude arguments] — one headless run in the worktree; sets claude_rc.
-# The wall clock belongs to the ticket, so a resume gets only what is left of it.
+# run_session <output file> <prompt> [more claude arguments] — one headless run in the worktree;
+# sets claude_rc. The wall clock belongs to the ticket, so a resume gets only what is left of it.
 run_session() {
-    local cmd=(claude -p "$1" "${session_flags[@]}" "${@:2}")
+    local out="$1" cmd=(claude -p "$2" "${session_flags[@]}" "${@:3}")
     set +e
     # `set -m` gives the session its own process group. It also stops bash from pointing a
     # background job's stdin at /dev/null, so that is done by hand: a job outside the terminal's
@@ -352,7 +363,7 @@ run_session() {
             end_session_tree "$group" 15
         ) < /dev/null > /dev/null 2>&1 &
         exec "${cmd[@]}"
-    ) < /dev/null > "$OUT" 2>> "$ERR" &
+    ) < /dev/null > "$out" 2>> "$ERR" &
     pid=$!
     set +m
     while kill -0 "$pid" 2>/dev/null; do
@@ -383,15 +394,17 @@ log "fresh headless session starting in $WT (model=$MODEL, effort=$EFFORT, timeo
 start_epoch="$(date +%s)"
 # A usage-limit retry runs the ticket again in the same run folder: start from clean logs.
 : > "$ERR"
-rm -f "$OUT".before-resume-*
+rm -f "$OUT".before-resume-* "$OUT".resume-*
 meta resumes 0
-run_session "/work-ticket $ISSUE"
+run_session "$OUT" "/work-ticket $ISSUE"
 
 # ── A session that stopped without a verdict is resumed ────────────────────────────────────────
 # A session that ended normally (no crash, no usage limit) but printed no STATUS line has usually
 # stopped to wait for something. Its commits are in the worktree, so a short prompt to the same
-# session is cheaper than losing the ticket. Each earlier result is kept next to $OUT under a name
-# the conductor's cost total does not read: the resumed run reports the cost of the whole session.
+# session is cheaper than losing the ticket. A resume writes its own file and replaces $OUT only
+# when it ends: a resume that is killed leaves the last result, and its cost, in place. Earlier
+# results move to a name the conductor's cost total does not read, because a resumed run reports
+# the cost of the whole session (checked against the CLI; --max-budget-usd counts it too).
 resumes=0
 turns=0
 while :; do
@@ -406,11 +419,31 @@ while :; do
     [ "$resumes" -lt "$MAX_RESUMES" ] || break
     session_id="$(jq -r '.session_id // ""' "$OUT" 2>/dev/null || true)"
     [ -n "$session_id" ] || break
+    left_min=$(( TIMEOUT_MIN - ( $(date +%s) - start_epoch ) / 60 ))
+    if [ "$left_min" -lt "$MIN_RESUME_MIN" ]; then
+        log "the session stopped without a STATUS line, and only ${left_min}m of the ticket's clock is left — not resuming"
+        break
+    fi
+    # A resume is a new process that may read the issue again, so the gate runs in front of it too
+    # (ADR-0026): a stranger's comment added since the start must not reach the session.
+    trust_rc=0
+    "$REPO_ROOT/scripts/claude/issue-trust.sh" "$ISSUE" || trust_rc=$?
+    if [ "$trust_rc" -eq 1 ]; then
+        meta outcome untrusted
+        finish
+        log "REFUSED by the provenance gate before a resume — untrusted writer (see above)"
+        exit 11
+    fi
+    if [ "$trust_rc" -ne 0 ]; then
+        log "provenance gate could not verify #$ISSUE before a resume (rc=$trust_rc) — not resuming"
+        break
+    fi
     resumes=$((resumes + 1))
     meta resumes "$resumes"
-    mv "$OUT" "$OUT.before-resume-$resumes"
     log "the session stopped without a STATUS line — resuming it ($resumes of $MAX_RESUMES)"
-    run_session "$NUDGE" --resume "$session_id"
+    run_session "$OUT.resume-$resumes" "$(nudge "$left_min")" --resume "$session_id"
+    mv "$OUT" "$OUT.before-resume-$resumes"
+    mv "$OUT.resume-$resumes" "$OUT"
 done
 
 elapsed_min=$(( ( $(date +%s) - start_epoch ) / 60 ))

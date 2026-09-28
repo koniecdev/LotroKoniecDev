@@ -704,6 +704,8 @@ grep -q "first-run stderr" "$TMP_ROOT/run/ticket-88.stderr" || fail "the resume 
 [ "$(sed -n 2p "$TMP_ROOT/claude-args-1")" = "/work-ticket 88" ] || fail "the first run should get /work-ticket 88"
 sed -n 2p "$TMP_ROOT/claude-args-2" | grep -q "end with the STATUS: DONE or STATUS: BLOCKED block" \
     || fail "the resume should ask for the STATUS block" "$(sed -n 2p "$TMP_ROOT/claude-args-2")"
+sed -n 2p "$TMP_ROOT/claude-args-2" | grep -qE "stops this session in about (89|90) minutes" \
+    || fail "the resume should say how much of the clock is left" "$(sed -n 2p "$TMP_ROOT/claude-args-2")"
 [ "$(tail -2 "$TMP_ROOT/claude-args-2" | tr '\n' ' ')" = "--resume s-88 " ] \
     || fail "the resume should name the session of the first run" "$(cat "$TMP_ROOT/claude-args-2")"
 [ "$(sed '1,2d' "$TMP_ROOT/claude-args-1")" = "$(sed '1,2d' "$TMP_ROOT/claude-args-2" | sed '$d' | sed '$d')" ] \
@@ -739,6 +741,19 @@ fixture_issue 93 maintainer OWNER
 run_case 3 "work-ticket: a LOOP_MAX_RESUMES that is not a number is refused" \
     env LOOP_MAX_RESUMES=two "$WORK" 93 "$TMP_ROOT/run"
 [ ! -f "$CLAUDE_MARKER" ] || fail "no session may start with a broken setting"
+expect_meta 93 outcome=error
+
+# A resume is a new process that can read the issue again, so the gate runs before it too.
+reset_fixtures
+fixture_issue 98 maintainer OWNER
+behavior "$TMP_ROOT/stranger-comments.sh" 'printf "[{\"user\":{\"login\":\"stranger\"},\"author_association\":\"NONE\"}]" \
+    > "$GH_FIXTURES/comments-98.json"
+echo "{\"result\":\"The suite is still running.\",\"is_error\":false,\"session_id\":\"s-98\"}"'
+run_case 11 "work-ticket: a stranger's comment added during the run blocks the resume" \
+    env CLAUDE_BEHAVIOR="$TMP_ROOT/stranger-comments.sh" "$WORK" 98 "$TMP_ROOT/run"
+[ "$(cat "$TMP_ROOT/claude-runs")" = "1" ] || fail "an untrusted ticket must not be resumed" "$LAST_OUTPUT"
+expect_meta 98 outcome=untrusted resumes=0
+[ ! -e "$WT_ROOT/ticket-98" ] || fail "the worktree should be removed"
 
 reset_fixtures
 fixture_issue 90 maintainer OWNER
@@ -812,19 +827,33 @@ if alive "$session_child"; then
     fail "a process the timed-out session started outlived it"
 fi
 
-# One clock for the whole ticket: the first run uses 40 of 60 seconds, and the resume reaches 80.
-# A resume with a clock of its own would count only 40 and run on.
+# One clock for the whole ticket (20 minutes): the first run uses 5, and the resume reaches 20:50.
+# A resume with a clock of its own would count only 15:50 and run on.
 reset_fixtures
 rm -f "$TMP_ROOT/clock-skew"
 fixture_issue 96 maintainer OWNER
 behavior "$TMP_ROOT/waits-long.sh" 'case " $* " in
-*" --resume "*) echo 80 > "'"$TMP_ROOT"'/clock-skew"; "$REAL_SLEEP" 15; echo "{\"result\":\"STATUS: DONE\",\"is_error\":false,\"session_id\":\"s-96\"}" ;;
-*) echo 40 > "'"$TMP_ROOT"'/clock-skew"; echo "{\"result\":\"still running\",\"is_error\":false,\"session_id\":\"s-96\"}" ;;
+*" --resume "*) echo 1250 > "'"$TMP_ROOT"'/clock-skew"; "$REAL_SLEEP" 15; echo "{\"result\":\"STATUS: DONE\",\"is_error\":false,\"session_id\":\"s-96\"}" ;;
+*) echo 300 > "'"$TMP_ROOT"'/clock-skew"; echo "{\"result\":\"still running\",\"is_error\":false,\"session_id\":\"s-96\",\"total_cost_usd\":3.5}" ;;
 esac'
 run_case 4 "work-ticket: a resume gets only what is left of the ticket's clock" \
-    env LOOP_TICKET_TIMEOUT_MIN=1 CLAUDE_BEHAVIOR="$TMP_ROOT/waits-long.sh" "$WORK" 96 "$TMP_ROOT/run"
+    env LOOP_TICKET_TIMEOUT_MIN=20 CLAUDE_BEHAVIOR="$TMP_ROOT/waits-long.sh" "$WORK" 96 "$TMP_ROOT/run"
 [ "$(cat "$TMP_ROOT/claude-runs")" = "2" ] || fail "expected a resume that then timed out" "$LAST_OUTPUT"
 expect_meta 96 outcome=timeout resumes=1
+[ "$(jq -r '.total_cost_usd' "$TMP_ROOT/run/ticket-96.json")" = "3.5" ] \
+    || fail "a killed resume must leave the last result, and its cost, in ticket-96.json"
+
+# With less than ten minutes of the clock left, a resume could not even run the suite.
+reset_fixtures
+echo 0 > "$TMP_ROOT/clock-skew"
+fixture_issue 99 maintainer OWNER
+behavior "$TMP_ROOT/waits-late.sh" 'echo 1000 > "'"$TMP_ROOT"'/clock-skew"
+echo "{\"result\":\"still running\",\"is_error\":false,\"session_id\":\"s-99\"}"'
+run_case 3 "work-ticket: no resume when too little of the clock is left" \
+    env LOOP_TICKET_TIMEOUT_MIN=20 CLAUDE_BEHAVIOR="$TMP_ROOT/waits-late.sh" "$WORK" 99 "$TMP_ROOT/run"
+expect_in_output "not resuming"
+[ "$(cat "$TMP_ROOT/claude-runs")" = "1" ] || fail "no time for a resume" "$LAST_OUTPUT"
+expect_meta 99 outcome=error resumes=0
 rm -f "$TMP_ROOT/clock-skew" "$TMP_ROOT/bin/date"
 
 # Only a real open PR for this ticket counts as DONE.

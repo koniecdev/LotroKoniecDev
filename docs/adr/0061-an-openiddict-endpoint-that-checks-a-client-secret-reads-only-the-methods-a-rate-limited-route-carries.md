@@ -54,9 +54,9 @@ anything.
 `ConnectRateLimitingTests` reads the URIs of every endpoint type that checks a client secret from
 `OpenIddictServerOptions`. For each one without a GET route, a GET carrying the right secret must be
 refused with `400 invalid_request`. GET is the only method it needs to try: OpenIddict's readers
-accept only GET, POST or both, and the POST side is covered by the tests that every such URI has a
-rate-limited route. A new endpoint, or an OpenIddict upgrade that widens a reader, fails there
-instead of shipping a method with no brake.
+accept only GET, POST or both, and each of these URIs has a rate-limited POST route (the POST
+burst tests prove the limit for token and introspection). A new endpoint, or an OpenIddict upgrade
+that widens a reader, fails there instead of shipping a method with no brake.
 
 ## Consequences
 

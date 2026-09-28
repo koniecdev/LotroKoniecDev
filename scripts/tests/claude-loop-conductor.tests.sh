@@ -11,6 +11,7 @@
 #   * a worktree that cannot be made, or two failures in a row, stop new starts,
 #   * a skip, a refusal or a blocked ticket is not a failure,
 #   * drain mode and -n still work, a number given twice runs once, and nothing calls `gh pr merge`,
+#   * the table names a ticket whose worker had to be resumed,
 #   * the loop refuses to run loop scripts that differ from origin/main,
 #   * stopping the conductor stops its workers.
 #
@@ -94,6 +95,7 @@ outcome=pr-opened
 case "$rc" in 2) outcome=blocked ;; 3) outcome=error ;; 6) outcome=limit ;; 11) outcome=untrusted ;; 12) outcome=skipped ;; esac
 printf 'issue=%s\noutcome=%s\n' "$ticket" "$outcome" > "$run_dir/ticket-$ticket.meta"
 [ "$rc" -eq 0 ] && echo "pr=$((ticket + 1000))" >> "$run_dir/ticket-$ticket.meta"
+[ -f "$STATE/resumes-$ticket" ] && echo "resumes=$(cat "$STATE/resumes-$ticket")" >> "$run_dir/ticket-$ticket.meta"
 exit "$rc"
 FAKE
 
@@ -197,6 +199,14 @@ expect_in_output "done: 5 PR opened"
 expect_in_output "#1001"
 expect_in_output "assign yourself to approve it, then run /merge-train"
 expect_no_merge
+
+reset_state
+echo 1 > "$STATE/resumes-8"
+run_conductor 0 "conductor: the table names a ticket whose worker had to be resumed" -j 1 8 9
+printf '%s\n' "$LAST_OUTPUT" | grep -E '^\[conductor\] #8 .*resumed 1x$' >/dev/null \
+    || fail "the row of #8 should say it was resumed once" "$LAST_OUTPUT"
+printf '%s\n' "$LAST_OUTPUT" | grep -E '^\[conductor\] #9 .*resumed' >/dev/null \
+    && fail "the row of #9 must not mention a resume" "$LAST_OUTPUT"
 
 reset_state
 run_conductor 0 "conductor: -j 1 runs one at a time, in the given order" -j 1 7 3 9

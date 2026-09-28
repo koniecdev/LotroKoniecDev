@@ -304,13 +304,17 @@ for meta_file in "$RUN_DIR"/ticket-*.meta; do
     ticket="$(sed -n 's/^issue=//p' "$meta_file" | tail -1)"
     outcome="$(sed -n 's/^outcome=//p' "$meta_file" | tail -1)"
     pr="$(sed -n 's/^pr=//p' "$meta_file" | tail -1)"
+    resumes="$(sed -n 's/^resumes=//p' "$meta_file" | tail -1)"
     checks="-"; alerts="-"
     if [ -n "$pr" ]; then
         checks="$(pr_checks "$pr")"
         alerts="$(pr_alerts "$pr")"
     fi
-    printf '[conductor] #%-6s %-12s %-6s %-8s %s\n' \
-        "$ticket" "${outcome:-running?}" "${pr:+#$pr}" "$checks" "$alerts"
+    # A worker that had to be resumed stopped once without a verdict (#925): worth a look.
+    note=""
+    case "$resumes" in ''|0) ;; *) note="  resumed ${resumes}x" ;; esac
+    printf '[conductor] #%-6s %-12s %-6s %-8s %s%s\n' \
+        "$ticket" "${outcome:-running?}" "${pr:+#$pr}" "$checks" "$alerts" "$note"
 done
 ticket_json=( "$RUN_DIR"/ticket-*.json )
 shopt -u nullglob

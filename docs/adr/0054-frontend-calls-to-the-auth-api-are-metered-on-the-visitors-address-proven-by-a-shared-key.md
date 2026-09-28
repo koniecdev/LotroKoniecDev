@@ -135,14 +135,14 @@ harmless. Since #823 the same line also feeds `tms-api` (`FrontendCaller__Key`) 
   than 32 characters fails options validation wherever one is set. Since #857 so does a key that
   starts or ends with whitespace: Kestrel trims the spaces around a header value, so such a key
   could never match. Since #877 so does a key with anything but printable ASCII (`' '` to `'~'`)
-  inside it, because the frontend could never send it. Checked on .NET 10 and `caddy:2-alpine`:
-  HttpClient refuses a line break or NUL when the header is added, and any non-ASCII character
-  (a pasted non-breaking space too) when the request is sent. Caddy answers 400 to any other
-  control character and to DEL. A tab inside would pass all three, but no generated key has one,
-  so the one simple rule refuses it too. A space inside passes and matches, so it stays allowed.
-  Development and Testing may
-  leave it empty: their limiter is off, the frontend then sends neither header, and the auth API
-  ignores a forwarded address. Since #823 the TMS API follows the same two rules.
+  inside it, because such a key could never reach the API from the frontend. Checked on .NET 10
+  and `caddy:2-alpine`: HttpClient refuses a line break or NUL when the header is added, and any
+  non-ASCII character (a pasted non-breaking space too) when the request is sent. Caddy answers
+  400 to any other control character and to DEL. A tab inside would pass HttpClient, Caddy and
+  Kestrel, but no generated key has one, so the one simple rule refuses it too. A space inside
+  passes and matches, so it stays allowed. Development and Testing may leave it empty: their
+  limiter is off, the frontend then sends neither header, and the auth API ignores a forwarded
+  address. Since #823 the TMS API follows the same rules.
 
 A missing key would quietly bring back the one shared bucket, and nothing but real traffic would
 notice. Operator order: the key goes into the staging `.env` before the change merges (CD deploys

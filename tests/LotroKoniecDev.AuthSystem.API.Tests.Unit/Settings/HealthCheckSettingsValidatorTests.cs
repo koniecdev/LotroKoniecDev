@@ -92,20 +92,20 @@ public sealed class HealthCheckSettingsValidatorTests
     }
 
     [Theory]
-    [InlineData(0x0A)]
-    [InlineData(0x0D)]
-    [InlineData(0x00)]
-    [InlineData(0x09)]
-    [InlineData(0x01)]
-    [InlineData(0x1F)]
-    [InlineData(0x7F)]
-    [InlineData(0xA0)]
-    [InlineData(0xE9)]
-    [InlineData(0x2028)]
-    [InlineData(0x1F600)]
-    public void Validate_KeyWithACharacterOutsidePrintableAscii_Fails(int codePoint)
+    [InlineData(Development, 0x0A)]
+    [InlineData(Testing, 0x0D)]
+    [InlineData(Production, 0x00)]
+    [InlineData(Production, 0x09)]
+    [InlineData(Production, 0x01)]
+    [InlineData(Production, 0x1F)]
+    [InlineData(Production, 0x7F)]
+    [InlineData(Production, 0xA0)]
+    [InlineData(Production, 0xE9)]
+    [InlineData(Production, 0x2028)]
+    [InlineData(Production, 0x1F600)]
+    public void Validate_KeyWithACharacterOutsidePrintableAscii_FailsInEveryEnvironment(string environmentName, int codePoint)
     {
-        HealthCheckSettingsValidator validator = CreateValidator(Production);
+        HealthCheckSettingsValidator validator = CreateValidator(environmentName);
         HealthCheckSettings settings = new()
         {
             Key = "a-health-check-key" + char.ConvertFromUtf32(codePoint) + "of-at-least-32-characters"

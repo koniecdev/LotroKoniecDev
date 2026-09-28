@@ -60,7 +60,12 @@ quietly open again.
 Compose refuses to render without it, and `HealthCheckSettingsValidator` stops the boot outside
 Development and Testing. In every environment it also stops the boot when the key is shorter than 32
 characters, or starts or ends with whitespace: Kestrel trims the spaces around a header value, so such
-a key could never match. Write the value unquoted in the `.env`; base64 needs no quotes. In Development and Testing
+a key could never match. Since #877 it also stops the boot when the key has anything but printable
+ASCII (`' '` to `'~'`) inside it. A line break cannot go into a header, and Caddy answers 400 to any
+other control character. A non-ASCII character sent as raw UTF-8 bytes does get through Caddy and
+Kestrel (checked on .NET 10 and `caddy:2-alpine`), but HttpClient refuses it and no generated key has
+one. The frontend caller key has the same rule
+(ADR-0054 §6), so the six key checks stay alike. Write the value unquoted in the `.env`; base64 needs no quotes. In Development and Testing
 an empty key leaves the gate open, so the local `curl …/health` and the integration suites keep
 working. `scripts/gen-openiddict-keys` mints it for the parity stack.
 

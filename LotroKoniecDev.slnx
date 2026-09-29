@@ -121,6 +121,7 @@
   </Folder>
   <Folder Name="/tests/Frontend/">
     <Project Path="tests/LotroKoniecDev.Frontend.Tests.Unit/LotroKoniecDev.Frontend.Tests.Unit.csproj" />
+    <Project Path="tests/LotroKoniecDev.Frontend.Tests.Integration/LotroKoniecDev.Frontend.Tests.Integration.csproj" />
     <Project Path="tests/LotroKoniecDev.Frontend.E2E.Tests/LotroKoniecDev.Frontend.E2E.Tests.csproj" />
   </Folder>
 </Solution>

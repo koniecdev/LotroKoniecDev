@@ -749,8 +749,9 @@ structure.
   `TranslationSystem.Domain.Tests.Unit`, `TranslationSystem.API.Tests.Unit`,
   `AuthSystem.API.Tests.Unit`, `SharedKernel.Tests.Unit`, `Logging.Tests.Unit`,
   `Frontend.Tests.Unit`. Integration (real
-  PostgreSQL — never in a Unit project): `TranslationSystem.API.Tests.Integration`,
-  `AuthSystem.API.Tests.Integration`. Browser/E2E (Testcontainers + Playwright — ADR-0009;
+  PostgreSQL or a booted host — never in a Unit project): `TranslationSystem.API.Tests.Integration`,
+  `AuthSystem.API.Tests.Integration`, `Frontend.Tests.Integration` (the Frontend host in memory, no
+  database — #915). Browser/E2E (Testcontainers + Playwright — ADR-0009;
   Docker-required, off the PR gate by name): `TranslationSystem.E2E.Tests`,
   `Frontend.E2E.Tests`. All under `tests/LotroKoniecDev.<name>`. Patcher test projects
   (`Tests.Unit`, `Tests.Infrastructure`, `Tests.E2E`) stay exactly as they are.

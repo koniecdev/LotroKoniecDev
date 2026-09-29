@@ -249,6 +249,30 @@ public sealed class FrontendCallerKeyTests : EndpointsTestBase
         claimedVisitor.StatusCode.ShouldBe(HttpStatusCode.TooManyRequests);
     }
 
+    [Fact]
+    public void Boot_WithAKeyShorterThanTheMinimum_ShouldFailNamingTheKey()
+    {
+        // Arrange: the validator refuses a short key in every environment, so a Testing host proves that
+        // the validator is registered and runs at startup. Every test here boots the same host without
+        // the key, so the short key is the one reason this boot can fail (#915).
+        using WebApplicationFactory<Program> shortKeyHost = Factory.WithWebHostBuilder(builder =>
+        {
+            builder.ConfigureAppConfiguration((_, configBuilder) =>
+            {
+                configBuilder.AddInMemoryCollection(new Dictionary<string, string?>
+                {
+                    { "FrontendCaller:Key", new string('k', 31) }
+                });
+            });
+        });
+
+        // Act
+        Exception exception = Should.Throw<Exception>(() => shortKeyHost.CreateClient());
+
+        // Assert
+        exception.ToString().ShouldContain("FrontendCaller:Key");
+    }
+
     /// <summary>
     /// Who a request comes from, as the auth API sees it: the connection address Caddy resolved, and
     /// the frontend's two headers when the call went through it.

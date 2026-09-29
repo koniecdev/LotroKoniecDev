@@ -12,7 +12,7 @@ dotnet test tests/LotroKoniecDev.Frontend.E2E.Tests          # browser stack via
 dotnet test --filter "FullyQualifiedName~Fragment"     # filter by name
 ```
 
-Full project inventory (14 projects):
+Full project inventory (15 projects):
 
 | Project | Kind | Needs |
 |---|---|---|
@@ -26,6 +26,7 @@ Full project inventory (14 projects):
 | `LotroKoniecDev.AuthSystem.API.Tests.Unit` | auth-api unit (cold-start seed retry policy) | nothing (pure) |
 | `LotroKoniecDev.TranslationSystem.API.Tests.Integration` | in-process API against real PostgreSQL (Testcontainers; forged test tokens) | Docker |
 | `LotroKoniecDev.AuthSystem.API.Tests.Integration` | in-process auth-api against real PostgreSQL (Testcontainers) | Docker |
+| `LotroKoniecDev.Frontend.Tests.Integration` | in-process Frontend host in Staging (`WebApplicationFactory`): startup checks such as the caller keys (#915) | nothing (no Docker); a temp keyring folder |
 | `LotroKoniecDev.TranslationSystem.E2E.Tests` | real-process TMS stack over HTTP | Docker (3 images) |
 | `LotroKoniecDev.Frontend.E2E.Tests` | Playwright browser stack | Docker (4 images + browser) |
 | `LotroKoniecDev.Tests.Infrastructure` | patcher real-infrastructure adapters | Windows to run |

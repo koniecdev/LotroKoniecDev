@@ -31,6 +31,62 @@ public sealed class TokenEndpointClientTests
     }
 
     /// <summary>
+    /// #943: a charset .NET does not know, such as the common misspelling "utf8", must not stop the
+    /// refresh, because the tokens are read from the bytes. A UTF-8 byte order mark must not stop it either.
+    /// </summary>
+    [Theory]
+    [InlineData("utf8", false)]
+    [InlineData("bogus", false)]
+    [InlineData("utf8", true)]
+    [InlineData("utf-8", true)]
+    [InlineData(null, true)]
+    public async Task RefreshAsync_WhenTheTokenAnswerHasAnUnusualEncoding_ReturnsTheTokens(string? charset, bool withByteOrderMark)
+    {
+        byte[] json = System.Text.Encoding.UTF8.GetBytes($$"""{"access_token":"{{AccessToken}}","expires_in":3600}""");
+        byte[] body = withByteOrderMark ? [.. System.Text.Encoding.UTF8.GetPreamble(), .. json] : json;
+        using HttpClient httpClient = CreateHttpClient(StubHttpMessageHandler.RespondWith(
+            HttpStatusCode.OK,
+            () => new ByteArrayContent(body)
+            {
+                Headers = { ContentType = new MediaTypeHeaderValue("application/json") { CharSet = charset } }
+            }));
+        TokenEndpointClient client = CreateClient(httpClient);
+
+        TokenResponse? response = await client.RefreshAsync(RefreshToken);
+
+        response.ShouldNotBeNull().AccessToken.ShouldBe(AccessToken);
+    }
+
+    public static TheoryData<byte[], string?> NonUtf8TokenAnswers => new()
+    {
+        { [.. """{"access_token":"a"""u8, 0xFF, .. """a","expires_in":3600}"""u8], "utf-8" },
+        { [.. """{"access_token":"a"""u8, 0xFF, .. """a","expires_in":3600}"""u8], "utf8" },
+        { [.. System.Text.Encoding.Unicode.GetPreamble(), .. System.Text.Encoding.Unicode.GetBytes("""{"access_token":"a"}""")], "utf-16" },
+        { System.Text.Encoding.Unicode.GetBytes("""{"access_token":"a"}"""), "bogus" }
+    };
+
+    /// <summary>
+    /// #943: JSON between services is UTF-8 (RFC 8259 §8.1). A token answer in any other encoding is a
+    /// failed refresh, never an exception, whatever charset its header names.
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(NonUtf8TokenAnswers))]
+    public async Task RefreshAsync_WhenTheTokenAnswerIsNotUtf8_ReturnsNull(byte[] body, string? charset)
+    {
+        using HttpClient httpClient = CreateHttpClient(StubHttpMessageHandler.RespondWith(
+            HttpStatusCode.OK,
+            () => new ByteArrayContent(body)
+            {
+                Headers = { ContentType = new MediaTypeHeaderValue("application/json") { CharSet = charset } }
+            }));
+        TokenEndpointClient client = CreateClient(httpClient);
+
+        TokenResponse? response = await client.RefreshAsync(RefreshToken);
+
+        response.ShouldBeNull();
+    }
+
+    /// <summary>
     /// #899: the primary handler follows no redirect, so a redirect reaches this client as it is. It has
     /// to count as a failed refresh, the same as any other answer that carries no tokens.
     /// </summary>

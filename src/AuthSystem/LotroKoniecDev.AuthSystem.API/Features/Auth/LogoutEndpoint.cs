@@ -1,39 +1,47 @@
-using System.Security.Claims;
 using Microsoft.AspNetCore;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Identity;
 using OpenIddict.Abstractions;
 using OpenIddict.Server.AspNetCore;
 using LotroKoniecDev.AuthSystem.API.Common;
+using LotroKoniecDev.AuthSystem.API.Services.Sessions;
+using static OpenIddict.Abstractions.OpenIddictConstants;
 
 
 namespace LotroKoniecDev.AuthSystem.API.Features.Auth;
 
+/// <summary>
+/// Signing out ends the session of this device only: the one authorization behind the
+/// <c>id_token_hint</c> and its tokens (owner decision on #931). Sessions on other devices stay alive.
+/// </summary>
 internal sealed partial class LogoutEndpoint : IEndpoint
 {
     private static async Task<IResult> HandleAsync(
         HttpContext httpContext,
-        IOpenIddictTokenManager tokenManager,
+        IUserSessionRevoker sessionRevoker,
         ILogger<LogoutEndpoint> logger)
     {
-        AuthenticateResult cookieResult = await httpContext.AuthenticateAsync(IdentityConstants.ApplicationScheme);
-        if (cookieResult is { Succeeded: true })
-        {
-            string? userId = cookieResult.Principal.FindFirstValue(ClaimTypes.NameIdentifier);
-            if (!string.IsNullOrEmpty(userId))
-            {
-                await foreach (object token in tokenManager.FindBySubjectAsync(userId))
-                {
-                    await tokenManager.TryRevokeAsync(token);
-                }
-            }
+        OpenIddictRequest? request = httpContext.GetOpenIddictServerRequest();
 
-            LogUserLoggedOut(logger, userId);
+        // OpenIddict checks the hint's signature and that its token and authorization rows are still
+        // valid, but not its lifetime. So an old ID token works while its session lives, and the hint of
+        // an ended session gives no principal. This server's own cookie cannot name the session: it
+        // belongs to the browser, not to one sign-in of the website, so it is only cleared.
+        AuthenticateResult hintResult =
+            await httpContext.AuthenticateAsync(OpenIddictServerAspNetCoreDefaults.AuthenticationScheme);
+        if (hintResult.Principal is { } principal
+            && principal.GetAuthorizationId() is { Length: > 0 } authorizationId)
+        {
+            await sessionRevoker.RevokeSessionAsync(authorizationId);
+            LogUserLoggedOut(logger, principal.GetClaim(Claims.Subject));
+        }
+        else
+        {
+            LogSignOutFoundNoSession(logger, !string.IsNullOrEmpty(request?.IdTokenHint));
         }
 
         await httpContext.SignOutAsync(IdentityConstants.ApplicationScheme);
 
-        OpenIddictRequest? request = httpContext.GetOpenIddictServerRequest();
         string? postLogoutRedirectUri = request?.PostLogoutRedirectUri;
 
         if (!string.IsNullOrEmpty(postLogoutRedirectUri))
@@ -56,4 +64,7 @@ internal sealed partial class LogoutEndpoint : IEndpoint
 
     [LoggerMessage(EventId = EventIds.UserLoggedOut, Level = LogLevel.Information, Message = "User logged out. UserId: {UserId}")]
     private static partial void LogUserLoggedOut(ILogger logger, string? userId);
+
+    [LoggerMessage(EventId = EventIds.SignOutFoundNoSession, Level = LogLevel.Information, Message = "Sign-out revoked nothing: there was no valid id_token_hint. A hint was sent: {HintSent}")]
+    private static partial void LogSignOutFoundNoSession(ILogger logger, bool hintSent);
 }

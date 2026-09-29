@@ -51,8 +51,7 @@ internal sealed class TokenEndpointClient : ITokenEndpointClient
                 return null;
             }
 
-            string body = await response.Content.ReadAsStringAsync(cancellationToken);
-            return JsonSerializer.Deserialize<TokenResponse>(body, JsonOptions);
+            return await ReadJsonAsync<TokenResponse>(response.Content);
         }
         catch (HttpRequestException ex)
         {
@@ -91,22 +90,31 @@ internal sealed class TokenEndpointClient : ITokenEndpointClient
     }
 
     /// <summary>
-    /// Reads the bytes, not a decoded string. Decoding throws on a charset .NET does not know (such as
-    /// "utf8"), and a log line must never turn a refused refresh into an exception. For the same reason
-    /// it takes no cancellation token: <c>PostAsync</c> has already buffered the body, so there is
-    /// nothing to wait for.
+    /// The body is only read for the log, and a log line must never turn a refused refresh into an
+    /// exception.
     /// </summary>
     private static async Task<TokenErrorResponse?> TryReadErrorAsync(HttpContent content)
     {
         try
         {
-            await using Stream body = await content.ReadAsStreamAsync();
-            return await JsonSerializer.DeserializeAsync<TokenErrorResponse>(body, JsonOptions);
+            return await ReadJsonAsync<TokenErrorResponse>(content);
         }
         catch (JsonException)
         {
             return null;
         }
+    }
+
+    /// <summary>
+    /// Reads the JSON from the bytes, not from a decoded string. Decoding throws on a charset .NET does
+    /// not know, such as "utf8" (#914, #943). A body that is not UTF-8 JSON fails with a
+    /// <see cref="JsonException"/>, which both callers handle. It takes no cancellation token:
+    /// <c>PostAsync</c> has already buffered the body, so there is nothing to wait for.
+    /// </summary>
+    private static async Task<T?> ReadJsonAsync<T>(HttpContent content)
+    {
+        await using Stream body = await content.ReadAsStreamAsync();
+        return await JsonSerializer.DeserializeAsync<T>(body, JsonOptions);
     }
 
     /// <summary>

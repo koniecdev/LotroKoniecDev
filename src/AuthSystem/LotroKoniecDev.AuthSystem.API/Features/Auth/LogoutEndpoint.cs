@@ -12,8 +12,9 @@ using static OpenIddict.Abstractions.OpenIddictConstants;
 namespace LotroKoniecDev.AuthSystem.API.Features.Auth;
 
 /// <summary>
-/// Signing out ends every session of the user on every device, through the same revoker as a password
-/// change (#931).
+/// Signing out revokes every token and authorization of the user, through the same revoker as a password
+/// change, so the website sessions on all devices end (#931). It does not change the security stamp, so
+/// this server's own cookie on another device can still sign that device in again until it expires.
 /// </summary>
 internal sealed partial class LogoutEndpoint : IEndpoint
 {
@@ -48,7 +49,9 @@ internal sealed partial class LogoutEndpoint : IEndpoint
     /// <summary>
     /// The hint comes first. After login the browser never comes back here, because the website renews
     /// its tokens server to server, so this server's own cookie is usually gone by the time the user
-    /// signs out. OpenIddict has already checked the hint, and an invalid one gives no principal.
+    /// signs out. OpenIddict checks the hint's signature and that its token and authorization rows are
+    /// still valid, but not its lifetime. So an old hint works while its session lives, and the hint of
+    /// a session that already ended gives no principal.
     /// </summary>
     private static async Task<string?> FindUserIdAsync(HttpContext httpContext)
     {

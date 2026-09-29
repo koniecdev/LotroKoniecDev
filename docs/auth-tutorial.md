@@ -215,7 +215,7 @@ Tokeny email-confirmation/reset żyją 24 h (`DataProtectionTokenProviderOptions
 | `connect/authorize` | `AuthorizeEndpoint.cs` | wejście auth code; challenge cookie Identity, buduje `ClaimsIdentity` z `sub`/`email`/`name`/`role`, `SignIn` |
 | `connect/token` | `TokenEndpoint.cs` | wydanie tokenów; rozdziela grant (auth code / refresh / client credentials / password) |
 | `connect/userinfo` | `UserInfoEndpoint.cs` | claimy usera wg przyznanych scope'ów (`email`/`profile`/`roles`) |
-| `connect/logout` | `LogoutEndpoint.cs` | RP-initiated end-session: bierze usera z `id_token_hint` (z cookie tylko, gdy hintu brak), **rewokuje jego autoryzacje i tokeny** na każdym urządzeniu, czyści cookie (#931) |
+| `connect/logout` | `LogoutEndpoint.cs` | RP-initiated end-session: bierze usera z `id_token_hint` (z cookie tylko, gdy hintu brak), **rewokuje jego autoryzacje i tokeny**, więc sesje strony kończą się na każdym urządzeniu, czyści cookie tej przeglądarki (#931) |
 | `connect/revoke` | — middleware OpenIddict | rewokacja pojedynczego tokena; OpenIddict nie ma dla niej passthrough, więc obsługuje ją sam — trasa w `MiddlewareServedEndpoints.cs` niesie wyłącznie metadane rate-limit (#349) |
 | `connect/introspect` | — middleware OpenIddict | introspekcja tokena (RFC 7662) dla confidential clients; jak wyżej — trasa w `MiddlewareServedEndpoints.cs` tylko pod rate-limit (#349); czyta wyłącznie POST (ADR-0061, #900) |
 
@@ -344,9 +344,10 @@ zaszyfrowanej sesji po stronie serwera (`SaveTokens = true`).
   `connect/authorize`. `returnUrl` waliduje `IsLocalUrl` (anti open-redirect).
 - **Logout**: `POST /auth/logout` → `SignOutAsync(cookie)` + redirect na `connect/logout` z
   `id_token_hint` + `post_logout_redirect_uri` (RP-initiated end-session). `auth-api` przy logoucie
-  bierze usera z `id_token_hint` i **rewokuje jego autoryzacje i tokeny** na każdym urządzeniu. Na
-  własnym cookie `auth-api` nie da się tu polegać: żyje 30 minut, a po loginie przeglądarka już tam nie
-  wraca, bo frontend odświeża tokeny server-to-server (#931).
+  bierze usera z `id_token_hint` i **rewokuje jego autoryzacje i tokeny**, więc sesje strony kończą
+  się na każdym urządzeniu. Na własnym cookie `auth-api` nie da się tu polegać: żyje 30 minut, a po
+  loginie przeglądarka już tam nie wraca, bo frontend odświeża tokeny server-to-server (#931). Logout
+  nie zmienia security stampu, więc cookie `auth-api` na innym urządzeniu żyje do wygaśnięcia.
 
 ### 8.4 CookieTokenRefresher
 `Infrastructure/Auth/TokenRefresh/CookieTokenRefresher.cs` na `OnValidatePrincipal`: gdy access token
@@ -384,8 +385,10 @@ self-contained) ⇒ **rewokowalne**. Rolling: użycie refresh tokena unieważnia
 ogranicza replay. Logout rewokuje wszystkie (`LogoutEndpoint.cs` → `IUserSessionRevoker`).
 
 ### 10.3 Token revocation przy logout
-`LogoutEndpoint.cs`: usera bierze z `id_token_hint`, który OpenIddict już sprawdził (podpis tak, czas
-ważności nie — stary ID token też działa jako hint); cookie Identity tylko wtedy, gdy hintu brak. Potem
+`LogoutEndpoint.cs`: usera bierze z `id_token_hint`, który OpenIddict już sprawdził: podpis oraz to, że
+wiersz tokena i jego autoryzacji w bazie są wciąż ważne; czasu ważności nie sprawdza. Stary ID token
+działa więc jako hint, dopóki jego sesja żyje, a hint sesji już zakończonej nic nie robi. Cookie
+Identity bierze tylko wtedy, gdy hintu brak. Potem
 `IUserSessionRevoker.RevokeAllAsync(userId)`, ta sama ścieżka co przy zmianie hasła: najpierw
 autoryzacje, potem tokeny, każde jednym bulk update (`RevokeBySubjectAsync`). Na koniec `SignOutAsync`.
 Po logoucie żaden refresh token usera nie zadziała, na żadnym urządzeniu (#931).
@@ -455,8 +458,9 @@ bezużyteczny.
 RS nie zna.
 
 **Q: Co się dzieje przy logoucie?** — Cookie sign-out + RP-initiated end-session do `auth-api`, które
-bierze usera z `id_token_hint` i **rewokuje wszystkie jego autoryzacje i reference tokeny**, na każdym
-urządzeniu. Access token (krótki) wygaśnie sam.
+bierze usera z `id_token_hint` i **rewokuje wszystkie jego autoryzacje i reference tokeny**, więc sesje
+strony kończą się na każdym urządzeniu. Access token (krótki) wygaśnie sam. Cookie `auth-api` na innym
+urządzeniu zostaje do wygaśnięcia, bo logout nie zmienia security stampu.
 
 **Q: Czemu refresh tokeny są referencyjne?** — Żeby były **rewokowalne** (w bazie) i rolling (replay
 mitigation). Self-contained nie da się unieważnić przed wygaśnięciem.

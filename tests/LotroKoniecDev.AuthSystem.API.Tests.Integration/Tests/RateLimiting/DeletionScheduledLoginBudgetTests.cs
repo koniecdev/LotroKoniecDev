@@ -133,10 +133,9 @@ public sealed partial class DeletionScheduledLoginBudgetTests : EndpointsTestBas
             await UserFactory.RegisterRandomUserWithRequestAsync(ApiClient, Faker, AccountConfirmationEmailSpy, Password);
         string accessToken = await GetAccessTokenAsync(registerRequest.Email, Password);
 
-        AccountDeletionEmailSpy.Reset();
         using HttpResponseMessage scheduled =
             await PostWithTokenAsync("auth/account/delete", accessToken, new DeleteAccountRequest(Password));
-        await AccountDeletionEmailSpy.WaitForScheduledCaptureAsync();
+        await AccountDeletionEmailSpy.WaitForScheduledCaptureAsync(registerRequest.Email);
 
         string?[] guesses = new string?[PermitLimit + 1];
         for (int i = 0; i < guesses.Length; i++)

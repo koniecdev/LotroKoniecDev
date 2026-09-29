@@ -1,28 +1,35 @@
+using System.Collections.Concurrent;
 using LotroKoniecDev.AuthSystem.API.Services.Emails;
 using LotroKoniecDev.SharedKernel.BuildingBlocks;
 using LotroKoniecDev.SharedKernel.Monads;
 
 namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared;
 
+/// <summary>
+/// Keeps every deletion e-mail together with the inbox it went to, and a test reads only the inbox of
+/// its own account. The e-mails travel through the outbox after the request has ended, so a mail from an
+/// earlier test can still arrive after <see cref="Reset"/>. When the spy kept only the last mail and one
+/// count for all inboxes, such a late mail could pass for the test's own (#911).
+/// </summary>
 #pragma warning disable CA1515
 public sealed class SpyAccountDeletionEmailSender : IAccountDeletionEmailSender
 #pragma warning restore CA1515
 {
-    private int _scheduledCallCount;
-    private int _cancelledCallCount;
-    private int _previousAddressCallCount;
+    private readonly ConcurrentQueue<ScheduledEmail> _scheduledEmails = new();
+    private readonly ConcurrentQueue<PreviousAddressNotice> _previousAddressNotices = new();
+    private readonly ConcurrentQueue<string> _cancelledEmailRecipients = new();
 
-    public string? LastScheduledEmail { get; private set; }
-    public string? LastCancelToken { get; private set; }
-    public DateTimeOffset? LastFinalizesAt { get; private set; }
-    public string? LastCancelledEmail { get; private set; }
-    public string? LastPreviousAddressRecipient { get; private set; }
-    public string? LastPreviousAddressCurrentEmail { get; private set; }
-    public string? LastPreviousAddressCancelToken { get; private set; }
-    public int ScheduledCallCount => Volatile.Read(ref _scheduledCallCount);
-    public int CancelledCallCount => Volatile.Read(ref _cancelledCallCount);
-    public int PreviousAddressCallCount => Volatile.Read(ref _previousAddressCallCount);
     public bool ShouldFailScheduledEmail { get; set; }
+
+    /// <summary>
+    /// Counts the mails to every inbox, a late one from an earlier test included. Use it only when the
+    /// test has no account whose inbox it could read, such as a payload that names no account, and only
+    /// on a host where every test that shares this spy waits for each deletion mail it causes.
+    /// </summary>
+    public int ScheduledEmailCountToAnyInbox => _scheduledEmails.Count;
+
+    /// <inheritdoc cref="ScheduledEmailCountToAnyInbox"/>
+    public int CancelledEmailCountToAnyInbox => _cancelledEmailRecipients.Count;
 
     public Task<Result> SendDeletionScheduledEmailAsync(
         Guid userId,
@@ -31,10 +38,7 @@ public sealed class SpyAccountDeletionEmailSender : IAccountDeletionEmailSender
         DateTimeOffset finalizesAt,
         CancellationToken cancellationToken)
     {
-        LastScheduledEmail = email;
-        LastCancelToken = cancelToken;
-        LastFinalizesAt = finalizesAt;
-        Interlocked.Increment(ref _scheduledCallCount);
+        _scheduledEmails.Enqueue(new ScheduledEmail(email, cancelToken, finalizesAt));
 
         return ShouldFailScheduledEmail
             ? Task.FromResult(Result.Failure(new Error("Test.EmailFailed", "Simulated email failure")))
@@ -49,64 +53,75 @@ public sealed class SpyAccountDeletionEmailSender : IAccountDeletionEmailSender
         DateTimeOffset finalizesAt,
         CancellationToken cancellationToken)
     {
-        LastPreviousAddressRecipient = previousEmail;
-        LastPreviousAddressCurrentEmail = currentEmail;
-        LastPreviousAddressCancelToken = cancelToken;
-        Interlocked.Increment(ref _previousAddressCallCount);
+        _previousAddressNotices.Enqueue(new PreviousAddressNotice(previousEmail, currentEmail, cancelToken));
 
         return Task.FromResult(Result.Success());
     }
 
     public Task<Result> SendDeletionCancelledEmailAsync(Guid userId, string email, CancellationToken cancellationToken)
     {
-        LastCancelledEmail = email;
-        Interlocked.Increment(ref _cancelledCallCount);
+        _cancelledEmailRecipients.Enqueue(email);
         return Task.FromResult(Result.Success());
     }
 
-    /// <summary>
-    /// Blocks until a deletion-scheduled e-mail lands or the timeout passes. Scheduling stopped
-    /// being synchronous when the e-mail went through the outbox (commit -> relay -> delivery ->
-    /// this spy), so tests reading <see cref="LastCancelToken"/> right after the delete call must
-    /// wait for the state instead of assuming it is already there. It returns either way, and the
-    /// assertions stay in the test.
-    /// </summary>
-    public async Task WaitForScheduledCaptureAsync(TimeSpan? timeout = null)
-    {
-        using CancellationTokenSource waitWindow = new(timeout ?? TimeSpan.FromSeconds(15));
+    public IReadOnlyList<ScheduledEmail> ScheduledEmailsTo(string recipient) =>
+        _scheduledEmails.Where(mail => mail.Recipient == recipient).ToList();
 
-        while (LastCancelToken is null && !waitWindow.IsCancellationRequested)
-        {
-            await Task.Delay(50);
-        }
-    }
+    public IReadOnlyList<PreviousAddressNotice> PreviousAddressNoticesTo(string recipient) =>
+        _previousAddressNotices.Where(notice => notice.Recipient == recipient).ToList();
+
+    public int CancelledEmailCountTo(string recipient) =>
+        _cancelledEmailRecipients.Count(address => address == recipient);
 
     /// <summary>
-    /// Waits until a deletion-cancelled e-mail arrives or the time runs out. That notice travels the
-    /// same pipeline as the scheduled e-mail.
+    /// The cancel token from the newest deletion-scheduled mail to this inbox, or null when none came.
     /// </summary>
-    public async Task WaitForCancelledCaptureAsync(TimeSpan? timeout = null)
-    {
-        using CancellationTokenSource waitWindow = new(timeout ?? TimeSpan.FromSeconds(15));
+    public string? LastCancelTokenSentTo(string recipient) =>
+        ScheduledEmailsTo(recipient).LastOrDefault()?.CancelToken;
 
-        while (LastCancelledEmail is null && !waitWindow.IsCancellationRequested)
-        {
-            await Task.Delay(50);
-        }
-    }
+    /// <summary>
+    /// Waits until a deletion-scheduled mail reaches this inbox or the time runs out. The request only
+    /// commits an outbox row (commit -> relay -> delivery -> this spy), so the mail has to be waited for.
+    /// Any mail since the last <see cref="Reset"/> counts, so a test that schedules twice for one inbox
+    /// resets in between. It returns either way, and the assertions stay in the test.
+    /// </summary>
+    public Task WaitForScheduledCaptureAsync(string recipient, TimeSpan? timeout = null) =>
+        WaitForAsync(() => _scheduledEmails.Any(mail => mail.Recipient == recipient), timeout);
+
+    /// <summary>
+    /// Waits until a notice reaches the address an armed undo would restore. A test that expects the
+    /// notice waits for it by itself, so it does not depend on the order the processor sends in.
+    /// A test that expects no notice waits for the delivery's inbox row instead.
+    /// </summary>
+    public Task WaitForPreviousAddressNoticeAsync(string recipient, TimeSpan? timeout = null) =>
+        WaitForAsync(() => _previousAddressNotices.Any(notice => notice.Recipient == recipient), timeout);
+
+    /// <summary>
+    /// Waits until a deletion-cancelled mail reaches this inbox or the time runs out. That notice travels
+    /// the same pipeline as the scheduled mail.
+    /// </summary>
+    public Task WaitForCancelledCaptureAsync(string recipient, TimeSpan? timeout = null) =>
+        WaitForAsync(() => _cancelledEmailRecipients.Contains(recipient), timeout);
 
     public void Reset()
     {
-        LastScheduledEmail = null;
-        LastCancelToken = null;
-        LastFinalizesAt = null;
-        LastCancelledEmail = null;
-        LastPreviousAddressRecipient = null;
-        LastPreviousAddressCurrentEmail = null;
-        LastPreviousAddressCancelToken = null;
-        Interlocked.Exchange(ref _scheduledCallCount, 0);
-        Interlocked.Exchange(ref _cancelledCallCount, 0);
-        Interlocked.Exchange(ref _previousAddressCallCount, 0);
+        _scheduledEmails.Clear();
+        _previousAddressNotices.Clear();
+        _cancelledEmailRecipients.Clear();
         ShouldFailScheduledEmail = false;
     }
+
+    private static async Task WaitForAsync(Func<bool> arrived, TimeSpan? timeout)
+    {
+        using CancellationTokenSource waitWindow = new(timeout ?? TimeSpan.FromSeconds(15));
+
+        while (!arrived() && !waitWindow.IsCancellationRequested)
+        {
+            await Task.Delay(50);
+        }
+    }
+
+    public sealed record ScheduledEmail(string Recipient, string CancelToken, DateTimeOffset FinalizesAt);
+
+    public sealed record PreviousAddressNotice(string Recipient, string CurrentEmail, string CancelToken);
 }

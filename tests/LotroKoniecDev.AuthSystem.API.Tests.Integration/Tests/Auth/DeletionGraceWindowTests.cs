@@ -172,7 +172,7 @@ public sealed partial class DeletionGraceWindowTests : AsyncLifetimeTestBase
             await UserFactory.RegisterRandomUserWithRequestAsync(ApiClient, Faker, AccountConfirmationEmailSpy, TestPassword);
         string preScheduleAccessToken = await GetAccessTokenAsync(registerRequest.Email);
         await ScheduleDeletionAsync(registerRequest.Email);
-        string cancelToken = AccountDeletionEmailSpy.LastCancelToken!;
+        string cancelToken = AccountDeletionEmailSpy.LastCancelTokenSentTo(registerRequest.Email)!;
 
         // The cancel token above was created at delivery time, against the stamp set when the deletion
         // was scheduled (ADR-0038 decision 2). The attack below must not be able to invalidate it.
@@ -290,8 +290,7 @@ public sealed partial class DeletionGraceWindowTests : AsyncLifetimeTestBase
     public async Task CancelDeletionPage_ShouldRenderConfirmationForm_OnGet()
     {
         // Arrange
-        (RegisterRequest registerRequest, _) = await RegisterAndScheduleDeletionAsync();
-        string cancelToken = AccountDeletionEmailSpy.LastCancelToken!;
+        (RegisterRequest registerRequest, string cancelToken) = await RegisterAndScheduleDeletionAsync();
 
         // Act: a GET (e.g. a mail scanner prefetch) must NOT cancel anything
         HttpResponseMessage response = await _noRedirectClient.GetAsync(new Uri(
@@ -312,8 +311,7 @@ public sealed partial class DeletionGraceWindowTests : AsyncLifetimeTestBase
     public async Task CancelDeletionPage_ShouldCancelAndRedirectToPasswordReset_OnPost()
     {
         // Arrange
-        (RegisterRequest registerRequest, _) = await RegisterAndScheduleDeletionAsync();
-        string cancelToken = AccountDeletionEmailSpy.LastCancelToken!;
+        (RegisterRequest registerRequest, string cancelToken) = await RegisterAndScheduleDeletionAsync();
 
         string pageUrl =
             $"/Account/CancelDeletion?email={Uri.EscapeDataString(registerRequest.Email)}&token={Uri.EscapeDataString(cancelToken)}";
@@ -362,7 +360,7 @@ public sealed partial class DeletionGraceWindowTests : AsyncLifetimeTestBase
 
         await ScheduleDeletionAsync(registerRequest.Email);
 
-        return (registerRequest, AccountDeletionEmailSpy.LastCancelToken!);
+        return (registerRequest, AccountDeletionEmailSpy.LastCancelTokenSentTo(registerRequest.Email)!);
     }
 
     /// <summary>
@@ -383,7 +381,7 @@ public sealed partial class DeletionGraceWindowTests : AsyncLifetimeTestBase
 
         // The cancel token arrives through the pipeline (ADR-0038) and not with the request. Callers
         // read it off the spy right after this returns, so wait for the delivery here.
-        await AccountDeletionEmailSpy.WaitForScheduledCaptureAsync();
+        await AccountDeletionEmailSpy.WaitForScheduledCaptureAsync(email);
 
         string finalizesAtHeader = response.Headers.GetValues(DeleteAccount.DeletionFinalizesAtHeader).Single();
         return DateTimeOffset.Parse(finalizesAtHeader, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind);

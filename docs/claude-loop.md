@@ -147,10 +147,10 @@ one ticket with `LOOP_TRUST_GATE=0`, or add the commenter to `LOOP_TRUSTED_LOGIN
 | `LOOP_CONFIG_DIR` | `~/.claude-account1` | Claude config dir = which account runs the loop (exported as `CLAUDE_CONFIG_DIR`) |
 | `LOOP_ALLOWED_TOOLS` | git/gh/dotnet/scripts | loop-scoped Bash allowlist passed via `--allowedTools` |
 | `LOOP_UNSAFE` | `0` | `1` = `--dangerously-skip-permissions` (full overnight autonomy) |
-| `LOOP_MAX_BUDGET_USD` | (none) | optional per-ticket API budget cap |
+| `LOOP_MAX_BUDGET_USD` | (none) — off on purpose | per-ticket API budget cap. It is unset by default on purpose (owner decision, 2026-09-29, #953). The cap stops the session wherever it is, often just before the PR, and a resume cannot help, because the cap counts the whole session. A nearly finished ticket thrown away costs more than the cap saves |
 | `LOOP_PARALLEL` | `3` | tickets at once (same as `-j`) |
 | `LOOP_ALLOW_LOCAL_SCRIPTS` | `0` | `1` = run even when `scripts/claude/` here differs from `origin/main` (only when you are changing the loop itself) |
-| `LOOP_TICKET_TIMEOUT_MIN` | `90` | wall-clock kill switch per run of `work-ticket.sh`, its resumes included; the run that resumes a session after a usage limit starts a new clock, as the fresh retry did before; leftovers are committed on a `loop-salvage/…` branch |
+| `LOOP_TICKET_TIMEOUT_MIN` | `240` | wall-clock kill switch per run of `work-ticket.sh`, its resumes included; the run that resumes a session after a usage limit starts a new clock, as the fresh retry did before; leftovers are committed on a `loop-salvage/…` branch. It is only a guard against a stuck session: a normal ticket takes 50 to 80 minutes, and a session killed by the clock writes no result, so it cannot be resumed (#953) |
 | `LOOP_MAX_RESUMES` | `2` | how many times a session that ended normally without a `STATUS:` line is resumed before the ticket counts as `error`; `0` turns that resume off. The one resume of a DONE with no open PR and the resume after a usage limit do not count here |
 | `BASH_MAX_TIMEOUT_MS` | `3600000` | the longest Bash timeout the worker may ask for (one hour), so the whole test suite fits in one foreground call — see "A session that stops without a verdict" |
 | `BASH_DEFAULT_TIMEOUT_MS` | `600000` | the timeout of a worker Bash call that names none (ten minutes, not the CLI's two), because a call that runs out is stopped, not moved to the background |
@@ -166,7 +166,7 @@ one ticket with `LOOP_TRUST_GATE=0`, or add the commenter to `LOOP_TRUSTED_LOGIN
 | `LOOP_LIMIT_RETRIES` | `8` | max naps before giving up (a limit hit at the start of a 5h usage window needs up to ~5h of naps) |
 | `LOOP_MAX_CONSECUTIVE_FAILURES` | `2` | systemic-failure circuit breaker |
 
-Example overnight run with a hard per-ticket budget:
+If you still want a hard per-ticket budget for one run, keep in mind that a ticket which reaches it ends without a PR:
 
 ```bash
 LOOP_MAX_BUDGET_USD=15 caffeinate -is scripts/claude/backlog-loop.sh

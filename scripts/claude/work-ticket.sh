@@ -31,9 +31,12 @@
 #                           widen permissions of your interactive sessions
 #   LOOP_ALLOWED_TOOLS      override the loop's Bash allowlist (space-separated rule list)
 #   LOOP_UNSAFE=1           use --dangerously-skip-permissions instead (full overnight autonomy)
-#   LOOP_MAX_BUDGET_USD     optional per-ticket API budget cap
+#   LOOP_MAX_BUDGET_USD     optional per-ticket API budget cap; unset by default on purpose, because
+#                           a cap that stops a nearly finished ticket wastes more than it saves (#953)
 #   LOOP_TICKET_TIMEOUT_MIN wall-clock kill switch per run of this script, resumes included
-#                           (default: 90); the run that resumes after a usage limit gets a new one
+#                           (default: 240); the run that resumes after a usage limit gets a new one.
+#                           It only guards against a stuck session: a normal ticket takes 50 to 80
+#                           minutes, and a killed session cannot be resumed (#953)
 #   LOOP_MAX_RESUMES        how many times a session that ends normally without a STATUS line is
 #                           resumed before the ticket counts as an error (default: 2); the one
 #                           resume of a DONE with no open PR and the resume after a usage limit
@@ -81,7 +84,7 @@ EFFORT="${LOOP_EFFORT:-${MODEL_POLICY_WORKER_EFFORT:-high}}"
 MODEL="${LOOP_MODEL:-${MODEL_POLICY_WORKER_MODEL:-opus}}"
 export CLAUDE_CONFIG_DIR="${LOOP_CONFIG_DIR:-$HOME/.claude-account1}"
 PERMISSION_MODE="${LOOP_PERMISSION_MODE:-auto}"
-TIMEOUT_MIN="${LOOP_TICKET_TIMEOUT_MIN:-90}"
+TIMEOUT_MIN="${LOOP_TICKET_TIMEOUT_MIN:-240}"
 KEEP_WORKTREE="${LOOP_KEEP_WORKTREE:-0}"
 MAX_RESUMES="${LOOP_MAX_RESUMES:-2}"
 # A resume needs time for at least the test suite and the push.

@@ -764,6 +764,8 @@ run_case 0 "work-ticket: a session that stopped to wait is resumed and opens its
     env CLAUDE_BEHAVIOR="$TMP_ROOT/waits.sh" "$WORK" 88 "$TMP_ROOT/run"
 [ ! -e "$TMP_ROOT/run/ticket-88.json.before-resume-2" ] && [ ! -e "$TMP_ROOT/run/ticket-88.json.resume-2" ] \
     || fail "an earlier attempt's resume results should be cleared"
+# A normal ticket takes 50 to 80 minutes; the clock is only a guard against a stuck session (#953).
+expect_in_output "timeout=240m)"
 expect_in_output "resuming it (1 of 2)"
 expect_in_output "PR #788 opened"
 [ "$(cat "$TMP_ROOT/claude-runs")" = "2" ] || fail "expected the first run and one resume" "$LAST_OUTPUT"
@@ -772,7 +774,7 @@ grep -q "first-run stderr" "$TMP_ROOT/run/ticket-88.stderr" || fail "the resume 
 [ "$(sed -n 2p "$TMP_ROOT/claude-args-1")" = "/work-ticket 88" ] || fail "the first run should get /work-ticket 88"
 sed -n 2p "$TMP_ROOT/claude-args-2" | grep -q "end with the STATUS: DONE or STATUS: BLOCKED block" \
     || fail "the resume should ask for the STATUS block" "$(sed -n 2p "$TMP_ROOT/claude-args-2")"
-sed -n 2p "$TMP_ROOT/claude-args-2" | grep -qE "stops this session in about (89|90) minutes" \
+sed -n 2p "$TMP_ROOT/claude-args-2" | grep -qE "stops this session in about (239|240) minutes" \
     || fail "the resume should say how much of the clock is left" "$(sed -n 2p "$TMP_ROOT/claude-args-2")"
 [ "$(tail -2 "$TMP_ROOT/claude-args-2" | tr '\n' ' ')" = "--resume s-88 " ] \
     || fail "the resume should name the session of the first run" "$(cat "$TMP_ROOT/claude-args-2")"
@@ -1285,7 +1287,8 @@ fi
 STUB
 chmod +x "$TMP_ROOT/bin/date"
 
-# The skew is set only after the child has started, so the stop finds it.
+# The skew is set only after the child has started, so the stop finds it. 15000 seconds is 250
+# minutes, past the default clock of 240.
 reset_fixtures
 rm -f "$TMP_ROOT/session-child" "$TMP_ROOT/clock-skew"
 fixture_issue 95 maintainer OWNER
@@ -1295,7 +1298,7 @@ set -m
 "$REAL_SLEEP" 60 &
 echo $! > "'"$TMP_ROOT"'/session-child"
 set +m
-echo 6000 > "'"$TMP_ROOT"'/clock-skew"
+echo 15000 > "'"$TMP_ROOT"'/clock-skew"
 wait'
 run_case 4 "work-ticket: the wall clock ends a session" \
     env CLAUDE_BEHAVIOR="$TMP_ROOT/long-skew.sh" "$WORK" 95 "$TMP_ROOT/run"

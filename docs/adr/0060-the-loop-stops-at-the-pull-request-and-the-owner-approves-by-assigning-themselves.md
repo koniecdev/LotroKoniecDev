@@ -222,7 +222,8 @@ the same either way, so serial only costs wall-clock time. `-j 1` stays availabl
   `origin/main`; a usage limit starts nothing new, waits for the running tickets, naps and retries
   the limited ones; a worktree failure (exit 10) or two failures in a row stop new starts; TERM
   stops every worker at once, even mid-nap; the roll-up table lists the PRs.
-- `scripts/claude/next-ticket.sh`: a ticket with an open PR or a worktree is not ready.
+- `scripts/claude/next-ticket.sh`: a ticket with an open PR or a worktree is not ready (except a
+  worktree kept after a usage limit — see the 2026-09-29 amendment).
 - `scripts/tests/claude-loop-conductor.tests.sh` (new, in `pr-verify` and `ci`) pins the conductor;
   `scripts/tests/claude-loop-provenance.tests.sh` gains the in-flight cases.
 - `.claude/commands/work-ticket.md`, `ticket.md`: never set an assignee; the wiki path works from a

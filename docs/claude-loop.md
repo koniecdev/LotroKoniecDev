@@ -95,7 +95,8 @@ Open issue, not `[Epic]`/`[Tracking]`, none of the skip labels, **written only b
 maintainers** (see the provenance gate below), **no open PR yet** (a branch named `<n>-…` with an
 open PR means the ticket waits for your review), **no `.claude/worktrees/ticket-<n>` yet** (a
 session is on it) unless that worktree was kept for a resume after a usage limit — then the worker
-decides, see "A session stopped by a usage limit, or DONE without a PR" — and every `Depends on #X` in the body already
+decides, see "A session stopped by a usage limit, or DONE without a PR" — and every
+`Depends on #X` in the body already
 CLOSED (a ticket is closed by its merged PR, so closed = merged). A dependency with an open PR is
 therefore not ready either: its dependent waits until you merge it. Order: `priority-critical` >
 `priority-high` > `priority-medium` > `priority-low` > unlabeled, then lowest number first — but
@@ -316,7 +317,8 @@ replaced by the resume's result when it ends (the old one moves to `.before-resu
 resumed run reports the cost of the whole session. The attempt's older `.before-resume-*`,
 `.resume-*` and `.stderr` files get a `.limit-<time>` suffix. The stderr moves because its limit
 message would make a later crash look like a usage limit. `.meta` gets `session=` whenever the
-run's result names its session, and `worktree=kept` on a limit that kept one; `resumes=` counts every resume, the one after the limit
+run ends on its own and its result names the session (a timeout or a stop leaves it only in
+`ticket-<n>.json`), and `worktree=kept` on a limit that kept one; `resumes=` counts every resume, the one after the limit
 included, so the end-of-run table marks the ticket `resumed Nx`. When the resume happens in a
 later conductor run, both runs' totals count the part of the session before the limit.
 

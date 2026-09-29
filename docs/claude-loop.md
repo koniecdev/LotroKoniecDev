@@ -147,7 +147,7 @@ one ticket with `LOOP_TRUST_GATE=0`, or add the commenter to `LOOP_TRUSTED_LOGIN
 | `LOOP_CONFIG_DIR` | `~/.claude-account1` | Claude config dir = which account runs the loop (exported as `CLAUDE_CONFIG_DIR`) |
 | `LOOP_ALLOWED_TOOLS` | git/gh/dotnet/scripts | loop-scoped Bash allowlist passed via `--allowedTools` |
 | `LOOP_UNSAFE` | `0` | `1` = `--dangerously-skip-permissions` (full overnight autonomy) |
-| `LOOP_MAX_BUDGET_USD` | (none) — off on purpose | per-ticket API budget cap. It is unset by default on purpose (owner decision, 2026-09-29, #953). The cap stops the session wherever it is, often just before the PR, and a resume cannot help, because the cap counts the whole session. A nearly finished ticket thrown away costs more than the cap saves |
+| `LOOP_MAX_BUDGET_USD` | (none) | per-ticket API budget cap, off on purpose (owner decision, 2026-09-29, #953). The cap stops the session wherever it is. That can be just before the PR. A resume cannot help, because the cap counts the whole session. A nearly finished ticket that is thrown away costs more than the cap saves |
 | `LOOP_PARALLEL` | `3` | tickets at once (same as `-j`) |
 | `LOOP_ALLOW_LOCAL_SCRIPTS` | `0` | `1` = run even when `scripts/claude/` here differs from `origin/main` (only when you are changing the loop itself) |
 | `LOOP_TICKET_TIMEOUT_MIN` | `240` | wall-clock kill switch per run of `work-ticket.sh`, its resumes included; the run that resumes a session after a usage limit starts a new clock, as the fresh retry did before; leftovers are committed on a `loop-salvage/…` branch. It is only a guard against a stuck session: a normal ticket takes 50 to 80 minutes, and a session killed by the clock writes no result, so it cannot be resumed (#953) |
@@ -165,12 +165,6 @@ one ticket with `LOOP_TRUST_GATE=0`, or add the commenter to `LOOP_TRUSTED_LOGIN
 | `LOOP_LIMIT_SLEEP_MIN` | `60` | nap length when the usage limit is hit |
 | `LOOP_LIMIT_RETRIES` | `8` | max naps before giving up (a limit hit at the start of a 5h usage window needs up to ~5h of naps) |
 | `LOOP_MAX_CONSECUTIVE_FAILURES` | `2` | systemic-failure circuit breaker |
-
-If you still want a hard per-ticket budget for one run, keep in mind that a ticket which reaches it ends without a PR:
-
-```bash
-LOOP_MAX_BUDGET_USD=15 caffeinate -is scripts/claude/backlog-loop.sh
-```
 
 ## Outcomes & triage
 
@@ -244,7 +238,7 @@ and nothing can wake the session again. Nothing was pushed, and the final messag
   new `resumes=` line as each resume starts (the last line wins, as for every key), and the
   end-of-run table marks such a ticket with `resumed Nx`.
 - **The provenance gate runs again before each resume.** A resume is a new process that may read
-  the issue again, and it can start an hour after the first check. A comment from someone
+  the issue again, and it can start hours after the first check. A comment from someone
   without write access that arrived in between refuses the ticket (exit 11, `untrusted`), exactly
   as it would at the start (ADR-0026).
 

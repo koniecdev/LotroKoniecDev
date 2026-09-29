@@ -764,7 +764,7 @@ run_case 0 "work-ticket: a session that stopped to wait is resumed and opens its
     env CLAUDE_BEHAVIOR="$TMP_ROOT/waits.sh" "$WORK" 88 "$TMP_ROOT/run"
 [ ! -e "$TMP_ROOT/run/ticket-88.json.before-resume-2" ] && [ ! -e "$TMP_ROOT/run/ticket-88.json.resume-2" ] \
     || fail "an earlier attempt's resume results should be cleared"
-# A normal ticket takes 50 to 80 minutes; the clock is only a guard against a stuck session (#953).
+# The default clock (#953).
 expect_in_output "timeout=240m)"
 expect_in_output "resuming it (1 of 2)"
 expect_in_output "PR #788 opened"

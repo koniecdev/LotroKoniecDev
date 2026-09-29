@@ -195,7 +195,7 @@ internal sealed partial class TokenEndpoint : IEndpoint
         // unlocked, for example when a scheduled deletion is cancelled (#848).
         if (!await SessionSecurityStamp.IsCurrentAsync(authenticateResult.Principal!, user, signInManager))
         {
-            LogRefreshRefusedSecurityStampChanged(logger, userId);
+            LogRefreshRefusedStaleSecurityStamp(logger, userId);
             return Refuse(RefreshTokenNoLongerValid);
         }
 
@@ -299,6 +299,6 @@ internal sealed partial class TokenEndpoint : IEndpoint
     [LoggerMessage(EventId = EventIds.RefreshRefusedLockedOut, Level = LogLevel.Warning, Message = "Refresh refused for user {UserId}: the account is locked out")]
     private static partial void LogRefreshRefusedLockedOut(ILogger logger, string userId);
 
-    [LoggerMessage(EventId = EventIds.RefreshRefusedSecurityStampChanged, Level = LogLevel.Warning, Message = "Refresh refused for user {UserId}: the security stamp changed after sign-in, so a flow that ends every session has run")]
-    private static partial void LogRefreshRefusedSecurityStampChanged(ILogger logger, string userId);
+    [LoggerMessage(EventId = EventIds.RefreshRefusedStaleSecurityStamp, Level = LogLevel.Warning, Message = "Refresh refused for user {UserId}: the security stamp in the token is not current")]
+    private static partial void LogRefreshRefusedStaleSecurityStamp(ILogger logger, string userId);
 }

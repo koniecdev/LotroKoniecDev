@@ -52,10 +52,16 @@ public abstract class EndpointsTestBase : AsyncLifetimeTestBase
         return json.RootElement.GetProperty("access_token").GetString()!;
     }
 
-    protected async Task<string> GetRefreshTokenAsync(string email, string password)
+    protected Task<string> GetRefreshTokenAsync(string email, string password) =>
+        GetRefreshTokenAsync(ApiClient.Http, email, password);
+
+    /// <summary>
+    /// Takes the client of the host that will check the token. Tokens are sealed with each host's own keys.
+    /// </summary>
+    protected static async Task<string> GetRefreshTokenAsync(HttpClient client, string email, string password)
     {
         using HttpResponseMessage tokenResponse =
-            await RequestPasswordGrantAsync(email, password, "email profile roles api offline_access");
+            await RequestPasswordGrantAsync(client, email, password, "email profile roles api offline_access");
 
         tokenResponse.StatusCode.ShouldBe(HttpStatusCode.OK);
 
@@ -64,7 +70,10 @@ public abstract class EndpointsTestBase : AsyncLifetimeTestBase
         return json.RootElement.GetProperty("refresh_token").GetString()!;
     }
 
-    protected async Task<HttpResponseMessage> RequestRefreshGrantAsync(string refreshToken)
+    protected Task<HttpResponseMessage> RequestRefreshGrantAsync(string refreshToken) =>
+        RequestRefreshGrantAsync(ApiClient.Http, refreshToken);
+
+    protected static async Task<HttpResponseMessage> RequestRefreshGrantAsync(HttpClient client, string refreshToken)
     {
         using FormUrlEncodedContent refreshRequest = new(new Dictionary<string, string>
         {
@@ -73,13 +82,20 @@ public abstract class EndpointsTestBase : AsyncLifetimeTestBase
             ["client_id"] = "lotrokoniecdev-test"
         });
 
-        return await ApiClient.Http.PostAsync(new Uri("connect/token", UriKind.Relative), refreshRequest);
+        return await client.PostAsync(new Uri("connect/token", UriKind.Relative), refreshRequest);
     }
 
-    protected async Task<HttpResponseMessage> RequestPasswordGrantAsync(
+    protected Task<HttpResponseMessage> RequestPasswordGrantAsync(
         string email,
         string password,
-        string scope = "email profile roles api")
+        string scope = "email profile roles api") =>
+        RequestPasswordGrantAsync(ApiClient.Http, email, password, scope);
+
+    private static async Task<HttpResponseMessage> RequestPasswordGrantAsync(
+        HttpClient client,
+        string email,
+        string password,
+        string scope)
     {
         // "username" is a fixed name in the OIDC protocol. What it carries is the e-mail (ADR-0022).
         using FormUrlEncodedContent tokenRequest = new(new Dictionary<string, string>
@@ -91,6 +107,6 @@ public abstract class EndpointsTestBase : AsyncLifetimeTestBase
             ["scope"] = scope
         });
 
-        return await ApiClient.Http.PostAsync(new Uri("connect/token", UriKind.Relative), tokenRequest);
+        return await client.PostAsync(new Uri("connect/token", UriKind.Relative), tokenRequest);
     }
 }

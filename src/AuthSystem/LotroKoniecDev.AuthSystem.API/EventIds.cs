@@ -57,6 +57,7 @@ internal static class EventIds
 
     // Logout (2260-2269)
     public const int UserLoggedOut = 2260;
+    public const int SignOutFoundNoUser = 2261;
 
     // Registration (2270-2279)
     public const int RegisterEmailFallback = 2270;

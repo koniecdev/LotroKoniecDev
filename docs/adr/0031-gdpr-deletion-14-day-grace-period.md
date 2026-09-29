@@ -183,7 +183,7 @@ The undo term of the #685 amendment stays inside the 30 days too. It wins only w
 is shorter than the 14-day undo window. The poll interval is then at most the grace period, so the
 erasure lands less than 28 days after the request. The rule that the poll interval must not exceed
 the grace period is what carries this: without it, a 1-day grace period and a 29-day poll would pass
-the sum and let the undo hold push the erasure to about day 43. This holds while the undo lifespan
+the sum and let the undo hold push the erasure up to about day 43. This holds while the undo lifespan
 stays at 15 days or less.
 
 Two delays are outside what a startup check can bound. A run that fails adds one poll interval each

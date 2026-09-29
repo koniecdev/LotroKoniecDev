@@ -35,8 +35,8 @@ internal sealed class GdprSettingsValidator : IValidateOptions<GdprSettings>
         }
 
         // The interval comes on top of the grace period (#946). The sum is checked by subtraction,
-        // and a non-positive interval counts as zero, so a huge value in appsettings.json ends in this
-        // message and not in an OverflowException.
+        // and a non-positive interval counts as zero, so a huge value in appsettings.json ends in a
+        // validation message and not in an OverflowException.
         TimeSpan pollDelay = options.DeletionFinalizationPollInterval > TimeSpan.Zero
             ? options.DeletionFinalizationPollInterval
             : TimeSpan.Zero;

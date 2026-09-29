@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Works ONE GitHub ticket in a FRESH headless Claude session inside its own git worktree, then
+# Works ONE GitHub ticket in a headless Claude session inside its own git worktree, then
 # judges the outcome. It stops at the pull request — nothing here merges (ADR-0060):
 #   worktree from origin/main  →  claude -p "/work-ticket <n>"  →  STATUS: DONE (PR opened, waits for the owner's review)
 #                                                             →  STATUS: DONE, no open PR: resume the session once to open it
@@ -238,6 +238,23 @@ keep_for_resume() {
     printf 'session=%s\nhead=%s\nturns=%s\n' "$session" "$head" "$turns" > "$marker" 2>/dev/null || return 1
 }
 
+# The branch of the kept worktree. A rebase that stopped half way detaches HEAD, but git still
+# records which branch it rebases.
+kept_branch() {
+    local branch state file
+    branch="$(git -C "$WT" branch --show-current 2>/dev/null || true)"
+    if [ -z "$branch" ]; then
+        for state in rebase-merge rebase-apply; do
+            file="$(git -C "$WT" rev-parse --path-format=absolute --git-path "$state/head-name" 2>/dev/null || true)"
+            if [ -n "$file" ] && [ -f "$file" ]; then
+                branch="$(sed 's#^refs/heads/##' "$file")"
+                break
+            fi
+        done
+    fi
+    echo "$branch"
+}
+
 # `--resume` finds a session only in the config dir that ran it, and only until the CLI's cleanup
 # deletes its transcript (30 days by default).
 has_transcript() {
@@ -283,7 +300,7 @@ if [ -n "$resume_session" ]; then
     # The session may have opened its PR before the limit hit, so an open PR from the kept branch
     # is its own. Any other PR of the ticket means the work went on without this session: a merged
     # one, one open from another branch, or a closed one from this branch.
-    kept_branch="$(git -C "$WT" branch --show-current 2>/dev/null || true)"
+    branch="$(kept_branch)"
     ticket_prs="$(gh pr list --state all --limit 200 --json number,headRefName,isCrossRepository,state \
         --jq ".[] | select((.isCrossRepository | not) and (.headRefName | startswith(\"$ISSUE-\"))) | \"\(.number) \(.state) \(.headRefName)\"")" || {
         meta outcome error
@@ -295,12 +312,15 @@ if [ -n "$resume_session" ]; then
         [ -n "$number" ] || continue
         case "$state" in
             MERGED) blocker="PR #$number was merged" ;;
-            OPEN) [ "$head" = "$kept_branch" ] || blocker="PR #$number is open from another branch ($head)" ;;
-            CLOSED) [ "$head" != "$kept_branch" ] || blocker="PR #$number from this branch was closed" ;;
+            OPEN) [ "$head" = "$branch" ] || blocker="PR #$number is open from another branch ($head)" ;;
+            CLOSED) [ "$head" != "$branch" ] || blocker="PR #$number from this branch was closed" ;;
         esac
         [ -z "$blocker" ] || break
     done <<< "$ticket_prs"
     if [ -n "$blocker" ]; then
+        # The work went on without the session, so this will not change. Without the marker the
+        # picker stops offering the ticket, and the worktree waits for a human like any other.
+        rm -f "$marker"
         meta outcome skipped
         log "SKIPPED — $WT was kept to resume session $resume_session, but $blocker. Not resuming. When you are done with it: git worktree remove \"$WT\""
         exit 12
@@ -446,7 +466,7 @@ resume_prompt() {
     local why
     case "$1" in
         no-status) why="Your last message has no STATUS line, so the loop cannot tell how ticket #$ISSUE ended." ;;
-        no-pr) why="Your last message says STATUS: DONE, but the loop found no open pull request for ticket #$ISSUE: $pr_problem. \
+        no-pr) why="Your last message says STATUS: DONE, but the loop found no open pull request for ticket #$ISSUE${pr_named:+ (PR #$pr_named, which your message links, is not one)}. \
 The loop counts only an open PR in this repository whose branch name starts with \"$ISSUE-\". \
 Push the branch and open the PR now, or name the full URL of that PR if it already exists." ;;
         limit) why="The usage limit that stopped this session is over, and the loop resumes ticket #$ISSUE in the same worktree. \
@@ -520,21 +540,24 @@ keep_result() {
 }
 
 # find_ticket_pr <final message> — sets pr_num to this ticket's open PR. Without one it sets
-# pr_problem, and pr_unknown=1 when GitHub could not say whether there is one.
+# pr_problem for the log, pr_named to the number the message links, and pr_unknown=1 when GitHub
+# could not say whether there is one. pr_problem holds the linked PR's branch, which anyone who
+# opens a PR can name, so only pr_named may reach a prompt (ADR-0026).
 find_ticket_pr() {
-    local url named state
+    local url state
     pr_num=""
+    pr_named=""
     pr_problem=""
     pr_unknown=0
     url="$(grep -oE 'https://github\.com/[^ )>,]+/pull/[0-9]+' <<< "$1" | head -1 || true)"
     if [ -n "$url" ]; then
-        named="${url##*/}"
-        state="$(gh pr view "$named" --json state,isCrossRepository,headRefName \
+        pr_named="${url##*/}"
+        state="$(gh pr view "$pr_named" --json state,isCrossRepository,headRefName \
             --jq '"\(.state) \(.isCrossRepository) \(.headRefName)"' 2>/dev/null || true)"
         case "$state" in
-            "OPEN false $ISSUE-"*) pr_num="$named"; return 0 ;;
+            "OPEN false $ISSUE-"*) pr_num="$pr_named"; return 0 ;;
         esac
-        pr_problem="PR #$named is not an open PR for this ticket (${state:-unreadable})"
+        pr_problem="PR #$pr_named is not an open PR for this ticket (${state:-unreadable})"
     fi
     # A wrong link may be a slip in the summary: the ticket's own PR, found by its branch, counts.
     if ! pr_num="$(gh pr list --state open --limit 200 --json number,headRefName,isCrossRepository \
@@ -592,6 +615,7 @@ fi
 status_resumes=0
 pr_resumed=0
 pr_num=""
+pr_named=""
 pr_problem=""
 pr_unknown=0
 while :; do

@@ -316,8 +316,8 @@ for meta_file in "$RUN_DIR"/ticket-*.meta; do
         checks="$(pr_checks "$pr")"
         alerts="$(pr_alerts "$pr")"
     fi
-    # A worker that had to be resumed stopped once without a verdict, a PR or its usage (#925,
-    # #934): worth a look.
+    # A worker that had to be resumed is worth a look: its session stopped without a STATUS line,
+    # said DONE with no PR, or hit the usage limit (#925, #934).
     note=""
     case "$resumes" in ''|0) ;; *) note="  resumed ${resumes}x" ;; esac
     # The limit outlasted every nap: the session waits in its worktree for a later run (#934).

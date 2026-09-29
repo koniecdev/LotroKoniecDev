@@ -185,9 +185,9 @@ public sealed class AccountDeletionFinalizerTests : EndpointsTestBase
     [Fact]
     public async Task Finalizer_ShouldChangeTheSecurityStampInTheErasureSave_WhenTheNextSaveOfTheAccountFails()
     {
-        // #908: the erasure saves the account once, and the new security stamp is part of that save.
-        // The next save of this account belongs to the cleanup, which is best effort, so its failure
-        // must not turn a finished erasure into a failed one.
+        // #908: the erasure saves the account once, and the lockout and the new security stamp are
+        // part of that save. The next save of this account belongs to the cleanup, which is best
+        // effort, so its failure must not turn a finished erasure into a failed one.
 
         // Arrange
         (_, IdentityId identityId) = await RegisterAndScheduleDeletionAsync();
@@ -204,6 +204,7 @@ public sealed class AccountDeletionFinalizerTests : EndpointsTestBase
 
         ApplicationUser user = await GetUserAsync(identityId.Value);
         user.Email.ShouldEndWith(AnonymizationConstants.EmailDomain);
+        user.LockoutEnd.ShouldBe(DateTimeOffset.MaxValue);
         user.SecurityStamp.ShouldNotBe(stampBeforeErasure);
     }
 

@@ -73,9 +73,8 @@ internal sealed partial class AccountErasureService : IAccountErasureService
 
             // The permanent lockout and the new security stamp, which ends every session, go in the
             // same update as the anonymization marker. The finalizer picks its work by the marker
-            // alone. If a separate write failed after the marker was saved, every later run would skip
-            // this user, and the rest of the erasure, the cleanup below included, would never happen
-            // (#908).
+            // alone, so no later run retries anything that comes after this save. A separate write
+            // that failed there would never be done (#908).
             user.LockoutEnabled = true;
             user.LockoutEnd = DateTimeOffset.MaxValue;
             user.SecurityStamp = Guid.NewGuid().ToString();

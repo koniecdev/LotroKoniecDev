@@ -10,6 +10,7 @@ internal sealed class TokenEndpointClient : ITokenEndpointClient
     private const string RefreshTokenGrantType = "refresh_token";
     private const string RefreshTokenParam = "refresh_token";
     private const string ClientIdParam = "client_id";
+    private const int MaxLoggedFieldLength = 200;
     private static readonly Uri TokenRelativeUri = new("connect/token", UriKind.Relative);
 
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
@@ -46,7 +47,7 @@ internal sealed class TokenEndpointClient : ITokenEndpointClient
 
             if (!response.IsSuccessStatusCode)
             {
-                LogRefreshFailed(_logger, (int)response.StatusCode, null);
+                await LogRefusalAsync(response, cancellationToken);
                 return null;
             }
 
@@ -70,11 +71,62 @@ internal sealed class TokenEndpointClient : ITokenEndpointClient
         }
     }
 
+    /// <summary>
+    /// Only the two OAuth fields are logged, never the raw body, so nothing else the answer carries can
+    /// reach the log. For a body of any other shape, the warning holds the status code alone (#914).
+    /// </summary>
+    private async Task LogRefusalAsync(HttpResponseMessage response, CancellationToken cancellationToken)
+    {
+        int statusCode = (int)response.StatusCode;
+        string body = await response.Content.ReadAsStringAsync(cancellationToken);
+
+        if (TryReadError(body) is { Error: { } error } errorResponse && !string.IsNullOrWhiteSpace(error))
+        {
+            LogRefreshRefused(_logger, statusCode, ForLog(error), ForLog(errorResponse.ErrorDescription), null);
+            return;
+        }
+
+        LogRefreshFailed(_logger, statusCode, null);
+    }
+
+    private static TokenErrorResponse? TryReadError(string body)
+    {
+        try
+        {
+            return JsonSerializer.Deserialize<TokenErrorResponse>(body, JsonOptions);
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// The text comes from another service, so it is cut short and kept on one line.
+    /// </summary>
+    private static string? ForLog(string? value)
+    {
+        if (value is null)
+        {
+            return null;
+        }
+
+        string kept = value.Length > MaxLoggedFieldLength ? value[..MaxLoggedFieldLength] : value;
+        string oneLine = new(kept.Select(character => char.IsControl(character) ? ' ' : character).ToArray());
+        return kept.Length < value.Length ? $"{oneLine}…" : oneLine;
+    }
+
     private static readonly Action<ILogger, int, Exception?> LogRefreshFailed =
         LoggerMessage.Define<int>(
             LogLevel.Warning,
             new EventId(1, nameof(LogRefreshFailed)),
             "Refresh token grant failed with status {StatusCode}.");
+
+    private static readonly Action<ILogger, int, string?, string?, Exception?> LogRefreshRefused =
+        LoggerMessage.Define<int, string?, string?>(
+            LogLevel.Warning,
+            new EventId(3, nameof(LogRefreshRefused)),
+            "Refresh token grant failed with status {StatusCode}. Error: {Error}. Description: {ErrorDescription}");
 
     private static readonly Action<ILogger, Exception> LogRefreshError =
         LoggerMessage.Define(

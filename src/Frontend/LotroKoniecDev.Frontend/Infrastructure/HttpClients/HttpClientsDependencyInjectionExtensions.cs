@@ -89,11 +89,14 @@ public static class HttpClientsDependencyInjectionExtensions
     /// again, the caller key too. A <c>307</c> or <c>308</c> also sends the form body again. So no frontend
     /// client to either API follows a redirect: the typed clients (#830), the token client and the OIDC
     /// back-channel (#899).
+    /// One handler serves every visitor, so a cookie it kept from one visitor's call would go out with
+    /// other visitors' calls. No call to either API needs a cookie, so the handler keeps none (#924).
     /// </summary>
     internal static SocketsHttpHandler CreatePrimaryHandler() => new()
     {
         PooledConnectionLifetime = TimeSpan.FromMinutes(15),
-        AllowAutoRedirect = false
+        AllowAutoRedirect = false,
+        UseCookies = false
     };
 
     private static void ConfigureResiliencePipeline(ResiliencePipelineBuilder<HttpResponseMessage> pipeline)

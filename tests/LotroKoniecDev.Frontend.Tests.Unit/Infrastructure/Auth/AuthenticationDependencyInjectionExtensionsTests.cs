@@ -43,11 +43,7 @@ public sealed class AuthenticationDependencyInjectionExtensionsTests
     [Fact]
     public void AddFrontendAuthentication_TokenEndpointClient_DoesNotFollowRedirects()
     {
-        using ServiceProvider provider = CreateFrontendAuthenticationServices().BuildServiceProvider();
-
-        List<HttpMessageHandler> chain = HttpMessageHandlerChain.From(provider
-            .GetRequiredService<IHttpMessageHandlerFactory>()
-            .CreateHandler(nameof(ITokenEndpointClient)));
+        List<HttpMessageHandler> chain = ResolveTokenEndpointClientHandlerChain();
 
         chain[^1].ShouldBeOfType<SocketsHttpHandler>().AllowAutoRedirect.ShouldBeFalse();
     }
@@ -64,6 +60,26 @@ public sealed class AuthenticationDependencyInjectionExtensionsTests
         List<HttpMessageHandler> chain = HttpMessageHandlerChain.From(options.BackchannelHttpHandler);
 
         chain[^1].ShouldBeOfType<SocketsHttpHandler>().AllowAutoRedirect.ShouldBeFalse();
+    }
+
+    /// <summary>#924: one handler serves every visitor's refresh.</summary>
+    [Fact]
+    public void AddFrontendAuthentication_TokenEndpointClient_KeepsNoCookies()
+    {
+        List<HttpMessageHandler> chain = ResolveTokenEndpointClientHandlerChain();
+
+        chain[^1].ShouldBeOfType<SocketsHttpHandler>().UseCookies.ShouldBeFalse();
+    }
+
+    /// <summary>#924: the same for every visitor's code exchange and userinfo call.</summary>
+    [Fact]
+    public void AddFrontendAuthentication_OpenIdConnectBackchannel_KeepsNoCookies()
+    {
+        OpenIdConnectOptions options = ResolveConfiguredOidcOptions();
+
+        List<HttpMessageHandler> chain = HttpMessageHandlerChain.From(options.BackchannelHttpHandler);
+
+        chain[^1].ShouldBeOfType<SocketsHttpHandler>().UseCookies.ShouldBeFalse();
     }
 
     [Theory]
@@ -94,6 +110,15 @@ public sealed class AuthenticationDependencyInjectionExtensionsTests
         return provider
             .GetRequiredService<IOptionsMonitor<OpenIdConnectOptions>>()
             .Get(OpenIdConnectDefaults.AuthenticationScheme);
+    }
+
+    private static List<HttpMessageHandler> ResolveTokenEndpointClientHandlerChain()
+    {
+        using ServiceProvider provider = CreateFrontendAuthenticationServices().BuildServiceProvider();
+
+        return HttpMessageHandlerChain.From(provider
+            .GetRequiredService<IHttpMessageHandlerFactory>()
+            .CreateHandler(nameof(ITokenEndpointClient)));
     }
 
     private static CookieAuthenticationOptions ResolveConfiguredCookieOptions(string environmentName)

@@ -1,6 +1,8 @@
+using System.Data.Common;
 using System.Net.Http.Headers;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Npgsql;
 using LotroKoniecDev.AuthSystem.API.Services.Gdpr;
 using LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared;
 using LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared.Bases;
@@ -8,6 +10,7 @@ using LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared.Factories;
 using LotroKoniecDev.AuthSystem.Contracts.Features.Auth.Account;
 using LotroKoniecDev.AuthSystem.Contracts.Features.Auth.Register;
 using LotroKoniecDev.AuthSystem.Domain.Aggregates.ApplicationUsers.Entities;
+using LotroKoniecDev.AuthSystem.Persistence;
 using LotroKoniecDev.AuthSystem.Persistence.DbContexts;
 using LotroKoniecDev.SharedKernel.Constants;
 using LotroKoniecDev.SharedKernel.StronglyTypedIds;
@@ -179,6 +182,58 @@ public sealed class AccountDeletionFinalizerTests : EndpointsTestBase
         user.DeletionScheduledAt.ShouldBeNull();
     }
 
+    [Fact]
+    public async Task Finalizer_ShouldChangeTheSecurityStampInTheErasureSave_WhenTheNextSaveOfTheAccountFails()
+    {
+        // #908: the erasure saves the account once, and the lockout and the new security stamp are
+        // part of that save. The next save of this account belongs to the cleanup, which is best
+        // effort, so its failure must not turn a finished erasure into a failed one.
+
+        // Arrange
+        (_, IdentityId identityId) = await RegisterAndScheduleDeletionAsync();
+        await BackdateScheduleAsync(identityId.Value, TimeSpan.FromDays(15));
+        string? stampBeforeErasure = (await GetUserAsync(identityId.Value)).SecurityStamp;
+        FailASecondSaveOf(identityId.Value);
+
+        // Act
+        int finalizedCount = await RunFinalizerAsync();
+
+        // Assert
+        finalizedCount.ShouldBe(1);
+        Factory.DbCommandFailures.FailuresInjected.ShouldBe(1);
+
+        ApplicationUser user = await GetUserAsync(identityId.Value);
+        user.Email.ShouldEndWith(AnonymizationConstants.EmailDomain);
+        user.LockoutEnd.ShouldBe(DateTimeOffset.MaxValue);
+        user.SecurityStamp.ShouldNotBe(stampBeforeErasure);
+    }
+
+    [Theory]
+    [InlineData(ErasureSaveFailure.DatabaseError)]
+    [InlineData(ErasureSaveFailure.LostToAnotherWrite)]
+    public async Task Finalizer_ShouldFinishTheErasureOnItsNextRun_WhenTheErasureSaveFailed(ErasureSaveFailure failure)
+    {
+        // The finalizer finds its work by the real address, so a failed erasure has to leave it in
+        // place for the next run to pick the account up again (#908).
+
+        // Arrange
+        (_, IdentityId identityId) = await RegisterAndScheduleDeletionAsync();
+        await BackdateScheduleAsync(identityId.Value, TimeSpan.FromDays(15));
+        FailTheNextSaveOf(identityId.Value, failure);
+
+        // Act
+        int failedRunCount = await RunFinalizerAsync();
+        int retryRunCount = await RunFinalizerAsync();
+
+        // Assert
+        failedRunCount.ShouldBe(0);
+        retryRunCount.ShouldBe(1);
+
+        ApplicationUser user = await GetUserAsync(identityId.Value);
+        user.Email.ShouldEndWith(AnonymizationConstants.EmailDomain);
+        (await HasRolesAsync(identityId.Value)).ShouldBeFalse();
+    }
+
     private async Task<int> RunFinalizerAsync()
     {
         await using AsyncServiceScope scope = Factory.Services.CreateAsyncScope();
@@ -245,10 +300,57 @@ public sealed class AccountDeletionFinalizerTests : EndpointsTestBase
         await db.SaveChangesAsync();
     }
 
+    private void FailTheNextSaveOf(Guid userId, ErasureSaveFailure failure) =>
+        Factory.DbCommandFailures.FailNext(
+            command => IsUpdateOfAccount(command, userId),
+            () => failure switch
+            {
+                ErasureSaveFailure.DatabaseError => new PostgresException(
+                    "simulated permanent failure", "ERROR", "ERROR", PostgresErrorCodes.NotNullViolation),
+                ErasureSaveFailure.LostToAnotherWrite => new DbUpdateConcurrencyException("simulated lost write"),
+                _ => throw new ArgumentOutOfRangeException(nameof(failure), failure, null)
+            });
+
+    /// <summary>
+    /// Counts the saves of one account and fails the second one. Other accounts are left alone, so a
+    /// save of some other account cannot move the count.
+    /// </summary>
+    private void FailASecondSaveOf(Guid userId)
+    {
+        int saves = 0;
+        Factory.DbCommandFailures.FailNext(
+            command => IsUpdateOfAccount(command, userId) && ++saves > 1,
+            () => new PostgresException(
+                "simulated permanent failure", "ERROR", "ERROR", PostgresErrorCodes.NotNullViolation));
+    }
+
+    private static bool IsUpdateOfAccount(DbCommand command, Guid userId) =>
+        command.CommandText.Contains($"UPDATE {DatabaseSchemas.Auth}.\"Users\"", StringComparison.Ordinal)
+        && command.Parameters.Cast<DbParameter>().Any(parameter => parameter.Value is Guid id && id == userId);
+
+    private async Task<bool> HasRolesAsync(Guid userId)
+    {
+        await using AsyncServiceScope scope = Factory.Services.CreateAsyncScope();
+        AuthDbContext db = scope.ServiceProvider.GetRequiredService<AuthDbContext>();
+        return await db.UserRoles.AnyAsync(userRole => userRole.UserId == userId);
+    }
+
     private async Task<ApplicationUser> GetUserAsync(Guid userId)
     {
         await using AsyncServiceScope scope = Factory.Services.CreateAsyncScope();
         AuthDbContext db = scope.ServiceProvider.GetRequiredService<AuthDbContext>();
         return await db.Users.AsNoTracking().FirstAsync(u => u.Id == userId);
+    }
+
+    /// <summary>
+    /// A transient error is not on the list: the context retries it, so the erasure never sees it.
+    /// </summary>
+    public enum ErasureSaveFailure
+    {
+        /// <summary>An error the retry does not replay. The save throws.</summary>
+        DatabaseError,
+
+        /// <summary>Identity turns this one into a failed result instead of an exception.</summary>
+        LostToAnotherWrite
     }
 }

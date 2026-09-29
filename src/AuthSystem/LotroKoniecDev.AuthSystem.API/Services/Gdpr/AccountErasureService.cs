@@ -71,12 +71,13 @@ internal sealed partial class AccountErasureService : IAccountErasureService
             // an account there is no longer anything to undo for.
             user.DisarmEmailChangeRevert();
 
-            // The permanent lockout goes in the same update as the anonymization marker. The finalizer
-            // picks its work by the marker alone, so a user must never end up marked but not locked. A
-            // separate lockout write could fail, and that user would then be skipped by every later
-            // run.
+            // The permanent lockout and the new security stamp, which ends every session, go in the
+            // same update as the anonymization marker. The finalizer picks its work by the marker
+            // alone, so no later run retries anything that comes after this save. A separate write
+            // that failed there would never be done (#908).
             user.LockoutEnabled = true;
             user.LockoutEnd = DateTimeOffset.MaxValue;
+            user.SecurityStamp = Guid.NewGuid().ToString();
 
             IdentityResult updateResult = await _userManager.UpdateAsync(user);
             if (!updateResult.Succeeded)
@@ -89,9 +90,6 @@ internal sealed partial class AccountErasureService : IAccountErasureService
             }
 
             LogAuthDataAnonymized(_logger, user.Id);
-
-            // End every session.
-            await _userManager.UpdateSecurityStampAsync(user);
         }
         catch (Exception ex)
         {

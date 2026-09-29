@@ -385,8 +385,9 @@ ogranicza replay. Logout rewokuje wszystkie (`LogoutEndpoint.cs` → `IUserSessi
 `LogoutEndpoint.cs`: usera bierze z `id_token_hint`, a z cookie Identity tylko wtedy, gdy brak ważnego
 hintu. Na cookie `auth-api` nie da się polegać: żyje 30 minut, a po loginie przeglądarka już tam nie
 wraca, bo frontend odświeża tokeny server-to-server (#931). OpenIddict sprawdza podpis hintu oraz to,
-że wiersz tokena i jego autoryzacji w bazie są wciąż ważne. Nie sprawdza czasu ważności ani klienta,
-dla którego token wydano: działa każdy żywy ID token usera, a hint sesji już zakończonej nic nie robi.
+że wiersz tokena i jego autoryzacji w bazie są wciąż ważne, oraz że hint należy do klienta, do którego
+należy `post_logout_redirect_uri`. Nie sprawdza czasu ważności: stary ID token działa, dopóki jego sesja
+żyje, a hint sesji już zakończonej nic nie robi.
 Potem `IUserSessionRevoker.RevokeAllAsync(userId)`, ta sama ścieżka co przy zmianie hasła: najpierw
 autoryzacje, potem tokeny, każde jednym bulk update (`RevokeBySubjectAsync`). Na koniec `SignOutAsync`.
 Po logoucie żaden refresh token usera nie zadziała, więc sesje strony kończą się na każdym urządzeniu.

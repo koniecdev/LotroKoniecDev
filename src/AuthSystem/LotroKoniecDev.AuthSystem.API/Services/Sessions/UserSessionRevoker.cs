@@ -4,7 +4,8 @@ namespace LotroKoniecDev.AuthSystem.API.Services.Sessions;
 
 /// <summary>
 /// The <see cref="IUserSessionRevoker"/> built on the OpenIddict token and authorization managers. Every
-/// flow that changes credentials or schedules a deletion ends sessions through this one class.
+/// flow that changes credentials, schedules a deletion or signs the user out ends sessions through this
+/// one class.
 /// </summary>
 internal sealed partial class UserSessionRevoker : IUserSessionRevoker
 {
@@ -36,7 +37,8 @@ internal sealed partial class UserSessionRevoker : IUserSessionRevoker
 
     public async Task RevokeAllAsync(string userId)
     {
-        // Best effort: the change is already saved, so a failure here must not fail it and is only logged.
+        // Best effort: a failure here must not fail a change that is already saved or a sign-out, so it is
+        // only logged.
         // Authorizations go first, because OpenIddict refuses a refresh token whose authorization is
         // revoked: a refresh that lands between the two steps still gets a dead token. That also makes the
         // authorization the real guard, since a bulk update does not change a row's concurrency token and

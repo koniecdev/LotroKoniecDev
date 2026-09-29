@@ -45,6 +45,7 @@ internal sealed partial class AccountDeletionFinalizer : IAccountDeletionFinaliz
         // The longest wait goes first, and every run takes the accounts in the same order.
         List<Guid> dueUserIds = await DueUsers(now)
             .OrderBy(u => u.DeletionScheduledAt)
+            .ThenBy(u => u.Id)
             .Select(u => u.Id)
             .ToListAsync(cancellationToken);
 

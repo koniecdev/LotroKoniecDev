@@ -94,7 +94,7 @@ internal sealed partial class AccountErasureService : IAccountErasureService
             {
                 string errors = string.Join(", ", updateResult.Errors.Select(e => e.Description));
                 LogAnonymizationFailed(_logger, user.Id, errors);
-                await TryLockAccountAsync(user.Id, cancellationToken);
+                await TryLockAccountAsync(user.Id);
                 return Result.Failure(AuthErrors.AccountDeletionFailed(AnonymizationFailedDetails));
             }
 
@@ -103,7 +103,7 @@ internal sealed partial class AccountErasureService : IAccountErasureService
         catch (Exception ex)
         {
             LogAuthSideErasureFailed(_logger, ex, user.Id);
-            await TryLockAccountAsync(user.Id, cancellationToken);
+            await TryLockAccountAsync(user.Id);
             return Result.Failure(AuthErrors.AccountDeletionFailed(AnonymizationFailedDetails));
         }
 
@@ -168,8 +168,10 @@ internal sealed partial class AccountErasureService : IAccountErasureService
     /// <remarks>
     /// An account that is no longer waiting for its erasure is left alone: its owner cancelled the
     /// deletion, or another run already erased the account and locked it in the same save.
+    /// The write takes no cancellation token, like the erasure save before it. A shutdown must not skip
+    /// this one short write, and a cancelled lock would be logged as a failed one.
     /// </remarks>
-    private async Task TryLockAccountAsync(Guid userId, CancellationToken cancellationToken)
+    private async Task TryLockAccountAsync(Guid userId)
     {
         try
         {
@@ -190,7 +192,7 @@ internal sealed partial class AccountErasureService : IAccountErasureService
                         .SetProperty(u => u.LockoutEnd, lockedUntil)
                         .SetProperty(u => u.SecurityStamp, securityStamp)
                         .SetProperty(u => u.ConcurrencyStamp, concurrencyStamp),
-                    cancellationToken);
+                    CancellationToken.None);
 
             if (lockedCount == 0)
             {

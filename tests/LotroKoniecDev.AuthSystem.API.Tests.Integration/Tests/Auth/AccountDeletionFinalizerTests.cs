@@ -303,6 +303,44 @@ public sealed class AccountDeletionFinalizerTests : EndpointsTestBase
     }
 
     [Fact]
+    public async Task Finalizer_ShouldSkipAnAccount_WhenItsOwnerCancelledTheDeletionAfterTheRunListedIt()
+    {
+        // The cancel link still works for a while after the account becomes due, so a run can list an
+        // account whose owner cancels before its turn comes. The finalizer reads every account again
+        // right before its erasure, and that read is all that keeps the cancelled account alive.
+
+        // Arrange
+        (_, IdentityId firstId) = await RegisterAndScheduleDeletionAsync();
+        (RegisterRequest cancellingRequest, IdentityId cancellingId) = await RegisterAndScheduleDeletionAsync();
+        await AccountDeletionEmailSpy.WaitForScheduledCaptureAsync(cancellingRequest.Email);
+        string cancelToken = AccountDeletionEmailSpy.LastCancelTokenSentTo(cancellingRequest.Email)!;
+        await BackdateScheduleAsync(firstId.Value, TimeSpan.FromDays(20));
+        await BackdateScheduleAsync(cancellingId.Value, TimeSpan.FromDays(15));
+        HttpStatusCode? cancelStatus = null;
+
+        // Act
+        int finalizedCount = await RunFinalizerAsync(beforeFirstErasure: async () =>
+        {
+            HttpResponseMessage cancelResponse = await ApiClient.Http.PostAsJsonAsync(
+                new Uri("auth/account/cancel-deletion", UriKind.Relative),
+                new CancelAccountDeletionRequest(cancellingRequest.Email, cancelToken));
+            cancelStatus = cancelResponse.StatusCode;
+        });
+
+        // Assert
+        cancelStatus.ShouldBe(HttpStatusCode.OK);
+        finalizedCount.ShouldBe(1);
+
+        ApplicationUser cancelled = await GetUserAsync(cancellingId.Value);
+        cancelled.Email.ShouldBe(cancellingRequest.Email);
+        cancelled.DeletionScheduledAt.ShouldBeNull();
+        cancelled.LockoutEnd.ShouldBeNull();
+
+        ApplicationUser first = await GetUserAsync(firstId.Value);
+        first.Email.ShouldEndWith(AnonymizationConstants.EmailDomain);
+    }
+
+    [Fact]
     public async Task Erasure_ShouldLeaveTheAccountUnlocked_WhenItsOwnerCancelledTheDeletionMeanwhile()
     {
         // The erasure read the account, then the owner followed the cancel link, so the erasure save
@@ -353,6 +391,16 @@ public sealed class AccountDeletionFinalizerTests : EndpointsTestBase
     {
         await using AsyncServiceScope scope = Factory.Services.CreateAsyncScope();
         IAccountErasureService erasureService = CreateErasureService(scope.ServiceProvider, loggerFactory);
+        IAccountDeletionFinalizer finalizer =
+            ActivatorUtilities.CreateInstance<AccountDeletionFinalizer>(scope.ServiceProvider, erasureService);
+        return await finalizer.FinalizeDueAccountsAsync(CancellationToken.None);
+    }
+
+    private async Task<int> RunFinalizerAsync(Func<Task> beforeFirstErasure)
+    {
+        await using AsyncServiceScope scope = Factory.Services.CreateAsyncScope();
+        IAccountErasureService erasureService = new StepBeforeFirstErasure(
+            scope.ServiceProvider.GetRequiredService<IAccountErasureService>(), beforeFirstErasure);
         IAccountDeletionFinalizer finalizer =
             ActivatorUtilities.CreateInstance<AccountDeletionFinalizer>(scope.ServiceProvider, erasureService);
         return await finalizer.FinalizeDueAccountsAsync(CancellationToken.None);
@@ -464,6 +512,35 @@ public sealed class AccountDeletionFinalizerTests : EndpointsTestBase
         await using AsyncServiceScope scope = Factory.Services.CreateAsyncScope();
         AuthDbContext db = scope.ServiceProvider.GetRequiredService<AuthDbContext>();
         return await db.Users.AsNoTracking().FirstAsync(u => u.Id == userId);
+    }
+
+    /// <summary>
+    /// Runs a step when the finalizer hands over its first account, before the real erasure starts.
+    /// By then the run has listed every due account and has read only the first one again.
+    /// </summary>
+    private sealed class StepBeforeFirstErasure : IAccountErasureService
+    {
+        private readonly IAccountErasureService _inner;
+        private Func<Task>? _step;
+
+        public StepBeforeFirstErasure(IAccountErasureService inner, Func<Task> step)
+        {
+            _inner = inner;
+            _step = step;
+        }
+
+        public async Task<Result> EraseAsync(ApplicationUser user, CancellationToken cancellationToken)
+        {
+            Func<Task>? step = _step;
+            _step = null;
+
+            if (step is not null)
+            {
+                await step();
+            }
+
+            return await _inner.EraseAsync(user, cancellationToken);
+        }
     }
 
     /// <summary>

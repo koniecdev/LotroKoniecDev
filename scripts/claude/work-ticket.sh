@@ -31,12 +31,12 @@
 #                           widen permissions of your interactive sessions
 #   LOOP_ALLOWED_TOOLS      override the loop's Bash allowlist (space-separated rule list)
 #   LOOP_UNSAFE=1           use --dangerously-skip-permissions instead (full overnight autonomy)
-#   LOOP_MAX_BUDGET_USD     optional per-ticket API budget cap; unset by default on purpose, because
-#                           a cap that stops a nearly finished ticket wastes more than it saves (#953)
+#   LOOP_MAX_BUDGET_USD     optional per-ticket API budget cap; unset by default on purpose (why:
+#                           docs/claude-loop.md, #953)
 #   LOOP_TICKET_TIMEOUT_MIN wall-clock kill switch per run of this script, resumes included
-#                           (default: 240); the run that resumes after a usage limit gets a new one.
-#                           It only guards against a stuck session: a normal ticket takes 50 to 80
-#                           minutes, and a killed session cannot be resumed (#953)
+#                           (default: 240, only a guard against a stuck session — why:
+#                           docs/claude-loop.md, #953); the run that resumes after a usage limit
+#                           gets a new one
 #   LOOP_MAX_RESUMES        how many times a session that ends normally without a STATUS line is
 #                           resumed before the ticket counts as an error (default: 2); the one
 #                           resume of a DONE with no open PR and the resume after a usage limit
@@ -112,6 +112,17 @@ case "$MAX_RESUMES" in
     ''|*[!0-9]*)
         meta outcome error
         echo "work-ticket: LOOP_MAX_RESUMES is not a number: '$MAX_RESUMES'" >&2
+        exit 3
+        ;;
+esac
+
+# The clock is first used in shell arithmetic after the session has started. There a bad value
+# ends this script with no outcome and leaves the worktree behind. A leading zero is refused too:
+# the shell reads "090" as an octal number.
+case "$TIMEOUT_MIN" in
+    ''|*[!0-9]*|0*)
+        meta outcome error
+        echo "work-ticket: LOOP_TICKET_TIMEOUT_MIN is not a whole number of minutes above zero: '$TIMEOUT_MIN'" >&2
         exit 3
         ;;
 esac

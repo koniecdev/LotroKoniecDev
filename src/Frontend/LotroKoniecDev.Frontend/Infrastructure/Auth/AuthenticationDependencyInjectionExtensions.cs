@@ -57,6 +57,12 @@ internal static class AuthenticationDependencyInjectionExtensions
                     AuthSystemSettings settings = sp
                         .GetRequiredService<IOptions<AuthSystemSettings>>().Value;
                     client.BaseAddress = new Uri(settings.BaseUrl);
+
+                    // The refresh runs before the page renders, so a stalled auth API would hold the page
+                    // for the 100-second default (#923). This is a plain limit, not a resilience pipeline,
+                    // on purpose: a refresh token may be spent on use, so a retry after a slow first
+                    // attempt could send a dead one. RefreshAsync turns the timeout into a failed refresh.
+                    client.Timeout = HttpClientsDependencyInjectionExtensions.DefaultRequestTimeout;
                 })
                 .ConfigurePrimaryHttpMessageHandler(HttpClientsDependencyInjectionExtensions.CreatePrimaryHandler)
                 .AddFrontendCallerHandler<AuthSystemSettings>(settings => settings.CallerKey);

@@ -49,6 +49,25 @@ public sealed class TokenEndpointClientTests
         response.ShouldBeNull();
     }
 
+    /// <summary>
+    /// #923: the registration gives this client a short limit. When a stalled auth API hits it, the
+    /// refresh has to fail like any other, so the page signs the user out instead of throwing.
+    /// </summary>
+    [Fact]
+    public async Task RefreshAsync_WhenTheAuthApiNeverAnswers_ReturnsNullOnceTheClientTimesOut()
+    {
+        using HttpClient httpClient = new(new StalledHttpMessageHandler())
+        {
+            BaseAddress = new Uri(AuthBaseUrl),
+            Timeout = TimeSpan.FromMilliseconds(50)
+        };
+        TokenEndpointClient client = CreateClient(httpClient);
+
+        TokenResponse? response = await client.RefreshAsync(RefreshToken).WaitAsync(TimeSpan.FromSeconds(10));
+
+        response.ShouldBeNull();
+    }
+
     private static HttpClient CreateHttpClient(HttpMessageHandler transport) =>
         new(transport) { BaseAddress = new Uri(AuthBaseUrl) };
 
@@ -64,4 +83,18 @@ public sealed class TokenEndpointClientTests
             Scopes = ["openid", "email", "profile"]
         }),
         NullLogger<TokenEndpointClient>.Instance);
+
+    /// <summary>
+    /// An auth API that took the connection but never answers. Only cancellation ends the wait.
+    /// </summary>
+    private sealed class StalledHttpMessageHandler : HttpMessageHandler
+    {
+        protected override async Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+            throw new InvalidOperationException("An infinite delay returned without being cancelled.");
+        }
+    }
 }

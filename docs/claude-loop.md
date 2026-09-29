@@ -44,9 +44,9 @@ produces PRs, and the one merge path is `/merge-train` over PRs the owner approv
 | Piece | Role |
 |---|---|
 | `scripts/claude/backlog-loop.sh` | the conductor — up to `-j` tickets at once, lock, stop conditions, roll-up table of PRs |
-| `scripts/claude/next-ticket.sh` | deterministic picker: priority labels + `Depends on #X` gate + skip rules + "no open PR yet" |
+| `scripts/claude/next-ticket.sh` | deterministic picker: priority labels + `Depends on #X` gate + skip rules + "no open PR yet" (a worktree kept for a resume after a usage limit does not hide its ticket) |
 | `scripts/claude/issue-trust.sh` | the provenance gate: refuses an issue written by anyone without write access (ADR-0026) |
-| `scripts/claude/work-ticket.sh` | one ticket: provenance gate → skip if already in flight → worktree from `origin/main` → fresh headless session → judge `STATUS:` (no line: resume the same session, at most `LOOP_MAX_RESUMES` times) → confirm the PR exists → remove the clean worktree |
+| `scripts/claude/work-ticket.sh` | one ticket: provenance gate → resume the session of a worktree kept after a usage limit, or skip if already in flight → worktree from `origin/main` → fresh headless session → judge `STATUS:` (no line: resume the same session, at most `LOOP_MAX_RESUMES` times) → confirm the PR exists (DONE with no open PR: resume once) → remove the clean worktree (usage limit: keep it for the next run) |
 | `.claude/commands/work-ticket.md` | the per-ticket discipline prompt (the old `ticket-worker` agent, promoted to a slash command) |
 | `.claude/commands/backlog.md` | `/backlog` in an interactive session = launch the script in background + report the roll-up |
 | `~/.claude-account1/skills/merge-train/` | the maintainer's merge path — merges PRs the owner approved by assigning themselves (lives outside this repo) |
@@ -93,7 +93,9 @@ runs — just stay out of the `ticket-<n>` worktrees it owns.
 
 Open issue, not `[Epic]`/`[Tracking]`, none of the skip labels, **written only by trusted
 maintainers** (see the provenance gate below), **no open PR yet** (a branch named `<n>-…` with an
-open PR means the ticket waits for your review), and every `Depends on #X` in the body already
+open PR means the ticket waits for your review), **no `.claude/worktrees/ticket-<n>` yet** (a
+session is on it) unless that worktree was kept for a resume after a usage limit — then the worker
+decides, see "A session stopped by a usage limit, or DONE without a PR" — and every `Depends on #X` in the body already
 CLOSED (a ticket is closed by its merged PR, so closed = merged). A dependency with an open PR is
 therefore not ready either: its dependent waits until you merge it. Order: `priority-critical` >
 `priority-high` > `priority-medium` > `priority-low` > unlabeled, then lowest number first — but
@@ -147,8 +149,8 @@ one ticket with `LOOP_TRUST_GATE=0`, or add the commenter to `LOOP_TRUSTED_LOGIN
 | `LOOP_MAX_BUDGET_USD` | (none) | optional per-ticket API budget cap |
 | `LOOP_PARALLEL` | `3` | tickets at once (same as `-j`) |
 | `LOOP_ALLOW_LOCAL_SCRIPTS` | `0` | `1` = run even when `scripts/claude/` here differs from `origin/main` (only when you are changing the loop itself) |
-| `LOOP_TICKET_TIMEOUT_MIN` | `90` | wall-clock kill switch per ticket, resumes included; leftovers are committed on a `loop-salvage/…` branch |
-| `LOOP_MAX_RESUMES` | `2` | how many times a session that ended normally without a `STATUS:` line is resumed before the ticket counts as `error`; `0` turns the resume off |
+| `LOOP_TICKET_TIMEOUT_MIN` | `90` | wall-clock kill switch per run of `work-ticket.sh`, its resumes included; the run that resumes a session after a usage limit starts a new clock, as the fresh retry did before; leftovers are committed on a `loop-salvage/…` branch |
+| `LOOP_MAX_RESUMES` | `2` | how many times a session that ended normally without a `STATUS:` line is resumed before the ticket counts as `error`; `0` turns that resume off. The one resume of a DONE with no open PR and the resume after a usage limit do not count here |
 | `BASH_MAX_TIMEOUT_MS` | `3600000` | the longest Bash timeout the worker may ask for (one hour), so the whole test suite fits in one foreground call — see "A session that stops without a verdict" |
 | `BASH_DEFAULT_TIMEOUT_MS` | `600000` | the timeout of a worker Bash call that names none (ten minutes, not the CLI's two), because a call that runs out is stopped, not moved to the background |
 | `LOOP_KEEP_WORKTREE` | `0` | `1` = keep `.claude/worktrees/ticket-<n>` after the run (by default a clean worktree is removed; the branch always stays) |
@@ -181,7 +183,8 @@ Per-ticket outcomes:
 
 - **pr-opened** — the worker reported DONE and the PR exists. The loop does not wait for
   `pr-verify`: the table shows the checks as they stand at the end of the run, and `/merge-train`
-  checks them again before any merge.
+  checks them again before any merge. A DONE with no open PR for the ticket is resumed once to
+  open it (see "A session stopped by a usage limit, or DONE without a PR").
 - **skipped** — the ticket already has an open PR, or `.claude/worktrees/ticket-<n>` already
   exists (a manual `/ticket` session or an earlier run is on it). Nothing is started.
 - **blocked** — the worker hit a genuine business question / dependency / mis-scope / red build.
@@ -200,7 +203,10 @@ Per-ticket outcomes:
   the loop ends whatever of them is left. Its leftovers are salvaged and its worktree is removed,
   so the next run can start the ticket again.
 - **usage limit** — the loop starts nothing new, lets the running tickets finish, naps
-  (`LOOP_LIMIT_SLEEP_MIN`) and runs the limited tickets again.
+  (`LOOP_LIMIT_SLEEP_MIN`) and runs the limited tickets again. Each one keeps its worktree, and
+  the next run resumes its session there (see "A session stopped by a usage limit, or DONE without
+  a PR"). When the limit outlasts every nap, the table row says
+  `worktree kept: run #<n> again to resume its session`.
 - **untrusted** — the ticket failed the provenance gate, either at the start (no session is
   spawned) or before a resume (the work so far is kept on its branch). It does not count toward
   the failure circuit breaker (drain mode never selects one anyway).
@@ -247,8 +253,65 @@ was the budget: `--max-budget-usd` also counts the whole session, so `LOOP_MAX_B
 a cap per ticket. A resume that is killed by the clock or by you leaves the last finished result,
 and the cost up to it, in `ticket-<n>.json`; only the killed run's own spend is missing, as it is
 for a first run that is stopped. A
-usage-limit retry runs the ticket again in the same run folder, so it clears these files first,
-just as it overwrites the `.json` and `.stderr` of the attempt before.
+retry that starts over runs the ticket again in the same run folder, so it clears these files
+first, just as it overwrites the `.json` and `.stderr` of the attempt before.
+
+### A session stopped by a usage limit, or DONE without a PR (#934)
+
+Two more endings used to throw away a session that was nearly done:
+
+- **A usage limit.** The retry after the nap started the ticket again in a new session, from a new
+  worktree. The commits carried over on the ticket branch, but everything the session had read,
+  planned and reviewed was paid for a second time, and its uncommitted files ended up on a
+  `loop-salvage/…` branch the new session never looked at. A limit that hits after the review,
+  during the last test run, costs most of the ticket twice.
+- **DONE, but no open PR.** A failed push or `gh pr create` made the ticket an `error`, and the
+  reviewed work waited on a local branch until someone found it.
+
+Now:
+
+- **On a usage limit the worktree is kept exactly as the session left it**, uncommitted files
+  included, and nothing is salvaged. A marker file in the worktree's own git folder
+  (`.git/worktrees/<name>/loop-resume`) records the session id, the HEAD and the turns so far. It
+  is not part of the tree, so `git status` stays as the session left it, and it goes away with the
+  worktree. Re-creating the worktree from the ticket branch instead would lose the uncommitted
+  files, and a session that had not cut its branch yet has no branch to re-create from.
+- **The next run of the ticket resumes that session** in the kept worktree: `claude -p --resume
+  <session_id>` with the same flags and a prompt that says the limit is over, time has passed (so
+  check `git status` and whether the PR exists), and a command cut off by the limit must run
+  again. The provenance gate runs first, as before every session. The run that resumes gets a new
+  ticket clock (the nap is not work time), and the no-STATUS resume and its cap work in it as in
+  any other run. The conductor needs no change for this: after the nap it runs the ticket again,
+  and the worker finds the kept worktree. So does a later run where you name the ticket, and the
+  picker returns such a ticket in drain mode too.
+- **A kept worktree is resumed only when that is still safe.** The worker claims the marker with
+  one rename, so two runs can never resume one session (the CLI would mix both into one
+  transcript). It starts fresh instead, after salvaging and removing the kept worktree, when the
+  session's transcript is not under `LOOP_CONFIG_DIR` (another account ran it, or the CLI's
+  cleanup deleted it after its default 30 days). It skips the ticket (exit 12) and leaves the
+  worktree for you when the HEAD moved since the limit (someone works there, so the marker is
+  dropped), or when a PR of the ticket was merged, is open from another branch, or was closed from
+  this branch. An open PR from the kept branch is the session's own: the limit may have hit after
+  `gh pr create`.
+- **Without a session id, a limit still starts over**, as before: the worktree is salvaged and
+  removed, and the retry cuts a new one from `origin/main`.
+- **A DONE with no open PR for the ticket is resumed once**, with a prompt that says what the loop
+  found and that it counts only an open PR whose branch starts with `<n>-`, and asks the session to
+  push and open the PR. The result is judged again from the top: `pr-opened` when the PR now
+  exists, `error` when it still does not. The resume needs a real "no PR" from GitHub: when the
+  open PRs cannot be listed, the ticket is an `error` without it. A link to a wrong PR in the
+  summary no longer fails a ticket whose own PR exists: the branch list finds that one. This
+  resume has the same guards as the no-STATUS one (a session id, ten minutes of the clock, the
+  provenance gate), but it does not count toward `LOOP_MAX_RESUMES`.
+
+Files: the resumed run keeps the limited attempt's results for debugging. `ticket-<n>.json` is
+replaced by the resume's result when it ends (the old one moves to `.before-resume-1`), because a
+resumed run reports the cost of the whole session. The attempt's older `.before-resume-*`,
+`.resume-*` and `.stderr` files get a `.limit-<time>` suffix. The stderr moves because its limit
+message would make a later crash look like a usage limit. `.meta` gets `session=` on every run and
+`worktree=kept` on a limit that kept one; `resumes=` counts every resume, the one after the limit
+included, so the end-of-run table marks the ticket `resumed Nx`. When the resume happens in a
+later conductor run, both runs' totals count the part of the session before the limit.
 
 ## Safety model
 
@@ -259,8 +322,9 @@ just as it overwrites the `.json` and `.stderr` of the attempt before.
   and the runner never deletes work — anything left behind is committed on a dedicated
   `loop-salvage/<n>-<timestamp>` branch, never stashed, never reset. So are commits a session made
   on no branch, because removing a worktree drops its reflog. A rebase or merge left half done is
-  never committed over: that worktree stays exactly as it is, for you. Only a clean worktree is
-  removed, together with the E2E images tagged for it; the branch always stays.
+  never committed over: that worktree stays exactly as it is, for you. So does a worktree kept for
+  a resume after a usage limit, until its session finishes in it or you remove it. Only a clean
+  worktree is removed, together with the E2E images tagged for it; the branch always stays.
 - The loop runs only when `scripts/claude/` in the checkout that starts it matches `origin/main`.
   That guard exists only from ADR-0060 on: a branch cut before it still carries the old conductor,
   which merges PRs and checks out `main` in your main checkout. So once, before the first run after
@@ -291,7 +355,8 @@ just as it overwrites the `.json` and `.stderr` of the attempt before.
 - **"another loop is running (pid N)"** — a live conductor owns the lock; `ps -p N` to see it. A
   *stale* lock (owner dead) is reclaimed automatically, so this message means a real second loop.
 - **Ticket ended `error` with no STATUS block** — the session was already resumed
-  `LOOP_MAX_RESUMES` times, or it could not be resumed (no `session_id` in the result). Read
+  `LOOP_MAX_RESUMES` times, or it could not be resumed (no `session_id` in the result; `.meta`
+  carries `session=` too). Read
   `logs/claude-loop/<run>/ticket-<n>.json` (`.result` field), the earlier results in
   `ticket-<n>.json.before-resume-*`, and `.stderr`; usually a permission denial (extend
   `LOOP_ALLOWED_TOOLS`) or a mid-run crash. The session id in the JSON still resumes by hand.
@@ -314,6 +379,12 @@ just as it overwrites the `.json` and `.stderr` of the attempt before.
   is still on disk: a manual session, or a run the loop could not clean up (a rebase or merge left
   half done, or leftovers it could not commit — the run's log line says which). Look inside, finish
   or abort what is there, then `git worktree remove .claude/worktrees/ticket-<n>`.
+- **"SKIPPED — … was kept to resume …"** — the worktree waits for a resume after a usage limit,
+  but resuming is no longer safe: its HEAD moved, or a PR of the ticket was merged, is open from
+  another branch, or was closed from this branch. The line says which. Decide what happens to the
+  work in it, then remove the worktree (`--force` when it holds uncommitted files you no longer
+  need). To give up a kept resume on purpose, just remove the worktree: the marker goes with it,
+  and the next run starts a fresh session, which checks out the ticket branch.
 - **The picker returns nothing but issues exist** — they're excluded (labels/titles/deps/provenance);
   run `LOOP_SKIP_LABELS= LOOP_SKIP_TITLES= LOOP_SKIP_ISSUES= scripts/claude/next-ticket.sh` to see the
   unfiltered choice (its stderr names every ticket the provenance gate refused), then fix

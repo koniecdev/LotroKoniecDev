@@ -12,6 +12,8 @@
 # origin/main, the main checkout is never touched, a finished worktree is removed or salvaged, a
 # stop signal ends the session and its children, and only a real open PR for the ticket counts.
 # A session that ends normally without a STATUS line is resumed a capped number of times (#925).
+# A usage limit keeps the worktree, and the next run resumes the session in it; a DONE with no
+# open PR is resumed once to open it; the picker does not hide a worktree kept that way (#934).
 #
 # `gh` is stubbed from fixtures, so the suite is offline and hermetic. The stub applies the
 # caller's own `--jq` filter with real jq, which keeps the scripts' jq filters under test too.
@@ -26,7 +28,11 @@ TMP_ROOT="$(mktemp -d)"
 trap 'rm -rf "$TMP_ROOT"' EXIT
 
 # The worker's own defaults are under test, not the caller's environment.
-unset BASH_MAX_TIMEOUT_MS BASH_DEFAULT_TIMEOUT_MS CLAUDE_CODE_DISABLE_BACKGROUND_TASKS LOOP_MAX_RESUMES
+unset BASH_MAX_TIMEOUT_MS BASH_DEFAULT_TIMEOUT_MS CLAUDE_CODE_DISABLE_BACKGROUND_TASKS LOOP_MAX_RESUMES \
+    LOOP_KEEP_WORKTREE LOOP_TICKET_TIMEOUT_MIN
+# A resume after a usage limit looks for the session's transcript in the worker's config dir; the
+# developer's real one must never be read.
+export LOOP_CONFIG_DIR="$TMP_ROOT/config"
 
 export GH_FIXTURES="$TMP_ROOT/fixtures"
 CLAUDE_MARKER="$TMP_ROOT/claude-was-spawned"
@@ -78,11 +84,13 @@ set -o pipefail
 
 filter=""
 paginate=0
+state="open"
 args=()
 while [ $# -gt 0 ]; do
     case "$1" in
         --jq) filter="${2:-}"; shift 2 ;;
         --paginate) paginate=1; shift ;;
+        --state) state="${2:-}"; shift 2 ;;
         *) args+=("$1"); shift ;;
     esac
 done
@@ -132,13 +140,15 @@ case "${args[0]:-}" in
                     echo "gh: HTTP 502" >&2
                     exit 1
                 fi
-                if [ -f "$GH_FIXTURES/pr-list.json" ]; then
-                    emit_file "$GH_FIXTURES/pr-list.json"
-                elif [ -n "$filter" ]; then
-                    printf '[]' | jq -r "$filter"
-                else
-                    printf '[]'
+                # Like real `gh`, `pr list` returns open PRs unless asked for `--state all`; a fixture
+                # without a state is an open PR.
+                payload='[]'
+                [ ! -f "$GH_FIXTURES/pr-list.json" ] || payload="$(cat "$GH_FIXTURES/pr-list.json")"
+                if [ "$state" != "all" ]; then
+                    payload="$(jq --arg state "$(printf '%s' "$state" | tr '[:lower:]' '[:upper:]')" \
+                        'map(select((.state // "OPEN") == $state))' <<< "$payload")"
                 fi
+                if [ -n "$filter" ]; then jq -r "$filter" <<< "$payload"; else printf '%s' "$payload"; fi
                 ;;
             view) emit "$GH_FIXTURES/pr-view-${args[2]:-}.json" ;;
             *) echo "gh stub: unsupported pr subcommand" >&2; exit 1 ;;
@@ -260,6 +270,32 @@ fixture_prs() {
     printf '%s]' "$json" > "$GH_FIXTURES/pr-list.json"
 }
 
+# fixture_prs_state <number,headRefName,state[,headRefOid[,ended]]> ... — PRs in every state, as a
+# resume reads them. A merged or closed PR ends now unless `ended` (ISO 8601) says otherwise; an
+# open PR's head is a commit nobody has unless `headRefOid` names one.
+fixture_prs_state() {
+    local json="[" separator="" number head state oid ended closed merged
+    for entry in "$@"; do
+        IFS=, read -r number head state oid ended <<< "$entry"
+        oid="${oid:-0000000000000000000000000000000000000000}"
+        closed=null
+        merged=null
+        if [ "$state" != "OPEN" ]; then
+            closed="\"${ended:-$(date -u +%Y-%m-%dT%H:%M:%SZ)}\""
+            [ "$state" != "MERGED" ] || merged="$closed"
+        fi
+        json="$json$separator{\"number\":$number,\"headRefName\":\"$head\",\"headRefOid\":\"$oid\",\"isCrossRepository\":false,\"state\":\"$state\",\"closedAt\":$closed,\"mergedAt\":$merged}"
+        separator=","
+    done
+    printf '%s]' "$json" > "$GH_FIXTURES/pr-list.json"
+}
+
+# fixture_transcript <session id> — the transcript `claude --resume` needs in the worker's config dir.
+fixture_transcript() {
+    mkdir -p "$LOOP_CONFIG_DIR/projects/fixture"
+    : > "$LOOP_CONFIG_DIR/projects/fixture/$1.jsonl"
+}
+
 # fixture_pr_view <number> <state> <headRefName> [fork] — what `gh pr view <number>` returns.
 fixture_pr_view() {
     local fork=false
@@ -271,6 +307,7 @@ fixture_pr_view() {
 reset_fixtures() {
     rm -f "$GH_FIXTURES"/*.json "$CLAUDE_MARKER" "$TMP_ROOT"/claude-runs "$TMP_ROOT"/claude-args-* \
         "$TMP_ROOT"/claude-env-* "$TMP_ROOT"/claude-cwd-*
+    rm -rf "$LOOP_CONFIG_DIR"
 }
 
 # ── Assertions ─────────────────────────────────────────────────────────────────────────────────
@@ -512,6 +549,31 @@ run_case 0 "next-ticket: a ticket whose worktree exists is skipped" picker
 expect_stdout "55"
 rm -rf "$FAKE_REPO/.claude/worktrees/ticket-54"
 
+# A worktree kept after a usage limit waits for a resume, even when its session opened the PR first
+# (#934). A plain folder is not a worktree of its own: git resolves it to the main .git, and a
+# marker there must not count.
+reset_fixtures
+fixture_list 56:priority-high 57:priority-low
+fixture_issue 56 maintainer OWNER
+fixture_issue 57 maintainer OWNER
+fixture_prs 900:56-limit-hit-after-the-pr
+git -C "$FAKE_REPO" worktree add -q --detach "$FAKE_REPO/.claude/worktrees/ticket-56" origin/main
+marker_56="$(git -C "$FAKE_REPO/.claude/worktrees/ticket-56" rev-parse --path-format=absolute --git-dir)/loop-resume"
+echo "session=s-56" > "$marker_56"
+run_case 0 "next-ticket: a worktree kept for a resume does not hide its ticket" picker
+expect_stdout "56"
+# An empty marker names no session: the worker would skip the ticket, so the picker does too.
+: > "$marker_56"
+run_case 0 "next-ticket: an empty marker does not count as a worktree kept for a resume" picker
+expect_stdout "57"
+git -C "$FAKE_REPO" worktree remove --force "$FAKE_REPO/.claude/worktrees/ticket-56"
+rm -f "$GH_FIXTURES/pr-list.json"
+mkdir -p "$FAKE_REPO/.claude/worktrees/ticket-56"
+: > "$FAKE_REPO/.git/loop-resume"
+run_case 0 "next-ticket: a plain folder never counts as a worktree kept for a resume" picker
+expect_stdout "57"
+rm -rf "$FAKE_REPO/.claude/worktrees/ticket-56" "$FAKE_REPO/.git/loop-resume"
+
 reset_fixtures
 fixture_list 52:priority-high
 fixture_issue 52 maintainer OWNER
@@ -537,13 +599,17 @@ run_case 12 "work-ticket: a ticket with an open PR exits 12" "$WORK" 60 "$TMP_RO
 expect_in_output "PR #901 is already open"
 [ ! -f "$CLAUDE_MARKER" ] || fail "work-ticket spawned a claude session for a ticket that already has a PR"
 
+# The folder is not a worktree of its own, so the resume marker git resolves for it is the main
+# .git's: it must not make the run resume anything (#934).
 reset_fixtures
 fixture_issue 61 maintainer OWNER
 mkdir -p "$FAKE_REPO/.claude/worktrees/ticket-61"
+printf 'session=s-61\nhead=%s\n' "$(git -C "$FAKE_REPO" rev-parse HEAD)" > "$FAKE_REPO/.git/loop-resume"
+fixture_transcript s-61
 run_case 12 "work-ticket: a ticket whose worktree exists exits 12" "$WORK" 61 "$TMP_ROOT/run"
 expect_in_output "already exists"
 [ ! -f "$CLAUDE_MARKER" ] || fail "work-ticket spawned a claude session next to an existing worktree"
-rm -rf "$FAKE_REPO/.claude/worktrees/ticket-61"
+rm -rf "$FAKE_REPO/.claude/worktrees/ticket-61" "$FAKE_REPO/.git/loop-resume"
 
 # An unreadable API is systemic, not a property of the ticket: exit 3 so the conductor's
 # circuit breaker stops the run rather than "skipping" every remaining ticket as untrusted.
@@ -580,7 +646,7 @@ echo "work in progress" > "$FAKE_REPO/dirty.txt"
 
 # The fake session names its branch after its ticket and reports PR 7<ticket>.
 behavior "$TMP_ROOT/done.sh" 'ticket="${PWD##*ticket-}"
-git checkout -q -b "$ticket-fixture"
+git checkout -q -B "$ticket-fixture"
 git commit -q --allow-empty -m "fixture work"
 echo "{\"result\":\"STATUS: DONE\\nPR: https://github.com/koniecdev/LotroKoniecDev/pull/7$ticket\\nSUMMARY: the rate limiter now sends 429 with Retry-After; quota and usage limits unchanged\",\"is_error\":false,\"session_id\":\"s-done\"}"'
 
@@ -776,7 +842,8 @@ behavior "$TMP_ROOT/limit-on-resume.sh" 'case " $* " in
 esac'
 run_case 6 "work-ticket: a usage limit during a resume is still a usage limit" \
     env CLAUDE_BEHAVIOR="$TMP_ROOT/limit-on-resume.sh" "$WORK" 90 "$TMP_ROOT/run"
-expect_meta 90 outcome=limit resumes=1
+expect_meta 90 outcome=limit resumes=1 worktree=kept session=s-90
+git -C "$FAKE_REPO" worktree remove --force "$WT_ROOT/ticket-90"
 
 # The loop trusts api_error_status 429 even without is_error, so such a stop is never resumed.
 reset_fixtures
@@ -784,7 +851,409 @@ fixture_issue 94 maintainer OWNER
 behavior "$TMP_ROOT/limit-quiet.sh" 'echo "{\"result\":\"\",\"is_error\":false,\"api_error_status\":429,\"session_id\":\"s-94\"}"'
 run_case 6 "work-ticket: a 429 without is_error is a usage limit, not a resume" \
     env CLAUDE_BEHAVIOR="$TMP_ROOT/limit-quiet.sh" "$WORK" 94 "$TMP_ROOT/run"
-[ "$(cat "$TMP_ROOT/claude-runs")" = "1" ] || fail "a usage limit must not be resumed" "$LAST_OUTPUT"
+[ "$(cat "$TMP_ROOT/claude-runs")" = "1" ] || fail "a usage limit is resumed by the next run, not by this one" "$LAST_OUTPUT"
+expect_meta 94 outcome=limit worktree=kept
+git -C "$FAKE_REPO" worktree remove --force "$WT_ROOT/ticket-94"
+
+# ── work-ticket.sh: a usage limit keeps the session for the next run (#934) ────────────────────
+# The session commits, leaves a file it has not committed yet, and hits the limit. The worktree
+# stays as it is, and the next run of the ticket resumes that session in it.
+behavior "$TMP_ROOT/limit-keep.sh" 'ticket="${PWD##*ticket-}"
+case " $* " in
+*" --resume "*)
+    [ -f uncommitted.txt ] || { echo "the resumed session lost its uncommitted file" >&2; exit 1; }
+    git add uncommitted.txt
+    git commit -q -m "finished after the limit"
+    echo "{\"result\":\"STATUS: DONE\\nPR: https://github.com/koniecdev/LotroKoniecDev/pull/7$ticket\",\"is_error\":false,\"session_id\":\"s-$ticket\",\"num_turns\":4,\"total_cost_usd\":9.5}" ;;
+*)
+    git checkout -q -b "$ticket-fixture"
+    git commit -q --allow-empty -m "reviewed work"
+    echo "not committed yet" > uncommitted.txt
+    echo "You have hit your limit" >&2
+    echo "{\"result\":\"You have hit your session limit\",\"is_error\":true,\"session_id\":\"s-$ticket\",\"num_turns\":40,\"total_cost_usd\":7.25}" ;;
+esac'
+
+# kept_marker <ticket> — where the worker keeps the session of a worktree kept for a resume.
+kept_marker() {
+    echo "$(git -C "$WT_ROOT/ticket-$1" rev-parse --path-format=absolute --git-dir)/loop-resume"
+}
+
+reset_fixtures
+fixture_issue 101 maintainer OWNER
+run_case 6 "work-ticket: a usage limit keeps the worktree for a resume" \
+    env CLAUDE_BEHAVIOR="$TMP_ROOT/limit-keep.sh" "$WORK" 101 "$TMP_ROOT/run"
+expect_in_output "worktree kept"
+expect_meta 101 outcome=limit worktree=kept session=s-101
+[ -f "$WT_ROOT/ticket-101/uncommitted.txt" ] || fail "the kept worktree must keep the session's uncommitted file"
+[ -z "$(git -C "$FAKE_REPO" for-each-ref 'refs/heads/loop-salvage/101-*')" ] \
+    || fail "nothing may be salvaged from a worktree kept for a resume"
+grep -qx "session=s-101" "$(kept_marker 101)" || fail "the marker should name the session" "$(cat "$(kept_marker 101)")"
+marker_101="$(kept_marker 101)"
+# The limit hit after the PR was opened: an open PR from the kept branch is the session's own. A PR
+# of the same branch that was closed before the session started is history, not a stop sign.
+fixture_prs_state "7101,101-fixture,OPEN,$(git -C "$WT_ROOT/ticket-101" rev-parse 101-fixture)" \
+    "7001,101-fixture,CLOSED,,2020-01-01T00:00:00Z" "7002,101-older-attempt,MERGED,,2020-01-01T00:00:00Z"
+fixture_pr_view 7101 OPEN 101-fixture
+fixture_transcript s-101
+run_case 0 "work-ticket: the next run resumes the kept session, which opens its PR" \
+    env CLAUDE_BEHAVIOR="$TMP_ROOT/limit-keep.sh" "$WORK" 101 "$TMP_ROOT/run"
+expect_in_output "resuming session s-101 after a usage limit"
+expect_in_output "PR #7101 opened"
+[ "$(cat "$TMP_ROOT/claude-runs")" = "2" ] || fail "expected the limited run and one resume" "$LAST_OUTPUT"
+sed -n 2p "$TMP_ROOT/claude-args-2" | grep -q "The usage limit that stopped this session is over" \
+    || fail "the resume should say the limit is over" "$(sed -n 2p "$TMP_ROOT/claude-args-2")"
+sed -n 2p "$TMP_ROOT/claude-args-2" | grep -q "end with the STATUS: DONE or STATUS: BLOCKED block" \
+    || fail "the resume should ask for the STATUS block" "$(sed -n 2p "$TMP_ROOT/claude-args-2")"
+[ "$(tail -2 "$TMP_ROOT/claude-args-2" | tr '\n' ' ')" = "--resume s-101 " ] \
+    || fail "the resume should name the kept session" "$(cat "$TMP_ROOT/claude-args-2")"
+[ "$(sed '1,2d' "$TMP_ROOT/claude-args-1")" = "$(sed '1,2d' "$TMP_ROOT/claude-args-2" | sed '$d' | sed '$d')" ] \
+    || fail "the resume should keep every flag of the first run" "$(cat "$TMP_ROOT/claude-args-1" "$TMP_ROOT/claude-args-2")"
+[ "$(cat "$TMP_ROOT/claude-cwd-2")" = "$(cat "$TMP_ROOT/claude-cwd-1")" ] \
+    || fail "the resume should work in the kept worktree" "$(cat "$TMP_ROOT"/claude-cwd-*)"
+[ "$(cat "$TMP_ROOT/claude-env-2")" = "1 3600000 600000" ] \
+    || fail "the resume should get background tasks off and the raised Bash timeouts" "$(cat "$TMP_ROOT/claude-env-2")"
+expect_meta 101 outcome=pr-opened pr=7101 resumes=1 turns=44 cost=9.5 session=s-101
+grep -q "session limit" "$TMP_ROOT/run/ticket-101.json.before-resume-1" || fail "the limited result should be kept"
+[ "$(find "$TMP_ROOT/run" -name 'ticket-101*.json' | wc -l | tr -d ' ')" = "1" ] \
+    || fail "the resume reports the whole session's cost, so only one result may count"
+grep -q "hit your limit" "$TMP_ROOT/run"/ticket-101.stderr.limit-* 2>/dev/null \
+    || fail "the limited run's stderr should be kept aside"
+! grep -q "hit your limit" "$TMP_ROOT/run/ticket-101.stderr" \
+    || fail "the old limit message must not stay where a later crash would be read as a limit"
+[ ! -e "$WT_ROOT/ticket-101" ] || fail "the worktree should be removed once the PR is open"
+[ ! -e "$marker_101" ] || fail "the marker should go with the worktree"
+cases=$((cases + 1)); printf '✓ work-ticket: the resume keeps the tree, the flags and the session, and one cost\n'
+
+# The session's transcript is gone (another config dir, or the CLI cleaned it up): start over.
+reset_fixtures
+fixture_issue 102 maintainer OWNER
+fixture_pr_view 7102 OPEN 102-fixture
+run_case 6 "work-ticket: a usage limit, before a resume that cannot work" \
+    env CLAUDE_BEHAVIOR="$TMP_ROOT/limit-keep.sh" "$WORK" 102 "$TMP_ROOT/run"
+run_case 0 "work-ticket: a kept session with no transcript starts fresh" \
+    env CLAUDE_BEHAVIOR="$TMP_ROOT/done.sh" "$WORK" 102 "$TMP_ROOT/run"
+expect_in_output "has no transcript"
+[ "$(sed -n 2p "$TMP_ROOT/claude-args-2")" = "/work-ticket 102" ] || fail "the fallback should be a fresh start" "$(cat "$TMP_ROOT/claude-args-2")"
+[ "$(cat "$TMP_ROOT/session-start")" = "$(git -C "$FAKE_REPO" rev-parse origin/main)" ] \
+    || fail "the fresh start should cut a new worktree from origin/main"
+salvage_branch="$(git -C "$FAKE_REPO" for-each-ref --format='%(refname:short)' 'refs/heads/loop-salvage/102-*')"
+[ -n "$salvage_branch" ] && git -C "$FAKE_REPO" show "$salvage_branch:uncommitted.txt" >/dev/null 2>&1 \
+    || fail "the kept worktree's uncommitted file should be salvaged before the fresh start" "$LAST_OUTPUT"
+
+# LOOP_KEEP_WORKTREE=1 keeps finished worktrees, but a kept one that cannot be resumed must still
+# make room for the fresh start.
+reset_fixtures
+fixture_issue 121 maintainer OWNER
+fixture_pr_view 7121 OPEN 121-fixture
+run_case 6 "work-ticket: a usage limit on #121" \
+    env CLAUDE_BEHAVIOR="$TMP_ROOT/limit-keep.sh" "$WORK" 121 "$TMP_ROOT/run"
+run_case 0 "work-ticket: LOOP_KEEP_WORKTREE=1 does not block the fresh start after a lost session" \
+    env LOOP_KEEP_WORKTREE=1 CLAUDE_BEHAVIOR="$TMP_ROOT/done.sh" "$WORK" 121 "$TMP_ROOT/run"
+[ "$(sed -n 2p "$TMP_ROOT/claude-args-2")" = "/work-ticket 121" ] || fail "the fallback should be a fresh start" "$(cat "$TMP_ROOT/claude-args-2")"
+[ -d "$WT_ROOT/ticket-121" ] || fail "the fresh run's own worktree should still be kept"
+git -C "$FAKE_REPO" worktree remove --force "$WT_ROOT/ticket-121"
+
+# Work that went on without the session: never resume it.
+for case_spec in "103:7103:103-fixture:MERGED:was merged" "104:7104:104-by-hand:OPEN:is open from another branch" \
+    "109:7109:109-fixture:CLOSED:from this branch was closed" \
+    "116:7116:116-fixture:OPEN:has commits the kept branch does not"; do
+    IFS=: read -r ticket pr head state message <<< "$case_spec"
+    reset_fixtures
+    fixture_issue "$ticket" maintainer OWNER
+    run_case 6 "work-ticket: a usage limit on #$ticket" \
+        env CLAUDE_BEHAVIOR="$TMP_ROOT/limit-keep.sh" "$WORK" "$ticket" "$TMP_ROOT/run"
+    fixture_transcript "s-$ticket"
+    # For #116 someone pushed to the session's own PR during the nap: its head is a commit the kept
+    # branch does not have.
+    fixture_prs_state "$pr,$head,$state"
+    run_case 12 "work-ticket: a kept session is not resumed when a PR of its ticket $message" \
+        env CLAUDE_BEHAVIOR="$TMP_ROOT/limit-keep.sh" "$WORK" "$ticket" "$TMP_ROOT/run"
+    expect_in_output "$message"
+    [ "$(cat "$TMP_ROOT/claude-runs")" = "1" ] || fail "nothing may be resumed" "$LAST_OUTPUT"
+    [ -f "$WT_ROOT/ticket-$ticket/uncommitted.txt" ] || fail "the kept worktree must stay for a human"
+    [ ! -e "$(kept_marker "$ticket")" ] || fail "the marker should be dropped, or the picker keeps offering the ticket"
+    git -C "$FAKE_REPO" worktree remove --force "$WT_ROOT/ticket-$ticket"
+done
+
+# Someone changed a file in the kept worktree since the limit, without a commit: the session no
+# longer knows that tree.
+reset_fixtures
+fixture_issue 117 maintainer OWNER
+run_case 6 "work-ticket: a usage limit on #117" \
+    env CLAUDE_BEHAVIOR="$TMP_ROOT/limit-keep.sh" "$WORK" 117 "$TMP_ROOT/run"
+fixture_transcript s-117
+echo "a human edit" >> "$WT_ROOT/ticket-117/uncommitted.txt"
+run_case 12 "work-ticket: a kept worktree whose files changed is not resumed" \
+    env CLAUDE_BEHAVIOR="$TMP_ROOT/limit-keep.sh" "$WORK" 117 "$TMP_ROOT/run"
+expect_in_output "HEAD or its files changed"
+[ "$(cat "$TMP_ROOT/claude-runs")" = "1" ] || fail "nothing may be resumed" "$LAST_OUTPUT"
+grep -q "a human edit" "$WT_ROOT/ticket-117/uncommitted.txt" || fail "the human's edit must stay"
+git -C "$FAKE_REPO" worktree remove --force "$WT_ROOT/ticket-117"
+
+# Someone committed in the kept worktree since the limit: the session no longer knows that tree.
+reset_fixtures
+fixture_issue 105 maintainer OWNER
+run_case 6 "work-ticket: a usage limit on #105" \
+    env CLAUDE_BEHAVIOR="$TMP_ROOT/limit-keep.sh" "$WORK" 105 "$TMP_ROOT/run"
+fixture_transcript s-105
+git -C "$WT_ROOT/ticket-105" commit -q --allow-empty -m "someone works here by hand"
+run_case 12 "work-ticket: a kept worktree whose HEAD moved is not resumed" \
+    env CLAUDE_BEHAVIOR="$TMP_ROOT/limit-keep.sh" "$WORK" 105 "$TMP_ROOT/run"
+expect_in_output "HEAD or its files changed"
+[ "$(cat "$TMP_ROOT/claude-runs")" = "1" ] || fail "nothing may be resumed" "$LAST_OUTPUT"
+[ ! -e "$(kept_marker 105)" ] || fail "the stale marker should be dropped, so the worktree reads as someone's work"
+run_case 12 "work-ticket: after that it is a worktree someone works in" \
+    env CLAUDE_BEHAVIOR="$TMP_ROOT/limit-keep.sh" "$WORK" 105 "$TMP_ROOT/run"
+expect_in_output "already exists"
+git -C "$FAKE_REPO" worktree remove --force "$WT_ROOT/ticket-105"
+
+# The limit hit before the session cut its branch, and no PR exists yet: the resume cuts the branch
+# and opens the PR. A closed PR from an older attempt's branch does not stop it.
+behavior "$TMP_ROOT/limit-detached.sh" 'ticket="${PWD##*ticket-}"
+case " $* " in
+*" --resume "*)
+    git checkout -q -b "$ticket-fixture"
+    git add -A
+    git commit -q -m "finished after the limit"
+    echo "{\"result\":\"STATUS: DONE\\nPR: https://github.com/koniecdev/LotroKoniecDev/pull/7$ticket\",\"is_error\":false,\"session_id\":\"s-$ticket\",\"num_turns\":1}" ;;
+*)
+    echo "work in progress" > wip.txt
+    echo "{\"result\":\"You have hit your session limit\",\"is_error\":true,\"session_id\":\"s-$ticket\",\"num_turns\":3}" ;;
+esac'
+reset_fixtures
+fixture_issue 110 maintainer OWNER
+run_case 6 "work-ticket: a usage limit before the branch was cut" \
+    env CLAUDE_BEHAVIOR="$TMP_ROOT/limit-detached.sh" "$WORK" 110 "$TMP_ROOT/run"
+fixture_transcript s-110
+fixture_prs_state 7009,110-older-attempt,CLOSED
+fixture_pr_view 7110 OPEN 110-fixture
+run_case 0 "work-ticket: the resume opens the PR that did not exist before the limit" \
+    env CLAUDE_BEHAVIOR="$TMP_ROOT/limit-detached.sh" "$WORK" 110 "$TMP_ROOT/run"
+expect_in_output "PR #7110 opened"
+git -C "$FAKE_REPO" show 110-fixture:wip.txt >/dev/null 2>&1 || fail "the resumed session should find its file and commit it"
+expect_meta 110 outcome=pr-opened pr=7110 resumes=1 turns=4
+
+# A rebase stopped half way when the limit hit: HEAD is detached, but the session's own open PR is
+# still its own, because git records which branch the rebase is on.
+behavior "$TMP_ROOT/limit-mid-rebase.sh" 'ticket="${PWD##*ticket-}"
+case " $* " in
+*" --resume "*)
+    git rebase --abort
+    echo "{\"result\":\"STATUS: DONE\\nPR: https://github.com/koniecdev/LotroKoniecDev/pull/7$ticket\",\"is_error\":false,\"session_id\":\"s-$ticket\"}" ;;
+*)
+    git checkout -q -b "$ticket-base"
+    echo one > conflict.txt; git add conflict.txt; git commit -q -m one
+    git checkout -q -b "$ticket-fixture" HEAD~1
+    echo two > conflict.txt; git add conflict.txt; git commit -q -m two
+    git rebase "$ticket-base" >/dev/null 2>&1 || true
+    echo "{\"result\":\"You have hit your session limit\",\"is_error\":true,\"session_id\":\"s-$ticket\"}" ;;
+esac'
+reset_fixtures
+fixture_issue 111 maintainer OWNER
+run_case 6 "work-ticket: a usage limit in the middle of a rebase" \
+    env CLAUDE_BEHAVIOR="$TMP_ROOT/limit-mid-rebase.sh" "$WORK" 111 "$TMP_ROOT/run"
+[ -z "$(git -C "$WT_ROOT/ticket-111" branch --show-current)" ] || fail "the fixture should leave HEAD detached by the rebase"
+fixture_transcript s-111
+fixture_prs_state "7111,111-fixture,OPEN,$(git -C "$WT_ROOT/ticket-111" rev-parse refs/heads/111-fixture)"
+fixture_pr_view 7111 OPEN 111-fixture
+run_case 0 "work-ticket: a kept rebase still counts its own open PR as its own" \
+    env CLAUDE_BEHAVIOR="$TMP_ROOT/limit-mid-rebase.sh" "$WORK" 111 "$TMP_ROOT/run"
+expect_in_output "PR #7111 opened"
+
+# The limit is back during the resume: the worktree is kept again, the marker counts every turn so
+# far, and the attempt before keeps its files under the .limit- names.
+behavior "$TMP_ROOT/limit-twice.sh" 'ticket="${PWD##*ticket-}"
+case " $* " in
+*" --resume "*)
+    echo more >> wip.txt
+    echo "second limit" >&2
+    echo "{\"result\":\"You have hit your session limit\",\"is_error\":true,\"session_id\":\"s-$ticket\",\"num_turns\":5,\"total_cost_usd\":3}" ;;
+*)
+    git checkout -q -b "$ticket-fixture"
+    echo wip > wip.txt
+    echo "first limit" >&2
+    echo "{\"result\":\"You have hit your session limit\",\"is_error\":true,\"session_id\":\"s-$ticket\",\"num_turns\":7,\"total_cost_usd\":1}" ;;
+esac'
+reset_fixtures
+fixture_issue 112 maintainer OWNER
+run_case 6 "work-ticket: a usage limit on #112" \
+    env CLAUDE_BEHAVIOR="$TMP_ROOT/limit-twice.sh" "$WORK" 112 "$TMP_ROOT/run"
+fixture_transcript s-112
+run_case 6 "work-ticket: a second usage limit during the resume keeps the worktree again" \
+    env CLAUDE_BEHAVIOR="$TMP_ROOT/limit-twice.sh" "$WORK" 112 "$TMP_ROOT/run"
+expect_meta 112 outcome=limit worktree=kept resumes=1 turns=12
+grep -qx "turns=12" "$(kept_marker 112)" || fail "the marker should count every turn so far" "$(cat "$(kept_marker 112)")"
+[ "$(jq -r '.total_cost_usd' "$TMP_ROOT/run/ticket-112.json")" = "3" ] || fail "ticket-112.json should hold the resume's result"
+grep -q "first limit" "$TMP_ROOT/run"/ticket-112.stderr.limit-* 2>/dev/null || fail "the first attempt's stderr should be kept aside"
+grep -q "second limit" "$TMP_ROOT/run/ticket-112.stderr" || fail "the resume should write a stderr of its own"
+[ "$(find "$TMP_ROOT/run" -name 'ticket-112*.json' | wc -l | tr -d ' ')" = "1" ] \
+    || fail "only one result may count toward the conductor's cost total"
+git -C "$FAKE_REPO" worktree remove --force "$WT_ROOT/ticket-112"
+
+# GitHub cannot list the ticket's PRs before a resume: an error, and the kept session waits for the
+# next run.
+reset_fixtures
+fixture_issue 113 maintainer OWNER
+run_case 6 "work-ticket: a usage limit on #113" \
+    env CLAUDE_BEHAVIOR="$TMP_ROOT/limit-keep.sh" "$WORK" 113 "$TMP_ROOT/run"
+fixture_transcript s-113
+printf x > "$GH_FIXTURES/pr-list-fail.json"
+run_case 3 "work-ticket: a PR list that fails before a resume is an error" \
+    env CLAUDE_BEHAVIOR="$TMP_ROOT/limit-keep.sh" "$WORK" 113 "$TMP_ROOT/run"
+expect_meta 113 outcome=error
+[ "$(cat "$TMP_ROOT/claude-runs")" = "1" ] || fail "nothing may be resumed" "$LAST_OUTPUT"
+[ -f "$(kept_marker 113)" ] || fail "the kept session should still wait for the next run"
+git -C "$FAKE_REPO" worktree remove --force "$WT_ROOT/ticket-113"
+
+# Another run claims the marker between the checks and the claim: only one of them may resume.
+reset_fixtures
+fixture_issue 114 maintainer OWNER
+run_case 6 "work-ticket: a usage limit on #114" \
+    env CLAUDE_BEHAVIOR="$TMP_ROOT/limit-keep.sh" "$WORK" 114 "$TMP_ROOT/run"
+fixture_transcript s-114
+mv "$TMP_ROOT/bin/gh" "$TMP_ROOT/bin/gh.real"
+printf '#!/usr/bin/env bash\ncase "$*" in *"--state all"*) rm -f "%s" ;; esac\nexec "%s" "$@"\n' \
+    "$(kept_marker 114)" "$TMP_ROOT/bin/gh.real" > "$TMP_ROOT/bin/gh"
+chmod +x "$TMP_ROOT/bin/gh"
+run_case 12 "work-ticket: a marker another run claimed first is not resumed twice" \
+    env CLAUDE_BEHAVIOR="$TMP_ROOT/limit-keep.sh" "$WORK" 114 "$TMP_ROOT/run"
+mv "$TMP_ROOT/bin/gh.real" "$TMP_ROOT/bin/gh"
+expect_in_output "another run has just claimed"
+[ "$(cat "$TMP_ROOT/claude-runs")" = "1" ] || fail "nothing may be resumed" "$LAST_OUTPUT"
+git -C "$FAKE_REPO" worktree remove --force "$WT_ROOT/ticket-114"
+
+# The resume dies on a rate limit before it writes any JSON: the session id the loop already knows
+# still keeps the worktree for the next run.
+behavior "$TMP_ROOT/limit-then-crash.sh" 'ticket="${PWD##*ticket-}"
+case " $* " in
+*" --resume "*)
+    echo "API Error: rate limit exceeded" >&2
+    exit 1 ;;
+*)
+    git checkout -q -b "$ticket-fixture"
+    echo wip > wip.txt
+    echo "{\"result\":\"You have hit your session limit\",\"is_error\":true,\"session_id\":\"s-$ticket\"}" ;;
+esac'
+reset_fixtures
+fixture_issue 118 maintainer OWNER
+run_case 6 "work-ticket: a usage limit on #118" \
+    env CLAUDE_BEHAVIOR="$TMP_ROOT/limit-then-crash.sh" "$WORK" 118 "$TMP_ROOT/run"
+fixture_transcript s-118
+run_case 6 "work-ticket: a resume that dies without JSON still keeps its session" \
+    env CLAUDE_BEHAVIOR="$TMP_ROOT/limit-then-crash.sh" "$WORK" 118 "$TMP_ROOT/run"
+expect_meta 118 outcome=limit worktree=kept session=s-118
+grep -qx "session=s-118" "$(kept_marker 118)" || fail "the marker should still name the session" "$(cat "$(kept_marker 118)" 2>&1)"
+git -C "$FAKE_REPO" worktree remove --force "$WT_ROOT/ticket-118"
+
+# No transcript, and GitHub cannot list the PRs: the marker must stay, so the next run still sees a
+# kept worktree rather than someone's work.
+reset_fixtures
+fixture_issue 122 maintainer OWNER
+run_case 6 "work-ticket: a usage limit on #122" \
+    env CLAUDE_BEHAVIOR="$TMP_ROOT/limit-keep.sh" "$WORK" 122 "$TMP_ROOT/run"
+printf x > "$GH_FIXTURES/pr-list-fail.json"
+run_case 3 "work-ticket: a PR list that fails after a lost transcript is an error" \
+    env CLAUDE_BEHAVIOR="$TMP_ROOT/limit-keep.sh" "$WORK" 122 "$TMP_ROOT/run"
+[ -s "$(kept_marker 122)" ] || fail "the marker should stay until GitHub has answered"
+[ -f "$WT_ROOT/ticket-122/uncommitted.txt" ] || fail "nothing may be salvaged before GitHub has answered"
+
+# The files of the kept worktree cannot be read: an error, and the marker stays for the next run.
+rm -f "$GH_FIXTURES/pr-list-fail.json"
+fixture_transcript s-122
+run_case 3 "work-ticket: a kept worktree whose files cannot be read is an error, not a skip" \
+    env TMPDIR="$TMP_ROOT/no-such-dir" CLAUDE_BEHAVIOR="$TMP_ROOT/limit-keep.sh" "$WORK" 122 "$TMP_ROOT/run"
+expect_in_output "could not read the files"
+[ -s "$(kept_marker 122)" ] || fail "the marker should stay for the next run"
+git -C "$FAKE_REPO" worktree remove --force "$WT_ROOT/ticket-122"
+
+# The session pushed, opened its PR, then rewrote its branch (a rebase before the force push) and
+# hit the limit: the PR's head is in the branch's own history, so the PR is still its own.
+behavior "$TMP_ROOT/limit-after-rewrite.sh" 'ticket="${PWD##*ticket-}"
+case " $* " in
+*" --resume "*) echo "{\"result\":\"STATUS: DONE\\nPR: https://github.com/koniecdev/LotroKoniecDev/pull/7$ticket\",\"is_error\":false,\"session_id\":\"s-$ticket\"}" ;;
+*)
+    git checkout -q -b "$ticket-fixture"
+    git commit -q --allow-empty -m "pushed work"
+    git rev-parse HEAD > "'"$TMP_ROOT"'/pushed-head"
+    git commit -q --amend --allow-empty -m "pushed work, rewritten"
+    echo "{\"result\":\"You have hit your session limit\",\"is_error\":true,\"session_id\":\"s-$ticket\"}" ;;
+esac'
+reset_fixtures
+fixture_issue 123 maintainer OWNER
+run_case 6 "work-ticket: a usage limit on #123" \
+    env CLAUDE_BEHAVIOR="$TMP_ROOT/limit-after-rewrite.sh" "$WORK" 123 "$TMP_ROOT/run"
+fixture_transcript s-123
+fixture_prs_state "7123,123-fixture,OPEN,$(cat "$TMP_ROOT/pushed-head")"
+fixture_pr_view 7123 OPEN 123-fixture
+run_case 0 "work-ticket: a session that rewrote its own pushed branch is still resumed" \
+    env CLAUDE_BEHAVIOR="$TMP_ROOT/limit-after-rewrite.sh" "$WORK" 123 "$TMP_ROOT/run"
+expect_in_output "PR #7123 opened"
+
+# A stranger commented during the nap: the kept session is never resumed, so its work is salvaged
+# and the worktree removed, as before #934, instead of waiting where nobody looks.
+reset_fixtures
+fixture_issue 119 maintainer OWNER
+run_case 6 "work-ticket: a usage limit on #119" \
+    env CLAUDE_BEHAVIOR="$TMP_ROOT/limit-keep.sh" "$WORK" 119 "$TMP_ROOT/run"
+fixture_transcript s-119
+fixture_comments 119 stranger:NONE
+run_case 11 "work-ticket: a kept ticket refused by the provenance gate is salvaged" \
+    env CLAUDE_BEHAVIOR="$TMP_ROOT/limit-keep.sh" "$WORK" 119 "$TMP_ROOT/run"
+[ "$(cat "$TMP_ROOT/claude-runs")" = "1" ] || fail "an untrusted ticket must not be resumed" "$LAST_OUTPUT"
+[ ! -e "$WT_ROOT/ticket-119" ] || fail "the kept worktree should be removed"
+salvage_branch="$(git -C "$FAKE_REPO" for-each-ref --format='%(refname:short)' 'refs/heads/loop-salvage/119-*')"
+[ -n "$salvage_branch" ] && git -C "$FAKE_REPO" show "$salvage_branch:uncommitted.txt" >/dev/null 2>&1 \
+    || fail "the kept session's uncommitted file should be salvaged" "$LAST_OUTPUT"
+
+# No transcript, and the session had opened its PR: that PR waits for review, and the session's
+# unfinished work stays in its worktree for the owner instead of going to a salvage branch.
+reset_fixtures
+fixture_issue 120 maintainer OWNER
+run_case 6 "work-ticket: a usage limit on #120" \
+    env CLAUDE_BEHAVIOR="$TMP_ROOT/limit-keep.sh" "$WORK" 120 "$TMP_ROOT/run"
+fixture_prs 7120:120-fixture
+run_case 12 "work-ticket: a kept session with no transcript and an open PR is left for the owner" \
+    env CLAUDE_BEHAVIOR="$TMP_ROOT/limit-keep.sh" "$WORK" 120 "$TMP_ROOT/run"
+expect_in_output "stays in"
+[ -f "$WT_ROOT/ticket-120/uncommitted.txt" ] || fail "the unfinished work should stay in the worktree"
+[ -z "$(git -C "$FAKE_REPO" for-each-ref 'refs/heads/loop-salvage/120-*')" ] || fail "nothing should be salvaged"
+[ ! -e "$(kept_marker 120)" ] || fail "a session that cannot be resumed should lose its marker"
+git -C "$FAKE_REPO" worktree remove --force "$WT_ROOT/ticket-120"
+
+# A stop during the resumed session ends it like any other: salvaged, and the worktree removed.
+behavior "$TMP_ROOT/limit-then-busy.sh" 'ticket="${PWD##*ticket-}"
+case " $* " in
+*" --resume "*)
+    : > "'"$TMP_ROOT"'/resumed"
+    "$REAL_SLEEP" 60 ;;
+*)
+    git checkout -q -b "$ticket-fixture"
+    echo wip > wip.txt
+    echo "{\"result\":\"You have hit your session limit\",\"is_error\":true,\"session_id\":\"s-$ticket\"}" ;;
+esac'
+reset_fixtures
+rm -f "$TMP_ROOT/resumed"
+fixture_issue 115 maintainer OWNER
+run_case 6 "work-ticket: a usage limit on #115" \
+    env CLAUDE_BEHAVIOR="$TMP_ROOT/limit-then-busy.sh" "$WORK" 115 "$TMP_ROOT/run"
+fixture_transcript s-115
+env CLAUDE_BEHAVIOR="$TMP_ROOT/limit-then-busy.sh" "$WORK" 115 "$TMP_ROOT/run" > "$TMP_ROOT/term.out" 2>&1 &
+worker=$!
+for _ in $(seq 1 100); do [ -f "$TMP_ROOT/resumed" ] && break; "$REAL_SLEEP" 0.1; done
+[ -f "$TMP_ROOT/resumed" ] || { kill "$worker" 2>/dev/null; fail "the resume never started" "$(cat "$TMP_ROOT/term.out")"; }
+kill -TERM "$worker"
+term_rc=0
+for _ in $(seq 1 100); do alive "$worker" || break; "$REAL_SLEEP" 0.1; done
+if alive "$worker"; then
+    kill -KILL "$worker"
+    fail "work-ticket did not stop within 10 seconds of TERM during a resume" "$(cat "$TMP_ROOT/term.out")"
+fi
+wait "$worker" || term_rc=$?
+[ "$term_rc" -eq 143 ] || fail "a stopped worker should exit 143, got $term_rc" "$(cat "$TMP_ROOT/term.out")"
+expect_meta 115 outcome=stopped
+[ -n "$(git -C "$FAKE_REPO" for-each-ref 'refs/heads/loop-salvage/115-*')" ] || fail "the stopped resume's work should be salvaged"
+[ ! -e "$WT_ROOT/ticket-115" ] || fail "a stopped resume should not leave its worktree behind"
+cases=$((cases + 1)); printf '✓ work-ticket: TERM during a resumed session stops, salvages and cleans up\n'
 
 reset_fixtures
 fixture_issue 91 maintainer OWNER
@@ -869,20 +1338,80 @@ expect_in_output "not resuming"
 expect_meta 99 outcome=error resumes=0
 rm -f "$TMP_ROOT/clock-skew" "$TMP_ROOT/bin/date"
 
-# Only a real open PR for this ticket counts as DONE.
+# Only a real open PR for this ticket counts as DONE. With no session id there is nothing to resume.
 reset_fixtures
 fixture_issue 76 maintainer OWNER
 behavior "$TMP_ROOT/done-no-pr.sh" 'echo "{\"result\":\"STATUS: DONE\",\"is_error\":false}"'
 run_case 3 "work-ticket: DONE without a PR anywhere is an error" \
     env CLAUDE_BEHAVIOR="$TMP_ROOT/done-no-pr.sh" "$WORK" 76 "$TMP_ROOT/run"
 expect_in_output "no PR found"
+[ "$(cat "$TMP_ROOT/claude-runs")" = "1" ] || fail "a result with no session id cannot be resumed" "$LAST_OUTPUT"
 
+# A DONE whose push or `gh pr create` failed is resumed once to open the PR (#934). The resume does
+# not count toward LOOP_MAX_RESUMES, so it happens even with that cap at 0.
+behavior "$TMP_ROOT/done-then-pr.sh" 'ticket="${PWD##*ticket-}"
+case " $* " in
+*" --resume "*) echo "{\"result\":\"STATUS: DONE\\nPR: https://github.com/koniecdev/LotroKoniecDev/pull/7$ticket\",\"is_error\":false,\"session_id\":\"s-$ticket\"}" ;;
+*)
+    git checkout -q -b "$ticket-fixture"
+    git commit -q --allow-empty -m "reviewed work"
+    echo "{\"result\":\"STATUS: DONE\\nSUMMARY: gh pr create failed on a network error\",\"is_error\":false,\"session_id\":\"s-$ticket\"}" ;;
+esac'
+reset_fixtures
+fixture_issue 106 maintainer OWNER
+fixture_pr_view 7106 OPEN 106-fixture
+run_case 0 "work-ticket: a DONE with no open PR is resumed once and opens it" \
+    env LOOP_MAX_RESUMES=0 CLAUDE_BEHAVIOR="$TMP_ROOT/done-then-pr.sh" "$WORK" 106 "$TMP_ROOT/run"
+expect_in_output "resuming it once to open the PR"
+expect_in_output "PR #7106 opened"
+[ "$(cat "$TMP_ROOT/claude-runs")" = "2" ] || fail "expected the first run and one resume" "$LAST_OUTPUT"
+sed -n 2p "$TMP_ROOT/claude-args-2" | grep -qF 'no open pull request for ticket #106. ' \
+    || fail "the resume should say what the loop found" "$(sed -n 2p "$TMP_ROOT/claude-args-2")"
+sed -n 2p "$TMP_ROOT/claude-args-2" | grep -qF 'branch name starts with "106-"' \
+    || fail "the resume should name the branch rule the loop checks" "$(sed -n 2p "$TMP_ROOT/claude-args-2")"
+[ "$(tail -2 "$TMP_ROOT/claude-args-2" | tr '\n' ' ')" = "--resume s-106 " ] \
+    || fail "the resume should name the session" "$(cat "$TMP_ROOT/claude-args-2")"
+expect_meta 106 outcome=pr-opened pr=7106 resumes=1
+
+# The resume answers the same: once is enough, then it is an error.
 reset_fixtures
 fixture_issue 77 maintainer OWNER
 fixture_pr_view 777 OPEN 12-another-ticket
 run_case 3 "work-ticket: DONE naming another ticket's PR is an error" \
     env CLAUDE_BEHAVIOR="$TMP_ROOT/done.sh" "$WORK" 77 "$TMP_ROOT/run"
 expect_in_output "not an open PR for this ticket"
+expect_in_output "resuming it once to open the PR"
+[ "$(cat "$TMP_ROOT/claude-runs")" = "2" ] || fail "a DONE with no PR is resumed exactly once" "$LAST_OUTPUT"
+expect_meta 77 outcome=error resumes=1
+sed -n 2p "$TMP_ROOT/claude-args-2" | grep -qF '(PR #777, which your message links, is not one)' \
+    || fail "the resume should name the PR the message linked" "$(sed -n 2p "$TMP_ROOT/claude-args-2")"
+# Anyone who opens a PR names its branch, so that text must never reach the session (ADR-0026).
+! sed -n 2p "$TMP_ROOT/claude-args-2" | grep -q "12-another-ticket" \
+    || fail "the linked PR's branch name must stay out of the prompt" "$(sed -n 2p "$TMP_ROOT/claude-args-2")"
+
+# A wrong link in the summary does not hide the ticket's own PR, found by its branch.
+reset_fixtures
+fixture_issue 107 maintainer OWNER
+fixture_pr_view 7107 OPEN 12-another-ticket
+behavior "$TMP_ROOT/done-wrong-link.sh" 'git checkout -q -b 107-fixture
+printf "[{\"number\":8107,\"headRefName\":\"107-fixture\",\"isCrossRepository\":false}]" > "$GH_FIXTURES/pr-list.json"
+echo "{\"result\":\"STATUS: DONE\\nPR: https://github.com/koniecdev/LotroKoniecDev/pull/7107\",\"is_error\":false,\"session_id\":\"s-107\"}"'
+run_case 0 "work-ticket: a DONE that links the wrong PR still finds the ticket's own" \
+    env CLAUDE_BEHAVIOR="$TMP_ROOT/done-wrong-link.sh" "$WORK" 107 "$TMP_ROOT/run"
+expect_in_output "PR #8107 opened"
+[ "$(cat "$TMP_ROOT/claude-runs")" = "1" ] || fail "no resume is needed when the PR exists" "$LAST_OUTPUT"
+
+# GitHub cannot say whether a PR exists: a resume would start from a guess, so there is none.
+reset_fixtures
+fixture_issue 108 maintainer OWNER
+behavior "$TMP_ROOT/done-api-down.sh" 'git checkout -q -b 108-fixture
+printf x > "$GH_FIXTURES/pr-list-fail.json"
+echo "{\"result\":\"STATUS: DONE\",\"is_error\":false,\"session_id\":\"s-108\"}"'
+run_case 3 "work-ticket: a DONE the loop cannot check against GitHub is not resumed" \
+    env CLAUDE_BEHAVIOR="$TMP_ROOT/done-api-down.sh" "$WORK" 108 "$TMP_ROOT/run"
+expect_in_output "could not be listed"
+[ "$(cat "$TMP_ROOT/claude-runs")" = "1" ] || fail "no resume on an unreadable PR list" "$LAST_OUTPUT"
+expect_meta 108 outcome=error resumes=0
 
 reset_fixtures
 fixture_issue 84 maintainer OWNER

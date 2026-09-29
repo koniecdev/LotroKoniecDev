@@ -4,7 +4,9 @@
 #
 # "Ready" = open, not skip-labeled, not an [Epic]/[Tracking] title, written only by trusted
 # maintainers (issue-trust.sh — ADR-0026), no open PR and no `.claude/worktrees/ticket-<n>` yet
-# (the PR waits for the owner's review, the worktree means a session is on it — ADR-0060), and every "Depends on #X" reference in the body points at a CLOSED issue (a ticket is
+# (the PR waits for the owner's review, the worktree means a session is on it — ADR-0060) unless
+# that worktree was kept for a resume after a usage limit (work-ticket.sh then decides — #934),
+# and every "Depends on #X" reference in the body points at a CLOSED issue (a ticket is
 # closed by its merged PR, so closed == merged in this repo's workflow). Order: priority label (priority-critical > -high > -medium > -low > none), then issue
 # number. Label taxonomy: docs/labels.md (kept in sync with TheKittySaver).
 #
@@ -68,15 +70,29 @@ open_heads="$(gh pr list --state open --limit 200 --json headRefName,isCrossRepo
     exit 1
 }
 
+# A worktree the loop kept after a usage limit carries a marker in its own git folder (written by
+# work-ticket.sh, which also checks it). A folder that is not a worktree of its own resolves to the
+# main .git, so it never counts.
+kept_for_resume() {
+    local worktree="$WORKTREES/ticket-$1" git_dir
+    [ -d "$worktree" ] || return 1
+    git_dir="$(git -C "$worktree" rev-parse --path-format=absolute --git-dir 2>/dev/null)" || return 1
+    [ "$git_dir" != "$(git -C "$worktree" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)" ] || return 1
+    [ -s "$git_dir/loop-resume" ]
+}
+
 for n in $candidates; do
     case " $EXCLUDE " in
         *" $n "*) continue ;;
     esac
-    if printf '%s\n' "$open_heads" | grep -q "^$n-"; then
-        continue
-    fi
-    if [ -e "$WORKTREES/ticket-$n" ]; then
-        continue
+    # Its session may have opened the PR before the limit hit; work-ticket.sh tells that apart.
+    if ! kept_for_resume "$n"; then
+        if printf '%s\n' "$open_heads" | grep -q "^$n-"; then
+            continue
+        fi
+        if [ -e "$WORKTREES/ticket-$n" ]; then
+            continue
+        fi
     fi
 
     # Provenance gate (ADR-0026): on a public repo anyone can write the text the worker reads as

@@ -7,7 +7,9 @@
 # sessions running after the conductor is gone. This suite pins that behavior:
 #   * never more than -j tickets at once, and really -j when there is enough work,
 #   * every ticket runs exactly once, in order when -j is 1,
-#   * a usage limit waits for the running tickets, naps, then runs the same ticket again,
+#   * a usage limit waits for the running tickets, naps, then runs the same ticket again (the
+#     worker resumes its session then — #934), and a limit that outlasts every nap names the
+#     worktree kept for that resume,
 #   * a worktree that cannot be made, or two failures in a row, stop new starts,
 #   * a skip, a refusal or a blocked ticket is not a failure,
 #   * drain mode and -n still work, a number given twice runs once, and nothing calls `gh pr merge`,
@@ -95,6 +97,8 @@ outcome=pr-opened
 case "$rc" in 2) outcome=blocked ;; 3) outcome=error ;; 6) outcome=limit ;; 11) outcome=untrusted ;; 12) outcome=skipped ;; esac
 printf 'issue=%s\noutcome=%s\n' "$ticket" "$outcome" > "$run_dir/ticket-$ticket.meta"
 [ "$rc" -eq 0 ] && echo "pr=$((ticket + 1000))" >> "$run_dir/ticket-$ticket.meta"
+# The real worker keeps the worktree of a limited session for the next run's resume.
+[ "$rc" -eq 6 ] && echo "worktree=kept" >> "$run_dir/ticket-$ticket.meta"
 # The real worker writes resumes= for every ticket, 0 when none was needed.
 echo "resumes=$(cat "$STATE/resumes-$ticket" 2>/dev/null || echo 0)" >> "$run_dir/ticket-$ticket.meta"
 exit "$rc"
@@ -227,6 +231,8 @@ run_conductor 0 "conductor: a usage limit naps, then runs the same ticket again"
 [ "$(grep -cx 12 "$STATE/started")" = "1" ] || fail "#12 should run once" "$(started)"
 expect_in_output "usage limit — sleeping"
 expect_in_output "done: 2 PR opened"
+printf '%s\n' "$LAST_OUTPUT" | grep -q "worktree kept" \
+    && fail "a ticket whose retry ran must not be listed as waiting for a resume" "$LAST_OUTPUT"
 
 reset_state
 echo "6 6 6" > "$STATE/rc-13"
@@ -235,6 +241,8 @@ run_conductor 0 "conductor: a limit that outlasts every nap gives up" -j 1 13
 unset LOOP_LIMIT_RETRIES
 expect_in_output "usage limit persisted after 1 naps"
 [ "$(grep -cx 13 "$STATE/started")" = "2" ] || fail "#13 should run once plus one retry" "$(started)"
+printf '%s\n' "$LAST_OUTPUT" | grep -E '^\[conductor\] #13 +limit .*worktree kept: run #13 again to resume its session$' >/dev/null \
+    || fail "the row of #13 should say its worktree waits for a resume" "$LAST_OUTPUT"
 
 # ── Stop conditions ────────────────────────────────────────────────────────────────────────────
 reset_state

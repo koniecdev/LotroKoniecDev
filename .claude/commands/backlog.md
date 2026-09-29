@@ -57,6 +57,9 @@ When the script finishes, report from its console output:
 - tickets **blocked** — relay each ticket's open questions **verbatim** (they were posted as issue
   comments; `gh issue list --label loop-blocked` finds them),
 - tickets **skipped** (already had an open PR or a worktree) and **refused** (provenance gate),
+- tickets whose row says **`worktree kept: run #<n> again to resume its session`** — the usage
+  limit outlasted every nap; the session waits in its worktree, and naming the ticket in the next
+  run resumes it,
 - failures/timeouts with a one-line cause each (dig into `logs/claude-loop/<run>/ticket-<n>.json`
   only when the console line isn't enough),
 - total cost for the run, and the next step: review each PR, assign yourself to approve it, then

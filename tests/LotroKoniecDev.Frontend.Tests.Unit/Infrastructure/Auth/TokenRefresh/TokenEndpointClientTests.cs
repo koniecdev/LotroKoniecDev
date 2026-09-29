@@ -53,9 +53,8 @@ public sealed class TokenEndpointClientTests
     }
 
     /// <summary>
-    /// #914: the refused refresh ends the session either way, so the warning is the only place that says
-    /// why. The reason a locked account, a scheduled deletion or a broken client setup was refused has to
-    /// reach it.
+    /// #914: the refused refresh ends the session either way, so the warning is the only place in the
+    /// frontend that says why. The auth API's reason has to reach it.
     /// </summary>
     [Theory]
     [InlineData(HttpStatusCode.BadRequest, "invalid_grant", "The refresh token is no longer valid.")]
@@ -69,7 +68,8 @@ public sealed class TokenEndpointClientTests
             statusCode,
             $$"""{"error":"{{error}}","error_description":"{{errorDescription}}"}"""));
         using CapturingLoggerProvider logs = new();
-        TokenEndpointClient client = CreateClient(httpClient, logs);
+        using LoggerFactory loggerFactory = new([logs]);
+        TokenEndpointClient client = CreateClient(httpClient, loggerFactory.CreateLogger<TokenEndpointClient>());
 
         TokenResponse? response = await client.RefreshAsync(RefreshToken);
 
@@ -88,7 +88,8 @@ public sealed class TokenEndpointClientTests
             HttpStatusCode.BadRequest,
             """{"error":"invalid_grant"}"""));
         using CapturingLoggerProvider logs = new();
-        TokenEndpointClient client = CreateClient(httpClient, logs);
+        using LoggerFactory loggerFactory = new([logs]);
+        TokenEndpointClient client = CreateClient(httpClient, loggerFactory.CreateLogger<TokenEndpointClient>());
 
         TokenResponse? response = await client.RefreshAsync(RefreshToken);
 
@@ -120,7 +121,8 @@ public sealed class TokenEndpointClientTests
     {
         using HttpClient httpClient = CreateHttpClient(StubHttpMessageHandler.RespondWith(HttpStatusCode.BadRequest, body));
         using CapturingLoggerProvider logs = new();
-        TokenEndpointClient client = CreateClient(httpClient, logs);
+        using LoggerFactory loggerFactory = new([logs]);
+        TokenEndpointClient client = CreateClient(httpClient, loggerFactory.CreateLogger<TokenEndpointClient>());
 
         TokenResponse? response = await client.RefreshAsync(RefreshToken);
 
@@ -137,7 +139,8 @@ public sealed class TokenEndpointClientTests
             HttpStatusCode.Found,
             new Dictionary<string, string> { ["Location"] = "https://attacker.example/connect/token" }));
         using CapturingLoggerProvider logs = new();
-        TokenEndpointClient client = CreateClient(httpClient, logs);
+        using LoggerFactory loggerFactory = new([logs]);
+        TokenEndpointClient client = CreateClient(httpClient, loggerFactory.CreateLogger<TokenEndpointClient>());
 
         await client.RefreshAsync(RefreshToken);
 
@@ -157,7 +160,8 @@ public sealed class TokenEndpointClientTests
     {
         using HttpClient httpClient = CreateHttpClient(StubHttpMessageHandler.RespondWith(HttpStatusCode.BadRequest, body));
         using CapturingLoggerProvider logs = new();
-        TokenEndpointClient client = CreateClient(httpClient, logs);
+        using LoggerFactory loggerFactory = new([logs]);
+        TokenEndpointClient client = CreateClient(httpClient, loggerFactory.CreateLogger<TokenEndpointClient>());
 
         await client.RefreshAsync(RefreshToken);
 
@@ -166,23 +170,24 @@ public sealed class TokenEndpointClientTests
     }
 
     [Theory]
-    [InlineData(200, false)]
-    [InlineData(201, true)]
-    public async Task RefreshAsync_WhenTheErrorDescriptionReachesTheCap_LogsItWholeOrCutsIt(int length, bool isCut)
+    [InlineData(200, "")]
+    [InlineData(201, "...")]
+    public async Task RefreshAsync_WhenTheErrorDescriptionReachesTheCap_LogsItWholeOrCutsIt(
+        int length,
+        string expectedSuffix)
     {
         string errorDescription = new('d', length);
         using HttpClient httpClient = CreateHttpClient(StubHttpMessageHandler.RespondWith(
             HttpStatusCode.BadRequest,
             $$"""{"error":"invalid_grant","error_description":"{{errorDescription}}"}"""));
         using CapturingLoggerProvider logs = new();
-        TokenEndpointClient client = CreateClient(httpClient, logs);
+        using LoggerFactory loggerFactory = new([logs]);
+        TokenEndpointClient client = CreateClient(httpClient, loggerFactory.CreateLogger<TokenEndpointClient>());
 
         await client.RefreshAsync(RefreshToken);
 
         CapturingLoggerProvider.LogEntry entry = logs.Entries.ShouldHaveSingleItem();
-        entry.Message.ShouldContain(new string('d', 200));
-        entry.Message.Contains(errorDescription, StringComparison.Ordinal).ShouldBe(!isCut);
-        entry.Message.Contains('…', StringComparison.Ordinal).ShouldBe(isCut);
+        entry.Message.ShouldEndWith($"Description: {new string('d', 200)}{expectedSuffix}");
     }
 
     [Fact]
@@ -193,12 +198,13 @@ public sealed class TokenEndpointClientTests
             HttpStatusCode.BadRequest,
             $$"""{"error":"{{error}}","error_description":"Refused."}"""));
         using CapturingLoggerProvider logs = new();
-        TokenEndpointClient client = CreateClient(httpClient, logs);
+        using LoggerFactory loggerFactory = new([logs]);
+        TokenEndpointClient client = CreateClient(httpClient, loggerFactory.CreateLogger<TokenEndpointClient>());
 
         await client.RefreshAsync(RefreshToken);
 
         CapturingLoggerProvider.LogEntry entry = logs.Entries.ShouldHaveSingleItem();
-        entry.Message.ShouldContain(error[..200] + "…");
+        entry.Message.ShouldContain($"Error: {error[..200]}...");
         entry.Message.ShouldNotContain(error);
         entry.Message.ShouldContain("Refused.");
     }
@@ -225,7 +231,8 @@ public sealed class TokenEndpointClientTests
             HttpStatusCode.BadRequest,
             $$"""{"error":"invalid_grant","error_description":"{{jsonEscapedDescription}}"}"""));
         using CapturingLoggerProvider logs = new();
-        TokenEndpointClient client = CreateClient(httpClient, logs);
+        using LoggerFactory loggerFactory = new([logs]);
+        TokenEndpointClient client = CreateClient(httpClient, loggerFactory.CreateLogger<TokenEndpointClient>());
 
         await client.RefreshAsync(RefreshToken);
 
@@ -242,14 +249,14 @@ public sealed class TokenEndpointClientTests
             HttpStatusCode.BadRequest,
             $$"""{"error":"invalid_grant","error_description":"{{jsonEscapedDescription}}"}"""));
         using CapturingLoggerProvider logs = new();
-        TokenEndpointClient client = CreateClient(httpClient, logs);
+        using LoggerFactory loggerFactory = new([logs]);
+        TokenEndpointClient client = CreateClient(httpClient, loggerFactory.CreateLogger<TokenEndpointClient>());
 
         await client.RefreshAsync(RefreshToken);
 
         CapturingLoggerProvider.LogEntry entry = logs.Entries.ShouldHaveSingleItem();
-        entry.Message.ShouldContain(new string('d', 199));
-        entry.Message.ShouldNotContain("tail");
-        entry.Message.ShouldAllBe(character => !char.IsSurrogate(character));
+        entry.Message.ShouldEndWith($"Description: {new string('d', 199)}?...");
+        entry.Message.ShouldAllBe(character => character >= ' ' && character <= '~');
     }
 
     /// <summary>
@@ -273,7 +280,8 @@ public sealed class TokenEndpointClientTests
                 Headers = { ContentType = new MediaTypeHeaderValue("application/json") { CharSet = charset } }
             }));
         using CapturingLoggerProvider logs = new();
-        TokenEndpointClient client = CreateClient(httpClient, logs);
+        using LoggerFactory loggerFactory = new([logs]);
+        TokenEndpointClient client = CreateClient(httpClient, loggerFactory.CreateLogger<TokenEndpointClient>());
 
         TokenResponse? response = await client.RefreshAsync(RefreshToken);
 
@@ -297,7 +305,8 @@ public sealed class TokenEndpointClientTests
                 Headers = { ContentType = new MediaTypeHeaderValue("text/html") { CharSet = charset } }
             }));
         using CapturingLoggerProvider logs = new();
-        TokenEndpointClient client = CreateClient(httpClient, logs);
+        using LoggerFactory loggerFactory = new([logs]);
+        TokenEndpointClient client = CreateClient(httpClient, loggerFactory.CreateLogger<TokenEndpointClient>());
 
         TokenResponse? response = await client.RefreshAsync(RefreshToken);
 
@@ -310,7 +319,9 @@ public sealed class TokenEndpointClientTests
     private static HttpClient CreateHttpClient(HttpMessageHandler transport) =>
         new(transport) { BaseAddress = new Uri(AuthBaseUrl) };
 
-    private static TokenEndpointClient CreateClient(HttpClient httpClient, ILoggerProvider? loggerProvider = null) => new(
+    private static TokenEndpointClient CreateClient(
+        HttpClient httpClient,
+        ILogger<TokenEndpointClient>? logger = null) => new(
         httpClient,
         Microsoft.Extensions.Options.Options.Create(new AuthSystemSettings
         {
@@ -321,7 +332,5 @@ public sealed class TokenEndpointClientTests
             SignedOutCallbackPath = "/signout-callback-oidc",
             Scopes = ["openid", "email", "profile"]
         }),
-        loggerProvider is null
-            ? NullLogger<TokenEndpointClient>.Instance
-            : new Logger<TokenEndpointClient>(new LoggerFactory([loggerProvider])));
+        logger ?? NullLogger<TokenEndpointClient>.Instance);
 }

@@ -47,7 +47,7 @@ internal sealed class TokenEndpointClient : ITokenEndpointClient
 
             if (!response.IsSuccessStatusCode)
             {
-                await LogRefusalAsync(response, cancellationToken);
+                await LogRefusalAsync(response);
                 return null;
             }
 
@@ -75,14 +75,15 @@ internal sealed class TokenEndpointClient : ITokenEndpointClient
     /// Only the two OAuth fields are logged, never the raw body, so nothing else the answer carries can
     /// reach the log. For a body of any other shape, the warning holds the status code alone (#914).
     /// </summary>
-    private async Task LogRefusalAsync(HttpResponseMessage response, CancellationToken cancellationToken)
+    private async Task LogRefusalAsync(HttpResponseMessage response)
     {
         int statusCode = (int)response.StatusCode;
 
-        if (await TryReadErrorAsync(response.Content, cancellationToken) is { Error: { } error } errorResponse
-            && !string.IsNullOrWhiteSpace(error))
+        if (await TryReadErrorAsync(response.Content) is { } errorResponse
+            && !string.IsNullOrWhiteSpace(errorResponse.Error))
         {
-            LogRefreshRefused(_logger, statusCode, ForLog(error), ForLog(errorResponse.ErrorDescription), null);
+            LogRefreshRefused(
+                _logger, statusCode, ForLog(errorResponse.Error), ForLog(errorResponse.ErrorDescription), null);
             return;
         }
 
@@ -91,16 +92,16 @@ internal sealed class TokenEndpointClient : ITokenEndpointClient
 
     /// <summary>
     /// Reads the bytes, not a decoded string. Decoding throws on a charset .NET does not know (such as
-    /// "utf8"), and a log line must never turn a refused refresh into an exception.
+    /// "utf8"), and a log line must never turn a refused refresh into an exception. For the same reason
+    /// it takes no cancellation token: <c>PostAsync</c> has already buffered the body, so there is
+    /// nothing to wait for.
     /// </summary>
-    private static async Task<TokenErrorResponse?> TryReadErrorAsync(
-        HttpContent content,
-        CancellationToken cancellationToken)
+    private static async Task<TokenErrorResponse?> TryReadErrorAsync(HttpContent content)
     {
         try
         {
-            await using Stream body = await content.ReadAsStreamAsync(cancellationToken);
-            return await JsonSerializer.DeserializeAsync<TokenErrorResponse>(body, JsonOptions, cancellationToken);
+            await using Stream body = await content.ReadAsStreamAsync();
+            return await JsonSerializer.DeserializeAsync<TokenErrorResponse>(body, JsonOptions);
         }
         catch (JsonException)
         {
@@ -122,7 +123,7 @@ internal sealed class TokenEndpointClient : ITokenEndpointClient
 
         string kept = value.Length > MaxLoggedFieldLength ? value[..MaxLoggedFieldLength] : value;
         string printable = new(kept.Select(character => character is >= ' ' and <= '~' ? character : '?').ToArray());
-        return kept.Length < value.Length ? $"{printable}…" : printable;
+        return kept.Length < value.Length ? $"{printable}..." : printable;
     }
 
     private static readonly Action<ILogger, int, Exception?> LogRefreshFailed =

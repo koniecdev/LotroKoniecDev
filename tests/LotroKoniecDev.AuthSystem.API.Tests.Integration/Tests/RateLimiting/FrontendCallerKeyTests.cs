@@ -253,8 +253,9 @@ public sealed class FrontendCallerKeyTests : EndpointsTestBase
     public void Boot_WithAKeyShorterThanTheMinimum_ShouldFailNamingTheKey()
     {
         // Arrange: the validator refuses a short key in every environment, so a Testing host proves that
-        // the validator is registered and runs at startup. Every test here boots the same host without
-        // the key, so the short key is the one reason this boot can fail (#915).
+        // the validator is registered and runs at startup. The base class starts the shared host, which
+        // has no key, before every test here, this one too. So the short key is the one reason this boot
+        // can fail (#915).
         using WebApplicationFactory<Program> shortKeyHost = Factory.WithWebHostBuilder(builder =>
         {
             builder.ConfigureAppConfiguration((_, configBuilder) =>

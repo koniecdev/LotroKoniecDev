@@ -1136,13 +1136,14 @@ and a `<script src=…>` are the allowed exceptions. Wanting interactivity means
 - **Unit tests are pure** — no filesystem, no network, no database, runnable on macOS and
   Windows alike.
 
-### 9.2 The test pyramid (12 projects)
+### 9.2 The test pyramid (15 projects)
 
 | Level | Projects | How they run |
 |---|---|---|
 | Unit — patcher | `Tests.Unit` | pure; handlers with real validators + mocked boundaries |
-| Unit — TMS | `SharedKernel.Tests.Unit`, `TranslationSystem.Domain.Tests.Unit`, `TranslationSystem.API.Tests.Unit`, `Frontend.Tests.Unit`, `Logging.Tests.Unit` | pure; fake read-DbContext; bUnit-style component tests for Blazor |
-| Integration | `TranslationSystem.API.Tests.Integration`, `AuthSystem.API.Tests.Integration` | the real app in-process (`WebApplicationFactory`) against a **real PostgreSQL in Docker** (Testcontainers); auth is faked with self-signed test tokens |
+| Unit — TMS | `SharedKernel.Tests.Unit`, `TranslationSystem.Domain.Tests.Unit`, `TranslationSystem.API.Tests.Unit`, `AuthSystem.API.Tests.Unit`, `Frontend.Tests.Unit`, `Logging.Tests.Unit` | pure; fake read-DbContext; bUnit-style component tests for Blazor |
+| Unit — architecture | `Architecture.Tests.Unit` | pure; the structural house rules checked over assembly IL (NetArchTest) |
+| Integration | `TranslationSystem.API.Tests.Integration`, `AuthSystem.API.Tests.Integration`, `Frontend.Tests.Integration` | the real app in-process (`WebApplicationFactory`). The two API suites run against a **real PostgreSQL in Docker** (Testcontainers), with auth faked by self-signed test tokens; the Frontend suite boots the Frontend host alone, with no database, to check its startup rules (#915) |
 | End-to-end — TMS | `TranslationSystem.E2E.Tests` | the real container images on a private Docker network; **real tokens** issued by the real auth-api and validated by tms-api via live JWKS |
 | End-to-end — browser | `Frontend.E2E.Tests` | full stack + a headless Chromium via Playwright, all inside Testcontainers (ADR-0009): register → confirm email via mailpit → login → logout |
 | End-to-end — patcher | `Tests.E2E`, `Tests.Infrastructure` | Windows-only, against a real DAT file; auto-skip elsewhere (`SkippableFact`) |

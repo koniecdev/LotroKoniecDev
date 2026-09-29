@@ -243,7 +243,8 @@ public sealed class FrontendCallerKeyTests : IAsyncLifetime
         });
     }
 
-    // Staging carries every setting a deployed host needs to boot, and not the test switch.
+    // Staging carries every setting a deployed host needs to boot except the frontend key, which the
+    // caller picks, and not the test switch.
     private WebApplicationFactory<Program> CreateStagingHost(string? frontendKey)
     {
         return _factory.WithWebHostBuilder(builder =>

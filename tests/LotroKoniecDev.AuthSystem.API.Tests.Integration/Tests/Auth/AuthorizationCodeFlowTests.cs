@@ -24,6 +24,8 @@ namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Tests.Auth;
 [Collection("AuthApi")]
 public sealed partial class AuthorizationCodeFlowTests : AsyncLifetimeTestBase
 {
+    private const string PostLogoutRedirectUri = "https://localhost:5001";
+
     protected override TestApiClient ApiClient { get; }
 
     private readonly HttpClient _noRedirectClient;
@@ -502,27 +504,10 @@ public sealed partial class AuthorizationCodeFlowTests : AsyncLifetimeTestBase
     {
         // Arrange: this is the frontend's sign-in. Its refresh token must carry the stamp, or every
         // browser session would end at its first refresh (#848).
-        (string authorizationCode, string codeVerifier, _, _) = await ObtainAuthorizationCodeAsync();
-
-        using HttpResponseMessage tokenResponse = await ExchangeAuthorizationCodeAsync(authorizationCode, codeVerifier);
-        tokenResponse.StatusCode.ShouldBe(HttpStatusCode.OK);
-        string tokenContent = await tokenResponse.Content.ReadAsStringAsync();
-        string refreshToken;
-        using (JsonDocument tokenJson = JsonDocument.Parse(tokenContent))
-        {
-            refreshToken = tokenJson.RootElement.GetProperty("refresh_token").GetString()!;
-        }
-
-        using FormUrlEncodedContent refreshRequest = new(new Dictionary<string, string>
-        {
-            ["grant_type"] = "refresh_token",
-            ["refresh_token"] = refreshToken,
-            ["client_id"] = "lotrokoniecdev-web"
-        });
+        WebsiteSession session = await SignInThroughTheWebsiteAsync();
 
         // Act
-        using HttpResponseMessage response = await ApiClient.Http.PostAsync(
-            new Uri("connect/token", UriKind.Relative), refreshRequest);
+        using HttpResponseMessage response = await RefreshAsync(session.RefreshToken);
 
         // Assert
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
@@ -559,56 +544,24 @@ public sealed partial class AuthorizationCodeFlowTests : AsyncLifetimeTestBase
     [Fact]
     public async Task Logout_ShouldRedirectToPostLogoutRedirectUri_WhenIdTokenHintIsProvided()
     {
-        // Arrange: Complete the full auth code flow to get an id_token and auth cookies
-        (string authorizationCode, string codeVerifier, List<string> authCookies, _) =
-            await ObtainAuthorizationCodeAsync();
-
-        // Exchange the authorization code for tokens (including id_token)
-        using FormUrlEncodedContent tokenRequest = new(new Dictionary<string, string>
-        {
-            ["grant_type"] = "authorization_code",
-            ["code"] = authorizationCode,
-            ["redirect_uri"] = "https://localhost:5001/callback",
-            ["client_id"] = "lotrokoniecdev-web",
-            ["code_verifier"] = codeVerifier
-        });
-
-        HttpResponseMessage tokenResponse = await ApiClient.Http.PostAsync(
-            new Uri("connect/token", UriKind.Relative), tokenRequest);
-        tokenResponse.StatusCode.ShouldBe(HttpStatusCode.OK);
-
-        string tokenContent = await tokenResponse.Content.ReadAsStringAsync();
-        using JsonDocument tokenJson = JsonDocument.Parse(tokenContent);
-        string idToken = tokenJson.RootElement.GetProperty("id_token").GetString()!;
-
-        // Build the logout URL with id_token_hint and post_logout_redirect_uri
-        const string postLogoutRedirectUri = "https://localhost:5001";
-        string logoutUrl = $"connect/logout?id_token_hint={Uri.EscapeDataString(idToken)}" +
-            $"&post_logout_redirect_uri={Uri.EscapeDataString(postLogoutRedirectUri)}";
-
-        using HttpRequestMessage logoutRequest = new(HttpMethod.Get, logoutUrl);
-        foreach (string cookie in authCookies)
-        {
-            string cookiePair = cookie.Split(';')[0];
-            logoutRequest.Headers.Add("Cookie", cookiePair);
-        }
+        // Arrange
+        WebsiteSession session = await SignInThroughTheWebsiteAsync();
 
         // Act
-        HttpResponseMessage logoutResponse = await _noRedirectClient.SendAsync(logoutRequest);
+        using HttpResponseMessage logoutResponse = await SignOutAsync(session.IdToken, session.AuthCookies);
 
         // Assert: Should redirect to the post_logout_redirect_uri
         logoutResponse.StatusCode.ShouldBe(HttpStatusCode.Redirect);
 
         string? location = logoutResponse.Headers.Location?.ToString();
         location.ShouldNotBeNull();
-        location.ShouldStartWith(postLogoutRedirectUri);
+        location.ShouldStartWith(PostLogoutRedirectUri);
     }
 
     [Fact]
     public async Task Logout_ShouldRevokeTheRefreshToken_WhenOnlyTheIdTokenHintIsSent()
     {
-        // Arrange: the website renews its tokens server to server, so the sign-in server's 30-minute
-        // cookie is usually gone by sign-out time and only the hint arrives (#931)
+        // Arrange: the website's sign-out once the sign-in server's own cookie has expired (#931)
         WebsiteSession session = await SignInThroughTheWebsiteAsync();
 
         using HttpResponseMessage logoutResponse = await SignOutAsync(session.IdToken, authCookies: []);
@@ -673,17 +626,21 @@ public sealed partial class AuthorizationCodeFlowTests : AsyncLifetimeTestBase
         // Act
         using HttpResponseMessage response = await SignOutAsync(thisDevice.IdToken, authCookies: []);
 
-        // Assert
+        // Assert: the authorization is checked too, because a refresh that races the revoke can save its
+        // own copy of a token row over it
         response.StatusCode.ShouldBe(HttpStatusCode.Redirect);
         (await OpenIddictTokenState.StatusOfAsync(Factory.Services, otherDevice.RefreshToken))
             .ShouldBe(OpenIddictConstants.Statuses.Revoked);
+        List<string?> authorizationStatuses =
+            await OpenIddictTokenState.AuthorizationStatusesOfAsync(Factory.Services, otherDevice.UserId);
+        authorizationStatuses.Count.ShouldBe(2);
+        authorizationStatuses.ShouldAllBe(status => status == OpenIddictConstants.Statuses.Revoked);
     }
 
     [Fact]
     public async Task Logout_ShouldRevokeNothing_WhenTheIdTokenHintWasEditedToNameAnotherUser()
     {
-        // Arrange: the subject is read only from a hint whose signature OpenIddict has checked, so a
-        // caller cannot sign someone else out by editing the subject of their own hint
+        // Arrange: a caller edits the subject of their own hint to name someone else
         WebsiteSession caller = await SignInThroughTheWebsiteAsync();
         WebsiteSession victim = await SignInThroughTheWebsiteAsync();
         string editedHint = ReplaceInPayload(caller.IdToken, caller.UserId, victim.UserId);
@@ -702,17 +659,8 @@ public sealed partial class AuthorizationCodeFlowTests : AsyncLifetimeTestBase
     [Fact]
     public async Task Logout_ShouldNotEndANewSession_WhenTheHintOfAnEndedSessionIsSentAgain()
     {
-        // Arrange: OpenIddict does not check a hint's lifetime, so what stops an old hint is the check of its
-        // token row, which the first sign-out revoked. Anyone who holds the old hint can send this GET.
-        const string password = "TestPass1!";
-        string email = await RegisterUserAsync(password);
-        WebsiteSession endedSession = await SignInThroughTheWebsiteAsync(email, password);
-        using (HttpResponseMessage firstLogout = await SignOutAsync(endedSession.IdToken, authCookies: []))
-        {
-            firstLogout.StatusCode.ShouldBe(HttpStatusCode.Redirect);
-        }
-
-        WebsiteSession newSession = await SignInThroughTheWebsiteAsync(email, password);
+        // Arrange: anyone who holds an old hint can send this GET again
+        (WebsiteSession endedSession, WebsiteSession newSession) = await SignInAgainAfterAnEndedSessionAsync();
 
         // Act
         using HttpResponseMessage response = await SignOutAsync(endedSession.IdToken, authCookies: []);
@@ -721,6 +669,21 @@ public sealed partial class AuthorizationCodeFlowTests : AsyncLifetimeTestBase
         response.StatusCode.ShouldBe(HttpStatusCode.Redirect);
         (await OpenIddictTokenState.StatusOfAsync(Factory.Services, newSession.RefreshToken))
             .ShouldBe(OpenIddictConstants.Statuses.Valid);
+    }
+
+    [Fact]
+    public async Task Logout_ShouldRevokeTheSessionOfTheCookie_WhenTheHintBelongsToAnEndedSession()
+    {
+        // Arrange
+        (WebsiteSession endedSession, WebsiteSession newSession) = await SignInAgainAfterAnEndedSessionAsync();
+
+        // Act
+        using HttpResponseMessage response = await SignOutAsync(endedSession.IdToken, newSession.AuthCookies);
+
+        // Assert
+        response.StatusCode.ShouldBe(HttpStatusCode.Redirect);
+        (await OpenIddictTokenState.StatusOfAsync(Factory.Services, newSession.RefreshToken))
+            .ShouldBe(OpenIddictConstants.Statuses.Revoked);
     }
 
     private async Task<(string Code, string CodeVerifier, List<string> AuthCookies, string Email)>
@@ -857,12 +820,29 @@ public sealed partial class AuthorizationCodeFlowTests : AsyncLifetimeTestBase
     }
 
     /// <summary>
-    /// Sends exactly the given cookies, so a test that passes none signs out the way the website does
-    /// once the sign-in server's own cookie has expired.
+    /// Signs a user in, signs out with the hint alone, and signs the same user in again as a new device.
+    /// </summary>
+    private async Task<(WebsiteSession Ended, WebsiteSession New)> SignInAgainAfterAnEndedSessionAsync()
+    {
+        const string password = "TestPass1!";
+        string email = await RegisterUserAsync(password);
+
+        WebsiteSession endedSession = await SignInThroughTheWebsiteAsync(email, password);
+        using (HttpResponseMessage logoutResponse = await SignOutAsync(endedSession.IdToken, authCookies: []))
+        {
+            logoutResponse.StatusCode.ShouldBe(HttpStatusCode.Redirect);
+        }
+
+        WebsiteSession newSession = await SignInThroughTheWebsiteAsync(email, password);
+        return (endedSession, newSession);
+    }
+
+    /// <summary>
+    /// Sends only the given cookies, never the ones an earlier response set.
     /// </summary>
     private async Task<HttpResponseMessage> SignOutAsync(string? idTokenHint, List<string> authCookies)
     {
-        string logoutUrl = $"connect/logout?post_logout_redirect_uri={Uri.EscapeDataString("https://localhost:5001")}";
+        string logoutUrl = $"connect/logout?post_logout_redirect_uri={Uri.EscapeDataString(PostLogoutRedirectUri)}";
         if (idTokenHint is not null)
         {
             logoutUrl += $"&id_token_hint={Uri.EscapeDataString(idTokenHint)}";

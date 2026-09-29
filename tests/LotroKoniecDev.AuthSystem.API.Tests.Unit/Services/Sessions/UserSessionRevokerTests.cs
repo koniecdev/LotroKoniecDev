@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Time.Testing;
 using NSubstitute;
@@ -5,6 +6,7 @@ using NSubstitute.ExceptionExtensions;
 using OpenIddict.Abstractions;
 using Shouldly;
 using LotroKoniecDev.AuthSystem.API.Services.Sessions;
+using LotroKoniecDev.AuthSystem.API.Tests.Unit.Shared;
 
 namespace LotroKoniecDev.AuthSystem.API.Tests.Unit.Services.Sessions;
 
@@ -255,6 +257,25 @@ public sealed class UserSessionRevokerTests
 
         // Assert
         tokensRevoked.ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task RevokeSessionAsync_ShouldLogAnError_WhenOpenIddictCouldNotRevokeTheAuthorization()
+    {
+        // Arrange: OpenIddict answers false instead of throwing when its update fails
+        object authorization = StubTheAuthorization();
+        _authorizationManager.TryRevokeAsync(authorization, Arg.Any<CancellationToken>())
+            .Returns(ValueTask.FromResult(false));
+        CapturingLogger<UserSessionRevoker> logger = new();
+        UserSessionRevoker sut = new(_tokenManager, _authorizationManager, _clock, logger);
+
+        // Act
+        await sut.RevokeSessionAsync(AuthorizationId);
+
+        // Assert
+        CapturingLogger<UserSessionRevoker>.LogEntry entry = logger.Entries.ShouldHaveSingleItem();
+        entry.Level.ShouldBe(LogLevel.Error);
+        entry.EventId.ShouldBe(EventIds.SingleSessionRevocationFailed);
     }
 
     private object StubTheAuthorization()

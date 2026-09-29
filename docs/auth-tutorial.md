@@ -383,8 +383,10 @@ ogranicza replay. Logout rewokuje te z sesji tego urządzenia (`LogoutEndpoint.c
 
 ### 10.3 Token revocation przy logout
 Logout kończy **tylko sesję tego urządzenia** (decyzja ownera w #931). Każde logowanie przez stronę
-dostaje od OpenIddict własną autoryzację (ad-hoc, bo `AuthorizeEndpoint` żadnej nie tworzy sam), więc
-jedna autoryzacja = sesja jednego urządzenia. `LogoutEndpoint.cs` bierze jej id z `id_token_hint`.
+dostaje od OpenIddict własną autoryzację (ad-hoc, bo `AuthorizeEndpoint` żadnej nie tworzy sam), a
+refresh zachowuje jej id: jedno logowanie = jedna autoryzacja. `LogoutEndpoint.cs` bierze jej id z
+`id_token_hint`. Wcześniejsze logowanie na tym samym urządzeniu, którego sesja strony już wygasła
+(cookie strony żyje 8 h, refresh token 14 dni), ma własną autoryzację i logout jej nie kończy.
 OpenIddict sprawdza podpis hintu oraz to, że wiersz tokena i jego autoryzacji w bazie są wciąż ważne,
 oraz że hint należy do klienta, do którego należy `post_logout_redirect_uri`. Nie sprawdza czasu
 ważności: stary ID token działa, dopóki jego sesja żyje, a hint sesji już zakończonej nic nie robi.

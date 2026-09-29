@@ -43,11 +43,7 @@ public sealed class AuthenticationDependencyInjectionExtensionsTests
     [Fact]
     public void AddFrontendAuthentication_TokenEndpointClient_DoesNotFollowRedirects()
     {
-        using ServiceProvider provider = CreateFrontendAuthenticationServices().BuildServiceProvider();
-
-        List<HttpMessageHandler> chain = HttpMessageHandlerChain.From(provider
-            .GetRequiredService<IHttpMessageHandlerFactory>()
-            .CreateHandler(nameof(ITokenEndpointClient)));
+        List<HttpMessageHandler> chain = ResolveTokenEndpointClientHandlerChain();
 
         chain[^1].ShouldBeOfType<SocketsHttpHandler>().AllowAutoRedirect.ShouldBeFalse();
     }
@@ -70,11 +66,7 @@ public sealed class AuthenticationDependencyInjectionExtensionsTests
     [Fact]
     public void AddFrontendAuthentication_TokenEndpointClient_KeepsNoCookies()
     {
-        using ServiceProvider provider = CreateFrontendAuthenticationServices().BuildServiceProvider();
-
-        List<HttpMessageHandler> chain = HttpMessageHandlerChain.From(provider
-            .GetRequiredService<IHttpMessageHandlerFactory>()
-            .CreateHandler(nameof(ITokenEndpointClient)));
+        List<HttpMessageHandler> chain = ResolveTokenEndpointClientHandlerChain();
 
         chain[^1].ShouldBeOfType<SocketsHttpHandler>().UseCookies.ShouldBeFalse();
     }
@@ -118,6 +110,15 @@ public sealed class AuthenticationDependencyInjectionExtensionsTests
         return provider
             .GetRequiredService<IOptionsMonitor<OpenIdConnectOptions>>()
             .Get(OpenIdConnectDefaults.AuthenticationScheme);
+    }
+
+    private static List<HttpMessageHandler> ResolveTokenEndpointClientHandlerChain()
+    {
+        using ServiceProvider provider = CreateFrontendAuthenticationServices().BuildServiceProvider();
+
+        return HttpMessageHandlerChain.From(provider
+            .GetRequiredService<IHttpMessageHandlerFactory>()
+            .CreateHandler(nameof(ITokenEndpointClient)));
     }
 
     private static CookieAuthenticationOptions ResolveConfiguredCookieOptions(string environmentName)

@@ -169,9 +169,10 @@ internal static class AuthenticationDependencyInjectionExtensions
 
         // The code exchange, the userinfo call and the metadata and key fetch go through the handler's
         // own back-channel client, not through the typed clients, so the visitor's address rides on it
-        // too (ADR-0054). Like the typed clients, it follows no redirect (#899). The framework builds
-        // that client from this handler after every Configure has run. A back-channel handler configured
-        // elsewhere is wrapped, never replaced, so it keeps its own redirect setting.
+        // too (ADR-0054). Like the typed clients, it follows no redirect (#899) and keeps no cookies
+        // (#924). The framework builds that client from this handler after every Configure has run. A
+        // back-channel handler configured elsewhere is wrapped, never replaced, so it keeps its own
+        // redirect and cookie settings.
         options.BackchannelHttpHandler = new FrontendCallerDelegatingHandler(httpContextAccessor, settings.CallerKey)
         {
             InnerHandler = options.BackchannelHttpHandler ?? HttpClientsDependencyInjectionExtensions.CreatePrimaryHandler()

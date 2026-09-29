@@ -79,12 +79,20 @@ public sealed class SpyEmailChangeEmailSender : IEmailChangeEmailSender
     public Task WaitForVerificationCaptureAsync(TimeSpan? timeout = null) =>
         WaitForAsync(() => LastVerificationToken is not null, timeout);
 
+    /// <summary>
+    /// Waits for the warning to the current address. It is sent after the verification link, so a
+    /// test that has seen the link may not have seen the warning yet (#772).
+    /// </summary>
+    public Task WaitForChangeRequestedWarningCaptureAsync(TimeSpan? timeout = null) =>
+        WaitForAsync(() => WarningCallCount > 0, timeout);
+
     public Task WaitForRevertOfferCaptureAsync(TimeSpan? timeout = null) =>
         WaitForAsync(() => LastRevertToken is not null, timeout);
 
     /// <summary>
-    /// Waits for the notice sent to the new address. A change that arms no undo link sends only this
-    /// one, so it is the signal that the dispatch finished at all.
+    /// Waits for the notice sent to the new address. It is always sent last: after the undo link when
+    /// the change arms one, and on its own when it does not. So it is the signal that the dispatch
+    /// finished at all (#772).
     /// </summary>
     public Task WaitForChangedNoticeCaptureAsync(TimeSpan? timeout = null) =>
         WaitForAsync(() => LastNoticeRecipient is not null, timeout);

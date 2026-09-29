@@ -54,6 +54,7 @@ public sealed class EmailChangeEndpointTests : EndpointsTestBase
 
         await RequestChangeAsync(accessToken, newEmail, Password);
         await EmailChangeEmailSpy.WaitForVerificationCaptureAsync();
+        await EmailChangeEmailSpy.WaitForChangeRequestedWarningCaptureAsync();
 
         EmailChangeEmailSpy.LastVerificationRecipient.ShouldBe(newEmail);
         EmailChangeEmailSpy.LastWarningRecipient.ShouldBe(registerRequest.Email);

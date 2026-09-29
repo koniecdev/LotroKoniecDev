@@ -119,12 +119,14 @@ extending would be a way to refuse erasure for ever. It is not one: `RequestEmai
 cancels, so `EmailChangeRevertArmedAt` cannot move once a deletion is pending. With
 `armedAt <= scheduledAt` the whole rule collapses to
 `finalizesAt <= scheduledAt + max(grace, revertLifespan)`, and the 30-day cap in
-`GdprSettingsValidator` bounds the grace term exactly as it did before this amendment.
+`GdprSettingsValidator` bounds the grace term exactly as it did before this amendment. (Since #946 the
+cap counts the poll interval too; see the #780 amendment.)
 
 The term that cap does **not** cover is the other one. `EmailChangeRevertTokenProviderOptions` is
 registered with a plain `AddOptions` and no `BindConfiguration`, so its 14 days can only change in
 code — but nothing validates it, and a lifespan raised past 30 days would push `finalizesAt` past the
-month this ADR is written to respect. Whoever changes that number owns this paragraph.
+month this ADR is written to respect. Whoever changes that number owns this paragraph. (Since #946 the
+real limit is 15 days, because the poll interval comes on top; see the #780 amendment.)
 
 **What the fix does not claim.** The owner who cancels from the old mailbox stops the erasure and
 destroys the password, but the account still sits on the address it was moved to, and whoever reads
@@ -178,8 +180,11 @@ implies it. With the shipped 14 days and one day, the erasure lands by day 15. W
 longest grace period the auth API starts with is 29 days.
 
 The undo term of the #685 amendment stays inside the 30 days too. It wins only when the grace period
-is shorter than the 14-day undo window. The poll interval is then shorter than the grace period, so
-the erasure lands before day 28. This holds while the undo lifespan stays at 15 days or less.
+is shorter than the 14-day undo window. The poll interval is then at most the grace period, so the
+erasure lands less than 28 days after the request. The rule that the poll interval must not exceed
+the grace period is what carries this: without it, a 1-day grace period and a 29-day poll would pass
+the sum and let the undo hold push the erasure to about day 43. This holds while the undo lifespan
+stays at 15 days or less.
 
 Two delays are outside what a startup check can bound. A run that fails adds one poll interval each
 time (#937). An app that is down erases nothing until the catch-up run when it starts again.

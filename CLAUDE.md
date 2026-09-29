@@ -560,7 +560,9 @@ hash-check → patch → launch flow is validated. Re-investigating any of it is
   follows a redirect, so no bearer token, refresh token or caller key leaves for another host. The
   two typed clients (#830) and the token client (#899) use `CreatePrimaryHandler` as their primary
   handler. The OIDC back-channel (#899) uses it too, unless other code sets a back-channel handler
-  first: that handler is wrapped as it is and keeps its own redirect setting (only tests do this).
+  first: that handler is wrapped as it is and keeps its own redirect and cookie settings (only tests
+  do this). `CreatePrimaryHandler` also keeps no cookies (#924): one handler serves every visitor,
+  so a kept cookie would go out with other visitors' calls.
   `scripts/check-client-hypermedia.sh` (with a `.ps1`
   twin) flags an API path in any string literal under `src/Frontend/` **and** `src/Patcher/` and
   gates it in **both** `pr-verify` and `ci`, alongside the SSR guard; prose mentions in comments

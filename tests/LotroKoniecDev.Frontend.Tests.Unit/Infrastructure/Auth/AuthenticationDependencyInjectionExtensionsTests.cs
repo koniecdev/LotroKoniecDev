@@ -66,6 +66,30 @@ public sealed class AuthenticationDependencyInjectionExtensionsTests
         chain[^1].ShouldBeOfType<SocketsHttpHandler>().AllowAutoRedirect.ShouldBeFalse();
     }
 
+    /// <summary>#924: one handler serves every visitor's refresh.</summary>
+    [Fact]
+    public void AddFrontendAuthentication_TokenEndpointClient_KeepsNoCookies()
+    {
+        using ServiceProvider provider = CreateFrontendAuthenticationServices().BuildServiceProvider();
+
+        List<HttpMessageHandler> chain = HttpMessageHandlerChain.From(provider
+            .GetRequiredService<IHttpMessageHandlerFactory>()
+            .CreateHandler(nameof(ITokenEndpointClient)));
+
+        chain[^1].ShouldBeOfType<SocketsHttpHandler>().UseCookies.ShouldBeFalse();
+    }
+
+    /// <summary>#924: the same for every visitor's code exchange and userinfo call.</summary>
+    [Fact]
+    public void AddFrontendAuthentication_OpenIdConnectBackchannel_KeepsNoCookies()
+    {
+        OpenIdConnectOptions options = ResolveConfiguredOidcOptions();
+
+        List<HttpMessageHandler> chain = HttpMessageHandlerChain.From(options.BackchannelHttpHandler);
+
+        chain[^1].ShouldBeOfType<SocketsHttpHandler>().UseCookies.ShouldBeFalse();
+    }
+
     [Theory]
     [InlineData("Production")]
     [InlineData("Staging")]

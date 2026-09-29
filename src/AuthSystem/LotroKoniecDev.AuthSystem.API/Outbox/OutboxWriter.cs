@@ -17,6 +17,8 @@ namespace LotroKoniecDev.AuthSystem.API.Outbox;
 /// After that commit, and only after it, the caller calls <see cref="NotifyEnqueuedCommitted"/> once.
 /// The relay reads committed rows, so a signal sent inside the transaction could arrive while there is
 /// still nothing to see.
+/// <c>OutboxWakeUpTests</c> in the architecture suite fails any method that enqueues and never calls it
+/// (#781).
 /// </remarks>
 internal sealed class OutboxWriter
 {

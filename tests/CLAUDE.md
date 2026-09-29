@@ -239,11 +239,13 @@ network), so it runs in the normal unit gate on every OS.
 | `CqrsSeparationTests` | a query handler never injects a repository, `IUnitOfWork` or the write DbContext; a command handler injects `IValidator<TCommand>` |
 | `HandlerConventionTests` | handlers are `internal sealed`; no `IValidator<TQuery>` (validators are command-only) |
 | `SealedConventionTests` | every class is sealed unless another production type derives from it |
+| `OutboxWakeUpTests` | every method that calls `OutboxWriter.Enqueue` also calls `NotifyEnqueuedCommitted` (ADR-0038 decision 6, #781); a fixture that forgets the call proves the rule still fires |
 | `SuiteSelfTests` | the suite can still say "no" — pins a dependency that genuinely exists, and fails when a production project escapes the search set |
 
 Two mechanisms, on purpose: **NetArchTest.Rules** for dependency rules (it scans the full IL of every
 member), **plain reflection** for convention rules its predicate DSL cannot express ("sealed unless
-something inherits it", a validator's generic argument).
+something inherits it", a validator's generic argument, which method body a call sits in —
+`Shared/MethodCalls` reads that from the IL, async state machines and lambdas included).
 
 Adding a production project? Add the `ProjectReference` **and** the entry in
 `Shared/ProductionAssemblies.All` — `SuiteSelfTests` fails until you do. The two patcher

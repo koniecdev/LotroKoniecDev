@@ -4,10 +4,10 @@
 erasure waits for the undo; amended 2026-09-29 by #780 — the finalizer polls once a day; see the
 amendments below)
 **Date:** 2026-07-11
-**Decision-makers:** Solo maintainer (ticket #452, legal & GDPR compliance pack #459; amendment #685, SEC-07)
+**Decision-makers:** Solo maintainer (ticket #452, legal & GDPR compliance pack #459; amendment #685, SEC-07; amendment #780)
 **Related:** `DeleteAccount` / `CancelAccountDeletion` (AuthSystem), `AccountErasureService`,
 `AccountDeletionFinalizer`, `AccountDeletionSchedule`, ADR-0048 (the undo this window has to survive),
-TKS ADR-0017 (the ported original), tickets #452, #459, #685
+TKS ADR-0017 (the ported original), ADR-0035 (the Neon wake-up cost), tickets #452, #459, #685, #780
 
 ## Context
 
@@ -142,12 +142,22 @@ ADR's own configured cap would break the Art. 12(3) budget that cap exists to pr
 
 The finalizer used to poll every hour. Each run wakes the Neon compute, and at ADR-0035's figure of
 about 0.02 CU-h per wake-up that was about 14 CU-h a month in each environment — six times what
-ADR-0035 lets the outbox safety sweep cost. Nothing waits on a run: the account is locked from the
-moment the deletion is scheduled, the cancel link dies when the grace period ends, and Art. 12(3)
-gives a month. So `Gdpr:DeletionFinalizationPollInterval` is now one day (`1.00:00:00` in
-`appsettings.json`; `24:00:00` would bind to 24 days). An account is erased at most a day after the
-date this ADR promises, never before it, and the startup run still catches up after a deploy. The
-cost is on the failure path: a run that fails is now retried a day later, not an hour later.
+ADR-0035 lets the outbox safety sweep cost. So `Gdpr:DeletionFinalizationPollInterval` is now one day
+(`1.00:00:00` in `appsettings.json`; `24:00:00` would bind to 24 days). An account is erased at most
+a day after the date this ADR promises, never before it, and the startup run still catches up after
+a deploy.
+
+Nothing the user can act on waits for a run. The cancel link dies when the grace period ends, and
+every door checks `DeletionScheduledAt`, not the lockout, so the account stays shut after
+`LockoutEnd` has passed too. The longer gap between that date and the erasure shows in two places:
+the address stays taken, so registering it again fails until the run, and the login page shows a
+date that has passed and points to a dead cancel link (#916). A run that fails is now retried a day
+later, not an hour later (#937).
+
+**The 30-day cap now leaves a day less room.** With the shipped 14 days the erasure lands by day 15.
+At the validator's 30-day cap it can land on day 31, and a failed run adds a day each time. The
+validator does not bound grace plus poll together; whoever raises the grace period toward the cap
+owns this paragraph.
 
 ## Consequences
 

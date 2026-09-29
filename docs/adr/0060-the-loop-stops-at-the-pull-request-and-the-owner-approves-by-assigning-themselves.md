@@ -8,6 +8,17 @@
 `docs/claude-loop.md`, the maintainer's `merge-train` skill (outside this repo); ADR-0026 (its §D is
 reversed here); ticket #884 / PR #895 (per-worktree E2E images)
 
+## Amendment (2026-09-29): a worktree kept after a usage limit is resumed, not skipped
+
+**Narrows §3.** When a worker hits the usage limit, it now keeps the ticket's worktree exactly as
+the session left it and records the session in a marker inside that worktree's git folder (#934).
+The next run of the ticket resumes that session there instead of skipping the ticket as "already in
+flight", and the picker no longer hides such a ticket. Any other worktree still means a session is
+on the ticket, and an open PR still means the ticket waits for review, with one exception: an open
+PR from the kept worktree's own branch belongs to the session that is resumed. Nothing here merges
+or assigns. Details: `docs/claude-loop.md`, "A session stopped by a usage limit, or DONE without a
+PR".
+
 ## Amendment (2026-09-28): rebase only, and the push log decides what the owner read
 
 **Supersedes §4's "a merge commit, never a rebase" and its push-time rules.** The owner's rule: a
@@ -109,7 +120,8 @@ in a group of its own), then salvages and cleans up the same way.
 
 A ticket whose branch (`<n>-…`) has an open PR waits for the owner's review, so the picker does not
 treat it as ready, and `work-ticket.sh` skips it even when it is named explicitly. An existing
-`ticket-<n>` worktree means a session is already on the ticket, so that is skipped too.
+`ticket-<n>` worktree means a session is already on the ticket, so that is skipped too. (Narrowed
+2026-09-29, see the amendment above: a worktree the loop kept after a usage limit is resumed.)
 
 ### 4. The owner's assignment is the approval
 

@@ -876,7 +876,8 @@ green required checks and zero open CodeQL alerts, and never deletes a branch. T
 
 **Git hygiene — never let two tickets share a working copy.** Each ticket owns its worktree and the
 main checkout is never touched, so the owner can keep working there while the loop runs. A ticket
-that already has an open PR or a worktree is skipped, never started twice. Anything a failed or
+that already has an open PR or a worktree is skipped, never started twice; the one exception is a
+worktree the loop kept after a usage limit, whose session the next run resumes (#934). Anything a failed or
 blocked run leaves behind is committed (never deleted, never stashed) on a dedicated
 `loop-salvage/<n>-<timestamp>` branch. BLOCKED tickets get the `loop-blocked` label plus the open
 questions posted as an issue comment — triage is `gh issue list --label loop-blocked` (raw

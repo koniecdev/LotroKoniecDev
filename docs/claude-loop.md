@@ -186,7 +186,9 @@ Per-ticket outcomes:
   checks them again before any merge. A DONE with no open PR for the ticket is resumed once to
   open it (see "A session stopped by a usage limit, or DONE without a PR").
 - **skipped** — the ticket already has an open PR, or `.claude/worktrees/ticket-<n>` already
-  exists (a manual `/ticket` session or an earlier run is on it). Nothing is started.
+  exists (a manual `/ticket` session or an earlier run is on it). Nothing is started. A worktree
+  kept for a resume after a usage limit is skipped too when resuming it is no longer safe (see
+  "A session stopped by a usage limit, or DONE without a PR").
 - **blocked** — the worker hit a genuine business question / dependency / mis-scope / red build.
   The ticket gets the `loop-blocked` label and the exact questions as an issue comment. Triage:
   `gh issue list --label loop-blocked` → answer in a comment → remove the label → the loop can
@@ -203,8 +205,8 @@ Per-ticket outcomes:
   the loop ends whatever of them is left. Its leftovers are salvaged and its worktree is removed,
   so the next run can start the ticket again.
 - **usage limit** — the loop starts nothing new, lets the running tickets finish, naps
-  (`LOOP_LIMIT_SLEEP_MIN`) and runs the limited tickets again. Each one keeps its worktree, and
-  the next run resumes its session there (see "A session stopped by a usage limit, or DONE without
+  (`LOOP_LIMIT_SLEEP_MIN`) and runs the limited tickets again. Each one whose result names its
+  session keeps its worktree, and the next run resumes that session there (see "A session stopped by a usage limit, or DONE without
   a PR"). When the limit outlasts every nap, the table row says
   `worktree kept: run #<n> again to resume its session`.
 - **untrusted** — the ticket failed the provenance gate, either at the start (no session is
@@ -288,16 +290,21 @@ Now:
   one rename, so two runs can never resume one session (the CLI would mix both into one
   transcript). It starts fresh instead, after salvaging and removing the kept worktree, when the
   session's transcript is not under `LOOP_CONFIG_DIR` (another account ran it, or the CLI's
-  cleanup deleted it after its default 30 days). It skips the ticket (exit 12) and leaves the
-  worktree for you when the HEAD moved since the limit (someone works there, so the marker is
-  dropped), or when a PR of the ticket was merged, is open from another branch, or was closed from
-  this branch. An open PR from the kept branch is the session's own: the limit may have hit after
-  `gh pr create`.
+  cleanup deleted it after its default 30 days). It skips the ticket (exit 12), drops the marker
+  and leaves the worktree for you when the HEAD moved since the limit (someone works there), or
+  when a PR of the ticket was merged, is open from another branch, or was closed from this branch.
+  An open PR from the kept branch is the session's own: the limit may have hit after
+  `gh pr create`. A rebase that stopped half way detaches HEAD, so the kept branch is then read
+  from the rebase's own record. When GitHub cannot list the PRs, the run is an `error` and the
+  marker stays for the next run.
+- **A stop or a timeout during the resumed session** ends it like any other run: the work is
+  salvaged, the worktree is removed, and the next run starts a fresh session.
 - **Without a session id, a limit still starts over**, as before: the worktree is salvaged and
   removed, and the retry cuts a new one from `origin/main`.
 - **A DONE with no open PR for the ticket is resumed once**, with a prompt that says what the loop
   found and that it counts only an open PR whose branch starts with `<n>-`, and asks the session to
-  push and open the PR. The result is judged again from the top: `pr-opened` when the PR now
+  push and open the PR. The prompt names a PR the summary linked by its number only: that PR's
+  branch name is text anyone who opens a PR can choose, so it stays in the log (ADR-0026). The result is judged again from the top: `pr-opened` when the PR now
   exists, `error` when it still does not. The resume needs a real "no PR" from GitHub: when the
   open PRs cannot be listed, the ticket is an `error` without it. A link to a wrong PR in the
   summary no longer fails a ticket whose own PR exists: the branch list finds that one. This
@@ -308,8 +315,8 @@ Files: the resumed run keeps the limited attempt's results for debugging. `ticke
 replaced by the resume's result when it ends (the old one moves to `.before-resume-1`), because a
 resumed run reports the cost of the whole session. The attempt's older `.before-resume-*`,
 `.resume-*` and `.stderr` files get a `.limit-<time>` suffix. The stderr moves because its limit
-message would make a later crash look like a usage limit. `.meta` gets `session=` on every run and
-`worktree=kept` on a limit that kept one; `resumes=` counts every resume, the one after the limit
+message would make a later crash look like a usage limit. `.meta` gets `session=` whenever the
+run's result names its session, and `worktree=kept` on a limit that kept one; `resumes=` counts every resume, the one after the limit
 included, so the end-of-run table marks the ticket `resumed Nx`. When the resume happens in a
 later conductor run, both runs' totals count the part of the session before the limit.
 

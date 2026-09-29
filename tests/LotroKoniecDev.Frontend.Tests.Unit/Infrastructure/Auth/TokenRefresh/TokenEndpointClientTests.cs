@@ -50,8 +50,8 @@ public sealed class TokenEndpointClientTests
     }
 
     /// <summary>
-    /// #923: the registration gives this client a short limit. When a stalled auth API hits it, the
-    /// refresh has to fail like any other, so the page signs the user out instead of throwing.
+    /// #923: the registration gives this client a short limit. When a call to a stalled auth API reaches
+    /// it, the refresh has to fail like any other, so the page signs the user out instead of throwing.
     /// </summary>
     [Fact]
     public async Task RefreshAsync_WhenTheAuthApiNeverAnswers_ReturnsNullOnceTheClientTimesOut()

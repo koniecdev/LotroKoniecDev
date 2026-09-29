@@ -130,7 +130,11 @@ public static class HttpClientsDependencyInjectionExtensions
     /// <summary>How many calls the circuit breaker must see in its window before it may open.</summary>
     internal const int CircuitBreakerMinimumThroughput = 10;
 
-    /// <summary>The time limit per attempt for ordinary JSON calls. It is short, so a stalled API fails fast.</summary>
+    /// <summary>
+    /// The time limit per attempt for ordinary JSON calls. It is short, so a stalled API fails fast.
+    /// The token client uses it too, as the limit for its one attempt, so a change here changes how long a
+    /// login renewal may hold a page (#923).
+    /// </summary>
     internal static readonly TimeSpan DefaultRequestTimeout = TimeSpan.FromSeconds(10);
 
     /// <summary>

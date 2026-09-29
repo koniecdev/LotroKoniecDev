@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Text.RegularExpressions;
 using LotroKoniecDev.SharedKernel.Constants;
 
@@ -9,7 +10,7 @@ namespace LotroKoniecDev.AuthSystem.API.Pages.Account;
 /// </summary>
 internal static partial class EmailLinkValue
 {
-    public static bool LooksLikeAnAddress(string? value) =>
+    public static bool LooksLikeAnAddress([NotNullWhen(true)] string? value) =>
         !string.IsNullOrWhiteSpace(value)
         && value.Length <= EmailConstants.MaxLength
         && AddressRegex().IsMatch(value);

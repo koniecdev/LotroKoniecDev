@@ -331,6 +331,12 @@ outlier and explicitly **not** the pattern here.
   > revert page sends the visitor to the password reset with a fresh token. Both end the sessions again,
   > because the first submit may still be ending them when the second one answers, or its revoke may
   > have failed (#872).
+  > **Amended 2026-09-29 (#886):** a done confirm no longer answers its POST with the page. It
+  > redirects to `GET /Account/ConfirmEmailChange?handler=Done&email=<new address>`, so a reload
+  > repeats only that GET and never sends the used link again, which would show it as dead. The done
+  > view checks nothing, because anybody can open that URL. It prints the address only when it has
+  > the shape of one, and says "nowym adresem" otherwise. The password reset page does the same with
+  > `?handler=Done`, which prints nothing about any account.
 - **Files touched:** no DAT and no translation artifact. One EF migration,
   `AddEmailChangeRevertFieldsToUsers` — two nullable columns, additive and N-1 safe.
 

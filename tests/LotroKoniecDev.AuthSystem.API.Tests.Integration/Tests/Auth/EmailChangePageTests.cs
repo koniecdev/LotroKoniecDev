@@ -1,8 +1,12 @@
 using System.Net.Http.Headers;
+using System.Text.Encodings.Web;
 using System.Text.RegularExpressions;
 using Microsoft.AspNetCore.Identity;
+using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.AspNetCore.WebUtilities;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Primitives;
 using LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared.Bases;
 using LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared.Factories;
 using LotroKoniecDev.AuthSystem.Contracts.Features.Auth.Account;
@@ -127,6 +131,84 @@ public sealed partial class EmailChangePageTests : EndpointsTestBase
             "Link potwierdzający zmianę adresu jest nieprawidłowy lub wygasł. Link jest ważny 24 godziny "
             + "i można go użyć tylko raz. Zaloguj się i poproś o zmianę adresu jeszcze raz.");
         (await LoadUserByIdAsync(userId)).Email.ShouldBe(newEmail);
+    }
+
+    [Fact]
+    public async Task ConfirmPage_Post_ShouldRedirectToTheDoneViewWithoutTheToken()
+    {
+        // #886: the done answer used to be the POST's own page, so a reload sent the used link again and
+        // the page called it dead. The token must stay out of the new URL, which lands in the history.
+        (RegisterRequest user, string newEmail, string token) = await RequestChangeAsync();
+        Guid userId = await UserIdOfAsync(user.Email);
+        using HttpClient browser = Factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
+
+        HttpResponseMessage response = await PostToPageAsync(
+            browser,
+            "/Account/ConfirmEmailChange",
+            ConfirmUrl(userId, newEmail, token),
+            new Dictionary<string, string>
+            {
+                ["UserId"] = userId.ToString(),
+                ["Email"] = newEmail,
+                ["Token"] = token
+            });
+
+        response.StatusCode.ShouldBe(HttpStatusCode.Redirect);
+        (string path, Dictionary<string, StringValues> query) = SplitLocation(response);
+        path.ShouldBe("/Account/ConfirmEmailChange");
+        query.Keys.ShouldBe(["handler", "email"], ignoreOrder: true);
+        query["handler"].ToString().ShouldBe("Done");
+        query["email"].ToString().ShouldBe(newEmail);
+        (await LoadUserByIdAsync(userId)).Email.ShouldBe(newEmail);
+    }
+
+    [Fact]
+    public async Task ConfirmPage_ReloadOfTheDoneView_ShouldShowTheChangeAsDoneAgain()
+    {
+        (RegisterRequest user, string newEmail, string token) = await RequestChangeAsync();
+        Guid userId = await UserIdOfAsync(user.Email);
+        using HttpClient browser = Factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
+        HttpResponseMessage confirmed = await PostToPageAsync(
+            browser,
+            "/Account/ConfirmEmailChange",
+            ConfirmUrl(userId, newEmail, token),
+            new Dictionary<string, string>
+            {
+                ["UserId"] = userId.ToString(),
+                ["Email"] = newEmail,
+                ["Token"] = token
+            });
+        Uri doneView = confirmed.Headers.Location!;
+        (await browser.GetAsync(doneView)).StatusCode.ShouldBe(HttpStatusCode.OK);
+
+        HttpResponseMessage reload = await browser.GetAsync(doneView);
+
+        reload.StatusCode.ShouldBe(HttpStatusCode.OK);
+        string html = await reload.Content.ReadAsStringAsync();
+        html.ShouldContain("data-testid=\"confirm-email-change-success\"");
+        html.ShouldContain($"<strong>{HtmlEncoder.Default.Encode(newEmail)}</strong>");
+        html.ShouldNotContain("Link wygasł lub jest nieprawidłowy");
+        html.ShouldNotContain("data-testid=\"confirm-email-change-form\"");
+    }
+
+    /// <summary>
+    /// Anybody can open the done view, so it must not become a place that prints a sentence of somebody
+    /// else's choosing. Without an address it still says the change is done, in words that name none.
+    /// </summary>
+    [Theory]
+    [InlineData("/Account/ConfirmEmailChange?handler=Done")]
+    [InlineData("/Account/ConfirmEmailChange?handler=Done&email=")]
+    [InlineData("/Account/ConfirmEmailChange?handler=Done&email=Twoje%20konto%20zostalo%20przejete%20-%20zadzwon%20pod%20numer%20500600700")]
+    public async Task ConfirmPage_GetDoneWithoutAnAddress_ShouldShowTheDoneViewWithoutPrintingTheValue(string url)
+    {
+        HttpResponseMessage response = await ApiClient.Http.GetAsync(new Uri(url, UriKind.Relative));
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        string html = await response.Content.ReadAsStringAsync();
+        html.ShouldContain("data-testid=\"confirm-email-change-success\"");
+        html.ShouldContain("Od teraz logujesz się nowym adresem.");
+        html.ShouldNotContain("<strong>");
+        html.ShouldNotContain("500600700");
     }
 
     [Fact]
@@ -650,10 +732,14 @@ public sealed partial class EmailChangePageTests : EndpointsTestBase
         return await db.Set<ApplicationUser>().AsNoTracking().SingleAsync(user => user.Id == userId);
     }
 
-    private async Task<HttpResponseMessage> PostToPageAsync(
-        string pagePath, string getUrl, Dictionary<string, string> formFields)
+    private Task<HttpResponseMessage> PostToPageAsync(
+        string pagePath, string getUrl, Dictionary<string, string> formFields) =>
+        PostToPageAsync(ApiClient.Http, pagePath, getUrl, formFields);
+
+    private static async Task<HttpResponseMessage> PostToPageAsync(
+        HttpClient client, string pagePath, string getUrl, Dictionary<string, string> formFields)
     {
-        HttpResponseMessage pageResponse = await ApiClient.Http.GetAsync(new Uri(getUrl, UriKind.Relative));
+        HttpResponseMessage pageResponse = await client.GetAsync(new Uri(getUrl, UriKind.Relative));
         pageResponse.StatusCode.ShouldBe(HttpStatusCode.OK);
 
         string html = await pageResponse.Content.ReadAsStringAsync();
@@ -674,7 +760,17 @@ public sealed partial class EmailChangePageTests : EndpointsTestBase
             }
         }
 
-        return await ApiClient.Http.SendAsync(request);
+        return await client.SendAsync(request);
+    }
+
+    private static (string Path, Dictionary<string, StringValues> Query) SplitLocation(HttpResponseMessage response)
+    {
+        string location = response.Headers.Location!.OriginalString;
+        int queryStart = location.IndexOf('?', StringComparison.Ordinal);
+
+        return queryStart < 0
+            ? (location, new Dictionary<string, StringValues>())
+            : (location[..queryStart], QueryHelpers.ParseQuery(location[queryStart..]));
     }
 
     [GeneratedRegex("""name="__RequestVerificationToken".*?value="([^"]+)""")]

@@ -58,6 +58,16 @@ internal sealed partial class ResetPasswordModel : PageModel
         Token = token ?? string.Empty;
     }
 
+    /// <summary>
+    /// The done view a successful POST redirects to. A reload then repeats only this GET and never sends
+    /// the used link again, which would call it dead (#886). Anybody can open this URL, so it prints
+    /// nothing about any account.
+    /// </summary>
+    public void OnGetDone()
+    {
+        IsCompleted = true;
+    }
+
     public async Task<IActionResult> OnPostAsync()
     {
         if (string.IsNullOrWhiteSpace(Email) || string.IsNullOrWhiteSpace(Token) ||
@@ -77,7 +87,7 @@ internal sealed partial class ResetPasswordModel : PageModel
         // returns before it. So every answer waits for the floor (ADR-0059).
         await _responseTimeFloor.HoldAsync(ResponseTimeFloors.AccountLookup, ResetAsync);
 
-        return Page();
+        return IsCompleted ? RedirectToPage("/Account/ResetPassword", "Done") : Page();
     }
 
     private async Task ResetAsync()

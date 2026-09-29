@@ -29,11 +29,11 @@ internal sealed partial class LogoutEndpoint : IEndpoint
         // belongs to the browser, not to one sign-in of the website, so it is only cleared.
         AuthenticateResult hintResult =
             await httpContext.AuthenticateAsync(OpenIddictServerAspNetCoreDefaults.AuthenticationScheme);
-        string? authorizationId = hintResult.Principal?.GetAuthorizationId();
-        if (!string.IsNullOrEmpty(authorizationId))
+        if (hintResult.Principal is { } principal
+            && principal.GetAuthorizationId() is { Length: > 0 } authorizationId)
         {
             await sessionRevoker.RevokeSessionAsync(authorizationId);
-            LogUserLoggedOut(logger, hintResult.Principal?.GetClaim(Claims.Subject));
+            LogUserLoggedOut(logger, principal.GetClaim(Claims.Subject));
         }
         else
         {

@@ -79,8 +79,8 @@ internal static class EventIds
     // (#349).
     public const int UserSessionsRevoked = 2301;
     public const int UserSessionsRevocationFailed = 2302;
-    public const int UserSessionRevoked = 2303;
-    public const int UserSessionRevocationFailed = 2304;
+    public const int SingleSessionRevoked = 2303;
+    public const int SingleSessionRevocationFailed = 2304;
 
     // Token Pruning (2310-2319)
     public const int OpenIddictPruneCompleted = 2310;

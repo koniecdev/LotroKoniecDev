@@ -4,6 +4,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Web;
+using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.DependencyInjection;
@@ -25,7 +26,6 @@ namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Tests.Auth;
 public sealed partial class AuthorizationCodeFlowTests : AsyncLifetimeTestBase
 {
     private const string PostLogoutRedirectUri = "https://localhost:5001";
-    private const string AuthCookieName = "LotroKoniecDev.Auth";
 
     protected override TestApiClient ApiClient { get; }
 
@@ -605,14 +605,40 @@ public sealed partial class AuthorizationCodeFlowTests : AsyncLifetimeTestBase
         WebsiteSession thisDevice = await SignInThroughTheWebsiteAsync(email, password);
         WebsiteSession otherDevice = await SignInThroughTheWebsiteAsync(email, password);
 
-        using HttpResponseMessage logoutResponse = await SignOutAsync(thisDevice.IdToken, thisDevice.AuthCookies);
-        logoutResponse.StatusCode.ShouldBe(HttpStatusCode.Redirect);
-
         // Act
-        using HttpResponseMessage response = await RefreshAsync(otherDevice.RefreshToken);
+        using HttpResponseMessage response = await SignOutAsync(thisDevice.IdToken, thisDevice.AuthCookies);
 
         // Assert
-        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        response.StatusCode.ShouldBe(HttpStatusCode.Redirect);
+        (await OpenIddictTokenState.StatusOfAsync(Factory.Services, thisDevice.RefreshToken))
+            .ShouldBe(OpenIddictConstants.Statuses.Revoked);
+        (await OpenIddictTokenState.StatusOfAsync(Factory.Services, otherDevice.RefreshToken))
+            .ShouldBe(OpenIddictConstants.Statuses.Valid);
+        List<string?> authorizationStatuses =
+            await OpenIddictTokenState.AuthorizationStatusesOfAsync(Factory.Services, thisDevice.UserId);
+        authorizationStatuses.ShouldBe(
+            [OpenIddictConstants.Statuses.Revoked, OpenIddictConstants.Statuses.Valid],
+            ignoreOrder: true);
+    }
+
+    [Fact]
+    public async Task Logout_ShouldRevokeTheSession_WhenTheHintIsTheIdTokenOfARefresh()
+    {
+        // Arrange: after its first refresh the website holds, and sends, the refreshed ID token
+        WebsiteSession session = await SignInThroughTheWebsiteAsync();
+        using HttpResponseMessage refreshResponse = await RefreshAsync(session.RefreshToken);
+        refreshResponse.StatusCode.ShouldBe(HttpStatusCode.OK);
+        using JsonDocument tokens = JsonDocument.Parse(await refreshResponse.Content.ReadAsStringAsync());
+        string refreshedIdToken = tokens.RootElement.GetProperty("id_token").GetString()!;
+        string refreshedRefreshToken = tokens.RootElement.GetProperty("refresh_token").GetString()!;
+
+        // Act
+        using HttpResponseMessage response = await SignOutAsync(refreshedIdToken, authCookies: []);
+
+        // Assert
+        response.StatusCode.ShouldBe(HttpStatusCode.Redirect);
+        (await OpenIddictTokenState.StatusOfAsync(Factory.Services, refreshedRefreshToken))
+            .ShouldBe(OpenIddictConstants.Statuses.Revoked);
     }
 
     [Fact]
@@ -641,8 +667,13 @@ public sealed partial class AuthorizationCodeFlowTests : AsyncLifetimeTestBase
         using HttpResponseMessage response = await SignOutAsync(session.IdToken, session.AuthCookies);
 
         // Assert
-        response.Headers.GetValues("Set-Cookie").ShouldContain(cookie =>
-            cookie.StartsWith(AuthCookieName + "=;", StringComparison.Ordinal)
+        string authCookieName = Factory.Services
+            .GetRequiredService<IOptionsMonitor<CookieAuthenticationOptions>>()
+            .Get(IdentityConstants.ApplicationScheme)
+            .Cookie.Name!;
+        response.Headers.TryGetValues("Set-Cookie", out IEnumerable<string>? setCookies).ShouldBeTrue();
+        setCookies.ShouldContain(cookie =>
+            cookie.StartsWith(authCookieName + "=;", StringComparison.Ordinal)
             && cookie.Contains("expires=Thu, 01 Jan 1970", StringComparison.OrdinalIgnoreCase));
     }
 

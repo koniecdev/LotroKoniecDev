@@ -9,6 +9,7 @@ namespace LotroKoniecDev.AuthSystem.API.Services.Sessions;
 internal sealed partial class UserSessionRevoker : IUserSessionRevoker
 {
     private const string AuthorizationsStep = "authorizations";
+    private const string AuthorizationStep = "authorization";
     private const string TokensStep = "tokens";
 
     /// <summary>
@@ -57,7 +58,7 @@ internal sealed partial class UserSessionRevoker : IUserSessionRevoker
     {
         // The same best effort and the same order as RevokeAllAsync, for the same reasons.
         long? revokedAuthorizations = await TryRevokeAsync(
-            authorizationId, AuthorizationsStep, RevokeAuthorizationAsync, LogSessionRevocationFailed);
+            authorizationId, AuthorizationStep, RevokeAuthorizationAsync, LogSessionRevocationFailed);
         long? revokedTokens = await TryRevokeAsync(
             authorizationId, TokensStep, _tokenManager.RevokeByAuthorizationIdAsync, LogSessionRevocationFailed);
 
@@ -78,7 +79,16 @@ internal sealed partial class UserSessionRevoker : IUserSessionRevoker
             return 0;
         }
 
-        return await _authorizationManager.TryRevokeAsync(authorization, cancellationToken) ? 1 : 0;
+        // TryRevokeAsync does not throw when the update fails, for example on a database error, a
+        // concurrency conflict or our own time limit. It returns false, and only OpenIddict's own log
+        // records it. Throwing here lets that failure reach our Error log like a failure of RevokeAllAsync
+        // does.
+        if (!await _authorizationManager.TryRevokeAsync(authorization, cancellationToken))
+        {
+            throw new InvalidOperationException("OpenIddict could not revoke the authorization.");
+        }
+
+        return 1;
     }
 
     private async Task<long?> TryRevokeAsync(
@@ -106,9 +116,9 @@ internal sealed partial class UserSessionRevoker : IUserSessionRevoker
     [LoggerMessage(EventId = EventIds.UserSessionsRevocationFailed, Level = LogLevel.Error, Message = "Failed to revoke the {Step} of user {UserId}. The other step is not skipped, but a refresh token that neither step revoked stays usable until it expires.")]
     private static partial void LogRevocationFailed(ILogger logger, Exception exception, string step, string userId);
 
-    [LoggerMessage(EventId = EventIds.UserSessionRevoked, Level = LogLevel.Information, Message = "Revoked the session of authorization {AuthorizationId}: {TokenCount} token row(s) and {AuthorizationCount} authorization row(s) updated")]
+    [LoggerMessage(EventId = EventIds.SingleSessionRevoked, Level = LogLevel.Information, Message = "Revoked session {AuthorizationId}: {TokenCount} token row(s) and {AuthorizationCount} authorization row(s) updated")]
     private static partial void LogSessionRevoked(ILogger logger, string authorizationId, long tokenCount, long authorizationCount);
 
-    [LoggerMessage(EventId = EventIds.UserSessionRevocationFailed, Level = LogLevel.Error, Message = "Failed to revoke the {Step} of authorization {AuthorizationId}. The other step is not skipped, but a refresh token that neither step revoked stays usable until it expires.")]
+    [LoggerMessage(EventId = EventIds.SingleSessionRevocationFailed, Level = LogLevel.Error, Message = "Failed to revoke the {Step} of session {AuthorizationId}. The other step is not skipped, but a refresh token that neither step revoked stays usable until it expires.")]
     private static partial void LogSessionRevocationFailed(ILogger logger, Exception exception, string step, string authorizationId);
 }

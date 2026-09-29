@@ -4,6 +4,7 @@ using LotroKoniecDev.SharedKernel.Authorization;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Options;
 
 namespace LotroKoniecDev.TranslationSystem.API.Tests.Integration.Tests.RateLimiting;
 
@@ -168,10 +169,10 @@ public sealed class FrontendCallerKeyTests : IAsyncLifetime
         using WebApplicationFactory<Program> stagingHost = CreateStagingHost(frontendKey: null);
 
         // Act
-        Exception exception = Should.Throw<Exception>(() => stagingHost.CreateClient());
+        OptionsValidationException exception = Should.Throw<OptionsValidationException>(() => stagingHost.CreateClient());
 
         // Assert
-        exception.ToString().ShouldContain("FrontendCaller:Key");
+        exception.Message.ShouldContain("FrontendCaller:Key", Case.Sensitive);
     }
 
     private sealed record Caller(string ConnectionAddress, IReadOnlyCollection<string> KeyValues, IReadOnlyCollection<string> AddressValues)

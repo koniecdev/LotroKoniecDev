@@ -1,6 +1,7 @@
 using System.Net.Http.Headers;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Options;
 using LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared;
 using LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared.Bases;
 using LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared.Factories;
@@ -268,10 +269,10 @@ public sealed class FrontendCallerKeyTests : EndpointsTestBase
         });
 
         // Act
-        Exception exception = Should.Throw<Exception>(() => shortKeyHost.CreateClient());
+        OptionsValidationException exception = Should.Throw<OptionsValidationException>(() => shortKeyHost.CreateClient());
 
         // Assert
-        exception.ToString().ShouldContain("FrontendCaller:Key");
+        exception.Message.ShouldContain("FrontendCaller:Key", Case.Sensitive);
     }
 
     /// <summary>

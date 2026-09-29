@@ -2,6 +2,7 @@ using LotroKoniecDev.Hateoas.Abstractions;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Options;
 
 namespace LotroKoniecDev.TranslationSystem.API.Tests.Integration.Tests.Health;
 
@@ -132,10 +133,10 @@ public sealed class HealthEndpointsTests
         });
 
         // Act
-        Exception exception = Should.Throw<Exception>(() => stagingHost.CreateClient());
+        OptionsValidationException exception = Should.Throw<OptionsValidationException>(() => stagingHost.CreateClient());
 
         // Assert
-        exception.ToString().ShouldContain("HealthCheck:Key");
+        exception.Message.ShouldContain("HealthCheck:Key", Case.Sensitive);
     }
 
     private static async Task<HttpResponseMessage> GetAsync(HttpClient client, string path, string? presentedKey)

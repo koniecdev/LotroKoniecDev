@@ -56,6 +56,15 @@ internal sealed class StubHttpMessageHandler : HttpMessageHandler
         });
     }
 
+    /// <summary>
+    /// A response with the content you build, for a body the other factories cannot write, such as raw
+    /// bytes or a charset .NET does not know.
+    /// </summary>
+    public static StubHttpMessageHandler RespondWith(HttpStatusCode statusCode, Func<HttpContent> content)
+    {
+        return new StubHttpMessageHandler(_ => new HttpResponseMessage(statusCode) { Content = content() });
+    }
+
     public static StubHttpMessageHandler Throw(Exception exception)
     {
         return new StubHttpMessageHandler(_ => throw exception);

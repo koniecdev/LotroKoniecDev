@@ -8,6 +8,9 @@
 #
 #   work-ticket.sh <n> (worktree → session → PR)  ×  up to -j at once  →  roll-up table of PRs
 #
+# After a usage limit it waits for the running tickets, naps, and runs the limited tickets again;
+# work-ticket.sh then resumes each one's session in the worktree it kept (#934).
+#
 # Usage:
 #   scripts/claude/backlog-loop.sh 123 130 131      # exactly these tickets (the normal use)
 #   scripts/claude/backlog-loop.sh -j 1 123 130     # one at a time
@@ -47,7 +50,7 @@ while [ $# -gt 0 ]; do
     case "$1" in
         -n) MAX="${2:?-n needs a number}"; shift 2 ;;
         -j) PARALLEL="${2:?-j needs a number}"; shift 2 ;;
-        -h|--help) sed -n '2,30p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+        -h|--help) sed -n '2,/^set /p' "$0" | sed '$d' | sed 's/^# \{0,1\}//'; exit 0 ;;
         [0-9]*)
             # A number given twice would start two workers racing for one worktree.
             case " $QUEUE " in *" $1 "*) ;; *) QUEUE="$QUEUE $1" ;; esac
@@ -307,14 +310,20 @@ for meta_file in "$RUN_DIR"/ticket-*.meta; do
     outcome="$(sed -n 's/^outcome=//p' "$meta_file" | tail -1)"
     pr="$(sed -n 's/^pr=//p' "$meta_file" | tail -1)"
     resumes="$(sed -n 's/^resumes=//p' "$meta_file" | tail -1)"
+    worktree="$(sed -n 's/^worktree=//p' "$meta_file" | tail -1)"
     checks="-"; alerts="-"
     if [ -n "$pr" ]; then
         checks="$(pr_checks "$pr")"
         alerts="$(pr_alerts "$pr")"
     fi
-    # A worker that had to be resumed stopped once without a verdict (#925): worth a look.
+    # A worker that had to be resumed stopped once without a verdict, a PR or its usage (#925,
+    # #934): worth a look.
     note=""
     case "$resumes" in ''|0) ;; *) note="  resumed ${resumes}x" ;; esac
+    # The limit outlasted every nap: the session waits in its worktree for a later run (#934).
+    if [ "$outcome" = "limit" ] && [ "$worktree" = "kept" ]; then
+        note="$note  worktree kept: run #$ticket again to resume its session"
+    fi
     printf '[conductor] #%-6s %-12s %-6s %-8s %s%s\n' \
         "$ticket" "${outcome:-running?}" "${pr:+#$pr}" "$checks" "$alerts" "$note"
 done

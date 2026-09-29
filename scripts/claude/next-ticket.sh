@@ -78,7 +78,7 @@ kept_for_resume() {
     [ -d "$worktree" ] || return 1
     git_dir="$(git -C "$worktree" rev-parse --path-format=absolute --git-dir 2>/dev/null)" || return 1
     [ "$git_dir" != "$(git -C "$worktree" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)" ] || return 1
-    [ -f "$git_dir/loop-resume" ]
+    [ -s "$git_dir/loop-resume" ]
 }
 
 for n in $candidates; do

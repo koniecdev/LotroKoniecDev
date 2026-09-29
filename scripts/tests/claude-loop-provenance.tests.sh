@@ -558,9 +558,14 @@ fixture_issue 56 maintainer OWNER
 fixture_issue 57 maintainer OWNER
 fixture_prs 900:56-limit-hit-after-the-pr
 git -C "$FAKE_REPO" worktree add -q --detach "$FAKE_REPO/.claude/worktrees/ticket-56" origin/main
-: > "$(git -C "$FAKE_REPO/.claude/worktrees/ticket-56" rev-parse --path-format=absolute --git-dir)/loop-resume"
+marker_56="$(git -C "$FAKE_REPO/.claude/worktrees/ticket-56" rev-parse --path-format=absolute --git-dir)/loop-resume"
+echo "session=s-56" > "$marker_56"
 run_case 0 "next-ticket: a worktree kept for a resume does not hide its ticket" picker
 expect_stdout "56"
+# An empty marker names no session: the worker would skip the ticket, so the picker does too.
+: > "$marker_56"
+run_case 0 "next-ticket: an empty marker does not count as a worktree kept for a resume" picker
+expect_stdout "57"
 git -C "$FAKE_REPO" worktree remove --force "$FAKE_REPO/.claude/worktrees/ticket-56"
 rm -f "$GH_FIXTURES/pr-list.json"
 mkdir -p "$FAKE_REPO/.claude/worktrees/ticket-56"
@@ -887,7 +892,7 @@ marker_101="$(kept_marker 101)"
 # The limit hit after the PR was opened: an open PR from the kept branch is the session's own. A PR
 # of the same branch that was closed before the session started is history, not a stop sign.
 fixture_prs_state "7101,101-fixture,OPEN,$(git -C "$WT_ROOT/ticket-101" rev-parse 101-fixture)" \
-    "7001,101-fixture,CLOSED,,2020-01-01T00:00:00Z"
+    "7001,101-fixture,CLOSED,,2020-01-01T00:00:00Z" "7002,101-older-attempt,MERGED,,2020-01-01T00:00:00Z"
 fixture_pr_view 7101 OPEN 101-fixture
 fixture_transcript s-101
 run_case 0 "work-ticket: the next run resumes the kept session, which opens its PR" \
@@ -934,6 +939,19 @@ expect_in_output "has no transcript"
 salvage_branch="$(git -C "$FAKE_REPO" for-each-ref --format='%(refname:short)' 'refs/heads/loop-salvage/102-*')"
 [ -n "$salvage_branch" ] && git -C "$FAKE_REPO" show "$salvage_branch:uncommitted.txt" >/dev/null 2>&1 \
     || fail "the kept worktree's uncommitted file should be salvaged before the fresh start" "$LAST_OUTPUT"
+
+# LOOP_KEEP_WORKTREE=1 keeps finished worktrees, but a kept one that cannot be resumed must still
+# make room for the fresh start.
+reset_fixtures
+fixture_issue 121 maintainer OWNER
+fixture_pr_view 7121 OPEN 121-fixture
+run_case 6 "work-ticket: a usage limit on #121" \
+    env CLAUDE_BEHAVIOR="$TMP_ROOT/limit-keep.sh" "$WORK" 121 "$TMP_ROOT/run"
+run_case 0 "work-ticket: LOOP_KEEP_WORKTREE=1 does not block the fresh start after a lost session" \
+    env LOOP_KEEP_WORKTREE=1 CLAUDE_BEHAVIOR="$TMP_ROOT/done.sh" "$WORK" 121 "$TMP_ROOT/run"
+[ "$(sed -n 2p "$TMP_ROOT/claude-args-2")" = "/work-ticket 121" ] || fail "the fallback should be a fresh start" "$(cat "$TMP_ROOT/claude-args-2")"
+[ -d "$WT_ROOT/ticket-121" ] || fail "the fresh run's own worktree should still be kept"
+git -C "$FAKE_REPO" worktree remove --force "$WT_ROOT/ticket-121"
 
 # Work that went on without the session: never resume it.
 for case_spec in "103:7103:103-fixture:MERGED:was merged" "104:7104:104-by-hand:OPEN:is open from another branch" \
@@ -1126,6 +1144,50 @@ run_case 6 "work-ticket: a resume that dies without JSON still keeps its session
 expect_meta 118 outcome=limit worktree=kept session=s-118
 grep -qx "session=s-118" "$(kept_marker 118)" || fail "the marker should still name the session" "$(cat "$(kept_marker 118)" 2>&1)"
 git -C "$FAKE_REPO" worktree remove --force "$WT_ROOT/ticket-118"
+
+# No transcript, and GitHub cannot list the PRs: the marker must stay, so the next run still sees a
+# kept worktree rather than someone's work.
+reset_fixtures
+fixture_issue 122 maintainer OWNER
+run_case 6 "work-ticket: a usage limit on #122" \
+    env CLAUDE_BEHAVIOR="$TMP_ROOT/limit-keep.sh" "$WORK" 122 "$TMP_ROOT/run"
+printf x > "$GH_FIXTURES/pr-list-fail.json"
+run_case 3 "work-ticket: a PR list that fails after a lost transcript is an error" \
+    env CLAUDE_BEHAVIOR="$TMP_ROOT/limit-keep.sh" "$WORK" 122 "$TMP_ROOT/run"
+[ -s "$(kept_marker 122)" ] || fail "the marker should stay until GitHub has answered"
+[ -f "$WT_ROOT/ticket-122/uncommitted.txt" ] || fail "nothing may be salvaged before GitHub has answered"
+
+# The files of the kept worktree cannot be read: an error, and the marker stays for the next run.
+rm -f "$GH_FIXTURES/pr-list-fail.json"
+fixture_transcript s-122
+run_case 3 "work-ticket: a kept worktree whose files cannot be read is an error, not a skip" \
+    env TMPDIR="$TMP_ROOT/no-such-dir" CLAUDE_BEHAVIOR="$TMP_ROOT/limit-keep.sh" "$WORK" 122 "$TMP_ROOT/run"
+expect_in_output "could not read the files"
+[ -s "$(kept_marker 122)" ] || fail "the marker should stay for the next run"
+git -C "$FAKE_REPO" worktree remove --force "$WT_ROOT/ticket-122"
+
+# The session pushed, opened its PR, then rewrote its branch (a rebase before the force push) and
+# hit the limit: the PR's head is in the branch's own history, so the PR is still its own.
+behavior "$TMP_ROOT/limit-after-rewrite.sh" 'ticket="${PWD##*ticket-}"
+case " $* " in
+*" --resume "*) echo "{\"result\":\"STATUS: DONE\\nPR: https://github.com/koniecdev/LotroKoniecDev/pull/7$ticket\",\"is_error\":false,\"session_id\":\"s-$ticket\"}" ;;
+*)
+    git checkout -q -b "$ticket-fixture"
+    git commit -q --allow-empty -m "pushed work"
+    git rev-parse HEAD > "'"$TMP_ROOT"'/pushed-head"
+    git commit -q --amend --allow-empty -m "pushed work, rewritten"
+    echo "{\"result\":\"You have hit your session limit\",\"is_error\":true,\"session_id\":\"s-$ticket\"}" ;;
+esac'
+reset_fixtures
+fixture_issue 123 maintainer OWNER
+run_case 6 "work-ticket: a usage limit on #123" \
+    env CLAUDE_BEHAVIOR="$TMP_ROOT/limit-after-rewrite.sh" "$WORK" 123 "$TMP_ROOT/run"
+fixture_transcript s-123
+fixture_prs_state "7123,123-fixture,OPEN,$(cat "$TMP_ROOT/pushed-head")"
+fixture_pr_view 7123 OPEN 123-fixture
+run_case 0 "work-ticket: a session that rewrote its own pushed branch is still resumed" \
+    env CLAUDE_BEHAVIOR="$TMP_ROOT/limit-after-rewrite.sh" "$WORK" 123 "$TMP_ROOT/run"
+expect_in_output "PR #7123 opened"
 
 # A stranger commented during the nap: the kept session is never resumed, so its work is salvaged
 # and the worktree removed, as before #934, instead of waiting where nobody looks.

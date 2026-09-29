@@ -299,13 +299,16 @@ Now:
   since the limit (someone works there), when a PR of the ticket was merged, or closed from this
   branch, after the session started, when one is open from another branch, or when the session's
   own open PR has commits its branch does not (a review fix or a `/merge-train` rebase during the
-  nap: the session would build on a stale copy). An open PR from the kept branch is otherwise the
+  nap: the session would build on a stale copy). A PR head the branch itself once had still counts
+  as the session's own: it pushed, then rewrote the branch (a rebase before the force push), and
+  nobody else's push enters that branch's reflog. An open PR from the kept branch is otherwise the
   session's own: the limit may have hit after `gh pr create`. A PR that ended before the session
-  started is history (an older attempt from the same branch name) and does not count. When the
-  provenance gate refuses the ticket before the resume, the kept work is salvaged and the worktree
-  removed, since that session will never run again. A rebase that stopped half way detaches HEAD, so the kept branch is then read
-  from the rebase's own record. When GitHub cannot list the PRs, the run is an `error` and the
-  marker stays for the next run.
+  started is history (an older attempt from the same branch name) and does not count. A rebase
+  that stopped half way detaches HEAD, so the kept branch is then read from the rebase's own
+  record. When GitHub cannot list the PRs, or the kept files cannot be read, the run is an `error`
+  and the marker stays for the next run. When the provenance gate refuses the ticket before the
+  resume, the kept work is salvaged and the worktree removed, since that session will never run
+  again.
 - **A stop or a timeout during the resumed session** ends it like any other run: the work is
   salvaged, the worktree is removed, and the next run starts a fresh session.
 - **Without a session id, a limit still starts over**, as before: the worktree is salvaged and

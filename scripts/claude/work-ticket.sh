@@ -313,10 +313,15 @@ resume_started=""
 release_kept=0
 if [ -n "$marker_text" ]; then
     kept_session="$(marker_value session)"
+    current_tree="$(tree_state)" || {
+        meta outcome error
+        log "could not read the files of the kept worktree $WT — treating as an error; the next run tries again"
+        exit 3
+    }
     # The session must find the tree it left. A new commit or a changed file means someone else
     # works there now.
     if [ "$(git -C "$WT" rev-parse HEAD 2>/dev/null || true)" != "$(marker_value head)" ] \
-        || [ "$(tree_state || true)" != "$(marker_value tree)" ]; then
+        || [ "$current_tree" != "$(marker_value tree)" ]; then
         rm -f "$marker"
         meta outcome skipped
         log "SKIPPED — $WT was kept to resume a session after a usage limit, but its HEAD or its files changed since, so someone else works there. When that work is done: git worktree remove \"$WT\""
@@ -330,7 +335,6 @@ if [ -n "$marker_text" ]; then
         case "$resume_started" in ''|*[!0-9]*) resume_started=0 ;; esac
     else
         log "the kept session ${kept_session:-<none>} has no transcript under $CLAUDE_CONFIG_DIR, so it cannot be resumed"
-        rm -f "$marker"
         release_kept=1
     fi
 fi
@@ -353,9 +357,12 @@ if [ -n "$resume_session" ]; then
             OPEN)
                 if [ "$head" != "$branch" ]; then
                     blocker="PR #$number is open from another branch ($head)"
-                elif ! git -C "$WT" merge-base --is-ancestor "$oid" "refs/heads/$branch" 2>/dev/null; then
+                elif ! git -C "$WT" merge-base --is-ancestor "$oid" "refs/heads/$branch" 2>/dev/null \
+                    && ! grep -qx "$oid" <<< "$(git -C "$WT" reflog show --format=%H "refs/heads/$branch" 2>/dev/null || true)"; then
                     # A review fix or a rebase by /merge-train: the session would build on a stale
-                    # copy, and its next push could overwrite that work.
+                    # copy, and its next push could overwrite that work. A head the branch itself
+                    # once had is the session's own push, before it rewrote the branch (a rebase
+                    # before the force push); nobody else's push ever enters this reflog.
                     blocker="PR #$number has commits the kept branch does not"
                 fi
                 ;;
@@ -388,6 +395,9 @@ else
         log "could not list open pull requests — treating as an error"
         exit 3
     }
+    # The marker goes only now: when GitHub cannot answer, the next run must still see a kept
+    # worktree, not one that looks like someone's work.
+    [ "$release_kept" -eq 0 ] || rm -f "$marker"
     if [ -n "$open_pr" ]; then
         meta outcome skipped
         meta pr "$open_pr"

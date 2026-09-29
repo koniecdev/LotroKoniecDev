@@ -78,14 +78,17 @@ public sealed class GdprSettingsValidatorTests
     }
 
     [Theory]
-    [InlineData("1.00:00:00")]
-    [InlineData("30.00:00:00")]
-    public void Validate_GracePeriodFromOneDayUpToThirtyDaysWithADailyPoll_Succeeds(string gracePeriod)
+    [InlineData("1.00:00:00", "1.00:00:00")]
+    [InlineData("14.00:00:00", "1.00:00:00")]
+    [InlineData("29.00:00:00", "1.00:00:00")]
+    [InlineData("15.00:00:00", "15.00:00:00")]
+    [InlineData("29.23:59:00", "00:01:00")]
+    public void Validate_GracePeriodPlusPollIntervalUpToThirtyDays_Succeeds(string gracePeriod, string pollInterval)
     {
         GdprSettings settings = new()
         {
             DeletionGracePeriod = Parse(gracePeriod),
-            DeletionFinalizationPollInterval = TimeSpan.FromDays(1)
+            DeletionFinalizationPollInterval = Parse(pollInterval)
         };
 
         ValidateOptionsResult result = _validator.Validate(name: null, settings);
@@ -109,18 +112,32 @@ public sealed class GdprSettingsValidatorTests
     }
 
     [Theory]
-    [InlineData("30.00:00:00.0000001")]
-    [InlineData("31.00:00:00")]
-    public void Validate_GracePeriodLongerThanThirtyDays_FailsNamingTheSetting(string gracePeriod)
+    [InlineData("29.00:00:00.0000001", "1.00:00:00")]
+    // The erasure could land on day 31 with these two (#946).
+    [InlineData("30.00:00:00", "1.00:00:00")]
+    [InlineData("30.00:00:00", "00:01:00")]
+    [InlineData("31.00:00:00", "1.00:00:00")]
+    [InlineData("16.00:00:00", "15.00:00:00")]
+    [InlineData("10675199.02:48:05.4775807", "1.00:00:00")]
+    [InlineData("14.00:00:00", "10675199.02:48:05.4775807")]
+    public void Validate_GracePeriodPlusPollIntervalLongerThanThirtyDays_FailsNamingBothSettings(
+        string gracePeriod,
+        string pollInterval)
     {
-        GdprSettings settings = new() { DeletionGracePeriod = Parse(gracePeriod) };
+        GdprSettings settings = new()
+        {
+            DeletionGracePeriod = Parse(gracePeriod),
+            DeletionFinalizationPollInterval = Parse(pollInterval)
+        };
 
         ValidateOptionsResult result = _validator.Validate(name: null, settings);
 
         result.Failed.ShouldBeTrue();
         result.Failures.ShouldNotBeNull();
         result.Failures.ShouldContain(failure =>
-            failure.Contains("DeletionGracePeriod must not exceed 30 days", StringComparison.Ordinal));
+            failure.Contains(
+                "DeletionGracePeriod plus DeletionFinalizationPollInterval must not exceed 30 days",
+                StringComparison.Ordinal));
     }
 
     private static TimeSpan Parse(string value) => TimeSpan.Parse(value, CultureInfo.InvariantCulture);

@@ -2,6 +2,7 @@ using System.Data.Common;
 using System.Net.Http.Headers;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Npgsql;
 using LotroKoniecDev.AuthSystem.API.Services.Gdpr;
 using LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared;
@@ -13,14 +14,17 @@ using LotroKoniecDev.AuthSystem.Domain.Aggregates.ApplicationUsers.Entities;
 using LotroKoniecDev.AuthSystem.Persistence;
 using LotroKoniecDev.AuthSystem.Persistence.DbContexts;
 using LotroKoniecDev.SharedKernel.Constants;
+using LotroKoniecDev.SharedKernel.Monads;
 using LotroKoniecDev.SharedKernel.StronglyTypedIds;
+using LotroKoniecDev.Tests.Shared;
 
 namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Tests.Auth;
 
 /// <summary>
 /// Runs the finalization that happens after the grace period through its own entry point,
 /// <see cref="IAccountDeletionFinalizer"/>, which is all the hosted service does on its timer, and
-/// checks the result: anonymized rows and logins that no longer work.
+/// checks the result: anonymized rows and logins that no longer work. A race the finalizer cannot be
+/// stopped in the middle of goes through <see cref="IAccountErasureService"/> instead.
 /// </summary>
 public sealed class AccountDeletionFinalizerTests : EndpointsTestBase
 {
@@ -234,6 +238,109 @@ public sealed class AccountDeletionFinalizerTests : EndpointsTestBase
         (await HasRolesAsync(identityId.Value)).ShouldBeFalse();
     }
 
+    [Theory]
+    [InlineData(ErasureSaveFailure.DatabaseError)]
+    [InlineData(ErasureSaveFailure.LostToAnotherWrite)]
+    public async Task Finalizer_ShouldLockTheAccountForGoodAndKeepItsAddress_WhenTheErasureSaveFailed(ErasureSaveFailure failure)
+    {
+        // The failed save leaves the anonymized values on the tracked account. The emergency lock has
+        // to land anyway, and it must not write them: the next run finds the account by its real
+        // address (#937).
+
+        // Arrange
+        (RegisterRequest registerRequest, IdentityId identityId) = await RegisterAndScheduleDeletionAsync();
+        await BackdateScheduleAsync(identityId.Value, TimeSpan.FromDays(15));
+        string? stampBeforeErasure = (await GetUserAsync(identityId.Value)).SecurityStamp;
+        FailTheNextSaveOf(identityId.Value, failure);
+        using CapturingLoggerFactory loggerFactory = new();
+
+        // Act
+        int finalizedCount = await RunFinalizerAsync(loggerFactory);
+
+        // Assert
+        finalizedCount.ShouldBe(0);
+
+        ApplicationUser user = await GetUserAsync(identityId.Value);
+        user.Email.ShouldBe(registerRequest.Email);
+        user.LockoutEnabled.ShouldBeTrue();
+        user.LockoutEnd.ShouldBe(DateTimeOffset.MaxValue);
+        user.SecurityStamp.ShouldNotBe(stampBeforeErasure);
+
+        CapturingLoggerFactory.LogEntry lockout = loggerFactory.Entries
+            .Where(entry => entry.EventId.Id == EventIds.GdprErasureEmergencyLockout)
+            .ShouldHaveSingleItem();
+        lockout.Message.ShouldContain(identityId.Value.ToString());
+    }
+
+    [Theory]
+    [InlineData(ErasureSaveFailure.DatabaseError)]
+    [InlineData(ErasureSaveFailure.LostToAnotherWrite)]
+    public async Task Finalizer_ShouldEraseTheOtherDueAccounts_WhenOneErasureSaveFailed(ErasureSaveFailure failure)
+    {
+        // The failing account has waited longest, so the finalizer takes it first and every later save
+        // in the run comes after its failure. None of them may carry its unsaved changes (#937).
+
+        // Arrange
+        (RegisterRequest failingRequest, IdentityId failingId) = await RegisterAndScheduleDeletionAsync();
+        (_, IdentityId otherId) = await RegisterAndScheduleDeletionAsync();
+        await BackdateScheduleAsync(failingId.Value, TimeSpan.FromDays(20));
+        await BackdateScheduleAsync(otherId.Value, TimeSpan.FromDays(15));
+        FailTheNextSaveOf(failingId.Value, failure);
+
+        // Act
+        int finalizedCount = await RunFinalizerAsync();
+
+        // Assert
+        finalizedCount.ShouldBe(1);
+
+        ApplicationUser other = await GetUserAsync(otherId.Value);
+        other.Email.ShouldEndWith(AnonymizationConstants.EmailDomain);
+        (await HasRolesAsync(otherId.Value)).ShouldBeFalse();
+
+        ApplicationUser failing = await GetUserAsync(failingId.Value);
+        failing.Email.ShouldBe(failingRequest.Email);
+        failing.LockoutEnd.ShouldBe(DateTimeOffset.MaxValue);
+    }
+
+    [Fact]
+    public async Task Erasure_ShouldLeaveTheAccountUnlocked_WhenItsOwnerCancelledTheDeletionMeanwhile()
+    {
+        // The erasure read the account, then the owner followed the cancel link, so the erasure save
+        // loses on the concurrency stamp. A lock after that would shut the owner out for good, with no
+        // cancel link left to undo it.
+
+        // Arrange
+        (RegisterRequest registerRequest, IdentityId identityId) = await RegisterAndScheduleDeletionAsync();
+        await AccountDeletionEmailSpy.WaitForScheduledCaptureAsync(registerRequest.Email);
+        string cancelToken = AccountDeletionEmailSpy.LastCancelTokenSentTo(registerRequest.Email)!;
+
+        await using AsyncServiceScope scope = Factory.Services.CreateAsyncScope();
+        AuthDbContext db = scope.ServiceProvider.GetRequiredService<AuthDbContext>();
+        ApplicationUser readBeforeTheCancel = await db.Users.SingleAsync(row => row.Id == identityId.Value);
+
+        HttpResponseMessage cancelResponse = await ApiClient.Http.PostAsJsonAsync(
+            new Uri("auth/account/cancel-deletion", UriKind.Relative),
+            new CancelAccountDeletionRequest(registerRequest.Email, cancelToken));
+        cancelResponse.StatusCode.ShouldBe(HttpStatusCode.OK);
+
+        using CapturingLoggerFactory loggerFactory = new();
+        IAccountErasureService erasureService = CreateErasureService(scope.ServiceProvider, loggerFactory);
+
+        // Act
+        Result erasureResult = await erasureService.EraseAsync(readBeforeTheCancel, CancellationToken.None);
+
+        // Assert
+        erasureResult.IsFailure.ShouldBeTrue();
+
+        ApplicationUser user = await GetUserAsync(identityId.Value);
+        user.Email.ShouldBe(registerRequest.Email);
+        user.DeletionScheduledAt.ShouldBeNull();
+        user.LockoutEnd.ShouldBeNull();
+
+        loggerFactory.Entries.ShouldNotContain(entry => entry.EventId.Id == EventIds.GdprErasureEmergencyLockout);
+        loggerFactory.Entries.ShouldContain(entry => entry.EventId.Id == EventIds.GdprErasureEmergencyLockoutNotNeeded);
+    }
+
     private async Task<int> RunFinalizerAsync()
     {
         await using AsyncServiceScope scope = Factory.Services.CreateAsyncScope();
@@ -241,6 +348,23 @@ public sealed class AccountDeletionFinalizerTests : EndpointsTestBase
             scope.ServiceProvider.GetRequiredService<IAccountDeletionFinalizer>();
         return await finalizer.FinalizeDueAccountsAsync(CancellationToken.None);
     }
+
+    private async Task<int> RunFinalizerAsync(ILoggerFactory loggerFactory)
+    {
+        await using AsyncServiceScope scope = Factory.Services.CreateAsyncScope();
+        IAccountErasureService erasureService = CreateErasureService(scope.ServiceProvider, loggerFactory);
+        IAccountDeletionFinalizer finalizer =
+            ActivatorUtilities.CreateInstance<AccountDeletionFinalizer>(scope.ServiceProvider, erasureService);
+        return await finalizer.FinalizeDueAccountsAsync(CancellationToken.None);
+    }
+
+    /// <summary>
+    /// The erasure service with everything from the scope except its logger, so a test can check that
+    /// the log about the emergency lock matches what happened to the row (#937).
+    /// </summary>
+    private static AccountErasureService CreateErasureService(IServiceProvider scopedServices, ILoggerFactory loggerFactory) =>
+        ActivatorUtilities.CreateInstance<AccountErasureService>(
+            scopedServices, loggerFactory.CreateLogger<AccountErasureService>());
 
     private async Task BackdateScheduleAsync(Guid userId, TimeSpan age)
     {

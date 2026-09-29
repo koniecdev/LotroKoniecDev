@@ -1,8 +1,10 @@
 using System.Security.Claims;
 using Microsoft.AspNetCore.Identity;
+using Microsoft.EntityFrameworkCore;
 using OpenIddict.Abstractions;
 using LotroKoniecDev.AuthSystem.API.ApiErrors;
 using LotroKoniecDev.AuthSystem.Domain.Aggregates.ApplicationUsers.Entities;
+using LotroKoniecDev.AuthSystem.Persistence.DbContexts;
 using LotroKoniecDev.SharedKernel.Constants;
 using LotroKoniecDev.SharedKernel.Monads;
 
@@ -19,17 +21,25 @@ namespace LotroKoniecDev.AuthSystem.API.Services.Gdpr;
 /// </summary>
 internal sealed partial class AccountErasureService : IAccountErasureService
 {
+    /// <summary>
+    /// No full stop at the end: the finalizer's log line adds its own sentence after it.
+    /// </summary>
+    private const string AnonymizationFailedDetails = "The account could not be anonymized";
+
+    private readonly AuthDbContext _dbContext;
     private readonly UserManager<ApplicationUser> _userManager;
     private readonly IOpenIddictTokenManager _tokenManager;
     private readonly IOpenIddictAuthorizationManager _authorizationManager;
     private readonly ILogger<AccountErasureService> _logger;
 
     public AccountErasureService(
+        AuthDbContext dbContext,
         UserManager<ApplicationUser> userManager,
         IOpenIddictTokenManager tokenManager,
         IOpenIddictAuthorizationManager authorizationManager,
         ILogger<AccountErasureService> logger)
     {
+        _dbContext = dbContext;
         _userManager = userManager;
         _tokenManager = tokenManager;
         _authorizationManager = authorizationManager;
@@ -84,9 +94,8 @@ internal sealed partial class AccountErasureService : IAccountErasureService
             {
                 string errors = string.Join(", ", updateResult.Errors.Select(e => e.Description));
                 LogAnonymizationFailed(_logger, user.Id, errors);
-                await TryLockAccountAsync(user);
-                return Result.Failure(AuthErrors.AccountDeletionFailed(
-                    "Account erasure partially failed. The account stays locked; the finalizer will retry."));
+                await TryLockAccountAsync(user.Id, cancellationToken);
+                return Result.Failure(AuthErrors.AccountDeletionFailed(AnonymizationFailedDetails));
             }
 
             LogAuthDataAnonymized(_logger, user.Id);
@@ -94,9 +103,8 @@ internal sealed partial class AccountErasureService : IAccountErasureService
         catch (Exception ex)
         {
             LogAuthSideErasureFailed(_logger, ex, user.Id);
-            await TryLockAccountAsync(user);
-            return Result.Failure(AuthErrors.AccountDeletionFailed(
-                "Account erasure partially failed. The account stays locked; the finalizer will retry."));
+            await TryLockAccountAsync(user.Id, cancellationToken);
+            return Result.Failure(AuthErrors.AccountDeletionFailed(AnonymizationFailedDetails));
         }
 
         // Best-effort cleanup: revoke the tokens and remove roles, claims and logins. The account is
@@ -150,19 +158,51 @@ internal sealed partial class AccountErasureService : IAccountErasureService
         }
     }
 
-    private async Task TryLockAccountAsync(ApplicationUser user)
+    /// <summary>
+    /// Locks the account for good after a failed erasure, so its data cannot be reached while it waits
+    /// for the finalizer's next run. It writes the lockout columns and nothing else, straight to the
+    /// database. The failed save left the anonymized values on the tracked account, and any save of that
+    /// account would write them too. The finalizer finds its work by the real address, so an account
+    /// saved with the anonymized one would never be retried and its cleanup would never run (#908, #937).
+    /// </summary>
+    /// <remarks>
+    /// An account that is no longer waiting for its erasure is left alone: its owner cancelled the
+    /// deletion, or another run already erased the account and locked it in the same save.
+    /// </remarks>
+    private async Task TryLockAccountAsync(Guid userId, CancellationToken cancellationToken)
     {
         try
         {
-            await _userManager.SetLockoutEnabledAsync(user, true);
-            await _userManager.SetLockoutEndDateAsync(user, DateTimeOffset.MaxValue);
-            await _userManager.UpdateSecurityStampAsync(user);
+            DateTimeOffset? lockedUntil = DateTimeOffset.MaxValue;
+            string securityStamp = Guid.NewGuid().ToString();
 
-            LogEmergencyLockout(_logger, user.Id);
+            // A new concurrency stamp makes a write that read the account before the lock fail, instead
+            // of putting the old lockout back.
+            string concurrencyStamp = Guid.NewGuid().ToString();
+
+            int lockedCount = await _dbContext.Users
+                .Where(u => u.Id == userId
+                            && u.DeletionScheduledAt != null
+                            && !u.Email!.EndsWith(AnonymizationConstants.EmailDomain))
+                .ExecuteUpdateAsync(
+                    setters => setters
+                        .SetProperty(u => u.LockoutEnabled, true)
+                        .SetProperty(u => u.LockoutEnd, lockedUntil)
+                        .SetProperty(u => u.SecurityStamp, securityStamp)
+                        .SetProperty(u => u.ConcurrencyStamp, concurrencyStamp),
+                    cancellationToken);
+
+            if (lockedCount == 0)
+            {
+                LogEmergencyLockoutNotNeeded(_logger, userId);
+                return;
+            }
+
+            LogEmergencyLockout(_logger, userId);
         }
         catch (Exception ex)
         {
-            LogEmergencyLockoutFailed(_logger, ex, user.Id);
+            LogEmergencyLockoutFailed(_logger, ex, userId);
         }
     }
 
@@ -184,11 +224,14 @@ internal sealed partial class AccountErasureService : IAccountErasureService
     [LoggerMessage(EventId = EventIds.GdprErasureArtifactsCleaned, Level = LogLevel.Information, Message = "GDPR erasure: tokens, authorizations, roles, claims, and logins cleaned up for user {UserId}")]
     private static partial void LogArtifactsCleaned(ILogger logger, Guid userId);
 
-    [LoggerMessage(EventId = EventIds.GdprErasureArtifactsCleanupFailed, Level = LogLevel.Warning, Message = "GDPR erasure: cleanup of auth artifacts failed for user {UserId}. Account is already anonymized and locked — artifacts will expire naturally.")]
+    [LoggerMessage(EventId = EventIds.GdprErasureArtifactsCleanupFailed, Level = LogLevel.Warning, Message = "GDPR erasure: cleanup of auth artifacts failed for user {UserId}. The account is already anonymized and locked. Its tokens expire on their own, but its roles, claims and logins stay until someone removes them.")]
     private static partial void LogArtifactsCleanupFailed(ILogger logger, Exception exception, Guid userId);
 
-    [LoggerMessage(EventId = EventIds.GdprErasureEmergencyLockout, Level = LogLevel.Warning, Message = "Emergency lockout applied for user {UserId} after partial GDPR erasure failure")]
+    [LoggerMessage(EventId = EventIds.GdprErasureEmergencyLockout, Level = LogLevel.Warning, Message = "Emergency lockout applied for user {UserId} after a failed GDPR erasure")]
     private static partial void LogEmergencyLockout(ILogger logger, Guid userId);
+
+    [LoggerMessage(EventId = EventIds.GdprErasureEmergencyLockoutNotNeeded, Level = LogLevel.Information, Message = "No emergency lockout for user {UserId} after a failed GDPR erasure: the account is no longer waiting for its erasure")]
+    private static partial void LogEmergencyLockoutNotNeeded(ILogger logger, Guid userId);
 
     [LoggerMessage(EventId = EventIds.GdprErasureEmergencyLockoutFailed, Level = LogLevel.Critical, Message = "Failed to apply emergency lockout for user {UserId}. Manual intervention required immediately.")]
     private static partial void LogEmergencyLockoutFailed(ILogger logger, Exception exception, Guid userId);

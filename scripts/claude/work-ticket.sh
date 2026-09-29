@@ -65,6 +65,9 @@ esac
 # Worktrees, logs and the lock live under the MAIN checkout even when this script runs from a
 # worktree, so every run on the machine sees the same `.claude/worktrees/ticket-<n>` names.
 MAIN_ROOT="$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")"
+# The PRs of this ticket, as a jq filter: from this repository, on a branch named "<n>-…" (the name
+# `gh issue develop` gives it).
+OURS="select((.isCrossRepository | not) and (.headRefName | startswith(\"$ISSUE-\")))"
 RUN_DIR="${2:-$MAIN_ROOT/logs/claude-loop/adhoc-$(date +%Y%m%d-%H%M%S)}"
 mkdir -p "$RUN_DIR"
 
@@ -123,25 +126,6 @@ if [ -z "${GH_TOKEN:-}" ]; then
     fi
 fi
 
-# ── Provenance gate: only maintainer-written issue text may become the worker's task ───────────
-# This is the enforcement point, not next-ticket.sh: the picker merely *selects*, whereas the
-# untrusted text reaches the LLM here. Explicit ticket numbers (backlog-loop.sh 123) and direct
-# invocations skip the picker entirely, so the gate has to live in front of the session (ADR-0026).
-trust_rc=0
-"$REPO_ROOT/scripts/claude/issue-trust.sh" "$ISSUE" || trust_rc=$?
-if [ "$trust_rc" -eq 1 ]; then
-    meta outcome untrusted
-    log "REFUSED by the provenance gate — untrusted writer (see above); no session spawned"
-    exit 11
-fi
-if [ "$trust_rc" -ne 0 ]; then
-    # An unreadable API is systemic, not a property of this ticket: report it as a session error
-    # so the conductor's circuit breaker stops the run instead of "skipping" the whole backlog.
-    meta outcome error
-    log "provenance gate could not verify #$ISSUE (rc=$trust_rc) — treating as an error"
-    exit 3
-fi
-
 # A rebase, merge or cherry-pick the session left half done. A commit on top of it would bury the
 # conflict, so such a worktree is left exactly as it is, for a human.
 operation_in_progress() {
@@ -191,6 +175,8 @@ remove_e2e_images() {
 
 # Everything is committed by now, so removing a clean worktree loses nothing: the branch stays,
 # and `git worktree add` brings the folder back in seconds for a follow-up fix.
+# finish [remove] — "remove" removes the worktree even with LOOP_KEEP_WORKTREE=1: a kept worktree
+# that can no longer be resumed makes room for a fresh start.
 finish() {
     [ -d "$WT" ] || return 0
     if operation_in_progress; then
@@ -201,7 +187,7 @@ finish() {
         log "worktree left in place — its leftovers could not be committed: $WT"
         return 0
     fi
-    if [ "$KEEP_WORKTREE" = "1" ]; then
+    if [ "$KEEP_WORKTREE" = "1" ] && [ "${1:-}" != "remove" ]; then
         log "worktree kept: $WT"
         return 0
     fi
@@ -228,14 +214,29 @@ kept_marker() {
     echo "$git_dir/loop-resume"
 }
 
-# Writes the marker for the session in $OUT; fails when there is nothing to resume.
+# Every file of the worktree that git does not ignore, committed or not, as one tree id. It is built
+# in a copy of the index, so the worktree's own index and `git status` stay as they are.
+tree_state() {
+    local index state=""
+    index="$(mktemp "${TMPDIR:-/tmp}/loop-index.XXXXXX")" || return 1
+    cp "$(git -C "$WT" rev-parse --path-format=absolute --git-path index)" "$index" 2>/dev/null || rm -f "$index"
+    if GIT_INDEX_FILE="$index" git -C "$WT" add -A >/dev/null 2>&1; then
+        state="$(GIT_INDEX_FILE="$index" git -C "$WT" write-tree 2>/dev/null || true)"
+    fi
+    rm -f "$index"
+    [ -n "$state" ] || return 1
+    echo "$state"
+}
+
+# Writes the marker for the session; fails when there is nothing to resume.
 keep_for_resume() {
-    local session marker head
-    session="$(jq -r '.session_id // ""' "$OUT" 2>/dev/null || true)"
-    [ -n "$session" ] || return 1
+    local marker head tree
+    [ -n "$known_session" ] || return 1
     marker="$(kept_marker)" || return 1
     head="$(git -C "$WT" rev-parse HEAD 2>/dev/null)" || return 1
-    printf 'session=%s\nhead=%s\nturns=%s\n' "$session" "$head" "$turns" > "$marker" 2>/dev/null || return 1
+    tree="$(tree_state)" || return 1
+    printf 'session=%s\nhead=%s\ntree=%s\nturns=%s\nstarted=%s\n' \
+        "$known_session" "$head" "$tree" "$turns" "$session_started" > "$marker" 2>/dev/null || return 1
 }
 
 # The branch of the kept worktree. A rebase that stopped half way detaches HEAD, but git still
@@ -266,54 +267,106 @@ has_transcript() {
     return 1
 }
 
+# The marker is read once: another run may claim it at any moment, and a read that fails half way
+# must not end this script under `set -e`.
+marker="$(kept_marker || true)"
+marker_text=""
+if [ -n "$marker" ]; then
+    marker_text="$(cat "$marker" 2>/dev/null || true)"
+fi
+marker_value() {
+    sed -n "s/^$1=//p" <<< "$marker_text" | tail -1
+}
+
+# ── Provenance gate: only maintainer-written issue text may become the worker's task ───────────
+# This is the enforcement point, not next-ticket.sh: the picker merely *selects*, whereas the
+# untrusted text reaches the LLM here. Explicit ticket numbers (backlog-loop.sh 123) and direct
+# invocations skip the picker entirely, so the gate has to live in front of the session (ADR-0026).
+trust_rc=0
+"$REPO_ROOT/scripts/claude/issue-trust.sh" "$ISSUE" || trust_rc=$?
+if [ "$trust_rc" -eq 1 ]; then
+    meta outcome untrusted
+    # A session kept for a resume will never run again, so its work is salvaged now, as it was
+    # before #934, instead of waiting in a worktree nobody is told about.
+    if [ -n "$marker_text" ]; then
+        rm -f "$marker"
+        finish remove
+    fi
+    log "REFUSED by the provenance gate — untrusted writer (see above); no session spawned"
+    exit 11
+fi
+if [ "$trust_rc" -ne 0 ]; then
+    # An unreadable API is systemic, not a property of this ticket: report it as a session error
+    # so the conductor's circuit breaker stops the run instead of "skipping" the whole backlog.
+    meta outcome error
+    log "provenance gate could not verify #$ISSUE (rc=$trust_rc) — treating as an error"
+    exit 3
+fi
+
 # ── Resume a kept worktree, or never start a ticket that is already in flight ──────────────────
 # A worktree folder deleted by hand stays registered, and `git worktree add` then refuses the path.
 git worktree prune 2>/dev/null || true
 
 resume_session=""
 resume_turns=0
-marker="$(kept_marker || true)"
-if [ -n "$marker" ] && [ -f "$marker" ]; then
-    kept_session="$(sed -n 's/^session=//p' "$marker" | tail -1)"
-    kept_head="$(sed -n 's/^head=//p' "$marker" | tail -1)"
-    if [ "$(git -C "$WT" rev-parse HEAD 2>/dev/null || true)" != "$kept_head" ]; then
+resume_started=""
+release_kept=0
+if [ -n "$marker_text" ]; then
+    kept_session="$(marker_value session)"
+    # The session must find the tree it left. A new commit or a changed file means someone else
+    # works there now.
+    if [ "$(git -C "$WT" rev-parse HEAD 2>/dev/null || true)" != "$(marker_value head)" ] \
+        || [ "$(tree_state || true)" != "$(marker_value tree)" ]; then
         rm -f "$marker"
         meta outcome skipped
-        log "SKIPPED — $WT was kept to resume a session after a usage limit, but its HEAD moved since, so someone else works there. When that work is done: git worktree remove \"$WT\""
+        log "SKIPPED — $WT was kept to resume a session after a usage limit, but its HEAD or its files changed since, so someone else works there. When that work is done: git worktree remove \"$WT\""
         exit 12
     fi
     if has_transcript "$kept_session"; then
         resume_session="$kept_session"
-        resume_turns="$(sed -n 's/^turns=//p' "$marker" | tail -1)"
+        resume_turns="$(marker_value turns)"
         case "$resume_turns" in ''|*[!0-9]*) resume_turns=0 ;; esac
+        resume_started="$(marker_value started)"
+        case "$resume_started" in ''|*[!0-9]*) resume_started=0 ;; esac
     else
-        log "the kept session ${kept_session:-<none>} has no transcript under $CLAUDE_CONFIG_DIR — salvaging the kept worktree and starting fresh"
+        log "the kept session ${kept_session:-<none>} has no transcript under $CLAUDE_CONFIG_DIR, so it cannot be resumed"
         rm -f "$marker"
-        keep_setting="$KEEP_WORKTREE"
-        KEEP_WORKTREE=0
-        finish
-        KEEP_WORKTREE="$keep_setting"
+        release_kept=1
     fi
 fi
 
 if [ -n "$resume_session" ]; then
     # The session may have opened its PR before the limit hit, so an open PR from the kept branch
-    # is its own. Any other PR of the ticket means the work went on without this session: a merged
-    # one, one open from another branch, or a closed one from this branch.
+    # is its own, as long as nobody pushed to it since. Any other PR of the ticket that is open, or
+    # that was merged or closed after the session started, means the work went on without it.
     branch="$(kept_branch)"
-    ticket_prs="$(gh pr list --state all --limit 200 --json number,headRefName,isCrossRepository,state \
-        --jq ".[] | select((.isCrossRepository | not) and (.headRefName | startswith(\"$ISSUE-\"))) | \"\(.number) \(.state) \(.headRefName)\"")" || {
+    ticket_prs="$(gh pr list --state all --limit 200 --json number,headRefName,headRefOid,isCrossRepository,state,mergedAt,closedAt \
+        --jq ".[] | $OURS | \"\(.number) \(.state) \(.headRefName) \(.headRefOid) \((.mergedAt // .closedAt // \"\") | if . == \"\" then 0 else fromdateiso8601 end)\"")" || {
         meta outcome error
         log "could not list the ticket's pull requests — treating as an error"
         exit 3
     }
     blocker=""
-    while read -r number state head; do
+    while read -r number state head oid ended; do
         [ -n "$number" ] || continue
         case "$state" in
-            MERGED) blocker="PR #$number was merged" ;;
-            OPEN) [ "$head" = "$branch" ] || blocker="PR #$number is open from another branch ($head)" ;;
-            CLOSED) [ "$head" != "$branch" ] || blocker="PR #$number from this branch was closed" ;;
+            OPEN)
+                if [ "$head" != "$branch" ]; then
+                    blocker="PR #$number is open from another branch ($head)"
+                elif ! git -C "$WT" merge-base --is-ancestor "$oid" "refs/heads/$branch" 2>/dev/null; then
+                    # A review fix or a rebase by /merge-train: the session would build on a stale
+                    # copy, and its next push could overwrite that work.
+                    blocker="PR #$number has commits the kept branch does not"
+                fi
+                ;;
+            MERGED)
+                [ "$ended" -lt "$resume_started" ] || blocker="PR #$number was merged"
+                ;;
+            CLOSED)
+                if [ "$head" = "$branch" ] && [ "$ended" -ge "$resume_started" ]; then
+                    blocker="PR #$number from this branch was closed"
+                fi
+                ;;
         esac
         [ -z "$blocker" ] || break
     done <<< "$ticket_prs"
@@ -330,7 +383,7 @@ else
     # manual `/ticket` session or an earlier run is still on it. Working it again would open a
     # second PR for the same ticket, or fight over the same branch.
     open_pr="$(gh pr list --state open --limit 200 --json number,headRefName,isCrossRepository \
-        --jq "[.[] | select((.isCrossRepository | not) and (.headRefName | startswith(\"$ISSUE-\"))) | .number] | first // empty")" || {
+        --jq "[.[] | $OURS | .number] | first // empty")" || {
         meta outcome error
         log "could not list open pull requests — treating as an error"
         exit 3
@@ -338,8 +391,16 @@ else
     if [ -n "$open_pr" ]; then
         meta outcome skipped
         meta pr "$open_pr"
-        log "SKIPPED — PR #$open_pr is already open for this ticket and waits for your review"
+        if [ "$release_kept" -eq 1 ]; then
+            log "SKIPPED — PR #$open_pr is already open for this ticket and waits for your review; the unfinished work of its session stays in $WT for you"
+        else
+            log "SKIPPED — PR #$open_pr is already open for this ticket and waits for your review"
+        fi
         exit 12
+    fi
+    if [ "$release_kept" -eq 1 ]; then
+        log "salvaging the kept worktree and starting fresh"
+        finish remove
     fi
     if [ -e "$WT" ]; then
         meta outcome skipped
@@ -561,7 +622,7 @@ find_ticket_pr() {
     fi
     # A wrong link may be a slip in the summary: the ticket's own PR, found by its branch, counts.
     if ! pr_num="$(gh pr list --state open --limit 200 --json number,headRefName,isCrossRepository \
-        --jq "[.[] | select((.isCrossRepository | not) and (.headRefName | startswith(\"$ISSUE-\"))) | .number] | first // empty")"; then
+        --jq "[.[] | $OURS | .number] | first // empty")"; then
         pr_num=""
         pr_unknown=1
         pr_problem="${pr_problem:-no PR named}, and the open PRs could not be listed"
@@ -577,6 +638,11 @@ find_ticket_pr() {
 start_epoch="$(date +%s)"
 resumes=0
 turns="$resume_turns"
+# The last session id a run reported. A run that crashes without JSON must not lose it.
+known_session="$resume_session"
+# When the session first started, carried across limits: a PR that ended before it is history.
+session_started="${resume_started:-$start_epoch}"
+[ -n "$resume_session" ] || session_started="$start_epoch"
 if [ -n "$resume_session" ]; then
     # The results of the attempt the limit stopped stay for debugging, under names the conductor's
     # cost total does not read. $OUT stays until the resume ends: the resume reports the whole
@@ -619,6 +685,8 @@ pr_named=""
 pr_problem=""
 pr_unknown=0
 while :; do
+    run_session_id="$(jq -r '.session_id // ""' "$OUT" 2>/dev/null || true)"
+    [ -z "$run_session_id" ] || known_session="$run_session_id"
     run_turns="$(jq -r '.num_turns // 0' "$OUT" 2>/dev/null || echo 0)"
     case "$run_turns" in ''|*[!0-9]*) run_turns=0 ;; esac
     turns=$((turns + run_turns))
@@ -640,8 +708,7 @@ while :; do
         [ "$status_resumes" -lt "$MAX_RESUMES" ] || break
         reason=no-status
     fi
-    session_id="$(jq -r '.session_id // ""' "$OUT" 2>/dev/null || true)"
-    [ -n "$session_id" ] || break
+    [ -n "$run_session_id" ] || break
     left_min=$(( TIMEOUT_MIN - ( $(date +%s) - start_epoch ) / 60 ))
     if [ "$left_min" -lt "$MIN_RESUME_MIN" ]; then
         log "the session needs a resume, but only ${left_min}m of the ticket's clock is left — not resuming"
@@ -670,7 +737,7 @@ while :; do
         status_resumes=$((status_resumes + 1))
         log "the session stopped without a STATUS line — resuming it ($status_resumes of $MAX_RESUMES)"
     fi
-    run_session "$OUT.resume-$resumes" "$(resume_prompt "$reason" "$left_min")" --resume "$session_id"
+    run_session "$OUT.resume-$resumes" "$(resume_prompt "$reason" "$left_min")" --resume "$run_session_id"
     keep_result "$resumes"
 done
 
@@ -679,11 +746,10 @@ elapsed_min=$(( ( $(date +%s) - start_epoch ) / 60 ))
 result="$(jq -r '.result // ""' "$OUT" 2>/dev/null || echo "")"
 is_error="$(jq -r '.is_error // false' "$OUT" 2>/dev/null || echo "true")"
 cost="$(jq -r '.total_cost_usd // 0' "$OUT" 2>/dev/null || echo 0)"
-session_id="$(jq -r '.session_id // ""' "$OUT" 2>/dev/null || true)"
 meta cost "$cost"
 meta turns "$turns"
 meta minutes "$elapsed_min"
-[ -z "$session_id" ] || meta session "$session_id"
+[ -z "$known_session" ] || meta session "$known_session"
 
 # ── Usage-limit / hard-error detection ─────────────────────────────────────────────────────────
 # The CLI reports plan/rate limits as api_error_status 429 in the result JSON regardless of the
@@ -702,7 +768,7 @@ if [ "$api_error_status" = "429" ] \
     meta outcome limit
     if keep_for_resume; then
         meta worktree kept
-        log "USAGE LIMIT hit — worktree kept, so the next run of #$ISSUE resumes session $session_id; the conductor will sleep and retry"
+        log "USAGE LIMIT hit — worktree kept, so the next run of #$ISSUE resumes session $known_session; the conductor will sleep and retry"
         exit 6
     fi
     finish

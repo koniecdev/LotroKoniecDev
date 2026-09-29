@@ -27,9 +27,14 @@ TRUST="$SCRIPTS_DIR/claude/issue-trust.sh"
 TMP_ROOT="$(mktemp -d)"
 trap 'rm -rf "$TMP_ROOT"' EXIT
 
-# The worker's own defaults are under test, not the caller's environment.
+# The worker's own defaults are under test, not the caller's environment. That includes the
+# maintainer's ~/.claude/model-policy.env, which the worker reads before its defaults.
 unset BASH_MAX_TIMEOUT_MS BASH_DEFAULT_TIMEOUT_MS CLAUDE_CODE_DISABLE_BACKGROUND_TASKS LOOP_MAX_RESUMES \
     LOOP_KEEP_WORKTREE LOOP_TICKET_TIMEOUT_MIN
+export HOME="$TMP_ROOT/home"
+mkdir -p "$HOME"
+# The ticket clock when LOOP_TICKET_TIMEOUT_MIN is unset (#953).
+DEFAULT_TIMEOUT_MIN=240
 # A resume after a usage limit looks for the session's transcript in the worker's config dir; the
 # developer's real one must never be read.
 export LOOP_CONFIG_DIR="$TMP_ROOT/config"
@@ -764,6 +769,7 @@ run_case 0 "work-ticket: a session that stopped to wait is resumed and opens its
     env CLAUDE_BEHAVIOR="$TMP_ROOT/waits.sh" "$WORK" 88 "$TMP_ROOT/run"
 [ ! -e "$TMP_ROOT/run/ticket-88.json.before-resume-2" ] && [ ! -e "$TMP_ROOT/run/ticket-88.json.resume-2" ] \
     || fail "an earlier attempt's resume results should be cleared"
+expect_in_output "timeout=${DEFAULT_TIMEOUT_MIN}m)"
 expect_in_output "resuming it (1 of 2)"
 expect_in_output "PR #788 opened"
 [ "$(cat "$TMP_ROOT/claude-runs")" = "2" ] || fail "expected the first run and one resume" "$LAST_OUTPUT"
@@ -772,7 +778,7 @@ grep -q "first-run stderr" "$TMP_ROOT/run/ticket-88.stderr" || fail "the resume 
 [ "$(sed -n 2p "$TMP_ROOT/claude-args-1")" = "/work-ticket 88" ] || fail "the first run should get /work-ticket 88"
 sed -n 2p "$TMP_ROOT/claude-args-2" | grep -q "end with the STATUS: DONE or STATUS: BLOCKED block" \
     || fail "the resume should ask for the STATUS block" "$(sed -n 2p "$TMP_ROOT/claude-args-2")"
-sed -n 2p "$TMP_ROOT/claude-args-2" | grep -qE "stops this session in about (89|90) minutes" \
+sed -n 2p "$TMP_ROOT/claude-args-2" | grep -qE "stops this session in about ($((DEFAULT_TIMEOUT_MIN - 1))|$DEFAULT_TIMEOUT_MIN) minutes" \
     || fail "the resume should say how much of the clock is left" "$(sed -n 2p "$TMP_ROOT/claude-args-2")"
 [ "$(tail -2 "$TMP_ROOT/claude-args-2" | tr '\n' ' ')" = "--resume s-88 " ] \
     || fail "the resume should name the session of the first run" "$(cat "$TMP_ROOT/claude-args-2")"
@@ -810,6 +816,18 @@ run_case 3 "work-ticket: a LOOP_MAX_RESUMES that is not a number is refused" \
     env LOOP_MAX_RESUMES=two "$WORK" 93 "$TMP_ROOT/run"
 [ ! -f "$CLAUDE_MARKER" ] || fail "no session may start with a broken setting"
 expect_meta 93 outcome=error
+
+# A bad clock used to pass the start and break the script's arithmetic 30 seconds into the session.
+for bad_clock in 4h 0 090 abc; do
+    reset_fixtures
+    fixture_issue 124 maintainer OWNER
+    run_case 3 "work-ticket: a LOOP_TICKET_TIMEOUT_MIN of '$bad_clock' is refused" \
+        env LOOP_TICKET_TIMEOUT_MIN="$bad_clock" "$WORK" 124 "$TMP_ROOT/run"
+    expect_in_output "LOOP_TICKET_TIMEOUT_MIN is not a whole number of minutes above zero, without a leading zero: '$bad_clock'"
+    [ ! -f "$CLAUDE_MARKER" ] || fail "no session may start with a broken clock ($bad_clock)"
+    [ ! -e "$WT_ROOT/ticket-124" ] || fail "a broken clock must not leave a worktree ($bad_clock)"
+    expect_meta 124 outcome=error
+done
 
 # A resume is a new process that can read the issue again, so the gate runs before it too.
 reset_fixtures
@@ -1285,7 +1303,8 @@ fi
 STUB
 chmod +x "$TMP_ROOT/bin/date"
 
-# The skew is set only after the child has started, so the stop finds it.
+# The skew is set only after the child has started, so the stop finds it. It jumps ten minutes past
+# the default clock.
 reset_fixtures
 rm -f "$TMP_ROOT/session-child" "$TMP_ROOT/clock-skew"
 fixture_issue 95 maintainer OWNER
@@ -1295,7 +1314,7 @@ set -m
 "$REAL_SLEEP" 60 &
 echo $! > "'"$TMP_ROOT"'/session-child"
 set +m
-echo 6000 > "'"$TMP_ROOT"'/clock-skew"
+echo '"$(( (DEFAULT_TIMEOUT_MIN + 10) * 60 ))"' > "'"$TMP_ROOT"'/clock-skew"
 wait'
 run_case 4 "work-ticket: the wall clock ends a session" \
     env CLAUDE_BEHAVIOR="$TMP_ROOT/long-skew.sh" "$WORK" 95 "$TMP_ROOT/run"

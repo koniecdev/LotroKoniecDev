@@ -1,7 +1,8 @@
 # ADR-0049: The revocation window is the access-token lifetime — five minutes, not introspection
 
-**Status:** Accepted (amended 2026-09-27 by #848 — a refresh now also checks the security stamp, see
-the amendment below)
+**Status:** Accepted (amended 2026-09-27 by #848 — a refresh now also checks the security stamp;
+amended 2026-09-29 by #933 — the TMS allows no clock skew and accepts only access tokens; see the
+amendments below)
 **Date:** 2026-08-21
 **Decision-makers:** Solo maintainer
 **Related:** #686 (SEC-08, the defect), #701 (QA-FE-24 S03 TC06/TC07, where a tester hit it), ADR-0048 (the e-mail-change undo this protects), ADR-0041 (no API gateway), ADR-0031 (deletion grace period), `OpenIddictSettings`, `IUserSessionRevoker`, `SecurityStampCookieValidator`, `CookieTokenRefresher`, `DeadSessionRegistry`
@@ -152,3 +153,36 @@ five minutes. Two side effects are accepted:
 - A rollback to a build before this change copies the stamp into access tokens at the next refresh,
   because the older code sends unknown claims to the access token. Those tokens only reach the
   frontend's encrypted cookie and the TMS, and the next deploy stops it.
+
+## Amendment (2026-09-29, #933): the TMS allows no clock skew, so the window really is five minutes
+
+The decision above set the token lifetime and never looked at clock skew. The TMS checks tokens with
+plain JwtBearer, and its `TokenValidationParameters` did not set `ClockSkew`. The library default is
+five minutes, and its lifetime check refuses a token only when `exp` is more than that far in the
+past. So a token that expired at 12:00 still worked until 12:05. The real window was up to ten
+minutes, not the five this ADR, the pages and the runbook promise.
+
+The TMS now sets `ClockSkew` to zero, as OpenIddict's own validator and its server do. In every
+environment the auth server and the TMS run on the same machine (one box per environment on Hetzner,
+one host or one Docker engine everywhere else), so they read the same clock and there is no
+difference to allow for. A token now stops working at its `exp`.
+
+The same change makes the TMS accept only access tokens. `ValidTypes` is `at+jwt` and
+`application/at+jwt`: RFC 9068 §4 requires this of a resource server, and OpenIddict's validator does
+it by default. The auth server signs other tokens with the API's audience too. Today the only one is
+an ID token for the API client itself, which gives nothing that client cannot already get, so this is
+defence in depth, not the fix of an open hole.
+
+The TMS keeps JwtBearer and does not switch to OpenIddict's validation package. That package has both
+rules built in, but it is a larger change to the auth setup, the test host and the metadata path, and
+it moves the TMS away from the TheKittySaver original it was lifted from. Tests pin both rules
+instead, so removing either one fails the build:
+
+3. A token that expired one second, one minute, four minutes or twenty minutes ago gets 401, and a
+   token that expires in one minute is accepted (`AuthorizationDefaultsTests`).
+4. A correctly signed token of another type gets 401 (`AuthorizationDefaultsTests`). The real token
+   endpoint writes `at+jwt` on user tokens and on service tokens (`TokenEndpointTests`), so the rule
+   cannot lock out the frontend or the deploy smoke.
+
+**Reopen this amendment when** the auth server and the TMS stop sharing a machine. Then allow a few
+seconds of skew, never the library's five minutes, and count those seconds in the window.

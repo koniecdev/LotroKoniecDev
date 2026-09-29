@@ -1,4 +1,5 @@
 using System.Net.Http.Headers;
+using LotroKoniecDev.SharedKernel.Authorization;
 using LotroKoniecDev.TranslationSystem.Contracts.Discovery;
 
 namespace LotroKoniecDev.TranslationSystem.API.Tests.Integration.Tests.Auth;
@@ -77,14 +78,73 @@ public sealed class AuthorizationDefaultsTests
         response.StatusCode.ShouldBe(HttpStatusCode.NotFound);
     }
 
-    [Fact]
-    public async Task GetProtectedResource_WithExpiredToken_ShouldReturn401()
+    [Theory]
+    [InlineData(1)]
+    [InlineData(60)]
+    [InlineData(240)]
+    [InlineData(1200)]
+    public async Task GetProtectedResource_WithExpiredToken_ShouldReturn401(int secondsSinceExpiry)
     {
         // Arrange: token rejection is enforced on every protected route, not just discovery.
         // (/api/v1/game-versions: the translations list itself is publicly readable since #309.)
+        // Everything under 300 seconds sits inside JwtBearer's default clock skew. The TMS allows none,
+        // so the access-token lifetime is the whole revocation window (#933, ADR-0049).
+        using HttpClient client = _factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue(
+            "Bearer",
+            TranslationSystemApiFactory.CreateAccessTokenExpiringAt(DateTime.UtcNow.AddSeconds(-secondsSinceExpiry)));
+
+        // Act
+        HttpResponseMessage response = await client.GetAsync("/api/v1/game-versions");
+
+        // Assert
+        response.StatusCode.ShouldBe(HttpStatusCode.Unauthorized);
+    }
+
+    [Fact]
+    public async Task GetProtectedResource_WithTokenExpiringInAMinute_ShouldReturn200()
+    {
+        // Arrange: the other side of the zero skew. A token is good up to its last second.
+        using HttpClient client = _factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue(
+            "Bearer",
+            TranslationSystemApiFactory.CreateAccessTokenExpiringAt(DateTime.UtcNow.AddMinutes(1)));
+
+        // Act
+        HttpResponseMessage response = await client.GetAsync("/api/v1/game-versions");
+
+        // Assert
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+    }
+
+    [Theory]
+    [InlineData(AuthConstants.TokenTypes.AccessToken)]
+    [InlineData(AuthConstants.TokenTypes.AccessTokenMediaType)]
+    public async Task GetProtectedResource_WithAccessTokenType_ShouldReturn200(string tokenType)
+    {
+        // Arrange
         using HttpClient client = _factory.CreateClient();
         client.DefaultRequestHeaders.Authorization =
-            new AuthenticationHeaderValue("Bearer", TranslationSystemApiFactory.CreateExpiredAccessToken());
+            new AuthenticationHeaderValue("Bearer", TranslationSystemApiFactory.CreateAccessTokenOfType(tokenType));
+
+        // Act
+        HttpResponseMessage response = await client.GetAsync("/api/v1/game-versions");
+
+        // Assert
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+    }
+
+    [Theory]
+    [InlineData("JWT")]
+    [InlineData("application/JWT")]
+    [InlineData("oi_auc+jwt")]
+    public async Task GetProtectedResource_WithSignedTokenOfAnotherType_ShouldReturn401(string tokenType)
+    {
+        // Arrange: signature, issuer, audience and lifetime are all good. Only the type is wrong. The
+        // first two are what the auth server writes on an ID token (#933, RFC 9068).
+        using HttpClient client = _factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization =
+            new AuthenticationHeaderValue("Bearer", TranslationSystemApiFactory.CreateAccessTokenOfType(tokenType));
 
         // Act
         HttpResponseMessage response = await client.GetAsync("/api/v1/game-versions");

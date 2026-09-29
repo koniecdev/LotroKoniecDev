@@ -132,13 +132,12 @@ internal static class EventIds
     public const int DeletionCancelledRescheduled = 2381;
     public const int DeletionCancelledAddressMissing = 2382;
 
-    // Refused refresh (2390-2399). The client gets one generic answer for all of these, so only this log
-    // names the case (#944).
+    // Refused refresh (2390-2399)
     public const int RefreshRefusedNoSubject = 2390;
     public const int RefreshRefusedUserGone = 2391;
     public const int RefreshRefusedDeletionScheduled = 2392;
     public const int RefreshRefusedLockedOut = 2393;
-    public const int RefreshRefusedSecurityStampChanged = 2394;
+    public const int RefreshRefusedStaleSecurityStamp = 2394;
 
     // Change E-mail request / confirm / revert (2500-2519)
     public const int EmailChangeRequested = 2500;

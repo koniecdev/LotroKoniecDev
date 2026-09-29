@@ -18,14 +18,12 @@ namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Tests.Auth;
 /// #944: every refused refresh gets the same answer, so the client learns nothing about the account, and
 /// only the sign-in server's own log names the case. <see cref="TokenEndpointTests"/> and
 /// <see cref="SecurityStampTokenValidationTests"/> pin that answer. Nothing here revokes a token, so the
-/// token row stays valid and the handler's own checks do the refusing. Tokens are sealed with each host's
-/// own keys, so every test signs in on the host whose log it reads.
+/// token row stays valid and the handler's own checks do the refusing. Every test signs in on the host
+/// whose log it reads.
 /// </summary>
 public sealed class TokenRefreshRefusalLoggingTests : EndpointsTestBase
 {
     private const string Password = "TestPass1!";
-    private const string ClientId = "lotrokoniecdev-test";
-    private const string OfflineScopes = "email profile roles api offline_access";
 
     public TokenRefreshRefusalLoggingTests(AuthSystemApiFactory appFactory) : base(appFactory)
     {
@@ -45,7 +43,7 @@ public sealed class TokenRefreshRefusalLoggingTests : EndpointsTestBase
     [InlineData(AccountChange.DeletionScheduled, EventIds.RefreshRefusedDeletionScheduled, "account deletion is scheduled")]
     [InlineData(AccountChange.LockedOut, EventIds.RefreshRefusedLockedOut, "the account is locked out")]
     [InlineData(AccountChange.DeletionScheduledAndLockedOut, EventIds.RefreshRefusedDeletionScheduled, "account deletion is scheduled")]
-    [InlineData(AccountChange.SecurityStampChanged, EventIds.RefreshRefusedSecurityStampChanged, "the security stamp changed after sign-in, so a flow that ends every session has run")]
+    [InlineData(AccountChange.SecurityStampChanged, EventIds.RefreshRefusedStaleSecurityStamp, "the security stamp in the token is not current")]
     public async Task RefreshTokenGrant_WhenTheAccountChangedAfterSignIn_ShouldWarnWithTheCase(
         AccountChange change,
         int expectedEventId,
@@ -57,12 +55,12 @@ public sealed class TokenRefreshRefusalLoggingTests : EndpointsTestBase
         using CapturingLoggerFactory loggerFactory = new();
         await using WebApplicationFactory<Program> host = CreateHost(loggerFactory);
         using HttpClient client = host.CreateClient();
-        string refreshToken = await SignInAsync(client, user.Email);
+        string refreshToken = await GetRefreshTokenAsync(client, user.Email, Password);
 
         await ApplyAsync(change, user.Email);
 
         // Act
-        using HttpResponseMessage response = await RefreshAsync(client, refreshToken);
+        using HttpResponseMessage response = await RequestRefreshGrantAsync(client, refreshToken);
 
         // Assert
         response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
@@ -81,10 +79,10 @@ public sealed class TokenRefreshRefusalLoggingTests : EndpointsTestBase
         using CapturingLoggerFactory loggerFactory = new();
         await using WebApplicationFactory<Program> host = CreateHost(loggerFactory);
         using HttpClient client = host.CreateClient();
-        string refreshToken = await SignInAsync(client, user.Email);
+        string refreshToken = await GetRefreshTokenAsync(client, user.Email, Password);
 
         // Act
-        using HttpResponseMessage response = await RefreshAsync(client, refreshToken);
+        using HttpResponseMessage response = await RequestRefreshGrantAsync(client, refreshToken);
 
         // Assert
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
@@ -133,37 +131,6 @@ public sealed class TokenRefreshRefusalLoggingTests : EndpointsTestBase
         loggerFactory.Entries
             .Where(entry => entry.Category == typeof(TokenEndpoint).FullName)
             .ToList();
-
-    private static async Task<string> SignInAsync(HttpClient client, string email)
-    {
-        using FormUrlEncodedContent loginRequest = new(new Dictionary<string, string>
-        {
-            ["grant_type"] = "password",
-            ["username"] = email,
-            ["password"] = Password,
-            ["client_id"] = ClientId,
-            ["scope"] = OfflineScopes
-        });
-
-        using HttpResponseMessage loginResponse = await client.PostAsync(
-            new Uri("connect/token", UriKind.Relative), loginRequest);
-        loginResponse.StatusCode.ShouldBe(HttpStatusCode.OK);
-
-        using JsonDocument json = JsonDocument.Parse(await loginResponse.Content.ReadAsStringAsync());
-        return json.RootElement.GetProperty("refresh_token").GetString()!;
-    }
-
-    private static async Task<HttpResponseMessage> RefreshAsync(HttpClient client, string refreshToken)
-    {
-        using FormUrlEncodedContent refreshRequest = new(new Dictionary<string, string>
-        {
-            ["grant_type"] = "refresh_token",
-            ["refresh_token"] = refreshToken,
-            ["client_id"] = ClientId
-        });
-
-        return await client.PostAsync(new Uri("connect/token", UriKind.Relative), refreshRequest);
-    }
 
     private WebApplicationFactory<Program> CreateHost(CapturingLoggerFactory loggerFactory) =>
         Factory.WithWebHostBuilder(builder =>

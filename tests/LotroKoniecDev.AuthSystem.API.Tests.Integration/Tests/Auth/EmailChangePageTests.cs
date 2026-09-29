@@ -473,6 +473,7 @@ public sealed partial class EmailChangePageTests : EndpointsTestBase
 
         // The plain notice still goes out; the one carrying a link does not.
         await EmailChangeEmailSpy.WaitForChangedNoticeCaptureAsync();
+        EmailChangeEmailSpy.LastNoticeRecipient.ShouldBe(secondNewEmail);
         EmailChangeEmailSpy.RevertOfferCallCount.ShouldBe(0);
 
         // And the account still points home, so the owner's link from the first change works.
@@ -502,8 +503,10 @@ public sealed partial class EmailChangePageTests : EndpointsTestBase
         (await LoadUserByIdAsync(userId)).Email.ShouldBe(attackerSecondEmail);
 
         // Whatever the second change handed the attacker, they fire it at once - before the owner has
-        // even opened their mail.
-        await EmailChangeEmailSpy.WaitForRevertOfferCaptureAsync(TimeSpan.FromSeconds(3));
+        // even opened their mail. The notice is the last mail a confirmed change sends, so once it is
+        // here, any undo link the second change sent is here too.
+        await EmailChangeEmailSpy.WaitForChangedNoticeCaptureAsync();
+        EmailChangeEmailSpy.LastNoticeRecipient.ShouldBe(attackerSecondEmail);
         string? attackerRevertToken = EmailChangeEmailSpy.LastRevertToken;
         if (attackerRevertToken is not null)
         {

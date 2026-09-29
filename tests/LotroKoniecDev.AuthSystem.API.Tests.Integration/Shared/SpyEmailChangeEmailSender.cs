@@ -77,7 +77,7 @@ public sealed class SpyEmailChangeEmailSender : IEmailChangeEmailSender
     /// so everything after it — relay, delivery, this spy — has to be waited for, never assumed.
     /// </summary>
     public Task WaitForVerificationCaptureAsync(TimeSpan? timeout = null) =>
-        WaitForAsync(() => LastVerificationToken is not null, timeout);
+        WaitForAsync(() => VerificationCallCount > 0, timeout);
 
     /// <summary>
     /// Waits for the warning to the current address. It is sent after the verification link, so a
@@ -87,16 +87,25 @@ public sealed class SpyEmailChangeEmailSender : IEmailChangeEmailSender
         WaitForAsync(() => WarningCallCount > 0, timeout);
 
     public Task WaitForRevertOfferCaptureAsync(TimeSpan? timeout = null) =>
-        WaitForAsync(() => LastRevertToken is not null, timeout);
+        WaitForAsync(() => RevertOfferCallCount > 0, timeout);
 
     /// <summary>
-    /// Waits for the notice sent to the new address. It is always sent last: after the undo link when
-    /// the change arms one, and on its own when it does not. So it is the signal that the dispatch
-    /// finished at all (#772).
+    /// Waits for the notice sent to the new address. It is the last mail a confirmed change sends:
+    /// after the undo link when the change arms one, and on its own when it does not. So once it is
+    /// here, every mail of that change is here too (#772). Every helper that completes a change waits
+    /// for it, so no mail of that change can land after the next <see cref="Reset"/>. A test that
+    /// confirms on its own and ends right away still can (#950).
     /// </summary>
     public Task WaitForChangedNoticeCaptureAsync(TimeSpan? timeout = null) =>
-        WaitForAsync(() => LastNoticeRecipient is not null, timeout);
+        WaitForAsync(() => NoticeCallCount > 0, timeout);
 
+    /// <summary>
+    /// Each wait checks the counter of its mail, not a field. The spy bumps the counter last and with a
+    /// fence, so every field of that mail is set once the wait sees it. A wait that runs out returns
+    /// quietly, so a test that then checks for a missing mail must first check that the mail it waited
+    /// for is there. Throwing instead needs #950 first: a mail left over from the previous test would
+    /// make the full run fail about every second time.
+    /// </summary>
     private static async Task WaitForAsync(Func<bool> arrived, TimeSpan? timeout)
     {
         using CancellationTokenSource waitWindow = new(timeout ?? TimeSpan.FromSeconds(15));

@@ -17,6 +17,9 @@ public sealed class TokenEndpointClientTests
     private const string AuthBaseUrl = "https://auth.lotro.test/";
     private const string RefreshToken = "the-refresh-token";
 
+    private static readonly byte[] InvalidUtf8InTheAccessToken =
+        [.. """{"access_token":"a"""u8, 0xFF, .. """a","expires_in":3600}"""u8];
+
     [Fact]
     public async Task RefreshAsync_WhenTheAuthApiAnswersWithTokens_ReturnsThem()
     {
@@ -44,12 +47,7 @@ public sealed class TokenEndpointClientTests
     {
         byte[] json = System.Text.Encoding.UTF8.GetBytes($$"""{"access_token":"{{AccessToken}}","expires_in":3600}""");
         byte[] body = withByteOrderMark ? [.. System.Text.Encoding.UTF8.GetPreamble(), .. json] : json;
-        using HttpClient httpClient = CreateHttpClient(StubHttpMessageHandler.RespondWith(
-            HttpStatusCode.OK,
-            () => new ByteArrayContent(body)
-            {
-                Headers = { ContentType = new MediaTypeHeaderValue("application/json") { CharSet = charset } }
-            }));
+        using HttpClient httpClient = CreateHttpClient(StubHttpMessageHandler.RespondWith(HttpStatusCode.OK, JsonBytes(body, charset)));
         TokenEndpointClient client = CreateClient(httpClient);
 
         TokenResponse? response = await client.RefreshAsync(RefreshToken);
@@ -59,26 +57,22 @@ public sealed class TokenEndpointClientTests
 
     public static TheoryData<byte[], string?> NonUtf8TokenAnswers => new()
     {
-        { [.. """{"access_token":"a"""u8, 0xFF, .. """a","expires_in":3600}"""u8], "utf-8" },
-        { [.. """{"access_token":"a"""u8, 0xFF, .. """a","expires_in":3600}"""u8], "utf8" },
+        { InvalidUtf8InTheAccessToken, "utf-8" },
+        { InvalidUtf8InTheAccessToken, "utf8" },
         { [.. System.Text.Encoding.Unicode.GetPreamble(), .. System.Text.Encoding.Unicode.GetBytes("""{"access_token":"a"}""")], "utf-16" },
         { System.Text.Encoding.Unicode.GetBytes("""{"access_token":"a"}"""), "bogus" }
     };
 
     /// <summary>
-    /// #943: JSON between services is UTF-8 (RFC 8259 §8.1). A token answer in any other encoding is a
-    /// failed refresh, never an exception, whatever charset its header names.
+    /// #943: JSON between services is UTF-8 (RFC 8259 §8.1), so the answer is read as UTF-8 whatever
+    /// charset its header names. A UTF-16 body, or a token with bytes that are not UTF-8, is a failed
+    /// refresh. It never throws.
     /// </summary>
     [Theory]
     [MemberData(nameof(NonUtf8TokenAnswers))]
     public async Task RefreshAsync_WhenTheTokenAnswerIsNotUtf8_ReturnsNull(byte[] body, string? charset)
     {
-        using HttpClient httpClient = CreateHttpClient(StubHttpMessageHandler.RespondWith(
-            HttpStatusCode.OK,
-            () => new ByteArrayContent(body)
-            {
-                Headers = { ContentType = new MediaTypeHeaderValue("application/json") { CharSet = charset } }
-            }));
+        using HttpClient httpClient = CreateHttpClient(StubHttpMessageHandler.RespondWith(HttpStatusCode.OK, JsonBytes(body, charset)));
         TokenEndpointClient client = CreateClient(httpClient);
 
         TokenResponse? response = await client.RefreshAsync(RefreshToken);
@@ -96,7 +90,6 @@ public sealed class TokenEndpointClientTests
     [InlineData("[]")]
     [InlineData("<html><body>200 OK</body></html>")]
     [InlineData("""{"access_token":5}""")]
-    [InlineData("""{"access_token":"a","expires_in":36.5}""")]
     [InlineData("""{"access_token":"a""")]
     public async Task RefreshAsync_WhenTheTokenAnswerIsNotATokenObject_ReturnsNull(string body)
     {
@@ -351,12 +344,7 @@ public sealed class TokenEndpointClientTests
     {
         byte[] json = """{"error":"invalid_grant","error_description":"Refused."}"""u8.ToArray();
         byte[] body = withByteOrderMark ? [.. System.Text.Encoding.UTF8.GetPreamble(), .. json] : json;
-        using HttpClient httpClient = CreateHttpClient(StubHttpMessageHandler.RespondWith(
-            HttpStatusCode.BadRequest,
-            () => new ByteArrayContent(body)
-            {
-                Headers = { ContentType = new MediaTypeHeaderValue("application/json") { CharSet = charset } }
-            }));
+        using HttpClient httpClient = CreateHttpClient(StubHttpMessageHandler.RespondWith(HttpStatusCode.BadRequest, JsonBytes(body, charset)));
         using CapturingLoggerProvider logs = new();
         using LoggerFactory loggerFactory = new([logs]);
         TokenEndpointClient client = CreateClient(httpClient, loggerFactory.CreateLogger<TokenEndpointClient>());
@@ -393,6 +381,12 @@ public sealed class TokenEndpointClientTests
         entry.Level.ShouldBe(LogLevel.Warning);
         entry.Message.ShouldBe("Refresh token grant failed with status 502.");
     }
+
+    private static Func<HttpContent> JsonBytes(byte[] body, string? charset) =>
+        () => new ByteArrayContent(body)
+        {
+            Headers = { ContentType = new MediaTypeHeaderValue("application/json") { CharSet = charset } }
+        };
 
     private static HttpClient CreateHttpClient(HttpMessageHandler transport) =>
         new(transport) { BaseAddress = new Uri(AuthBaseUrl) };

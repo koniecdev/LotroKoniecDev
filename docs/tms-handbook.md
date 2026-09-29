@@ -1000,8 +1000,8 @@ consciously; Part 12, question 10.
   Tamper-proof (signature) but readable — never put secrets in claims. Because nothing checks it
   against the database, its lifetime is the delay on every session revocation — ADR-0049.
 - **Refresh token**: *reference* token — the client holds a random handle; the real state
-  lives in the auth database. Revocable (signing out revokes all of a user's tokens and
-  authorizations, so the website sessions on every device end — #931) and **rolling** (each use
+  lives in the auth database. Revocable (signing out revokes the authorization of this device's
+  session and its tokens, so only this device is signed out — #931) and **rolling** (each use
   issues a replacement, so a stolen old one is useless).
 - **Keys**: development uses throwaway keys generated at startup. Production uses a real RSA
   signing key (≥2048 bits) and an AES encryption key, injected via environment secrets, with a
@@ -1011,8 +1011,8 @@ consciously; Part 12, question 10.
 - **Session cookies**: the auth server's own login cookie is strict (HttpOnly, SameSite=Strict,
   30-minute sliding) and re-validates the user's **security stamp on every request** — so a
   password change or account deletion kills every live session immediately, and a stolen cookie
-  cannot quietly mint new tokens. Signing out does not change the stamp, so it clears this cookie
-  only in the browser that signs out; on another device it lives on until it expires (#931).
+  cannot quietly mint new tokens. Signing out does not change the stamp: it clears this cookie
+  only in the browser that signs out, and the other devices stay signed in by design (#931).
 - **Data Protection keyrings** (the keys that encrypt cookies and antiforgery tokens) are
   persisted to a mounted volume in every deployed environment, with a fail-fast startup guard.
   Without this, every redeploy would silently log everyone out (ADR-0005).

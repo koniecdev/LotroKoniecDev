@@ -25,6 +25,7 @@ namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Tests.Auth;
 public sealed partial class AuthorizationCodeFlowTests : AsyncLifetimeTestBase
 {
     private const string PostLogoutRedirectUri = "https://localhost:5001";
+    private const string AuthCookieName = "LotroKoniecDev.Auth";
 
     protected override TestApiClient ApiClient { get; }
 
@@ -577,7 +578,7 @@ public sealed partial class AuthorizationCodeFlowTests : AsyncLifetimeTestBase
     }
 
     [Fact]
-    public async Task Logout_ShouldRevokeTheAuthorizationsAndTheTokens_WhenOnlyTheIdTokenHintIsSent()
+    public async Task Logout_ShouldRevokeTheAuthorizationAndTheTokensOfTheSession_WhenOnlyTheIdTokenHintIsSent()
     {
         // Arrange
         WebsiteSession session = await SignInThroughTheWebsiteAsync();
@@ -585,20 +586,40 @@ public sealed partial class AuthorizationCodeFlowTests : AsyncLifetimeTestBase
         // Act
         using HttpResponseMessage response = await SignOutAsync(session.IdToken, authCookies: []);
 
-        // Assert: the shared revoker ends the authorization too, which the old loop over the tokens left valid
+        // Assert: the authorization is checked too, because a refresh that races the revoke can save its
+        // own copy of a token row over it
         response.StatusCode.ShouldBe(HttpStatusCode.Redirect);
         (await OpenIddictTokenState.StatusOfAsync(Factory.Services, session.RefreshToken))
             .ShouldBe(OpenIddictConstants.Statuses.Revoked);
         List<string?> authorizationStatuses =
             await OpenIddictTokenState.AuthorizationStatusesOfAsync(Factory.Services, session.UserId);
-        authorizationStatuses.ShouldNotBeEmpty();
-        authorizationStatuses.ShouldAllBe(status => status == OpenIddictConstants.Statuses.Revoked);
+        authorizationStatuses.ShouldHaveSingleItem().ShouldBe(OpenIddictConstants.Statuses.Revoked);
     }
 
     [Fact]
-    public async Task Logout_ShouldRevokeTheAuthorizationsAndTheTokens_WhenOnlyTheCookieIsSent()
+    public async Task Logout_ShouldKeepTheSessionOnAnotherDevice_WhenTheUserSignsOutOnOne()
     {
-        // Arrange: a sign-out that carries no hint still finds the user in a live cookie
+        // Arrange: signing out ends the session of this device only (owner decision on #931)
+        const string password = "TestPass1!";
+        string email = await RegisterUserAsync(password);
+        WebsiteSession thisDevice = await SignInThroughTheWebsiteAsync(email, password);
+        WebsiteSession otherDevice = await SignInThroughTheWebsiteAsync(email, password);
+
+        using HttpResponseMessage logoutResponse = await SignOutAsync(thisDevice.IdToken, thisDevice.AuthCookies);
+        logoutResponse.StatusCode.ShouldBe(HttpStatusCode.Redirect);
+
+        // Act
+        using HttpResponseMessage response = await RefreshAsync(otherDevice.RefreshToken);
+
+        // Assert
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+    }
+
+    [Fact]
+    public async Task Logout_ShouldRevokeNothing_WhenOnlyTheCookieIsSent()
+    {
+        // Arrange: the cookie belongs to the browser, not to one website session, so it cannot say which
+        // session to end
         WebsiteSession session = await SignInThroughTheWebsiteAsync();
 
         // Act
@@ -607,34 +628,22 @@ public sealed partial class AuthorizationCodeFlowTests : AsyncLifetimeTestBase
         // Assert
         response.StatusCode.ShouldBe(HttpStatusCode.Redirect);
         (await OpenIddictTokenState.StatusOfAsync(Factory.Services, session.RefreshToken))
-            .ShouldBe(OpenIddictConstants.Statuses.Revoked);
-        List<string?> authorizationStatuses =
-            await OpenIddictTokenState.AuthorizationStatusesOfAsync(Factory.Services, session.UserId);
-        authorizationStatuses.ShouldNotBeEmpty();
-        authorizationStatuses.ShouldAllBe(status => status == OpenIddictConstants.Statuses.Revoked);
+            .ShouldBe(OpenIddictConstants.Statuses.Valid);
     }
 
     [Fact]
-    public async Task Logout_ShouldEndTheSessionOnEveryOtherDevice_WhenTheUserSignsOutOnOne()
+    public async Task Logout_ShouldClearTheSignInServersCookie_WhenTheHintAndTheCookieAreSent()
     {
-        // Arrange: signing out ends every session of the user, not only the one of this device (#931)
-        const string password = "TestPass1!";
-        string email = await RegisterUserAsync(password);
-        WebsiteSession thisDevice = await SignInThroughTheWebsiteAsync(email, password);
-        WebsiteSession otherDevice = await SignInThroughTheWebsiteAsync(email, password);
+        // Arrange
+        WebsiteSession session = await SignInThroughTheWebsiteAsync();
 
         // Act
-        using HttpResponseMessage response = await SignOutAsync(thisDevice.IdToken, authCookies: []);
+        using HttpResponseMessage response = await SignOutAsync(session.IdToken, session.AuthCookies);
 
-        // Assert: the authorization is checked too, because a refresh that races the revoke can save its
-        // own copy of a token row over it
-        response.StatusCode.ShouldBe(HttpStatusCode.Redirect);
-        (await OpenIddictTokenState.StatusOfAsync(Factory.Services, otherDevice.RefreshToken))
-            .ShouldBe(OpenIddictConstants.Statuses.Revoked);
-        List<string?> authorizationStatuses =
-            await OpenIddictTokenState.AuthorizationStatusesOfAsync(Factory.Services, otherDevice.UserId);
-        authorizationStatuses.Count.ShouldBe(2);
-        authorizationStatuses.ShouldAllBe(status => status == OpenIddictConstants.Statuses.Revoked);
+        // Assert
+        response.Headers.GetValues("Set-Cookie").ShouldContain(cookie =>
+            cookie.StartsWith(AuthCookieName + "=;", StringComparison.Ordinal)
+            && cookie.Contains("expires=Thu, 01 Jan 1970", StringComparison.OrdinalIgnoreCase));
     }
 
     [Fact]
@@ -669,21 +678,6 @@ public sealed partial class AuthorizationCodeFlowTests : AsyncLifetimeTestBase
         response.StatusCode.ShouldBe(HttpStatusCode.Redirect);
         (await OpenIddictTokenState.StatusOfAsync(Factory.Services, newSession.RefreshToken))
             .ShouldBe(OpenIddictConstants.Statuses.Valid);
-    }
-
-    [Fact]
-    public async Task Logout_ShouldRevokeTheSessionOfTheCookie_WhenTheHintBelongsToAnEndedSession()
-    {
-        // Arrange
-        (WebsiteSession endedSession, WebsiteSession newSession) = await SignInAgainAfterAnEndedSessionAsync();
-
-        // Act
-        using HttpResponseMessage response = await SignOutAsync(endedSession.IdToken, newSession.AuthCookies);
-
-        // Assert
-        response.StatusCode.ShouldBe(HttpStatusCode.Redirect);
-        (await OpenIddictTokenState.StatusOfAsync(Factory.Services, newSession.RefreshToken))
-            .ShouldBe(OpenIddictConstants.Statuses.Revoked);
     }
 
     private async Task<(string Code, string CodeVerifier, List<string> AuthCookies, string Email)>

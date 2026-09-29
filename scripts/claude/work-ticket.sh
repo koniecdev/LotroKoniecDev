@@ -122,7 +122,7 @@ esac
 case "$TIMEOUT_MIN" in
     ''|*[!0-9]*|0*)
         meta outcome error
-        echo "work-ticket: LOOP_TICKET_TIMEOUT_MIN is not a whole number of minutes above zero: '$TIMEOUT_MIN'" >&2
+        echo "work-ticket: LOOP_TICKET_TIMEOUT_MIN is not a whole number of minutes above zero, without a leading zero: '$TIMEOUT_MIN'" >&2
         exit 3
         ;;
 esac

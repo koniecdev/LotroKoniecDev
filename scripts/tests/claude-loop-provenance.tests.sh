@@ -823,7 +823,7 @@ for bad_clock in 4h 0 090 abc; do
     fixture_issue 124 maintainer OWNER
     run_case 3 "work-ticket: a LOOP_TICKET_TIMEOUT_MIN of '$bad_clock' is refused" \
         env LOOP_TICKET_TIMEOUT_MIN="$bad_clock" "$WORK" 124 "$TMP_ROOT/run"
-    expect_in_output "LOOP_TICKET_TIMEOUT_MIN is not a whole number of minutes above zero: '$bad_clock'"
+    expect_in_output "LOOP_TICKET_TIMEOUT_MIN is not a whole number of minutes above zero, without a leading zero: '$bad_clock'"
     [ ! -f "$CLAUDE_MARKER" ] || fail "no session may start with a broken clock ($bad_clock)"
     [ ! -e "$WT_ROOT/ticket-124" ] || fail "a broken clock must not leave a worktree ($bad_clock)"
     expect_meta 124 outcome=error

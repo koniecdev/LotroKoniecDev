@@ -4,6 +4,7 @@ using LotroKoniecDev.SharedKernel.Authorization;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Options;
 
 namespace LotroKoniecDev.TranslationSystem.API.Tests.Integration.Tests.RateLimiting;
 
@@ -11,7 +12,8 @@ namespace LotroKoniecDev.TranslationSystem.API.Tests.Integration.Tests.RateLimit
 /// ADR-0054 (#823): every call the frontend makes reaches the TMS API from its one container, so the
 /// API meters it on the visitor's address the frontend forwards, but only next to the environment's
 /// key. The limiter is forced on for a derived host, as on the auth API; one test boots a Staging host
-/// instead, to prove the environment alone still turns it on there. In Testing
+/// instead, to prove the environment alone still turns it on there, and one proves that the same host
+/// refuses to start without the key. In Testing
 /// <c>UseForwardedHeaders</c> trusts every peer, so <c>X-Forwarded-For</c> plays the connection address
 /// Caddy resolves: <c>10.60.0.x</c> is the frontend container, RFC 5737 addresses are visitors. Every
 /// test creates its own host, so its buckets are its own. The full matrix of calls short of a proven
@@ -142,7 +144,7 @@ public sealed class FrontendCallerKeyTests : IAsyncLifetime
     {
         // Arrange: a Staging host, where only the environment turns the limiter on. A gate that
         // needed RateLimiting:ForceEnable would leave staging and prod with no TMS limit at all.
-        using WebApplicationFactory<Program> stagingHost = CreateStagingHost();
+        using WebApplicationFactory<Program> stagingHost = CreateStagingHost(FrontendKey);
         using HttpClient client = stagingHost.CreateClient();
         Caller caller = Caller.Direct("203.0.113.60");
 
@@ -157,6 +159,20 @@ public sealed class FrontendCallerKeyTests : IAsyncLifetime
 
         // Assert
         overTheLimit.StatusCode.ShouldBe(HttpStatusCode.TooManyRequests);
+    }
+
+    [Fact]
+    public void Boot_InADeployedEnvironmentWithoutTheKey_ShouldFailNamingTheKey()
+    {
+        // Arrange: the Staging host of the test above, without the key. That test boots it with the key,
+        // so the missing key is the one reason this boot can fail (#915).
+        using WebApplicationFactory<Program> stagingHost = CreateStagingHost(frontendKey: null);
+
+        // Act
+        OptionsValidationException exception = Should.Throw<OptionsValidationException>(() => stagingHost.CreateClient());
+
+        // Assert
+        exception.Message.ShouldContain("FrontendCaller:Key", Case.Sensitive);
     }
 
     private sealed record Caller(string ConnectionAddress, IReadOnlyCollection<string> KeyValues, IReadOnlyCollection<string> AddressValues)
@@ -228,8 +244,9 @@ public sealed class FrontendCallerKeyTests : IAsyncLifetime
         });
     }
 
-    // Staging carries every setting a deployed host needs to boot, and not the test switch.
-    private WebApplicationFactory<Program> CreateStagingHost()
+    // Staging carries every setting a deployed host needs to boot except the frontend key, which the
+    // caller picks, and not the test switch.
+    private WebApplicationFactory<Program> CreateStagingHost(string? frontendKey)
     {
         return _factory.WithWebHostBuilder(builder =>
         {
@@ -239,7 +256,7 @@ public sealed class FrontendCallerKeyTests : IAsyncLifetime
                 configBuilder.AddInMemoryCollection(new Dictionary<string, string?>
                 {
                     { "Cors:AllowedOrigins:0", "https://app.lotro.test" },
-                    { "FrontendCaller:Key", FrontendKey },
+                    { "FrontendCaller:Key", frontendKey },
                     { "HealthCheck:Key", new string('h', 32) }
                 });
             });

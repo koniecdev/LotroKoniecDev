@@ -1,6 +1,7 @@
 using System.Net.Http.Headers;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Options;
 using LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared;
 using LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared.Bases;
 using LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared.Factories;
@@ -247,6 +248,31 @@ public sealed class FrontendCallerKeyTests : EndpointsTestBase
 
         // Assert
         claimedVisitor.StatusCode.ShouldBe(HttpStatusCode.TooManyRequests);
+    }
+
+    [Fact]
+    public void Boot_WithAKeyShorterThanTheMinimum_ShouldFailNamingTheKey()
+    {
+        // Arrange: the validator refuses a short key in every environment, so a Testing host proves that
+        // the validator is registered and runs at startup. The base class starts the shared host, which
+        // has no key, before every test here, this one too. So the short key is the one reason this boot
+        // can fail (#915).
+        using WebApplicationFactory<Program> shortKeyHost = Factory.WithWebHostBuilder(builder =>
+        {
+            builder.ConfigureAppConfiguration((_, configBuilder) =>
+            {
+                configBuilder.AddInMemoryCollection(new Dictionary<string, string?>
+                {
+                    { "FrontendCaller:Key", new string('k', 31) }
+                });
+            });
+        });
+
+        // Act
+        OptionsValidationException exception = Should.Throw<OptionsValidationException>(() => shortKeyHost.CreateClient());
+
+        // Assert
+        exception.Message.ShouldContain("FrontendCaller:Key", Case.Sensitive);
     }
 
     /// <summary>

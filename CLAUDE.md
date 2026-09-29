@@ -194,7 +194,7 @@ scripts/claude/backlog-loop.sh -j 1 123 130            # one at a time
 scripts/claude/backlog-loop.sh -n 3                    # the next 3 ready tickets
 caffeinate -is scripts/claude/backlog-loop.sh 123 130  # keep macOS awake for the run
 scripts/claude/next-ticket.sh                          # print the next READY ticket (priority + deps + no open PR)
-scripts/claude/work-ticket.sh 123                      # one ticket, one fresh headless session, one worktree
+scripts/claude/work-ticket.sh 123                      # one ticket, one headless session, one worktree (resumed after a usage limit)
 # defaults: model + effort from ~/.claude/model-policy.env (Opus 5.5 · xhigh since 2026-09-22), else opus · high · permission-mode auto — override via LOOP_MODEL /
 # LOOP_EFFORT / LOOP_PERMISSION_MODE / LOOP_UNSAFE=1 · full manual: docs/claude-loop.md
 

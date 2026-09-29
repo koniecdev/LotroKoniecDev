@@ -275,7 +275,9 @@ Now:
 
 - **On a usage limit the worktree is kept exactly as the session left it**, uncommitted files
   included, and nothing is salvaged. A marker file in the worktree's own git folder
-  (`.git/worktrees/<name>/loop-resume`) records the session id, the HEAD and the turns so far. It
+  (`.git/worktrees/<name>/loop-resume`) records the session id, the HEAD, a digest of every file
+  git does not ignore (built in a copy of the index), the turns so far and when the session first
+  started. It
   is not part of the tree, so `git status` stays as the session left it, and it goes away with the
   worktree. Re-creating the worktree from the ticket branch instead would lose the uncommitted
   files, and a session that had not cut its branch yet has no branch to re-create from.
@@ -289,13 +291,19 @@ Now:
   picker returns such a ticket in drain mode too.
 - **A kept worktree is resumed only when that is still safe.** The worker claims the marker with
   one rename, so two runs can never resume one session (the CLI would mix both into one
-  transcript). It starts fresh instead, after salvaging and removing the kept worktree, when the
-  session's transcript is not under `LOOP_CONFIG_DIR` (another account ran it, or the CLI's
-  cleanup deleted it after its default 30 days). It skips the ticket (exit 12), drops the marker
-  and leaves the worktree for you when the HEAD moved since the limit (someone works there), or
-  when a PR of the ticket was merged, is open from another branch, or was closed from this branch.
-  An open PR from the kept branch is the session's own: the limit may have hit after
-  `gh pr create`. A rebase that stopped half way detaches HEAD, so the kept branch is then read
+  transcript). When the session's transcript is not under `LOOP_CONFIG_DIR` (another account ran
+  it, or the CLI's cleanup deleted it after its default 30 days), the session cannot be resumed:
+  with an open PR for the ticket the run skips it and leaves the unfinished work in the worktree
+  for you; without one it salvages and removes the worktree and starts fresh. It skips the ticket
+  (exit 12), drops the marker and leaves the worktree for you when the HEAD or any file changed
+  since the limit (someone works there), when a PR of the ticket was merged, or closed from this
+  branch, after the session started, when one is open from another branch, or when the session's
+  own open PR has commits its branch does not (a review fix or a `/merge-train` rebase during the
+  nap: the session would build on a stale copy). An open PR from the kept branch is otherwise the
+  session's own: the limit may have hit after `gh pr create`. A PR that ended before the session
+  started is history (an older attempt from the same branch name) and does not count. When the
+  provenance gate refuses the ticket before the resume, the kept work is salvaged and the worktree
+  removed, since that session will never run again. A rebase that stopped half way detaches HEAD, so the kept branch is then read
   from the rebase's own record. When GitHub cannot list the PRs, the run is an `error` and the
   marker stays for the next run.
 - **A stop or a timeout during the resumed session** ends it like any other run: the work is
@@ -389,8 +397,9 @@ later conductor run, both runs' totals count the part of the session before the 
   half done, or leftovers it could not commit — the run's log line says which). Look inside, finish
   or abort what is there, then `git worktree remove .claude/worktrees/ticket-<n>`.
 - **"SKIPPED — … was kept to resume …"** — the worktree waits for a resume after a usage limit,
-  but resuming is no longer safe: its HEAD moved, or a PR of the ticket was merged, is open from
-  another branch, or was closed from this branch. The line says which. Decide what happens to the
+  but resuming is no longer safe: its HEAD or its files changed, a PR of the ticket was merged, is
+  open from another branch, or was closed from this branch, or the session's own PR has commits
+  its branch does not. The line says which. Decide what happens to the
   work in it, then remove the worktree (`--force` when it holds uncommitted files you no longer
   need). To give up a kept resume on purpose, just remove the worktree: the marker goes with it,
   and the next run starts a fresh session, which checks out the ticket branch.

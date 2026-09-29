@@ -21,6 +21,8 @@ internal static class EventIds
 
     // GDPR Erasure (2220-2239)
     public const int GdprErasureInitiated = 2220;
+    public const int GdprErasureEmergencyLockoutNotNeeded = 2221;
+    public const int GdprDeletionFinalizerUserReadFailed = 2222;
     public const int GdprErasureAnonymizationFailed = 2223;
     public const int GdprErasureAuthAnonymized = 2224;
     public const int GdprErasureAuthFailed = 2225;

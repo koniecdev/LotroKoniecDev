@@ -20,28 +20,13 @@ internal sealed class UserInfoEndpoint : IEndpoint
 
         string? userId = principal.GetClaim(Claims.Subject);
 
-        if (string.IsNullOrEmpty(userId))
-        {
-            return Results.Challenge(
-                properties: new AuthenticationProperties(new Dictionary<string, string?>
-                {
-                    [OpenIddictServerAspNetCoreConstants.Properties.Error] = Errors.InvalidToken,
-                    [OpenIddictServerAspNetCoreConstants.Properties.ErrorDescription] = "The specified access token is invalid."
-                }),
-                authenticationSchemes: [OpenIddictServerAspNetCoreDefaults.AuthenticationScheme]);
-        }
-
-        ApplicationUser? user = await userManager.FindByIdAsync(userId);
+        // A client credentials token carries the client id as its subject, not a user id. Identity reads
+        // a user id as a GUID and throws on anything else, so the lookup must not see it (#955).
+        ApplicationUser? user = Guid.TryParse(userId, out _) ? await userManager.FindByIdAsync(userId) : null;
 
         if (user is null)
         {
-            return Results.Challenge(
-                properties: new AuthenticationProperties(new Dictionary<string, string?>
-                {
-                    [OpenIddictServerAspNetCoreConstants.Properties.Error] = Errors.InvalidToken,
-                    [OpenIddictServerAspNetCoreConstants.Properties.ErrorDescription] = "The specified access token is invalid."
-                }),
-                authenticationSchemes: [OpenIddictServerAspNetCoreDefaults.AuthenticationScheme]);
+            return RefuseInvalidToken();
         }
 
         Dictionary<string, object> claims = new(StringComparer.Ordinal)
@@ -74,4 +59,13 @@ internal sealed class UserInfoEndpoint : IEndpoint
         endpointRouteBuilder.MapMethods("connect/userinfo", [HttpMethods.Get, HttpMethods.Post], HandleAsync)
             .RequireAuthorization();
     }
+
+    private static IResult RefuseInvalidToken() =>
+        Results.Challenge(
+            properties: new AuthenticationProperties(new Dictionary<string, string?>
+            {
+                [OpenIddictServerAspNetCoreConstants.Properties.Error] = Errors.InvalidToken,
+                [OpenIddictServerAspNetCoreConstants.Properties.ErrorDescription] = "The specified access token is invalid."
+            }),
+            authenticationSchemes: [OpenIddictServerAspNetCoreDefaults.AuthenticationScheme]);
 }

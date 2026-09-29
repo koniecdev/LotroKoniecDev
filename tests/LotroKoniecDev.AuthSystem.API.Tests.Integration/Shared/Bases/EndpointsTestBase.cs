@@ -1,5 +1,6 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
+using LotroKoniecDev.SharedKernel.Authorization;
 using JsonOptions = Microsoft.AspNetCore.Http.Json.JsonOptions;
 
 namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared.Bases;
@@ -20,6 +21,29 @@ public abstract class EndpointsTestBase : AsyncLifetimeTestBase
     protected async Task<string> GetAccessTokenAsync(string email, string password)
     {
         HttpResponseMessage tokenResponse = await RequestPasswordGrantAsync(email, password);
+
+        tokenResponse.StatusCode.ShouldBe(HttpStatusCode.OK);
+
+        string content = await tokenResponse.Content.ReadAsStringAsync();
+        using JsonDocument json = JsonDocument.Parse(content);
+        return json.RootElement.GetProperty("access_token").GetString()!;
+    }
+
+    /// <summary>
+    /// A token issued to the API client itself. Its subject is the client id, not a user id.
+    /// </summary>
+    protected async Task<string> GetClientCredentialsAccessTokenAsync()
+    {
+        using FormUrlEncodedContent tokenRequest = new(new Dictionary<string, string>
+        {
+            ["grant_type"] = "client_credentials",
+            ["client_id"] = AuthConstants.ClientIds.Api,
+            ["client_secret"] = AuthSystemApiFactory.TestApiClientSecret,
+            ["scope"] = "api service"
+        });
+
+        using HttpResponseMessage tokenResponse =
+            await ApiClient.Http.PostAsync(new Uri("connect/token", UriKind.Relative), tokenRequest);
 
         tokenResponse.StatusCode.ShouldBe(HttpStatusCode.OK);
 

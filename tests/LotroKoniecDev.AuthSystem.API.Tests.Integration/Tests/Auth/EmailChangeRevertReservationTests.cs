@@ -311,6 +311,7 @@ public sealed partial class EmailChangeRevertReservationTests : EndpointsTestBas
         await ConfirmAsync(userId, targetEmail, EmailChangeEmailSpy.LastVerificationToken!);
 
         (await LoadUserByIdAsync(userId)).Email.ShouldBe(targetEmail);
+        await EmailChangeEmailSpy.WaitForChangedNoticeCaptureAsync();
     }
 
     private static string MixCase(string email) =>
@@ -331,6 +332,7 @@ public sealed partial class EmailChangeRevertReservationTests : EndpointsTestBas
         Guid userId = await UserIdOfAsync(user.Email);
         await ConfirmAsync(userId, newEmail, EmailChangeEmailSpy.LastVerificationToken!);
         await EmailChangeEmailSpy.WaitForRevertOfferCaptureAsync();
+        await EmailChangeEmailSpy.WaitForChangedNoticeCaptureAsync();
 
         return (user, newEmail, userId);
     }

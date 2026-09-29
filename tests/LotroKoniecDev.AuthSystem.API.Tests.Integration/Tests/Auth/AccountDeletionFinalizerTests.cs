@@ -245,7 +245,7 @@ public sealed class AccountDeletionFinalizerTests : EndpointsTestBase
     {
         // The failed save leaves the anonymized values on the tracked account. The emergency lock has
         // to land anyway, and it must not write them: the next run finds the account by its real
-        // address (#937).
+        // address (#937). It keeps the security stamp, so a cancel link the owner still holds works.
 
         // Arrange
         (RegisterRequest registerRequest, IdentityId identityId) = await RegisterAndScheduleDeletionAsync();
@@ -264,7 +264,7 @@ public sealed class AccountDeletionFinalizerTests : EndpointsTestBase
         user.Email.ShouldBe(registerRequest.Email);
         user.LockoutEnabled.ShouldBeTrue();
         user.LockoutEnd.ShouldBe(DateTimeOffset.MaxValue);
-        user.SecurityStamp.ShouldNotBe(stampBeforeErasure);
+        user.SecurityStamp.ShouldBe(stampBeforeErasure);
 
         CapturingLoggerFactory.LogEntry lockout = loggerFactory.Entries
             .Where(entry => entry.EventId.Id == EventIds.GdprErasureEmergencyLockout)
@@ -306,8 +306,9 @@ public sealed class AccountDeletionFinalizerTests : EndpointsTestBase
     public async Task Finalizer_ShouldSkipAnAccount_WhenItsOwnerCancelledTheDeletionAfterTheRunListedIt()
     {
         // The cancel link still works for a while after the account becomes due, so a run can list an
-        // account whose owner cancels before its turn comes. The finalizer reads every account again
-        // right before its erasure, and that read is all that keeps the cancelled account alive.
+        // account whose owner cancels before its turn comes. The finalizer reads every account again,
+        // with the rule that listed it, right before its erasure. A read without that rule would hand
+        // the cancelled account to the erasure with its new stamp, and the erasure would win.
 
         // Arrange
         (_, IdentityId firstId) = await RegisterAndScheduleDeletionAsync();
@@ -319,7 +320,7 @@ public sealed class AccountDeletionFinalizerTests : EndpointsTestBase
         HttpStatusCode? cancelStatus = null;
 
         // Act
-        int finalizedCount = await RunFinalizerAsync(beforeFirstErasure: async () =>
+        (int finalizedCount, IReadOnlyList<Guid> handedOver) = await RunFinalizerAsync(beforeFirstErasure: async () =>
         {
             HttpResponseMessage cancelResponse = await ApiClient.Http.PostAsJsonAsync(
                 new Uri("auth/account/cancel-deletion", UriKind.Relative),
@@ -330,6 +331,7 @@ public sealed class AccountDeletionFinalizerTests : EndpointsTestBase
         // Assert
         cancelStatus.ShouldBe(HttpStatusCode.OK);
         finalizedCount.ShouldBe(1);
+        handedOver.ShouldBe([firstId.Value]);
 
         ApplicationUser cancelled = await GetUserAsync(cancellingId.Value);
         cancelled.Email.ShouldBe(cancellingRequest.Email);
@@ -379,6 +381,73 @@ public sealed class AccountDeletionFinalizerTests : EndpointsTestBase
         loggerFactory.Entries.ShouldContain(entry => entry.EventId.Id == EventIds.GdprErasureEmergencyLockoutNotNeeded);
     }
 
+    [Fact]
+    public async Task Erasure_ShouldNotLockTheAccountAgain_WhenAnotherRunErasedItMeanwhile()
+    {
+        // Two runs can overlap, for example while a deploy starts a second instance. The run that loses
+        // on the concurrency stamp must not touch the row the other run erased, nor say it locked it.
+
+        // Arrange
+        (_, IdentityId identityId) = await RegisterAndScheduleDeletionAsync();
+        await BackdateScheduleAsync(identityId.Value, TimeSpan.FromDays(15));
+
+        await using AsyncServiceScope scope = Factory.Services.CreateAsyncScope();
+        AuthDbContext db = scope.ServiceProvider.GetRequiredService<AuthDbContext>();
+        ApplicationUser readBeforeTheOtherRun = await db.Users.SingleAsync(row => row.Id == identityId.Value);
+
+        int otherRunCount = await RunFinalizerAsync();
+        ApplicationUser erasedByTheOtherRun = await GetUserAsync(identityId.Value);
+
+        using CapturingLoggerFactory loggerFactory = new();
+        IAccountErasureService erasureService = CreateErasureService(scope.ServiceProvider, loggerFactory);
+
+        // Act
+        Result erasureResult = await erasureService.EraseAsync(readBeforeTheOtherRun, CancellationToken.None);
+
+        // Assert
+        otherRunCount.ShouldBe(1);
+        erasureResult.IsFailure.ShouldBeTrue();
+
+        ApplicationUser user = await GetUserAsync(identityId.Value);
+        user.Email.ShouldBe(erasedByTheOtherRun.Email);
+        user.ConcurrencyStamp.ShouldBe(erasedByTheOtherRun.ConcurrencyStamp);
+
+        loggerFactory.Entries.ShouldNotContain(entry => entry.EventId.Id == EventIds.GdprErasureEmergencyLockout);
+        loggerFactory.Entries.ShouldContain(entry => entry.EventId.Id == EventIds.GdprErasureEmergencyLockoutNotNeeded);
+    }
+
+    [Fact]
+    public async Task Finalizer_ShouldEraseTheOtherDueAccounts_WhenReadingOneAccountFails()
+    {
+        // The finalizer reads each account on its own, so one row it cannot read must not stop the
+        // accounts after it. The unreadable one has waited longest, so the finalizer comes to it first.
+
+        // Arrange
+        (RegisterRequest unreadableRequest, IdentityId unreadableId) = await RegisterAndScheduleDeletionAsync();
+        (_, IdentityId otherId) = await RegisterAndScheduleDeletionAsync();
+        await BackdateScheduleAsync(unreadableId.Value, TimeSpan.FromDays(20));
+        await BackdateScheduleAsync(otherId.Value, TimeSpan.FromDays(15));
+        Factory.DbCommandFailures.FailNext(
+            command => command.CommandText.StartsWith("SELECT", StringComparison.Ordinal)
+                       && CarriesAccountId(command, unreadableId.Value),
+            () => new PostgresException(
+                "simulated permanent failure", "ERROR", "ERROR", PostgresErrorCodes.DataCorrupted));
+
+        // Act
+        int finalizedCount = await RunFinalizerAsync();
+
+        // Assert
+        finalizedCount.ShouldBe(1);
+        Factory.DbCommandFailures.FailuresInjected.ShouldBe(1);
+
+        ApplicationUser other = await GetUserAsync(otherId.Value);
+        other.Email.ShouldEndWith(AnonymizationConstants.EmailDomain);
+
+        ApplicationUser unreadable = await GetUserAsync(unreadableId.Value);
+        unreadable.Email.ShouldBe(unreadableRequest.Email);
+        unreadable.DeletionScheduledAt.ShouldNotBeNull();
+    }
+
     private async Task<int> RunFinalizerAsync()
     {
         await using AsyncServiceScope scope = Factory.Services.CreateAsyncScope();
@@ -396,14 +465,16 @@ public sealed class AccountDeletionFinalizerTests : EndpointsTestBase
         return await finalizer.FinalizeDueAccountsAsync(CancellationToken.None);
     }
 
-    private async Task<int> RunFinalizerAsync(Func<Task> beforeFirstErasure)
+    private async Task<(int FinalizedCount, IReadOnlyList<Guid> HandedOver)> RunFinalizerAsync(
+        Func<Task> beforeFirstErasure)
     {
         await using AsyncServiceScope scope = Factory.Services.CreateAsyncScope();
-        IAccountErasureService erasureService = new StepBeforeFirstErasure(
+        ObservedErasure erasureService = new(
             scope.ServiceProvider.GetRequiredService<IAccountErasureService>(), beforeFirstErasure);
         IAccountDeletionFinalizer finalizer =
             ActivatorUtilities.CreateInstance<AccountDeletionFinalizer>(scope.ServiceProvider, erasureService);
-        return await finalizer.FinalizeDueAccountsAsync(CancellationToken.None);
+        int finalizedCount = await finalizer.FinalizeDueAccountsAsync(CancellationToken.None);
+        return (finalizedCount, erasureService.HandedOver);
     }
 
     /// <summary>
@@ -498,7 +569,10 @@ public sealed class AccountDeletionFinalizerTests : EndpointsTestBase
 
     private static bool IsUpdateOfAccount(DbCommand command, Guid userId) =>
         command.CommandText.Contains($"UPDATE {DatabaseSchemas.Auth}.\"Users\"", StringComparison.Ordinal)
-        && command.Parameters.Cast<DbParameter>().Any(parameter => parameter.Value is Guid id && id == userId);
+        && CarriesAccountId(command, userId);
+
+    private static bool CarriesAccountId(DbCommand command, Guid userId) =>
+        command.Parameters.Cast<DbParameter>().Any(parameter => parameter.Value is Guid id && id == userId);
 
     private async Task<bool> HasRolesAsync(Guid userId)
     {
@@ -515,22 +589,28 @@ public sealed class AccountDeletionFinalizerTests : EndpointsTestBase
     }
 
     /// <summary>
-    /// Runs a step when the finalizer hands over its first account, before the real erasure starts.
-    /// By then the run has listed every due account and has read only the first one again.
+    /// Wraps the real erasure and records every account the finalizer hands to it. It runs a step when
+    /// the first account arrives, before the real erasure starts. By then the run has listed every due
+    /// account and has read only the first one again.
     /// </summary>
-    private sealed class StepBeforeFirstErasure : IAccountErasureService
+    private sealed class ObservedErasure : IAccountErasureService
     {
         private readonly IAccountErasureService _inner;
+        private readonly List<Guid> _handedOver = [];
         private Func<Task>? _step;
 
-        public StepBeforeFirstErasure(IAccountErasureService inner, Func<Task> step)
+        public ObservedErasure(IAccountErasureService inner, Func<Task> step)
         {
             _inner = inner;
             _step = step;
         }
 
+        public IReadOnlyList<Guid> HandedOver => _handedOver;
+
         public async Task<Result> EraseAsync(ApplicationUser user, CancellationToken cancellationToken)
         {
+            _handedOver.Add(user.Id);
+
             Func<Task>? step = _step;
             _step = null;
 

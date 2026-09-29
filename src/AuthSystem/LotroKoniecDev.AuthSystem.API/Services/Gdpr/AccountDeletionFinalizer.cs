@@ -42,7 +42,7 @@ internal sealed partial class AccountDeletionFinalizer : IAccountDeletionFinaliz
     {
         DateTimeOffset now = _timeProvider.GetUtcNow();
 
-        // The longest wait goes first, and every run takes the accounts in the same order.
+        // The oldest schedule goes first, and every run takes the accounts in the same order.
         List<Guid> dueUserIds = await DueUsers(now)
             .OrderBy(u => u.DeletionScheduledAt)
             .ThenBy(u => u.Id)
@@ -60,8 +60,17 @@ internal sealed partial class AccountDeletionFinalizer : IAccountDeletionFinaliz
 
             // Read again, with the rule that listed it: the owner may have cancelled the deletion, or
             // another run may have erased the account, since the list was read.
-            ApplicationUser? user = await DueUsers(now)
-                .SingleOrDefaultAsync(u => u.Id == userId, cancellationToken);
+            ApplicationUser? user;
+            try
+            {
+                user = await DueUsers(now).SingleOrDefaultAsync(u => u.Id == userId, cancellationToken);
+            }
+            catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
+            {
+                LogReadFailedForUser(_logger, ex, userId);
+                continue;
+            }
+
             if (user is null)
             {
                 continue;
@@ -92,4 +101,7 @@ internal sealed partial class AccountDeletionFinalizer : IAccountDeletionFinaliz
 
     [LoggerMessage(EventId = EventIds.GdprDeletionFinalizerUserFailed, Level = LogLevel.Error, Message = "GDPR deletion finalization failed for user {UserId}: {Error}. Will retry on the next run.")]
     private static partial void LogFinalizationFailedForUser(ILogger logger, Guid userId, string error);
+
+    [LoggerMessage(EventId = EventIds.GdprDeletionFinalizerUserReadFailed, Level = LogLevel.Error, Message = "GDPR deletion finalization could not read user {UserId}. Will retry on the next run.")]
+    private static partial void LogReadFailedForUser(ILogger logger, Exception exception, Guid userId);
 }

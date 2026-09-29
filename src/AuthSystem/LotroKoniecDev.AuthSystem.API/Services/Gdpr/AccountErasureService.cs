@@ -168,6 +168,9 @@ internal sealed partial class AccountErasureService : IAccountErasureService
     /// <remarks>
     /// An account that is no longer waiting for its erasure is left alone: its owner cancelled the
     /// deletion, or another run already erased the account and locked it in the same save.
+    /// The security stamp stays as it is. Scheduling the deletion already ended every session, and
+    /// sign-in is refused while a deletion is scheduled. A new stamp would only break the cancel link
+    /// the owner may still hold.
     /// The write takes no cancellation token, like the erasure save before it. A shutdown must not skip
     /// this one short write, and a cancelled lock would be logged as a failed one.
     /// </remarks>
@@ -176,7 +179,6 @@ internal sealed partial class AccountErasureService : IAccountErasureService
         try
         {
             DateTimeOffset? lockedUntil = DateTimeOffset.MaxValue;
-            string securityStamp = Guid.NewGuid().ToString();
 
             // A new concurrency stamp makes a write that read the account before the lock fail, instead
             // of putting the old lockout back.
@@ -190,7 +192,6 @@ internal sealed partial class AccountErasureService : IAccountErasureService
                     setters => setters
                         .SetProperty(u => u.LockoutEnabled, true)
                         .SetProperty(u => u.LockoutEnd, lockedUntil)
-                        .SetProperty(u => u.SecurityStamp, securityStamp)
                         .SetProperty(u => u.ConcurrencyStamp, concurrencyStamp),
                     CancellationToken.None);
 

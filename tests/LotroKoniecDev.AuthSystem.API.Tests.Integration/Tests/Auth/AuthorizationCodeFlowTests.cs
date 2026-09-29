@@ -695,6 +695,32 @@ public sealed partial class AuthorizationCodeFlowTests : AsyncLifetimeTestBase
         response.StatusCode.ShouldBe(HttpStatusCode.Redirect);
         (await OpenIddictTokenState.StatusOfAsync(Factory.Services, victim.RefreshToken))
             .ShouldBe(OpenIddictConstants.Statuses.Valid);
+        (await OpenIddictTokenState.StatusOfAsync(Factory.Services, caller.RefreshToken))
+            .ShouldBe(OpenIddictConstants.Statuses.Valid);
+    }
+
+    [Fact]
+    public async Task Logout_ShouldNotEndANewSession_WhenTheHintOfAnEndedSessionIsSentAgain()
+    {
+        // Arrange: OpenIddict does not check a hint's lifetime, so what stops an old hint is the check of its
+        // token row, which the first sign-out revoked. Anyone who holds the old hint can send this GET.
+        const string password = "TestPass1!";
+        string email = await RegisterUserAsync(password);
+        WebsiteSession endedSession = await SignInThroughTheWebsiteAsync(email, password);
+        using (HttpResponseMessage firstLogout = await SignOutAsync(endedSession.IdToken, authCookies: []))
+        {
+            firstLogout.StatusCode.ShouldBe(HttpStatusCode.Redirect);
+        }
+
+        WebsiteSession newSession = await SignInThroughTheWebsiteAsync(email, password);
+
+        // Act
+        using HttpResponseMessage response = await SignOutAsync(endedSession.IdToken, authCookies: []);
+
+        // Assert
+        response.StatusCode.ShouldBe(HttpStatusCode.Redirect);
+        (await OpenIddictTokenState.StatusOfAsync(Factory.Services, newSession.RefreshToken))
+            .ShouldBe(OpenIddictConstants.Statuses.Valid);
     }
 
     private async Task<(string Code, string CodeVerifier, List<string> AuthCookies, string Email)>

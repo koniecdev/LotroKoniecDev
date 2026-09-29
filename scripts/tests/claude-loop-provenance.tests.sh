@@ -11,6 +11,7 @@
 # And it covers the worker's worktree lifecycle: the session runs in its own worktree cut from
 # origin/main, the main checkout is never touched, a finished worktree is removed or salvaged, a
 # stop signal ends the session and its children, and only a real open PR for the ticket counts.
+# A session that ends normally without a STATUS line is resumed a capped number of times (#925).
 #
 # `gh` is stubbed from fixtures, so the suite is offline and hermetic. The stub applies the
 # caller's own `--jq` filter with real jq, which keeps the scripts' jq filters under test too.
@@ -23,6 +24,9 @@ TRUST="$SCRIPTS_DIR/claude/issue-trust.sh"
 
 TMP_ROOT="$(mktemp -d)"
 trap 'rm -rf "$TMP_ROOT"' EXIT
+
+# The worker's own defaults are under test, not the caller's environment.
+unset BASH_MAX_TIMEOUT_MS BASH_DEFAULT_TIMEOUT_MS CLAUDE_CODE_DISABLE_BACKGROUND_TASKS LOOP_MAX_RESUMES
 
 export GH_FIXTURES="$TMP_ROOT/fixtures"
 CLAUDE_MARKER="$TMP_ROOT/claude-was-spawned"
@@ -149,8 +153,16 @@ cat > "$TMP_ROOT/bin/claude" <<STUB
 #!/usr/bin/env bash
 # The worker session must never start for an untrusted ticket — leave proof if it does.
 touch "$CLAUDE_MARKER"
+# Each run leaves its arguments, its background switches and its folder, so a case can compare a
+# resume with the first run.
+run=\$(( \$(cat "$TMP_ROOT/claude-runs" 2>/dev/null || echo 0) + 1 ))
+echo "\$run" > "$TMP_ROOT/claude-runs"
+printf '%s\n' "\$@" > "$TMP_ROOT/claude-args-\$run"
+echo "\${CLAUDE_CODE_DISABLE_BACKGROUND_TASKS:-unset} \${BASH_MAX_TIMEOUT_MS:-unset} \${BASH_DEFAULT_TIMEOUT_MS:-unset}" \
+    > "$TMP_ROOT/claude-env-\$run"
+pwd -P > "$TMP_ROOT/claude-cwd-\$run"
 # The lifecycle cases script what the session does in its worktree.
-if [ -n "\${CLAUDE_BEHAVIOR:-}" ]; then exec "\$CLAUDE_BEHAVIOR"; fi
+if [ -n "\${CLAUDE_BEHAVIOR:-}" ]; then exec "\$CLAUDE_BEHAVIOR" "\$@"; fi
 echo '{"result":"STATUS: DONE","is_error":false}'
 STUB
 
@@ -257,7 +269,8 @@ fixture_pr_view() {
 }
 
 reset_fixtures() {
-    rm -f "$GH_FIXTURES"/*.json "$CLAUDE_MARKER"
+    rm -f "$GH_FIXTURES"/*.json "$CLAUDE_MARKER" "$TMP_ROOT"/claude-runs "$TMP_ROOT"/claude-args-* \
+        "$TMP_ROOT"/claude-env-* "$TMP_ROOT"/claude-cwd-*
 }
 
 # ── Assertions ─────────────────────────────────────────────────────────────────────────────────
@@ -278,6 +291,16 @@ run_case() {
 expect_in_output() {
     printf '%s' "$LAST_OUTPUT" | grep -qF "$1" \
         || fail "output should contain '$1'" "$LAST_OUTPUT"
+}
+
+# expect_meta <ticket> <key=value>... — the last line of a key wins, as in the conductor's table.
+expect_meta() {
+    local meta="$TMP_ROOT/run/ticket-$1.meta" pair
+    shift
+    for pair in "$@"; do
+        [ "$(sed -n "s/^${pair%%=*}=//p" "$meta" | tail -1)" = "${pair#*=}" ] \
+            || fail "meta should end with $pair" "$(cat "$meta")"
+    done
 }
 
 expect_stdout() {
@@ -559,7 +582,7 @@ echo "work in progress" > "$FAKE_REPO/dirty.txt"
 behavior "$TMP_ROOT/done.sh" 'ticket="${PWD##*ticket-}"
 git checkout -q -b "$ticket-fixture"
 git commit -q --allow-empty -m "fixture work"
-echo "{\"result\":\"STATUS: DONE\\nPR: https://github.com/koniecdev/LotroKoniecDev/pull/7$ticket\\nSUMMARY: the rate limiter now sends 429 with Retry-After; quota and usage limits unchanged\",\"is_error\":false}"'
+echo "{\"result\":\"STATUS: DONE\\nPR: https://github.com/koniecdev/LotroKoniecDev/pull/7$ticket\\nSUMMARY: the rate limiter now sends 429 with Retry-After; quota and usage limits unchanged\",\"is_error\":false,\"session_id\":\"s-done\"}"'
 
 reset_fixtures
 fixture_issue 70 maintainer OWNER
@@ -576,6 +599,8 @@ expect_in_output "PR #770 opened"
     || fail "the worktree should start at origin/main, not at the local main"
 grep -qx "outcome=pr-opened" "$TMP_ROOT/run/ticket-70.meta" || fail "meta should say pr-opened" "$(cat "$TMP_ROOT/run/ticket-70.meta")"
 grep -qx "pr=770" "$TMP_ROOT/run/ticket-70.meta" || fail "meta should carry the PR" "$(cat "$TMP_ROOT/run/ticket-70.meta")"
+[ "$(cat "$TMP_ROOT/claude-runs")" = "1" ] || fail "a DONE session must not be resumed" "$LAST_OUTPUT"
+expect_meta 70 resumes=0
 [ ! -e "$WT_ROOT/ticket-70" ] || fail "a clean worktree should be removed"
 git -C "$FAKE_REPO" rev-parse -q --verify 70-fixture >/dev/null || fail "the ticket branch must stay"
 grep -qx "docker image rm lotrokoniecdev-auth:fe-e2e-ticket-70-hash" "$TMP_ROOT/docker-calls" \
@@ -590,8 +615,9 @@ reset_fixtures
 fixture_issue 71 maintainer OWNER
 behavior "$TMP_ROOT/blocked.sh" 'git checkout -q -b 71-fixture
 echo "half done" > leftover.txt
-echo "{\"result\":\"STATUS: BLOCKED\\nCATEGORY: business-questions\",\"is_error\":false}"'
+echo "{\"result\":\"STATUS: BLOCKED\\nCATEGORY: business-questions\",\"is_error\":false,\"session_id\":\"s-71\"}"'
 run_case 2 "work-ticket: BLOCKED exits 2" env CLAUDE_BEHAVIOR="$TMP_ROOT/blocked.sh" "$WORK" 71 "$TMP_ROOT/run"
+[ "$(cat "$TMP_ROOT/claude-runs")" = "1" ] || fail "a BLOCKED session asks questions and must not be resumed" "$LAST_OUTPUT"
 salvage_branch="$(git -C "$FAKE_REPO" for-each-ref --format='%(refname:short)' 'refs/heads/loop-salvage/71-*')"
 [ -n "$salvage_branch" ] || fail "leftovers should be committed on a loop-salvage branch" "$LAST_OUTPUT"
 git -C "$FAKE_REPO" show "$salvage_branch:leftover.txt" >/dev/null 2>&1 || fail "the salvage branch should hold the leftover file"
@@ -637,6 +663,8 @@ behavior "$TMP_ROOT/garbage.sh" 'echo "{\"result\":\"Review done: the rate limit
 run_case 3 "work-ticket: a final message without a STATUS block is an error, even one about rate limits" \
     env CLAUDE_BEHAVIOR="$TMP_ROOT/garbage.sh" "$WORK" 74 "$TMP_ROOT/run"
 [ ! -e "$WT_ROOT/ticket-74" ] || fail "the worktree should be removed after an error too"
+[ "$(cat "$TMP_ROOT/claude-runs")" = "1" ] || fail "a result with no session id cannot be resumed"
+expect_meta 74 resumes=0
 
 reset_fixtures
 fixture_issue 75 maintainer OWNER
@@ -644,6 +672,202 @@ behavior "$TMP_ROOT/limit.sh" 'echo "{\"result\":\"\",\"is_error\":true,\"api_er
 run_case 6 "work-ticket: an API 429 is a usage limit" env CLAUDE_BEHAVIOR="$TMP_ROOT/limit.sh" "$WORK" 75 "$TMP_ROOT/run"
 grep -qx "outcome=limit" "$TMP_ROOT/run/ticket-75.meta" || fail "meta should say limit"
 [ ! -e "$WT_ROOT/ticket-75" ] || fail "the worktree should be removed, so the retry can make it again"
+
+# ── work-ticket.sh: a session that stops without a verdict is resumed (#925) ──────────────────
+# The failure these cases pin: the worker starts the test suite in the background and ends its
+# turn to wait for it. `claude -p` then exits, so the final message has no STATUS line although
+# the work is committed in the worktree.
+behavior "$TMP_ROOT/waits.sh" 'case " $* " in
+*" --resume "*)
+    echo "{\"result\":\"STATUS: DONE\\nPR: https://github.com/koniecdev/LotroKoniecDev/pull/788\\nSUMMARY: suite green\",\"is_error\":false,\"session_id\":\"s-88\",\"num_turns\":3,\"total_cost_usd\":12.5}" ;;
+*)
+    echo "first-run stderr" >&2
+    git checkout -q -b 88-fixture
+    git commit -q --allow-empty -m "reviewed work"
+    echo "{\"result\":\"The suite is still running; the task notification will wake me.\",\"is_error\":false,\"session_id\":\"s-88\",\"num_turns\":35,\"total_cost_usd\":11.05}" ;;
+esac'
+
+reset_fixtures
+fixture_issue 88 maintainer OWNER
+fixture_pr_view 788 OPEN 88-fixture
+# A usage-limit retry reuses the run folder; an earlier attempt's resume results must not stay.
+mkdir -p "$TMP_ROOT/run"
+echo stale > "$TMP_ROOT/run/ticket-88.json.before-resume-2"
+echo stale > "$TMP_ROOT/run/ticket-88.json.resume-2"
+run_case 0 "work-ticket: a session that stopped to wait is resumed and opens its PR" \
+    env CLAUDE_BEHAVIOR="$TMP_ROOT/waits.sh" "$WORK" 88 "$TMP_ROOT/run"
+[ ! -e "$TMP_ROOT/run/ticket-88.json.before-resume-2" ] && [ ! -e "$TMP_ROOT/run/ticket-88.json.resume-2" ] \
+    || fail "an earlier attempt's resume results should be cleared"
+expect_in_output "resuming it (1 of 2)"
+expect_in_output "PR #788 opened"
+[ "$(cat "$TMP_ROOT/claude-runs")" = "2" ] || fail "expected the first run and one resume" "$LAST_OUTPUT"
+expect_meta 88 outcome=pr-opened pr=788 resumes=1 turns=38 cost=12.5
+grep -q "first-run stderr" "$TMP_ROOT/run/ticket-88.stderr" || fail "the resume must not wipe the first run's stderr"
+[ "$(sed -n 2p "$TMP_ROOT/claude-args-1")" = "/work-ticket 88" ] || fail "the first run should get /work-ticket 88"
+sed -n 2p "$TMP_ROOT/claude-args-2" | grep -q "end with the STATUS: DONE or STATUS: BLOCKED block" \
+    || fail "the resume should ask for the STATUS block" "$(sed -n 2p "$TMP_ROOT/claude-args-2")"
+sed -n 2p "$TMP_ROOT/claude-args-2" | grep -qE "stops this session in about (89|90) minutes" \
+    || fail "the resume should say how much of the clock is left" "$(sed -n 2p "$TMP_ROOT/claude-args-2")"
+[ "$(tail -2 "$TMP_ROOT/claude-args-2" | tr '\n' ' ')" = "--resume s-88 " ] \
+    || fail "the resume should name the session of the first run" "$(cat "$TMP_ROOT/claude-args-2")"
+[ "$(sed '1,2d' "$TMP_ROOT/claude-args-1")" = "$(sed '1,2d' "$TMP_ROOT/claude-args-2" | sed '$d' | sed '$d')" ] \
+    || fail "the resume should keep every flag of the first run" "$(cat "$TMP_ROOT/claude-args-1" "$TMP_ROOT/claude-args-2")"
+[ "$(cat "$TMP_ROOT/claude-cwd-1")" = "$(cd "$FAKE_REPO" && pwd -P)/.claude/worktrees/ticket-88" ] \
+    && [ "$(cat "$TMP_ROOT/claude-cwd-2")" = "$(cat "$TMP_ROOT/claude-cwd-1")" ] \
+    || fail "both runs should work in .claude/worktrees/ticket-88" "$(cat "$TMP_ROOT"/claude-cwd-*)"
+[ "$(cat "$TMP_ROOT/claude-env-1")" = "1 3600000 600000" ] && [ "$(cat "$TMP_ROOT/claude-env-2")" = "1 3600000 600000" ] \
+    || fail "every run should get background tasks off and the raised Bash timeouts" "$(cat "$TMP_ROOT"/claude-env-*)"
+grep -q "still running" "$TMP_ROOT/run/ticket-88.json.before-resume-1" || fail "the first run's result should be kept"
+[ "$(find "$TMP_ROOT/run" -name 'ticket-88*.json' | wc -l | tr -d ' ')" = "1" ] \
+    || fail "the conductor adds up ticket-*.json, and a resumed run already reports the whole session's cost"
+cases=$((cases + 1)); printf '✓ work-ticket: the resume keeps the flags, the worktree and the session, and the first result\n'
+
+reset_fixtures
+fixture_issue 89 maintainer OWNER
+behavior "$TMP_ROOT/never-status.sh" 'echo "{\"result\":\"Waiting for the E2E suite.\",\"is_error\":false,\"session_id\":\"s-89\",\"num_turns\":2}"'
+run_case 3 "work-ticket: a session that never prints a STATUS line is an error after the resume cap" \
+    env CLAUDE_BEHAVIOR="$TMP_ROOT/never-status.sh" "$WORK" 89 "$TMP_ROOT/run"
+expect_in_output "after 2 resume(s)"
+[ "$(cat "$TMP_ROOT/claude-runs")" = "3" ] || fail "expected the first run and two resumes" "$LAST_OUTPUT"
+expect_meta 89 outcome=error resumes=2 turns=6
+
+reset_fixtures
+fixture_issue 92 maintainer OWNER
+run_case 3 "work-ticket: LOOP_MAX_RESUMES=0 turns the resume off" \
+    env LOOP_MAX_RESUMES=0 CLAUDE_BEHAVIOR="$TMP_ROOT/never-status.sh" "$WORK" 92 "$TMP_ROOT/run"
+[ "$(cat "$TMP_ROOT/claude-runs")" = "1" ] || fail "no resume was allowed" "$LAST_OUTPUT"
+expect_meta 92 resumes=0
+
+reset_fixtures
+fixture_issue 93 maintainer OWNER
+run_case 3 "work-ticket: a LOOP_MAX_RESUMES that is not a number is refused" \
+    env LOOP_MAX_RESUMES=two "$WORK" 93 "$TMP_ROOT/run"
+[ ! -f "$CLAUDE_MARKER" ] || fail "no session may start with a broken setting"
+expect_meta 93 outcome=error
+
+# A resume is a new process that can read the issue again, so the gate runs before it too.
+reset_fixtures
+fixture_issue 98 maintainer OWNER
+behavior "$TMP_ROOT/stranger-comments.sh" 'printf "[{\"user\":{\"login\":\"stranger\"},\"author_association\":\"NONE\"}]" \
+    > "$GH_FIXTURES/comments-98.json"
+echo "{\"result\":\"The suite is still running.\",\"is_error\":false,\"session_id\":\"s-98\"}"'
+run_case 11 "work-ticket: a stranger's comment added during the run blocks the resume" \
+    env CLAUDE_BEHAVIOR="$TMP_ROOT/stranger-comments.sh" "$WORK" 98 "$TMP_ROOT/run"
+[ "$(cat "$TMP_ROOT/claude-runs")" = "1" ] || fail "an untrusted ticket must not be resumed" "$LAST_OUTPUT"
+expect_meta 98 outcome=untrusted resumes=0
+[ ! -e "$WT_ROOT/ticket-98" ] || fail "the worktree should be removed"
+
+# The gate fails closed before a resume too: an issue it cannot read is never resumed.
+reset_fixtures
+fixture_issue 100 maintainer OWNER
+behavior "$TMP_ROOT/issue-unreadable.sh" 'rm -f "$GH_FIXTURES/issue-100.json"
+echo "{\"result\":\"The suite is still running.\",\"is_error\":false,\"session_id\":\"s-100\"}"'
+run_case 3 "work-ticket: an issue the gate cannot read before a resume is not resumed" \
+    env CLAUDE_BEHAVIOR="$TMP_ROOT/issue-unreadable.sh" "$WORK" 100 "$TMP_ROOT/run"
+expect_in_output "could not verify #100 before a resume"
+[ "$(cat "$TMP_ROOT/claude-runs")" = "1" ] || fail "an unverifiable ticket must not be resumed" "$LAST_OUTPUT"
+expect_meta 100 outcome=error resumes=0
+
+reset_fixtures
+fixture_issue 90 maintainer OWNER
+behavior "$TMP_ROOT/limit-on-resume.sh" 'case " $* " in
+*" --resume "*) echo "{\"result\":\"\",\"is_error\":true,\"api_error_status\":429,\"session_id\":\"s-90\"}" ;;
+*) echo "{\"result\":\"The suite is still running.\",\"is_error\":false,\"session_id\":\"s-90\"}" ;;
+esac'
+run_case 6 "work-ticket: a usage limit during a resume is still a usage limit" \
+    env CLAUDE_BEHAVIOR="$TMP_ROOT/limit-on-resume.sh" "$WORK" 90 "$TMP_ROOT/run"
+expect_meta 90 outcome=limit resumes=1
+
+# The loop trusts api_error_status 429 even without is_error, so such a stop is never resumed.
+reset_fixtures
+fixture_issue 94 maintainer OWNER
+behavior "$TMP_ROOT/limit-quiet.sh" 'echo "{\"result\":\"\",\"is_error\":false,\"api_error_status\":429,\"session_id\":\"s-94\"}"'
+run_case 6 "work-ticket: a 429 without is_error is a usage limit, not a resume" \
+    env CLAUDE_BEHAVIOR="$TMP_ROOT/limit-quiet.sh" "$WORK" 94 "$TMP_ROOT/run"
+[ "$(cat "$TMP_ROOT/claude-runs")" = "1" ] || fail "a usage limit must not be resumed" "$LAST_OUTPUT"
+
+reset_fixtures
+fixture_issue 91 maintainer OWNER
+behavior "$TMP_ROOT/crash.sh" 'echo "{\"result\":\"API Error: 500\",\"is_error\":true,\"session_id\":\"s-91\"}"'
+run_case 3 "work-ticket: a session that failed is not resumed" \
+    env CLAUDE_BEHAVIOR="$TMP_ROOT/crash.sh" "$WORK" 91 "$TMP_ROOT/run"
+[ "$(cat "$TMP_ROOT/claude-runs")" = "1" ] || fail "a failed session must not be resumed" "$LAST_OUTPUT"
+expect_meta 91 resumes=0
+
+# F11 of the #925 review: a session that exits non-zero crashed, whatever its JSON says.
+reset_fixtures
+fixture_issue 97 maintainer OWNER
+behavior "$TMP_ROOT/exit-1.sh" 'echo "{\"result\":\"still running\",\"is_error\":false,\"session_id\":\"s-97\"}"
+exit 1'
+run_case 3 "work-ticket: a session that exits non-zero is not resumed" \
+    env CLAUDE_BEHAVIOR="$TMP_ROOT/exit-1.sh" "$WORK" 97 "$TMP_ROOT/run"
+[ "$(cat "$TMP_ROOT/claude-runs")" = "1" ] || fail "a crashed session must not be resumed" "$LAST_OUTPUT"
+
+# The wall clock. A fake `date` adds $TMP_ROOT/clock-skew seconds to `date +%s`, so a case can
+# jump the clock forward without waiting.
+REAL_DATE="$(command -v date)"
+cat > "$TMP_ROOT/bin/date" <<STUB
+#!/usr/bin/env bash
+if [ "\${1:-}" = "+%s" ]; then
+    echo \$(( \$("$REAL_DATE" +%s) + \$(cat "$TMP_ROOT/clock-skew" 2>/dev/null || echo 0) ))
+else
+    exec "$REAL_DATE" "\$@"
+fi
+STUB
+chmod +x "$TMP_ROOT/bin/date"
+
+# The skew is set only after the child has started, so the stop finds it.
+reset_fixtures
+rm -f "$TMP_ROOT/session-child" "$TMP_ROOT/clock-skew"
+fixture_issue 95 maintainer OWNER
+behavior "$TMP_ROOT/long-skew.sh" 'git checkout -q -b 95-fixture
+echo "partial" > partial.txt
+set -m
+"$REAL_SLEEP" 60 &
+echo $! > "'"$TMP_ROOT"'/session-child"
+set +m
+echo 6000 > "'"$TMP_ROOT"'/clock-skew"
+wait'
+run_case 4 "work-ticket: the wall clock ends a session" \
+    env CLAUDE_BEHAVIOR="$TMP_ROOT/long-skew.sh" "$WORK" 95 "$TMP_ROOT/run"
+expect_meta 95 outcome=timeout resumes=0
+[ -n "$(git -C "$FAKE_REPO" for-each-ref 'refs/heads/loop-salvage/95-*')" ] || fail "a timed-out session's work should be salvaged" "$LAST_OUTPUT"
+[ ! -e "$WT_ROOT/ticket-95" ] || fail "a timed-out run should not leave its worktree behind"
+session_child="$(cat "$TMP_ROOT/session-child")"
+for _ in $(seq 1 50); do alive "$session_child" || break; "$REAL_SLEEP" 0.1; done
+if alive "$session_child"; then
+    kill -KILL "$session_child"
+    fail "a process the timed-out session started outlived it"
+fi
+
+# One clock for the whole ticket (20 minutes): the first run uses 5, and the resume reaches 20:50.
+# A resume with a clock of its own would count only 15:50 and run on.
+reset_fixtures
+rm -f "$TMP_ROOT/clock-skew"
+fixture_issue 96 maintainer OWNER
+behavior "$TMP_ROOT/waits-long.sh" 'case " $* " in
+*" --resume "*) echo 1250 > "'"$TMP_ROOT"'/clock-skew"; "$REAL_SLEEP" 15; echo "{\"result\":\"STATUS: DONE\",\"is_error\":false,\"session_id\":\"s-96\"}" ;;
+*) echo 300 > "'"$TMP_ROOT"'/clock-skew"; echo "{\"result\":\"still running\",\"is_error\":false,\"session_id\":\"s-96\",\"total_cost_usd\":3.5}" ;;
+esac'
+run_case 4 "work-ticket: a resume gets only what is left of the ticket's clock" \
+    env LOOP_TICKET_TIMEOUT_MIN=20 CLAUDE_BEHAVIOR="$TMP_ROOT/waits-long.sh" "$WORK" 96 "$TMP_ROOT/run"
+[ "$(cat "$TMP_ROOT/claude-runs")" = "2" ] || fail "expected a resume that then timed out" "$LAST_OUTPUT"
+expect_meta 96 outcome=timeout resumes=1
+[ "$(jq -r '.total_cost_usd' "$TMP_ROOT/run/ticket-96.json")" = "3.5" ] \
+    || fail "a killed resume must leave the last result, and its cost, in ticket-96.json"
+
+# With less than ten minutes of the clock left, a resume could not even run the suite.
+reset_fixtures
+echo 0 > "$TMP_ROOT/clock-skew"
+fixture_issue 99 maintainer OWNER
+behavior "$TMP_ROOT/waits-late.sh" 'echo 1000 > "'"$TMP_ROOT"'/clock-skew"
+echo "{\"result\":\"still running\",\"is_error\":false,\"session_id\":\"s-99\"}"'
+run_case 3 "work-ticket: no resume when too little of the clock is left" \
+    env LOOP_TICKET_TIMEOUT_MIN=20 CLAUDE_BEHAVIOR="$TMP_ROOT/waits-late.sh" "$WORK" 99 "$TMP_ROOT/run"
+expect_in_output "not resuming"
+[ "$(cat "$TMP_ROOT/claude-runs")" = "1" ] || fail "no time for a resume" "$LAST_OUTPUT"
+expect_meta 99 outcome=error resumes=0
+rm -f "$TMP_ROOT/clock-skew" "$TMP_ROOT/bin/date"
 
 # Only a real open PR for this ticket counts as DONE.
 reset_fixtures

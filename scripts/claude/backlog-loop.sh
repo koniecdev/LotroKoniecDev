@@ -19,7 +19,8 @@
 #   worker role in ~/.claude/model-policy.env when present, else high/opus),
 #   LOOP_CONFIG_DIR (default ~/.claude-account1 — which account runs the loop),
 #   LOOP_PERMISSION_MODE (default auto), LOOP_UNSAFE, LOOP_MAX_BUDGET_USD,
-#   LOOP_TICKET_TIMEOUT_MIN, LOOP_KEEP_WORKTREE, LOOP_SKIP_LABELS,
+#   LOOP_TICKET_TIMEOUT_MIN, LOOP_MAX_RESUMES, LOOP_KEEP_WORKTREE, LOOP_SKIP_LABELS,
+#   BASH_MAX_TIMEOUT_MS / BASH_DEFAULT_TIMEOUT_MS (the worker's Bash timeouts),
 #   LOOP_TRUSTED_ASSOCIATIONS / LOOP_TRUSTED_LOGINS / LOOP_TRUST_GATE (the provenance gate —
 #   ADR-0026; it also fires on explicitly-named tickets, which never touch the picker).
 #   Loop-only: LOOP_PARALLEL (default 3, same as -j), LOOP_ALLOW_LOCAL_SCRIPTS=1 (run even when
@@ -205,7 +206,8 @@ handle_exit() {
         2) blocked=$((blocked + 1)); consecutive_failures=0 ;;
         12) skipped=$((skipped + 1)); consecutive_failures=0 ;;
         11)
-            # Refused before any session started: the ticket carries untrusted text. Not a
+            # Refused by the provenance gate, at the start (no session ran) or before a resume
+            # (the work so far is kept on its branch): the ticket carries untrusted text. Not a
             # systemic failure — skip it and keep going (drain mode never selects one anyway).
             untrusted=$((untrusted + 1)); consecutive_failures=0 ;;
         6)
@@ -304,13 +306,17 @@ for meta_file in "$RUN_DIR"/ticket-*.meta; do
     ticket="$(sed -n 's/^issue=//p' "$meta_file" | tail -1)"
     outcome="$(sed -n 's/^outcome=//p' "$meta_file" | tail -1)"
     pr="$(sed -n 's/^pr=//p' "$meta_file" | tail -1)"
+    resumes="$(sed -n 's/^resumes=//p' "$meta_file" | tail -1)"
     checks="-"; alerts="-"
     if [ -n "$pr" ]; then
         checks="$(pr_checks "$pr")"
         alerts="$(pr_alerts "$pr")"
     fi
-    printf '[conductor] #%-6s %-12s %-6s %-8s %s\n' \
-        "$ticket" "${outcome:-running?}" "${pr:+#$pr}" "$checks" "$alerts"
+    # A worker that had to be resumed stopped once without a verdict (#925): worth a look.
+    note=""
+    case "$resumes" in ''|0) ;; *) note="  resumed ${resumes}x" ;; esac
+    printf '[conductor] #%-6s %-12s %-6s %-8s %s%s\n' \
+        "$ticket" "${outcome:-running?}" "${pr:+#$pr}" "$checks" "$alerts" "$note"
 done
 ticket_json=( "$RUN_DIR"/ticket-*.json )
 shopt -u nullglob

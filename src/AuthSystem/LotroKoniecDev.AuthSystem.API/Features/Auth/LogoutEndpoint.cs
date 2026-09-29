@@ -54,9 +54,8 @@ internal sealed partial class LogoutEndpoint : IEndpoint
     /// <summary>
     /// The hint comes first, because the website renews its tokens server to server and this server's
     /// own cookie is usually gone by sign-out time. OpenIddict checks the hint's signature and that its
-    /// token and authorization rows are still valid. It does not check the lifetime or the client the
-    /// hint was issued to, so any live ID token of the user works, and the hint of an ended session
-    /// gives no principal.
+    /// token and authorization rows are still valid, but not its lifetime. So an old ID token works while
+    /// its session lives, and the hint of an ended session gives no principal.
     /// </summary>
     private static async Task<string?> FindUserIdAsync(HttpContext httpContext)
     {

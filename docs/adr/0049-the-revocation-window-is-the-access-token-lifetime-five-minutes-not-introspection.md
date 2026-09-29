@@ -176,13 +176,17 @@ defence in depth, not the fix of an open hole.
 The TMS keeps JwtBearer and does not switch to OpenIddict's validation package. That package has both
 rules built in, but it is a larger change to the auth setup, the test host and the metadata path, and
 it moves the TMS away from the TheKittySaver original it was lifted from. Tests pin both rules
-instead, so removing either one fails the build:
+instead, so removing either one fails the tests. Two facts join the list in "What the tests pin":
 
 3. A token that expired one second, one minute, four minutes or twenty minutes ago gets 401, and a
    token that expires in one minute is accepted (`AuthorizationDefaultsTests`).
 4. A correctly signed token of another type gets 401 (`AuthorizationDefaultsTests`). The real token
-   endpoint writes `at+jwt` on user tokens and on service tokens (`TokenEndpointTests`), so the rule
-   cannot lock out the frontend or the deploy smoke.
+   endpoint writes `at+jwt` on the frontend's authorization-code tokens (`AuthorizationCodeFlowTests`)
+   and on password and service tokens (`TokenEndpointTests`), so the rule cannot lock out the frontend
+   or the deploy smoke.
 
 **Reopen this amendment when** the auth server and the TMS stop sharing a machine. Then allow a few
 seconds of skew, never the library's five minutes, and count those seconds in the window.
+
+Neither rule belongs in TheKittySaver's copy of this code. It validates Entra tokens, which carry
+`typ: JWT` and come from another machine.

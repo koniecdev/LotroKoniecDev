@@ -221,8 +221,8 @@ internal static class ApiDependencyInjection
             services.AddSingleton<IValidator<AuthSettings>, AuthSettingsValidator>();
             services.AddOptionsWithFluentValidation<AuthSettings>(AuthSettings.ConfigurationSection);
 
-            // Plain JWT Bearer authentication against the AuthSystem (OpenIddict) issuer, as in the
-            // TheKittySaver original. OpenIddict's own validator has two rules built in that JwtBearer
+            // Plain JWT Bearer authentication against the AuthSystem (OpenIddict) issuer, as in the code
+            // lifted from TheKittySaver. OpenIddict's own validator has two rules built in that JwtBearer
             // does not: no clock skew and access tokens only. Both are set by hand below (#933).
             services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
                 .AddJwtBearer();

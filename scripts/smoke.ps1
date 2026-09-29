@@ -239,7 +239,7 @@ if ($token) {
     $authCode = Get-Status "$TmsUrl/api/v1/game-versions" @{ Authorization = "Bearer $token" }
     switch ($authCode) {
         { $_ -in 200, 403 } { Add-Pass "GET tms/api/v1/game-versions (bearer) -> $authCode (token validated by tms)" }
-        401 { Add-Fail "GET tms/api/v1/game-versions (bearer) -> 401 TOKEN REJECTED — issuer/audience/JWKS mismatch (runbook: Consistency rules #1/#2)" }
+        401 { Add-Fail "GET tms/api/v1/game-versions (bearer) -> 401 TOKEN REJECTED — issuer/audience/JWKS mismatch, or a token type other than at+jwt (runbook: Consistency rules #1/#2)" }
         default { Add-Fail "GET tms/api/v1/game-versions (bearer) -> $authCode (expected 200/403)" }
     }
 } else {

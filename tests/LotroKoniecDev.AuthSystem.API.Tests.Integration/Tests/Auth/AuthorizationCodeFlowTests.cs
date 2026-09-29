@@ -7,6 +7,7 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
+using Microsoft.IdentityModel.JsonWebTokens;
 using Npgsql;
 using LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared;
 using LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared.Bases;
@@ -15,6 +16,7 @@ using Microsoft.EntityFrameworkCore;
 using LotroKoniecDev.AuthSystem.Contracts.Features.Auth.Register;
 using LotroKoniecDev.AuthSystem.Domain.Aggregates.ApplicationUsers.Entities;
 using LotroKoniecDev.AuthSystem.Persistence.DbContexts;
+using LotroKoniecDev.SharedKernel.Authorization;
 using JsonOptions = Microsoft.AspNetCore.Http.Json.JsonOptions;
 
 namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Tests.Auth;
@@ -552,6 +554,24 @@ public sealed partial class AuthorizationCodeFlowTests : AsyncLifetimeTestBase
         using JsonDocument json = JsonDocument.Parse(content);
         JwtPayload.Read(json.RootElement.GetProperty("access_token").GetString()!).ShouldNotContain(securityStamp);
         JwtPayload.Read(json.RootElement.GetProperty("id_token").GetString()!).ShouldNotContain(securityStamp);
+    }
+
+    [Fact]
+    public async Task AuthorizationCodeExchange_ShouldMintAnAccessTokenTypedAtJwt()
+    {
+        // Arrange: this is the frontend's own grant, and the TMS accepts only this type (#933).
+        (string authorizationCode, string codeVerifier, _, _) = await ObtainAuthorizationCodeAsync();
+
+        // Act
+        using HttpResponseMessage response = await ExchangeAuthorizationCodeAsync(authorizationCode, codeVerifier);
+
+        // Assert
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        string content = await response.Content.ReadAsStringAsync();
+        using JsonDocument json = JsonDocument.Parse(content);
+        string accessToken = json.RootElement.GetProperty("access_token").GetString().ShouldNotBeNull();
+
+        new JsonWebToken(accessToken).Typ.ShouldBe(AuthConstants.TokenTypes.AccessToken);
     }
 
     [Fact]

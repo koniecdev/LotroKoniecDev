@@ -87,7 +87,7 @@ public sealed class TokenEndpointTests : EndpointsTestBase
     }
 
     [Fact]
-    public async Task PasswordGrant_ShouldMintAnAccessTokenOfTheAccessTokenType()
+    public async Task PasswordGrant_ShouldMintAnAccessTokenTypedAtJwt()
     {
         // Arrange
         // The TMS accepts only this type (#933), so a change here would lock every user out of it.
@@ -338,7 +338,7 @@ public sealed class TokenEndpointTests : EndpointsTestBase
     }
 
     [Fact]
-    public async Task ClientCredentialsGrant_ShouldMintAnAccessTokenOfTheAccessTokenType()
+    public async Task ClientCredentialsGrant_ShouldMintAnAccessTokenTypedAtJwt()
     {
         // Arrange
         // The deploy smoke calls the TMS with this token, and the TMS accepts only this type (#933).

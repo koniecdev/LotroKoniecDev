@@ -104,7 +104,7 @@ public sealed class AuthorizationDefaultsTests
     [Fact]
     public async Task GetProtectedResource_WithTokenExpiringInAMinute_ShouldReturn200()
     {
-        // Arrange: the other side of the zero skew. A token is good up to its last second.
+        // Arrange: the other side of the zero skew. A token that has not expired yet is still accepted.
         using HttpClient client = _factory.CreateClient();
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue(
             "Bearer",
@@ -140,8 +140,8 @@ public sealed class AuthorizationDefaultsTests
     [InlineData("oi_auc+jwt")]
     public async Task GetProtectedResource_WithSignedTokenOfAnotherType_ShouldReturn401(string tokenType)
     {
-        // Arrange: signature, issuer, audience and lifetime are all good. Only the type is wrong. The
-        // first two are what the auth server writes on an ID token (#933, RFC 9068).
+        // Arrange: signature, issuer, audience and lifetime are all good. Only the type is wrong. `JWT` is
+        // what the auth server writes on an ID token, and `application/JWT` is its long form (#933, RFC 9068).
         using HttpClient client = _factory.CreateClient();
         client.DefaultRequestHeaders.Authorization =
             new AuthenticationHeaderValue("Bearer", TranslationSystemApiFactory.CreateAccessTokenOfType(tokenType));

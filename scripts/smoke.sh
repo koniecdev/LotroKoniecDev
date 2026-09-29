@@ -260,7 +260,7 @@ if [ -n "$TOKEN" ]; then
     auth_code="$(get_status "$TMS_URL/api/v1/game-versions" -H "Authorization: Bearer $TOKEN")"
     case "$auth_code" in
         200|403) pass "GET tms/api/v1/game-versions (bearer) -> $auth_code (token validated by tms)" ;;
-        401)     fail "GET tms/api/v1/game-versions (bearer) -> 401 TOKEN REJECTED — issuer/audience/JWKS mismatch (runbook: Consistency rules #1/#2)" ;;
+        401)     fail "GET tms/api/v1/game-versions (bearer) -> 401 TOKEN REJECTED — issuer/audience/JWKS mismatch, or a token type other than at+jwt (runbook: Consistency rules #1/#2)" ;;
         *)       fail "GET tms/api/v1/game-versions (bearer) -> $auth_code (expected 200/403)" ;;
     esac
 else

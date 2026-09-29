@@ -1,4 +1,4 @@
-@baseUrl = https://localhost:5002
+@baseUrl = https://localhost:5003
 
 ### Register a new user
 POST {{baseUrl}}/auth/register
@@ -8,13 +8,13 @@ Content-Type: application/json
   "username": "testuser",
   "email": "testuser@example.com",
   "password": "Test@12345",
-  "phoneNumber": "+48123456789",
   "acceptedPrivacyPolicy": true,
-  "acceptedDataProcessingConsent": true
+  "acceptedDataProcessingConsent": true,
+  "acceptedTermsOfService": true
 }
 
 ### Get token using client credentials (service-to-service)
-# Note: ApiClientSecret must be configured in appsettings or environment variables
+# The secret is OpenIddict:ApiClientSecret (appsettings.Development.json in Development). It is stored only when the client is first created.
 POST {{baseUrl}}/connect/token
 Content-Type: application/x-www-form-urlencoded
 
@@ -26,15 +26,18 @@ Content-Type: application/x-www-form-urlencoded
 
 grant_type=refresh_token&client_id=lotrokoniecdev-web&refresh_token=<your_refresh_token_here>
 
-### Get user info (requires valid access token)
+### Get user info
+# Needs a user's access token. Only the authorization code flow issues one, and this file cannot run that flow.
+# The client credentials token above belongs to no user.
 GET {{baseUrl}}/connect/userinfo
 Authorization: Bearer <your_access_token_here>
 
-### Revoke token
-POST {{baseUrl}}/connect/token
+### Revoke token (a refresh token issued to the web client)
+# Refresh tokens roll: after the refresh request above, revoke the new token it returned.
+POST {{baseUrl}}/connect/revoke
 Content-Type: application/x-www-form-urlencoded
 
-token=<your_token_here>&client_id=lotrokoniecdev-web
+token=<your_refresh_token_here>&token_type_hint=refresh_token&client_id=lotrokoniecdev-web
 
 ### Health check - liveness
 GET {{baseUrl}}/health/live

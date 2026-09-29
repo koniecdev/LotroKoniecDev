@@ -91,13 +91,12 @@ public sealed class DeleteAccountEndpointTests : EndpointsTestBase
         // Act: the request only commits the outbox row; the e-mail arrives through the
         // pipeline (relay -> delivery -> spy), so the capture has to be awaited (ADR-0038)
         HttpResponseMessage response = await SendDeleteRequestAsync(accessToken, TestPassword);
-        await AccountDeletionEmailSpy.WaitForScheduledCaptureAsync();
+        await AccountDeletionEmailSpy.WaitForScheduledCaptureAsync(registerRequest.Email);
 
         // Assert
         response.StatusCode.ShouldBe(HttpStatusCode.NoContent);
-        AccountDeletionEmailSpy.ScheduledCallCount.ShouldBe(1);
-        AccountDeletionEmailSpy.LastScheduledEmail.ShouldBe(registerRequest.Email);
-        AccountDeletionEmailSpy.LastCancelToken.ShouldNotBeNullOrWhiteSpace();
+        AccountDeletionEmailSpy.ScheduledEmailsTo(registerRequest.Email).ShouldHaveSingleItem()
+            .CancelToken.ShouldNotBeNullOrWhiteSpace();
     }
 
     [Fact]
@@ -111,7 +110,7 @@ public sealed class DeleteAccountEndpointTests : EndpointsTestBase
 
         // Act
         HttpResponseMessage response = await SendDeleteRequestAsync(accessToken, TestPassword);
-        await AccountDeletionEmailSpy.WaitForScheduledCaptureAsync();
+        await AccountDeletionEmailSpy.WaitForScheduledCaptureAsync(registerRequest.Email);
 
         // Assert: the payload carries the user id and nothing else: the cancel token is minted
         // at delivery and must never persist in an outbox row (ADR-0038 decision 2)
@@ -122,8 +121,9 @@ public sealed class DeleteAccountEndpointTests : EndpointsTestBase
         AccountDeletionScheduled payload = JsonSerializer.Deserialize<AccountDeletionScheduled>(outboxRow.Payload)
             .ShouldNotBeNull();
         payload.IdentityUserId.ShouldBe(identityId.Value);
-        AccountDeletionEmailSpy.LastCancelToken.ShouldNotBeNullOrEmpty();
-        outboxRow.Payload.ShouldNotContain(AccountDeletionEmailSpy.LastCancelToken);
+        string? cancelToken = AccountDeletionEmailSpy.LastCancelTokenSentTo(registerRequest.Email);
+        cancelToken.ShouldNotBeNullOrEmpty();
+        outboxRow.Payload.ShouldNotContain(cancelToken);
     }
 
     [Fact]
@@ -177,16 +177,17 @@ public sealed class DeleteAccountEndpointTests : EndpointsTestBase
         string accessToken = await GetAccessTokenAsync(registerRequest.Email, TestPassword);
         HttpResponseMessage firstResponse = await SendDeleteRequestAsync(accessToken, TestPassword);
         firstResponse.StatusCode.ShouldBe(HttpStatusCode.NoContent);
-        await AccountDeletionEmailSpy.WaitForScheduledCaptureAsync();
+        await AccountDeletionEmailSpy.WaitForScheduledCaptureAsync(registerRequest.Email);
 
         // Act: the JWT is self-contained, so it stays usable within its lifetime
         HttpResponseMessage secondResponse = await SendDeleteRequestAsync(accessToken, TestPassword);
 
-        // Assert: the rejected retry must not have queued a second e-mail
+        // Assert: the rejected retry must not have queued a second e-mail. A mail would arrive only after
+        // this response, so the check counts the outbox rows the requests wrote.
         secondResponse.StatusCode.ShouldBe(HttpStatusCode.UnprocessableEntity);
         string body = await secondResponse.Content.ReadAsStringAsync();
         body.ShouldContain("Auth.DeletionAlreadyScheduled");
-        AccountDeletionEmailSpy.ScheduledCallCount.ShouldBe(1);
+        (await OutboxAssertions.CountOutboxRowsAsync(Factory, nameof(AccountDeletionScheduled))).ShouldBe(1);
     }
 
     [Fact]
@@ -238,7 +239,7 @@ public sealed class DeleteAccountEndpointTests : EndpointsTestBase
         {
             // Act
             HttpResponseMessage response = await SendDeleteRequestAsync(accessToken, TestPassword);
-            await AccountDeletionEmailSpy.WaitForScheduledCaptureAsync(TimeSpan.FromSeconds(5));
+            await AccountDeletionEmailSpy.WaitForScheduledCaptureAsync(registerRequest.Email, TimeSpan.FromSeconds(5));
 
             // Assert: the undo step is gone (ADR-0038 decision 5). The request only commits the outbox
             // row together with the schedule, so an SMTP failure neither fails the request nor cancels
@@ -267,18 +268,21 @@ public sealed class DeleteAccountEndpointTests : EndpointsTestBase
         // CancelAccountDeletion looks the account up with.
         (RegisterRequest registerRequest, IdentityId identityId) =
             await UserFactory.RegisterRandomUserWithRequestAsync(ApiClient, Faker, AccountConfirmationEmailSpy, TestPassword);
-        await ArmRevertTargetAsync(identityId.Value, "poprzedni@shire.me", TimeSpan.FromDays(13));
+        string previousEmail = NewPreviousAddress();
+        await ArmRevertTargetAsync(identityId.Value, previousEmail, TimeSpan.FromDays(13));
 
         string accessToken = await GetAccessTokenAsync(registerRequest.Email, TestPassword);
         HttpResponseMessage response = await SendDeleteRequestAsync(accessToken, TestPassword);
-        await AccountDeletionEmailSpy.WaitForScheduledCaptureAsync();
+        await AccountDeletionEmailSpy.WaitForScheduledCaptureAsync(registerRequest.Email);
+        await AccountDeletionEmailSpy.WaitForPreviousAddressNoticeAsync(previousEmail);
 
         response.StatusCode.ShouldBe(HttpStatusCode.NoContent);
-        AccountDeletionEmailSpy.PreviousAddressCallCount.ShouldBe(1);
-        AccountDeletionEmailSpy.LastPreviousAddressRecipient.ShouldBe("poprzedni@shire.me");
-        AccountDeletionEmailSpy.LastPreviousAddressCurrentEmail.ShouldBe(registerRequest.Email);
-        AccountDeletionEmailSpy.LastPreviousAddressCancelToken.ShouldBe(AccountDeletionEmailSpy.LastCancelToken);
-        AccountDeletionEmailSpy.LastScheduledEmail.ShouldBe(registerRequest.Email);
+        SpyAccountDeletionEmailSender.ScheduledEmail scheduledEmail =
+            AccountDeletionEmailSpy.ScheduledEmailsTo(registerRequest.Email).ShouldHaveSingleItem();
+        SpyAccountDeletionEmailSender.PreviousAddressNotice notice =
+            AccountDeletionEmailSpy.PreviousAddressNoticesTo(previousEmail).ShouldHaveSingleItem();
+        notice.CurrentEmail.ShouldBe(registerRequest.Email);
+        notice.CancelToken.ShouldBe(scheduledEmail.CancelToken);
     }
 
     [Fact]
@@ -288,16 +292,29 @@ public sealed class DeleteAccountEndpointTests : EndpointsTestBase
         // a deletion it can no longer undo.
         (RegisterRequest registerRequest, IdentityId identityId) =
             await UserFactory.RegisterRandomUserWithRequestAsync(ApiClient, Faker, AccountConfirmationEmailSpy, TestPassword);
-        await ArmRevertTargetAsync(identityId.Value, "poprzedni@shire.me", TimeSpan.FromDays(15));
+        string previousEmail = NewPreviousAddress();
+        await ArmRevertTargetAsync(identityId.Value, previousEmail, TimeSpan.FromDays(15));
 
         string accessToken = await GetAccessTokenAsync(registerRequest.Email, TestPassword);
         HttpResponseMessage response = await SendDeleteRequestAsync(accessToken, TestPassword);
-        await AccountDeletionEmailSpy.WaitForScheduledCaptureAsync();
+        await AccountDeletionEmailSpy.WaitForScheduledCaptureAsync(registerRequest.Email);
+
+        // The delivery is recorded only after every send, so no notice can still be on its way when the
+        // check below runs, whatever order the processor sends in.
+        OutboxMessage? outboxRow = await OutboxAssertions.WaitForOutboxRowAsync(
+            Factory, row => row.Type == nameof(AccountDeletionScheduled));
+        outboxRow.ShouldNotBeNull();
+        (await OutboxAssertions.WaitForInboxRowsAsync(Factory, outboxRow.Id)).ShouldBe(1);
 
         response.StatusCode.ShouldBe(HttpStatusCode.NoContent);
-        AccountDeletionEmailSpy.ScheduledCallCount.ShouldBe(1);
-        AccountDeletionEmailSpy.PreviousAddressCallCount.ShouldBe(0);
+        AccountDeletionEmailSpy.ScheduledEmailsTo(registerRequest.Email).ShouldHaveSingleItem();
+        AccountDeletionEmailSpy.PreviousAddressNoticesTo(previousEmail).ShouldBeEmpty();
     }
+
+    /// <summary>
+    /// A fresh address per test, so the notice a test reads can only be its own (#911).
+    /// </summary>
+    private static string NewPreviousAddress() => $"poprzedni-{Guid.CreateVersion7():N}@shire.me";
 
     private async Task ArmRevertTargetAsync(Guid userId, string previousEmail, TimeSpan armedAge)
     {

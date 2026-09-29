@@ -24,7 +24,7 @@ public sealed class CancelAccountDeletionEndpointTests : EndpointsTestBase
     {
         // Arrange
         (RegisterRequest registerRequest, IdentityId identityId) = await RegisterAndScheduleDeletionAsync();
-        string cancelToken = AccountDeletionEmailSpy.LastCancelToken!;
+        string cancelToken = AccountDeletionEmailSpy.LastCancelTokenSentTo(registerRequest.Email)!;
 
         // Act
         HttpResponseMessage response = await SendCancelRequestAsync(registerRequest.Email, cancelToken);
@@ -42,7 +42,7 @@ public sealed class CancelAccountDeletionEndpointTests : EndpointsTestBase
     {
         // Arrange
         (RegisterRequest registerRequest, IdentityId identityId) = await RegisterAndScheduleDeletionAsync();
-        string cancelToken = AccountDeletionEmailSpy.LastCancelToken!;
+        string cancelToken = AccountDeletionEmailSpy.LastCancelTokenSentTo(registerRequest.Email)!;
 
         // Act
         HttpResponseMessage response = await SendCancelRequestAsync(registerRequest.Email, cancelToken);
@@ -62,7 +62,7 @@ public sealed class CancelAccountDeletionEndpointTests : EndpointsTestBase
     {
         // Arrange
         (RegisterRequest registerRequest, _) = await RegisterAndScheduleDeletionAsync();
-        string cancelToken = AccountDeletionEmailSpy.LastCancelToken!;
+        string cancelToken = AccountDeletionEmailSpy.LastCancelTokenSentTo(registerRequest.Email)!;
 
         // Act: cancel, then walk the forced reset flow end to end
         HttpResponseMessage cancelResponse = await SendCancelRequestAsync(registerRequest.Email, cancelToken);
@@ -89,17 +89,16 @@ public sealed class CancelAccountDeletionEndpointTests : EndpointsTestBase
     {
         // Arrange
         (RegisterRequest registerRequest, _) = await RegisterAndScheduleDeletionAsync();
-        string cancelToken = AccountDeletionEmailSpy.LastCancelToken!;
+        string cancelToken = AccountDeletionEmailSpy.LastCancelTokenSentTo(registerRequest.Email)!;
 
         // Act: the courtesy notice arrives through the pipeline, so the capture has to be
         // awaited (ADR-0038)
         HttpResponseMessage response = await SendCancelRequestAsync(registerRequest.Email, cancelToken);
-        await AccountDeletionEmailSpy.WaitForCancelledCaptureAsync();
+        await AccountDeletionEmailSpy.WaitForCancelledCaptureAsync(registerRequest.Email);
 
         // Assert
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
-        AccountDeletionEmailSpy.CancelledCallCount.ShouldBe(1);
-        AccountDeletionEmailSpy.LastCancelledEmail.ShouldBe(registerRequest.Email);
+        AccountDeletionEmailSpy.CancelledEmailCountTo(registerRequest.Email).ShouldBe(1);
     }
 
     [Fact]
@@ -154,7 +153,7 @@ public sealed class CancelAccountDeletionEndpointTests : EndpointsTestBase
     {
         // Arrange
         (RegisterRequest registerRequest, IdentityId identityId) = await RegisterAndScheduleDeletionAsync();
-        string cancelToken = AccountDeletionEmailSpy.LastCancelToken!;
+        string cancelToken = AccountDeletionEmailSpy.LastCancelTokenSentTo(registerRequest.Email)!;
 
         HttpResponseMessage firstResponse = await SendCancelRequestAsync(registerRequest.Email, cancelToken);
         firstResponse.StatusCode.ShouldBe(HttpStatusCode.OK);
@@ -185,8 +184,8 @@ public sealed class CancelAccountDeletionEndpointTests : EndpointsTestBase
         response.StatusCode.ShouldBe(HttpStatusCode.NoContent);
 
         // The cancel token arrives through the pipeline (ADR-0038), not the request path
-        await AccountDeletionEmailSpy.WaitForScheduledCaptureAsync();
-        AccountDeletionEmailSpy.LastCancelToken.ShouldNotBeNullOrWhiteSpace();
+        await AccountDeletionEmailSpy.WaitForScheduledCaptureAsync(registerRequest.Email);
+        AccountDeletionEmailSpy.LastCancelTokenSentTo(registerRequest.Email).ShouldNotBeNullOrWhiteSpace();
 
         return (registerRequest, identityId);
     }

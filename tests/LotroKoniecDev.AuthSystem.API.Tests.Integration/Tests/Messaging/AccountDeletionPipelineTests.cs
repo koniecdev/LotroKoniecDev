@@ -83,21 +83,26 @@ public sealed class AccountDeletionPipelineTests : IClassFixture<BrokeredAuthSys
 
         // Act: deleting the account is the user-facing trigger of the whole pipeline
         HttpResponseMessage deleteResponse = await SendDeleteRequestAsync(accessToken);
-        await _deletionEmailSpy.WaitForScheduledCaptureAsync(DeliveryTimeout);
+        await _deletionEmailSpy.WaitForScheduledCaptureAsync(request.Email, DeliveryTimeout);
 
         // Assert: the e-mail went out once, to the registered address, with the recomputed date
         deleteResponse.StatusCode.ShouldBe(HttpStatusCode.NoContent);
-        _deletionEmailSpy.LastScheduledEmail.ShouldBe(request.Email);
-        _deletionEmailSpy.LastCancelToken.ShouldNotBeNullOrWhiteSpace();
-        _deletionEmailSpy.LastFinalizesAt.ShouldNotBeNull();
-        _deletionEmailSpy.ScheduledCallCount.ShouldBe(1);
+        SpyAccountDeletionEmailSender.ScheduledEmail scheduledEmail =
+            _deletionEmailSpy.ScheduledEmailsTo(request.Email).ShouldHaveSingleItem();
+        scheduledEmail.CancelToken.ShouldNotBeNullOrWhiteSpace();
+        scheduledEmail.FinalizesAt.ShouldBeGreaterThan(DateTimeOffset.UtcNow);
 
         // The delivered token really cancels the deletion, which proves that creating it at delivery
         // time produced a link the owner can use.
         HttpResponseMessage cancelResponse = await _apiClient.Http.PostAsJsonAsync(
             new Uri("auth/account/cancel-deletion", UriKind.Relative),
-            new CancelAccountDeletionRequest(request.Email, _deletionEmailSpy.LastCancelToken!));
+            new CancelAccountDeletionRequest(request.Email, scheduledEmail.CancelToken));
         cancelResponse.StatusCode.ShouldBe(HttpStatusCode.OK);
+
+        // The cancel sends a mail of its own. Waiting for it means no mail from this test can land in the
+        // poison theory's count of mails to any inbox.
+        await _deletionEmailSpy.WaitForCancelledCaptureAsync(request.Email, DeliveryTimeout);
+        _deletionEmailSpy.CancelledEmailCountTo(request.Email).ShouldBe(1);
 
         // The outbox row was published and marked on the first attempt, and it carries the user id and
         // nothing else: a cancel token must never sit in an outbox row (ADR-0038 decision 2).
@@ -111,7 +116,7 @@ public sealed class AccountDeletionPipelineTests : IClassFixture<BrokeredAuthSys
         AccountDeletionScheduled payload = JsonSerializer.Deserialize<AccountDeletionScheduled>(outboxRow.Payload)
             .ShouldNotBeNull();
         payload.IdentityUserId.ShouldBe(identityId.Value);
-        outboxRow.Payload.ShouldNotContain(_deletionEmailSpy.LastCancelToken!);
+        outboxRow.Payload.ShouldNotContain(scheduledEmail.CancelToken);
 
         // The delivery was recorded for deduplication and nothing was left on the broker
         (await OutboxAssertions.CountInboxRowsAsync(_factory, outboxRow.Id)).ShouldBe(1);
@@ -126,19 +131,18 @@ public sealed class AccountDeletionPipelineTests : IClassFixture<BrokeredAuthSys
             _apiClient, _faker, _confirmationEmailSpy, TestPassword);
         string accessToken = await GetAccessTokenAsync(request.Email);
         (await SendDeleteRequestAsync(accessToken)).StatusCode.ShouldBe(HttpStatusCode.NoContent);
-        await _deletionEmailSpy.WaitForScheduledCaptureAsync(DeliveryTimeout);
+        await _deletionEmailSpy.WaitForScheduledCaptureAsync(request.Email, DeliveryTimeout);
 
         // Act: cancelling is the second user-facing trigger; the courtesy notice rides the
         // pipeline while the forced-reset token travels in the response (ADR-0038)
         HttpResponseMessage cancelResponse = await _apiClient.Http.PostAsJsonAsync(
             new Uri("auth/account/cancel-deletion", UriKind.Relative),
-            new CancelAccountDeletionRequest(request.Email, _deletionEmailSpy.LastCancelToken!));
-        await _deletionEmailSpy.WaitForCancelledCaptureAsync(DeliveryTimeout);
+            new CancelAccountDeletionRequest(request.Email, _deletionEmailSpy.LastCancelTokenSentTo(request.Email)!));
+        await _deletionEmailSpy.WaitForCancelledCaptureAsync(request.Email, DeliveryTimeout);
 
         // Assert: the courtesy notice went out once, to the registered address
         cancelResponse.StatusCode.ShouldBe(HttpStatusCode.OK);
-        _deletionEmailSpy.LastCancelledEmail.ShouldBe(request.Email);
-        _deletionEmailSpy.CancelledCallCount.ShouldBe(1);
+        _deletionEmailSpy.CancelledEmailCountTo(request.Email).ShouldBe(1);
 
         // The reset token in the response really finishes the recovery: a new password and a working
         // login.
@@ -174,7 +178,7 @@ public sealed class AccountDeletionPipelineTests : IClassFixture<BrokeredAuthSys
     {
         // Arrange: a user who is NOT deletion-scheduled: the deterministic construction of "the
         // cancellation raced the scheduled message and won" (the drift guard's reason to exist)
-        (_, IdentityId identityId) = await UserFactory.RegisterRandomUserWithRequestAsync(
+        (RegisterRequest request, IdentityId identityId) = await UserFactory.RegisterRandomUserWithRequestAsync(
             _apiClient, _faker, _confirmationEmailSpy, TestPassword);
 
         // Act: the exact wire shape a stale scheduled message would have
@@ -189,7 +193,7 @@ public sealed class AccountDeletionPipelineTests : IClassFixture<BrokeredAuthSys
 
         // Assert: acked and recorded, but no stale "your account will be deleted" went out
         (await OutboxAssertions.WaitForInboxRowsAsync(_factory, messageId, DeliveryTimeout)).ShouldBe(1);
-        _deletionEmailSpy.ScheduledCallCount.ShouldBe(0);
+        _deletionEmailSpy.ScheduledEmailsTo(request.Email).ShouldBeEmpty();
         (await GetWithinTimeoutAsync(RabbitMqTopology.EmailQueue, EmptyQueueGrace)).ShouldBeNull();
         (await GetWithinTimeoutAsync(RabbitMqTopology.EmailDeadLetterQueue, EmptyQueueGrace)).ShouldBeNull();
     }
@@ -203,7 +207,7 @@ public sealed class AccountDeletionPipelineTests : IClassFixture<BrokeredAuthSys
             _apiClient, _faker, _confirmationEmailSpy, TestPassword);
         string accessToken = await GetAccessTokenAsync(request.Email);
         (await SendDeleteRequestAsync(accessToken)).StatusCode.ShouldBe(HttpStatusCode.NoContent);
-        await _deletionEmailSpy.WaitForScheduledCaptureAsync(DeliveryTimeout);
+        await _deletionEmailSpy.WaitForScheduledCaptureAsync(request.Email, DeliveryTimeout);
 
         // Act
         Guid messageId = Guid.CreateVersion7();
@@ -217,7 +221,7 @@ public sealed class AccountDeletionPipelineTests : IClassFixture<BrokeredAuthSys
 
         // Assert: acked and recorded, but no "your account was kept" went out
         (await OutboxAssertions.WaitForInboxRowsAsync(_factory, messageId, DeliveryTimeout)).ShouldBe(1);
-        _deletionEmailSpy.CancelledCallCount.ShouldBe(0);
+        _deletionEmailSpy.CancelledEmailCountTo(request.Email).ShouldBe(0);
         (await GetWithinTimeoutAsync(RabbitMqTopology.EmailQueue, EmptyQueueGrace)).ShouldBeNull();
         (await GetWithinTimeoutAsync(RabbitMqTopology.EmailDeadLetterQueue, EmptyQueueGrace)).ShouldBeNull();
     }
@@ -246,8 +250,8 @@ public sealed class AccountDeletionPipelineTests : IClassFixture<BrokeredAuthSys
             (await GetWithinTimeoutAsync(RabbitMqTopology.EmailDeadLetterQueue, DeliveryTimeout)).ShouldNotBeNull();
         Encoding.UTF8.GetString(dead.Body.ToArray()).ShouldBe(poisonPayload);
         FirstDeathReason(dead.BasicProperties).ShouldBe("rejected");
-        _deletionEmailSpy.ScheduledCallCount.ShouldBe(0);
-        _deletionEmailSpy.CancelledCallCount.ShouldBe(0);
+        _deletionEmailSpy.ScheduledEmailCountToAnyInbox.ShouldBe(0);
+        _deletionEmailSpy.CancelledEmailCountToAnyInbox.ShouldBe(0);
         (await OutboxAssertions.CountInboxRowsAsync(_factory, messageId)).ShouldBe(0);
     }
 

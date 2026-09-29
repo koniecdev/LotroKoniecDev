@@ -65,6 +65,17 @@ internal static class OutboxAssertions
         }
     }
 
+    /// <summary>
+    /// Counts the outbox rows of one type. The request writes its row in its own transaction, so unlike
+    /// the mail it needs no wait.
+    /// </summary>
+    public static async Task<int> CountOutboxRowsAsync(AuthSystemApiFactory factory, string type)
+    {
+        await using AsyncServiceScope scope = factory.Services.CreateAsyncScope();
+        AuthDbContext db = scope.ServiceProvider.GetRequiredService<AuthDbContext>();
+        return await db.OutboxMessages.AsNoTracking().CountAsync(row => row.Type == type);
+    }
+
     public static async Task<int> CountInboxRowsAsync(AuthSystemApiFactory factory, Guid messageId)
     {
         await using AsyncServiceScope scope = factory.Services.CreateAsyncScope();

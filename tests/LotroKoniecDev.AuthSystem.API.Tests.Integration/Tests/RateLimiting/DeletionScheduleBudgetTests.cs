@@ -49,7 +49,7 @@ public sealed class DeletionScheduleBudgetTests : EndpointsTestBase
         HttpStatusCode[] schedules = new HttpStatusCode[PermitLimit];
         for (int i = 0; i < schedules.Length; i++)
         {
-            schedules[i] = await ScheduleAsync(accessToken, Password);
+            schedules[i] = await ScheduleAsync(registerRequest.Email, accessToken, Password);
             accessToken = await CancelAndLogInAgainAsync(registerRequest.Email);
         }
 
@@ -101,7 +101,7 @@ public sealed class DeletionScheduleBudgetTests : EndpointsTestBase
             await UserFactory.RegisterRandomUserWithRequestAsync(ApiClient, Faker, AccountConfirmationEmailSpy, Password);
         string accessToken = await GetAccessTokenAsync(registerRequest.Email, Password);
 
-        (await ScheduleAsync(accessToken, Password)).ShouldBe(HttpStatusCode.NoContent);
+        (await ScheduleAsync(registerRequest.Email, accessToken, Password)).ShouldBe(HttpStatusCode.NoContent);
 
         HttpStatusCode[] repeats = new HttpStatusCode[PermitLimit];
         for (int i = 0; i < repeats.Length; i++)
@@ -113,7 +113,7 @@ public sealed class DeletionScheduleBudgetTests : EndpointsTestBase
         string freshToken = await CancelAndLogInAgainAsync(registerRequest.Email);
 
         // Act
-        HttpStatusCode reschedule = await ScheduleAsync(freshToken, Password);
+        HttpStatusCode reschedule = await ScheduleAsync(registerRequest.Email, freshToken, Password);
 
         // Assert: the repeats changed nothing, so the budget still holds the second permit
         repeats.ShouldAllBe(statusCode => statusCode == HttpStatusCode.UnprocessableEntity);
@@ -127,15 +127,15 @@ public sealed class DeletionScheduleBudgetTests : EndpointsTestBase
     /// Schedules the deletion and waits for the cancel link. The link is minted when the mail is
     /// delivered through the outbox, not in the request, so the spy is cleared first and then awaited.
     /// </summary>
-    private async Task<HttpStatusCode> ScheduleAsync(string accessToken, string password)
+    private async Task<HttpStatusCode> ScheduleAsync(string email, string accessToken, string password)
     {
         AccountDeletionEmailSpy.Reset();
 
         using HttpResponseMessage response = await PostDeleteAsync(accessToken, password);
         if (response.StatusCode == HttpStatusCode.NoContent)
         {
-            await AccountDeletionEmailSpy.WaitForScheduledCaptureAsync();
-            AccountDeletionEmailSpy.LastCancelToken.ShouldNotBeNullOrWhiteSpace();
+            await AccountDeletionEmailSpy.WaitForScheduledCaptureAsync(email);
+            AccountDeletionEmailSpy.LastCancelTokenSentTo(email).ShouldNotBeNullOrWhiteSpace();
         }
 
         return response.StatusCode;
@@ -147,7 +147,7 @@ public sealed class DeletionScheduleBudgetTests : EndpointsTestBase
     /// </summary>
     private async Task<string> CancelAndLogInAgainAsync(string email)
     {
-        CancelAccountDeletionRequest cancelRequest = new(email, AccountDeletionEmailSpy.LastCancelToken!);
+        CancelAccountDeletionRequest cancelRequest = new(email, AccountDeletionEmailSpy.LastCancelTokenSentTo(email)!);
         using HttpResponseMessage cancelResponse = await ApiClient.Http.PostAsJsonAsync(
             new Uri("auth/account/cancel-deletion", UriKind.Relative), cancelRequest);
         cancelResponse.StatusCode.ShouldBe(HttpStatusCode.OK);

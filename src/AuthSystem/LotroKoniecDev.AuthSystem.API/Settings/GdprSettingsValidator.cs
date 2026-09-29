@@ -24,11 +24,9 @@ internal sealed class GdprSettingsValidator : IValidateOptions<GdprSettings>
             errors.Add("DeletionFinalizationPollInterval must be at least 1 minute.");
         }
 
-        // The erasure lands at the first run after the date the user is shown, so up to one interval
-        // later. A longer interval than the grace period would make that wait longer than the window
-        // itself. This rule also keeps the email-change undo hold (ADR-0031, #685 amendment) inside
-        // the 30 days below: that hold can outlast a short grace period, and the sum only counts the
-        // grace period.
+        // The erasure lands up to one interval after the date the user is shown, so a longer interval
+        // than the grace period would make that wait longer than the window itself. This rule also keeps
+        // the email-change undo hold inside the limit below (ADR-0031, #946 amendment).
         if (options.DeletionFinalizationPollInterval > options.DeletionGracePeriod)
         {
             errors.Add("DeletionFinalizationPollInterval must not exceed DeletionGracePeriod.");
@@ -43,7 +41,8 @@ internal sealed class GdprSettingsValidator : IValidateOptions<GdprSettings>
 
         if (options.DeletionGracePeriod > MaxErasureDelay - pollDelay)
         {
-            errors.Add("DeletionGracePeriod plus DeletionFinalizationPollInterval must not exceed 30 days.");
+            errors.Add(
+                $"DeletionGracePeriod plus DeletionFinalizationPollInterval must not exceed {MaxErasureDelay.TotalDays:0} days.");
         }
 
         return errors.Count > 0

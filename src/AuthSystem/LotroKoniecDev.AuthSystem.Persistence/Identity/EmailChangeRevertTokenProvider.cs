@@ -11,8 +11,8 @@ namespace LotroKoniecDev.AuthSystem.Persistence.Identity;
 /// <summary>
 /// Options for the revert token. Fourteen days is long on purpose: the person who needs this link is
 /// someone who has just been locked out of their own account and may not read that mailbox daily.
-/// A scheduled account deletion waits for this undo, so keep it at 15 days or less, or the erasure
-/// can pass GDPR's one month (ADR-0031, #685 and #780 amendments).
+/// A scheduled account deletion waits for this undo, so keep it at 15 days or less (ADR-0031, #946
+/// amendment).
 /// </summary>
 public sealed class EmailChangeRevertTokenProviderOptions
 {

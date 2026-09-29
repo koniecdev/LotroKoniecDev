@@ -1,8 +1,9 @@
 # ADR-0031: GDPR Account Deletion Runs Through a 14-Day Soft-Delete Grace Period
 
 **Status:** Accepted (amended 2026-09-19 by #685 — the cancel link reaches the armed address and the
-erasure waits for the undo; amended 2026-09-29 by #780 — the finalizer polls once a day, and by
-#946 — the 30-day cap covers the grace period plus the poll interval; see the amendments below)
+erasure waits for the undo; amended 2026-09-29 by #780 — the finalizer polls once a day; amended
+2026-09-30 by #946 — the 30-day cap covers the grace period plus the poll interval; see the amendments
+below)
 **Date:** 2026-07-11
 **Decision-makers:** Solo maintainer (ticket #452, legal & GDPR compliance pack #459; amendment #685, SEC-07; amendment #780, #946)
 **Related:** `DeleteAccount` / `CancelAccountDeletion` (AuthSystem), `AccountErasureService`,
@@ -26,7 +27,7 @@ cancellation window is the industry standard (GitHub 90 d, Google 20–60 d, Dis
 
 Deletion is **two-phase with a 14-day cancellation window** (`Gdpr:DeletionGracePeriod`,
 capped by options validation to stay inside Art. 12(3) — since #946 the cap is 30 days for the grace
-period plus the poll interval, see the #780 amendment):
+period plus the poll interval, see the #946 amendment):
 
 1. **Schedule (synchronous).** Password check → set
    `ApplicationUser.DeletionScheduledAt`, lock the account for the whole window
@@ -120,13 +121,13 @@ cancels, so `EmailChangeRevertArmedAt` cannot move once a deletion is pending. W
 `armedAt <= scheduledAt` the whole rule collapses to
 `finalizesAt <= scheduledAt + max(grace, revertLifespan)`, and the 30-day cap in
 `GdprSettingsValidator` bounds the grace term exactly as it did before this amendment. (Since #946 the
-cap counts the poll interval too; see the #780 amendment.)
+cap counts the poll interval too; see the #946 amendment.)
 
 The term that cap does **not** cover is the other one. `EmailChangeRevertTokenProviderOptions` is
 registered with a plain `AddOptions` and no `BindConfiguration`, so its 14 days can only change in
 code — but nothing validates it, and a lifespan raised past 30 days would push `finalizesAt` past the
-month this ADR is written to respect. Whoever changes that number owns this paragraph. (Since #946 the
-real limit is 15 days, because the poll interval comes on top; see the #780 amendment.)
+month this ADR is written to respect. Whoever changes that number owns this paragraph. (This count
+leaves out the poll interval. Counting it, as the #946 amendment does, the limit is 15 days.)
 
 **What the fix does not claim.** The owner who cancels from the old mailbox stops the erasure and
 destroys the password, but the account still sits on the address it was moved to, and whoever reads
@@ -139,7 +140,7 @@ extends the undo past its 14 days and drags #684's address reservation along wit
 Refusing to schedule a deletion at all while an undo is armed was the other candidate — simpler, and
 symmetric with the existing "a scheduled deletion blocks the e-mail change" rule. Rejected: it makes
 an honest user who just changed their address wait up to 14 days to delete, and 14 + 30 days at this
-ADR's own configured cap would break the Art. 12(3) budget that cap exists to protect. It is also the
+ADR's own configured cap (grace plus poll since #946) would break the Art. 12(3) budget that cap exists to protect. It is also the
 "block the action" shape this ADR and ADR-0048 have now both declined twice.
 
 ## Amendment (2026-09-29, #780): the finalizer polls once a day
@@ -171,12 +172,13 @@ period, so an environment that shortens `Gdpr:DeletionGracePeriod` below one day
 erasure in QA for example, must shorten `Gdpr:DeletionFinalizationPollInterval` too. Otherwise the
 auth API refuses to start, with a message that names both settings.
 
-**The 30-day cap covers the grace period plus the poll interval (#946).** An account is erased at
-the first run after its date, so the erasure can land up to one poll interval after it. A cap on the
-grace period alone let the erasure land on day 31 at the cap. So the validator now caps
-`Gdpr:DeletionGracePeriod` plus `Gdpr:DeletionFinalizationPollInterval` at 30 days, with a message
-that names both settings. This rule replaces the old 30-day cap on the grace period alone, because it
-implies it. With the shipped 14 days and one day, the erasure lands by day 15. With a daily poll, the
+## Amendment (2026-09-30, #946): the 30-day cap covers the grace period plus the poll interval
+
+An account is erased at the first run after its date, so the erasure can land up to one poll interval
+after it. A cap on the grace period alone let the erasure land on day 31 at the cap. So the validator
+now caps `Gdpr:DeletionGracePeriod` plus `Gdpr:DeletionFinalizationPollInterval` at 30 days, with a
+message that names both settings. This rule replaces the old 30-day cap on the grace period alone,
+because it implies it. With the shipped 14 days and one day, the erasure lands by day 15. With a daily poll, the
 longest grace period the auth API starts with is 29 days.
 
 The undo term of the #685 amendment stays inside the 30 days too. It wins only when the grace period
@@ -188,6 +190,10 @@ stays at 15 days or less.
 
 Two delays are outside what a startup check can bound. A run that fails adds one poll interval each
 time (#937). An app that is down erases nothing until the catch-up run when it starts again.
+
+Thirty days stands in for Art. 12(3)'s "one month". A calendar month can be 28 days, so a request
+made in early February can pass its month at the cap. Whether 30 days is the right stand-in is an
+open question for the owner (#971).
 
 ## Consequences
 

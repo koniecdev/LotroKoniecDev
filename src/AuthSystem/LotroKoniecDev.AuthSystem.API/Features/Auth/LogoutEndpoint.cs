@@ -1,4 +1,3 @@
-using System.Security.Claims;
 using Microsoft.AspNetCore;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Identity;
@@ -12,9 +11,8 @@ using static OpenIddict.Abstractions.OpenIddictConstants;
 namespace LotroKoniecDev.AuthSystem.API.Features.Auth;
 
 /// <summary>
-/// Signing out revokes every token and authorization of the user, so the website sessions on all devices
-/// end (#931). It does not change the security stamp, so this server's own cookie on another device
-/// lives on until it expires.
+/// Signing out ends the session of this device only: the one authorization behind the
+/// <c>id_token_hint</c> and its tokens (owner decision on #931). Sessions on other devices stay alive.
 /// </summary>
 internal sealed partial class LogoutEndpoint : IEndpoint
 {
@@ -25,15 +23,21 @@ internal sealed partial class LogoutEndpoint : IEndpoint
     {
         OpenIddictRequest? request = httpContext.GetOpenIddictServerRequest();
 
-        string? userId = await FindUserIdAsync(httpContext);
-        if (!string.IsNullOrEmpty(userId))
+        // OpenIddict checks the hint's signature and that its token and authorization rows are still
+        // valid, but not its lifetime. So an old ID token works while its session lives, and the hint of
+        // an ended session gives no principal. This server's own cookie cannot name the session: it
+        // belongs to the browser, not to one sign-in of the website, so it is only cleared.
+        AuthenticateResult hintResult =
+            await httpContext.AuthenticateAsync(OpenIddictServerAspNetCoreDefaults.AuthenticationScheme);
+        string? authorizationId = hintResult.Principal?.GetAuthorizationId();
+        if (!string.IsNullOrEmpty(authorizationId))
         {
-            await sessionRevoker.RevokeAllAsync(userId);
-            LogUserLoggedOut(logger, userId);
+            await sessionRevoker.RevokeSessionAsync(authorizationId);
+            LogUserLoggedOut(logger, hintResult.Principal?.GetClaim(Claims.Subject));
         }
         else
         {
-            LogSignOutFoundNoUser(logger, !string.IsNullOrEmpty(request?.IdTokenHint));
+            LogSignOutFoundNoSession(logger, !string.IsNullOrEmpty(request?.IdTokenHint));
         }
 
         await httpContext.SignOutAsync(IdentityConstants.ApplicationScheme);
@@ -51,26 +55,6 @@ internal sealed partial class LogoutEndpoint : IEndpoint
             authenticationSchemes: [OpenIddictServerAspNetCoreDefaults.AuthenticationScheme]);
     }
 
-    /// <summary>
-    /// The hint comes first, because the website renews its tokens server to server and this server's
-    /// own cookie is usually gone by sign-out time. OpenIddict checks the hint's signature and that its
-    /// token and authorization rows are still valid, but not its lifetime. So an old ID token works while
-    /// its session lives, and the hint of an ended session gives no principal.
-    /// </summary>
-    private static async Task<string?> FindUserIdAsync(HttpContext httpContext)
-    {
-        AuthenticateResult hintResult =
-            await httpContext.AuthenticateAsync(OpenIddictServerAspNetCoreDefaults.AuthenticationScheme);
-        string? hintedUserId = hintResult.Principal?.GetClaim(Claims.Subject);
-        if (!string.IsNullOrEmpty(hintedUserId))
-        {
-            return hintedUserId;
-        }
-
-        AuthenticateResult cookieResult = await httpContext.AuthenticateAsync(IdentityConstants.ApplicationScheme);
-        return cookieResult.Principal?.FindFirstValue(ClaimTypes.NameIdentifier);
-    }
-
     public void MapEndpoint(IEndpointRouteBuilder endpointRouteBuilder)
     {
         endpointRouteBuilder.MapMethods("connect/logout", [HttpMethods.Get, HttpMethods.Post], HandleAsync)
@@ -79,8 +63,8 @@ internal sealed partial class LogoutEndpoint : IEndpoint
     }
 
     [LoggerMessage(EventId = EventIds.UserLoggedOut, Level = LogLevel.Information, Message = "User logged out. UserId: {UserId}")]
-    private static partial void LogUserLoggedOut(ILogger logger, string userId);
+    private static partial void LogUserLoggedOut(ILogger logger, string? userId);
 
-    [LoggerMessage(EventId = EventIds.SignOutFoundNoUser, Level = LogLevel.Information, Message = "Sign-out revoked nothing: there was no valid id_token_hint and no auth cookie. A hint was sent: {HintSent}")]
-    private static partial void LogSignOutFoundNoUser(ILogger logger, bool hintSent);
+    [LoggerMessage(EventId = EventIds.SignOutFoundNoSession, Level = LogLevel.Information, Message = "Sign-out revoked nothing: there was no valid id_token_hint. A hint was sent: {HintSent}")]
+    private static partial void LogSignOutFoundNoSession(ILogger logger, bool hintSent);
 }

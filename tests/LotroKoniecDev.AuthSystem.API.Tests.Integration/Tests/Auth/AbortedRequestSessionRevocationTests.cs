@@ -305,5 +305,7 @@ public sealed partial class AbortedRequestSessionRevocationTests : EndpointsTest
                 throw;
             }
         }
+
+        public Task RevokeSessionAsync(string authorizationId) => _revoker.RevokeSessionAsync(authorizationId);
     }
 }

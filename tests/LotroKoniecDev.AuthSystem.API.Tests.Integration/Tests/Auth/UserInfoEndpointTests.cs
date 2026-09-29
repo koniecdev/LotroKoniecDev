@@ -1,11 +1,7 @@
 using System.Net.Http.Headers;
-using Microsoft.AspNetCore.Identity;
-using Microsoft.Extensions.DependencyInjection;
 using LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared.Bases;
 using LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared.Factories;
 using LotroKoniecDev.AuthSystem.Contracts.Features.Auth.Register;
-using LotroKoniecDev.AuthSystem.Domain.Aggregates.ApplicationUsers.Entities;
-using LotroKoniecDev.SharedKernel.Authorization;
 using LotroKoniecDev.SharedKernel.StronglyTypedIds;
 
 namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Tests.Auth;
@@ -64,14 +60,7 @@ public sealed class UserInfoEndpointTests : EndpointsTestBase
             await UserFactory.RegisterRandomUserWithRequestAsync(ApiClient, Faker, AccountConfirmationEmailSpy, Password);
         string accessToken = await GetAccessTokenAsync(request.Email, Password);
 
-        await using (AsyncServiceScope scope = Factory.Services.CreateAsyncScope())
-        {
-            UserManager<ApplicationUser> userManager =
-                scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
-            ApplicationUser? user = await userManager.FindByEmailAsync(request.Email);
-            user.ShouldNotBeNull();
-            (await userManager.DeleteAsync(user)).Succeeded.ShouldBeTrue();
-        }
+        await AccountStateFactory.DeleteAsync(Factory.Services, request.Email);
 
         // Act
         using HttpResponseMessage response = await RequestUserInfoAsync(HttpMethod.Get, accessToken);
@@ -82,24 +71,6 @@ public sealed class UserInfoEndpointTests : EndpointsTestBase
         challenge.Scheme.ShouldBe("Bearer");
         challenge.Parameter.ShouldNotBeNull().ShouldContain("error=\"invalid_token\"");
         challenge.Parameter.ShouldContain("error_description=\"The specified access token is invalid.\"");
-    }
-
-    private async Task<string> GetClientCredentialsAccessTokenAsync()
-    {
-        using FormUrlEncodedContent tokenRequest = new(new Dictionary<string, string>
-        {
-            ["grant_type"] = "client_credentials",
-            ["client_id"] = AuthConstants.ClientIds.Api,
-            ["client_secret"] = AuthSystemApiFactory.TestApiClientSecret,
-            ["scope"] = "api service"
-        });
-
-        using HttpResponseMessage response = await ApiClient.Http.PostAsync(
-            new Uri("connect/token", UriKind.Relative), tokenRequest);
-
-        response.StatusCode.ShouldBe(HttpStatusCode.OK);
-        using JsonDocument json = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
-        return json.RootElement.GetProperty("access_token").GetString()!;
     }
 
     private async Task<HttpResponseMessage> RequestUserInfoAsync(HttpMethod method, string accessToken)

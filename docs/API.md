@@ -341,10 +341,9 @@ wrong credentials on the Testing-only password grant, and that grant's `account_
 answer, which is in `error_description`. OpenIddict's own checks can answer other codes, for example
 **401** `invalid_client` for a wrong client secret or **400** `unsupported_grant_type`.
 `connect/userinfo` answers a token that names no user, such as a service's client credentials token
-or the token of a deleted account, with **401** and `error="invalid_token"` in the `WWW-Authenticate`
-header (#955). A 429 from
-the rate limiter and a 500 from an unhandled exception still come from the shared pipeline as
-`ProblemDetails` (#917).
+or the token of an account that no longer exists, with **401** and `error="invalid_token"` in the
+`WWW-Authenticate` header (#955). A 429 from the rate limiter and a 500 from an unhandled exception
+still come from the shared pipeline as `ProblemDetails` (#917).
 
 The login/consent UI is server-rendered Razor Pages: `/Account/Login`, `/Account/Register`,
 `/Account/ConfirmEmail`, `/Account/ResendConfirmation`, `/Account/ForgotPassword`,

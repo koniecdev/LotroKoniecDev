@@ -664,6 +664,7 @@ public sealed partial class EmailChangePageTests : EndpointsTestBase
 
         await ConfirmAsync(userId, newEmail, token);
         await EmailChangeEmailSpy.WaitForRevertOfferCaptureAsync();
+        await EmailChangeEmailSpy.WaitForChangedNoticeCaptureAsync();
 
         EmailChangeEmailSpy.LastRevertOfferRecipient.ShouldBe(user.Email);
         EmailChangeEmailSpy.LastNoticeRecipient.ShouldBe(newEmail);

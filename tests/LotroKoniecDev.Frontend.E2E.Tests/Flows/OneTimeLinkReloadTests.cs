@@ -59,7 +59,7 @@ public sealed class OneTimeLinkReloadTests : E2ETestBase
         reload.Request.Method.ShouldBe("GET");
         posts.PostsTo(ConfirmEmailChangePath).ShouldBe(1);
         (await Page.GetByRole(AriaRole.Alert).CountAsync()).ShouldBe(0);
-        (await success.InnerTextAsync()).ShouldContain(newEmail);
+        (await success.CountAsync()).ShouldBe(1);
         CspViolations.ShouldBeEmpty();
     }
 

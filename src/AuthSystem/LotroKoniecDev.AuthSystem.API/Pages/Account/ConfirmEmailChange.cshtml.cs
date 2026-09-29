@@ -62,13 +62,12 @@ internal sealed partial class ConfirmEmailChangeModel : PageModel
 
     /// <summary>
     /// The done view a successful POST redirects to. A reload then repeats only this GET and never sends
-    /// the used link again, which would call it dead (#886). Anybody can open this URL, so it checks
-    /// nothing and prints the address only when it has the shape of one.
+    /// the used link again, which would call it dead (#886). Anybody can open this URL, so it prints no
+    /// address: a hand-made link must not show a stranger's choice of address as the account's new login.
     /// </summary>
-    public void OnGetDone(string? email = null)
+    public void OnGetDone()
     {
         IsCompleted = true;
-        Email = EmailLinkValue.LooksLikeAnAddress(email) ? email : string.Empty;
     }
 
     public async Task<IActionResult> OnPostAsync()
@@ -96,7 +95,7 @@ internal sealed partial class ConfirmEmailChangeModel : PageModel
 
         LogEmailChangeConfirmedViaUi(_logger, Email.MaskEmail());
 
-        return RedirectToPage("/Account/ConfirmEmailChange", "Done", new { email = Email });
+        return RedirectToPage("/Account/ConfirmEmailChange", "Done");
     }
 
     /// <summary>

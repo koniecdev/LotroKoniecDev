@@ -40,13 +40,7 @@ public sealed partial class ResetPasswordPageTests : EndpointsTestBase
         using JsonDocument loginJson = JsonDocument.Parse(loginContent);
         string refreshToken = loginJson.RootElement.GetProperty("refresh_token").GetString()!;
 
-        // Obtain a reset token
-        PasswordResetEmailSpy.Reset();
-        await ApiClient.Http.PostAsJsonAsync(
-            new Uri("auth/forgot-password", UriKind.Relative),
-            new ForgotPasswordRequest(registerRequest.Email));
-        await PasswordResetEmailSpy.WaitForCaptureAsync();
-        string resetToken = PasswordResetEmailSpy.LastResetToken!;
+        string resetToken = await RequestResetTokenAsync(registerRequest.Email);
 
         // Complete the reset through the browser Razor page
         HttpResponseMessage resetPageResponse = await PostToResetPasswordPageAsync(new Dictionary<string, string>
@@ -180,9 +174,11 @@ public sealed partial class ResetPasswordPageTests : EndpointsTestBase
     private async Task<string> RequestResetTokenAsync(string email)
     {
         PasswordResetEmailSpy.Reset();
-        await ApiClient.Http.PostAsJsonAsync(
+        using HttpResponseMessage response = await ApiClient.Http.PostAsJsonAsync(
             new Uri("auth/forgot-password", UriKind.Relative),
             new ForgotPasswordRequest(email));
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+
         await PasswordResetEmailSpy.WaitForCaptureAsync();
 
         return PasswordResetEmailSpy.LastResetToken!;

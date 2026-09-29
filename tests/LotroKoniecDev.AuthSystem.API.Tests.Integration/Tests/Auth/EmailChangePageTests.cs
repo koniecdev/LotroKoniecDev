@@ -1,12 +1,9 @@
 using System.Net.Http.Headers;
-using System.Text.Encodings.Web;
 using System.Text.RegularExpressions;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc.Testing;
-using Microsoft.AspNetCore.WebUtilities;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Primitives;
 using LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared.Bases;
 using LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared.Factories;
 using LotroKoniecDev.AuthSystem.Contracts.Features.Auth.Account;
@@ -134,10 +131,10 @@ public sealed partial class EmailChangePageTests : EndpointsTestBase
     }
 
     [Fact]
-    public async Task ConfirmPage_Post_ShouldRedirectToTheDoneViewWithoutTheToken()
+    public async Task ConfirmPage_Post_ShouldRedirectToADoneViewThatCarriesNoAccountValue()
     {
         // #886: the done answer used to be the POST's own page, so a reload sent the used link again and
-        // the page called it dead. The token must stay out of the new URL, which lands in the history.
+        // the page called it dead. Anybody can open the done view, so its URL names no address or token.
         (RegisterRequest user, string newEmail, string token) = await RequestChangeAsync();
         Guid userId = await UserIdOfAsync(user.Email);
         using HttpClient browser = Factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
@@ -154,15 +151,11 @@ public sealed partial class EmailChangePageTests : EndpointsTestBase
             });
 
         response.StatusCode.ShouldBe(HttpStatusCode.Redirect);
-        (string path, Dictionary<string, StringValues> query) = SplitLocation(response);
-        path.ShouldBe("/Account/ConfirmEmailChange");
-        query.Keys.ShouldBe(["handler", "email"], ignoreOrder: true);
-        query["handler"].ToString().ShouldBe("Done");
-        query["email"].ToString().ShouldBe(newEmail);
+        response.Headers.Location!.OriginalString.ShouldBe("/Account/ConfirmEmailChange?handler=Done");
     }
 
     [Fact]
-    public async Task ConfirmPage_GetTheRedirectTarget_ShouldShowTheChangeAsDoneWithTheNewAddress()
+    public async Task ConfirmPage_GetTheRedirectTarget_ShouldShowTheChangeAsDone()
     {
         // The done view holds no state, so a reload of it gets this same answer. The browser test
         // (OneTimeLinkReloadTests) is what proves that a reload repeats this GET and not the POST.
@@ -185,30 +178,27 @@ public sealed partial class EmailChangePageTests : EndpointsTestBase
         doneView.StatusCode.ShouldBe(HttpStatusCode.OK);
         string html = await doneView.Content.ReadAsStringAsync();
         html.ShouldContain("data-testid=\"confirm-email-change-success\"");
-        html.ShouldContain($"<strong>{HtmlEncoder.Default.Encode(newEmail)}</strong>");
+        html.ShouldContain("Od teraz logujesz się nowym adresem.");
         html.ShouldNotContain("Link wygasł lub jest nieprawidłowy");
         html.ShouldNotContain("data-testid=\"confirm-email-change-form\"");
     }
 
     /// <summary>
-    /// Anybody can open the done view, so a value that is not shaped like an address is never printed.
-    /// An address-shaped value is printed, by the same rule as the link's own form page: it is what the
-    /// caller already holds. Without an address the page still says the change is done, in words that
-    /// name none.
+    /// Anybody can open the done view, so it prints nothing a link can carry. An address-shaped value
+    /// matters most: printed under "your address was changed", it would show a stranger's choice as the
+    /// account's new login.
     /// </summary>
     [Theory]
-    [InlineData("/Account/ConfirmEmailChange?handler=Done")]
-    [InlineData("/Account/ConfirmEmailChange?handler=Done&email=")]
+    [InlineData("/Account/ConfirmEmailChange?handler=Done&email=pomoc-zadzwon-500600700%40lotro-wsparcie.pl")]
     [InlineData("/Account/ConfirmEmailChange?handler=Done&email=Twoje%20konto%20zostalo%20przejete%20-%20zadzwon%20pod%20numer%20500600700")]
-    public async Task ConfirmPage_GetDoneWithoutAnAddress_ShouldShowTheDoneViewWithoutPrintingTheValue(string url)
+    [InlineData("/Account/ConfirmEmailChange?handler=Done&userId=500600700&email=500600700%40lotro-wsparcie.pl&token=500600700")]
+    public async Task ConfirmPage_GetDone_ShouldPrintNoValueFromTheUrl(string url)
     {
         HttpResponseMessage response = await ApiClient.Http.GetAsync(new Uri(url, UriKind.Relative));
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
         string html = await response.Content.ReadAsStringAsync();
         html.ShouldContain("data-testid=\"confirm-email-change-success\"");
-        html.ShouldContain("Od teraz logujesz się nowym adresem.");
-        html.ShouldNotContain("<strong>");
         html.ShouldNotContain("500600700");
     }
 
@@ -762,16 +752,6 @@ public sealed partial class EmailChangePageTests : EndpointsTestBase
         }
 
         return await client.SendAsync(request);
-    }
-
-    private static (string Path, Dictionary<string, StringValues> Query) SplitLocation(HttpResponseMessage response)
-    {
-        string location = response.Headers.Location!.OriginalString;
-        int queryStart = location.IndexOf('?', StringComparison.Ordinal);
-
-        return queryStart < 0
-            ? (location, new Dictionary<string, StringValues>())
-            : (location[..queryStart], QueryHelpers.ParseQuery(location[queryStart..]));
     }
 
     [GeneratedRegex("""name="__RequestVerificationToken".*?value="([^"]+)""")]

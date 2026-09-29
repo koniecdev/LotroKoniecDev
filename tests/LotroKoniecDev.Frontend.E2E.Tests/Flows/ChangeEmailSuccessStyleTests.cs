@@ -74,8 +74,9 @@ public sealed class ChangeEmailSuccessStyleTests : E2ETestBase
         ILocator successBox = Page.GetByTestId("confirm-email-change-success");
         await successBox.WaitForAsync(LongWait);
 
+        // The done view names no address since #886, because anybody can open its URL.
         string confirmation = await successBox.InnerTextAsync();
-        confirmation.ShouldContain(newEmail);
+        confirmation.ShouldContain("Adres e-mail Twojego konta został zmieniony");
 
         int[] background = await successBox.EvaluateAsync<int[]>(ReadBackgroundChannels);
         int red = background[0];

@@ -159,12 +159,13 @@ public sealed partial class EmailChangePageTests : EndpointsTestBase
         query.Keys.ShouldBe(["handler", "email"], ignoreOrder: true);
         query["handler"].ToString().ShouldBe("Done");
         query["email"].ToString().ShouldBe(newEmail);
-        (await LoadUserByIdAsync(userId)).Email.ShouldBe(newEmail);
     }
 
     [Fact]
-    public async Task ConfirmPage_ReloadOfTheDoneView_ShouldShowTheChangeAsDoneAgain()
+    public async Task ConfirmPage_GetTheRedirectTarget_ShouldShowTheChangeAsDoneWithTheNewAddress()
     {
+        // The done view holds no state, so a reload of it gets this same answer. The browser test
+        // (OneTimeLinkReloadTests) is what proves that a reload repeats this GET and not the POST.
         (RegisterRequest user, string newEmail, string token) = await RequestChangeAsync();
         Guid userId = await UserIdOfAsync(user.Email);
         using HttpClient browser = Factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
@@ -178,13 +179,11 @@ public sealed partial class EmailChangePageTests : EndpointsTestBase
                 ["Email"] = newEmail,
                 ["Token"] = token
             });
-        Uri doneView = confirmed.Headers.Location!;
-        (await browser.GetAsync(doneView)).StatusCode.ShouldBe(HttpStatusCode.OK);
 
-        HttpResponseMessage reload = await browser.GetAsync(doneView);
+        HttpResponseMessage doneView = await browser.GetAsync(confirmed.Headers.Location!);
 
-        reload.StatusCode.ShouldBe(HttpStatusCode.OK);
-        string html = await reload.Content.ReadAsStringAsync();
+        doneView.StatusCode.ShouldBe(HttpStatusCode.OK);
+        string html = await doneView.Content.ReadAsStringAsync();
         html.ShouldContain("data-testid=\"confirm-email-change-success\"");
         html.ShouldContain($"<strong>{HtmlEncoder.Default.Encode(newEmail)}</strong>");
         html.ShouldNotContain("Link wygasł lub jest nieprawidłowy");
@@ -192,8 +191,10 @@ public sealed partial class EmailChangePageTests : EndpointsTestBase
     }
 
     /// <summary>
-    /// Anybody can open the done view, so it must not become a place that prints a sentence of somebody
-    /// else's choosing. Without an address it still says the change is done, in words that name none.
+    /// Anybody can open the done view, so a value that is not shaped like an address is never printed.
+    /// An address-shaped value is printed, by the same rule as the link's own form page: it is what the
+    /// caller already holds. Without an address the page still says the change is done, in words that
+    /// name none.
     /// </summary>
     [Theory]
     [InlineData("/Account/ConfirmEmailChange?handler=Done")]

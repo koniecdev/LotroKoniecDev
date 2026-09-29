@@ -103,8 +103,10 @@ public sealed partial class ResetPasswordPageTests : EndpointsTestBase
     }
 
     [Fact]
-    public async Task ResetPasswordPage_ReloadOfTheDoneView_ShouldShowThePasswordAsChangedAgain()
+    public async Task ResetPasswordPage_GetTheRedirectTarget_ShouldShowThePasswordAsChanged()
     {
+        // The done view holds no state, so a reload of it gets this same answer. The browser test
+        // (OneTimeLinkReloadTests) is what proves that a reload repeats this GET and not the POST.
         const string newPassword = "NewPass99!";
         (RegisterRequest registerRequest, _) =
             await UserFactory.RegisterRandomUserWithRequestAsync(ApiClient, Faker, AccountConfirmationEmailSpy, "TestPass1!");
@@ -117,13 +119,11 @@ public sealed partial class ResetPasswordPageTests : EndpointsTestBase
             ["NewPassword"] = newPassword,
             ["ConfirmPassword"] = newPassword
         });
-        Uri doneView = reset.Headers.Location!;
-        (await browser.GetAsync(doneView)).StatusCode.ShouldBe(HttpStatusCode.OK);
 
-        HttpResponseMessage reload = await browser.GetAsync(doneView);
+        HttpResponseMessage doneView = await browser.GetAsync(reset.Headers.Location!);
 
-        reload.StatusCode.ShouldBe(HttpStatusCode.OK);
-        string html = await reload.Content.ReadAsStringAsync();
+        doneView.StatusCode.ShouldBe(HttpStatusCode.OK);
+        string html = await doneView.Content.ReadAsStringAsync();
         html.ShouldContain("data-testid=\"reset-password-success\"");
         html.ShouldNotContain("data-testid=\"reset-password-error\"");
         html.ShouldNotContain("data-testid=\"reset-password-submit\"");
@@ -151,6 +151,30 @@ public sealed partial class ResetPasswordPageTests : EndpointsTestBase
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
         (await response.Content.ReadAsStringAsync()).ShouldNotContain("data-testid=\"reset-password-success\"");
+    }
+
+    [Fact]
+    public async Task ResetPasswordPage_Post_ShouldKeepTheFormNotRedirect_WhenAGoodLinkCarriesAPasswordThePolicyRefuses()
+    {
+        // The link is good, so this refusal comes after the token check. A redirect here would say
+        // "Hasło zmienione" while the old password still works.
+        (RegisterRequest registerRequest, _) =
+            await UserFactory.RegisterRandomUserWithRequestAsync(ApiClient, Faker, AccountConfirmationEmailSpy, "TestPass1!");
+        string resetToken = await RequestResetTokenAsync(registerRequest.Email);
+        using HttpClient browser = Factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
+
+        HttpResponseMessage response = await PostToResetPasswordPageAsync(browser, new Dictionary<string, string>
+        {
+            ["Email"] = registerRequest.Email,
+            ["Token"] = resetToken,
+            ["NewPassword"] = "abc",
+            ["ConfirmPassword"] = "abc"
+        });
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        string html = await response.Content.ReadAsStringAsync();
+        html.ShouldNotContain("data-testid=\"reset-password-success\"");
+        html.ShouldContain("data-testid=\"reset-password-submit\"");
     }
 
     private async Task<string> RequestResetTokenAsync(string email)

@@ -1,6 +1,5 @@
 using LotroKoniecDev.Frontend.Infrastructure.Auth;
 using LotroKoniecDev.Frontend.Infrastructure.Auth.TokenRefresh;
-using LotroKoniecDev.Frontend.Infrastructure.HttpClients;
 using LotroKoniecDev.Frontend.Settings;
 using LotroKoniecDev.Frontend.Tests.Unit.Infrastructure.HttpClients;
 using Microsoft.AspNetCore.Authentication.Cookies;
@@ -53,12 +52,8 @@ public sealed class AuthenticationDependencyInjectionExtensionsTests
         chain[^1].ShouldBeOfType<SocketsHttpHandler>().AllowAutoRedirect.ShouldBeFalse();
     }
 
-    /// <summary>
-    /// #923: the refresh runs before the page renders, so the default of 100 seconds would hold the page
-    /// that long when the auth API stalls.
-    /// </summary>
     [Fact]
-    public void AddFrontendAuthentication_TokenEndpointClient_UsesTheDefaultRequestTimeout()
+    public void AddFrontendAuthentication_TokenEndpointClient_UsesTheTokenRequestTimeout()
     {
         using ServiceProvider provider = CreateFrontendAuthenticationServices().BuildServiceProvider();
 
@@ -66,7 +61,7 @@ public sealed class AuthenticationDependencyInjectionExtensionsTests
             .GetRequiredService<IHttpClientFactory>()
             .CreateClient(nameof(ITokenEndpointClient));
 
-        client.Timeout.ShouldBe(HttpClientsDependencyInjectionExtensions.DefaultRequestTimeout);
+        client.Timeout.ShouldBe(AuthenticationDependencyInjectionExtensions.TokenRequestTimeout);
     }
 
     /// <summary>

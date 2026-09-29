@@ -188,13 +188,17 @@ public sealed class AccountDeletionFinalizerTests : EndpointsTestBase
         // #908: the erasure saves the account once, and the new security stamp is part of that save.
         // The next save of this account belongs to the cleanup, which is best effort, so its failure
         // must not turn a finished erasure into a failed one.
+
+        // Arrange
         (_, IdentityId identityId) = await RegisterAndScheduleDeletionAsync();
         await BackdateScheduleAsync(identityId.Value, TimeSpan.FromDays(15));
         string? stampBeforeErasure = (await GetUserAsync(identityId.Value)).SecurityStamp;
         FailASecondSaveOf(identityId.Value);
 
+        // Act
         int finalizedCount = await RunFinalizerAsync();
 
+        // Assert
         finalizedCount.ShouldBe(1);
         Factory.DbCommandFailures.FailuresInjected.ShouldBe(1);
 
@@ -210,13 +214,17 @@ public sealed class AccountDeletionFinalizerTests : EndpointsTestBase
     {
         // The finalizer finds its work by the real address, so a failed erasure has to leave it in
         // place for the next run to pick the account up again (#908).
+
+        // Arrange
         (_, IdentityId identityId) = await RegisterAndScheduleDeletionAsync();
         await BackdateScheduleAsync(identityId.Value, TimeSpan.FromDays(15));
         FailTheNextSaveOf(identityId.Value, failure);
 
+        // Act
         int failedRunCount = await RunFinalizerAsync();
         int retryRunCount = await RunFinalizerAsync();
 
+        // Assert
         failedRunCount.ShouldBe(0);
         retryRunCount.ShouldBe(1);
 

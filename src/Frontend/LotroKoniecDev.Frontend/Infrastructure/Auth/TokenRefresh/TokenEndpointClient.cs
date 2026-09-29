@@ -78,9 +78,9 @@ internal sealed class TokenEndpointClient : ITokenEndpointClient
     private async Task LogRefusalAsync(HttpResponseMessage response, CancellationToken cancellationToken)
     {
         int statusCode = (int)response.StatusCode;
-        string body = await response.Content.ReadAsStringAsync(cancellationToken);
 
-        if (TryReadError(body) is { Error: { } error } errorResponse && !string.IsNullOrWhiteSpace(error))
+        if (await TryReadErrorAsync(response.Content, cancellationToken) is { Error: { } error } errorResponse
+            && !string.IsNullOrWhiteSpace(error))
         {
             LogRefreshRefused(_logger, statusCode, ForLog(error), ForLog(errorResponse.ErrorDescription), null);
             return;
@@ -89,11 +89,18 @@ internal sealed class TokenEndpointClient : ITokenEndpointClient
         LogRefreshFailed(_logger, statusCode, null);
     }
 
-    private static TokenErrorResponse? TryReadError(string body)
+    /// <summary>
+    /// Reads the bytes, not a decoded string. Decoding throws on a charset .NET does not know (such as
+    /// "utf8"), and a log line must never turn a refused refresh into an exception.
+    /// </summary>
+    private static async Task<TokenErrorResponse?> TryReadErrorAsync(
+        HttpContent content,
+        CancellationToken cancellationToken)
     {
         try
         {
-            return JsonSerializer.Deserialize<TokenErrorResponse>(body, JsonOptions);
+            await using Stream body = await content.ReadAsStreamAsync(cancellationToken);
+            return await JsonSerializer.DeserializeAsync<TokenErrorResponse>(body, JsonOptions, cancellationToken);
         }
         catch (JsonException)
         {
@@ -102,7 +109,9 @@ internal sealed class TokenEndpointClient : ITokenEndpointClient
     }
 
     /// <summary>
-    /// The text comes from another service, so it is cut short and kept on one line.
+    /// The text comes from another service, so it is cut short. RFC 6749 §5.2 allows only printable ASCII
+    /// in these fields, so any other character is replaced: a line break, a bidi mark or half of a cut
+    /// surrogate pair never reaches the log.
     /// </summary>
     private static string? ForLog(string? value)
     {
@@ -112,8 +121,8 @@ internal sealed class TokenEndpointClient : ITokenEndpointClient
         }
 
         string kept = value.Length > MaxLoggedFieldLength ? value[..MaxLoggedFieldLength] : value;
-        string oneLine = new(kept.Select(character => char.IsControl(character) ? ' ' : character).ToArray());
-        return kept.Length < value.Length ? $"{oneLine}…" : oneLine;
+        string printable = new(kept.Select(character => character is >= ' ' and <= '~' ? character : '?').ToArray());
+        return kept.Length < value.Length ? $"{printable}…" : printable;
     }
 
     private static readonly Action<ILogger, int, Exception?> LogRefreshFailed =

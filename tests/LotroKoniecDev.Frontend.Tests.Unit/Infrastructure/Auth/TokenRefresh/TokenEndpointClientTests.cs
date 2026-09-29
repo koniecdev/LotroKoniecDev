@@ -1,4 +1,5 @@
 using System.Net;
+using System.Net.Http.Headers;
 using LotroKoniecDev.Frontend.Infrastructure.Auth.TokenRefresh;
 using LotroKoniecDev.Frontend.Settings;
 using LotroKoniecDev.Frontend.Tests.Unit.Infrastructure.HttpClients;
@@ -164,10 +165,12 @@ public sealed class TokenEndpointClientTests
         entry.Message.ShouldNotContain(RefreshToken);
     }
 
-    [Fact]
-    public async Task RefreshAsync_WhenTheErrorDescriptionIsVeryLong_LogsOnlyItsStart()
+    [Theory]
+    [InlineData(200, false)]
+    [InlineData(201, true)]
+    public async Task RefreshAsync_WhenTheErrorDescriptionReachesTheCap_LogsItWholeOrCutsIt(int length, bool isCut)
     {
-        string errorDescription = new('d', 5000);
+        string errorDescription = new('d', length);
         using HttpClient httpClient = CreateHttpClient(StubHttpMessageHandler.RespondWith(
             HttpStatusCode.BadRequest,
             $$"""{"error":"invalid_grant","error_description":"{{errorDescription}}"}"""));
@@ -177,16 +180,15 @@ public sealed class TokenEndpointClientTests
         await client.RefreshAsync(RefreshToken);
 
         CapturingLoggerProvider.LogEntry entry = logs.Entries.ShouldHaveSingleItem();
-        entry.Message.ShouldContain("invalid_grant");
-        entry.Message.ShouldContain(errorDescription[..100]);
-        entry.Message.ShouldNotContain(errorDescription);
-        entry.Message.Length.ShouldBeLessThan(500);
+        entry.Message.ShouldContain(new string('d', 200));
+        entry.Message.Contains(errorDescription, StringComparison.Ordinal).ShouldBe(!isCut);
+        entry.Message.Contains('…', StringComparison.Ordinal).ShouldBe(isCut);
     }
 
     [Fact]
-    public async Task RefreshAsync_WhenTheErrorCodeIsVeryLong_LogsOnlyItsStart()
+    public async Task RefreshAsync_WhenTheErrorCodeIsLongerThanTheCap_LogsOnlyItsStart()
     {
-        string error = new('e', 5000);
+        string error = new('e', 201);
         using HttpClient httpClient = CreateHttpClient(StubHttpMessageHandler.RespondWith(
             HttpStatusCode.BadRequest,
             $$"""{"error":"{{error}}","error_description":"Refused."}"""));
@@ -196,20 +198,28 @@ public sealed class TokenEndpointClientTests
         await client.RefreshAsync(RefreshToken);
 
         CapturingLoggerProvider.LogEntry entry = logs.Entries.ShouldHaveSingleItem();
-        entry.Message.ShouldContain(error[..100]);
+        entry.Message.ShouldContain(error[..200] + "…");
         entry.Message.ShouldNotContain(error);
         entry.Message.ShouldContain("Refused.");
     }
 
     /// <summary>
-    /// A line break in the server's text must not start a new line in the log, where it could pass for a
-    /// separate entry.
+    /// RFC 6749 allows only printable ASCII in these fields. A line break could pass for a separate log
+    /// entry, and a bidi mark can make the line read as something else, so nothing outside that range
+    /// reaches the log.
     /// </summary>
     [Theory]
     [InlineData("Refused.\\r\\nWarning: forged entry")]
     [InlineData("Refused.\\nWarning: forged entry")]
     [InlineData("Refused.\\u0000\\u001bWarning: forged entry")]
-    public async Task RefreshAsync_WhenTheErrorDescriptionHoldsControlCharacters_LogsItOnOneLine(string jsonEscapedDescription)
+    [InlineData("Refused.\\u0085Warning: forged entry")]
+    [InlineData("Refused.\\u2028Warning: forged entry")]
+    [InlineData("Refused.\\u2029Warning: forged entry")]
+    [InlineData("Refused.\\u202eWarning: forged entry")]
+    [InlineData("Refused.\\u200bWarning: forged entry")]
+    [InlineData("Odrzucono \\ud83d\\ude00 forged entry")]
+    public async Task RefreshAsync_WhenTheReasonHoldsCharactersOutsidePrintableAscii_LogsOnlyPrintableAscii(
+        string jsonEscapedDescription)
     {
         using HttpClient httpClient = CreateHttpClient(StubHttpMessageHandler.RespondWith(
             HttpStatusCode.BadRequest,
@@ -221,10 +231,80 @@ public sealed class TokenEndpointClientTests
 
         CapturingLoggerProvider.LogEntry entry = logs.Entries.ShouldHaveSingleItem();
         entry.Message.ShouldContain("forged entry");
-        entry.Message.ShouldNotContain('\r');
-        entry.Message.ShouldNotContain('\n');
-        entry.Message.ShouldNotContain('\0');
-        entry.Message.ShouldNotContain('\u001b');
+        entry.Message.ShouldAllBe(character => character >= ' ' && character <= '~');
+    }
+
+    [Fact]
+    public async Task RefreshAsync_WhenTheCapCutsASurrogatePair_LogsNoHalfOfIt()
+    {
+        string jsonEscapedDescription = new string('d', 199) + "\\ud83d\\ude00tail";
+        using HttpClient httpClient = CreateHttpClient(StubHttpMessageHandler.RespondWith(
+            HttpStatusCode.BadRequest,
+            $$"""{"error":"invalid_grant","error_description":"{{jsonEscapedDescription}}"}"""));
+        using CapturingLoggerProvider logs = new();
+        TokenEndpointClient client = CreateClient(httpClient, logs);
+
+        await client.RefreshAsync(RefreshToken);
+
+        CapturingLoggerProvider.LogEntry entry = logs.Entries.ShouldHaveSingleItem();
+        entry.Message.ShouldContain(new string('d', 199));
+        entry.Message.ShouldNotContain("tail");
+        entry.Message.ShouldAllBe(character => !char.IsSurrogate(character));
+    }
+
+    /// <summary>
+    /// Decoding the body as text throws on a charset .NET does not know, such as the common misspelling
+    /// "utf8". The body is only read for the log, so it must never turn a refused refresh into an
+    /// exception. A UTF-8 byte order mark must not hide the reason either.
+    /// </summary>
+    [Theory]
+    [InlineData("utf8", false)]
+    [InlineData("bogus", false)]
+    [InlineData("utf-8", true)]
+    [InlineData(null, true)]
+    public async Task RefreshAsync_WhenTheRefusalHasAnUnusualEncoding_StillLogsTheReason(string? charset, bool withByteOrderMark)
+    {
+        byte[] json = """{"error":"invalid_grant","error_description":"Refused."}"""u8.ToArray();
+        byte[] body = withByteOrderMark ? [.. System.Text.Encoding.UTF8.GetPreamble(), .. json] : json;
+        using HttpClient httpClient = CreateHttpClient(StubHttpMessageHandler.RespondWith(
+            HttpStatusCode.BadRequest,
+            () => new ByteArrayContent(body)
+            {
+                Headers = { ContentType = new MediaTypeHeaderValue("application/json") { CharSet = charset } }
+            }));
+        using CapturingLoggerProvider logs = new();
+        TokenEndpointClient client = CreateClient(httpClient, logs);
+
+        TokenResponse? response = await client.RefreshAsync(RefreshToken);
+
+        response.ShouldBeNull();
+        CapturingLoggerProvider.LogEntry entry = logs.Entries.ShouldHaveSingleItem();
+        entry.Level.ShouldBe(LogLevel.Warning);
+        entry.Message.ShouldContain("400");
+        entry.Message.ShouldContain("invalid_grant");
+        entry.Message.ShouldContain("Refused.");
+    }
+
+    [Theory]
+    [InlineData("utf8")]
+    [InlineData("bogus")]
+    public async Task RefreshAsync_WhenANonOAuthRefusalHasAnUnknownCharset_LogsOneWarningWithTheStatusAlone(string charset)
+    {
+        using HttpClient httpClient = CreateHttpClient(StubHttpMessageHandler.RespondWith(
+            HttpStatusCode.BadGateway,
+            () => new StringContent("<html><body>502 Bad Gateway</body></html>")
+            {
+                Headers = { ContentType = new MediaTypeHeaderValue("text/html") { CharSet = charset } }
+            }));
+        using CapturingLoggerProvider logs = new();
+        TokenEndpointClient client = CreateClient(httpClient, logs);
+
+        TokenResponse? response = await client.RefreshAsync(RefreshToken);
+
+        response.ShouldBeNull();
+        CapturingLoggerProvider.LogEntry entry = logs.Entries.ShouldHaveSingleItem();
+        entry.Level.ShouldBe(LogLevel.Warning);
+        entry.Message.ShouldBe("Refresh token grant failed with status 502.");
     }
 
     private static HttpClient CreateHttpClient(HttpMessageHandler transport) =>

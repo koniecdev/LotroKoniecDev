@@ -87,6 +87,28 @@ public sealed class TokenEndpointClientTests
     }
 
     /// <summary>
+    /// A proxy can answer 200 with a body that carries no tokens. That is a failed refresh, never an exception.
+    /// </summary>
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    [InlineData("null")]
+    [InlineData("[]")]
+    [InlineData("<html><body>200 OK</body></html>")]
+    [InlineData("""{"access_token":5}""")]
+    [InlineData("""{"access_token":"a","expires_in":36.5}""")]
+    [InlineData("""{"access_token":"a""")]
+    public async Task RefreshAsync_WhenTheTokenAnswerIsNotATokenObject_ReturnsNull(string body)
+    {
+        using HttpClient httpClient = CreateHttpClient(StubHttpMessageHandler.RespondWith(HttpStatusCode.OK, body));
+        TokenEndpointClient client = CreateClient(httpClient);
+
+        TokenResponse? response = await client.RefreshAsync(RefreshToken);
+
+        response.ShouldBeNull();
+    }
+
+    /// <summary>
     /// #899: the primary handler follows no redirect, so a redirect reaches this client as it is. It has
     /// to count as a failed refresh, the same as any other answer that carries no tokens.
     /// </summary>

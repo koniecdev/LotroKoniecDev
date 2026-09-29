@@ -409,14 +409,7 @@ public sealed class TokenEndpointTests : EndpointsTestBase
             await UserFactory.RegisterRandomUserWithRequestAsync(ApiClient, Faker, AccountConfirmationEmailSpy, password);
         string refreshToken = await GetRefreshTokenAsync(request.Email, password);
 
-        await using (AsyncServiceScope scope = Factory.Services.CreateAsyncScope())
-        {
-            UserManager<ApplicationUser> userManager =
-                scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
-            ApplicationUser? user = await userManager.FindByEmailAsync(request.Email);
-            user.ShouldNotBeNull();
-            (await userManager.DeleteAsync(user)).Succeeded.ShouldBeTrue();
-        }
+        await AccountStateFactory.DeleteAsync(Factory.Services, request.Email);
 
         // Act
         using HttpResponseMessage response = await RequestRefreshGrantAsync(refreshToken);

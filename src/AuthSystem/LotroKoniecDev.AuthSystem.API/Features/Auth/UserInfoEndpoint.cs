@@ -22,12 +22,7 @@ internal sealed class UserInfoEndpoint : IEndpoint
 
         // A client credentials token carries the client id as its subject, not a user id. Identity reads
         // a user id as a GUID and throws on anything else, so the lookup must not see it (#955).
-        if (!Guid.TryParse(userId, out _))
-        {
-            return RefuseInvalidToken();
-        }
-
-        ApplicationUser? user = await userManager.FindByIdAsync(userId);
+        ApplicationUser? user = Guid.TryParse(userId, out _) ? await userManager.FindByIdAsync(userId) : null;
 
         if (user is null)
         {

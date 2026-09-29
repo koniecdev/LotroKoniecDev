@@ -821,6 +821,7 @@ public sealed partial class EmailChangeSaveFailureTests : EndpointsTestBase
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
 
         await EmailChangeEmailSpy.WaitForRevertOfferCaptureAsync();
+        await EmailChangeEmailSpy.WaitForChangedNoticeCaptureAsync();
 
         return (user, newEmail, userId);
     }

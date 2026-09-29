@@ -1,12 +1,13 @@
 # ADR-0031: GDPR Account Deletion Runs Through a 14-Day Soft-Delete Grace Period
 
 **Status:** Accepted (amended 2026-09-19 by #685 — the cancel link reaches the armed address and the
-erasure waits for the undo, see the amendment below)
+erasure waits for the undo; amended 2026-09-29 by #780 — the finalizer polls once a day; see the
+amendments below)
 **Date:** 2026-07-11
-**Decision-makers:** Solo maintainer (ticket #452, legal & GDPR compliance pack #459; amendment #685, SEC-07)
+**Decision-makers:** Solo maintainer (ticket #452, legal & GDPR compliance pack #459; amendment #685, SEC-07; amendment #780)
 **Related:** `DeleteAccount` / `CancelAccountDeletion` (AuthSystem), `AccountErasureService`,
 `AccountDeletionFinalizer`, `AccountDeletionSchedule`, ADR-0048 (the undo this window has to survive),
-TKS ADR-0017 (the ported original), tickets #452, #459, #685
+TKS ADR-0017 (the ported original), ADR-0035 (the Neon wake-up cost), tickets #452, #459, #685, #780
 
 ## Context
 
@@ -38,9 +39,10 @@ capped at 30 days by options validation to stay inside Art. 12(3)):
    headers. Re-request while scheduled → `422 Auth.DeletionAlreadyScheduled` (the repo
    maps `DataConflict` → 422).
 2. **Finalize (background).** `AccountDeletionFinalizerHostedService` polls
-   (`Gdpr:DeletionFinalizationPollInterval`, default 1 h; first run at startup for
-   post-downtime catch-up) for users with `DeletionScheduledAt + grace <= now` whose email
-   lacks the anonymization marker, and runs the extracted erasure pipeline
+   (`Gdpr:DeletionFinalizationPollInterval`, default one day, `1.00:00:00`, since #780 — it
+   was 1 h; first run at startup for post-downtime catch-up) for users with
+   `DeletionScheduledAt + grace <= now` whose email lacks the anonymization marker, and runs
+   the extracted erasure pipeline
    (`AccountErasureService`): auth anonymization → permanent lockout → artifact cleanup.
    Per-user failures are logged and retried on the next run; `DeletionScheduledAt` stays
    set after erasure as a non-PII audit trace.
@@ -137,6 +139,39 @@ an honest user who just changed their address wait up to 14 days to delete, and 
 ADR's own configured cap would break the Art. 12(3) budget that cap exists to protect. It is also the
 "block the action" shape this ADR and ADR-0048 have now both declined twice.
 
+## Amendment (2026-09-29, #780): the finalizer polls once a day
+
+The finalizer used to poll every hour. Each run wakes the Neon compute, and at ADR-0035's figure of
+about 0.02 CU-h per wake-up that was about 14 CU-h a month in each environment — six times what
+ADR-0035 lets the outbox safety sweep cost. So `Gdpr:DeletionFinalizationPollInterval` is now one day
+(`1.00:00:00` in `appsettings.json`; `24:00:00` would bind to 24 days). An account is erased at most
+a day after the date this ADR promises, never before it, and the startup run still catches up after
+a deploy.
+
+**"The finalizer keeps the date" now means "never before it".** Rule 2 of the #685 amendment, and the
+comments on `IAccountDeletionSchedule`, `AccountDeletionFinalizer` and `DeleteAccount`, say the
+finalizer keeps the date the header, the e-mail and the login page promise. It still does in the
+sense that matters: all of them read one rule, so nothing is erased early. It lands up to a day
+later. The e-mail, the confirmation page and the login page print that date to the minute, so the
+minute now means "not before this minute".
+
+Nothing the user can act on waits for a run. The cancel link lives one grace period from the moment
+its e-mail is built, which is normally seconds after the schedule (#947 covers a late e-mail). Every
+door checks `DeletionScheduledAt`, not the lockout, so the account stays shut after `LockoutEnd`
+has passed too. The longer gap between the date and the erasure shows in two places: the address
+stays taken, so registering it again fails until the run, and the login page shows a date that has
+passed and points to a dead cancel link (#916). A run that fails is now retried a day later, not an
+hour later (#937).
+
+**The validator ties the two settings together.** The poll interval must not exceed the grace
+period, so an environment that shortens `Gdpr:DeletionGracePeriod` below one day, to watch a real
+erasure in QA for example, must shorten `Gdpr:DeletionFinalizationPollInterval` too. Otherwise the
+auth API refuses to start, with a message that names both settings.
+
+**The 30-day cap now leaves a day less room.** With the shipped 14 days the erasure lands by day 15.
+At the validator's 30-day cap it can land on day 31, and a failed run adds a day each time. The
+validator does not bound grace plus poll together (#946).
+
 ## Consequences
 
 - Account takeover can no longer irreversibly destroy an account: the attacker's deletion
@@ -150,4 +185,5 @@ ADR's own configured cap would break the Art. 12(3) budget that cap exists to pr
   integration suites; erasure E2E with real elapsed time is deliberately not attempted
   (integration > E2E per the testing philosophy).
 - Reminder email 24 h before finalization is left out (same cut as TKS) — a follow-up
-  ticket can add it to the finalizer loop.
+  ticket can add it to the finalizer loop. *(Since #780 that loop runs once a day, so it cannot
+  send a mail 24 h ahead on time; a reminder needs its own schedule.)*

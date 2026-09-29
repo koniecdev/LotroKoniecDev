@@ -41,6 +41,7 @@ public sealed class GdprSettingsValidatorTests
     }
 
     [Theory]
+    [InlineData("-10675199.02:48:05.4775808")]
     [InlineData("-00:01:00")]
     [InlineData("00:00:00")]
     [InlineData("00:00:59")]
@@ -118,6 +119,8 @@ public sealed class GdprSettingsValidatorTests
     [InlineData("30.00:00:00", "00:01:00")]
     [InlineData("31.00:00:00", "1.00:00:00")]
     [InlineData("16.00:00:00", "15.00:00:00")]
+    [InlineData("31.00:00:00", "00:00:00")]
+    [InlineData("31.00:00:00", "-10675199.02:48:05.4775808")]
     [InlineData("10675199.02:48:05.4775807", "1.00:00:00")]
     [InlineData("14.00:00:00", "10675199.02:48:05.4775807")]
     public void Validate_GracePeriodPlusPollIntervalLongerThanThirtyDays_FailsNamingBothSettings(

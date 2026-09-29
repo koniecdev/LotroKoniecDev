@@ -1000,8 +1000,9 @@ consciously; Part 12, question 10.
   Tamper-proof (signature) but readable — never put secrets in claims. Because nothing checks it
   against the database, its lifetime is the delay on every session revocation — ADR-0049.
 - **Refresh token**: *reference* token — the client holds a random handle; the real state
-  lives in the auth database. Revocable (logout revokes all of a user's tokens) and **rolling**
-  (each use issues a replacement, so a stolen old one is useless).
+  lives in the auth database. Revocable (signing out revokes all of a user's tokens and
+  authorizations, on every device — #931) and **rolling** (each use issues a replacement, so a
+  stolen old one is useless).
 - **Keys**: development uses throwaway keys generated at startup. Production uses a real RSA
   signing key (≥2048 bits) and an AES encryption key, injected via environment secrets, with a
   slot for the *previous* signing key so keys can rotate without logging everyone out. A

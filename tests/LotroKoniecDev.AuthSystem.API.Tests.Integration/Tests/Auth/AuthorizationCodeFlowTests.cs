@@ -1,3 +1,4 @@
+using System.Buffers.Text;
 using System.Collections.Specialized;
 using System.Security.Cryptography;
 using System.Text;
@@ -8,6 +9,7 @@ using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using Npgsql;
+using OpenIddict.Abstractions;
 using LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared;
 using LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared.Bases;
 using LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared.Factories;
@@ -602,23 +604,132 @@ public sealed partial class AuthorizationCodeFlowTests : AsyncLifetimeTestBase
         location.ShouldStartWith(postLogoutRedirectUri);
     }
 
+    [Fact]
+    public async Task Logout_ShouldRevokeTheRefreshToken_WhenOnlyTheIdTokenHintIsSent()
+    {
+        // Arrange: the website renews its tokens server to server, so the sign-in server's 30-minute
+        // cookie is usually gone by sign-out time and only the hint arrives (#931)
+        WebsiteSession session = await SignInThroughTheWebsiteAsync();
+
+        using HttpResponseMessage logoutResponse = await SignOutAsync(session.IdToken, authCookies: []);
+        logoutResponse.StatusCode.ShouldBe(HttpStatusCode.Redirect);
+
+        // Act
+        using HttpResponseMessage response = await RefreshAsync(session.RefreshToken);
+
+        // Assert
+        response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        using JsonDocument body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        body.RootElement.GetProperty("error").GetString().ShouldBe("invalid_grant");
+    }
+
+    [Fact]
+    public async Task Logout_ShouldRevokeTheAuthorizationsAndTheTokens_WhenOnlyTheIdTokenHintIsSent()
+    {
+        // Arrange
+        WebsiteSession session = await SignInThroughTheWebsiteAsync();
+
+        // Act
+        using HttpResponseMessage response = await SignOutAsync(session.IdToken, authCookies: []);
+
+        // Assert: the shared revoker ends the authorization too, which the old loop over the tokens left valid
+        response.StatusCode.ShouldBe(HttpStatusCode.Redirect);
+        (await OpenIddictTokenState.StatusOfAsync(Factory.Services, session.RefreshToken))
+            .ShouldBe(OpenIddictConstants.Statuses.Revoked);
+        List<string?> authorizationStatuses =
+            await OpenIddictTokenState.AuthorizationStatusesOfAsync(Factory.Services, session.UserId);
+        authorizationStatuses.ShouldNotBeEmpty();
+        authorizationStatuses.ShouldAllBe(status => status == OpenIddictConstants.Statuses.Revoked);
+    }
+
+    [Fact]
+    public async Task Logout_ShouldRevokeTheAuthorizationsAndTheTokens_WhenOnlyTheCookieIsSent()
+    {
+        // Arrange: a sign-out that carries no hint still finds the user in a live cookie
+        WebsiteSession session = await SignInThroughTheWebsiteAsync();
+
+        // Act
+        using HttpResponseMessage response = await SignOutAsync(idTokenHint: null, session.AuthCookies);
+
+        // Assert
+        response.StatusCode.ShouldBe(HttpStatusCode.Redirect);
+        (await OpenIddictTokenState.StatusOfAsync(Factory.Services, session.RefreshToken))
+            .ShouldBe(OpenIddictConstants.Statuses.Revoked);
+        List<string?> authorizationStatuses =
+            await OpenIddictTokenState.AuthorizationStatusesOfAsync(Factory.Services, session.UserId);
+        authorizationStatuses.ShouldNotBeEmpty();
+        authorizationStatuses.ShouldAllBe(status => status == OpenIddictConstants.Statuses.Revoked);
+    }
+
+    [Fact]
+    public async Task Logout_ShouldEndTheSessionOnEveryOtherDevice_WhenTheUserSignsOutOnOne()
+    {
+        // Arrange: signing out ends every session of the user, not only the one of this device (#931)
+        const string password = "TestPass1!";
+        string email = await RegisterUserAsync(password);
+        WebsiteSession thisDevice = await SignInThroughTheWebsiteAsync(email, password);
+        WebsiteSession otherDevice = await SignInThroughTheWebsiteAsync(email, password);
+
+        // Act
+        using HttpResponseMessage response = await SignOutAsync(thisDevice.IdToken, authCookies: []);
+
+        // Assert
+        response.StatusCode.ShouldBe(HttpStatusCode.Redirect);
+        (await OpenIddictTokenState.StatusOfAsync(Factory.Services, otherDevice.RefreshToken))
+            .ShouldBe(OpenIddictConstants.Statuses.Revoked);
+    }
+
+    [Fact]
+    public async Task Logout_ShouldRevokeNothing_WhenTheIdTokenHintWasEditedToNameAnotherUser()
+    {
+        // Arrange: the subject is read only from a hint whose signature OpenIddict has checked, so a
+        // caller cannot sign someone else out by editing the subject of their own hint
+        WebsiteSession caller = await SignInThroughTheWebsiteAsync();
+        WebsiteSession victim = await SignInThroughTheWebsiteAsync();
+        string editedHint = ReplaceInPayload(caller.IdToken, caller.UserId, victim.UserId);
+
+        // Act
+        using HttpResponseMessage response = await SignOutAsync(editedHint, authCookies: []);
+
+        // Assert
+        response.StatusCode.ShouldBe(HttpStatusCode.Redirect);
+        (await OpenIddictTokenState.StatusOfAsync(Factory.Services, victim.RefreshToken))
+            .ShouldBe(OpenIddictConstants.Statuses.Valid);
+    }
+
     private async Task<(string Code, string CodeVerifier, List<string> AuthCookies, string Email)>
         ObtainAuthorizationCodeAsync(string? password = null)
     {
         password ??= "TestPass1!";
-        (RegisterRequest registerRequest, _) =
-            await UserFactory.RegisterRandomUserWithRequestAsync(ApiClient, Faker, AccountConfirmationEmailSpy, password);
+        string email = await RegisterUserAsync(password);
+
+        (string authorizationCode, string codeVerifier, List<string> authCookies) =
+            await ObtainAuthorizationCodeForAsync(email, password);
+
+        return (authorizationCode, codeVerifier, authCookies, email);
+    }
+
+    private async Task<(string Code, string CodeVerifier, List<string> AuthCookies)>
+        ObtainAuthorizationCodeForAsync(string email, string password)
+    {
+        // A client of its own, like a browser on another device, so two sign-ins in one test never share
+        // the antiforgery cookie that the login page hands out only once per browser
+        using HttpClient browser = Factory.CreateClient(new WebApplicationFactoryClientOptions
+        {
+            AllowAutoRedirect = false,
+            HandleCookies = false
+        });
 
         (string codeVerifier, string codeChallenge) = GeneratePkce();
         string authorizeUrl = BuildAuthorizeUrl(codeChallenge);
 
         // Step 1: Hit /connect/authorize - should redirect to login
-        HttpResponseMessage authorizeResponse = await _noRedirectClient.GetAsync(
+        HttpResponseMessage authorizeResponse = await browser.GetAsync(
             new Uri(authorizeUrl, UriKind.Relative));
         string loginRedirect = authorizeResponse.Headers.Location!.ToString();
 
         // Step 2: GET the login page
-        HttpResponseMessage loginPageResponse = await _noRedirectClient.GetAsync(
+        HttpResponseMessage loginPageResponse = await browser.GetAsync(
             new Uri(loginRedirect, UriKind.RelativeOrAbsolute));
         string loginPageHtml = await loginPageResponse.Content.ReadAsStringAsync();
 
@@ -631,7 +742,7 @@ public sealed partial class AuthorizationCodeFlowTests : AsyncLifetimeTestBase
 
         Dictionary<string, string> loginFormData = new()
         {
-            ["Email"] = registerRequest.Email,
+            ["Email"] = email,
             ["Password"] = password,
         };
 
@@ -656,7 +767,7 @@ public sealed partial class AuthorizationCodeFlowTests : AsyncLifetimeTestBase
             loginPostRequest.Headers.Add("Cookie", $"{cookieName}={cookieValue}");
         }
 
-        HttpResponseMessage loginResponse = await _noRedirectClient.SendAsync(loginPostRequest);
+        HttpResponseMessage loginResponse = await browser.SendAsync(loginPostRequest);
         string postLoginRedirect = loginResponse.Headers.Location!.ToString();
 
         // Capture the auth cookie
@@ -674,14 +785,98 @@ public sealed partial class AuthorizationCodeFlowTests : AsyncLifetimeTestBase
         }
 
         HttpResponseMessage authorizeWithCookieResponse =
-            await _noRedirectClient.SendAsync(authorizeWithCookieRequest);
+            await browser.SendAsync(authorizeWithCookieRequest);
 
         string callbackUrl = authorizeWithCookieResponse.Headers.Location!.ToString();
         Uri callbackUri = new(callbackUrl);
         NameValueCollection queryParams = HttpUtility.ParseQueryString(callbackUri.Query);
         string authorizationCode = queryParams["code"]!;
 
-        return (authorizationCode, codeVerifier, authCookies, registerRequest.Email);
+        return (authorizationCode, codeVerifier, authCookies);
+    }
+
+    private async Task<string> RegisterUserAsync(string password)
+    {
+        (RegisterRequest registerRequest, _) =
+            await UserFactory.RegisterRandomUserWithRequestAsync(ApiClient, Faker, AccountConfirmationEmailSpy, password);
+
+        return registerRequest.Email;
+    }
+
+    private async Task<WebsiteSession> SignInThroughTheWebsiteAsync()
+    {
+        const string password = "TestPass1!";
+        string email = await RegisterUserAsync(password);
+
+        return await SignInThroughTheWebsiteAsync(email, password);
+    }
+
+    private async Task<WebsiteSession> SignInThroughTheWebsiteAsync(string email, string password)
+    {
+        (string authorizationCode, string codeVerifier, List<string> authCookies) =
+            await ObtainAuthorizationCodeForAsync(email, password);
+
+        using HttpResponseMessage tokenResponse = await ExchangeAuthorizationCodeAsync(authorizationCode, codeVerifier);
+        tokenResponse.StatusCode.ShouldBe(HttpStatusCode.OK);
+
+        using JsonDocument tokens = JsonDocument.Parse(await tokenResponse.Content.ReadAsStringAsync());
+        string idToken = tokens.RootElement.GetProperty("id_token").GetString()!;
+        using JsonDocument identity = JsonDocument.Parse(JwtPayload.Read(idToken));
+
+        return new WebsiteSession(
+            identity.RootElement.GetProperty("sub").GetString()!,
+            idToken,
+            tokens.RootElement.GetProperty("refresh_token").GetString()!,
+            authCookies);
+    }
+
+    /// <summary>
+    /// Sends exactly the given cookies, so a test that passes none signs out the way the website does
+    /// once the sign-in server's own cookie has expired.
+    /// </summary>
+    private async Task<HttpResponseMessage> SignOutAsync(string? idTokenHint, List<string> authCookies)
+    {
+        string logoutUrl = $"connect/logout?post_logout_redirect_uri={Uri.EscapeDataString("https://localhost:5001")}";
+        if (idTokenHint is not null)
+        {
+            logoutUrl += $"&id_token_hint={Uri.EscapeDataString(idTokenHint)}";
+        }
+
+        using HttpClient client = Factory.CreateClient(new WebApplicationFactoryClientOptions
+        {
+            AllowAutoRedirect = false,
+            HandleCookies = false
+        });
+        using HttpRequestMessage request = new(HttpMethod.Get, new Uri(logoutUrl, UriKind.Relative));
+        foreach (string cookie in authCookies)
+        {
+            request.Headers.Add("Cookie", cookie.Split(';')[0]);
+        }
+
+        return await client.SendAsync(request);
+    }
+
+    private async Task<HttpResponseMessage> RefreshAsync(string refreshToken)
+    {
+        using FormUrlEncodedContent refreshRequest = new(new Dictionary<string, string>
+        {
+            ["grant_type"] = "refresh_token",
+            ["refresh_token"] = refreshToken,
+            ["client_id"] = "lotrokoniecdev-web"
+        });
+
+        return await ApiClient.Http.PostAsync(new Uri("connect/token", UriKind.Relative), refreshRequest);
+    }
+
+    /// <summary>
+    /// Changes the payload and keeps the original signature, so the result no longer passes the check.
+    /// </summary>
+    private static string ReplaceInPayload(string jwt, string oldValue, string newValue)
+    {
+        string[] segments = jwt.Split('.');
+        string payload = JwtPayload.Read(jwt).Replace(oldValue, newValue, StringComparison.Ordinal);
+
+        return $"{segments[0]}.{Base64Url.EncodeToString(Encoding.UTF8.GetBytes(payload))}.{segments[2]}";
     }
 
     private async Task<HttpResponseMessage> ExchangeAuthorizationCodeAsync(string authorizationCode, string codeVerifier)
@@ -745,4 +940,6 @@ public sealed partial class AuthorizationCodeFlowTests : AsyncLifetimeTestBase
 
     [GeneratedRegex("""name="__RequestVerificationToken".*?value="([^"]+)""")]
     private static partial Regex AntiForgeryTokenRegex();
+
+    private sealed record WebsiteSession(string UserId, string IdToken, string RefreshToken, List<string> AuthCookies);
 }

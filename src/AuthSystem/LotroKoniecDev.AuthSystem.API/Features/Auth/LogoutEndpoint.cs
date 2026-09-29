@@ -5,29 +5,27 @@ using Microsoft.AspNetCore.Identity;
 using OpenIddict.Abstractions;
 using OpenIddict.Server.AspNetCore;
 using LotroKoniecDev.AuthSystem.API.Common;
+using LotroKoniecDev.AuthSystem.API.Services.Sessions;
+using static OpenIddict.Abstractions.OpenIddictConstants;
 
 
 namespace LotroKoniecDev.AuthSystem.API.Features.Auth;
 
+/// <summary>
+/// Signing out ends every session of the user on every device, through the same revoker as a password
+/// change (#931).
+/// </summary>
 internal sealed partial class LogoutEndpoint : IEndpoint
 {
     private static async Task<IResult> HandleAsync(
         HttpContext httpContext,
-        IOpenIddictTokenManager tokenManager,
+        IUserSessionRevoker sessionRevoker,
         ILogger<LogoutEndpoint> logger)
     {
-        AuthenticateResult cookieResult = await httpContext.AuthenticateAsync(IdentityConstants.ApplicationScheme);
-        if (cookieResult is { Succeeded: true })
+        string? userId = await FindUserIdAsync(httpContext);
+        if (!string.IsNullOrEmpty(userId))
         {
-            string? userId = cookieResult.Principal.FindFirstValue(ClaimTypes.NameIdentifier);
-            if (!string.IsNullOrEmpty(userId))
-            {
-                await foreach (object token in tokenManager.FindBySubjectAsync(userId))
-                {
-                    await tokenManager.TryRevokeAsync(token);
-                }
-            }
-
+            await sessionRevoker.RevokeAllAsync(userId);
             LogUserLoggedOut(logger, userId);
         }
 
@@ -47,6 +45,25 @@ internal sealed partial class LogoutEndpoint : IEndpoint
             authenticationSchemes: [OpenIddictServerAspNetCoreDefaults.AuthenticationScheme]);
     }
 
+    /// <summary>
+    /// The hint comes first. After login the browser never comes back here, because the website renews
+    /// its tokens server to server, so this server's own cookie is usually gone by the time the user
+    /// signs out. OpenIddict has already checked the hint, and an invalid one gives no principal.
+    /// </summary>
+    private static async Task<string?> FindUserIdAsync(HttpContext httpContext)
+    {
+        AuthenticateResult hintResult =
+            await httpContext.AuthenticateAsync(OpenIddictServerAspNetCoreDefaults.AuthenticationScheme);
+        string? hintedUserId = hintResult.Principal?.GetClaim(Claims.Subject);
+        if (!string.IsNullOrEmpty(hintedUserId))
+        {
+            return hintedUserId;
+        }
+
+        AuthenticateResult cookieResult = await httpContext.AuthenticateAsync(IdentityConstants.ApplicationScheme);
+        return cookieResult.Principal?.FindFirstValue(ClaimTypes.NameIdentifier);
+    }
+
     public void MapEndpoint(IEndpointRouteBuilder endpointRouteBuilder)
     {
         endpointRouteBuilder.MapMethods("connect/logout", [HttpMethods.Get, HttpMethods.Post], HandleAsync)
@@ -55,5 +72,5 @@ internal sealed partial class LogoutEndpoint : IEndpoint
     }
 
     [LoggerMessage(EventId = EventIds.UserLoggedOut, Level = LogLevel.Information, Message = "User logged out. UserId: {UserId}")]
-    private static partial void LogUserLoggedOut(ILogger logger, string? userId);
+    private static partial void LogUserLoggedOut(ILogger logger, string userId);
 }

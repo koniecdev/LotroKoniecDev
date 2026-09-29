@@ -326,7 +326,7 @@ always appended so pagination order is total. Without `sort`, translations order
 | `GET` `POST` | `connect/authorize` | anonymous (cookie challenge) | authorization-code flow entry; challenges the Identity login cookie |
 | `POST` | `connect/token` | anonymous (client-authenticated) | token issuance (auth code / refresh / client credentials; password in Testing) |
 | `GET` `POST` | `connect/userinfo` | bearer token | OIDC userinfo — `sub`, and `email`/`name`/`role` per granted scope |
-| `GET` `POST` | `connect/logout` | anonymous | RP-initiated end-session; revokes the user's reference tokens, clears the cookie |
+| `GET` `POST` | `connect/logout` | anonymous | RP-initiated end-session; takes the user from the checked `id_token_hint` (from the cookie only when there is no hint), revokes all their authorizations and tokens on every device, clears the cookie (#931) |
 | `POST` | `connect/revoke` | client-authenticated | token revocation |
 | `POST` | `connect/introspect` | confidential client | token introspection (POST only — ADR-0061) |
 | `GET` | `/.well-known/openid-configuration` | anonymous | OIDC discovery document |

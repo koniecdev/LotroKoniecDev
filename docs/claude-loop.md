@@ -350,7 +350,9 @@ later conductor run, both runs' totals count the part of the session before the 
 - Stopping the conductor (Ctrl-C, `kill`, closing the terminal) stops every running worker at
   once, even in the middle of an hour-long usage-limit nap. Each worker then stops its session and
   every process group the session started: Claude Code runs each Bash command in a group of its
-  own, so killing the session's own group would miss them. A watchdog does the same if the worker
+  own, so killing the session's own group would miss them. A group the session starts while it is
+  being stopped is ended too: the worker pauses the session while it reads the groups, and reads
+  them again until the end (#935). A watchdog does the same if the worker
   itself is SIGKILLed. `scripts/tests/claude-loop-conductor.tests.sh` pins the conductor
   side (with the slot count, the retry after a usage limit and the stop conditions), and
   `scripts/tests/claude-loop-provenance.tests.sh` the worker side.

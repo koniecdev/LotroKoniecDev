@@ -433,32 +433,61 @@ else
     fi
 fi
 
-# Every process below $1. It must be read while $1 still runs: once it exits, its children move to
-# PID 1 and can no longer be found from it.
-descendants() {
-    local kid
-    for kid in $(pgrep -P "$1" 2>/dev/null); do
-        echo "$kid"
-        descendants "$kid"
-    done
+# session_groups <leader> <known groups> — the process groups of every process below the leader or
+# in a known group, the known groups included, one per line. A process whose parent has exited has
+# moved to PID 1 and is no longer below the leader, so only a group seen before still finds it.
+# One `ps` call reads every process at the same moment. The known groups go in through the
+# environment: BSD awk refuses a `-v` value with a newline in it.
+session_groups() {
+    ps -A -o pid= -o ppid= -o pgid= 2>/dev/null | KNOWN_GROUPS="$2" awk -v leader="$1" '
+        { parent[$1] = $2; group[$1] = $3 }
+        END {
+            # Never group 0 or 1, in or out: every process descends from them, and `kill -- -1`
+            # reaches every process of this user.
+            n = split(ENVIRON["KNOWN_GROUPS"], list)
+            for (i = 1; i <= n; i++) if (list[i] + 0 > 1) wanted[list[i]] = 1
+            found[leader] = 1
+            do {
+                grew = 0
+                for (p in parent) {
+                    if (!(p in found) && ((parent[p] in found) || (group[p] in wanted))) {
+                        found[p] = 1
+                        grew = 1
+                    }
+                }
+            } while (grew)
+            for (p in found) if (p in group) wanted[group[p]] = 1
+            for (g in wanted) if (g + 0 > 1) print g
+        }'
 }
 
 # Ends a session and everything it started. Claude Code runs each Bash command in a process group
 # of its own, so the session's own group holds claude but not its builds and test runs. On TERM,
 # claude ends those itself, so it gets $2 seconds to do that before anything is killed. Whatever
-# process group of its tree (read before the TERM) is still there after that is ended as well.
+# process group of its tree is still there after that is ended as well.
 end_session_tree() {
-    local leader="$1" grace="$2" groups kid group tries=0
-    groups="$(for kid in $(descendants "$leader"); do ps -o pgid= -p "$kid" 2>/dev/null; done | tr -d ' ' | sort -u)"
+    local leader="$1" grace="$2" groups group tries=0
+    # Stopped while its tree is read, so it cannot start a command in a new group between the read
+    # and the TERM, where no signal would reach that group (#935). The TERM waits for the CONT.
+    kill -STOP "$leader" 2>/dev/null || true
+    groups="$(session_groups "$leader" "")"
     kill -TERM -- "-$leader" 2>/dev/null || true
+    kill -CONT "$leader" 2>/dev/null || true
     while kill -0 "$leader" 2>/dev/null && [ "$tries" -lt $(( grace * 2 )) ]; do
         sleep 0.5
         tries=$((tries + 1))
+        # A group it starts while it shuts down can only be found while it still runs.
+        groups="$(session_groups "$leader" "$groups")"
     done
+    # From here on it gets no more time, so it is stopped again and cannot start anything new.
+    kill -STOP "$leader" 2>/dev/null || true
+    groups="$(session_groups "$leader" "$groups")"
     for group in $groups; do
         [ "$group" = "$leader" ] || kill -TERM -- "-$group" 2>/dev/null || true
     done
     sleep 1
+    # Read again: a process can start a new group when its TERM arrives.
+    groups="$(session_groups "$leader" "$groups")"
     for group in $groups; do
         [ "$group" = "$leader" ] || kill -KILL -- "-$group" 2>/dev/null || true
     done
